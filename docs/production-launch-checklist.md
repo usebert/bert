@@ -7,7 +7,7 @@ This checklist complements the API **production environment validation** added i
 | Endpoint | Purpose |
 |----------|---------|
 | `GET /api/health` | **Liveness** — process is up; returns version, environment label, and whether Google env vars are present (no raw Drive IDs). |
-| `GET /api/readiness` | **Readiness** — Google env complete, `.sessions` writable, and production boot rules satisfied. Returns **HTTP 503** when not ready and `NODE_ENV=production`; in non-production, returns **HTTP 200** with `ready: false` so local tooling still receives a body. |
+| `GET /api/readiness` | **Readiness** — `.sessions` writable and production boot rules satisfied (`SESSION_SECRET`, `BERT_ALLOWED_ORIGINS`). Includes **`googleConfigured`** (false when Google env vars are missing). Does **not** require Google for **`ready: true`**. Returns **HTTP 503** when not ready and `NODE_ENV=production`. |
 
 ## Boot behaviour (`NODE_ENV=production`)
 
@@ -15,10 +15,11 @@ The API **refuses to start** (exit code 1) if any of the following are true:
 
 - `SESSION_SECRET` is unset, equals the local default, or is shorter than 24 characters.
 - `ALLOW_INSECURE_OAUTH_STATE` is truthy.
-- Required Google variables are missing (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `GOOGLE_SHARED_DRIVE_ID`).
+- `BERT_ALLOWED_ORIGINS` is unset (required for credentialed cross-origin SPA/Capacitor clients).
 
 Warnings (logged only, do not block boot):
 
+- Google workspace env incomplete (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `GOOGLE_SHARED_DRIVE_ID`) — health and Master login still work; Drive/Sheets routes return **503** until configured.
 - `FRONTEND_URL` or `GOOGLE_REDIRECT_URI` uses `http://` for a non-loopback host (use HTTPS behind TLS in real deployments).
 
 ## Environment (copy from `.env.example` production section)

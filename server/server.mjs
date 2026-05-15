@@ -628,6 +628,12 @@ function envConfigured() {
   );
 }
 
+const GOOGLE_WORKSPACE_UNAVAILABLE_ERROR = "Google workspace integration is not configured.";
+
+function sendGoogleWorkspaceUnavailable(res) {
+  return res.status(503).json({ ok: false, error: GOOGLE_WORKSPACE_UNAVAILABLE_ERROR });
+}
+
 const DEFAULT_SESSION_SECRET = "qms-local-dev-secret";
 
 function nodeEnvLabel() {
@@ -660,9 +666,10 @@ function evaluateProductionEnvironment() {
     blockingIssues.push("ALLOW_INSECURE_OAUTH_STATE must not be true in production.");
   }
 
-  if (!envConfigured()) {
+  const allowedOrigins = String(process.env.BERT_ALLOWED_ORIGINS || "").trim();
+  if (!allowedOrigins) {
     blockingIssues.push(
-      `Google server environment is incomplete. Missing: ${collectMissingGoogleEnvKeys().join(", ") || "(see GOOGLE_* vars)"}.`,
+      "BERT_ALLOWED_ORIGINS must be set in production (comma-separated exact browser/Capacitor origins for credentialed CORS).",
     );
   }
 
@@ -682,10 +689,9 @@ function evaluateProductionEnvironment() {
     }
   }
 
-  const allowedOrigins = String(process.env.BERT_ALLOWED_ORIGINS || "").trim();
-  if (!allowedOrigins) {
+  if (!envConfigured()) {
     warnings.push(
-      "BERT_ALLOWED_ORIGINS is unset: credentialed cross-origin browsers (hosted SPA or Capacitor) need an explicit allowlist so CORS can reflect Access-Control-Allow-Origin.",
+      `Google workspace env is not configured (missing: ${collectMissingGoogleEnvKeys().join(", ") || "GOOGLE_*"}). API health and Master login still work; Drive/Sheets routes return 503 until configured.`,
     );
   }
 
@@ -739,14 +745,16 @@ function smtpStartupLogPayload() {
 }
 
 function getHealthPayload() {
+  const googleOk = envConfigured();
   return {
     ok: true,
     service: "bert-api",
     version: APP_VERSION,
     environment: nodeEnvLabel(),
-    /** @deprecated use googleEnvConfigured */
-    configured: envConfigured(),
-    googleEnvConfigured: envConfigured(),
+    /** @deprecated use googleConfigured */
+    configured: googleOk,
+    googleConfigured: googleOk,
+    googleEnvConfigured: googleOk,
     sharedDriveConfigured: Boolean(requiredEnv.GOOGLE_SHARED_DRIVE_ID),
     uptimeSeconds: Math.round(process.uptime()),
   };
@@ -757,14 +765,16 @@ function getReadinessPayload() {
   const writable = sessionStoreWritable();
   const googleOk = envConfigured();
   const productionOk = !evaluation.isProduction || evaluation.blockingIssues.length === 0;
-  const ready = googleOk && writable && productionOk;
+  const ready = writable && productionOk;
   return {
     ok: ready,
     ready,
     service: "bert-api",
     version: APP_VERSION,
     environment: nodeEnvLabel(),
+    googleConfigured: googleOk,
     checks: {
+      googleConfigured: googleOk,
       googleEnvConfigured: googleOk,
       sessionStoreWritable: writable,
       productionEnvOk: productionOk,
@@ -902,11 +912,21 @@ function getAuthedClient() {
  * Pilot: require stored Google OAuth on the API host (Drive/Sheets service identity).
  * Not end-user SSO. Use only where the SPA already expects Google (see docs/security-hardening-plan.md).
  */
-function requireGoogleSession(req, res, next) {
+function requireGoogleWorkspaceEnv(req, res, next) {
+  if (!envConfigured()) {
+    return sendGoogleWorkspaceUnavailable(res);
+  }
+  return next();
+}
+
+function requireGoogleWorkspaceSession(req, res, next) {
+  if (!envConfigured()) {
+    return sendGoogleWorkspaceUnavailable(res);
+  }
   if (!getAuthedClient()) {
     return res.status(401).json({ ok: false, error: "Google connection required for this action." });
   }
-  next();
+  return next();
 }
 
 function safeLower(value) {
@@ -3516,7 +3536,7 @@ app.post("/api/google-sheet-by-id/:sheetId/repair", async (req, res) => {
  * API route protection (paid pilot) — classification:
  * - publicSafe: GET /api/health, GET /api/readiness, OAuth browser callbacks
  * - inviteToken: app-hosted invite fetch/complete; new-company POST (may run before API Google is connected)
- * - googleSession: requireGoogleSession on company-user invite POST (SPA already requires Google)
+ * - googleSession: requireGoogleWorkspaceSession on company-user invite POST (SPA already requires Google)
  * - deferredAuth: legacy onboarding + notification POSTs — same-origin trust today; rate-limited (see docs/security-hardening-plan.md)
  */
 app.post("/api/onboarding/invite", async (req, res) => {
@@ -3654,7 +3674,7 @@ app.post("/api/onboarding/app-invites/new-company", (req, res) => {
   });
 });
 
-app.post("/api/onboarding/app-invites/company-user", requireGoogleSession, (req, res) => {
+app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceSession, (req, res) => {
   const run = async () => {
     const toEmail = String(req.body?.email || "").trim().toLowerCase();
     const inviteRole = String(req.body?.role || "").trim();
@@ -3826,14 +3846,8 @@ app.post("/api/onboarding/app-invites/:tokenId/complete", async (req, res) => {
       return res.status(400).json({ ok: false, error: "Full name is required." });
     }
 
-    const missingGoogleEnv = collectMissingGoogleEnvKeys();
-    if (missingGoogleEnv.length > 0) {
-      return res.status(401).json({
-        ok: false,
-        error: `Invite completion needs Google Drive configured on the API server. Missing environment variables: ${missingGoogleEnv.join(
-          ", ",
-        )}. Add them (for example in a .env file next to package.json), restart \`npm run server\`, then try again.`,
-      });
+    if (!envConfigured()) {
+      return sendGoogleWorkspaceUnavailable(res);
     }
     if (!authed) {
       const frontend = requiredEnv.FRONTEND_URL.replace(/\/$/, "");
@@ -4169,7 +4183,7 @@ app.post("/api/incidents/notify", async (req, res) => {
 
 app.get("/auth/google/login", (req, res) => {
   if (!envConfigured()) {
-    return res.status(400).send("Google sign-in environment variables are missing.");
+    return sendGoogleWorkspaceUnavailable(res);
   }
 
   const auth = createOAuthClient();
@@ -4188,6 +4202,13 @@ app.get("/auth/google/login", (req, res) => {
 
 app.get("/auth/google/callback", async (req, res) => {
   try {
+    if (!envConfigured()) {
+      return sendCallbackPage(res, {
+        title: "Google workspace not configured",
+        message: GOOGLE_WORKSPACE_UNAVAILABLE_ERROR,
+        success: false,
+      });
+    }
     const state = req.query.state;
     const code = req.query.code;
 
@@ -4260,7 +4281,7 @@ app.post("/auth/google/logout", async (_req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/auth/company/login", requireGoogleSession, async (req, res) => {
+app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, res) => {
   try {
     const auth = getAuthedClient();
     const masterSheetId = String(req.body?.masterSheetId || "").trim();
@@ -4308,7 +4329,7 @@ app.post("/api/auth/company/logout", (req, res) => {
   return res.json({ ok: true });
 });
 
-app.get("/api/auth/company/session", requireGoogleSession, async (req, res) => {
+app.get("/api/auth/company/session", async (req, res) => {
   try {
     const raw = req.signedCookies?.[COMPANY_SESSION_COOKIE];
     if (!raw || typeof raw !== "string") {
@@ -4323,7 +4344,20 @@ app.get("/api/auth/company/session", requireGoogleSession, async (req, res) => {
     if (data.v !== 1 || !data.email || !data.masterSheetId) {
       return res.status(401).json({ ok: false, error: "Invalid session." });
     }
+    if (!envConfigured()) {
+      return res.json({
+        ok: true,
+        user: {
+          email: data.email,
+          role: data.role || "Admin",
+          name: data.name || data.email,
+        },
+      });
+    }
     const auth = getAuthedClient();
+    if (!auth) {
+      return res.status(401).json({ ok: false, error: "Google connection required for this action." });
+    }
     const rec = await readCompanyUsersTabRecord(auth, data.masterSheetId, data.email);
     if (!rec) {
       res.clearCookie(COMPANY_SESSION_COOKIE, getSessionCookieOptions());
@@ -4339,7 +4373,7 @@ app.get("/api/auth/company/session", requireGoogleSession, async (req, res) => {
   }
 });
 
-app.post("/api/tools/migrate-userauth-passwords", requireGoogleSession, async (req, res) => {
+app.post("/api/tools/migrate-userauth-passwords", requireGoogleWorkspaceSession, async (req, res) => {
   try {
     const toolSecret = String(process.env.BERT_TOOL_SECRET || "").trim();
     if (!toolSecret) {

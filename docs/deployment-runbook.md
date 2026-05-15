@@ -41,7 +41,7 @@ Use this checklist when the **Android pilot APK** talks to **`https://api.useber
 2. **Runtime** — **Node**; set **Node version** to **20+** (matches `package.json` **`engines.node`**).
 3. **Build command** — From the repo root: **`npm ci`** (or **`npm ci --omit=dev`** only if you are certain no `postinstall` or tooling needs devDependencies; this project’s API uses production `dependencies` only).
 4. **Start command** — **`npm run start:api`** or **`npm start`** (both run **`node server/server.mjs`**).
-5. **Health check** — Path **`/api/health`** (HTTP **200**, JSON includes **`"ok":true`** and **`"service":"bert-api"`**). Use **`/api/readiness`** if you want Google env + writable session dir before traffic (may return **503** until configured).
+5. **Health check** — Path **`/api/health`** (HTTP **200**, JSON includes **`"ok":true`** and **`"service":"bert-api"`**). Works **without** Google env vars. Use **`/api/readiness`** for writable session dir + production env rules; it reports **`googleConfigured: false`** when Google vars are missing but can still return **200** once **`SESSION_SECRET`** and **`BERT_ALLOWED_ORIGINS`** are set.
 6. **Persistent disk** — Add a **Disk** mounted at a path such as **`/data/bert-sessions`**, then set **`BERT_SESSIONS_DIR=/data/bert-sessions`** in the service environment so **`google-session.json`**, **`master-operators.json`**, and invite JSON survive redeploys. If you omit a disk, treat the filesystem as **ephemeral**: every deploy can wipe **`.sessions`** unless you re-seed and re-run **Connect Google**.
 
 ### Railway
@@ -63,11 +63,11 @@ In Render or Railway, add a **custom domain** **`api.usebert.co.uk`**, complete 
 | **`NODE_ENV`** | Yes | **`production`** for strict boot and cookie/CORS behaviour. |
 | **`PORT`** | No | Injected by the host; API listens on **`process.env.PORT`**, defaulting to **8787** when unset or non-numeric. |
 | **`SESSION_SECRET`** | Yes | **≥ 24** chars, not the local default; signs cookies. |
-| **`BERT_ALLOWED_ORIGINS`** | Strongly yes | Comma-separated exact **`Origin`** values (app, Capacitor, any dev preview). |
+| **`BERT_ALLOWED_ORIGINS`** | Yes (production boot) | Comma-separated exact **`Origin`** values (app, Capacitor, any dev preview). API refuses to start in production if unset. |
 | **`BERT_COOKIE_SAMESITE_NONE`** | Optional | **`true`** for HTTPS staging when **`NODE_ENV`** is not production; production implies cross-site cookies where needed. |
 | **`BERT_SESSIONS_DIR`** | Recommended | Absolute or repo-relative path for session files; avoids losing **`.sessions`** on ephemeral disks. |
 | **`FRONTEND_URL`** | Yes | Public SPA origin (HTTPS in production). |
-| **`GOOGLE_CLIENT_ID`**, **`GOOGLE_CLIENT_SECRET`**, **`GOOGLE_REDIRECT_URI`**, **`GOOGLE_SHARED_DRIVE_ID`** | Yes | OAuth + Drive root for provisioning. |
+| **`GOOGLE_CLIENT_ID`**, **`GOOGLE_CLIENT_SECRET`**, **`GOOGLE_REDIRECT_URI`**, **`GOOGLE_SHARED_DRIVE_ID`** | For workspace provisioning | Required for Drive/Sheets, Connect Google, and company sheet login — **not** required for **`/api/health`** or **Master** login. |
 | **`GOOGLE_ONBOARDING_FORM_ID`**, **`GOOGLE_ONBOARDING_SHEET_ID`** | Optional | Master onboarding pipeline; leave unset only if you do not use that flow. |
 | **`APP_SUPPORT_EMAIL`** (or **`APP_ADMIN_EMAIL`**) | Defaulted | Support inbox for server-sent mail. |
 | **`SMTP_HOST`**, **`SMTP_PORT`**, **`SMTP_USER`**, **`SMTP_PASS`**, **`SMTP_FROM_EMAIL`** | Strongly recommended | **`SMTP_SECURE`**, **`SMTP_FROM`**, **`SMTP_FROM_NAME`** optional. |
@@ -124,11 +124,11 @@ Remove or avoid conflicting **`api`** **A**/**CNAME** records; wait for DNS prop
 | **`BERT_SESSIONS_DIR`** | Optional directory for **`google-session.json`**, **`master-operators.json`**, and onboarding invite JSON; use with a **mounted disk** on ephemeral hosts (see [Deploy hosted API for Android pilot](#deploy-hosted-api-for-android-pilot)). |
 | **`SESSION_SECRET`** | Cookie signing for Express; must be **strong**, **not** the local default, and **≥ 24 characters** or the API will refuse to start. |
 | **`FRONTEND_URL`** | Public origin of the SPA (e.g. `https://app.usebert.co.uk`). Used in redirects and email links. Use **HTTPS** for non-loopback hosts. |
-| **`GOOGLE_CLIENT_ID`** | OAuth web client ID. |
-| **`GOOGLE_CLIENT_SECRET`** | OAuth client secret. |
+| **`BERT_ALLOWED_ORIGINS`** | Comma-separated **exact** browser/Capacitor origins allowed to call the API with credentials (e.g. `https://app.usebert.co.uk,capacitor://localhost,http://localhost:5173`). **Required for production boot.** No `*` wildcard with `Access-Control-Allow-Credentials`. |
+| **`GOOGLE_CLIENT_ID`** | OAuth web client ID — **workspace provisioning** (not required for `/api/health` or Master login). |
+| **`GOOGLE_CLIENT_SECRET`** | OAuth client secret — workspace provisioning. |
 | **`GOOGLE_REDIRECT_URI`** | Must match the OAuth redirect URL registered in Google Cloud (e.g. `https://api.usebert.co.uk/auth/google/callback`). |
 | **`GOOGLE_SHARED_DRIVE_ID`** | Shared Drive (or folder) the provisioning Google account can write to. |
-| **`BERT_ALLOWED_ORIGINS`** | Comma-separated **exact** browser/Capacitor origins allowed to call the API with credentials (e.g. `https://app.usebert.co.uk,capacitor://localhost,http://localhost:5173`). No `*` wildcard with `Access-Control-Allow-Credentials`. |
 | **`BERT_COOKIE_SAMESITE_NONE`** | Set to **`true`** to force session cookies to **`SameSite=None; Secure`** even when **`NODE_ENV`** is not **`production`** (e.g. HTTPS staging). When **`NODE_ENV=production`**, this behaviour is always on for BERT session cookies. **`SameSite=None` requires HTTPS** on the API. |
 | **`APP_SUPPORT_EMAIL`** | Customer-facing support inbox (e.g. `admin@usebert.co.uk`) for server-driven mail. |
 | **`SMTP_HOST`** | Outbound mail server for invites and notifications. |
@@ -219,7 +219,8 @@ If the API **exits on start** in production, check the console for listed **bloc
 | Missing **`SESSION_SECRET`** | Set a long random secret in the environment. |
 | Weak / **default `SESSION_SECRET`** | Do not use the local dev default; use 24+ random characters. |
 | **`ALLOW_INSECURE_OAUTH_STATE=true`** | Unset or set to false in production. |
-| **Incomplete Google env** | Set all of **`GOOGLE_CLIENT_ID`**, **`GOOGLE_CLIENT_SECRET`**, **`GOOGLE_REDIRECT_URI`**, **`GOOGLE_SHARED_DRIVE_ID`**. |
+| **Incomplete Google env** | Set all of **`GOOGLE_CLIENT_ID`**, **`GOOGLE_CLIENT_SECRET`**, **`GOOGLE_REDIRECT_URI`**, **`GOOGLE_SHARED_DRIVE_ID`** for Drive/Sheets; API still starts without them. Workspace routes return **503** with *Google workspace integration is not configured.* |
+| **Missing `BERT_ALLOWED_ORIGINS`** | Set comma-separated exact origins; required for production boot when using credentialed cross-origin clients. |
 | **HTTP URLs** for public hosts | Use **HTTPS** for **`FRONTEND_URL`** and **`GOOGLE_REDIRECT_URI`** on real domains (warnings may appear for http). |
 | **`.sessions` not writable** | Ensure the process user can write to the app directory’s **`.sessions/`** (or mount a writable volume there). |
 | **Google redirect mismatch** | **`GOOGLE_REDIRECT_URI`** must match the Google Cloud Console entry character-for-character (scheme, host, path). |
