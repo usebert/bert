@@ -11,7 +11,7 @@ export const PRIMARY_NAV_IDS = [
 ] as const satisfies readonly NavItemId[];
 
 /** Behind “More”: sync, schedules, onboarding, admin, account — routes unchanged. */
-export const MORE_MENU_NAV_IDS = ["sync", "schedules", "onboarding", "admin", "account"] as const satisfies readonly NavItemId[];
+export const MORE_MENU_NAV_IDS = ["sync", "schedules", "documentTraining", "onboarding", "admin", "account"] as const satisfies readonly NavItemId[];
 
 /** Mobile bottom bar (subset). */
 export const MOBILE_BOTTOM_NAV_IDS = ["dashboard", "audits", "actions", "reports", "more"] as const;

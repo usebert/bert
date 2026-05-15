@@ -10,6 +10,7 @@ import { bertCorsMiddleware } from "./bert-cors.mjs";
 import { hashPassword, installMasterAuthRoutes } from "./master-auth.mjs";
 import { getSessionCookieOptions } from "./session-cookie-options.mjs";
 import { migrateAllPlainUserAuthKeys, verifyUserAuthLoginOrMigrate } from "./userauth-password.mjs";
+import { installDocumentDistributionRoutes } from "./document-distribution.mjs";
 
 dotenv.config();
 
@@ -19,9 +20,10 @@ app.disable("x-powered-by");
 if (process.env.NODE_ENV === "production") {
   app.set("trust proxy", 1);
 }
-const port = Number(process.env.PORT || 8787);
+const port = Number(process.env.PORT) || 8787;
 const rootDir = process.cwd();
-const sessionDir = path.join(rootDir, ".sessions");
+const sessionsRootRaw = String(process.env.BERT_SESSIONS_DIR || "").trim();
+const sessionDir = sessionsRootRaw ? path.resolve(rootDir, sessionsRootRaw) : path.join(rootDir, ".sessions");
 const sessionFile = path.join(sessionDir, "google-session.json");
 
 const requiredEnv = {
@@ -576,11 +578,38 @@ function sensitiveAbusePostRateLimit(req, res, next) {
 
 app.use(securityHeadersMiddleware);
 app.use(bertCorsMiddleware);
-app.use(express.json({ limit: "512kb" }));
+app.use(express.json({ limit: "16mb" }));
 app.use(cookieParser(requiredEnv.SESSION_SECRET));
 installMasterAuthRoutes(app, { sessionDir });
+installDocumentDistributionRoutes(app, {
+  sessionDir,
+  emailConfigured,
+  createSmtpTransport,
+  getFromAddress: () =>
+    requiredEnv.SMTP_FROM_NAME
+      ? `"${requiredEnv.SMTP_FROM_NAME}" <${requiredEnv.SMTP_FROM_EMAIL}>`
+      : requiredEnv.SMTP_FROM_EMAIL,
+  getApiPublicOrigin: () => {
+    try {
+      return new URL(requiredEnv.GOOGLE_REDIRECT_URI).origin;
+    } catch {
+      return `http://127.0.0.1:${port}`;
+    }
+  },
+  appBrandName: APP_BRAND_NAME,
+});
 app.use(httpRequestLogMiddleware);
 app.use(sensitiveAbusePostRateLimit);
+
+app.get("/api/health", (_req, res) => {
+  res.json(getHealthPayload());
+});
+
+app.get("/api/readiness", (_req, res) => {
+  const body = getReadinessPayload();
+  const statusCode = body.ready ? 200 : isProductionRuntime() ? 503 : 200;
+  res.status(statusCode).json(body);
+});
 
 function createOAuthClient() {
   return new google.auth.OAuth2(
@@ -4333,18 +4362,6 @@ app.post("/api/tools/migrate-userauth-passwords", requireGoogleSession, async (r
   }
 });
 
-assertSafeProductionBoot();
-
-app.get("/api/health", (_req, res) => {
-  res.json(getHealthPayload());
-});
-
-app.get("/api/readiness", (_req, res) => {
-  const body = getReadinessPayload();
-  const statusCode = body.ready ? 200 : isProductionRuntime() ? 503 : 200;
-  res.status(statusCode).json(body);
-});
-
 app.use((err, req, res, _next) => {
   if (res.headersSent) {
     console.error("[express] error after headers sent:", err);
@@ -4355,6 +4372,8 @@ app.use((err, req, res, _next) => {
     error: err instanceof Error ? err.message : "Internal server error",
   });
 });
+
+assertSafeProductionBoot();
 
 const httpServer = app.listen(port, "0.0.0.0", () => {
   console.log(

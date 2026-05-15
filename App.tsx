@@ -8,6 +8,7 @@ import {
   canAccessAuditsCentre,
   canAccessCompletedNcrReports,
   canAccessControlScreen,
+  canAccessDocumentTraining,
   canAccessOnboardingNav,
   canAccessReports,
   canAccessSchedules,
@@ -43,7 +44,10 @@ import { IncidentReportingScreen } from "./src/screens/IncidentReportingScreen";
 import { NonConformanceScreen } from "./src/screens/NonConformanceScreen";
 import { ReportsScreen } from "./src/screens/ReportsScreen";
 import { SchedulesScreen } from "./src/screens/SchedulesScreen";
+import { DocumentTrainingScreen } from "./src/screens/DocumentTrainingScreen";
 import { SyncCentreScreen } from "./src/screens/SyncCentreScreen";
+import type { DocumentDistribution, ExternalEmployee } from "./src/types/documentTraining";
+import type { OnboardedRecipientOption } from "./src/types/documentTrainingScreenProps";
 import {
   EmptyPanel,
   KpiCard,
@@ -2357,6 +2361,8 @@ function readStoredWorkspaceState() {
       roleNavVisibility?: RoleNavVisibilityMatrix;
       roleSiteSelectorVisibility?: RoleSiteSelectorVisibility;
       userSiteAssignments?: UserSiteAssignments;
+      externalEmployees?: ExternalEmployee[];
+      documentDistributions?: DocumentDistribution[];
     };
   } catch {
     return null;
@@ -2414,6 +2420,8 @@ function getWorkspaceBootstrap() {
       roleNavVisibility: buildDefaultRoleNavVisibilityMatrix(),
       roleSiteSelectorVisibility: buildDefaultRoleSiteSelectorVisibility(),
       userSiteAssignments: {} as UserSiteAssignments,
+      externalEmployees: [] as ExternalEmployee[],
+      documentDistributions: [] as DocumentDistribution[],
     };
   }
 
@@ -2442,6 +2450,8 @@ function getWorkspaceBootstrap() {
     roleNavVisibility: stored?.roleNavVisibility ?? buildDefaultRoleNavVisibilityMatrix(),
     roleSiteSelectorVisibility: stored?.roleSiteSelectorVisibility ?? buildDefaultRoleSiteSelectorVisibility(),
     userSiteAssignments: stored?.userSiteAssignments ?? {},
+    externalEmployees: stored?.externalEmployees ?? [],
+    documentDistributions: stored?.documentDistributions ?? [],
   };
 }
 
@@ -2796,6 +2806,12 @@ function App() {
   );
   const [userSiteAssignments, setUserSiteAssignments] = useState<UserSiteAssignments>(
     storedWorkspaceState?.userSiteAssignments ?? {},
+  );
+  const [externalEmployees, setExternalEmployees] = useState<ExternalEmployee[]>(
+    storedWorkspaceState?.externalEmployees ?? [],
+  );
+  const [documentDistributions, setDocumentDistributions] = useState<DocumentDistribution[]>(
+    storedWorkspaceState?.documentDistributions ?? [],
   );
   const [actionFilter, setActionFilter] = useState<"Open" | "Overdue" | "Awaiting Verification" | "Closed" | "Severity">("Open");
   const [actionSeverityFilter, setActionSeverityFilter] = useState<RiskLevel | "All">("All");
@@ -3222,6 +3238,144 @@ function App() {
     const merged = [...seededUsers, ...invited];
     return merged.filter((user, index, list) => list.findIndex((item) => item.email === user.email) === index);
   }, [invitedUsers]);
+
+  const documentTrainingWorkspaceId = useMemo(
+    () => selectedFolderId || selectedFolder?.id || "local-workspace",
+    [selectedFolderId, selectedFolder],
+  );
+
+  const documentTrainingRecipientOptions = useMemo((): OnboardedRecipientOption[] => {
+    return invitedUsers.map((invite) => {
+      const email = invite.email.toLowerCase();
+      const siteIds = userSiteAssignments[email] || [];
+      const onboard = onboardingRecords.find((record) => record.contactEmail.toLowerCase() === email);
+      const department =
+        extractByKeys(onboard?.raw || {}, ["department", "dept", "area"]) || onboard?.siteName || "";
+      const name = onboard?.mainContact?.trim() || invite.email.split("@")[0] || invite.email;
+      return {
+        id: invite.id,
+        email,
+        name,
+        role: invite.role,
+        siteIds,
+        department,
+      };
+    });
+  }, [invitedUsers, userSiteAssignments, onboardingRecords]);
+
+  const documentTrainingApiHeaders = useCallback((): Record<string, string> => {
+    if (!currentUser || import.meta.env.PROD) {
+      return {};
+    }
+    if (!canAccessDocumentTraining(currentUser.role)) {
+      return {};
+    }
+    const email = currentUser.username.includes("@")
+      ? currentUser.username.toLowerCase()
+      : `${currentUser.username}@local.test`;
+    return {
+      "X-Bert-Dev-User-Role": currentUser.role,
+      "X-Bert-Dev-User-Email": email,
+      "X-Bert-Dev-User-Name": currentUser.name,
+    };
+  }, [currentUser]);
+
+  const refreshDocumentTrainingFromServer = useCallback(async () => {
+    try {
+      const response = await fetch(
+        apiUrl(`/api/documents/distributions?workspaceId=${encodeURIComponent(documentTrainingWorkspaceId)}`),
+        { credentials: "include", headers: documentTrainingApiHeaders() },
+      );
+      const payload = (await parseJsonApiResponse(response)) as {
+        ok?: boolean;
+        distributions?: DocumentDistribution[];
+        externalEmployees?: ExternalEmployee[];
+        error?: string;
+      };
+      if (response.ok && payload.ok) {
+        if (payload.distributions) {
+          setDocumentDistributions(payload.distributions);
+        }
+        if (payload.externalEmployees) {
+          setExternalEmployees(payload.externalEmployees);
+        }
+      }
+    } catch {
+      /* keep local workspace cache */
+    }
+  }, [documentTrainingWorkspaceId, documentTrainingApiHeaders]);
+
+  const handleSaveExternalEmployees = useCallback(
+    async (employees: ExternalEmployee[]) => {
+      setExternalEmployees(employees);
+      try {
+        const response = await fetch(apiUrl("/api/documents/external-employees"), {
+          method: "PUT",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...documentTrainingApiHeaders() },
+          body: JSON.stringify({
+            workspaceId: documentTrainingWorkspaceId,
+            externalEmployees: employees,
+          }),
+        });
+        const payload = (await parseJsonApiResponse(response)) as { ok?: boolean; error?: string };
+        if (!response.ok || !payload.ok) {
+          pushToast(
+            "Saved locally",
+            payload.error || "Employee directory could not be synced to the server yet.",
+            "warning",
+          );
+        }
+      } catch {
+        pushToast("Saved locally", "Employee directory is stored on this device only.", "warning");
+      }
+    },
+    [documentTrainingWorkspaceId, documentTrainingApiHeaders],
+  );
+
+  const handleSendDocumentDistribution = useCallback(
+    async (input: {
+      title: string;
+      fileName: string;
+      pdfBase64: string;
+      recipients: Array<{ email: string; name: string; source: "onboarded" | "external" }>;
+    }) => {
+      try {
+        const response = await fetch(apiUrl("/api/documents/distributions"), {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...documentTrainingApiHeaders() },
+          body: JSON.stringify({
+            workspaceId: documentTrainingWorkspaceId,
+            title: input.title,
+            fileName: input.fileName,
+            pdfBase64: input.pdfBase64,
+            recipients: input.recipients,
+          }),
+        });
+        const payload = (await parseJsonApiResponse(response)) as {
+          ok?: boolean;
+          error?: string;
+          distribution?: DocumentDistribution;
+          emailErrors?: Array<{ email: string; error: string }>;
+        };
+        if (!response.ok || !payload.ok) {
+          return { ok: false, error: payload.error || "Unable to send document." };
+        }
+        if (payload.distribution) {
+          setDocumentDistributions((current) => [payload.distribution!, ...current.filter((row) => row.id !== payload.distribution!.id)]);
+        }
+        await refreshDocumentTrainingFromServer();
+        return { ok: true, emailErrors: payload.emailErrors };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : "Unable to reach the setup server.",
+        };
+      }
+    },
+    [documentTrainingWorkspaceId, documentTrainingApiHeaders, refreshDocumentTrainingFromServer],
+  );
 
   const onboardingPasswordByEmail = useMemo(() => {
     const lookup = new Map<string, string>();
@@ -3820,6 +3974,8 @@ function App() {
         roleNavVisibility,
         roleSiteSelectorVisibility,
         userSiteAssignments,
+        externalEmployees,
+        documentDistributions,
       }),
     );
   }, [
@@ -3847,7 +4003,15 @@ function App() {
     roleNavVisibility,
     roleSiteSelectorVisibility,
     userSiteAssignments,
+    externalEmployees,
+    documentDistributions,
   ]);
+
+  useEffect(() => {
+    if (screen === "documentTraining" && currentUser && canAccessDocumentTraining(currentUser.role)) {
+      void refreshDocumentTrainingFromServer();
+    }
+  }, [screen, currentUser, refreshDocumentTrainingFromServer]);
 
   useEffect(() => {
     const handleOnline = () => setOfflineMode(false);
@@ -7365,6 +7529,9 @@ function App() {
     if (currentUser && !canAccessSchedules(currentUser.role) && screen === "schedules") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
+    if (currentUser && !canAccessDocumentTraining(currentUser.role) && screen === "documentTraining") {
+      setScreen(getHomeScreenForRole(currentUser.role));
+    }
     if (currentUser && !canAccessReports(currentUser.role) && screen === "reports") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
@@ -8453,6 +8620,20 @@ function App() {
                 offlineQueueCount={offlineQueue.length}
                 onRetryItem={(id) => updateSyncItemStatus(id, "Pending Sync")}
                 onForceSyncItem={(id) => updateSyncItemStatus(id, googleConnected && !offlineMode ? "Syncing" : "Pending Sync")}
+              />
+            )}
+
+            {screen === "documentTraining" && canAccessDocumentTraining(currentUser.role) && (
+              <DocumentTrainingScreen
+                workspaceId={documentTrainingWorkspaceId}
+                currentUserName={currentUser.name}
+                sites={sites}
+                onboardedRecipients={documentTrainingRecipientOptions}
+                externalEmployees={externalEmployees}
+                distributions={documentDistributions}
+                onSaveExternalEmployees={handleSaveExternalEmployees}
+                onSendDistribution={handleSendDocumentDistribution}
+                onRefreshFromServer={refreshDocumentTrainingFromServer}
               />
             )}
 

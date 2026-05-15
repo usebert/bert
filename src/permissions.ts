@@ -42,6 +42,11 @@ export function canAccessSchedules(role: Role) {
   return role === "Master" || role === "Admin" || role === "Manager";
 }
 
+/** Policy / training document upload, distribution, and acknowledgment tracking. */
+export function canAccessDocumentTraining(role: Role) {
+  return role === "Admin" || role === "Manager";
+}
+
 /** Master or Admin may use the in-app onboarding workspace tab (folder linking, user invites). */
 export function canAccessAdminOnboardingWorkspace(role: Role) {
   return role === "Master" || role === "Admin";
@@ -87,6 +92,7 @@ export function canRoleAccessNavItem(role: Role, itemId: NavItemId) {
   if (itemId === "admin") return canAccessControlScreen(role);
   if (itemId === "onboarding") return canAccessOnboardingNav(role);
   if (itemId === "schedules") return canAccessSchedules(role);
+  if (itemId === "documentTraining") return canAccessDocumentTraining(role);
   if (itemId === "reports") return canAccessReports(role);
   if (itemId === "incidents") return canSubmitIncidents(role);
   if (itemId === "actions" || itemId === "nonConformance") return canAccessActions(role);

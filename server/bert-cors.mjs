@@ -5,7 +5,8 @@
  */
 
 const CORS_METHODS = "GET, POST, OPTIONS";
-const CORS_ALLOW_HEADERS = "Content-Type, X-Bert-Tool-Secret";
+const CORS_ALLOW_HEADERS =
+  "Content-Type, X-Bert-Tool-Secret, X-Bert-Dev-User-Role, X-Bert-Dev-User-Email, X-Bert-Dev-User-Name";
 
 /** @returns {string[]} */
 export function parseBERTAllowedOrigins() {

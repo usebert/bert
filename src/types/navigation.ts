@@ -16,6 +16,7 @@ export type RoutedScreen =
   | "reports"
   | "sync"
   | "schedules"
+  | "documentTraining"
   | "admin"
   | "onboarding"
   | "account"
