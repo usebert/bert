@@ -4986,6 +4986,15 @@ function App() {
       return;
     }
 
+    if (isDemoLoginEnabled && users.length === 0 && !DEMO_USER_PASSWORD && !GODMODE_PASSWORD) {
+      pushToast(
+        "Demo sign-in not configured",
+        "Add VITE_DEMO_USER_PASSWORD (and optional VITE_GODMODE_PASSWORD) to .env.local, then restart npm run dev. Or sign in with a seeded Master email via npm run dev:full.",
+        "warning",
+      );
+      return;
+    }
+
     pushToast("Sign in failed", "Please check your username and password.", "warning");
   };
 
