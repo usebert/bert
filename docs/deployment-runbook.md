@@ -93,6 +93,24 @@ npm run seed:master -- --email ops@yourorg.example --name "Operator" --password 
 
 Use a **strong password**; do not paste real secrets into documentation or tickets.
 
+### Seed Master without Render Shell
+
+On hosts without shell access (e.g. Render free tier), seed or update the Master operator over HTTPS. Set **`BERT_TOOL_SECRET`** on the API service (same value used for other `/api/tools/*` routes). This endpoint is **not** exposed in the SPA.
+
+```bash
+curl -X POST https://api.usebert.co.uk/api/tools/seed-master \
+  -H "Content-Type: application/json" \
+  -H "X-Bert-Tool-Secret: <BERT_TOOL_SECRET>" \
+  -d '{
+    "email": "admin@usebert.co.uk",
+    "name": "BERT Admin",
+    "password": "<new strong password>",
+    "confirm": true
+  }'
+```
+
+Requires **`email`**, **`name`**, **`password`** (minimum 12 characters), and **`confirm": true`**. Writes **`master-operators.json`** under **`BERT_SESSIONS_DIR`** when set, otherwise **`.sessions`**. Response: **`{ "ok": true, "email": "...", "name": "..." }`** (no password hash). Wrong or missing tool secret → **403**; unset **`BERT_TOOL_SECRET`** → **404**.
+
 ### Smoke checks (`curl`)
 
 ```bash

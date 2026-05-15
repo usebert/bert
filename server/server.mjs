@@ -7,7 +7,7 @@ import dotenv from "dotenv";
 import { google } from "googleapis";
 import nodemailer from "nodemailer";
 import { bertCorsMiddleware } from "./bert-cors.mjs";
-import { hashPassword, installMasterAuthRoutes } from "./master-auth.mjs";
+import { hashPassword, installMasterAuthRoutes, upsertMasterOperator } from "./master-auth.mjs";
 import { getSessionCookieOptions } from "./session-cookie-options.mjs";
 import { migrateAllPlainUserAuthKeys, verifyUserAuthLoginOrMigrate } from "./userauth-password.mjs";
 import { installDocumentDistributionRoutes } from "./document-distribution.mjs";
@@ -4373,16 +4373,63 @@ app.get("/api/auth/company/session", async (req, res) => {
   }
 });
 
-app.post("/api/tools/migrate-userauth-passwords", requireGoogleWorkspaceSession, async (req, res) => {
+/**
+ * Operational bootstrap / maintenance — not exposed to the SPA. Requires
+ * `X-Bert-Tool-Secret` header matching `BERT_TOOL_SECRET` (same as other `/api/tools/*` routes).
+ */
+function requireBertToolSecret(req, res, next) {
+  const toolSecret = String(process.env.BERT_TOOL_SECRET || "").trim();
+  if (!toolSecret) {
+    return res.status(404).json({ ok: false, error: "Not found." });
+  }
+  const headerSecret = String(req.headers["x-bert-tool-secret"] || "").trim();
+  if (headerSecret !== toolSecret) {
+    return res.status(403).json({ ok: false, error: "Forbidden." });
+  }
+  return next();
+}
+
+/** Bootstrap Master operator on hosted API when shell access is unavailable (e.g. Render free tier). */
+app.post("/api/tools/seed-master", requireBertToolSecret, async (req, res) => {
   try {
-    const toolSecret = String(process.env.BERT_TOOL_SECRET || "").trim();
-    if (!toolSecret) {
-      return res.status(404).json({ ok: false, error: "Not found." });
+    const email = String(req.body?.email || "")
+      .trim()
+      .toLowerCase();
+    const name = String(req.body?.name || "").trim();
+    const password = String(req.body?.password || "");
+    const confirm = req.body?.confirm === true;
+
+    if (!email || !email.includes("@")) {
+      return res.status(400).json({ ok: false, error: "A valid email is required." });
     }
-    const headerSecret = String(req.headers["x-bert-tool-secret"] || "").trim();
-    if (headerSecret !== toolSecret) {
-      return res.status(403).json({ ok: false, error: "Forbidden." });
+    if (!name) {
+      return res.status(400).json({ ok: false, error: "Name is required." });
     }
+    if (!password) {
+      return res.status(400).json({ ok: false, error: "Password is required." });
+    }
+    if (password.length < 12) {
+      return res.status(400).json({ ok: false, error: "Password must be at least 12 characters." });
+    }
+    if (!confirm) {
+      return res.status(400).json({ ok: false, error: "confirm must be true." });
+    }
+
+    const result = upsertMasterOperator({ sessionDir, email, name, password });
+    console.log(`[tools] Master operator upserted: ${result.email}`);
+    return res.json({ ok: true, email: result.email, name: result.name });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to seed Master operator.";
+    if (message.includes("email")) {
+      return res.status(400).json({ ok: false, error: message });
+    }
+    console.error("[tools] seed-master failed:", error instanceof Error ? error.message : error);
+    return res.status(500).json({ ok: false, error: "Unable to seed Master operator." });
+  }
+});
+
+app.post("/api/tools/migrate-userauth-passwords", requireBertToolSecret, requireGoogleWorkspaceSession, async (req, res) => {
+  try {
     const masterSheetId = String(req.body?.masterSheetId || "").trim();
     if (!masterSheetId) {
       return res.status(400).json({ ok: false, error: "masterSheetId is required." });
