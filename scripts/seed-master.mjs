@@ -2,7 +2,7 @@
 /**
  * One-time / ops script — NOT bundled into the Vite client or APK.
  * Creates or updates a platform Master operator with a scrypt-hashed password
- * in `.sessions/master-operators.json`.
+ * in `.sessions/master-operators.json` (or under **`BERT_SESSIONS_DIR`** when set).
  *
  * Usage:
  *   BERT_MASTER_SEED_SECRET=<same as in .env> node scripts/seed-master.mjs --email ops@example.com --name "Ops User" --password 'choose-strong-password'
@@ -52,7 +52,8 @@ if (!confirm) {
   process.exit(1);
 }
 
-const sessionDir = path.join(root, ".sessions");
+const sessionsRootRaw = String(process.env.BERT_SESSIONS_DIR || "").trim();
+const sessionDir = sessionsRootRaw ? path.resolve(root, sessionsRootRaw) : path.join(root, ".sessions");
 const mod = await import(pathToFileURL(path.join(root, "server/master-auth.mjs")).href);
 mod.upsertMasterOperator({ sessionDir, email, name, password });
 console.log(`Master operator upserted: ${email} (${name})`);

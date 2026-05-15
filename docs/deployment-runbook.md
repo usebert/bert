@@ -31,6 +31,88 @@ Pick one model per environment and keep **redirect URIs** and **`FRONTEND_URL`**
 
 ---
 
+## Deploy hosted API for Android pilot
+
+Use this checklist when the **Android pilot APK** talks to **`https://api.usebert.co.uk`** and you need a **small Node host** (no container orchestration). The API entrypoint is **`server/server.mjs`**; it already listens on **`process.env.PORT`** (default **8787** if unset) and binds **`0.0.0.0`**.
+
+### Render (Web Service)
+
+1. **New → Web Service** — Connect this repo (or push a deploy branch).
+2. **Runtime** — **Node**; set **Node version** to **20+** (matches `package.json` **`engines.node`**).
+3. **Build command** — From the repo root: **`npm ci`** (or **`npm ci --omit=dev`** only if you are certain no `postinstall` or tooling needs devDependencies; this project’s API uses production `dependencies` only).
+4. **Start command** — **`npm run start:api`** or **`npm start`** (both run **`node server/server.mjs`**).
+5. **Health check** — Path **`/api/health`** (HTTP **200**, JSON includes **`"ok":true`** and **`"service":"bert-api"`**). Use **`/api/readiness`** if you want Google env + writable session dir before traffic (may return **503** until configured).
+6. **Persistent disk** — Add a **Disk** mounted at a path such as **`/data/bert-sessions`**, then set **`BERT_SESSIONS_DIR=/data/bert-sessions`** in the service environment so **`google-session.json`**, **`master-operators.json`**, and invite JSON survive redeploys. If you omit a disk, treat the filesystem as **ephemeral**: every deploy can wipe **`.sessions`** unless you re-seed and re-run **Connect Google**.
+
+### Railway
+
+1. **New Project → Deploy from GitHub** (or CLI) with root at this repo.
+2. **Build** — **`npm ci`** (Railway runs install/build steps from your configured nixpacks or Dockerfile; a minimal Node service can use **`npm ci`** then start).
+3. **Start** — **`npm run start:api`** or **`node server/server.mjs`**; set **`PORT`** from the platform if not injected automatically (Railway usually sets **`PORT`**).
+4. **Health check** — **`/api/health`**.
+5. **Volume** — Attach a **volume** and set **`BERT_SESSIONS_DIR`** to the mount path (same rationale as Render).
+
+### Custom domain (`api.usebert.co.uk`)
+
+In Render or Railway, add a **custom domain** **`api.usebert.co.uk`**, complete **TLS** verification, then set **`GOOGLE_REDIRECT_URI=https://api.usebert.co.uk/auth/google/callback`** in Google Cloud Console and in the API env. Keep **`FRONTEND_URL`** as the **SPA** origin (e.g. **`https://app.usebert.co.uk`**) if the app is split across hosts.
+
+### Environment variables (hosted API pilot)
+
+| Variable | Required? | Notes |
+|----------|-----------|--------|
+| **`NODE_ENV`** | Yes | **`production`** for strict boot and cookie/CORS behaviour. |
+| **`PORT`** | No | Injected by the host; API listens on **`process.env.PORT`**, defaulting to **8787** when unset or non-numeric. |
+| **`SESSION_SECRET`** | Yes | **≥ 24** chars, not the local default; signs cookies. |
+| **`BERT_ALLOWED_ORIGINS`** | Strongly yes | Comma-separated exact **`Origin`** values (app, Capacitor, any dev preview). |
+| **`BERT_COOKIE_SAMESITE_NONE`** | Optional | **`true`** for HTTPS staging when **`NODE_ENV`** is not production; production implies cross-site cookies where needed. |
+| **`BERT_SESSIONS_DIR`** | Recommended | Absolute or repo-relative path for session files; avoids losing **`.sessions`** on ephemeral disks. |
+| **`FRONTEND_URL`** | Yes | Public SPA origin (HTTPS in production). |
+| **`GOOGLE_CLIENT_ID`**, **`GOOGLE_CLIENT_SECRET`**, **`GOOGLE_REDIRECT_URI`**, **`GOOGLE_SHARED_DRIVE_ID`** | Yes | OAuth + Drive root for provisioning. |
+| **`GOOGLE_ONBOARDING_FORM_ID`**, **`GOOGLE_ONBOARDING_SHEET_ID`** | Optional | Master onboarding pipeline; leave unset only if you do not use that flow. |
+| **`APP_SUPPORT_EMAIL`** (or **`APP_ADMIN_EMAIL`**) | Defaulted | Support inbox for server-sent mail. |
+| **`SMTP_HOST`**, **`SMTP_PORT`**, **`SMTP_USER`**, **`SMTP_PASS`**, **`SMTP_FROM_EMAIL`** | Strongly recommended | **`SMTP_SECURE`**, **`SMTP_FROM`**, **`SMTP_FROM_NAME`** optional. |
+| **`APP_BRAND_NAME`** | Optional | Branding in mail/OAuth pages. |
+| **`BERT_MASTER_SEED_SECRET`** | For **`seed:master`** | **≥ 16** chars; must match when running **`npm run seed:master`** on the host. |
+| **`MASTER_SESSION_TTL_MS`** | Optional | Master signed cookie TTL (default 7d). |
+| **`COMPANY_USER_SESSION_TTL_MS`** | Optional | Company session TTL (default 7d). |
+| **`ONBOARDING_INVITE_TTL_MS`** | Optional | Invite link lifetime. |
+| **`APP_AUTH_MODE`** | Optional | Pilot may stay **`demo`** with server Master auth; see startup warning in production. |
+| **`BERT_TOOL_SECRET`** | Optional | Enables **`POST /api/tools/migrate-userauth-passwords`** with header **`x-bert-tool-secret`**. |
+| **`SHEETS_READ_GAP_MS`**, **`SHEETS_QUOTA_MAX_RETRIES`** | Optional | Sheets throttling / retries. |
+| **`ALLOW_INSECURE_OAUTH_STATE`** | Must omit / false | **Never** **`true`** in production. |
+
+Client builds use **`VITE_API_BASE_URL`** (see **`.env.example`**); that is **build-time** for the SPA/APK, not read by the Node API process.
+
+### `npm run seed:master` on the host
+
+Set **`BERT_MASTER_SEED_SECRET`** in the platform env to a long random value, then run a **one-off shell** on the same machine (or SSH/job) with the same env and repo root:
+
+```bash
+npm run seed:master -- --email ops@yourorg.example --name "Operator" --password '<strong-password>' --confirm
+```
+
+Use a **strong password**; do not paste real secrets into documentation or tickets.
+
+### Smoke checks (`curl`)
+
+```bash
+curl -sS "https://api.usebert.co.uk/api/health"
+curl -sS -X POST "https://api.usebert.co.uk/api/auth/master/login" \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"ops@yourorg.example","password":"<strong-password>"}' | head -c 400
+```
+
+Expect **`/api/health`** → **`"ok":true`**; login → **`"ok":true`** and a **`Set-Cookie`** for the Master session when credentials match **`master-operators.json`**.
+
+### GoDaddy DNS (`usebert.co.uk`)
+
+- **Preferred:** create a **CNAME** record: **Host** **`api`** → **Value** your platform’s hostname (e.g. **`your-service.onrender.com`** or Railway’s **`<project>.up.railway.app`** target shown in the dashboard). TTL as advised (often 1 hour).
+- **Alternative:** if the host gives a **static IPv4** only, use an **A** record: **Host** **`api`** → **Value** that IP. Use **CNAME** whenever the provider supports it so IP changes do not break the pilot.
+
+Remove or avoid conflicting **`api`** **A**/**CNAME** records; wait for DNS propagation before enabling strict TLS or Google OAuth redirect checks.
+
+---
+
 ## 2. Required environment variables
 
 ### Must set for production API (`NODE_ENV=production`)
@@ -38,7 +120,8 @@ Pick one model per environment and keep **redirect URIs** and **`FRONTEND_URL`**
 | Variable | Purpose |
 |----------|---------|
 | **`NODE_ENV`** | Set to **`production`** to enable strict boot checks and readiness HTTP semantics. |
-| **`PORT`** | API listen port inside the container/VM (default **8787** if unset). |
+| **`PORT`** | API listen port inside the container/VM (default **8787** if unset or invalid). |
+| **`BERT_SESSIONS_DIR`** | Optional directory for **`google-session.json`**, **`master-operators.json`**, and onboarding invite JSON; use with a **mounted disk** on ephemeral hosts (see [Deploy hosted API for Android pilot](#deploy-hosted-api-for-android-pilot)). |
 | **`SESSION_SECRET`** | Cookie signing for Express; must be **strong**, **not** the local default, and **≥ 24 characters** or the API will refuse to start. |
 | **`FRONTEND_URL`** | Public origin of the SPA (e.g. `https://app.usebert.co.uk`). Used in redirects and email links. Use **HTTPS** for non-loopback hosts. |
 | **`GOOGLE_CLIENT_ID`** | OAuth web client ID. |
@@ -116,7 +199,7 @@ See **`docs/production-launch-checklist.md`** for boot-blocking rules in product
 1. **Build frontend** — `npm run build` (outputs **`dist/`**).
 2. **Deploy API** — Ship **`server/server.mjs`** with **`package.json`** dependencies installed (`npm ci --omit=dev` or equivalent in the API image).
 3. **Set env vars** — All required variables from section 2; confirm **`NODE_ENV=production`** and **`BERT_ALLOWED_ORIGINS`** lists every hosted app / Capacitor / dev origin that calls the API with cookies (see [§9.5](#95-cookies-and-split-origins)).
-4. **Start API** — `node server/server.mjs` (or `npm run server` with env injected).
+4. **Start API** — `npm run start:api` / `npm start` / `node server/server.mjs` (or `npm run server` with env injected).
 5. **`GET /api/health`** — Confirm **200** and expected flags.
 6. **`GET /api/readiness`** — Confirm **200** and **`"ready": true`** before marking the instance in service.
 7. **Google OAuth** — From the SPA as an admin/setup user, complete **Connect Google** so the API stores a valid session under **`.sessions/`**.
