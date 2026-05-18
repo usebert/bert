@@ -1293,6 +1293,14 @@ function AppIcon({ name, className = "h-5 w-5" }: { name: string; className?: st
           <path d="M9 11h6" />
         </svg>
       );
+    case "logOut":
+      return (
+        <svg {...shared}>
+          <path d="M9 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3" />
+          <path d="M16 17l5-5-5-5" />
+          <path d="M21 12H9" />
+        </svg>
+      );
     default:
       return null;
   }
@@ -3233,9 +3241,10 @@ function App() {
         { id: "companies" as const, label: "Companies", icon: "clipboard" },
         { id: "invites" as const, label: "Invites", icon: "note" },
         { id: "__more__" as const, label: "More", icon: "grid" },
+        { id: "__logout__" as const, label: "Log out", icon: "logOut" },
       ];
     }
-    const entries: Array<{ id: Screen | "__more__"; label: string; icon: string }> = [
+    const entries: Array<{ id: Screen | "__more__" | "__logout__"; label: string; icon: string }> = [
       { id: "dashboard", label: "Dashboard", icon: "dashboard" },
     ];
     if (visibleNavItems.some((i) => i.id === "audits")) {
@@ -3248,6 +3257,7 @@ function App() {
       entries.push({ id: "reports", label: "Reports", icon: "chart" });
     }
     entries.push({ id: "__more__", label: "More", icon: "grid" });
+    entries.push({ id: "__logout__", label: "Log out", icon: "logOut" });
     return entries;
   }, [visibleNavItems]);
 
@@ -7679,7 +7689,8 @@ function App() {
       currentUser &&
       screen !== "complete" &&
       screen !== "setupInitial" &&
-      !visibleNavItems.some((item) => item.id === screen)
+      !visibleNavItems.some((item) => item.id === screen) &&
+      !canRoleAccessNavItem(currentUser.role, screen)
     ) {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
@@ -8201,6 +8212,25 @@ function App() {
               </div>
             </div>
 
+            {godCompanySetupOnlyShell ? (
+              <div className="mt-2 flex justify-end md:hidden">
+                <button
+                  type="button"
+                  onClick={() => handleLogout()}
+                  className={[
+                    "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold",
+                    themeMode === "dark"
+                      ? "border-rose-500/40 bg-rose-500/15 text-rose-100"
+                      : "border-rose-200 bg-rose-50 text-rose-800",
+                  ].join(" ")}
+                  aria-label="Log out"
+                >
+                  <AppIcon name="logOut" className="h-3.5 w-3.5" />
+                  Log out
+                </button>
+              </div>
+            ) : null}
+
             <div className={["qms-app-session-bar mt-0.5 hidden items-center justify-between gap-2 rounded-lg border px-2 py-0.5 sm:flex", themeMode === "dark" ? "border-slate-700 bg-slate-900" : "border-slate-300 bg-white"].join(" ")}>
               <div className="flex min-w-0 max-w-full flex-1 items-center gap-1.5 text-[10px] leading-4">
                 <p className={["shrink-0 font-semibold", themeMode === "dark" ? "text-slate-100" : "text-slate-900"].join(" ")}>{currentUser.name}</p>
@@ -8303,22 +8333,29 @@ function App() {
                           </button>
                         );
                       })}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleLogout();
-                          setShellMoreExpanded(false);
-                        }}
-                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-rose-200 transition hover:bg-rose-500/15 hover:text-white"
-                      >
-                        <span className="truncate">Log out</span>
-                      </button>
                     </div>
                   )}
                 </div>
               ) : null}
             </nav>
             <div className="mt-auto shrink-0 space-y-2 border-t border-white/10 px-2 py-3">
+              <button
+                type="button"
+                onClick={() => {
+                  handleLogout();
+                  setShellMoreExpanded(false);
+                  setMobileMoreOpen(false);
+                }}
+                className={[
+                  "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold text-rose-200 transition hover:bg-rose-500/15 hover:text-white",
+                  desktopSidebarCollapsed ? "justify-center px-2" : "",
+                ].join(" ")}
+                aria-label="Log out"
+                title="Log out"
+              >
+                <AppIcon name="logOut" className="h-4 w-4 shrink-0 opacity-95" />
+                {!desktopSidebarCollapsed && <span className="truncate">Log out</span>}
+              </button>
               <div
                 className={[
                   "flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left",
@@ -9221,16 +9258,6 @@ function App() {
                         <span className="truncate">{item.label}</span>
                       </button>
                     ))}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleLogout();
-                        setMobileMoreOpen(false);
-                      }}
-                      className="rounded-xl border border-rose-100 bg-rose-50 px-3 py-2.5 text-left text-sm font-semibold text-rose-900"
-                    >
-                      Log out
-                    </button>
                   </div>
                 </div>
               </div>
@@ -9240,6 +9267,23 @@ function App() {
               aria-label="Primary navigation"
             >
               {mobileBottomNavEntries.map((entry) => {
+                if (entry.id === "__logout__") {
+                  return (
+                    <button
+                      key="mobile-nav-logout"
+                      type="button"
+                      onClick={() => {
+                        handleLogout();
+                        setMobileMoreOpen(false);
+                      }}
+                      className="flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-semibold text-rose-600"
+                      aria-label="Log out"
+                    >
+                      <AppIcon name="logOut" className="h-5 w-5" />
+                      Log out
+                    </button>
+                  );
+                }
                 if (entry.id === "__more__") {
                   const moreActive =
                     mobileMoreOpen || mobileMoreDestinations.some((item) => item.id === screen);
