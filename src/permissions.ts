@@ -9,7 +9,7 @@ export type Role = "Master" | "Admin" | "Manager" | "Auditor";
 
 export type { NavItemId, RoutedScreen };
 
-export type HomeScreen = Extract<NavItemId, "dashboard" | "onboarding">;
+export type HomeScreen = "dashboard";
 
 export interface RoleTaskPermissions {
   canManageUsers: boolean;
@@ -31,11 +31,38 @@ export function canAccessControlScreen(role: Role) {
   return role === "Admin";
 }
 
-export function getHomeScreenForRole(role: Role): HomeScreen {
-  if (role === "Master") {
-    return "onboarding";
-  }
+export function getHomeScreenForRole(_role: Role): HomeScreen {
   return "dashboard";
+}
+
+/** Platform operator / setup roles use the simplified paid-pilot menu. */
+export function usesPilotOperatorNav(role: Role) {
+  return role === "Master" || role === "Admin";
+}
+
+export function canAccessPilotSetup(role: Role) {
+  return usesPilotOperatorNav(role);
+}
+
+export function canAccessPilotCompanies(role: Role) {
+  return role === "Master" || role === "Admin";
+}
+
+export function canAccessPilotUsers(role: Role) {
+  return usesPilotOperatorNav(role);
+}
+
+export function canAccessPilotInvites(role: Role) {
+  return canInviteUsers(role);
+}
+
+export function canAccessPilotSettings(role: Role) {
+  return usesPilotOperatorNav(role) || role === "Manager";
+}
+
+/** Protected Initial Setup (Godmode page) — platform Master only. */
+export function canAccessGodmodeInitialSetup(role: Role) {
+  return role === "Master";
 }
 
 export function canAccessSchedules(role: Role) {
@@ -91,8 +118,19 @@ export function canAccessEmailReminders(_role: Role) {
 }
 
 export function canRoleAccessNavItem(role: Role, itemId: NavItemId) {
+  if (itemId === "setup") return canAccessPilotSetup(role);
+  if (itemId === "companies") return canAccessPilotCompanies(role);
+  if (itemId === "users") return canAccessPilotUsers(role);
+  if (itemId === "invites") return canAccessPilotInvites(role);
+  if (itemId === "settings") return canAccessPilotSettings(role);
+  if (itemId === "setupInitial") return canAccessGodmodeInitialSetup(role);
   if (role === "Master") {
-    return itemId === "onboarding" || itemId === "account" || itemId === "emailReminders";
+    return (
+      itemId === "dashboard" ||
+      itemId === "account" ||
+      itemId === "emailReminders" ||
+      itemId === "onboarding"
+    );
   }
   if (itemId === "emailReminders") return canAccessEmailReminders(role);
   if (itemId === "admin") return canAccessControlScreen(role);

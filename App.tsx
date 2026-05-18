@@ -11,6 +11,12 @@ import {
   canAccessDocumentTraining,
   canAccessEmailReminders,
   canAccessOnboardingNav,
+  canAccessPilotCompanies,
+  canAccessPilotInvites,
+  canAccessPilotSettings,
+  canAccessPilotSetup,
+  canAccessPilotUsers,
+  usesPilotOperatorNav,
   canAccessReports,
   canAccessSchedules,
   canCompleteAuditAsAuditor,
@@ -24,7 +30,8 @@ import {
   getRolePermissions,
 } from "./src/permissions";
 import { navItems } from "./src/config/navItems";
-import { MORE_MENU_NAV_IDS, PRIMARY_NAV_IDS } from "./src/config/navStructure";
+import { MORE_MENU_NAV_IDS, PILOT_PRIMARY_NAV_IDS, PRIMARY_NAV_IDS } from "./src/config/navStructure";
+import { PilotReadinessCard } from "./src/components/pilot/PilotReadinessCard";
 import { storageKeys } from "./src/config/storageKeys";
 import { apiUrl } from "./src/config/apiBase";
 import { slatePrimaryCtaInteract } from "./src/styles/interactions";
@@ -47,6 +54,8 @@ import { ReportsScreen } from "./src/screens/ReportsScreen";
 import { SchedulesScreen } from "./src/screens/SchedulesScreen";
 import { DocumentTrainingScreen } from "./src/screens/DocumentTrainingScreen";
 import { EmailRemindersScreen } from "./src/screens/EmailRemindersScreen";
+import { PilotSetupScreen } from "./src/screens/PilotSetupScreen";
+import { PilotSettingsScreen } from "./src/screens/PilotSettingsScreen";
 import { SyncCentreScreen } from "./src/screens/SyncCentreScreen";
 import type { DocumentDistribution, ExternalEmployee } from "./src/types/documentTraining";
 import type { OnboardedRecipientOption } from "./src/types/documentTrainingScreenProps";
@@ -3111,9 +3120,14 @@ function App() {
     if (!currentUser) {
       return [];
     }
-    if (currentUser.role === "Master" && godCompanySetupSession) {
-      const onboardingOnly = navItems.find((item) => item.id === "onboarding");
-      return onboardingOnly ? [onboardingOnly] : [];
+    if (usesPilotOperatorNav(currentUser.role)) {
+      return PILOT_PRIMARY_NAV_IDS.flatMap((id) => {
+        if (!canRoleAccessNavItem(currentUser.role, id)) {
+          return [];
+        }
+        const item = navItems.find((entry) => entry.id === id);
+        return item ? [item] : [];
+      });
     }
     const filtered = navItems.filter((item) => {
       const baselineVisible = canRoleAccessNavItem(currentUser.role, item.id);
@@ -3148,14 +3162,15 @@ function App() {
 
   /** Tablet sidebar primary row — fixed order from `navStructure`, intersected with role visibility. */
   const primaryNavItems = useMemo(() => {
-    return PRIMARY_NAV_IDS.flatMap((id) => {
+    const order = currentUser && usesPilotOperatorNav(currentUser.role) ? PILOT_PRIMARY_NAV_IDS : PRIMARY_NAV_IDS;
+    return order.flatMap((id) => {
       if (!visibleNavIdSet.has(id)) {
         return [];
       }
       const item = navItems.find((entry) => entry.id === id);
       return item ? [item] : [];
     });
-  }, [visibleNavIdSet]);
+  }, [visibleNavIdSet, currentUser]);
 
   /** Tablet sidebar “More” — fixed order from `navStructure`, intersected with role visibility. */
   const moreNavItems = useMemo(() => {
@@ -3172,6 +3187,22 @@ function App() {
 
   /** Mobile “More” sheet — same ordering as tablet (primary extras not on tab bar, then More menu ids). */
   const mobileMoreDestinations = useMemo(() => {
+    if (currentUser && usesPilotOperatorNav(currentUser.role)) {
+      const orderedIds = [...PILOT_PRIMARY_NAV_IDS];
+      const seen = new Set<string>();
+      const out: Array<(typeof navItems)[number]> = [];
+      for (const id of orderedIds) {
+        if (seen.has(id) || mobileTabBarIds.has(id) || !visibleNavIdSet.has(id)) {
+          continue;
+        }
+        seen.add(id);
+        const item = navItems.find((entry) => entry.id === id);
+        if (item) {
+          out.push(item);
+        }
+      }
+      return out;
+    }
     const orderedIds = [...PRIMARY_NAV_IDS, ...MORE_MENU_NAV_IDS];
     const seen = new Set<string>();
     const out: Array<(typeof navItems)[number]> = [];
@@ -3192,6 +3223,15 @@ function App() {
   }, [visibleNavIdSet, mobileTabBarIds]);
 
   const mobileBottomNavEntries = useMemo(() => {
+    if (currentUser && usesPilotOperatorNav(currentUser.role)) {
+      return [
+        { id: "dashboard" as const, label: "Dashboard", icon: "dashboard" },
+        { id: "setup" as const, label: "Setup", icon: "spark" },
+        { id: "companies" as const, label: "Companies", icon: "clipboard" },
+        { id: "invites" as const, label: "Invites", icon: "note" },
+        { id: "__more__" as const, label: "More", icon: "grid" },
+      ];
+    }
     const entries: Array<{ id: Screen | "__more__"; label: string; icon: string }> = [
       { id: "dashboard", label: "Dashboard", icon: "dashboard" },
     ];
@@ -4900,7 +4940,7 @@ function App() {
         role: "Master",
         name: data.operator.name || data.operator.email,
       };
-      applySignedInUser(match, { workspaceSetupOnly: true });
+      applySignedInUser(match, { workspaceSetupOnly: companySetupLoginPortal });
       return true;
     };
 
@@ -7557,6 +7597,21 @@ function App() {
     if (currentUser && !canAccessEmailReminders(currentUser.role) && screen === "emailReminders") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
+    if (currentUser && !canAccessPilotSetup(currentUser.role) && screen === "setup") {
+      setScreen(getHomeScreenForRole(currentUser.role));
+    }
+    if (currentUser && !canAccessPilotCompanies(currentUser.role) && screen === "companies") {
+      setScreen(getHomeScreenForRole(currentUser.role));
+    }
+    if (currentUser && !canAccessPilotUsers(currentUser.role) && screen === "users") {
+      setScreen(getHomeScreenForRole(currentUser.role));
+    }
+    if (currentUser && !canAccessPilotInvites(currentUser.role) && screen === "invites") {
+      setScreen(getHomeScreenForRole(currentUser.role));
+    }
+    if (currentUser && !canAccessPilotSettings(currentUser.role) && screen === "settings") {
+      setScreen(getHomeScreenForRole(currentUser.role));
+    }
     if (currentUser && !canAccessReports(currentUser.role) && screen === "reports") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
@@ -8341,6 +8396,14 @@ function App() {
                 </p>
               </section>
             )}
+            {screen === "dashboard" && currentUser && usesPilotOperatorNav(currentUser.role) && (
+              <div className="mb-4">
+                <PilotReadinessCard
+                  onOpenSetup={() => setScreen("setup")}
+                  slatePrimaryCtaInteractClass={slatePrimaryCtaInteract}
+                />
+              </div>
+            )}
             {screen === "dashboard" && (
               <DashboardScreen
                 currentUser={currentUser}
@@ -8699,9 +8762,43 @@ function App() {
               />
             )}
 
-            {((screen === "admin" && canAccessControlScreen(currentUser.role)) ||
+            {screen === "setup" && currentUser && canAccessPilotSetup(currentUser.role) && (
+              <PilotSetupScreen
+                googleConnected={googleConnected}
+                backendConfigured={backendConfigured}
+                masterSignedIn={currentUser.role === "Master"}
+                onGoogleConnect={handleGoogleConnect}
+                onGoogleDisconnect={handleGoogleDisconnect}
+                onOpenCompanies={() => setScreen("companies")}
+                onOpenInvites={() => setScreen("invites")}
+                slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+              />
+            )}
+
+            {screen === "settings" && currentUser && canAccessPilotSettings(currentUser.role) && (
+              <PilotSettingsScreen
+                currentUser={currentUser}
+                accountNameInput={accountNameInput}
+                themeMode={themeMode}
+                onOpenScreen={(next) => setScreen(next)}
+                onOpenAccount={() => setScreen("account")}
+                slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+              />
+            )}
+
+            {((screen === "companies" && canAccessPilotCompanies(currentUser.role)) ||
+              (screen === "users" && canAccessPilotUsers(currentUser.role)) ||
+              (screen === "invites" && canAccessPilotInvites(currentUser.role)) ||
+              (screen === "admin" && canAccessControlScreen(currentUser.role)) ||
               (screen === "onboarding" && canAccessAdminOnboardingWorkspace(currentUser.role))) && (
               <AdminScreen
+                pilotFocus={
+                  screen === "companies" ? "companies" : screen === "users" ? "users" : screen === "invites" ? "invites" : undefined
+                }
+                standaloneOnboarding={
+                  screen === "onboarding" || screen === "companies"
+                }
+                hideMasterLocalDemoTools={godCompanySetupOnlyShell || screen === "companies" || screen === "users" || screen === "invites"}
                 currentUser={currentUser}
                 googleConnected={googleConnected}
                 folders={folders}
@@ -8804,8 +8901,6 @@ function App() {
                 onSelectSite={setSelectedSiteId}
                 onAddSite={handleAddSite}
                 onArchiveSite={handleArchiveSite}
-                standaloneOnboarding={screen === "onboarding"}
-                hideMasterLocalDemoTools={godCompanySetupOnlyShell}
                 godModeAppInviteEmail={godModeAppInviteEmail}
                 onGodModeAppInviteEmailChange={setGodModeAppInviteEmail}
                 onSendGodModeAppCompanyInvite={handleSendGodModeAppCompanyInvite}

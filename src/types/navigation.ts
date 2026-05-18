@@ -9,6 +9,12 @@
 
 export type RoutedScreen =
   | "dashboard"
+  | "setup"
+  | "companies"
+  | "users"
+  | "invites"
+  | "settings"
+  | "setupInitial"
   | "audits"
   | "actions"
   | "nonConformance"

@@ -1,6 +1,10 @@
 import type { NavItemId } from "../types/navigation";
+import { PILOT_OPERATOR_NAV_IDS } from "./pilotNav";
 
-/** Primary sidebar / tablet nav (always visible when role permits). */
+/** Paid-pilot operator primary nav (Master / Admin setup). */
+export const PILOT_PRIMARY_NAV_IDS = PILOT_OPERATOR_NAV_IDS;
+
+/** Field roles — operational day-to-day work. */
 export const PRIMARY_NAV_IDS = [
   "dashboard",
   "audits",
@@ -10,7 +14,7 @@ export const PRIMARY_NAV_IDS = [
   "reports",
 ] as const satisfies readonly NavItemId[];
 
-/** Behind “More”: sync, schedules, onboarding, admin, account — routes unchanged. */
+/** Behind “More” for field roles. */
 export const MORE_MENU_NAV_IDS = [
   "sync",
   "schedules",
@@ -21,10 +25,14 @@ export const MORE_MENU_NAV_IDS = [
   "account",
 ] as const satisfies readonly NavItemId[];
 
-/** Mobile bottom bar (subset). */
+/** Mobile bottom bar (field roles). */
 export const MOBILE_BOTTOM_NAV_IDS = ["dashboard", "audits", "actions", "reports", "more"] as const;
 
 export type MobileBottomKey = (typeof MOBILE_BOTTOM_NAV_IDS)[number];
+
+export function isPilotPrimaryNavId(id: NavItemId): id is (typeof PILOT_PRIMARY_NAV_IDS)[number] {
+  return (PILOT_PRIMARY_NAV_IDS as readonly string[]).includes(id);
+}
 
 export function isPrimaryNavId(id: NavItemId): id is (typeof PRIMARY_NAV_IDS)[number] {
   return (PRIMARY_NAV_IDS as readonly string[]).includes(id);

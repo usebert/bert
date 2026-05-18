@@ -127,6 +127,7 @@ export function AdminScreen({
   onAddSite,
   onArchiveSite,
   standaloneOnboarding = false,
+  pilotFocus = undefined,
   hideMasterLocalDemoTools = false,
   godModeAppInviteEmail,
   onGodModeAppInviteEmailChange,
@@ -140,11 +141,25 @@ export function AdminScreen({
     currentUser.role === "Master" &&
     (companySheetSync?.usersCount ?? 0) === 0 &&
     invitedUsers.length === 0;
-  const [adminView, setAdminView] = useState<"overview" | "onboarding">(standaloneOnboarding ? "onboarding" : "overview");
+  const [adminView, setAdminView] = useState<"overview" | "onboarding">(
+    standaloneOnboarding || pilotFocus === "companies" ? "onboarding" : "overview",
+  );
   const [showAdvancedOnboardingActions, setShowAdvancedOnboardingActions] = useState(false);
   const [pendingAdminScrollTarget, setPendingAdminScrollTarget] = useState<string | null>(null);
   const onboardingMode =
-    standaloneOnboarding || (canAccessAdminOnboardingWorkspace(currentUser.role) && adminView === "onboarding");
+    standaloneOnboarding ||
+    pilotFocus === "companies" ||
+    (canAccessAdminOnboardingWorkspace(currentUser.role) && adminView === "onboarding");
+  useEffect(() => {
+    if (pilotFocus === "companies") {
+      setAdminView("onboarding");
+      return;
+    }
+    if (pilotFocus === "users" || pilotFocus === "invites") {
+      setAdminView("onboarding");
+      setPendingAdminScrollTarget("admin-user-management");
+    }
+  }, [pilotFocus]);
   const godModeFullVisibility = currentUser.role === "Master";
   useEffect(() => {
     if (!pendingAdminScrollTarget) {
@@ -157,9 +172,31 @@ export function AdminScreen({
     }
   }, [pendingAdminScrollTarget, onboardingMode, adminView, godModeFullVisibility]);
 
+  const pilotTitles: Record<"companies" | "users" | "invites", { title: string; subtitle: string }> = {
+    companies: {
+      title: "Companies",
+      subtitle: "Connect Google, link company folders, and provision customer workspaces.",
+    },
+    users: {
+      title: "Users",
+      subtitle: "Manage who can access each company workspace and assign sites.",
+    },
+    invites: {
+      title: "Invites",
+      subtitle: "Send, copy, resend, and track invite links for company users.",
+    },
+  };
+
   return (
     <div className="space-y-4">
-      {(!onboardingMode || godModeFullVisibility) && currentUser.role !== "Master" && (
+      {pilotFocus ? (
+        <section className="rounded-[1.75rem] bg-slate-950 px-5 py-4 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]">
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">{pilotTitles[pilotFocus].title}</p>
+          <h2 className="mt-1 text-xl font-semibold tracking-tight">{pilotTitles[pilotFocus].title}</h2>
+          <p className="mt-1 text-sm leading-5 text-slate-300">{pilotTitles[pilotFocus].subtitle}</p>
+        </section>
+      ) : null}
+      {(!onboardingMode || godModeFullVisibility) && currentUser.role !== "Master" && !pilotFocus && (
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
         <div className="mb-4 flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
           <div>
