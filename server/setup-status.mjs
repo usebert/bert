@@ -43,8 +43,7 @@ function requireMasterSession(req, res, next) {
  * }} deps
  */
 export function installSetupStatusRoutes(app, deps) {
-  const { sessionDir, getReadinessPayload, getHealthPayload, emailConfigured, hasGoogleSession, googleEnvConfigured } =
-    deps;
+  const { sessionDir, getReadinessPayload, getHealthPayload, emailConfigured, hasGoogleSession } = deps;
 
   app.get("/api/setup/status", requireMasterSession, (_req, res) => {
     const readiness = getReadinessPayload();
@@ -74,7 +73,6 @@ export function installSetupStatusRoutes(app, deps) {
       sessionStoreWritable,
       smtpConfigured,
       readyForPilot,
-      googleEnvConfigured: googleEnvConfigured(),
     });
   });
 }

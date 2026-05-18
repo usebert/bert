@@ -14,6 +14,7 @@ import {
   canAccessPilotCompanies,
   canAccessPilotInvites,
   canAccessPilotSettings,
+  canAccessGodmodeInitialSetup,
   canAccessPilotSetup,
   canAccessPilotUsers,
   usesPilotOperatorNav,
@@ -54,7 +55,9 @@ import { ReportsScreen } from "./src/screens/ReportsScreen";
 import { SchedulesScreen } from "./src/screens/SchedulesScreen";
 import { DocumentTrainingScreen } from "./src/screens/DocumentTrainingScreen";
 import { EmailRemindersScreen } from "./src/screens/EmailRemindersScreen";
+import { GodmodeInitialSetupScreen } from "./src/screens/GodmodeInitialSetupScreen";
 import { PilotSetupScreen } from "./src/screens/PilotSetupScreen";
+import { isSetupInitialPath, leaveSetupInitialPath, navigateToSetupInitial } from "./src/utils/setupRoute";
 import { PilotSettingsScreen } from "./src/screens/PilotSettingsScreen";
 import { SyncCentreScreen } from "./src/screens/SyncCentreScreen";
 import type { DocumentDistribution, ExternalEmployee } from "./src/types/documentTraining";
@@ -3948,10 +3951,40 @@ function App() {
       } catch {
         setCompanySetupLoginPortal(false);
       }
+      if (isSetupInitialPath()) {
+        setScreen((current) => {
+          if (currentUser?.role === "Master") {
+            return "setupInitial";
+          }
+          return current;
+        });
+      }
     };
+    syncSetupPortalFromUrl();
     window.addEventListener("popstate", syncSetupPortalFromUrl);
     return () => window.removeEventListener("popstate", syncSetupPortalFromUrl);
-  }, []);
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      return;
+    }
+    if (screen === "setupInitial" && canAccessGodmodeInitialSetup(currentUser.role)) {
+      if (!isSetupInitialPath()) {
+        navigateToSetupInitial();
+      }
+      return;
+    }
+    if (screen !== "setupInitial" && isSetupInitialPath()) {
+      leaveSetupInitialPath("/");
+    }
+  }, [screen, currentUser]);
+
+  useEffect(() => {
+    if (currentUser?.role === "Master" && isSetupInitialPath()) {
+      setScreen("setupInitial");
+    }
+  }, [currentUser]);
 
   useEffect(() => {
     const storedQueue = window.localStorage.getItem(offlineQueueStorageKey);
@@ -4873,7 +4906,11 @@ function App() {
       setAccountNameInput(match.name);
       setAccountPhotoUrl(getStoredProfilePhoto(match));
       window.localStorage.setItem(userStorageKey, JSON.stringify(match));
-      setScreen(getHomeScreenForRole(match.role));
+      setScreen(
+        isSetupInitialPath() && canAccessGodmodeInitialSetup(match.role)
+          ? "setupInitial"
+          : getHomeScreenForRole(match.role),
+      );
       setUsername("");
       setPassword("");
       setCompanySetupLoginPortal(false);
@@ -7612,6 +7649,9 @@ function App() {
     if (currentUser && !canAccessPilotSettings(currentUser.role) && screen === "settings") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
+    if (currentUser && !canAccessGodmodeInitialSetup(currentUser.role) && screen === "setupInitial") {
+      setScreen(getHomeScreenForRole(currentUser.role));
+    }
     if (currentUser && !canAccessReports(currentUser.role) && screen === "reports") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
@@ -7635,7 +7675,12 @@ function App() {
     ) {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
-    if (currentUser && screen !== "complete" && !visibleNavItems.some((item) => item.id === screen)) {
+    if (
+      currentUser &&
+      screen !== "complete" &&
+      screen !== "setupInitial" &&
+      !visibleNavItems.some((item) => item.id === screen)
+    ) {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
   }, [currentUser, screen, visibleNavItems, activeAudit, auditCompletionSummary]);
@@ -8399,7 +8444,14 @@ function App() {
             {screen === "dashboard" && currentUser && usesPilotOperatorNav(currentUser.role) && (
               <div className="mb-4">
                 <PilotReadinessCard
-                  onOpenSetup={() => setScreen("setup")}
+                  onOpenInitialSetup={
+                    currentUser.role === "Master"
+                      ? () => {
+                          navigateToSetupInitial();
+                          setScreen("setupInitial");
+                        }
+                      : undefined
+                  }
                   slatePrimaryCtaInteractClass={slatePrimaryCtaInteract}
                 />
               </div>
@@ -8764,13 +8816,24 @@ function App() {
 
             {screen === "setup" && currentUser && canAccessPilotSetup(currentUser.role) && (
               <PilotSetupScreen
+                showInitialSetupEntry={currentUser.role === "Master"}
+                onOpenInitialSetup={() => {
+                  navigateToSetupInitial();
+                  setScreen("setupInitial");
+                }}
+                slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+              />
+            )}
+
+            {screen === "setupInitial" && currentUser && canAccessGodmodeInitialSetup(currentUser.role) && (
+              <GodmodeInitialSetupScreen
                 googleConnected={googleConnected}
-                backendConfigured={backendConfigured}
-                masterSignedIn={currentUser.role === "Master"}
                 onGoogleConnect={handleGoogleConnect}
                 onGoogleDisconnect={handleGoogleDisconnect}
-                onOpenCompanies={() => setScreen("companies")}
-                onOpenInvites={() => setScreen("invites")}
+                onBackToSetup={() => {
+                  leaveSetupInitialPath("/");
+                  setScreen("setup");
+                }}
                 slatePrimaryCtaInteract={slatePrimaryCtaInteract}
               />
             )}

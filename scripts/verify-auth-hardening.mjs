@@ -83,6 +83,14 @@ const forbiddenInDist = [
     re: /Audit App/,
     pilotOnly: true,
   },
+  {
+    name: 'dev seed password "dog" in client bundle',
+    re: /password\s*:\s*["']dog["']/i,
+  },
+  {
+    name: 'literal god/dog dev credentials in client bundle',
+    re: /(?:username|password)\s*:\s*["'](?:god|dog)["']/i,
+  },
 ];
 
 let failed = false;

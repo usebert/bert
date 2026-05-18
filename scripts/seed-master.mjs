@@ -32,9 +32,9 @@ function arg(name) {
   return String(process.argv[idx + 1]).trim();
 }
 
-const email = arg("--email");
-const name = arg("--name") || email;
-const password = arg("--password");
+const email = arg("--email") || String(process.env.BERT_INITIAL_MASTER_EMAIL || "").trim();
+const name = arg("--name") || String(process.env.BERT_INITIAL_MASTER_USERNAME || "").trim() || email;
+const password = arg("--password") || String(process.env.BERT_INITIAL_MASTER_PASSWORD || "").trim();
 const confirm = process.argv.includes("--confirm");
 
 if (!email || !password) {

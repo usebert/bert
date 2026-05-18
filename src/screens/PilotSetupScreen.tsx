@@ -1,18 +1,32 @@
+import { useEffect, useState } from "react";
+import { fetchSetupStatus } from "../services/setupStatusService";
 import { slatePrimaryCtaInteract } from "../styles/interactions";
 
 type Props = {
   showInitialSetupEntry: boolean;
   onOpenInitialSetup: () => void;
-  readyForPilot: boolean | null;
   slatePrimaryCtaInteract?: string;
 };
 
 export function PilotSetupScreen({
   showInitialSetupEntry,
   onOpenInitialSetup,
-  readyForPilot,
   slatePrimaryCtaInteract: ctaClass = slatePrimaryCtaInteract,
 }: Props) {
+  const [readyForPilot, setReadyForPilot] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const setup = await fetchSetupStatus();
+      if (!cancelled) {
+        setReadyForPilot(setup?.readyForPilot === true ? true : setup?.readyForPilot === false ? false : null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   return (
     <div className="space-y-4">
       <section className="rounded-[1.75rem] bg-slate-950 px-5 py-4 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]">

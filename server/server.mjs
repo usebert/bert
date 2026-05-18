@@ -12,6 +12,7 @@ import { getSessionCookieOptions } from "./session-cookie-options.mjs";
 import { migrateAllPlainUserAuthKeys, verifyUserAuthLoginOrMigrate } from "./userauth-password.mjs";
 import { installDocumentDistributionRoutes } from "./document-distribution.mjs";
 import { installEmailReminderRoutes, startEmailReminderScheduler } from "./email-reminders.mjs";
+import { installSetupStatusRoutes } from "./setup-status.mjs";
 
 dotenv.config();
 
@@ -820,6 +821,14 @@ function clearStoredSession() {
     fs.unlinkSync(sessionFile);
   }
 }
+
+installSetupStatusRoutes(app, {
+  sessionDir,
+  getReadinessPayload,
+  getHealthPayload,
+  emailConfigured,
+  hasGoogleSession: () => Boolean(readStoredSession()?.tokens),
+});
 
 function signedStateCookie(value) {
   return {
