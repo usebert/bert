@@ -85,10 +85,16 @@ export function canEditLegalName(role: Role) {
   return role === "Master" || role === "Admin";
 }
 
+/** Personal email reminders — any signed-in role. */
+export function canAccessEmailReminders(_role: Role) {
+  return true;
+}
+
 export function canRoleAccessNavItem(role: Role, itemId: NavItemId) {
   if (role === "Master") {
-    return itemId === "onboarding" || itemId === "account";
+    return itemId === "onboarding" || itemId === "account" || itemId === "emailReminders";
   }
+  if (itemId === "emailReminders") return canAccessEmailReminders(role);
   if (itemId === "admin") return canAccessControlScreen(role);
   if (itemId === "onboarding") return canAccessOnboardingNav(role);
   if (itemId === "schedules") return canAccessSchedules(role);

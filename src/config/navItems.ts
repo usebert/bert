@@ -12,5 +12,6 @@ export const navItems = [
   { id: "sync", label: "Sync Centre", icon: "sync" },
   { id: "admin", label: "Admin tools", icon: "shield" },
   { id: "onboarding", label: "Onboarding", icon: "spark" },
+  { id: "emailReminders", label: "Reminders", icon: "clock" },
   { id: "account", label: "Account", icon: "user" },
 ] as const satisfies ReadonlyArray<{ id: NavItemId; label: string; icon: string }>;

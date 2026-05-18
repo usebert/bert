@@ -11,6 +11,7 @@ import { hashPassword, installMasterAuthRoutes, upsertMasterOperator } from "./m
 import { getSessionCookieOptions } from "./session-cookie-options.mjs";
 import { migrateAllPlainUserAuthKeys, verifyUserAuthLoginOrMigrate } from "./userauth-password.mjs";
 import { installDocumentDistributionRoutes } from "./document-distribution.mjs";
+import { installEmailReminderRoutes, startEmailReminderScheduler } from "./email-reminders.mjs";
 
 dotenv.config();
 
@@ -581,7 +582,7 @@ app.use(bertCorsMiddleware);
 app.use(express.json({ limit: "16mb" }));
 app.use(cookieParser(requiredEnv.SESSION_SECRET));
 installMasterAuthRoutes(app, { sessionDir });
-installDocumentDistributionRoutes(app, {
+const emailDeliveryDeps = {
   sessionDir,
   emailConfigured,
   createSmtpTransport,
@@ -596,8 +597,12 @@ installDocumentDistributionRoutes(app, {
       return `http://127.0.0.1:${port}`;
     }
   },
+  getFrontendUrl: () => String(requiredEnv.FRONTEND_URL || "").trim(),
   appBrandName: APP_BRAND_NAME,
-});
+};
+
+installDocumentDistributionRoutes(app, emailDeliveryDeps);
+const emailReminderRunner = installEmailReminderRoutes(app, emailDeliveryDeps);
 app.use(httpRequestLogMiddleware);
 app.use(sensitiveAbusePostRateLimit);
 
@@ -4477,6 +4482,7 @@ const httpServer = app.listen(port, "0.0.0.0", () => {
       console.log("[smtp] verify", result);
     }
   });
+  startEmailReminderScheduler(emailReminderRunner);
 });
 
 httpServer.on("error", (err) => {

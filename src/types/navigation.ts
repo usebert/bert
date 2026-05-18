@@ -20,6 +20,7 @@ export type RoutedScreen =
   | "admin"
   | "onboarding"
   | "account"
+  | "emailReminders"
   | "complete";
 
 /** Sidebar / nav-gated screens only — excludes the `"complete"` audit flow route. */

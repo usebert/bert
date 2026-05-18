@@ -9,6 +9,7 @@ import {
   canAccessCompletedNcrReports,
   canAccessControlScreen,
   canAccessDocumentTraining,
+  canAccessEmailReminders,
   canAccessOnboardingNav,
   canAccessReports,
   canAccessSchedules,
@@ -45,6 +46,7 @@ import { NonConformanceScreen } from "./src/screens/NonConformanceScreen";
 import { ReportsScreen } from "./src/screens/ReportsScreen";
 import { SchedulesScreen } from "./src/screens/SchedulesScreen";
 import { DocumentTrainingScreen } from "./src/screens/DocumentTrainingScreen";
+import { EmailRemindersScreen } from "./src/screens/EmailRemindersScreen";
 import { SyncCentreScreen } from "./src/screens/SyncCentreScreen";
 import type { DocumentDistribution, ExternalEmployee } from "./src/types/documentTraining";
 import type { OnboardedRecipientOption } from "./src/types/documentTrainingScreenProps";
@@ -3238,6 +3240,17 @@ function App() {
     const merged = [...seededUsers, ...invited];
     return merged.filter((user, index, list) => list.findIndex((item) => item.email === user.email) === index);
   }, [invitedUsers]);
+
+  const reminderUserEmail = useMemo(() => {
+    if (!currentUser) {
+      return "";
+    }
+    const identity = currentUser.username.trim().toLowerCase();
+    if (identity.includes("@")) {
+      return identity;
+    }
+    return `${identity}@usebert.co.uk`;
+  }, [currentUser]);
 
   const documentTrainingWorkspaceId = useMemo(
     () => selectedFolderId || selectedFolder?.id || "local-workspace",
@@ -7541,6 +7554,9 @@ function App() {
     if (currentUser && !canAccessDocumentTraining(currentUser.role) && screen === "documentTraining") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
+    if (currentUser && !canAccessEmailReminders(currentUser.role) && screen === "emailReminders") {
+      setScreen(getHomeScreenForRole(currentUser.role));
+    }
     if (currentUser && !canAccessReports(currentUser.role) && screen === "reports") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
@@ -8809,6 +8825,15 @@ function App() {
                 schedulePriorityInput={schedulePriorityInput}
                 AppIcon={AppIcon}
                 slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+              />
+            )}
+
+            {screen === "emailReminders" && currentUser && canAccessEmailReminders(currentUser.role) && (
+              <EmailRemindersScreen
+                userEmail={reminderUserEmail}
+                themeMode={themeMode}
+                slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+                devApiHeaders={documentTrainingApiHeaders()}
               />
             )}
 
