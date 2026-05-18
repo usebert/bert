@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { apiUrl } from "../config/apiBase";
+import { parseJsonApiResponse } from "../utils/parseJsonApiResponse";
 
 export type EmailReminderRow = {
   id: string;
@@ -62,12 +63,12 @@ export function EmailRemindersScreen({ userEmail, themeMode, slatePrimaryCtaInte
         credentials: "include",
         headers: devApiHeaders || {},
       });
-      const data = (await response.json()) as {
+      const data = await parseJsonApiResponse<{
         ok?: boolean;
         reminders?: EmailReminderRow[];
         smtpConfigured?: boolean;
         error?: string;
-      };
+      }>(response);
       if (!response.ok || !data.ok) {
         throw new Error(data.error || "Unable to load reminders.");
       }
@@ -100,7 +101,7 @@ export function EmailRemindersScreen({ userEmail, themeMode, slatePrimaryCtaInte
         headers,
         body: JSON.stringify({ message: message.trim(), remindAt }),
       });
-      const data = (await response.json()) as { ok?: boolean; error?: string };
+      const data = await parseJsonApiResponse<{ ok?: boolean; error?: string }>(response);
       if (!response.ok || !data.ok) {
         throw new Error(data.error || "Unable to save reminder.");
       }
@@ -123,7 +124,7 @@ export function EmailRemindersScreen({ userEmail, themeMode, slatePrimaryCtaInte
         credentials: "include",
         headers: devApiHeaders || {},
       });
-      const data = (await response.json()) as { ok?: boolean; error?: string };
+      const data = await parseJsonApiResponse<{ ok?: boolean; error?: string }>(response);
       if (!response.ok || !data.ok) {
         throw new Error(data.error || "Unable to cancel reminder.");
       }
