@@ -98,6 +98,16 @@ export type ScheduleItem = {
   id: string;
 };
 
+/** Result of POST /api/onboarding/app-invites/new-company (company Google Form onboarding email). */
+export type CompanyOnboardingEmailResult = {
+  email: string;
+  sent: boolean;
+  smtpConfigured: boolean;
+  onboardingFormUrl: string;
+  emailDraft?: { subject: string; body: string };
+  mailtoUrl?: string;
+};
+
 export type AdminScreenProps = {
   currentUser: User;
   googleConnected: boolean;
@@ -222,6 +232,9 @@ export type AdminScreenProps = {
   godModeAppInviteEmail: string;
   onGodModeAppInviteEmailChange: (value: string) => void;
   onSendGodModeAppCompanyInvite: () => void;
+  companyOnboardingEmailResult: CompanyOnboardingEmailResult | null;
+  companyOnboardingEmailSending: boolean;
+  onDismissCompanyOnboardingEmailResult: () => void;
   /** Master-only: navigate to protected Initial Setup (/setup/initial). */
   onOpenInitialSetup?: () => void;
   AppIcon: ComponentType<{ name: string; className?: string }>;

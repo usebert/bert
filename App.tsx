@@ -44,6 +44,7 @@ import { ManagerDashboard } from "./src/components/dashboard/ManagerDashboard";
 import { AccountSettingsScreen } from "./src/screens/AccountSettingsScreen";
 import { ActionsScreen } from "./src/screens/ActionsScreen";
 import { AdminScreen } from "./src/screens/AdminScreen";
+import type { CompanyOnboardingEmailResult } from "./src/types/adminScreenProps";
 import { AppHostedOnboardingCompletion } from "./src/screens/AppHostedOnboardingCompletion";
 import { DashboardScreen } from "./src/screens/DashboardScreen";
 import { AuditsScreen } from "./src/screens/AuditsScreen";
@@ -2807,6 +2808,8 @@ function App() {
   const [inviteRoleInput, setInviteRoleInput] = useState<Role>("Manager");
   const [invitedUsers, setInvitedUsers] = useState<UserInvite[]>(storedWorkspaceState?.invitedUsers || []);
   const [godModeAppInviteEmail, setGodModeAppInviteEmail] = useState("");
+  const [companyOnboardingEmailResult, setCompanyOnboardingEmailResult] = useState<CompanyOnboardingEmailResult | null>(null);
+  const [companyOnboardingEmailSending, setCompanyOnboardingEmailSending] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [companySheetSync, setCompanySheetSync] = useState<CompanySheetSyncStatus | null>(storedWorkspaceState?.companySheetSync || null);
   const [selectedReportTemplate, setSelectedReportTemplate] = useState<ReportTemplateType>("Executive summary");
@@ -5183,7 +5186,7 @@ function App() {
   };
 
   const handleSendGodModeAppCompanyInvite = async () => {
-    if (!currentUser || currentUser.role !== "Master") {
+    if (!currentUser || (currentUser.role !== "Master" && currentUser.role !== "Admin")) {
       return;
     }
     if (!backendConfigured || !googleConnected) {
@@ -5199,37 +5202,48 @@ function App() {
       pushToast("Email required", "Enter a valid email address for the new company administrator.", "warning");
       return;
     }
+    setCompanyOnboardingEmailSending(true);
     try {
       const response = await fetch(apiUrl("/api/onboarding/app-invites/new-company"), {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: trimmed, invitedBy: currentUser.name }),
+        body: JSON.stringify({ email: trimmed }),
       });
       const payload = (await parseJsonApiResponse(response)) as {
         ok?: boolean;
         error?: string;
-        delivery?: "smtp" | "manual";
-        onboardingUrl?: string;
+        sent?: boolean;
+        smtpConfigured?: boolean;
+        email?: string;
+        onboardingFormUrl?: string;
+        emailDraft?: { subject: string; body: string };
         mailtoUrl?: string;
       };
       if (!response.ok || !payload.ok) {
-        throw new Error(payload.error || "Unable to send invite.");
+        throw new Error(payload.error || "Unable to send onboarding email.");
       }
-      setGodModeAppInviteEmail("");
-      pushToast(
-        payload.delivery === "manual" ? "Invite draft ready" : "Invite sent",
-        payload.delivery === "manual"
-          ? "Email is not configured. Use the generated mail draft or share the invite link manually."
-          : `Invite link sent to ${trimmed}.`,
-        "success",
-      );
+      const result = {
+        email: payload.email || trimmed,
+        sent: payload.sent === true,
+        smtpConfigured: payload.smtpConfigured !== false,
+        onboardingFormUrl: payload.onboardingFormUrl || "",
+        emailDraft: payload.emailDraft,
+        mailtoUrl: payload.mailtoUrl,
+      };
+      setCompanyOnboardingEmailResult(result);
+      if (result.sent) {
+        pushToast("Onboarding email sent", `We sent the company onboarding form to ${result.email}.`, "success");
+      }
     } catch (error) {
+      setCompanyOnboardingEmailResult(null);
       pushToast(
-        "Invite failed",
-        error instanceof Error ? error.message : "Unable to send new company invite.",
+        "Onboarding email failed",
+        error instanceof Error ? error.message : "Unable to send onboarding email.",
         "warning",
       );
+    } finally {
+      setCompanyOnboardingEmailSending(false);
     }
   };
 
@@ -9024,6 +9038,9 @@ function App() {
                 godModeAppInviteEmail={godModeAppInviteEmail}
                 onGodModeAppInviteEmailChange={setGodModeAppInviteEmail}
                 onSendGodModeAppCompanyInvite={handleSendGodModeAppCompanyInvite}
+                companyOnboardingEmailResult={companyOnboardingEmailResult}
+                companyOnboardingEmailSending={companyOnboardingEmailSending}
+                onDismissCompanyOnboardingEmailResult={() => setCompanyOnboardingEmailResult(null)}
                 onOpenInitialSetup={
                   canAccessGodmodeInitialSetup(currentUser.role)
                     ? () => {

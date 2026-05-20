@@ -32,7 +32,9 @@ Warnings (logged only, do not block boot):
 - [ ] `GOOGLE_*` OAuth client and **Shared Drive** ID for the deployment
 - [ ] `FRONTEND_URL` matches the public SPA origin (HTTPS in production)
 - [ ] `GOOGLE_REDIRECT_URI` registered in Google Cloud Console for this host
-- [ ] SMTP variables if server-sent email is required (otherwise use manual invite links)
+- [ ] SMTP variables if server-sent email is required (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM_EMAIL`, `SMTP_FROM_NAME`)
+- [ ] `BERT_COMPANY_ONBOARDING_FORM_URL` set if the default Google Form link should change
+- [ ] **Companies → Invite new company**: with SMTP, onboarding email sends; without SMTP, fallback panel shows copy link / draft
 - [ ] **Never** set `ALLOW_INSECURE_OAUTH_STATE=true` in production
 
 ## Master operator (hosted API)

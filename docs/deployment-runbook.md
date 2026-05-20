@@ -312,8 +312,11 @@ Remove or avoid conflicting **`api`** **A**/**CNAME** records; wait for DNS prop
 | **`APP_SUPPORT_EMAIL`** | Customer-facing support inbox (e.g. `admin@usebert.co.uk`) for server-driven mail. |
 | **`SMTP_HOST`** | Outbound mail server for invites and notifications. |
 | **`SMTP_PORT`** | Typically **587** (STARTTLS) or **465** (TLS). |
+| **`SMTP_SECURE`** | **`false`** for port 587 (STARTTLS); **`true`** for port 465. |
 | **`SMTP_USER`** | SMTP auth user. |
 | **`SMTP_PASS`** | SMTP auth password or app password. |
+| **`SMTP_FROM`** / **`SMTP_FROM_EMAIL`** | From address, e.g. `BERT <no-reply@usebert.co.uk>`. |
+| **`BERT_COMPANY_ONBOARDING_FORM_URL`** | Google Form link emailed to new company administrators (see below). |
 
 ### Strongly recommended (email identity)
 
@@ -322,6 +325,26 @@ The API treats a complete SMTP config as including a from-address. Set at least 
 - **`SMTP_FROM_EMAIL`** (and optionally **`SMTP_FROM_NAME`**)
 
 If SMTP is incomplete, many flows still work using **manual invite links** / mailto drafts from the app, but **server-sent** invite and incident mail will not work until SMTP is complete.
+
+**Example SMTP block (Render API):**
+
+```txt
+SMTP_HOST=smtp.your-provider.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your-smtp-username
+SMTP_PASS=your-app-password
+SMTP_FROM_EMAIL=no-reply@usebert.co.uk
+SMTP_FROM_NAME=BERT
+```
+
+**Company onboarding form (Master/Admin → Invite new company):**
+
+```txt
+BERT_COMPANY_ONBOARDING_FORM_URL=https://docs.google.com/forms/d/e/1FAIpQLSeWyvQiwz2zpW9L_V_gOhsVKtUs79LIxBZWGt7VMklED1QpNw/viewform?usp=sharing&ouid=113906459915409672747
+```
+
+If unset, the API uses the same URL as the paid-pilot default. The SPA shows a copyable link and email draft when SMTP is not configured.
 
 ### Optional tuning / branding
 

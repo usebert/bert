@@ -50,7 +50,12 @@ const requiredEnv = {
   SMTP_PASS: process.env.SMTP_PASS || "",
   SMTP_FROM_EMAIL: process.env.SMTP_FROM_EMAIL || process.env.SMTP_FROM || "",
   SMTP_FROM_NAME: process.env.SMTP_FROM_NAME || process.env.APP_BRAND_NAME || "BERT",
+  BERT_COMPANY_ONBOARDING_FORM_URL: process.env.BERT_COMPANY_ONBOARDING_FORM_URL || "",
 };
+
+/** Paid-pilot default when BERT_COMPANY_ONBOARDING_FORM_URL is unset (document in deployment runbook). */
+const DEFAULT_COMPANY_ONBOARDING_FORM_URL =
+  "https://docs.google.com/forms/d/e/1FAIpQLSeWyvQiwz2zpW9L_V_gOhsVKtUs79LIxBZWGt7VMklED1QpNw/viewform?usp=sharing&ouid=113906459915409672747";
 const APP_BRAND_NAME = (process.env.APP_BRAND_NAME || "BERT — Business. Evaluate. Report. Tool.").trim();
 /** Customer-facing inbox for server-driven mail (e.g. incident notifications). Override with APP_SUPPORT_EMAIL or APP_ADMIN_EMAIL. */
 const APP_SUPPORT_EMAIL = String(
@@ -1641,6 +1646,64 @@ function buildAppOnboardingInviteMailto({ toEmail, subjectLine, invitedBy, onboa
     onboardingUrl,
   ].join("\n");
   return `mailto:${encodeURIComponent(toEmail)}?subject=${encodeURIComponent(subjectLine)}&body=${encodeURIComponent(body)}`;
+}
+
+function getCompanyOnboardingFormUrl() {
+  const configured = String(requiredEnv.BERT_COMPANY_ONBOARDING_FORM_URL || "").trim();
+  return configured || DEFAULT_COMPANY_ONBOARDING_FORM_URL;
+}
+
+function buildCompanyOnboardingEmailDraft() {
+  const onboardingFormUrl = getCompanyOnboardingFormUrl();
+  const subject = "Complete your BERT company onboarding";
+  const textBody = [
+    "Hi,",
+    "",
+    "You have been invited to complete your company onboarding for BERT.",
+    "",
+    "Please open the secure onboarding form below and submit your company details:",
+    "",
+    onboardingFormUrl,
+    "",
+    "Once submitted, the BERT team will complete your workspace setup.",
+    "",
+    "Thanks,",
+    "BERT Admin",
+  ].join("\n");
+  const htmlBody = `
+    <p>Hi,</p>
+    <p>You have been invited to complete your company onboarding for <strong>${APP_BRAND_NAME}</strong>.</p>
+    <p>Please open the secure onboarding form below and submit your company details:</p>
+    <p><a href="${onboardingFormUrl}" target="_blank" rel="noopener noreferrer">Complete company onboarding form</a></p>
+    <p style="word-break:break-all;font-size:12px;color:#64748b;">${onboardingFormUrl}</p>
+    <p>Once submitted, the BERT team will complete your workspace setup.</p>
+    <p>Thanks,<br/>BERT Admin</p>
+  `;
+  return { subject, textBody, htmlBody, onboardingFormUrl };
+}
+
+function buildCompanyOnboardingMailto(toEmail) {
+  const { subject, textBody } = buildCompanyOnboardingEmailDraft();
+  return `mailto:${encodeURIComponent(toEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(textBody)}`;
+}
+
+async function sendCompanyOnboardingFormEmail(toEmail) {
+  if (!emailConfigured()) {
+    throw new Error("SMTP is not configured.");
+  }
+  const { subject, textBody, htmlBody, onboardingFormUrl } = buildCompanyOnboardingEmailDraft();
+  const transporter = createSmtpTransport();
+  const from = requiredEnv.SMTP_FROM_NAME
+    ? `"${requiredEnv.SMTP_FROM_NAME}" <${requiredEnv.SMTP_FROM_EMAIL}>`
+    : requiredEnv.SMTP_FROM_EMAIL;
+  await transporter.sendMail({
+    from,
+    to: toEmail,
+    subject,
+    text: textBody,
+    html: htmlBody,
+  });
+  return { subject, body: textBody, onboardingFormUrl };
 }
 
 async function sendAppHostedOnboardingEmail({ toEmail, subjectLine, invitedBy, onboardingUrl, htmlIntro }) {
@@ -3624,57 +3687,43 @@ app.post("/api/onboarding/invite", async (req, res) => {
 app.post("/api/onboarding/app-invites/new-company", (req, res) => {
   const run = async () => {
     const toEmail = String(req.body?.email || "").trim().toLowerCase();
-    const invitedBy = String(req.body?.invitedBy || APP_BRAND_NAME).trim();
 
     if (!toEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toEmail)) {
       res.status(400).json({ ok: false, error: "A valid email address is required." });
       return;
     }
 
+    const onboardingFormUrl = getCompanyOnboardingFormUrl();
+    const { subject, textBody } = buildCompanyOnboardingEmailDraft();
+    const smtpConfigured = emailConfigured();
+
+    const manualPayload = () => ({
+      ok: true,
+      sent: false,
+      smtpConfigured,
+      email: toEmail,
+      onboardingFormUrl,
+      emailDraft: { subject, body: textBody },
+      mailtoUrl: buildCompanyOnboardingMailto(toEmail),
+    });
+
+    if (!smtpConfigured) {
+      res.json(manualPayload());
+      return;
+    }
+
     try {
-      const { id } = createInviteRecord({
-        kind: "new_company",
+      await sendCompanyOnboardingFormEmail(toEmail);
+      res.json({
+        ok: true,
+        sent: true,
+        smtpConfigured: true,
         email: toEmail,
-        invitedBy,
+        onboardingFormUrl,
       });
-      const onboardingUrl = buildAppOnboardingUrl(id);
-      const subjectLine = `${APP_BRAND_NAME} — set up your company workspace`;
-      const manual = () => {
-        res.json({
-          ok: true,
-          delivery: "manual",
-          tokenId: id,
-          onboardingUrl,
-          mailtoUrl: buildAppOnboardingInviteMailto({
-            toEmail,
-            subjectLine,
-            invitedBy,
-            onboardingUrl,
-          }),
-        });
-      };
-      if (!emailConfigured()) {
-        manual();
-        return;
-      }
-      try {
-        await sendAppHostedOnboardingEmail({
-          toEmail,
-          subjectLine,
-          invitedBy,
-          onboardingUrl,
-          htmlIntro: `You have been invited to create a new company workspace in <strong>${APP_BRAND_NAME}</strong>.`,
-        });
-        res.json({ ok: true, delivery: "smtp", tokenId: id, onboardingUrl });
-      } catch (err) {
-        console.warn("[smtp] app new-company invite failed; manual fallback", err);
-        manual();
-      }
-    } catch (error) {
-      res.status(500).json({
-        ok: false,
-        error: error instanceof Error ? error.message : "Unable to create onboarding invite.",
-      });
+    } catch (err) {
+      console.warn("[smtp] company onboarding form email failed; manual fallback", err instanceof Error ? err.message : err);
+      res.json(manualPayload());
     }
   };
 

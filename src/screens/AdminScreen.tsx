@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { canAccessAdmin, canAccessAdminOnboardingWorkspace, getRoleDisplayName } from "../permissions";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../components/dashboard/DashboardPrimitives";
-import type { AdminScreenProps } from "../types/adminScreenProps";
+import type { AdminScreenProps, CompanyOnboardingEmailResult } from "../types/adminScreenProps";
 import type { Role } from "../permissions";
 import type { Answer, AuditQuestion } from "../types/reportsScreenProps";
 
@@ -26,6 +26,106 @@ function companyAdminEmailError(value: string, touched: boolean) {
     return "Enter a valid email address.";
   }
   return "";
+}
+
+async function copyTextToClipboard(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function CompanyOnboardingEmailResultPanel({
+  result,
+  onDismiss,
+  slatePrimaryCtaInteract,
+}: {
+  result: CompanyOnboardingEmailResult;
+  onDismiss: () => void;
+  slatePrimaryCtaInteract: string;
+}) {
+  const [copyLinkDone, setCopyLinkDone] = useState(false);
+  const [copyDraftDone, setCopyDraftDone] = useState(false);
+
+  if (result.sent) {
+    return (
+      <div className="mt-4 rounded-2xl border border-emerald-500/40 bg-emerald-950/30 p-4">
+        <p className="text-sm font-semibold text-emerald-100">Onboarding email sent</p>
+        <p className="mt-1 text-sm leading-6 text-emerald-50/90">
+          We sent the company onboarding form to <span className="font-semibold">{result.email}</span>.
+        </p>
+        <button type="button" onClick={onDismiss} className={`mt-3 text-xs font-semibold text-emerald-200 underline-offset-2 hover:underline ${slatePrimaryCtaInteract}`}>
+          Dismiss
+        </button>
+      </div>
+    );
+  }
+
+  const draftText = result.emailDraft
+    ? `Subject: ${result.emailDraft.subject}\n\n${result.emailDraft.body}`
+    : "";
+
+  return (
+    <div className="mt-4 rounded-2xl border border-amber-500/40 bg-amber-950/25 p-4">
+      <p className="text-sm font-semibold text-amber-100">Onboarding email ready</p>
+      <p className="mt-1 text-sm leading-6 text-amber-50/90">
+        Email sending is not configured. Copy the link or draft and send it manually.
+      </p>
+      <dl className="mt-3 space-y-2 text-xs text-slate-300">
+        <div>
+          <dt className="font-semibold uppercase tracking-[0.14em] text-slate-500">Recipient</dt>
+          <dd className="mt-0.5 break-all text-sm text-white">{result.email}</dd>
+        </div>
+        <div>
+          <dt className="font-semibold uppercase tracking-[0.14em] text-slate-500">Onboarding form link</dt>
+          <dd className="mt-0.5 break-all text-sm text-sky-200">{result.onboardingFormUrl}</dd>
+        </div>
+      </dl>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={async () => {
+            const ok = await copyTextToClipboard(result.onboardingFormUrl);
+            if (ok) {
+              setCopyLinkDone(true);
+              setTimeout(() => setCopyLinkDone(false), 2000);
+            }
+          }}
+          className="h-10 rounded-xl border border-white/15 bg-white/10 px-4 text-xs font-semibold text-white hover:bg-white/15"
+        >
+          {copyLinkDone ? "Link copied" : "Copy link"}
+        </button>
+        {draftText ? (
+          <button
+            type="button"
+            onClick={async () => {
+              const ok = await copyTextToClipboard(draftText);
+              if (ok) {
+                setCopyDraftDone(true);
+                setTimeout(() => setCopyDraftDone(false), 2000);
+              }
+            }}
+            className="h-10 rounded-xl border border-white/15 bg-white/10 px-4 text-xs font-semibold text-white hover:bg-white/15"
+          >
+            {copyDraftDone ? "Draft copied" : "Copy email draft"}
+          </button>
+        ) : null}
+        {result.mailtoUrl ? (
+          <a
+            href={result.mailtoUrl}
+            className="inline-flex h-10 items-center rounded-xl border border-white/15 bg-white/10 px-4 text-xs font-semibold text-white hover:bg-white/15"
+          >
+            Open in mail app
+          </a>
+        ) : null}
+      </div>
+      <button type="button" onClick={onDismiss} className={`mt-3 text-xs font-semibold text-amber-200 underline-offset-2 hover:underline ${slatePrimaryCtaInteract}`}>
+        Dismiss
+      </button>
+    </div>
+  );
 }
 
 function GoogleWorkspaceSetupNotice({
@@ -188,12 +288,16 @@ export function AdminScreen({
   godModeAppInviteEmail,
   onGodModeAppInviteEmailChange,
   onSendGodModeAppCompanyInvite,
+  companyOnboardingEmailResult,
+  companyOnboardingEmailSending,
+  onDismissCompanyOnboardingEmailResult,
   onOpenInitialSetup,
   AppIcon,
   slatePrimaryCtaInteract,
 }: AdminScreenProps) {
   const adminOnly = !canAccessAdmin(currentUser.role);
   const masterOnly = currentUser.role !== "Master";
+  const canInviteNewCompany = currentUser.role === "Master" || currentUser.role === "Admin";
   const godModeFirstUserInvite =
     currentUser.role === "Master" &&
     (companySheetSync?.usersCount ?? 0) === 0 &&
@@ -226,12 +330,17 @@ export function AdminScreen({
     [godModeAppInviteEmail, inviteAdminEmailTouched],
   );
   const canCreateCompanyWorkspace =
-    googleWorkspaceReady && isValidEmailAddress(godModeAppInviteEmail) && !inviteAdminEmailValidationError;
-  const companyWorkspaceButtonLabel = !googleWorkspaceReady
-    ? "Connect Google first"
-    : inviteAdminEmailValidationError || !godModeAppInviteEmail.trim()
-      ? "Complete required fields"
-      : "Create company workspace";
+    googleWorkspaceReady &&
+    isValidEmailAddress(godModeAppInviteEmail) &&
+    !inviteAdminEmailValidationError &&
+    !companyOnboardingEmailSending;
+  const companyWorkspaceButtonLabel = companyOnboardingEmailSending
+    ? "Sending…"
+    : !googleWorkspaceReady
+      ? "Connect Google first"
+      : inviteAdminEmailValidationError || !godModeAppInviteEmail.trim()
+        ? "Complete required fields"
+        : "Send onboarding email";
 
   const handleCompanyWorkspaceSubmit = () => {
     setInviteAdminEmailTouched(true);
@@ -382,7 +491,7 @@ export function AdminScreen({
         </section>
       )}
 
-      {!masterOnly && (
+      {canInviteNewCompany && (
         <div className="space-y-3">
           <GoogleWorkspaceSetupNotice
             backendConfigured={backendConfigured}
@@ -395,15 +504,15 @@ export function AdminScreen({
             <SectionHeader
               icon="spark"
               eyebrow="New tenant"
-              title="Invite new company (workspace setup)"
-              subtitle="Send a secure in-app link — the recipient creates the Drive workspace and their Admin account."
+              title="Invite new company"
+              subtitle="Send the company administrator a secure onboarding form."
             />
             <div className="rounded-[1.5rem] bg-slate-900 p-4">
               <label htmlFor="company-admin-email" className="mb-1 block text-sm font-semibold text-white">
                 Company administrator email
               </label>
               <p className="mb-2 text-xs leading-5 text-slate-400">
-                This person will receive access to manage the company workspace.
+                This person will receive the BERT company onboarding form.
               </p>
               <input
                 id="company-admin-email"
@@ -440,6 +549,13 @@ export function AdminScreen({
               >
                 {companyWorkspaceButtonLabel}
               </button>
+              {companyOnboardingEmailResult ? (
+                <CompanyOnboardingEmailResultPanel
+                  result={companyOnboardingEmailResult}
+                  onDismiss={onDismissCompanyOnboardingEmailResult}
+                  slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+                />
+              ) : null}
             </div>
           </section>
         </div>
