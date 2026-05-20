@@ -7,7 +7,12 @@ import dotenv from "dotenv";
 import { google } from "googleapis";
 import nodemailer from "nodemailer";
 import { bertCorsMiddleware } from "./bert-cors.mjs";
-import { hashPassword, installMasterAuthRoutes, upsertMasterOperator } from "./master-auth.mjs";
+import {
+  handleSeedMasterRequest,
+  hashPassword,
+  installMasterAuthRoutes,
+  masterOperatorsFilePath,
+} from "./master-auth.mjs";
 import { getSessionCookieOptions } from "./session-cookie-options.mjs";
 import { migrateAllPlainUserAuthKeys, verifyUserAuthLoginOrMigrate } from "./userauth-password.mjs";
 import { installDocumentDistributionRoutes } from "./document-distribution.mjs";
@@ -4406,32 +4411,13 @@ function requireBertToolSecret(req, res, next) {
 /** Bootstrap Master operator on hosted API when shell access is unavailable (e.g. Render free tier). */
 app.post("/api/tools/seed-master", requireBertToolSecret, async (req, res) => {
   try {
-    const email = String(req.body?.email || "")
-      .trim()
-      .toLowerCase();
-    const name = String(req.body?.name || "").trim();
-    const password = String(req.body?.password || "");
-    const confirm = req.body?.confirm === true;
-
-    if (!email || !email.includes("@")) {
-      return res.status(400).json({ ok: false, error: "A valid email is required." });
+    const outcome = handleSeedMasterRequest({ sessionDir, body: req.body || {} });
+    if (outcome.body.reset) {
+      console.log(`[tools] Master operator seeded/reset: ${outcome.body.email} store=${masterOperatorsFilePath(sessionDir)}`);
+    } else if (outcome.body.masterConfigured) {
+      console.log(`[tools] Master operator already configured: ${outcome.body.email}`);
     }
-    if (!name) {
-      return res.status(400).json({ ok: false, error: "Name is required." });
-    }
-    if (!password) {
-      return res.status(400).json({ ok: false, error: "Password is required." });
-    }
-    if (password.length < 12) {
-      return res.status(400).json({ ok: false, error: "Password must be at least 12 characters." });
-    }
-    if (!confirm) {
-      return res.status(400).json({ ok: false, error: "confirm must be true." });
-    }
-
-    const result = upsertMasterOperator({ sessionDir, email, name, password });
-    console.log(`[tools] Master operator upserted: ${result.email}`);
-    return res.json({ ok: true, email: result.email, name: result.name });
+    return res.status(outcome.status).json(outcome.body);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to seed Master operator.";
     if (message.includes("email")) {

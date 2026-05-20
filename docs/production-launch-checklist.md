@@ -26,11 +26,20 @@ Warnings (logged only, do not block boot):
 
 - [ ] `NODE_ENV=production`
 - [ ] Strong `SESSION_SECRET` (24+ random characters; not the dev default)
+- [ ] `BERT_ALLOWED_ORIGINS` includes every SPA origin (`https://app.usebert.co.uk`, `https://bert-app.onrender.com`, Capacitor, dev previews as needed)
+- [ ] `BERT_SESSIONS_DIR` on a persistent volume (Render/Railway) so `master-operators.json` survives redeploy
+- [ ] `BERT_TOOL_SECRET` plus `BERT_INITIAL_MASTER_*` for `POST /api/tools/seed-master` with `{}` when shell access is unavailable
 - [ ] `GOOGLE_*` OAuth client and **Shared Drive** ID for the deployment
 - [ ] `FRONTEND_URL` matches the public SPA origin (HTTPS in production)
 - [ ] `GOOGLE_REDIRECT_URI` registered in Google Cloud Console for this host
 - [ ] SMTP variables if server-sent email is required (otherwise use manual invite links)
 - [ ] **Never** set `ALLOW_INSECURE_OAUTH_STATE=true` in production
+
+## Master operator (hosted API)
+
+- [ ] `POST /api/tools/seed-master` with `X-Bert-Tool-Secret` and body `{}` (env bootstrap) or `{ "email", "password", "reset": true }` (password reset)
+- [ ] `POST /api/auth/master/login` with `Origin` matching an allowlisted SPA host returns `ok: true` and `Set-Cookie: bert_master_session`
+- [ ] Operator file exists at `{BERT_SESSIONS_DIR}/master-operators.json` (or `.sessions/master-operators.json` if unset)
 
 ## Hosting
 
@@ -42,9 +51,20 @@ Warnings (logged only, do not block boot):
 ## Smoke after deploy
 
 - [ ] `GET /api/health` → `ok: true`, expected `googleEnvConfigured`
-- [ ] `GET /api/readiness` → `ready: true` and HTTP 200 before marking instance “In service”
-- [ ] Google OAuth connect flow from the SPA
-- [ ] One invite or onboarding path in a staging tenant
+- [ ] `GET /api/readiness` → `ready: true`, `checks.sessionStoreWritable: true`, HTTP 200 before marking instance “In service”
+- [ ] CORS preflight for `https://bert-app.onrender.com` and `https://app.usebert.co.uk` returns matching `Access-Control-Allow-Origin` (see runbook curls)
+- [ ] Static SPA built with `VITE_API_BASE_URL=https://api.usebert.co.uk`
+- [ ] Hard refresh `/setup/initial` on SPA host loads app (not 404) — `public/_redirects` present in `dist/`
+- [ ] `POST /api/auth/master/login` from browser (both SPA origins) sets `bert_master_session` cookie
+- [ ] Master sees pilot nav only; **Godmode** appears only inside **Setup → Initial Setup** (`/setup/initial`)
+- [ ] Company users cannot access `/setup/initial` or Godmode
+- [ ] `npm run verify:auth` and `BERT_VERIFY_PILOT_DIST=1 npm run verify:auth` pass on release build artifact
+- [ ] Google OAuth connect flow from Initial Setup (after Google env on API)
+- [ ] One invite or onboarding path in a staging tenant (manual invite link OK if SMTP unset)
+
+## Browser E2E (paid pilot gate)
+
+See **`docs/deployment-runbook.md`** § “Browser end-to-end smoke” for the full operator checklist (Master login → Initial Setup → company → invite → company login → logout).
 
 ## Not covered by Phase 1
 

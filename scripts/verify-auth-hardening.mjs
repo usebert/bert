@@ -91,6 +91,10 @@ const forbiddenInDist = [
     name: 'literal god/dog dev credentials in client bundle',
     re: /(?:username|password)\s*:\s*["'](?:god|dog)["']/i,
   },
+  {
+    name: "/api/tools reference in client bundle (tool routes must stay server-only)",
+    re: /\/api\/tools/i,
+  },
 ];
 
 let failed = false;
@@ -172,6 +176,38 @@ console.log(`
 
 --- End checklist ---
 `);
+
+/** @returns {string[]} */
+function collectSourcePaths(dir, ext) {
+  /** @type {string[]} */
+  const out = [];
+  if (!fs.existsSync(dir)) {
+    return out;
+  }
+  for (const name of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, name.name);
+    if (name.isDirectory()) {
+      out.push(...collectSourcePaths(p, ext));
+    } else if (name.isFile() && name.name.endsWith(ext)) {
+      out.push(p);
+    }
+  }
+  return out;
+}
+
+const srcDir = path.join(root, "src");
+const srcPaths = [...collectSourcePaths(srcDir, ".ts"), ...collectSourcePaths(srcDir, ".tsx")];
+const appTsx = path.join(root, "App.tsx");
+if (fs.existsSync(appTsx)) {
+  srcPaths.push(appTsx);
+}
+const srcCombined = srcPaths.map((p) => fs.readFileSync(p, "utf8")).join("\n");
+if (/\/api\/tools/i.test(srcCombined)) {
+  console.error("[verify:auth] FAIL (src): /api/tools reference in client source");
+  failed = true;
+} else {
+  console.log("[verify:auth] OK (src): no /api/tools references");
+}
 
 if (failed) {
   process.exit(1);

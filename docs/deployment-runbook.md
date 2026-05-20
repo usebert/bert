@@ -29,6 +29,40 @@ app.usebert.co.uk    -> reverse proxy: static files for `/` + proxy `/api` and `
 
 Pick one model per environment and keep **redirect URIs** and **`FRONTEND_URL`** consistent with what users and Google see.
 
+### Deploy static SPA (Render Static Site)
+
+1. **New → Static Site** — Connect this repo.
+2. **Build command** — `npm ci && npm run build`
+3. **Publish directory** — `dist`
+4. **Build-time env (required):**
+   - **`VITE_API_BASE_URL=https://api.usebert.co.uk`**
+   - Do **not** set `VITE_ENABLE_DEMO_LOGIN`, `VITE_SHOW_DEBUG_UI`, or demo passwords.
+5. **SPA fallback** — `public/_redirects` is copied into `dist/` by Vite and tells Render to serve `index.html` for deep routes such as **`/setup/initial`**:
+
+   ```txt
+   /* /index.html 200
+   ```
+
+6. **Custom domain** — Add **`app.usebert.co.uk`** (or use **`bert-app.onrender.com`** until DNS is ready).
+7. **Post-deploy verify** — Hard refresh `https://<spa-host>/setup/initial` (should load the app, not 404).
+
+**GoDaddy DNS (app host):**
+
+- **CNAME** — Host **`app`** → Value your Render static site hostname (e.g. **`bert-app.onrender.com`**) or the target Render shows in the dashboard.
+- Wait for propagation before cutting over marketing links.
+
+**Render API env — `BERT_ALLOWED_ORIGINS` (exact, comma-separated, no spaces after commas unless your parser trims):**
+
+```txt
+https://app.usebert.co.uk,https://bert-app.onrender.com,capacitor://localhost,http://localhost:5173,http://localhost:4173
+```
+
+**Render API — persistent disk:**
+
+- Mount disk at **`/var/data`**
+- Set **`BERT_SESSIONS_DIR=/var/data/bert`**
+- Stores **`master-operators.json`**, **`google-session.json`**, invite JSON — survives redeploys.
+
 ---
 
 ## Deploy hosted API for Android pilot
@@ -97,32 +131,157 @@ Use a **strong password**; do not paste real secrets into documentation or ticke
 
 On hosts without shell access (e.g. Render free tier), seed or update the Master operator over HTTPS. Set **`BERT_TOOL_SECRET`** on the API service (same value used for other `/api/tools/*` routes). This endpoint is **not** exposed in the SPA.
 
+**Operator store path:** **`{BERT_SESSIONS_DIR}/master-operators.json`** when **`BERT_SESSIONS_DIR`** is set (recommended on Render with a persistent disk), otherwise **`{repo-root}/.sessions/master-operators.json`** on the API host.
+
+**Render env (API service):**
+
+| Variable | Purpose |
+|----------|---------|
+| **`BERT_TOOL_SECRET`** | Long random secret; required header **`X-Bert-Tool-Secret`** for **`POST /api/tools/seed-master`**. |
+| **`BERT_INITIAL_MASTER_EMAIL`** | Used when seed body is **`{}`** (first bootstrap only). |
+| **`BERT_INITIAL_MASTER_USERNAME`** | Optional display name / username for env-based seed (login accepts email or this name). |
+| **`BERT_INITIAL_MASTER_PASSWORD`** | Used with env-based seed (min 12 characters). |
+| **`BERT_SESSIONS_DIR`** | Persistent path for **`master-operators.json`** and OAuth session files (e.g. **`/var/data/bert-sessions`** on a mounted disk). |
+
+**Option A — env defaults (first Master only, empty body):**
+
 ```bash
-curl -X POST https://api.usebert.co.uk/api/tools/seed-master \
+curl -sS -X POST "https://api.usebert.co.uk/api/tools/seed-master" \
+  -H "Content-Type: application/json" \
+  -H "X-Bert-Tool-Secret: <BERT_TOOL_SECRET>" \
+  -d '{}'
+```
+
+**Option B — explicit reset (updates password when `reset: true`):**
+
+```bash
+curl -sS -X POST "https://api.usebert.co.uk/api/tools/seed-master" \
   -H "Content-Type: application/json" \
   -H "X-Bert-Tool-Secret: <BERT_TOOL_SECRET>" \
   -d '{
     "email": "admin@usebert.co.uk",
-    "name": "BERT Admin",
-    "password": "<new strong password>",
-    "confirm": true
+    "username": "BERT Admin",
+    "password": "<new-strong-password-min-12-chars>",
+    "reset": true
   }'
 ```
 
-Requires **`email`**, **`name`**, **`password`** (minimum 12 characters), and **`confirm": true`**. Writes **`master-operators.json`** under **`BERT_SESSIONS_DIR`** when set, otherwise **`.sessions`**. Response: **`{ "ok": true, "email": "...", "name": "..." }`** (no password hash). Wrong or missing tool secret → **403**; unset **`BERT_TOOL_SECRET`** → **404**.
+**Legacy (still supported):** **`{ "email", "name", "password", "confirm": true }`** upserts like before.
+
+Responses never include passwords or hashes, e.g. **`{ "ok": true, "masterConfigured": true, "email": "...", "username": "...", "reset": true }`**. Wrong or missing tool secret → **403**; unset **`BERT_TOOL_SECRET`** → **404**.
+
+### Master login API
+
+**`POST /api/auth/master/login`** accepts JSON **`{ "password": "..." }`** plus **`email`** and/or **`username`** (either field may carry the operator’s email; **`username`** also matches the seeded display name). Production builds do not accept client-side god/dog placeholders.
 
 ### Smoke checks (`curl`)
 
 ```bash
 curl -sS "https://api.usebert.co.uk/api/health"
+
+# Seed (after setting Render env vars)
+curl -sS -X POST "https://api.usebert.co.uk/api/tools/seed-master" \
+  -H "Content-Type: application/json" \
+  -H "X-Bert-Tool-Secret: <BERT_TOOL_SECRET>" \
+  -d '{}'
+
+# Login — include Origin so credentialed CORS matches production SPA hosts
+curl -sS -D - -o /dev/null -X POST "https://api.usebert.co.uk/api/auth/master/login" \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://bert-app.onrender.com" \
+  -d '{"email":"admin@usebert.co.uk","password":"<strong-password>"}'
+
 curl -sS -X POST "https://api.usebert.co.uk/api/auth/master/login" \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"ops@yourorg.example","password":"<strong-password>"}' | head -c 400
+  -H "Content-Type: application/json" \
+  -H "Origin: https://app.usebert.co.uk" \
+  -d '{"email":"admin@usebert.co.uk","password":"<strong-password>"}' | head -c 400
 ```
 
-Expect **`/api/health`** → **`"ok":true`**; login → **`"ok":true`** and a **`Set-Cookie`** for the Master session when credentials match **`master-operators.json`**.
+Expect **`/api/health`** → **`"ok":true`**; login → **`"ok":true`**, JSON **`operator`**, and **`Set-Cookie: bert_master_session=...; Secure; SameSite=None`** when credentials match **`master-operators.json`** and **`Origin`** is listed in **`BERT_ALLOWED_ORIGINS`**.
 
-### GoDaddy DNS (`usebert.co.uk`)
+### CORS preflight (browser login prerequisite)
+
+Temp SPA host:
+
+```bash
+curl -sS -i -X OPTIONS "https://api.usebert.co.uk/api/auth/master/login" \
+  -H "Origin: https://bert-app.onrender.com" \
+  -H "Access-Control-Request-Method: POST" | grep -i access-control-allow-origin
+```
+
+Expected:
+
+```txt
+access-control-allow-origin: https://bert-app.onrender.com
+```
+
+Production app host:
+
+```bash
+curl -sS -i -X OPTIONS "https://api.usebert.co.uk/api/auth/master/login" \
+  -H "Origin: https://app.usebert.co.uk" \
+  -H "Access-Control-Request-Method: POST" | grep -i access-control-allow-origin
+```
+
+Expected:
+
+```txt
+access-control-allow-origin: https://app.usebert.co.uk
+```
+
+If the grep returns nothing, add the missing origin to **`BERT_ALLOWED_ORIGINS`** on the API service and redeploy.
+
+### Readiness probe
+
+```bash
+curl -sS "https://api.usebert.co.uk/api/readiness"
+```
+
+Expected (before Google is configured):
+
+- **`"ready": true`**
+- **`checks.sessionStoreWritable": true`**
+- **`googleConfigured": false`** until Google env vars are set
+
+After Google env is complete and connected:
+
+- **`googleConfigured": true`**
+
+Use **`checks.sessionStoreWritable`** — do not rely on a legacy **`sessionsWritable`** field.
+
+### Master login (save cookies for session check)
+
+```bash
+curl -i -c bert-cookies.txt -X POST "https://api.usebert.co.uk/api/auth/master/login" \
+  -H "Origin: https://bert-app.onrender.com" \
+  -H "Content-Type: application/json" \
+  --data '{"email":"admin@usebert.co.uk","password":"REPLACE_WITH_PASSWORD"}'
+```
+
+Repeat with **`Origin: https://app.usebert.co.uk`** when that host is live.
+
+### Browser end-to-end smoke (operator)
+
+1. Open SPA (`https://bert-app.onrender.com` or `https://app.usebert.co.uk`) — no console CORS errors on load.
+2. Sign in as **Master** (email or username + password from seed).
+3. Confirm pilot nav: **Dashboard, Setup, Companies, Users, Invites, Settings** — no **Godmode** in main nav.
+4. **Setup → Open Initial Setup** — protected page shows **Godmode** breadcrumb and checklist:
+   - Master Account
+   - Google Workspace
+   - Shared Drive
+   - Session Storage
+   - Invite Email
+   - Ready for Pilot
+5. **Connect Google** (after Google env on API) — return to Initial Setup; Google section turns green.
+6. **Companies** — link or provision one test company folder.
+7. **Invites** — create invite; use manual link if SMTP not configured.
+8. Complete invite as company user; sign in with company credentials.
+9. Hard refresh **`/setup/initial`** — SPA loads (confirms **`_redirects`** fallback).
+10. **Log out** — always-visible control in sidebar (desktop) or bottom bar (mobile).
+
+**SMTP decision:** If SMTP env is incomplete, **`readyForPilot`** may stay false on **`GET /api/setup/status`** but pilots can proceed with **manual invite links** copied from the Invites screen.
+
+---
 
 - **Preferred:** create a **CNAME** record: **Host** **`api`** → **Value** your platform’s hostname (e.g. **`your-service.onrender.com`** or Railway’s **`<project>.up.railway.app`** target shown in the dashboard). TTL as advised (often 1 hour).
 - **Alternative:** if the host gives a **static IPv4** only, use an **A** record: **Host** **`api`** → **Value** that IP. Use **CNAME** whenever the provider supports it so IP changes do not break the pilot.
@@ -142,7 +301,9 @@ Remove or avoid conflicting **`api`** **A**/**CNAME** records; wait for DNS prop
 | **`BERT_SESSIONS_DIR`** | Optional directory for **`google-session.json`**, **`master-operators.json`**, and onboarding invite JSON; use with a **mounted disk** on ephemeral hosts (see [Deploy hosted API for Android pilot](#deploy-hosted-api-for-android-pilot)). |
 | **`SESSION_SECRET`** | Cookie signing for Express; must be **strong**, **not** the local default, and **≥ 24 characters** or the API will refuse to start. |
 | **`FRONTEND_URL`** | Public origin of the SPA (e.g. `https://app.usebert.co.uk`). Used in redirects and email links. Use **HTTPS** for non-loopback hosts. |
-| **`BERT_ALLOWED_ORIGINS`** | Comma-separated **exact** browser/Capacitor origins allowed to call the API with credentials (e.g. `https://app.usebert.co.uk,capacitor://localhost,http://localhost:5173`). **Required for production boot.** No `*` wildcard with `Access-Control-Allow-Credentials`. |
+| **`BERT_ALLOWED_ORIGINS`** | Comma-separated **exact** browser/Capacitor origins allowed to call the API with credentials (e.g. `https://app.usebert.co.uk,https://bert-app.onrender.com,capacitor://localhost,http://localhost:5173`). **Required for production boot.** No `*` wildcard with `Access-Control-Allow-Credentials`. |
+| **`BERT_TOOL_SECRET`** | Enables **`POST /api/tools/seed-master`** and other `/api/tools/*` routes via header **`X-Bert-Tool-Secret`**. |
+| **`BERT_INITIAL_MASTER_EMAIL`**, **`BERT_INITIAL_MASTER_USERNAME`**, **`BERT_INITIAL_MASTER_PASSWORD`** | Optional; used by **`POST /api/tools/seed-master`** with body **`{}`** for first-time bootstrap on hosts without shell. |
 | **`GOOGLE_CLIENT_ID`** | OAuth web client ID — **workspace provisioning** (not required for `/api/health` or Master login). |
 | **`GOOGLE_CLIENT_SECRET`** | OAuth client secret — workspace provisioning. |
 | **`GOOGLE_REDIRECT_URI`** | Must match the OAuth redirect URL registered in Google Cloud (e.g. `https://api.usebert.co.uk/auth/google/callback`). |
@@ -284,6 +445,7 @@ Verify Master auth against the live API (no secrets in logs):
 ```bash
 curl -sS -X POST "https://api.usebert.co.uk/api/auth/master/login" \
   -H 'Content-Type: application/json' \
+  -H 'Origin: https://bert-app.onrender.com' \
   -d '{"email":"<ops@yourorg.example>","password":"<strong-password>"}' | head -c 200
 ```
 
@@ -314,7 +476,7 @@ That runs **`VITE_API_BASE_URL=https://api.usebert.co.uk npm run build`**, **`BE
 
 When the SPA is served from a different origin than the API (static app host vs `api.usebert.co.uk`), or when the Android shell uses a **`capacitor://`** (or **`http://localhost`**) document origin while calling **`https://api…`**, the client uses **`fetch(..., { credentials: "include" })`**. The API then needs:
 
-1. **CORS** — Set **`BERT_ALLOWED_ORIGINS`** to every exact **`Origin`** the app may send (include **`https://app.usebert.co.uk`**, **`capacitor://localhost`**, and local Vite preview origins if used). The API reflects **`Access-Control-Allow-Origin`** to that exact value and sets **`Access-Control-Allow-Credentials: true`**. Do **not** use a wildcard origin with credentials.
+1. **CORS** — Set **`BERT_ALLOWED_ORIGINS`** to every exact **`Origin`** the app may send (include **`https://app.usebert.co.uk`**, **`https://bert-app.onrender.com`**, **`capacitor://localhost`**, and local Vite preview origins if used). The API reflects **`Access-Control-Allow-Origin`** to that exact value and sets **`Access-Control-Allow-Credentials: true`**. Do **not** use a wildcard origin with credentials.
 2. **Session cookies** — In **`NODE_ENV=production`** (or when **`BERT_COOKIE_SAMESITE_NONE=true`**), BERT sets **`bert_master_session`** / **`bert_company_session`** as **`SameSite=None; Secure; HttpOnly; Path=/`** (signed). **`SameSite=None` requires `Secure`**, so the API must be served over **HTTPS** in production. Logout and invalid-session paths clear cookies with the **same** attributes so WebViews drop them reliably.
 
 If Master session cookies are dropped, sign-in may return **`200`** but **`GET /api/auth/master/session`** stays **`401`** — fix allowlisted origins and TLS before widening the pilot.

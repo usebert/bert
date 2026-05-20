@@ -4942,16 +4942,17 @@ function App() {
       if (!pwd || !loginIdentity) {
         return false;
       }
-      if (!loginIdentity.includes("@")) {
-        return false;
-      }
       let response: Response;
       try {
         response = await fetch(apiUrl("/api/auth/master/login"), {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: loginIdentity, password: pwd }),
+          body: JSON.stringify({
+            email: loginIdentity.includes("@") ? loginIdentity : undefined,
+            username: loginIdentity,
+            password: pwd,
+          }),
         });
       } catch {
         if (masterFailureGuidesUx) {
@@ -5074,7 +5075,7 @@ function App() {
     }
 
     if (masterGuidedFailure === "auth") {
-      pushToast("Sign in failed", "Email or password is incorrect.", "warning");
+      pushToast("Sign in failed", "Email, username, or password is incorrect.", "warning");
       return;
     }
     if (masterGuidedFailure === "network") {
@@ -7770,9 +7771,9 @@ function App() {
                       <p className="mt-2 text-center text-[11px] text-slate-400 sm:text-xs">
                         {!isDemoLoginEnabled ? (
                           <>
-                            Use your <span className="font-semibold text-white">BERT Master email</span> registered via{" "}
-                            <span className="font-semibold text-white">npm run seed:master</span> on the API host (see docs in repo). Password
-                            is checked on the server — it is never stored in the app bundle.
+                            Use your <span className="font-semibold text-white">Master email or username</span> from the API host operator
+                            store (see <span className="font-semibold text-white">docs/deployment-runbook.md</span>). Password is checked on
+                            the server — it is never stored in the app bundle.
                           </>
                         ) : (
                           <>
@@ -7784,9 +7785,8 @@ function App() {
                       </p>
                       {!isDemoLoginEnabled && !loginUsers.some((user) => user.role === "Master") ? (
                         <p className="mt-2 rounded-xl border border-amber-500/40 bg-amber-950/40 px-3 py-2 text-[11px] leading-snug text-amber-50 sm:text-xs">
-                          No client-side Master demo user is bundled. Create a Master operator on the API server with{" "}
-                          <span className="font-semibold">npm run seed:master</span>, then sign in here using that email and password (server
-                          session).
+                          No client-side Master demo user is bundled. Seed the Master operator on the API host (see deployment runbook), then
+                          sign in here with that email or username and password.
                         </p>
                       ) : null}
                       <form className="mt-3 space-y-2.5 sm:mt-4 sm:space-y-3" onSubmit={(event) => { event.preventDefault(); void handleLogin(); }}>
@@ -7800,7 +7800,7 @@ function App() {
                             <input
                               value={username}
                               onChange={(event) => setUsername(event.target.value)}
-                              placeholder="Master email address"
+                              placeholder="Email or username"
                               className="h-11 w-full rounded-xl border border-white/10 bg-slate-950/45 pl-10 pr-3 text-sm text-white outline-none transition placeholder:text-slate-400 focus:border-orange-400 focus:ring-2 focus:ring-orange-400/15 sm:h-12 sm:rounded-2xl sm:pl-11 sm:pr-4 sm:text-base"
                             />
                           </div>
@@ -7943,7 +7943,7 @@ function App() {
                     ) : (
                       <p className="mt-2 rounded-xl border border-white/10 bg-slate-950/35 px-3 py-2 text-xs text-slate-300 sm:text-sm">
                         Demo login is disabled in this build. Use an invited account or ask a BERT administrator to create access. BERT
-                        Master operators sign in with their server-registered email (see <span className="font-semibold text-white">npm run seed:master</span>).
+                        Master operators sign in with their server-registered email or username (see deployment runbook).
                       </p>
                     )}
                     {!isDemoLoginEnabled && loginUsers.length === 0 ? (

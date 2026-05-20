@@ -18,12 +18,14 @@
     "seed:master": "node scripts/seed-master.mjs",
     "migrate:userauth": "node scripts/migrate-userauth-passwords.mjs",
     "verify:auth": "node scripts/verify-auth-hardening.mjs",
+    "verify:pilot-readiness": "node scripts/verify-pilot-readiness.mjs",
     "preview": "vite preview",
     "android:sync": "npm run build && npx cap sync android",
     "android:open": "npx cap open android",
     "android:apk": "bash scripts/build-android-debug-apk.sh",
     "android:apk:release": "bash scripts/build-android-release-apk.sh",
-    "android:apk:pilot": "VITE_API_BASE_URL=https://api.usebert.co.uk npm run build && BERT_VERIFY_PILOT_DIST=1 npm run verify:auth && npm run android:sync && npm run android:apk:release"
+    "android:apk:pilot": "VITE_API_BASE_URL=https://api.usebert.co.uk npm run build && BERT_VERIFY_PILOT_DIST=1 npm run verify:auth && npm run android:sync && npm run android:apk:release",
+    "android:apk:pilot:debug": "bash scripts/build-android-pilot-debug-apk.sh"
   },
   "dependencies": {
     "@capacitor/android": "^8.3.1",
