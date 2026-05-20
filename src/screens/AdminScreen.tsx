@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { canAccessAdmin, canAccessAdminOnboardingWorkspace, getRoleDisplayName } from "../permissions";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../components/dashboard/DashboardPrimitives";
 import type { AdminScreenProps } from "../types/adminScreenProps";
@@ -7,6 +7,62 @@ import type { Answer, AuditQuestion } from "../types/reportsScreenProps";
 
 function normalizeIdentity(value: string | null | undefined) {
   return (value || "").trim().toLowerCase();
+}
+
+function isValidEmailAddress(value: string) {
+  const trimmed = value.trim().toLowerCase();
+  return Boolean(trimmed) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+}
+
+function companyAdminEmailError(value: string, touched: boolean) {
+  const trimmed = value.trim();
+  if (!touched && !trimmed) {
+    return "";
+  }
+  if (!trimmed) {
+    return "Enter the company administrator email.";
+  }
+  if (!isValidEmailAddress(trimmed)) {
+    return "Enter a valid email address.";
+  }
+  return "";
+}
+
+function GoogleWorkspaceSetupNotice({
+  backendConfigured,
+  googleConnected,
+  showInitialSetupCta,
+  onOpenInitialSetup,
+  slatePrimaryCtaInteract,
+}: {
+  backendConfigured: boolean;
+  googleConnected: boolean;
+  showInitialSetupCta: boolean;
+  onOpenInitialSetup?: () => void;
+  slatePrimaryCtaInteract: string;
+}) {
+  if (backendConfigured && googleConnected) {
+    return null;
+  }
+  return (
+    <section className="rounded-[1.75rem] border border-amber-200 bg-gradient-to-b from-amber-50 to-white p-4 shadow-sm">
+      <p className="text-sm font-semibold text-slate-900">Google Workspace needs setup</p>
+      <p className="mt-1 text-sm leading-6 text-slate-600">
+        {!backendConfigured || !googleConnected
+          ? "Connect Google Workspace in Initial Setup before creating company workspaces or company user logins."
+          : null}
+      </p>
+      {showInitialSetupCta && onOpenInitialSetup ? (
+        <button
+          type="button"
+          onClick={onOpenInitialSetup}
+          className={`mt-3 h-11 rounded-2xl bg-[#ea580c] px-5 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}
+        >
+          Open Initial Setup
+        </button>
+      ) : null}
+    </section>
+  );
 }
 
 export function AdminScreen({
@@ -132,6 +188,7 @@ export function AdminScreen({
   godModeAppInviteEmail,
   onGodModeAppInviteEmailChange,
   onSendGodModeAppCompanyInvite,
+  onOpenInitialSetup,
   AppIcon,
   slatePrimaryCtaInteract,
 }: AdminScreenProps) {
@@ -161,6 +218,28 @@ export function AdminScreen({
     }
   }, [pilotFocus]);
   const godModeFullVisibility = currentUser.role === "Master";
+  const googleWorkspaceReady = backendConfigured && googleConnected;
+  const showInitialSetupCta = currentUser.role === "Master";
+  const [inviteAdminEmailTouched, setInviteAdminEmailTouched] = useState(false);
+  const inviteAdminEmailValidationError = useMemo(
+    () => companyAdminEmailError(godModeAppInviteEmail, inviteAdminEmailTouched),
+    [godModeAppInviteEmail, inviteAdminEmailTouched],
+  );
+  const canCreateCompanyWorkspace =
+    googleWorkspaceReady && isValidEmailAddress(godModeAppInviteEmail) && !inviteAdminEmailValidationError;
+  const companyWorkspaceButtonLabel = !googleWorkspaceReady
+    ? "Connect Google first"
+    : inviteAdminEmailValidationError || !godModeAppInviteEmail.trim()
+      ? "Complete required fields"
+      : "Create company workspace";
+
+  const handleCompanyWorkspaceSubmit = () => {
+    setInviteAdminEmailTouched(true);
+    if (!googleWorkspaceReady || !isValidEmailAddress(godModeAppInviteEmail)) {
+      return;
+    }
+    onSendGodModeAppCompanyInvite();
+  };
   useEffect(() => {
     if (!pendingAdminScrollTarget) {
       return;
@@ -304,33 +383,77 @@ export function AdminScreen({
       )}
 
       {!masterOnly && (
-        <section className="rounded-[1.75rem] border border-slate-800 bg-slate-950 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.24)]">
-          <SectionHeader
-            icon="spark"
-            eyebrow="New tenant"
-            title="Invite new company (workspace setup)"
-            subtitle="Send a secure in-app link — the recipient creates the Drive workspace and their Admin account."
+        <div className="space-y-3">
+          <GoogleWorkspaceSetupNotice
+            backendConfigured={backendConfigured}
+            googleConnected={googleConnected}
+            showInitialSetupCta={showInitialSetupCta}
+            onOpenInitialSetup={onOpenInitialSetup}
+            slatePrimaryCtaInteract={slatePrimaryCtaInteract}
           />
-          <div className="rounded-[1.5rem] bg-slate-900 p-4">
-            <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Administrator email</label>
-            <input
-              value={godModeAppInviteEmail}
-              onChange={(event) => onGodModeAppInviteEmailChange(event.target.value)}
-              placeholder="admin@newcompany.com"
-              className="h-12 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 text-sm text-white outline-none focus:border-sky-400"
+          <section className="rounded-[1.75rem] border border-slate-800 bg-slate-950 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.24)]">
+            <SectionHeader
+              icon="spark"
+              eyebrow="New tenant"
+              title="Invite new company (workspace setup)"
+              subtitle="Send a secure in-app link — the recipient creates the Drive workspace and their Admin account."
             />
-            <button
-              type="button"
-              onClick={onSendGodModeAppCompanyInvite}
-              className={`mt-3 h-11 w-full rounded-2xl bg-slate-100 text-sm font-semibold text-slate-900 ${slatePrimaryCtaInteract}`}
-            >
-              Send company setup link
-            </button>
-          </div>
-        </section>
+            <div className="rounded-[1.5rem] bg-slate-900 p-4">
+              <label htmlFor="company-admin-email" className="mb-1 block text-sm font-semibold text-white">
+                Company administrator email
+              </label>
+              <p className="mb-2 text-xs leading-5 text-slate-400">
+                This person will receive access to manage the company workspace.
+              </p>
+              <input
+                id="company-admin-email"
+                type="email"
+                autoComplete="email"
+                value={godModeAppInviteEmail}
+                onChange={(event) => onGodModeAppInviteEmailChange(event.target.value)}
+                onBlur={() => setInviteAdminEmailTouched(true)}
+                placeholder="admin@example.com"
+                aria-invalid={Boolean(inviteAdminEmailValidationError)}
+                aria-describedby={inviteAdminEmailValidationError ? "company-admin-email-error" : undefined}
+                disabled={!googleWorkspaceReady}
+                className={[
+                  "h-12 w-full rounded-2xl border bg-slate-950 px-4 text-sm text-white outline-none focus:ring-2 focus:ring-sky-400/20",
+                  inviteAdminEmailValidationError ? "border-rose-400 focus:border-rose-400" : "border-slate-700 focus:border-sky-400",
+                  !googleWorkspaceReady ? "cursor-not-allowed opacity-60" : "",
+                ].join(" ")}
+              />
+              {inviteAdminEmailValidationError ? (
+                <p id="company-admin-email-error" className="mt-2 text-xs font-medium text-rose-300" role="alert">
+                  {inviteAdminEmailValidationError}
+                </p>
+              ) : null}
+              <button
+                type="button"
+                onClick={handleCompanyWorkspaceSubmit}
+                disabled={!canCreateCompanyWorkspace}
+                className={[
+                  "mt-3 h-11 w-full rounded-2xl text-sm font-semibold transition",
+                  canCreateCompanyWorkspace
+                    ? `bg-slate-100 text-slate-900 ${slatePrimaryCtaInteract}`
+                    : "cursor-not-allowed bg-white/10 text-slate-500",
+                ].join(" ")}
+              >
+                {companyWorkspaceButtonLabel}
+              </button>
+            </div>
+          </section>
+        </div>
       )}
 
       {currentUser.role === "Master" && (onboardingMode || godModeFullVisibility) && (
+        <div className="space-y-3">
+          <GoogleWorkspaceSetupNotice
+            backendConfigured={backendConfigured}
+            googleConnected={googleConnected}
+            showInitialSetupCta={showInitialSetupCta}
+            onOpenInitialSetup={onOpenInitialSetup}
+            slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+          />
         <section className="rounded-[1.75rem] bg-slate-950 p-5 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]">
           {!standaloneOnboarding && (
             <div className="mb-3">
@@ -463,15 +586,15 @@ export function AdminScreen({
             <div className="mt-4 space-y-3">
               <button
                 onClick={onOneClickGoogleOnboarding}
-                disabled={adminOnly || !backendConfigured || folderInspectionLoading}
+                disabled={adminOnly || !googleWorkspaceReady || folderInspectionLoading}
                 className={[
                   "h-12 rounded-2xl px-5 text-sm font-semibold transition",
-                  adminOnly || !backendConfigured || folderInspectionLoading
-                    ? "bg-white/10 text-slate-400"
+                  adminOnly || !googleWorkspaceReady || folderInspectionLoading
+                    ? "cursor-not-allowed bg-white/10 text-slate-400"
                     : "bg-sky-300 text-slate-900 shadow-[0_14px_28px_rgba(14,165,233,0.25)] active:scale-[0.99]",
                 ].join(" ")}
               >
-                Run workspace setup (one click)
+                {!googleWorkspaceReady ? "Connect Google first" : "Run workspace setup (one click)"}
               </button>
               <div className="flex flex-wrap items-center gap-3">
                 {googleConnected && (
@@ -500,10 +623,10 @@ export function AdminScreen({
                 <div className="flex flex-wrap gap-3 rounded-2xl border border-white/10 bg-slate-950/20 p-3">
                   <button
                     onClick={!googleConnected ? onGoogleConnect : onAddFolder}
-                    disabled={adminOnly || !backendConfigured || googleStatusLoading}
+                    disabled={adminOnly || !googleWorkspaceReady || googleStatusLoading}
                     className={[
                       "h-12 rounded-2xl px-5 text-sm font-semibold transition",
-                      adminOnly || !backendConfigured || googleStatusLoading
+                      adminOnly || !googleWorkspaceReady || googleStatusLoading
                         ? "bg-white/10 text-slate-400"
                         : "bg-white text-slate-900 shadow-[0_14px_28px_rgba(15,23,42,0.18)] active:scale-[0.99]",
                     ].join(" ")}
@@ -524,10 +647,10 @@ export function AdminScreen({
                   )}
                   <button
                     onClick={onSyncForms}
-                    disabled={adminOnly || !backendConfigured || !selectedFolder || folderInspectionLoading}
+                    disabled={adminOnly || !googleWorkspaceReady || !selectedFolder || folderInspectionLoading}
                     className={[
                       "h-12 rounded-2xl px-5 text-sm font-semibold transition",
-                      adminOnly || !backendConfigured || !selectedFolder || folderInspectionLoading
+                      adminOnly || !googleWorkspaceReady || !selectedFolder || folderInspectionLoading
                         ? "bg-white/10 text-slate-400"
                         : "bg-orange-500 text-white shadow-[0_14px_28px_rgba(249,115,22,0.35)] active:scale-[0.99]",
                     ].join(" ")}
@@ -633,6 +756,7 @@ export function AdminScreen({
             )}
           </div>
         </section>
+        </div>
       )}
 
       {onboardingMode && (

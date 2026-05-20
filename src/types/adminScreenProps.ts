@@ -222,6 +222,8 @@ export type AdminScreenProps = {
   godModeAppInviteEmail: string;
   onGodModeAppInviteEmailChange: (value: string) => void;
   onSendGodModeAppCompanyInvite: () => void;
+  /** Master-only: navigate to protected Initial Setup (/setup/initial). */
+  onOpenInitialSetup?: () => void;
   AppIcon: ComponentType<{ name: string; className?: string }>;
   slatePrimaryCtaInteract: string;
 };

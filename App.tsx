@@ -5186,6 +5186,14 @@ function App() {
     if (!currentUser || currentUser.role !== "Master") {
       return;
     }
+    if (!backendConfigured || !googleConnected) {
+      pushToast(
+        "Google Workspace needs setup",
+        "Connect Google in Initial Setup before provisioning a company.",
+        "warning",
+      );
+      return;
+    }
     const trimmed = godModeAppInviteEmail.trim().toLowerCase();
     if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
       pushToast("Email required", "Enter a valid email address for the new company administrator.", "warning");
@@ -6311,6 +6319,14 @@ function App() {
   };
 
   const handleAddFolder = async () => {
+    if (!backendConfigured) {
+      pushToast(
+        "Google Workspace needs setup",
+        "Connect Google in Initial Setup before linking company workspaces.",
+        "warning",
+      );
+      return;
+    }
     if (!googleConnected) {
       pushToast("Connect required", "Connect Google before linking the company folder from the root folder.", "warning");
       return;
@@ -6709,8 +6725,12 @@ function App() {
   };
 
   const handleOneClickGoogleOnboarding = async () => {
-    if (!googleConnected) {
-      handleGoogleConnect();
+    if (!backendConfigured || !googleConnected) {
+      pushToast(
+        "Google Workspace needs setup",
+        "Connect Google in Initial Setup before provisioning a company.",
+        "warning",
+      );
       return;
     }
 
@@ -9004,6 +9024,14 @@ function App() {
                 godModeAppInviteEmail={godModeAppInviteEmail}
                 onGodModeAppInviteEmailChange={setGodModeAppInviteEmail}
                 onSendGodModeAppCompanyInvite={handleSendGodModeAppCompanyInvite}
+                onOpenInitialSetup={
+                  canAccessGodmodeInitialSetup(currentUser.role)
+                    ? () => {
+                        setScreen("setupInitial");
+                        navigateToSetupInitial();
+                      }
+                    : undefined
+                }
                 scheduleNameInput={scheduleNameInput}
                 scheduleAreaInput={scheduleAreaInput}
                 scheduleOwnerInput={scheduleOwnerInput}
