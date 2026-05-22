@@ -7757,8 +7757,11 @@ function App() {
         : "border-slate-200/85 bg-white/90 shadow-[0_28px_80px_rgba(15,23,42,0.14)] text-slate-900",
     ].join(" ");
 
+    const signInTabletChrome = isDebugUiAllowed();
+    const signInLogoVariant = signInTabletChrome ? "mark" : "full";
+
     const wrapSignInTabletChrome = (node: React.ReactNode) =>
-      isDebugUiAllowed() ? (
+      signInTabletChrome ? (
         <div className="qms-tablet-stage">
           <div className="qms-tablet-device qms-tablet-device--signin">{node}</div>
         </div>
@@ -7775,7 +7778,7 @@ function App() {
                 <DataFlowBackground />
                 <div className="relative z-10 grid h-full min-h-0 w-full grid-cols-1 items-center gap-3 sm:grid-cols-2 sm:gap-4">
                   <div className="flex flex-col justify-center gap-3 px-1 py-0 sm:px-2">
-                    <BertLogo variant="full" tone={themeMode === "dark" ? "onDark" : "onLight"} size="lg" className="w-full" />
+                    <BertLogo variant={signInLogoVariant} tone={themeMode === "dark" ? "onDark" : "onLight"} size="lg" className="w-full" />
                     <p className="text-xs font-medium text-slate-500 sm:text-sm sm:text-slate-400">
                       Workspace setup — new company sign-in only
                     </p>
@@ -7956,7 +7959,7 @@ function App() {
               <div className="relative z-10 grid h-full min-h-0 w-full grid-cols-1 items-center gap-3 sm:grid-cols-2 sm:gap-4">
                 <div className="flex flex-col justify-center gap-3 px-1 py-0 sm:px-2">
                   <BertLogo
-                    variant="full"
+                    variant={signInLogoVariant}
                     tone={themeMode === "dark" ? "onDark" : "onLight"}
                     size="lg"
                     className="w-full"
@@ -8073,6 +8076,7 @@ function App() {
   }
 
   const tabletDebugUi = isDebugUiAllowed();
+  const tabletChromeLogoVariant = tabletDebugUi ? "mark" : "wordmark";
   const wrapLoggedInTabletChrome = (node: React.ReactNode) =>
     tabletDebugUi ? (
       <div className="qms-tablet-stage">
@@ -8204,7 +8208,7 @@ function App() {
             <div className="flex items-center gap-2">
               <div className="hidden shrink-0 pr-0.5 sm:block">
                 <BertLogo
-                  variant="wordmark"
+                  variant={tabletChromeLogoVariant}
                   tone={themeMode === "dark" ? "onDark" : "onLight"}
                   size="sm"
                 />
@@ -8301,7 +8305,12 @@ function App() {
             ].join(" ")}
           >
             <div className={`shrink-0 ${desktopSidebarCollapsed ? "px-2 py-3" : "px-3 py-4"}`}>
-              <BertLogo variant="wordmark" tone="onDark" size="sm" className={desktopSidebarCollapsed ? "scale-90" : ""} />
+              <BertLogo
+                variant={tabletChromeLogoVariant}
+                tone="onDark"
+                size="sm"
+                className={desktopSidebarCollapsed ? "scale-90" : ""}
+              />
             </div>
             <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 pb-2" aria-label="Primary">
               {primaryNavItems.map((item) => {
