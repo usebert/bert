@@ -14,7 +14,11 @@ import {
   masterOperatorsFilePath,
 } from "./master-auth.mjs";
 import { getSessionCookieOptions } from "./session-cookie-options.mjs";
-import { migrateAllPlainUserAuthKeys, verifyUserAuthLoginOrMigrate } from "./userauth-password.mjs";
+import {
+  isUserAuthScryptHash,
+  migrateAllPlainUserAuthKeys,
+  verifyUserAuthLoginOrMigrate,
+} from "./userauth-password.mjs";
 import { installDocumentDistributionRoutes } from "./document-distribution.mjs";
 import { installEmailReminderRoutes, startEmailReminderScheduler } from "./email-reminders.mjs";
 import { installSetupStatusRoutes } from "./setup-status.mjs";
@@ -1561,6 +1565,69 @@ function createInviteRecord(payload) {
 function getInviteRecord(id) {
   const store = readInviteStore();
   return store[id] || null;
+}
+
+function findCompanyUserInviteForResend({ email, masterSheetId, tokenId }) {
+  const store = readInviteStore();
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const normalizedSheetId = String(masterSheetId || "").trim();
+  const requestedTokenId = String(tokenId || "").trim();
+
+  if (requestedTokenId && store[requestedTokenId]) {
+    const record = store[requestedTokenId];
+    if (
+      record.kind === "company_user" &&
+      !record.consumedAt &&
+      Date.now() <= record.expiresAt &&
+      String(record.email || "").trim().toLowerCase() === normalizedEmail
+    ) {
+      return { id: requestedTokenId, record };
+    }
+  }
+
+  let best = null;
+  for (const [id, record] of Object.entries(store)) {
+    if (record.kind !== "company_user") continue;
+    if (String(record.email || "").trim().toLowerCase() !== normalizedEmail) continue;
+    if (String(record.masterSheetId || "").trim() !== normalizedSheetId) continue;
+    if (record.consumedAt) continue;
+    if (Date.now() > record.expiresAt) continue;
+    if (!best || Number(record.createdAt) > Number(best.record.createdAt)) {
+      best = { id, record };
+    }
+  }
+  return best;
+}
+
+function revokeInviteRecord(id) {
+  const store = readInviteStore();
+  if (!store[id]) {
+    return false;
+  }
+  delete store[id];
+  writeInviteStore(store);
+  return true;
+}
+
+async function companyUserLoginReady(auth, masterSheetId, email) {
+  if (!auth || !masterSheetId || !email) {
+    return false;
+  }
+  try {
+    const cfg = await getConfig(auth, masterSheetId);
+    const key = `UserAuth.${String(email).trim().toLowerCase()}`;
+    return isUserAuthScryptHash(cfg[key]);
+  } catch {
+    return false;
+  }
+}
+
+async function resolveCompanyUserInviteLifecycle(auth, masterSheetId, email) {
+  const loginReady = await companyUserLoginReady(auth, masterSheetId, email);
+  return {
+    loginReady,
+    status: loginReady ? "active" : "awaiting_setup",
+  };
 }
 
 function markInviteConsumed(id) {
@@ -3814,7 +3881,7 @@ app.post("/api/onboarding/app-invites/new-company", (req, res) => {
   });
 });
 
-app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceSession, (req, res) => {
+app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, (req, res) => {
   const run = async () => {
     const toEmail = String(req.body?.email || "").trim().toLowerCase();
     const inviteRole = String(req.body?.role || "").trim();
@@ -3822,6 +3889,8 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceSessi
     const companyFolderId = String(req.body?.companyFolderId || "").trim();
     const masterSheetId = String(req.body?.masterSheetId || "").trim();
     const companyName = String(req.body?.companyName || "").trim();
+    const resendRequested = req.body?.resend === true;
+    const resendTokenId = String(req.body?.tokenId || "").trim();
 
     if (!toEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toEmail)) {
       res.status(400).json({ ok: false, error: "A valid email address is required." });
@@ -3840,21 +3909,44 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceSessi
     }
 
     try {
-      const { id } = createInviteRecord({
-        kind: "company_user",
-        email: toEmail,
-        role: inviteRole,
-        invitedBy,
-        companyFolderId,
-        masterSheetId,
-        companyName,
-      });
+      const auth = getAuthedClient();
+      let id;
+      if (resendRequested || resendTokenId) {
+        const existing = findCompanyUserInviteForResend({
+          email: toEmail,
+          masterSheetId,
+          tokenId: resendTokenId,
+        });
+        if (!existing) {
+          res.status(404).json({
+            ok: false,
+            error: "No active invite found for this user. Send a new invite link instead.",
+            blocker: "invite_not_found",
+          });
+          return;
+        }
+        id = existing.id;
+        console.log(`[invite] company_user resend token=${id.slice(0, 8)} recipient=${toEmail}`);
+      } else {
+        ({ id } = createInviteRecord({
+          kind: "company_user",
+          email: toEmail,
+          role: inviteRole,
+          invitedBy,
+          companyFolderId,
+          masterSheetId,
+          companyName,
+        }));
+        console.log(`[invite] company_user created token=${id.slice(0, 8)} recipient=${toEmail}`);
+      }
+
       const inviteUrl = buildAppOnboardingUrl(id);
       const { subject, textBody, senderEmail } = buildCompanyUserInviteEmailDraft({
         inviteRole,
         inviteUrl,
       });
       const smtpConfigured = emailConfigured();
+      const lifecycle = await resolveCompanyUserInviteLifecycle(auth, masterSheetId, toEmail);
 
       const manualPayload = (smtpError) => ({
         ok: true,
@@ -3865,6 +3957,8 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceSessi
         inviteUrl,
         tokenId: id,
         senderEmail,
+        status: lifecycle.status,
+        loginReady: lifecycle.loginReady,
         emailDraft: { subject, body: textBody },
         mailtoUrl: buildCompanyUserInviteMailto({ toEmail, inviteRole, inviteUrl }),
         ...(smtpError ? { smtpError } : {}),
@@ -3888,6 +3982,8 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceSessi
           inviteUrl,
           tokenId: id,
           senderEmail,
+          status: lifecycle.status,
+          loginReady: lifecycle.loginReady,
         });
       } catch (err) {
         const smtpError = safeSmtpErrorSummary(err);
@@ -3915,6 +4011,26 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceSessi
       }
     }
   });
+});
+
+app.delete("/api/onboarding/app-invites/:tokenId", requireGoogleWorkspaceEnv, (req, res) => {
+  const tokenId = String(req.params.tokenId || "").trim();
+  if (!tokenId) {
+    return res.status(400).json({ ok: false, error: "Invite token is required." });
+  }
+  const record = getInviteRecord(tokenId);
+  if (!record) {
+    return res.status(404).json({ ok: false, error: "Invite not found." });
+  }
+  if (record.consumedAt) {
+    return res.status(409).json({
+      ok: false,
+      error: "This invite was already completed and cannot be revoked.",
+    });
+  }
+  revokeInviteRecord(tokenId);
+  console.log(`[invite] revoked token=${tokenId.slice(0, 8)} kind=${record.kind}`);
+  return res.json({ ok: true, revoked: true, tokenId });
 });
 
 app.get("/api/onboarding/app-invites/:tokenId", async (req, res) => {
@@ -4433,6 +4549,11 @@ app.post("/auth/google/logout", async (_req, res) => {
   res.json({ ok: true });
 });
 
+/**
+ * Company login requires Config `UserAuth.<email>` (scrypt hash) and a matching Users tab row.
+ * Those are written when the recipient completes POST /api/onboarding/app-invites/:tokenId/complete —
+ * not when an operator sends the invite email.
+ */
 app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, res) => {
   try {
     const auth = getAuthedClient();

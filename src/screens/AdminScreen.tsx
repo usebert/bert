@@ -169,6 +169,14 @@ function CompanyUserInviteEmailResultPanel({
           <span className="font-semibold">{result.role}</span>. Ask them to check their Inbox and Junk/Spam folder if it
           does not arrive within a few minutes.
         </p>
+        {!result.loginReady ? (
+          <p className="mt-2 text-sm leading-6 text-emerald-50/90">
+            The user must open the invite link and finish account setup (name and password) before they can sign in to
+            BERT.
+          </p>
+        ) : (
+          <p className="mt-2 text-sm leading-6 text-emerald-50/90">This account is ready for company sign-in.</p>
+        )}
         <dl className="mt-3 text-xs text-emerald-100/80">
           <div>
             <dt className="font-semibold uppercase tracking-[0.14em] text-emerald-200/70">From</dt>
@@ -257,6 +265,19 @@ function inviteStatusLabel(status: string) {
     return "Email sent";
   }
   return status;
+}
+
+function inviteStatusBadgeClass(status: string) {
+  if (status === "Active") {
+    return "bg-emerald-500/15 text-emerald-200";
+  }
+  if (status === "Email sent") {
+    return "bg-sky-500/15 text-sky-200";
+  }
+  if (status === "Awaiting setup") {
+    return "bg-amber-500/15 text-amber-100";
+  }
+  return "bg-slate-700/80 text-slate-200";
 }
 
 function GoogleWorkspaceSetupNotice({
@@ -1211,6 +1232,10 @@ export function AdminScreen({
                     <MiniPill key={role} label={`Can create ${role}`} active />
                   ))}
                 </div>
+                <p className="mt-3 text-xs leading-5 text-slate-400">
+                  Invites email a secure setup link. The user is added to the company sheet only after they complete that
+                  link (name and password). Until then they cannot sign in — status stays Awaiting setup.
+                </p>
                 <button
                   type="button"
                   onClick={onInviteUser}
@@ -1280,14 +1305,7 @@ export function AdminScreen({
                         >
                           Delete
                         </button>
-                        <div
-                          className={[
-                            "rounded-full px-3 py-1 text-xs font-semibold",
-                            invite.status === "Email sent" || invite.status === "Invite sent"
-                              ? "bg-emerald-500/15 text-emerald-200"
-                              : "bg-slate-700/80 text-slate-200",
-                          ].join(" ")}
-                        >
+                        <div className={["rounded-full px-3 py-1 text-xs font-semibold", inviteStatusBadgeClass(invite.status)].join(" ")}>
                           {inviteStatusLabel(invite.status)}
                         </div>
                       </div>

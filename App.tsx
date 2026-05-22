@@ -126,10 +126,39 @@ type UserInvite = {
   invitedBy: string;
   senderEmail?: string;
   sentAt: string;
-  status: "Email sent" | "Invite created" | "Invite sent";
+  status: "Email sent" | "Invite created" | "Awaiting setup" | "Active" | "Invite sent";
   mailtoUrl?: string;
   appOnboardingUrl?: string;
+  loginReady?: boolean;
 };
+
+function mapCompanyUserInviteStatus(payload: {
+  sent?: boolean;
+  loginReady?: boolean;
+  status?: string;
+}): UserInvite["status"] {
+  if (payload.loginReady === true || payload.status === "active") {
+    return "Active";
+  }
+  if (payload.sent === true) {
+    return "Email sent";
+  }
+  if (payload.status === "awaiting_setup") {
+    return "Awaiting setup";
+  }
+  return "Invite created";
+}
+
+function formatCompanyUserInviteApiError(payload: { error?: string; blocker?: string }, response: Response) {
+  const message = payload.error || "Unable to send invite email.";
+  if (response.status === 401 && /google connection required/i.test(message)) {
+    return "The API server lost its Google Workspace session. Open Initial Setup, reconnect Google, then try again.";
+  }
+  if (payload.blocker === "invite_not_found") {
+    return "No active invite token was found. Send a new invite link instead of resending.";
+  }
+  return message;
+}
 
 type AuditQuestion = {
   id: string;
@@ -5319,6 +5348,7 @@ function App() {
       const payload = (await parseJsonApiResponse(response)) as {
         ok?: boolean;
         error?: string;
+        blocker?: string;
         sent?: boolean;
         smtpConfigured?: boolean;
         email?: string;
@@ -5326,17 +5356,20 @@ function App() {
         inviteUrl?: string;
         tokenId?: string;
         senderEmail?: string;
+        status?: string;
+        loginReady?: boolean;
         emailDraft?: { subject: string; body: string };
         mailtoUrl?: string;
         smtpError?: string;
       };
 
       if (!response.ok || !payload.ok) {
-        throw new Error(payload.error || "Unable to send invite email.");
+        throw new Error(formatCompanyUserInviteApiError(payload, response));
       }
 
       const emailSent = payload.sent === true;
       const inviteUrl = payload.inviteUrl || "";
+      const loginReady = payload.loginReady === true;
       const result: CompanyUserInviteEmailResult = {
         email: payload.email || trimmedEmail,
         role: (payload.role as Role) || inviteRole,
@@ -5344,6 +5377,8 @@ function App() {
         smtpConfigured: payload.smtpConfigured !== false,
         senderEmail: payload.senderEmail || "admin@usebert.co.uk",
         inviteUrl,
+        status: loginReady ? "active" : "awaiting_setup",
+        loginReady,
         emailDraft: payload.emailDraft,
         mailtoUrl: payload.mailtoUrl,
         smtpError: payload.smtpError,
@@ -5357,23 +5392,12 @@ function App() {
         invitedBy: currentUser.name,
         senderEmail: result.senderEmail,
         sentAt: formatStamp(),
-        status: emailSent ? "Email sent" : "Invite created",
+        status: mapCompanyUserInviteStatus(payload),
+        loginReady,
         mailtoUrl: result.mailtoUrl,
         appOnboardingUrl: inviteUrl || undefined,
       };
-      const nextInvitedUsers = [createdInvite, ...invitedUsers];
-      setInvitedUsers(nextInvitedUsers);
-      if (selectedFolder?.id) {
-        try {
-          await persistUsers(selectedFolder.id, nextInvitedUsers);
-        } catch (error) {
-          pushToast(
-            "Users tab not updated",
-            error instanceof Error ? error.message : "Invite saved, but the Users tab could not be updated yet.",
-            "warning",
-          );
-        }
-      }
+      setInvitedUsers([createdInvite, ...invitedUsers]);
       setInviteEmailInput("");
       if (emailSent) {
         pushToast("User invite sent", `We sent an invite to ${trimmedEmail}.`, "success");
@@ -5395,10 +5419,16 @@ function App() {
     if (!currentUser) return;
     const sheetId = companySheetSync?.sheetId || extractGoogleResourceId(masterSheetInput);
     const companyFolderId = selectedFolder?.id || extractGoogleResourceId(folderIdInput);
-    if (!googleConnected || !sheetId || !companyFolderId) {
-      pushToast("Workspace required", "Connect Google and pick a company folder before resending invites.", "warning");
+    if (!sheetId || !companyFolderId) {
+      pushToast(
+        "Workspace required",
+        "Select a company folder and ensure the master sheet is loaded before resending invites.",
+        "warning",
+      );
       return;
     }
+
+    await loadGoogleStatus({ silent: true });
 
     setCompanyUserInviteEmailSending(true);
     try {
@@ -5415,11 +5445,14 @@ function App() {
           companyFolderId,
           masterSheetId: sheetId,
           companyName: selectedFolder?.name || "",
+          resend: true,
+          tokenId: invite.id,
         }),
       });
       const payload = (await parseJsonApiResponse(response)) as {
         ok?: boolean;
         error?: string;
+        blocker?: string;
         sent?: boolean;
         smtpConfigured?: boolean;
         email?: string;
@@ -5427,16 +5460,19 @@ function App() {
         inviteUrl?: string;
         tokenId?: string;
         senderEmail?: string;
+        status?: string;
+        loginReady?: boolean;
         emailDraft?: { subject: string; body: string };
         mailtoUrl?: string;
         smtpError?: string;
       };
       if (!response.ok || !payload.ok) {
-        throw new Error(payload.error || "Unable to resend invite email.");
+        throw new Error(formatCompanyUserInviteApiError(payload, response));
       }
 
       const emailSent = payload.sent === true;
       const inviteUrl = payload.inviteUrl || invite.appOnboardingUrl || "";
+      const loginReady = payload.loginReady === true;
       const result: CompanyUserInviteEmailResult = {
         email: payload.email || invite.email,
         role: (payload.role as Role) || invite.role,
@@ -5444,6 +5480,8 @@ function App() {
         smtpConfigured: payload.smtpConfigured !== false,
         senderEmail: payload.senderEmail || invite.senderEmail || "admin@usebert.co.uk",
         inviteUrl,
+        status: loginReady ? "active" : "awaiting_setup",
+        loginReady,
         emailDraft: payload.emailDraft,
         mailtoUrl: payload.mailtoUrl,
         smtpError: payload.smtpError,
@@ -5451,32 +5489,23 @@ function App() {
       setCompanyUserInviteEmailResult(result);
 
       const resentAt = formatStamp();
-      const nextInvitedUsers = invitedUsers.map((item) =>
-        item.id === invite.id
-          ? {
-              ...item,
-              id: payload.tokenId || item.id,
-              sentAt: resentAt,
-              invitedBy: currentUser.name,
-              senderEmail: result.senderEmail,
-              status: emailSent ? ("Email sent" as const) : ("Invite created" as const),
-              mailtoUrl: result.mailtoUrl,
-              appOnboardingUrl: inviteUrl || undefined,
-            }
-          : item,
+      setInvitedUsers(
+        invitedUsers.map((item) =>
+          item.id === invite.id
+            ? {
+                ...item,
+                id: payload.tokenId || item.id,
+                sentAt: resentAt,
+                invitedBy: currentUser.name,
+                senderEmail: result.senderEmail,
+                status: mapCompanyUserInviteStatus(payload),
+                loginReady,
+                mailtoUrl: result.mailtoUrl,
+                appOnboardingUrl: inviteUrl || undefined,
+              }
+            : item,
+        ),
       );
-      setInvitedUsers(nextInvitedUsers);
-      if (selectedFolder?.id) {
-        try {
-          await persistUsers(selectedFolder.id, nextInvitedUsers);
-        } catch (error) {
-          pushToast(
-            "Users tab not updated",
-            error instanceof Error ? error.message : "Invite resent, but the Users tab could not be updated yet.",
-            "warning",
-          );
-        }
-      }
       if (emailSent) {
         pushToast("User invite resent", `We sent an invite to ${invite.email}.`, "success");
       }
@@ -5492,9 +5521,30 @@ function App() {
     }
   };
 
-  const handleDeleteInvite = (invite: UserInvite) => {
+  const handleDeleteInvite = async (invite: UserInvite) => {
+    const tokenLooksServerIssued = /^[a-f0-9]{48}$/i.test(invite.id);
+    if (tokenLooksServerIssued) {
+      try {
+        const response = await fetch(apiUrl(`/api/onboarding/app-invites/${encodeURIComponent(invite.id)}`), {
+          method: "DELETE",
+          credentials: "include",
+        });
+        const payload = (await parseJsonApiResponse(response)) as { ok?: boolean; error?: string };
+        if (!response.ok || !payload.ok) {
+          throw new Error(payload.error || "Unable to revoke invite.");
+        }
+      } catch (error) {
+        pushToast(
+          "Revoke failed",
+          error instanceof Error ? error.message : "Unable to revoke invite on the server.",
+          "warning",
+        );
+        return;
+      }
+    }
     setInvitedUsers((current) => current.filter((item) => item.id !== invite.id));
-    pushToast("Invite removed", `${invite.email} has been removed from sent invites.`, "success");
+    setCompanyUserInviteEmailResult((current) => (current?.email === invite.email ? null : current));
+    pushToast("Invite revoked", `${invite.email} was removed and the invite link is no longer valid.`, "success");
   };
 
   const handleResyncUsers = async () => {

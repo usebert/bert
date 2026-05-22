@@ -35,6 +35,9 @@ Warnings (logged only, do not block boot):
 - [ ] SMTP variables if server-sent email is required (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM_EMAIL`, `SMTP_FROM_NAME`)
 - [ ] `BERT_COMPANY_ONBOARDING_FORM_URL` set if the default Google Form link should change
 - [ ] **Companies → Invite new company**: with SMTP, onboarding email sends; without SMTP, fallback panel shows copy link / draft
+- [ ] **Company user invite** (Users/Invites): email sends or manual fallback; recipient completes invite link before company login
+- [ ] **Company user resend** works (reuses invite token + SMTP; does not require live API Google session for email only)
+- [ ] **Company user delete/revoke** removes invite from UI and invalidates server token
 - [ ] Pilot SMTP: Microsoft 365 from `admin@usebert.co.uk`; operators tell recipients to check **Junk/Spam** if mail is delayed
 - [ ] Plan transactional sender (Resend/Postmark) + SPF/DKIM/DMARC before scaling beyond pilot; re-enable Microsoft Security Defaults after migration
 - [ ] **Never** set `ALLOW_INSECURE_OAUTH_STATE=true` in production
@@ -66,6 +69,7 @@ Warnings (logged only, do not block boot):
 - [ ] Google OAuth connect flow from Initial Setup (after Google env on API)
 - [ ] One invite or onboarding path in a staging tenant (manual invite link OK if SMTP unset)
 - [ ] Company onboarding email received (or found in Junk/Spam); body mentions checking Junk/Spam and sender `admin@usebert.co.uk`
+- [ ] Company user invite: open emailed link → set password → company login succeeds with that email/password (requires API Google session for invite completion)
 
 ## Browser E2E (paid pilot gate)
 
