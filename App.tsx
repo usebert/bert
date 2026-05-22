@@ -44,7 +44,7 @@ import { ManagerDashboard } from "./src/components/dashboard/ManagerDashboard";
 import { AccountSettingsScreen } from "./src/screens/AccountSettingsScreen";
 import { ActionsScreen } from "./src/screens/ActionsScreen";
 import { AdminScreen } from "./src/screens/AdminScreen";
-import type { CompanyOnboardingEmailResult } from "./src/types/adminScreenProps";
+import type { CompanyOnboardingEmailResult, CompanyUserInviteEmailResult } from "./src/types/adminScreenProps";
 import { AppHostedOnboardingCompletion } from "./src/screens/AppHostedOnboardingCompletion";
 import { DashboardScreen } from "./src/screens/DashboardScreen";
 import { AuditsScreen } from "./src/screens/AuditsScreen";
@@ -126,7 +126,7 @@ type UserInvite = {
   invitedBy: string;
   senderEmail?: string;
   sentAt: string;
-  status: "Invite sent";
+  status: "Email sent" | "Invite created" | "Invite sent";
   mailtoUrl?: string;
   appOnboardingUrl?: string;
 };
@@ -2041,7 +2041,7 @@ function parseCompanySheetUsers(records: Record<string, string>[]) {
         role,
         invitedBy: extractByKeys(record, ["owner", "created by", "invited by"]) || "Company sheet",
         sentAt: extractByKeys(record, ["created", "submitted", "updated"]) || "Imported",
-        status: "Invite sent" as const,
+        status: "Invite created" as const,
       };
     })
     .filter(Boolean) as UserInvite[];
@@ -2810,6 +2810,8 @@ function App() {
   const [godModeAppInviteEmail, setGodModeAppInviteEmail] = useState("");
   const [companyOnboardingEmailResult, setCompanyOnboardingEmailResult] = useState<CompanyOnboardingEmailResult | null>(null);
   const [companyOnboardingEmailSending, setCompanyOnboardingEmailSending] = useState(false);
+  const [companyUserInviteEmailResult, setCompanyUserInviteEmailResult] = useState<CompanyUserInviteEmailResult | null>(null);
+  const [companyUserInviteEmailSending, setCompanyUserInviteEmailSending] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [companySheetSync, setCompanySheetSync] = useState<CompanySheetSyncStatus | null>(storedWorkspaceState?.companySheetSync || null);
   const [selectedReportTemplate, setSelectedReportTemplate] = useState<ReportTemplateType>("Executive summary");
@@ -5297,10 +5299,7 @@ function App() {
       return;
     }
 
-    let inviteDelivery: "smtp" | "manual" = "smtp";
-    let inviteMailtoUrl = "";
-    let inviteSenderEmail = "";
-    let appOnboardingUrl = "";
+    setCompanyUserInviteEmailSending(true);
     try {
       const response = await fetch(apiUrl("/api/onboarding/app-invites/company-user"), {
         method: "POST",
@@ -5320,61 +5319,76 @@ function App() {
       const payload = (await parseJsonApiResponse(response)) as {
         ok?: boolean;
         error?: string;
-        delivery?: "smtp" | "manual";
-        mailtoUrl?: string;
+        sent?: boolean;
+        smtpConfigured?: boolean;
+        email?: string;
+        role?: Role;
+        inviteUrl?: string;
+        tokenId?: string;
         senderEmail?: string;
-        onboardingUrl?: string;
+        emailDraft?: { subject: string; body: string };
+        mailtoUrl?: string;
+        smtpError?: string;
       };
 
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || "Unable to send invite email.");
       }
-      inviteDelivery = payload.delivery || "smtp";
-      inviteMailtoUrl = payload.mailtoUrl || "";
-      inviteSenderEmail = payload.senderEmail || "";
-      appOnboardingUrl = payload.onboardingUrl || "";
+
+      const emailSent = payload.sent === true;
+      const inviteUrl = payload.inviteUrl || "";
+      const result: CompanyUserInviteEmailResult = {
+        email: payload.email || trimmedEmail,
+        role: (payload.role as Role) || inviteRole,
+        sent: emailSent,
+        smtpConfigured: payload.smtpConfigured !== false,
+        senderEmail: payload.senderEmail || "admin@usebert.co.uk",
+        inviteUrl,
+        emailDraft: payload.emailDraft,
+        mailtoUrl: payload.mailtoUrl,
+        smtpError: payload.smtpError,
+      };
+      setCompanyUserInviteEmailResult(result);
+
+      const createdInvite: UserInvite = {
+        id: payload.tokenId || `invite-${Date.now()}`,
+        email: trimmedEmail,
+        role: inviteRole,
+        invitedBy: currentUser.name,
+        senderEmail: result.senderEmail,
+        sentAt: formatStamp(),
+        status: emailSent ? "Email sent" : "Invite created",
+        mailtoUrl: result.mailtoUrl,
+        appOnboardingUrl: inviteUrl || undefined,
+      };
+      const nextInvitedUsers = [createdInvite, ...invitedUsers];
+      setInvitedUsers(nextInvitedUsers);
+      if (selectedFolder?.id) {
+        try {
+          await persistUsers(selectedFolder.id, nextInvitedUsers);
+        } catch (error) {
+          pushToast(
+            "Users tab not updated",
+            error instanceof Error ? error.message : "Invite saved, but the Users tab could not be updated yet.",
+            "warning",
+          );
+        }
+      }
+      setInviteEmailInput("");
+      if (emailSent) {
+        pushToast("User invite sent", `We sent an invite to ${trimmedEmail}.`, "success");
+      }
+      triggerNotification("User invite", `${trimmedEmail} has been invited as ${inviteRole}.`);
     } catch (error) {
+      setCompanyUserInviteEmailResult(null);
       pushToast(
         "Invite send failed",
         error instanceof Error ? error.message : "Unable to send invite email.",
         "warning",
       );
-      return;
+    } finally {
+      setCompanyUserInviteEmailSending(false);
     }
-
-    const createdInvite: UserInvite = {
-      id: `invite-${Date.now()}`,
-      email: trimmedEmail,
-      role: inviteRole,
-      invitedBy: currentUser.name,
-      senderEmail: inviteSenderEmail || undefined,
-      sentAt: formatStamp(),
-      status: "Invite sent",
-      mailtoUrl: inviteMailtoUrl || undefined,
-      appOnboardingUrl: appOnboardingUrl || undefined,
-    };
-    const nextInvitedUsers = [createdInvite, ...invitedUsers];
-    setInvitedUsers(nextInvitedUsers);
-    if (selectedFolder?.id) {
-      try {
-        await persistUsers(selectedFolder.id, nextInvitedUsers);
-      } catch (error) {
-        pushToast(
-          "Users tab not updated",
-          error instanceof Error ? error.message : "Invite sent, but the Users tab could not be updated yet.",
-          "warning",
-        );
-      }
-    }
-    setInviteEmailInput("");
-    pushToast(
-      inviteDelivery === "manual" ? "Invite draft ready" : "Invite link sent",
-      inviteDelivery === "manual"
-        ? `SMTP is not configured. Open email draft for ${trimmedEmail}.`
-        : `${inviteRole} invite sent to ${trimmedEmail}.`,
-      "success",
-    );
-    triggerNotification("User invite", `${trimmedEmail} has been invited as ${inviteRole}.`);
   };
 
   const handleResendInvite = async (invite: UserInvite) => {
@@ -5386,10 +5400,7 @@ function App() {
       return;
     }
 
-    let inviteDelivery: "smtp" | "manual" = "smtp";
-    let inviteMailtoUrl = invite.mailtoUrl || "";
-    let inviteSenderEmail = invite.senderEmail || "";
-    let appOnboardingUrl = invite.appOnboardingUrl || "";
+    setCompanyUserInviteEmailSending(true);
     try {
       const response = await fetch(apiUrl("/api/onboarding/app-invites/company-user"), {
         method: "POST",
@@ -5409,59 +5420,76 @@ function App() {
       const payload = (await parseJsonApiResponse(response)) as {
         ok?: boolean;
         error?: string;
-        delivery?: "smtp" | "manual";
-        mailtoUrl?: string;
+        sent?: boolean;
+        smtpConfigured?: boolean;
+        email?: string;
+        role?: Role;
+        inviteUrl?: string;
+        tokenId?: string;
         senderEmail?: string;
-        onboardingUrl?: string;
+        emailDraft?: { subject: string; body: string };
+        mailtoUrl?: string;
+        smtpError?: string;
       };
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || "Unable to resend invite email.");
       }
-      inviteDelivery = payload.delivery || "smtp";
-      inviteMailtoUrl = payload.mailtoUrl || inviteMailtoUrl;
-      inviteSenderEmail = payload.senderEmail || inviteSenderEmail;
-      appOnboardingUrl = payload.onboardingUrl || appOnboardingUrl;
+
+      const emailSent = payload.sent === true;
+      const inviteUrl = payload.inviteUrl || invite.appOnboardingUrl || "";
+      const result: CompanyUserInviteEmailResult = {
+        email: payload.email || invite.email,
+        role: (payload.role as Role) || invite.role,
+        sent: emailSent,
+        smtpConfigured: payload.smtpConfigured !== false,
+        senderEmail: payload.senderEmail || invite.senderEmail || "admin@usebert.co.uk",
+        inviteUrl,
+        emailDraft: payload.emailDraft,
+        mailtoUrl: payload.mailtoUrl,
+        smtpError: payload.smtpError,
+      };
+      setCompanyUserInviteEmailResult(result);
+
+      const resentAt = formatStamp();
+      const nextInvitedUsers = invitedUsers.map((item) =>
+        item.id === invite.id
+          ? {
+              ...item,
+              id: payload.tokenId || item.id,
+              sentAt: resentAt,
+              invitedBy: currentUser.name,
+              senderEmail: result.senderEmail,
+              status: emailSent ? ("Email sent" as const) : ("Invite created" as const),
+              mailtoUrl: result.mailtoUrl,
+              appOnboardingUrl: inviteUrl || undefined,
+            }
+          : item,
+      );
+      setInvitedUsers(nextInvitedUsers);
+      if (selectedFolder?.id) {
+        try {
+          await persistUsers(selectedFolder.id, nextInvitedUsers);
+        } catch (error) {
+          pushToast(
+            "Users tab not updated",
+            error instanceof Error ? error.message : "Invite resent, but the Users tab could not be updated yet.",
+            "warning",
+          );
+        }
+      }
+      if (emailSent) {
+        pushToast("User invite resent", `We sent an invite to ${invite.email}.`, "success");
+      }
     } catch (error) {
+      setCompanyUserInviteEmailResult(null);
       pushToast(
         "Resend failed",
         error instanceof Error ? error.message : "Unable to resend invite email.",
         "warning",
       );
-      return;
+    } finally {
+      setCompanyUserInviteEmailSending(false);
     }
-
-    const resentAt = formatStamp();
-    const nextInvitedUsers = invitedUsers.map((item) =>
-      item.id === invite.id
-        ? {
-            ...item,
-            sentAt: resentAt,
-            invitedBy: currentUser.name,
-            senderEmail: inviteSenderEmail || undefined,
-            mailtoUrl: inviteMailtoUrl || undefined,
-            appOnboardingUrl: appOnboardingUrl || undefined,
-          }
-        : item,
-    );
-    setInvitedUsers(nextInvitedUsers);
-    if (selectedFolder?.id) {
-      try {
-        await persistUsers(selectedFolder.id, nextInvitedUsers);
-      } catch (error) {
-        pushToast(
-          "Users tab not updated",
-          error instanceof Error ? error.message : "Invite resent, but the Users tab could not be updated yet.",
-          "warning",
-        );
-      }
-    }
-    pushToast(
-      inviteDelivery === "manual" ? "Invite draft ready" : "Invite resent",
-      inviteDelivery === "manual"
-        ? `SMTP is not configured. Open email draft for ${invite.email}.`
-        : `Onboarding link resent to ${invite.email}.`,
-      "success",
-    );
   };
 
   const handleDeleteInvite = (invite: UserInvite) => {
@@ -9040,6 +9068,9 @@ function App() {
                 onInviteEmailChange={setInviteEmailInput}
                 onInviteRoleChange={setInviteRoleInput}
                 onInviteUser={handleInviteUser}
+                companyUserInviteEmailResult={companyUserInviteEmailResult}
+                companyUserInviteEmailSending={companyUserInviteEmailSending}
+                onDismissCompanyUserInviteEmailResult={() => setCompanyUserInviteEmailResult(null)}
                 onResendInvite={handleResendInvite}
                 onDeleteInvite={handleDeleteInvite}
                 onResyncUsers={handleResyncUsers}

@@ -51,9 +51,22 @@ export type UserInvite = {
   invitedBy: string;
   senderEmail?: string;
   sentAt: string;
-  status: "Invite sent";
+  status: "Email sent" | "Invite created" | "Invite sent";
   mailtoUrl?: string;
   appOnboardingUrl?: string;
+};
+
+/** Result of POST /api/onboarding/app-invites/company-user (company user invite email). */
+export type CompanyUserInviteEmailResult = {
+  email: string;
+  role: Role;
+  sent: boolean;
+  smtpConfigured: boolean;
+  senderEmail?: string;
+  inviteUrl: string;
+  emailDraft?: { subject: string; body: string };
+  mailtoUrl?: string;
+  smtpError?: string;
 };
 
 export type UserSiteAssignments = Record<string, string[]>;
@@ -220,6 +233,9 @@ export type AdminScreenProps = {
   onInviteEmailChange: (value: string) => void;
   onInviteRoleChange: (value: Role) => void;
   onInviteUser: () => void;
+  companyUserInviteEmailResult: CompanyUserInviteEmailResult | null;
+  companyUserInviteEmailSending: boolean;
+  onDismissCompanyUserInviteEmailResult: () => void;
   onResendInvite: (invite: UserInvite) => void;
   onDeleteInvite: (invite: UserInvite) => void;
   onResyncUsers: () => void;

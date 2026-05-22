@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { canAccessAdmin, canAccessAdminOnboardingWorkspace, getRoleDisplayName } from "../permissions";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../components/dashboard/DashboardPrimitives";
-import type { AdminScreenProps, CompanyOnboardingEmailResult } from "../types/adminScreenProps";
+import type { AdminScreenProps, CompanyOnboardingEmailResult, CompanyUserInviteEmailResult } from "../types/adminScreenProps";
 import type { Role } from "../permissions";
 import type { Answer, AuditQuestion } from "../types/reportsScreenProps";
 
@@ -145,6 +145,118 @@ function CompanyOnboardingEmailResultPanel({
       </button>
     </div>
   );
+}
+
+function CompanyUserInviteEmailResultPanel({
+  result,
+  onDismiss,
+  slatePrimaryCtaInteract,
+}: {
+  result: CompanyUserInviteEmailResult;
+  onDismiss: () => void;
+  slatePrimaryCtaInteract: string;
+}) {
+  const [copyLinkDone, setCopyLinkDone] = useState(false);
+  const [copyDraftDone, setCopyDraftDone] = useState(false);
+  const senderEmail = result.senderEmail || "admin@usebert.co.uk";
+
+  if (result.sent) {
+    return (
+      <div className="mt-4 rounded-2xl border border-emerald-500/40 bg-emerald-950/30 p-4">
+        <p className="text-sm font-semibold text-emerald-100">User invite sent</p>
+        <p className="mt-1 text-sm leading-6 text-emerald-50/90">
+          We sent an invite to <span className="font-semibold">{result.email}</span> as{" "}
+          <span className="font-semibold">{result.role}</span>. Ask them to check their Inbox and Junk/Spam folder if it
+          does not arrive within a few minutes.
+        </p>
+        <dl className="mt-3 text-xs text-emerald-100/80">
+          <div>
+            <dt className="font-semibold uppercase tracking-[0.14em] text-emerald-200/70">From</dt>
+            <dd className="mt-0.5 text-sm text-emerald-50">{senderEmail}</dd>
+          </div>
+        </dl>
+        <button type="button" onClick={onDismiss} className={`mt-3 text-xs font-semibold text-emerald-200 underline-offset-2 hover:underline ${slatePrimaryCtaInteract}`}>
+          Dismiss
+        </button>
+      </div>
+    );
+  }
+
+  const draftText = result.emailDraft ? `Subject: ${result.emailDraft.subject}\n\n${result.emailDraft.body}` : "";
+
+  return (
+    <div className="mt-4 rounded-2xl border border-amber-500/40 bg-amber-950/25 p-4">
+      <p className="text-sm font-semibold text-amber-100">User invite ready</p>
+      <p className="mt-1 text-sm leading-6 text-amber-50/90">
+        Email could not be sent. Copy the invite link or draft and send it manually.
+      </p>
+      {result.smtpError ? (
+        <p className="mt-2 text-xs leading-5 text-amber-100/80">Reason: {result.smtpError}</p>
+      ) : null}
+      <dl className="mt-3 space-y-2 text-xs text-slate-300">
+        <div>
+          <dt className="font-semibold uppercase tracking-[0.14em] text-slate-500">Recipient</dt>
+          <dd className="mt-0.5 break-all text-sm text-white">{result.email}</dd>
+        </div>
+        <div>
+          <dt className="font-semibold uppercase tracking-[0.14em] text-slate-500">Role</dt>
+          <dd className="mt-0.5 text-sm text-white">{result.role}</dd>
+        </div>
+        <div>
+          <dt className="font-semibold uppercase tracking-[0.14em] text-slate-500">Invite link</dt>
+          <dd className="mt-0.5 break-all text-sm text-sky-200">{result.inviteUrl}</dd>
+        </div>
+      </dl>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={async () => {
+            const ok = await copyTextToClipboard(result.inviteUrl);
+            if (ok) {
+              setCopyLinkDone(true);
+              setTimeout(() => setCopyLinkDone(false), 2000);
+            }
+          }}
+          className="h-10 rounded-xl border border-white/15 bg-white/10 px-4 text-xs font-semibold text-white hover:bg-white/15"
+        >
+          {copyLinkDone ? "Link copied" : "Copy invite link"}
+        </button>
+        {draftText ? (
+          <button
+            type="button"
+            onClick={async () => {
+              const ok = await copyTextToClipboard(draftText);
+              if (ok) {
+                setCopyDraftDone(true);
+                setTimeout(() => setCopyDraftDone(false), 2000);
+              }
+            }}
+            className="h-10 rounded-xl border border-white/15 bg-white/10 px-4 text-xs font-semibold text-white hover:bg-white/15"
+          >
+            {copyDraftDone ? "Draft copied" : "Copy email draft"}
+          </button>
+        ) : null}
+        {result.mailtoUrl ? (
+          <a
+            href={result.mailtoUrl}
+            className="inline-flex h-10 items-center rounded-xl border border-white/15 bg-white/10 px-4 text-xs font-semibold text-white hover:bg-white/15"
+          >
+            Open in mail app
+          </a>
+        ) : null}
+      </div>
+      <button type="button" onClick={onDismiss} className={`mt-3 text-xs font-semibold text-amber-200 underline-offset-2 hover:underline ${slatePrimaryCtaInteract}`}>
+        Dismiss
+      </button>
+    </div>
+  );
+}
+
+function inviteStatusLabel(status: string) {
+  if (status === "Invite sent") {
+    return "Email sent";
+  }
+  return status;
 }
 
 function GoogleWorkspaceSetupNotice({
@@ -295,6 +407,9 @@ export function AdminScreen({
   onInviteEmailChange,
   onInviteRoleChange,
   onInviteUser,
+  companyUserInviteEmailResult,
+  companyUserInviteEmailSending,
+  onDismissCompanyUserInviteEmailResult,
   onResendInvite,
   onDeleteInvite,
   onResyncUsers,
@@ -1097,11 +1212,20 @@ export function AdminScreen({
                   ))}
                 </div>
                 <button
+                  type="button"
                   onClick={onInviteUser}
-                  className={`mt-4 h-12 w-full rounded-2xl bg-slate-900 text-sm font-semibold text-white active:scale-[0.99] ${slatePrimaryCtaInteract}`}
+                  disabled={companyUserInviteEmailSending}
+                  className={`mt-4 h-12 w-full rounded-2xl bg-slate-900 text-sm font-semibold text-white active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 ${slatePrimaryCtaInteract}`}
                 >
-                  Send invite link
+                  {companyUserInviteEmailSending ? "Sending…" : "Send invite link"}
                 </button>
+                {companyUserInviteEmailResult ? (
+                  <CompanyUserInviteEmailResultPanel
+                    result={companyUserInviteEmailResult}
+                    onDismiss={onDismissCompanyUserInviteEmailResult}
+                    slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+                  />
+                ) : null}
                 <button
                   onClick={onResyncUsers}
                   className="mt-2 h-11 w-full rounded-2xl border border-slate-700 bg-slate-950 text-sm font-semibold text-slate-200 transition hover:bg-slate-900"
@@ -1156,8 +1280,15 @@ export function AdminScreen({
                         >
                           Delete
                         </button>
-                        <div className="rounded-full bg-blue-500/12 px-3 py-1 text-xs font-semibold text-blue-800">
-                          {invite.status}
+                        <div
+                          className={[
+                            "rounded-full px-3 py-1 text-xs font-semibold",
+                            invite.status === "Email sent" || invite.status === "Invite sent"
+                              ? "bg-emerald-500/15 text-emerald-200"
+                              : "bg-slate-700/80 text-slate-200",
+                          ].join(" ")}
+                        >
+                          {inviteStatusLabel(invite.status)}
                         </div>
                       </div>
                     </div>
@@ -1189,7 +1320,7 @@ export function AdminScreen({
             Enable browser notifications
           </button>
           <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
-            Invite emails use the in-app invite page. If email sending is not configured, use the mail draft or copy the link from the toast.
+            User invites email the in-app invite link when SMTP is configured. If sending fails, copy the invite link or draft from the panel above the invite list.
           </div>
         </div>
               </section>

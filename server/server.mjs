@@ -1719,6 +1719,63 @@ async function sendCompanyOnboardingFormEmail(toEmail) {
   return { subject, body: textBody, onboardingFormUrl };
 }
 
+function buildCompanyUserInviteEmailDraft({ inviteRole, inviteUrl }) {
+  const senderEmail = getCompanyOnboardingSenderEmail();
+  const deliverabilityNote = companyOnboardingDeliverabilityNote(senderEmail);
+  const subject = "Your BERT account invite";
+  const textBody = [
+    "Hi,",
+    "",
+    `You've been invited to access BERT as a ${inviteRole}.`,
+    "",
+    "Open this secure invite link to continue:",
+    inviteUrl,
+    "",
+    deliverabilityNote,
+    "",
+    "Thanks,",
+    "BERT Admin",
+  ].join("\n");
+  const htmlBody = `
+    <p>Hi,</p>
+    <p>You've been invited to access <strong>${APP_BRAND_NAME}</strong> as <strong>${inviteRole}</strong>.</p>
+    <p>Open this secure invite link to continue:</p>
+    <p><a href="${inviteUrl}" target="_blank" rel="noopener noreferrer">Open your BERT invite</a></p>
+    <p style="word-break:break-all;font-size:12px;color:#64748b;">${inviteUrl}</p>
+    <p style="font-size:13px;color:#64748b;">${deliverabilityNote}</p>
+    <p>Thanks,<br/>BERT Admin</p>
+  `;
+  return { subject, textBody, htmlBody, senderEmail };
+}
+
+function buildCompanyUserInviteMailto({ toEmail, inviteRole, inviteUrl }) {
+  const { subject, textBody } = buildCompanyUserInviteEmailDraft({ inviteRole, inviteUrl });
+  return `mailto:${encodeURIComponent(toEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(textBody)}`;
+}
+
+async function sendCompanyUserInviteEmail({ toEmail, inviteRole, inviteUrl }) {
+  if (!emailConfigured()) {
+    throw new Error("SMTP is not configured.");
+  }
+  const { subject, textBody, htmlBody } = buildCompanyUserInviteEmailDraft({ inviteRole, inviteUrl });
+  const transporter = createSmtpTransport();
+  const from = requiredEnv.SMTP_FROM_NAME
+    ? `"${requiredEnv.SMTP_FROM_NAME}" <${requiredEnv.SMTP_FROM_EMAIL}>`
+    : requiredEnv.SMTP_FROM_EMAIL;
+  await transporter.sendMail({
+    from,
+    to: toEmail,
+    subject,
+    text: textBody,
+    html: htmlBody,
+  });
+}
+
+function safeSmtpErrorSummary(err) {
+  const message = err instanceof Error ? err.message : "SMTP send failed";
+  return String(message).slice(0, 240);
+}
+
 async function sendAppHostedOnboardingEmail({ toEmail, subjectLine, invitedBy, onboardingUrl, htmlIntro }) {
   if (!emailConfigured()) {
     throw new Error("SMTP is not configured.");
@@ -3792,38 +3849,50 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceSessi
         masterSheetId,
         companyName,
       });
-      const onboardingUrl = buildAppOnboardingUrl(id);
-      const subjectLine = `${APP_BRAND_NAME} — join ${companyName || "your company"}`;
-      const manual = () => {
-        res.json({
-          ok: true,
-          delivery: "manual",
-          tokenId: id,
-          onboardingUrl,
-          mailtoUrl: buildAppOnboardingInviteMailto({
-            toEmail,
-            subjectLine,
-            invitedBy,
-            onboardingUrl,
-          }),
-        });
-      };
-      if (!emailConfigured()) {
-        manual();
+      const inviteUrl = buildAppOnboardingUrl(id);
+      const { subject, textBody, senderEmail } = buildCompanyUserInviteEmailDraft({
+        inviteRole,
+        inviteUrl,
+      });
+      const smtpConfigured = emailConfigured();
+
+      const manualPayload = (smtpError) => ({
+        ok: true,
+        sent: false,
+        smtpConfigured,
+        email: toEmail,
+        role: inviteRole,
+        inviteUrl,
+        tokenId: id,
+        senderEmail,
+        emailDraft: { subject, body: textBody },
+        mailtoUrl: buildCompanyUserInviteMailto({ toEmail, inviteRole, inviteUrl }),
+        ...(smtpError ? { smtpError } : {}),
+      });
+
+      if (!smtpConfigured) {
+        console.warn("[smtp] company user invite email skipped; SMTP not configured");
+        res.json(manualPayload());
         return;
       }
+
       try {
-        await sendAppHostedOnboardingEmail({
-          toEmail,
-          subjectLine,
-          invitedBy,
-          onboardingUrl,
-          htmlIntro: `You have been invited to join <strong>${companyName || "your company"}</strong> in ${APP_BRAND_NAME} as <strong>${inviteRole}</strong>.`,
+        await sendCompanyUserInviteEmail({ toEmail, inviteRole, inviteUrl });
+        console.log(`[smtp] company user invite email sent recipient=${toEmail}`);
+        res.json({
+          ok: true,
+          sent: true,
+          smtpConfigured: true,
+          email: toEmail,
+          role: inviteRole,
+          inviteUrl,
+          tokenId: id,
+          senderEmail,
         });
-        res.json({ ok: true, delivery: "smtp", tokenId: id, onboardingUrl });
       } catch (err) {
-        console.warn("[smtp] app company-user invite failed; manual fallback", err);
-        manual();
+        const smtpError = safeSmtpErrorSummary(err);
+        console.warn(`[smtp] company user invite email failed; manual fallback ${smtpError}`);
+        res.json(manualPayload(smtpError));
       }
     } catch (error) {
       res.status(500).json({
