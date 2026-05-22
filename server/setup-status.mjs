@@ -40,10 +40,12 @@ function requireMasterSession(req, res, next) {
  *   emailConfigured: () => boolean;
  *   hasGoogleSession: () => boolean;
  *   googleEnvConfigured: () => boolean;
+ *   getSharedDriveId?: () => string;
  * }} deps
  */
 export function installSetupStatusRoutes(app, deps) {
-  const { sessionDir, getReadinessPayload, getHealthPayload, emailConfigured, hasGoogleSession } = deps;
+  const { sessionDir, getReadinessPayload, getHealthPayload, emailConfigured, hasGoogleSession, getSharedDriveId } =
+    deps;
 
   app.get("/api/setup/status", requireMasterSession, (_req, res) => {
     const readiness = getReadinessPayload();
@@ -64,12 +66,15 @@ export function installSetupStatusRoutes(app, deps) {
       sessionStoreWritable &&
       smtpConfigured;
 
+    const sharedDriveId = String(getSharedDriveId?.() || "").trim();
+
     return res.json({
       ok: true,
       masterConfigured,
       googleConfigured,
       googleConnected,
       sharedDriveConfigured,
+      sharedDriveId,
       sessionStoreWritable,
       smtpConfigured,
       readyForPilot,

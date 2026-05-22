@@ -22,6 +22,11 @@ export type GoogleStatusPayload = {
   configured?: boolean;
   connected?: boolean;
   sharedDriveId?: string;
+  sharedDriveConfigured?: boolean;
+  sharedDriveVerified?: boolean;
+  sharedDriveVerifyError?: string;
+  companiesCount?: number;
+  companies?: { id: string; name: string }[];
 };
 
 export type SmtpStatusPayload = {

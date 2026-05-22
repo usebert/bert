@@ -842,6 +842,7 @@ installSetupStatusRoutes(app, {
   getHealthPayload,
   emailConfigured,
   hasGoogleSession: () => Boolean(readStoredSession()?.tokens),
+  getSharedDriveId: () => requiredEnv.GOOGLE_SHARED_DRIVE_ID,
 });
 
 function signedStateCookie(value) {
@@ -3409,8 +3410,11 @@ async function readCompanyMasterSheet(auth, folderId) {
 app.get("/api/google/status", async (_req, res) => {
   const session = readStoredSession();
   const authed = getAuthedClient();
+  const sharedDriveId = String(requiredEnv.GOOGLE_SHARED_DRIVE_ID || "").trim();
 
   let companies = [];
+  let sharedDriveVerified = false;
+  let sharedDriveVerifyError = "";
   let onboardingSource = {
     configured: Boolean(requiredEnv.GOOGLE_ONBOARDING_FORM_ID || requiredEnv.GOOGLE_ONBOARDING_SHEET_ID),
     formId: requiredEnv.GOOGLE_ONBOARDING_FORM_ID || "",
@@ -3419,28 +3423,104 @@ app.get("/api/google/status", async (_req, res) => {
     sheetName: requiredEnv.GOOGLE_ONBOARDING_SHEET_ID ? "QMS Company Onboarding Responses" : "",
   };
 
-  if (authed && envConfigured()) {
+  if (!sharedDriveId) {
+    sharedDriveVerifyError =
+      "GOOGLE_SHARED_DRIVE_ID is not set on the API server. Set it on the Render API service, then redeploy.";
+  } else if (authed && envConfigured()) {
     try {
       companies = await listCompanyFolders(authed);
+      sharedDriveVerified = true;
       onboardingSource = await discoverOnboardingSource(authed);
     } catch (error) {
+      sharedDriveVerifyError =
+        error instanceof Error ? error.message : "Unable to access the configured Google Shared Drive.";
       return res.status(500).json({
         ok: false,
         configured: true,
         connected: true,
-        error: error instanceof Error ? error.message : "Unable to load Google Drive companies.",
+        sharedDriveId,
+        sharedDriveConfigured: Boolean(sharedDriveId),
+        sharedDriveVerified: false,
+        sharedDriveVerifyError,
+        companiesCount: 0,
+        companies: [],
+        onboardingSource,
+        error: sharedDriveVerifyError,
       });
     }
+  } else if (sharedDriveId && !authed) {
+    sharedDriveVerifyError = "Connect Google Workspace to verify shared drive access.";
   }
 
   res.json({
     ok: true,
     configured: envConfigured(),
     connected: Boolean(session?.tokens),
-    sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID || "",
+    sharedDriveId,
+    sharedDriveConfigured: Boolean(sharedDriveId),
+    sharedDriveVerified,
+    sharedDriveVerifyError: sharedDriveVerifyError || undefined,
+    companiesCount: companies.length,
     companies,
     onboardingSource,
   });
+});
+
+app.post("/api/google/verify-shared-drive", async (_req, res) => {
+  const authed = getAuthedClient();
+  const sharedDriveId = String(requiredEnv.GOOGLE_SHARED_DRIVE_ID || "").trim();
+
+  if (!envConfigured()) {
+    return sendGoogleWorkspaceUnavailable(res);
+  }
+  if (!sharedDriveId) {
+    return res.status(400).json({
+      ok: false,
+      sharedDriveId: "",
+      sharedDriveConfigured: false,
+      sharedDriveVerified: false,
+      error: "Set GOOGLE_SHARED_DRIVE_ID on the Render API service, then redeploy.",
+    });
+  }
+  if (!authed) {
+    return res.status(401).json({
+      ok: false,
+      sharedDriveId,
+      sharedDriveConfigured: true,
+      sharedDriveVerified: false,
+      error: "Connect Google Workspace before verifying the shared drive.",
+    });
+  }
+
+  try {
+    const companies = await listCompanyFolders(authed);
+    console.log("[google] shared drive verified", {
+      sharedDriveIdPrefix: sharedDriveId.slice(0, 8),
+      companiesCount: companies.length,
+    });
+    return res.json({
+      ok: true,
+      sharedDriveId,
+      sharedDriveConfigured: true,
+      sharedDriveVerified: true,
+      companiesCount: companies.length,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unable to access the configured Google Shared Drive.";
+    console.warn("[google] shared drive verify failed", {
+      sharedDriveIdPrefix: sharedDriveId.slice(0, 8),
+      message,
+    });
+    return res.status(400).json({
+      ok: false,
+      sharedDriveId,
+      sharedDriveConfigured: true,
+      sharedDriveVerified: false,
+      companiesCount: 0,
+      error: message,
+    });
+  }
 });
 
 app.get("/api/onboarding/submissions", async (_req, res) => {

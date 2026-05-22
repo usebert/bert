@@ -7,6 +7,7 @@ export type SetupStatusPayload = {
   googleConfigured?: boolean;
   googleConnected?: boolean;
   sharedDriveConfigured?: boolean;
+  sharedDriveId?: string;
   sessionStoreWritable?: boolean;
   smtpConfigured?: boolean;
   readyForPilot?: boolean;

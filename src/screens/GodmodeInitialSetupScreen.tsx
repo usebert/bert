@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { googleWorkspaceService } from "../services/googleWorkspaceService";
 import { fetchSetupStatus, type SetupStatusPayload } from "../services/setupStatusService";
+import type { GoogleStatusPayload } from "../services/pilotStatusService";
 import { leaveSetupInitialPath } from "../utils/setupRoute";
 
 type Section = {
@@ -17,10 +19,15 @@ type Props = {
   slatePrimaryCtaInteract: string;
 };
 
-function buildSections(status: SetupStatusPayload | null, googleConnected: boolean): Section[] {
+function buildSections(
+  status: SetupStatusPayload | null,
+  googleConnected: boolean,
+  sharedDriveVerified: boolean,
+  sharedDriveId: string,
+): Section[] {
   const masterConfigured = status?.masterConfigured === true;
   const googleConfigured = status?.googleConfigured === true;
-  const sharedDriveConfigured = status?.sharedDriveConfigured === true;
+  const sharedDriveConfigured = Boolean(sharedDriveId) || status?.sharedDriveConfigured === true;
   const sessionStoreWritable = status?.sessionStoreWritable === true;
   const smtpConfigured = status?.smtpConfigured === true;
 
@@ -45,8 +52,14 @@ function buildSections(status: SetupStatusPayload | null, googleConnected: boole
     {
       id: "drive",
       title: "Shared Drive",
-      ok: sharedDriveConfigured,
-      detail: sharedDriveConfigured ? "Shared Drive is configured" : status ? "Needs verification" : "Status not available",
+      ok: sharedDriveConfigured && sharedDriveVerified,
+      detail: !sharedDriveId
+        ? "Shared Drive ID is missing on the API server"
+        : sharedDriveVerified
+          ? "Shared Drive is configured and verified"
+          : googleConnected
+            ? "Shared Drive ID is set but not verified yet"
+            : "Connect Google, then verify shared drive access",
     },
     {
       id: "sessions",
@@ -73,6 +86,31 @@ function buildSections(status: SetupStatusPayload | null, googleConnected: boole
   ];
 }
 
+function sharedDriveStatusText(input: {
+  sharedDriveId: string;
+  googleConnected: boolean;
+  sharedDriveVerified: boolean;
+  sharedDriveVerifyError: string;
+  verifying: boolean;
+}): { label: string; tone: "ok" | "warn" | "error" } {
+  if (input.verifying) {
+    return { label: "Verifying…", tone: "warn" };
+  }
+  if (!input.sharedDriveId) {
+    return { label: "Missing", tone: "error" };
+  }
+  if (!input.googleConnected) {
+    return { label: "Configured (not verified)", tone: "warn" };
+  }
+  if (input.sharedDriveVerified) {
+    return { label: "Verified", tone: "ok" };
+  }
+  if (input.sharedDriveVerifyError) {
+    return { label: "Invalid / inaccessible", tone: "error" };
+  }
+  return { label: "Not verified", tone: "warn" };
+}
+
 export function GodmodeInitialSetupScreen({
   onGoogleConnect,
   onGoogleDisconnect,
@@ -81,7 +119,25 @@ export function GodmodeInitialSetupScreen({
   slatePrimaryCtaInteract,
 }: Props) {
   const [status, setStatus] = useState<SetupStatusPayload | null>(null);
+  const [googleStatus, setGoogleStatus] = useState<GoogleStatusPayload | null>(null);
   const [loading, setLoading] = useState(true);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [verifyingDrive, setVerifyingDrive] = useState(false);
+  const [verifyMessage, setVerifyMessage] = useState("");
+
+  const loadGoogleStatus = useCallback(async () => {
+    setGoogleLoading(true);
+    try {
+      const payload = await googleWorkspaceService.getStatus<GoogleStatusPayload>();
+      setGoogleStatus(payload);
+      setVerifyMessage("");
+    } catch (error) {
+      setGoogleStatus(null);
+      setVerifyMessage(error instanceof Error ? error.message : "Unable to load Google status.");
+    } finally {
+      setGoogleLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -98,7 +154,61 @@ export function GodmodeInitialSetupScreen({
     };
   }, [googleConnected]);
 
-  const sections = buildSections(status, googleConnected);
+  useEffect(() => {
+    void loadGoogleStatus();
+  }, [googleConnected, loadGoogleStatus]);
+
+  const sharedDriveId =
+    String(googleStatus?.sharedDriveId || status?.sharedDriveId || "").trim();
+  const sharedDriveVerified = googleStatus?.sharedDriveVerified === true;
+  const sharedDriveVerifyError = String(
+    googleStatus?.sharedDriveVerifyError || verifyMessage || "",
+  ).trim();
+  const companiesCount =
+    googleStatus?.companiesCount ?? googleStatus?.companies?.length ?? 0;
+  const driveStatus = sharedDriveStatusText({
+    sharedDriveId,
+    googleConnected,
+    sharedDriveVerified,
+    sharedDriveVerifyError,
+    verifying: verifyingDrive,
+  });
+
+  const sections = buildSections(status, googleConnected, sharedDriveVerified, sharedDriveId);
+
+  const handleVerifySharedDrive = async () => {
+    if (!googleConnected) {
+      setVerifyMessage("Connect Google Workspace before verifying the shared drive.");
+      return;
+    }
+    setVerifyingDrive(true);
+    setVerifyMessage("");
+    try {
+      const payload = await googleWorkspaceService.verifySharedDrive<GoogleStatusPayload>();
+      setGoogleStatus((current) => ({
+        ...current,
+        ok: true,
+        configured: current?.configured ?? true,
+        connected: current?.connected ?? googleConnected,
+        sharedDriveId: payload.sharedDriveId || sharedDriveId,
+        sharedDriveConfigured: true,
+        sharedDriveVerified: true,
+        sharedDriveVerifyError: undefined,
+        companiesCount: payload.companiesCount ?? current?.companiesCount,
+      }));
+      setVerifyMessage(
+        payload.companiesCount != null
+          ? `Shared drive verified. ${payload.companiesCount} company folder(s) visible.`
+          : "Shared drive verified.",
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to verify shared drive.";
+      setVerifyMessage(message);
+      await loadGoogleStatus();
+    } finally {
+      setVerifyingDrive(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -142,6 +252,81 @@ export function GodmodeInitialSetupScreen({
             </button>
           )}
         </div>
+      </section>
+
+      <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-sm">
+        <p className="text-sm font-semibold text-slate-900">Google Shared Drive</p>
+        <p className="mt-1 text-sm text-slate-600">
+          This is the Google Shared Drive BERT uses for company workspaces.
+        </p>
+
+        <div className="mt-4 space-y-3 rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Current Shared Drive ID</p>
+            <p className="mt-1 break-all font-mono text-sm text-slate-900">
+              {sharedDriveId || "Not set on API server"}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Status</span>
+            <span
+              className={[
+                "rounded-full px-3 py-1 text-xs font-semibold",
+                driveStatus.tone === "ok"
+                  ? "bg-emerald-100 text-emerald-800"
+                  : driveStatus.tone === "error"
+                    ? "bg-rose-100 text-rose-800"
+                    : "bg-amber-100 text-amber-900",
+              ].join(" ")}
+            >
+              {driveStatus.label}
+            </span>
+            {sharedDriveVerified && companiesCount >= 0 ? (
+              <span className="text-xs text-slate-600">{companiesCount} company folder(s) visible</span>
+            ) : null}
+          </div>
+          {sharedDriveVerifyError ? (
+            <p className="text-sm text-rose-700">{sharedDriveVerifyError}</p>
+          ) : null}
+          {verifyMessage && !sharedDriveVerifyError ? (
+            <p className="text-sm text-emerald-700">{verifyMessage}</p>
+          ) : null}
+        </div>
+
+        {!sharedDriveId ? (
+          <p className="mt-3 text-sm leading-6 text-slate-600">
+            Set <span className="font-mono text-slate-800">GOOGLE_SHARED_DRIVE_ID</span> on the Render API service
+            (Environment → Add variable), then redeploy the API. The ID is the Shared Drive or parent folder the
+            connected Google account can access.
+          </p>
+        ) : (
+          <p className="mt-3 text-sm leading-6 text-slate-600">
+            The Shared Drive ID is read from server environment variables (Render). To change it, update{" "}
+            <span className="font-mono text-slate-800">GOOGLE_SHARED_DRIVE_ID</span> on the API service and redeploy.
+          </p>
+        )}
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => void handleVerifySharedDrive()}
+            disabled={!sharedDriveId || !googleConnected || verifyingDrive || googleLoading}
+            className={`h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-50 ${slatePrimaryCtaInteract}`}
+          >
+            {verifyingDrive ? "Verifying…" : "Verify shared drive"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void loadGoogleStatus()}
+            disabled={googleLoading}
+            className="h-11 rounded-2xl border border-slate-200 px-4 text-sm font-semibold text-slate-800"
+          >
+            {googleLoading ? "Refreshing…" : "Refresh status"}
+          </button>
+        </div>
+        {!googleConnected && sharedDriveId ? (
+          <p className="mt-2 text-xs text-slate-500">Connect Google Workspace before verifying drive access.</p>
+        ) : null}
       </section>
 
       <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-sm">

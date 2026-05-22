@@ -414,6 +414,10 @@ type GoogleBackendStatus = {
   configured: boolean;
   connected: boolean;
   sharedDriveId: string;
+  sharedDriveConfigured?: boolean;
+  sharedDriveVerified?: boolean;
+  sharedDriveVerifyError?: string;
+  companiesCount?: number;
   companies?: CompanyFolder[];
   onboardingSource?: OnboardingSource;
   error?: string;

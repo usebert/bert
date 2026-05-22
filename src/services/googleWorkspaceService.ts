@@ -52,4 +52,12 @@ export const googleWorkspaceService = {
     });
     return parseResponse<JsonResponse>(response);
   },
+  async verifySharedDrive<T extends JsonResponse>() {
+    return parseResponse<T>(
+      await fetch(apiUrl("/api/google/verify-shared-drive"), {
+        method: "POST",
+        credentials: "include",
+      }),
+    );
+  },
 };
