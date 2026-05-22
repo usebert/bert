@@ -49,13 +49,22 @@ function CompanyOnboardingEmailResultPanel({
   const [copyLinkDone, setCopyLinkDone] = useState(false);
   const [copyDraftDone, setCopyDraftDone] = useState(false);
 
+  const senderEmail = result.senderEmail || "admin@usebert.co.uk";
+
   if (result.sent) {
     return (
       <div className="mt-4 rounded-2xl border border-emerald-500/40 bg-emerald-950/30 p-4">
         <p className="text-sm font-semibold text-emerald-100">Onboarding email sent</p>
         <p className="mt-1 text-sm leading-6 text-emerald-50/90">
-          We sent the company onboarding form to <span className="font-semibold">{result.email}</span>.
+          We sent the company onboarding form to <span className="font-semibold">{result.email}</span>. Ask the recipient
+          to check their Inbox and Junk/Spam folder if it does not arrive within a few minutes.
         </p>
+        <dl className="mt-3 text-xs text-emerald-100/80">
+          <div>
+            <dt className="font-semibold uppercase tracking-[0.14em] text-emerald-200/70">From</dt>
+            <dd className="mt-0.5 text-sm text-emerald-50">{senderEmail}</dd>
+          </div>
+        </dl>
         <button type="button" onClick={onDismiss} className={`mt-3 text-xs font-semibold text-emerald-200 underline-offset-2 hover:underline ${slatePrimaryCtaInteract}`}>
           Dismiss
         </button>
@@ -71,9 +80,19 @@ function CompanyOnboardingEmailResultPanel({
     <div className="mt-4 rounded-2xl border border-amber-500/40 bg-amber-950/25 p-4">
       <p className="text-sm font-semibold text-amber-100">Onboarding email ready</p>
       <p className="mt-1 text-sm leading-6 text-amber-50/90">
-        Email sending is not configured. Copy the link or draft and send it manually.
+        {result.smtpConfigured
+          ? "The server could not send the email. Copy the link or draft and send it manually."
+          : "Email sending is not configured. Copy the link or draft and send it manually."}
+      </p>
+      <p className="mt-2 text-sm leading-6 text-amber-50/90">
+        Email sending may be blocked or filtered. You can send the link manually from your normal mailbox. Ask the
+        recipient to check Inbox and Junk/Spam.
       </p>
       <dl className="mt-3 space-y-2 text-xs text-slate-300">
+        <div>
+          <dt className="font-semibold uppercase tracking-[0.14em] text-slate-500">From (expected)</dt>
+          <dd className="mt-0.5 text-sm text-white">{senderEmail}</dd>
+        </div>
         <div>
           <dt className="font-semibold uppercase tracking-[0.14em] text-slate-500">Recipient</dt>
           <dd className="mt-0.5 break-all text-sm text-white">{result.email}</dd>

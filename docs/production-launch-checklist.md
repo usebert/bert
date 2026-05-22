@@ -35,6 +35,8 @@ Warnings (logged only, do not block boot):
 - [ ] SMTP variables if server-sent email is required (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM_EMAIL`, `SMTP_FROM_NAME`)
 - [ ] `BERT_COMPANY_ONBOARDING_FORM_URL` set if the default Google Form link should change
 - [ ] **Companies → Invite new company**: with SMTP, onboarding email sends; without SMTP, fallback panel shows copy link / draft
+- [ ] Pilot SMTP: Microsoft 365 from `admin@usebert.co.uk`; operators tell recipients to check **Junk/Spam** if mail is delayed
+- [ ] Plan transactional sender (Resend/Postmark) + SPF/DKIM/DMARC before scaling beyond pilot; re-enable Microsoft Security Defaults after migration
 - [ ] **Never** set `ALLOW_INSECURE_OAUTH_STATE=true` in production
 
 ## Master operator (hosted API)
@@ -63,6 +65,7 @@ Warnings (logged only, do not block boot):
 - [ ] `npm run verify:auth` and `BERT_VERIFY_PILOT_DIST=1 npm run verify:auth` pass on release build artifact
 - [ ] Google OAuth connect flow from Initial Setup (after Google env on API)
 - [ ] One invite or onboarding path in a staging tenant (manual invite link OK if SMTP unset)
+- [ ] Company onboarding email received (or found in Junk/Spam); body mentions checking Junk/Spam and sender `admin@usebert.co.uk`
 
 ## Browser E2E (paid pilot gate)
 

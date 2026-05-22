@@ -103,6 +103,7 @@ export type CompanyOnboardingEmailResult = {
   email: string;
   sent: boolean;
   smtpConfigured: boolean;
+  senderEmail?: string;
   onboardingFormUrl: string;
   emailDraft?: { subject: string; body: string };
   mailtoUrl?: string;

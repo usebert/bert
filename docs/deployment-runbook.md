@@ -346,6 +346,14 @@ BERT_COMPANY_ONBOARDING_FORM_URL=https://docs.google.com/forms/d/e/1FAIpQLSeWyvQ
 
 If unset, the API uses the same URL as the paid-pilot default. The SPA shows a copyable link and email draft when SMTP is not configured.
 
+**Paid pilot deliverability (Microsoft 365 SMTP):**
+
+- The current pilot sends company onboarding mail via **Microsoft 365 SMTP** from **`admin@usebert.co.uk`** (`SMTP_FROM_EMAIL` / `SMTP_USER`).
+- Messages may land in **Junk/Spam** until **SPF**, **DKIM**, and **DMARC** are tuned on the sending domain and sender reputation warms up.
+- **Operators:** after **Companies → Send onboarding email**, tell the recipient to check **Inbox and Junk/Spam** if nothing arrives within a few minutes. The app success panel repeats this guidance.
+- **SMTP AUTH note:** Microsoft **Security Defaults** can block basic SMTP auth; the pilot may require relaxing that temporarily. Re-enable stronger defaults once outbound mail moves to a dedicated transactional provider.
+- **Longer term:** move invites and notifications to a transactional provider (**Resend**, **Postmark**, or similar), verify the domain there, then point **`SMTP_*`** (or a future provider integration) at that service and restore Microsoft security defaults.
+
 ### Optional tuning / branding
 
 | Variable | Purpose |
@@ -375,8 +383,10 @@ Reference: **`.env.example`** (local + commented production block). For credenti
 
 - Set **`APP_SUPPORT_EMAIL=admin@usebert.co.uk`** (or your pilot support address).
 - Configure **SMTP** with a reputable provider (transactional email recommended for pilots).
+- **Paid pilot today:** Microsoft 365 SMTP from **`admin@usebert.co.uk`**; expect some messages in **Junk/Spam** until DNS authentication and reputation improve.
 - Configure **SPF**, **DKIM**, and **DMARC** on the **sending domain** used in **`SMTP_FROM_EMAIL`** to improve deliverability and reduce spoofing risk.
-- **Before a customer demo:** send a **test invite** (or incident notification) to a mailbox you control and confirm inbox placement (not spam).
+- **Before a customer demo:** send a **test company onboarding email** (Companies → Invite new company) to a mailbox you control; confirm inbox placement and that the recipient knows to check **Junk/Spam** if needed.
+- **Later:** migrate to **Resend** / **Postmark** (or similar), re-verify the domain, update **`SMTP_*`**, then re-enable Microsoft **Security Defaults** if they were relaxed for pilot SMTP AUTH.
 
 ---
 

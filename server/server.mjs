@@ -1653,8 +1653,18 @@ function getCompanyOnboardingFormUrl() {
   return configured || DEFAULT_COMPANY_ONBOARDING_FORM_URL;
 }
 
+function getCompanyOnboardingSenderEmail() {
+  return String(requiredEnv.SMTP_FROM_EMAIL || APP_SUPPORT_EMAIL || "admin@usebert.co.uk").trim();
+}
+
+function companyOnboardingDeliverabilityNote(senderEmail) {
+  return `If you were expecting this invite and cannot find it later, please check your Junk or Spam folder. Emails are sent from ${senderEmail}.`;
+}
+
 function buildCompanyOnboardingEmailDraft() {
   const onboardingFormUrl = getCompanyOnboardingFormUrl();
+  const senderEmail = getCompanyOnboardingSenderEmail();
+  const deliverabilityNote = companyOnboardingDeliverabilityNote(senderEmail);
   const subject = "Complete your BERT company onboarding";
   const textBody = [
     "Hi,",
@@ -1667,6 +1677,8 @@ function buildCompanyOnboardingEmailDraft() {
     "",
     "Once submitted, the BERT team will complete your workspace setup.",
     "",
+    deliverabilityNote,
+    "",
     "Thanks,",
     "BERT Admin",
   ].join("\n");
@@ -1677,9 +1689,10 @@ function buildCompanyOnboardingEmailDraft() {
     <p><a href="${onboardingFormUrl}" target="_blank" rel="noopener noreferrer">Complete company onboarding form</a></p>
     <p style="word-break:break-all;font-size:12px;color:#64748b;">${onboardingFormUrl}</p>
     <p>Once submitted, the BERT team will complete your workspace setup.</p>
+    <p style="font-size:13px;color:#64748b;">${deliverabilityNote}</p>
     <p>Thanks,<br/>BERT Admin</p>
   `;
-  return { subject, textBody, htmlBody, onboardingFormUrl };
+  return { subject, textBody, htmlBody, onboardingFormUrl, senderEmail };
 }
 
 function buildCompanyOnboardingMailto(toEmail) {
@@ -3694,7 +3707,7 @@ app.post("/api/onboarding/app-invites/new-company", (req, res) => {
     }
 
     const onboardingFormUrl = getCompanyOnboardingFormUrl();
-    const { subject, textBody } = buildCompanyOnboardingEmailDraft();
+    const { subject, textBody, senderEmail } = buildCompanyOnboardingEmailDraft();
     const smtpConfigured = emailConfigured();
 
     const manualPayload = () => ({
@@ -3702,6 +3715,7 @@ app.post("/api/onboarding/app-invites/new-company", (req, res) => {
       sent: false,
       smtpConfigured,
       email: toEmail,
+      senderEmail,
       onboardingFormUrl,
       emailDraft: { subject, body: textBody },
       mailtoUrl: buildCompanyOnboardingMailto(toEmail),
@@ -3719,6 +3733,7 @@ app.post("/api/onboarding/app-invites/new-company", (req, res) => {
         sent: true,
         smtpConfigured: true,
         email: toEmail,
+        senderEmail,
         onboardingFormUrl,
       });
     } catch (err) {

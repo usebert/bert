@@ -5216,6 +5216,7 @@ function App() {
         sent?: boolean;
         smtpConfigured?: boolean;
         email?: string;
+        senderEmail?: string;
         onboardingFormUrl?: string;
         emailDraft?: { subject: string; body: string };
         mailtoUrl?: string;
@@ -5227,6 +5228,7 @@ function App() {
         email: payload.email || trimmed,
         sent: payload.sent === true,
         smtpConfigured: payload.smtpConfigured !== false,
+        senderEmail: payload.senderEmail || "admin@usebert.co.uk",
         onboardingFormUrl: payload.onboardingFormUrl || "",
         emailDraft: payload.emailDraft,
         mailtoUrl: payload.mailtoUrl,
