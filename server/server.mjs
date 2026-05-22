@@ -1622,12 +1622,72 @@ async function companyUserLoginReady(auth, masterSheetId, email) {
   }
 }
 
-async function resolveCompanyUserInviteLifecycle(auth, masterSheetId, email) {
-  const loginReady = await companyUserLoginReady(auth, masterSheetId, email);
+async function companyUserUsersRowPresent(auth, masterSheetId, email) {
+  if (!auth || !masterSheetId || !email) {
+    return false;
+  }
+  try {
+    return Boolean(await readCompanyUsersTabRecord(auth, masterSheetId, email));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Company-user invites write to the **company master spreadsheet** (Users tab + Config UserAuth),
+ * not the operator Master login sheet. `masterSheetId` on the invite is that company spreadsheet ID.
+ */
+async function assessCompanyUserInviteReadiness(auth, masterSheetId, email, inviteRecord = null) {
+  const emailNorm = String(email || "").trim().toLowerCase();
+  const sheetId = String(masterSheetId || "").trim();
+  const userAuthPresent = await companyUserLoginReady(auth, sheetId, emailNorm);
+  const usersRowPresent = userAuthPresent
+    ? true
+    : await companyUserUsersRowPresent(auth, sheetId, emailNorm);
+  const tokenConsumed = Boolean(inviteRecord?.consumedAt);
+  const provisionSucceeded = inviteRecord?.provisionStatus === "succeeded";
+
+  if (userAuthPresent && usersRowPresent) {
+    return {
+      status: "active",
+      loginReady: true,
+      usersRowPresent: true,
+      userAuthPresent: true,
+      setupIncomplete: false,
+      recoverable: false,
+      storageHint:
+        "Company users are stored on the company master spreadsheet (Users tab and Config UserAuth), not the operator Master sheet.",
+    };
+  }
+
+  if (tokenConsumed && provisionSucceeded) {
+    return {
+      status: "setup_incomplete",
+      loginReady: false,
+      usersRowPresent,
+      userAuthPresent,
+      setupIncomplete: true,
+      recoverable: true,
+      storageHint:
+        "Setup did not finish on the company sheet. Revoke or send a fresh invite, or ask the recipient to open the invite link again.",
+    };
+  }
+
   return {
-    loginReady,
-    status: loginReady ? "active" : "awaiting_setup",
+    status: "awaiting_setup",
+    loginReady: false,
+    usersRowPresent,
+    userAuthPresent,
+    setupIncomplete: false,
+    recoverable: true,
+    storageHint:
+      "After the recipient completes the invite link, check this company's master spreadsheet Users tab and Config UserAuth.<email>.",
   };
+}
+
+async function resolveCompanyUserInviteLifecycle(auth, masterSheetId, email, tokenId = "") {
+  const inviteRecord = tokenId ? getInviteRecord(tokenId) : null;
+  return assessCompanyUserInviteReadiness(auth, masterSheetId, email, inviteRecord);
 }
 
 function markInviteConsumed(id) {
@@ -3945,7 +4005,7 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
         inviteUrl,
       });
       const smtpConfigured = emailConfigured();
-      const lifecycle = await resolveCompanyUserInviteLifecycle(auth, masterSheetId, toEmail);
+      const lifecycle = await resolveCompanyUserInviteLifecycle(auth, masterSheetId, toEmail, id);
 
       const manualPayload = (smtpError) => ({
         ok: true,
@@ -3958,6 +4018,8 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
         senderEmail,
         status: lifecycle.status,
         loginReady: lifecycle.loginReady,
+        setupIncomplete: lifecycle.setupIncomplete,
+        storageHint: lifecycle.storageHint,
         emailDraft: { subject, body: textBody },
         mailtoUrl: buildCompanyUserInviteMailto({ toEmail, inviteRole, inviteUrl }),
         ...(smtpError ? { smtpError } : {}),
@@ -3983,6 +4045,8 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
           senderEmail,
           status: lifecycle.status,
           loginReady: lifecycle.loginReady,
+          setupIncomplete: lifecycle.setupIncomplete,
+          storageHint: lifecycle.storageHint,
         });
       } catch (err) {
         const smtpError = safeSmtpErrorSummary(err);
@@ -4013,23 +4077,58 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
 });
 
 app.delete("/api/onboarding/app-invites/:tokenId", requireGoogleWorkspaceEnv, (req, res) => {
-  const tokenId = String(req.params.tokenId || "").trim();
-  if (!tokenId) {
-    return res.status(400).json({ ok: false, error: "Invite token is required." });
-  }
-  const record = getInviteRecord(tokenId);
-  if (!record) {
-    return res.status(404).json({ ok: false, error: "Invite not found." });
-  }
-  if (record.consumedAt) {
-    return res.status(409).json({
-      ok: false,
-      error: "This invite was already completed and cannot be revoked.",
-    });
-  }
-  revokeInviteRecord(tokenId);
-  console.log(`[invite] revoked token=${tokenId.slice(0, 8)} kind=${record.kind}`);
-  return res.json({ ok: true, revoked: true, tokenId });
+  const run = async () => {
+    const tokenId = String(req.params.tokenId || "").trim();
+    if (!tokenId) {
+      res.status(400).json({ ok: false, error: "Invite token is required." });
+      return;
+    }
+    const record = getInviteRecord(tokenId);
+    if (!record) {
+      res.status(404).json({ ok: false, error: "Invite not found." });
+      return;
+    }
+    if (record.consumedAt) {
+      if (record.kind === "company_user") {
+        const auth = getAuthedClient();
+        const assessment = await assessCompanyUserInviteReadiness(
+          auth,
+          record.masterSheetId,
+          record.email,
+          record,
+        );
+        if (assessment.setupIncomplete) {
+          revokeInviteRecord(tokenId);
+          console.log(`[invite] revoked setup_incomplete token=${tokenId.slice(0, 8)} email=${record.email}`);
+          res.json({
+            ok: true,
+            revoked: true,
+            wasSetupIncomplete: true,
+            status: assessment.status,
+            loginReady: false,
+          });
+          return;
+        }
+      }
+      res.status(409).json({
+        ok: false,
+        error: "This invite was already completed and cannot be revoked.",
+        blocker: "invite_already_active",
+        hint: "Company users live on the company master spreadsheet (Users + UserAuth), not the operator Master sheet.",
+      });
+      return;
+    }
+    revokeInviteRecord(tokenId);
+    console.log(`[invite] revoked token=${tokenId.slice(0, 8)} kind=${record.kind}`);
+    res.json({ ok: true, revoked: true, tokenId });
+  };
+
+  void run().catch((err) => {
+    console.error("[api] DELETE /api/onboarding/app-invites/:tokenId", err);
+    if (!res.headersSent) {
+      res.status(500).json({ ok: false, error: "Unable to revoke invite." });
+    }
+  });
 });
 
 app.get("/api/onboarding/app-invites/:tokenId", async (req, res) => {
@@ -4044,6 +4143,48 @@ app.get("/api/onboarding/app-invites/:tokenId", async (req, res) => {
   const record = normalizeInviteProvisionFields(recordRaw);
   if (record.consumedAt) {
     const folderId = record.provisionDriveFolderId;
+    if (record.kind === "company_user") {
+      const auth = getAuthedClient();
+      const assessment = await assessCompanyUserInviteReadiness(
+        auth,
+        record.masterSheetId,
+        record.email,
+        record,
+      );
+      if (assessment.setupIncomplete) {
+        return res.json({
+          ok: true,
+          kind: "company_user",
+          email: record.email,
+          role: record.role,
+          invitedBy: record.invitedBy || "",
+          companyName: record.companyName || "",
+          setupIncomplete: true,
+          canRetrySetup: true,
+          provisionStatus: record.provisionStatus,
+          masterSheetId: record.masterSheetId || "",
+          companyFolderId: record.companyFolderId || "",
+          storageHint: assessment.storageHint,
+          ...assessment,
+        });
+      }
+      if (assessment.loginReady) {
+        return res.json({
+          ok: true,
+          kind: "company_user",
+          email: record.email,
+          role: record.role,
+          invitedBy: record.invitedBy || "",
+          companyName: record.companyName || "",
+          setupIncomplete: false,
+          loginReady: true,
+          status: "active",
+          masterSheetId: record.masterSheetId || "",
+          companyFolderId: record.companyFolderId || "",
+          storageHint: assessment.storageHint,
+        });
+      }
+    }
     const consumedBody = {
       ok: false,
       error: "This invite has already been used.",
@@ -4146,12 +4287,44 @@ app.post("/api/onboarding/app-invites/:tokenId/complete", async (req, res) => {
             return;
           }
           if (record.kind === "company_user") {
-            res.json({ ok: true, outcome: "company_user" });
-            return;
+            const assessment = await assessCompanyUserInviteReadiness(
+              authed,
+              record.masterSheetId,
+              record.email,
+              record,
+            );
+            if (assessment.loginReady) {
+              res.json({
+                ok: true,
+                outcome: "company_user",
+                loginReady: true,
+                status: "active",
+                masterSheetId: record.masterSheetId,
+                companyFolderId: record.companyFolderId,
+              });
+              return;
+            }
+            console.warn("[invite] company_user retry incomplete setup", {
+              tokenIdPrefix: tokenId.slice(0, 8),
+              email: record.email,
+              masterSheetId: record.masterSheetId,
+              companyFolderId: record.companyFolderId,
+              usersRowPresent: assessment.usersRowPresent,
+              userAuthPresent: assessment.userAuthPresent,
+            });
+            patchInviteRecord(tokenId, {
+              consumedAt: null,
+              provisionStatus: "failed",
+              provisionFinishedAt: Date.now(),
+              provisionError: "Previous setup did not finish. Retrying account creation.",
+            });
+            record = normalizeInviteProvisionFields(getInviteRecord(tokenId));
           }
         }
-        res.status(410).json({ ok: false, error: "This invite has already been used." });
-        return;
+        if (record?.consumedAt) {
+          res.status(410).json({ ok: false, error: "This invite has already been used." });
+          return;
+        }
       }
 
       if (Date.now() > record.expiresAt) {
@@ -4242,41 +4415,103 @@ app.post("/api/onboarding/app-invites/:tokenId/complete", async (req, res) => {
         }
 
         if (record.kind === "company_user") {
-          console.log("[invite] company_user row start", {
+          let usersWriteOk = false;
+          let userAuthWriteOk = false;
+          let completedMarked = false;
+          console.log("[invite] company_user completion start", {
             tokenIdPrefix: tokenId.slice(0, 8),
+            email: record.email,
             masterSheetId: record.masterSheetId,
+            companyFolderId: record.companyFolderId,
             role: record.role,
           });
-          const userId = `app-${String(record.email || "")
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/gi, "-")}-${String(record.role || "").toLowerCase()}`;
-          await writeCompanyUsers(authed, record.masterSheetId, record.companyFolderId, [
-            {
-              id: userId,
+          try {
+            const userId = `app-${String(record.email || "")
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/gi, "-")}-${String(record.role || "").toLowerCase()}`;
+            const usersResult = await writeCompanyUsers(authed, record.masterSheetId, record.companyFolderId, [
+              {
+                id: userId,
+                email: record.email,
+                role: record.role,
+                name: fullName,
+                invitedBy: record.invitedBy || APP_BRAND_NAME,
+                senderEmail: "",
+                sentAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                syncStatus: "Synced",
+              },
+            ]);
+            usersWriteOk = Number(usersResult?.written || 0) > 0;
+            const authKey = `UserAuth.${String(record.email || "").toLowerCase()}`;
+            await updateConfig(authed, record.masterSheetId, {
+              ...(await getConfig(authed, record.masterSheetId)),
+              [authKey]: hashPassword(password),
+            });
+            userAuthWriteOk = await companyUserLoginReady(authed, record.masterSheetId, record.email);
+            if (!usersWriteOk || !userAuthWriteOk) {
+              throw new Error(
+                "Account setup could not be verified on the company sheet (Users tab and UserAuth).",
+              );
+            }
+            patchInviteRecord(tokenId, {
+              provisionStatus: "succeeded",
+              provisionFinishedAt: Date.now(),
+              provisionError: null,
+              consumedAt: Date.now(),
+            });
+            completedMarked = true;
+            console.log("[invite] company_user completion ok", {
+              tokenIdPrefix: tokenId.slice(0, 8),
               email: record.email,
-              role: record.role,
-              name: fullName,
-              invitedBy: record.invitedBy || APP_BRAND_NAME,
-              senderEmail: "",
-              sentAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-              syncStatus: "Synced",
-            },
-          ]);
-          const authKey = `UserAuth.${String(record.email || "").toLowerCase()}`;
-          await updateConfig(authed, record.masterSheetId, {
-            ...(await getConfig(authed, record.masterSheetId)),
-            [authKey]: hashPassword(password),
-          });
-          patchInviteRecord(tokenId, {
-            provisionStatus: "succeeded",
-            provisionFinishedAt: Date.now(),
-            provisionError: null,
-            consumedAt: Date.now(),
-          });
-          console.log("[invite] company_user row done", { tokenIdPrefix: tokenId.slice(0, 8) });
-          res.json({ ok: true, outcome: "company_user" });
-          return;
+              masterSheetId: record.masterSheetId,
+              companyFolderId: record.companyFolderId,
+              usersWriteOk,
+              userAuthWriteOk,
+              completedMarked,
+            });
+            res.json({
+              ok: true,
+              outcome: "company_user",
+              loginReady: true,
+              status: "active",
+              masterSheetId: record.masterSheetId,
+              companyFolderId: record.companyFolderId,
+              storageHint:
+                "User saved on the company master spreadsheet (Users tab + Config UserAuth), not the operator Master sheet.",
+            });
+            return;
+          } catch (completionErr) {
+            const msg =
+              completionErr instanceof Error
+                ? completionErr.message
+                : "Unable to complete company user setup.";
+            console.warn("[invite] company_user completion failed", {
+              tokenIdPrefix: tokenId.slice(0, 8),
+              email: record.email,
+              masterSheetId: record.masterSheetId,
+              companyFolderId: record.companyFolderId,
+              usersWriteOk,
+              userAuthWriteOk,
+              completedMarked,
+              message: msg,
+            });
+            patchInviteRecord(tokenId, {
+              provisionStatus: "failed",
+              provisionFinishedAt: Date.now(),
+              provisionError: msg,
+              consumedAt: null,
+            });
+            res.status(500).json({
+              ok: false,
+              provisionStatus: "failed",
+              setupIncomplete: true,
+              usersWriteOk,
+              userAuthWriteOk,
+              error: `${msg} You can try completing onboarding again.`,
+            });
+            return;
+          }
         }
 
         patchInviteRecord(tokenId, {

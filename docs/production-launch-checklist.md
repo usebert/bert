@@ -36,8 +36,10 @@ Warnings (logged only, do not block boot):
 - [ ] `BERT_COMPANY_ONBOARDING_FORM_URL` set if the default Google Form link should change
 - [ ] **Companies → Invite new company**: with SMTP, onboarding email sends; without SMTP, fallback panel shows copy link / draft
 - [ ] **Company user invite** (Users/Invites): email sends or manual fallback; recipient completes invite link before company login
+- [ ] **Company users are on the company master spreadsheet** (Users tab + Config `UserAuth.<email>`), **not** the operator Master login sheet — verify the selected company folder’s sheet after invite completion
 - [ ] **Company user resend** works (reuses invite token + SMTP; does not require live API Google session for email only)
-- [ ] **Company user delete/revoke** removes invite from UI and invalidates server token
+- [ ] **Company user delete/revoke** removes invite from UI; incomplete setup tokens can be revoked; active users show a clear message
+- [ ] **Setup incomplete** rows can be cleared and a fresh invite sent; recipient can reopen the invite link to retry setup when API Google is connected
 - [ ] Pilot SMTP: Microsoft 365 from `admin@usebert.co.uk`; operators tell recipients to check **Junk/Spam** if mail is delayed
 - [ ] Plan transactional sender (Resend/Postmark) + SPF/DKIM/DMARC before scaling beyond pilot; re-enable Microsoft Security Defaults after migration
 - [ ] **Never** set `ALLOW_INSECURE_OAUTH_STATE=true` in production
@@ -69,7 +71,7 @@ Warnings (logged only, do not block boot):
 - [ ] Google OAuth connect flow from Initial Setup (after Google env on API)
 - [ ] One invite or onboarding path in a staging tenant (manual invite link OK if SMTP unset)
 - [ ] Company onboarding email received (or found in Junk/Spam); body mentions checking Junk/Spam and sender `admin@usebert.co.uk`
-- [ ] Company user invite: open emailed link → set password → company login succeeds with that email/password (requires API Google session for invite completion)
+- [ ] Company user invite: open emailed link → set password → verify **company sheet** Users + UserAuth → company login succeeds (requires API Google session for invite completion)
 
 ## Browser E2E (paid pilot gate)
 

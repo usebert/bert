@@ -126,7 +126,7 @@ type UserInvite = {
   invitedBy: string;
   senderEmail?: string;
   sentAt: string;
-  status: "Email sent" | "Invite created" | "Awaiting setup" | "Active" | "Invite sent";
+  status: "Email sent" | "Invite created" | "Awaiting setup" | "Setup incomplete" | "Active" | "Invite sent";
   mailtoUrl?: string;
   appOnboardingUrl?: string;
   loginReady?: boolean;
@@ -160,9 +160,13 @@ function mapCompanyUserInviteStatus(payload: {
   sent?: boolean;
   loginReady?: boolean;
   status?: string;
+  setupIncomplete?: boolean;
 }): UserInvite["status"] {
   if (payload.loginReady === true || payload.status === "active") {
     return "Active";
+  }
+  if (payload.setupIncomplete === true || payload.status === "setup_incomplete") {
+    return "Setup incomplete";
   }
   if (payload.sent === true) {
     return "Email sent";
@@ -5382,6 +5386,8 @@ function App() {
         senderEmail?: string;
         status?: string;
         loginReady?: boolean;
+        setupIncomplete?: boolean;
+        storageHint?: string;
         emailDraft?: { subject: string; body: string };
         mailtoUrl?: string;
         smtpError?: string;
@@ -5401,8 +5407,15 @@ function App() {
         smtpConfigured: payload.smtpConfigured !== false,
         senderEmail: payload.senderEmail || "admin@usebert.co.uk",
         inviteUrl,
-        status: loginReady ? "active" : "awaiting_setup",
+        status:
+          payload.status === "setup_incomplete"
+            ? "setup_incomplete"
+            : loginReady
+              ? "active"
+              : "awaiting_setup",
         loginReady,
+        setupIncomplete: payload.setupIncomplete === true,
+        storageHint: payload.storageHint,
         emailDraft: payload.emailDraft,
         mailtoUrl: payload.mailtoUrl,
         smtpError: payload.smtpError,
@@ -5422,6 +5435,13 @@ function App() {
         mailtoUrl: result.mailtoUrl,
         appOnboardingUrl: inviteUrl || undefined,
       };
+      if (result.setupIncomplete) {
+        pushToast(
+          "Setup incomplete",
+          "This invite was marked complete but login data is missing on the company sheet. Send a fresh invite or ask the recipient to open the link again.",
+          "warning",
+        );
+      }
       setInvitedUsers([createdInvite, ...invitedUsers]);
       setInviteEmailInput("");
       if (emailSent) {
@@ -5443,8 +5463,8 @@ function App() {
   const handleResendInvite = async (invite: UserInvite) => {
     if (!currentUser) return;
 
-    if (isLegacyInviteRow(invite)) {
-      console.warn("[invite] resend skipped — legacy row without server token", {
+    if (isLegacyInviteRow(invite) || invite.status === "Setup incomplete") {
+      console.warn("[invite] resend skipped — no active server token or setup incomplete", {
         id: invite.id,
         email: invite.email,
         role: invite.role,
@@ -5453,7 +5473,9 @@ function App() {
       setCompanyUserInviteEmailResult(null);
       pushToast(
         "Send a fresh invite",
-        "This old invite has no active link. Enter the email above and use Send invite link to create a new one.",
+        invite.status === "Setup incomplete"
+          ? "Setup did not finish on the company sheet. Enter the email above and use Send invite link, or ask the recipient to open the old link again."
+          : "This old invite has no active link. Enter the email above and use Send invite link to create a new one.",
         "warning",
       );
       return;
@@ -5504,6 +5526,8 @@ function App() {
         senderEmail?: string;
         status?: string;
         loginReady?: boolean;
+        setupIncomplete?: boolean;
+        storageHint?: string;
         emailDraft?: { subject: string; body: string };
         mailtoUrl?: string;
         smtpError?: string;
@@ -5522,8 +5546,15 @@ function App() {
         smtpConfigured: payload.smtpConfigured !== false,
         senderEmail: payload.senderEmail || invite.senderEmail || "admin@usebert.co.uk",
         inviteUrl,
-        status: loginReady ? "active" : "awaiting_setup",
+        status:
+          payload.status === "setup_incomplete"
+            ? "setup_incomplete"
+            : loginReady
+              ? "active"
+              : "awaiting_setup",
         loginReady,
+        setupIncomplete: payload.setupIncomplete === true,
+        storageHint: payload.storageHint,
         emailDraft: payload.emailDraft,
         mailtoUrl: payload.mailtoUrl,
         smtpError: payload.smtpError,
@@ -5592,7 +5623,12 @@ function App() {
         method: "DELETE",
         credentials: "include",
       });
-      const payload = (await parseJsonApiResponse(response)) as { ok?: boolean; error?: string };
+      const payload = (await parseJsonApiResponse(response)) as {
+        ok?: boolean;
+        error?: string;
+        wasSetupIncomplete?: boolean;
+        blocker?: string;
+      };
 
       if (response.status === 404) {
         console.warn("[invite] revoke 404 — token already gone", { endpoint: revokePath, tokenId });
@@ -5606,6 +5642,15 @@ function App() {
         return;
       }
 
+      if (response.status === 409 && payload.blocker === "invite_already_active") {
+        pushToast(
+          "Cannot revoke active user",
+          payload.error || "This user finished setup and can sign in. They are on the company sheet, not the operator Master sheet.",
+          "warning",
+        );
+        return;
+      }
+
       if (!response.ok || !payload.ok) {
         console.warn("[invite] revoke failed", {
           endpoint: revokePath,
@@ -5614,6 +5659,17 @@ function App() {
           message: payload.error || "Unable to revoke invite.",
         });
         throw new Error(payload.error || "Unable to revoke invite.");
+      }
+
+      if (payload.wasSetupIncomplete) {
+        setInvitedUsers((current) => removeInviteFromList(current, invite));
+        setCompanyUserInviteEmailResult((current) => (current?.email === invite.email ? null : current));
+        pushToast(
+          "Incomplete invite removed",
+          "Setup was incomplete on the company sheet. Removed from this view — send a fresh invite.",
+          "success",
+        );
+        return;
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to revoke invite on the server.";

@@ -51,7 +51,7 @@ export type UserInvite = {
   invitedBy: string;
   senderEmail?: string;
   sentAt: string;
-  status: "Email sent" | "Invite created" | "Awaiting setup" | "Active" | "Invite sent";
+  status: "Email sent" | "Invite created" | "Awaiting setup" | "Setup incomplete" | "Active" | "Invite sent";
   mailtoUrl?: string;
   appOnboardingUrl?: string;
   loginReady?: boolean;
@@ -66,8 +66,10 @@ export type CompanyUserInviteEmailResult = {
   smtpConfigured: boolean;
   senderEmail?: string;
   inviteUrl: string;
-  status: "awaiting_setup" | "active";
+  status: "awaiting_setup" | "setup_incomplete" | "active";
   loginReady: boolean;
+  setupIncomplete?: boolean;
+  storageHint?: string;
   emailDraft?: { subject: string; body: string };
   mailtoUrl?: string;
   smtpError?: string;

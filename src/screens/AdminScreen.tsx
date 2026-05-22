@@ -171,8 +171,9 @@ function CompanyUserInviteEmailResultPanel({
         </p>
         {!result.loginReady ? (
           <p className="mt-2 text-sm leading-6 text-emerald-50/90">
-            The user must open the invite link and finish account setup (name and password) before they can sign in to
-            BERT.
+            The user must open the invite link and finish account setup (name and password) before they can sign in.
+            After completion, verify the <span className="font-semibold">company master spreadsheet</span> Users tab and
+            Config UserAuth — not the operator Master sheet.
           </p>
         ) : (
           <p className="mt-2 text-sm leading-6 text-emerald-50/90">This account is ready for company sign-in.</p>
@@ -276,6 +277,9 @@ function inviteStatusBadgeClass(status: string) {
   }
   if (status === "Awaiting setup") {
     return "bg-amber-500/15 text-amber-100";
+  }
+  if (status === "Setup incomplete") {
+    return "bg-rose-500/15 text-rose-200";
   }
   return "bg-slate-700/80 text-slate-200";
 }
@@ -1233,8 +1237,7 @@ export function AdminScreen({
                   ))}
                 </div>
                 <p className="mt-3 text-xs leading-5 text-slate-400">
-                  Invites email a secure setup link. The user is added to the company sheet only after they complete that
-                  link (name and password). Until then they cannot sign in — status stays Awaiting setup.
+                  Invites email a secure setup link. Users are written to the <span className="text-slate-200">company master spreadsheet</span> (Users tab + Config UserAuth) — not the operator Master sheet. They can sign in only after completing the invite link.
                 </p>
                 <button
                   type="button"
@@ -1295,8 +1298,10 @@ export function AdminScreen({
                           type="button"
                           onClick={() => onResendInvite(invite)}
                           title={
-                            invite.id.startsWith("invite-") || invite.id.startsWith("sheet-user-")
-                              ? "No server invite token — send a fresh invite instead"
+                            invite.status === "Setup incomplete" ||
+                            invite.id.startsWith("invite-") ||
+                            invite.id.startsWith("sheet-user-")
+                              ? "Send a fresh invite — this row has no active link or setup did not finish"
                               : "Resend invite email"
                           }
                           className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700"

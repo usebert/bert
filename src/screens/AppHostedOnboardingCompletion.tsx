@@ -12,7 +12,17 @@ type AppInviteProvisionMeta = {
 
 type AppInviteDetails =
   | ({ ok: true; kind: "new_company"; email: string; invitedBy: string } & AppInviteProvisionMeta)
-  | ({ ok: true; kind: "company_user"; email: string; role: Role; invitedBy: string; companyName: string } & AppInviteProvisionMeta);
+  | ({
+      ok: true;
+      kind: "company_user";
+      email: string;
+      role: Role;
+      invitedBy: string;
+      companyName: string;
+      setupIncomplete?: boolean;
+      canRetrySetup?: boolean;
+      storageHint?: string;
+    } & AppInviteProvisionMeta);
 
 type AppInviteStatusPayload = AppInviteProvisionMeta & {
   ok?: boolean;
@@ -46,10 +56,22 @@ export function AppHostedOnboardingCompletion({ inviteToken, parseJsonApiRespons
         const response = await fetch(apiUrl(`/api/onboarding/app-invites/${encodeURIComponent(inviteToken)}`), {
           credentials: "include",
         });
-        const payload = (await parseJsonApiResponse(response)) as AppInviteDetails & { ok?: boolean; error?: string };
+        const payload = (await parseJsonApiResponse(response)) as AppInviteDetails & {
+          ok?: boolean;
+          error?: string;
+          setupIncomplete?: boolean;
+          canRetrySetup?: boolean;
+        };
         if (cancelled) return;
         if (!response.ok || !payload.ok) {
           setLoadError(payload.error || "This invite link is not valid.");
+          return;
+        }
+        if (payload.setupIncomplete && payload.canRetrySetup) {
+          setDetails(payload as AppInviteDetails);
+          setSubmitError(
+            "Your previous setup did not finish on the company sheet. Complete the form below to try again.",
+          );
           return;
         }
         setDetails(payload as AppInviteDetails);
