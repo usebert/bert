@@ -71,6 +71,7 @@ import {
   StatusBadge,
   TrendBar,
 } from "./src/components/dashboard/DashboardPrimitives";
+import { readCompanyLoginHint, saveCompanyLoginHint } from "./src/lib/companyLoginHint";
 import { pickNextAuditorAudit } from "./src/utils/auditorDashboard";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
 import { getNextBestAction } from "./src/utils/nextBestAction";
@@ -5054,28 +5055,69 @@ function App() {
       return true;
     };
 
+    const resolveCompanyLoginMasterSheetId = (email: string): string => {
+      const normalized = email.trim().toLowerCase();
+      const hint = readCompanyLoginHint();
+      if (hint?.email === normalized && hint.masterSheetId) {
+        return hint.masterSheetId;
+      }
+      return (
+        extractGoogleResourceId(masterSheetInput) ||
+        selectedFolder?.responseSheetId ||
+        companySheetSync?.sheetId ||
+        ""
+      ).trim();
+    };
+
+    let companyLoginFailure: { blocker?: string; message: string } | undefined;
+
     const tryServerCompanyLogin = async (): Promise<boolean> => {
       if (!pwd || !loginIdentity.includes("@")) {
         return false;
       }
-      const masterSheetId = companySheetSync?.sheetId || extractGoogleResourceId(masterSheetInput) || "";
-      if (!masterSheetId) {
-        return false;
-      }
+      const email = loginIdentity.trim().toLowerCase();
+      const masterSheetId = resolveCompanyLoginMasterSheetId(email);
       try {
         const response = await fetch(apiUrl("/api/auth/company/login"), {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: loginIdentity, password: pwd, masterSheetId }),
+          body: JSON.stringify({
+            email,
+            password: pwd,
+            ...(masterSheetId ? { masterSheetId } : {}),
+          }),
         });
         const data = (await parseJsonApiResponse(response)) as {
           ok?: boolean;
           user?: { email: string; role: Role; name: string };
           error?: string;
+          blocker?: string;
+          masterSheetId?: string;
         };
-        if (!response.ok || !data.ok || !data.user?.email || !data.user?.role) {
+        if (response.status === 401 && String(data.error || "").toLowerCase().includes("google connection")) {
+          companyLoginFailure = {
+            blocker: "google_required",
+            message:
+              "Company sign-in is temporarily unavailable. Ask your administrator to connect Google on the BERT API server.",
+          };
           return false;
+        }
+        if (!response.ok || !data.ok || !data.user?.email || !data.user?.role) {
+          companyLoginFailure = {
+            blocker: data.blocker,
+            message: data.error || "Sign in failed.",
+          };
+          return false;
+        }
+        const resolvedSheetId = String(data.masterSheetId || masterSheetId || "").trim();
+        if (resolvedSheetId) {
+          saveCompanyLoginHint({
+            email: String(data.user.email).toLowerCase(),
+            masterSheetId: resolvedSheetId,
+            companyFolderId: selectedFolder?.id,
+            companyName: selectedFolder?.name,
+          });
         }
         const match: User = {
           username: String(data.user.email).toLowerCase(),
@@ -5086,6 +5128,9 @@ function App() {
         applySignedInUser(match);
         return true;
       } catch {
+        companyLoginFailure = {
+          message: "BERT cannot reach the sign-in server. Check your connection and try again.",
+        };
         return false;
       }
     };
@@ -5134,6 +5179,28 @@ function App() {
         applySignedInUser(clientMatch);
         return;
       }
+    }
+
+    if (companyLoginFailure) {
+      const blocker = companyLoginFailure.blocker || "";
+      if (blocker === "company_not_identified") {
+        pushToast(
+          "Sign in failed",
+          "Select your company or use your invite link.",
+          "warning",
+        );
+        return;
+      }
+      if (blocker === "setup_incomplete") {
+        pushToast(
+          "Sign in failed",
+          "Your account setup is incomplete. Open your invite link again or ask an administrator to resend it.",
+          "warning",
+        );
+        return;
+      }
+      pushToast("Sign in failed", companyLoginFailure.message, "warning");
+      return;
     }
 
     if (masterGuidedFailure === "auth") {

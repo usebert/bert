@@ -1609,6 +1609,40 @@ function revokeInviteRecord(id) {
   return true;
 }
 
+/** Master sheet IDs from company-user invites for this email (newest first). */
+function findMasterSheetIdsForCompanyLoginEmail(email) {
+  const target = String(email || "").trim().toLowerCase();
+  if (!target) {
+    return [];
+  }
+  const store = readInviteStore();
+  const matches = [];
+  for (const record of Object.values(store)) {
+    if (record.kind !== "company_user") {
+      continue;
+    }
+    if (String(record.email || "").trim().toLowerCase() !== target) {
+      continue;
+    }
+    const sheetId = String(record.masterSheetId || "").trim();
+    if (!sheetId) {
+      continue;
+    }
+    matches.push({ sheetId, createdAt: Number(record.createdAt) || 0 });
+  }
+  matches.sort((a, b) => b.createdAt - a.createdAt);
+  const seen = new Set();
+  const ordered = [];
+  for (const { sheetId } of matches) {
+    if (seen.has(sheetId)) {
+      continue;
+    }
+    seen.add(sheetId);
+    ordered.push(sheetId);
+  }
+  return ordered;
+}
+
 async function companyUserLoginReady(auth, masterSheetId, email) {
   if (!auth || !masterSheetId || !email) {
     return false;
@@ -2525,6 +2559,7 @@ async function updateConfig(auth, spreadsheetId, patch) {
 
 function parseRoleFromUsersSheet(raw) {
   const r = String(raw || "")
+    .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
   if (r === "master") {
@@ -4788,42 +4823,193 @@ app.post("/auth/google/logout", async (_req, res) => {
  * Those are written when the recipient completes POST /api/onboarding/app-invites/:tokenId/complete —
  * not when an operator sends the invite email.
  */
+async function probeCompanyLoginSheet(auth, masterSheetId, email, password) {
+  const emailNorm = String(email || "").trim().toLowerCase();
+  const sheetId = String(masterSheetId || "").trim();
+  const userAuthKey = `UserAuth.${emailNorm}`;
+  let userAuthKeyFound = false;
+  let usersRowFound = false;
+  let roleFound = "";
+  let passwordVerified = false;
+  let setupIncomplete = false;
+
+  try {
+    const cfg = await getConfig(auth, sheetId);
+    userAuthKeyFound = Boolean(cfg[userAuthKey] && String(cfg[userAuthKey]).trim());
+    if (!userAuthKeyFound) {
+      return {
+        userAuthKeyFound,
+        usersRowFound,
+        roleFound,
+        passwordVerified,
+        setupIncomplete: true,
+        rec: null,
+        migrated: false,
+      };
+    }
+    const login = await verifyUserAuthLoginOrMigrate(auth, sheetId, emailNorm, password, getConfig, updateConfig);
+    passwordVerified = Boolean(login.ok);
+    if (!passwordVerified) {
+      return {
+        userAuthKeyFound,
+        usersRowFound,
+        roleFound,
+        passwordVerified,
+        setupIncomplete: false,
+        rec: null,
+        migrated: false,
+      };
+    }
+    const rec = await readCompanyUsersTabRecord(auth, sheetId, emailNorm);
+    usersRowFound = Boolean(rec);
+    roleFound = rec?.role || "";
+    if (!usersRowFound) {
+      setupIncomplete = true;
+    }
+    return {
+      userAuthKeyFound,
+      usersRowFound,
+      roleFound,
+      passwordVerified,
+      setupIncomplete,
+      rec,
+      migrated: Boolean(login.migrated),
+    };
+  } catch {
+    return {
+      userAuthKeyFound,
+      usersRowFound,
+      roleFound,
+      passwordVerified,
+      setupIncomplete: false,
+      rec: null,
+      migrated: false,
+    };
+  }
+}
+
 app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, res) => {
   try {
     const auth = getAuthedClient();
-    const masterSheetId = String(req.body?.masterSheetId || "").trim();
+    const requestedSheetId = String(req.body?.masterSheetId || "").trim();
     const email = String(req.body?.email || req.body?.username || "")
       .trim()
       .toLowerCase();
     const password = String(req.body?.password || "");
-    if (!masterSheetId || !email || !password) {
-      return res.status(400).json({ ok: false, error: "Master sheet ID, email, and password are required." });
-    }
-    if (!email.includes("@")) {
-      return res.status(400).json({ ok: false, error: "A valid email address is required." });
-    }
-    const login = await verifyUserAuthLoginOrMigrate(auth, masterSheetId, email, password, getConfig, updateConfig);
-    if (!login.ok) {
-      return res.status(401).json({ ok: false, error: "Invalid email or password." });
-    }
-    const rec = await readCompanyUsersTabRecord(auth, masterSheetId, email);
-    if (!rec) {
-      return res.status(403).json({
+    if (!email || !password) {
+      return res.status(400).json({
         ok: false,
-        error: "This account is not listed on the company Users tab or the role is not supported.",
+        blocker: "missing_fields",
+        error: "Email and password are required.",
       });
     }
-    const payload = JSON.stringify({
-      v: 1,
+    if (!email.includes("@")) {
+      return res.status(400).json({ ok: false, blocker: "invalid_email", error: "A valid email address is required." });
+    }
+
+    const inviteSheetCandidates = findMasterSheetIdsForCompanyLoginEmail(email);
+    const sheetIdsToTry = [];
+    if (requestedSheetId) {
+      sheetIdsToTry.push(requestedSheetId);
+    }
+    for (const candidateId of inviteSheetCandidates) {
+      if (!sheetIdsToTry.includes(candidateId)) {
+        sheetIdsToTry.push(candidateId);
+      }
+    }
+
+    if (sheetIdsToTry.length === 0) {
+      console.warn("[company-auth] login company_not_identified", {
+        email,
+        inviteCandidateCount: 0,
+      });
+      return res.status(400).json({
+        ok: false,
+        blocker: "company_not_identified",
+        error: "Select your company or use your invite link before signing in.",
+      });
+    }
+
+    let successSheetId = "";
+    let successRec = null;
+    let lastProbe = null;
+    for (const sheetId of sheetIdsToTry) {
+      const probe = await probeCompanyLoginSheet(auth, sheetId, email, password);
+      lastProbe = probe;
+      if (probe.passwordVerified && probe.rec) {
+        successSheetId = sheetId;
+        successRec = probe.rec;
+        break;
+      }
+    }
+
+    console.log("[company-auth] login attempt", {
       email,
-      masterSheetId,
-      role: rec.role,
-      name: rec.name,
+      requestedSheetProvided: Boolean(requestedSheetId),
+      sheetsTried: sheetIdsToTry.length,
+      inviteCandidateCount: inviteSheetCandidates.length,
+      success: Boolean(successSheetId),
+      usersRowFound: lastProbe?.usersRowFound ?? false,
+      roleFound: lastProbe?.roleFound || null,
+      userAuthKeyFound: lastProbe?.userAuthKeyFound ?? false,
+      passwordVerified: lastProbe?.passwordVerified ?? false,
+      setupIncomplete: lastProbe?.setupIncomplete ?? false,
     });
-    res.cookie(COMPANY_SESSION_COOKIE, payload, getSessionCookieOptions({ maxAge: COMPANY_SESSION_MS }));
-    return res.json({
-      ok: true,
-      user: { email, role: rec.role, name: rec.name },
+
+    if (successSheetId && successRec) {
+      const payload = JSON.stringify({
+        v: 1,
+        email,
+        masterSheetId: successSheetId,
+        role: successRec.role,
+        name: successRec.name,
+      });
+      res.cookie(COMPANY_SESSION_COOKIE, payload, getSessionCookieOptions({ maxAge: COMPANY_SESSION_MS }));
+      return res.json({
+        ok: true,
+        user: { email, role: successRec.role, name: successRec.name },
+        masterSheetId: successSheetId,
+      });
+    }
+
+    if (!lastProbe?.userAuthKeyFound) {
+      const anyAuthOnCandidates = await (async () => {
+        for (const sheetId of sheetIdsToTry) {
+          try {
+            const cfg = await getConfig(auth, sheetId);
+            if (cfg[`UserAuth.${email}`]) {
+              return true;
+            }
+          } catch {
+            /* try next */
+          }
+        }
+        return false;
+      })();
+      if (!anyAuthOnCandidates) {
+        return res.status(403).json({
+          ok: false,
+          blocker: "setup_incomplete",
+          error:
+            "Your account setup is incomplete. Open your invite link again or ask an administrator to resend it.",
+        });
+      }
+    }
+
+    if (!lastProbe?.passwordVerified) {
+      return res.status(401).json({
+        ok: false,
+        blocker: "invalid_credentials",
+        error: "Invalid email or password.",
+      });
+    }
+
+    return res.status(403).json({
+      ok: false,
+      blocker: lastProbe?.usersRowFound ? "role_unsupported" : "setup_incomplete",
+      error: lastProbe?.usersRowFound
+        ? "This account role is not supported for sign in."
+        : "Your account setup is incomplete. Open your invite link again or ask an administrator to resend it.",
     });
   } catch (error) {
     console.error("[company-auth] login failed:", error);

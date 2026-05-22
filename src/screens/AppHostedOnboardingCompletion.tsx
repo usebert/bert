@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { BertLogo } from "../components/BertLogo";
 import { apiUrl } from "../config/apiBase";
+import { saveCompanyLoginHint } from "../lib/companyLoginHint";
 import type { Role } from "../permissions";
 
 type AppInviteProvisionMeta = {
@@ -19,6 +20,8 @@ type AppInviteDetails =
       role: Role;
       invitedBy: string;
       companyName: string;
+      masterSheetId?: string;
+      companyFolderId?: string;
       setupIncomplete?: boolean;
       canRetrySetup?: boolean;
       storageHint?: string;
@@ -31,6 +34,8 @@ type AppInviteStatusPayload = AppInviteProvisionMeta & {
   outcome?: "new_company" | "company_user";
   folderUrl?: string;
   email?: string;
+  masterSheetId?: string;
+  companyFolderId?: string;
 };
 
 type AppHostedOnboardingCompletionProps = {
@@ -85,6 +90,27 @@ export function AppHostedOnboardingCompletion({ inviteToken, parseJsonApiRespons
       cancelled = true;
     };
   }, [inviteToken, parseJsonApiResponse]);
+
+  const persistCompanyLoginHint = (payload: AppInviteStatusPayload) => {
+    const email = String(payload.email || details?.email || "").trim().toLowerCase();
+    const masterSheetId = String(
+      payload.masterSheetId ||
+        (details?.kind === "company_user" ? details.masterSheetId : "") ||
+        "",
+    ).trim();
+    const companyFolderId =
+      payload.companyFolderId ||
+      (details?.kind === "company_user" ? details.companyFolderId : undefined);
+    if (!email || !masterSheetId) {
+      return;
+    }
+    saveCompanyLoginHint({
+      email,
+      masterSheetId,
+      companyFolderId,
+      companyName: details?.kind === "company_user" ? details.companyName : undefined,
+    });
+  };
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -149,6 +175,7 @@ export function AppHostedOnboardingCompletion({ inviteToken, parseJsonApiRespons
           ) {
             setSubmitError("");
             if (pp.outcome === "new_company") {
+              persistCompanyLoginHint(pp);
               setDone({
                 title: "Company workspace created",
                 message: pp.folderUrl
@@ -156,6 +183,7 @@ export function AppHostedOnboardingCompletion({ inviteToken, parseJsonApiRespons
                   : "You can sign in with your email and the password you chose.",
               });
             } else {
+              persistCompanyLoginHint(pp);
               setDone({
                 title: "Account ready",
                 message: "You can sign in with your email address and the password you chose.",
@@ -188,6 +216,7 @@ export function AppHostedOnboardingCompletion({ inviteToken, parseJsonApiRespons
         return;
       }
       if (payload.outcome === "new_company") {
+        persistCompanyLoginHint(payload);
         setDone({
           title: "Company workspace created",
           message: payload.folderUrl
@@ -195,6 +224,7 @@ export function AppHostedOnboardingCompletion({ inviteToken, parseJsonApiRespons
             : "You can sign in with your email and the password you chose.",
         });
       } else {
+        persistCompanyLoginHint(payload);
         setDone({
           title: "Account ready",
           message: "You can sign in with your email address and the password you chose.",

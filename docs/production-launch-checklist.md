@@ -71,7 +71,7 @@ Warnings (logged only, do not block boot):
 - [ ] Google OAuth connect flow from Initial Setup (after Google env on API)
 - [ ] One invite or onboarding path in a staging tenant (manual invite link OK if SMTP unset)
 - [ ] Company onboarding email received (or found in Junk/Spam); body mentions checking Junk/Spam and sender `admin@usebert.co.uk`
-- [ ] Company user invite: open emailed link → set password → verify **company sheet** Users + UserAuth → company login succeeds (requires API Google session for invite completion)
+- [ ] Company user invite: open emailed link → set password → verify **company sheet** Users + UserAuth → company login succeeds (requires API Google session for invite completion; login resolves company sheet from invite completion hint or server invite store when the browser has no operator workspace selected)
 
 ## Browser E2E (paid pilot gate)
 
