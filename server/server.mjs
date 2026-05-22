@@ -2581,6 +2581,24 @@ function parseRoleFromUsersSheet(raw) {
 }
 
 async function readCompanyUsersTabRecord(auth, spreadsheetId, email) {
+  const row = await findCompanyUsersTabRow(auth, spreadsheetId, email);
+  if (!row) {
+    return null;
+  }
+  const role = parseRoleFromUsersSheet(row.roleRaw);
+  if (!role) {
+    return null;
+  }
+  const name =
+    row.fullName ||
+    row.email ||
+    String(email || "")
+      .trim()
+      .toLowerCase();
+  return { role, name: String(name).trim() || row.email };
+}
+
+async function findCompanyUsersTabRow(auth, spreadsheetId, email) {
   const rows = await getTabValues(auth, spreadsheetId, "Users");
   if (!rows.length) {
     return null;
@@ -2590,6 +2608,7 @@ async function readCompanyUsersTabRecord(auth, spreadsheetId, email) {
   if (emailKeyIndex === -1) {
     return null;
   }
+  const companyIdIndex = headers.findIndex((h) => safeLower(h) === "company id");
   const target = String(email || "")
     .trim()
     .toLowerCase();
@@ -2606,20 +2625,143 @@ async function readCompanyUsersTabRecord(auth, spreadsheetId, email) {
       obj[h] = String(row[idx] || "").trim();
     });
     const roleRaw = obj.Role || obj.role || "";
-    const role = parseRoleFromUsersSheet(roleRaw);
-    if (!role) {
-      return null;
-    }
-    const name =
+    const fullName =
       obj["Full Name"] ||
       obj["Full name"] ||
       obj.Name ||
       obj.name ||
-      rowEmail ||
-      target;
-    return { role, name: String(name).trim() || rowEmail };
+      rowEmail;
+    const companyId = companyIdIndex >= 0 ? String(row[companyIdIndex] || "").trim() : "";
+    return {
+      sheetRowIndex: i,
+      email: rowEmail,
+      roleRaw,
+      fullName: String(fullName).trim() || rowEmail,
+      companyId,
+      userId: String(obj["User ID"] || obj.userId || "").trim(),
+    };
   }
   return null;
+}
+
+async function deleteUsersTabRowByEmail(auth, spreadsheetId, email) {
+  const match = await findCompanyUsersTabRow(auth, spreadsheetId, email);
+  if (!match) {
+    return false;
+  }
+  const workbook = await getWorkbook(auth, spreadsheetId);
+  const sheet = findSheetByTitle(workbook, "Users");
+  const usersSheetId = sheet?.properties?.sheetId;
+  if (!sheet || usersSheetId === undefined || usersSheetId === null) {
+    return false;
+  }
+  const sheets = google.sheets({ version: "v4", auth });
+  await withSheetsQuotaRetry(() =>
+    sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            deleteDimension: {
+              range: {
+                sheetId: usersSheetId,
+                dimension: "ROWS",
+                startIndex: match.sheetRowIndex,
+                endIndex: match.sheetRowIndex + 1,
+              },
+            },
+          },
+        ],
+      },
+    }),
+  );
+  return true;
+}
+
+async function removeCompanyUserAccount(auth, masterSheetId, companyFolderId, email) {
+  const emailNorm = String(email || "").trim().toLowerCase();
+  const sheetId = String(masterSheetId || "").trim();
+  const folderId = String(companyFolderId || "").trim();
+  if (!sheetId || !emailNorm || !emailNorm.includes("@")) {
+    throw new Error("Company master sheet, folder, and email are required.");
+  }
+
+  const row = await findCompanyUsersTabRow(auth, sheetId, emailNorm);
+  if (!row) {
+    return { ok: false, notFound: true, usersRowRemoved: false, userAuthRemoved: false };
+  }
+  if (folderId && row.companyId && row.companyId !== folderId) {
+    return { ok: false, companyMismatch: true, usersRowRemoved: false, userAuthRemoved: false };
+  }
+
+  const userAuthKey = `UserAuth.${emailNorm}`;
+  const cfg = await getConfig(auth, sheetId);
+  const hadUserAuth = Boolean(cfg[userAuthKey] && String(cfg[userAuthKey]).trim());
+  if (hadUserAuth) {
+    const next = { ...cfg };
+    delete next[userAuthKey];
+    await updateConfig(auth, sheetId, next);
+  }
+
+  const usersRowRemoved = await deleteUsersTabRowByEmail(auth, sheetId, emailNorm);
+  return {
+    ok: usersRowRemoved || hadUserAuth,
+    notFound: false,
+    usersRowRemoved,
+    userAuthRemoved: hadUserAuth,
+  };
+}
+
+function parseBertActorFromRequest(req) {
+  const masterRaw = req.signedCookies?.bert_master_session;
+  if (masterRaw && typeof masterRaw === "string") {
+    try {
+      const data = JSON.parse(masterRaw);
+      if (data.v === 1 && data.email) {
+        return { kind: "master", role: "Master", email: String(data.email).trim().toLowerCase() };
+      }
+    } catch {
+      /* invalid session */
+    }
+  }
+  const companyRaw = req.signedCookies?.[COMPANY_SESSION_COOKIE];
+  if (companyRaw && typeof companyRaw === "string") {
+    try {
+      const data = JSON.parse(companyRaw);
+      if (data.v === 1 && data.email && data.masterSheetId) {
+        return {
+          kind: "company",
+          role: String(data.role || "").trim(),
+          email: String(data.email).trim().toLowerCase(),
+          masterSheetId: String(data.masterSheetId).trim(),
+        };
+      }
+    } catch {
+      /* invalid session */
+    }
+  }
+  return null;
+}
+
+function requireWorkspaceAdminActor(req, res, next) {
+  const actor = parseBertActorFromRequest(req);
+  if (!actor) {
+    return res.status(403).json({
+      ok: false,
+      blocker: "forbidden",
+      error: "Sign in as a Master operator or company Admin to manage users.",
+    });
+  }
+  const role = actor.role === "Master" ? "Master" : parseRoleFromUsersSheet(actor.role);
+  if (role !== "Master" && role !== "Admin") {
+    return res.status(403).json({
+      ok: false,
+      blocker: "forbidden",
+      error: "Only Master or Admin roles can remove company users.",
+    });
+  }
+  req.bertActor = { ...actor, role };
+  return next();
 }
 
 function mapRowObjectToHeaders(headers, rowObject) {
@@ -3468,6 +3610,97 @@ app.post("/api/google-sheet-by-id/:sheetId/schedules", async (req, res) => {
     });
   }
 });
+
+app.delete(
+  "/api/companies/:companyFolderId/users/:email",
+  requireGoogleWorkspaceSession,
+  requireWorkspaceAdminActor,
+  async (req, res) => {
+    try {
+      const auth = getAuthedClient();
+      const companyFolderId = String(req.params.companyFolderId || "").trim();
+      const email = String(req.params.email || "")
+        .trim()
+        .toLowerCase();
+      const masterSheetId = String(req.query?.masterSheetId || req.body?.masterSheetId || "").trim();
+      const actor = req.bertActor;
+
+      if (!companyFolderId || !email || !email.includes("@")) {
+        return res.status(400).json({ ok: false, error: "Company folder ID and a valid email are required." });
+      }
+      if (!masterSheetId) {
+        return res.status(400).json({
+          ok: false,
+          blocker: "missing_master_sheet",
+          error: "Company master spreadsheet ID is required to remove this user.",
+        });
+      }
+
+      if (actor.kind === "company" && actor.masterSheetId && actor.masterSheetId !== masterSheetId) {
+        return res.status(403).json({
+          ok: false,
+          blocker: "forbidden",
+          error: "You can only remove users from your own company workspace.",
+        });
+      }
+
+      if (actor.kind === "company" && actor.email === email) {
+        return res.status(403).json({
+          ok: false,
+          blocker: "self_remove",
+          error: "You cannot remove your own account while signed in.",
+        });
+      }
+
+      const result = await removeCompanyUserAccount(auth, masterSheetId, companyFolderId, email);
+      console.log("[company-user] remove", {
+        email,
+        companyFolderId,
+        masterSheetIdPrefix: masterSheetId.slice(0, 8),
+        actorKind: actor.kind,
+        actorRole: actor.role,
+        usersRowRemoved: result.usersRowRemoved,
+        userAuthRemoved: result.userAuthRemoved,
+        ok: result.ok,
+      });
+
+      if (result.companyMismatch) {
+        return res.status(403).json({
+          ok: false,
+          blocker: "company_mismatch",
+          error: "This user belongs to a different company folder.",
+        });
+      }
+      if (result.notFound) {
+        return res.status(404).json({
+          ok: false,
+          blocker: "user_not_found",
+          error: "No user with this email was found on the company Users tab.",
+        });
+      }
+      if (!result.ok) {
+        return res.status(500).json({
+          ok: false,
+          error: "Unable to remove user from the company sheet.",
+        });
+      }
+
+      return res.json({
+        ok: true,
+        removed: true,
+        email,
+        usersRowRemoved: result.usersRowRemoved,
+        userAuthRemoved: result.userAuthRemoved,
+      });
+    } catch (error) {
+      console.error("[company-user] remove failed:", error);
+      return res.status(500).json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Unable to remove company user.",
+      });
+    }
+  },
+);
 
 app.post("/api/google-sheet-by-id/:sheetId/users", async (req, res) => {
   const authed = getAuthedClient();

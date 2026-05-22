@@ -71,7 +71,7 @@ import {
   StatusBadge,
   TrendBar,
 } from "./src/components/dashboard/DashboardPrimitives";
-import { readCompanyLoginHint, saveCompanyLoginHint } from "./src/lib/companyLoginHint";
+import { clearCompanyLoginHintForEmail, readCompanyLoginHint, saveCompanyLoginHint } from "./src/lib/companyLoginHint";
 import { pickNextAuditorAudit } from "./src/utils/auditorDashboard";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
 import { getNextBestAction } from "./src/utils/nextBestAction";
@@ -151,6 +151,10 @@ function getInviteServerTokenId(invite: UserInvite): string | null {
 
 function isLegacyInviteRow(invite: UserInvite): boolean {
   return !getInviteServerTokenId(invite);
+}
+
+function isActiveCompanyUserInvite(invite: UserInvite): boolean {
+  return invite.status === "Active" || invite.loginReady === true;
 }
 
 function removeInviteFromList(invites: UserInvite[], invite: UserInvite): UserInvite[] {
@@ -5662,7 +5666,90 @@ function App() {
     }
   };
 
+  const handleRemoveCompanyUser = async (invite: UserInvite) => {
+    if (!currentUser) {
+      return;
+    }
+    if (currentUser.role !== "Master" && currentUser.role !== "Admin") {
+      pushToast("Access restricted", "Only Master or Admin can remove company users.", "warning");
+      return;
+    }
+    if (!isActiveCompanyUserInvite(invite)) {
+      pushToast("Not an active user", "Use Revoke invite for pending or incomplete invites.", "warning");
+      return;
+    }
+
+    const sheetId = companySheetSync?.sheetId || extractGoogleResourceId(masterSheetInput);
+    const companyFolderId = selectedFolder?.id || extractGoogleResourceId(folderIdInput);
+    if (!googleConnected) {
+      pushToast("Google not connected", "Connect Google in Setup before removing users.", "warning");
+      return;
+    }
+    if (!sheetId || !companyFolderId) {
+      pushToast(
+        "Workspace required",
+        "Select a company folder and ensure the master sheet is loaded before removing users.",
+        "warning",
+      );
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Remove ${invite.email} from this company?\n\nThey will be deleted from the company Users tab and will no longer be able to sign in.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    const removePath = `/api/companies/${encodeURIComponent(companyFolderId)}/users/${encodeURIComponent(invite.email)}?masterSheetId=${encodeURIComponent(sheetId)}`;
+
+    try {
+      const response = await fetch(apiUrl(removePath), {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const payload = (await parseJsonApiResponse(response)) as {
+        ok?: boolean;
+        error?: string;
+        blocker?: string;
+      };
+
+      if (response.status === 403 && payload.blocker === "forbidden") {
+        pushToast(
+          "Remove failed",
+          payload.error || "Sign in as Master or company Admin to remove users.",
+          "warning",
+        );
+        return;
+      }
+
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || "Unable to remove user from the company sheet.");
+      }
+
+      setInvitedUsers((current) => removeInviteFromList(current, invite));
+      setCompanyUserInviteEmailResult((current) => (current?.email === invite.email ? null : current));
+      clearCompanyLoginHintForEmail(invite.email);
+      pushToast("User removed", `${invite.email} was removed and can no longer sign in.`, "success");
+    } catch (error) {
+      pushToast(
+        "Remove failed",
+        error instanceof Error ? error.message : "Unable to remove user from the company sheet.",
+        "warning",
+      );
+    }
+  };
+
   const handleDeleteInvite = async (invite: UserInvite) => {
+    if (isActiveCompanyUserInvite(invite)) {
+      pushToast(
+        "Use Remove user",
+        "This user finished setup and can sign in. Use Remove user to delete them from the company sheet.",
+        "warning",
+      );
+      return;
+    }
+
     const tokenId = getInviteServerTokenId(invite);
 
     if (!tokenId) {
@@ -9330,6 +9417,7 @@ function App() {
                 onDismissCompanyUserInviteEmailResult={() => setCompanyUserInviteEmailResult(null)}
                 onResendInvite={handleResendInvite}
                 onDeleteInvite={handleDeleteInvite}
+                onRemoveCompanyUser={handleRemoveCompanyUser}
                 onResyncUsers={handleResyncUsers}
                 onSelectSite={setSelectedSiteId}
                 onAddSite={handleAddSite}

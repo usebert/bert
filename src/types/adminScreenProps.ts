@@ -244,6 +244,7 @@ export type AdminScreenProps = {
   onDismissCompanyUserInviteEmailResult: () => void;
   onResendInvite: (invite: UserInvite) => void;
   onDeleteInvite: (invite: UserInvite) => void;
+  onRemoveCompanyUser: (invite: UserInvite) => void;
   onResyncUsers: () => void;
   onSelectSite: (siteId: string) => void;
   onAddSite: () => void;
