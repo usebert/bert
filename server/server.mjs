@@ -1754,7 +1754,6 @@ function buildCompanyOnboardingEmailDraft() {
     <p>You have been invited to complete your company onboarding for <strong>${APP_BRAND_NAME}</strong>.</p>
     <p>Please open the secure onboarding form below and submit your company details:</p>
     <p><a href="${onboardingFormUrl}" target="_blank" rel="noopener noreferrer">Complete company onboarding form</a></p>
-    <p style="word-break:break-all;font-size:12px;color:#64748b;">${onboardingFormUrl}</p>
     <p>Once submitted, the BERT team will complete your workspace setup.</p>
     <p style="font-size:13px;color:#64748b;">${deliverabilityNote}</p>
     <p>Thanks,<br/>BERT Admin</p>

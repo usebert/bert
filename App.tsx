@@ -130,7 +130,31 @@ type UserInvite = {
   mailtoUrl?: string;
   appOnboardingUrl?: string;
   loginReady?: boolean;
+  /** Server-issued invite token when present (may match `id` on new invites). */
+  tokenId?: string;
 };
+
+/** 24-byte hex token from POST /api/onboarding/app-invites/company-user */
+const SERVER_INVITE_TOKEN_ID_RE = /^[a-f0-9]{48}$/i;
+
+function getInviteServerTokenId(invite: UserInvite): string | null {
+  const candidates = [invite.tokenId, invite.id];
+  for (const value of candidates) {
+    const trimmed = String(value || "").trim();
+    if (SERVER_INVITE_TOKEN_ID_RE.test(trimmed)) {
+      return trimmed;
+    }
+  }
+  return null;
+}
+
+function isLegacyInviteRow(invite: UserInvite): boolean {
+  return !getInviteServerTokenId(invite);
+}
+
+function removeInviteFromList(invites: UserInvite[], invite: UserInvite): UserInvite[] {
+  return invites.filter((item) => item.id !== invite.id);
+}
 
 function mapCompanyUserInviteStatus(payload: {
   sent?: boolean;
@@ -5387,6 +5411,7 @@ function App() {
 
       const createdInvite: UserInvite = {
         id: payload.tokenId || `invite-${Date.now()}`,
+        tokenId: payload.tokenId,
         email: trimmedEmail,
         role: inviteRole,
         invitedBy: currentUser.name,
@@ -5417,6 +5442,23 @@ function App() {
 
   const handleResendInvite = async (invite: UserInvite) => {
     if (!currentUser) return;
+
+    if (isLegacyInviteRow(invite)) {
+      console.warn("[invite] resend skipped — legacy row without server token", {
+        id: invite.id,
+        email: invite.email,
+        role: invite.role,
+        status: invite.status,
+      });
+      setCompanyUserInviteEmailResult(null);
+      pushToast(
+        "Send a fresh invite",
+        "This old invite has no active link. Enter the email above and use Send invite link to create a new one.",
+        "warning",
+      );
+      return;
+    }
+
     const sheetId = companySheetSync?.sheetId || extractGoogleResourceId(masterSheetInput);
     const companyFolderId = selectedFolder?.id || extractGoogleResourceId(folderIdInput);
     if (!sheetId || !companyFolderId) {
@@ -5446,7 +5488,7 @@ function App() {
           masterSheetId: sheetId,
           companyName: selectedFolder?.name || "",
           resend: true,
-          tokenId: invite.id,
+          tokenId: getInviteServerTokenId(invite),
         }),
       });
       const payload = (await parseJsonApiResponse(response)) as {
@@ -5495,6 +5537,7 @@ function App() {
             ? {
                 ...item,
                 id: payload.tokenId || item.id,
+                tokenId: payload.tokenId || getInviteServerTokenId(item) || undefined,
                 sentAt: resentAt,
                 invitedBy: currentUser.name,
                 senderEmail: result.senderEmail,
@@ -5522,27 +5565,68 @@ function App() {
   };
 
   const handleDeleteInvite = async (invite: UserInvite) => {
-    const tokenLooksServerIssued = /^[a-f0-9]{48}$/i.test(invite.id);
-    if (tokenLooksServerIssued) {
-      try {
-        const response = await fetch(apiUrl(`/api/onboarding/app-invites/${encodeURIComponent(invite.id)}`), {
-          method: "DELETE",
-          credentials: "include",
-        });
-        const payload = (await parseJsonApiResponse(response)) as { ok?: boolean; error?: string };
-        if (!response.ok || !payload.ok) {
-          throw new Error(payload.error || "Unable to revoke invite.");
-        }
-      } catch (error) {
+    const tokenId = getInviteServerTokenId(invite);
+
+    if (!tokenId) {
+      console.warn("[invite] revoke local-only — legacy row without server token", {
+        id: invite.id,
+        email: invite.email,
+        role: invite.role,
+        status: invite.status,
+      });
+      setInvitedUsers((current) => removeInviteFromList(current, invite));
+      setCompanyUserInviteEmailResult((current) => (current?.email === invite.email ? null : current));
+      pushToast(
+        "Legacy invite removed",
+        "Legacy invite removed from this view. Send a fresh invite if needed.",
+        "success",
+      );
+      return;
+    }
+
+    const revokePath = `/api/onboarding/app-invites/${encodeURIComponent(tokenId)}`;
+    const revokeUrl = apiUrl(revokePath);
+
+    try {
+      const response = await fetch(revokeUrl, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const payload = (await parseJsonApiResponse(response)) as { ok?: boolean; error?: string };
+
+      if (response.status === 404) {
+        console.warn("[invite] revoke 404 — token already gone", { endpoint: revokePath, tokenId });
+        setInvitedUsers((current) => removeInviteFromList(current, invite));
+        setCompanyUserInviteEmailResult((current) => (current?.email === invite.email ? null : current));
         pushToast(
-          "Revoke failed",
-          error instanceof Error ? error.message : "Unable to revoke invite on the server.",
-          "warning",
+          "Invite removed",
+          "Invite token was already gone. Removed from this view.",
+          "success",
         );
         return;
       }
+
+      if (!response.ok || !payload.ok) {
+        console.warn("[invite] revoke failed", {
+          endpoint: revokePath,
+          tokenId,
+          status: response.status,
+          message: payload.error || "Unable to revoke invite.",
+        });
+        throw new Error(payload.error || "Unable to revoke invite.");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to revoke invite on the server.";
+      if (!(error instanceof Error) && typeof error !== "object") {
+        console.warn("[invite] revoke failed", { endpoint: revokePath, tokenId, message });
+      } else if (message.includes("fetch") || error instanceof TypeError) {
+        console.warn("[invite] revoke network error", { endpoint: revokePath, tokenId, message });
+      }
+      pushToast("Revoke failed", message, "warning");
+      return;
     }
-    setInvitedUsers((current) => current.filter((item) => item.id !== invite.id));
+
+    setInvitedUsers((current) => removeInviteFromList(current, invite));
     setCompanyUserInviteEmailResult((current) => (current?.email === invite.email ? null : current));
     pushToast("Invite revoked", `${invite.email} was removed and the invite link is no longer valid.`, "success");
   };

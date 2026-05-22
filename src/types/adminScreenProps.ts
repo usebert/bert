@@ -55,6 +55,7 @@ export type UserInvite = {
   mailtoUrl?: string;
   appOnboardingUrl?: string;
   loginReady?: boolean;
+  tokenId?: string;
 };
 
 /** Result of POST /api/onboarding/app-invites/company-user (company user invite email). */

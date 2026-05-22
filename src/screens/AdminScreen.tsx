@@ -1294,6 +1294,11 @@ export function AdminScreen({
                         <button
                           type="button"
                           onClick={() => onResendInvite(invite)}
+                          title={
+                            invite.id.startsWith("invite-") || invite.id.startsWith("sheet-user-")
+                              ? "No server invite token — send a fresh invite instead"
+                              : "Resend invite email"
+                          }
                           className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
                         >
                           Resend
