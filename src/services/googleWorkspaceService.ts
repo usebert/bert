@@ -46,7 +46,7 @@ export const googleWorkspaceService = {
     window.location.href = apiUrl("/auth/google/login");
   },
   async disconnectGoogle() {
-    const response = await fetch(apiUrl("/auth/google/logout"), {
+    const response = await fetch(apiUrl("/auth/google/disconnect"), {
       method: "POST",
       credentials: "include",
     });

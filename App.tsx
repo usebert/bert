@@ -5946,9 +5946,11 @@ function App() {
   };
 
   const handleLogout = () => {
-    fetch(apiUrl("/auth/google/logout"), { method: "POST", credentials: "include" }).catch(() => undefined);
-    fetch(apiUrl("/api/auth/master/logout"), { method: "POST", credentials: "include" }).catch(() => undefined);
-    fetch(apiUrl("/api/auth/company/logout"), { method: "POST", credentials: "include" }).catch(() => undefined);
+    if (currentUser?.role === "Master") {
+      fetch(apiUrl("/api/auth/master/logout"), { method: "POST", credentials: "include" }).catch(() => undefined);
+    } else {
+      fetch(apiUrl("/api/auth/company/logout"), { method: "POST", credentials: "include" }).catch(() => undefined);
+    }
     try {
       window.localStorage.removeItem(masterCompanySetupSessionKey);
     } catch {
@@ -6687,10 +6689,29 @@ function App() {
   };
 
   const handleGoogleDisconnect = async () => {
+    const confirmed = window.confirm(
+      "Disconnect Google Workspace from this API server?\n\nCompany login, invites, and sheet access will stop until an administrator connects Google again in Initial Setup.",
+    );
+    if (!confirmed) {
+      return;
+    }
+
     try {
-      await fetch(apiUrl("/auth/google/logout"), { method: "POST", credentials: "include" });
-    } catch {
-      pushToast("Disconnect issue", "Google sign-out could not be confirmed, but the local link has been cleared.", "warning");
+      const response = await fetch(apiUrl("/auth/google/disconnect"), {
+        method: "POST",
+        credentials: "include",
+      });
+      const payload = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || "Unable to disconnect Google Workspace.");
+      }
+    } catch (error) {
+      pushToast(
+        "Disconnect issue",
+        error instanceof Error ? error.message : "Google Workspace could not be disconnected on the server.",
+        "warning",
+      );
+      return;
     }
 
     setGoogleConnected(false);
@@ -6707,7 +6728,11 @@ function App() {
     setOnboardingRecords([]);
     setSelectedOnboardingRecordId("");
     setSyncState("Not synced");
-    pushToast("Google disconnected", "The Google Drive connection has been removed from this tablet.", "neutral");
+    pushToast(
+      "Google Workspace disconnected",
+      "The API server OAuth token was removed. Reconnect in Initial Setup before company login or invites.",
+      "neutral",
+    );
   };
 
   const handleAddFolder = async () => {

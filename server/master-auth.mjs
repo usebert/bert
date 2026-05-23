@@ -303,6 +303,7 @@ export function installMasterAuthRoutes(app, opts) {
   });
 
   app.post("/api/auth/master/logout", (req, res) => {
+    console.log("[auth] master logout");
     res.clearCookie(MASTER_SESSION_COOKIE, getSessionCookieOptions());
     return res.json({ ok: true });
   });

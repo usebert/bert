@@ -240,7 +240,7 @@ export function GodmodeInitialSetupScreen({
               onClick={onGoogleDisconnect}
               className="h-11 rounded-2xl border border-slate-200 px-4 text-sm font-semibold text-slate-800"
             >
-              Disconnect Google
+              Disconnect Google Workspace
             </button>
           ) : (
             <button

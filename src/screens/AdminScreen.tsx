@@ -888,7 +888,7 @@ export function AdminScreen({
                         : "border border-white/20 bg-transparent text-white hover:bg-white/10",
                     ].join(" ")}
                   >
-                    Disconnect Google
+                    Disconnect Google Workspace
                   </button>
                 )}
                 <button

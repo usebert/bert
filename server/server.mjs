@@ -841,9 +841,9 @@ function writeStoredSession(payload, options = {}) {
   }
 }
 
-function clearStoredSession() {
+function clearStoredSession(reason = "unspecified") {
   googleOAuthStore.clearSession();
-  googleOAuthStore.logStorageState("token_cleared");
+  googleOAuthStore.logStorageState(`token_cleared reason=${reason}`);
 }
 
 installSetupStatusRoutes(app, {
@@ -5146,7 +5146,7 @@ app.get("/auth/google/callback", async (req, res) => {
   }
 });
 
-app.post("/auth/google/logout", async (_req, res) => {
+async function disconnectGoogleWorkspace() {
   const session = readStoredSession();
   if (session?.tokens?.access_token) {
     try {
@@ -5157,9 +5157,25 @@ app.post("/auth/google/logout", async (_req, res) => {
       // Ignore revoke errors in local dev.
     }
   }
+  clearStoredSession("admin_disconnect");
+}
 
-  clearStoredSession();
-  res.json({ ok: true });
+/** Explicit admin disconnect — clears API-wide Google Workspace OAuth (Initial Setup only). */
+async function handleGoogleWorkspaceDisconnect(_req, res) {
+  await disconnectGoogleWorkspace();
+  return res.json({ ok: true, disconnected: true });
+}
+
+app.post("/auth/google/disconnect", handleGoogleWorkspaceDisconnect);
+app.post("/api/google/disconnect", handleGoogleWorkspaceDisconnect);
+
+/** User sign-out must not clear workspace OAuth; use /auth/google/disconnect from Initial Setup. */
+app.post("/auth/google/logout", (_req, res) => {
+  return res.json({
+    ok: true,
+    workspaceTokenCleared: false,
+    hint: "Google Workspace remains connected. Use POST /auth/google/disconnect to remove the API OAuth token.",
+  });
 });
 
 /**
@@ -5362,6 +5378,7 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
 });
 
 app.post("/api/auth/company/logout", (req, res) => {
+  console.log("[auth] company logout");
   res.clearCookie(COMPANY_SESSION_COOKIE, getSessionCookieOptions());
   return res.json({ ok: true });
 });
