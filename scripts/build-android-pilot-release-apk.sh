@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # Paid-pilot Android release APK: production web bundle + hosted API, no demo/debug UI flags.
-# Output: ~/Desktop/bert-pilot-release.apk (unsigned unless android/keystore.properties is set)
+# Output: ~/Desktop/bert-pilot-release-build<N>.apk (unsigned unless android/keystore.properties is set)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT"
+
+# shellcheck source=./bump-android-build.sh
+source "${SCRIPT_DIR}/bump-android-build.sh"
+bump_android_build "$ROOT"
 
 if ! command -v java >/dev/null 2>&1 || ! java -version >/dev/null 2>&1; then
   echo "ERROR: A working JDK is required (java on PATH that runs java -version)."
@@ -36,11 +40,8 @@ elif [[ -f "${ROOT}/android/app/build/outputs/apk/release/app-release-unsigned.a
   echo "==> Note: release APK is unsigned (add android/keystore.properties for a signed app-release.apk)."
 fi
 
-DEST="${HOME}/Desktop/bert-pilot-release.apk"
 if [[ -n "$APK" && -f "$APK" ]]; then
-  echo "==> Copying pilot release APK to ${DEST}"
-  cp -f "$APK" "$DEST"
-  echo "==> Success: ${DEST}"
+  copy_android_apk_with_build_number "$APK" "bert-pilot-release" "$BERT_ANDROID_BUILD_NUMBER"
 else
   echo "ERROR: No release APK found under android/app/build/outputs/apk/release/"
   exit 1

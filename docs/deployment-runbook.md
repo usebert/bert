@@ -495,6 +495,8 @@ npm run android:apk:pilot
 
 That runs **`scripts/build-android-pilot-release-apk.sh`** (production API build, pilot dist verification, **`npx cap sync android`**, **`assembleRelease`**). For tablet sideload without a release keystore, use **`npm run android:apk:pilot:debug`** instead (debug-signed **`app-debug.apk`**).
 
+Each APK build **bumps a monotonic build number** (stored in **`android/pilot-build.properties`**, committed to git). Desktop output includes a numbered file, e.g. **`~/Desktop/bert-pilot-debug-build7.apk`**, plus a **`bert-pilot-debug.apk`** alias for the latest build. The same number appears on the Android sign-in screen and in Godmode (Settings → Initial Setup).
+
 **Note:** Do not chain **`npm run android:sync`** after a pilot web build — **`android:sync`** runs a plain **`npm run build`** and can overwrite **`dist`** without **`VITE_API_BASE_URL`**. Pilot scripts sync only after the production API bundle is built.
 
 ### 9.4 Tablet kiosk mode (Android pilot)

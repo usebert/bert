@@ -6,6 +6,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT"
 
+# shellcheck source=./bump-android-build.sh
+source "${SCRIPT_DIR}/bump-android-build.sh"
+bump_android_build "$ROOT"
+
 if ! command -v java >/dev/null 2>&1 || ! java -version >/dev/null 2>&1; then
   echo "ERROR: A working JDK is required (java on PATH)."
   exit 1
@@ -30,9 +34,7 @@ fi
 
 if [[ -n "$APK" && -f "$APK" ]]; then
   echo "==> Release APK: ${APK}"
-  DEST="${HOME}/Desktop/bert-release.apk"
-  cp -f "$APK" "$DEST"
-  echo "==> Copied to ${DEST}"
+  copy_android_apk_with_build_number "$APK" "bert-release" "$BERT_ANDROID_BUILD_NUMBER"
 else
   echo "ERROR: No release APK found under android/app/build/outputs/apk/release/"
   exit 1

@@ -73,4 +73,6 @@ Use the standard pilot debug script (production API, no demo flags):
 npm run android:apk:pilot:debug
 ```
 
+Each run prints **`BERT Android build number: N`** and writes **`~/Desktop/bert-pilot-debug-buildN.apk`**. Match installed tablets via the **Build N** label on the sign-in screen.
+
 See `docs/deployment-runbook.md` § Pilot APK / kiosk.

@@ -6,6 +6,7 @@ import {
   setTabletKioskEnabled,
 } from "../../utils/tabletKioskStorage";
 import { applyNativeKioskChrome, clearNativeKioskChrome } from "../../hooks/useTabletKiosk";
+import { getAndroidPilotBuildDetail } from "../../utils/androidBuildInfo";
 
 type Props = {
   slatePrimaryCtaInteract: string;
@@ -84,6 +85,9 @@ export function TabletKioskGodmodePanel({ slatePrimaryCtaInteract, onChanged }: 
         Keeps BERT full-screen on this tablet, hides system bars where possible, and blocks the back button from
         closing the app. Log out still returns to the BERT sign-in screen. This is stored on the device only.
       </p>
+      {getAndroidPilotBuildDetail() ? (
+        <p className="mt-2 text-xs font-mono text-slate-500">{getAndroidPilotBuildDetail()}</p>
+      ) : null}
 
       <p className="mt-3 text-xs leading-5 text-amber-900 rounded-2xl border border-amber-100 bg-amber-50/80 px-3 py-2">
         App code cannot fully block Android Home, Recents, or Settings. For true OS lockdown use Screen Pinning,

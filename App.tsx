@@ -1,5 +1,6 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BertLogo } from "./src/components/BertLogo";
+import { AndroidPilotBuildBadge } from "./src/components/AndroidPilotBuildBadge";
 import type { NavItemId, Role, RoutedScreen } from "./src/permissions";
 import {
   canAccessActions,
@@ -8303,6 +8304,7 @@ function App() {
                 </div>
               </div>
           )}
+          <AndroidPilotBuildBadge className="pointer-events-none fixed bottom-3 left-0 right-0 z-30" />
           <ToastStack toasts={toasts} />
         </div>
       );
@@ -8476,6 +8478,7 @@ function App() {
               </div>
             </div>
           )}
+          <AndroidPilotBuildBadge className="pointer-events-none fixed bottom-3 left-0 right-0 z-30" />
           <ToastStack toasts={toasts} />
         </div>
     );

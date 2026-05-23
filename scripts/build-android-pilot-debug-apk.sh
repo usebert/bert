@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # Paid-pilot Android debug APK: production web bundle + hosted API, no demo/debug UI flags.
-# Output: ~/Desktop/bert-pilot-debug.apk
+# Output: ~/Desktop/bert-pilot-debug-build<N>.apk (+ latest alias bert-pilot-debug.apk)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT"
+
+# shellcheck source=./bump-android-build.sh
+source "${SCRIPT_DIR}/bump-android-build.sh"
+bump_android_build "$ROOT"
 
 if ! command -v java >/dev/null 2>&1 || ! java -version >/dev/null 2>&1; then
   echo "ERROR: A working JDK is required (java on PATH that runs java -version)."
@@ -30,11 +34,9 @@ echo "==> Assembling debug APK (./gradlew assembleDebug)"
 (cd android && ./gradlew assembleDebug)
 
 APK="${ROOT}/android/app/build/outputs/apk/debug/app-debug.apk"
-DEST="${HOME}/Desktop/bert-pilot-debug.apk"
 if [[ -f "$APK" ]]; then
-  echo "==> Copying pilot debug APK to ${DEST}"
-  cp -f "$APK" "$DEST"
-  echo "==> Success: ${DEST}"
+  copy_android_apk_with_build_number "$APK" "bert-pilot-debug" "$BERT_ANDROID_BUILD_NUMBER"
+  echo "==> Install: adb install -r \"${HOME}/Desktop/bert-pilot-debug-build${BERT_ANDROID_BUILD_NUMBER}.apk\""
 else
   echo "ERROR: Expected APK missing at ${APK}"
   exit 1
