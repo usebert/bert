@@ -2,7 +2,7 @@ import type { NavItemId } from "../types/navigation";
 
 export const navItems = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
-  { id: "setup", label: "Setup", icon: "spark" },
+  { id: "setup", label: "Platform Setup", icon: "spark" },
   { id: "companies", label: "Companies", icon: "clipboard" },
   { id: "users", label: "Users", icon: "user" },
   { id: "invites", label: "Invites", icon: "note" },

@@ -1,6 +1,9 @@
 import type { NavItemId } from "../types/navigation";
 import type { User } from "../types/dashboardScreenProps";
+import { SECTION_INTROS } from "../config/sectionIntros";
 import { getRoleDisplayName } from "../permissions";
+import { SectionIntro } from "../components/SectionIntro";
+import { isCapacitorNativeApp } from "../utils/debugUiVisibility";
 
 type AdvancedNavItem = {
   id: NavItemId;
@@ -43,12 +46,27 @@ export function PilotSettingsScreen({
           themeMode === "dark" ? "bg-slate-900" : "bg-slate-950",
         ].join(" ")}
       >
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Settings</p>
-        <h2 className="mt-1 text-xl font-semibold tracking-tight">Account & advanced tools</h2>
-        <p className="mt-1 text-sm text-slate-300">
-          Signed in as {accountNameInput || currentUser.name} ({getRoleDisplayName(currentUser.role)}).
+        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+          {currentUser.role === "Admin" ? "Tablet / Kiosk" : "Settings"}
         </p>
+        <h2 className="mt-1 text-xl font-semibold tracking-tight">
+          {currentUser.role === "Admin" ? "Tablet / Kiosk" : "Account & advanced tools"}
+        </h2>
+        {currentUser.role === "Admin" ? (
+          <SectionIntro text={SECTION_INTROS.tabletKiosk} className="mt-2 text-slate-300" />
+        ) : (
+          <p className="mt-1 text-sm text-slate-300">
+            Signed in as {accountNameInput || currentUser.name} ({getRoleDisplayName(currentUser.role)}).
+          </p>
+        )}
       </section>
+
+      {currentUser.role === "Admin" && !isCapacitorNativeApp() ? (
+        <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-600 shadow-sm">
+          Tablet kiosk controls are configured on the BERT Android app by the platform owner (Master account). Contact
+          your platform owner to enable or adjust kiosk mode on pilot tablets.
+        </section>
+      ) : null}
 
       <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-sm">
         <p className="text-sm font-semibold text-slate-900">Your account</p>

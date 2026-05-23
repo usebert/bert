@@ -18,6 +18,10 @@ import {
   canAccessGodmodeInitialSetup,
   canAccessPilotSetup,
   canAccessPilotUsers,
+  canAccessCompanyOnboardingNav,
+  canAccessWorkspaceNav,
+  canAccessUsersInvitesNav,
+  canAccessTeamNav,
   usesPilotOperatorNav,
   canAccessReports,
   canAccessSchedules,
@@ -32,6 +36,12 @@ import {
   getRolePermissions,
 } from "./src/permissions";
 import { navItems } from "./src/config/navItems";
+import {
+  getMobileBottomNavForRole,
+  getMoreNavIdsForRole,
+  getPresentedNavForRole,
+  resolveAdminPilotFocus,
+} from "./src/config/roleNavigation";
 import { MORE_MENU_NAV_IDS, PILOT_PRIMARY_NAV_IDS, PRIMARY_NAV_IDS } from "./src/config/navStructure";
 import { PilotReadinessCard } from "./src/components/pilot/PilotReadinessCard";
 import { storageKeys } from "./src/config/storageKeys";
@@ -3195,15 +3205,15 @@ function App() {
       return "Workspace setup only — sign out when finished";
     }
     if (currentUser.role === "Master") {
-      return "Setup — connect Google, link the company workspace, and go live";
+      return "Platform owner — setup, companies, onboarding, and diagnostics";
     }
     if (currentUser.role === "Admin") {
-      return "Admin, templates, invites, and workspace checks";
+      return "Company workspace, users, forms, and reports";
     }
     if (currentUser.role === "Manager") {
-      return "Review actions, overdue items, and compliance risk";
+      return "Forms, reports, and your team";
     }
-    return "Complete assigned audits and capture site outcomes";
+    return "Today’s checks and submissions on this tablet";
   }, [currentUser, godCompanySetupSession]);
   const currentUserAppName = useMemo(() => {
     if (!currentUser) {
@@ -3212,139 +3222,99 @@ function App() {
     return userNicknames[currentUser.username]?.trim() || currentUser.name;
   }, [currentUser, userNicknames, godCompanySetupSession]);
 
+  const presentedNav = useMemo(() => {
+    if (!currentUser) {
+      return [];
+    }
+    return getPresentedNavForRole(currentUser.role);
+  }, [currentUser]);
+
   const visibleNavItems = useMemo(() => {
     if (!currentUser) {
       return [];
     }
-    if (usesPilotOperatorNav(currentUser.role)) {
-      return PILOT_PRIMARY_NAV_IDS.flatMap((id) => {
-        if (!canRoleAccessNavItem(currentUser.role, id)) {
-          return [];
-        }
-        const item = navItems.find((entry) => entry.id === id);
-        return item ? [item] : [];
-      });
-    }
-    const filtered = navItems.filter((item) => {
-      const baselineVisible = canRoleAccessNavItem(currentUser.role, item.id);
-      if (item.id === "incidents") {
-        return baselineVisible;
+    const fromRoleNav = presentedNav.map((item) => ({
+      id: item.id,
+      label: item.label,
+      icon: item.icon,
+    }));
+    const seen = new Set(fromRoleNav.map((item) => item.id));
+    const extras = navItems.filter((item) => {
+      if (seen.has(item.id)) {
+        return false;
       }
+      const baselineVisible = canRoleAccessNavItem(currentUser.role, item.id);
       const matrixVisible = roleNavVisibility[currentUser.role]?.[item.id] ?? baselineVisible;
       return baselineVisible && matrixVisible;
     });
-
-    // Safety net: always surface onboarding when role has onboarding access.
-    if (
-      canAccessOnboardingNav(currentUser.role) &&
-      (roleNavVisibility[currentUser.role]?.["onboarding"] ?? true) &&
-      !filtered.some((item) => item.id === "onboarding")
-    ) {
-      const onboardingItem = navItems.find((item) => item.id === "onboarding");
-      if (onboardingItem) {
-        const accountIndex = filtered.findIndex((item) => item.id === "account");
-        if (accountIndex >= 0) {
-          filtered.splice(accountIndex, 0, onboardingItem);
-        } else {
-          filtered.push(onboardingItem);
-        }
-      }
-    }
-
-    return filtered;
-  }, [currentUser, roleNavVisibility, godCompanySetupSession]);
+    return [...fromRoleNav, ...extras];
+  }, [currentUser, presentedNav, roleNavVisibility]);
 
   const visibleNavIdSet = useMemo(() => new Set(visibleNavItems.map((item) => item.id)), [visibleNavItems]);
 
   /** Tablet sidebar primary row — fixed order from `navStructure`, intersected with role visibility. */
   const primaryNavItems = useMemo(() => {
-    const order = currentUser && usesPilotOperatorNav(currentUser.role) ? PILOT_PRIMARY_NAV_IDS : PRIMARY_NAV_IDS;
-    return order.flatMap((id) => {
-      if (!visibleNavIdSet.has(id)) {
-        return [];
-      }
-      const item = navItems.find((entry) => entry.id === id);
-      return item ? [item] : [];
-    });
-  }, [visibleNavIdSet, currentUser]);
+    if (!currentUser) {
+      return [];
+    }
+    const primaryIds = new Set(presentedNav.map((item) => item.id));
+    return visibleNavItems.filter((item) => primaryIds.has(item.id));
+  }, [visibleNavItems, presentedNav, currentUser]);
 
-  /** Tablet sidebar “More” — fixed order from `navStructure`, intersected with role visibility. */
+  /** Tablet sidebar “More” — role bucket extras + layout matrix. */
   const moreNavItems = useMemo(() => {
-    return MORE_MENU_NAV_IDS.flatMap((id) => {
-      if (!visibleNavIdSet.has(id)) {
+    if (!currentUser) {
+      return [];
+    }
+    const primaryIds = new Set(presentedNav.map((item) => item.id));
+    const moreIds = getMoreNavIdsForRole(currentUser.role);
+    return [...moreIds, ...MORE_MENU_NAV_IDS].flatMap((id) => {
+      if (primaryIds.has(id) || !visibleNavIdSet.has(id)) {
         return [];
       }
       const item = navItems.find((entry) => entry.id === id);
       return item ? [item] : [];
-    });
-  }, [visibleNavIdSet]);
+    }).filter((item, index, list) => list.findIndex((entry) => entry.id === item.id) === index);
+  }, [visibleNavIdSet, presentedNav, currentUser]);
 
   const mobileTabBarIds = useMemo(() => new Set<string>(["dashboard", "audits", "actions", "reports"]), []);
 
   /** Mobile “More” sheet — same ordering as tablet (primary extras not on tab bar, then More menu ids). */
   const mobileMoreDestinations = useMemo(() => {
-    if (currentUser && usesPilotOperatorNav(currentUser.role)) {
-      const orderedIds = [...PILOT_PRIMARY_NAV_IDS];
-      const seen = new Set<string>();
-      const out: Array<(typeof navItems)[number]> = [];
-      for (const id of orderedIds) {
-        if (seen.has(id) || mobileTabBarIds.has(id) || !visibleNavIdSet.has(id)) {
-          continue;
-        }
-        seen.add(id);
-        const item = navItems.find((entry) => entry.id === id);
-        if (item) {
-          out.push(item);
-        }
-      }
-      return out;
+    if (!currentUser) {
+      return [];
     }
-    const orderedIds = [...PRIMARY_NAV_IDS, ...MORE_MENU_NAV_IDS];
+    const tabIds = new Set(
+      getMobileBottomNavForRole(currentUser.role)
+        .filter((entry) => entry.id !== "__more__" && entry.id !== "__logout__")
+        .map((entry) => entry.id),
+    );
+    const orderedIds = [
+      ...presentedNav.map((item) => item.id),
+      ...getMoreNavIdsForRole(currentUser.role),
+      ...MORE_MENU_NAV_IDS,
+    ];
     const seen = new Set<string>();
-    const out: Array<(typeof navItems)[number]> = [];
+    const out: Array<{ id: NavItemId; label: string; icon: string }> = [];
     for (const id of orderedIds) {
-      if (seen.has(id)) {
+      if (seen.has(id) || tabIds.has(id) || !visibleNavIdSet.has(id)) {
         continue;
       }
       seen.add(id);
-      if (!visibleNavIdSet.has(id) || mobileTabBarIds.has(id)) {
-        continue;
-      }
-      const item = navItems.find((entry) => entry.id === id);
+      const item = visibleNavItems.find((entry) => entry.id === id);
       if (item) {
         out.push(item);
       }
     }
     return out;
-  }, [visibleNavIdSet, mobileTabBarIds]);
+  }, [visibleNavIdSet, currentUser, presentedNav, visibleNavItems]);
 
   const mobileBottomNavEntries = useMemo(() => {
-    if (currentUser && usesPilotOperatorNav(currentUser.role)) {
-      return [
-        { id: "dashboard" as const, label: "Dashboard", icon: "dashboard" },
-        { id: "setup" as const, label: "Setup", icon: "spark" },
-        { id: "companies" as const, label: "Companies", icon: "clipboard" },
-        { id: "invites" as const, label: "Invites", icon: "note" },
-        { id: "__more__" as const, label: "More", icon: "grid" },
-        { id: "__logout__" as const, label: "Log out", icon: "logOut" },
-      ];
+    if (!currentUser) {
+      return [];
     }
-    const entries: Array<{ id: Screen | "__more__" | "__logout__"; label: string; icon: string }> = [
-      { id: "dashboard", label: "Dashboard", icon: "dashboard" },
-    ];
-    if (visibleNavItems.some((i) => i.id === "audits")) {
-      entries.push({ id: "audits", label: "Audits", icon: "clipboard" });
-    }
-    if (visibleNavItems.some((i) => i.id === "actions")) {
-      entries.push({ id: "actions", label: "Actions", icon: "warningTriangle" });
-    }
-    if (visibleNavItems.some((i) => i.id === "reports")) {
-      entries.push({ id: "reports", label: "Reports", icon: "chart" });
-    }
-    entries.push({ id: "__more__", label: "More", icon: "grid" });
-    entries.push({ id: "__logout__", label: "Log out", icon: "logOut" });
-    return entries;
-  }, [visibleNavItems]);
+    return getMobileBottomNavForRole(currentUser.role);
+  }, [currentUser]);
 
   const showSiteSelectorForRole = currentUser ? (roleSiteSelectorVisibility[currentUser.role] ?? true) : true;
 
@@ -8122,10 +8092,21 @@ function App() {
     if (currentUser && !canAccessPilotCompanies(currentUser.role) && screen === "companies") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
-    if (currentUser && !canAccessPilotUsers(currentUser.role) && screen === "users") {
+    if (currentUser && !canAccessUsersInvitesNav(currentUser.role) && screen === "users") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
-    if (currentUser && !canAccessPilotInvites(currentUser.role) && screen === "invites") {
+    if (
+      currentUser &&
+      !canAccessTeamNav(currentUser.role) &&
+      !canAccessUsersInvitesNav(currentUser.role) &&
+      screen === "invites"
+    ) {
+      setScreen(getHomeScreenForRole(currentUser.role));
+    }
+    if (currentUser && !canAccessCompanyOnboardingNav(currentUser.role) && screen === "onboarding") {
+      setScreen(getHomeScreenForRole(currentUser.role));
+    }
+    if (currentUser && !canAccessWorkspaceNav(currentUser.role) && screen === "admin") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
     if (currentUser && !canAccessPilotSettings(currentUser.role) && screen === "settings") {
@@ -8146,7 +8127,7 @@ function App() {
     if (currentUser && !canSubmitIncidents(currentUser.role) && screen === "incidents") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
-    if (currentUser && !canAccessAuditsCentre(currentUser.role) && screen === "audits") {
+    if (currentUser && !canRoleAccessNavItem(currentUser.role, "audits") && screen === "audits") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
     if (
@@ -8960,7 +8941,7 @@ function App() {
                 </p>
               </section>
             )}
-            {screen === "dashboard" && currentUser && usesPilotOperatorNav(currentUser.role) && (
+            {screen === "dashboard" && currentUser?.role === "Master" && (
               <div className="mb-4">
                 <PilotReadinessCard
                   onOpenInitialSetup={
@@ -9383,17 +9364,14 @@ function App() {
             )}
 
             {((screen === "companies" && canAccessPilotCompanies(currentUser.role)) ||
-              (screen === "users" && canAccessPilotUsers(currentUser.role)) ||
-              (screen === "invites" && canAccessPilotInvites(currentUser.role)) ||
-              (screen === "admin" && canAccessControlScreen(currentUser.role)) ||
-              (screen === "onboarding" && canAccessAdminOnboardingWorkspace(currentUser.role))) && (
+              (screen === "users" && canAccessUsersInvitesNav(currentUser.role)) ||
+              (screen === "invites" &&
+                (canAccessUsersInvitesNav(currentUser.role) || canAccessTeamNav(currentUser.role))) ||
+              (screen === "admin" && canAccessWorkspaceNav(currentUser.role)) ||
+              (screen === "onboarding" && canAccessCompanyOnboardingNav(currentUser.role))) && (
               <AdminScreen
-                pilotFocus={
-                  screen === "companies" ? "companies" : screen === "users" ? "users" : screen === "invites" ? "invites" : undefined
-                }
-                standaloneOnboarding={
-                  screen === "onboarding" || screen === "companies"
-                }
+                pilotFocus={resolveAdminPilotFocus(screen)}
+                standaloneOnboarding={screen === "onboarding" || screen === "companies"}
                 hideMasterLocalDemoTools={godCompanySetupOnlyShell || screen === "companies" || screen === "users" || screen === "invites"}
                 currentUser={currentUser}
                 googleConnected={googleConnected}

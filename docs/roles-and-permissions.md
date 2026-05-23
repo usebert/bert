@@ -1,6 +1,8 @@
 # BERT roles and permissions
 
-Central rules live in `src/permissions.ts`. The UI must use these helpers for nav visibility **and** screen/route guards.
+Central rules live in `src/permissions.ts`. Navigation labels and order live in `src/config/roleNavigation.ts`. The UI must use these helpers for nav visibility **and** screen/route guards.
+
+See **`docs/navigation-model.md`** for the full menu matrix.
 
 ## Roles
 
@@ -15,38 +17,38 @@ Central rules live in `src/permissions.ts`. The UI must use these helpers for na
 
 | Capability | Master | Admin | Manager | Auditor |
 |------------|--------|-------|---------|---------|
-| **Setup** nav item | Yes | No | No | No |
-| `/setup` (platform setup screen) | Yes | Blocked | Blocked | Blocked |
-| `/setup/initial` (Godmode) | Yes | Blocked | Blocked | Blocked |
+| **Platform Setup** nav | Yes | No | No | No |
+| `/setup`, `/setup/initial` | Yes | Blocked | Blocked | Blocked |
 | `GET /api/setup/status` | Yes (API) | No | No | No |
 
-Helpers:
+Helpers: `canAccessPilotSetup`, `canAccessGodmodeInitialSetup`.
 
-- `canAccessPilotSetup(role)` — Setup nav + `setup` screen
-- `canAccessGodmodeInitialSetup(role)` — `setupInitial` screen + `/setup/initial`
+## Company operator
 
-Non-Master users who open `/setup` or `/setup/initial` see **Setup is only available to the BERT platform owner** and are returned to Dashboard.
+| Capability | Master | Admin | Manager | Auditor |
+|------------|--------|-------|---------|---------|
+| **Companies** (all tenants) | Yes | No | No | No |
+| **Workspace** | No | Yes | No | No |
+| **Users & Invites** | Yes | Yes | Team only | No |
+| **Company Onboarding** (new tenants) | Yes | No | No | No |
+| **Forms & Checks** | Via More | Yes | Yes | My Checks |
+| **Reports** | Diagnostics | Yes | Yes | No |
 
-## Company operator menu (Master / Admin)
+## Invite / user row labels
 
-Master and company **Admin** share the paid-pilot operator nav for day-to-day pilot work:
+Admin UI shows:
 
-- Dashboard, **Companies**, **Users**, **Invites**, **Settings** (not Setup for Admin)
+- **Role:** Admin, Manager, or Auditor
+- **Status:** Invite created, Email sent, Awaiting setup, Setup incomplete, Active, Removed
 
-`usesPilotOperatorNav(role)` is `Master || Admin` — distinct from Setup access.
-
-## Company onboarding
-
-- **Onboarding** nav: Master and company Admin (`canAccessOnboardingNav`)
-- **Control** (`admin` screen): company Admin only (`canAccessControlScreen`)
+Implemented in `src/utils/inviteStatusDisplay.ts`.
 
 ## Verification
 
-After changes, confirm:
+1. Master sees **Platform Setup** and **Company Onboarding**; not mixed into company Admin menus.
+2. Company Admin sees **Workspace** and **Users & Invites** — not Platform Setup or Companies.
+3. Manager sees **Forms & Checks** and **Team** — not Platform Setup.
+4. Auditor sees **Today / My Checks / Submit / History** only.
+5. Direct `/setup` and `/setup/initial` as non-Master → blocked or redirected.
 
-1. Master sees **Setup** and can open Initial Setup (Godmode).
-2. Company Admin sees Dashboard, Companies, Users — **not** Setup.
-3. Manager and Auditor do not see Setup.
-4. Direct `/setup` and `/setup/initial` as Admin → blocked message + Dashboard.
-
-See `docs/production-launch-checklist.md` smoke section.
+See `docs/production-launch-checklist.md`.

@@ -45,12 +45,53 @@ export function canAccessPilotSetup(role: Role) {
   return role === "Master";
 }
 
+/** All companies list — platform owner only (company Admin uses Workspace). */
 export function canAccessPilotCompanies(role: Role) {
-  return role === "Master" || role === "Admin";
+  return role === "Master";
 }
 
 export function canAccessPilotUsers(role: Role) {
-  return usesPilotOperatorNav(role);
+  return role === "Master" || role === "Admin";
+}
+
+/** Sidebar “Users & Invites” (company scope). */
+export function canAccessUsersInvitesNav(role: Role) {
+  return role === "Master" || role === "Admin" || role === "Manager";
+}
+
+/** Company workspace settings (Control tab). */
+export function canAccessWorkspaceNav(role: Role) {
+  return role === "Admin";
+}
+
+/** Send onboarding forms / provision new company workspaces. */
+export function canAccessCompanyOnboardingNav(role: Role) {
+  return role === "Master";
+}
+
+/** Forms, checks, and audits hub. */
+export function canAccessFormsChecksNav(role: Role) {
+  return role === "Admin" || role === "Manager";
+}
+
+/** Master schedule / template tooling. */
+export function canAccessMasterTemplatesNav(role: Role) {
+  return role === "Master";
+}
+
+/** Platform diagnostics and readiness (not routine company reports). */
+export function canAccessPlatformDiagnosticsNav(role: Role) {
+  return role === "Master";
+}
+
+/** Tablet kiosk controls (Godmode on native; settings help on web). */
+export function canAccessTabletKioskNav(role: Role) {
+  return role === "Master";
+}
+
+/** Manager team / invites view. */
+export function canAccessTeamNav(role: Role) {
+  return role === "Manager";
 }
 
 export function canAccessPilotInvites(role: Role) {
@@ -80,7 +121,7 @@ export function canAccessAdminOnboardingWorkspace(role: Role) {
   return role === "Master" || role === "Admin";
 }
 
-/** Dedicated Onboarding menu — company Admin and platform owner (Master) setup. */
+/** In-app onboarding workspace tools (folder linking inside Workspace). */
 export function canAccessOnboardingNav(role: Role) {
   return role === "Admin" || role === "Master";
 }
@@ -98,7 +139,7 @@ export function canAccessCompletedNcrReports(role: Role) {
 }
 
 export function canAccessAuditsCentre(role: Role) {
-  return role !== "Auditor";
+  return role === "Master" || role === "Admin" || role === "Manager";
 }
 
 export function canSubmitIncidents(_role: Role) {
@@ -120,29 +161,28 @@ export function canAccessEmailReminders(_role: Role) {
 
 export function canRoleAccessNavItem(role: Role, itemId: NavItemId) {
   if (itemId === "setup") return canAccessPilotSetup(role);
-  if (itemId === "companies") return canAccessPilotCompanies(role);
-  if (itemId === "users") return canAccessPilotUsers(role);
-  if (itemId === "invites") return canAccessPilotInvites(role);
-  if (itemId === "settings") return canAccessPilotSettings(role);
   if (itemId === "setupInitial") return canAccessGodmodeInitialSetup(role);
-  if (role === "Master") {
-    return (
-      itemId === "dashboard" ||
-      itemId === "account" ||
-      itemId === "emailReminders" ||
-      itemId === "onboarding"
-    );
-  }
+  if (itemId === "companies") return canAccessPilotCompanies(role);
+  if (itemId === "onboarding") return canAccessCompanyOnboardingNav(role);
+  if (itemId === "users") return canAccessUsersInvitesNav(role);
+  if (itemId === "invites") return canAccessPilotInvites(role) || canAccessTeamNav(role);
+  if (itemId === "admin") return canAccessWorkspaceNav(role);
+  if (itemId === "settings") return canAccessPilotSettings(role);
+  if (itemId === "dashboard") return true;
+  if (itemId === "account") return true;
   if (itemId === "emailReminders") return canAccessEmailReminders(role);
-  if (itemId === "admin") return canAccessControlScreen(role);
-  if (itemId === "onboarding") return canAccessOnboardingNav(role);
-  if (itemId === "schedules") return canAccessSchedules(role);
+  if (itemId === "schedules") {
+    return canAccessMasterTemplatesNav(role) || canAccessSchedules(role);
+  }
   if (itemId === "documentTraining") return canAccessDocumentTraining(role);
-  if (itemId === "reports") return canAccessReports(role);
+  if (itemId === "reports") return canAccessReports(role) || canAccessPlatformDiagnosticsNav(role);
   if (itemId === "incidents") return canSubmitIncidents(role);
   if (itemId === "actions" || itemId === "nonConformance") return canAccessActions(role);
-  if (itemId === "audits") return canAccessAuditsCentre(role);
-  return true;
+  if (itemId === "audits") return canAccessAuditsCentre(role) || canAccessFormsChecksNav(role) || role === "Auditor";
+  if (itemId === "sync") {
+    return role === "Master" || role === "Admin" || role === "Manager" || role === "Auditor";
+  }
+  return false;
 }
 
 export function getRolePermissions(role: Role): RoleTaskPermissions {

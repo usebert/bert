@@ -65,9 +65,11 @@ Warnings (logged only, do not block boot):
 - [ ] Static SPA built with `VITE_API_BASE_URL=https://api.usebert.co.uk`
 - [ ] Hard refresh `/setup/initial` on SPA host loads app (not 404) — `public/_redirects` present in `dist/`
 - [ ] `POST /api/auth/master/login` from browser (both SPA origins) sets `bert_master_session` cookie
-- [ ] Master sees pilot nav only; **Godmode** appears only inside **Setup → Initial Setup** (`/setup/initial`)
-- [ ] **Setup** nav hidden for Company Admin, Manager, and Auditor
-- [ ] Verify **Setup** hidden for Company Admin / Manager / Auditor (sidebar has no Setup item)
+- [ ] Master nav: Dashboard, **Platform Setup**, Companies, **Company Onboarding**, **Users & Invites**, Templates, Reports / Diagnostics, Tablet / Kiosk
+- [ ] Company Admin nav: Dashboard, **Workspace**, **Users & Invites**, **Forms & Checks**, Reports (no Platform Setup / Companies)
+- [ ] Manager nav: Dashboard, Forms & Checks, Reports, Team (no Platform Setup)
+- [ ] Auditor nav: Today, My Checks, Submit, History only
+- [ ] Verify **Platform Setup** hidden for Company Admin / Manager / Auditor
 - [ ] Verify `/setup` and `/setup/initial` direct access blocked for non-Master (redirect or “platform owner” message)
 - [ ] Company users cannot access `/setup/initial` or Godmode
 - [ ] `npm run verify:auth` and `BERT_VERIFY_PILOT_DIST=1 npm run verify:auth` pass on release build artifact

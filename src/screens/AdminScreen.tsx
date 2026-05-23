@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
+import { SECTION_INTROS } from "../config/sectionIntros";
 import { canAccessAdmin, canAccessAdminOnboardingWorkspace, getRoleDisplayName } from "../permissions";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../components/dashboard/DashboardPrimitives";
+import { SectionIntro } from "../components/SectionIntro";
+import {
+  formatInviteStatusLabel,
+  formatUserRoleLabel,
+  inviteStatusBadgeClass,
+} from "../utils/inviteStatusDisplay";
 import type { AdminScreenProps, CompanyOnboardingEmailResult, CompanyUserInviteEmailResult } from "../types/adminScreenProps";
 import type { Role } from "../permissions";
 import type { Answer, AuditQuestion } from "../types/reportsScreenProps";
@@ -265,29 +272,6 @@ function isActiveCompanyUserInvite(invite: { status: string; loginReady?: boolea
   return invite.status === "Active" || invite.loginReady === true;
 }
 
-function inviteStatusLabel(status: string) {
-  if (status === "Invite sent") {
-    return "Email sent";
-  }
-  return status;
-}
-
-function inviteStatusBadgeClass(status: string) {
-  if (status === "Active") {
-    return "bg-emerald-500/15 text-emerald-200";
-  }
-  if (status === "Email sent") {
-    return "bg-sky-500/15 text-sky-200";
-  }
-  if (status === "Awaiting setup") {
-    return "bg-amber-500/15 text-amber-100";
-  }
-  if (status === "Setup incomplete") {
-    return "bg-rose-500/15 text-rose-200";
-  }
-  return "bg-slate-700/80 text-slate-200";
-}
-
 function GoogleWorkspaceSetupNotice({
   backendConfigured,
   googleConnected,
@@ -524,18 +508,18 @@ export function AdminScreen({
     }
   }, [pendingAdminScrollTarget, onboardingMode, adminView, godModeFullVisibility]);
 
-  const pilotTitles: Record<"companies" | "users" | "invites", { title: string; subtitle: string }> = {
+  const pilotTitles: Record<"companies" | "users" | "invites", { title: string; intro: string }> = {
     companies: {
       title: "Companies",
-      subtitle: "Connect Google, link company folders, and provision customer workspaces.",
+      intro: SECTION_INTROS.companyOnboarding,
     },
     users: {
-      title: "Users",
-      subtitle: "Manage who can access each company workspace and assign sites.",
+      title: "Users & Invites",
+      intro: SECTION_INTROS.usersInvites,
     },
     invites: {
-      title: "Invites",
-      subtitle: "Send, copy, resend, and track invite links for company users.",
+      title: "Team",
+      intro: SECTION_INTROS.team,
     },
   };
 
@@ -545,7 +529,7 @@ export function AdminScreen({
         <section className="rounded-[1.75rem] bg-slate-950 px-5 py-4 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]">
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">{pilotTitles[pilotFocus].title}</p>
           <h2 className="mt-1 text-xl font-semibold tracking-tight">{pilotTitles[pilotFocus].title}</h2>
-          <p className="mt-1 text-sm leading-5 text-slate-300">{pilotTitles[pilotFocus].subtitle}</p>
+          <SectionIntro text={pilotTitles[pilotFocus].intro} className="mt-2 text-slate-300" />
         </section>
       ) : null}
       {(!onboardingMode || godModeFullVisibility) && currentUser.role !== "Master" && !pilotFocus && (
@@ -1279,7 +1263,10 @@ export function AdminScreen({
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-white">{invite.email}</p>
                         <p className="truncate text-xs text-slate-300">
-                          {invite.role} • sent by {invite.invitedBy} • {invite.sentAt}
+                          Role: {formatUserRoleLabel(invite.role)} • sent by {invite.invitedBy} • {invite.sentAt}
+                        </p>
+                        <p className="truncate text-xs text-slate-400">
+                          Status: {formatInviteStatusLabel(invite.status)}
                         </p>
                         {invite.senderEmail && <p className="truncate text-xs text-slate-300">From {invite.senderEmail}</p>}
                       </div>
@@ -1337,7 +1324,7 @@ export function AdminScreen({
                           </button>
                         )}
                         <div className={["rounded-full px-3 py-1 text-xs font-semibold", inviteStatusBadgeClass(invite.status)].join(" ")}>
-                          {inviteStatusLabel(invite.status)}
+                          {formatInviteStatusLabel(invite.status)}
                         </div>
                       </div>
                     </div>

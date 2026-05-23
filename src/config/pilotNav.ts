@@ -14,7 +14,7 @@ export type PilotOperatorNavId = (typeof PILOT_OPERATOR_NAV_IDS)[number];
 
 export const PILOT_NAV_LABELS: Record<PilotOperatorNavId, { label: string; icon: string }> = {
   dashboard: { label: "Dashboard", icon: "dashboard" },
-  setup: { label: "Setup", icon: "spark" },
+  setup: { label: "Platform Setup", icon: "spark" },
   companies: { label: "Companies", icon: "clipboard" },
   users: { label: "Users", icon: "user" },
   invites: { label: "Invites", icon: "note" },

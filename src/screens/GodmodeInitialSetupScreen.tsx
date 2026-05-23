@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { googleWorkspaceService } from "../services/googleWorkspaceService";
 import { fetchSetupStatus, type SetupStatusPayload } from "../services/setupStatusService";
 import type { GoogleStatusPayload } from "../services/pilotStatusService";
+import { SECTION_INTROS } from "../config/sectionIntros";
+import { SectionIntro } from "../components/SectionIntro";
 import { leaveSetupInitialPath } from "../utils/setupRoute";
 import { TabletKioskGodmodePanel } from "../components/kiosk/TabletKioskGodmodePanel";
 
@@ -226,9 +228,7 @@ export function GodmodeInitialSetupScreen({
       <header className="rounded-[1.75rem] bg-slate-950 px-5 py-4 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]">
         <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Godmode</p>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">Godmode</h1>
-        <p className="mt-2 text-sm leading-6 text-slate-300">
-          Initial system setup for Google Workspace, Master access, shared drive, and pilot readiness.
-        </p>
+        <SectionIntro text={SECTION_INTROS.platformSetup} className="mt-2 text-slate-300" />
       </header>
 
       <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-sm">
