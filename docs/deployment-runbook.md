@@ -497,7 +497,23 @@ That runs **`scripts/build-android-pilot-release-apk.sh`** (production API build
 
 **Note:** Do not chain **`npm run android:sync`** after a pilot web build — **`android:sync`** runs a plain **`npm run build`** and can overwrite **`dist`** without **`VITE_API_BASE_URL`**. Pilot scripts sync only after the production API bundle is built.
 
-### 9.4 Device flow (operator)
+### 9.4 Tablet kiosk mode (Android pilot)
+
+BERT includes **app-level kiosk mode** on Capacitor Android (immersive UI, Back consumed, logout → sign-in only). It is **on by default** on new tablet installs until Master disables it.
+
+| Layer | What it blocks | How to configure |
+|-------|----------------|------------------|
+| **App kiosk** | Accidental Back exit; shows full-screen BERT | Enabled by default; Master → Setup → Initial Setup (Godmode) → **Kiosk mode** |
+| **Screen Pinning** | Home / Recents while pinned | Recents → Pin BERT (per device) |
+| **MDM / Device Owner** | OS-level kiosk, Lock Task | Android Enterprise policy allowlisting `co.usebert.app` |
+
+**Limitation:** APK code alone cannot block Android Home, Settings, or Recents. For production pilots, use **Screen Pinning** for a quick fix or **MDM kiosk** for real lockdown. Details: `docs/android-tablet-kiosk.md`.
+
+**Disable app kiosk (Master):** Godmode → **Disable tablet kiosk mode** (confirmation). Staff may then see system bars; use Screen Pinning or MDM if the tablet must stay on BERT only.
+
+**API CORS:** keep `https://localhost` (Capacitor WebView origin) in `BERT_ALLOWED_ORIGINS` for cookie auth.
+
+### 9.5 Device flow (operator)
 
 1. Install the pilot APK.
 2. On the **sign-in** screen, open **Workspace setup (Master only)** (or load the app with **`?setup=master`** in the URL) to reach the Master-only sign-in card.
@@ -505,7 +521,7 @@ That runs **`scripts/build-android-pilot-release-apk.sh`** (production API build
 4. After sign-in, the app opens **Onboarding (workspace setup)** in a **narrow shell** until you choose **Account → Open full BERT navigation** or sign out. Company staff without Master accounts never see the Master-only portal by default.
 5. **Connect Google** runs against the **hosted API** origin; complete OAuth in the system browser / WebView as configured.
 
-### 9.5 Cookies and split origins
+### 9.6 Cookies and split origins
 
 When the SPA is served from a different origin than the API (static app host vs `api.usebert.co.uk`), or when the Android shell uses a **`capacitor://`** (or **`http://localhost`**) document origin while calling **`https://api…`**, the client uses **`fetch(..., { credentials: "include" })`**. The API then needs:
 

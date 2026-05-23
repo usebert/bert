@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@capacitor/android": "^8.3.1",
+    "@capacitor/app": "^8.1.0",
     "@capacitor/cli": "^8.3.1",
     "@capacitor/core": "^8.3.1",
     "cookie-parser": "^1.4.7",
@@ -46,8 +47,8 @@
     "@vitejs/plugin-react": "^4.4.1",
     "concurrently": "^9.1.2",
     "tailwindcss": "^4.1.4",
-    "wait-on": "^8.0.3",
     "typescript": "^5.8.3",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "wait-on": "^8.0.3"
   }
 }

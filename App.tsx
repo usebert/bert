@@ -38,6 +38,8 @@ import { apiUrl } from "./src/config/apiBase";
 import { slatePrimaryCtaInteract } from "./src/styles/interactions";
 import { getGreetingFirstName, getTimeBasedGreeting, getUserInitials } from "./src/utils/userDisplay";
 import { isDebugUiAllowed } from "./src/utils/debugUiVisibility";
+import { useTabletKiosk } from "./src/hooks/useTabletKiosk";
+import { isTabletKioskEnabled } from "./src/utils/tabletKioskStorage";
 import { AuditorTaskDashboard } from "./src/components/dashboard/AuditorTaskDashboard";
 import { AdminDashboard } from "./src/components/dashboard/AdminDashboard";
 import { ManagerDashboard } from "./src/components/dashboard/ManagerDashboard";
@@ -2754,6 +2756,9 @@ function App() {
     }
   });
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [tabletKioskRevision, setTabletKioskRevision] = useState(0);
+  const tabletKioskOn = useMemo(() => isTabletKioskEnabled(), [tabletKioskRevision]);
+  useTabletKiosk(tabletKioskOn);
   const [companySetupLoginPortal, setCompanySetupLoginPortal] = useState(() => {
     try {
       return new URLSearchParams(window.location.search).get("setup") === "master";
@@ -9318,6 +9323,7 @@ function App() {
                   setScreen("setup");
                 }}
                 slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+                onTabletKioskChange={() => setTabletKioskRevision((revision) => revision + 1)}
               />
             )}
 

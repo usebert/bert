@@ -3,6 +3,7 @@ import { googleWorkspaceService } from "../services/googleWorkspaceService";
 import { fetchSetupStatus, type SetupStatusPayload } from "../services/setupStatusService";
 import type { GoogleStatusPayload } from "../services/pilotStatusService";
 import { leaveSetupInitialPath } from "../utils/setupRoute";
+import { TabletKioskGodmodePanel } from "../components/kiosk/TabletKioskGodmodePanel";
 
 type Section = {
   id: string;
@@ -17,6 +18,7 @@ type Props = {
   googleConnected: boolean;
   onBackToSetup: () => void;
   slatePrimaryCtaInteract: string;
+  onTabletKioskChange?: () => void;
 };
 
 function buildSections(
@@ -117,6 +119,7 @@ export function GodmodeInitialSetupScreen({
   googleConnected,
   onBackToSetup,
   slatePrimaryCtaInteract,
+  onTabletKioskChange,
 }: Props) {
   const [status, setStatus] = useState<SetupStatusPayload | null>(null);
   const [googleStatus, setGoogleStatus] = useState<GoogleStatusPayload | null>(null);
@@ -328,6 +331,11 @@ export function GodmodeInitialSetupScreen({
           <p className="mt-2 text-xs text-slate-500">Connect Google Workspace before verifying drive access.</p>
         ) : null}
       </section>
+
+      <TabletKioskGodmodePanel
+        slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+        onChanged={onTabletKioskChange}
+      />
 
       <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-sm">
         <p className="mb-3 text-sm font-semibold text-slate-900">Setup status</p>
