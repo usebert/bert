@@ -493,9 +493,9 @@ Expect JSON with **`"ok":true`** and a **`Set-Cookie`** for the Master session o
 npm run android:apk:pilot
 ```
 
-That runs **`VITE_API_BASE_URL=https://api.usebert.co.uk npm run build`**, **`BERT_VERIFY_PILOT_DIST=1 npm run verify:auth`**, **`npm run android:sync`**, and **`npm run android:apk:release`**.
+That runs **`scripts/build-android-pilot-release-apk.sh`** (production API build, pilot dist verification, **`npx cap sync android`**, **`assembleRelease`**). For tablet sideload without a release keystore, use **`npm run android:apk:pilot:debug`** instead (debug-signed **`app-debug.apk`**).
 
-**Blockers:** `android:apk:release` requires your Android **release keystore** and signing config (see `scripts/build-android-release-apk.sh` / Android Gradle signing). Without a keystore, use the debug APK script only for non-pilot devices.
+**Note:** Do not chain **`npm run android:sync`** after a pilot web build — **`android:sync`** runs a plain **`npm run build`** and can overwrite **`dist`** without **`VITE_API_BASE_URL`**. Pilot scripts sync only after the production API bundle is built.
 
 ### 9.4 Device flow (operator)
 
