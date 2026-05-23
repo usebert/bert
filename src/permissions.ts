@@ -40,8 +40,9 @@ export function usesPilotOperatorNav(role: Role) {
   return role === "Master" || role === "Admin";
 }
 
+/** Platform Setup nav and screen — Master (Godmode) only; not company Admin/Manager/Auditor. */
 export function canAccessPilotSetup(role: Role) {
-  return usesPilotOperatorNav(role);
+  return role === "Master";
 }
 
 export function canAccessPilotCompanies(role: Role) {

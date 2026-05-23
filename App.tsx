@@ -61,7 +61,15 @@ import { DocumentTrainingScreen } from "./src/screens/DocumentTrainingScreen";
 import { EmailRemindersScreen } from "./src/screens/EmailRemindersScreen";
 import { GodmodeInitialSetupScreen } from "./src/screens/GodmodeInitialSetupScreen";
 import { PilotSetupScreen } from "./src/screens/PilotSetupScreen";
-import { isSetupInitialPath, leaveSetupInitialPath, navigateToSetupInitial } from "./src/utils/setupRoute";
+import { SetupAccessDeniedPanel } from "./src/components/SetupAccessDeniedPanel";
+import {
+  isAnyProtectedSetupPath,
+  isSetupInitialPath,
+  isSetupPath,
+  leaveSetupInitialPath,
+  leaveSetupPath,
+  navigateToSetupInitial,
+} from "./src/utils/setupRoute";
 import { PilotSettingsScreen } from "./src/screens/PilotSettingsScreen";
 import { SyncCentreScreen } from "./src/screens/SyncCentreScreen";
 import type { DocumentDistribution, ExternalEmployee } from "./src/types/documentTraining";
@@ -4038,13 +4046,25 @@ function App() {
       } catch {
         setCompanySetupLoginPortal(false);
       }
+      if (!currentUser) {
+        return;
+      }
       if (isSetupInitialPath()) {
-        setScreen((current) => {
-          if (currentUser?.role === "Master") {
-            return "setupInitial";
-          }
-          return current;
-        });
+        if (canAccessGodmodeInitialSetup(currentUser.role)) {
+          setScreen("setupInitial");
+        } else {
+          leaveSetupInitialPath("/");
+          setScreen(getHomeScreenForRole(currentUser.role));
+        }
+        return;
+      }
+      if (isSetupPath()) {
+        if (canAccessPilotSetup(currentUser.role)) {
+          setScreen("setup");
+        } else {
+          leaveSetupPath("/");
+          setScreen(getHomeScreenForRole(currentUser.role));
+        }
       }
     };
     syncSetupPortalFromUrl();
@@ -4068,8 +4088,16 @@ function App() {
   }, [screen, currentUser]);
 
   useEffect(() => {
-    if (currentUser?.role === "Master" && isSetupInitialPath()) {
+    if (!currentUser) {
+      return;
+    }
+    if (currentUser.role === "Master" && isSetupInitialPath()) {
       setScreen("setupInitial");
+      return;
+    }
+    if (!canAccessGodmodeInitialSetup(currentUser.role) && isAnyProtectedSetupPath()) {
+      leaveSetupPath("/");
+      setScreen(getHomeScreenForRole(currentUser.role));
     }
   }, [currentUser]);
 
@@ -9305,9 +9333,22 @@ function App() {
               />
             )}
 
+            {currentUser &&
+              !canAccessPilotSetup(currentUser.role) &&
+              (screen === "setup" || screen === "setupInitial" || isAnyProtectedSetupPath()) && (
+                <div className="flex min-h-[40vh] items-center justify-center p-4">
+                  <SetupAccessDeniedPanel
+                    slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+                    onGoToDashboard={() => {
+                      leaveSetupPath("/");
+                      setScreen(getHomeScreenForRole(currentUser.role));
+                    }}
+                  />
+                </div>
+              )}
+
             {screen === "setup" && currentUser && canAccessPilotSetup(currentUser.role) && (
               <PilotSetupScreen
-                showInitialSetupEntry={currentUser.role === "Master"}
                 onOpenInitialSetup={() => {
                   navigateToSetupInitial();
                   setScreen("setupInitial");

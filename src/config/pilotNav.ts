@@ -1,6 +1,6 @@
 import type { NavItemId } from "../types/navigation";
 
-/** Paid-pilot operator menu (platform owner / company setup). */
+/** Paid-pilot operator menu (Master + company Admin). Setup item is Master-only via canAccessPilotSetup. */
 export const PILOT_OPERATOR_NAV_IDS = [
   "dashboard",
   "setup",

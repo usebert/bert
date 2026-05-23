@@ -66,6 +66,9 @@ Warnings (logged only, do not block boot):
 - [ ] Hard refresh `/setup/initial` on SPA host loads app (not 404) — `public/_redirects` present in `dist/`
 - [ ] `POST /api/auth/master/login` from browser (both SPA origins) sets `bert_master_session` cookie
 - [ ] Master sees pilot nav only; **Godmode** appears only inside **Setup → Initial Setup** (`/setup/initial`)
+- [ ] **Setup** nav hidden for Company Admin, Manager, and Auditor
+- [ ] Verify **Setup** hidden for Company Admin / Manager / Auditor (sidebar has no Setup item)
+- [ ] Verify `/setup` and `/setup/initial` direct access blocked for non-Master (redirect or “platform owner” message)
 - [ ] Company users cannot access `/setup/initial` or Godmode
 - [ ] `npm run verify:auth` and `BERT_VERIFY_PILOT_DIST=1 npm run verify:auth` pass on release build artifact
 - [ ] Google OAuth connect flow from Initial Setup (after Google env on API)

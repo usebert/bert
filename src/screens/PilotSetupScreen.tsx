@@ -3,13 +3,12 @@ import { fetchSetupStatus } from "../services/setupStatusService";
 import { slatePrimaryCtaInteract } from "../styles/interactions";
 
 type Props = {
-  showInitialSetupEntry: boolean;
   onOpenInitialSetup: () => void;
   slatePrimaryCtaInteract?: string;
 };
 
+/** Master-only platform setup hub (see canAccessPilotSetup). */
 export function PilotSetupScreen({
-  showInitialSetupEntry,
   onOpenInitialSetup,
   slatePrimaryCtaInteract: ctaClass = slatePrimaryCtaInteract,
 }: Props) {
@@ -27,6 +26,7 @@ export function PilotSetupScreen({
       cancelled = true;
     };
   }, []);
+
   return (
     <div className="space-y-4">
       <section className="rounded-[1.75rem] bg-slate-950 px-5 py-4 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]">
@@ -39,28 +39,19 @@ export function PilotSetupScreen({
         </p>
       </section>
 
-      {showInitialSetupEntry ? (
-        <section className="rounded-[1.75rem] border border-amber-200 bg-gradient-to-b from-amber-50 to-white p-4 shadow-sm">
-          <p className="text-sm font-semibold text-slate-900">Initial Setup</p>
-          <p className="mt-1 text-sm text-slate-600">
-            Configure Google Workspace, first operator, shared drive, and pilot readiness.
-          </p>
-          <button
-            type="button"
-            onClick={onOpenInitialSetup}
-            className={`mt-4 h-12 w-full rounded-2xl bg-[#ea580c] text-sm font-semibold text-white sm:w-auto sm:px-6 ${ctaClass}`}
-          >
-            Open Initial Setup
-          </button>
-        </section>
-      ) : null}
-
-      {!showInitialSetupEntry ? (
-        <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
-          Initial Setup is managed by the platform owner account. Use Companies, Users, and Invites for your
-          workspace.
-        </section>
-      ) : null}
+      <section className="rounded-[1.75rem] border border-amber-200 bg-gradient-to-b from-amber-50 to-white p-4 shadow-sm">
+        <p className="text-sm font-semibold text-slate-900">Initial Setup</p>
+        <p className="mt-1 text-sm text-slate-600">
+          Configure Google Workspace, shared drive, session storage, invite email, and pilot readiness.
+        </p>
+        <button
+          type="button"
+          onClick={onOpenInitialSetup}
+          className={`mt-4 h-12 w-full rounded-2xl bg-[#ea580c] text-sm font-semibold text-white sm:w-auto sm:px-6 ${ctaClass}`}
+        >
+          Open Initial Setup
+        </button>
+      </section>
     </div>
   );
 }
