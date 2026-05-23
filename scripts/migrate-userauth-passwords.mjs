@@ -24,9 +24,22 @@ if (!sheetId) {
   process.exit(1);
 }
 
-const sessionPath = path.join(root, ".sessions", "google-session.json");
-if (!fs.existsSync(sessionPath)) {
-  console.error("Missing .sessions/google-session.json — connect Google on this machine first (see npm run google:connect).");
+const sessionsDirRaw = String(process.env.BERT_SESSIONS_DIR || "").trim();
+const sessionsDir = sessionsDirRaw
+  ? path.isAbsolute(sessionsDirRaw)
+    ? path.normalize(sessionsDirRaw)
+    : path.resolve(root, sessionsDirRaw)
+  : path.join(root, ".sessions");
+const sessionCandidates = [
+  path.join(sessionsDir, "google-oauth-token.json"),
+  path.join(sessionsDir, "google-session.json"),
+  path.join(root, ".sessions", "google-session.json"),
+];
+const sessionPath = sessionCandidates.find((candidate) => fs.existsSync(candidate));
+if (!sessionPath) {
+  console.error(
+    "Missing Google OAuth token file — connect Google on this machine first (see npm run google:connect).",
+  );
   process.exit(1);
 }
 

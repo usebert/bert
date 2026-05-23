@@ -21,6 +21,7 @@ import {
 } from "./userauth-password.mjs";
 import { installDocumentDistributionRoutes } from "./document-distribution.mjs";
 import { installEmailReminderRoutes, startEmailReminderScheduler } from "./email-reminders.mjs";
+import { createGoogleOAuthSessionStore } from "./google-oauth-session.mjs";
 import { installSetupStatusRoutes } from "./setup-status.mjs";
 
 dotenv.config();
@@ -34,8 +35,11 @@ if (process.env.NODE_ENV === "production") {
 const port = Number(process.env.PORT) || 8787;
 const rootDir = process.cwd();
 const sessionsRootRaw = String(process.env.BERT_SESSIONS_DIR || "").trim();
-const sessionDir = sessionsRootRaw ? path.resolve(rootDir, sessionsRootRaw) : path.join(rootDir, ".sessions");
-const sessionFile = path.join(sessionDir, "google-session.json");
+const googleOAuthStore = createGoogleOAuthSessionStore({
+  rootDir,
+  sessionsDirEnv: sessionsRootRaw,
+});
+const sessionDir = googleOAuthStore.sessionDir;
 
 const requiredEnv = {
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || "",
@@ -506,9 +510,7 @@ const ID_COLUMNS = {
   SyncLog: "Sync Item ID",
 };
 
-if (!fs.existsSync(sessionDir)) {
-  fs.mkdirSync(sessionDir, { recursive: true });
-}
+googleOAuthStore.ensureSessionDir();
 
 function securityHeadersMiddleware(req, res, next) {
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -693,6 +695,12 @@ function evaluateProductionEnvironment() {
     );
   }
 
+  if (!String(process.env.BERT_SESSIONS_DIR || "").trim()) {
+    warnings.push(
+      "BERT_SESSIONS_DIR is not set. Google OAuth tokens and invite data use ephemeral .sessions under the app directory and will be lost on redeploy.",
+    );
+  }
+
   const fe = String(requiredEnv.FRONTEND_URL || "").trim();
   if (fe.startsWith("http://")) {
     const loopbackOk = /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/?$/i.test(fe);
@@ -766,6 +774,7 @@ function smtpStartupLogPayload() {
 
 function getHealthPayload() {
   const googleOk = envConfigured();
+  const googleOAuthConnected = googleOAuthStore.hasTokens();
   return {
     ok: true,
     service: "bert-api",
@@ -775,7 +784,9 @@ function getHealthPayload() {
     configured: googleOk,
     googleConfigured: googleOk,
     googleEnvConfigured: googleOk,
+    googleOAuthConnected,
     sharedDriveConfigured: Boolean(requiredEnv.GOOGLE_SHARED_DRIVE_ID),
+    sessionsDirConfigured: googleOAuthStore.sessionsDirConfigured,
     uptimeSeconds: Math.round(process.uptime()),
   };
 }
@@ -784,6 +795,7 @@ function getReadinessPayload() {
   const evaluation = evaluateProductionEnvironment();
   const writable = sessionStoreWritable();
   const googleOk = envConfigured();
+  const googleOAuthConnected = googleOAuthStore.hasTokens();
   const productionOk = !evaluation.isProduction || evaluation.blockingIssues.length === 0;
   const ready = writable && productionOk;
   return {
@@ -793,9 +805,13 @@ function getReadinessPayload() {
     version: APP_VERSION,
     environment: nodeEnvLabel(),
     googleConfigured: googleOk,
+    googleEnvConfigured: googleOk,
+    googleOAuthConnected,
+    sessionsDirConfigured: googleOAuthStore.sessionsDirConfigured,
     checks: {
       googleConfigured: googleOk,
       googleEnvConfigured: googleOk,
+      googleOAuthConnected,
       sessionStoreWritable: writable,
       productionEnvOk: productionOk,
     },
@@ -815,25 +831,19 @@ function collectMissingGoogleEnvKeys() {
 }
 
 function readStoredSession() {
-  if (!fs.existsSync(sessionFile)) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(fs.readFileSync(sessionFile, "utf8"));
-  } catch {
-    return null;
-  }
+  return googleOAuthStore.readSession();
 }
 
-function writeStoredSession(payload) {
-  fs.writeFileSync(sessionFile, JSON.stringify(payload, null, 2));
+function writeStoredSession(payload, options = {}) {
+  googleOAuthStore.writeSession(payload);
+  if (options.log !== false) {
+    googleOAuthStore.logStorageState(options.logContext || "token_saved");
+  }
 }
 
 function clearStoredSession() {
-  if (fs.existsSync(sessionFile)) {
-    fs.unlinkSync(sessionFile);
-  }
+  googleOAuthStore.clearSession();
+  googleOAuthStore.logStorageState("token_cleared");
 }
 
 installSetupStatusRoutes(app, {
@@ -841,7 +851,7 @@ installSetupStatusRoutes(app, {
   getReadinessPayload,
   getHealthPayload,
   emailConfigured,
-  hasGoogleSession: () => Boolean(readStoredSession()?.tokens),
+  hasGoogleSession: () => googleOAuthStore.hasTokens(),
   getSharedDriveId: () => requiredEnv.GOOGLE_SHARED_DRIVE_ID,
 });
 
@@ -934,6 +944,22 @@ function getAuthedClient() {
   }
   const auth = createOAuthClient();
   auth.setCredentials(session.tokens);
+  auth.on("tokens", (tokens) => {
+    try {
+      const current = readStoredSession() || session;
+      writeStoredSession(
+        {
+          ...current,
+          tokens: { ...current.tokens, ...tokens },
+        },
+        { log: false },
+      );
+    } catch (error) {
+      console.warn("[google-oauth] unable to persist refreshed tokens", {
+        message: error instanceof Error ? error.message : "write failed",
+      });
+    }
+  });
   return auth;
 }
 
@@ -3408,8 +3434,8 @@ async function readCompanyMasterSheet(auth, folderId) {
 }
 
 app.get("/api/google/status", async (_req, res) => {
-  const session = readStoredSession();
   const authed = getAuthedClient();
+  const oauthConnected = googleOAuthStore.hasTokens();
   const sharedDriveId = String(requiredEnv.GOOGLE_SHARED_DRIVE_ID || "").trim();
 
   let companies = [];
@@ -3437,7 +3463,8 @@ app.get("/api/google/status", async (_req, res) => {
       return res.status(500).json({
         ok: false,
         configured: true,
-        connected: true,
+        connected: oauthConnected,
+        googleOAuthConnected: oauthConnected,
         sharedDriveId,
         sharedDriveConfigured: Boolean(sharedDriveId),
         sharedDriveVerified: false,
@@ -3455,7 +3482,8 @@ app.get("/api/google/status", async (_req, res) => {
   res.json({
     ok: true,
     configured: envConfigured(),
-    connected: Boolean(session?.tokens),
+    connected: oauthConnected,
+    googleOAuthConnected: oauthConnected,
     sharedDriveId,
     sharedDriveConfigured: Boolean(sharedDriveId),
     sharedDriveVerified,
@@ -5092,11 +5120,14 @@ app.get("/auth/google/callback", async (req, res) => {
       profile = null;
     }
 
-    writeStoredSession({
-      tokens,
-      profile,
-      connectedAt: new Date().toISOString(),
-    });
+    writeStoredSession(
+      {
+        tokens,
+        profile,
+        connectedAt: new Date().toISOString(),
+      },
+      { logContext: "oauth_callback" },
+    );
 
     res.clearCookie("qms_google_state");
     return sendCallbackPage(res, {
@@ -5444,8 +5475,9 @@ app.use((err, req, res, _next) => {
 assertSafeProductionBoot();
 
 const httpServer = app.listen(port, "0.0.0.0", () => {
+  googleOAuthStore.logStorageState("startup");
   console.log(
-    `[api] listening on http://127.0.0.1:${port} (NODE_ENV=${nodeEnvLabel()}, googleEnvConfigured=${envConfigured()}, sessionStoreWritable=${sessionStoreWritable()})`,
+    `[api] listening on http://127.0.0.1:${port} (NODE_ENV=${nodeEnvLabel()}, googleEnvConfigured=${envConfigured()}, googleOAuthConnected=${googleOAuthStore.hasTokens()}, sessionStoreWritable=${sessionStoreWritable()})`,
   );
   console.log(`[api] PORT env: ${process.env.PORT || "(unset, using 8787)"}`);
   if (

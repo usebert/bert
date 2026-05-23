@@ -54,6 +54,7 @@ export function installSetupStatusRoutes(app, deps) {
     const masterConfigured = store.operators.length > 0;
     const googleConfigured = Boolean(readiness.googleConfigured);
     const googleConnected = hasGoogleSession();
+    const googleOAuthConnected = googleConnected;
     const sharedDriveConfigured = Boolean(health.sharedDriveConfigured);
     const sessionStoreWritable = Boolean(readiness.checks?.sessionStoreWritable);
     const smtpConfigured = emailConfigured();
@@ -73,6 +74,7 @@ export function installSetupStatusRoutes(app, deps) {
       masterConfigured,
       googleConfigured,
       googleConnected,
+      googleOAuthConnected,
       sharedDriveConfigured,
       sharedDriveId,
       sessionStoreWritable,
