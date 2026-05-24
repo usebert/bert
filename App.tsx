@@ -24,7 +24,7 @@ import {
   canAccessTeamNav,
   usesPilotOperatorNav,
   canAccessReports,
-  canAccessSchedules,
+  canAccessSchedulesScreen,
   canCompleteAuditAsAuditor,
   canEditLegalName,
   canRoleAccessNavItem,
@@ -8094,7 +8094,7 @@ function App() {
     if (currentUser && !canAccessOnboardingNav(currentUser.role) && screen === "onboarding") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
-    if (currentUser && !canAccessSchedules(currentUser.role) && screen === "schedules") {
+    if (currentUser && !canAccessSchedulesScreen(currentUser.role) && screen === "schedules") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
     if (currentUser && !canAccessDocumentTraining(currentUser.role) && screen === "documentTraining") {
@@ -9335,7 +9335,7 @@ function App() {
               />
             )}
 
-            {screen === "schedules" && canAccessSchedules(currentUser.role) && (
+            {screen === "schedules" && canAccessSchedulesScreen(currentUser.role) && (
               <SchedulesScreen
                 selectedFolder={selectedFolder}
                 schedules={visibleSchedules}

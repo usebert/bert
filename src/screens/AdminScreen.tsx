@@ -1488,6 +1488,8 @@ export function AdminScreen({
               )}
             </>
           )}
+        </>
+      )}
 
       <section id="admin-audit-templates" className="rounded-[1.75rem] border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)]">
         <div className="mb-4 flex items-start justify-between gap-3">
@@ -1620,9 +1622,6 @@ export function AdminScreen({
           )}
         </div>
       </section>
-
-        </>
-      )}
     </div>
   );
 }

@@ -107,8 +107,14 @@ export function canAccessGodmodeInitialSetup(role: Role) {
   return role === "Master";
 }
 
+/** Company live schedule management in a linked workspace. */
 export function canAccessSchedules(role: Role) {
-  return role === "Master" || role === "Admin" || role === "Manager";
+  return role === "Admin" || role === "Manager";
+}
+
+/** Schedules screen — company schedules or Master template tooling (see nav rules). */
+export function canAccessSchedulesScreen(role: Role) {
+  return canRoleAccessNavItem(role, "schedules");
 }
 
 /** Policy / training document upload, distribution, and acknowledgment tracking. */
@@ -273,7 +279,7 @@ export function canInvestigateIncident(role: Role) {
 }
 
 export function canViewSchedules(role: Role) {
-  return canAccessSchedules(role);
+  return canAccessSchedulesScreen(role);
 }
 
 export function canManageSchedules(role: Role) {
