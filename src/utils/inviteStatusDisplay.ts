@@ -11,6 +11,20 @@ export function formatInviteStatusLabel(status: string): string {
   return normalized || "Unknown";
 }
 
+const INVITE_STATUS_HELP: Record<string, string> = {
+  "Invite created": "An invite link exists, but email may not have been sent.",
+  "Email sent": "The setup email was sent. The user still needs to open it.",
+  "Awaiting setup": "The user has not completed name/password setup yet.",
+  "Setup incomplete": "Setup started but BERT could not finish creating login access.",
+  Active: "The user has completed setup and can sign in.",
+  Removed: "The user was removed or deactivated.",
+};
+
+export function getInviteStatusHelp(status: string): string {
+  const label = formatInviteStatusLabel(status);
+  return INVITE_STATUS_HELP[label] || "Current invite state for this person.";
+}
+
 export function inviteStatusBadgeClass(status: string): string {
   const label = formatInviteStatusLabel(status);
   if (label === "Active") return "bg-emerald-500/15 text-emerald-200";

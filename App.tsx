@@ -43,7 +43,7 @@ import {
   resolveAdminPilotFocus,
 } from "./src/config/roleNavigation";
 import { MORE_MENU_NAV_IDS, PILOT_PRIMARY_NAV_IDS, PRIMARY_NAV_IDS } from "./src/config/navStructure";
-import { PilotReadinessCard } from "./src/components/pilot/PilotReadinessCard";
+import { RoleContextBanner } from "./src/components/RoleContextBanner";
 import { storageKeys } from "./src/config/storageKeys";
 import { apiUrl } from "./src/config/apiBase";
 import { slatePrimaryCtaInteract } from "./src/styles/interactions";
@@ -52,8 +52,10 @@ import { isDebugUiAllowed } from "./src/utils/debugUiVisibility";
 import { useTabletKiosk } from "./src/hooks/useTabletKiosk";
 import { isTabletKioskEnabled } from "./src/utils/tabletKioskStorage";
 import { AuditorTaskDashboard } from "./src/components/dashboard/AuditorTaskDashboard";
-import { AdminDashboard } from "./src/components/dashboard/AdminDashboard";
-import { ManagerDashboard } from "./src/components/dashboard/ManagerDashboard";
+import { CompanyAdminDashboard } from "./src/components/dashboard/CompanyAdminDashboard";
+import { ManagerRoleDashboard } from "./src/components/dashboard/ManagerRoleDashboard";
+import { MasterPlatformDashboard } from "./src/components/dashboard/MasterPlatformDashboard";
+import { formatInviteStatusLabel } from "./src/utils/inviteStatusDisplay";
 import { AccountSettingsScreen } from "./src/screens/AccountSettingsScreen";
 import { ActionsScreen } from "./src/screens/ActionsScreen";
 import { AdminScreen } from "./src/screens/AdminScreen";
@@ -3014,6 +3016,19 @@ function App() {
   };
 
   const workspaceName = selectedFolder?.name || companyName;
+
+  const platformActiveUsersCount = useMemo(
+    () => invitedUsers.filter((invite) => formatInviteStatusLabel(invite.status) === "Active").length,
+    [invitedUsers],
+  );
+  const platformUsersAwaitingSetupCount = useMemo(
+    () =>
+      invitedUsers.filter((invite) => {
+        const label = formatInviteStatusLabel(invite.status);
+        return label !== "Active" && label !== "Removed";
+      }).length,
+    [invitedUsers],
+  );
 
   const activeOnboardingRecord = useMemo(
     () => onboardingRecords.find((record) => record.id === selectedOnboardingRecordId) ?? null,
@@ -8851,7 +8866,17 @@ function App() {
           <div
             className={[
               "qms-screen-stage h-full min-w-0 flex-1 overflow-y-auto px-4 pb-24 pt-4 md:pb-10", themeMode === "dark" ? "[&_section.border]:border-slate-800 [&_section.bg-white]:bg-slate-900 [&_section.bg-slate-50]:bg-slate-900 [&_section_.text-slate-900]:text-slate-100 [&_section_.text-slate-800]:text-slate-200 [&_section_.text-slate-700]:text-slate-300 [&_section_.text-slate-600]:text-slate-400 [&_section_.text-slate-500]:text-slate-400 [&_section_.text-slate-400]:text-slate-500 [&_section_input]:border-slate-700 [&_section_input]:bg-slate-950 [&_section_input]:text-slate-100 [&_section_input:focus]:border-[var(--bert-signal-orange)] [&_section_input:focus]:bg-slate-950 [&_section_textarea]:border-slate-700 [&_section_textarea]:bg-slate-950 [&_section_textarea]:text-slate-100 [&_section_textarea:focus]:border-[var(--bert-signal-orange)] [&_section_select]:border-slate-700 [&_section_select]:bg-slate-950 [&_section_select]:text-slate-100 [&_section_select:focus]:border-[var(--bert-signal-orange)] [&_section_select:focus]:bg-slate-950 [&_.bg-gradient-to-b]:from-slate-900 [&_.bg-gradient-to-b]:to-slate-950 [&_.bg-slate-100]:bg-slate-800 [&_.bg-slate-200]:bg-slate-800 [&_.bg-white]:bg-slate-900 [&_.text-slate-900]:text-slate-100 [&_.text-slate-800]:text-slate-200 [&_.text-slate-700]:text-slate-300 [&_.text-slate-600]:text-slate-400 [&_.text-slate-500]:text-slate-400 [&_input[type=file]]:border-[rgba(249,115,22,0.45)] [&_input[type=file]]:bg-slate-950 [&_input[type=file]]:text-slate-300 [&_input[type=file]]:file:text-slate-200" : "bg-slate-100/72"            ].join(" ")}>
-            {screen === "dashboard" && !godCompanySetupOnlyShell && (
+            {currentUser && !godCompanySetupOnlyShell ? (
+              <div className="mb-4">
+                <RoleContextBanner role={currentUser.role} workspaceName={workspaceName} />
+              </div>
+            ) : null}
+            {screen === "dashboard" &&
+            !godCompanySetupOnlyShell &&
+            currentUser.role !== "Master" &&
+            currentUser.role !== "Admin" &&
+            currentUser.role !== "Manager" &&
+            !canCompleteAuditAsAuditor(currentUser.role) ? (
               <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 flex-1">
                   <h1 className="text-xl font-semibold tracking-tight text-slate-900 md:text-2xl dark:text-slate-100">
@@ -8941,21 +8966,6 @@ function App() {
                 </p>
               </section>
             )}
-            {screen === "dashboard" && currentUser?.role === "Master" && (
-              <div className="mb-4">
-                <PilotReadinessCard
-                  onOpenInitialSetup={
-                    currentUser.role === "Master"
-                      ? () => {
-                          navigateToSetupInitial();
-                          setScreen("setupInitial");
-                        }
-                      : undefined
-                  }
-                  slatePrimaryCtaInteractClass={slatePrimaryCtaInteract}
-                />
-              </div>
-            )}
             {screen === "dashboard" && (
               <DashboardScreen
                 currentUser={currentUser}
@@ -9003,8 +9013,23 @@ function App() {
                 onClearDemoData={handleClearDemoData}
                 showStartHereCard={showDashboardStartHere}
                 demoModeActive={demoModeActive}
+                renderMasterDashboard={() => (
+                  <MasterPlatformDashboard
+                    googleConnected={googleConnected}
+                    companiesCount={folders.length}
+                    pendingOnboardingCount={onboardingRecords.length}
+                    usersAwaitingSetupCount={platformUsersAwaitingSetupCount}
+                    activeUsersCount={platformActiveUsersCount}
+                    onNavigate={(nextScreen) => setScreen(nextScreen)}
+                    onOpenInitialSetup={() => {
+                      navigateToSetupInitial();
+                      setScreen("setupInitial");
+                    }}
+                  />
+                )}
                 renderAuditorDashboard={() => (
                   <AuditorTaskDashboard
+                    workspaceName={workspaceName}
                     currentUser={currentUser}
                     groupedAudits={groupedAudits}
                     assignedAudits={assignedAudits}
@@ -9016,11 +9041,15 @@ function App() {
                     workspaceLinked={Boolean(selectedFolder)}
                     recentCompletionsCount={assignmentFilteredHistory.length}
                     onOpenAudit={startAudit}
+                    onNavigate={(nextScreen) => setScreen(nextScreen)}
                     slatePrimaryCtaInteract={slatePrimaryCtaInteract}
                   />
                 )}
                 renderManagerDashboard={() => (
-                  <ManagerDashboard
+                  <ManagerRoleDashboard
+                    workspaceName={workspaceName}
+                    teamCount={companyReportUsers.length}
+                    onNavigate={(nextScreen) => setScreen(nextScreen)}
                     currentUser={currentUser}
                     groupedAudits={groupedAudits}
                     assignedAudits={assignedAudits}
@@ -9064,20 +9093,29 @@ function App() {
                   />
                 )}
                 renderAdminDashboard={() => (
-                  <AdminDashboard
-                    groupedAudits={groupedAudits}
+                  <CompanyAdminDashboard
+                    workspaceName={workspaceName}
+                    invitedUsers={invitedUsers}
                     assignedAudits={assignedAudits}
                     actions={visibleActions}
                     history={assignmentFilteredHistory}
-                    workspaceLinked={Boolean(selectedFolder)}
-                    pendingSyncCount={pendingSyncCount}
-                    failedSyncCount={failedSyncCount}
-                    reportUsersCount={companyReportUsers.length}
-                    activeSchedulesCount={managedSchedules.filter((item) => item.lifecycle !== "Archived").length}
-                    templatesCount={templates.filter((template) => template.active).length}
-                    showStartHereCard={showDashboardStartHere}
+                    openReportsCount={openActions.length}
+                    onNavigate={(nextScreen) => setScreen(nextScreen)}
                     onOpenAudit={startAudit}
-                    onAdvanceAction={updateActionStatus}
+                  />
+                )}
+                renderMasterDashboard={() => (
+                  <MasterPlatformDashboard
+                    googleConnected={googleConnected}
+                    companiesCount={folders.length}
+                    pendingOnboardingCount={onboardingRecords.length}
+                    usersAwaitingSetupCount={platformUsersAwaitingSetupCount}
+                    activeUsersCount={platformActiveUsersCount}
+                    onNavigate={(nextScreen) => setScreen(nextScreen)}
+                    onOpenInitialSetup={() => {
+                      navigateToSetupInitial();
+                      setScreen("setupInitial");
+                    }}
                   />
                 )}
               />

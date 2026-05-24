@@ -167,6 +167,7 @@ export function DashboardScreen({
   renderAuditorDashboard,
   renderManagerDashboard,
   renderAdminDashboard,
+  renderMasterDashboard,
 }: {
   currentUser: User;
   workspaceName: string;
@@ -216,6 +217,7 @@ export function DashboardScreen({
   renderAuditorDashboard: () => ReactNode;
   renderManagerDashboard: () => ReactNode;
   renderAdminDashboard: () => ReactNode;
+  renderMasterDashboard: () => ReactNode;
 }) {
   const [showDashboardOptions, setShowDashboardOptions] = useState(false);
   void workspaceName;
@@ -232,6 +234,10 @@ export function DashboardScreen({
   void templatesCount;
   void pendingSyncCount;
   void failedSyncCount;
+  if (currentUser.role === "Master") {
+    return <>{renderMasterDashboard()}</>;
+  }
+
   if (canCompleteAuditAsAuditor(currentUser.role)) {
     return <>{renderAuditorDashboard()}</>;
   }
