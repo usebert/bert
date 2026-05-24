@@ -45,36 +45,42 @@ export function MasterPlatformDashboard({
 
   return (
     <RoleDashboardShell
+      role="Master"
       eyebrow="Platform control centre"
       title="BERT platform overview"
       intro={SECTION_INTROS.platformSetup}
     >
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <StatusTile
+          role="Master"
           label="Google Workspace"
           value={googleConnected ? "Connected" : "Not connected"}
           ok={googleConnected}
           hint={googleConnected ? "OAuth session on the API server." : "Connect in Platform Setup."}
         />
         <StatusTile
+          role="Master"
           label="Shared Drive"
           value={driveOk ? "Verified" : "Not verified"}
           ok={driveOk}
           hint={setup?.sharedDriveId ? "Drive ID configured on API." : "Set GOOGLE_SHARED_DRIVE_ID on API."}
         />
         <StatusTile
+          role="Master"
           label="Invite email (SMTP)"
           value={smtpOk ? "Working" : "Not configured"}
           ok={smtpOk}
           hint={smtpOk ? "Company invites can send email." : "Manual invite links still work."}
         />
-        <StatusTile label="Companies" value={String(companiesCount)} hint="Linked company workspaces." />
+        <StatusTile role="Master" label="Companies" value={String(companiesCount)} hint="Linked company workspaces." />
         <StatusTile
+          role="Master"
           label="Onboarding submissions"
           value={String(pendingOnboardingCount)}
           hint="Responses waiting in Company Onboarding."
         />
         <StatusTile
+          role="Master"
           label="System health"
           value={systemHealthy ? "Ready for pilot" : "Needs setup"}
           ok={systemHealthy}
@@ -84,8 +90,9 @@ export function MasterPlatformDashboard({
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <p className="text-sm font-semibold text-slate-900">People on the platform</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <StatusTile label="Active users" value={String(activeUsersCount)} />
+          <StatusTile role="Master" label="Active users" value={String(activeUsersCount)} />
           <StatusTile
+            role="Master"
             label="Awaiting setup"
             value={String(usersAwaitingSetupCount)}
             ok={usersAwaitingSetupCount === 0 ? true : false}
@@ -103,6 +110,7 @@ export function MasterPlatformDashboard({
       </section>
 
       <DashboardQuickActions
+        role="Master"
         actions={[
           { label: "Platform Setup", screen: "setup", onClick: () => onNavigate("setup") },
           { label: "Company Onboarding", screen: "onboarding", onClick: () => onNavigate("onboarding") },

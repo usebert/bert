@@ -25,14 +25,26 @@ export function getInviteStatusHelp(status: string): string {
   return INVITE_STATUS_HELP[label] || "Current invite state for this person.";
 }
 
+/** Semantic chip colours — readable on light cards and dark admin rows. */
 export function inviteStatusBadgeClass(status: string): string {
   const label = formatInviteStatusLabel(status);
-  if (label === "Active") return "bg-emerald-500/15 text-emerald-200";
-  if (label === "Email sent") return "bg-sky-500/15 text-sky-200";
-  if (label === "Awaiting setup" || label === "Invite created") return "bg-amber-500/15 text-amber-100";
-  if (label === "Setup incomplete") return "bg-rose-500/15 text-rose-200";
-  if (label === "Removed") return "bg-slate-700/80 text-slate-300";
-  return "bg-slate-700/80 text-slate-200";
+  const base = "rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset";
+  if (label === "Active") {
+    return `${base} bg-emerald-100 text-emerald-900 ring-emerald-600/25`;
+  }
+  if (label === "Email sent") {
+    return `${base} bg-sky-100 text-sky-900 ring-sky-600/25`;
+  }
+  if (label === "Awaiting setup" || label === "Invite created") {
+    return `${base} bg-amber-100 text-amber-950 ring-amber-600/30`;
+  }
+  if (label === "Setup incomplete") {
+    return `${base} bg-orange-100 text-orange-950 ring-orange-600/30`;
+  }
+  if (label === "Removed") {
+    return `${base} bg-slate-200 text-slate-700 ring-slate-500/25`;
+  }
+  return `${base} bg-slate-100 text-slate-700 ring-slate-400/30`;
 }
 
 export function formatUserRoleLabel(role: string): string {

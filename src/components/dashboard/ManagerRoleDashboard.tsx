@@ -43,15 +43,16 @@ export function ManagerRoleDashboard({ workspaceName, teamCount, onNavigate, ...
   return (
     <div className="space-y-4">
       <RoleDashboardShell
+        role="Manager"
         eyebrow="Day-to-day operations"
         title={workspaceName}
         intro={SECTION_INTROS.formsChecks}
       >
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <StatusTile label="Team" value={String(teamCount)} hint="People in this workspace." />
-          <StatusTile label="Open checks" value={String(openChecks)} />
-          <StatusTile label="Completed this week" value={String(completedThisWeek)} ok={completedThisWeek > 0 ? true : null} />
-          <StatusTile label="Overdue items" value={String(overdueItems)} ok={overdueItems === 0 ? true : false} />
+          <StatusTile role="Manager" label="Team" value={String(teamCount)} hint="People in this workspace." />
+          <StatusTile role="Manager" label="Open checks" value={String(openChecks)} />
+          <StatusTile role="Manager" label="Completed this week" value={String(completedThisWeek)} ok={completedThisWeek > 0 ? true : null} />
+          <StatusTile role="Manager" label="Overdue items" value={String(overdueItems)} ok={overdueItems === 0 ? true : false} />
         </div>
         {assignedAudits.length === 0 ? (
           <EmptyPanel
@@ -60,6 +61,7 @@ export function ManagerRoleDashboard({ workspaceName, teamCount, onNavigate, ...
           />
         ) : null}
         <DashboardQuickActions
+          role="Manager"
           actions={[
             { label: "Forms & Checks", screen: "audits", onClick: () => onNavigate("audits") },
             { label: "Reports", screen: "reports", onClick: () => onNavigate("reports") },

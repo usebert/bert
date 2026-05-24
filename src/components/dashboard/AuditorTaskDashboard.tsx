@@ -45,11 +45,17 @@ export function AuditorTaskDashboard({
   return (
     <div className="space-y-4">
       {showStartHereCard ? <StartHereCard /> : null}
-      <RoleDashboardShell eyebrow="Today's work" title={workspaceName} intro="Complete assigned checks and submit records from this tablet.">
+      <RoleDashboardShell
+        role="Auditor"
+        eyebrow="Today's work"
+        title={workspaceName}
+        intro="Complete assigned checks and submit records from this tablet."
+      >
         <div className="grid gap-3 sm:grid-cols-3">
-          <StatusTile label="Today's checks" value={String(todaysChecks.length)} />
-          <StatusTile label="In progress" value={String(sortedAudits.filter((a) => drafts[a.id]).length)} />
+          <StatusTile role="Auditor" label="Today's checks" value={String(todaysChecks.length)} />
+          <StatusTile role="Auditor" label="In progress" value={String(sortedAudits.filter((a) => drafts[a.id]).length)} />
           <StatusTile
+            role="Auditor"
             label="Due soon"
             value={String(sortedAudits.filter((a) => a.dueHours >= 0 && a.dueHours < amberThresholdHours).length)}
           />
@@ -104,6 +110,7 @@ export function AuditorTaskDashboard({
         )}
 
         <DashboardQuickActions
+          role="Auditor"
           actions={[
             { label: "My Checks", screen: "audits", onClick: () => onNavigate("audits") },
             { label: "Submit", screen: "incidents", onClick: () => onNavigate("incidents") },

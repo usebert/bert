@@ -53,15 +53,16 @@ export function CompanyAdminDashboard({
 
   return (
     <RoleDashboardShell
+      role="Admin"
       eyebrow="Company workspace"
       title={workspaceName}
       intro={SECTION_INTROS.workspace}
     >
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatusTile label="Active users" value={String(activeUsers)} />
-        <StatusTile label="Awaiting setup" value={String(awaitingSetup)} ok={awaitingSetup === 0 ? true : null} />
-        <StatusTile label="Open checks" value={String(openChecks)} />
-        <StatusTile label="Open reports" value={String(openReportsCount)} />
+        <StatusTile role="Admin" label="Active users" value={String(activeUsers)} />
+        <StatusTile role="Admin" label="Awaiting setup" value={String(awaitingSetup)} ok={awaitingSetup === 0 ? true : null} />
+        <StatusTile role="Admin" label="Open checks" value={String(openChecks)} />
+        <StatusTile role="Admin" label="Open reports" value={String(openReportsCount)} />
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -104,6 +105,7 @@ export function CompanyAdminDashboard({
       ) : null}
 
       <DashboardQuickActions
+        role="Admin"
         actions={[
           { label: "Invite user", screen: "users", onClick: () => onNavigate("users") },
           { label: "Manage users", screen: "users", onClick: () => onNavigate("users") },

@@ -44,6 +44,7 @@ import {
 } from "./src/config/roleNavigation";
 import { MORE_MENU_NAV_IDS, PILOT_PRIMARY_NAV_IDS, PRIMARY_NAV_IDS } from "./src/config/navStructure";
 import { RoleContextBanner } from "./src/components/RoleContextBanner";
+import { getRoleTheme } from "./src/config/roleTheme";
 import { storageKeys } from "./src/config/storageKeys";
 import { apiUrl } from "./src/config/apiBase";
 import { slatePrimaryCtaInteract } from "./src/styles/interactions";
@@ -3230,6 +3231,7 @@ function App() {
     }
     return "Today’s checks and submissions on this tablet";
   }, [currentUser, godCompanySetupSession]);
+  const roleTheme = useMemo(() => (currentUser ? getRoleTheme(currentUser.role) : null), [currentUser]);
   const currentUserAppName = useMemo(() => {
     if (!currentUser) {
       return "";
@@ -8708,9 +8710,14 @@ function App() {
               <div className="flex min-w-0 max-w-full flex-1 items-center gap-1.5 text-[10px] leading-4">
                 <p className={["shrink-0 font-semibold", themeMode === "dark" ? "text-slate-100" : "text-slate-900"].join(" ")}>{currentUser.name}</p>
                 <span className={themeMode === "dark" ? "text-slate-500" : "text-slate-400"}>•</span>
-                <p className={["shrink-0", themeMode === "dark" ? "text-slate-300" : "text-slate-600"].join(" ")}>
+                <span
+                  className={[
+                    "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                    roleTheme?.badge ?? (themeMode === "dark" ? "bg-slate-800 text-slate-200" : "bg-slate-100 text-slate-700"),
+                  ].join(" ")}
+                >
                   {getRoleDisplayName(currentUser.role)}
-                </p>
+                </span>
                 <span className={themeMode === "dark" ? "text-slate-500" : "text-slate-400"}>•</span>
                 <p className={["truncate", themeMode === "dark" ? "text-slate-400" : "text-slate-500"].join(" ")}>
                   {roleLabel}
@@ -8760,8 +8767,8 @@ function App() {
                     className={[
                       "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold transition",
                       selected
-                        ? "bg-[var(--bert-signal-orange)] text-[var(--qms-navy-950)] shadow-[0_8px_20px_rgba(249,115,22,0.25)]"
-                        : "text-slate-200 hover:bg-white/8 hover:text-white",
+                        ? roleTheme?.navActive ?? "bg-[var(--bert-signal-orange)] text-[var(--qms-navy-950)]"
+                        : roleTheme?.navHover ?? "text-slate-200 hover:bg-white/8 hover:text-white",
                       desktopSidebarCollapsed ? "justify-center px-2" : "",
                     ].join(" ")}
                     title={item.label}
@@ -8779,8 +8786,8 @@ function App() {
                     className={[
                       "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold transition",
                       shellMoreExpanded || moreNavItems.some((item) => item.id === screen)
-                        ? "border border-orange-400/40 bg-orange-500/15 text-orange-100"
-                        : "text-slate-300 hover:bg-white/8 hover:text-white",
+                        ? roleTheme?.navMoreActive ?? "border border-orange-400/40 bg-orange-500/15 text-orange-100"
+                        : roleTheme?.navHover ?? "text-slate-300 hover:bg-white/8 hover:text-white",
                       desktopSidebarCollapsed ? "justify-center px-2" : "",
                     ].join(" ")}
                     aria-expanded={shellMoreExpanded}
@@ -8803,7 +8810,9 @@ function App() {
                             }}
                             className={[
                               "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold transition",
-                              selected ? "bg-sky-500/20 text-sky-100" : "text-slate-400 hover:bg-white/6 hover:text-slate-100",
+                              selected
+                                ? roleTheme?.navSubActive ?? "bg-sky-500/20 text-sky-100"
+                                : roleTheme?.navSubHover ?? "text-slate-400 hover:bg-white/6 hover:text-slate-100",
                             ].join(" ")}
                           >
                             <AppIcon name={item.icon} className="h-3.5 w-3.5 shrink-0 opacity-90" />
@@ -9807,7 +9816,7 @@ function App() {
                       onClick={() => setMobileMoreOpen((current) => !current)}
                       className={[
                         "flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-semibold",
-                        moreActive ? "text-[var(--bert-signal-orange)]" : "text-slate-500",
+                        moreActive ? roleTheme?.mobileNavActive ?? "text-[var(--bert-signal-orange)]" : "text-slate-500",
                       ].join(" ")}
                     >
                       <AppIcon name="grid" className="h-5 w-5" />
@@ -9826,7 +9835,7 @@ function App() {
                     }}
                     className={[
                       "flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-semibold",
-                      selected ? "text-[var(--bert-signal-orange)]" : "text-slate-500",
+                      selected ? roleTheme?.mobileNavActive ?? "text-[var(--bert-signal-orange)]" : "text-slate-500",
                     ].join(" ")}
                   >
                     <AppIcon name={entry.icon} className="h-5 w-5" />
