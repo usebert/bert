@@ -1,15 +1,35 @@
 import { useMemo } from "react";
 import type { NavItemId } from "../../types/navigation";
 import type { AuditorTaskDashboardProps } from "../../types/dashboardScreenProps";
-import { amberThresholdHours, getAuditTrafficStatus, getDueWarning } from "../../utils/dashboardHealth";
+import { getRoleTheme } from "../../config/roleTheme";
+import { getAuditTrafficStatus, getDueWarning } from "../../utils/dashboardHealth";
 import { pickNextAuditorAudit, rankAuditorAudit } from "../../utils/auditorDashboard";
-import { DashboardQuickActions, RoleDashboardShell, StatusTile } from "./RoleDashboardPrimitives";
-import { EmptyPanel, StartHereCard, StatusBadge } from "./DashboardPrimitives";
+import { AuditorInfoStrip, DashboardQuickActions, RoleDashboardShell } from "./RoleDashboardPrimitives";
+import { EmptyPanel, StartHereCard } from "./DashboardPrimitives";
 
 type Props = AuditorTaskDashboardProps & {
   workspaceName: string;
   onNavigate: (screen: NavItemId) => void;
 };
+
+function formatTodayHeading(): string {
+  try {
+    return new Intl.DateTimeFormat("en-GB", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    }).format(new Date());
+  } catch {
+    return new Date().toDateString();
+  }
+}
+
+function checkStatusLabel(auditId: string, dueHours: number, drafts: Record<string, unknown>): string {
+  if (drafts[auditId]) return "In progress";
+  if (dueHours < 0) return "Overdue";
+  return "Not started";
+}
 
 export function AuditorTaskDashboard({
   workspaceName,
@@ -19,9 +39,11 @@ export function AuditorTaskDashboard({
   showStartHereCard,
   onOpenAudit,
   onNavigate,
-  slatePrimaryCtaInteract,
 }: Props) {
   void currentUser;
+  void workspaceName;
+  const theme = getRoleTheme("Auditor");
+
   const sortedAudits = useMemo(
     () =>
       [...assignedAudits].sort((a, b) => {
@@ -35,79 +57,89 @@ export function AuditorTaskDashboard({
     () => sortedAudits.filter((audit) => audit.dueHours >= 0 && audit.dueHours <= 24),
     [sortedAudits],
   );
+  const displayChecks = todaysChecks.length > 0 ? todaysChecks : sortedAudits;
   const nextAudit = useMemo(() => pickNextAuditorAudit(sortedAudits, drafts), [sortedAudits, drafts]);
-  const primaryLabel = useMemo(() => {
-    if (!nextAudit) return "No checks assigned";
-    if (drafts[nextAudit.id]) return "Continue check";
-    return "Start check";
-  }, [nextAudit, drafts]);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {showStartHereCard ? <StartHereCard /> : null}
-      <RoleDashboardShell
-        role="Auditor"
-        eyebrow="Today's work"
-        title={workspaceName}
-        intro="Complete assigned checks and submit records from this tablet."
-      >
-        <div className="grid gap-3 sm:grid-cols-3">
-          <StatusTile role="Auditor" label="Today's checks" value={String(todaysChecks.length)} />
-          <StatusTile role="Auditor" label="In progress" value={String(sortedAudits.filter((a) => drafts[a.id]).length)} />
-          <StatusTile
-            role="Auditor"
-            label="Due soon"
-            value={String(sortedAudits.filter((a) => a.dueHours >= 0 && a.dueHours < amberThresholdHours).length)}
-          />
-        </div>
-
-        {sortedAudits.length === 0 ? (
-          <EmptyPanel
-            title="No checks assigned"
-            text="When your manager assigns checks to you, they will appear here with Start and Continue actions."
-          />
-        ) : (
-          <>
-            <button
-              type="button"
-              onClick={() => nextAudit && onOpenAudit(nextAudit.id)}
-              disabled={!nextAudit}
-              className={`min-h-[52px] w-full rounded-2xl text-lg font-semibold ${
-                nextAudit ? `bg-slate-900 text-white ${slatePrimaryCtaInteract}` : "cursor-not-allowed bg-slate-200 text-slate-600"
-              }`}
-            >
-              {primaryLabel}
-            </button>
-            {nextAudit ? (
-              <p className="text-sm text-slate-600">
-                {drafts[nextAudit.id] ? `Resume ${nextAudit.name}` : `Next: ${nextAudit.name} · ${getDueWarning(nextAudit.dueHours)}`}
+      <RoleDashboardShell role="Auditor" title="Today" subtitle={formatTodayHeading()}>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)]">
+          <section className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
+            <p className="text-sm font-semibold text-slate-900">Today&apos;s checks</p>
+            {displayChecks.length === 0 ? (
+              <div className="mt-3">
+                <EmptyPanel
+                  title="No checks assigned"
+                  text="When your manager assigns checks to you, they will appear here with Start and Continue actions."
+                />
+              </div>
+            ) : (
+              <ul className="mt-3 space-y-2">
+                {displayChecks.slice(0, 8).map((audit) => {
+                  const status = checkStatusLabel(audit.id, audit.dueHours, drafts);
+                  const inProgress = Boolean(drafts[audit.id]);
+                  return (
+                    <li
+                      key={audit.id}
+                      className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 sm:flex-nowrap"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-slate-900">{audit.name}</p>
+                        <p className="text-xs text-slate-500">
+                          {status}
+                          {status !== "Not started" ? ` · ${getDueWarning(audit.dueHours)}` : ""}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onOpenAudit(audit.id)}
+                        className={[
+                          "shrink-0 rounded-full px-4 py-1.5 text-xs font-semibold transition",
+                          theme.primaryButton,
+                          theme.primaryButtonHover,
+                        ].join(" ")}
+                      >
+                        {inProgress ? "Continue" : "Start"}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {nextAudit && displayChecks.length > 0 ? (
+              <p className="mt-3 text-xs text-slate-500">
+                Next up: {nextAudit.name} ({getAuditTrafficStatus(nextAudit.dueHours)})
               </p>
             ) : null}
+          </section>
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="text-sm font-semibold text-slate-900">Today's checks</p>
-              <div className="mt-2 space-y-2">
-                {(todaysChecks.length > 0 ? todaysChecks : sortedAudits).slice(0, 5).map((audit) => (
-                  <button
-                    key={audit.id}
-                    type="button"
-                    onClick={() => onOpenAudit(audit.id)}
-                    className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-left"
-                  >
-                    <StatusBadge status={getAuditTrafficStatus(audit.dueHours)} />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-slate-900">{audit.name}</p>
-                      <p className="text-xs text-slate-500">{getDueWarning(audit.dueHours)}</p>
-                    </div>
-                    <span className="shrink-0 rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">
-                      {drafts[audit.id] ? "Continue" : "Start"}
-                    </span>
-                  </button>
-                ))}
-              </div>
+          <div className="space-y-3">
+            <section className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
+              <p className="text-sm font-semibold text-slate-900">Need to submit something?</p>
+              <p className="mt-1 text-sm text-slate-600">Open the submit flow for incidents or ad-hoc records.</p>
+              <button
+                type="button"
+                onClick={() => onNavigate("incidents")}
+                className={["mt-3 w-full rounded-xl px-4 py-2 text-sm font-semibold transition", theme.outlineButton].join(" ")}
+              >
+                Go to Submit
+              </button>
             </section>
-          </>
-        )}
+
+            <section className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
+              <p className="text-sm font-semibold text-slate-900">History</p>
+              <p className="mt-1 text-sm text-slate-600">Review completed checks and sync status.</p>
+              <button
+                type="button"
+                onClick={() => onNavigate("sync")}
+                className={["mt-3 w-full rounded-xl px-4 py-2 text-sm font-semibold transition", theme.outlineButton].join(" ")}
+              >
+                View History
+              </button>
+            </section>
+          </div>
+        </div>
 
         <DashboardQuickActions
           role="Auditor"
@@ -117,6 +149,8 @@ export function AuditorTaskDashboard({
             { label: "History", screen: "sync", onClick: () => onNavigate("sync") },
           ]}
         />
+
+        <AuditorInfoStrip message="No checks assigned? If you think something is missing, contact your manager." />
       </RoleDashboardShell>
     </div>
   );

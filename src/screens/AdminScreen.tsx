@@ -3,6 +3,7 @@ import { SECTION_INTROS } from "../config/sectionIntros";
 import { canAccessAdmin, canAccessAdminOnboardingWorkspace, getRoleDisplayName } from "../permissions";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../components/dashboard/DashboardPrimitives";
 import { SectionIntro } from "../components/SectionIntro";
+import { InviteStatusLegend } from "../components/InviteStatusLegend";
 import {
   formatInviteStatusLabel,
   formatUserRoleLabel,
@@ -1332,6 +1333,7 @@ export function AdminScreen({
                 </div>
               )}
             </div>
+            <InviteStatusLegend className="mt-4" />
           </section>
 
           {onboardingMode && (

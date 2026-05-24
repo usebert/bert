@@ -5,41 +5,39 @@ export type RoleThemeKey = "master" | "admin" | "manager" | "auditor";
 
 export type RoleTheme = {
   key: RoleThemeKey;
-  /** Human-readable accent colour name (design docs). */
   accentName: "orange" | "blue" | "green" | "purple";
-  /** Short label for badges and chips. */
   label: string;
-  /** Sidebar / primary nav — selected item. */
+  /** Short badge in header (Master, Admin, …). */
+  badgeShort: string;
+  /** Accent-coloured page title in the top header row. */
+  headerTitle: string;
+  headerTitleColor: string;
   navActive: string;
-  /** Sidebar / primary nav — idle hover. */
   navHover: string;
-  /** Sidebar “More” toggle when open or child selected. */
   navMoreActive: string;
-  /** Sidebar nested “More” item — selected. */
   navSubActive: string;
-  /** Sidebar nested “More” item — hover. */
   navSubHover: string;
-  /** RoleContextBanner container. */
   banner: string;
+  bannerIcon: string;
   bannerHeadline: string;
   bannerDetail: string;
-  /** Header / session bar role pill. */
   badge: string;
-  /** Dashboard quick-action button (base). */
-  quickAction: string;
-  /** Dashboard quick-action button (hover). */
-  quickActionHover: string;
-  /** KPI / status icon chip on light cards. */
+  pageBackground: string;
+  card: string;
+  metricCard: string;
+  metricValue: string;
+  metricValueAlert: string;
+  metricLink: string;
+  quickActionCard: string;
+  quickActionCardHover: string;
+  quickActionIconChip: string;
+  primaryButton: string;
+  primaryButtonHover: string;
+  outlineButton: string;
   chip: string;
-  /** Status tile subtle tinted surface. */
   statusTile: string;
-  /** Role dashboard hero shell. */
-  dashboardShell: string;
-  dashboardEyebrow: string;
-  dashboardIntro: string;
-  /** Mobile bottom nav — selected label/icon colour. */
+  healthyStrip: string;
   mobileNavActive: string;
-  /** SectionIntro optional left accent. */
   sectionIntro: string;
 };
 
@@ -48,25 +46,36 @@ const ROLE_THEMES: Record<RoleThemeKey, RoleTheme> = {
     key: "master",
     accentName: "orange",
     label: "Platform owner",
-    navActive:
-      "bg-orange-500 text-slate-950 shadow-[0_8px_20px_rgba(249,115,22,0.28)]",
-    navHover: "text-slate-200 hover:bg-orange-500/12 hover:text-white",
+    badgeShort: "Master",
+    headerTitle: "BERT Platform Owner",
+    headerTitleColor: "text-orange-600",
+    navActive: "bg-orange-500 text-white shadow-[0_8px_20px_rgba(249,115,22,0.28)]",
+    navHover: "text-slate-200 hover:bg-white/8 hover:text-white",
     navMoreActive: "border border-orange-400/45 bg-orange-500/15 text-orange-100",
     navSubActive: "bg-orange-500/22 text-orange-50",
-    navSubHover: "text-slate-400 hover:bg-orange-500/10 hover:text-slate-100",
-    banner:
-      "border-orange-400/40 bg-gradient-to-r from-slate-950 via-[#0c1f36] to-slate-950 text-white shadow-sm",
-    bannerHeadline: "text-white",
-    bannerDetail: "text-slate-300",
-    badge: "border border-orange-400/45 bg-orange-500/15 text-orange-100",
-    quickAction: "border-slate-200 bg-white text-slate-800",
-    quickActionHover: "hover:border-orange-300 hover:bg-orange-50",
+    navSubHover: "text-slate-400 hover:bg-white/8 hover:text-slate-100",
+    banner: "border-orange-200/80 bg-orange-50/95 text-slate-900 shadow-sm",
+    bannerIcon: "bg-orange-500 text-white",
+    bannerHeadline: "text-slate-900",
+    bannerDetail: "text-slate-600",
+    badge: "border border-orange-200 bg-orange-50 text-orange-800",
+    pageBackground: "bg-slate-100",
+    card: "rounded-2xl border border-slate-200/90 bg-white shadow-sm",
+    metricCard: "rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm",
+    metricValue: "text-3xl font-semibold tracking-tight text-slate-900",
+    metricValueAlert: "text-3xl font-semibold tracking-tight text-rose-600",
+    metricLink: "text-xs font-semibold text-orange-600 hover:text-orange-700",
+    quickActionCard:
+      "flex min-h-[5.5rem] flex-col items-start gap-3 rounded-2xl border border-slate-200/90 bg-white p-4 text-left shadow-sm transition",
+    quickActionCardHover: "hover:border-orange-200 hover:shadow-md",
+    quickActionIconChip:
+      "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-500 text-white shadow-sm",
+    primaryButton: "bg-orange-500 text-white",
+    primaryButtonHover: "hover:bg-orange-600",
+    outlineButton: "border border-orange-300 bg-white text-orange-700 hover:bg-orange-50",
     chip: "bg-orange-100 text-orange-900 ring-1 ring-orange-500/20",
-    statusTile: "border-orange-100 bg-orange-50/80",
-    dashboardShell:
-      "bg-gradient-to-br from-slate-950 via-[#0c1f36] to-slate-950 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)] ring-1 ring-orange-500/25",
-    dashboardEyebrow: "text-orange-300",
-    dashboardIntro: "text-slate-300",
+    statusTile: "border-orange-100 bg-white",
+    healthyStrip: "border-emerald-200 bg-emerald-50 text-emerald-900",
     mobileNavActive: "text-orange-600",
     sectionIntro: "border-l-2 border-orange-400 pl-3 text-slate-600",
   },
@@ -74,23 +83,36 @@ const ROLE_THEMES: Record<RoleThemeKey, RoleTheme> = {
     key: "admin",
     accentName: "blue",
     label: "Company admin",
+    badgeShort: "Admin",
+    headerTitle: "Company Administrator",
+    headerTitleColor: "text-blue-600",
     navActive: "bg-blue-500 text-white shadow-[0_8px_20px_rgba(59,130,246,0.28)]",
-    navHover: "text-slate-200 hover:bg-blue-500/12 hover:text-white",
+    navHover: "text-slate-200 hover:bg-white/8 hover:text-white",
     navMoreActive: "border border-blue-400/45 bg-blue-500/15 text-blue-100",
     navSubActive: "bg-blue-500/22 text-blue-50",
-    navSubHover: "text-slate-400 hover:bg-blue-500/10 hover:text-slate-100",
-    banner: "border-blue-200 bg-blue-50/90 text-slate-900 shadow-sm",
+    navSubHover: "text-slate-400 hover:bg-white/8 hover:text-slate-100",
+    banner: "border-blue-200/80 bg-blue-50/95 text-slate-900 shadow-sm",
+    bannerIcon: "bg-blue-500 text-white",
     bannerHeadline: "text-slate-900",
     bannerDetail: "text-slate-600",
-    badge: "border border-blue-200 bg-blue-50 text-blue-900",
-    quickAction: "border-slate-200 bg-white text-slate-800",
-    quickActionHover: "hover:border-blue-300 hover:bg-blue-50",
+    badge: "border border-blue-200 bg-blue-50 text-blue-800",
+    pageBackground: "bg-slate-100",
+    card: "rounded-2xl border border-slate-200/90 bg-white shadow-sm",
+    metricCard: "rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm",
+    metricValue: "text-3xl font-semibold tracking-tight text-slate-900",
+    metricValueAlert: "text-3xl font-semibold tracking-tight text-rose-600",
+    metricLink: "text-xs font-semibold text-blue-600 hover:text-blue-700",
+    quickActionCard:
+      "flex min-h-[5.5rem] flex-col items-start gap-3 rounded-2xl border border-slate-200/90 bg-white p-4 text-left shadow-sm transition",
+    quickActionCardHover: "hover:border-blue-200 hover:shadow-md",
+    quickActionIconChip:
+      "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500 text-white shadow-sm",
+    primaryButton: "bg-blue-500 text-white",
+    primaryButtonHover: "hover:bg-blue-600",
+    outlineButton: "border border-blue-300 bg-white text-blue-700 hover:bg-blue-50",
     chip: "bg-blue-100 text-blue-900 ring-1 ring-blue-500/20",
-    statusTile: "border-blue-100 bg-blue-50/80",
-    dashboardShell:
-      "bg-gradient-to-br from-slate-950 via-[#0c1f36] to-slate-950 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)] ring-1 ring-blue-500/25",
-    dashboardEyebrow: "text-blue-300",
-    dashboardIntro: "text-slate-300",
+    statusTile: "border-blue-100 bg-white",
+    healthyStrip: "border-emerald-200 bg-emerald-50 text-emerald-900",
     mobileNavActive: "text-blue-600",
     sectionIntro: "border-l-2 border-blue-400 pl-3 text-slate-600",
   },
@@ -98,23 +120,36 @@ const ROLE_THEMES: Record<RoleThemeKey, RoleTheme> = {
     key: "manager",
     accentName: "green",
     label: "Manager",
-    navActive: "bg-emerald-500 text-slate-950 shadow-[0_8px_20px_rgba(16,185,129,0.28)]",
-    navHover: "text-slate-200 hover:bg-emerald-500/12 hover:text-white",
+    badgeShort: "Manager",
+    headerTitle: "Operational Manager",
+    headerTitleColor: "text-emerald-600",
+    navActive: "bg-emerald-500 text-white shadow-[0_8px_20px_rgba(16,185,129,0.28)]",
+    navHover: "text-slate-200 hover:bg-white/8 hover:text-white",
     navMoreActive: "border border-emerald-400/45 bg-emerald-500/15 text-emerald-100",
     navSubActive: "bg-emerald-500/22 text-emerald-50",
-    navSubHover: "text-slate-400 hover:bg-emerald-500/10 hover:text-slate-100",
-    banner: "border-emerald-200 bg-emerald-50/90 text-slate-900 shadow-sm",
+    navSubHover: "text-slate-400 hover:bg-white/8 hover:text-slate-100",
+    banner: "border-emerald-200/80 bg-emerald-50/95 text-slate-900 shadow-sm",
+    bannerIcon: "bg-emerald-500 text-white",
     bannerHeadline: "text-slate-900",
     bannerDetail: "text-slate-600",
-    badge: "border border-emerald-200 bg-emerald-50 text-emerald-900",
-    quickAction: "border-slate-200 bg-white text-slate-800",
-    quickActionHover: "hover:border-emerald-300 hover:bg-emerald-50",
+    badge: "border border-emerald-200 bg-emerald-50 text-emerald-800",
+    pageBackground: "bg-slate-100",
+    card: "rounded-2xl border border-slate-200/90 bg-white shadow-sm",
+    metricCard: "rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm",
+    metricValue: "text-3xl font-semibold tracking-tight text-slate-900",
+    metricValueAlert: "text-3xl font-semibold tracking-tight text-rose-600",
+    metricLink: "text-xs font-semibold text-emerald-600 hover:text-emerald-700",
+    quickActionCard:
+      "flex min-h-[5.5rem] flex-col items-start gap-3 rounded-2xl border border-slate-200/90 bg-white p-4 text-left shadow-sm transition",
+    quickActionCardHover: "hover:border-emerald-200 hover:shadow-md",
+    quickActionIconChip:
+      "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-white shadow-sm",
+    primaryButton: "bg-emerald-500 text-white",
+    primaryButtonHover: "hover:bg-emerald-600",
+    outlineButton: "border border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-50",
     chip: "bg-emerald-100 text-emerald-900 ring-1 ring-emerald-500/20",
-    statusTile: "border-emerald-100 bg-emerald-50/80",
-    dashboardShell:
-      "bg-gradient-to-br from-slate-950 via-[#0c1f36] to-slate-950 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)] ring-1 ring-emerald-500/25",
-    dashboardEyebrow: "text-emerald-300",
-    dashboardIntro: "text-slate-300",
+    statusTile: "border-emerald-100 bg-white",
+    healthyStrip: "border-emerald-200 bg-emerald-50 text-emerald-900",
     mobileNavActive: "text-emerald-600",
     sectionIntro: "border-l-2 border-emerald-400 pl-3 text-slate-600",
   },
@@ -122,29 +157,41 @@ const ROLE_THEMES: Record<RoleThemeKey, RoleTheme> = {
     key: "auditor",
     accentName: "purple",
     label: "Auditor",
+    badgeShort: "Auditor",
+    headerTitle: "Site Auditor / Tablet User",
+    headerTitleColor: "text-violet-600",
     navActive: "bg-violet-500 text-white shadow-[0_8px_20px_rgba(139,92,246,0.28)]",
-    navHover: "text-slate-200 hover:bg-violet-500/12 hover:text-white",
+    navHover: "text-slate-200 hover:bg-white/8 hover:text-white",
     navMoreActive: "border border-violet-400/45 bg-violet-500/15 text-violet-100",
     navSubActive: "bg-violet-500/22 text-violet-50",
-    navSubHover: "text-slate-400 hover:bg-violet-500/10 hover:text-slate-100",
-    banner: "border-violet-200 bg-violet-50/90 text-slate-900 shadow-sm",
+    navSubHover: "text-slate-400 hover:bg-white/8 hover:text-slate-100",
+    banner: "border-violet-200/80 bg-violet-50/95 text-slate-900 shadow-sm",
+    bannerIcon: "bg-violet-500 text-white",
     bannerHeadline: "text-slate-900",
     bannerDetail: "text-slate-600",
-    badge: "border border-violet-200 bg-violet-50 text-violet-900",
-    quickAction: "border-slate-200 bg-white text-slate-800",
-    quickActionHover: "hover:border-violet-300 hover:bg-violet-50",
+    badge: "border border-violet-200 bg-violet-50 text-violet-800",
+    pageBackground: "bg-slate-100",
+    card: "rounded-2xl border border-slate-200/90 bg-white shadow-sm",
+    metricCard: "rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm",
+    metricValue: "text-3xl font-semibold tracking-tight text-slate-900",
+    metricValueAlert: "text-3xl font-semibold tracking-tight text-rose-600",
+    metricLink: "text-xs font-semibold text-violet-600 hover:text-violet-700",
+    quickActionCard:
+      "flex min-h-[5.5rem] flex-col items-start gap-3 rounded-2xl border border-slate-200/90 bg-white p-4 text-left shadow-sm transition",
+    quickActionCardHover: "hover:border-violet-200 hover:shadow-md",
+    quickActionIconChip:
+      "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-500 text-white shadow-sm",
+    primaryButton: "bg-violet-500 text-white",
+    primaryButtonHover: "hover:bg-violet-600",
+    outlineButton: "border border-violet-300 bg-white text-violet-700 hover:bg-violet-50",
     chip: "bg-violet-100 text-violet-900 ring-1 ring-violet-500/20",
-    statusTile: "border-violet-100 bg-violet-50/80",
-    dashboardShell:
-      "bg-gradient-to-br from-slate-950 via-[#0c1f36] to-slate-950 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)] ring-1 ring-violet-500/25",
-    dashboardEyebrow: "text-violet-300",
-    dashboardIntro: "text-slate-300",
+    statusTile: "border-violet-100 bg-white",
+    healthyStrip: "border-sky-200 bg-sky-50 text-sky-900",
     mobileNavActive: "text-violet-600",
     sectionIntro: "border-l-2 border-violet-400 pl-3 text-slate-600",
   },
 };
 
-/** Map `Role` from permissions.ts to theme bucket keys. */
 export function mapRoleToThemeKey(role: Role): RoleThemeKey {
   if (role === "Master") return "master";
   if (role === "Admin") return "admin";

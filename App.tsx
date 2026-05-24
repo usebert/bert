@@ -8640,50 +8640,76 @@ function App() {
             </div>
           </div>
           <div className="qms-app-header-main">
-            <div className="flex items-center gap-2">
-              <div className="hidden shrink-0 pr-0.5 sm:block">
-                <BertLogo
-                  variant={tabletChromeLogoVariant}
-                  tone={themeMode === "dark" ? "onDark" : "onLight"}
-                  size="sm"
-                />
-              </div>
-              <div className="relative flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-md bg-[var(--bert-signal-orange)] text-[9px] font-semibold tracking-[0.08em] text-[var(--qms-navy-950)]">
-                {accountPhotoUrl ? (
-                  <img src={accountPhotoUrl} alt={currentUser.name} className="h-full w-full object-cover" />
-                ) : (
-                  getUserInitials(currentUser.name, currentUser.username)
-                )}
-                {selectedFolder && isDebugUiAllowed() ? (
-                    <span className="absolute -bottom-1 -right-1 rounded-full bg-blue-500 px-1 py-0 text-[8px] font-bold uppercase tracking-[0.08em] text-white">
-                    Live
-                  </span>
-                ) : null}
-              </div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0 flex-1">
-                <p className={["truncate text-[11px] font-semibold leading-4 tracking-tight", themeMode === "dark" ? "text-white" : "text-slate-900"].join(" ")}>{companyName}</p>
-                <p className={["truncate text-[8px] leading-3 tracking-[0.08em]", themeMode === "dark" ? "text-slate-400" : "text-slate-500"].join(" ")}>{PRODUCT_TAGLINE}</p>
-                {selectedFolder ? (
-                  <p className={["mt-0.5 truncate text-[8px] font-medium leading-3", themeMode === "dark" ? "text-slate-500" : "text-slate-600"].join(" ")}>
-                    Workspace: {selectedFolder.name}
+                {godCompanySetupOnlyShell ? (
+                  <p className={["text-sm font-semibold", themeMode === "dark" ? "text-white" : "text-slate-900"].join(" ")}>
+                    Workspace setup (Master)
                   </p>
-                ) : null}
-                {showSiteSelectorForRole && !godCompanySetupOnlyShell && (
-                <div className="mt-1">
-                  <select
-                    value={selectedSiteId}
-                    onChange={(event) => setSelectedSiteId(event.target.value)}
-                    className={["h-6 max-w-[12rem] rounded-md border-2 px-2 text-[9px] font-semibold", themeMode === "dark" ? "border-slate-700 bg-slate-900 text-slate-200" : "border-[var(--bert-signal-orange)] bg-white text-[var(--qms-navy-900)]"].join(" ")}
-                  >
-                    <option value="">All sites</option>
-                    {headerSelectableSites.map((site) => (
-                      <option key={site.id} value={site.id}>
-                        {site.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                ) : roleTheme ? (
+                  <p className={["truncate text-base font-semibold tracking-tight sm:text-lg", roleTheme.headerTitleColor].join(" ")}>
+                    {roleTheme.headerTitle}
+                  </p>
+                ) : (
+                  <p className={["truncate text-sm font-semibold", themeMode === "dark" ? "text-white" : "text-slate-900"].join(" ")}>
+                    {companyName}
+                  </p>
                 )}
+                {!godCompanySetupOnlyShell && showSiteSelectorForRole ? (
+                  <div className="mt-1 md:hidden">
+                    <select
+                      value={selectedSiteId}
+                      onChange={(event) => setSelectedSiteId(event.target.value)}
+                      className={["h-7 max-w-[12rem] rounded-md border px-2 text-[10px] font-semibold", themeMode === "dark" ? "border-slate-700 bg-slate-900 text-slate-200" : "border-slate-200 bg-white text-slate-800"].join(" ")}
+                    >
+                      <option value="">All sites</option>
+                      {headerSelectableSites.map((site) => (
+                        <option key={site.id} value={site.id}>
+                          {site.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="flex shrink-0 items-center gap-2">
+                {!godCompanySetupOnlyShell ? (
+                  <button
+                    type="button"
+                    className={[
+                      "hidden items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold sm:inline-flex",
+                      themeMode === "dark"
+                        ? "border-slate-600 bg-slate-900 text-slate-200 hover:bg-slate-800"
+                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+                    ].join(" ")}
+                    aria-label="Help"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="2" aria-hidden>
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M9.5 9a2.5 2.5 0 1 1 4.2 1.8c-.8.7-1.7 1.2-1.7 2.2" />
+                      <circle cx="12" cy="16.8" r="0.8" fill="currentColor" stroke="none" />
+                    </svg>
+                    Help
+                  </button>
+                ) : null}
+                <div className="hidden min-w-0 text-right sm:block">
+                  <p className={["truncate text-sm font-semibold", themeMode === "dark" ? "text-white" : "text-slate-900"].join(" ")}>
+                    {currentUserAppName || currentUser.name}
+                  </p>
+                  {roleTheme ? (
+                    <span className={["mt-0.5 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold", roleTheme.badge].join(" ")}>
+                      {roleTheme.badgeShort}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--bert-signal-orange)] text-[10px] font-semibold text-[var(--qms-navy-950)] ring-2 ring-white">
+                  {accountPhotoUrl ? (
+                    <img src={accountPhotoUrl} alt={currentUser.name} className="h-full w-full object-cover" />
+                  ) : (
+                    getUserInitials(currentUser.name, currentUser.username)
+                  )}
+                </div>
               </div>
             </div>
 
@@ -8704,36 +8730,30 @@ function App() {
                   Log out
                 </button>
               </div>
-            ) : null}
-
-            <div className={["qms-app-session-bar mt-0.5 hidden items-center justify-between gap-2 rounded-lg border px-2 py-0.5 sm:flex", themeMode === "dark" ? "border-slate-700 bg-slate-900" : "border-slate-300 bg-white"].join(" ")}>
-              <div className="flex min-w-0 max-w-full flex-1 items-center gap-1.5 text-[10px] leading-4">
-                <p className={["shrink-0 font-semibold", themeMode === "dark" ? "text-slate-100" : "text-slate-900"].join(" ")}>{currentUser.name}</p>
-                <span className={themeMode === "dark" ? "text-slate-500" : "text-slate-400"}>•</span>
-                <span
-                  className={[
-                    "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                    roleTheme?.badge ?? (themeMode === "dark" ? "bg-slate-800 text-slate-200" : "bg-slate-100 text-slate-700"),
-                  ].join(" ")}
-                >
-                  {getRoleDisplayName(currentUser.role)}
-                </span>
-                <span className={themeMode === "dark" ? "text-slate-500" : "text-slate-400"}>•</span>
-                <p className={["truncate", themeMode === "dark" ? "text-slate-400" : "text-slate-500"].join(" ")}>
-                  {roleLabel}
-                </p>
-              </div>
-              <div className="flex shrink-0 items-center gap-1.5">
+            ) : (
+              <div className={["mt-1.5 hidden flex-wrap items-center gap-2 text-[10px] md:flex", themeMode === "dark" ? "text-slate-400" : "text-slate-500"].join(" ")}>
+                <span className="font-medium text-slate-600 dark:text-slate-300">{companyName}</span>
+                {selectedFolder ? <span>· Workspace: {selectedFolder.name}</span> : null}
+                {showSiteSelectorForRole ? (
+                  <select
+                    value={selectedSiteId}
+                    onChange={(event) => setSelectedSiteId(event.target.value)}
+                    className={["h-6 max-w-[10rem] rounded-md border px-2 text-[10px] font-semibold", themeMode === "dark" ? "border-slate-700 bg-slate-900 text-slate-200" : "border-slate-200 bg-white text-slate-700"].join(" ")}
+                  >
+                    <option value="">All sites</option>
+                    {headerSelectableSites.map((site) => (
+                      <option key={site.id} value={site.id}>
+                        {site.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
                 {isDebugUiAllowed() && demoModeActive ? (
-                  <div className="rounded-full bg-sky-500/12 px-2 py-0.5 text-[10px] font-semibold text-sky-700">Demo mode active</div>
+                  <span className="rounded-full bg-sky-500/12 px-2 py-0.5 font-semibold text-sky-700">Demo</span>
                 ) : null}
-                {isDebugUiAllowed() ? (
-                  <div className="rounded-full bg-blue-500/12 px-2 py-0.5 text-[10px] font-semibold text-blue-800">
-                    {selectedFolder ? "Live workspace" : "Live session"}
-                  </div>
-                ) : null}
+                <span className="sr-only">{roleLabel}</span>
               </div>
-            </div>
+            )}
           </div>
         </header>
 
@@ -8874,7 +8894,12 @@ function App() {
           </aside>
           <div
             className={[
-              "qms-screen-stage h-full min-w-0 flex-1 overflow-y-auto px-4 pb-24 pt-4 md:pb-10", themeMode === "dark" ? "[&_section.border]:border-slate-800 [&_section.bg-white]:bg-slate-900 [&_section.bg-slate-50]:bg-slate-900 [&_section_.text-slate-900]:text-slate-100 [&_section_.text-slate-800]:text-slate-200 [&_section_.text-slate-700]:text-slate-300 [&_section_.text-slate-600]:text-slate-400 [&_section_.text-slate-500]:text-slate-400 [&_section_.text-slate-400]:text-slate-500 [&_section_input]:border-slate-700 [&_section_input]:bg-slate-950 [&_section_input]:text-slate-100 [&_section_input:focus]:border-[var(--bert-signal-orange)] [&_section_input:focus]:bg-slate-950 [&_section_textarea]:border-slate-700 [&_section_textarea]:bg-slate-950 [&_section_textarea]:text-slate-100 [&_section_textarea:focus]:border-[var(--bert-signal-orange)] [&_section_select]:border-slate-700 [&_section_select]:bg-slate-950 [&_section_select]:text-slate-100 [&_section_select:focus]:border-[var(--bert-signal-orange)] [&_section_select:focus]:bg-slate-950 [&_.bg-gradient-to-b]:from-slate-900 [&_.bg-gradient-to-b]:to-slate-950 [&_.bg-slate-100]:bg-slate-800 [&_.bg-slate-200]:bg-slate-800 [&_.bg-white]:bg-slate-900 [&_.text-slate-900]:text-slate-100 [&_.text-slate-800]:text-slate-200 [&_.text-slate-700]:text-slate-300 [&_.text-slate-600]:text-slate-400 [&_.text-slate-500]:text-slate-400 [&_input[type=file]]:border-[rgba(249,115,22,0.45)] [&_input[type=file]]:bg-slate-950 [&_input[type=file]]:text-slate-300 [&_input[type=file]]:file:text-slate-200" : "bg-slate-100/72"            ].join(" ")}>
+              "qms-screen-stage h-full min-w-0 flex-1 overflow-y-auto px-4 pb-24 pt-4 md:pb-10",
+              themeMode === "dark"
+                ? "[&_section.border]:border-slate-800 [&_section.bg-white]:bg-slate-900 [&_section.bg-slate-50]:bg-slate-900 [&_section_.text-slate-900]:text-slate-100 [&_section_.text-slate-800]:text-slate-200 [&_section_.text-slate-700]:text-slate-300 [&_section_.text-slate-600]:text-slate-400 [&_section_.text-slate-500]:text-slate-400 [&_section_.text-slate-400]:text-slate-500 [&_section_input]:border-slate-700 [&_section_input]:bg-slate-950 [&_section_input]:text-slate-100 [&_section_input:focus]:border-[var(--bert-signal-orange)] [&_section_input:focus]:bg-slate-950 [&_section_textarea]:border-slate-700 [&_section_textarea]:bg-slate-950 [&_section_textarea]:text-slate-100 [&_section_textarea:focus]:border-[var(--bert-signal-orange)] [&_section_select]:border-slate-700 [&_section_select]:bg-slate-950 [&_section_select]:text-slate-100 [&_section_select:focus]:border-[var(--bert-signal-orange)] [&_section_select:focus]:bg-slate-950 [&_.bg-gradient-to-b]:from-slate-900 [&_.bg-gradient-to-b]:to-slate-950 [&_.bg-slate-100]:bg-slate-800 [&_.bg-slate-200]:bg-slate-800 [&_.bg-white]:bg-slate-900 [&_.text-slate-900]:text-slate-100 [&_.text-slate-800]:text-slate-200 [&_.text-slate-700]:text-slate-300 [&_.text-slate-600]:text-slate-400 [&_.text-slate-500]:text-slate-400 [&_input[type=file]]:border-[rgba(249,115,22,0.45)] [&_input[type=file]]:bg-slate-950 [&_input[type=file]]:text-slate-300 [&_input[type=file]]:file:text-slate-200"
+                : roleTheme?.pageBackground ?? "bg-slate-100",
+            ].join(" ")}
+          >
             {currentUser && !godCompanySetupOnlyShell ? (
               <div className="mb-4">
                 <RoleContextBanner role={currentUser.role} workspaceName={workspaceName} />
