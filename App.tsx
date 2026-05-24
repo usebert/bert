@@ -8921,7 +8921,7 @@ function App() {
                   </svg>
                 </button>
               </div>
-            )}
+            ) : null}
             {currentUser.role === "Manager" && currentManagerAlerts.length > 0 && (
               <section className="mb-4 rounded-[1.5rem] border border-rose-200 bg-rose-50 px-4 py-4">
                 <div className="flex items-center justify-between gap-3">
@@ -9102,20 +9102,6 @@ function App() {
                     openReportsCount={openActions.length}
                     onNavigate={(nextScreen) => setScreen(nextScreen)}
                     onOpenAudit={startAudit}
-                  />
-                )}
-                renderMasterDashboard={() => (
-                  <MasterPlatformDashboard
-                    googleConnected={googleConnected}
-                    companiesCount={folders.length}
-                    pendingOnboardingCount={onboardingRecords.length}
-                    usersAwaitingSetupCount={platformUsersAwaitingSetupCount}
-                    activeUsersCount={platformActiveUsersCount}
-                    onNavigate={(nextScreen) => setScreen(nextScreen)}
-                    onOpenInitialSetup={() => {
-                      navigateToSetupInitial();
-                      setScreen("setupInitial");
-                    }}
                   />
                 )}
               />
