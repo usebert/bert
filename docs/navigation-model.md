@@ -52,7 +52,11 @@ Direct URLs such as `/setup/initial` are cleared for non-Master users. Blocked s
 
 ## Section helper copy
 
-Defined in `src/config/sectionIntros.ts` and shown via `SectionIntro` on major screens.
+Defined in `src/config/sectionIntros.ts` and shown via `SectionIntro` on major screens (Platform Setup, Workspace, Users & Invites, Company Onboarding, Forms & Checks, Reports / Diagnostics, Tablet / Kiosk).
+
+## Pilot health (Master)
+
+`PilotHealthPanel` on the Master dashboard and **Reports / Diagnostics** calls `/api/health`, `/api/readiness`, `/api/google/status`, and `/api/invites/smtp/status` — no extra backend routes.
 
 ## Customising nav
 

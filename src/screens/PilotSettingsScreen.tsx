@@ -63,8 +63,22 @@ export function PilotSettingsScreen({
 
       {currentUser.role === "Admin" && !isCapacitorNativeApp() ? (
         <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-600 shadow-sm">
-          Tablet kiosk controls are configured on the BERT Android app by the platform owner (Master account). Contact
-          your platform owner to enable or adjust kiosk mode on pilot tablets.
+          <p className="font-semibold text-slate-900">Tablet / Kiosk on pilot devices</p>
+          <p className="mt-2">
+            Kiosk mode is enabled on the BERT Android APK by the platform owner (Master). Contact your platform owner to
+            turn kiosk on or adjust tablets.
+          </p>
+          <p className="mt-3 text-xs leading-5 text-slate-500">
+            The production API must list{" "}
+            <span className="font-mono text-slate-700">http://localhost</span>,{" "}
+            <span className="font-mono text-slate-700">capacitor://localhost</span>, and your hosted SPA origins in{" "}
+            <span className="font-mono text-slate-700">BERT_ALLOWED_ORIGINS</span> so tablets can call{" "}
+            <span className="font-mono text-slate-700">https://api.usebert.co.uk</span>.
+          </p>
+          <p className="mt-2 text-xs leading-5 text-amber-900 rounded-2xl border border-amber-100 bg-amber-50/80 px-3 py-2">
+            For true OS lockdown use Android Screen Pinning, Enterprise / MDM kiosk, or Device Owner provisioning — BERT
+            app kiosk alone cannot block Home, Recents, or Settings on unmanaged tablets.
+          </p>
         </section>
       ) : null}
 

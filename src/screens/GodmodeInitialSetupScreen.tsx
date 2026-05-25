@@ -3,6 +3,7 @@ import { googleWorkspaceService } from "../services/googleWorkspaceService";
 import { fetchSetupStatus, type SetupStatusPayload } from "../services/setupStatusService";
 import type { GoogleStatusPayload } from "../services/pilotStatusService";
 import { SECTION_INTROS } from "../config/sectionIntros";
+import { DangerActionButton } from "../components/DangerActionButton";
 import { SectionIntro } from "../components/SectionIntro";
 import { leaveSetupInitialPath } from "../utils/setupRoute";
 import { TabletKioskGodmodePanel } from "../components/kiosk/TabletKioskGodmodePanel";
@@ -238,13 +239,15 @@ export function GodmodeInitialSetupScreen({
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           {googleConnected ? (
-            <button
-              type="button"
-              onClick={onGoogleDisconnect}
-              className="h-11 rounded-2xl border border-slate-200 px-4 text-sm font-semibold text-slate-800"
-            >
-              Disconnect Google Workspace
-            </button>
+            <div className="rounded-2xl border border-rose-200 bg-rose-50/80 px-3 py-3">
+              <p className="text-xs font-semibold text-rose-900">Danger zone</p>
+              <p className="mt-0.5 text-xs text-rose-800">
+                Disconnecting stops all company workspaces on this API until Google is connected again.
+              </p>
+              <DangerActionButton type="button" onClick={onGoogleDisconnect} className="mt-2">
+                Disconnect Google Workspace
+              </DangerActionButton>
+            </div>
           ) : (
             <button
               type="button"

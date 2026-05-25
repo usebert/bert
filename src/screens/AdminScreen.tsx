@@ -3,15 +3,32 @@ import { SECTION_INTROS } from "../config/sectionIntros";
 import { canAccessAdmin, canAccessAdminOnboardingWorkspace, getRoleDisplayName } from "../permissions";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../components/dashboard/DashboardPrimitives";
 import { SectionIntro } from "../components/SectionIntro";
+import { DangerActionButton } from "../components/DangerActionButton";
 import { InviteStatusLegend } from "../components/InviteStatusLegend";
+import { WhatHappensNextPanel } from "../components/WhatHappensNextPanel";
 import {
   formatInviteStatusLabel,
   formatUserRoleLabel,
+  getInviteStatusHelp,
   inviteStatusBadgeClass,
 } from "../utils/inviteStatusDisplay";
 import type { AdminScreenProps, CompanyOnboardingEmailResult, CompanyUserInviteEmailResult } from "../types/adminScreenProps";
 import type { Role } from "../permissions";
 import type { Answer, AuditQuestion } from "../types/reportsScreenProps";
+
+const USER_INVITE_NEXT_STEPS = [
+  "Recipient checks Inbox and Junk/Spam for the setup email.",
+  "They open the invite link and complete name and password setup.",
+  "Verify the company master spreadsheet Users tab and Config UserAuth.",
+  "Status changes to Active when they can sign in to BERT.",
+];
+
+const COMPANY_ONBOARDING_NEXT_STEPS = [
+  "Recipient completes the Google onboarding form.",
+  "Review the submission under Company Onboarding.",
+  "Create or link the company workspace folder when ready.",
+  "Invite the company administrator from Users & Invites.",
+];
 
 function normalizeIdentity(value: string | null | undefined) {
   return (value || "").trim().toLowerCase();
@@ -537,8 +554,8 @@ export function AdminScreen({
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
         <div className="mb-4 flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
           <div>
-            <h2 className="text-lg font-semibold tracking-tight text-slate-900">Admin &amp; setup</h2>
-            <p className="mt-1 text-sm text-slate-500">Shortcuts to the tools you are allowed to use.</p>
+            <h2 className="text-lg font-semibold tracking-tight text-slate-900">Workspace</h2>
+            <SectionIntro text={SECTION_INTROS.workspace} className="mt-2" role={currentUser.role} />
           </div>
           <div className="flex items-center gap-3">
             <div className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700">
@@ -699,11 +716,17 @@ export function AdminScreen({
                 {companyWorkspaceButtonLabel}
               </button>
               {companyOnboardingEmailResult ? (
-                <CompanyOnboardingEmailResultPanel
-                  result={companyOnboardingEmailResult}
-                  onDismiss={onDismissCompanyOnboardingEmailResult}
-                  slatePrimaryCtaInteract={slatePrimaryCtaInteract}
-                />
+                <>
+                  <CompanyOnboardingEmailResultPanel
+                    result={companyOnboardingEmailResult}
+                    onDismiss={onDismissCompanyOnboardingEmailResult}
+                    slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+                  />
+                  <WhatHappensNextPanel
+                    steps={COMPANY_ONBOARDING_NEXT_STEPS}
+                    className="mt-3 border-orange-100 bg-orange-50/70"
+                  />
+                </>
               ) : null}
             </div>
           </section>
@@ -862,19 +885,19 @@ export function AdminScreen({
                 {!googleWorkspaceReady ? "Connect Google first" : "Run workspace setup (one click)"}
               </button>
               <div className="flex flex-wrap items-center gap-3">
-                {googleConnected && (
-                  <button
-                    onClick={onGoogleDisconnect}
-                    disabled={adminOnly}
-                    className={[
-                      "h-11 rounded-2xl px-4 text-sm font-semibold transition",
-                      adminOnly
-                        ? "bg-white/10 text-slate-400"
-                        : "border border-white/20 bg-transparent text-white hover:bg-white/10",
-                    ].join(" ")}
-                  >
-                    Disconnect Google Workspace
-                  </button>
+                {googleConnected && currentUser.role === "Master" && (
+                  <div className="rounded-2xl border border-rose-500/35 bg-rose-950/25 px-3 py-2">
+                    <p className="text-xs font-semibold text-rose-200">Danger zone</p>
+                    <p className="mt-0.5 max-w-md text-xs text-rose-100/80">
+                      Disconnecting stops company login, invites, and sheet access until Google is connected again in Initial Setup.
+                    </p>
+                    <DangerActionButton
+                      onClick={onGoogleDisconnect}
+                      className="mt-2 border-rose-400/60 bg-rose-900/40 text-rose-50 hover:bg-rose-900/60"
+                    >
+                      Disconnect Google Workspace
+                    </DangerActionButton>
+                  </div>
                 )}
                 <button
                   type="button"
@@ -1238,11 +1261,14 @@ export function AdminScreen({
                   {companyUserInviteEmailSending ? "Sending…" : "Send invite link"}
                 </button>
                 {companyUserInviteEmailResult ? (
-                  <CompanyUserInviteEmailResultPanel
-                    result={companyUserInviteEmailResult}
-                    onDismiss={onDismissCompanyUserInviteEmailResult}
-                    slatePrimaryCtaInteract={slatePrimaryCtaInteract}
-                  />
+                  <>
+                    <CompanyUserInviteEmailResultPanel
+                      result={companyUserInviteEmailResult}
+                      onDismiss={onDismissCompanyUserInviteEmailResult}
+                      slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+                    />
+                    <WhatHappensNextPanel steps={USER_INVITE_NEXT_STEPS} className="mt-3 border-sky-100 bg-sky-50/50" />
+                  </>
                 ) : null}
                 <button
                   onClick={onResyncUsers}
@@ -1261,15 +1287,23 @@ export function AdminScreen({
                 <div className="space-y-3">
                   {invitedUsers.slice(0, 5).map((invite) => (
                     <div key={invite.id} className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-semibold text-white">{invite.email}</p>
-                        <p className="truncate text-xs text-slate-300">
-                          Role: {formatUserRoleLabel(invite.role)} • sent by {invite.invitedBy} • {invite.sentAt}
+                        <p className="mt-1 truncate text-xs text-slate-400">
+                          Sent by {invite.invitedBy} • {invite.sentAt}
+                          {invite.senderEmail ? ` • From ${invite.senderEmail}` : ""}
                         </p>
-                        <p className="truncate text-xs text-slate-400">
-                          Status: {formatInviteStatusLabel(invite.status)}
-                        </p>
-                        {invite.senderEmail && <p className="truncate text-xs text-slate-300">From {invite.senderEmail}</p>}
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <span className="rounded-full border border-slate-600 bg-slate-800 px-2.5 py-0.5 text-xs font-semibold text-slate-100">
+                            {formatUserRoleLabel(invite.role)}
+                          </span>
+                          <span
+                            className={inviteStatusBadgeClass(invite.status)}
+                            title={getInviteStatusHelp(invite.status)}
+                          >
+                            {formatInviteStatusLabel(invite.status)}
+                          </span>
+                        </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         {invite.appOnboardingUrl && (
@@ -1302,16 +1336,16 @@ export function AdminScreen({
                           Resend
                         </button>
                         {isActiveCompanyUserInvite(invite) ? (
-                          <button
+                          <DangerActionButton
                             type="button"
                             onClick={() => onRemoveCompanyUser(invite)}
                             title="Remove this user from the company Users tab and UserAuth so they can no longer sign in"
-                            className="inline-flex items-center justify-center rounded-xl border border-rose-300 bg-rose-100 px-3 py-2 text-xs font-semibold text-rose-800"
+                            className="rounded-xl px-3 py-2 text-xs"
                           >
                             Remove user
-                          </button>
+                          </DangerActionButton>
                         ) : (
-                          <button
+                          <DangerActionButton
                             type="button"
                             onClick={() => onDeleteInvite(invite)}
                             title={
@@ -1319,14 +1353,11 @@ export function AdminScreen({
                                 ? "Revoke incomplete invite"
                                 : "Revoke invite link"
                             }
-                            className="inline-flex items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700"
+                            className="rounded-xl px-3 py-2 text-xs"
                           >
                             {invite.status === "Setup incomplete" ? "Revoke" : "Delete"}
-                          </button>
+                          </DangerActionButton>
                         )}
-                        <div className={["rounded-full px-3 py-1 text-xs font-semibold", inviteStatusBadgeClass(invite.status)].join(" ")}>
-                          {formatInviteStatusLabel(invite.status)}
-                        </div>
                       </div>
                     </div>
                   ))}

@@ -69,6 +69,9 @@ Warnings (logged only, do not block boot):
 - [ ] Company Admin nav: Dashboard, **Workspace**, **Users & Invites**, **Forms & Checks**, Reports (no Platform Setup / Companies)
 - [ ] Manager nav: Dashboard, Forms & Checks, Reports, Team (no Platform Setup)
 - [ ] Auditor nav: Today, My Checks, Submit, History only
+- [ ] Master **Pilot health** panel on Dashboard and Reports / Diagnostics shows API, readiness, Google, Drive, and SMTP probes
+- [ ] **Danger zone** copy for Disconnect Google (Master only), Remove user, and Revoke invite
+- [ ] After sending user invite or company onboarding email, **What happens next** steps appear in Admin
 - [ ] Verify **Platform Setup** hidden for Company Admin / Manager / Auditor
 - [ ] Verify `/setup` and `/setup/initial` direct access blocked for non-Master (redirect or “platform owner” message)
 - [ ] Company users cannot access `/setup/initial` or Godmode

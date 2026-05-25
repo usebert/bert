@@ -1,4 +1,6 @@
 import { canCompleteAuditAsAuditor, canSubmitAuditForReview } from "../permissions";
+import { SECTION_INTROS } from "../config/sectionIntros";
+import { SectionIntro } from "../components/SectionIntro";
 import { EmptyPanel, MiniMetric, SectionHeader, StatusBadge } from "../components/dashboard/DashboardPrimitives";
 import { amberThresholdHours, getAuditTrafficStatus, getDueWarning, statusStyles } from "../utils/dashboardHealth";
 import type {
@@ -305,13 +307,22 @@ export function AuditsScreen({
             <AuditsScreenIcon className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Audit centre</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+              {canCompleteAuditAsAuditor(currentUser.role) ? "My Checks" : "Forms & Checks"}
+            </p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight">
               {canCompleteAuditAsAuditor(currentUser.role) ? "Assigned field audits" : "Complete and manage inspections"}
             </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-300">
-              Save progress mid-inspection, complete audits in the field, and let the system create corrective actions when issues are found.
-            </p>
+            <SectionIntro
+              text={canCompleteAuditAsAuditor(currentUser.role) ? SECTION_INTROS.auditorChecks : SECTION_INTROS.formsChecks}
+              className="mt-2 text-slate-300"
+              role={currentUser.role}
+            />
+            {!canCompleteAuditAsAuditor(currentUser.role) ? (
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                Save progress mid-inspection, complete audits in the field, and let the system create corrective actions when issues are found.
+              </p>
+            ) : null}
           </div>
         </div>
       </section>

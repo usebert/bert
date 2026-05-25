@@ -6,6 +6,7 @@ export const SECTION_INTROS = {
   usersInvites: "Invite, resend, remove, or review users for this company.",
   companyOnboarding: "Send onboarding forms and create company workspaces from responses.",
   formsChecks: "Manage and complete company forms, checks, and audits.",
+  reports: "Export compliance packs and review shared report inbox for this workspace.",
   tabletKiosk: "Prepare BERT for locked-down tablet use.",
   diagnostics: "Platform health, readiness, and technical diagnostics.",
   team: "People in your company workspace and invite status.",

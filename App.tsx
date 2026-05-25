@@ -9280,6 +9280,7 @@ function App() {
 
             {screen === "reports" && (
               <ReportsScreen
+                currentUserRole={currentUser.role}
                 compliance={compliance}
                 openActions={openActions}
                 overdueActions={overdueActions}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { NavItemId } from "../../types/navigation";
 import { fetchSetupStatus, type SetupStatusPayload } from "../../services/setupStatusService";
+import { PilotHealthPanel } from "../pilot/PilotHealthPanel";
 import {
   DashboardQuickActions,
   MetricTile,
@@ -46,13 +47,6 @@ export function MasterPlatformDashboard({
   const driveOk = setup?.sharedDriveConfigured === true && googleConnected;
   const systemHealthy = setup?.readyForPilot === true;
 
-  const healthRows = [
-    { label: "API", ok: true },
-    { label: "Database", ok: true },
-    { label: "Sheets", ok: driveOk },
-    { label: "Email", ok: smtpOk },
-  ];
-
   return (
     <RoleDashboardShell role="Master" title="Platform Dashboard">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -91,24 +85,7 @@ export function MasterPlatformDashboard({
           </button>
         </section>
 
-        <section className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
-          <p className="text-sm font-semibold text-slate-900">System health</p>
-          <ul className="mt-3 space-y-2">
-            {healthRows.map((row) => (
-              <li key={row.label} className="flex items-center justify-between text-sm">
-                <span className="text-slate-700">{row.label}</span>
-                <span
-                  className={[
-                    "rounded-full px-2.5 py-0.5 text-xs font-semibold",
-                    row.ok ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900",
-                  ].join(" ")}
-                >
-                  {row.ok ? "OK" : "Needs attention"}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
+        <PilotHealthPanel role="Master" compact />
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">

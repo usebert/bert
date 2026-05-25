@@ -41,7 +41,17 @@ Admin UI shows:
 - **Role:** Admin, Manager, or Auditor
 - **Status:** Invite created, Email sent, Awaiting setup, Setup incomplete, Active, Removed
 
-Implemented in `src/utils/inviteStatusDisplay.ts`.
+Implemented in `src/utils/inviteStatusDisplay.ts`. Invite rows show **role** and **status** as separate chips (not a single combined line).
+
+## Dangerous actions
+
+| Action | Who | UI |
+|--------|-----|-----|
+| Disconnect Google Workspace | Master only | Danger zone in Platform Setup / Godmode; confirm before POST |
+| Remove user | Master, Admin | `DangerActionButton` on active company users |
+| Revoke invite | Master, Admin | `DangerActionButton` on pending invites |
+
+Company Admin must not see Platform Setup, Google disconnect, or platform diagnostics.
 
 ## Verification
 

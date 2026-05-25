@@ -15,6 +15,10 @@ import type {
 } from "../types/reportsScreenProps";
 import type { SyncQueueItem } from "../types/sync";
 import { EmptyPanel } from "../components/dashboard/DashboardPrimitives";
+import { PilotHealthPanel } from "../components/pilot/PilotHealthPanel";
+import { SECTION_INTROS } from "../config/sectionIntros";
+import { SectionIntro } from "../components/SectionIntro";
+import type { Role } from "../permissions";
 import { slatePrimaryCtaInteract } from "../styles/interactions";
 
 const reportTemplates: {
@@ -353,6 +357,7 @@ function FlowItem({ number, title, text, icon }: { number: string; title: string
 }
 
 export function ReportsScreen({
+  currentUserRole,
   workspaceName,
   compliance,
   openActions,
@@ -382,6 +387,7 @@ export function ReportsScreen({
   onExportAuditPack,
   onExportAuditPackPdf,
 }: {
+  currentUserRole: Role;
   workspaceName: string;
   compliance: number;
   openActions: ActionItem[];
@@ -433,14 +439,27 @@ export function ReportsScreen({
             <ReportsScreenIcon name="chart" className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Reporting outcomes</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight">Turn completed work into audit-ready packs</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-300">
-              Reporting is the last step of the loop: consolidate what was evaluated and corrected for {workspaceName}, then export packs stakeholders can file, share, or archive.
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+              {currentUserRole === "Master" ? "Reports / Diagnostics" : "Reporting outcomes"}
             </p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight">
+              {currentUserRole === "Master" ? "Platform diagnostics and exports" : "Turn completed work into audit-ready packs"}
+            </h2>
+            <SectionIntro
+              text={currentUserRole === "Master" ? SECTION_INTROS.diagnostics : SECTION_INTROS.reports}
+              className="mt-2 text-slate-300"
+              role={currentUserRole}
+            />
+            {currentUserRole !== "Master" ? (
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                Reporting is the last step of the loop: consolidate what was evaluated and corrected for {workspaceName}, then export packs stakeholders can file, share, or archive.
+              </p>
+            ) : null}
           </div>
         </div>
       </section>
+
+      {currentUserRole === "Master" ? <PilotHealthPanel role="Master" /> : null}
 
       <section className="grid grid-cols-2 gap-3">
         <MiniMetric label="Compliance" value={`${compliance}%`} />
