@@ -23,6 +23,11 @@ import { installDocumentDistributionRoutes } from "./document-distribution.mjs";
 import { installEmailReminderRoutes, startEmailReminderScheduler } from "./email-reminders.mjs";
 import { createGoogleOAuthSessionStore } from "./google-oauth-session.mjs";
 import { installSetupStatusRoutes } from "./setup-status.mjs";
+import {
+  isArchiveOrNonLiveWorkspaceName,
+  logInviteCompleteFailure,
+  validateCompanyUserInviteTarget,
+} from "./invite-target.mjs";
 
 dotenv.config();
 
@@ -4338,13 +4343,49 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
     if (!companyFolderId || !masterSheetId) {
       res.status(400).json({
         ok: false,
-        error: "companyFolderId and masterSheetId are required.",
+        code: "stale_invite_target",
+        error: "Select a live company workspace before inviting users.",
+        blocker: "stale_invite_target",
+      });
+      return;
+    }
+
+    if (isArchiveOrNonLiveWorkspaceName(companyName)) {
+      res.status(409).json({
+        ok: false,
+        code: "stale_invite_target",
+        error: "Select a live company workspace before inviting users.",
+        blocker: "stale_invite_target",
       });
       return;
     }
 
     try {
       const auth = getAuthedClient();
+      if (!auth) {
+        res.status(401).json({
+          ok: false,
+          code: "google_not_connected",
+          error: "Google Workspace connection is required before sending company user invites.",
+          blocker: "google_not_connected",
+        });
+        return;
+      }
+
+      const targetCheck = await validateCompanyUserInviteTarget(auth, {
+        companyFolderId,
+        masterSheetId,
+        companyName,
+      });
+      if (!targetCheck.ok) {
+        res.status(targetCheck.httpStatus).json({
+          ok: false,
+          code: targetCheck.code,
+          error: targetCheck.message,
+          blocker: targetCheck.code,
+        });
+        return;
+      }
       let id;
       if (resendRequested || resendTokenId) {
         const existing = findCompanyUserInviteForResend({
@@ -4517,10 +4558,44 @@ app.get("/api/onboarding/app-invites/:tokenId", async (req, res) => {
     return res.status(404).json({ ok: false, error: "This invite link is not valid." });
   }
   const record = normalizeInviteProvisionFields(recordRaw);
+  if (record.kind === "company_user" && Date.now() <= record.expiresAt) {
+    const auth = getAuthedClient();
+    if (!String(record.masterSheetId || "").trim() || !String(record.companyFolderId || "").trim()) {
+      return res.status(409).json({
+        ok: false,
+        code: "stale_invite_target",
+        error:
+          "This invite points to a company workspace that is missing or no longer available. Ask your administrator to send a new invite.",
+        staleTarget: true,
+        masterSheetIdPresent: Boolean(record.masterSheetId),
+      });
+    }
+    if (auth) {
+      const targetCheck = await validateCompanyUserInviteTarget(auth, {
+        companyFolderId: record.companyFolderId,
+        masterSheetId: record.masterSheetId,
+        companyName: record.companyName,
+      });
+      if (!targetCheck.ok && targetCheck.code !== "google_not_connected") {
+        return res.status(targetCheck.httpStatus).json({
+          ok: false,
+          code: targetCheck.code,
+          error: targetCheck.message,
+          staleTarget: targetCheck.code === "stale_invite_target",
+          masterSheetIdPresent: targetCheck.masterSheetIdPresent,
+        });
+      }
+    }
+  }
   if (record.consumedAt) {
     const folderId = record.provisionDriveFolderId;
     if (record.kind === "company_user") {
       const auth = getAuthedClient();
+      const targetCheck = await validateCompanyUserInviteTarget(auth, {
+        companyFolderId: record.companyFolderId,
+        masterSheetId: record.masterSheetId,
+        companyName: record.companyName,
+      });
       const assessment = await assessCompanyUserInviteReadiness(
         auth,
         record.masterSheetId,
@@ -4528,6 +4603,7 @@ app.get("/api/onboarding/app-invites/:tokenId", async (req, res) => {
         record,
       );
       if (assessment.setupIncomplete) {
+        const canRetrySetup = targetCheck.ok && targetCheck.masterSheetIdPresent;
         return res.json({
           ok: true,
           kind: "company_user",
@@ -4536,11 +4612,14 @@ app.get("/api/onboarding/app-invites/:tokenId", async (req, res) => {
           invitedBy: record.invitedBy || "",
           companyName: record.companyName || "",
           setupIncomplete: true,
-          canRetrySetup: true,
+          canRetrySetup,
+          staleTarget: !canRetrySetup,
           provisionStatus: record.provisionStatus,
           masterSheetId: record.masterSheetId || "",
           companyFolderId: record.companyFolderId || "",
-          storageHint: assessment.storageHint,
+          storageHint: canRetrySetup
+            ? assessment.storageHint
+            : "This invite points to a workspace that is no longer available. Ask your administrator to send a new invite.",
           ...assessment,
         });
       }
@@ -4577,7 +4656,11 @@ app.get("/api/onboarding/app-invites/:tokenId", async (req, res) => {
     return res.status(410).json(consumedBody);
   }
   if (Date.now() > record.expiresAt) {
-    return res.status(410).json({ ok: false, error: "This invite has expired." });
+    return res.status(410).json({
+      ok: false,
+      code: "invite_expired",
+      error: "This invite has expired. Ask your administrator to send a new invite.",
+    });
   }
   const provisionExtras = {
     provisionStatus: record.provisionStatus,
@@ -4603,6 +4686,9 @@ app.get("/api/onboarding/app-invites/:tokenId", async (req, res) => {
           role: record.role,
           invitedBy: record.invitedBy || "",
           companyName: record.companyName || "",
+          masterSheetId: record.masterSheetId || "",
+          companyFolderId: record.companyFolderId || "",
+          canRetrySetup: Boolean(record.masterSheetId),
           ...provisionExtras,
         };
   return res.json(payload);
@@ -4634,17 +4720,22 @@ app.post("/api/onboarding/app-invites/:tokenId/complete", async (req, res) => {
       return sendGoogleWorkspaceUnavailable(res);
     }
     if (!authed) {
-      const frontend = requiredEnv.FRONTEND_URL.replace(/\/$/, "");
       return res.status(401).json({
         ok: false,
-        error: `Invite completion uses the API server's Google account to create Drive folders and sheet rows. On the machine where the API runs, sign in once: open http://127.0.0.1:${port}/auth/google/login and finish consent. The return URL must match GOOGLE_REDIRECT_URI in your server settings. If you use Vite dev with the proxy, ${frontend}/auth/google/login also works while \`npm run dev\` and \`npm run server\` are both running. Then click Complete onboarding again.`,
+        code: "google_not_connected",
+        error:
+          "Account setup is not available right now because Google Workspace is not connected on the server. Ask your administrator to reconnect Google, then try again.",
       });
     }
 
     await runWithInviteCompletionLock(tokenId, async () => {
       let record = normalizeInviteProvisionFields(getInviteRecord(tokenId));
       if (!record) {
-        res.status(404).json({ ok: false, error: "This invite link is not valid." });
+        res.status(404).json({
+          ok: false,
+          code: "invite_not_found",
+          error: "This invite link is not valid. Ask your administrator to send a new invite.",
+        });
         return;
       }
 
@@ -4680,6 +4771,29 @@ app.post("/api/onboarding/app-invites/:tokenId/complete", async (req, res) => {
               });
               return;
             }
+            const retryTargetCheck = await validateCompanyUserInviteTarget(authed, {
+              companyFolderId: record.companyFolderId,
+              masterSheetId: record.masterSheetId,
+              companyName: record.companyName,
+            });
+            if (!retryTargetCheck.ok) {
+              logInviteCompleteFailure({
+                code: retryTargetCheck.code,
+                email: record.email,
+                tokenId,
+                company: retryTargetCheck.companyLabel || record.companyName,
+                masterSheetIdPresent: retryTargetCheck.masterSheetIdPresent,
+              });
+              res.status(retryTargetCheck.httpStatus).json({
+                ok: false,
+                code: retryTargetCheck.code,
+                message: retryTargetCheck.message,
+                error: retryTargetCheck.message,
+                setupIncomplete: true,
+                canRetrySetup: false,
+              });
+              return;
+            }
             console.warn("[invite] company_user retry incomplete setup", {
               tokenIdPrefix: tokenId.slice(0, 8),
               email: record.email,
@@ -4698,14 +4812,48 @@ app.post("/api/onboarding/app-invites/:tokenId/complete", async (req, res) => {
           }
         }
         if (record?.consumedAt) {
-          res.status(410).json({ ok: false, error: "This invite has already been used." });
+          res.status(410).json({
+            ok: false,
+            code: "invite_already_used",
+            error: "This invite has already been used. Sign in with your email and password, or ask for a new invite.",
+          });
           return;
         }
       }
 
       if (Date.now() > record.expiresAt) {
-        res.status(410).json({ ok: false, error: "This invite has expired." });
+        res.status(410).json({
+          ok: false,
+          code: "invite_expired",
+          error: "This invite has expired. Ask your administrator to send a new invite.",
+        });
         return;
+      }
+
+      if (record.kind === "company_user") {
+        const targetCheck = await validateCompanyUserInviteTarget(authed, {
+          companyFolderId: record.companyFolderId,
+          masterSheetId: record.masterSheetId,
+          companyName: record.companyName,
+        });
+        if (!targetCheck.ok) {
+          logInviteCompleteFailure({
+            code: targetCheck.code,
+            email: record.email,
+            tokenId,
+            company: targetCheck.companyLabel || record.companyName,
+            masterSheetIdPresent: targetCheck.masterSheetIdPresent,
+          });
+          res.status(targetCheck.httpStatus).json({
+            ok: false,
+            code: targetCheck.code,
+            message: targetCheck.message,
+            error: targetCheck.message,
+            setupIncomplete: targetCheck.code === "stale_invite_target",
+            canRetrySetup: false,
+          });
+          return;
+        }
       }
 
       if (record.provisionStatus === "running" && record.provisionStartedAt != null) {
@@ -4713,8 +4861,9 @@ app.post("/api/onboarding/app-invites/:tokenId/complete", async (req, res) => {
         if (elapsed >= 0 && elapsed < INVITE_PROVISION_STALE_RUNNING_MS) {
           res.status(202).json({
             ok: false,
+            code: "invite_in_progress",
             provisionStatus: "running",
-            error: "Workspace setup is already in progress. Please try again shortly.",
+            error: "Your account setup is already in progress. Keep this page open for a few minutes.",
           });
           return;
         }
@@ -4862,6 +5011,18 @@ app.post("/api/onboarding/app-invites/:tokenId/complete", async (req, res) => {
               completionErr instanceof Error
                 ? completionErr.message
                 : "Unable to complete company user setup.";
+            const failureCode = /not found/i.test(msg) ? "stale_invite_target" : "setup_failed";
+            const friendlyMessage =
+              failureCode === "stale_invite_target"
+                ? "The company master sheet for this invite could not be found. Ask your administrator to send a new invite."
+                : "Account setup could not be finished on the company sheet. Ask your administrator to send a new invite if you still cannot sign in.";
+            logInviteCompleteFailure({
+              code: failureCode,
+              email: record.email,
+              tokenId,
+              company: record.companyName || record.companyFolderId,
+              masterSheetIdPresent: Boolean(record.masterSheetId),
+            });
             console.warn("[invite] company_user completion failed", {
               tokenIdPrefix: tokenId.slice(0, 8),
               email: record.email,
@@ -4871,20 +5032,24 @@ app.post("/api/onboarding/app-invites/:tokenId/complete", async (req, res) => {
               userAuthWriteOk,
               completedMarked,
               message: msg,
+              code: failureCode,
             });
             patchInviteRecord(tokenId, {
               provisionStatus: "failed",
               provisionFinishedAt: Date.now(),
-              provisionError: msg,
+              provisionError: friendlyMessage,
               consumedAt: null,
             });
-            res.status(500).json({
+            res.status(failureCode === "stale_invite_target" ? 409 : 500).json({
               ok: false,
+              code: failureCode,
+              message: friendlyMessage,
               provisionStatus: "failed",
-              setupIncomplete: true,
+              setupIncomplete: failureCode !== "stale_invite_target",
+              canRetrySetup: failureCode !== "stale_invite_target",
               usersWriteOk,
               userAuthWriteOk,
-              error: `${msg} You can try completing onboarding again.`,
+              error: friendlyMessage,
             });
             return;
           }
@@ -4897,21 +5062,37 @@ app.post("/api/onboarding/app-invites/:tokenId/complete", async (req, res) => {
         });
         res.status(400).json({ ok: false, error: "Unknown invite type." });
       } catch (error) {
-        const msg = error instanceof Error ? error.message : "Unable to complete onboarding.";
+        const rawMsg = error instanceof Error ? error.message : "Unable to complete onboarding.";
+        const failureCode = /not found/i.test(rawMsg) ? "stale_invite_target" : "setup_failed";
+        const friendlyMessage =
+          failureCode === "stale_invite_target"
+            ? "The company workspace for this invite could not be found. Ask your administrator to send a new invite."
+            : "Account setup could not be completed. Ask your administrator to send a new invite if you still cannot sign in.";
+        logInviteCompleteFailure({
+          code: failureCode,
+          email: record?.email,
+          tokenId,
+          company: record?.companyName || record?.companyFolderId,
+          masterSheetIdPresent: Boolean(record?.masterSheetId),
+        });
         console.error("[invite] complete provision stage failed", {
           tokenIdPrefix: tokenId.slice(0, 8),
           inviteKind: record?.kind,
-          message: error instanceof Error ? error.message : String(error),
+          message: rawMsg,
+          code: failureCode,
         });
         patchInviteRecord(tokenId, {
           provisionStatus: "failed",
           provisionFinishedAt: Date.now(),
-          provisionError: msg,
+          provisionError: friendlyMessage,
         });
-        res.status(500).json({
+        res.status(failureCode === "stale_invite_target" ? 409 : 500).json({
           ok: false,
+          code: failureCode,
+          message: friendlyMessage,
           provisionStatus: "failed",
-          error: msg,
+          canRetrySetup: failureCode !== "stale_invite_target",
+          error: friendlyMessage,
         });
       }
     });

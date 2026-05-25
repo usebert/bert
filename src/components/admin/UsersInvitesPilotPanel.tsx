@@ -11,6 +11,8 @@ import {
   formatUserRoleLabel,
   getInviteStatusHelp,
   inviteStatusBadgeClass,
+  isLegacyInviteRowId,
+  isStaleOrIncompleteInviteStatus,
 } from "../../utils/inviteStatusDisplay";
 
 const USER_INVITE_NEXT_STEPS = [
@@ -44,6 +46,8 @@ function UserInviteListRow({
   slatePrimaryCtaInteract: string;
 }) {
   const active = isActiveCompanyUserInvite(invite);
+  const staleOrIncomplete =
+    isStaleOrIncompleteInviteStatus(invite.status) || isLegacyInviteRowId(invite.id);
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0 flex-1">
@@ -84,15 +88,13 @@ function UserInviteListRow({
           type="button"
           onClick={() => onResendInvite(invite)}
           title={
-            invite.status === "Setup incomplete" ||
-            invite.id.startsWith("invite-") ||
-            invite.id.startsWith("sheet-user-")
-              ? "Send a fresh invite — this row has no active link or setup did not finish"
+            staleOrIncomplete
+              ? "Send a fresh invite from a live company workspace"
               : "Resend invite email"
           }
           className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
         >
-          Resend
+          {staleOrIncomplete ? "Send fresh invite" : "Resend"}
         </button>
         {active ? (
           <DangerActionButton
@@ -107,10 +109,10 @@ function UserInviteListRow({
           <DangerActionButton
             type="button"
             onClick={() => onDeleteInvite(invite)}
-            title={invite.status === "Setup incomplete" ? "Revoke incomplete invite" : "Revoke invite link"}
+            title={staleOrIncomplete ? "Revoke stale or incomplete invite" : "Revoke invite link"}
             className="rounded-xl px-3 py-2 text-xs"
           >
-            {invite.status === "Setup incomplete" ? "Revoke" : "Delete"}
+            {staleOrIncomplete ? "Revoke" : "Delete"}
           </DangerActionButton>
         )}
       </div>

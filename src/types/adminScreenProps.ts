@@ -51,7 +51,7 @@ export type UserInvite = {
   invitedBy: string;
   senderEmail?: string;
   sentAt: string;
-  status: "Email sent" | "Invite created" | "Awaiting setup" | "Setup incomplete" | "Active" | "Invite sent";
+  status: "Email sent" | "Invite created" | "Awaiting setup" | "Setup incomplete" | "Stale invite" | "Active" | "Invite sent";
   mailtoUrl?: string;
   appOnboardingUrl?: string;
   loginReady?: boolean;

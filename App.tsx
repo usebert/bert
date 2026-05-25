@@ -57,7 +57,12 @@ import { AuditorTaskDashboard } from "./src/components/dashboard/AuditorTaskDash
 import { CompanyAdminDashboard } from "./src/components/dashboard/CompanyAdminDashboard";
 import { ManagerRoleDashboard } from "./src/components/dashboard/ManagerRoleDashboard";
 import { MasterPlatformDashboard } from "./src/components/dashboard/MasterPlatformDashboard";
-import { formatInviteStatusLabel } from "./src/utils/inviteStatusDisplay";
+import {
+  formatInviteStatusLabel,
+  isLegacyInviteRowId,
+  isStaleOrIncompleteInviteStatus,
+} from "./src/utils/inviteStatusDisplay";
+import { assertLiveCompanyWorkspaceForInvite, LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE } from "./src/utils/companyWorkspaceInvite";
 import { AccountSettingsScreen } from "./src/screens/AccountSettingsScreen";
 import { ActionsScreen } from "./src/screens/ActionsScreen";
 import { AdminScreen } from "./src/screens/AdminScreen";
@@ -160,7 +165,7 @@ type UserInvite = {
   invitedBy: string;
   senderEmail?: string;
   sentAt: string;
-  status: "Email sent" | "Invite created" | "Awaiting setup" | "Setup incomplete" | "Active" | "Invite sent";
+  status: "Email sent" | "Invite created" | "Awaiting setup" | "Setup incomplete" | "Stale invite" | "Active" | "Invite sent";
   mailtoUrl?: string;
   appOnboardingUrl?: string;
   loginReady?: boolean;
@@ -203,8 +208,11 @@ function mapCompanyUserInviteStatus(payload: {
   if (payload.loginReady === true || payload.status === "active") {
     return "Active";
   }
+  if (payload.status === "stale_invite" || payload.status === "stale_invite_target") {
+    return "Stale invite";
+  }
   if (payload.setupIncomplete === true || payload.status === "setup_incomplete") {
-    return "Setup incomplete";
+    return "Stale invite";
   }
   if (payload.sent === true) {
     return "Email sent";
@@ -215,8 +223,14 @@ function mapCompanyUserInviteStatus(payload: {
   return "Invite created";
 }
 
-function formatCompanyUserInviteApiError(payload: { error?: string; blocker?: string }, response: Response) {
+function formatCompanyUserInviteApiError(
+  payload: { error?: string; blocker?: string; code?: string },
+  response: Response,
+) {
   const message = payload.error || "Unable to send invite email.";
+  if (payload.blocker === "stale_invite_target" || payload.code === "stale_invite_target") {
+    return LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE;
+  }
   if (response.status === 401 && /google connection required/i.test(message)) {
     return "The API server lost its Google Workspace session. Open Initial Setup, reconnect Google, then try again.";
   }
@@ -5554,12 +5568,16 @@ function App() {
       pushToast("Google not connected", "Connect Google in Setup before sending invite links.", "warning");
       return;
     }
-    if (!sheetId || !companyFolderId) {
-      pushToast(
-        "Workspace required",
-        "Select a company folder and ensure the master sheet is loaded before sending invites.",
-        "warning",
-      );
+    const workspaceCheck = assertLiveCompanyWorkspaceForInvite({
+      selectedFolder,
+      masterSheetId: sheetId,
+    });
+    if (!workspaceCheck.ok) {
+      pushToast("Workspace required", workspaceCheck.message, "warning");
+      return;
+    }
+    if (!companyFolderId) {
+      pushToast("Workspace required", LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE, "warning");
       return;
     }
 
@@ -5644,8 +5662,8 @@ function App() {
       };
       if (result.setupIncomplete) {
         pushToast(
-          "Setup incomplete",
-          "This invite was marked complete but login data is missing on the company sheet. Send a fresh invite or ask the recipient to open the link again.",
+          "Stale invite",
+          "This invite points to a workspace that could not be finished. Revoke it and send a fresh invite from a live company workspace.",
           "warning",
         );
       }
@@ -5670,8 +5688,8 @@ function App() {
   const handleResendInvite = async (invite: UserInvite) => {
     if (!currentUser) return;
 
-    if (isLegacyInviteRow(invite) || invite.status === "Setup incomplete") {
-      console.warn("[invite] resend skipped — no active server token or setup incomplete", {
+    if (isLegacyInviteRow(invite) || isStaleOrIncompleteInviteStatus(invite.status)) {
+      console.warn("[invite] resend skipped — stale or incomplete invite row", {
         id: invite.id,
         email: invite.email,
         role: invite.role,
@@ -5680,9 +5698,7 @@ function App() {
       setCompanyUserInviteEmailResult(null);
       pushToast(
         "Send a fresh invite",
-        invite.status === "Setup incomplete"
-          ? "Setup did not finish on the company sheet. Enter the email above and use Send invite link, or ask the recipient to open the old link again."
-          : "This old invite has no active link. Enter the email above and use Send invite link to create a new one.",
+        "This invite points to a workspace that is missing or no longer live. Revoke it, select a live company workspace, enter the email above, and use Send invite link.",
         "warning",
       );
       return;
@@ -5690,12 +5706,16 @@ function App() {
 
     const sheetId = companySheetSync?.sheetId || extractGoogleResourceId(masterSheetInput);
     const companyFolderId = selectedFolder?.id || extractGoogleResourceId(folderIdInput);
-    if (!sheetId || !companyFolderId) {
-      pushToast(
-        "Workspace required",
-        "Select a company folder and ensure the master sheet is loaded before resending invites.",
-        "warning",
-      );
+    const workspaceCheck = assertLiveCompanyWorkspaceForInvite({
+      selectedFolder,
+      masterSheetId: sheetId,
+    });
+    if (!workspaceCheck.ok) {
+      pushToast("Workspace required", workspaceCheck.message, "warning");
+      return;
+    }
+    if (!companyFolderId) {
+      pushToast("Workspace required", LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE, "warning");
       return;
     }
 

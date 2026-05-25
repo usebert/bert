@@ -3,6 +3,14 @@ import { BertLogo } from "../components/BertLogo";
 import { apiUrl } from "../config/apiBase";
 import { saveCompanyLoginHint } from "../lib/companyLoginHint";
 import type { Role } from "../permissions";
+import {
+  INVITE_COMPLETION_PAGE_TITLE,
+  inviteCompletionNetworkError,
+  inviteCompletionTimeoutMessage,
+  mapInviteCompletionError,
+  mapInviteCompletionLoadError,
+  mapInviteCompletionPollError,
+} from "../utils/inviteCompletionMessages";
 
 type AppInviteProvisionMeta = {
   provisionStatus?: string;
@@ -24,18 +32,23 @@ type AppInviteDetails =
       companyFolderId?: string;
       setupIncomplete?: boolean;
       canRetrySetup?: boolean;
+      staleTarget?: boolean;
       storageHint?: string;
     } & AppInviteProvisionMeta);
 
 type AppInviteStatusPayload = AppInviteProvisionMeta & {
   ok?: boolean;
+  code?: string;
   error?: string;
+  message?: string;
   kind?: string;
   outcome?: "new_company" | "company_user";
   folderUrl?: string;
   email?: string;
   masterSheetId?: string;
   companyFolderId?: string;
+  canRetrySetup?: boolean;
+  setupIncomplete?: boolean;
 };
 
 type AppHostedOnboardingCompletionProps = {
@@ -53,6 +66,7 @@ export function AppHostedOnboardingCompletion({ inviteToken, parseJsonApiRespons
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState<{ title: string; message: string } | null>(null);
   const [submitError, setSubmitError] = useState("");
+  const [canRetrySetup, setCanRetrySetup] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,26 +77,45 @@ export function AppHostedOnboardingCompletion({ inviteToken, parseJsonApiRespons
         });
         const payload = (await parseJsonApiResponse(response)) as AppInviteDetails & {
           ok?: boolean;
+          code?: string;
           error?: string;
           setupIncomplete?: boolean;
           canRetrySetup?: boolean;
+          staleTarget?: boolean;
+          storageHint?: string;
         };
         if (cancelled) return;
         if (!response.ok || !payload.ok) {
-          setLoadError(payload.error || "This invite link is not valid.");
+          setCanRetrySetup(false);
+          setLoadError(mapInviteCompletionLoadError(payload, response.status));
           return;
         }
-        if (payload.setupIncomplete && payload.canRetrySetup) {
+        const retryAllowed = payload.canRetrySetup !== false && !payload.staleTarget;
+        setCanRetrySetup(retryAllowed);
+        if (payload.setupIncomplete && retryAllowed) {
           setDetails(payload as AppInviteDetails);
           setSubmitError(
-            "Your previous setup did not finish on the company sheet. Complete the form below to try again.",
+            "Your previous setup did not finish. Complete the form below to try again.",
+          );
+          return;
+        }
+        if (payload.setupIncomplete && !retryAllowed) {
+          setCanRetrySetup(false);
+          setLoadError(
+            mapInviteCompletionLoadError(
+              {
+                code: "stale_invite_target",
+                error: payload.storageHint || payload.error,
+              },
+              response.status,
+            ),
           );
           return;
         }
         setDetails(payload as AppInviteDetails);
       } catch {
         if (!cancelled) {
-          setLoadError("Unable to load invite details. Check your connection and try again.");
+          setLoadError(inviteCompletionNetworkError());
         }
       }
     })();
@@ -115,6 +148,12 @@ export function AppHostedOnboardingCompletion({ inviteToken, parseJsonApiRespons
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setSubmitError("");
+    if (!canRetrySetup) {
+      setSubmitError(
+        mapInviteCompletionError({ code: "stale_invite_target" }, 409),
+      );
+      return;
+    }
     if (password.length < 8) {
       setSubmitError("Password must be at least 8 characters.");
       return;
@@ -155,8 +194,7 @@ export function AppHostedOnboardingCompletion({ inviteToken, parseJsonApiRespons
       };
 
       if (response.status === 202) {
-        const serverMsg = payload.error || "Provisioning already in progress.";
-        setSubmitError(`${serverMsg} Waiting for the other request to finish…`);
+        setSubmitError(mapInviteCompletionError({ code: "invite_in_progress", ...payload }, 202));
         const pollUntil = Date.now() + completeTimeoutMs;
         while (Date.now() < pollUntil) {
           if (controller.signal.aborted) break;
@@ -178,9 +216,7 @@ export function AppHostedOnboardingCompletion({ inviteToken, parseJsonApiRespons
               persistCompanyLoginHint(pp);
               setDone({
                 title: "Company workspace created",
-                message: pp.folderUrl
-                  ? `Your company folder is ready. You can sign in with your email and the password you chose. Drive folder: ${pp.folderUrl}`
-                  : "You can sign in with your email and the password you chose.",
+                message: "You can sign in with your email and the password you chose.",
               });
             } else {
               persistCompanyLoginHint(pp);
@@ -193,35 +229,33 @@ export function AppHostedOnboardingCompletion({ inviteToken, parseJsonApiRespons
             return;
           }
           if (pr.ok && pp.provisionStatus === "failed") {
-            const errText = pp.provisionError || pp.error || "Provisioning failed.";
+            const retryAllowed = pp.canRetrySetup !== false;
+            setCanRetrySetup(retryAllowed);
             setSubmitError(
-              `${errText} Fix the issue if you can, then use Complete onboarding again.`,
+              retryAllowed
+                ? mapInviteCompletionPollError(pp)
+                : mapInviteCompletionError(pp, pr.status),
             );
             return;
           }
         }
         setSubmitError(
-          "Provisioning is still in progress or we could not confirm completion in time. Wait a few minutes, refresh this page, or try Complete onboarding again if your workspace was not created.",
+          "Setup is taking longer than expected. Keep this page open, or ask your administrator to send a new invite if nothing changes.",
         );
         return;
       }
 
       if (!response.ok || !payload.ok) {
-        const serverMsg = payload.error || `The server returned HTTP ${response.status}.`;
-        setSubmitError(
-          response.status >= 500
-            ? `${serverMsg} If provisioning stopped part-way, check the terminal running the API server before retrying; you may need a fresh invite if a Drive folder was already created.`
-            : `${serverMsg} Fix the issue above, then use Complete onboarding again.`,
-        );
+        const retryAllowed = payload.canRetrySetup !== false && payload.code !== "stale_invite_target";
+        setCanRetrySetup(retryAllowed);
+        setSubmitError(mapInviteCompletionError(payload, response.status));
         return;
       }
       if (payload.outcome === "new_company") {
         persistCompanyLoginHint(payload);
         setDone({
           title: "Company workspace created",
-          message: payload.folderUrl
-            ? `Your company folder is ready. You can sign in with your email and the password you chose. Drive folder: ${payload.folderUrl}`
-            : "You can sign in with your email and the password you chose.",
+          message: "You can sign in with your email and the password you chose.",
         });
       } else {
         persistCompanyLoginHint(payload);
@@ -233,22 +267,22 @@ export function AppHostedOnboardingCompletion({ inviteToken, parseJsonApiRespons
       window.history.replaceState({}, "", window.location.pathname);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
-        setSubmitError(
-          `No response after ${Math.round(completeTimeoutMs / 60_000)} minutes. The server may still be talking to Google—check the terminal running npm run server, then try again if the workspace was not created.`,
-        );
+        setSubmitError(inviteCompletionTimeoutMessage(Math.round(completeTimeoutMs / 60_000)));
       } else {
-        const detail = error instanceof Error ? error.message : "";
-        setSubmitError(
-          detail
-            ? `${detail} Confirm the API server is running and Google is signed in on that machine, then retry.`
-            : "Something went wrong. Check your connection, confirm the API server is running, and try again.",
-        );
+        setSubmitError(inviteCompletionNetworkError(error instanceof Error ? error.message : ""));
       }
     } finally {
       window.clearTimeout(timeoutId);
       setSubmitting(false);
     }
   };
+
+  const pageTitle =
+    details?.kind === "company_user"
+      ? `Join ${details.companyName || "your company"}`
+      : details?.kind === "new_company"
+        ? "New company setup"
+        : INVITE_COMPLETION_PAGE_TITLE;
 
   return (
     <div
@@ -264,17 +298,16 @@ export function AppHostedOnboardingCompletion({ inviteToken, parseJsonApiRespons
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.28em] text-blue-400/90">Onboarding</p>
             <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white">
-              {!details
-                ? "Complete onboarding"
-                : details.kind === "company_user"
-                  ? `Join ${details.companyName || "your company"}`
-                  : "New company setup"}
+              {!details && !loadError ? INVITE_COMPLETION_PAGE_TITLE : pageTitle}
             </h1>
           </div>
         </div>
 
         {loadError && (
-          <div className="rounded-2xl border border-rose-500/40 bg-rose-950/40 p-4 text-sm text-rose-100">{loadError}</div>
+          <div className="rounded-2xl border border-rose-500/40 bg-rose-950/40 p-4 text-sm text-rose-100">
+            <p className="font-semibold text-white">{INVITE_COMPLETION_PAGE_TITLE}</p>
+            <p className="mt-2">{loadError}</p>
+          </div>
         )}
 
         {done && (
@@ -347,20 +380,22 @@ export function AppHostedOnboardingCompletion({ inviteToken, parseJsonApiRespons
             </div>
             {submitError && <p className="text-sm text-rose-300">{submitError}</p>}
             <p className="text-xs leading-relaxed text-slate-500">
-              First-time company setup creates Drive folders and your master sheet. It often finishes in a few minutes but can take longer when Google is busy—keep this tab open until you see a success message or a clear error below.
+              {details.kind === "new_company"
+                ? "First-time company setup creates your company workspace in Google Drive. It often finishes in a few minutes but can take longer when Google is busy—keep this tab open until you see a success message."
+                : "Finish your name and password to activate your BERT account. This usually takes less than a minute."}
             </p>
             {submitting && (
               <p className="text-xs leading-relaxed text-slate-400">
-                Working with Google Drive (folders, master sheet, tabs). Typical range{" "}
-                <span className="font-semibold text-slate-300">1–3 minutes</span>—please wait.
+                Setting up your account… typical wait{" "}
+                <span className="font-semibold text-slate-300">under one minute</span> for company invites.
               </p>
             )}
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || !canRetrySetup}
               className="h-12 w-full rounded-2xl bg-orange-400 text-sm font-semibold text-slate-950 disabled:opacity-50"
             >
-              {submitting ? "Saving…" : "Complete onboarding"}
+              {submitting ? "Saving…" : canRetrySetup ? "Complete setup" : "Setup unavailable"}
             </button>
           </form>
         )}

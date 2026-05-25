@@ -13,6 +13,8 @@ import {
   formatUserRoleLabel,
   getInviteStatusHelp,
   inviteStatusBadgeClass,
+  isLegacyInviteRowId,
+  isStaleOrIncompleteInviteStatus,
 } from "../utils/inviteStatusDisplay";
 import type { AdminScreenProps, CompanyOnboardingEmailResult, CompanyUserInviteEmailResult } from "../types/adminScreenProps";
 import type { Role } from "../permissions";
@@ -1544,7 +1546,10 @@ export function AdminScreen({
                 />
               ) : (
                 <div className="space-y-3">
-                  {invitedUsers.slice(0, 5).map((invite) => (
+                  {invitedUsers.slice(0, 5).map((invite) => {
+                    const staleOrIncomplete =
+                      isStaleOrIncompleteInviteStatus(invite.status) || isLegacyInviteRowId(invite.id);
+                    return (
                     <div key={invite.id} className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-semibold text-white">{invite.email}</p>
@@ -1584,15 +1589,13 @@ export function AdminScreen({
                           type="button"
                           onClick={() => onResendInvite(invite)}
                           title={
-                            invite.status === "Setup incomplete" ||
-                            invite.id.startsWith("invite-") ||
-                            invite.id.startsWith("sheet-user-")
-                              ? "Send a fresh invite — this row has no active link or setup did not finish"
+                            staleOrIncomplete
+                              ? "Send a fresh invite from a live company workspace"
                               : "Resend invite email"
                           }
                           className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
                         >
-                          Resend
+                          {staleOrIncomplete ? "Send fresh invite" : "Resend"}
                         </button>
                         {isActiveCompanyUserInvite(invite) ? (
                           <DangerActionButton
@@ -1608,18 +1611,17 @@ export function AdminScreen({
                             type="button"
                             onClick={() => onDeleteInvite(invite)}
                             title={
-                              invite.status === "Setup incomplete"
-                                ? "Revoke incomplete invite"
-                                : "Revoke invite link"
+                              staleOrIncomplete ? "Revoke stale or incomplete invite" : "Revoke invite link"
                             }
                             className="rounded-xl px-3 py-2 text-xs"
                           >
-                            {invite.status === "Setup incomplete" ? "Revoke" : "Delete"}
+                            {staleOrIncomplete ? "Revoke" : "Delete"}
                           </DangerActionButton>
                         )}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
