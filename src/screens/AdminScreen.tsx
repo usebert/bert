@@ -710,7 +710,7 @@ export function AdminScreen({
             </button>
           ))}
         </div>
-        {currentUser.role === "Admin" && (
+        {currentUser.role === "Admin" && isDebugUiAllowed() && (
           <div className="mt-3 rounded-xl border border-sky-100 bg-sky-50/80 p-3">
             <button
               type="button"

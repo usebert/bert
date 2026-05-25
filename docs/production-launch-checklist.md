@@ -57,6 +57,59 @@ Warnings (logged only, do not block boot):
 - [ ] Persistent disk or equivalent for `.sessions/` (OAuth token + invite store) until replaced by managed storage
 - [ ] Health/readiness checks wired to `/api/health` and `/api/readiness` as appropriate for your orchestrator
 
+## Final role smoke test (hosted SPA + tablet)
+
+Run on the production build (`VITE_API_BASE_URL=https://api.usebert.co.uk`, no demo/debug env flags).
+
+| Role | Primary nav | Must not see |
+|------|-------------|--------------|
+| **Master** | Dashboard, Platform Setup, Companies, Company Onboarding, Users & Invites, Templates, Reports / Diagnostics, Tablet / Kiosk | — |
+| **Company Admin** | Dashboard, Workspace, Users & Invites, Forms & Checks, Reports | Platform Setup, Companies, Godmode, Load Demo Data (unless debug build) |
+| **Manager** | Dashboard, Forms & Checks, Reports, Team | Platform Setup, Godmode, Companies, Users & Invites (full admin), dangerous platform actions |
+| **Auditor** | Today, My Checks, Submit, History; **More** = account / log out only | Platform Setup, admin/sync-centre/setup language, QR/register/dashboard on Submit, blank My Checks (empty state + cards when assigned) |
+
+- [ ] **Master**: sign in → Dashboard → Platform Setup → Initial Setup; Pilot health on Dashboard and Reports / Diagnostics
+- [ ] **Company Admin**: no Platform Setup nav; `/setup` and `/setup/initial` show “Setup is not available”
+- [ ] **Manager**: operational nav only; no Platform Setup; Team invites work; no Godmode or seed tools in UI
+- [ ] **Auditor (web)**: History opens **Your submissions** (not Sync Centre); Submit is report form only
+- [ ] **Auditor (tablet APK)**: same nav; sign-in has no demo/debug chrome; build badge visible on native sign-in
+
+## Tablet APK smoke test
+
+- [ ] Build with `npm run android:apk:pilot:release` (or debug sideload script); confirm monotonic build number on sign-in
+- [ ] Install on pilot tablet; sign in as Auditor and Company Admin smoke paths above
+- [ ] Cookie auth works against `https://api.usebert.co.uk` (no CORS errors in WebView)
+- [ ] Rebuild APK only when `android/` native assets or Capacitor config change (web-only deploys use SPA host)
+
+## Android CORS origins
+
+API **`BERT_ALLOWED_ORIGINS`** must include every document origin the app uses:
+
+- [ ] `https://app.usebert.co.uk` (and `https://bert-app.onrender.com` if used)
+- [ ] `capacitor://localhost` (Capacitor WebView default)
+- [ ] `http://localhost:5173` and `http://localhost:4173` (local Vite dev/preview only — omit from production if unused)
+
+After env change, redeploy API and confirm credentialed `POST /api/auth/master/login` from SPA and from the APK WebView.
+
+## Google persistence check
+
+- [ ] Connect Google from Master Initial Setup; reload SPA — session still connected
+- [ ] API redeploy with persistent `BERT_SESSIONS_DIR` — OAuth tokens and `master-operators.json` survive
+- [ ] `GET /api/readiness` → `googleConfigured` / Drive checks match operator expectation
+
+## Invite lifecycle check
+
+- [ ] Company onboarding email (or manual link) → recipient completes form → workspace appears for Admin
+- [ ] Company user invite email → open link → set password → **company sheet** Users + `UserAuth.<email>` updated
+- [ ] Resend invite reuses token and sends mail (or shows manual fallback without SMTP)
+- [ ] **Setup incomplete** row can be cleared and re-invited; recipient can retry the link when API Google is connected
+
+## Remove-user check
+
+- [ ] Remove / revoke user in Users & Invites removes row from UI
+- [ ] Incomplete invite can be revoked; active user shows clear message (not silent failure)
+- [ ] Removed user cannot sign in with old password; re-invite path works if they return
+
 ## Smoke after deploy
 
 - [ ] `GET /api/health` → `ok: true`, expected `googleEnvConfigured`

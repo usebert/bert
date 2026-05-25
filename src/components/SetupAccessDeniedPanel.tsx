@@ -15,8 +15,8 @@ export function SetupAccessDeniedPanel({
       <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">Not authorized</p>
       <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-900">Setup is not available</h2>
       <p className="mt-2 text-sm leading-6 text-slate-600">
-        Setup is only available to the BERT platform owner. Company admins and field users should use Dashboard,
-        Companies, Users, and Invites for workspace work.
+        Platform setup is only available to the BERT platform owner. Use your usual Dashboard, Workspace, or field
+        menus for day-to-day work.
       </p>
       <button
         type="button"

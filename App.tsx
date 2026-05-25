@@ -8201,6 +8201,14 @@ function App() {
     }
     if (
       currentUser &&
+      screen === "sync" &&
+      !canCompleteAuditAsAuditor(currentUser.role) &&
+      !canViewSyncCentre(currentUser.role)
+    ) {
+      setScreen(getHomeScreenForRole(currentUser.role));
+    }
+    if (
+      currentUser &&
       screen === "complete" &&
       !activeAudit &&
       !(canCompleteAuditAsAuditor(currentUser.role) && auditCompletionSummary)
@@ -8408,27 +8416,29 @@ function App() {
                     <circle cx="12" cy="16.8" r="0.8" fill="currentColor" stroke="none" />
                   </svg>
                 </button>
-                <button
-                  type="button"
-                  title="Workspace setup (Master only)"
-                  aria-label="Company setup sign-in for workspace setup (Master)"
-                  onClick={() => {
-                    try {
-                      const url = new URL(window.location.href);
-                      url.searchParams.set("setup", "master");
-                      window.history.pushState({}, "", url.toString());
-                    } catch {
-                      window.history.pushState({}, "", "?setup=master");
-                    }
-                    setCompanySetupLoginPortal(true);
-                  }}
-                  className="rounded-full border border-slate-700/90 bg-slate-900/60 p-1.5 text-slate-400 transition hover:border-orange-400/55 hover:text-orange-300"
-                >
-                  <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="2">
-                    <path d="M12 3l7 4v5c0 4-2.5 7.5-7 8.5-4.5-1-7-4.5-7-8.5V7z" />
-                    <path d="M12 11v3M12 8h.01" strokeLinecap="round" />
-                  </svg>
-                </button>
+                {isDebugUiAllowed() ? (
+                  <button
+                    type="button"
+                    title="Workspace setup (Master only)"
+                    aria-label="Company setup sign-in for workspace setup (Master)"
+                    onClick={() => {
+                      try {
+                        const url = new URL(window.location.href);
+                        url.searchParams.set("setup", "master");
+                        window.history.pushState({}, "", url.toString());
+                      } catch {
+                        window.history.pushState({}, "", "?setup=master");
+                      }
+                      setCompanySetupLoginPortal(true);
+                    }}
+                    className="rounded-full border border-slate-700/90 bg-slate-900/60 p-1.5 text-slate-400 transition hover:border-orange-400/55 hover:text-orange-300"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="2">
+                      <path d="M12 3l7 4v5c0 4-2.5 7.5-7 8.5-4.5-1-7-4.5-7-8.5V7z" />
+                      <path d="M12 11v3M12 8h.01" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                ) : null}
                 {isDebugUiAllowed() ? (
                   <button
                     type="button"
@@ -9347,7 +9357,7 @@ function App() {
               />
             )}
 
-            {screen === "reports" && (
+            {screen === "reports" && canAccessReports(currentUser.role) && (
               <ReportsScreen
                 currentUserRole={currentUser.role}
                 compliance={compliance}

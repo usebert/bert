@@ -91,7 +91,7 @@ export function TabletKioskGodmodePanel({ slatePrimaryCtaInteract, onChanged }: 
 
       <p className="mt-3 text-xs leading-5 text-amber-900 rounded-2xl border border-amber-100 bg-amber-50/80 px-3 py-2">
         App code cannot fully block Android Home, Recents, or Settings. For true OS lockdown use Screen Pinning,
-        Android Enterprise / MDM kiosk, or Device Owner provisioning (see deployment runbook).
+        Android Enterprise / MDM kiosk, or Device Owner provisioning (see docs/deployment-runbook.md).
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-700">

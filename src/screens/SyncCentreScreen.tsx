@@ -82,7 +82,7 @@ export function SyncCentreScreen({
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-slate-900">{item.itemType}</p>
-                  <p className="mt-1 text-xs text-slate-500">Local ID: {item.localId}</p>
+                  <p className="mt-1 text-xs text-slate-500">Reference: {item.localId}</p>
                   <p className="mt-1 text-xs text-slate-500">
                     Created {item.createdAt}
                     {item.attemptedAt ? ` · Last attempt ${item.attemptedAt}` : ""} · Updated {item.updatedAt}
