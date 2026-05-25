@@ -53,7 +53,10 @@ export function AuditorTaskDashboard({
     [assignedAudits, drafts],
   );
   const todaysChecks = useMemo(
-    () => sortedAudits.filter((audit) => audit.dueHours >= 0 && audit.dueHours <= 24),
+    () =>
+      sortedAudits.filter(
+        (audit) => audit.dueLabel === "Available" || (audit.dueHours >= 0 && audit.dueHours <= 24),
+      ),
     [sortedAudits],
   );
   const displayChecks = todaysChecks.length > 0 ? todaysChecks : sortedAudits;

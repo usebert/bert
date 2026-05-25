@@ -2,7 +2,7 @@ import type { Role } from "../permissions";
 import type { Audit, AuditStatus, ScheduleDay, ScheduleFrequency } from "./reportsScreenProps";
 import type { AuditDraft, User } from "./dashboardScreenProps";
 
-export type AuditAccessLevel = "Full access" | "Oversight" | "Complete" | "No access";
+export type AuditAccessLevel = "Full access" | "Oversight" | "Can complete" | "Complete" | "No access";
 
 export type AuditAccessMatrixCell = {
   auditId: string;

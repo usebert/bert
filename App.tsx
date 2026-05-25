@@ -100,6 +100,12 @@ import {
 } from "./src/components/dashboard/DashboardPrimitives";
 import { clearCompanyLoginHintForEmail, readCompanyLoginHint, saveCompanyLoginHint } from "./src/lib/companyLoginHint";
 import { pickNextAuditorAudit } from "./src/utils/auditorDashboard";
+import {
+  buildAvailableAuditFromTemplate,
+  isAuditorCompletableAccess,
+  normalizeAuditAccessLevel,
+  resolveCurrentUserReportEmails,
+} from "./src/utils/auditAccess";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
 import { getNextBestAction } from "./src/utils/nextBestAction";
 import type { DashboardSummaryForNextAction, NextBestActionIntent } from "./src/utils/nextBestAction";
@@ -554,7 +560,7 @@ type OfflineSubmission = {
   submittedBy: string;
 };
 
-type AuditAccessLevel = "Full access" | "Oversight" | "Complete" | "No access";
+type AuditAccessLevel = "Full access" | "Oversight" | "Can complete" | "Complete" | "No access";
 
 type AuditAccessMatrixCell = {
   auditId: string;
@@ -3387,7 +3393,7 @@ function App() {
     const invited = invitedUsers.map((invite) => ({
       username: invite.email.toLowerCase(),
       email: invite.email,
-      name: invite.email,
+      name: invite.email.split("@")[0] || invite.email,
       role: invite.role,
     }));
     const merged = [...seededUsers, ...invited];
@@ -3586,35 +3592,13 @@ function App() {
     if (!currentUser) {
       return { allowedAuditIds: new Set<string>(), allowedAuditNames: new Set<string>() };
     }
-    const normalizedName = normalizeIdentity(currentUser.name);
-    const normalizedUsername = normalizeIdentity(currentUser.username);
-    const normalizedDefaultEmail = normalizeIdentity(`${currentUser.username}@usebert.co.uk`);
-    const legacyDefaultEmail = normalizeIdentity(`${currentUser.username}@qmsprecast.co.uk`);
-    const matchingEmails = new Set(
-      companyReportUsers
-        .filter((user) => {
-          const userName = normalizeIdentity(user.name);
-          const userEmail = normalizeIdentity(user.email);
-          const userEmailLocalPart = normalizeIdentity(user.email.split("@")[0]);
-          const userUsername = normalizeIdentity(user.username || "");
-          return (
-            userName === normalizedName ||
-            userEmail === normalizedDefaultEmail ||
-            userEmail === legacyDefaultEmail ||
-            userEmailLocalPart === normalizedUsername ||
-            userUsername === normalizedUsername
-          );
-        })
-        .map((user) => normalizeIdentity(user.email)),
-    );
-    matchingEmails.add(normalizedDefaultEmail);
-    matchingEmails.add(legacyDefaultEmail);
+    const matchingEmails = resolveCurrentUserReportEmails(currentUser, companyReportUsers);
 
     const allowedAuditIds = new Set<string>();
     Object.entries(auditAccessOverrides).forEach(([key, access]) => {
       const [email, auditId] = key.split("::");
       if (!email || !auditId) return;
-      if (access === "No access") return;
+      if (!isAuditorCompletableAccess(access)) return;
       if (!matchingEmails.has(normalizeIdentity(email))) return;
       allowedAuditIds.add(auditId);
     });
@@ -3628,6 +3612,20 @@ function App() {
     return { allowedAuditIds, allowedAuditNames };
   }, [currentUser, companyReportUsers, auditAccessOverrides, availableScheduleAudits]);
 
+  const resolveAccessibleAuditSiteArea = () => {
+    if (selectedSite?.name) {
+      return selectedSite.name;
+    }
+    if (currentUserAssignedSiteIds?.size) {
+      const assignedSite = sites.find((site) => currentUserAssignedSiteIds.has(site.id) && site.active);
+      if (assignedSite?.name) {
+        return assignedSite.name;
+      }
+    }
+    const firstActiveSite = sites.find((site) => site.active);
+    return firstActiveSite?.name || "Main site";
+  };
+
   const assignedAudits = useMemo(() => {
     if (!currentUser) {
       return siteScopedAudits.filter((audit) => !isAuditCompleted(audit));
@@ -3635,14 +3633,53 @@ function App() {
     if (canAccessAdmin(currentUser.role) || currentUser.role === "Manager") {
       return siteScopedAudits.filter((audit) => !isAuditCompleted(audit));
     }
-    return siteScopedAudits.filter((audit) => {
+    const base = siteScopedAudits.filter((audit) => {
       if (isAuditCompleted(audit)) return false;
       if (audit.owner === currentUser.name) return true;
       if (currentUserAuditAccess.allowedAuditIds.has(audit.id)) return true;
       if (currentUserAuditAccess.allowedAuditNames.has(audit.name)) return true;
       return false;
     });
-  }, [siteScopedAudits, currentUser, currentUserAuditAccess]);
+
+    if (!canCompleteAuditAsAuditor(currentUser.role)) {
+      return base;
+    }
+
+    const siteArea = resolveAccessibleAuditSiteArea();
+    const extras: Audit[] = [];
+    availableScheduleAudits.forEach((option) => {
+      const hasAccess =
+        currentUserAuditAccess.allowedAuditIds.has(option.id) ||
+        currentUserAuditAccess.allowedAuditNames.has(option.name);
+      if (!hasAccess) {
+        return;
+      }
+      const hasInstance = base.some(
+        (audit) => audit.id === option.id || normalizeIdentity(audit.name) === normalizeIdentity(option.name),
+      );
+      if (hasInstance) {
+        return;
+      }
+      const template = templates.find(
+        (item) => item.active && (item.id === option.id || item.name === option.name),
+      );
+      if (!template) {
+        return;
+      }
+      extras.push(buildAvailableAuditFromTemplate(template, siteArea, currentUser.name));
+    });
+
+    return [...base, ...extras];
+  }, [
+    siteScopedAudits,
+    currentUser,
+    currentUserAuditAccess,
+    availableScheduleAudits,
+    templates,
+    selectedSite,
+    sites,
+    currentUserAssignedSiteIds,
+  ]);
 
   const dashboardNextActionInput = useMemo((): DashboardSummaryForNextAction | null => {
     if (!currentUser) return null;
@@ -3692,6 +3729,18 @@ function App() {
     }
     return assignedAudits.length === 0 && assignmentFilteredHistory.length === 0;
   }, [currentUser, assignedAudits.length, assignmentFilteredHistory.length]);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV || !currentUser || currentUser.role !== "Auditor") {
+      return;
+    }
+    console.debug("[audit-access] auditor visibility", {
+      username: currentUser.username,
+      allowedAuditIds: [...currentUserAuditAccess.allowedAuditIds],
+      assignedCount: assignedAudits.length,
+      assignedNames: assignedAudits.map((audit) => audit.name),
+    });
+  }, [currentUser, currentUserAuditAccess, assignedAudits]);
 
   const openIncidentFollowUpsCount = useMemo(
     () => incidentActions.filter((item) => item.status !== "Complete").length,
@@ -3800,7 +3849,7 @@ function App() {
           access = "Oversight";
           detail = "View, assign, verify";
         } else if (scheduledAssignments.length > 0 || directAuditAssignments.length > 0) {
-          access = "Complete";
+          access = "Can complete";
           detail =
             scheduledAssignments.length > 0
               ? `${scheduledAssignments.length} live schedule${scheduledAssignments.length === 1 ? "" : "s"}`
@@ -3809,8 +3858,8 @@ function App() {
 
         const override = auditAccessOverrides[buildAuditAccessOverrideKey(user.email, auditOption.id)];
         if (override) {
-          access = override;
-          detail = `Manual override: ${override}`;
+          access = normalizeAuditAccessLevel(override);
+          detail = `Manual override: ${access}`;
         }
 
         return {
@@ -3833,13 +3882,40 @@ function App() {
   }, [companyReportUsers, availableScheduleAudits, managedSchedules, selectedFolderId, audits, auditAccessOverrides]);
 
   const handleToggleAuditAccess = (email: string, auditId: string, currentAccess: AuditAccessLevel) => {
-    const cycleOrder: AuditAccessLevel[] = ["No access", "Complete", "Oversight", "Full access"];
-    const currentIndex = cycleOrder.indexOf(currentAccess);
+    const cycleOrder: AuditAccessLevel[] = ["No access", "Can complete", "Oversight", "Full access"];
+    const normalizedCurrent = normalizeAuditAccessLevel(currentAccess);
+    const currentIndex = cycleOrder.indexOf(normalizedCurrent);
     const nextAccess = cycleOrder[(currentIndex + 1) % cycleOrder.length];
     setAuditAccessOverrides((current) => ({
       ...current,
       [buildAuditAccessOverrideKey(email, auditId)]: nextAccess,
     }));
+
+    const auditName = availableScheduleAudits.find((option) => option.id === auditId)?.name || "This audit";
+    const hasLiveSchedule = Boolean(auditScheduleMatrix[auditId]);
+    if (nextAccess === "No access") {
+      pushToast("Access removed", `${auditName} will no longer appear in this user's My Checks.`, "neutral");
+    } else if (isAuditorCompletableAccess(nextAccess)) {
+      pushToast(
+        "Access updated",
+        hasLiveSchedule
+          ? `This user will see ${auditName} in My Checks when it is due on the live schedule.`
+          : `This user will see ${auditName} in My Checks as an available check. Add a live schedule to set due dates.`,
+        "success",
+      );
+    } else {
+      pushToast("Access updated", `${email} now has oversight access for ${auditName}.`, "neutral");
+    }
+
+    if (import.meta.env.DEV) {
+      console.debug("[audit-access] toggle", {
+        email,
+        auditId,
+        from: normalizedCurrent,
+        to: nextAccess,
+        hasLiveSchedule,
+      });
+    }
   };
 
   const getSelectedManagersForAudit = (auditId: string) => {
@@ -6066,7 +6142,20 @@ function App() {
   };
 
   const startAudit = (auditId: string) => {
-    const audit = audits.find((item) => item.id === auditId);
+    let audit = audits.find((item) => item.id === auditId);
+    if (!audit) {
+      const template = templates.find((item) => item.id === auditId && item.active);
+      if (template) {
+        const siteArea = selectedSite?.name || sites.find((site) => site.active)?.name || "Main site";
+        audit = buildAvailableAuditFromTemplate(template, siteArea, currentUser?.name || template.name);
+        setAudits((current) => {
+          if (current.some((item) => item.id === auditId || normalizeIdentity(item.name) === normalizeIdentity(template.name))) {
+            return current;
+          }
+          return [audit!, ...current];
+        });
+      }
+    }
     if (!audit) {
       return;
     }

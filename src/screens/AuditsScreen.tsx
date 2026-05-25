@@ -73,7 +73,7 @@ function accessMatrixChipClasses(access: AuditAccessLevel): { button: string; la
       label: "text-sky-700",
     };
   }
-  if (access === "Complete") {
+  if (access === "Can complete" || access === "Complete") {
     return {
       button: "border-blue-200 bg-blue-50 hover:bg-blue-100/80",
       label: "text-blue-800",
@@ -174,7 +174,7 @@ function AccessMatrixTable({
                         className={["w-full rounded-lg border px-2 py-1.5 text-left transition", "cursor-pointer", chip.button].join(" ")}
                       >
                         <p className={["text-[10px] font-semibold uppercase tracking-[0.12em]", chip.label].join(" ")}>
-                          {cell.access}
+                          {cell.access === "Complete" ? "Can complete" : cell.access}
                         </p>
                         <p className="mt-0.5 text-[9px] font-semibold text-slate-400">Tap to change</p>
                       </button>
@@ -186,7 +186,21 @@ function AccessMatrixTable({
             </tbody>
           </table>
           <div className="border-t border-slate-200 bg-slate-50 p-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Schedule mapping</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Access levels</p>
+            <ul className="mt-2 space-y-1 text-xs text-slate-600">
+              <li>
+                <span className="font-semibold text-slate-800">No access</span> — cannot open this check in My Checks.
+              </li>
+              <li>
+                <span className="font-semibold text-slate-800">Can complete</span> — can run and submit this check when it is
+                due or listed as available.
+              </li>
+              <li>
+                <span className="font-semibold text-slate-800">Full access</span> — same as Can complete for field checks;
+                includes full visibility for this audit.
+              </li>
+            </ul>
+            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Schedule mapping</p>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               {visibleMatrixAuditColumns.map((audit) => {
                 const schedule = auditScheduleMatrix[audit.auditId];
@@ -353,37 +367,70 @@ function AuditorChecksList({
     );
   }
 
+  const dueToday = sorted.filter((audit) => audit.dueLabel !== "Available" && audit.dueHours >= 0 && audit.dueHours <= 24);
+  const availableChecks = sorted.filter((audit) => audit.dueLabel === "Available");
+  const otherChecks = sorted.filter(
+    (audit) => audit.dueLabel !== "Available" && !(audit.dueHours >= 0 && audit.dueHours <= 24),
+  );
+
+  const renderAuditRow = (audit: Audit) => {
+    const inProgress = Boolean(drafts[audit.id]);
+    const status =
+      audit.dueLabel === "Available"
+        ? "Available"
+        : inProgress
+          ? "In progress"
+          : audit.dueHours < 0
+            ? "Overdue"
+            : getAuditTrafficStatus(audit.dueHours);
+    return (
+      <li
+        key={audit.id}
+        className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200/90 bg-white px-4 py-4 shadow-sm sm:flex-nowrap"
+      >
+        <div className="min-w-0 flex-1">
+          <p className="text-base font-semibold text-slate-900">{audit.name}</p>
+          <p className="mt-1 text-sm text-slate-600">
+            {status} · {audit.dueLabel === "Available" ? "Ready to start" : getDueWarning(audit.dueHours)}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onOpenAudit(audit.id)}
+          className={[
+            "min-h-[2.75rem] shrink-0 rounded-full px-5 py-2 text-sm font-semibold transition active:scale-[0.98]",
+            theme.primaryButton,
+            theme.primaryButtonHover,
+          ].join(" ")}
+        >
+          {inProgress ? "Continue" : "Start"}
+        </button>
+      </li>
+    );
+  };
+
   return (
-    <ul className="space-y-3">
-      {sorted.map((audit) => {
-        const inProgress = Boolean(drafts[audit.id]);
-        const status = inProgress ? "In progress" : audit.dueHours < 0 ? "Overdue" : getAuditTrafficStatus(audit.dueHours);
-        return (
-          <li
-            key={audit.id}
-            className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200/90 bg-white px-4 py-4 shadow-sm sm:flex-nowrap"
-          >
-            <div className="min-w-0 flex-1">
-              <p className="text-base font-semibold text-slate-900">{audit.name}</p>
-              <p className="mt-1 text-sm text-slate-600">
-                {status} · {getDueWarning(audit.dueHours)}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => onOpenAudit(audit.id)}
-              className={[
-                "min-h-[2.75rem] shrink-0 rounded-full px-5 py-2 text-sm font-semibold transition active:scale-[0.98]",
-                theme.primaryButton,
-                theme.primaryButtonHover,
-              ].join(" ")}
-            >
-              {inProgress ? "Continue" : "Start"}
-            </button>
-          </li>
-        );
-      })}
-    </ul>
+    <div className="space-y-5">
+      {dueToday.length > 0 ? (
+        <section>
+          <p className="text-sm font-semibold text-slate-900">Due today</p>
+          <ul className="mt-3 space-y-3">{dueToday.map(renderAuditRow)}</ul>
+        </section>
+      ) : null}
+      {availableChecks.length > 0 ? (
+        <section>
+          <p className="text-sm font-semibold text-slate-900">Available checks</p>
+          <p className="mt-1 text-xs text-slate-500">Granted by your admin — start when you are ready.</p>
+          <ul className="mt-3 space-y-3">{availableChecks.map(renderAuditRow)}</ul>
+        </section>
+      ) : null}
+      {otherChecks.length > 0 ? (
+        <section>
+          <p className="text-sm font-semibold text-slate-900">Other assigned checks</p>
+          <ul className="mt-3 space-y-3">{otherChecks.map(renderAuditRow)}</ul>
+        </section>
+      ) : null}
+    </div>
   );
 }
 
