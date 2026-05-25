@@ -284,7 +284,7 @@ export function OperationalDashboardCards({
         {!hasAttentionContent ? (
           <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-3 py-3 text-xs leading-relaxed text-slate-600">
             <span className="font-semibold text-slate-800">You are caught up on urgent risk.</span> When audits slip or actions go overdue, they will appear here with owners and due dates so you can respond calmly.
-            {dev ? <span className="mt-2 block text-[10px] text-slate-400">Dev: connect data or load demo from Admin tools to populate rows.</span> : null}
+            {dev ? <span className="mt-2 block text-[10px] text-slate-400">Dev: connect data or load sample data from Admin tools to populate rows.</span> : null}
           </p>
         ) : needsAttentionSummary ? (
           <AttentionSummaryBody summary={needsAttentionSummary} onViewAllNeedsAttention={onViewAllNeedsAttention} />

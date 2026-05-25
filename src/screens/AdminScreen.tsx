@@ -782,14 +782,14 @@ export function AdminScreen({
               onClick={onLoadDemoData}
               className="h-11 rounded-xl border border-sky-200 bg-white px-4 text-sm font-semibold text-sky-900 shadow-sm"
             >
-              Load Demo Data
+              Load sample data
             </button>
             <button
               type="button"
               onClick={onClearDemoData}
               className="ml-2 h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm"
             >
-              Clear Demo Data
+              Clear sample data
             </button>
             <p className="mt-2 text-xs text-slate-600">
               Inserts realistic precast H&amp;S sample audits, CAPAs, and sync items in this tablet only — it does not write to linked Google Sheets.
@@ -838,21 +838,21 @@ export function AdminScreen({
       {currentUser.role === "Master" && !hideMasterLocalDemoTools && masterDemoToolsVisible && (
         <section className="rounded-2xl border border-sky-200 bg-sky-50/90 p-4 shadow-sm">
           <p className="text-sm font-semibold text-sky-950">Local review data</p>
-          <p className="mt-1 text-xs text-sky-900/85">Optional sample payloads for demos — stored on this device only; does not write to linked Google Sheets.</p>
+          <p className="mt-1 text-xs text-sky-900/85">Optional sample payloads for walkthroughs and pilots — stored on this device only; does not write to linked Google Sheets.</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
               onClick={onLoadDemoData}
               className="h-11 rounded-xl border border-sky-200 bg-white px-4 text-sm font-semibold text-sky-900 shadow-sm"
             >
-              Load Demo Data
+              Load sample data
             </button>
             <button
               type="button"
               onClick={onClearDemoData}
               className="h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm"
             >
-              Clear Demo Data
+              Clear sample data
             </button>
           </div>
         </section>
@@ -965,7 +965,7 @@ export function AdminScreen({
       {isOnboardingScreen && !isDebugUiAllowed() ? (
         <section className={pilotLightSurface}>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm text-slate-600">Optional tools for demos and local review data.</p>
+            <p className="text-sm text-slate-600">Optional tools for pilots and local review data.</p>
             <button
               type="button"
               onClick={() => setShowOnboardingAdvancedTools((open) => !open)}

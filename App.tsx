@@ -5573,7 +5573,7 @@ function App() {
 
     if (isDemoLoginEnabled && users.length === 0 && !DEMO_USER_PASSWORD && !GODMODE_PASSWORD) {
       pushToast(
-        "Demo sign-in not configured",
+        "Test sign-in not configured",
         "Add VITE_DEMO_USER_PASSWORD (and optional VITE_GODMODE_PASSWORD) to .env.local, then restart npm run dev. Or sign in with a seeded Master email via npm run dev:full.",
         "warning",
       );
@@ -7871,7 +7871,7 @@ function App() {
     setSelectedFolderId(demoFolder.id);
     setSyncState("Synced");
     setScreen(getHomeScreenForRole(currentUser?.role || "Admin"));
-    pushToast("Demo data loaded", "Realistic precast demo data is now active for review.", "success");
+    pushToast("Sample data loaded", "Realistic precast sample data is now active for review.", "success");
   };
 
   const handleClearDemoData = () => {
@@ -7890,7 +7890,7 @@ function App() {
     setTemplates((current) => current.filter((template) => !template.id.startsWith("template-demo-")));
     setCompanySheetSync((current) => (current?.sheetId === "demo-master-sheet" ? null : current));
     setScreen(getHomeScreenForRole(currentUser?.role || "Admin"));
-    pushToast("Demo data cleared", "Demo-only records were removed from this tablet.", "neutral");
+    pushToast("Sample data cleared", "Training-only records were removed from this tablet.", "neutral");
   };
 
   const handleOneClickGoogleOnboarding = async () => {
@@ -8999,7 +8999,7 @@ function App() {
                           </>
                         ) : (
                           <>
-                            Demo: you may use username <span className="font-semibold text-white">{GOD_MODE_USERNAME}</span> with{" "}
+                            Dev test sign-in: use username <span className="font-semibold text-white">{GOD_MODE_USERNAME}</span> with{" "}
                             <span className="font-semibold text-white">VITE_GODMODE_PASSWORD</span>, or a seeded Master email with server
                             login.
                           </>
@@ -9007,7 +9007,7 @@ function App() {
                       </p>
                       {!isDemoLoginEnabled && !loginUsers.some((user) => user.role === "Master") && isDebugUiAllowed() ? (
                         <p className="mt-2 rounded-xl border border-amber-500/40 bg-amber-950/40 px-3 py-2 text-[11px] leading-snug text-amber-50 sm:text-xs">
-                          No client-side Master demo user is bundled. Seed the Master operator on the API host, then sign in here with that
+                          No client-side Master test user is bundled. Seed the Master operator on the API host, then sign in here with that
                           email or username and password.
                         </p>
                       ) : null}
@@ -9160,7 +9160,7 @@ function App() {
                     <h2 className="text-center text-base font-semibold text-white sm:text-lg">Sign in to your account</h2>
                     {isDemoLoginEnabled ? (
                       <p className="mt-2 rounded-xl border border-white/10 bg-slate-950/35 px-3 py-2 text-xs text-slate-300 sm:text-sm">
-                        Demo accounts: <span className="font-semibold text-white">admin</span>,{" "}
+                        Test accounts: <span className="font-semibold text-white">admin</span>,{" "}
                         <span className="font-semibold text-white">manager</span>,{" "}
                         <span className="font-semibold text-white">tom</span>,{" "}
                         <span className="font-semibold text-white">{GOD_MODE_USERNAME}</span> — set passwords in{" "}
@@ -9174,7 +9174,7 @@ function App() {
                     )}
                     {!isDemoLoginEnabled && loginUsers.length === 0 && isDebugUiAllowed() ? (
                       <p className="mt-2 rounded-xl border border-amber-500/40 bg-amber-950/40 px-3 py-2 text-[11px] leading-snug text-amber-50 sm:text-xs">
-                        No sign-in accounts are available in this build (demo accounts are off, and no invites are loaded). For local
+                        No sign-in accounts are available in this build (test accounts are off, and no invites are loaded). For local
                         testing use <span className="font-semibold">npm run dev</span>, or rebuild with{" "}
                         <span className="font-semibold">VITE_ENABLE_DEMO_LOGIN=true</span>. Otherwise use an invited email and the
                         password your administrator issued once onboarding is connected.
@@ -9509,7 +9509,7 @@ function App() {
                   </select>
                 ) : null}
                 {isDebugUiAllowed() && demoModeActive ? (
-                  <span className="rounded-full bg-sky-500/12 px-2 py-0.5 font-semibold text-sky-700">Demo</span>
+                  <span className="rounded-full bg-sky-500/12 px-2 py-0.5 font-semibold text-sky-700">Training</span>
                 ) : null}
                 <span className="sr-only">{roleLabel}</span>
               </div>

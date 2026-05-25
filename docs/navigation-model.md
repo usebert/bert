@@ -67,6 +67,10 @@ Defined in `src/config/sectionIntros.ts` and shown via `SectionIntro` on major s
 
 `PilotHealthPanel` on the Master dashboard and **Reports / Diagnostics** calls `/api/health`, `/api/readiness`, `/api/google/status`, and `/api/invites/smtp/status` — no extra backend routes.
 
+## Local sample data (debug / advanced only)
+
+**Load sample data** and **Clear sample data** (Master Platform Setup / Company Onboarding advanced, or Company Admin when `VITE_SHOW_DEBUG_UI` is on) insert isolated precast HSE sample audits on the device only. They do not write to linked Google Sheets. Production pilot builds omit these controls unless debug UI is explicitly enabled.
+
 ## Customising nav
 
 1. Adjust order/labels in `roleNavigation.ts` for the role bucket.

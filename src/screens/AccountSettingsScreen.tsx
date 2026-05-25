@@ -122,7 +122,7 @@ export function AccountSettingsScreen({
                 >
                   <p className="text-sm font-semibold">{mode === "light" ? "Light mode" : "Dark mode"}</p>
                   <p className={["mt-1 text-xs leading-5", selected ? "text-slate-300" : "text-slate-500"].join(" ")}>
-                    {mode === "light" ? "Bright interface for daylight and clean demos." : "Lower-glare interface for darker settings and a sharper look."}
+                    {mode === "light" ? "Bright interface for daylight and site trials." : "Lower-glare interface for darker settings and a sharper look."}
                   </p>
                 </button>
               );

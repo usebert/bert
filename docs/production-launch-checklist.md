@@ -1,6 +1,6 @@
 # BERT production launch checklist (Phase 1 foundation)
 
-This checklist complements the API **production environment validation** added in `server/server.mjs`. Use it before promoting a build from controlled demo to hosted pilot or broader launch. For **paid pilot hosting** (domains, env, Google, email, first deploy), see **`docs/deployment-runbook.md`**.
+This checklist complements the API **production environment validation** added in `server/server.mjs`. Use it before promoting a build from a controlled sandbox to hosted pilot or broader launch. For **paid pilot hosting** (domains, env, Google, email, first deploy), see **`docs/deployment-runbook.md`**.
 
 ## API probes
 
@@ -61,12 +61,12 @@ Warnings (logged only, do not block boot):
 
 ## Final role smoke test (hosted SPA + tablet)
 
-Run on the production build (`VITE_API_BASE_URL=https://api.usebert.co.uk`, no demo/debug env flags).
+Run on the production build (`VITE_API_BASE_URL=https://api.usebert.co.uk`, no debug env flags or `VITE_ENABLE_DEMO_LOGIN`).
 
 | Role | Primary nav | Must not see |
 |------|-------------|--------------|
 | **Master** | Dashboard, Platform Setup, Companies, Company Onboarding, Users & Invites, Templates, Reports / Diagnostics, Tablet / Kiosk | — |
-| **Company Admin** | Dashboard, Workspace, Users & Invites, Forms & Checks, Reports | Platform Setup, Companies, Godmode, Load Demo Data (unless debug build) |
+| **Company Admin** | Dashboard, Workspace, Users & Invites, Forms & Checks, Reports | Platform Setup, Companies, Godmode, Load sample data (unless debug build) |
 | **Manager** | Dashboard, Forms & Checks, Reports, Team | Platform Setup, Godmode, Companies, Users & Invites (full admin), dangerous platform actions |
 | **Auditor** | Today, My Checks, Submit, History; **More** = account / log out only | Platform Setup, admin/sync-centre/setup language, QR/register/dashboard on Submit, blank My Checks (empty state + cards when assigned) |
 
@@ -74,7 +74,7 @@ Run on the production build (`VITE_API_BASE_URL=https://api.usebert.co.uk`, no d
 - [ ] **Company Admin**: no Platform Setup nav; `/setup` and `/setup/initial` show “Setup is not available”
 - [ ] **Manager**: operational nav only; no Platform Setup; Team invites work; no Godmode or seed tools in UI
 - [ ] **Auditor (web)**: History opens **Your submissions** (not Sync Centre); Submit is report form only
-- [ ] **Auditor (tablet APK)**: same nav; sign-in has no demo/debug chrome; build badge visible on native sign-in
+- [ ] **Auditor (tablet APK)**: same nav; sign-in has no debug chrome; build badge visible on native sign-in
 
 ## Tablet APK smoke test
 
