@@ -4,7 +4,9 @@ import { canAccessAdmin, canAccessAdminOnboardingWorkspace, getRoleDisplayName }
 import { EmptyPanel, MiniMetric, SectionHeader } from "../components/dashboard/DashboardPrimitives";
 import { SectionIntro } from "../components/SectionIntro";
 import { DangerActionButton } from "../components/DangerActionButton";
+import { UsersInvitesPilotPanel } from "../components/admin/UsersInvitesPilotPanel";
 import { InviteStatusLegend } from "../components/InviteStatusLegend";
+import { isDebugUiAllowed } from "../utils/debugUiVisibility";
 import { WhatHappensNextPanel } from "../components/WhatHappensNextPanel";
 import {
   formatInviteStatusLabel,
@@ -470,8 +472,13 @@ export function AdminScreen({
     (companySheetSync?.usersCount ?? 0) === 0 &&
     invitedUsers.length === 0;
   const isCompaniesScreen = pilotFocus === "companies" || pilotShellScreen === "companies";
+  const isUsersInvitesScreen = pilotFocus === "users" || pilotFocus === "invites";
   const isOnboardingScreen =
     pilotFocus === "onboarding" || pilotShellScreen === "onboarding" || standaloneOnboarding;
+  const usersInvitesPilotMode = isUsersInvitesScreen;
+  const workspaceSetupComplete = syncState === "Synced" && Boolean(selectedFolder);
+  const showAuditTemplateBuilder = !pilotFocus;
+  const pilotHeroLight = isCompaniesScreen || isOnboardingScreen || isUsersInvitesScreen;
   const pilotLightSurface = "rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm";
   const companyAdminShell = currentUser.role === "Admin";
   const onboardingPanelClass = companyAdminShell
@@ -487,10 +494,13 @@ export function AdminScreen({
     isOnboardingScreen ? "onboarding" : "overview",
   );
   const [showAdvancedOnboardingActions, setShowAdvancedOnboardingActions] = useState(false);
+  const [showOnboardingAdvancedTools, setShowOnboardingAdvancedTools] = useState(false);
+  const masterDemoToolsVisible =
+    isDebugUiAllowed() || showAdvancedOnboardingActions || (isOnboardingScreen && showOnboardingAdvancedTools);
   const [pendingAdminScrollTarget, setPendingAdminScrollTarget] = useState<string | null>(null);
   const onboardingMode =
-    isOnboardingScreen ||
-    (canAccessAdminOnboardingWorkspace(currentUser.role) && adminView === "onboarding");
+    !usersInvitesPilotMode &&
+    (isOnboardingScreen || (canAccessAdminOnboardingWorkspace(currentUser.role) && adminView === "onboarding"));
   useEffect(() => {
     if (pilotFocus === "onboarding") {
       setAdminView("onboarding");
@@ -501,8 +511,7 @@ export function AdminScreen({
       return;
     }
     if (pilotFocus === "users" || pilotFocus === "invites") {
-      setAdminView("onboarding");
-      setPendingAdminScrollTarget("admin-user-management");
+      setAdminView("overview");
     }
   }, [pilotFocus]);
   const godModeFullVisibility = currentUser.role === "Master";
@@ -582,34 +591,14 @@ export function AdminScreen({
   return (
     <div className="space-y-4">
       {pilotFocus ? (
-        <section
-          className={
-            isCompaniesScreen || isOnboardingScreen
-              ? pilotLightSurface
-              : "rounded-[1.75rem] bg-slate-950 px-5 py-4 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]"
-          }
-        >
-          <p
-            className={[
-              "text-xs font-semibold uppercase tracking-[0.3em]",
-              isCompaniesScreen || isOnboardingScreen ? "text-slate-500" : "text-slate-400",
-            ].join(" ")}
-          >
+        <section className={pilotHeroLight ? pilotLightSurface : "rounded-[1.75rem] bg-slate-950 px-5 py-4 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]"}>
+          <p className={["text-xs font-semibold uppercase tracking-[0.3em]", pilotHeroLight ? "text-slate-500" : "text-slate-400"].join(" ")}>
             {pilotTitles[pilotFocus].title}
           </p>
-          <h2
-            className={[
-              "mt-1 text-xl font-semibold tracking-tight",
-              isCompaniesScreen || isOnboardingScreen ? "text-slate-900" : "text-white",
-            ].join(" ")}
-          >
+          <h2 className={["mt-1 text-xl font-semibold tracking-tight", pilotHeroLight ? "text-slate-900" : "text-white"].join(" ")}>
             {pilotTitles[pilotFocus].title}
           </h2>
-          <SectionIntro
-            text={pilotTitles[pilotFocus].intro}
-            className="mt-2"
-            role={isCompaniesScreen || isOnboardingScreen ? "Master" : undefined}
-          />
+          <SectionIntro text={pilotTitles[pilotFocus].intro} className="mt-2" role={pilotHeroLight ? "Master" : undefined} />
         </section>
       ) : null}
 
@@ -665,6 +654,17 @@ export function AdminScreen({
             </ul>
           )}
           <p className="mt-3 text-xs leading-relaxed text-slate-600">{SECTION_INTROS.companiesInviteHelper}</p>
+          {!workspaceSetupComplete ? (
+            <details className="mt-4 rounded-2xl border border-amber-200 bg-amber-50/80 p-3">
+              <summary className="cursor-pointer text-sm font-semibold text-amber-950">Workspace setup status — incomplete</summary>
+              <p className="mt-2 text-sm text-amber-900/90">
+                One-time Google Drive linking and populate live in <span className="font-semibold">Company Onboarding</span>.
+                Users &amp; Invites is for access after setup.
+              </p>
+            </details>
+          ) : (
+            <p className="mt-3 text-xs font-semibold text-emerald-800">Workspace setup complete — manage users from Users &amp; Invites.</p>
+          )}
         </section>
       ) : null}
       {(!onboardingMode || godModeFullVisibility) && currentUser.role !== "Master" && !pilotFocus && (
@@ -734,7 +734,7 @@ export function AdminScreen({
         </section>
       )}
 
-      {currentUser.role === "Master" && !hideMasterLocalDemoTools && (
+      {currentUser.role === "Master" && !hideMasterLocalDemoTools && masterDemoToolsVisible && (
         <section className="rounded-2xl border border-sky-200 bg-sky-50/90 p-4 shadow-sm">
           <p className="text-sm font-semibold text-sky-950">Local review data</p>
           <p className="mt-1 text-xs text-sky-900/85">Optional sample payloads for demos — stored on this device only; does not write to linked Google Sheets.</p>
@@ -859,6 +859,21 @@ export function AdminScreen({
           </section>
         </div>
       )}
+
+      {isOnboardingScreen && !isDebugUiAllowed() ? (
+        <section className={pilotLightSurface}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-slate-600">Optional tools for demos and local review data.</p>
+            <button
+              type="button"
+              onClick={() => setShowOnboardingAdvancedTools((open) => !open)}
+              className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700"
+            >
+              {showOnboardingAdvancedTools ? "Hide advanced" : "Show advanced"}
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       {isOnboardingScreen ? (
         <section className={pilotLightSurface}>
@@ -1223,17 +1238,62 @@ export function AdminScreen({
         </div>
       )}
 
+      {usersInvitesPilotMode ? (
+        <UsersInvitesPilotPanel
+          currentUser={currentUser}
+          inviteEmailInput={inviteEmailInput}
+          inviteRoleInput={inviteRoleInput}
+          invitedUsers={invitedUsers}
+          reportUsers={reportUsers}
+          sites={sites}
+          selectedSiteId={selectedSiteId}
+          userSiteAssignments={userSiteAssignments}
+          creatableRoles={creatableRoles}
+          companyUserInviteEmailResult={companyUserInviteEmailResult}
+          companyUserInviteEmailSending={companyUserInviteEmailSending}
+          godModeFirstUserInvite={godModeFirstUserInvite}
+          workspaceSetupComplete={workspaceSetupComplete}
+          pilotEditableInput={pilotEditableInput}
+          pilotLightSurface={pilotLightSurface}
+          pilotLightNested={pilotLightNested}
+          notificationsEnabled={notificationsEnabled}
+          companySheetSync={companySheetSync}
+          workspaceValidation={workspaceValidation}
+          workspaceValidationLoading={workspaceValidationLoading}
+          syncState={syncState}
+          selectedFolder={selectedFolder}
+          folderInspection={folderInspection}
+          onInviteEmailChange={onInviteEmailChange}
+          onInviteRoleChange={onInviteRoleChange}
+          onInviteUser={onInviteUser}
+          onDismissCompanyUserInviteEmailResult={onDismissCompanyUserInviteEmailResult}
+          onResendInvite={onResendInvite}
+          onDeleteInvite={onDeleteInvite}
+          onRemoveCompanyUser={onRemoveCompanyUser}
+          onResyncUsers={onResyncUsers}
+          onSelectSite={onSelectSite}
+          onAddSite={onAddSite}
+          onArchiveSite={onArchiveSite}
+          onToggleUserSiteAssignment={onToggleUserSiteAssignment}
+          onRequestNotifications={onRequestNotifications}
+          onValidateWorkspace={onValidateWorkspace}
+          onRepairWorkspace={onRepairWorkspace}
+          CompanyUserInviteEmailResultPanel={CompanyUserInviteEmailResultPanel}
+          slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+        />
+      ) : null}
+
       {onboardingMode && (
         <>
           <section id="admin-user-management" className={onboardingPanelClass}>
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
                 <p className={["text-xs font-semibold uppercase tracking-[0.2em]", onboardingEyebrowClass].join(" ")}>
-                  {currentUser.role === "Master" ? "Setup" : "Company admin"}
+                  {currentUser.role === "Master" ? "Workspace" : "Company admin"}
                 </p>
                 <h3 className={["mt-1 text-base font-semibold", onboardingHeadingClass].join(" ")}>Company setup</h3>
                 <p className={["text-sm", onboardingBodyClass].join(" ")}>
-                  Use this section for one-time workspace setup before you invite users.
+                  One-time workspace setup — use Company Onboarding or Companies for Drive linking; this block is for the legacy admin workspace view.
                 </p>
               </div>
               <div
@@ -1657,12 +1717,12 @@ export function AdminScreen({
               ) : null}
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <FolderCheckRow label="Company folder" ok={workspaceValidation.folders.companyFolder} />
-              <FolderCheckRow label="Audit forms folder" ok={workspaceValidation.folders.auditFormsFolder} />
-              <FolderCheckRow label="Evidence folder" ok={workspaceValidation.folders.evidenceFolder} />
-              <FolderCheckRow label="Exports folder" ok={workspaceValidation.folders.exportsFolder} />
-              <FolderCheckRow label="Admin notes folder" ok={workspaceValidation.folders.adminNotesFolder} />
-              <FolderCheckRow label="Actions tab" ok={workspaceValidation.tabs.Actions} />
+              <FolderCheckRow label="Company folder" ok={workspaceValidation.folders.companyFolder} tone="light" />
+              <FolderCheckRow label="Audit forms folder" ok={workspaceValidation.folders.auditFormsFolder} tone="light" />
+              <FolderCheckRow label="Evidence folder" ok={workspaceValidation.folders.evidenceFolder} tone="light" />
+              <FolderCheckRow label="Exports folder" ok={workspaceValidation.folders.exportsFolder} tone="light" />
+              <FolderCheckRow label="Admin notes folder" ok={workspaceValidation.folders.adminNotesFolder} tone="light" />
+              <FolderCheckRow label="Actions tab" ok={workspaceValidation.tabs.Actions} tone="light" />
             </div>
             {workspaceValidation.missingTabs.length > 0 && (
               <div className="rounded-[1.5rem] border border-rose-200 bg-rose-50 p-4">
@@ -1721,6 +1781,7 @@ export function AdminScreen({
         </>
       )}
 
+      {showAuditTemplateBuilder ? (
       <section id="admin-audit-templates" className="rounded-[1.75rem] border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)]">
         <div className="mb-4 flex items-start justify-between gap-3">
           <SectionHeader
@@ -1852,6 +1913,7 @@ export function AdminScreen({
           )}
         </div>
       </section>
+      ) : null}
     </div>
   );
 }
@@ -1887,7 +1949,22 @@ function MiniPill({ label, active }: { label: string; active: boolean }) {
   );
 }
 
-function FolderCheckRow({ label, ok }: { label: string; ok: boolean }) {
+function FolderCheckRow({ label, ok, tone = "dark" }: { label: string; ok: boolean; tone?: "dark" | "light" }) {
+  if (tone === "light") {
+    return (
+      <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+        <p className="text-sm text-slate-700">{label}</p>
+        <div
+          className={[
+            "rounded-full px-2.5 py-1 text-[11px] font-semibold",
+            ok ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900",
+          ].join(" ")}
+        >
+          {ok ? "Found" : "Missing"}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="flex items-center justify-between rounded-2xl bg-white/6 px-3 py-2">
       <p className="text-sm text-slate-200">{label}</p>
