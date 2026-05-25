@@ -1,6 +1,9 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { MiniMetric } from "../components/dashboard/DashboardPrimitives";
-import { canInvestigateIncidents } from "../permissions";
+import { canCompleteAuditAsAuditor, canInvestigateIncidents } from "../permissions";
+import { getRoleTheme } from "../config/roleTheme";
+import { SECTION_INTROS } from "../config/sectionIntros";
+import { SectionIntro } from "../components/SectionIntro";
 import type {
   IncidentCorrectiveAction,
   IncidentEvidenceItem,
@@ -19,7 +22,16 @@ export function IncidentReportingScreen({
   onAddIncidentAction,
   onUpdateIncidentAction,
 }: IncidentReportingScreenProps) {
+  const fieldAuditor = canCompleteAuditAsAuditor(currentUser.role);
+  const canManageIncidents = canInvestigateIncidents(currentUser.role);
+  const theme = getRoleTheme(currentUser.role);
   const [view, setView] = useState<"report" | "register" | "dashboard">("report");
+
+  useEffect(() => {
+    if (fieldAuditor && view !== "report") {
+      setView("report");
+    }
+  }, [fieldAuditor, view]);
   const [selectedIncidentId, setSelectedIncidentId] = useState("");
   const [statusFilter, setStatusFilter] = useState<IncidentStatus | "All">("All");
   const [severityFilter, setSeverityFilter] = useState<IncidentSeverity | "All">("All");
@@ -101,9 +113,11 @@ export function IncidentReportingScreen({
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
     const created = await onSubmitIncident(form);
-    setSuccessMessage(`Incident submitted successfully: ${created.incidentId}`);
-    setView("register");
-    setSelectedIncidentId(created.id);
+    setSuccessMessage(`Submitted successfully: ${created.incidentId}`);
+    if (canManageIncidents) {
+      setView("register");
+      setSelectedIncidentId(created.id);
+    }
     setForm((current) => ({
       ...current,
       department: "",
@@ -118,23 +132,41 @@ export function IncidentReportingScreen({
     }));
   };
 
+  const fieldInputClass = fieldAuditor
+    ? "min-h-[3rem] w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-base text-slate-900 outline-none transition focus:border-violet-400 focus:bg-white"
+    : "h-11 rounded-xl border px-3";
+  const fieldTextareaClass = fieldAuditor
+    ? "min-h-[6rem] w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-base text-slate-900 outline-none transition focus:border-violet-400 focus:bg-white md:col-span-2"
+    : "md:col-span-2 min-h-24 rounded-xl border px-3 py-2";
+
   return (
     <div className="space-y-4">
-      <section className="rounded-[1.75rem] bg-slate-950 p-5 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">Accident / Near miss</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight">Incident reporting module</h2>
-            <p className="mt-2 text-sm text-slate-300">Mobile-first reporting plus register, investigation workflow, corrective actions, and dashboard.</p>
+      {fieldAuditor ? (
+        <section className="rounded-2xl border border-violet-200/80 bg-violet-50/60 px-5 py-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-violet-700">Submit</p>
+          <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">Report an incident or near miss</h2>
+          <SectionIntro text={SECTION_INTROS.auditorSubmit} className="mt-2" role="Auditor" />
+          <p className="mt-2 text-sm leading-relaxed text-slate-600">
+            Fill in what happened, where, and any immediate action taken. Add photos or files if you have them.
+          </p>
+        </section>
+      ) : (
+        <section className="rounded-[1.75rem] bg-slate-950 p-5 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">Accident / Near miss</p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight">Incident reporting module</h2>
+              <p className="mt-2 text-sm text-slate-300">Mobile-first reporting plus register, investigation workflow, corrective actions, and dashboard.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => setView("report")} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${view === "report" ? "border-orange-400 bg-orange-400/15 text-orange-200" : "border-slate-700 bg-slate-900 text-slate-300"}`}>Report form</button>
+              <button type="button" onClick={() => setView("register")} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${view === "register" ? "border-orange-400 bg-orange-400/15 text-orange-200" : "border-slate-700 bg-slate-900 text-slate-300"}`}>Incident register</button>
+              <button type="button" onClick={() => setView("dashboard")} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${view === "dashboard" ? "border-orange-400 bg-orange-400/15 text-orange-200" : "border-slate-700 bg-slate-900 text-slate-300"}`}>Dashboard</button>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => setView("report")} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${view === "report" ? "border-orange-400 bg-orange-400/15 text-orange-200" : "border-slate-700 bg-slate-900 text-slate-300"}`}>Report form</button>
-            <button type="button" onClick={() => setView("register")} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${view === "register" ? "border-orange-400 bg-orange-400/15 text-orange-200" : "border-slate-700 bg-slate-900 text-slate-300"}`}>Incident register</button>
-            <button type="button" onClick={() => setView("dashboard")} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${view === "dashboard" ? "border-orange-400 bg-orange-400/15 text-orange-200" : "border-slate-700 bg-slate-900 text-slate-300"}`}>Dashboard</button>
-          </div>
-        </div>
-        <p className="mt-3 text-xs text-slate-400">QR reporting link: <span className="font-semibold text-slate-200">{`${window.location.origin}/?screen=incidents`}</span></p>
-      </section>
+          <p className="mt-3 text-xs text-slate-400">QR reporting link: <span className="font-semibold text-slate-200">{`${window.location.origin}/?screen=incidents`}</span></p>
+        </section>
+      )}
 
       {successMessage && (
         <section className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-900">
@@ -143,33 +175,59 @@ export function IncidentReportingScreen({
       )}
 
       {view === "report" && (
-        <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-[0_16px_30px_rgba(15,23,42,0.06)]">
-          <form className="grid gap-3 md:grid-cols-2" onSubmit={onSubmit}>
-            <select value={form.incidentType} onChange={(event) => setForm((current) => ({ ...current, incidentType: event.target.value as IncidentType }))} className="h-11 rounded-xl border px-3"><option>Accident</option><option>Near Miss</option><option>Dangerous Occurrence</option><option>Property Damage</option><option>Environmental</option></select>
-            <select value={form.severity} onChange={(event) => setForm((current) => ({ ...current, severity: event.target.value as IncidentSeverity }))} className="h-11 rounded-xl border px-3"><option>Minor</option><option>Medical Treatment</option><option>Lost Time Injury</option><option>Major Incident</option><option>Fatality</option></select>
-            <input type="date" value={form.incidentDate} onChange={(event) => setForm((current) => ({ ...current, incidentDate: event.target.value }))} className="h-11 rounded-xl border px-3" />
-            <input type="time" value={form.incidentTime} onChange={(event) => setForm((current) => ({ ...current, incidentTime: event.target.value }))} className="h-11 rounded-xl border px-3" />
-            <input value={form.reporterName} onChange={(event) => setForm((current) => ({ ...current, reporterName: event.target.value }))} placeholder="Reporter name" className="h-11 rounded-xl border px-3" />
-            <input value={form.reporterEmail} onChange={(event) => setForm((current) => ({ ...current, reporterEmail: event.target.value }))} placeholder="Reporter email" className="h-11 rounded-xl border px-3" />
-            <input value={form.department} onChange={(event) => setForm((current) => ({ ...current, department: event.target.value }))} placeholder="Department / Area" className="h-11 rounded-xl border px-3" />
-            <input value={form.location} onChange={(event) => setForm((current) => ({ ...current, location: event.target.value }))} placeholder="Exact location" className="h-11 rounded-xl border px-3" />
-            <textarea value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} placeholder="Description of what happened" className="md:col-span-2 min-h-24 rounded-xl border px-3 py-2" />
-            <textarea value={form.immediateAction} onChange={(event) => setForm((current) => ({ ...current, immediateAction: event.target.value }))} placeholder="Immediate action taken" className="md:col-span-2 min-h-20 rounded-xl border px-3 py-2" />
-            <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={form.injured} onChange={(event) => setForm((current) => ({ ...current, injured: event.target.checked }))} /> Was anyone injured?</label>
-            {form.injured && <textarea value={form.injuryDetails} onChange={(event) => setForm((current) => ({ ...current, injuryDetails: event.target.value }))} placeholder="Injury details" className="md:col-span-2 min-h-20 rounded-xl border px-3 py-2" />}
-            <textarea value={form.contributingFactors} onChange={(event) => setForm((current) => ({ ...current, contributingFactors: event.target.value }))} placeholder="Contributing factors" className="md:col-span-2 min-h-20 rounded-xl border px-3 py-2" />
-            <textarea value={form.witnesses} onChange={(event) => setForm((current) => ({ ...current, witnesses: event.target.value }))} placeholder="Witnesses" className="md:col-span-2 min-h-20 rounded-xl border px-3 py-2" />
-            <div className="md:col-span-2 rounded-xl border border-dashed border-slate-300 px-3 py-3">
-              <p className="text-xs text-slate-500">Evidence uploads (photos, videos, PDFs, documents)</p>
-              <input type="file" multiple accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt" onChange={(event) => onAddEvidence(event.target.files)} className="mt-2 w-full text-sm" />
-              {form.evidenceUrls.length > 0 && <p className="mt-2 text-xs text-slate-600">{form.evidenceUrls.length} file(s) attached</p>}
+        <section
+          className={[
+            fieldAuditor
+              ? "rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm"
+              : "rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-[0_16px_30px_rgba(15,23,42,0.06)]",
+          ].join(" ")}
+        >
+          <form className="grid gap-4 md:grid-cols-2" onSubmit={onSubmit}>
+            <select value={form.incidentType} onChange={(event) => setForm((current) => ({ ...current, incidentType: event.target.value as IncidentType }))} className={fieldInputClass}><option>Accident</option><option>Near Miss</option><option>Dangerous Occurrence</option><option>Property Damage</option><option>Environmental</option></select>
+            <select value={form.severity} onChange={(event) => setForm((current) => ({ ...current, severity: event.target.value as IncidentSeverity }))} className={fieldInputClass}><option>Minor</option><option>Medical Treatment</option><option>Lost Time Injury</option><option>Major Incident</option><option>Fatality</option></select>
+            <input type="date" value={form.incidentDate} onChange={(event) => setForm((current) => ({ ...current, incidentDate: event.target.value }))} className={fieldInputClass} />
+            <input type="time" value={form.incidentTime} onChange={(event) => setForm((current) => ({ ...current, incidentTime: event.target.value }))} className={fieldInputClass} />
+            <input value={form.reporterName} onChange={(event) => setForm((current) => ({ ...current, reporterName: event.target.value }))} placeholder="Your name" className={fieldInputClass} />
+            <input value={form.reporterEmail} onChange={(event) => setForm((current) => ({ ...current, reporterEmail: event.target.value }))} placeholder="Your email" className={fieldInputClass} />
+            <input value={form.department} onChange={(event) => setForm((current) => ({ ...current, department: event.target.value }))} placeholder="Department / area" className={fieldInputClass} />
+            <input value={form.location} onChange={(event) => setForm((current) => ({ ...current, location: event.target.value }))} placeholder="Exact location" className={fieldInputClass} />
+            <textarea value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} placeholder="What happened?" className={fieldTextareaClass} />
+            <textarea value={form.immediateAction} onChange={(event) => setForm((current) => ({ ...current, immediateAction: event.target.value }))} placeholder="Immediate action taken" className={fieldTextareaClass} />
+            <label className="inline-flex min-h-[2.75rem] items-center gap-2 text-base md:col-span-2">
+              <input type="checkbox" checked={form.injured} onChange={(event) => setForm((current) => ({ ...current, injured: event.target.checked }))} className="h-5 w-5" />
+              Was anyone injured?
+            </label>
+            {form.injured && <textarea value={form.injuryDetails} onChange={(event) => setForm((current) => ({ ...current, injuryDetails: event.target.value }))} placeholder="Injury details" className={fieldTextareaClass} />}
+            {!fieldAuditor && (
+              <>
+                <textarea value={form.contributingFactors} onChange={(event) => setForm((current) => ({ ...current, contributingFactors: event.target.value }))} placeholder="Contributing factors" className={fieldTextareaClass} />
+                <textarea value={form.witnesses} onChange={(event) => setForm((current) => ({ ...current, witnesses: event.target.value }))} placeholder="Witnesses" className={fieldTextareaClass} />
+              </>
+            )}
+            {fieldAuditor && (
+              <textarea value={form.witnesses} onChange={(event) => setForm((current) => ({ ...current, witnesses: event.target.value }))} placeholder="Witnesses (optional)" className={fieldTextareaClass} />
+            )}
+            <div className="md:col-span-2 rounded-2xl border border-dashed border-violet-200 bg-violet-50/40 px-4 py-4">
+              <p className="text-sm font-medium text-slate-700">Photos or files (optional)</p>
+              <input type="file" multiple accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt" onChange={(event) => onAddEvidence(event.target.files)} className="mt-3 w-full text-base" />
+              {form.evidenceUrls.length > 0 && <p className="mt-2 text-sm text-slate-600">{form.evidenceUrls.length} file(s) attached</p>}
             </div>
-            <button type="submit" className="md:col-span-2 h-12 rounded-xl bg-[var(--bert-signal-orange)] font-semibold text-[var(--qms-navy-950)]">Submit incident report</button>
+            <button
+              type="submit"
+              className={[
+                "md:col-span-2 min-h-[3rem] rounded-2xl font-semibold transition active:scale-[0.98]",
+                fieldAuditor
+                  ? [theme.primaryButton, theme.primaryButtonHover, "text-white"].join(" ")
+                  : "bg-[var(--bert-signal-orange)] text-[var(--qms-navy-950)]",
+              ].join(" ")}
+            >
+              Submit report
+            </button>
           </form>
         </section>
       )}
 
-      {view === "register" && (
+      {view === "register" && canManageIncidents && (
         <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4">
           <div className="grid gap-2 md:grid-cols-6">
             <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as IncidentStatus | "All")} className="h-10 rounded-lg border px-2"><option value="All">All status</option><option>Open</option><option>Under Investigation</option><option>Closed</option></select>
@@ -226,7 +284,7 @@ export function IncidentReportingScreen({
         </section>
       )}
 
-      {view === "dashboard" && (
+      {view === "dashboard" && canManageIncidents && (
         <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4">
           <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-5">
             <MiniMetric label="Total incidents" value={String(incidents.length)} />
@@ -247,7 +305,7 @@ export function IncidentReportingScreen({
         </section>
       )}
 
-      {selectedIncident && canInvestigateIncidents(currentUser.role) && (
+      {selectedIncident && canManageIncidents && (
         <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4">
           <div className="flex items-center justify-between gap-3">
             <div>

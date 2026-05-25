@@ -249,6 +249,33 @@ export function StartHereCard() {
   );
 }
 
+export function AuditorStartHereCard() {
+  const steps = [
+    "Open Today",
+    "Tap Start or Continue",
+    "Add notes and evidence",
+    "Submit",
+  ];
+  return (
+    <section
+      aria-label="Start today"
+      className="rounded-2xl border border-violet-200/80 bg-violet-50/70 px-4 py-4 shadow-sm"
+    >
+      <p className="text-base font-semibold text-slate-900">Start today</p>
+      <p className="mt-1 text-sm leading-relaxed text-slate-600">
+        Complete assigned checks or submit a new record.
+      </p>
+      <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm leading-6 text-slate-700">
+        {steps.map((step, index) => (
+          <li key={step}>
+            <span className="font-medium text-violet-800">{index + 1}.</span> {step}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 export function TrendBar({
   label,
   value,

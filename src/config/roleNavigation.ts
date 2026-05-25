@@ -65,7 +65,7 @@ const MORE_BY_BUCKET: Record<RoleNavBucket, NavItemId[]> = {
   master: ["account", "emailReminders"],
   companyAdmin: ["nonConformance", "incidents", "schedules", "documentTraining", "sync", "account", "emailReminders"],
   manager: ["actions", "nonConformance", "incidents", "schedules", "documentTraining", "sync", "account", "emailReminders"],
-  auditor: ["account", "emailReminders"],
+  auditor: ["account"],
 };
 
 export function getRoleNavBucket(role: Role): RoleNavBucket {

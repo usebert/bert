@@ -41,4 +41,6 @@ export type AuditsScreenProps = {
   auditAccessMatrix: AuditAccessMatrixRow[];
   auditScheduleMatrix: Record<string, AuditScheduleMatrixInfo>;
   onToggleAuditAccess: (email: string, auditId: string, currentAccess: AuditAccessLevel) => void;
+  onNavigateToToday?: () => void;
+  onNavigateToSubmit?: () => void;
 };

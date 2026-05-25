@@ -30,6 +30,7 @@ import {
   canRoleAccessNavItem,
   canSubmitAuditForReview,
   canSubmitIncidents,
+  canViewSyncCentre,
   getCreatableRoles,
   getHomeScreenForRole,
   getRoleDisplayName,
@@ -85,6 +86,8 @@ import {
 } from "./src/utils/setupRoute";
 import { PilotSettingsScreen } from "./src/screens/PilotSettingsScreen";
 import { SyncCentreScreen } from "./src/screens/SyncCentreScreen";
+import { AuditorHistoryScreen } from "./src/screens/AuditorHistoryScreen";
+import { resolveWorkspaceDisplayName } from "./src/utils/workspaceDisplay";
 import type { DocumentDistribution, ExternalEmployee } from "./src/types/documentTraining";
 import type { OnboardedRecipientOption } from "./src/types/documentTrainingScreenProps";
 import {
@@ -3016,7 +3019,10 @@ function App() {
     return userProfilePhotos[user.username] || userProfilePhotos[user.name.toLowerCase()] || "";
   };
 
-  const workspaceName = selectedFolder?.name || companyName;
+  const workspaceName = useMemo(
+    () => resolveWorkspaceDisplayName(selectedFolder, companyName, readCompanyLoginHint()?.companyName),
+    [selectedFolder, companyName],
+  );
 
   const platformActiveUsersCount = useMemo(
     () => invitedUsers.filter((invite) => formatInviteStatusLabel(invite.status) === "Active").length,
@@ -3285,7 +3291,8 @@ function App() {
     }
     const primaryIds = new Set(presentedNav.map((item) => item.id));
     const moreIds = getMoreNavIdsForRole(currentUser.role);
-    return [...moreIds, ...MORE_MENU_NAV_IDS].flatMap((id) => {
+    const layoutMoreIds = currentUser.role === "Auditor" ? moreIds : [...moreIds, ...MORE_MENU_NAV_IDS];
+    return layoutMoreIds.flatMap((id) => {
       if (primaryIds.has(id) || !visibleNavIdSet.has(id)) {
         return [];
       }
@@ -3306,10 +3313,11 @@ function App() {
         .filter((entry) => entry.id !== "__more__" && entry.id !== "__logout__")
         .map((entry) => entry.id),
     );
+    const roleMoreIds = getMoreNavIdsForRole(currentUser.role);
     const orderedIds = [
       ...presentedNav.map((item) => item.id),
-      ...getMoreNavIdsForRole(currentUser.role),
-      ...MORE_MENU_NAV_IDS,
+      ...roleMoreIds,
+      ...(currentUser.role === "Auditor" ? [] : MORE_MENU_NAV_IDS),
     ];
     const seen = new Set<string>();
     const out: Array<{ id: NavItemId; label: string; icon: string }> = [];
@@ -3677,6 +3685,13 @@ function App() {
     () => !selectedFolder || demoModeActive || godCompanySetupOnlyShell || workspaceOnboardingIncomplete,
     [selectedFolder, demoModeActive, godCompanySetupOnlyShell, workspaceOnboardingIncomplete],
   );
+
+  const showAuditorStartHereCard = useMemo(() => {
+    if (!currentUser || currentUser.role !== "Auditor") {
+      return false;
+    }
+    return assignedAudits.length === 0 && assignmentFilteredHistory.length === 0;
+  }, [currentUser, assignedAudits.length, assignmentFilteredHistory.length]);
 
   const openIncidentFollowUpsCount = useMemo(
     () => incidentActions.filter((item) => item.status !== "Complete").length,
@@ -9118,7 +9133,7 @@ function App() {
                     actions={visibleActions}
                     pendingSyncCount={pendingSyncCount}
                     failedSyncCount={failedSyncCount}
-                    showStartHereCard={showDashboardStartHere}
+                    showStartHereCard={showAuditorStartHereCard}
                     workspaceLinked={Boolean(selectedFolder)}
                     recentCompletionsCount={assignmentFilteredHistory.length}
                     onOpenAudit={startAudit}
@@ -9188,10 +9203,11 @@ function App() {
               />
             )}
 
-            {screen === "audits" && canAccessAuditsCentre(currentUser.role) && (
+            {screen === "audits" &&
+              (canAccessAuditsCentre(currentUser.role) || canCompleteAuditAsAuditor(currentUser.role)) && (
               <AuditsScreen
                 currentUser={currentUser}
-                audits={siteScopedAudits}
+                audits={canCompleteAuditAsAuditor(currentUser.role) ? assignedAudits : siteScopedAudits}
                 groupedAudits={groupedAudits}
                 drafts={drafts}
                 unsyncedAuditIds={unsyncedSubmittedAuditIds}
@@ -9201,6 +9217,12 @@ function App() {
                 auditAccessMatrix={auditAccessMatrix}
                 auditScheduleMatrix={auditScheduleMatrix}
                 onToggleAuditAccess={handleToggleAuditAccess}
+                onNavigateToToday={
+                  canCompleteAuditAsAuditor(currentUser.role) ? () => setScreen("dashboard") : undefined
+                }
+                onNavigateToSubmit={
+                  canCompleteAuditAsAuditor(currentUser.role) ? () => setScreen("incidents") : undefined
+                }
               />
             )}
 
@@ -9359,7 +9381,18 @@ function App() {
               />
             )}
 
-            {screen === "sync" && (
+            {screen === "sync" && canCompleteAuditAsAuditor(currentUser.role) && (
+              <AuditorHistoryScreen
+                currentUserName={currentUser.name}
+                history={assignmentFilteredHistory}
+                incidents={incidents}
+                unsyncedAuditIds={unsyncedSubmittedAuditIds}
+                syncSummary={syncPlainSummary}
+                syncNeedsAttention={failedSyncCount > 0 || offlineMode}
+              />
+            )}
+
+            {screen === "sync" && !canCompleteAuditAsAuditor(currentUser.role) && canViewSyncCentre(currentUser.role) && (
               <SyncCentreScreen
                 currentUser={currentUser}
                 syncQueue={syncQueue}
@@ -9636,7 +9669,7 @@ function App() {
                 accountNameInput={accountNameInput}
                 accountPhotoUrl={accountPhotoUrl}
                 themeMode={themeMode}
-                companyName={companyName}
+                companyName={workspaceName}
                 slatePrimaryCtaInteract={slatePrimaryCtaInteract}
                 onAccountNameChange={setAccountNameInput}
                 onAccountPhotoChange={handleAccountPhotoChange}

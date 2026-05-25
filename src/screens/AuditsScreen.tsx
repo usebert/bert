@@ -1,4 +1,6 @@
 import { canCompleteAuditAsAuditor, canSubmitAuditForReview } from "../permissions";
+import { getRoleTheme } from "../config/roleTheme";
+import { rankAuditorAudit } from "../utils/auditorDashboard";
 import { SECTION_INTROS } from "../config/sectionIntros";
 import { SectionIntro } from "../components/SectionIntro";
 import { EmptyPanel, MiniMetric, SectionHeader, StatusBadge } from "../components/dashboard/DashboardPrimitives";
@@ -293,6 +295,98 @@ function TrafficLane({
   );
 }
 
+function AuditorChecksList({
+  audits,
+  drafts,
+  onOpenAudit,
+  onNavigateToToday,
+  onNavigateToSubmit,
+}: {
+  audits: Audit[];
+  drafts: Record<string, AuditDraft>;
+  onOpenAudit: (auditId: string) => void;
+  onNavigateToToday?: () => void;
+  onNavigateToSubmit?: () => void;
+}) {
+  const theme = getRoleTheme("Auditor");
+  const sorted = [...audits].sort((a, b) => {
+    const rankDiff = rankAuditorAudit(a, Boolean(drafts[a.id])) - rankAuditorAudit(b, Boolean(drafts[b.id]));
+    if (rankDiff !== 0) return rankDiff;
+    return a.dueHours - b.dueHours;
+  });
+
+  if (sorted.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-violet-200 bg-violet-50/50 px-5 py-6">
+        <p className="text-lg font-semibold text-slate-900">No checks assigned</p>
+        <p className="mt-2 text-sm leading-relaxed text-slate-600">
+          Your manager will assign checks here. You can open Today to see what is due, or submit a record if something needs reporting now.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-3">
+          {onNavigateToToday ? (
+            <button
+              type="button"
+              onClick={onNavigateToToday}
+              className={[
+                "min-h-[2.75rem] rounded-full px-5 py-2 text-sm font-semibold transition active:scale-[0.98]",
+                theme.primaryButton,
+                theme.primaryButtonHover,
+              ].join(" ")}
+            >
+              Go to Today
+            </button>
+          ) : null}
+          {onNavigateToSubmit ? (
+            <button
+              type="button"
+              onClick={onNavigateToSubmit}
+              className={[
+                "min-h-[2.75rem] rounded-full border px-5 py-2 text-sm font-semibold transition active:scale-[0.98]",
+                theme.outlineButton,
+              ].join(" ")}
+            >
+              Submit record
+            </button>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <ul className="space-y-3">
+      {sorted.map((audit) => {
+        const inProgress = Boolean(drafts[audit.id]);
+        const status = inProgress ? "In progress" : audit.dueHours < 0 ? "Overdue" : getAuditTrafficStatus(audit.dueHours);
+        return (
+          <li
+            key={audit.id}
+            className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200/90 bg-white px-4 py-4 shadow-sm sm:flex-nowrap"
+          >
+            <div className="min-w-0 flex-1">
+              <p className="text-base font-semibold text-slate-900">{audit.name}</p>
+              <p className="mt-1 text-sm text-slate-600">
+                {status} · {getDueWarning(audit.dueHours)}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onOpenAudit(audit.id)}
+              className={[
+                "min-h-[2.75rem] shrink-0 rounded-full px-5 py-2 text-sm font-semibold transition active:scale-[0.98]",
+                theme.primaryButton,
+                theme.primaryButtonHover,
+              ].join(" ")}
+            >
+              {inProgress ? "Continue" : "Start"}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export function AuditsScreen({
   currentUser,
   audits,
@@ -305,7 +399,28 @@ export function AuditsScreen({
   auditAccessMatrix,
   auditScheduleMatrix,
   onToggleAuditAccess,
+  onNavigateToToday,
+  onNavigateToSubmit,
 }: AuditsScreenProps) {
+  if (canCompleteAuditAsAuditor(currentUser.role)) {
+    return (
+      <div className="space-y-4">
+        <section className="rounded-2xl border border-violet-200/80 bg-violet-50/60 px-5 py-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-violet-700">My Checks</p>
+          <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">Assigned checks</h2>
+          <SectionIntro text={SECTION_INTROS.auditorChecks} className="mt-2" role="Auditor" />
+        </section>
+        <AuditorChecksList
+          audits={audits}
+          drafts={drafts}
+          onOpenAudit={onOpenAudit}
+          onNavigateToToday={onNavigateToToday}
+          onNavigateToSubmit={onNavigateToSubmit}
+        />
+      </div>
+    );
+  }
+
   const adminAccentHero = currentUser.role === "Admin";
   const heroIconChip = adminAccentHero
     ? "bg-blue-50 text-blue-600 ring-1 ring-blue-100"

@@ -5,7 +5,7 @@ import { getRoleTheme } from "../../config/roleTheme";
 import { getAuditTrafficStatus, getDueWarning } from "../../utils/dashboardHealth";
 import { pickNextAuditorAudit, rankAuditorAudit } from "../../utils/auditorDashboard";
 import { AuditorInfoStrip, DashboardQuickActions, RoleDashboardShell } from "./RoleDashboardPrimitives";
-import { EmptyPanel, StartHereCard } from "./DashboardPrimitives";
+import { AuditorStartHereCard, EmptyPanel } from "./DashboardPrimitives";
 
 type Props = AuditorTaskDashboardProps & {
   workspaceName: string;
@@ -41,7 +41,6 @@ export function AuditorTaskDashboard({
   onNavigate,
 }: Props) {
   void currentUser;
-  void workspaceName;
   const theme = getRoleTheme("Auditor");
 
   const sortedAudits = useMemo(
@@ -62,40 +61,44 @@ export function AuditorTaskDashboard({
 
   return (
     <div className="space-y-5">
-      {showStartHereCard ? <StartHereCard /> : null}
-      <RoleDashboardShell role="Auditor" title="Today" subtitle={formatTodayHeading()}>
+      {showStartHereCard ? <AuditorStartHereCard /> : null}
+      <RoleDashboardShell
+        role="Auditor"
+        title="Today"
+        subtitle={`${formatTodayHeading()} · ${workspaceName}`}
+      >
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)]">
-          <section className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
-            <p className="text-sm font-semibold text-slate-900">Today&apos;s checks</p>
+          <section className="rounded-2xl border border-violet-100 bg-white p-4 shadow-sm">
+            <p className="text-base font-semibold text-slate-900">Today&apos;s checks</p>
             {displayChecks.length === 0 ? (
               <div className="mt-3">
                 <EmptyPanel
                   title="No checks assigned"
-                  text="When your manager assigns checks to you, they will appear here with Start and Continue actions."
+                  text="When your manager assigns checks to you, they will appear here with Start and Continue."
                 />
               </div>
             ) : (
-              <ul className="mt-3 space-y-2">
+              <ul className="mt-3 space-y-3">
                 {displayChecks.slice(0, 8).map((audit) => {
                   const status = checkStatusLabel(audit.id, audit.dueHours, drafts);
                   const inProgress = Boolean(drafts[audit.id]);
                   return (
                     <li
                       key={audit.id}
-                      className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 sm:flex-nowrap"
+                      className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200/90 bg-slate-50/80 px-4 py-3.5 sm:flex-nowrap"
                     >
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold text-slate-900">{audit.name}</p>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-base font-semibold text-slate-900">{audit.name}</p>
+                        <p className="mt-1 text-sm text-slate-600">
                           {status}
-                          {status !== "Not started" ? ` · ${getDueWarning(audit.dueHours)}` : ""}
+                          {status !== "Not started" ? ` · ${getDueWarning(audit.dueHours)}` : ` · ${getDueWarning(audit.dueHours)}`}
                         </p>
                       </div>
                       <button
                         type="button"
                         onClick={() => onOpenAudit(audit.id)}
                         className={[
-                          "shrink-0 rounded-full px-4 py-1.5 text-xs font-semibold transition",
+                          "min-h-[2.75rem] shrink-0 rounded-full px-5 py-2 text-sm font-semibold transition active:scale-[0.98]",
                           theme.primaryButton,
                           theme.primaryButtonHover,
                         ].join(" ")}
@@ -108,32 +111,38 @@ export function AuditorTaskDashboard({
               </ul>
             )}
             {nextAudit && displayChecks.length > 0 ? (
-              <p className="mt-3 text-xs text-slate-500">
+              <p className="mt-3 text-sm text-slate-500">
                 Next up: {nextAudit.name} ({getAuditTrafficStatus(nextAudit.dueHours)})
               </p>
             ) : null}
           </section>
 
           <div className="space-y-3">
-            <section className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
-              <p className="text-sm font-semibold text-slate-900">Need to submit something?</p>
-              <p className="mt-1 text-sm text-slate-600">Open the submit flow for incidents or ad-hoc records.</p>
+            <section className="rounded-2xl border border-violet-100 bg-white p-4 shadow-sm">
+              <p className="text-base font-semibold text-slate-900">Need to submit something?</p>
+              <p className="mt-1 text-sm text-slate-600">Report an incident or near miss from the field.</p>
               <button
                 type="button"
                 onClick={() => onNavigate("incidents")}
-                className={["mt-3 w-full rounded-xl px-4 py-2 text-sm font-semibold transition", theme.outlineButton].join(" ")}
+                className={[
+                  "mt-3 min-h-[2.75rem] w-full rounded-xl px-4 py-2.5 text-sm font-semibold transition active:scale-[0.98]",
+                  theme.outlineButton,
+                ].join(" ")}
               >
                 Go to Submit
               </button>
             </section>
 
-            <section className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
-              <p className="text-sm font-semibold text-slate-900">History</p>
-              <p className="mt-1 text-sm text-slate-600">Review completed checks and sync status.</p>
+            <section className="rounded-2xl border border-violet-100 bg-white p-4 shadow-sm">
+              <p className="text-base font-semibold text-slate-900">History</p>
+              <p className="mt-1 text-sm text-slate-600">See checks and reports you have already sent.</p>
               <button
                 type="button"
                 onClick={() => onNavigate("sync")}
-                className={["mt-3 w-full rounded-xl px-4 py-2 text-sm font-semibold transition", theme.outlineButton].join(" ")}
+                className={[
+                  "mt-3 min-h-[2.75rem] w-full rounded-xl px-4 py-2.5 text-sm font-semibold transition active:scale-[0.98]",
+                  theme.outlineButton,
+                ].join(" ")}
               >
                 View History
               </button>
