@@ -2,9 +2,12 @@
 export const SECTION_INTROS = {
   platformSetup:
     "BERT-wide setup for Google, Drive, email, and diagnostics.",
+  companies: "Manage existing company workspaces and their setup status.",
   workspace: "Settings and details for this company only.",
   usersInvites: "Invite, resend, remove, or review users for this company.",
   companyOnboarding: "Send onboarding forms and create company workspaces from responses.",
+  companiesInviteHelper:
+    "To email a new company onboarding form, open Company Onboarding in the menu — that screen sends the secure setup link.",
   formsChecks: "Manage and complete company forms, checks, and audits.",
   reports: "Export compliance packs and review shared report inbox for this workspace.",
   tabletKiosk: "Prepare BERT for locked-down tablet use.",

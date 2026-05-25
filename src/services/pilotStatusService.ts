@@ -42,12 +42,21 @@ export async function fetchPilotPlatformStatus(): Promise<{
 }> {
   const appApiConfigured = Boolean(API_BASE_URL.trim());
 
+  const fetchTimeoutMs = 12_000;
+
   const fetchJson = async <T,>(path: string): Promise<T | null> => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), fetchTimeoutMs);
     try {
-      const response = await fetch(apiUrl(path), { credentials: "include" });
+      const response = await fetch(apiUrl(path), {
+        credentials: "include",
+        signal: controller.signal,
+      });
       return await parseJsonApiResponse<T>(response);
     } catch {
       return null;
+    } finally {
+      window.clearTimeout(timeoutId);
     }
   };
 

@@ -450,6 +450,7 @@ export function AdminScreen({
   onArchiveSite,
   standaloneOnboarding = false,
   pilotFocus = undefined,
+  pilotShellScreen = undefined,
   hideMasterLocalDemoTools = false,
   godModeAppInviteEmail,
   onGodModeAppInviteEmailChange,
@@ -468,18 +469,28 @@ export function AdminScreen({
     currentUser.role === "Master" &&
     (companySheetSync?.usersCount ?? 0) === 0 &&
     invitedUsers.length === 0;
+  const isCompaniesScreen = pilotFocus === "companies" || pilotShellScreen === "companies";
+  const isOnboardingScreen =
+    pilotFocus === "onboarding" || pilotShellScreen === "onboarding" || standaloneOnboarding;
+  const pilotLightSurface = "rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm";
+  const pilotLightNested = "rounded-2xl border border-slate-200 bg-slate-50 p-4";
+  const pilotEditableInput =
+    "h-12 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-orange-400 focus:ring-2 focus:ring-orange-400/20 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500";
   const [adminView, setAdminView] = useState<"overview" | "onboarding">(
-    standaloneOnboarding || pilotFocus === "companies" ? "onboarding" : "overview",
+    isOnboardingScreen ? "onboarding" : "overview",
   );
   const [showAdvancedOnboardingActions, setShowAdvancedOnboardingActions] = useState(false);
   const [pendingAdminScrollTarget, setPendingAdminScrollTarget] = useState<string | null>(null);
   const onboardingMode =
-    standaloneOnboarding ||
-    pilotFocus === "companies" ||
+    isOnboardingScreen ||
     (canAccessAdminOnboardingWorkspace(currentUser.role) && adminView === "onboarding");
   useEffect(() => {
-    if (pilotFocus === "companies") {
+    if (pilotFocus === "onboarding") {
       setAdminView("onboarding");
+      return;
+    }
+    if (pilotFocus === "companies") {
+      setAdminView("overview");
       return;
     }
     if (pilotFocus === "users" || pilotFocus === "invites") {
@@ -505,8 +516,24 @@ export function AdminScreen({
     : !googleWorkspaceReady
       ? "Connect Google first"
       : inviteAdminEmailValidationError || !godModeAppInviteEmail.trim()
-        ? "Complete required fields"
+        ? "Enter company administrator email"
         : "Send onboarding email";
+  const workspaceLinksReady =
+    Boolean(folderIdInput.trim()) && Boolean(masterSheetInput.trim());
+  const workspaceSetupButtonLabel = !googleWorkspaceReady
+    ? "Connect Google first"
+    : !workspaceLinksReady
+      ? "Add company folder and master sheet first"
+      : folderInspectionLoading
+        ? "Checking links..."
+        : syncState === "Synced"
+          ? "Populate app again"
+          : "Populate app";
+  const showCompanyInviteCard = canInviteNewCompany && isOnboardingScreen;
+  const activeOnboardingRecord = useMemo(
+    () => onboardingRecords.find((record) => record.id === selectedOnboardingRecordId) ?? null,
+    [onboardingRecords, selectedOnboardingRecordId],
+  );
 
   const handleCompanyWorkspaceSubmit = () => {
     setInviteAdminEmailTouched(true);
@@ -526,9 +553,13 @@ export function AdminScreen({
     }
   }, [pendingAdminScrollTarget, onboardingMode, adminView, godModeFullVisibility]);
 
-  const pilotTitles: Record<"companies" | "users" | "invites", { title: string; intro: string }> = {
+  const pilotTitles: Record<"companies" | "onboarding" | "users" | "invites", { title: string; intro: string }> = {
     companies: {
       title: "Companies",
+      intro: SECTION_INTROS.companies,
+    },
+    onboarding: {
+      title: "Company Onboarding",
       intro: SECTION_INTROS.companyOnboarding,
     },
     users: {
@@ -544,10 +575,89 @@ export function AdminScreen({
   return (
     <div className="space-y-4">
       {pilotFocus ? (
-        <section className="rounded-[1.75rem] bg-slate-950 px-5 py-4 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">{pilotTitles[pilotFocus].title}</p>
-          <h2 className="mt-1 text-xl font-semibold tracking-tight">{pilotTitles[pilotFocus].title}</h2>
-          <SectionIntro text={pilotTitles[pilotFocus].intro} className="mt-2 text-slate-300" />
+        <section
+          className={
+            isCompaniesScreen || isOnboardingScreen
+              ? pilotLightSurface
+              : "rounded-[1.75rem] bg-slate-950 px-5 py-4 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]"
+          }
+        >
+          <p
+            className={[
+              "text-xs font-semibold uppercase tracking-[0.3em]",
+              isCompaniesScreen || isOnboardingScreen ? "text-slate-500" : "text-slate-400",
+            ].join(" ")}
+          >
+            {pilotTitles[pilotFocus].title}
+          </p>
+          <h2
+            className={[
+              "mt-1 text-xl font-semibold tracking-tight",
+              isCompaniesScreen || isOnboardingScreen ? "text-slate-900" : "text-white",
+            ].join(" ")}
+          >
+            {pilotTitles[pilotFocus].title}
+          </h2>
+          <SectionIntro
+            text={pilotTitles[pilotFocus].intro}
+            className="mt-2"
+            role={isCompaniesScreen || isOnboardingScreen ? "Master" : undefined}
+          />
+        </section>
+      ) : null}
+
+      {isCompaniesScreen ? (
+        <section className={pilotLightSurface}>
+          <SectionHeader
+            icon="clipboard"
+            eyebrow="Workspaces"
+            title="Company workspaces"
+            subtitle="Select a company to review setup status or open its Drive folder."
+          />
+          {folders.length === 0 ? (
+            <EmptyPanel
+              title="No company workspaces yet"
+              text="Link company folders from Google Drive after onboarding, or send a new onboarding form from Company Onboarding."
+            />
+          ) : (
+            <ul className="mt-3 space-y-2">
+              {folders.map((folder) => {
+                const selected = selectedFolder?.id === folder.id;
+                return (
+                  <li key={folder.id}>
+                    <button
+                      type="button"
+                      onClick={() => onSelectFolder(folder.id)}
+                      className={[
+                        "flex w-full items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition",
+                        selected
+                          ? "border-orange-300 bg-orange-50 ring-1 ring-orange-200"
+                          : "border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-white",
+                      ].join(" ")}
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-900">{folder.name}</p>
+                        <p className="mt-0.5 truncate text-xs text-slate-500">
+                          {syncState === "Synced" && selected ? "Live in app" : "Setup or review"}
+                        </p>
+                      </div>
+                      <span
+                        className={[
+                          "shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold",
+                          selected && syncState === "Synced"
+                            ? "bg-emerald-100 text-emerald-800"
+                            : "bg-slate-100 text-slate-600",
+                        ].join(" ")}
+                      >
+                        {selected && syncState === "Synced" ? "Active" : "Select"}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <p className="mt-3 text-xs leading-relaxed text-slate-600">{SECTION_INTROS.companiesInviteHelper}</p>
         </section>
       ) : null}
       {(!onboardingMode || godModeFullVisibility) && currentUser.role !== "Master" && !pilotFocus && (
@@ -657,7 +767,7 @@ export function AdminScreen({
         </section>
       )}
 
-      {canInviteNewCompany && (
+      {showCompanyInviteCard && (
         <div className="space-y-3">
           <GoogleWorkspaceSetupNotice
             backendConfigured={backendConfigured}
@@ -666,18 +776,18 @@ export function AdminScreen({
             onOpenInitialSetup={onOpenInitialSetup}
             slatePrimaryCtaInteract={slatePrimaryCtaInteract}
           />
-          <section className="rounded-[1.75rem] border border-slate-800 bg-slate-950 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.24)]">
+          <section className={pilotLightSurface}>
             <SectionHeader
               icon="spark"
               eyebrow="New tenant"
               title="Invite new company"
               subtitle="Send the company administrator a secure onboarding form."
             />
-            <div className="rounded-[1.5rem] bg-slate-900 p-4">
-              <label htmlFor="company-admin-email" className="mb-1 block text-sm font-semibold text-white">
+            <div className={pilotLightNested}>
+              <label htmlFor="company-admin-email" className="mb-1 block text-sm font-semibold text-slate-900">
                 Company administrator email
               </label>
-              <p className="mb-2 text-xs leading-5 text-slate-400">
+              <p className="mb-2 text-xs leading-5 text-slate-600">
                 This person will receive the BERT company onboarding form.
               </p>
               <input
@@ -689,16 +799,26 @@ export function AdminScreen({
                 onBlur={() => setInviteAdminEmailTouched(true)}
                 placeholder="admin@example.com"
                 aria-invalid={Boolean(inviteAdminEmailValidationError)}
-                aria-describedby={inviteAdminEmailValidationError ? "company-admin-email-error" : undefined}
+                aria-describedby={
+                  inviteAdminEmailValidationError
+                    ? "company-admin-email-error"
+                    : !googleWorkspaceReady
+                      ? "company-admin-email-disabled"
+                      : undefined
+                }
                 disabled={!googleWorkspaceReady}
                 className={[
-                  "h-12 w-full rounded-2xl border bg-slate-950 px-4 text-sm text-white outline-none focus:ring-2 focus:ring-sky-400/20",
-                  inviteAdminEmailValidationError ? "border-rose-400 focus:border-rose-400" : "border-slate-700 focus:border-sky-400",
-                  !googleWorkspaceReady ? "cursor-not-allowed opacity-60" : "",
+                  pilotEditableInput,
+                  inviteAdminEmailValidationError ? "border-rose-400 focus:border-rose-400 focus:ring-rose-400/20" : "",
                 ].join(" ")}
               />
+              {!googleWorkspaceReady ? (
+                <p id="company-admin-email-disabled" className="mt-2 text-xs text-slate-500">
+                  Connect Google in Platform Setup before sending onboarding email.
+                </p>
+              ) : null}
               {inviteAdminEmailValidationError ? (
-                <p id="company-admin-email-error" className="mt-2 text-xs font-medium text-rose-300" role="alert">
+                <p id="company-admin-email-error" className="mt-2 text-xs font-medium text-rose-700" role="alert">
                   {inviteAdminEmailValidationError}
                 </p>
               ) : null}
@@ -709,8 +829,8 @@ export function AdminScreen({
                 className={[
                   "mt-3 h-11 w-full rounded-2xl text-sm font-semibold transition",
                   canCreateCompanyWorkspace
-                    ? `bg-slate-100 text-slate-900 ${slatePrimaryCtaInteract}`
-                    : "cursor-not-allowed bg-white/10 text-slate-500",
+                    ? "bg-orange-500 text-white hover:bg-orange-600"
+                    : "cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-500",
                 ].join(" ")}
               >
                 {companyWorkspaceButtonLabel}
@@ -733,7 +853,60 @@ export function AdminScreen({
         </div>
       )}
 
-      {currentUser.role === "Master" && (onboardingMode || godModeFullVisibility) && (
+      {isOnboardingScreen ? (
+        <section className={pilotLightSurface}>
+          <SectionHeader
+            icon="clipboard"
+            eyebrow="Submissions"
+            title="Onboarding submissions"
+            subtitle="Responses waiting to be reviewed and turned into company workspaces."
+          />
+          {onboardingRecordsLoading ? (
+            <p className="mt-2 text-sm text-slate-500">Loading submissions…</p>
+          ) : onboardingRecords.length === 0 ? (
+            <EmptyPanel
+              title="No submissions yet"
+              text="Send an onboarding form using Invite new company above. Completed forms will appear here for review."
+            />
+          ) : (
+            <ul className="mt-3 space-y-2">
+              {onboardingRecords.slice(0, 8).map((record) => (
+                <li key={record.id}>
+                  <button
+                    type="button"
+                    onClick={() => onSelectOnboardingRecord(record.id)}
+                    className={[
+                      "flex w-full items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition",
+                      selectedOnboardingRecordId === record.id
+                        ? "border-orange-300 bg-orange-50"
+                        : "border-slate-200 bg-slate-50 hover:bg-white",
+                    ].join(" ")}
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-900">
+                        {record.companyName || record.contactEmail}
+                      </p>
+                      <p className="mt-0.5 truncate text-xs text-slate-500">{record.contactEmail}</p>
+                    </div>
+                    <span className="shrink-0 text-xs font-semibold text-orange-600">Review</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {activeOnboardingRecord ? (
+            <button
+              type="button"
+              onClick={onApplyOnboardingRecord}
+              className="mt-3 h-11 rounded-2xl bg-orange-500 px-4 text-sm font-semibold text-white hover:bg-orange-600"
+            >
+              Load selected submission into setup
+            </button>
+          ) : null}
+        </section>
+      ) : null}
+
+      {currentUser.role === "Master" && isOnboardingScreen && (onboardingMode || godModeFullVisibility) && (
         <div className="space-y-3">
           <GoogleWorkspaceSetupNotice
             backendConfigured={backendConfigured}
@@ -943,11 +1116,7 @@ export function AdminScreen({
                         : "bg-orange-500 text-white shadow-[0_14px_28px_rgba(249,115,22,0.35)] active:scale-[0.99]",
                     ].join(" ")}
                   >
-                    {folderInspectionLoading
-                      ? "Checking links..."
-                      : syncState === "Synced"
-                        ? "Populate app again"
-                        : "Populate app"}
+                    {workspaceSetupButtonLabel}
                   </button>
                 </div>
               )}

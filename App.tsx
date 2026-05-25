@@ -2071,7 +2071,7 @@ function buildDefaultRoleNavVisibilityMatrix(): RoleNavVisibilityMatrix {
 
 function buildDefaultRoleSiteSelectorVisibility(): RoleSiteSelectorVisibility {
   return {
-    Master: true,
+    Master: false,
     Admin: true,
     Manager: true,
     Auditor: true,
@@ -3334,6 +3334,10 @@ function App() {
   }, [currentUser]);
 
   const showSiteSelectorForRole = currentUser ? (roleSiteSelectorVisibility[currentUser.role] ?? true) : true;
+  const showHeaderSiteSelector =
+    showSiteSelectorForRole && (currentUser?.role !== "Master" || Boolean(selectedFolder));
+  const masterPlatformHeaderScope =
+    currentUser?.role === "Master" && !godCompanySetupOnlyShell && !selectedFolder;
 
   const creatableRoles = useMemo(
     () => (currentUser ? getCreatableRoles(currentUser.role) : []),
@@ -8655,7 +8659,7 @@ function App() {
                     {companyName}
                   </p>
                 )}
-                {!godCompanySetupOnlyShell && showSiteSelectorForRole ? (
+                {!godCompanySetupOnlyShell && showHeaderSiteSelector ? (
                   <div className="mt-1 md:hidden">
                     <select
                       value={selectedSiteId}
@@ -8670,6 +8674,8 @@ function App() {
                       ))}
                     </select>
                   </div>
+                ) : masterPlatformHeaderScope ? (
+                  <p className="mt-0.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">All workspaces</p>
                 ) : null}
               </div>
 
@@ -8732,9 +8738,21 @@ function App() {
               </div>
             ) : (
               <div className={["mt-1.5 hidden flex-wrap items-center gap-2 text-[10px] md:flex", themeMode === "dark" ? "text-slate-400" : "text-slate-500"].join(" ")}>
-                <span className="font-medium text-slate-600 dark:text-slate-300">{companyName}</span>
-                {selectedFolder ? <span>· Workspace: {selectedFolder.name}</span> : null}
-                {showSiteSelectorForRole ? (
+                {masterPlatformHeaderScope ? (
+                  <span className="font-medium text-slate-600 dark:text-slate-300">Platform · All workspaces</span>
+                ) : (
+                  <>
+                    {currentUser.role !== "Master" ? (
+                      <span className="font-medium text-slate-600 dark:text-slate-300">{companyName}</span>
+                    ) : null}
+                    {selectedFolder ? (
+                      <span className="font-medium text-slate-600 dark:text-slate-300">
+                        Workspace: {selectedFolder.name}
+                      </span>
+                    ) : null}
+                  </>
+                )}
+                {showHeaderSiteSelector ? (
                   <select
                     value={selectedSiteId}
                     onChange={(event) => setSelectedSiteId(event.target.value)}
@@ -8902,7 +8920,10 @@ function App() {
           >
             {currentUser && !godCompanySetupOnlyShell ? (
               <div className="mb-4">
-                <RoleContextBanner role={currentUser.role} workspaceName={workspaceName} />
+                <RoleContextBanner
+                  role={currentUser.role}
+                  workspaceName={masterPlatformHeaderScope ? "All workspaces" : workspaceName}
+                />
               </div>
             ) : null}
             {screen === "dashboard" &&
@@ -9430,7 +9451,10 @@ function App() {
               (screen === "onboarding" && canAccessCompanyOnboardingNav(currentUser.role))) && (
               <AdminScreen
                 pilotFocus={resolveAdminPilotFocus(screen)}
-                standaloneOnboarding={screen === "onboarding" || screen === "companies"}
+                standaloneOnboarding={screen === "onboarding"}
+                pilotShellScreen={
+                  screen === "companies" || screen === "onboarding" ? screen : undefined
+                }
                 hideMasterLocalDemoTools={godCompanySetupOnlyShell || screen === "companies" || screen === "users" || screen === "invites"}
                 currentUser={currentUser}
                 googleConnected={googleConnected}

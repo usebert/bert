@@ -251,7 +251,8 @@ export type AdminScreenProps = {
   onArchiveSite: (siteId: string) => void;
   standaloneOnboarding?: boolean;
   /** Paid-pilot nav: focus Companies / Users / Invites content. */
-  pilotFocus?: "companies" | "users" | "invites";
+  pilotFocus?: "companies" | "onboarding" | "users" | "invites";
+  pilotShellScreen?: "companies" | "onboarding";
   hideMasterLocalDemoTools?: boolean;
   godModeAppInviteEmail: string;
   onGodModeAppInviteEmailChange: (value: string) => void;

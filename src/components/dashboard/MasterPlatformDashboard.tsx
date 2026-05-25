@@ -19,6 +19,59 @@ type Props = {
   onOpenInitialSetup: () => void;
 };
 
+function PlatformStatusIcon({ ok }: { ok: boolean }) {
+  if (ok) {
+    return (
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-500 text-white shadow-sm" aria-hidden>
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <path d="m5 12 4 4 10-10" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    );
+  }
+  return (
+    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-800" aria-hidden>
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 8v5M12 16h.01" strokeLinecap="round" />
+      </svg>
+    </span>
+  );
+}
+
+function PlatformStatusCard({
+  label,
+  value,
+  ok,
+  hint,
+}: {
+  label: string;
+  value: string;
+  ok: boolean;
+  hint?: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
+      <div className="flex items-start gap-3">
+        <PlatformStatusIcon ok={ok} />
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
+          <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{value}</p>
+          <span
+            className={[
+              "mt-2 inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold",
+              ok ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-500/15" : "bg-amber-100 text-amber-900",
+            ].join(" ")}
+          >
+            {ok ? "Healthy" : "Action needed"}
+          </span>
+          {hint ? <p className="mt-1 text-xs leading-relaxed text-slate-500">{hint}</p> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function MasterPlatformDashboard({
   googleConnected,
   companiesCount,
@@ -46,29 +99,35 @@ export function MasterPlatformDashboard({
   const smtpOk = setup?.smtpConfigured === true;
   const driveOk = setup?.sharedDriveConfigured === true && googleConnected;
   const systemHealthy = setup?.readyForPilot === true;
+  const companiesActive = companiesCount > 0;
 
   return (
     <RoleDashboardShell role="Master" title="Platform Dashboard">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricTile
-          role="Master"
+        <PlatformStatusCard
           label="Google Workspace"
           value={googleConnected ? "Connected" : "Not connected"}
+          ok={googleConnected}
           hint={googleConnected ? "OAuth session on the API server." : "Connect in Platform Setup."}
         />
-        <MetricTile
-          role="Master"
+        <PlatformStatusCard
           label="Shared Drive"
           value={driveOk ? "Verified" : "Not verified"}
+          ok={driveOk}
           hint={setup?.sharedDriveId ? "Drive ID configured on API." : "Set GOOGLE_SHARED_DRIVE_ID on API."}
         />
-        <MetricTile
-          role="Master"
+        <PlatformStatusCard
           label="Email (SMTP)"
           value={smtpOk ? "Working" : "Not configured"}
+          ok={smtpOk}
           hint={smtpOk ? "Company invites can send email." : "Manual invite links still work."}
         />
-        <MetricTile role="Master" label="Companies" value={String(companiesCount)} hint="Active company workspaces." />
+        <PlatformStatusCard
+          label="Companies"
+          value={companiesActive ? "Active" : "None yet"}
+          ok={companiesActive}
+          hint={`${companiesCount} company workspace${companiesCount === 1 ? "" : "s"} visible on Drive.`}
+        />
       </div>
 
       <div className="grid gap-3 lg:grid-cols-2">

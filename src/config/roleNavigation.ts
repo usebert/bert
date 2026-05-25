@@ -16,7 +16,7 @@ import type { NavItemId } from "../types/navigation";
 
 export type RoleNavBucket = "master" | "companyAdmin" | "manager" | "auditor";
 
-export type AdminPilotFocus = "companies" | "users" | "invites";
+export type AdminPilotFocus = "companies" | "onboarding" | "users" | "invites";
 
 export type PresentedNavItem = {
   id: NavItemId;
@@ -159,7 +159,8 @@ export function getMobileBottomNavForRole(role: Role): MobileNavEntry[] {
 }
 
 export function resolveAdminPilotFocus(screen: NavItemId): AdminPilotFocus | undefined {
-  if (screen === "companies" || screen === "onboarding") return "companies";
+  if (screen === "companies") return "companies";
+  if (screen === "onboarding") return "onboarding";
   if (screen === "users" || screen === "invites") return "users";
   return undefined;
 }
