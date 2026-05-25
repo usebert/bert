@@ -70,6 +70,25 @@ import {
   setAreaRestrictionsEnabled as patchAreaRestrictionsOnServer,
   updateCompanyArea,
 } from "./src/services/companyAreasService";
+import {
+  fetchCompanyAuditMapping,
+  saveAreaAuditsForArea,
+  saveUserAreaAccessRows,
+  saveUserAuditAccessRows,
+  syncAuditTemplatesToSheet,
+} from "./src/services/companyAuditMappingService";
+import type { AreaAuditMapping } from "./src/utils/areaAuditMapping";
+import {
+  SINGLE_WORKSPACE_AREA_ID,
+  buildUserAreaAccessRows,
+  buildUserAuditAccessRows,
+  enabledAuditIdsForArea,
+  filterItemsByAreaAuditMapping,
+  isAuditActiveForArea,
+  mergeUserAreaAccessIntoAssignments,
+  mergeUserAuditAccessIntoOverrides,
+  resolveAuditAreaId,
+} from "./src/utils/areaAuditMapping";
 import { AccountSettingsScreen } from "./src/screens/AccountSettingsScreen";
 import { ActionsScreen } from "./src/screens/ActionsScreen";
 import { AdminScreen } from "./src/screens/AdminScreen";
@@ -2499,6 +2518,8 @@ function readStoredWorkspaceState() {
       roleSiteSelectorVisibility?: RoleSiteSelectorVisibility;
       userSiteAssignments?: UserSiteAssignments;
       areaRestrictionsEnabled?: boolean;
+      areaAudits?: AreaAuditMapping[];
+      selectedAreaAuditAreaId?: string;
       externalEmployees?: ExternalEmployee[];
       documentDistributions?: DocumentDistribution[];
     };
@@ -2559,6 +2580,8 @@ function getWorkspaceBootstrap() {
       roleSiteSelectorVisibility: buildDefaultRoleSiteSelectorVisibility(),
       userSiteAssignments: {} as UserSiteAssignments,
       areaRestrictionsEnabled: false,
+      areaAudits: [] as AreaAuditMapping[],
+      selectedAreaAuditAreaId: "",
       externalEmployees: [] as ExternalEmployee[],
       documentDistributions: [] as DocumentDistribution[],
     };
@@ -2590,6 +2613,8 @@ function getWorkspaceBootstrap() {
     roleSiteSelectorVisibility: stored?.roleSiteSelectorVisibility ?? buildDefaultRoleSiteSelectorVisibility(),
     userSiteAssignments: stored?.userSiteAssignments ?? {},
     areaRestrictionsEnabled: stored?.areaRestrictionsEnabled ?? false,
+    areaAudits: stored?.areaAudits ?? [],
+    selectedAreaAuditAreaId: stored?.selectedAreaAuditAreaId ?? "",
     externalEmployees: stored?.externalEmployees ?? [],
     documentDistributions: stored?.documentDistributions ?? [],
   };
@@ -2959,6 +2984,12 @@ function App() {
   );
   const [areaSyncLoading, setAreaSyncLoading] = useState(false);
   const [areaSyncError, setAreaSyncError] = useState<string | null>(null);
+  const [areaAudits, setAreaAudits] = useState<AreaAuditMapping[]>(storedWorkspaceState?.areaAudits ?? []);
+  const [selectedAreaAuditAreaId, setSelectedAreaAuditAreaId] = useState(
+    storedWorkspaceState?.selectedAreaAuditAreaId ?? "",
+  );
+  const [mappingSyncLoading, setMappingSyncLoading] = useState(false);
+  const [mappingSyncError, setMappingSyncError] = useState<string | null>(null);
   const [externalEmployees, setExternalEmployees] = useState<ExternalEmployee[]>(
     storedWorkspaceState?.externalEmployees ?? [],
   );
@@ -2996,10 +3027,16 @@ function App() {
     );
   }, [currentUser, invitedUsers, userSiteAssignments, areaRestrictionsEnabled]);
 
-  const assignmentFilteredAudits = useMemo(
-    () => filterByAssignedSites(audits, currentUserAssignedSiteIds, sites),
-    [audits, currentUserAssignedSiteIds, sites],
-  );
+  const assignmentFilteredAudits = useMemo(() => {
+    const bySite = filterByAssignedSites(audits, currentUserAssignedSiteIds, sites);
+    return filterItemsByAreaAuditMapping(
+      bySite,
+      areaAudits,
+      sites,
+      areaRestrictionsEnabled,
+      currentUserAssignedSiteIds,
+    );
+  }, [audits, currentUserAssignedSiteIds, sites, areaAudits, areaRestrictionsEnabled]);
   const assignmentFilteredActions = useMemo(
     () => filterByAssignedSites(actions, currentUserAssignedSiteIds, sites),
     [actions, currentUserAssignedSiteIds, sites],
@@ -3675,12 +3712,17 @@ function App() {
     }
 
     const siteArea = resolveAccessibleAuditSiteArea();
+    const areaId =
+      resolveAuditAreaId({ siteArea }, sites, areaRestrictionsEnabled) || SINGLE_WORKSPACE_AREA_ID;
     const extras: Audit[] = [];
     availableScheduleAudits.forEach((option) => {
       const hasAccess =
         currentUserAuditAccess.allowedAuditIds.has(option.id) ||
         currentUserAuditAccess.allowedAuditNames.has(option.name);
       if (!hasAccess) {
+        return;
+      }
+      if (!isAuditActiveForArea(areaAudits, areaId, option.id, { areaRestrictionsEnabled, sites })) {
         return;
       }
       const hasInstance = base.some(
@@ -3708,6 +3750,8 @@ function App() {
     selectedSite,
     sites,
     currentUserAssignedSiteIds,
+    areaAudits,
+    areaRestrictionsEnabled,
   ]);
 
   const dashboardNextActionInput = useMemo((): DashboardSummaryForNextAction | null => {
@@ -3915,10 +3959,14 @@ function App() {
     const normalizedCurrent = normalizeAuditAccessLevel(currentAccess);
     const currentIndex = cycleOrder.indexOf(normalizedCurrent);
     const nextAccess = cycleOrder[(currentIndex + 1) % cycleOrder.length];
-    setAuditAccessOverrides((current) => ({
-      ...current,
-      [buildAuditAccessOverrideKey(email, auditId)]: nextAccess,
-    }));
+    setAuditAccessOverrides((current) => {
+      const nextOverrides = {
+        ...current,
+        [buildAuditAccessOverrideKey(email, auditId)]: nextAccess,
+      };
+      void persistUserAccessMappingToSheet(userSiteAssignments, nextOverrides);
+      return nextOverrides;
+    });
 
     const auditName = availableScheduleAudits.find((option) => option.id === auditId)?.name || "This audit";
     const hasLiveSchedule = Boolean(auditScheduleMatrix[auditId]);
@@ -4303,6 +4351,8 @@ function App() {
         roleSiteSelectorVisibility,
         userSiteAssignments,
         areaRestrictionsEnabled,
+        areaAudits,
+        selectedAreaAuditAreaId,
         externalEmployees,
         documentDistributions,
       }),
@@ -4333,6 +4383,8 @@ function App() {
     roleSiteSelectorVisibility,
     userSiteAssignments,
     areaRestrictionsEnabled,
+    areaAudits,
+    selectedAreaAuditAreaId,
     externalEmployees,
     documentDistributions,
   ]);
@@ -7078,6 +7130,65 @@ function App() {
     folderInspection?.masterSheet?.id ||
     "";
 
+  const persistUserAccessMappingToSheet = useCallback(
+    async (nextAssignments = userSiteAssignments, nextOverrides = auditAccessOverrides) => {
+      const masterSheetId = resolveWorkspaceMasterSheetId();
+      if (!googleConnected || !masterSheetId) {
+        return;
+      }
+      try {
+        await saveUserAreaAccessRows(masterSheetId, buildUserAreaAccessRows(nextAssignments));
+        await saveUserAuditAccessRows(masterSheetId, buildUserAuditAccessRows(nextOverrides));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to sync user access to sheet.";
+        setMappingSyncError(message);
+      }
+    },
+    [googleConnected, userSiteAssignments, auditAccessOverrides],
+  );
+
+  const syncCompanyAuditMappingFromServer = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const masterSheetId = resolveWorkspaceMasterSheetId();
+      if (!googleConnected || !masterSheetId) {
+        return;
+      }
+      if (!options?.silent) {
+        setMappingSyncLoading(true);
+      }
+      setMappingSyncError(null);
+      try {
+        const payload = await fetchCompanyAuditMapping(masterSheetId);
+        if (payload.areaAudits) {
+          setAreaAudits(payload.areaAudits);
+        }
+        if (payload.userAreaAccess?.length) {
+          setUserSiteAssignments((current) => ({
+            ...current,
+            ...mergeUserAreaAccessIntoAssignments(payload.userAreaAccess || []),
+          }));
+        }
+        if (payload.userAuditAccess?.length) {
+          setAuditAccessOverrides((current) => ({
+            ...current,
+            ...mergeUserAuditAccessIntoOverrides(payload.userAuditAccess || []),
+          }));
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to sync audit mapping.";
+        setMappingSyncError(message);
+        if (!options?.silent) {
+          pushToast("Audit mapping not synced", message, "warning");
+        }
+      } finally {
+        if (!options?.silent) {
+          setMappingSyncLoading(false);
+        }
+      }
+    },
+    [googleConnected, companySheetSync?.sheetId, masterSheetInput, folderInspection?.masterSheet?.id],
+  );
+
   const syncCompanyAreasFromServer = useCallback(
     async (options?: { silent?: boolean }) => {
       const masterSheetId = resolveWorkspaceMasterSheetId();
@@ -7096,6 +7207,10 @@ function App() {
         if (typeof payload.areaRestrictionsEnabled === "boolean") {
           setAreaRestrictionsEnabled(payload.areaRestrictionsEnabled);
         }
+        await syncCompanyAuditMappingFromServer({ silent: true });
+        if (templates.some((template) => template.active)) {
+          await syncAuditTemplatesToSheet(masterSheetId, templates);
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unable to sync company areas.";
         setAreaSyncError(message);
@@ -7108,7 +7223,15 @@ function App() {
         }
       }
     },
-    [googleConnected, companySheetSync?.sheetId, masterSheetInput, folderInspection?.masterSheet?.id, selectedFolderId],
+    [
+      googleConnected,
+      companySheetSync?.sheetId,
+      masterSheetInput,
+      folderInspection?.masterSheet?.id,
+      selectedFolderId,
+      syncCompanyAuditMappingFromServer,
+      templates,
+    ],
   );
 
   useEffect(() => {
@@ -7296,9 +7419,50 @@ function App() {
       } else {
         next[key] = nextIds;
       }
+      void persistUserAccessMappingToSheet(next, auditAccessOverrides);
       return next;
     });
-    pushToast("Site assignment updated", "Workspace site access for that user was saved on this device.", "neutral");
+    pushToast("Site assignment updated", "Workspace site access for that user was saved.", "neutral");
+  };
+
+  const handleToggleAreaAudit = async (areaId: string, auditId: string, enabled: boolean) => {
+    if (!canAccessAdmin(currentUser?.role || "Auditor")) {
+      pushToast("Access restricted", "Only company administrators can configure area audits.", "warning");
+      return;
+    }
+    const currentIds = enabledAuditIdsForArea(areaAudits, areaId);
+    const nextIds = enabled
+      ? Array.from(new Set([...currentIds, auditId]))
+      : currentIds.filter((id) => id !== auditId);
+    const nextMappings: AreaAuditMapping[] = [
+      ...areaAudits.filter((row) => row.areaId !== areaId),
+      ...nextIds.map((id) => ({
+        areaId,
+        auditId: id,
+        status: "active" as const,
+      })),
+    ];
+    setAreaAudits(nextMappings);
+    const masterSheetId = resolveWorkspaceMasterSheetId();
+    if (!googleConnected || !masterSheetId) {
+      pushToast("Saved locally", "Connect Google to sync area audits to the company master sheet.", "neutral");
+      return;
+    }
+    setMappingSyncLoading(true);
+    setMappingSyncError(null);
+    try {
+      const payload = await saveAreaAuditsForArea(masterSheetId, areaId, nextIds);
+      if (payload.areaAudits) {
+        setAreaAudits(payload.areaAudits);
+      }
+      pushToast("Area audits updated", "Checks for this area were saved to the company sheet.", "success");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to save area audits.";
+      setMappingSyncError(message);
+      pushToast("Sheet sync failed", message, "warning");
+    } finally {
+      setMappingSyncLoading(false);
+    }
   };
 
   const handleVerifyOnboarding = () => {
@@ -9940,6 +10104,12 @@ function App() {
                 onDisableAreaRestrictions={handleDisableAreaRestrictions}
                 onRenameArea={handleRenameArea}
                 onReactivateArea={handleReactivateArea}
+                areaAudits={areaAudits}
+                selectedAreaAuditAreaId={selectedAreaAuditAreaId}
+                mappingSyncLoading={mappingSyncLoading}
+                mappingSyncError={mappingSyncError}
+                onSelectAreaAuditArea={setSelectedAreaAuditAreaId}
+                onToggleAreaAudit={handleToggleAreaAudit}
                 godModeAppInviteEmail={godModeAppInviteEmail}
                 onGodModeAppInviteEmailChange={setGodModeAppInviteEmail}
                 onSendGodModeAppCompanyInvite={handleSendGodModeAppCompanyInvite}

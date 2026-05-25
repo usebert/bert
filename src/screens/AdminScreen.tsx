@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { SECTION_INTROS } from "../config/sectionIntros";
 import { canAccessAdmin, canAccessAdminOnboardingWorkspace, canManageAreas, getRoleDisplayName } from "../permissions";
+import { AreaAuditsSection } from "../components/admin/AreaAuditsSection";
 import { SitesAreasPanel } from "../components/admin/SitesAreasPanel";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../components/dashboard/DashboardPrimitives";
 import { SectionIntro } from "../components/SectionIntro";
@@ -355,6 +356,12 @@ export function AdminScreen({
   areaRestrictionsEnabled,
   areaSyncLoading,
   areaSyncError,
+  areaAudits,
+  selectedAreaAuditAreaId,
+  mappingSyncLoading,
+  mappingSyncError,
+  onSelectAreaAuditArea,
+  onToggleAreaAudit,
   reportUsers,
   userSiteAssignments,
   onToggleUserSiteAssignment,
@@ -683,6 +690,21 @@ export function AdminScreen({
                 onArchiveArea={onArchiveSite}
                 onReactivateArea={onReactivateArea}
               />
+              <div className="mt-4">
+                <AreaAuditsSection
+                  sites={sites}
+                  areaRestrictionsEnabled={areaRestrictionsEnabled}
+                  templates={templates}
+                  areaAudits={areaAudits}
+                  mappingSyncLoading={mappingSyncLoading}
+                  mappingSyncError={mappingSyncError}
+                  selectedAreaId={selectedAreaAuditAreaId}
+                  variant="light"
+                  surfaceClass={pilotLightNested}
+                  onSelectArea={onSelectAreaAuditArea}
+                  onToggleAreaAudit={onToggleAreaAudit}
+                />
+              </div>
             </div>
           ) : null}
           {!workspaceSetupComplete ? (
@@ -782,6 +804,22 @@ export function AdminScreen({
           onRenameArea={onRenameArea}
           onArchiveArea={onArchiveSite}
           onReactivateArea={onReactivateArea}
+        />
+      ) : null}
+
+      {canManageAreas(currentUser.role) && !pilotFocus && currentUser.role === "Admin" ? (
+        <AreaAuditsSection
+          sites={sites}
+          areaRestrictionsEnabled={areaRestrictionsEnabled}
+          templates={templates}
+          areaAudits={areaAudits}
+          mappingSyncLoading={mappingSyncLoading}
+          mappingSyncError={mappingSyncError}
+          selectedAreaId={selectedAreaAuditAreaId}
+          variant="light"
+          surfaceClass={pilotLightSurface}
+          onSelectArea={onSelectAreaAuditArea}
+          onToggleAreaAudit={onToggleAreaAudit}
         />
       ) : null}
 

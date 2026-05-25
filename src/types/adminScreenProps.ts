@@ -14,6 +14,7 @@ import type {
   ScheduleFrequency,
 } from "./reportsScreenProps";
 import type { CompanyReportUser } from "./reports";
+import type { AreaAuditMapping } from "../utils/areaAuditMapping";
 
 export type OnboardingSource = {
   configured: boolean;
@@ -155,6 +156,12 @@ export type AdminScreenProps = {
   areaRestrictionsEnabled: boolean;
   areaSyncLoading: boolean;
   areaSyncError: string | null;
+  areaAudits: AreaAuditMapping[];
+  selectedAreaAuditAreaId: string;
+  mappingSyncLoading: boolean;
+  mappingSyncError: string | null;
+  onSelectAreaAuditArea: (areaId: string) => void;
+  onToggleAreaAudit: (areaId: string, auditId: string, enabled: boolean) => void;
   reportUsers: CompanyReportUser[];
   userSiteAssignments: UserSiteAssignments;
   onToggleUserSiteAssignment: (email: string, siteId: string) => void;

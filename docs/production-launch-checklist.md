@@ -134,6 +134,8 @@ After env change, redeploy API and confirm credentialed `POST /api/auth/master/l
 - [ ] With area restrictions **off**, Users & Invites shows single-workspace message; Managers/Auditors see whole workspace
 - [ ] With area restrictions **on**, assign users to areas; reserved names (Archive, Live Companies, Master Control) are rejected
 - [ ] Areas persist in company master sheet `Areas` tab when Google is connected; friendly message when sheet sync unavailable
+- [ ] **Area audits**: Admin maps active templates to areas; `AreaAudits` tab created on first save; My Checks respects mapping when rows exist
+- [ ] **User access tabs**: `UserAreaAccess` and `UserAuditAccess` sync from sheet on load; toggles in Users & Invites / Forms & Checks persist when Google connected
 - [ ] `npm run verify:auth` and `BERT_VERIFY_PILOT_DIST=1 npm run verify:auth` pass on release build artifact
 - [ ] Google OAuth connect flow from Initial Setup (after Google env on API)
 - [ ] One invite or onboarding path in a staging tenant (manual invite link OK if SMTP unset)

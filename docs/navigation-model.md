@@ -54,9 +54,10 @@ Direct URLs such as `/setup/initial` are cleared for non-Master users. Blocked s
 
 Optional per-company. **Master** manages areas for the selected folder under **Companies** and in **Users & Invites**. **Company Admin** manages areas under **Workspace** (full setup) and **Users & Invites** (site context + user assignment).
 
-- Restrictions off (default): single-workspace mode — no area filter for Managers/Auditors.
+- Restrictions off (default): single-workspace mode (`area-main`) — no area filter for Managers/Auditors.
 - Restrictions on: assign Managers/Auditors to areas in **Users & Invites**; audits/schedules can still be scoped separately.
-- **Forms & Checks** audit access matrix is independent of area access (helper copy on that screen links the two concepts).
+- **Area audits** (Workspace / Companies): map audit templates to areas via `AreaAudits` sheet tab.
+- **Forms & Checks** audit access matrix controls *which* checks a user can open; area access controls *where*; schedules control *when* (helper copy on that screen).
 
 ## Section helper copy
 

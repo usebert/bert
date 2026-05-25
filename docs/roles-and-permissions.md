@@ -33,9 +33,16 @@ Company areas split a workspace by site or department. **Single-location compani
 | Assign users to areas | Yes | Yes | No | No |
 | Filtered by assigned areas | No | No | When restrictions on and boxes checked | When restrictions on and boxes checked |
 
-Helpers: `canManageAreas` in `src/permissions.ts`. UI: `SitesAreasPanel` (`src/components/admin/SitesAreasPanel.tsx`). API: `GET/POST/PATCH /api/company-areas/:masterSheetId` (see `server/company-areas.mjs`). Config key `areaRestrictionsEnabled` on the company master sheet.
+Helpers: `canManageAreas` in `src/permissions.ts`. UI: `SitesAreasPanel` (`src/components/admin/SitesAreasPanel.tsx`), `AreaAuditsSection` (`src/components/admin/AreaAuditsSection.tsx`). APIs:
 
-**Area assignment matrix** appears in **Users & Invites** only when area restrictions are enabled **or** more than one active area exists. With restrictions off and at most one area, the app stays in **single-workspace mode** (no per-user area checkboxes).
+- Areas: `GET/POST/PATCH /api/company-areas/:masterSheetId` (`server/company-areas.mjs`)
+- Audit mapping: `GET /api/company-audit-mapping/:masterSheetId` and `PUT` sub-routes (`server/company-audit-mapping.mjs`)
+
+Config key `areaRestrictionsEnabled` on the company master sheet. Spreadsheet tabs (created on first use): `Areas`, `AuditTemplates`, `AreaAudits`, `UserAreaAccess`, `UserAuditAccess` (existing `Schedule` tab is read for due-date context).
+
+**Area assignment matrix** appears in **Users & Invites** only when area restrictions are enabled **or** more than one active area exists. With restrictions off and at most one area, the app stays in **single-workspace mode** (synthetic area id `area-main`; no per-user area checkboxes).
+
+**Area audits** (Workspace / Companies): choose which audit templates apply per area. **My Checks** for Auditors requires audit access, area access (when restrictions on), and an active `AreaAudits` row when mapping is configured.
 
 ## Company operator
 
@@ -77,9 +84,10 @@ Company Admin must not see Platform Setup, Google disconnect, or platform diagno
 | **Auditor** | No area setup UI |
 | **Restrictions off** | Single-workspace mode — Managers and Auditors see the whole company workspace |
 | **Restrictions on** | Unchecked area boxes = all active areas; checked boxes = restricted to those areas |
-| **Storage** | Company master spreadsheet `Areas` tab (created on first area action) and Config key `AreaRestrictionsEnabled`; local workspace state mirrors for offline/demo |
+| **Storage** | Company master spreadsheet tabs `Areas`, `AreaAudits`, `AuditTemplates`, `UserAreaAccess`, `UserAuditAccess`; Config key `AreaRestrictionsEnabled`; local workspace state mirrors for offline/demo |
+| **Area audits** | Admin / Master configure which checks apply per area; unconfigured mapping shows all checks (backward compatible) |
 
-Helpers: `canManageAreas`, `src/utils/companyAreas.ts`, `src/components/admin/SitesAreasPanel.tsx`.
+Helpers: `canManageAreas`, `src/utils/companyAreas.ts`, `src/utils/areaAuditMapping.ts`, `src/components/admin/SitesAreasPanel.tsx`, `src/components/admin/AreaAuditsSection.tsx`.
 
 ## Verification
 

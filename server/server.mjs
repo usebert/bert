@@ -21,6 +21,7 @@ import {
 } from "./userauth-password.mjs";
 import { installDocumentDistributionRoutes } from "./document-distribution.mjs";
 import { CONFIG_KEY_AREA_RESTRICTIONS, installCompanyAreasRoutes } from "./company-areas.mjs";
+import { installCompanyAuditMappingRoutes } from "./company-audit-mapping.mjs";
 import { installEmailReminderRoutes, startEmailReminderScheduler } from "./email-reminders.mjs";
 import { createGoogleOAuthSessionStore } from "./google-oauth-session.mjs";
 import { installSetupStatusRoutes } from "./setup-status.mjs";
@@ -868,6 +869,16 @@ installCompanyAreasRoutes(app, {
   envConfigured,
   getConfig,
   updateConfig,
+  ensureColumns,
+  getTabValues,
+  rowsToRecords,
+  withSheetsQuotaRetry,
+});
+
+installCompanyAuditMappingRoutes(app, {
+  google,
+  getAuthedClient,
+  envConfigured,
   ensureColumns,
   getTabValues,
   rowsToRecords,
