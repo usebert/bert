@@ -26,6 +26,11 @@ export function canAccessAdmin(role: Role) {
   return role === "Master" || role === "Admin";
 }
 
+/** Company sites/areas setup — platform owner any company; company Admin own workspace only (UI scope). */
+export function canManageAreas(role: Role) {
+  return role === "Master" || role === "Admin";
+}
+
 /** Control (admin) workspace tab — company Admin only; platform owner (Master) uses Onboarding only. */
 export function canAccessControlScreen(role: Role) {
   return role === "Admin";

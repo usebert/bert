@@ -15,6 +15,20 @@ export function isArchiveOrNonLiveWorkspaceName(name) {
   return normalized === "archive" || normalized === "archived";
 }
 
+/** Reserved platform folder labels — not valid company areas/sites. */
+export function isReservedWorkspaceAreaName(name) {
+  const normalized = normalizeWorkspaceFolderLabel(name);
+  if (isArchiveOrNonLiveWorkspaceName(name)) {
+    return true;
+  }
+  return (
+    normalized === "live companies" ||
+    normalized === "master control" ||
+    normalized === "companies" ||
+    normalized === "company"
+  );
+}
+
 export function isGoogleNotFoundError(err) {
   const status = err?.code ?? err?.response?.status ?? err?.status;
   if (status === 404 || status === 410) {

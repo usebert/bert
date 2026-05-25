@@ -42,6 +42,10 @@ export type Site = {
   name: string;
   code: string;
   active: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  createdBy?: string;
+  archivedAt?: string;
 };
 
 export type UserInvite = {
@@ -148,9 +152,16 @@ export type AdminScreenProps = {
   invitedUsers: UserInvite[];
   sites: Site[];
   selectedSiteId: string;
+  areaRestrictionsEnabled: boolean;
+  areaSyncLoading: boolean;
+  areaSyncError: string | null;
   reportUsers: CompanyReportUser[];
   userSiteAssignments: UserSiteAssignments;
   onToggleUserSiteAssignment: (email: string, siteId: string) => void;
+  onEnableAreaRestrictions: () => void;
+  onDisableAreaRestrictions: () => void;
+  onRenameArea: (siteId: string, currentName: string) => void;
+  onReactivateArea: (siteId: string) => void;
   creatableRoles: Role[];
   notificationsEnabled: boolean;
   companySheetSync: CompanySheetSyncStatus | null;
