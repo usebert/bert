@@ -5,6 +5,7 @@ import { DangerActionButton } from "../DangerActionButton";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../dashboard/DashboardPrimitives";
 import { InviteStatusLegend } from "../InviteStatusLegend";
 import { WhatHappensNextPanel } from "../WhatHappensNextPanel";
+import { SitesAreasPanel } from "./SitesAreasPanel";
 import type { AdminScreenProps, CompanyUserInviteEmailResult, UserInvite } from "../../types/adminScreenProps";
 import {
   formatInviteStatusLabel,
@@ -279,7 +280,15 @@ export type UsersInvitesPilotPanelProps = Pick<
   | "reportUsers"
   | "sites"
   | "selectedSiteId"
+  | "areaRestrictionsEnabled"
+  | "areaSyncLoading"
+  | "areaSyncError"
   | "userSiteAssignments"
+  | "googleConnected"
+  | "onEnableAreaRestrictions"
+  | "onDisableAreaRestrictions"
+  | "onRenameArea"
+  | "onReactivateArea"
   | "creatableRoles"
   | "companyUserInviteEmailResult"
   | "companyUserInviteEmailSending"
@@ -327,6 +336,10 @@ export function UsersInvitesPilotPanel({
   reportUsers,
   sites,
   selectedSiteId,
+  areaRestrictionsEnabled,
+  areaSyncLoading,
+  areaSyncError,
+  googleConnected,
   userSiteAssignments,
   creatableRoles,
   companyUserInviteEmailResult,
@@ -347,6 +360,10 @@ export function UsersInvitesPilotPanel({
   onSelectSite,
   onAddSite,
   onArchiveSite,
+  onEnableAreaRestrictions,
+  onDisableAreaRestrictions,
+  onRenameArea,
+  onReactivateArea,
   onToggleUserSiteAssignment,
   CompanyUserInviteEmailResultPanel,
   slatePrimaryCtaInteract,
@@ -365,9 +382,6 @@ export function UsersInvitesPilotPanel({
     }
     return { pendingInvites: pending, activeInvites: active };
   }, [invitedUsers]);
-
-  const activeSiteChipClass = "border-orange-300 bg-orange-50 text-orange-900 ring-1 ring-orange-200";
-  const siteChipClass = "border-slate-200 bg-white text-slate-700 hover:border-slate-300";
 
   return (
     <div id="admin-user-management" className="space-y-4">
@@ -527,128 +541,30 @@ export function UsersInvitesPilotPanel({
         </details>
       ) : null}
 
-      <section className={pilotLightSurface}>
-        <SectionHeader
-          icon="grid"
-          eyebrow="Sites"
-          title="Site access"
-          subtitle="Sites scope audits and reporting. Leave all site boxes unchecked to allow every active site."
-        />
-        <div className={`mt-4 space-y-4 ${pilotLightNested}`}>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Company site context</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => onSelectSite("")}
-                className={[
-                  "rounded-full border px-3 py-1.5 text-sm font-semibold transition",
-                  selectedSiteId === "" ? activeSiteChipClass : siteChipClass,
-                ].join(" ")}
-              >
-                All sites
-              </button>
-              {sites
-                .filter((site) => site.active)
-                .map((site) => (
-                  <span key={site.id} className="inline-flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => onSelectSite(site.id)}
-                      className={[
-                        "rounded-full border px-3 py-1.5 text-sm font-semibold transition",
-                        selectedSiteId === site.id ? activeSiteChipClass : siteChipClass,
-                      ].join(" ")}
-                    >
-                      {site.name}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onArchiveSite(site.id)}
-                      className="rounded-full px-1.5 text-xs font-semibold text-slate-400 hover:text-rose-600"
-                      title="Archive site"
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              <button
-                type="button"
-                onClick={onAddSite}
-                className="rounded-full border border-dashed border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-600"
-              >
-                Add site
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Assign users to sites</p>
-            <p className="mt-1 text-sm text-slate-600">
-              For Managers and Auditors: unchecked = all active sites. Check sites to restrict their workspace.
-            </p>
-            <div className="mt-3 space-y-3">
-              {reportUsers
-                .filter((user) => user.role !== "Master")
-                .map((user) => {
-                  const assignmentKey = user.email.trim().toLowerCase();
-                  const assignedIds = userSiteAssignments[assignmentKey] ?? [];
-                  const activeSites = sites.filter((site) => site.active);
-                  return (
-                    <div key={user.email} className="rounded-2xl border border-slate-200 bg-white p-3">
-                      <div className="flex flex-wrap items-baseline justify-between gap-2">
-                        <p className="text-sm font-semibold text-slate-900">{user.email}</p>
-                        <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{user.role}</span>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {activeSites.map((site) => {
-                          const checked = assignedIds.includes(site.id);
-                          return (
-                            <label
-                              key={`${user.email}-${site.id}`}
-                              className={[
-                                "flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition",
-                                checked
-                                  ? "border-sky-200 bg-sky-50 text-sky-900"
-                                  : "border-slate-200 bg-slate-50 text-slate-700",
-                              ].join(" ")}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => onToggleUserSiteAssignment(user.email, site.id)}
-                                className="h-3.5 w-3.5 rounded border-slate-300 text-sky-600"
-                              />
-                              <span className="truncate">{site.name}</span>
-                            </label>
-                          );
-                        })}
-                        {activeSites.length === 0 ? (
-                          <p className="text-xs text-slate-500">Add a site to assign access.</p>
-                        ) : null}
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-          </div>
-
-          {sites.some((s) => !s.active) ? (
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-semibold text-slate-600">Archived sites</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {sites
-                  .filter((site) => !site.active)
-                  .map((site) => (
-                    <span key={site.id} className="rounded-full bg-slate-200 px-2.5 py-0.5 text-xs text-slate-600">
-                      {site.name}
-                    </span>
-                  ))}
-              </div>
-            </div>
-          ) : null}
-        </div>
-      </section>
+      <SitesAreasPanel
+        currentUserRole={currentUser.role}
+        sites={sites}
+        areaRestrictionsEnabled={areaRestrictionsEnabled}
+        areaSyncLoading={areaSyncLoading}
+        areaSyncError={areaSyncError}
+        googleConnected={googleConnected}
+        selectedSiteId={selectedSiteId}
+        userSiteAssignments={userSiteAssignments}
+        reportUsers={reportUsers}
+        showSiteContext
+        showUserAssignment
+        variant="light"
+        surfaceClass={pilotLightSurface}
+        nestedClass={pilotLightNested}
+        onEnableAreaRestrictions={onEnableAreaRestrictions}
+        onDisableAreaRestrictions={onDisableAreaRestrictions}
+        onAddArea={onAddSite}
+        onRenameArea={onRenameArea}
+        onArchiveArea={onArchiveSite}
+        onReactivateArea={onReactivateArea}
+        onSelectSite={onSelectSite}
+        onToggleUserSiteAssignment={onToggleUserSiteAssignment}
+      />
 
       <InviteStatusLegend />
 

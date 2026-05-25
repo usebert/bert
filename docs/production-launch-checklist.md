@@ -37,6 +37,8 @@ Warnings (logged only, do not block boot):
 - [ ] **Companies → Invite new company**: with SMTP, onboarding email sends; without SMTP, fallback panel shows copy link / draft
 - [ ] **Company user invite** (Users/Invites): email sends or manual fallback; recipient completes invite link before company login
 - [ ] **Company users are on the company master spreadsheet** (Users tab + Config `UserAuth.<email>`), **not** the operator Master login sheet — verify the selected company folder’s sheet after invite completion
+- [ ] **Sites / Areas** (optional): Master or Company Admin can add areas and enable restrictions when needed; single-site pilots can leave restrictions off
+- [ ] **Area restrictions**: when enabled, Managers/Auditors only see work for assigned areas; assignment UI in **Users & Invites** (or **Companies** for Master)
 - [ ] **Company user resend** works (reuses invite token + SMTP; does not require live API Google session for email only)
 - [ ] **Company user delete/revoke** removes invite from UI; incomplete setup tokens can be revoked; active users show a clear message
 - [ ] **Setup incomplete** rows can be cleared and a fresh invite sent; recipient can reopen the invite link to retry setup when API Google is connected
@@ -128,6 +130,10 @@ After env change, redeploy API and confirm credentialed `POST /api/auth/master/l
 - [ ] Verify **Platform Setup** hidden for Company Admin / Manager / Auditor
 - [ ] Verify `/setup` and `/setup/initial` direct access blocked for non-Master (redirect or “platform owner” message)
 - [ ] Company users cannot access `/setup/initial` or Godmode
+- [ ] **Sites / Areas**: Master and company Admin can add/rename/archive areas; Manager and Auditor cannot open area setup
+- [ ] With area restrictions **off**, Users & Invites shows single-workspace message; Managers/Auditors see whole workspace
+- [ ] With area restrictions **on**, assign users to areas; reserved names (Archive, Live Companies, Master Control) are rejected
+- [ ] Areas persist in company master sheet `Areas` tab when Google is connected; friendly message when sheet sync unavailable
 - [ ] `npm run verify:auth` and `BERT_VERIFY_PILOT_DIST=1 npm run verify:auth` pass on release build artifact
 - [ ] Google OAuth connect flow from Initial Setup (after Google env on API)
 - [ ] One invite or onboarding path in a staging tenant (manual invite link OK if SMTP unset)

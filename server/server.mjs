@@ -20,6 +20,7 @@ import {
   verifyUserAuthLoginOrMigrate,
 } from "./userauth-password.mjs";
 import { installDocumentDistributionRoutes } from "./document-distribution.mjs";
+import { CONFIG_KEY_AREA_RESTRICTIONS, installCompanyAreasRoutes } from "./company-areas.mjs";
 import { installEmailReminderRoutes, startEmailReminderScheduler } from "./email-reminders.mjs";
 import { createGoogleOAuthSessionStore } from "./google-oauth-session.mjs";
 import { installSetupStatusRoutes } from "./setup-status.mjs";
@@ -499,6 +500,7 @@ const CONFIG_KEYS = [
   "lastValidatedAt",
   "lastRepairedAt",
   "appVersion",
+  CONFIG_KEY_AREA_RESTRICTIONS,
 ];
 
 const APPEND_ONLY_TABS = new Set(["ActionComments", "AuditResults", "AuditFindings", "Evidence", "Reports", "SyncLog"]);
@@ -858,6 +860,18 @@ installSetupStatusRoutes(app, {
   emailConfigured,
   hasGoogleSession: () => googleOAuthStore.hasTokens(),
   getSharedDriveId: () => requiredEnv.GOOGLE_SHARED_DRIVE_ID,
+});
+
+installCompanyAreasRoutes(app, {
+  google,
+  getAuthedClient,
+  envConfigured,
+  getConfig,
+  updateConfig,
+  ensureColumns,
+  getTabValues,
+  rowsToRecords,
+  withSheetsQuotaRetry,
 });
 
 function signedStateCookie(value) {

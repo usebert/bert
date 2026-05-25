@@ -515,6 +515,11 @@ export function AuditsScreen({
             title="Audit access matrix"
             subtitle="Manage exactly which users can access each audit."
           />
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            <span className="font-semibold text-slate-800">Audit access</span> controls which checks a user can open.{" "}
+            <span className="font-semibold text-slate-800">Area access</span> (Workspace / Users &amp; Invites) controls where they work when area restrictions are on.{" "}
+            <span className="font-semibold text-slate-800">Schedules</span> control when checks are due.
+          </p>
           <div className="mt-4">
             <AccessMatrixTable
               auditAccessMatrix={auditAccessMatrix}

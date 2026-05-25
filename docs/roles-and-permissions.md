@@ -23,6 +23,20 @@ See **`docs/navigation-model.md`** for the full menu matrix.
 
 Helpers: `canAccessPilotSetup`, `canAccessGodmodeInitialSetup`.
 
+## Sites / Areas (optional, per company)
+
+Company areas split a workspace by site or department. **Single-location companies can leave area restrictions off** — users see the whole workspace.
+
+| Capability | Master | Admin | Manager | Auditor |
+|------------|--------|-------|---------|---------|
+| Manage areas (add / rename / archive, enable restrictions) | Yes (selected company in **Companies**; also **Users & Invites**) | Yes (**Workspace** and **Users & Invites**) | No | No |
+| Assign users to areas | Yes | Yes | No | No |
+| Filtered by assigned areas | No | No | When restrictions on and boxes checked | When restrictions on and boxes checked |
+
+Helpers: `canManageAreas` in `src/permissions.ts`. UI: `SitesAreasPanel` (`src/components/admin/SitesAreasPanel.tsx`). API: `GET/POST/PATCH /api/company-areas/:masterSheetId` (see `server/company-areas.mjs`). Config key `areaRestrictionsEnabled` on the company master sheet.
+
+**Area assignment matrix** appears in **Users & Invites** only when area restrictions are enabled **or** more than one active area exists. With restrictions off and at most one area, the app stays in **single-workspace mode** (no per-user area checkboxes).
+
 ## Company operator
 
 | Capability | Master | Admin | Manager | Auditor |
@@ -30,6 +44,7 @@ Helpers: `canAccessPilotSetup`, `canAccessGodmodeInitialSetup`.
 | **Companies** (all tenants) | Yes | No | No | No |
 | **Workspace** | No | Yes | No | No |
 | **Users & Invites** | Yes | Yes | Team only | No |
+| **Sites / Areas setup** | Yes (any company) | Yes (own company) | No | No |
 | **Company Onboarding** (new tenants) | Yes | No | No | No |
 | **Forms & Checks** | Via More | Yes | Yes | My Checks |
 | **Reports** | Diagnostics | Yes | Yes | No |
@@ -52,6 +67,19 @@ Implemented in `src/utils/inviteStatusDisplay.ts`. Invite rows show **role** and
 | Revoke invite | Master, Admin | `DangerActionButton` on pending invites |
 
 Company Admin must not see Platform Setup, Google disconnect, or platform diagnostics.
+
+## Sites / Areas
+
+| Rule | Detail |
+|------|--------|
+| **Who manages areas** | Master (any company workspace) and company Admin (own workspace) via `canManageAreas` |
+| **Manager** | Cannot create, rename, or archive areas |
+| **Auditor** | No area setup UI |
+| **Restrictions off** | Single-workspace mode — Managers and Auditors see the whole company workspace |
+| **Restrictions on** | Unchecked area boxes = all active areas; checked boxes = restricted to those areas |
+| **Storage** | Company master spreadsheet `Areas` tab (created on first area action) and Config key `AreaRestrictionsEnabled`; local workspace state mirrors for offline/demo |
+
+Helpers: `canManageAreas`, `src/utils/companyAreas.ts`, `src/components/admin/SitesAreasPanel.tsx`.
 
 ## Verification
 

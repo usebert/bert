@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { SECTION_INTROS } from "../config/sectionIntros";
-import { canAccessAdmin, canAccessAdminOnboardingWorkspace, getRoleDisplayName } from "../permissions";
+import { canAccessAdmin, canAccessAdminOnboardingWorkspace, canManageAreas, getRoleDisplayName } from "../permissions";
+import { SitesAreasPanel } from "../components/admin/SitesAreasPanel";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../components/dashboard/DashboardPrimitives";
 import { SectionIntro } from "../components/SectionIntro";
 import { DangerActionButton } from "../components/DangerActionButton";
@@ -351,9 +352,16 @@ export function AdminScreen({
   invitedUsers,
   sites,
   selectedSiteId,
+  areaRestrictionsEnabled,
+  areaSyncLoading,
+  areaSyncError,
   reportUsers,
   userSiteAssignments,
   onToggleUserSiteAssignment,
+  onEnableAreaRestrictions,
+  onDisableAreaRestrictions,
+  onRenameArea,
+  onReactivateArea,
   creatableRoles,
   notificationsEnabled,
   companySheetSync,
@@ -656,6 +664,27 @@ export function AdminScreen({
             </ul>
           )}
           <p className="mt-3 text-xs leading-relaxed text-slate-600">{SECTION_INTROS.companiesInviteHelper}</p>
+          {canManageAreas(currentUser.role) && selectedFolder ? (
+            <div className="mt-4">
+              <SitesAreasPanel
+                currentUserRole={currentUser.role}
+                sites={sites}
+                areaRestrictionsEnabled={areaRestrictionsEnabled}
+                areaSyncLoading={areaSyncLoading}
+                areaSyncError={areaSyncError}
+                googleConnected={googleConnected}
+                variant="light"
+                surfaceClass={pilotLightSurface}
+                nestedClass={pilotLightNested}
+                onEnableAreaRestrictions={onEnableAreaRestrictions}
+                onDisableAreaRestrictions={onDisableAreaRestrictions}
+                onAddArea={onAddSite}
+                onRenameArea={onRenameArea}
+                onArchiveArea={onArchiveSite}
+                onReactivateArea={onReactivateArea}
+              />
+            </div>
+          ) : null}
           {!workspaceSetupComplete ? (
             <details className="mt-4 rounded-2xl border border-amber-200 bg-amber-50/80 p-3">
               <summary className="cursor-pointer text-sm font-semibold text-amber-950">Workspace setup status — incomplete</summary>
@@ -735,6 +764,26 @@ export function AdminScreen({
         )}
         </section>
       )}
+
+      {canManageAreas(currentUser.role) && !pilotFocus && currentUser.role === "Admin" ? (
+        <SitesAreasPanel
+          currentUserRole={currentUser.role}
+          sites={sites}
+          areaRestrictionsEnabled={areaRestrictionsEnabled}
+          areaSyncLoading={areaSyncLoading}
+          areaSyncError={areaSyncError}
+          googleConnected={googleConnected}
+          variant="light"
+          surfaceClass={pilotLightSurface}
+          nestedClass={pilotLightNested}
+          onEnableAreaRestrictions={onEnableAreaRestrictions}
+          onDisableAreaRestrictions={onDisableAreaRestrictions}
+          onAddArea={onAddSite}
+          onRenameArea={onRenameArea}
+          onArchiveArea={onArchiveSite}
+          onReactivateArea={onReactivateArea}
+        />
+      ) : null}
 
       {currentUser.role === "Master" && !hideMasterLocalDemoTools && masterDemoToolsVisible && (
         <section className="rounded-2xl border border-sky-200 bg-sky-50/90 p-4 shadow-sm">
@@ -1243,6 +1292,7 @@ export function AdminScreen({
       {usersInvitesPilotMode ? (
         <UsersInvitesPilotPanel
           currentUser={currentUser}
+          googleConnected={googleConnected}
           inviteEmailInput={inviteEmailInput}
           inviteRoleInput={inviteRoleInput}
           invitedUsers={invitedUsers}
@@ -1273,9 +1323,16 @@ export function AdminScreen({
           onDeleteInvite={onDeleteInvite}
           onRemoveCompanyUser={onRemoveCompanyUser}
           onResyncUsers={onResyncUsers}
+          areaRestrictionsEnabled={areaRestrictionsEnabled}
+          areaSyncLoading={areaSyncLoading}
+          areaSyncError={areaSyncError}
           onSelectSite={onSelectSite}
           onAddSite={onAddSite}
           onArchiveSite={onArchiveSite}
+          onEnableAreaRestrictions={onEnableAreaRestrictions}
+          onDisableAreaRestrictions={onDisableAreaRestrictions}
+          onRenameArea={onRenameArea}
+          onReactivateArea={onReactivateArea}
           onToggleUserSiteAssignment={onToggleUserSiteAssignment}
           onRequestNotifications={onRequestNotifications}
           onValidateWorkspace={onValidateWorkspace}

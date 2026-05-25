@@ -63,10 +63,22 @@ import {
   isStaleOrIncompleteInviteStatus,
 } from "./src/utils/inviteStatusDisplay";
 import { assertLiveCompanyWorkspaceForInvite, LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE } from "./src/utils/companyWorkspaceInvite";
+import { createLocalAreaId, isReservedAreaName, mergeAreasFromServer } from "./src/utils/companyAreas";
+import {
+  createCompanyArea,
+  fetchCompanyAreas,
+  setAreaRestrictionsEnabled as patchAreaRestrictionsOnServer,
+  updateCompanyArea,
+} from "./src/services/companyAreasService";
 import { AccountSettingsScreen } from "./src/screens/AccountSettingsScreen";
 import { ActionsScreen } from "./src/screens/ActionsScreen";
 import { AdminScreen } from "./src/screens/AdminScreen";
-import type { CompanyOnboardingEmailResult, CompanyUserInviteEmailResult } from "./src/types/adminScreenProps";
+import type {
+  CompanyOnboardingEmailResult,
+  CompanyUserInviteEmailResult,
+  Site,
+  UserSiteAssignments,
+} from "./src/types/adminScreenProps";
 import { AppHostedOnboardingCompletion } from "./src/screens/AppHostedOnboardingCompletion";
 import { DashboardScreen } from "./src/screens/DashboardScreen";
 import { AuditsScreen } from "./src/screens/AuditsScreen";
@@ -349,16 +361,6 @@ type CompanyFolder = {
   auditFormsVerified: boolean;
   responseSheetVerified: boolean;
 };
-
-type Site = {
-  id: string;
-  name: string;
-  code: string;
-  active: boolean;
-};
-
-/** Normalized user email -> site ids they may access. Empty or missing entry means no restriction (all sites). */
-type UserSiteAssignments = Record<string, string[]>;
 
 type OnboardingSource = {
   configured: boolean;
@@ -1988,9 +1990,11 @@ function getUserAssignedSiteIds(
   user: User | null,
   invitedUsers: UserInvite[],
   userSiteAssignments: UserSiteAssignments,
+  areaRestrictionsEnabled: boolean,
 ): Set<string> | null {
   if (!user) return null;
   if (role === "Master" || role === "Admin") return null;
+  if (!areaRestrictionsEnabled) return null;
   const key = resolveUserSiteAssignmentKey(user, invitedUsers);
   const ids = userSiteAssignments[key];
   if (!ids || ids.length === 0) return null;
@@ -2037,9 +2041,6 @@ function deriveSitesFromWorkspace(audits: Audit[], schedules: ScheduleItem[], ma
     if (site) names.add(site);
   });
   void managedSchedules;
-  if (names.size === 0) {
-    names.add("Main site");
-  }
   return Array.from(names).map((name) => ({
     id: createSiteId(name),
     name,
@@ -2497,6 +2498,7 @@ function readStoredWorkspaceState() {
       roleNavVisibility?: RoleNavVisibilityMatrix;
       roleSiteSelectorVisibility?: RoleSiteSelectorVisibility;
       userSiteAssignments?: UserSiteAssignments;
+      areaRestrictionsEnabled?: boolean;
       externalEmployees?: ExternalEmployee[];
       documentDistributions?: DocumentDistribution[];
     };
@@ -2556,6 +2558,7 @@ function getWorkspaceBootstrap() {
       roleNavVisibility: buildDefaultRoleNavVisibilityMatrix(),
       roleSiteSelectorVisibility: buildDefaultRoleSiteSelectorVisibility(),
       userSiteAssignments: {} as UserSiteAssignments,
+      areaRestrictionsEnabled: false,
       externalEmployees: [] as ExternalEmployee[],
       documentDistributions: [] as DocumentDistribution[],
     };
@@ -2586,6 +2589,7 @@ function getWorkspaceBootstrap() {
     roleNavVisibility: stored?.roleNavVisibility ?? buildDefaultRoleNavVisibilityMatrix(),
     roleSiteSelectorVisibility: stored?.roleSiteSelectorVisibility ?? buildDefaultRoleSiteSelectorVisibility(),
     userSiteAssignments: stored?.userSiteAssignments ?? {},
+    areaRestrictionsEnabled: stored?.areaRestrictionsEnabled ?? false,
     externalEmployees: stored?.externalEmployees ?? [],
     documentDistributions: stored?.documentDistributions ?? [],
   };
@@ -2950,6 +2954,11 @@ function App() {
   const [userSiteAssignments, setUserSiteAssignments] = useState<UserSiteAssignments>(
     storedWorkspaceState?.userSiteAssignments ?? {},
   );
+  const [areaRestrictionsEnabled, setAreaRestrictionsEnabled] = useState(
+    storedWorkspaceState?.areaRestrictionsEnabled ?? false,
+  );
+  const [areaSyncLoading, setAreaSyncLoading] = useState(false);
+  const [areaSyncError, setAreaSyncError] = useState<string | null>(null);
   const [externalEmployees, setExternalEmployees] = useState<ExternalEmployee[]>(
     storedWorkspaceState?.externalEmployees ?? [],
   );
@@ -2978,8 +2987,14 @@ function App() {
 
   const currentUserAssignedSiteIds = useMemo(() => {
     if (!currentUser) return null;
-    return getUserAssignedSiteIds(currentUser.role, currentUser, invitedUsers, userSiteAssignments);
-  }, [currentUser, invitedUsers, userSiteAssignments]);
+    return getUserAssignedSiteIds(
+      currentUser.role,
+      currentUser,
+      invitedUsers,
+      userSiteAssignments,
+      areaRestrictionsEnabled,
+    );
+  }, [currentUser, invitedUsers, userSiteAssignments, areaRestrictionsEnabled]);
 
   const assignmentFilteredAudits = useMemo(
     () => filterByAssignedSites(audits, currentUserAssignedSiteIds, sites),
@@ -4287,6 +4302,7 @@ function App() {
         roleNavVisibility,
         roleSiteSelectorVisibility,
         userSiteAssignments,
+        areaRestrictionsEnabled,
         externalEmployees,
         documentDistributions,
       }),
@@ -4316,6 +4332,7 @@ function App() {
     roleNavVisibility,
     roleSiteSelectorVisibility,
     userSiteAssignments,
+    areaRestrictionsEnabled,
     externalEmployees,
     documentDistributions,
   ]);
@@ -4344,6 +4361,9 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!areaRestrictionsEnabled) {
+      return;
+    }
     const derivedSites = deriveSitesFromWorkspace(audits, schedules, managedSchedules);
     setSites((current) => {
       const merged = [...current];
@@ -4354,7 +4374,7 @@ function App() {
       });
       return merged;
     });
-  }, [audits, schedules, managedSchedules]);
+  }, [audits, schedules, managedSchedules, areaRestrictionsEnabled]);
 
   useEffect(() => {
     if (!selectedSiteId) return;
@@ -7052,28 +7072,130 @@ function App() {
     pushToast("Folder selected", `${folder.name} is now the active company source.`, "success");
   };
 
+  const resolveWorkspaceMasterSheetId = () =>
+    companySheetSync?.sheetId ||
+    extractGoogleResourceId(masterSheetInput) ||
+    folderInspection?.masterSheet?.id ||
+    "";
+
+  const syncCompanyAreasFromServer = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const masterSheetId = resolveWorkspaceMasterSheetId();
+      if (!googleConnected || !masterSheetId) {
+        return;
+      }
+      if (!options?.silent) {
+        setAreaSyncLoading(true);
+      }
+      setAreaSyncError(null);
+      try {
+        const payload = await fetchCompanyAreas(masterSheetId, selectedFolderId || undefined);
+        if (payload.areas) {
+          setSites((current) => mergeAreasFromServer(current, payload.areas || []));
+        }
+        if (typeof payload.areaRestrictionsEnabled === "boolean") {
+          setAreaRestrictionsEnabled(payload.areaRestrictionsEnabled);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to sync company areas.";
+        setAreaSyncError(message);
+        if (!options?.silent) {
+          pushToast("Areas not synced", message, "warning");
+        }
+      } finally {
+        if (!options?.silent) {
+          setAreaSyncLoading(false);
+        }
+      }
+    },
+    [googleConnected, companySheetSync?.sheetId, masterSheetInput, folderInspection?.masterSheet?.id, selectedFolderId],
+  );
+
+  useEffect(() => {
+    if (!googleConnected) {
+      return;
+    }
+    const masterSheetId = resolveWorkspaceMasterSheetId();
+    if (!masterSheetId) {
+      return;
+    }
+    void syncCompanyAreasFromServer({ silent: true });
+  }, [googleConnected, companySheetSync?.sheetId, masterSheetInput, folderInspection?.masterSheet?.id, syncCompanyAreasFromServer]);
+
+  const persistAreaToSheet = async (
+    action: "create" | "update",
+    payload: { areaId?: string; name?: string; status?: "active" | "archived" },
+  ) => {
+    const masterSheetId = resolveWorkspaceMasterSheetId();
+    if (!googleConnected || !masterSheetId) {
+      setAreaSyncError("Google is not connected — areas are saved on this device only until you connect and sync.");
+      return null;
+    }
+    setAreaSyncLoading(true);
+    setAreaSyncError(null);
+    try {
+      if (action === "create") {
+        return await createCompanyArea(masterSheetId, {
+          name: payload.name || "",
+          createdBy: currentUser?.name || currentUser?.username || "BERT",
+        });
+      }
+      return await updateCompanyArea(masterSheetId, payload.areaId || "", {
+        name: payload.name,
+        status: payload.status,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to save area to the company sheet.";
+      setAreaSyncError(message);
+      pushToast("Sheet sync failed", message, "warning");
+      return null;
+    } finally {
+      setAreaSyncLoading(false);
+    }
+  };
+
   const handleAddSite = () => {
     if (!canAccessAdmin(currentUser?.role || "Auditor")) {
-      pushToast("Access restricted", "Only company administrators with full workspace rights can add sites.", "warning");
+      pushToast("Access restricted", "Only company administrators can manage areas.", "warning");
       return;
     }
-    const input = window.prompt("New site name");
+    const input = window.prompt("New area name");
     const nextName = String(input || "").trim();
     if (!nextName) return;
-    const exists = sites.some((site) => normalizeIdentity(site.name) === normalizeIdentity(nextName));
-    if (exists) {
-      pushToast("Site exists", `${nextName} already exists.`, "warning");
+    if (isReservedAreaName(nextName)) {
+      pushToast("Reserved name", `"${nextName}" cannot be used as a company area.`, "warning");
       return;
     }
-    const newSite: Site = {
-      id: createSiteId(nextName),
-      name: nextName,
-      code: nextName.slice(0, 3).toUpperCase(),
-      active: true,
-    };
-    setSites((current) => [newSite, ...current]);
-    setSelectedSiteId(newSite.id);
-    pushToast("Site added", `${nextName} is now available for schedules and audits.`, "success");
+    const exists = sites.some((site) => normalizeIdentity(site.name) === normalizeIdentity(nextName) && site.active);
+    if (exists) {
+      pushToast("Area exists", `${nextName} already exists.`, "warning");
+      return;
+    }
+    void (async () => {
+      const now = new Date().toISOString();
+      const optimistic: Site = {
+        id: createLocalAreaId(),
+        name: nextName,
+        code: nextName.slice(0, 3).toUpperCase(),
+        active: true,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: currentUser?.name || currentUser?.username || "BERT",
+      };
+      setSites((current) => [optimistic, ...current]);
+      setSelectedSiteId(optimistic.id);
+      const result = await persistAreaToSheet("create", { name: nextName });
+      if (result?.area) {
+        setSites((current) =>
+          current.map((item) => (item.id === optimistic.id ? { ...item, ...result.area } : item)),
+        );
+        setSelectedSiteId(result.area.id);
+        if (typeof result.areaRestrictionsEnabled === "boolean") {
+          setAreaRestrictionsEnabled(result.areaRestrictionsEnabled);
+        }
+      }
+      pushToast("Area added", `${nextName} is available for schedules and user assignment.`, "success");
+    })();
   };
 
   const handleArchiveSite = (siteId: string) => {
@@ -7084,7 +7206,78 @@ function App() {
     if (selectedSiteId === siteId) {
       setSelectedSiteId("");
     }
-    pushToast("Site archived", `${site.name} has been archived.`, "success");
+    void persistAreaToSheet("update", { areaId: siteId, status: "archived" });
+    pushToast("Area archived", `${site.name} has been archived.`, "success");
+  };
+
+  const handleRenameArea = (siteId: string, currentName: string) => {
+    if (!canAccessAdmin(currentUser?.role || "Auditor")) {
+      return;
+    }
+    const input = window.prompt("Rename area", currentName);
+    const nextName = String(input || "").trim();
+    if (!nextName || normalizeIdentity(nextName) === normalizeIdentity(currentName)) {
+      return;
+    }
+    if (isReservedAreaName(nextName)) {
+      pushToast("Reserved name", `"${nextName}" cannot be used as a company area.`, "warning");
+      return;
+    }
+    setSites((current) =>
+      current.map((item) =>
+        item.id === siteId
+          ? { ...item, name: nextName, code: nextName.slice(0, 3).toUpperCase(), updatedAt: new Date().toISOString() }
+          : item,
+      ),
+    );
+    void persistAreaToSheet("update", { areaId: siteId, name: nextName });
+    pushToast("Area renamed", `${nextName} saved.`, "success");
+  };
+
+  const handleReactivateArea = (siteId: string) => {
+    const site = sites.find((item) => item.id === siteId);
+    if (!site) return;
+    setSites((current) => current.map((item) => (item.id === siteId ? { ...item, active: true } : item)));
+    void persistAreaToSheet("update", { areaId: siteId, status: "active" });
+    pushToast("Area reactivated", `${site.name} is active again.`, "success");
+  };
+
+  const handleEnableAreaRestrictions = () => {
+    if (!canAccessAdmin(currentUser?.role || "Auditor")) {
+      return;
+    }
+    setAreaRestrictionsEnabled(true);
+    const masterSheetId = resolveWorkspaceMasterSheetId();
+    if (googleConnected && masterSheetId) {
+      void patchAreaRestrictionsOnServer(masterSheetId, true)
+        .then((payload) => {
+          if (typeof payload.areaRestrictionsEnabled === "boolean") {
+            setAreaRestrictionsEnabled(payload.areaRestrictionsEnabled);
+          }
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : "Unable to save restriction setting.";
+          setAreaSyncError(message);
+          pushToast("Sheet sync failed", message, "warning");
+        });
+    }
+    pushToast("Area restrictions enabled", "Assign users to areas in Users & Invites.", "success");
+  };
+
+  const handleDisableAreaRestrictions = () => {
+    if (!canAccessAdmin(currentUser?.role || "Auditor")) {
+      return;
+    }
+    setAreaRestrictionsEnabled(false);
+    const masterSheetId = resolveWorkspaceMasterSheetId();
+    if (googleConnected && masterSheetId) {
+      void patchAreaRestrictionsOnServer(masterSheetId, false).catch((error) => {
+        const message = error instanceof Error ? error.message : "Unable to save restriction setting.";
+        setAreaSyncError(message);
+        pushToast("Sheet sync failed", message, "warning");
+      });
+    }
+    pushToast("Single-workspace mode", "Users can access the whole company workspace.", "neutral");
   };
 
   const handleToggleUserSiteAssignment = (email: string, siteId: string) => {
@@ -9737,9 +9930,16 @@ function App() {
                 onDeleteInvite={handleDeleteInvite}
                 onRemoveCompanyUser={handleRemoveCompanyUser}
                 onResyncUsers={handleResyncUsers}
+                areaRestrictionsEnabled={areaRestrictionsEnabled}
+                areaSyncLoading={areaSyncLoading}
+                areaSyncError={areaSyncError}
                 onSelectSite={setSelectedSiteId}
                 onAddSite={handleAddSite}
                 onArchiveSite={handleArchiveSite}
+                onEnableAreaRestrictions={handleEnableAreaRestrictions}
+                onDisableAreaRestrictions={handleDisableAreaRestrictions}
+                onRenameArea={handleRenameArea}
+                onReactivateArea={handleReactivateArea}
                 godModeAppInviteEmail={godModeAppInviteEmail}
                 onGodModeAppInviteEmailChange={setGodModeAppInviteEmail}
                 onSendGodModeAppCompanyInvite={handleSendGodModeAppCompanyInvite}

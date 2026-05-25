@@ -12,7 +12,7 @@ Navigation is driven by **`src/config/roleNavigation.ts`** (labels and order) an
 | Platform Setup | `setup` | Hub → Initial Setup (Godmode) |
 | Companies | `companies` | All company folders |
 | Company Onboarding | `onboarding` | New company workspace email |
-| Users & Invites | `users` | Combined user + invite management |
+| Users & Invites | `users` | Combined user + invite management; area assignment when restrictions on |
 | Templates | `schedules` | Schedule / template tooling |
 | Reports / Diagnostics | `reports` | Platform diagnostics |
 | Tablet / Kiosk | `setupInitial` | Godmode kiosk controls |
@@ -22,7 +22,7 @@ Navigation is driven by **`src/config/roleNavigation.ts`** (labels and order) an
 | Label | Screen |
 |-------|--------|
 | Dashboard | `dashboard` |
-| Workspace | `admin` |
+| Workspace | `admin` | Sites / Areas management for the linked company |
 | Users & Invites | `users` |
 | Forms & Checks | `audits` |
 | Reports | `reports` |
@@ -49,6 +49,14 @@ Navigation is driven by **`src/config/roleNavigation.ts`** (labels and order) an
 ## Protected routes
 
 Direct URLs such as `/setup/initial` are cleared for non-Master users. Blocked screens show **Setup is only available to the BERT platform owner** or redirect via the route-guard `useEffect` in `App.tsx`.
+
+## Sites / Areas (Workspace admin)
+
+Optional per-company. **Master** manages areas for the selected folder under **Companies** and in **Users & Invites**. **Company Admin** manages areas under **Workspace** (full setup) and **Users & Invites** (site context + user assignment).
+
+- Restrictions off (default): single-workspace mode — no area filter for Managers/Auditors.
+- Restrictions on: assign Managers/Auditors to areas in **Users & Invites**; audits/schedules can still be scoped separately.
+- **Forms & Checks** audit access matrix is independent of area access (helper copy on that screen links the two concepts).
 
 ## Section helper copy
 

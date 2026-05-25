@@ -36,3 +36,24 @@ export function mergeAreasFromServer(local: Site[], remote: Site[]) {
 export function createLocalAreaId() {
   return `area-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
+
+function normalizeAreaLabel(name = "") {
+  return String(name || "")
+    .toLowerCase()
+    .replace(/^\d+\s*/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/** Mirrors server invite-target reserved labels — not valid company areas. */
+export function isReservedAreaName(name: string) {
+  const normalized = normalizeAreaLabel(name);
+  return (
+    normalized === "archive" ||
+    normalized === "archived" ||
+    normalized === "live companies" ||
+    normalized === "master control" ||
+    normalized === "companies" ||
+    normalized === "company"
+  );
+}
