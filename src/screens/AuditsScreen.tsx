@@ -58,6 +58,31 @@ function QuickActionTile({
   );
 }
 
+function accessMatrixChipClasses(access: AuditAccessLevel): { button: string; label: string } {
+  if (access === "Full access") {
+    return {
+      button: "border-emerald-200 bg-emerald-50 hover:bg-emerald-100/80",
+      label: "text-emerald-800",
+    };
+  }
+  if (access === "Oversight") {
+    return {
+      button: "border-sky-200 bg-sky-50 hover:bg-sky-100/80",
+      label: "text-sky-700",
+    };
+  }
+  if (access === "Complete") {
+    return {
+      button: "border-blue-200 bg-blue-50 hover:bg-blue-100/80",
+      label: "text-blue-800",
+    };
+  }
+  return {
+    button: "border-slate-200 bg-slate-100 hover:bg-slate-200/70",
+    label: "text-slate-500",
+  };
+}
+
 function AccessMatrixTable({
   auditAccessMatrix,
   auditScheduleMatrix,
@@ -137,41 +162,23 @@ function AccessMatrixTable({
                       </div>
                     </div>
                   </td>
-                  {user.cells.map((cell) => (
+                  {user.cells.map((cell) => {
+                    const chip = accessMatrixChipClasses(cell.access);
+                    return (
                     <td key={`${user.email}-${cell.auditId}`} className="px-1.5 py-2">
                       <button
                         type="button"
                         onClick={() => onToggleAuditAccess(user.email, cell.auditId, cell.access)}
-                        className={[
-                          "w-full rounded-lg border px-2 py-1.5 text-left",
-                          "cursor-pointer",
-                          cell.access === "Full access"
-                            ? "border-slate-200 bg-slate-950 text-white"
-                            : cell.access === "Oversight"
-                              ? "border-sky-200 bg-sky-50"
-                              : cell.access === "Complete"
-                                ? "border-blue-200 bg-blue-50"
-                                : "border-slate-200 bg-slate-50",
-                        ].join(" ")}
+                        className={["w-full rounded-lg border px-2 py-1.5 text-left transition", "cursor-pointer", chip.button].join(" ")}
                       >
-                        <p
-                          className={[
-                            "text-[10px] font-semibold uppercase tracking-[0.12em]",
-                            cell.access === "Full access"
-                              ? "text-slate-200"
-                              : cell.access === "Oversight"
-                                ? "text-sky-700"
-                                : cell.access === "Complete"
-                                  ? "text-blue-800"
-                                  : "text-slate-500",
-                          ].join(" ")}
-                        >
+                        <p className={["text-[10px] font-semibold uppercase tracking-[0.12em]", chip.label].join(" ")}>
                           {cell.access}
                         </p>
                         <p className="mt-0.5 text-[9px] font-semibold text-slate-400">Tap to change</p>
                       </button>
                     </td>
-                  ))}
+                  );
+                  })}
                 </tr>
               ))}
             </tbody>
@@ -299,27 +306,34 @@ export function AuditsScreen({
   auditScheduleMatrix,
   onToggleAuditAccess,
 }: AuditsScreenProps) {
+  const adminAccentHero = currentUser.role === "Admin";
+  const heroIconChip = adminAccentHero
+    ? "bg-blue-50 text-blue-600 ring-1 ring-blue-100"
+    : currentUser.role === "Manager"
+      ? "bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100"
+      : "bg-violet-50 text-violet-600 ring-1 ring-violet-100";
+
   return (
     <div className="space-y-4">
-      <section className="rounded-[1.75rem] bg-slate-950 p-5 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]">
+      <section className="rounded-[1.75rem] border border-slate-200/90 bg-white p-5 shadow-sm">
         <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-white">
+          <div className={["flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl", heroIconChip].join(" ")}>
             <AuditsScreenIcon className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
               {canCompleteAuditAsAuditor(currentUser.role) ? "My Checks" : "Forms & Checks"}
             </p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight">
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">
               {canCompleteAuditAsAuditor(currentUser.role) ? "Assigned field audits" : "Complete and manage inspections"}
             </h2>
             <SectionIntro
               text={canCompleteAuditAsAuditor(currentUser.role) ? SECTION_INTROS.auditorChecks : SECTION_INTROS.formsChecks}
-              className="mt-2 text-slate-300"
-              role={currentUser.role}
+              className="mt-2"
+              role={canCompleteAuditAsAuditor(currentUser.role) ? currentUser.role : "Admin"}
             />
             {!canCompleteAuditAsAuditor(currentUser.role) ? (
-              <p className="mt-2 text-sm leading-6 text-slate-300">
+              <p className="mt-2 text-sm leading-6 text-slate-600">
                 Save progress mid-inspection, complete audits in the field, and let the system create corrective actions when issues are found.
               </p>
             ) : null}

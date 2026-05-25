@@ -74,6 +74,7 @@ const QUICK_ACTION_ICONS: Record<string, ReactNode> = {
 
 function quickActionIconKey(label: string): keyof typeof QUICK_ACTION_ICONS {
   const lower = label.toLowerCase();
+  if (lower.includes("corrective") || lower.includes("capa") || lower.includes("action")) return "forms";
   if (lower.includes("invite")) return "invite";
   if (lower.includes("manage users") || lower.includes("users &")) return "users";
   if (lower.includes("forms") || lower.includes("checks")) return "forms";

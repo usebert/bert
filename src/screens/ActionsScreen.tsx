@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SECTION_INTROS } from "../config/sectionIntros";
+import { SectionIntro } from "../components/SectionIntro";
 import { canCompleteAuditAsAuditor, getRolePermissions, type Role } from "../permissions";
 import { EmptyPanel, MetaPill } from "../components/dashboard/DashboardPrimitives";
 import { StatusChip } from "../components/ui/StatusChip";
@@ -10,6 +12,8 @@ import { getActionPrimaryCTA, getRecordNextStepText } from "../utils/recordNextS
 type ActionFilter = "Open" | "Overdue" | "Awaiting Verification" | "Closed" | "Severity";
 const brandDarkFormControl =
   "border border-[rgba(249,115,22,0.45)] bg-slate-950 text-slate-100 outline-none focus:border-[var(--bert-signal-orange)]";
+const lightFilterControl =
+  "border border-slate-200 bg-white text-slate-900 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100";
 
 function ActionsScreenIcon({ className = "h-5 w-5" }: { className?: string }) {
   return (
@@ -364,33 +368,43 @@ export function ActionsScreen({
     );
   }
 
+  const filterControl = currentUser.role === "Admin" || currentUser.role === "Manager" ? lightFilterControl : brandDarkFormControl;
+  const heroIconChip =
+    currentUser.role === "Admin"
+      ? "bg-blue-50 text-blue-600 ring-1 ring-blue-100"
+      : currentUser.role === "Manager"
+        ? "bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100"
+        : "bg-violet-50 text-violet-600 ring-1 ring-violet-100";
+
   return (
     <div className="space-y-4">
-      <section className="rounded-[1.75rem] bg-slate-950 p-5 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]">
+      <section className="rounded-[1.75rem] border border-slate-200/90 bg-white p-5 shadow-sm">
         <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-white">
+          <div className={["flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl", heroIconChip].join(" ")}>
             <ActionsScreenIcon className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
               {canCompleteAuditAsAuditor(currentUser.role) ? "My actions" : "Corrective actions"}
             </p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight">
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">
               {canCompleteAuditAsAuditor(currentUser.role) ? "Assigned corrective actions" : "CAPA control centre"}
             </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-300">
-              Track failed findings, assign ownership, upload evidence, and verify closure.
-            </p>
+            <SectionIntro
+              text={SECTION_INTROS.correctiveActions}
+              className="mt-2"
+              role={currentUser.role === "Auditor" ? "Auditor" : currentUser.role === "Manager" ? "Manager" : "Admin"}
+            />
           </div>
         </div>
       </section>
 
-      <section className="rounded-[1.75rem] border border-slate-700 bg-slate-900 p-4">
+      <section className="rounded-[1.75rem] border border-slate-200/90 bg-white p-4 shadow-sm">
         <div className="grid gap-3 sm:grid-cols-3">
           <select
             value={actionFilter}
             onChange={(event) => onFilterChange(event.target.value as ActionFilter)}
-            className="h-12 rounded-2xl border border-[rgba(249,115,22,0.45)] bg-slate-950 px-4 text-sm text-white outline-none focus:border-[var(--bert-signal-orange)]"
+            className={`h-12 rounded-2xl px-4 text-sm ${filterControl}`}
           >
             <option value="Open">Open</option>
             <option value="Overdue">Overdue</option>
@@ -401,7 +415,7 @@ export function ActionsScreen({
           <select
             value={actionSeverityFilter}
             onChange={(event) => onSeverityFilterChange(event.target.value as RiskLevel | "All")}
-            className="h-12 rounded-2xl border border-[rgba(249,115,22,0.45)] bg-slate-950 px-4 text-sm text-white outline-none focus:border-[var(--bert-signal-orange)]"
+            className={`h-12 rounded-2xl px-4 text-sm ${filterControl}`}
           >
             <option value="All">All severities</option>
             <option value="Critical">Critical</option>
@@ -412,7 +426,7 @@ export function ActionsScreen({
           <select
             value={actionNcFilter}
             onChange={(event) => onNcFilterChange(event.target.value)}
-            className="h-12 rounded-2xl border border-[rgba(249,115,22,0.45)] bg-slate-950 px-4 text-sm text-white outline-none focus:border-[var(--bert-signal-orange)]"
+            className={`h-12 rounded-2xl px-4 text-sm ${filterControl}`}
           >
             <option value="All">All non-conformances</option>
             {availableNonConformanceIds.map((reference) => (

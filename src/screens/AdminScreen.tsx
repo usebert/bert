@@ -473,6 +473,13 @@ export function AdminScreen({
   const isOnboardingScreen =
     pilotFocus === "onboarding" || pilotShellScreen === "onboarding" || standaloneOnboarding;
   const pilotLightSurface = "rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm";
+  const companyAdminShell = currentUser.role === "Admin";
+  const onboardingPanelClass = companyAdminShell
+    ? pilotLightSurface
+    : "rounded-[1.75rem] border border-slate-800 bg-slate-950 p-4 shadow-sm";
+  const onboardingHeadingClass = companyAdminShell ? "text-slate-900" : "text-white";
+  const onboardingBodyClass = companyAdminShell ? "text-slate-600" : "text-slate-300";
+  const onboardingEyebrowClass = companyAdminShell ? "text-slate-500" : "text-slate-400";
   const pilotLightNested = "rounded-2xl border border-slate-200 bg-slate-50 p-4";
   const pilotEditableInput =
     "h-12 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-orange-400 focus:ring-2 focus:ring-orange-400/20 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500";
@@ -1218,58 +1225,81 @@ export function AdminScreen({
 
       {onboardingMode && (
         <>
-          <section id="admin-user-management" className="rounded-[1.75rem] border border-slate-800 bg-slate-950 p-4 shadow-sm">
+          <section id="admin-user-management" className={onboardingPanelClass}>
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                <p className={["text-xs font-semibold uppercase tracking-[0.2em]", onboardingEyebrowClass].join(" ")}>
                   {currentUser.role === "Master" ? "Setup" : "Company admin"}
                 </p>
-                <h3 className="mt-1 text-base font-semibold text-white">Company setup</h3>
-                <p className="text-sm text-slate-300">
+                <h3 className={["mt-1 text-base font-semibold", onboardingHeadingClass].join(" ")}>Company setup</h3>
+                <p className={["text-sm", onboardingBodyClass].join(" ")}>
                   Use this section for one-time workspace setup before you invite users.
                 </p>
               </div>
-              <div className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-slate-200 ring-1 ring-slate-700">
+              <div
+                className={[
+                  "rounded-full px-3 py-1 text-xs font-semibold",
+                  companyAdminShell
+                    ? "bg-blue-50 text-blue-800 ring-1 ring-blue-100"
+                    : "bg-slate-900 text-slate-200 ring-1 ring-slate-700",
+                ].join(" ")}
+              >
                 {syncState === "Synced" ? "Company live" : "Setup in progress"}
               </div>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-slate-800 bg-slate-900 p-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Step 1</p>
-                <p className="mt-1 text-sm font-semibold text-white">Connect Google</p>
-                <p className="mt-1 text-xs text-slate-300">
-                  {backendConfigured && googleConnected ? "Connected" : "Finish server setup, then connect Google Drive from the steps above."}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-slate-800 bg-slate-900 p-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Step 2</p>
-                <p className="mt-1 text-sm font-semibold text-white">Link company workspace</p>
-                <p className="mt-1 text-xs text-slate-300">
-                  {selectedFolder ? `${selectedFolder.name} linked` : "Link the company folder and master sheet."}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-slate-800 bg-slate-900 p-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Step 3</p>
-                <p className="mt-1 text-sm font-semibold text-white">Populate app</p>
-                <p className="mt-1 text-xs text-slate-300">
-                  {syncState === "Synced" ? "App has been populated from company sheet." : "Run workspace setup (one click)."}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-slate-800 bg-slate-900 p-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Step 4</p>
-                <p className="mt-1 text-sm font-semibold text-white">Check everything is ready</p>
-                <p className="mt-1 text-xs text-slate-300">
-                  {folderInspection?.blockingItems.length ? "Resolve blocking items shown below." : "Ready for user invites."}
-                </p>
-              </div>
+              {[
+                {
+                  step: "Step 1",
+                  title: "Connect Google",
+                  detail:
+                    backendConfigured && googleConnected
+                      ? "Connected"
+                      : "Finish server setup, then connect Google Drive from the steps above.",
+                },
+                {
+                  step: "Step 2",
+                  title: "Link company workspace",
+                  detail: selectedFolder ? `${selectedFolder.name} linked` : "Link the company folder and master sheet.",
+                },
+                {
+                  step: "Step 3",
+                  title: "Populate app",
+                  detail:
+                    syncState === "Synced"
+                      ? "App has been populated from company sheet."
+                      : "Run workspace setup (one click).",
+                },
+                {
+                  step: "Step 4",
+                  title: "Check everything is ready",
+                  detail: folderInspection?.blockingItems.length
+                    ? "Resolve blocking items shown below."
+                    : "Ready for user invites.",
+                },
+              ].map((card) => (
+                <div
+                  key={card.step}
+                  className={[
+                    "rounded-2xl border p-3",
+                    companyAdminShell ? "border-slate-200 bg-slate-50" : "border-slate-800 bg-slate-900",
+                  ].join(" ")}
+                >
+                  <p className={["text-xs font-semibold uppercase tracking-[0.16em]", onboardingEyebrowClass].join(" ")}>
+                    {card.step}
+                  </p>
+                  <p className={["mt-1 text-sm font-semibold", onboardingHeadingClass].join(" ")}>{card.title}</p>
+                  <p className={["mt-1 text-xs", onboardingBodyClass].join(" ")}>{card.detail}</p>
+                </div>
+              ))}
             </div>
           </section>
 
-          <section className="rounded-[1.75rem] border border-slate-800 bg-slate-950 p-4 shadow-sm">
+          <section className={onboardingPanelClass}>
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <h3 className="text-base font-semibold text-white">User management</h3>
-                <p className="text-sm text-slate-300">
+                <h3 className={["text-base font-semibold", onboardingHeadingClass].join(" ")}>User management</h3>
+                <p className={["text-sm", onboardingBodyClass].join(" ")}>
                   {currentUser.role === "Master"
                     ? "The setup account can create Admin, Manager, and Auditor users."
                     : currentUser.role === "Admin"

@@ -39,6 +39,7 @@ const MASTER_NAV: PresentedNavItem[] = [
 
 const COMPANY_ADMIN_NAV: PresentedNavItem[] = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
+  { id: "actions", label: "Corrective Actions", icon: "warningTriangle" },
   { id: "admin", label: "Workspace", icon: "spark" },
   { id: "users", label: "Users & Invites", icon: "user", adminPilotFocus: "users" },
   { id: "audits", label: "Forms & Checks", icon: "clipboard" },
@@ -62,7 +63,7 @@ const AUDITOR_NAV: PresentedNavItem[] = [
 
 const MORE_BY_BUCKET: Record<RoleNavBucket, NavItemId[]> = {
   master: ["account", "emailReminders"],
-  companyAdmin: ["actions", "nonConformance", "incidents", "schedules", "documentTraining", "sync", "account", "emailReminders"],
+  companyAdmin: ["nonConformance", "incidents", "schedules", "documentTraining", "sync", "account", "emailReminders"],
   manager: ["actions", "nonConformance", "incidents", "schedules", "documentTraining", "sync", "account", "emailReminders"],
   auditor: ["account", "emailReminders"],
 };
@@ -135,7 +136,7 @@ export function getMobileBottomNavForRole(role: Role): MobileNavEntry[] {
     const tabIds: NavItemId[] =
       bucket === "master"
         ? ["dashboard", "setup", "companies", "users"]
-        : ["dashboard", "admin", "users", "audits"];
+        : ["dashboard", "actions", "audits", "users"];
     const tabs = tabIds.flatMap((id) => {
       const item = primary.find((entry) => entry.id === id);
       return item ? [{ id: item.id, label: item.label, icon: item.icon }] : [];

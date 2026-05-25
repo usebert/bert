@@ -9,6 +9,7 @@ export const SECTION_INTROS = {
   companiesInviteHelper:
     "To email a new company onboarding form, open Company Onboarding in the menu — that screen sends the secure setup link.",
   formsChecks: "Manage and complete company forms, checks, and audits.",
+  correctiveActions: "Track failed findings, assign ownership, upload evidence, and verify closure.",
   reports: "Export compliance packs and review shared report inbox for this workspace.",
   tabletKiosk: "Prepare BERT for locked-down tablet use.",
   diagnostics: "Platform health, readiness, and technical diagnostics.",

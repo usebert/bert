@@ -3339,6 +3339,22 @@ function App() {
   const masterPlatformHeaderScope =
     currentUser?.role === "Master" && !godCompanySetupOnlyShell && !selectedFolder;
 
+  const roleHeaderTitle = useMemo(() => {
+    if (!currentUser) {
+      return "";
+    }
+    if (godCompanySetupOnlyShell) {
+      return "Workspace setup (Master)";
+    }
+    if (masterPlatformHeaderScope) {
+      return "Platform";
+    }
+    if (currentUser.role === "Master") {
+      return selectedFolder?.name || "Platform";
+    }
+    return workspaceName;
+  }, [currentUser, godCompanySetupOnlyShell, masterPlatformHeaderScope, selectedFolder, workspaceName]);
+
   const creatableRoles = useMemo(
     () => (currentUser ? getCreatableRoles(currentUser.role) : []),
     [currentUser],
@@ -7136,12 +7152,29 @@ function App() {
 
   const handleLoadDemoData = () => {
     const demo = buildDemoPrecastWorkspace();
+    const demoFolder: CompanyFolder = {
+      id: "demo-company",
+      name: "Main Yard",
+      onboardingFormName: "Precast onboarding",
+      auditFormCount: 2,
+      responseSheetName: "Main Yard Master Sheet",
+      responseSheetId: demo.companySheetSync.sheetId,
+      linkedAt: new Date().toISOString(),
+      onboardingVerified: true,
+      auditFormsVerified: true,
+      responseSheetVerified: true,
+    };
     setAudits(demo.audits);
     setActions(demo.actions);
     setDrafts(demo.drafts);
     setSyncQueue(demo.syncQueue);
     setTemplates(demo.templates);
     setCompanySheetSync(demo.companySheetSync);
+    setFolders((current) => {
+      const withoutDemo = current.filter((folder) => folder.id !== demoFolder.id);
+      return [...withoutDemo, demoFolder];
+    });
+    setSelectedFolderId(demoFolder.id);
     setSyncState("Synced");
     setScreen(getHomeScreenForRole(currentUser?.role || "Admin"));
     pushToast("Demo data loaded", "Realistic precast demo data is now active for review.", "success");
@@ -8060,8 +8093,8 @@ function App() {
   }, []);
 
   useEffect(() => {
-    document.title = companyName;
-  }, [companyName]);
+    document.title = workspaceName;
+  }, [workspaceName]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -8652,11 +8685,11 @@ function App() {
                   </p>
                 ) : roleTheme ? (
                   <p className={["truncate text-base font-semibold tracking-tight sm:text-lg", roleTheme.headerTitleColor].join(" ")}>
-                    {roleTheme.headerTitle}
+                    {roleHeaderTitle}
                   </p>
                 ) : (
                   <p className={["truncate text-sm font-semibold", themeMode === "dark" ? "text-white" : "text-slate-900"].join(" ")}>
-                    {companyName}
+                    {workspaceName}
                   </p>
                 )}
                 {!godCompanySetupOnlyShell && showHeaderSiteSelector ? (
@@ -8740,18 +8773,11 @@ function App() {
               <div className={["mt-1.5 hidden flex-wrap items-center gap-2 text-[10px] md:flex", themeMode === "dark" ? "text-slate-400" : "text-slate-500"].join(" ")}>
                 {masterPlatformHeaderScope ? (
                   <span className="font-medium text-slate-600 dark:text-slate-300">Platform · All workspaces</span>
-                ) : (
-                  <>
-                    {currentUser.role !== "Master" ? (
-                      <span className="font-medium text-slate-600 dark:text-slate-300">{companyName}</span>
-                    ) : null}
-                    {selectedFolder ? (
-                      <span className="font-medium text-slate-600 dark:text-slate-300">
-                        Workspace: {selectedFolder.name}
-                      </span>
-                    ) : null}
-                  </>
-                )}
+                ) : selectedFolder ? (
+                  <span className="font-medium text-slate-600 dark:text-slate-300">Workspace · {selectedFolder.name}</span>
+                ) : currentUser.role !== "Master" ? (
+                  <span className="font-medium text-slate-600 dark:text-slate-300">{workspaceName}</span>
+                ) : null}
                 {showHeaderSiteSelector ? (
                   <select
                     value={selectedSiteId}

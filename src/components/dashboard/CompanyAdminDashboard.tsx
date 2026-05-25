@@ -111,8 +111,8 @@ export function CompanyAdminDashboard({
       <DashboardQuickActions
         role="Admin"
         actions={[
+          { label: "Corrective Actions", screen: "actions", onClick: () => onNavigate("actions") },
           { label: "Invite User", screen: "users", onClick: () => onNavigate("users") },
-          { label: "Manage Users", screen: "users", onClick: () => onNavigate("users") },
           { label: "Forms & Checks", screen: "audits", onClick: () => onNavigate("audits") },
           { label: "Reports", screen: "reports", onClick: () => onNavigate("reports") },
           { label: "Tablet / Kiosk", screen: "settings", onClick: () => onNavigate("settings") },
