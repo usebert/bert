@@ -5,6 +5,7 @@ import type { GoogleStatusPayload } from "../services/pilotStatusService";
 import { SECTION_INTROS } from "../config/sectionIntros";
 import { DangerActionButton } from "../components/DangerActionButton";
 import { SectionIntro } from "../components/SectionIntro";
+import { darkPanelEyebrow, darkPanelShellCompact, darkPanelTitleSm } from "../styles/darkPanel";
 import { leaveSetupInitialPath } from "../utils/setupRoute";
 import { TabletKioskGodmodePanel } from "../components/kiosk/TabletKioskGodmodePanel";
 
@@ -226,10 +227,10 @@ export function GodmodeInitialSetupScreen({
         <span className="text-slate-900">Godmode</span>
       </nav>
 
-      <header className="rounded-[1.75rem] bg-slate-950 px-5 py-4 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]">
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Godmode</p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">Godmode</h1>
-        <SectionIntro text={SECTION_INTROS.platformSetup} className="mt-2 text-slate-300" />
+      <header className={darkPanelShellCompact}>
+        <p className={darkPanelEyebrow}>Godmode</p>
+        <h1 className={darkPanelTitleSm}>Godmode</h1>
+        <SectionIntro text={SECTION_INTROS.platformSetup} className="mt-2" tone="onDark" />
       </header>
 
       <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-sm">

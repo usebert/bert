@@ -1,6 +1,7 @@
 import { canCompleteAuditAsAuditor, getRoleDisplayName } from "../permissions";
 import { getRoleTheme } from "../config/roleTheme";
 import type { AccountSettingsScreenProps } from "../types/accountScreenProps";
+import { darkPanelDescription, darkPanelEyebrow, darkPanelShellCompact, darkPanelTitleSm } from "../styles/darkPanel";
 
 export function AccountSettingsScreen({
   currentUser,
@@ -26,16 +27,16 @@ export function AccountSettingsScreen({
         className={[
           fieldAuditor
             ? "rounded-2xl border border-violet-200/80 bg-violet-50/60 px-5 py-4 text-slate-900 shadow-sm"
-            : ["rounded-[1.75rem] px-5 py-3 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]", themeMode === "dark" ? "bg-slate-900" : "bg-slate-950"].join(" "),
+            : [darkPanelShellCompact, themeMode === "dark" ? "!bg-slate-900" : ""].join(" "),
         ].join(" ")}
       >
-        <p className={["text-xs font-semibold uppercase tracking-[0.3em]", fieldAuditor ? "text-violet-700" : "text-slate-400"].join(" ")}>
+        <p className={fieldAuditor ? "text-xs font-semibold uppercase tracking-[0.3em] text-violet-700" : darkPanelEyebrow}>
           Account
         </p>
-        <h2 className="mt-1 text-xl font-semibold tracking-tight">
+        <h2 className={fieldAuditor ? "mt-1 text-xl font-semibold tracking-tight text-slate-900" : darkPanelTitleSm}>
           {godMode ? "Device settings" : fieldAuditor ? "Your profile" : "Manage your profile"}
         </h2>
-        <p className={["mt-1 text-sm leading-5", fieldAuditor ? "text-slate-600" : "text-slate-300"].join(" ")}>
+        <p className={["mt-1", fieldAuditor ? "text-sm leading-5 text-slate-600" : darkPanelDescription].join(" ")}>
           {godMode
             ? "Control the appearance and device-level settings used for platform setup."
             : fieldAuditor

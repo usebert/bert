@@ -3,6 +3,7 @@ import { StatusBadge } from "../components/dashboard/DashboardPrimitives";
 import type { AuditModeScreenProps } from "../types/auditModeScreenProps";
 import type { Answer } from "../types/reportsScreenProps";
 import { getAuditTrafficStatus, getDueWarning } from "../utils/dashboardHealth";
+import { darkPanelDescription, darkPanelEyebrow, darkPanelShell, darkPanelTitleLg } from "../styles/darkPanel";
 import { getPlainEnglishSyncStatus } from "../utils/plainEnglishSync";
 
 export function AuditModeScreen({
@@ -27,14 +28,14 @@ export function AuditModeScreen({
   if (audit.questions.length === 0) {
     return (
       <div className="space-y-4">
-        <section className="rounded-[1.75rem] bg-slate-950 p-5 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Audit mode</p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight">{audit.name}</h2>
-          <p className="mt-1 text-sm text-slate-300">{getDueWarning(audit.dueHours)}</p>
+        <section className={darkPanelShell}>
+          <p className={darkPanelEyebrow}>Audit mode</p>
+          <h2 className={darkPanelTitleLg}>{audit.name}</h2>
+          <p className={["mt-1", darkPanelDescription].join(" ")}>{getDueWarning(audit.dueHours)}</p>
         </section>
         <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-sm">
           <p className="text-base font-semibold text-slate-900">No questions are available for this audit.</p>
-          <p className="mt-1 text-sm text-slate-500">Save and exit to return to your dashboard.</p>
+          <p className="mt-1 text-sm text-slate-300">Save and exit to return to your dashboard.</p>
           <button type="button" onClick={onSaveAndExit} className="mt-4 h-11 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700">
             Save &amp; exit
           </button>
@@ -61,12 +62,12 @@ export function AuditModeScreen({
 
   return (
     <div className="space-y-4">
-      <section className="rounded-[1.75rem] bg-slate-950 p-5 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]">
+      <section className={darkPanelShell}>
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Audit mode</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight">{audit.name}</h2>
-            <p className="mt-1 text-sm text-slate-300">{getDueWarning(audit.dueHours)}</p>
+            <p className={darkPanelEyebrow}>Audit mode</p>
+            <h2 className={darkPanelTitleLg}>{audit.name}</h2>
+            <p className={["mt-1", darkPanelDescription].join(" ")}>{getDueWarning(audit.dueHours)}</p>
           </div>
           <StatusBadge status={getAuditTrafficStatus(audit.dueHours)} dark />
         </div>

@@ -3,6 +3,7 @@ import type { User } from "../types/dashboardScreenProps";
 import { SECTION_INTROS } from "../config/sectionIntros";
 import { getRoleDisplayName } from "../permissions";
 import { SectionIntro } from "../components/SectionIntro";
+import { darkPanelDescription, darkPanelEyebrow, darkPanelShellCompact, darkPanelTitleSm } from "../styles/darkPanel";
 import { isCapacitorNativeApp } from "../utils/debugUiVisibility";
 
 type AdvancedNavItem = {
@@ -40,22 +41,17 @@ export function PilotSettingsScreen({
 }: Props) {
   return (
     <div className="space-y-4">
-      <section
-        className={[
-          "rounded-[1.75rem] px-5 py-4 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]",
-          themeMode === "dark" ? "bg-slate-900" : "bg-slate-950",
-        ].join(" ")}
-      >
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+      <section className={[darkPanelShellCompact, themeMode === "dark" ? "!bg-slate-900" : ""].join(" ")}>
+        <p className={darkPanelEyebrow}>
           {currentUser.role === "Admin" ? "Tablet / Kiosk" : "Settings"}
         </p>
-        <h2 className="mt-1 text-xl font-semibold tracking-tight">
+        <h2 className={darkPanelTitleSm}>
           {currentUser.role === "Admin" ? "Tablet / Kiosk" : "Account & advanced tools"}
         </h2>
         {currentUser.role === "Admin" ? (
-          <SectionIntro text={SECTION_INTROS.tabletKiosk} className="mt-2 text-slate-300" />
+          <SectionIntro text={SECTION_INTROS.tabletKiosk} className="mt-2" tone="onDark" />
         ) : (
-          <p className="mt-1 text-sm text-slate-300">
+          <p className={["mt-1", darkPanelDescription].join(" ")}>
             Signed in as {accountNameInput || currentUser.name} ({getRoleDisplayName(currentUser.role)}).
           </p>
         )}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { canCompleteAuditAsAuditor } from "../permissions";
 import type { NonConformanceScreenProps } from "../types/nonConformanceScreenProps";
 import { EmptyPanel } from "../components/dashboard/DashboardPrimitives";
+import { darkPanelEyebrow, darkPanelShell, darkPanelTitleLg } from "../styles/darkPanel";
 import { slatePrimaryCtaInteract } from "../styles/interactions";
 
 function parseNcrSequence(reference: string) {
@@ -56,9 +57,9 @@ export function NonConformanceScreen({
 
   return (
     <div className="space-y-4">
-      <section className="rounded-[1.75rem] bg-slate-950 p-5 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]">
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Non-conformance register</p>
-        <h2 className="mt-2 text-2xl font-semibold tracking-tight">Escalation and investigation</h2>
+      <section className={darkPanelShell}>
+        <p className={darkPanelEyebrow}>Non-conformance register</p>
+        <h2 className={darkPanelTitleLg}>Escalation and investigation</h2>
       </section>
       <section className="rounded-[1.6rem] border border-slate-200 bg-white p-4 shadow-sm">
         <div className="grid gap-2">

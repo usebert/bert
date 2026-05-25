@@ -91,6 +91,7 @@ export function SitesAreasPanel({
             ? "Single-workspace mode — users can access the whole company workspace."
             : "Area restrictions limit Managers and Auditors to selected areas. Audit access still controls which checks they can open."
         }
+        tone={isDark ? "onDark" : "onLight"}
       />
 
       {areaSyncError ? (

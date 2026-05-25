@@ -18,6 +18,7 @@ import { EmptyPanel } from "../components/dashboard/DashboardPrimitives";
 import { PilotHealthPanel } from "../components/pilot/PilotHealthPanel";
 import { SECTION_INTROS } from "../config/sectionIntros";
 import { SectionIntro } from "../components/SectionIntro";
+import { darkPanelEyebrow, darkPanelShell, darkPanelTitleLg } from "../styles/darkPanel";
 import type { Role } from "../permissions";
 import { slatePrimaryCtaInteract } from "../styles/interactions";
 
@@ -433,22 +434,23 @@ export function ReportsScreen({
 
   return (
     <div className="space-y-4">
-      <section className="rounded-[1.75rem] bg-slate-950 p-5 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]">
+      <section className={darkPanelShell}>
         <div className="flex items-start gap-3">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-white">
             <ReportsScreenIcon name="chart" className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+            <p className={darkPanelEyebrow}>
               {currentUserRole === "Master" ? "Reports / Diagnostics" : "Reporting outcomes"}
             </p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight">
+            <h2 className={darkPanelTitleLg}>
               {currentUserRole === "Master" ? "Platform diagnostics and exports" : "Turn completed work into audit-ready packs"}
             </h2>
             <SectionIntro
               text={currentUserRole === "Master" ? SECTION_INTROS.diagnostics : SECTION_INTROS.reports}
-              className="mt-2 text-slate-300"
+              className="mt-2"
               role={currentUserRole}
+              tone="onDark"
             />
             {currentUserRole !== "Master" ? (
               <p className="mt-2 text-sm leading-6 text-slate-300">

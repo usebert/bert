@@ -364,7 +364,7 @@ export function DashboardScreen({
             <h2 className="mt-1 text-lg font-semibold tracking-tight sm:text-xl">bert.</h2>
             <p className="mt-0.5 text-xs text-slate-400">Business. Evaluate. Report. Tool.</p>
             {selectedFolder ? (
-              <p className="mt-1 text-[11px] font-medium text-slate-500">Workspace: {selectedFolder.name}</p>
+              <p className="mt-1 text-[11px] font-medium text-slate-400">Workspace: {selectedFolder.name}</p>
             ) : null}
             <p className="mt-2 max-w-xl text-xs leading-relaxed text-slate-300">
               Provision through report — where you are in the quality cycle right now.

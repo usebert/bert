@@ -8,6 +8,7 @@ import type {
 } from "../types/reportsScreenProps";
 import { EmptyPanel } from "../components/dashboard/DashboardPrimitives";
 import { slatePrimaryCtaInteract } from "../styles/interactions";
+import { darkPanelBody, darkPanelEyebrow, darkPanelShell, darkPanelTitleLg } from "../styles/darkPanel";
 
 const amberThresholdHours = 2;
 
@@ -217,16 +218,16 @@ export function SchedulesScreen({
 
   return (
     <div className="space-y-4">
-      <section className="rounded-[1.75rem] bg-slate-950 p-5 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]">
+      <section className={darkPanelShell}>
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-white">
               <SchedulesScreenIcon name="clock" className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Schedules</p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight">Live schedules</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-300">
+              <p className={darkPanelEyebrow}>Schedules</p>
+              <h2 className={darkPanelTitleLg}>Live schedules</h2>
+              <p className={["mt-2", darkPanelBody].join(" ")}>
                 Create, edit, archive, and reactivate company audit schedules for {selectedFolder?.name || "the live workspace"}.
               </p>
             </div>

@@ -4,6 +4,7 @@ import { canCompleteAuditAsAuditor, canInvestigateIncidents } from "../permissio
 import { getRoleTheme } from "../config/roleTheme";
 import { SECTION_INTROS } from "../config/sectionIntros";
 import { SectionIntro } from "../components/SectionIntro";
+import { darkPanelBody, darkPanelEyebrow, darkPanelShell, darkPanelTitleLg } from "../styles/darkPanel";
 import type {
   IncidentCorrectiveAction,
   IncidentEvidenceItem,
@@ -151,12 +152,12 @@ export function IncidentReportingScreen({
           </p>
         </section>
       ) : (
-        <section className="rounded-[1.75rem] bg-slate-950 p-5 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]">
+        <section className={darkPanelShell}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">Accident / Near miss</p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight">Incident reporting module</h2>
-              <p className="mt-2 text-sm text-slate-300">Mobile-first reporting plus register, investigation workflow, corrective actions, and dashboard.</p>
+              <p className={darkPanelEyebrow}>Accident / Near miss</p>
+              <h2 className={darkPanelTitleLg}>Incident reporting module</h2>
+              <p className={["mt-2", darkPanelBody].join(" ")}>Mobile-first reporting plus register, investigation workflow, corrective actions, and dashboard.</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={() => setView("report")} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${view === "report" ? "border-orange-400 bg-orange-400/15 text-orange-200" : "border-slate-700 bg-slate-900 text-slate-300"}`}>Report form</button>

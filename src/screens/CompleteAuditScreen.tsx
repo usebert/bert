@@ -1,5 +1,6 @@
 import { useEffect, useRef, type PointerEvent } from "react";
 import { MetaPill, SectionHeader, StatusBadge } from "../components/dashboard/DashboardPrimitives";
+import { darkPanelEyebrow, darkPanelShell } from "../styles/darkPanel";
 import { getAuditTrafficStatus, getDueWarning } from "../utils/dashboardHealth";
 import type { CompleteAuditAnswerButtonProps, CompleteAuditScreenProps } from "../types/completeAuditScreenProps";
 
@@ -29,11 +30,11 @@ export function CompleteAuditScreen({
 
   return (
     <div className="space-y-4">
-      <section className="rounded-[1.75rem] bg-slate-950 p-5 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]">
+      <section className={darkPanelShell}>
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">{audit.category}</p>
-            <h2 className="mt-2 text-[1.85rem] font-semibold tracking-tight">{audit.name}</h2>
+            <p className={darkPanelEyebrow}>{audit.category}</p>
+            <h2 className="mt-2 text-[1.85rem] font-semibold tracking-tight text-[#F8FAFC]">{audit.name}</h2>
             <div className="mt-3 flex flex-wrap gap-2">
               <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold text-slate-200">
                 <AppIcon name="clipboard" className="h-3.5 w-3.5" />

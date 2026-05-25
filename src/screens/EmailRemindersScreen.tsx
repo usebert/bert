@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { apiUrl } from "../config/apiBase";
 import { parseJsonApiResponse } from "../utils/parseJsonApiResponse";
+import { darkPanelDescription, darkPanelEyebrow, darkPanelShellCompact, darkPanelTitleSm } from "../styles/darkPanel";
 
 export type EmailReminderRow = {
   id: string;
@@ -136,15 +137,10 @@ export function EmailRemindersScreen({ userEmail, themeMode, slatePrimaryCtaInte
 
   return (
     <div className="space-y-4">
-      <section
-        className={[
-          "rounded-[1.75rem] px-5 py-3 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]",
-          themeMode === "dark" ? "bg-slate-900" : "bg-slate-950",
-        ].join(" ")}
-      >
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Email reminders</p>
-        <h2 className="mt-1 text-xl font-semibold tracking-tight">Remind me by email</h2>
-        <p className="mt-1 text-sm leading-5 text-slate-300">
+      <section className={[darkPanelShellCompact, themeMode === "dark" ? "!bg-slate-900" : ""].join(" ")}>
+        <p className={darkPanelEyebrow}>Email reminders</p>
+        <h2 className={darkPanelTitleSm}>Remind me by email</h2>
+        <p className={["mt-1", darkPanelDescription].join(" ")}>
           Schedule notes like “phone Ed today” or “insurance due next week”. We email{" "}
           <span className="font-semibold text-white">{userEmail}</span> at the time you choose.
         </p>

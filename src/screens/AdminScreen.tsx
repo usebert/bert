@@ -4,6 +4,15 @@ import { canAccessAdmin, canAccessAdminOnboardingWorkspace, canManageAreas, getR
 import { AreaAuditsSection } from "../components/admin/AreaAuditsSection";
 import { SitesAreasPanel } from "../components/admin/SitesAreasPanel";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../components/dashboard/DashboardPrimitives";
+import {
+  darkPanelBody,
+  darkPanelEyebrow,
+  darkPanelShell,
+  darkPanelShellBordered,
+  darkPanelShellCompact,
+  darkPanelTitleLg,
+  darkPanelTitleSm,
+} from "../styles/darkPanel";
 import { SectionIntro } from "../components/SectionIntro";
 import { DangerActionButton } from "../components/DangerActionButton";
 import { UsersInvitesPilotPanel } from "../components/admin/UsersInvitesPilotPanel";
@@ -121,15 +130,15 @@ function CompanyOnboardingEmailResultPanel({
       </p>
       <dl className="mt-3 space-y-2 text-xs text-slate-300">
         <div>
-          <dt className="font-semibold uppercase tracking-[0.14em] text-slate-500">From (expected)</dt>
+          <dt className="font-semibold uppercase tracking-[0.14em] text-slate-400">From (expected)</dt>
           <dd className="mt-0.5 text-sm text-white">{senderEmail}</dd>
         </div>
         <div>
-          <dt className="font-semibold uppercase tracking-[0.14em] text-slate-500">Recipient</dt>
+          <dt className="font-semibold uppercase tracking-[0.14em] text-slate-400">Recipient</dt>
           <dd className="mt-0.5 break-all text-sm text-white">{result.email}</dd>
         </div>
         <div>
-          <dt className="font-semibold uppercase tracking-[0.14em] text-slate-500">Onboarding form link</dt>
+          <dt className="font-semibold uppercase tracking-[0.14em] text-slate-400">Onboarding form link</dt>
           <dd className="mt-0.5 break-all text-sm text-sky-200">{result.onboardingFormUrl}</dd>
         </div>
       </dl>
@@ -235,15 +244,15 @@ function CompanyUserInviteEmailResultPanel({
       ) : null}
       <dl className="mt-3 space-y-2 text-xs text-slate-300">
         <div>
-          <dt className="font-semibold uppercase tracking-[0.14em] text-slate-500">Recipient</dt>
+          <dt className="font-semibold uppercase tracking-[0.14em] text-slate-400">Recipient</dt>
           <dd className="mt-0.5 break-all text-sm text-white">{result.email}</dd>
         </div>
         <div>
-          <dt className="font-semibold uppercase tracking-[0.14em] text-slate-500">Role</dt>
+          <dt className="font-semibold uppercase tracking-[0.14em] text-slate-400">Role</dt>
           <dd className="mt-0.5 text-sm text-white">{result.role}</dd>
         </div>
         <div>
-          <dt className="font-semibold uppercase tracking-[0.14em] text-slate-500">Invite link</dt>
+          <dt className="font-semibold uppercase tracking-[0.14em] text-slate-400">Invite link</dt>
           <dd className="mt-0.5 break-all text-sm text-sky-200">{result.inviteUrl}</dd>
         </div>
       </dl>
@@ -498,12 +507,10 @@ export function AdminScreen({
   const pilotHeroLight = isCompaniesScreen || isOnboardingScreen || isUsersInvitesScreen;
   const pilotLightSurface = "rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm";
   const companyAdminShell = currentUser.role === "Admin";
-  const onboardingPanelClass = companyAdminShell
-    ? pilotLightSurface
-    : "rounded-[1.75rem] border border-slate-800 bg-slate-950 p-4 shadow-sm";
-  const onboardingHeadingClass = companyAdminShell ? "text-slate-900" : "text-white";
-  const onboardingBodyClass = companyAdminShell ? "text-slate-600" : "text-slate-300";
-  const onboardingEyebrowClass = companyAdminShell ? "text-slate-500" : "text-slate-400";
+  const onboardingPanelClass = companyAdminShell ? pilotLightSurface : darkPanelShellBordered;
+  const onboardingHeadingClass = companyAdminShell ? "text-slate-900" : "text-[#F8FAFC]";
+  const onboardingBodyClass = companyAdminShell ? "text-slate-600" : darkPanelBody;
+  const onboardingEyebrowClass = companyAdminShell ? "text-slate-500" : darkPanelEyebrow;
   const pilotLightNested = "rounded-2xl border border-slate-200 bg-slate-50 p-4";
   const pilotEditableInput =
     "h-12 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-orange-400 focus:ring-2 focus:ring-orange-400/20 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500";
@@ -608,14 +615,19 @@ export function AdminScreen({
   return (
     <div className="space-y-4">
       {pilotFocus ? (
-        <section className={pilotHeroLight ? pilotLightSurface : "rounded-[1.75rem] bg-slate-950 px-5 py-4 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]"}>
-          <p className={["text-xs font-semibold uppercase tracking-[0.3em]", pilotHeroLight ? "text-slate-500" : "text-slate-400"].join(" ")}>
+        <section className={pilotHeroLight ? pilotLightSurface : darkPanelShellCompact}>
+          <p className={pilotHeroLight ? "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500" : darkPanelEyebrow}>
             {pilotTitles[pilotFocus].title}
           </p>
-          <h2 className={["mt-1 text-xl font-semibold tracking-tight", pilotHeroLight ? "text-slate-900" : "text-white"].join(" ")}>
+          <h2 className={pilotHeroLight ? "mt-1 text-xl font-semibold tracking-tight text-slate-900" : darkPanelTitleSm}>
             {pilotTitles[pilotFocus].title}
           </h2>
-          <SectionIntro text={pilotTitles[pilotFocus].intro} className="mt-2" role={pilotHeroLight ? "Master" : undefined} />
+          <SectionIntro
+            text={pilotTitles[pilotFocus].intro}
+            className="mt-2"
+            role={pilotHeroLight ? "Master" : "Master"}
+            tone={pilotHeroLight ? "onLight" : "onDark"}
+          />
         </section>
       ) : null}
 
@@ -847,12 +859,13 @@ export function AdminScreen({
       )}
 
       {masterOnly && currentUser.role !== "Admin" && (
-        <section className="rounded-[1.75rem] border border-slate-800 bg-slate-950 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.24)]">
+        <section className={darkPanelShellBordered}>
           <SectionHeader
             icon="shield"
             eyebrow="Setup"
             title="Setup account only"
             subtitle="Workspace setup, connecting Google, and loading live data are limited to the setup account."
+            tone="onDark"
           />
           <div className="rounded-[1.5rem] bg-slate-900 p-4">
             <p className="text-sm font-semibold text-white">This workspace is managed centrally</p>
@@ -1026,7 +1039,7 @@ export function AdminScreen({
             onOpenInitialSetup={onOpenInitialSetup}
             slatePrimaryCtaInteract={slatePrimaryCtaInteract}
           />
-        <section className="rounded-[1.75rem] bg-slate-950 p-5 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]">
+        <section className={darkPanelShell}>
           {!standaloneOnboarding && (
             <div className="mb-3">
               <button
@@ -1042,9 +1055,9 @@ export function AdminScreen({
               <AppIcon name="shield" className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Workspace setup</p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight">Set up a new company workspace</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-300">
+              <p className={darkPanelEyebrow}>Workspace setup</p>
+              <h2 className={darkPanelTitleLg}>Set up a new company workspace</h2>
+              <p className={["mt-2", darkPanelBody].join(" ")}>
                 Complete the steps below to connect Google Drive, link the company folder, and make the app live.
               </p>
             </div>
@@ -1541,7 +1554,7 @@ export function AdminScreen({
                         <div key={user.email} className="rounded-xl border border-slate-800 bg-slate-950 p-3">
                           <div className="flex flex-wrap items-baseline justify-between gap-2">
                             <p className="text-sm font-semibold text-white">{user.email}</p>
-                            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{user.role}</span>
+                            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">{user.role}</span>
                           </div>
                           <div className="mt-3 grid gap-2 sm:grid-cols-2">
                             {activeSites.map((site) => {

@@ -77,6 +77,7 @@ export function AreaAuditsSection({
         eyebrow="Area audits"
         title="Area audits"
         subtitle="Choose which checks apply to each area."
+        tone={isDark ? "onDark" : "onLight"}
       />
       <p className={`mt-2 text-sm leading-6 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
         <span className={`font-semibold ${isDark ? "text-white" : "text-slate-800"}`}>Audit access</span> controls which

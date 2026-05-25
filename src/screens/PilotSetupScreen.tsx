@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { SECTION_INTROS } from "../config/sectionIntros";
 import { fetchSetupStatus } from "../services/setupStatusService";
 import { SectionIntro } from "../components/SectionIntro";
+import { darkPanelBody, darkPanelEyebrow, darkPanelShellCompact, darkPanelTitleSm } from "../styles/darkPanel";
 import { slatePrimaryCtaInteract } from "../styles/interactions";
 
 type Props = {
@@ -31,11 +32,11 @@ export function PilotSetupScreen({
 
   return (
     <div className="space-y-4">
-      <section className="rounded-[1.75rem] bg-slate-950 px-5 py-4 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]">
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Platform Setup</p>
-        <h2 className="mt-1 text-xl font-semibold tracking-tight">Platform Setup</h2>
-        <SectionIntro text={SECTION_INTROS.platformSetup} className="mt-2 text-slate-300" />
-        <p className="mt-2 text-sm leading-5 text-slate-300">
+      <section className={darkPanelShellCompact}>
+        <p className={darkPanelEyebrow}>Platform Setup</p>
+        <h2 className={darkPanelTitleSm}>Platform Setup</h2>
+        <SectionIntro text={SECTION_INTROS.platformSetup} className="mt-2" tone="onDark" />
+        <p className={["mt-2", darkPanelBody].join(" ")}>
           {readyForPilot === true
             ? "Initial setup is complete. Use Companies, Users, and Invites for day-to-day pilot work."
             : "Finish initial setup before inviting companies and users."}

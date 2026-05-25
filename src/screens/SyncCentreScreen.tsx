@@ -2,6 +2,7 @@ import type { Role } from "../permissions";
 import { getRolePermissions } from "../permissions";
 import type { SyncQueueItem, SyncStatus } from "../types/sync";
 import { EmptyPanel, MiniMetric } from "../components/dashboard/DashboardPrimitives";
+import { darkPanelBody, darkPanelEyebrow, darkPanelShell, darkPanelTitleLg } from "../styles/darkPanel";
 import { slatePrimaryCtaInteract } from "../styles/interactions";
 
 function syncTrustLabel(status: SyncStatus): string {
@@ -52,15 +53,15 @@ export function SyncCentreScreen({
   const permissions = getRolePermissions(currentUser.role);
   return (
     <div className="space-y-4">
-      <section className="rounded-[1.75rem] bg-slate-950 p-5 text-white shadow-[0_18px_40px_rgba(15,23,42,0.22)]">
+      <section className={darkPanelShell}>
         <div className="flex items-start gap-3">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-white">
             <SyncCentreAppIcon name="sync" className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Operational trust</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight">Sync Centre</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-300">
+            <p className={darkPanelEyebrow}>Operational trust</p>
+            <h2 className={darkPanelTitleLg}>Sync Centre</h2>
+            <p className={["mt-2", darkPanelBody].join(" ")}>
               Field work, evidence, and admin edits stay visible here until they reach your company sheet in Google Drive—so you always know what still needs the network.
             </p>
           </div>
