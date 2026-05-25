@@ -217,10 +217,11 @@ function parseScheduleRows(records) {
         auditName,
         areaName,
         frequency: String(row.Frequency || row.frequency || "").trim(),
-        nextDueDate: String(row["Next Due Date"] || row.nextDueDate || row["Live Time"] || "").trim(),
+        nextDueDate: String(row["Next Due Date"] || row["Next Due At"] || row.nextDueDate || row["Live Time"] || "").trim(),
         assignedRole: String(row["Assigned Role"] || row.assignedRole || "").trim(),
         assignedUser: String(row["Assigned User"] || row.assignedUser || row.Auditors || "").trim(),
         companyFolderId: String(row["Company Folder ID"] || row.companyFolderId || "").trim(),
+        status: String(row.Status || row.status || row.Lifecycle || "").trim().toLowerCase(),
       };
     })
     .filter(Boolean);
@@ -450,3 +451,15 @@ export function installCompanyAuditMappingRoutes(app, deps) {
 }
 
 export { sheetAccessToUi, uiAccessToSheet, normalizeAccessLevel };
+
+export async function ensureCompanyMappingTabs(deps, auth, spreadsheetId) {
+  const tabs = [
+    [AUDIT_TEMPLATES_TAB, AUDIT_TEMPLATES_COLUMNS],
+    [AREA_AUDITS_TAB, AREA_AUDITS_COLUMNS],
+    [USER_AREA_ACCESS_TAB, USER_AREA_ACCESS_COLUMNS],
+    [USER_AUDIT_ACCESS_TAB, USER_AUDIT_ACCESS_COLUMNS],
+  ];
+  for (const [tab, columns] of tabs) {
+    await deps.ensureColumns(auth, spreadsheetId, tab, columns);
+  }
+}

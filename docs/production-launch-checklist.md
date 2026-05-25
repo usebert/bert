@@ -146,6 +146,40 @@ After env change, redeploy API and confirm credentialed `POST /api/auth/master/l
 
 See **`docs/deployment-runbook.md`** § “Browser end-to-end smoke” for the full operator checklist (Master login → Initial Setup → company → invite → company login → logout).
 
+## Core compliance operating loop (acceptance test)
+
+See **`docs/bert-core-operating-loop.md`** for tab definitions and architecture.
+
+Run on a staging company with Google connected and a linked master sheet:
+
+1. **Provision**
+   - [ ] Create area in Workspace → **Areas** tab row appears
+   - [ ] Map audit template to area → **AreaAudits** row
+   - [ ] Grant auditor audit + area access → **UserAuditAccess** / **UserAreaAccess**
+   - [ ] Create schedule with **Next Due At** today → **Schedule** tab row
+
+2. **Evaluate & submit**
+   - [ ] Sign in as Auditor → check appears in Today / My Checks
+   - [ ] Complete check with at least one failed answer → submit
+   - [ ] Auditor sees plain post-submit message (issues count, no admin jargon)
+
+3. **Sheet records**
+   - [ ] **AuditResults** row with `Result ID`, `Area ID`, `Answers JSON`
+   - [ ] **AuditFindings** row(s) for failed answers
+   - [ ] **Actions** row(s) auto-created
+   - [ ] **SyncLog** entry for submission
+
+4. **Manager close**
+   - [ ] Manager assigns action, attaches evidence, closes with verification
+   - [ ] **Actions** tab reflects status; evidence in **Evidence** tab when synced
+
+5. **Report**
+   - [ ] Manager/Admin exports report pack → preview shows real findings/actions
+   - [ ] **Reports** tab row appended
+
+6. **Safety regression**
+   - [ ] Auth, invites, areas, route guards unchanged (`npm run verify:auth`, `npm run verify:pilot-readiness`)
+
 ## Not covered by Phase 1
 
 Billing, per-tenant database migration, client `localStorage` strategy, and full security review remain out of scope for this checklist—see the broader production-readiness roadmap.

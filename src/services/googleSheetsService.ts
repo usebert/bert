@@ -70,10 +70,17 @@ export const googleSheetsService = {
       entries,
     });
   },
+  appendReports<T extends JsonResponse>(sheetId: string, companyFolderId: string, reports: unknown[]) {
+    return postJson<T>(`/api/google-sheet-by-id/${encodeURIComponent(sheetId)}/reports`, {
+      companyFolderId,
+      reports,
+    });
+  },
   syncAuditBundle<T extends JsonResponse>(
     sheetId: string,
     body: {
       companyFolderId: string;
+      evidenceFolderId?: string;
       results: unknown[];
       findings: unknown[];
       evidence: unknown[];

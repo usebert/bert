@@ -155,6 +155,21 @@ import {
 import type { CompanyReportUser, ReportItem, ReportSectionKey, ReportTemplateType } from "./src/types/reports";
 import type { NonConformanceRecord } from "./src/types/nonConformanceScreenProps";
 import type { SyncQueueItem, SyncStatus } from "./src/types/sync";
+import type { AuditFindingRecord, ComplianceScheduleRow } from "./src/types/complianceLoop";
+import {
+  auditIsDueFromSchedules,
+  computeDueHoursFromSchedule,
+  nearestNextDueDate,
+  userMatchesScheduleAssignment,
+  complianceSchedulesFromManaged,
+} from "./src/utils/complianceSchedule";
+import { buildAuditSubmissionBundle, parseAuditFindingsFromSheet } from "./src/utils/auditSheetRows";
+import {
+  persistActionsToSheet,
+  persistReportToSheet,
+  syncAuditSubmissionToSheet,
+} from "./src/services/complianceSyncService";
+import { googleSheetsService } from "./src/services/googleSheetsService";
 
 type AuditStatus = "green" | "amber" | "red";
 type Answer = "pass" | "nc" | "fail";
@@ -2520,6 +2535,8 @@ function readStoredWorkspaceState() {
       areaRestrictionsEnabled?: boolean;
       areaAudits?: AreaAuditMapping[];
       selectedAreaAuditAreaId?: string;
+      complianceSchedules?: ComplianceScheduleRow[];
+      auditFindings?: AuditFindingRecord[];
       externalEmployees?: ExternalEmployee[];
       documentDistributions?: DocumentDistribution[];
     };
@@ -2582,6 +2599,8 @@ function getWorkspaceBootstrap() {
       areaRestrictionsEnabled: false,
       areaAudits: [] as AreaAuditMapping[],
       selectedAreaAuditAreaId: "",
+      complianceSchedules: [] as ComplianceScheduleRow[],
+      auditFindings: [] as AuditFindingRecord[],
       externalEmployees: [] as ExternalEmployee[],
       documentDistributions: [] as DocumentDistribution[],
     };
@@ -2615,6 +2634,8 @@ function getWorkspaceBootstrap() {
     areaRestrictionsEnabled: stored?.areaRestrictionsEnabled ?? false,
     areaAudits: stored?.areaAudits ?? [],
     selectedAreaAuditAreaId: stored?.selectedAreaAuditAreaId ?? "",
+    complianceSchedules: stored?.complianceSchedules ?? [],
+    auditFindings: stored?.auditFindings ?? [],
     externalEmployees: stored?.externalEmployees ?? [],
     documentDistributions: stored?.documentDistributions ?? [],
   };
@@ -2985,6 +3006,10 @@ function App() {
   const [areaSyncLoading, setAreaSyncLoading] = useState(false);
   const [areaSyncError, setAreaSyncError] = useState<string | null>(null);
   const [areaAudits, setAreaAudits] = useState<AreaAuditMapping[]>(storedWorkspaceState?.areaAudits ?? []);
+  const [complianceSchedules, setComplianceSchedules] = useState<ComplianceScheduleRow[]>(
+    storedWorkspaceState?.complianceSchedules ?? [],
+  );
+  const [auditFindings, setAuditFindings] = useState<AuditFindingRecord[]>(storedWorkspaceState?.auditFindings ?? []);
   const [selectedAreaAuditAreaId, setSelectedAreaAuditAreaId] = useState(
     storedWorkspaceState?.selectedAreaAuditAreaId ?? "",
   );
@@ -3696,8 +3721,53 @@ function App() {
     if (!currentUser) {
       return siteScopedAudits.filter((audit) => !isAuditCompleted(audit));
     }
+    const applyScheduleDue = (items: Audit[]) => {
+      if (!selectedFolderId || complianceSchedules.length === 0) {
+        return items;
+      }
+      const userEmails = resolveCurrentUserReportEmails(currentUser, companyReportUsers);
+      return items
+        .filter((audit) => {
+          const areaId =
+            resolveAuditAreaId(audit, sites, areaRestrictionsEnabled) || SINGLE_WORKSPACE_AREA_ID;
+          const matchingSchedules = complianceSchedules.filter(
+            (schedule) =>
+              schedule.companyFolderId === selectedFolderId &&
+              (schedule.auditId === audit.id ||
+                schedule.auditName.trim().toLowerCase() === audit.name.trim().toLowerCase()) &&
+              (!schedule.areaId || schedule.areaId === areaId),
+          );
+          if (matchingSchedules.length === 0) {
+            return true;
+          }
+          const allowedSchedules = matchingSchedules.filter((schedule) =>
+            userMatchesScheduleAssignment(schedule, currentUser, userEmails),
+          );
+          if (allowedSchedules.length === 0) {
+            return false;
+          }
+          return allowedSchedules.some((schedule) => {
+            const nextDue = schedule.nextDueDate || nearestNextDueDate(audit.id, audit.name, areaId, complianceSchedules, selectedFolderId);
+            return auditIsDueFromSchedules(audit.id, audit.name, areaId, [schedule], selectedFolderId);
+          });
+        })
+        .map((audit) => {
+          const areaId =
+            resolveAuditAreaId(audit, sites, areaRestrictionsEnabled) || SINGLE_WORKSPACE_AREA_ID;
+          const nextDue = nearestNextDueDate(audit.id, audit.name, areaId, complianceSchedules, selectedFolderId);
+          if (!nextDue) {
+            return audit;
+          }
+          const dueHours = computeDueHoursFromSchedule(nextDue);
+          return {
+            ...audit,
+            dueHours,
+            dueLabel: dueHours < 0 ? "Overdue" : dueHours <= 24 ? "Due today" : audit.dueLabel,
+          };
+        });
+    };
     if (canAccessAdmin(currentUser.role) || currentUser.role === "Manager") {
-      return siteScopedAudits.filter((audit) => !isAuditCompleted(audit));
+      return applyScheduleDue(siteScopedAudits.filter((audit) => !isAuditCompleted(audit)));
     }
     const base = siteScopedAudits.filter((audit) => {
       if (isAuditCompleted(audit)) return false;
@@ -3708,7 +3778,7 @@ function App() {
     });
 
     if (!canCompleteAuditAsAuditor(currentUser.role)) {
-      return base;
+      return applyScheduleDue(base);
     }
 
     const siteArea = resolveAccessibleAuditSiteArea();
@@ -3723,6 +3793,12 @@ function App() {
         return;
       }
       if (!isAuditActiveForArea(areaAudits, areaId, option.id, { areaRestrictionsEnabled, sites })) {
+        return;
+      }
+      if (
+        selectedFolderId &&
+        !auditIsDueFromSchedules(option.id, option.name, areaId, complianceSchedules, selectedFolderId)
+      ) {
         return;
       }
       const hasInstance = base.some(
@@ -3740,7 +3816,7 @@ function App() {
       extras.push(buildAvailableAuditFromTemplate(template, siteArea, currentUser.name));
     });
 
-    return [...base, ...extras];
+    return applyScheduleDue([...base, ...extras]);
   }, [
     siteScopedAudits,
     currentUser,
@@ -3752,6 +3828,9 @@ function App() {
     currentUserAssignedSiteIds,
     areaAudits,
     areaRestrictionsEnabled,
+    complianceSchedules,
+    selectedFolderId,
+    companyReportUsers,
   ]);
 
   const dashboardNextActionInput = useMemo((): DashboardSummaryForNextAction | null => {
@@ -4353,6 +4432,8 @@ function App() {
         areaRestrictionsEnabled,
         areaAudits,
         selectedAreaAuditAreaId,
+        complianceSchedules,
+        auditFindings,
         externalEmployees,
         documentDistributions,
       }),
@@ -4385,6 +4466,8 @@ function App() {
     areaRestrictionsEnabled,
     areaAudits,
     selectedAreaAuditAreaId,
+    complianceSchedules,
+    auditFindings,
     externalEmployees,
     documentDistributions,
   ]);
@@ -4661,7 +4744,7 @@ function App() {
       .slice()
       .reverse()
       .forEach((submission) => {
-        applyAuditSubmission({
+        const applied = applyAuditSubmission({
           audit: submission.audit,
           responseMap: submission.responses,
           noteMap: submission.notes,
@@ -4677,8 +4760,23 @@ function App() {
                 : offlineSubmittedByFallback.username,
             } as User),
           completedAt: submission.queuedAt,
+          signatureDataUrl: submission.signatureDataUrl,
         });
-        updateSyncItemStatus(submission.audit.id, "Synced");
+        queueSyncItem({
+          itemType: "auditSubmission",
+          localId: submission.audit.id,
+          status: "Pending Sync",
+          createdAt: submission.queuedAt,
+          retryCount: 0,
+          lastError: "",
+          payload: {
+            auditId: submission.audit.id,
+            auditName: submission.audit.name,
+            companyFolderId: selectedFolderId,
+            syncBundle: applied.syncBundle,
+            createdActions: applied.createdActions,
+          },
+        });
       });
 
     setOfflineQueue([]);
@@ -4718,6 +4816,17 @@ function App() {
       .then(() => updateSyncItemStatus(`actions-batch-${selectedFolderId}`, "Synced"))
       .catch((error) => updateSyncItemStatus(`actions-batch-${selectedFolderId}`, "Failed", error instanceof Error ? error.message : "Unable to save actions."));
   }, [actions, selectedFolderId, syncState, googleConnected, offlineMode]);
+
+  useEffect(() => {
+    if (!googleConnected || offlineMode) {
+      return;
+    }
+    const pending = syncQueue.find((item) => item.status === "Pending Sync" || item.status === "Syncing");
+    if (!pending) {
+      return;
+    }
+    void processSyncQueueItem(pending);
+  }, [syncQueue, googleConnected, offlineMode, companySheetSync?.sheetId]);
 
   useEffect(() => {
     if (toasts.length === 0) {
@@ -4923,11 +5032,21 @@ function App() {
       });
       setManagedSchedules((current) => {
         const remaining = current.filter((item) => item.companyFolderId !== folderId);
-        return [...remaining, ...parseManagedSchedules(payload.data.Schedule ?? [], folderId).map((item) => ({ ...item, healthState: computeScheduleHealthState(item) }))];
+        const nextManaged = [...remaining, ...parseManagedSchedules(payload.data.Schedule ?? [], folderId).map((item) => ({ ...item, healthState: computeScheduleHealthState(item) }))];
+        setComplianceSchedules((scheduleCurrent) => {
+          const withoutFolder = scheduleCurrent.filter((item) => item.companyFolderId !== folderId);
+          const derived = complianceSchedulesFromManaged(nextManaged.filter((item) => item.companyFolderId === folderId));
+          return [...withoutFolder, ...derived];
+        });
+        return nextManaged;
       });
       setActions((current) => {
         const remaining = current.filter((item) => item.companyId !== folderId);
         return [...remaining, ...parseCompanySheetActions(payload.data.Actions ?? [], folderId)];
+      });
+      setAuditFindings((current) => {
+        const remaining = current.filter((item) => item.companyId !== folderId);
+        return [...remaining, ...parseAuditFindingsFromSheet(payload.data.AuditFindings ?? [], folderId)];
       });
 
       return payload;
@@ -4993,11 +5112,21 @@ function App() {
       });
       setManagedSchedules((current) => {
         const remaining = current.filter((item) => item.companyFolderId !== companyFolderId);
-        return [...remaining, ...parseManagedSchedules(payload.data.Schedule ?? [], companyFolderId).map((item) => ({ ...item, healthState: computeScheduleHealthState(item) }))];
+        const nextManaged = [...remaining, ...parseManagedSchedules(payload.data.Schedule ?? [], companyFolderId).map((item) => ({ ...item, healthState: computeScheduleHealthState(item) }))];
+        setComplianceSchedules((scheduleCurrent) => {
+          const withoutFolder = scheduleCurrent.filter((item) => item.companyFolderId !== companyFolderId);
+          const derived = complianceSchedulesFromManaged(nextManaged.filter((item) => item.companyFolderId === companyFolderId));
+          return [...withoutFolder, ...derived];
+        });
+        return nextManaged;
       });
       setActions((current) => {
         const remaining = current.filter((item) => item.companyId !== companyFolderId);
         return [...remaining, ...parseCompanySheetActions(payload.data.Actions ?? [], companyFolderId)];
+      });
+      setAuditFindings((current) => {
+        const remaining = current.filter((item) => item.companyId !== companyFolderId);
+        return [...remaining, ...parseAuditFindingsFromSheet(payload.data.AuditFindings ?? [], companyFolderId)];
       });
 
       return payload;
@@ -6132,21 +6261,75 @@ function App() {
       throw new Error("Company master sheet link is required before saving actions.");
     }
 
-    const response = await fetch(apiUrl(`/api/google-sheet-by-id/${encodeURIComponent(sheetId)}/actions`), {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        companyFolderId,
-        actions: nextActions,
-      }),
-    });
+    await persistActionsToSheet(sheetId, companyFolderId, nextActions);
+  };
 
-    const payload = (await response.json()) as SaveSchedulesResponse;
-    if (!response.ok || !payload.ok) {
-      throw new Error(payload.error || "Unable to save actions.");
+  const syncProcessingRef = useRef(false);
+
+  const processSyncQueueItem = async (item: SyncQueueItem) => {
+    if (syncProcessingRef.current) {
+      return;
+    }
+    syncProcessingRef.current = true;
+    updateSyncItemStatus(item.localId, "Syncing");
+    try {
+      const sheetId = companySheetSync?.sheetId || extractGoogleResourceId(masterSheetInput);
+      const companyFolderId = String(item.payload.companyFolderId || selectedFolderId || "").trim();
+      if (!sheetId || !companyFolderId) {
+        throw new Error("Your workspace is not linked yet. Ask an administrator to connect Google.");
+      }
+
+      if (item.itemType === "auditSubmission") {
+        const syncBundle = item.payload.syncBundle as
+          | {
+              payload: Record<string, unknown>;
+              sheetResult: Record<string, string>;
+              sheetFindings: Record<string, string>[];
+              sheetEvidence: Record<string, string>[];
+              sheetSyncLog: Record<string, string>;
+            }
+          | undefined;
+        if (!syncBundle) {
+          throw new Error("This submission is missing sync data. Try submitting the check again.");
+        }
+        await syncAuditSubmissionToSheet({
+          sheetId,
+          companyFolderId,
+          evidenceFolderId: evidenceFolderInput.trim(),
+          submission: syncBundle.payload as import("./src/types/complianceLoop").AuditSubmissionSyncPayload,
+          sheetResult: syncBundle.sheetResult,
+          sheetFindings: syncBundle.sheetFindings,
+          sheetEvidence: syncBundle.sheetEvidence,
+          sheetSyncLog: syncBundle.sheetSyncLog,
+        });
+        const createdActions = (item.payload.createdActions as ActionItem[] | undefined) ?? [];
+        if (createdActions.length > 0) {
+          const folderActions = actions.filter((action) => action.companyId === companyFolderId);
+          await persistActions(companyFolderId, folderActions);
+        }
+      } else if (item.itemType === "actionUpdate") {
+        await persistActions(companyFolderId, actions.filter((action) => action.companyId === companyFolderId));
+      } else if (item.itemType === "reportExport") {
+        const report = item.payload.report as ReportItem | undefined;
+        if (report) {
+          await persistReportToSheet(sheetId, companyFolderId, report, String(item.payload.exportLink || ""));
+        }
+      } else if (item.itemType === "evidenceUpload") {
+        const records = item.payload.evidenceRecords as Record<string, string>[] | undefined;
+        if (records?.length) {
+          await googleSheetsService.appendEvidence(sheetId, companyFolderId, records);
+        }
+      }
+
+      updateSyncItemStatus(item.localId, "Synced");
+    } catch (error) {
+      updateSyncItemStatus(
+        item.localId,
+        "Failed",
+        error instanceof Error ? error.message : "Unable to save your work right now.",
+      );
+    } finally {
+      syncProcessingRef.current = false;
     }
   };
 
@@ -6524,6 +6707,7 @@ function App() {
     submittedBy,
     submittedByUser,
     completedAt,
+    signatureDataUrl: submissionSignature,
   }: {
     audit: Audit;
     responseMap: Record<string, Answer>;
@@ -6532,19 +6716,24 @@ function App() {
     submittedBy: string;
     submittedByUser: User;
     completedAt: string;
+    signatureDataUrl?: string;
   }) => {
-    const answers = Object.values(responseMap);
-    const outcomeStatus: AuditStatus = answers.includes("fail")
-      ? "red"
-      : answers.includes("nc")
-        ? "amber"
-        : "green";
-    const failedQuestions = audit.questions.filter((question) => responseMap[question.id] === "fail" || responseMap[question.id] === "nc");
-    const levels = failedQuestions.map((question) => question.riskLevel || (responseMap[question.id] === "fail" ? "Critical" : "High"));
-    const totalRiskScore = levels.reduce((sum, level) => sum + riskScore(level), 0);
-    const highestRiskLevel = levels.length ? maxRiskLevel(levels) : "Low";
-    const numberOfCriticalFindings = levels.filter((level) => level === "Critical").length;
-    const numberOfHighFindings = levels.filter((level) => level === "High").length;
+    const areaId =
+      resolveAuditAreaId(audit, sites, areaRestrictionsEnabled) || SINGLE_WORKSPACE_AREA_ID;
+    const companyFolderId = selectedFolderId || selectedFolder?.id || "local-company";
+    const bundle = buildAuditSubmissionBundle({
+      audit,
+      areaId,
+      companyFolderId,
+      responseMap,
+      noteMap,
+      evidenceMap,
+      submittedByUser,
+      completedAt,
+      signatureDataUrl: submissionSignature,
+    });
+    const { outcomeStatus, payload, sheetResult, sheetFindings, sheetEvidence, sheetSyncLog } = bundle;
+    const findings = payload.findings;
 
     setAudits((current) =>
       current.map((item) =>
@@ -6560,10 +6749,10 @@ function App() {
                     : "Updated today",
               dueHours: outcomeStatus === "red" ? -1 : outcomeStatus === "amber" ? 1 : 24,
               lastCompletedAt: completedAt,
-              totalRiskScore,
-              highestRiskLevel,
-              numberOfCriticalFindings,
-              numberOfHighFindings,
+              totalRiskScore: payload.totalRiskScore,
+              highestRiskLevel: payload.highestRiskLevel,
+              numberOfCriticalFindings: payload.criticalFindingsCount,
+              numberOfHighFindings: payload.highFindingsCount,
             }
           : item,
       ),
@@ -6571,7 +6760,7 @@ function App() {
 
     setHistory((current) => [
       {
-        id: `${audit.id}-${Date.now()}`,
+        id: payload.resultId,
         auditId: audit.id,
         auditName: audit.name,
         completedAt,
@@ -6581,10 +6770,16 @@ function App() {
       ...current,
     ]);
 
+    setAuditFindings((current) => [...findings, ...current]);
     setActions((current) => current.filter((action) => action.auditId !== audit.id || action.status === "Closed"));
     const createdActions = createActionsFromAudit(audit, responseMap, noteMap, evidenceMap, submittedByUser, completedAt);
 
-    return { outcomeStatus, createdActions };
+    return {
+      outcomeStatus,
+      createdActions,
+      syncBundle: { payload, sheetResult, sheetFindings, sheetEvidence, sheetSyncLog },
+      findingsCount: findings.length,
+    };
   };
 
   const submitAudit = () => {
@@ -6644,7 +6839,7 @@ function App() {
       return;
     }
 
-    const { outcomeStatus, createdActions } = applyAuditSubmission({
+    const { outcomeStatus, createdActions, syncBundle, findingsCount } = applyAuditSubmission({
       audit: activeAudit,
       responseMap: responses,
       noteMap: notes,
@@ -6652,6 +6847,7 @@ function App() {
       submittedBy: currentUser.name,
       submittedByUser: currentUser,
       completedAt: stamp,
+      signatureDataUrl,
     });
     queueSyncItem({
       itemType: "auditSubmission",
@@ -6660,7 +6856,13 @@ function App() {
       createdAt: stamp,
       retryCount: 0,
       lastError: "",
-      payload: { auditId: activeAudit.id, auditName: activeAudit.name, companyFolderId: selectedFolderId },
+      payload: {
+        auditId: activeAudit.id,
+        auditName: activeAudit.name,
+        companyFolderId: selectedFolderId,
+        syncBundle,
+        createdActions,
+      },
     });
     setDrafts((current) => {
       const nextDrafts = { ...current };
@@ -6677,8 +6879,10 @@ function App() {
     setScreen("dashboard");
 
     pushToast(
-      "Audit submitted",
-      `${activeAudit.name} is now marked ${statusStyles[outcomeStatus].label.toLowerCase()}. ${createdActions.length} corrective action${createdActions.length === 1 ? "" : "s"} created.`,
+      "Check submitted",
+      findingsCount > 0
+        ? `${activeAudit.name} is recorded. ${findingsCount} issue${findingsCount === 1 ? "" : "s"} flagged for follow-up.`
+        : `${activeAudit.name} is recorded with no issues found.`,
       outcomeStatus === "green" ? "success" : "warning",
     );
     triggerNotification("Audit submitted", `${activeAudit.name} has been submitted by ${currentUser.name}.`);
@@ -6752,7 +6956,13 @@ function App() {
       createdAt: stamp,
       retryCount: 0,
       lastError: "",
-      payload: { auditId: activeAudit.id, auditName: activeAudit.name, companyFolderId: selectedFolderId },
+      payload: {
+        auditId: activeAudit.id,
+        auditName: activeAudit.name,
+        companyFolderId: selectedFolderId,
+        syncBundle: applied.syncBundle,
+        createdActions: applied.createdActions,
+      },
     });
     setDrafts((current) => {
       const nextDrafts = { ...current };
@@ -6763,11 +6973,11 @@ function App() {
       auditId: activeAudit.id,
       auditName: activeAudit.name,
       questionsAnswered: Object.keys(responses).length,
-      issuesFound,
+      issuesFound: applied.findingsCount,
       actionsCreated,
       photosCaptured,
-      syncTone: "green",
-      syncLabel: "Synced",
+      syncTone: googleConnected && !offlineMode ? "green" : "amber",
+      syncLabel: googleConnected && !offlineMode ? "Saved" : "Saved on this device",
     });
     notifySelectedManagersForNonCompliance(activeAudit, currentUser.name, issuesFound, false);
     setActiveAuditId(null);
@@ -7173,6 +7383,9 @@ function App() {
             ...current,
             ...mergeUserAuditAccessIntoOverrides(payload.userAuditAccess || []),
           }));
+        }
+        if (payload.schedules?.length) {
+          setComplianceSchedules(payload.schedules);
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unable to sync audit mapping.";
@@ -7984,12 +8197,17 @@ function App() {
       ],
       criticalFindings: [
         "Critical and high findings",
-        actions.filter((item) => item.severity === "Critical" || item.severity === "High").length > 0
-          ? actions
-              .filter((item) => item.severity === "Critical" || item.severity === "High")
+        auditFindings.filter((item) => item.riskLevel === "Critical" || item.riskLevel === "High").length > 0
+          ? auditFindings
+              .filter((item) => item.riskLevel === "Critical" || item.riskLevel === "High")
               .slice(0, 12)
-              .map((item) => `- ${item.auditName} | ${item.questionText} | ${item.severity} | ${item.riskCategory}`)
-          : ["- No critical or high findings"],
+              .map((item) => `- ${item.auditId} | ${item.questionText} | ${item.riskLevel} | ${item.riskCategory}`)
+          : actions.filter((item) => item.severity === "Critical" || item.severity === "High").length > 0
+            ? actions
+                .filter((item) => item.severity === "Critical" || item.severity === "High")
+                .slice(0, 12)
+                .map((item) => `- ${item.auditName} | ${item.questionText} | ${item.severity} | ${item.riskCategory}`)
+            : ["- No critical or high findings"],
       ],
       repeatFailures: [
         "Repeat failures",
@@ -8081,19 +8299,26 @@ function App() {
     ].join("\n");
 
     downloadTextFile(`${reportDefinition.title.toLowerCase().replace(/\s+/g, "-")}.txt`, report);
-    setReportInbox((current) => [
-      {
-        id: `report-text-${Date.now()}`,
-        title: reportDefinition.title,
-        type: "Text audit pack",
-        createdAt: timestamp,
-        createdBy: currentUser?.name || companyName,
-        visibleTo: reportRecipients,
-        template: selectedReportTemplate,
-      },
-      ...current,
-    ]);
-    pushToast("Audit pack exported", "A downloadable audit pack has been created for this workspace.", "success");
+    const reportRecord: ReportItem = {
+      id: `report-text-${Date.now()}`,
+      title: reportDefinition.title,
+      type: "Text audit pack",
+      createdAt: timestamp,
+      createdBy: currentUser?.name || companyName,
+      visibleTo: reportRecipients,
+      template: selectedReportTemplate,
+    };
+    setReportInbox((current) => [reportRecord, ...current]);
+    queueSyncItem({
+      itemType: "reportExport",
+      localId: reportRecord.id,
+      status: googleConnected && !offlineMode ? "Pending Sync" : "Pending Sync",
+      createdAt: timestamp,
+      retryCount: 0,
+      lastError: "",
+      payload: { companyFolderId: selectedFolderId, report: reportRecord },
+    });
+    pushToast("Report ready", "Your report pack is ready to download and has been queued for saving.", "success");
   };
 
   const handleExportAuditPackPdf = () => {
@@ -9873,8 +10098,19 @@ function App() {
                 currentUser={currentUser}
                 syncQueue={syncQueue}
                 offlineQueueCount={offlineQueue.length}
-                onRetryItem={(id) => updateSyncItemStatus(id, "Pending Sync")}
-                onForceSyncItem={(id) => updateSyncItemStatus(id, googleConnected && !offlineMode ? "Syncing" : "Pending Sync")}
+                onRetryItem={(id) => {
+                  const item = syncQueue.find((entry) => entry.localId === id);
+                  if (item) {
+                    updateSyncItemStatus(id, "Pending Sync");
+                    void processSyncQueueItem({ ...item, status: "Pending Sync" });
+                  }
+                }}
+                onForceSyncItem={(id) => {
+                  const item = syncQueue.find((entry) => entry.localId === id);
+                  if (item) {
+                    void processSyncQueueItem({ ...item, status: "Syncing" });
+                  }
+                }}
               />
             )}
 

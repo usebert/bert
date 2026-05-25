@@ -20,8 +20,11 @@ import {
   verifyUserAuthLoginOrMigrate,
 } from "./userauth-password.mjs";
 import { installDocumentDistributionRoutes } from "./document-distribution.mjs";
-import { CONFIG_KEY_AREA_RESTRICTIONS, installCompanyAreasRoutes } from "./company-areas.mjs";
-import { installCompanyAuditMappingRoutes } from "./company-audit-mapping.mjs";
+import { CONFIG_KEY_AREA_RESTRICTIONS, AREAS_TAB, AREAS_COLUMNS, installCompanyAreasRoutes } from "./company-areas.mjs";
+import {
+  installCompanyAuditMappingRoutes,
+  ensureCompanyMappingTabs,
+} from "./company-audit-mapping.mjs";
 import { installEmailReminderRoutes, startEmailReminderScheduler } from "./email-reminders.mjs";
 import { createGoogleOAuthSessionStore } from "./google-oauth-session.mjs";
 import { installSetupStatusRoutes } from "./setup-status.mjs";
@@ -278,6 +281,7 @@ const TAB_COLUMNS = {
     "Lifecycle",
     "Company Folder ID",
     "Schedule Name",
+    "Area ID",
     "Audit ID",
     "Audit Name",
     "Days",
@@ -285,6 +289,10 @@ const TAB_COLUMNS = {
     "Live Time",
     "Completion Hours",
     "Auditors",
+    "Assigned Role",
+    "Assigned User",
+    Status,
+    "Created At",
     "Start Date",
     "End Date",
     "Updated At",
@@ -309,6 +317,7 @@ const TAB_COLUMNS = {
   AuditResults: [
     "Result ID",
     "Audit ID",
+    "Area ID",
     "Company ID",
     "Audit Name",
     "Completed By",
@@ -318,6 +327,7 @@ const TAB_COLUMNS = {
     "Highest Risk Level",
     "Critical Findings Count",
     "High Findings Count",
+    "Answers JSON",
     "Signature Ref",
     "Created At",
     "Updated At",
@@ -337,6 +347,7 @@ const TAB_COLUMNS = {
     "Finding ID",
     "Result ID",
     "Audit ID",
+    "Area ID",
     "Company ID",
     "Question ID",
     "Question Text",
@@ -3014,6 +3025,7 @@ async function writeCompanySchedules(auth, spreadsheetId, companyFolderId, sched
         Lifecycle: schedule.lifecycle,
         "Company Folder ID": schedule.companyFolderId,
         "Schedule Name": schedule.scheduleName,
+        "Area ID": schedule.areaId || "",
         "Audit ID": audit.auditId,
         "Audit Name": audit.auditName,
         Days: (audit.days || []).join(", "),
@@ -3021,6 +3033,10 @@ async function writeCompanySchedules(auth, spreadsheetId, companyFolderId, sched
         "Live Time": audit.liveTime,
         "Completion Hours": audit.completionHours,
         Auditors: (schedule.auditors || []).join(", "),
+        "Assigned Role": schedule.assignedRole || "",
+        "Assigned User": schedule.assignedUser || "",
+        Status: schedule.status || schedule.lifecycle || "active",
+        "Created At": schedule.createdAt || schedule.updatedAt || "",
         "Start Date": schedule.startDate,
         "End Date": schedule.endDate,
         "Updated At": schedule.updatedAt,
@@ -4155,6 +4171,37 @@ app.post("/api/google-sheet-by-id/:sheetId/audit-bundle", async (req, res) => {
   }
 });
 
+app.post("/api/google-sheet-by-id/:sheetId/reports", async (req, res) => {
+  const authed = getAuthedClient();
+
+  if (!envConfigured() || !authed) {
+    return res.status(401).json({
+      ok: false,
+      error: "Please connect Google before saving reports.",
+    });
+  }
+
+  const companyFolderId = String(req.body?.companyFolderId || "").trim();
+  const reports = toObjectArray(req.body?.reports);
+
+  if (!companyFolderId) {
+    return res.status(400).json({
+      ok: false,
+      error: "Company folder ID is required before saving reports.",
+    });
+  }
+
+  try {
+    const payload = await appendRowObjects(authed, req.params.sheetId, "Reports", reports);
+    return res.json(payload);
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error instanceof Error ? error.message : "Unable to save reports to the company master sheet.",
+    });
+  }
+});
+
 app.post("/api/google-sheet-by-id/:sheetId/validate", async (req, res) => {
   const authed = getAuthedClient();
 
@@ -4199,6 +4246,17 @@ app.post("/api/google-sheet-by-id/:sheetId/repair", async (req, res) => {
       companyId: String(req.body?.companyFolderId || "").trim(),
       companyName: String(req.body?.companyName || "").trim(),
     });
+    await ensureCompanyMappingTabs(
+      {
+        ensureColumns,
+        ensureTabExists,
+        getWorkbook,
+        google,
+      },
+      authed,
+      req.params.sheetId,
+    );
+    await ensureColumns(authed, req.params.sheetId, AREAS_TAB, AREAS_COLUMNS);
     const validation = await validateWorkspace(authed, {
       companyFolderId: String(req.body?.companyFolderId || "").trim(),
       sheetId: req.params.sheetId,
