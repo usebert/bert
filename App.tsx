@@ -8295,9 +8295,8 @@ function App() {
                       <p className="mt-2 text-center text-[11px] text-slate-400 sm:text-xs">
                         {!isDemoLoginEnabled ? (
                           <>
-                            Use your <span className="font-semibold text-white">Master email or username</span> from the API host operator
-                            store (see <span className="font-semibold text-white">docs/deployment-runbook.md</span>). Password is checked on
-                            the server — it is never stored in the app bundle.
+                            Use your <span className="font-semibold text-white">Master email or username</span> and password. Credentials are
+                            verified on the server.
                           </>
                         ) : (
                           <>
@@ -8307,10 +8306,10 @@ function App() {
                           </>
                         )}
                       </p>
-                      {!isDemoLoginEnabled && !loginUsers.some((user) => user.role === "Master") ? (
+                      {!isDemoLoginEnabled && !loginUsers.some((user) => user.role === "Master") && isDebugUiAllowed() ? (
                         <p className="mt-2 rounded-xl border border-amber-500/40 bg-amber-950/40 px-3 py-2 text-[11px] leading-snug text-amber-50 sm:text-xs">
-                          No client-side Master demo user is bundled. Seed the Master operator on the API host (see deployment runbook), then
-                          sign in here with that email or username and password.
+                          No client-side Master demo user is bundled. Seed the Master operator on the API host, then sign in here with that
+                          email or username and password.
                         </p>
                       ) : null}
                       <form className="mt-3 space-y-2.5 sm:mt-4 sm:space-y-3" onSubmit={(event) => { event.preventDefault(); void handleLogin(); }}>
@@ -8430,16 +8429,18 @@ function App() {
                     <path d="M12 11v3M12 8h.01" strokeLinecap="round" />
                   </svg>
                 </button>
-                <button
-                  type="button"
-                  className="rounded-full border border-slate-700 bg-slate-900/75 p-2 text-slate-300 transition hover:border-orange-400/60 hover:text-blue-400"
-                  aria-label="Settings"
-                >
-                  <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-current" strokeWidth="2">
-                    <path d="M12 3.5l1 2.1 2.4.4-.9 2.2 1.7 1.8-1.7 1.8.9 2.2-2.4.4-1 2.1-1-2.1-2.4-.4.9-2.2-1.7-1.8 1.7-1.8-.9-2.2 2.4-.4z" />
-                    <circle cx="12" cy="12" r="2.4" />
-                  </svg>
-                </button>
+                {isDebugUiAllowed() ? (
+                  <button
+                    type="button"
+                    className="rounded-full border border-slate-700 bg-slate-900/75 p-2 text-slate-300 transition hover:border-orange-400/60 hover:text-blue-400"
+                    aria-label="Settings"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-current" strokeWidth="2">
+                      <path d="M12 3.5l1 2.1 2.4.4-.9 2.2 1.7 1.8-1.7 1.8.9 2.2-2.4.4-1 2.1-1-2.1-2.4-.4.9-2.2-1.7-1.8 1.7-1.8-.9-2.2 2.4-.4z" />
+                      <circle cx="12" cy="12" r="2.4" />
+                    </svg>
+                  </button>
+                ) : null}
               </div>
 
               <div className="relative z-10 grid h-full min-h-0 w-full grid-cols-1 items-center gap-3 sm:grid-cols-2 sm:gap-4">
@@ -8466,12 +8467,11 @@ function App() {
                         <span className="font-semibold text-white">VITE_GODMODE_PASSWORD</span> (see <span className="font-semibold text-white">.env.example</span>).
                       </p>
                     ) : (
-                      <p className="mt-2 rounded-xl border border-white/10 bg-slate-950/35 px-3 py-2 text-xs text-slate-300 sm:text-sm">
-                        Demo login is disabled in this build. Use an invited account or ask a BERT administrator to create access. BERT
-                        Master operators sign in with their server-registered email or username (see deployment runbook).
+                      <p className="mt-2 text-center text-xs leading-relaxed text-slate-300 sm:text-sm">
+                        Use your BERT invite email and password to continue.
                       </p>
                     )}
-                    {!isDemoLoginEnabled && loginUsers.length === 0 ? (
+                    {!isDemoLoginEnabled && loginUsers.length === 0 && isDebugUiAllowed() ? (
                       <p className="mt-2 rounded-xl border border-amber-500/40 bg-amber-950/40 px-3 py-2 text-[11px] leading-snug text-amber-50 sm:text-xs">
                         No sign-in accounts are available in this build (demo accounts are off, and no invites are loaded). For local
                         testing use <span className="font-semibold">npm run dev</span>, or rebuild with{" "}
