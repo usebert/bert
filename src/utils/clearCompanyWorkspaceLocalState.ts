@@ -1,6 +1,6 @@
 import { storageKeys } from "../config/storageKeys";
 
-type WorkspaceStateBlob = {
+export type WorkspaceStateBlob = {
   selectedFolderId?: string;
   folders?: unknown[];
   audits?: unknown[];
@@ -36,60 +36,156 @@ type WorkspaceStateBlob = {
   hsObjectives?: unknown[];
 };
 
+/** Operational company fields cleared when switching companies or starting a new one. */
+export function clearedCompanyWorkspaceOperationalFields(): Pick<
+  WorkspaceStateBlob,
+  | "audits"
+  | "history"
+  | "actions"
+  | "nonConformances"
+  | "schedules"
+  | "templates"
+  | "drafts"
+  | "managedSchedules"
+  | "invitedUsers"
+  | "sites"
+  | "selectedSiteId"
+  | "companySheetSync"
+  | "reportInbox"
+  | "syncQueue"
+  | "incidents"
+  | "incidentActions"
+  | "auditAccessOverrides"
+  | "managerAlerts"
+  | "areaAudits"
+  | "selectedAreaAuditAreaId"
+  | "complianceSchedules"
+  | "auditFindings"
+  | "externalEmployees"
+  | "documentDistributions"
+  | "qmsDocuments"
+  | "qmsTraining"
+  | "qmsRisks"
+  | "hsHazardReports"
+  | "hsRiskAssessments"
+  | "hsSafetyObservations"
+  | "hsObjectives"
+> {
+  return {
+    audits: [],
+    history: [],
+    actions: [],
+    nonConformances: [],
+    schedules: [],
+    templates: [],
+    drafts: {},
+    managedSchedules: [],
+    invitedUsers: [],
+    sites: [],
+    selectedSiteId: "",
+    companySheetSync: null,
+    reportInbox: [],
+    syncQueue: [],
+    incidents: [],
+    incidentActions: [],
+    auditAccessOverrides: {},
+    managerAlerts: [],
+    areaAudits: [],
+    selectedAreaAuditAreaId: "",
+    complianceSchedules: [],
+    auditFindings: [],
+    externalEmployees: [],
+    documentDistributions: [],
+    qmsDocuments: [],
+    qmsTraining: [],
+    qmsRisks: [],
+    hsHazardReports: [],
+    hsRiskAssessments: [],
+    hsSafetyObservations: [],
+    hsObjectives: [],
+  };
+}
+
+function readWorkspaceStateBlob(): WorkspaceStateBlob | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(storageKeys.workspaceState);
+    if (!raw) {
+      return null;
+    }
+    return JSON.parse(raw) as WorkspaceStateBlob;
+  } catch {
+    return null;
+  }
+}
+
+function writeWorkspaceStateBlob(next: WorkspaceStateBlob) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(storageKeys.workspaceState, JSON.stringify(next));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
 /** Clears operational workspace localStorage when the active company was reset on the server. */
 export function clearCompanyWorkspaceLocalState(companyFolderId: string) {
   if (typeof window === "undefined" || !companyFolderId) {
     return { cleared: false };
   }
 
-  try {
-    const raw = window.localStorage.getItem(storageKeys.workspaceState);
-    if (!raw) {
-      return { cleared: false };
-    }
-    const stored = JSON.parse(raw) as WorkspaceStateBlob;
-    if (stored.selectedFolderId && stored.selectedFolderId !== companyFolderId) {
-      return { cleared: false, reason: "different_company_selected" as const };
-    }
-
-    const next: WorkspaceStateBlob = {
-      ...stored,
-      selectedFolderId: companyFolderId,
-      audits: [],
-      history: [],
-      actions: [],
-      nonConformances: [],
-      schedules: [],
-      templates: [],
-      drafts: {},
-      managedSchedules: [],
-      invitedUsers: [],
-      sites: [],
-      selectedSiteId: "",
-      companySheetSync: null,
-      reportInbox: [],
-      syncQueue: [],
-      incidents: [],
-      incidentActions: [],
-      auditAccessOverrides: {},
-      managerAlerts: [],
-      areaAudits: [],
-      selectedAreaAuditAreaId: "",
-      complianceSchedules: [],
-      auditFindings: [],
-      externalEmployees: [],
-      documentDistributions: [],
-      qmsDocuments: [],
-      qmsTraining: [],
-      qmsRisks: [],
-      hsHazardReports: [],
-      hsRiskAssessments: [],
-      hsSafetyObservations: [],
-      hsObjectives: [],
-    };
-    window.localStorage.setItem(storageKeys.workspaceState, JSON.stringify(next));
-    return { cleared: true };
-  } catch {
+  const stored = readWorkspaceStateBlob();
+  if (!stored) {
     return { cleared: false };
   }
+  if (stored.selectedFolderId && stored.selectedFolderId !== companyFolderId) {
+    return { cleared: false, reason: "different_company_selected" as const };
+  }
+
+  const next: WorkspaceStateBlob = {
+    ...stored,
+    selectedFolderId: companyFolderId,
+    ...clearedCompanyWorkspaceOperationalFields(),
+  };
+  writeWorkspaceStateBlob(next);
+  return { cleared: true };
+}
+
+/** Master Godmode: wipe company workspace data and leave no active company selected. */
+export function clearGodmodeNewCompanyWorkspaceLocalState() {
+  if (typeof window === "undefined") {
+    return { cleared: false };
+  }
+
+  const stored = readWorkspaceStateBlob();
+  const next: WorkspaceStateBlob = {
+    ...(stored || {}),
+    selectedFolderId: "",
+    ...clearedCompanyWorkspaceOperationalFields(),
+  };
+  writeWorkspaceStateBlob(next);
+  return { cleared: true };
+}
+
+/** Master Godmode: clear operational data before switching to another company folder. */
+export function clearCompanyWorkspaceLocalStateForGodmodeSwitch() {
+  if (typeof window === "undefined") {
+    return { cleared: false };
+  }
+
+  const stored = readWorkspaceStateBlob();
+  if (!stored) {
+    return { cleared: false };
+  }
+
+  const next: WorkspaceStateBlob = {
+    ...stored,
+    ...clearedCompanyWorkspaceOperationalFields(),
+  };
+  writeWorkspaceStateBlob(next);
+  return { cleared: true };
 }

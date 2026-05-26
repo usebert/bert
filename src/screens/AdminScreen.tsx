@@ -480,6 +480,7 @@ export function AdminScreen({
   onAddSite,
   onArchiveSite,
   standaloneOnboarding = false,
+  godmodeNewCompanyOnboarding = false,
   pilotFocus = undefined,
   pilotShellScreen = undefined,
   hideMasterLocalDemoTools = false,
@@ -607,8 +608,10 @@ export function AdminScreen({
       intro: SECTION_INTROS.companies,
     },
     onboarding: {
-      title: "Company Onboarding",
-      intro: SECTION_INTROS.companyOnboarding,
+      title: godmodeNewCompanyOnboarding ? "Create new company" : "Company Onboarding",
+      intro: godmodeNewCompanyOnboarding
+        ? "Start with a clean company workspace. No previous company data will be used."
+        : SECTION_INTROS.companyOnboarding,
     },
     users: {
       title: "Users & Invites",
@@ -1083,9 +1086,13 @@ export function AdminScreen({
             </div>
             <div>
               <p className={darkPanelEyebrow}>Workspace setup</p>
-              <h2 className={darkPanelTitleLg}>Set up a new company workspace</h2>
+              <h2 className={darkPanelTitleLg}>
+                {godmodeNewCompanyOnboarding ? "Create new company" : "Set up a new company workspace"}
+              </h2>
               <p className={["mt-2", darkPanelBody].join(" ")}>
-                Complete the steps below to connect Google Drive, link the company folder, and make the app live.
+                {godmodeNewCompanyOnboarding
+                  ? "Start with a clean company workspace. No previous company data will be used."
+                  : "Complete the steps below to connect Google Drive, link the company folder, and make the app live."}
               </p>
             </div>
           </div>

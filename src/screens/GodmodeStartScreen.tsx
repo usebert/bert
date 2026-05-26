@@ -144,9 +144,9 @@ export function GodmodeStartScreen({
     {
       id: "new",
       title: "Create new company",
-      description: "Send onboarding forms and provision a new company workspace on Google Drive.",
+      description: "Start with a clean company workspace. No previous company data will be used.",
       actionLabel: "Create company",
-      onAction: onOpenOnboarding,
+      onAction: onNewCompany,
     },
     {
       id: "platform",

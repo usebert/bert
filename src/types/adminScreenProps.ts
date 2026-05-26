@@ -272,6 +272,8 @@ export type AdminScreenProps = {
   onAddSite: () => void;
   onArchiveSite: (siteId: string) => void;
   standaloneOnboarding?: boolean;
+  /** Master Godmode: onboarding with no prior company context selected. */
+  godmodeNewCompanyOnboarding?: boolean;
   /** Paid-pilot nav: focus Companies / Users / Invites content. */
   pilotFocus?: "companies" | "onboarding" | "users" | "invites";
   pilotShellScreen?: "companies" | "onboarding";
