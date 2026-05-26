@@ -15,6 +15,9 @@ export function isArchiveOrNonLiveWorkspaceName(name: string | undefined): boole
 export const LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE =
   "Select a live company workspace before inviting users.";
 
+export const GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE =
+  "Select a live company workspace first.";
+
 export function assertLiveCompanyWorkspaceForInvite(input: {
   selectedFolder: { name: string } | null | undefined;
   masterSheetId: string;

@@ -13,6 +13,8 @@ export const storageKeys = {
   dashboardSectionOrder: "bert-dashboard-section-order",
   folderLinks: "bert-folder-links",
   workspaceState: "bert-workspace-state",
+  /** Master Godmode: active live company folder id (validated on load). */
+  godmodeSelectedCompanyFolderId: "godmodeSelectedCompanyFolderId",
   userProfilePhotos: "bert-user-profile-photos",
   userNicknames: "bert-user-nicknames",
   layoutManager: "bert-layout-manager",

@@ -166,6 +166,19 @@ export function resolveAdminPilotFocus(screen: NavItemId): AdminPilotFocus | und
   return undefined;
 }
 
+const MASTER_COMPANY_SCOPED_SCREENS: NavItemId[] = [
+  "companies",
+  "users",
+  "schedules",
+  "reports",
+  "qmsReadiness",
+];
+
+/** Master Godmode screens that require an active live company workspace context. */
+export function isMasterCompanyScopedScreen(screen: NavItemId): boolean {
+  return MASTER_COMPANY_SCOPED_SCREENS.includes(screen);
+}
+
 export function isPlatformSetupScreen(screen: NavItemId): boolean {
   return screen === "setup" || screen === "setupInitial";
 }

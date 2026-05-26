@@ -5073,6 +5073,34 @@ function App() {
   }, [actions, selectedFolderId, syncState, googleConnected, offlineMode]);
 
   useEffect(() => {
+    if (currentUser?.role !== "Master") {
+      return;
+    }
+    const storedId = readGodmodeSelectedCompanyFolderId();
+    const allowedIds = new Set(selectableGodmodeFolders.map((folder) => folder.id));
+
+    if (!storedId) {
+      if (selectedFolderId) {
+        setSelectedFolderId("");
+      }
+      return;
+    }
+
+    if (!allowedIds.has(storedId)) {
+      clearGodmodeSelectedCompanyFolderId();
+      if (selectedFolderId) {
+        setSelectedFolderId("");
+      }
+      return;
+    }
+
+    if (selectedFolderId !== storedId) {
+      setSelectedFolderId(storedId);
+      void inspectFolderById(storedId, { silent: true });
+    }
+  }, [currentUser?.role, selectableGodmodeFolders, selectedFolderId]);
+
+  useEffect(() => {
     if (!googleConnected || offlineMode) {
       return;
     }
@@ -5461,6 +5489,12 @@ function App() {
   };
 
   const validateWorkspace = async (options?: { silent?: boolean }) => {
+    if (currentUser?.role === "Master" && !masterGodmodeCompanyReady) {
+      if (!options?.silent) {
+        pushToast("Company workspace required", GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE, "warning");
+      }
+      return null;
+    }
     const sheetId = extractGoogleResourceId(masterSheetInput) || companySheetSync?.sheetId || selectedFolder?.responseSheetId || "";
     const companyFolderId = extractGoogleResourceId(folderIdInput) || selectedFolder?.id || "";
     if (!sheetId || !companyFolderId) {
@@ -5498,6 +5532,10 @@ function App() {
   };
 
   const repairWorkspace = async () => {
+    if (currentUser?.role === "Master" && !masterGodmodeCompanyReady) {
+      pushToast("Company workspace required", GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE, "warning");
+      return;
+    }
     const sheetId = extractGoogleResourceId(masterSheetInput) || companySheetSync?.sheetId || selectedFolder?.responseSheetId || "";
     const companyFolderId = extractGoogleResourceId(folderIdInput) || selectedFolder?.id || "";
     if (!sheetId || !companyFolderId) {
@@ -6038,6 +6076,10 @@ function App() {
       pushToast("Google not connected", "Connect Google in Setup before sending invite links.", "warning");
       return;
     }
+    if (currentUser.role === "Master" && !masterGodmodeCompanyReady) {
+      pushToast("Company workspace required", GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE, "warning");
+      return;
+    }
     const workspaceCheck = assertLiveCompanyWorkspaceForInvite({
       selectedFolder,
       masterSheetId: sheetId,
@@ -6176,6 +6218,10 @@ function App() {
 
     const sheetId = companySheetSync?.sheetId || extractGoogleResourceId(masterSheetInput);
     const companyFolderId = selectedFolder?.id || extractGoogleResourceId(folderIdInput);
+    if (currentUser?.role === "Master" && !masterGodmodeCompanyReady) {
+      pushToast("Company workspace required", GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE, "warning");
+      return;
+    }
     const workspaceCheck = assertLiveCompanyWorkspaceForInvite({
       selectedFolder,
       masterSheetId: sheetId,
@@ -7764,15 +7810,36 @@ function App() {
       return;
     }
 
-    const folder = folders.find((item) => item.id === folderId);
+    const trimmedId = String(folderId || "").trim();
+    if (!trimmedId) {
+      if (currentUser?.role === "Master") {
+        clearGodmodeSelectedCompanyFolderId();
+      }
+      setSelectedFolderId("");
+      setSyncState("Not synced");
+      return;
+    }
+
+    const folder =
+      (currentUser?.role === "Master"
+        ? selectableGodmodeFolders.find((item) => item.id === trimmedId)
+        : null) || folders.find((item) => item.id === trimmedId);
     if (!folder) {
       pushToast("Folder missing", "Add a company folder before selecting it.", "warning");
       return;
     }
 
-    setSelectedFolderId(folderId);
+    if (currentUser?.role === "Master") {
+      if (!selectableGodmodeFolders.some((item) => item.id === folder.id)) {
+        pushToast("Company workspace required", GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE, "warning");
+        return;
+      }
+      writeGodmodeSelectedCompanyFolderId(folder.id);
+    }
+
+    setSelectedFolderId(trimmedId);
     setSyncState("Linked");
-    void inspectFolderById(folderId, { silent: true });
+    void inspectFolderById(trimmedId, { silent: true });
     pushToast("Folder selected", `${folder.name} is now the active company source.`, "success");
   };
 
