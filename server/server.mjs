@@ -243,6 +243,7 @@ const TAB_COLUMNS = {
     "Preventive Action",
     "Risk Category",
     "Requires Manager Review",
+    "Suggestion JSON",
     "Sync Status",
     "Sync Attempts",
     "Last Sync Error",
@@ -3179,6 +3180,21 @@ async function writeCompanyActions(auth, spreadsheetId, companyFolderId, actions
       "Preventive Action": action.preventiveAction,
       "Risk Category": action.riskCategory,
       "Requires Manager Review": String(Boolean(action.requiresManagerReview)),
+      "Suggestion JSON":
+        action.suggestionJson ||
+        (action.suggestionRuleId || action.suggestionStatus
+          ? JSON.stringify({
+              suggestedActionTitle: action.suggestedActionTitle || "",
+              suggestedActionDescription: action.suggestedActionDescription || "",
+              suggestedOwnerRole: action.suggestedOwnerRole || "",
+              suggestedDueDate: action.suggestedDueDate || "",
+              suggestedEvidence: action.suggestedEvidence || [],
+              suggestionReason: action.suggestionReason || "",
+              suggestionRuleId: action.suggestionRuleId || "",
+              suggestionStatus: action.suggestionStatus || "",
+              similarIssueCount30d: action.similarIssueCount30d ?? 0,
+            })
+          : ""),
       "Sync Status": action.syncStatus || "Pending",
       "Sync Attempts": action.syncAttempts || 0,
       "Last Sync Error": action.lastSyncError || "",

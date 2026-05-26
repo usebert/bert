@@ -119,6 +119,7 @@ export const REQUIRED_COLUMNS: Record<RequiredTab, string[]> = {
     "Preventive Action",
     "Risk Category",
     "Requires Manager Review",
+    "Suggestion JSON",
     "Sync Status",
     "Sync Attempts",
     "Last Sync Error",

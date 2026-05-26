@@ -55,6 +55,8 @@ export type HistoryEntry = {
   status: AuditStatus;
 };
 
+export type SuggestionStatus = "suggested" | "accepted" | "edited" | "ignored";
+
 export type ActionItem = {
   id: string;
   companyId: string;
@@ -92,6 +94,15 @@ export type ActionItem = {
   isStuck?: boolean;
   evidenceRequired?: boolean;
   requiresManagerReview?: boolean;
+  suggestedActionTitle?: string;
+  suggestedActionDescription?: string;
+  suggestedOwnerRole?: string;
+  suggestedDueDate?: string;
+  suggestedEvidence?: string[];
+  suggestionReason?: string;
+  suggestionRuleId?: string;
+  suggestionStatus?: SuggestionStatus;
+  similarIssueCount30d?: number;
 };
 
 export type ManagedScheduleAudit = {

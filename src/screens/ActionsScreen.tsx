@@ -103,6 +103,10 @@ function MobileActionDetail({
   onAdvanceAction,
   onAssignAction,
   onAddEvidence,
+  onAcceptSuggestion,
+  onEditSuggestion,
+  onIgnoreSuggestion,
+  canReviewSuggestions,
   availableAuditors,
 }: {
   action: ActionItem;
@@ -112,6 +116,10 @@ function MobileActionDetail({
   onAdvanceAction: (actionId: string, nextStatus?: ActionStatus) => void;
   onAssignAction: (actionId: string, assignee: string) => void;
   onAddEvidence: (actionId: string, files: FileList) => void;
+  onAcceptSuggestion: (actionId: string) => void;
+  onEditSuggestion: (actionId: string) => void;
+  onIgnoreSuggestion: (actionId: string) => void;
+  canReviewSuggestions: boolean;
   availableAuditors: string[];
 }) {
   const evidenceInputRef = useRef<HTMLInputElement>(null);
@@ -156,6 +164,15 @@ function MobileActionDetail({
           <span className="font-semibold text-slate-900">Next step. </span>
           {nextStep.replace(/^Next step:\s*/i, "")}
         </div>
+
+        {canReviewSuggestions ? (
+          <SuggestedFixPanel
+            action={action}
+            onAcceptSuggestion={onAcceptSuggestion}
+            onEditSuggestion={onEditSuggestion}
+            onIgnoreSuggestion={onIgnoreSuggestion}
+          />
+        ) : null}
 
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <DetailRow label="Owner" value={action.assignedToName} />
@@ -301,6 +318,97 @@ function DetailRow({
   );
 }
 
+function SuggestedFixPanel({
+  action,
+  onAcceptSuggestion,
+  onEditSuggestion,
+  onIgnoreSuggestion,
+}: {
+  action: ActionItem;
+  onAcceptSuggestion: (actionId: string) => void;
+  onEditSuggestion: (actionId: string) => void;
+  onIgnoreSuggestion: (actionId: string) => void;
+}) {
+  if (action.suggestionStatus !== "suggested" || !action.suggestedActionTitle) {
+    return null;
+  }
+
+  return (
+    <section className="mt-3 rounded-2xl border border-amber-200 bg-amber-50/90 p-4 text-sm text-slate-800">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-900">Suggested fix</p>
+        <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900 ring-1 ring-amber-200">
+          Manager review required
+        </span>
+      </div>
+      <p className="mt-2 text-base font-semibold text-slate-900">{action.suggestedActionTitle}</p>
+      {action.suggestedActionDescription ? (
+        <p className="mt-2 leading-relaxed text-slate-700">{action.suggestedActionDescription}</p>
+      ) : null}
+      {action.suggestionReason ? (
+        <p className="mt-3 rounded-xl border border-amber-100 bg-white/80 px-3 py-2 text-slate-700">
+          <span className="font-semibold text-slate-900">Why BERT suggested this. </span>
+          {action.suggestionReason}
+        </p>
+      ) : null}
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <div className="rounded-xl border border-amber-100 bg-white/70 px-3 py-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Suggested due date</p>
+          <p className="mt-1 font-semibold text-slate-900">{action.suggestedDueDate || action.dueDate}</p>
+        </div>
+        {action.suggestedOwnerRole ? (
+          <div className="rounded-xl border border-amber-100 bg-white/70 px-3 py-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Suggested owner role</p>
+            <p className="mt-1 font-semibold text-slate-900">{action.suggestedOwnerRole}</p>
+          </div>
+        ) : null}
+      </div>
+      {action.suggestedEvidence && action.suggestedEvidence.length > 0 ? (
+        <div className="mt-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Evidence needed</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5 text-slate-700">
+            {action.suggestedEvidence.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {(action.similarIssueCount30d ?? 0) > 0 ? (
+        <p className="mt-3 text-xs font-medium text-amber-900">
+          Same check failed {action.similarIssueCount30d} other time{action.similarIssueCount30d === 1 ? "" : "s"} in this
+          area in the last 30 days.
+        </p>
+      ) : null}
+      <p className="mt-3 text-xs text-slate-600">
+        This is a rule-based suggestion for manager review — not an automated decision, guarantee, or certification.
+      </p>
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <button
+          type="button"
+          onClick={() => onAcceptSuggestion(action.id)}
+          className={`min-h-[44px] rounded-2xl bg-[var(--bert-signal-orange)] px-4 text-sm font-semibold text-[var(--qms-navy-950)] shadow-sm focus-visible:outline focus-visible:ring-2 focus-visible:ring-orange-300 ${slatePrimaryCtaInteract}`}
+        >
+          Use suggestion
+        </button>
+        <button
+          type="button"
+          onClick={() => onEditSuggestion(action.id)}
+          className="min-h-[44px] rounded-2xl border border-amber-300 bg-white px-4 text-sm font-semibold text-amber-950 focus-visible:outline focus-visible:ring-2 focus-visible:ring-amber-200"
+        >
+          Edit before assigning
+        </button>
+        <button
+          type="button"
+          onClick={() => onIgnoreSuggestion(action.id)}
+          className="min-h-[44px] rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 focus-visible:outline focus-visible:ring-2 focus-visible:ring-slate-300"
+        >
+          Ignore suggestion
+        </button>
+      </div>
+    </section>
+  );
+}
+
 export function ActionsScreen({
   currentUser,
   actions,
@@ -315,6 +423,9 @@ export function ActionsScreen({
   onAdvanceAction,
   onAssignAction,
   onAddEvidence,
+  onAcceptSuggestion,
+  onEditSuggestion,
+  onIgnoreSuggestion,
 }: {
   currentUser: User;
   actions: ActionItem[];
@@ -329,7 +440,11 @@ export function ActionsScreen({
   onAdvanceAction: (actionId: string, nextStatus?: ActionStatus) => void;
   onAssignAction: (actionId: string, assignee: string) => void;
   onAddEvidence: (actionId: string, files: FileList) => void;
+  onAcceptSuggestion: (actionId: string) => void;
+  onEditSuggestion: (actionId: string) => void;
+  onIgnoreSuggestion: (actionId: string) => void;
 }) {
+  const canReviewSuggestions = currentUser.role === "Admin" || currentUser.role === "Manager";
   const permissions = getRolePermissions(currentUser.role);
   const wide = useWideLayout();
   const [mobileDetailId, setMobileDetailId] = useState<string | null>(null);
@@ -363,6 +478,10 @@ export function ActionsScreen({
         onAdvanceAction={onAdvanceAction}
         onAssignAction={onAssignAction}
         onAddEvidence={onAddEvidence}
+        onAcceptSuggestion={onAcceptSuggestion}
+        onEditSuggestion={onEditSuggestion}
+        onIgnoreSuggestion={onIgnoreSuggestion}
+        canReviewSuggestions={canReviewSuggestions}
         availableAuditors={availableAuditors}
       />
     );
@@ -519,6 +638,20 @@ export function ActionsScreen({
                   {action.status !== "Closed" && action.evidenceRequired && action.evidenceCount === 0 && (
                     <p className="mt-2 text-xs font-semibold text-amber-800">Photos are still required before this can be verified.</p>
                   )}
+                  {canReviewSuggestions ? (
+                    <SuggestedFixPanel
+                      action={action}
+                      onAcceptSuggestion={onAcceptSuggestion}
+                      onEditSuggestion={onEditSuggestion}
+                      onIgnoreSuggestion={onIgnoreSuggestion}
+                    />
+                  ) : null}
+                  {action.correctiveAction?.trim() && action.suggestionStatus && action.suggestionStatus !== "suggested" ? (
+                    <p className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                      <span className="font-semibold text-slate-900">Corrective action. </span>
+                      {action.correctiveAction}
+                    </p>
+                  ) : null}
                 </div>
               </div>
               {(() => {

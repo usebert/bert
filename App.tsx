@@ -176,6 +176,14 @@ import {
 } from "./src/utils/complianceSchedule";
 import { buildAuditSubmissionBundle, parseAuditFindingsFromSheet } from "./src/utils/auditSheetRows";
 import {
+  applyAcceptedSuggestion,
+  applyEditedSuggestion,
+  buildActionSuggestionFields,
+  countSimilarIssuesInArea,
+  parseActionSuggestion,
+  serializeActionSuggestion,
+} from "./src/utils/suggestedFixRules";
+import {
   persistActionsToSheet,
   persistReportToSheet,
   syncAuditSubmissionToSheet,
@@ -390,6 +398,15 @@ type ActionItem = {
   isStuck?: boolean;
   evidenceRequired?: boolean;
   requiresManagerReview?: boolean;
+  suggestedActionTitle?: string;
+  suggestedActionDescription?: string;
+  suggestedOwnerRole?: string;
+  suggestedDueDate?: string;
+  suggestedEvidence?: string[];
+  suggestionReason?: string;
+  suggestionRuleId?: string;
+  suggestionStatus?: "suggested" | "accepted" | "edited" | "ignored";
+  similarIssueCount30d?: number;
 };
 
 type CompanyFolder = {
@@ -2359,6 +2376,7 @@ function parseCompanySheetActions(records: Record<string, string>[], companyFold
         riskCategory: (extractByKeys(record, ["risk category", "category"]) as RiskCategory) || "Other",
         evidenceRequired: safeLower(extractByKeys(record, ["requires photo evidence", "evidence required"])) === "true",
         requiresManagerReview: safeLower(extractByKeys(record, ["requires manager review"])) === "true",
+        ...parseActionSuggestion(extractByKeys(record, ["suggestion json", "suggestion payload"])),
       } satisfies ActionItem;
     })
     .filter(Boolean) as ActionItem[];
@@ -6349,7 +6367,14 @@ function App() {
       throw new Error("Company master sheet link is required before saving actions.");
     }
 
-    await persistActionsToSheet(sheetId, companyFolderId, nextActions);
+    await persistActionsToSheet(
+      sheetId,
+      companyFolderId,
+      nextActions.map((action) => ({
+        ...action,
+        suggestionJson: serializeActionSuggestion(action),
+      })),
+    );
   };
 
   const syncProcessingRef = useRef(false);
@@ -6577,58 +6602,84 @@ function App() {
           item.answer === "fail" ||
           (!!item.question.autoActionRequired && Boolean(item.answer)),
       )
-      .map((item, index) => ({
-        id: `${audit.id}-action-${Date.now()}-${index}`,
-        companyId: selectedFolderId || selectedFolder?.id || "local-company",
-        auditId: audit.id,
-        auditName: audit.name,
-        questionId: item.question.id,
-        questionText: item.question.text,
-        sourceAnswer: item.answer,
-        nonConformanceId:
-          item.answer === "fail" || item.answer === "nc" ? formatNonConformanceId(nonConformanceSequence++) : undefined,
-        severity:
+      .map((item, index) => {
+        const defaultSeverity =
           item.question.riskLevel ||
-          (item.answer === "fail" ? "Critical" : item.answer === "nc" ? "High" : "Medium"),
-        owner: audit.owner,
-        assignedToUserId: audit.owner.toLowerCase().replace(/\s+/g, "-"),
-        assignedToName: audit.owner,
-        createdByUserId: submittedBy.username,
-        createdAt: completedAt,
-        dueDate: addDaysIso(
-          ACTION_DUE_DAYS_BY_SEVERITY[
-            item.question.riskLevel ||
-              (item.answer === "fail" ? "Critical" : item.answer === "nc" ? "High" : "Medium")
-          ],
-        ),
-        closedAt: "",
-        verifiedByUserId: "",
-        verificationNotes: "",
-        evidenceLinks: [],
-        localEvidenceRefs: (evidenceMap[item.question.id] || []).map((evidenceItem) => evidenceItem.id),
-        comments: noteMap[item.question.id] || "",
-        recurrenceFlag: false,
-        rootCause: "",
-        correctiveAction: "",
-        preventiveAction: "",
-        dueLabel:
-          item.answer === "fail"
-            ? "Immediate attention"
-            : item.answer === "nc"
-              ? "Due within 3 days"
-              : "Due within 7 days",
-        dueHours:
-          ACTION_DUE_DAYS_BY_SEVERITY[
-            item.question.riskLevel ||
-              (item.answer === "fail" ? "Critical" : item.answer === "nc" ? "High" : "Medium")
-          ] * 24,
-        status: item.question.requiresManagerReview ? ("Awaiting Verification" as ActionStatus) : ("Open" as ActionStatus),
-        evidenceCount: evidenceMap[item.question.id]?.length ?? 0,
-        noteIncluded: Boolean(noteMap[item.question.id]?.trim()),
-        riskCategory: item.question.riskCategory || "Other",
-        evidenceRequired: item.question.requiresPhotoEvidence,
-        requiresManagerReview: item.question.requiresManagerReview,
-      } satisfies ActionItem));
+          (item.answer === "fail" ? "Critical" : item.answer === "nc" ? "High" : "Medium");
+        const similarIssueCount30d = countSimilarIssuesInArea({
+          questionText: item.question.text,
+          siteArea: audit.siteArea,
+          auditFindings,
+          actions,
+        });
+        const suggestion = buildActionSuggestionFields({
+          questionText: item.question.text,
+          answer: item.answer,
+          auditName: audit.name,
+          note: noteMap[item.question.id],
+          similarIssueCount30d,
+        });
+        const matchedSpecificRule = suggestion.suggestionRuleId !== "generic-corrective-action";
+        const severity = matchedSpecificRule ? suggestion.severity : defaultSeverity;
+        const dueDate = matchedSpecificRule
+          ? suggestion.suggestedDueDate
+          : addDaysIso(ACTION_DUE_DAYS_BY_SEVERITY[defaultSeverity]);
+        const dueHours = matchedSpecificRule
+          ? suggestion.suggestedDueHours
+          : ACTION_DUE_DAYS_BY_SEVERITY[defaultSeverity] * 24;
+
+        return {
+          id: `${audit.id}-action-${Date.now()}-${index}`,
+          companyId: selectedFolderId || selectedFolder?.id || "local-company",
+          siteArea: audit.siteArea,
+          auditId: audit.id,
+          auditName: audit.name,
+          questionId: item.question.id,
+          questionText: item.question.text,
+          sourceAnswer: item.answer,
+          nonConformanceId:
+            item.answer === "fail" || item.answer === "nc" ? formatNonConformanceId(nonConformanceSequence++) : undefined,
+          severity,
+          owner: audit.owner,
+          assignedToUserId: audit.owner.toLowerCase().replace(/\s+/g, "-"),
+          assignedToName: audit.owner,
+          createdByUserId: submittedBy.username,
+          createdAt: completedAt,
+          dueDate,
+          closedAt: "",
+          verifiedByUserId: "",
+          verificationNotes: "",
+          evidenceLinks: [],
+          localEvidenceRefs: (evidenceMap[item.question.id] || []).map((evidenceItem) => evidenceItem.id),
+          comments: noteMap[item.question.id] || "",
+          recurrenceFlag: false,
+          rootCause: "",
+          correctiveAction: "",
+          preventiveAction: "",
+          dueLabel:
+            item.answer === "fail"
+              ? "Immediate attention"
+              : item.answer === "nc"
+                ? "Due within 3 days"
+                : "Due within 7 days",
+          dueHours,
+          status: item.question.requiresManagerReview ? ("Awaiting Verification" as ActionStatus) : ("Open" as ActionStatus),
+          evidenceCount: evidenceMap[item.question.id]?.length ?? 0,
+          noteIncluded: Boolean(noteMap[item.question.id]?.trim()),
+          riskCategory: item.question.riskCategory || "Other",
+          evidenceRequired: item.question.requiresPhotoEvidence,
+          requiresManagerReview: true,
+          suggestedActionTitle: suggestion.suggestedActionTitle,
+          suggestedActionDescription: suggestion.suggestedActionDescription,
+          suggestedOwnerRole: suggestion.suggestedOwnerRole,
+          suggestedDueDate: suggestion.suggestedDueDate,
+          suggestedEvidence: suggestion.suggestedEvidence,
+          suggestionReason: suggestion.suggestionReason,
+          suggestionRuleId: suggestion.suggestionRuleId,
+          suggestionStatus: suggestion.suggestionStatus,
+          similarIssueCount30d: suggestion.similarIssueCount30d,
+        } satisfies ActionItem;
+      });
 
     if (actionItems.length > 0) {
       const existingKeys = new Set(
@@ -6674,6 +6725,21 @@ function App() {
     const existingAction = actions.find((item) => item.auditId === audit.id && item.questionId === question.id && item.status !== "Closed");
     if (existingAction) return 0;
     const stamp = formatStamp();
+    const similarIssueCount30d = countSimilarIssuesInArea({
+      questionText: question.text,
+      siteArea: audit.siteArea,
+      auditFindings,
+      actions,
+    });
+    const suggestion = buildActionSuggestionFields({
+      questionText: question.text,
+      answer,
+      auditName: audit.name,
+      note: findingNote,
+      similarIssueCount30d,
+    });
+    const matchedSpecificRule = suggestion.suggestionRuleId !== "generic-corrective-action";
+    const resolvedSeverity = matchedSpecificRule ? suggestion.severity : severity;
     const actionItem: ActionItem = {
       id: `${audit.id}-issue-${question.id}-${Date.now()}`,
       companyId: selectedFolderId || selectedFolder?.id || "local-company",
@@ -6684,13 +6750,13 @@ function App() {
       questionText: `Resolve failed check: ${question.text}`,
       sourceAnswer: answer,
       nonConformanceId: answer === "fail" || answer === "nc" ? formatNonConformanceId(getNextNonConformanceSequence(actions)) : undefined,
-      severity,
+      severity: resolvedSeverity,
       owner: audit.owner,
       assignedToUserId: audit.owner.toLowerCase().replace(/\s+/g, "-"),
       assignedToName: audit.owner,
       createdByUserId: currentUser.username,
       createdAt: stamp,
-      dueDate: addDaysIso(ACTION_DUE_DAYS_BY_SEVERITY[severity]),
+      dueDate: matchedSpecificRule ? suggestion.suggestedDueDate : addDaysIso(ACTION_DUE_DAYS_BY_SEVERITY[severity]),
       closedAt: "",
       verifiedByUserId: "",
       verificationNotes: "",
@@ -6701,14 +6767,25 @@ function App() {
       rootCause: "",
       correctiveAction: "",
       preventiveAction: "",
-      dueLabel: getDueLabel(ACTION_DUE_DAYS_BY_SEVERITY[severity] * 24),
-      dueHours: ACTION_DUE_DAYS_BY_SEVERITY[severity] * 24,
+      dueLabel: getDueLabel(
+        (matchedSpecificRule ? suggestion.suggestedDueHours : ACTION_DUE_DAYS_BY_SEVERITY[severity] * 24),
+      ),
+      dueHours: matchedSpecificRule ? suggestion.suggestedDueHours : ACTION_DUE_DAYS_BY_SEVERITY[severity] * 24,
       status: "Open",
       evidenceCount: evidence[question.id]?.length ?? 0,
       noteIncluded: Boolean(findingNote.trim()),
       riskCategory: question.riskCategory || "Other",
       evidenceRequired: question.requiresPhotoEvidence,
-      requiresManagerReview: question.requiresManagerReview,
+      requiresManagerReview: true,
+      suggestedActionTitle: suggestion.suggestedActionTitle,
+      suggestedActionDescription: suggestion.suggestedActionDescription,
+      suggestedOwnerRole: suggestion.suggestedOwnerRole,
+      suggestedDueDate: suggestion.suggestedDueDate,
+      suggestedEvidence: suggestion.suggestedEvidence,
+      suggestionReason: suggestion.suggestionReason,
+      suggestionRuleId: suggestion.suggestionRuleId,
+      suggestionStatus: suggestion.suggestionStatus,
+      similarIssueCount30d: suggestion.similarIssueCount30d,
     };
     setActions((current) => [actionItem, ...current]);
     queueSyncItem({
@@ -7179,6 +7256,70 @@ function App() {
           : action,
       ),
     );
+  };
+
+  const queueActionSuggestionSync = (updatedActions: ActionItem[], stamp: string) => {
+    if (!selectedFolderId || updatedActions.length === 0) return;
+    queueSyncItem({
+      itemType: "actionUpdate",
+      localId: `action-suggestion-${updatedActions[0]?.id}-${Date.now()}`,
+      status: "Pending Sync",
+      createdAt: stamp,
+      retryCount: 0,
+      lastError: "",
+      payload: { companyFolderId: selectedFolderId, actions: updatedActions },
+    });
+  };
+
+  const acceptActionSuggestion = (actionId: string) => {
+    const stamp = formatStamp();
+    let updated: ActionItem[] = [];
+    setActions((current) =>
+      current.map((action) => {
+        if (action.id !== actionId) return action;
+        const next = applyAcceptedSuggestion(action);
+        updated = [next];
+        return next;
+      }),
+    );
+    if (updated.length > 0) {
+      queueActionSuggestionSync(updated, stamp);
+      pushToast("Suggestion applied", "Corrective action fields were filled from the suggested fix.", "success");
+    }
+  };
+
+  const editActionSuggestion = (actionId: string) => {
+    const stamp = formatStamp();
+    let updated: ActionItem[] = [];
+    setActions((current) =>
+      current.map((action) => {
+        if (action.id !== actionId) return action;
+        const next = applyEditedSuggestion(action);
+        updated = [next];
+        return next;
+      }),
+    );
+    if (updated.length > 0) {
+      queueActionSuggestionSync(updated, stamp);
+      pushToast("Ready to edit", "Suggested text was copied into the action — adjust before assigning.", "success");
+    }
+  };
+
+  const ignoreActionSuggestion = (actionId: string) => {
+    const stamp = formatStamp();
+    let updated: ActionItem[] = [];
+    setActions((current) =>
+      current.map((action) => {
+        if (action.id !== actionId) return action;
+        const next = { ...action, suggestionStatus: "ignored" as const };
+        updated = [next];
+        return next;
+      }),
+    );
+    if (updated.length > 0) {
+      queueActionSuggestionSync(updated, stamp);
+      pushToast("Suggestion dismissed", "You can still manage this action manually.", "success");
+    }
   };
 
   const attachEvidenceToAction = (actionId: string, files: FileList) => {
@@ -10035,6 +10176,9 @@ function App() {
                 onAdvanceAction={updateActionStatus}
                 onAssignAction={assignAction}
                 onAddEvidence={attachEvidenceToAction}
+                onAcceptSuggestion={acceptActionSuggestion}
+                onEditSuggestion={editActionSuggestion}
+                onIgnoreSuggestion={ignoreActionSuggestion}
               />
             )}
 
