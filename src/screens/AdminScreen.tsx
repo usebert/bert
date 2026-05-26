@@ -493,6 +493,8 @@ export function AdminScreen({
   companyMasterSheetId = "",
   onCompanyWorkspaceResetSuccess,
   onCompanyWorkspaceResetError,
+  masterCompanyContextBlocked = false,
+  masterCompanyContextMessage = "",
   AppIcon,
   slatePrimaryCtaInteract,
 }: AdminScreenProps) {
@@ -637,6 +639,12 @@ export function AdminScreen({
         </section>
       ) : null}
 
+      {masterCompanyContextBlocked && masterCompanyContextMessage ? (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {masterCompanyContextMessage}
+        </p>
+      ) : null}
+
       {isCompaniesScreen ? (
         <section className={pilotLightSurface}>
           <SectionHeader
@@ -689,7 +697,7 @@ export function AdminScreen({
             </ul>
           )}
           <p className="mt-3 text-xs leading-relaxed text-slate-600">{SECTION_INTROS.companiesInviteHelper}</p>
-          {canManageAreas(currentUser.role) && selectedFolder ? (
+          {canManageAreas(currentUser.role) && selectedFolder && !masterCompanyContextBlocked ? (
             <div className="mt-4">
               <SitesAreasPanel
                 currentUserRole={currentUser.role}
@@ -1375,6 +1383,8 @@ export function AdminScreen({
       {usersInvitesPilotMode ? (
         <UsersInvitesPilotPanel
           currentUser={currentUser}
+          masterCompanyContextBlocked={masterCompanyContextBlocked}
+          masterCompanyContextMessage={masterCompanyContextMessage}
           googleConnected={googleConnected}
           inviteEmailInput={inviteEmailInput}
           inviteRoleInput={inviteRoleInput}
@@ -1905,10 +1915,20 @@ export function AdminScreen({
           />
         )}
         <div className="mt-4 flex flex-wrap gap-3">
-          <button onClick={onValidateWorkspace} className={`h-12 rounded-2xl bg-slate-900 px-5 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}>
+          <button
+            onClick={onValidateWorkspace}
+            disabled={masterCompanyContextBlocked}
+            title={masterCompanyContextBlocked ? masterCompanyContextMessage : undefined}
+            className={`h-12 rounded-2xl bg-slate-900 px-5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 ${slatePrimaryCtaInteract}`}
+          >
             {workspaceValidationLoading ? "Checking..." : "Check workspace"}
           </button>
-          <button onClick={onRepairWorkspace} className="h-12 rounded-2xl bg-blue-50 px-5 text-sm font-semibold text-blue-800">
+          <button
+            onClick={onRepairWorkspace}
+            disabled={masterCompanyContextBlocked}
+            title={masterCompanyContextBlocked ? masterCompanyContextMessage : undefined}
+            className="h-12 rounded-2xl bg-blue-50 px-5 text-sm font-semibold text-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+          >
             Fix workspace
           </button>
         </div>

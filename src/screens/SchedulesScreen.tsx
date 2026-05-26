@@ -177,8 +177,12 @@ export function SchedulesScreen({
   onDelete,
   onPause,
   onResume,
+  companyActionsBlocked = false,
+  companyActionsBlockedMessage = "",
 }: {
   selectedFolder: CompanyFolder | null;
+  companyActionsBlocked?: boolean;
+  companyActionsBlockedMessage?: string;
   schedules: ManagedSchedule[];
   filter: ScheduleListFilter;
   availableAudits: { id: string; name: string }[];
@@ -234,7 +238,9 @@ export function SchedulesScreen({
           </div>
           <button
             onClick={onOpenNew}
-            className={`h-12 rounded-2xl px-5 text-sm font-semibold ${brandAccentFormField} ${slatePrimaryCtaInteract}`}
+            disabled={companyActionsBlocked}
+            title={companyActionsBlocked ? companyActionsBlockedMessage : undefined}
+            className={`h-12 rounded-2xl px-5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${brandAccentFormField} ${slatePrimaryCtaInteract}`}
           >
             Add new schedule
           </button>

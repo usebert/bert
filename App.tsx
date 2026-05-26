@@ -3127,13 +3127,7 @@ function App() {
   const [scheduleDraftAuditors, setScheduleDraftAuditors] = useState<string[]>([]);
   const [scheduleValidationAttempted, setScheduleValidationAttempted] = useState(false);
   const [folders, setFolders] = useState<CompanyFolder[]>(storedWorkspaceState?.folders || []);
-  const [selectedFolderId, setSelectedFolderId] = useState(() => {
-    const godmodeStored = readGodmodeSelectedCompanyFolderId();
-    if (godmodeStored) {
-      return godmodeStored;
-    }
-    return storedWorkspaceState?.selectedFolderId || "";
-  });
+  const [selectedFolderId, setSelectedFolderId] = useState(storedWorkspaceState?.selectedFolderId || "");
   const [syncState, setSyncState] = useState(storedWorkspaceState?.syncState || "Not synced");
   const [inviteEmailInput, setInviteEmailInput] = useState("");
   const [inviteRoleInput, setInviteRoleInput] = useState<Role>("Manager");
@@ -10181,6 +10175,18 @@ function App() {
                 />
               </div>
             ) : null}
+            {currentUser?.role === "Master" &&
+            !godCompanySetupOnlyShell &&
+            isMasterCompanyScopedScreen(screen as NavItemId) ? (
+              <GodmodeCompanyContextSelector
+                folders={selectableGodmodeFolders}
+                selectedFolderId={selectedFolderId}
+                selectedFolderName={selectedFolder?.name}
+                onSelectFolder={(folderId) => void handleSelectFolder(folderId)}
+                onNewCompany={() => setScreen("onboarding")}
+                themeMode={themeMode}
+              />
+            ) : null}
             {screen === "dashboard" &&
             !godCompanySetupOnlyShell &&
             currentUser.role !== "Master" &&
@@ -10677,6 +10683,8 @@ function App() {
             {screen === "schedules" && canAccessSchedulesScreen(currentUser.role) && (
               <SchedulesScreen
                 selectedFolder={selectedFolder}
+                companyActionsBlocked={currentUser.role === "Master" && !masterGodmodeCompanyReady}
+                companyActionsBlockedMessage={GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE}
                 schedules={visibleSchedules}
                 filter={scheduleListFilter}
                 availableAudits={availableScheduleAudits}
@@ -10775,8 +10783,13 @@ function App() {
                 hideMasterLocalDemoTools={godCompanySetupOnlyShell || screen === "companies" || screen === "users" || screen === "invites"}
                 currentUser={currentUser}
                 googleConnected={googleConnected}
-                folders={folders}
+                folders={currentUser.role === "Master" ? selectableGodmodeFolders : folders}
                 selectedFolder={selectedFolder}
+                masterCompanyContextBlocked={currentUser.role === "Master" && !masterGodmodeCompanyReady}
+                masterCompanyContextMessage={GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE}
+                companyMasterSheetId={activeCompanyMasterSheetId}
+                onCompanyWorkspaceResetSuccess={(message) => void handleCompanyWorkspaceResetSuccess(message)}
+                onCompanyWorkspaceResetError={handleCompanyWorkspaceResetError}
                 folderNameInput={folderNameInput}
                 folderIdInput={folderIdInput}
                 auditFormsFolderInput={auditFormsFolderInput}
@@ -10908,9 +10921,6 @@ function App() {
                       }
                     : undefined
                 }
-                companyMasterSheetId={extractGoogleResourceId(masterSheetInput) || companySheetSync?.sheetId || ""}
-                onCompanyWorkspaceResetSuccess={(message) => void handleCompanyWorkspaceResetSuccess(message)}
-                onCompanyWorkspaceResetError={handleCompanyWorkspaceResetError}
                 scheduleNameInput={scheduleNameInput}
                 scheduleAreaInput={scheduleAreaInput}
                 scheduleOwnerInput={scheduleOwnerInput}

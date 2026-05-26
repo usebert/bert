@@ -288,6 +288,9 @@ export type AdminScreenProps = {
   companyMasterSheetId?: string;
   onCompanyWorkspaceResetSuccess?: (message: string) => void;
   onCompanyWorkspaceResetError?: (message: string) => void;
+  /** Master Godmode: block company-scoped actions until a live workspace is selected. */
+  masterCompanyContextBlocked?: boolean;
+  masterCompanyContextMessage?: string;
   AppIcon: ComponentType<{ name: string; className?: string }>;
   slatePrimaryCtaInteract: string;
 };

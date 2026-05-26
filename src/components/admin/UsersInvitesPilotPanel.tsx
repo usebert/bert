@@ -341,6 +341,8 @@ export type UsersInvitesPilotPanelProps = Pick<
   | "onRequestNotifications"
   | "onValidateWorkspace"
   | "onRepairWorkspace"
+  | "masterCompanyContextBlocked"
+  | "masterCompanyContextMessage"
   | "slatePrimaryCtaInteract"
 > & {
   godModeFirstUserInvite: boolean;
@@ -392,6 +394,8 @@ export function UsersInvitesPilotPanel({
   onRenameArea,
   onReactivateArea,
   onToggleUserSiteAssignment,
+  masterCompanyContextBlocked = false,
+  masterCompanyContextMessage = "",
   CompanyUserInviteEmailResultPanel,
   slatePrimaryCtaInteract,
   ...healthProps
@@ -456,7 +460,8 @@ export function UsersInvitesPilotPanel({
           <button
             type="button"
             onClick={onInviteUser}
-            disabled={companyUserInviteEmailSending}
+            disabled={companyUserInviteEmailSending || masterCompanyContextBlocked}
+            title={masterCompanyContextBlocked ? masterCompanyContextMessage : undefined}
             className={`mt-4 h-12 w-full rounded-2xl bg-slate-900 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 ${slatePrimaryCtaInteract}`}
           >
             {companyUserInviteEmailSending ? "Sending…" : "Send invite"}
