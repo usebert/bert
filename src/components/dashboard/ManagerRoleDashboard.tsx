@@ -93,7 +93,7 @@ export function ManagerRoleDashboard({ workspaceName, teamCount, qmsSummary, onN
         <DashboardQuickActions
           role="Manager"
           actions={[
-            { label: "Quality & safety readiness", screen: "qmsReadiness", onClick: () => onNavigate("qmsReadiness") },
+            { label: "Quality & Safety Hub", screen: "qmsReadiness", onClick: () => onNavigate("qmsReadiness") },
             { label: "Forms & Checks", screen: "audits", onClick: () => onNavigate("audits") },
             { label: "Reports", screen: "reports", onClick: () => onNavigate("reports") },
             { label: "Team", screen: "invites", onClick: () => onNavigate("invites") },

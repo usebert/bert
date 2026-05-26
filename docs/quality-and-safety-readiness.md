@@ -2,7 +2,7 @@
 
 **Quality & Safety Hub** — keep checks, actions, documents, training, risks, and evidence under control.
 
-Supports ISO 9001 and ISO 45001 readiness. Certification is handled externally (BERT does not certify your organisation).
+Supports ISO 9001 and ISO 45001 readiness. Certification is handled externally.
 
 ## UX principles
 
@@ -30,10 +30,10 @@ Implemented in `src/permissions.ts` (`canAccessQmsReadiness*`) and `src/config/r
 
 1. **Document control** — title, type, version, owner, status, review date, file link.
 2. **Training records** — person, training name, status, expiry, evidence.
-3. **Non-conformances** — links to existing `NonConformanceScreen`.
+3. **Quality issues** — links to existing `NonConformanceScreen`.
 4. **Corrective actions** — links to `ActionsScreen`.
 5. **Risks and opportunities** — lightweight quality risk register.
-6. **Management review pack** — preview from live workspace data.
+6. **Review pack** — preview from live workspace data.
 
 ### Health & safety (ISO 45001 readiness)
 
@@ -82,7 +82,7 @@ Shown on Company Admin and Manager dashboards and at the top of the readiness hu
 
 Logic: `src/utils/qmsReadiness.ts` (`buildQmsReadinessSummary`).
 
-## Management review pack
+## Review pack
 
 Preview includes quality and safety:
 

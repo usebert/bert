@@ -30,7 +30,7 @@ const reportTemplates: {
   {
     type: "Executive summary",
     title: "Executive summary",
-    subtitle: "High-level compliance, pressure areas, and readiness for managers or clients.",
+    subtitle: "High-level compliance, pressure areas, and status for managers or clients.",
   },
   {
     type: "Overdue audit pack",

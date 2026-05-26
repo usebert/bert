@@ -229,7 +229,7 @@ export function QmsReadinessScreen({
       },
       {
         id: "safetyRisks" as const,
-        title: "Risk assessments",
+        title: "Safety risks",
         description: "Activity-based assessments with controls and review dates.",
         metric:
           summary.riskAssessmentsDueReview > 0 ? `${summary.riskAssessmentsDueReview} need review` : undefined,
@@ -251,7 +251,7 @@ export function QmsReadinessScreen({
       },
       {
         id: "objectives" as const,
-        title: "H&S objectives",
+        title: "Safety objectives",
         description: "Targets, owners, and progress for health and safety goals.",
         metric: summary.safetyObjectivesAtRisk > 0 ? `${summary.safetyObjectivesAtRisk} need attention` : undefined,
         onClick: () => setSection("objectives"),
@@ -284,7 +284,7 @@ export function QmsReadinessScreen({
         )}
       </section>
 
-      <QmsReadinessSummaryWidget summary={summary} onOpenHub={openHub} onNavigate={onNavigate} />
+      <QmsReadinessSummaryWidget summary={summary} onNavigate={onNavigate} />
 
       {section !== "hub" ? (
         <div className="flex flex-wrap items-center gap-2">
@@ -799,7 +799,7 @@ function SafetyObjectiveRegister({
 
   return (
     <section className={`${panelClass} space-y-4`}>
-      <h3 className="text-sm font-semibold text-slate-900">H&S objectives</h3>
+      <h3 className="text-sm font-semibold text-slate-900">Safety objectives</h3>
       <form onSubmit={handleAdd} className="grid gap-2 sm:grid-cols-2">
         <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm sm:col-span-2" placeholder="Objective" value={draft.objective} onChange={(e) => setDraft((d) => ({ ...d, objective: e.target.value }))} required />
         <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Target" value={draft.target} onChange={(e) => setDraft((d) => ({ ...d, target: e.target.value }))} />
@@ -811,7 +811,7 @@ function SafetyObjectiveRegister({
         </button>
       </form>
       {objectives.length === 0 ? (
-        <EmptyPanel title="No H&S objectives" text="Set targets and track progress for health and safety goals." />
+        <EmptyPanel title="No safety objectives" text="Set targets and track progress for health and safety goals." />
       ) : (
         <ul className="space-y-2">
           {objectives.map((row) => (
@@ -880,7 +880,7 @@ function ManagementReviewPack({
 
   return (
     <section className={`${panelClass} space-y-4`}>
-      <h3 className="text-sm font-semibold text-slate-900">Management review pack (preview)</h3>
+      <h3 className="text-sm font-semibold text-slate-900">Review pack (preview)</h3>
       <p className="text-sm text-slate-600">
         Built from live workspace data — quality and safety checks, findings, actions, and registers. Status:{" "}
         <span className="font-semibold capitalize">{summary.managementReviewStatus}</span>. {summary.managementReviewDetail}
@@ -888,7 +888,7 @@ function ManagementReviewPack({
       <div className="grid gap-3 sm:grid-cols-2">
         <PreviewBlock title="Checks completed" lines={[`${history.length} in workspace history`, `${auditFindings.length} findings on record`]} />
         <PreviewBlock title="Corrective actions" lines={[`${openActionCount} open`, `${summary.overdueCorrectiveActions} overdue (quality)`]} />
-        <PreviewBlock title="Non-conformances" lines={[`${openNcrCount} open`]} />
+        <PreviewBlock title="Quality issues" lines={[`${openNcrCount} open`]} />
         <PreviewBlock
           title="Incidents & near misses"
           lines={openIncidents.map((i) => `${i.incidentId}: ${i.incidentType} (${i.status})`)}
@@ -911,7 +911,7 @@ function ManagementReviewPack({
           empty="No active safety risk assessments."
         />
         <PreviewBlock
-          title="H&S objectives"
+          title="Safety objectives"
           lines={safetyObjectives.slice(0, 5).map((o) => `${o.objective}: ${o.currentValue || "—"} / ${o.target}`)}
           empty="No H&S objectives."
         />
@@ -934,10 +934,10 @@ function ManagementReviewPack({
         </ul>
       </div>
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Open NCRs (sample)</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Open quality issues (sample)</p>
         <ul className="mt-2 space-y-1">
           {openNcrs.length === 0 ? (
-            <li className="text-sm text-slate-500">No open non-conformances.</li>
+            <li className="text-sm text-slate-500">No open quality issues.</li>
           ) : (
             openNcrs.map((ncr) => (
               <li key={ncr.id} className="text-sm text-slate-700">
