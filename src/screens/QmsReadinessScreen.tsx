@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SECTION_INTROS } from "../config/sectionIntros";
 import { QmsReadinessSummaryWidget } from "../components/qms/QmsReadinessSummaryWidget";
 import type { AuditFindingRecord } from "../types/complianceLoop";
@@ -107,6 +107,27 @@ export function QmsReadinessScreen({
   onSaveSafetyObjectives,
 }: QmsReadinessScreenProps) {
   const [section, setSection] = useState<HubSection>("hub");
+  const hubGridRef = useRef<HTMLDivElement>(null);
+  const pendingHubScrollRef = useRef(false);
+
+  const scrollToHub = useCallback(() => {
+    hubGridRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  const openHub = useCallback(() => {
+    if (section !== "hub") {
+      pendingHubScrollRef.current = true;
+      setSection("hub");
+      return;
+    }
+    scrollToHub();
+  }, [section, scrollToHub]);
+
+  useEffect(() => {
+    if (section !== "hub" || !pendingHubScrollRef.current) return;
+    pendingHubScrollRef.current = false;
+    scrollToHub();
+  }, [section, scrollToHub]);
 
   const openNcrCount = useMemo(
     () => nonConformances.filter((item) => item.status !== "Completed").length,
@@ -121,8 +142,8 @@ export function QmsReadinessScreen({
     const operational = [
       {
         id: "ncr" as const,
-        title: "Non-conformances",
-        description: "Investigate and close issues raised from checks.",
+        title: "Quality issues",
+        description: "Track non-conformances and serious quality problems.",
         metric: openNcrCount > 0 ? `${openNcrCount} open` : undefined,
         onClick: () => onNavigate("nonConformance"),
       },
@@ -135,15 +156,15 @@ export function QmsReadinessScreen({
       },
       {
         id: "hazards-op" as const,
-        title: "Hazard reports",
-        description: "Report and track hazards on site.",
+        title: "Safety hazards",
+        description: "Record hazards and follow-up actions.",
         metric: summary.openHazards > 0 ? `${summary.openHazards} open` : undefined,
         onClick: () => onNavigate("incidents"),
       },
       {
         id: "incidents-op" as const,
         title: "Incidents & near misses",
-        description: "Report injuries, near misses, and follow-up actions.",
+        description: "Capture reports, investigations, and corrective actions.",
         metric:
           summary.openIncidentsAndNearMisses > 0 ? `${summary.openIncidentsAndNearMisses} open` : undefined,
         onClick: () => onNavigate("incidents"),
@@ -172,36 +193,36 @@ export function QmsReadinessScreen({
       {
         id: "documents" as const,
         title: "Document control",
-        description: "Simple register for controlled documents and review dates.",
+        description: "Controlled documents, versions, owners, and review dates.",
         metric: summary.documentsNeedingReview > 0 ? `${summary.documentsNeedingReview} need review` : undefined,
         onClick: () => setSection("documents"),
       },
       {
         id: "training" as const,
         title: "Training records",
-        description: "People, training status, expiry, and evidence links.",
+        description: "Training status, expiry dates, and evidence.",
         metric: summary.trainingExpiringSoon > 0 ? `${summary.trainingExpiringSoon} expiring soon` : undefined,
         onClick: () => setSection("training"),
       },
       ...operational,
       {
         id: "risks" as const,
-        title: "Risks and opportunities",
-        description: "Lightweight risk register with review dates.",
+        title: "Risks",
+        description: "Review quality and safety risks before they become problems.",
         metric: summary.risksNeedingReview > 0 ? `${summary.risksNeedingReview} need review` : undefined,
         onClick: () => setSection("risks"),
       },
       {
         id: "hazards" as const,
-        title: "Hazard reports",
-        description: "Log hazards, severity, immediate action, and closure.",
+        title: "Safety hazards",
+        description: "Record hazards and follow-up actions.",
         metric: summary.openHazards > 0 ? `${summary.openHazards} open` : undefined,
         onClick: () => setSection("hazards"),
       },
       {
         id: "incidents" as const,
         title: "Incidents & near misses",
-        description: "Uses your incident register — report and investigate from one place.",
+        description: "Capture reports, investigations, and corrective actions.",
         metric:
           summary.openIncidentsAndNearMisses > 0 ? `${summary.openIncidentsAndNearMisses} open` : undefined,
         onClick: () => onNavigate("incidents"),
@@ -237,8 +258,8 @@ export function QmsReadinessScreen({
       },
       {
         id: "review" as const,
-        title: "Management review pack",
-        description: "Preview quality and safety readiness before your review meeting.",
+        title: "Review pack",
+        description: "Prepare a management review from real records.",
         metric: summary.managementReviewDetail,
         onClick: () => setSection("managementReview"),
       },
@@ -248,23 +269,28 @@ export function QmsReadinessScreen({
   return (
     <div className="space-y-4">
       <section className={panelClass}>
-        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Quality & Safety Readiness</p>
-        <h2 className="mt-1 text-xl font-semibold text-slate-900">
-          {accessLevel === "full" ? "Keep quality and safety records under control" : "Quality & safety operations"}
+        <h2 className="text-xl font-semibold text-slate-900">
+          {accessLevel === "full" ? "Quality & Safety Hub" : "Quality & safety operations"}
         </h2>
-        <p className="mt-2 text-sm text-slate-600">{SECTION_INTROS.qmsReadiness}</p>
-        <p className="mt-2 text-xs text-slate-500">
-          Supports ISO 9001 and ISO 45001 readiness. BERT does not certify you — it helps you stay ready.
-        </p>
+        {accessLevel === "full" ? (
+          <>
+            <p className="mt-2 text-sm text-slate-600">{SECTION_INTROS.qmsReadiness}</p>
+            <p className="mt-2 text-xs text-slate-500">
+              Supports ISO 9001 and ISO 45001 readiness. Certification is handled externally.
+            </p>
+          </>
+        ) : (
+          <p className="mt-2 text-sm text-slate-600">{SECTION_INTROS.qmsReadiness}</p>
+        )}
       </section>
 
-      <QmsReadinessSummaryWidget summary={summary} onOpenHub={() => setSection("hub")} onNavigate={onNavigate} />
+      <QmsReadinessSummaryWidget summary={summary} onOpenHub={openHub} onNavigate={onNavigate} />
 
       {section !== "hub" ? (
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => setSection("hub")}
+            onClick={openHub}
             className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
           >
             Back to hub
@@ -273,7 +299,7 @@ export function QmsReadinessScreen({
       ) : null}
 
       {section === "hub" ? (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div ref={hubGridRef} className="grid gap-3 scroll-mt-4 sm:grid-cols-2">
           {hubCards.map((card) => (
             <HubCard key={card.id} title={card.title} description={card.description} metric={card.metric} onClick={card.onClick} />
           ))}

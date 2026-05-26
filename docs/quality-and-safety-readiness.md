@@ -1,8 +1,8 @@
 # Quality & Safety / ISO 9001 & ISO 45001 readiness (BERT)
 
-BERT helps you keep quality and safety records under control. The product **supports ISO 9001 and ISO 45001 readiness** — it does **not** certify your organisation.
+**Quality & Safety Hub** — keep checks, actions, documents, training, risks, and evidence under control.
 
-> BERT does not certify you. It helps you stay ready.
+Supports ISO 9001 and ISO 45001 readiness. Certification is handled externally (BERT does not certify your organisation).
 
 ## UX principles
 
@@ -11,15 +11,15 @@ BERT helps you keep quality and safety records under control. The product **supp
 - No certification claims.
 - **Auditor / tablet:** Today, My Checks, Submit, History only — no ISO or H&S admin wording.
 - **Manager:** operational summary and links (hazards, incidents, actions, evidence) — not full registers.
-- **Company Admin / Master:** full **Quality & Safety Readiness** hub.
+- **Company Admin / Master:** full **Quality & Safety Hub**.
 
 ## Navigation
 
 | Role | Access |
 |------|--------|
-| Master | More → Quality & Safety Readiness |
-| Admin | More → Quality & Safety Readiness |
-| Manager | More → Quality & Safety Readiness (operational mode) |
+| Master | More → Quality & Safety Hub |
+| Admin | More → Quality & Safety Hub |
+| Manager | More → Quality & Safety Hub (operational mode) |
 | Auditor | Hidden |
 
 Implemented in `src/permissions.ts` (`canAccessQmsReadiness*`) and `src/config/roleNavigation.ts`.
@@ -69,16 +69,16 @@ Optional future sync: company master sheet tabs for each register (same column s
 
 Shown on Company Admin and Manager dashboards and at the top of the readiness hub:
 
-- Documents needing review
-- Training expiring soon
-- Open non-conformances
+- Documents to review
+- Training expiring
+- Open quality issues
 - Overdue actions (quality + incident actions combined)
-- Open hazards
-- Open incidents / near misses
-- Quality risks needing review
-- Safety risk assessments due review
-- H&S objectives at risk
-- Management review pack status
+- Open safety hazards
+- Incidents & near misses
+- Quality risks
+- Safety risks
+- Safety objectives
+- Review pack status
 
 Logic: `src/utils/qmsReadiness.ts` (`buildQmsReadinessSummary`).
 

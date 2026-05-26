@@ -53,12 +53,12 @@ export function QmsReadinessSummaryWidget({ summary, compact, onOpenHub, onNavig
     <section className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Quality & safety readiness</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Quality & Safety Hub</p>
           <h3 className="mt-1 text-sm font-semibold text-slate-900">
-            {compact ? "Quality & safety snapshot" : "Readiness summary"}
+            {compact ? "Quality & safety snapshot" : "Control summary"}
           </h3>
           <p className="mt-1 text-sm text-slate-600">
-            BERT helps you stay ready for audits. Supports ISO 9001 and ISO 45001 readiness — BERT does not certify you.
+            A simple view of what needs review, action, or evidence.
           </p>
         </div>
         {onOpenHub ? (
@@ -74,61 +74,61 @@ export function QmsReadinessSummaryWidget({ summary, compact, onOpenHub, onNavig
 
       <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         <MetricButton
-          label="Documents needing review"
+          label="Documents to review"
           value={summary.documentsNeedingReview}
           alert={summary.documentsNeedingReview > 0}
           onClick={onOpenHub}
         />
         <MetricButton
-          label="Training expiring soon"
+          label="Training expiring"
           value={summary.trainingExpiringSoon}
           alert={summary.trainingExpiringSoon > 0}
           onClick={onOpenHub}
         />
         <MetricButton
-          label="Open non-conformances"
+          label="Open quality issues"
           value={summary.openNonConformances}
           alert={summary.openNonConformances > 0}
           onClick={onNavigate ? () => onNavigate("nonConformance") : onOpenHub}
         />
         <MetricButton
-          label="Overdue actions (all)"
+          label="Overdue actions"
           value={summary.overdueHsActions}
           alert={summary.overdueHsActions > 0}
           onClick={onNavigate ? () => onNavigate("actions") : onOpenHub}
         />
         <MetricButton
-          label="Open hazards"
+          label="Open safety hazards"
           value={summary.openHazards}
           alert={summary.openHazards > 0}
           onClick={onOpenHub}
         />
         <MetricButton
-          label="Open incidents / near misses"
+          label="Incidents & near misses"
           value={summary.openIncidentsAndNearMisses}
           alert={summary.openIncidentsAndNearMisses > 0}
           onClick={onNavigate ? () => onNavigate("incidents") : onOpenHub}
         />
         <MetricButton
-          label="Quality risks needing review"
+          label="Quality risks"
           value={summary.risksNeedingReview}
           alert={summary.risksNeedingReview > 0}
           onClick={onOpenHub}
         />
         <MetricButton
-          label="Safety risk assessments due"
+          label="Safety risks"
           value={summary.riskAssessmentsDueReview}
           alert={summary.riskAssessmentsDueReview > 0}
           onClick={onOpenHub}
         />
         <MetricButton
-          label="H&S objectives at risk"
+          label="Safety objectives"
           value={summary.safetyObjectivesAtRisk}
           alert={summary.safetyObjectivesAtRisk > 0}
           onClick={onOpenHub}
         />
         <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 sm:col-span-2 lg:col-span-3">
-          <p className="text-xs font-medium text-slate-500">Management review pack</p>
+          <p className="text-xs font-medium text-slate-500">Review pack</p>
           <p className={`mt-1 text-sm font-semibold capitalize ${reviewTone}`}>{summary.managementReviewStatus.replace("_", " ")}</p>
           <p className="mt-1 text-xs text-slate-600">{summary.managementReviewDetail}</p>
         </div>
