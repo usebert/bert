@@ -42,8 +42,6 @@ type Props = {
   themeMode?: "light" | "dark";
   companies: GodmodeCompanyPickerRow[];
   selectableFolders: CompanyFolder[];
-  rememberedFolderId: string;
-  rememberedFolderName: string;
   selectedFolderId: string;
   selectedFolderName: string;
   companyContextReady: boolean;
@@ -97,8 +95,6 @@ export function GodmodeStartScreen({
   themeMode = "light",
   companies,
   selectableFolders,
-  rememberedFolderId,
-  rememberedFolderName,
   selectedFolderId,
   selectedFolderName,
   companyContextReady,
@@ -127,11 +123,6 @@ export function GodmodeStartScreen({
         company.masterSheetId.toLowerCase().includes(query),
     );
   }, [companies, search]);
-
-  const showRemembered =
-    Boolean(rememberedFolderId) &&
-    Boolean(rememberedFolderName) &&
-    companies.some((company) => company.id === rememberedFolderId);
 
   const landingCards: LandingCard[] = [
     {
@@ -174,14 +165,6 @@ export function GodmodeStartScreen({
 
   const handlePickCompany = (folderId: string) => {
     onSelectCompany(folderId);
-    openHub();
-  };
-
-  const handleContinueRemembered = () => {
-    if (!rememberedFolderId) {
-      return;
-    }
-    onSelectCompany(rememberedFolderId);
     openHub();
   };
 
@@ -337,40 +320,6 @@ export function GodmodeStartScreen({
           Manage the BERT platform, onboard companies, or choose a company workspace to work on.
         </p>
       </header>
-
-      {showRemembered ? (
-        <section
-          className={[
-            "mb-6 rounded-2xl border px-4 py-4",
-            onDark ? "border-orange-400/25 bg-orange-500/10" : "border-orange-200 bg-orange-50/80",
-          ].join(" ")}
-        >
-          <p className={`text-sm ${onDark ? "text-orange-100" : "text-orange-950"}`}>
-            Last worked on: <span className="font-semibold">{rememberedFolderName}</span>
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={handleContinueRemembered}
-              className="inline-flex h-10 items-center rounded-xl bg-[var(--bert-signal-orange)] px-4 text-sm font-semibold text-[var(--qms-navy-950)] hover:brightness-95"
-            >
-              Continue with this company
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("picker")}
-              className={[
-                "inline-flex h-10 items-center rounded-xl border px-4 text-sm font-semibold",
-                onDark
-                  ? "border-slate-600 bg-slate-900 text-slate-100 hover:bg-slate-800"
-                  : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50",
-              ].join(" ")}
-            >
-              Choose another company
-            </button>
-          </div>
-        </section>
-      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2">
         {landingCards.map((card) => (

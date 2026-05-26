@@ -116,6 +116,8 @@ import {
   clearCompanyWorkspaceLocalState,
   clearCompanyWorkspaceLocalStateForGodmodeSwitch,
   clearGodmodeNewCompanyWorkspaceLocalState,
+  clearMasterGodmodeCompanyContextLocalStorage,
+  shouldBootstrapMasterWithoutCompanyContext,
 } from "./src/utils/clearCompanyWorkspaceLocalState";
 import { AccountSettingsScreen } from "./src/screens/AccountSettingsScreen";
 import { ActionsScreen } from "./src/screens/ActionsScreen";
@@ -2683,10 +2685,24 @@ function readStoredUserNicknames() {
   }
 }
 
+function readStoredLocalUserRole(): Role | undefined {
+  try {
+    const raw = window.localStorage.getItem(userStorageKey);
+    if (!raw) {
+      return undefined;
+    }
+    const parsed = JSON.parse(raw) as { role?: Role };
+    return parsed.role;
+  } catch {
+    return undefined;
+  }
+}
+
 /** First-ever visit (no persisted workspace blob) loads isolated local demo payloads; clears when real workspace data replaces localStorage. */
 function getWorkspaceBootstrap() {
   const rawKey = window.localStorage.getItem(workspaceStateStorageKey);
   const stored = readStoredWorkspaceState();
+  const masterBlankStart = shouldBootstrapMasterWithoutCompanyContext(readStoredLocalUserRole());
   if (rawKey === null) {
     const demo = buildDemoPrecastWorkspace();
     return {
@@ -2732,44 +2748,47 @@ function getWorkspaceBootstrap() {
   }
 
   return {
-    audits: stored?.audits ?? initialAudits,
-    history: stored?.history ?? initialHistory,
-    actions: stored?.actions ?? initialActions,
-    nonConformances: stored?.nonConformances ?? initialNonConformances,
-    schedules: stored?.schedules ?? initialSchedules,
-    templates: stored?.templates ?? initialTemplates,
-    drafts: stored?.drafts ?? {},
-    managedSchedules: stored?.managedSchedules ?? [],
+    audits: masterBlankStart ? [] : (stored?.audits ?? initialAudits),
+    history: masterBlankStart ? [] : (stored?.history ?? initialHistory),
+    actions: masterBlankStart ? [] : (stored?.actions ?? initialActions),
+    nonConformances: masterBlankStart ? [] : (stored?.nonConformances ?? initialNonConformances),
+    schedules: masterBlankStart ? [] : (stored?.schedules ?? initialSchedules),
+    templates: masterBlankStart ? [] : (stored?.templates ?? initialTemplates),
+    drafts: masterBlankStart ? {} : (stored?.drafts ?? {}),
+    managedSchedules: masterBlankStart ? [] : (stored?.managedSchedules ?? []),
     folders: stored?.folders ?? [],
-    selectedFolderId: stored?.selectedFolderId ?? "",
-    syncState: stored?.syncState ?? "Not synced",
-    invitedUsers: stored?.invitedUsers ?? [],
-    sites: stored?.sites ?? deriveSitesFromWorkspace(stored?.audits ?? initialAudits, stored?.schedules ?? initialSchedules, stored?.managedSchedules ?? []),
-    selectedSiteId: stored?.selectedSiteId ?? "",
-    companySheetSync: stored?.companySheetSync ?? null,
-    reportInbox: stored?.reportInbox ?? [],
-    syncQueue: stored?.syncQueue ?? initialSyncQueue,
-    incidents: stored?.incidents ?? initialIncidents,
-    incidentActions: stored?.incidentActions ?? initialIncidentActions,
-    auditAccessOverrides: stored?.auditAccessOverrides ?? {},
-    managerAlerts: stored?.managerAlerts ?? [],
+    selectedFolderId: masterBlankStart ? "" : (stored?.selectedFolderId ?? ""),
+    syncState: masterBlankStart ? "Not synced" : (stored?.syncState ?? "Not synced"),
+    invitedUsers: masterBlankStart ? [] : (stored?.invitedUsers ?? []),
+    sites: masterBlankStart
+      ? []
+      : (stored?.sites ??
+        deriveSitesFromWorkspace(stored?.audits ?? initialAudits, stored?.schedules ?? initialSchedules, stored?.managedSchedules ?? [])),
+    selectedSiteId: masterBlankStart ? "" : (stored?.selectedSiteId ?? ""),
+    companySheetSync: masterBlankStart ? null : (stored?.companySheetSync ?? null),
+    reportInbox: masterBlankStart ? [] : (stored?.reportInbox ?? []),
+    syncQueue: masterBlankStart ? [] : (stored?.syncQueue ?? initialSyncQueue),
+    incidents: masterBlankStart ? [] : (stored?.incidents ?? initialIncidents),
+    incidentActions: masterBlankStart ? [] : (stored?.incidentActions ?? initialIncidentActions),
+    auditAccessOverrides: masterBlankStart ? {} : (stored?.auditAccessOverrides ?? {}),
+    managerAlerts: masterBlankStart ? [] : (stored?.managerAlerts ?? []),
     roleNavVisibility: stored?.roleNavVisibility ?? buildDefaultRoleNavVisibilityMatrix(),
     roleSiteSelectorVisibility: stored?.roleSiteSelectorVisibility ?? buildDefaultRoleSiteSelectorVisibility(),
-    userSiteAssignments: stored?.userSiteAssignments ?? {},
-    areaRestrictionsEnabled: stored?.areaRestrictionsEnabled ?? false,
-    areaAudits: stored?.areaAudits ?? [],
-    selectedAreaAuditAreaId: stored?.selectedAreaAuditAreaId ?? "",
-    complianceSchedules: stored?.complianceSchedules ?? [],
-    auditFindings: stored?.auditFindings ?? [],
-    externalEmployees: stored?.externalEmployees ?? [],
-    documentDistributions: stored?.documentDistributions ?? [],
-    qmsDocuments: stored?.qmsDocuments ?? [],
-    qmsTraining: stored?.qmsTraining ?? [],
-    qmsRisks: stored?.qmsRisks ?? [],
-    hsHazardReports: stored?.hsHazardReports ?? [],
-    hsRiskAssessments: stored?.hsRiskAssessments ?? [],
-    hsSafetyObservations: stored?.hsSafetyObservations ?? [],
-    hsObjectives: stored?.hsObjectives ?? [],
+    userSiteAssignments: masterBlankStart ? {} : (stored?.userSiteAssignments ?? {}),
+    areaRestrictionsEnabled: masterBlankStart ? false : (stored?.areaRestrictionsEnabled ?? false),
+    areaAudits: masterBlankStart ? [] : (stored?.areaAudits ?? []),
+    selectedAreaAuditAreaId: masterBlankStart ? "" : (stored?.selectedAreaAuditAreaId ?? ""),
+    complianceSchedules: masterBlankStart ? [] : (stored?.complianceSchedules ?? []),
+    auditFindings: masterBlankStart ? [] : (stored?.auditFindings ?? []),
+    externalEmployees: masterBlankStart ? [] : (stored?.externalEmployees ?? []),
+    documentDistributions: masterBlankStart ? [] : (stored?.documentDistributions ?? []),
+    qmsDocuments: masterBlankStart ? [] : (stored?.qmsDocuments ?? []),
+    qmsTraining: masterBlankStart ? [] : (stored?.qmsTraining ?? []),
+    qmsRisks: masterBlankStart ? [] : (stored?.qmsRisks ?? []),
+    hsHazardReports: masterBlankStart ? [] : (stored?.hsHazardReports ?? []),
+    hsRiskAssessments: masterBlankStart ? [] : (stored?.hsRiskAssessments ?? []),
+    hsSafetyObservations: masterBlankStart ? [] : (stored?.hsSafetyObservations ?? []),
+    hsObjectives: masterBlankStart ? [] : (stored?.hsObjectives ?? []),
   };
 }
 
@@ -3262,12 +3281,6 @@ function App() {
     [selectableGodmodeFolders, selectedFolderId, activeCompanyMasterSheetId],
   );
 
-  const rememberedGodmodeFolderId = readGodmodeSelectedCompanyFolderId();
-  const rememberedGodmodeFolder = useMemo(
-    () => selectableGodmodeFolders.find((folder) => folder.id === rememberedGodmodeFolderId) ?? null,
-    [selectableGodmodeFolders, rememberedGodmodeFolderId],
-  );
-
   const masterGodmodeCompanyReady = useMemo(() => {
     if (currentUser?.role !== "Master") {
       return true;
@@ -3288,6 +3301,67 @@ function App() {
 
   const godmodeNewCompanyOnboarding =
     currentUser?.role === "Master" && screen === "onboarding" && !selectedFolderId;
+
+  const clearActiveCompanyWorkspaceState = useCallback(() => {
+    setHydratedCompanyFolderId("");
+    setInvitedUsers([]);
+    setSites([]);
+    setSelectedSiteId("");
+    setUserSiteAssignments({});
+    setAuditAccessOverrides({});
+    setAreaAudits([]);
+    setSelectedAreaAuditAreaId("");
+    setComplianceSchedules([]);
+    setAudits([]);
+    setHistory([]);
+    setActions([]);
+    setNonConformances([]);
+    setIncidents([]);
+    setIncidentActions([]);
+    setSchedules([]);
+    setManagedSchedules([]);
+    setTemplates([]);
+    setDrafts({});
+    setAuditFindings([]);
+    setSyncQueue([]);
+    setReportInbox([]);
+    setDocumentDistributions([]);
+    setQmsDocuments([]);
+    setQmsTraining([]);
+    setQmsRisks([]);
+    setHsHazardReports([]);
+    setHsRiskAssessments([]);
+    setHsSafetyObservations([]);
+    setHsObjectives([]);
+    setExternalEmployees([]);
+    setManagerAlerts([]);
+    setAreaRestrictionsEnabled(false);
+    setCompanySheetSync(null);
+    setFolderInspection(null);
+    setWorkspaceValidation(null);
+    setMappingSyncError(null);
+    setAreaSyncError(null);
+    setFolderNameInput("");
+    setFolderIdInput("");
+    setAuditFormsFolderInput("");
+    setMasterSheetInput("");
+    setSetupFolderInput("");
+    setRecordsFolderInput("");
+    setEvidenceFolderInput("");
+    setExportsFolderInput("");
+    setManagementNotesFolderInput("");
+    setSelectedOnboardingRecordId("");
+    setCompanyOnboardingEmailResult(null);
+    setCompanyUserInviteEmailResult(null);
+    setSyncState("Not synced");
+  }, []);
+
+  const resetMasterGodmodeCompanyContext = useCallback(() => {
+    clearMasterGodmodeCompanyContextLocalStorage();
+    clearActiveCompanyWorkspaceState();
+    setSelectedFolderId("");
+    setFolderInspection(null);
+  }, [clearActiveCompanyWorkspaceState]);
 
   const displayInvitedUsers = useMemo(
     () => (masterCompanyWorkspaceDataMatchesSelection ? invitedUsers : []),
@@ -4509,9 +4583,7 @@ function App() {
           setCurrentUser(masterUser);
           setAccountNameInput(masterUser.name);
           setAccountPhotoUrl(getStoredProfilePhoto(masterUser));
-          setSelectedFolderId("");
-          setSyncState("Not synced");
-          setFolderInspection(null);
+          resetMasterGodmodeCompanyContext();
           try {
             if (window.localStorage.getItem(masterCompanySetupSessionKey) === "1") {
               setGodCompanySetupSession(true);
@@ -4582,9 +4654,7 @@ function App() {
           setAccountNameInput(matchedUser.name);
           setAccountPhotoUrl(getStoredProfilePhoto(matchedUser));
           if (matchedUser.role === "Master") {
-            setSelectedFolderId("");
-            setSyncState("Not synced");
-            setFolderInspection(null);
+            resetMasterGodmodeCompanyContext();
             if (!isSetupInitialPath() && !isSetupPath()) {
               setScreen(getHomeScreenForRole("Master"));
             }
@@ -4613,7 +4683,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [loginUsers]);
+  }, [loginUsers, resetMasterGodmodeCompanyContext]);
 
   useEffect(() => {
     const syncSetupPortalFromUrl = () => {
@@ -5713,9 +5783,7 @@ function App() {
       setAccountPhotoUrl(getStoredProfilePhoto(match));
       window.localStorage.setItem(userStorageKey, JSON.stringify(match));
       if (match.role === "Master") {
-        setSelectedFolderId("");
-        setSyncState("Not synced");
-        setFolderInspection(null);
+        resetMasterGodmodeCompanyContext();
       }
       setScreen(
         isSetupInitialPath() && canAccessGodmodeInitialSetup(match.role)
@@ -5980,9 +6048,7 @@ function App() {
     setAccountPhotoUrl(getStoredProfilePhoto(user));
     window.localStorage.setItem(userStorageKey, JSON.stringify(user));
     if (user.role === "Master") {
-      setSelectedFolderId("");
-      setSyncState("Not synced");
-      setFolderInspection(null);
+      resetMasterGodmodeCompanyContext();
     }
     setScreen(getHomeScreenForRole(user.role));
     pushToast("Profile switched", `Now viewing as ${getRoleDisplayName(user.role)}.`, "success");
@@ -6627,65 +6693,8 @@ function App() {
     }
   };
 
-  const clearActiveCompanyWorkspaceState = useCallback(() => {
-    setHydratedCompanyFolderId("");
-    setInvitedUsers([]);
-    setSites([]);
-    setSelectedSiteId("");
-    setUserSiteAssignments({});
-    setAuditAccessOverrides({});
-    setAreaAudits([]);
-    setSelectedAreaAuditAreaId("");
-    setComplianceSchedules([]);
-    setAudits([]);
-    setHistory([]);
-    setActions([]);
-    setNonConformances([]);
-    setIncidents([]);
-    setIncidentActions([]);
-    setSchedules([]);
-    setManagedSchedules([]);
-    setTemplates([]);
-    setDrafts({});
-    setAuditFindings([]);
-    setSyncQueue([]);
-    setReportInbox([]);
-    setDocumentDistributions([]);
-    setQmsDocuments([]);
-    setQmsTraining([]);
-    setQmsRisks([]);
-    setHsHazardReports([]);
-    setHsRiskAssessments([]);
-    setHsSafetyObservations([]);
-    setHsObjectives([]);
-    setExternalEmployees([]);
-    setManagerAlerts([]);
-    setAreaRestrictionsEnabled(false);
-    setCompanySheetSync(null);
-    setFolderInspection(null);
-    setWorkspaceValidation(null);
-    setMappingSyncError(null);
-    setAreaSyncError(null);
-    setFolderNameInput("");
-    setFolderIdInput("");
-    setAuditFormsFolderInput("");
-    setMasterSheetInput("");
-    setSetupFolderInput("");
-    setRecordsFolderInput("");
-    setEvidenceFolderInput("");
-    setExportsFolderInput("");
-    setManagementNotesFolderInput("");
-    setSelectedOnboardingRecordId("");
-    setCompanyOnboardingEmailResult(null);
-    setCompanyUserInviteEmailResult(null);
-    setSyncState("Not synced");
-  }, []);
-
   const handleGodmodeNewCompany = useCallback(() => {
-    clearGodmodeSelectedCompanyFolderId();
-    clearGodmodeNewCompanyWorkspaceLocalState();
-    clearActiveCompanyWorkspaceState();
-    setSelectedFolderId("");
+    resetMasterGodmodeCompanyContext();
     setGodModeAppInviteEmail("");
     pushToast(
       "New company onboarding",
@@ -6693,7 +6702,7 @@ function App() {
       "neutral",
     );
     setScreen("onboarding");
-  }, [clearActiveCompanyWorkspaceState]);
+  }, [resetMasterGodmodeCompanyContext]);
 
   const handleCompanyWorkspaceResetSuccess = async (message: string) => {
     const companyFolderId = selectedFolder?.id || extractGoogleResourceId(folderIdInput);
@@ -6867,6 +6876,9 @@ function App() {
       window.history.replaceState({}, "", url.pathname + (url.search ? url.search : "") + url.hash);
     } catch {
       window.history.replaceState({}, "", window.location.pathname);
+    }
+    if (currentUser?.role === "Master") {
+      resetMasterGodmodeCompanyContext();
     }
     window.localStorage.removeItem(userStorageKey);
     setCurrentUser(null);
@@ -10376,8 +10388,6 @@ function App() {
                 themeMode={themeMode}
                 companies={godmodeCompanyPickerRows}
                 selectableFolders={selectableGodmodeFolders}
-                rememberedFolderId={rememberedGodmodeFolderId}
-                rememberedFolderName={rememberedGodmodeFolder?.name || ""}
                 selectedFolderId={selectedFolderId}
                 selectedFolderName={selectedFolder?.name || ""}
                 companyContextReady={masterGodmodeCompanyReady}

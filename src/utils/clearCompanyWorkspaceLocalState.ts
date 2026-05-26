@@ -1,4 +1,5 @@
 import { storageKeys } from "../config/storageKeys";
+import { clearGodmodeSelectedCompanyFolderId } from "./godmodeCompanyContext";
 
 export type WorkspaceStateBlob = {
   selectedFolderId?: string;
@@ -155,6 +156,12 @@ export function clearCompanyWorkspaceLocalState(companyFolderId: string) {
   return { cleared: true };
 }
 
+/** Master login/logout: clear persisted company selection and workspace operational data. */
+export function clearMasterGodmodeCompanyContextLocalStorage() {
+  clearGodmodeSelectedCompanyFolderId();
+  return clearGodmodeNewCompanyWorkspaceLocalState();
+}
+
 /** Master Godmode: wipe company workspace data and leave no active company selected. */
 export function clearGodmodeNewCompanyWorkspaceLocalState() {
   if (typeof window === "undefined") {
@@ -169,6 +176,11 @@ export function clearGodmodeNewCompanyWorkspaceLocalState() {
   };
   writeWorkspaceStateBlob(next);
   return { cleared: true };
+}
+
+/** Whether bert-workspace-state should omit an active company for a Master session. */
+export function shouldBootstrapMasterWithoutCompanyContext(storedUserRole?: string) {
+  return storedUserRole === "Master";
 }
 
 /** Master Godmode: clear operational data before switching to another company folder. */
