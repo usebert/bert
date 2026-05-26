@@ -33,6 +33,7 @@ import {
   logInviteCompleteFailure,
   validateCompanyUserInviteTarget,
 } from "./invite-target.mjs";
+import { installCompanyWorkspaceResetRoutes } from "./company-workspace-reset.mjs";
 
 dotenv.config();
 
@@ -2880,6 +2881,19 @@ function requireWorkspaceAdminActor(req, res, next) {
     });
   }
   req.bertActor = { ...actor, role };
+  return next();
+}
+
+function requireMasterOnlyActor(req, res, next) {
+  const actor = parseBertActorFromRequest(req);
+  if (!actor || actor.kind !== "master" || actor.role !== "Master") {
+    return res.status(403).json({
+      ok: false,
+      blocker: "forbidden",
+      error: "Only platform Master operators can reset a company workspace.",
+    });
+  }
+  req.bertActor = actor;
   return next();
 }
 
@@ -5838,6 +5852,22 @@ app.post("/api/tools/migrate-userauth-passwords", requireBertToolSecret, require
     console.error("[tools] migrate-userauth-passwords failed:", error);
     return res.status(500).json({ ok: false, error: "Migration failed." });
   }
+});
+
+installCompanyWorkspaceResetRoutes(app, {
+  google,
+  getAuthedClient,
+  envConfigured,
+  requireGoogleWorkspaceSession,
+  requireMasterOnlyActor,
+  readInviteStore,
+  writeInviteStore,
+  getConfig,
+  updateConfig,
+  getWorkbook,
+  ensureColumns,
+  withSheetsQuotaRetry,
+  TAB_COLUMNS,
 });
 
 app.use((err, req, res, _next) => {

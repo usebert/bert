@@ -28,6 +28,7 @@ import {
   isStaleOrIncompleteInviteStatus,
 } from "../utils/inviteStatusDisplay";
 import type { AdminScreenProps, CompanyOnboardingEmailResult, CompanyUserInviteEmailResult } from "../types/adminScreenProps";
+import { CompanyWorkspaceResetPanel } from "../components/admin/CompanyWorkspaceResetPanel";
 import type { Role } from "../permissions";
 import type { Answer, AuditQuestion } from "../types/reportsScreenProps";
 
@@ -489,6 +490,9 @@ export function AdminScreen({
   companyOnboardingEmailSending,
   onDismissCompanyOnboardingEmailResult,
   onOpenInitialSetup,
+  companyMasterSheetId = "",
+  onCompanyWorkspaceResetSuccess,
+  onCompanyWorkspaceResetError,
   AppIcon,
   slatePrimaryCtaInteract,
 }: AdminScreenProps) {
@@ -732,6 +736,19 @@ export function AdminScreen({
           ) : (
             <p className="mt-3 text-xs font-semibold text-emerald-800">Workspace setup complete — manage users from Users &amp; Invites.</p>
           )}
+          {currentUser.role === "Master" && selectedFolder && companyMasterSheetId && onCompanyWorkspaceResetSuccess ? (
+            <div className="mt-4">
+              <CompanyWorkspaceResetPanel
+                companyFolderId={selectedFolder.id}
+                masterSheetId={companyMasterSheetId}
+                companyName={selectedFolder.name}
+                googleConnected={googleConnected}
+                slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+                onResetComplete={onCompanyWorkspaceResetSuccess}
+                onResetError={(message) => onCompanyWorkspaceResetError?.(message)}
+              />
+            </div>
+          ) : null}
         </section>
       ) : null}
       {(!onboardingMode || godModeFullVisibility) && currentUser.role !== "Master" && !pilotFocus && (

@@ -43,6 +43,7 @@ import {
   getMobileBottomNavForRole,
   getMoreNavIdsForRole,
   getPresentedNavForRole,
+  isMasterCompanyScopedScreen,
   resolveAdminPilotFocus,
 } from "./src/config/roleNavigation";
 import { MORE_MENU_NAV_IDS, PILOT_PRIMARY_NAV_IDS, PRIMARY_NAV_IDS } from "./src/config/navStructure";
@@ -64,7 +65,21 @@ import {
   isLegacyInviteRowId,
   isStaleOrIncompleteInviteStatus,
 } from "./src/utils/inviteStatusDisplay";
-import { assertLiveCompanyWorkspaceForInvite, LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE } from "./src/utils/companyWorkspaceInvite";
+import {
+  assertLiveCompanyWorkspaceForInvite,
+  GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE,
+  LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE,
+} from "./src/utils/companyWorkspaceInvite";
+import { GodmodeCompanyContextSelector } from "./src/components/godmode/GodmodeCompanyContextSelector";
+import {
+  assertGodmodeLiveCompanyWorkspace,
+  filterSelectableGodmodeCompanyFolders,
+} from "./src/utils/godmodeCompanyFolders";
+import {
+  clearGodmodeSelectedCompanyFolderId,
+  readGodmodeSelectedCompanyFolderId,
+  writeGodmodeSelectedCompanyFolderId,
+} from "./src/utils/godmodeCompanyContext";
 import {
   migrateStoredFolderLinks,
   type IsoFolderConfigIds,
@@ -96,6 +111,7 @@ import {
   mergeUserAuditAccessIntoOverrides,
   resolveAuditAreaId,
 } from "./src/utils/areaAuditMapping";
+import { clearCompanyWorkspaceLocalState } from "./src/utils/clearCompanyWorkspaceLocalState";
 import { AccountSettingsScreen } from "./src/screens/AccountSettingsScreen";
 import { ActionsScreen } from "./src/screens/ActionsScreen";
 import { AdminScreen } from "./src/screens/AdminScreen";
@@ -3111,7 +3127,13 @@ function App() {
   const [scheduleDraftAuditors, setScheduleDraftAuditors] = useState<string[]>([]);
   const [scheduleValidationAttempted, setScheduleValidationAttempted] = useState(false);
   const [folders, setFolders] = useState<CompanyFolder[]>(storedWorkspaceState?.folders || []);
-  const [selectedFolderId, setSelectedFolderId] = useState(storedWorkspaceState?.selectedFolderId || "");
+  const [selectedFolderId, setSelectedFolderId] = useState(() => {
+    const godmodeStored = readGodmodeSelectedCompanyFolderId();
+    if (godmodeStored) {
+      return godmodeStored;
+    }
+    return storedWorkspaceState?.selectedFolderId || "";
+  });
   const [syncState, setSyncState] = useState(storedWorkspaceState?.syncState || "Not synced");
   const [inviteEmailInput, setInviteEmailInput] = useState("");
   const [inviteRoleInput, setInviteRoleInput] = useState<Role>("Manager");
@@ -3189,6 +3211,38 @@ function App() {
     () => folders.find((folder) => folder.id === selectedFolderId) ?? null,
     [folders, selectedFolderId],
   );
+
+  const selectableGodmodeFolders = useMemo(
+    () => filterSelectableGodmodeCompanyFolders(folders),
+    [folders],
+  );
+
+  const activeCompanyMasterSheetId = useMemo(
+    () =>
+      companySheetSync?.sheetId ||
+      extractGoogleResourceId(masterSheetInput) ||
+      folderInspection?.masterSheet?.id ||
+      "",
+    [companySheetSync?.sheetId, masterSheetInput, folderInspection?.masterSheet?.id],
+  );
+
+  const masterGodmodeCompanyReady = useMemo(() => {
+    if (currentUser?.role !== "Master") {
+      return true;
+    }
+    return assertGodmodeLiveCompanyWorkspace({
+      companyFolderId: selectedFolderId,
+      companyName: selectedFolder?.name,
+      masterSheetId: activeCompanyMasterSheetId,
+      selectableFolderIds: selectableGodmodeFolders.map((folder) => folder.id),
+    }).ok;
+  }, [
+    currentUser?.role,
+    selectedFolderId,
+    selectedFolder?.name,
+    activeCompanyMasterSheetId,
+    selectableGodmodeFolders,
+  ]);
 
   const selectedSite = useMemo(
     () => sites.find((site) => site.id === selectedSiteId) ?? null,
@@ -5138,7 +5192,7 @@ function App() {
 
       if (payload.connected && payload.companies) {
         setFolders(payload.companies);
-        if (!selectedFolderId && payload.companies[0]) {
+        if (currentUser?.role !== "Master" && !selectedFolderId && payload.companies[0]) {
           setSelectedFolderId(payload.companies[0].id);
         }
       }
@@ -6444,6 +6498,52 @@ function App() {
         "warning",
       );
     }
+  };
+
+  const handleCompanyWorkspaceResetSuccess = async (message: string) => {
+    const companyFolderId = selectedFolder?.id || extractGoogleResourceId(folderIdInput);
+    const sheetId = extractGoogleResourceId(masterSheetInput) || companySheetSync?.sheetId || "";
+    if (companyFolderId) {
+      clearCompanyWorkspaceLocalState(companyFolderId);
+      setInvitedUsers([]);
+      setActions((current) => current.filter((item) => item.companyId !== companyFolderId));
+      setManagedSchedules((current) => current.filter((item) => item.companyFolderId !== companyFolderId));
+      setSchedules((current) => current.filter((item) => item.companyFolderId !== companyFolderId));
+      setAuditFindings((current) => current.filter((item) => item.companyId !== companyFolderId));
+      setComplianceSchedules((current) => current.filter((item) => item.companyFolderId !== companyFolderId));
+      setSyncQueue((current) =>
+        current.filter((item) => {
+          const payloadFolder = String((item.payload as { companyFolderId?: string } | undefined)?.companyFolderId || "");
+          return payloadFolder !== companyFolderId;
+        }),
+      );
+      setAreaAudits([]);
+      setUserSiteAssignments({});
+      setAudits([]);
+      setHistory([]);
+      setNonConformances([]);
+      setIncidents([]);
+      setIncidentActions([]);
+      setReportInbox([]);
+      setDocumentDistributions([]);
+      setQmsDocuments([]);
+      setQmsTraining([]);
+      setQmsRisks([]);
+      setHsHazardReports([]);
+      setHsRiskAssessments([]);
+      setHsSafetyObservations([]);
+      setHsObjectives([]);
+      setSyncState("Not synced");
+      if (sheetId) {
+        await loadCompanySheetById(sheetId, companyFolderId, { silent: true });
+        await syncCompanyAreasFromServer({ silent: true });
+      }
+    }
+    pushToast("Company workspace reset", message, "success");
+  };
+
+  const handleCompanyWorkspaceResetError = (message: string) => {
+    pushToast("Reset failed", message, "warning");
   };
 
   const persistUsers = async (companyFolderId: string, nextUsers: UserInvite[]) => {
@@ -10741,6 +10841,9 @@ function App() {
                       }
                     : undefined
                 }
+                companyMasterSheetId={extractGoogleResourceId(masterSheetInput) || companySheetSync?.sheetId || ""}
+                onCompanyWorkspaceResetSuccess={(message) => void handleCompanyWorkspaceResetSuccess(message)}
+                onCompanyWorkspaceResetError={handleCompanyWorkspaceResetError}
                 scheduleNameInput={scheduleNameInput}
                 scheduleAreaInput={scheduleAreaInput}
                 scheduleOwnerInput={scheduleOwnerInput}

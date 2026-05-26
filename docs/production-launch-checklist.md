@@ -135,7 +135,8 @@ See **`docs/iso-readiness-folder-structure.md`**.
 - [ ] Manager nav: Dashboard, Forms & Checks, Reports, Team (no Platform Setup)
 - [ ] Auditor nav: Today, My Checks, Submit, History only
 - [ ] Master **Pilot health** panel on Dashboard and Reports / Diagnostics shows API, readiness, Google, Drive, and SMTP probes
-- [ ] **Danger zone** copy for Disconnect Google (Master only), Remove user, and Revoke invite
+- [ ] **Danger zone** copy for Disconnect Google (Master only), Remove user, Revoke invite, and **Reset company workspace** (Master only; `RESET COMPANY` confirm)
+- [ ] **Company workspace reset**: Master can reset one company to clean onboarding; Archive / Live Companies / Master Control blocked; ISO folders + master sheet preserved; Evidence Drive files not deleted
 - [ ] After sending user invite or company onboarding email, **What happens next** steps appear in Admin
 - [ ] Verify **Platform Setup** hidden for Company Admin / Manager / Auditor
 - [ ] Verify `/setup` and `/setup/initial` direct access blocked for non-Master (redirect or “platform owner” message)

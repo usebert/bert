@@ -284,6 +284,10 @@ export type AdminScreenProps = {
   onDismissCompanyOnboardingEmailResult: () => void;
   /** Master-only: navigate to protected Initial Setup (/setup/initial). */
   onOpenInitialSetup?: () => void;
+  /** Master-only: company master spreadsheet ID for workspace reset. */
+  companyMasterSheetId?: string;
+  onCompanyWorkspaceResetSuccess?: (message: string) => void;
+  onCompanyWorkspaceResetError?: (message: string) => void;
   AppIcon: ComponentType<{ name: string; className?: string }>;
   slatePrimaryCtaInteract: string;
 };
