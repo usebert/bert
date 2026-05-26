@@ -65,6 +65,11 @@ import {
   isStaleOrIncompleteInviteStatus,
 } from "./src/utils/inviteStatusDisplay";
 import { assertLiveCompanyWorkspaceForInvite, LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE } from "./src/utils/companyWorkspaceInvite";
+import {
+  migrateStoredFolderLinks,
+  type IsoFolderConfigIds,
+  type StoredFolderLinkInputs,
+} from "./src/utils/isoReadinessFolders";
 import { createLocalAreaId, isReservedAreaName, mergeAreasFromServer } from "./src/utils/companyAreas";
 import {
   createCompanyArea,
@@ -542,20 +547,23 @@ type FolderInspection = {
     createdTime: string;
   };
   checks: {
+    setupFolder: boolean;
     auditFormsFolder: boolean;
-    masterDataFolder: boolean;
+    recordsFolder: boolean;
     masterSheet: boolean;
     evidenceFolder: boolean;
     exportsFolder: boolean;
-    adminNotesFolder: boolean;
+    managementNotesFolder: boolean;
   };
   auditFormsFolder: { id: string; name: string } | null;
-  masterDataFolder: { id: string; name: string } | null;
+  setupFolder: { id: string; name: string } | null;
+  recordsFolder: { id: string; name: string } | null;
   masterSheet: { id: string; name: string; tabs: string[] } | null;
   auditForms: { id: string; name: string }[];
   blockingItems: string[];
   recommendedItems: string[];
   missingItems: string[];
+  isoFolders?: Partial<IsoFolderConfigIds>;
   error?: string;
 };
 
@@ -664,15 +672,18 @@ type WorkspaceValidation = {
   currentSchemaVersion: string;
   folders: {
     companyFolder: boolean;
+    setupFolder: boolean;
     auditFormsFolder: boolean;
+    recordsFolder: boolean;
     evidenceFolder: boolean;
     exportsFolder: boolean;
-    adminNotesFolder: boolean;
+    managementNotesFolder: boolean;
   };
   tabs: Record<string, boolean>;
   missingTabs: string[];
   missingColumns: Record<string, string[]>;
   warnings: string[];
+  repairableIssues?: string[];
 };
 
 type OnboardingSubmissionsResponse = {
@@ -2515,19 +2526,69 @@ function readStoredFolderLinks() {
     if (!raw) {
       return null;
     }
-    return JSON.parse(raw) as {
-      folderNameInput?: string;
-      folderIdInput?: string;
-      auditFormsFolderInput?: string;
-      masterSheetInput?: string;
-      evidenceFolderInput?: string;
-      healthSafetyFolderInput?: string;
-      exportsFolderInput?: string;
-      adminNotesFolderInput?: string;
-    };
+    return migrateStoredFolderLinks(JSON.parse(raw) as StoredFolderLinkInputs);
   } catch {
     return null;
   }
+}
+
+function buildWorkspaceFolderPayload(input: {
+  setupFolderInput: string;
+  auditFormsFolderInput: string;
+  recordsFolderInput: string;
+  evidenceFolderInput: string;
+  exportsFolderInput: string;
+  managementNotesFolderInput: string;
+}): IsoFolderConfigIds {
+  return {
+    setupFolderId: extractGoogleResourceId(input.setupFolderInput),
+    auditFormsFolderId: extractGoogleResourceId(input.auditFormsFolderInput),
+    recordsFolderId: extractGoogleResourceId(input.recordsFolderInput),
+    evidenceFolderId: extractGoogleResourceId(input.evidenceFolderInput),
+    exportsFolderId: extractGoogleResourceId(input.exportsFolderInput),
+    managementNotesFolderId: extractGoogleResourceId(input.managementNotesFolderInput),
+  };
+}
+
+function folderIdToDriveInput(folderId: string) {
+  return folderId ? `https://drive.google.com/drive/folders/${folderId}` : "";
+}
+
+function applyIsoFolderIdsToInputs(
+  iso: Partial<IsoFolderConfigIds>,
+  current: {
+    setupFolderInput: string;
+    auditFormsFolderInput: string;
+    recordsFolderInput: string;
+    evidenceFolderInput: string;
+    exportsFolderInput: string;
+    managementNotesFolderInput: string;
+  },
+  setters: {
+    setSetupFolderInput: (value: string) => void;
+    setAuditFormsFolderInput: (value: string) => void;
+    setRecordsFolderInput: (value: string) => void;
+    setEvidenceFolderInput: (value: string) => void;
+    setExportsFolderInput: (value: string) => void;
+    setManagementNotesFolderInput: (value: string) => void;
+  },
+  options?: { onlyIfEmpty?: boolean },
+) {
+  const apply = (currentValue: string, nextId: string | undefined, setter: (value: string) => void) => {
+    if (!nextId) {
+      return;
+    }
+    if (options?.onlyIfEmpty && currentValue.trim()) {
+      return;
+    }
+    setter(folderIdToDriveInput(nextId));
+  };
+  apply(current.setupFolderInput, iso.setupFolderId, setters.setSetupFolderInput);
+  apply(current.auditFormsFolderInput, iso.auditFormsFolderId, setters.setAuditFormsFolderInput);
+  apply(current.recordsFolderInput, iso.recordsFolderId, setters.setRecordsFolderInput);
+  apply(current.evidenceFolderInput, iso.evidenceFolderId, setters.setEvidenceFolderInput);
+  apply(current.exportsFolderInput, iso.exportsFolderId, setters.setExportsFolderInput);
+  apply(current.managementNotesFolderInput, iso.managementNotesFolderId, setters.setManagementNotesFolderInput);
 }
 
 function readStoredWorkspaceState() {
@@ -2981,10 +3042,42 @@ function App() {
   const [folderIdInput, setFolderIdInput] = useState(storedFolderLinks?.folderIdInput || "");
   const [auditFormsFolderInput, setAuditFormsFolderInput] = useState(storedFolderLinks?.auditFormsFolderInput || "");
   const [masterSheetInput, setMasterSheetInput] = useState(storedFolderLinks?.masterSheetInput || "");
+  const [setupFolderInput, setSetupFolderInput] = useState(storedFolderLinks?.setupFolderInput || "");
+  const [recordsFolderInput, setRecordsFolderInput] = useState(storedFolderLinks?.recordsFolderInput || "");
   const [evidenceFolderInput, setEvidenceFolderInput] = useState(storedFolderLinks?.evidenceFolderInput || "");
-  const [healthSafetyFolderInput, setHealthSafetyFolderInput] = useState(storedFolderLinks?.healthSafetyFolderInput || "");
   const [exportsFolderInput, setExportsFolderInput] = useState(storedFolderLinks?.exportsFolderInput || "");
-  const [adminNotesFolderInput, setAdminNotesFolderInput] = useState(storedFolderLinks?.adminNotesFolderInput || "");
+  const [managementNotesFolderInput, setManagementNotesFolderInput] = useState(
+    storedFolderLinks?.managementNotesFolderInput || "",
+  );
+  const isoFolderInputSetters = useMemo(
+    () => ({
+      setSetupFolderInput,
+      setAuditFormsFolderInput,
+      setRecordsFolderInput,
+      setEvidenceFolderInput,
+      setExportsFolderInput,
+      setManagementNotesFolderInput,
+    }),
+    [],
+  );
+  const isoFolderInputSnapshot = useMemo(
+    () => ({
+      setupFolderInput,
+      auditFormsFolderInput,
+      recordsFolderInput,
+      evidenceFolderInput,
+      exportsFolderInput,
+      managementNotesFolderInput,
+    }),
+    [
+      setupFolderInput,
+      auditFormsFolderInput,
+      recordsFolderInput,
+      evidenceFolderInput,
+      exportsFolderInput,
+      managementNotesFolderInput,
+    ],
+  );
   const [templateNameInput, setTemplateNameInput] = useState("");
   const [templateQuestionInput, setTemplateQuestionInput] = useState("");
   const [templateQuestionTypeInput, setTemplateQuestionTypeInput] = useState<AuditQuestion["fieldType"]>("Traffic light");
@@ -4476,10 +4569,11 @@ function App() {
         folderIdInput,
         auditFormsFolderInput,
         masterSheetInput,
+        setupFolderInput,
+        recordsFolderInput,
         evidenceFolderInput,
-        healthSafetyFolderInput,
         exportsFolderInput,
-        adminNotesFolderInput,
+        managementNotesFolderInput,
       }),
     );
   }, [
@@ -4487,10 +4581,11 @@ function App() {
     folderIdInput,
     auditFormsFolderInput,
     masterSheetInput,
+    setupFolderInput,
+    recordsFolderInput,
     evidenceFolderInput,
-    healthSafetyFolderInput,
     exportsFolderInput,
-    adminNotesFolderInput,
+    managementNotesFolderInput,
   ]);
 
   useEffect(() => {
@@ -4961,10 +5056,11 @@ function App() {
       folderIdInput.trim() ||
       auditFormsFolderInput.trim() ||
       masterSheetInput.trim() ||
+      setupFolderInput.trim() ||
+      recordsFolderInput.trim() ||
       evidenceFolderInput.trim() ||
-      healthSafetyFolderInput.trim() ||
       exportsFolderInput.trim() ||
-      adminNotesFolderInput.trim()
+      managementNotesFolderInput.trim()
     ) {
       return;
     }
@@ -4978,10 +5074,11 @@ function App() {
     folderIdInput,
     auditFormsFolderInput,
     masterSheetInput,
+    setupFolderInput,
+    recordsFolderInput,
     evidenceFolderInput,
-    healthSafetyFolderInput,
     exportsFolderInput,
-    adminNotesFolderInput,
+    managementNotesFolderInput,
   ]);
 
   const pushToast = (title: string, message: string, tone: Toast["tone"] = "neutral") => {
@@ -5286,6 +5383,11 @@ function App() {
       }
 
       setFolderInspection(payload);
+      if (payload.isoFolders) {
+        applyIsoFolderIdsToInputs(payload.isoFolders, isoFolderInputSnapshot, isoFolderInputSetters, {
+          onlyIfEmpty: true,
+        });
+      }
       return payload;
     } catch (error) {
       setFolderInspection(null);
@@ -5320,11 +5422,7 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           companyFolderId,
-          auditFormsFolderId: extractGoogleResourceId(auditFormsFolderInput),
-          evidenceFolderId: extractGoogleResourceId(evidenceFolderInput),
-          healthSafetyFolderId: extractGoogleResourceId(healthSafetyFolderInput),
-          exportsFolderId: extractGoogleResourceId(exportsFolderInput),
-          adminNotesFolderId: extractGoogleResourceId(adminNotesFolderInput),
+          ...buildWorkspaceFolderPayload(isoFolderInputSnapshot),
         }),
       });
       const payload = (await response.json()) as WorkspaceValidation & { error?: string };
@@ -5360,19 +5458,30 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           companyFolderId,
-          auditFormsFolderId: extractGoogleResourceId(auditFormsFolderInput),
-          evidenceFolderId: extractGoogleResourceId(evidenceFolderInput),
-          healthSafetyFolderId: extractGoogleResourceId(healthSafetyFolderInput),
-          exportsFolderId: extractGoogleResourceId(exportsFolderInput),
-          adminNotesFolderId: extractGoogleResourceId(adminNotesFolderInput),
+          companyName: selectedFolder?.name || folderNameInput,
+          ...buildWorkspaceFolderPayload(isoFolderInputSnapshot),
         }),
       });
-      const payload = (await response.json()) as { ok: boolean; validation: WorkspaceValidation; error?: string };
+      const payload = (await response.json()) as {
+        ok: boolean;
+        validation: WorkspaceValidation;
+        isoFolders?: Partial<IsoFolderConfigIds>;
+        error?: string;
+      };
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || "Unable to fix the workspace.");
       }
+      if (payload.isoFolders) {
+        applyIsoFolderIdsToInputs(payload.isoFolders, isoFolderInputSnapshot, isoFolderInputSetters);
+      }
       setWorkspaceValidation(payload.validation);
-      pushToast("Workspace updated", "Missing tabs and columns were added safely with a backup copy created first.", "success");
+      pushToast(
+        "Workspace updated",
+        payload.validation.ok
+          ? "ISO readiness folders, sheet tabs, and columns are in place."
+          : "Missing folders, tabs, or columns were repaired where possible. Run Check workspace again.",
+        payload.validation.ok ? "success" : "warning",
+      );
     } catch (error) {
       pushToast("Fix workspace failed", error instanceof Error ? error.message : "Unable to fix the workspace.", "warning");
     } finally {
@@ -6408,7 +6517,7 @@ function App() {
         await syncAuditSubmissionToSheet({
           sheetId,
           companyFolderId,
-          evidenceFolderId: evidenceFolderInput.trim(),
+          evidenceFolderId: buildWorkspaceFolderPayload(isoFolderInputSnapshot).evidenceFolderId,
           submission: syncBundle.payload as import("./src/types/complianceLoop").AuditSubmissionSyncPayload,
           sheetResult: syncBundle.sheetResult,
           sheetFindings: syncBundle.sheetFindings,
@@ -6430,7 +6539,12 @@ function App() {
       } else if (item.itemType === "evidenceUpload") {
         const records = item.payload.evidenceRecords as Record<string, string>[] | undefined;
         if (records?.length) {
-          await googleSheetsService.appendEvidence(sheetId, companyFolderId, records);
+          await googleSheetsService.appendEvidence(
+            sheetId,
+            companyFolderId,
+            records,
+            buildWorkspaceFolderPayload(isoFolderInputSnapshot).evidenceFolderId,
+          );
         }
       }
 
@@ -7396,10 +7510,11 @@ function App() {
     setFolderInspection(null);
     setAuditFormsFolderInput("");
     setMasterSheetInput("");
+    setSetupFolderInput("");
+    setRecordsFolderInput("");
     setEvidenceFolderInput("");
-    setHealthSafetyFolderInput("");
     setExportsFolderInput("");
-    setAdminNotesFolderInput("");
+    setManagementNotesFolderInput("");
     setOnboardingSource(null);
     setOnboardingRecords([]);
     setSelectedOnboardingRecordId("");
@@ -7426,12 +7541,10 @@ function App() {
     }
 
     const companyFolderId = extractGoogleResourceId(folderIdInput);
-    const auditFormsFolderId = extractGoogleResourceId(auditFormsFolderInput);
+    const isoFolderIds = buildWorkspaceFolderPayload(isoFolderInputSnapshot);
+    const { auditFormsFolderId, evidenceFolderId, exportsFolderId, managementNotesFolderId, setupFolderId, recordsFolderId } =
+      isoFolderIds;
     const masterSheetId = extractGoogleResourceId(masterSheetInput);
-    const evidenceFolderId = extractGoogleResourceId(evidenceFolderInput);
-    const healthSafetyFolderId = extractGoogleResourceId(healthSafetyFolderInput);
-    const exportsFolderId = extractGoogleResourceId(exportsFolderInput);
-    const adminNotesFolderId = extractGoogleResourceId(adminNotesFolderInput);
     const existingFolder = folders.find((folder) => folder.id === companyFolderId);
 
     if (!companyFolderId) {
@@ -7464,17 +7577,19 @@ function App() {
           createdTime: companyFolder.createdTime || "",
         },
         checks: {
+          setupFolder: Boolean(setupFolderId),
           auditFormsFolder: Boolean(auditFormsFolderId),
-          masterDataFolder: true,
+          recordsFolder: Boolean(recordsFolderId),
           masterSheet: true,
           evidenceFolder: Boolean(evidenceFolderId),
           exportsFolder: Boolean(exportsFolderId),
-          adminNotesFolder: Boolean(adminNotesFolderId),
+          managementNotesFolder: Boolean(managementNotesFolderId),
         },
         auditFormsFolder: auditFormsPayload
           ? { id: auditFormsPayload.folder.id, name: auditFormsPayload.folder.name }
           : null,
-        masterDataFolder: { id: masterSheetId, name: "Manual master sheet link" },
+        setupFolder: setupFolderId ? { id: setupFolderId, name: "01 Company Setup" } : null,
+        recordsFolder: recordsFolderId ? { id: recordsFolderId, name: "03 Company Records" } : null,
         masterSheet: {
           id: masterSheetPayload.sheetId,
           name: masterSheetPayload.sheetName,
@@ -7485,15 +7600,16 @@ function App() {
         recommendedItems: [
           ...(!auditFormsFolderId ? ["Audit forms folder link"] : []),
           ...(!evidenceFolderId ? ["Evidence folder link"] : []),
-          ...(!exportsFolderId ? ["Exports folder link"] : []),
-          ...(!adminNotesFolderId ? ["Admin notes folder link"] : []),
+          ...(!exportsFolderId ? ["05 Exports folder"] : []),
+          ...(!managementNotesFolderId ? ["06 Management Notes folder"] : []),
         ],
         missingItems: [
-          ...(!auditFormsFolderId ? ["Audit forms folder link"] : []),
-          ...(!evidenceFolderId ? ["Evidence folder link"] : []),
-          ...(!exportsFolderId ? ["Exports folder link"] : []),
-          ...(!adminNotesFolderId ? ["Admin notes folder link"] : []),
+          ...(!auditFormsFolderId ? ["02 Audit Forms folder"] : []),
+          ...(!evidenceFolderId ? ["04 Evidence folder"] : []),
+          ...(!exportsFolderId ? ["05 Exports folder"] : []),
+          ...(!managementNotesFolderId ? ["06 Management Notes folder"] : []),
         ],
+        isoFolders: isoFolderIds,
       };
 
       setFolderInspection(inspection);
@@ -7518,12 +7634,9 @@ function App() {
       });
       setSelectedFolderId(nextFolder.id);
       setFolderIdInput(companyFolderId);
-      setAuditFormsFolderInput(auditFormsFolderId);
+      setAuditFormsFolderInput(folderIdToDriveInput(auditFormsFolderId));
       setMasterSheetInput(masterSheetId);
-      setEvidenceFolderInput(evidenceFolderId);
-      setHealthSafetyFolderInput(healthSafetyFolderId);
-      setExportsFolderInput(exportsFolderId);
-      setAdminNotesFolderInput(adminNotesFolderId);
+      applyIsoFolderIdsToInputs(isoFolderIds, isoFolderInputSnapshot, isoFolderInputSetters);
       setSyncState("Linked");
       setWorkspaceValidation(null);
       pushToast(
@@ -8021,10 +8134,11 @@ function App() {
     setFolderIdInput("");
     setAuditFormsFolderInput("");
     setMasterSheetInput("");
+    setSetupFolderInput("");
+    setRecordsFolderInput("");
     setEvidenceFolderInput("");
-    setHealthSafetyFolderInput("");
     setExportsFolderInput("");
-    setAdminNotesFolderInput("");
+    setManagementNotesFolderInput("");
     setSelectedOnboardingRecordId("");
     setSyncState("Onboarding new company");
     pushToast(
@@ -10500,10 +10614,11 @@ function App() {
                 folderIdInput={folderIdInput}
                 auditFormsFolderInput={auditFormsFolderInput}
                 masterSheetInput={masterSheetInput}
+                setupFolderInput={setupFolderInput}
+                recordsFolderInput={recordsFolderInput}
                 evidenceFolderInput={evidenceFolderInput}
-                healthSafetyFolderInput={healthSafetyFolderInput}
                 exportsFolderInput={exportsFolderInput}
-                adminNotesFolderInput={adminNotesFolderInput}
+                managementNotesFolderInput={managementNotesFolderInput}
                 syncState={syncState}
                 backendConfigured={backendConfigured}
                 sharedDriveId={sharedDriveId}
@@ -10543,10 +10658,11 @@ function App() {
                 onFolderIdChange={setFolderIdInput}
                 onAuditFormsFolderChange={setAuditFormsFolderInput}
                 onMasterSheetChange={setMasterSheetInput}
+                onSetupFolderChange={setSetupFolderInput}
+                onRecordsFolderChange={setRecordsFolderInput}
                 onEvidenceFolderChange={setEvidenceFolderInput}
-                onHealthSafetyFolderChange={setHealthSafetyFolderInput}
                 onExportsFolderChange={setExportsFolderInput}
-                onAdminNotesFolderChange={setAdminNotesFolderInput}
+                onManagementNotesFolderChange={setManagementNotesFolderInput}
                 onScheduleNameChange={setScheduleNameInput}
                 onScheduleAreaChange={setScheduleAreaInput}
                 onScheduleOwnerChange={setScheduleOwnerInput}

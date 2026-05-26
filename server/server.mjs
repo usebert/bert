@@ -2064,6 +2064,88 @@ async function createBlankSpreadsheet(auth, name, parentId) {
   return res.data;
 }
 
+const ISO_READINESS_FOLDERS = [
+  { key: "setupFolderId", checkKey: "setupFolder", name: "01 Company Setup" },
+  { key: "auditFormsFolderId", checkKey: "auditFormsFolder", name: "02 Audit Forms" },
+  { key: "recordsFolderId", checkKey: "recordsFolder", name: "03 Company Records" },
+  { key: "evidenceFolderId", checkKey: "evidenceFolder", name: "04 Evidence" },
+  { key: "exportsFolderId", checkKey: "exportsFolder", name: "05 Exports" },
+  { key: "managementNotesFolderId", checkKey: "managementNotesFolder", name: "06 Management Notes" },
+];
+
+/** Legacy Drive folder names (pre–ISO readiness) matched case-insensitively; new folders use exact ISO names. */
+const ISO_FOLDER_LEGACY_ALIASES = {
+  setupFolderId: ["master data sheet", "company master sheet", "master sheet"],
+  auditFormsFolderId: ["audit forms", "audits", "audit form folder"],
+  recordsFolderId: ["company records"],
+  evidenceFolderId: ["evidence", "evidence folder"],
+  exportsFolderId: ["exports", "export folder"],
+  managementNotesFolderId: ["management notes", "admin notes", "notes"],
+};
+
+function normalizeDriveFolderName(value = "") {
+  return safeLower(value)
+    .replace(/^\d+\s*/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+async function listDriveChildren(auth, folderId) {
+  const drive = google.drive({ version: "v3", auth });
+  const response = await drive.files.list({
+    includeItemsFromAllDrives: true,
+    supportsAllDrives: true,
+    q: `'${folderId}' in parents and trashed = false`,
+    fields: "files(id,name,mimeType)",
+    pageSize: 200,
+  });
+  return response.data.files || [];
+}
+
+function resolveIsoFoldersFromChildren(children) {
+  const foldersByKey = {};
+  const folderChildren = children.filter((file) => file.mimeType === "application/vnd.google-apps.folder");
+  const usedFolderIds = new Set();
+  for (const folderSpec of ISO_READINESS_FOLDERS) {
+    const expectedNames = [
+      normalizeDriveFolderName(folderSpec.name),
+      ...(ISO_FOLDER_LEGACY_ALIASES[folderSpec.key] || []).map((name) => normalizeDriveFolderName(name)),
+    ];
+    const match =
+      folderChildren.find((file) => {
+        if (usedFolderIds.has(file.id)) {
+          return false;
+        }
+        return expectedNames.includes(normalizeDriveFolderName(file.name));
+      }) || null;
+    if (match?.id) {
+      usedFolderIds.add(match.id);
+    }
+    foldersByKey[folderSpec.key] = match;
+  }
+  return foldersByKey;
+}
+
+async function ensureIsoReadinessFolders(auth, companyFolderId) {
+  const companyFolder = await getDriveFile(auth, companyFolderId);
+  if (companyFolder.mimeType !== "application/vnd.google-apps.folder") {
+    throw new Error("The company folder ID is missing or invalid.");
+  }
+  const children = await listDriveChildren(auth, companyFolderId);
+  const existingByKey = resolveIsoFoldersFromChildren(children);
+  const ensured = {};
+  for (const folderSpec of ISO_READINESS_FOLDERS) {
+    const existing = existingByKey[folderSpec.key];
+    if (existing?.id) {
+      ensured[folderSpec.key] = existing.id;
+      continue;
+    }
+    const created = await createDriveFolder(auth, folderSpec.name, companyFolderId);
+    ensured[folderSpec.key] = created.id;
+  }
+  return ensured;
+}
+
 async function provisionNewCompanyWorkspace(
   auth,
   { companyName, adminEmail, adminFullName, password },
@@ -2090,12 +2172,8 @@ async function provisionNewCompanyWorkspace(
   if (typeof onProvisionProgress === "function") {
     await onProvisionProgress({ provisionDriveFolderId: root.id });
   }
-  const auditForms = await createDriveFolder(auth, "02 Audit Forms", root.id);
-  const masterData = await createDriveFolder(auth, "03 Master Data Sheet", root.id);
-  await createDriveFolder(auth, "04 Evidence", root.id);
-  await createDriveFolder(auth, "05 Exports", root.id);
-  await createDriveFolder(auth, "06 Admin Notes", root.id);
-  const masterSheet = await createBlankSpreadsheet(auth, "Company Master Sheet", masterData.id);
+  const isoFolders = await ensureIsoReadinessFolders(auth, root.id);
+  const masterSheet = await createBlankSpreadsheet(auth, "Company Master Sheet", isoFolders.setupFolderId);
   console.log("[provision] milestone", { step: "master_sheet_created", spreadsheetId: masterSheet.id });
   if (typeof onProvisionProgress === "function") {
     await onProvisionProgress({ provisionMasterSheetId: masterSheet.id });
@@ -2124,6 +2202,7 @@ async function provisionNewCompanyWorkspace(
   await updateConfig(auth, masterSheet.id, {
     ...(await getConfig(auth, masterSheet.id)),
     [authKey]: hashPassword(password),
+    ...isoFolders,
   });
   console.log("[provision] new_company_workspace done", {
     companyFolderId: root.id,
@@ -2133,8 +2212,7 @@ async function provisionNewCompanyWorkspace(
     companyFolderId: root.id,
     companyFolderName: root.name,
     masterSheetId: masterSheet.id,
-    auditFormsFolderId: auditForms.id,
-    masterDataFolderId: masterData.id,
+    ...isoFolders,
   };
 }
 
@@ -2272,60 +2350,23 @@ async function inspectCompanyFolder(auth, folderId) {
     throw new Error("The provided Google Drive ID is not a folder.");
   }
 
-  const childrenResponse = await drive.files.list({
-    includeItemsFromAllDrives: true,
-    supportsAllDrives: true,
-    q: `'${folderId}' in parents and trashed = false`,
-    fields: "files(id,name,mimeType)",
-    pageSize: 200,
-  });
-
-  const children = childrenResponse.data.files || [];
-  const normalizeFolderName = (value = "") =>
-    safeLower(value)
-      .replace(/^\d+\s*/g, "")
-      .replace(/[^a-z0-9]+/g, " ")
-      .trim();
-
-  const findNamedFolder = (...names) => {
-    const expected = names.map((name) => normalizeFolderName(name));
-    return (
-      children.find(
-        (file) =>
-          file.mimeType === "application/vnd.google-apps.folder" &&
-          expected.includes(normalizeFolderName(file.name)),
-      ) || null
-    );
-  };
-
-  const auditFormsFolder = findNamedFolder("02 Audit Forms", "Audit Forms", "Audits", "Audit Form Folder");
-  const masterDataFolder = findNamedFolder("03 Master Data Sheet", "Master Data Sheet", "Company Master Sheet", "Master Sheet");
-  const evidenceFolder = findNamedFolder("04 Evidence", "Evidence", "Evidence Folder");
-  const exportsFolder = findNamedFolder("05 Exports", "Exports", "Export Folder");
-  const adminNotesFolder = findNamedFolder("06 Admin Notes", "Admin Notes", "Notes");
+  const children = await listDriveChildren(auth, folderId);
+  const isoFoldersByKey = resolveIsoFoldersFromChildren(children);
+  const auditFormsFolder = isoFoldersByKey.auditFormsFolderId;
+  const setupFolder = isoFoldersByKey.setupFolderId;
+  const recordsFolder = isoFoldersByKey.recordsFolderId;
+  const evidenceFolder = isoFoldersByKey.evidenceFolderId;
+  const exportsFolder = isoFoldersByKey.exportsFolderId;
+  const managementNotesFolder = isoFoldersByKey.managementNotesFolderId;
 
   let auditFolderContents = [];
   if (auditFormsFolder) {
-    const response = await drive.files.list({
-      includeItemsFromAllDrives: true,
-      supportsAllDrives: true,
-      q: `'${auditFormsFolder.id}' in parents and trashed = false`,
-      fields: "files(id,name,mimeType)",
-      pageSize: 200,
-    });
-    auditFolderContents = response.data.files || [];
+    auditFolderContents = await listDriveChildren(auth, auditFormsFolder.id);
   }
 
-  let masterDataContents = [];
-  if (masterDataFolder) {
-    const response = await drive.files.list({
-      includeItemsFromAllDrives: true,
-      supportsAllDrives: true,
-      q: `'${masterDataFolder.id}' in parents and trashed = false`,
-      fields: "files(id,name,mimeType)",
-      pageSize: 200,
-    });
-    masterDataContents = response.data.files || [];
+  let setupFolderContents = [];
+  if (setupFolder) {
+    setupFolderContents = await listDriveChildren(auth, setupFolder.id);
   }
 
   const auditForms = auditFolderContents.filter(
@@ -2333,7 +2374,7 @@ async function inspectCompanyFolder(auth, folderId) {
   );
 
   const masterSheet =
-    masterDataContents.find(
+    setupFolderContents.find(
       (file) => file.mimeType === "application/vnd.google-apps.spreadsheet",
     ) ||
     children.find(
@@ -2362,18 +2403,22 @@ async function inspectCompanyFolder(auth, folderId) {
       createdTime: folder.createdTime || "",
     },
     checks: {
+      setupFolder: Boolean(setupFolder),
       auditFormsFolder: Boolean(auditFormsFolder),
-      masterDataFolder: Boolean(masterDataFolder),
+      recordsFolder: Boolean(recordsFolder),
       masterSheet: Boolean(masterSheet),
       evidenceFolder: Boolean(evidenceFolder),
       exportsFolder: Boolean(exportsFolder),
-      adminNotesFolder: Boolean(adminNotesFolder),
+      managementNotesFolder: Boolean(managementNotesFolder),
     },
     auditFormsFolder: auditFormsFolder
       ? { id: auditFormsFolder.id, name: auditFormsFolder.name }
       : null,
-    masterDataFolder: masterDataFolder
-      ? { id: masterDataFolder.id, name: masterDataFolder.name }
+    setupFolder: setupFolder
+      ? { id: setupFolder.id, name: setupFolder.name }
+      : null,
+    recordsFolder: recordsFolder
+      ? { id: recordsFolder.id, name: recordsFolder.name }
       : null,
     masterSheet: masterSheet
       ? {
@@ -2388,20 +2433,25 @@ async function inspectCompanyFolder(auth, folderId) {
     })),
     blockingItems: [...(!masterSheet ? ["Company Master Sheet"] : [])],
     recommendedItems: [
+      ...(!setupFolder ? ["01 Company Setup folder"] : []),
       ...(!auditFormsFolder ? ["02 Audit Forms folder"] : []),
-      ...(!masterDataFolder && masterSheet ? ["03 Master Data Sheet folder"] : []),
+      ...(!recordsFolder ? ["03 Company Records folder"] : []),
       ...(!evidenceFolder ? ["04 Evidence folder"] : []),
       ...(!exportsFolder ? ["05 Exports folder"] : []),
-      ...(!adminNotesFolder ? ["06 Admin Notes folder"] : []),
+      ...(!managementNotesFolder ? ["06 Management Notes folder"] : []),
     ],
     missingItems: [
       ...(!masterSheet ? ["Company Master Sheet"] : []),
+      ...(!setupFolder ? ["01 Company Setup folder"] : []),
       ...(!auditFormsFolder ? ["02 Audit Forms folder"] : []),
-      ...(!masterDataFolder && masterSheet ? ["03 Master Data Sheet folder"] : []),
+      ...(!recordsFolder ? ["03 Company Records folder"] : []),
       ...(!evidenceFolder ? ["04 Evidence folder"] : []),
       ...(!exportsFolder ? ["05 Exports folder"] : []),
-      ...(!adminNotesFolder ? ["06 Admin Notes folder"] : []),
+      ...(!managementNotesFolder ? ["06 Management Notes folder"] : []),
     ],
+    isoFolders: Object.fromEntries(
+      ISO_READINESS_FOLDERS.map((folderSpec) => [folderSpec.key, isoFoldersByKey[folderSpec.key]?.id || ""]),
+    ),
   };
 }
 
@@ -3301,7 +3351,16 @@ async function appendEvidenceRecords(auth, spreadsheetId, companyFolderId, evide
 }
 
 async function validateWorkspace(auth, input) {
-  const { companyFolderId, sheetId, auditFormsFolderId, evidenceFolderId, exportsFolderId, adminNotesFolderId } = input;
+  const {
+    companyFolderId,
+    sheetId,
+    setupFolderId,
+    auditFormsFolderId,
+    recordsFolderId,
+    evidenceFolderId,
+    exportsFolderId,
+    managementNotesFolderId,
+  } = input;
   const validation = {
     ok: false,
     status: "Broken",
@@ -3311,10 +3370,12 @@ async function validateWorkspace(auth, input) {
     lastRepairedAt: "",
     folders: {
       companyFolder: false,
+      setupFolder: false,
       auditFormsFolder: false,
+      recordsFolder: false,
       evidenceFolder: false,
       exportsFolder: false,
-      adminNotesFolder: false,
+      managementNotesFolder: false,
     },
     tabs: {},
     missingTabs: [],
@@ -3327,10 +3388,12 @@ async function validateWorkspace(auth, input) {
 
   const folderChecks = [
     ["companyFolder", companyFolderId, "Company folder ID is missing or invalid.", true],
+    ["setupFolder", setupFolderId, "The 01 Company Setup folder is missing or invalid.", false],
     ["auditFormsFolder", auditFormsFolderId, "The audit forms folder is missing or invalid.", false],
+    ["recordsFolder", recordsFolderId, "The company records folder is missing or invalid.", false],
     ["evidenceFolder", evidenceFolderId, "The evidence folder is missing or invalid.", false],
     ["exportsFolder", exportsFolderId, "The exports folder is missing or invalid.", false],
-    ["adminNotesFolder", adminNotesFolderId, "The admin notes folder is missing or invalid.", false],
+    ["managementNotesFolder", managementNotesFolderId, "The management notes folder is missing or invalid.", false],
   ];
 
   for (const [key, id, message, blocking] of folderChecks) {
@@ -4038,7 +4101,6 @@ app.post("/api/google-sheet-by-id/:sheetId/evidence", async (req, res) => {
   }
 
   const companyFolderId = String(req.body?.companyFolderId || "").trim();
-  const evidenceFolderId = String(req.body?.evidenceFolderId || "").trim();
   const evidence = toObjectArray(req.body?.evidence);
 
   if (!companyFolderId) {
@@ -4049,6 +4111,8 @@ app.post("/api/google-sheet-by-id/:sheetId/evidence", async (req, res) => {
   }
 
   try {
+    const config = await getConfig(authed, req.params.sheetId);
+    const evidenceFolderId = String(req.body?.evidenceFolderId || config.evidenceFolderId || "").trim();
     const payload = await appendEvidenceRecords(authed, req.params.sheetId, companyFolderId, evidence, evidenceFolderId);
     return res.json(payload);
   } catch (error) {
@@ -4163,7 +4227,6 @@ app.post("/api/google-sheet-by-id/:sheetId/audit-bundle", async (req, res) => {
   }
 
   const companyFolderId = String(req.body?.companyFolderId || "").trim();
-  const evidenceFolderId = String(req.body?.evidenceFolderId || "").trim();
 
   if (!companyFolderId) {
     return res.status(400).json({
@@ -4173,6 +4236,8 @@ app.post("/api/google-sheet-by-id/:sheetId/audit-bundle", async (req, res) => {
   }
 
   try {
+    const config = await getConfig(authed, req.params.sheetId);
+    const evidenceFolderId = String(req.body?.evidenceFolderId || config.evidenceFolderId || "").trim();
     const results = await appendRowObjects(authed, req.params.sheetId, "AuditResults", toObjectArray(req.body?.results));
     const findings = await appendRowObjects(authed, req.params.sheetId, "AuditFindings", toObjectArray(req.body?.findings));
     const evidence = await appendEvidenceRecords(authed, req.params.sheetId, companyFolderId, toObjectArray(req.body?.evidence), evidenceFolderId);
@@ -4229,13 +4294,16 @@ app.post("/api/google-sheet-by-id/:sheetId/validate", async (req, res) => {
   }
 
   try {
+    const config = await getConfig(authed, req.params.sheetId);
     const payload = await validateWorkspace(authed, {
       companyFolderId: String(req.body?.companyFolderId || "").trim(),
       sheetId: req.params.sheetId,
-      auditFormsFolderId: String(req.body?.auditFormsFolderId || "").trim(),
-      evidenceFolderId: String(req.body?.evidenceFolderId || "").trim(),
-      exportsFolderId: String(req.body?.exportsFolderId || "").trim(),
-      adminNotesFolderId: String(req.body?.adminNotesFolderId || "").trim(),
+      setupFolderId: String(req.body?.setupFolderId || config.setupFolderId || "").trim(),
+      auditFormsFolderId: String(req.body?.auditFormsFolderId || config.auditFormsFolderId || "").trim(),
+      recordsFolderId: String(req.body?.recordsFolderId || config.recordsFolderId || "").trim(),
+      evidenceFolderId: String(req.body?.evidenceFolderId || config.evidenceFolderId || "").trim(),
+      exportsFolderId: String(req.body?.exportsFolderId || config.exportsFolderId || "").trim(),
+      managementNotesFolderId: String(req.body?.managementNotesFolderId || config.managementNotesFolderId || "").trim(),
     });
     return res.json(payload);
   } catch (error) {
@@ -4257,10 +4325,22 @@ app.post("/api/google-sheet-by-id/:sheetId/repair", async (req, res) => {
   }
 
   try {
+    const companyFolderId = String(req.body?.companyFolderId || "").trim();
+    if (!companyFolderId) {
+      return res.status(400).json({
+        ok: false,
+        error: "Company folder ID is required before fixing the workspace.",
+      });
+    }
+    const isoFolders = await ensureIsoReadinessFolders(authed, companyFolderId);
     const repair = await ensureTabsAndColumns(authed, req.params.sheetId, {
       createBackup: true,
-      companyId: String(req.body?.companyFolderId || "").trim(),
+      companyId: companyFolderId,
       companyName: String(req.body?.companyName || "").trim(),
+    });
+    await updateConfig(authed, req.params.sheetId, {
+      ...(await getConfig(authed, req.params.sheetId)),
+      ...isoFolders,
     });
     await ensureCompanyMappingTabs(
       {
@@ -4274,14 +4354,16 @@ app.post("/api/google-sheet-by-id/:sheetId/repair", async (req, res) => {
     );
     await ensureColumns(authed, req.params.sheetId, AREAS_TAB, AREAS_COLUMNS);
     const validation = await validateWorkspace(authed, {
-      companyFolderId: String(req.body?.companyFolderId || "").trim(),
+      companyFolderId,
       sheetId: req.params.sheetId,
-      auditFormsFolderId: String(req.body?.auditFormsFolderId || "").trim(),
-      evidenceFolderId: String(req.body?.evidenceFolderId || "").trim(),
-      exportsFolderId: String(req.body?.exportsFolderId || "").trim(),
-      adminNotesFolderId: String(req.body?.adminNotesFolderId || "").trim(),
+      setupFolderId: isoFolders.setupFolderId,
+      auditFormsFolderId: isoFolders.auditFormsFolderId,
+      recordsFolderId: isoFolders.recordsFolderId,
+      evidenceFolderId: isoFolders.evidenceFolderId,
+      exportsFolderId: isoFolders.exportsFolderId,
+      managementNotesFolderId: isoFolders.managementNotesFolderId,
     });
-    return res.json({ ok: true, repair, validation });
+    return res.json({ ok: true, repair, validation, isoFolders });
   } catch (error) {
     return res.status(500).json({
       ok: false,

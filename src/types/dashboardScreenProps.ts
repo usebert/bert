@@ -68,15 +68,18 @@ export type WorkspaceValidation = {
   currentSchemaVersion: string;
   folders: {
     companyFolder: boolean;
+    setupFolder: boolean;
     auditFormsFolder: boolean;
+    recordsFolder: boolean;
     evidenceFolder: boolean;
     exportsFolder: boolean;
-    adminNotesFolder: boolean;
+    managementNotesFolder: boolean;
   };
   tabs: Record<string, boolean>;
   missingTabs: string[];
   missingColumns: Record<string, string[]>;
   warnings: string[];
+  repairableIssues?: string[];
 };
 
 export type AuditorTaskDashboardProps = {

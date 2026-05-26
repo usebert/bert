@@ -389,9 +389,10 @@ export function AdminScreen({
   auditFormsFolderInput,
   masterSheetInput,
   evidenceFolderInput,
-  healthSafetyFolderInput,
+  setupFolderInput,
+  recordsFolderInput,
   exportsFolderInput,
-  adminNotesFolderInput,
+  managementNotesFolderInput,
   templateNameInput,
   templateQuestionInput,
   templateQuestionTypeInput,
@@ -425,9 +426,10 @@ export function AdminScreen({
   onAuditFormsFolderChange,
   onMasterSheetChange,
   onEvidenceFolderChange,
-  onHealthSafetyFolderChange,
+  onSetupFolderChange,
+  onRecordsFolderChange,
   onExportsFolderChange,
-  onAdminNotesFolderChange,
+  onManagementNotesFolderChange,
   onScheduleNameChange,
   onScheduleAreaChange,
   onScheduleOwnerChange,
@@ -1084,7 +1086,9 @@ export function AdminScreen({
                       ? `Step 3: populate the app using ${selectedFolder.name}.`
                       : `${selectedFolder.name} is linked and the app is live.`}
             </p>
-            {selectedFolder && <p className="mt-2 break-all text-xs text-slate-400">{selectedFolder.id}</p>}
+            {selectedFolder && currentUser.role === "Master" ? (
+              <p className="mt-2 break-all text-xs text-slate-400">{selectedFolder.id}</p>
+            ) : null}
             {googleConnected && (
               <div className="mt-4 grid gap-3">
                 <div>
@@ -1133,13 +1137,20 @@ export function AdminScreen({
                     />
                   </div>
                   <div>
-                    <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-                      Health &amp; Safety folder
-                    </label>
+                    <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">01 Company Setup folder</label>
                     <input
-                      value={healthSafetyFolderInput}
-                      onChange={(event) => onHealthSafetyFolderChange(event.target.value)}
-                      placeholder="Recommended for incident reporting"
+                      value={setupFolderInput}
+                      onChange={(event) => onSetupFolderChange(event.target.value)}
+                      placeholder="Optional (auto-created by Fix workspace)"
+                      className="h-12 w-full rounded-2xl border border-white/10 bg-slate-950/20 px-4 text-sm text-white outline-none transition focus:border-white/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">03 Company Records folder</label>
+                    <input
+                      value={recordsFolderInput}
+                      onChange={(event) => onRecordsFolderChange(event.target.value)}
+                      placeholder="Optional (auto-created by Fix workspace)"
                       className="h-12 w-full rounded-2xl border border-white/10 bg-slate-950/20 px-4 text-sm text-white outline-none transition focus:border-white/30"
                     />
                   </div>
@@ -1157,12 +1168,12 @@ export function AdminScreen({
                 </div>
                 <div>
                   <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-                    Admin notes folder
+                    06 Management Notes folder
                   </label>
                   <input
-                    value={adminNotesFolderInput}
-                    onChange={(event) => onAdminNotesFolderChange(event.target.value)}
-                    placeholder="Optional"
+                    value={managementNotesFolderInput}
+                    onChange={(event) => onManagementNotesFolderChange(event.target.value)}
+                    placeholder="Optional (auto-created by Fix workspace)"
                     className="h-12 w-full rounded-2xl border border-white/10 bg-slate-950/20 px-4 text-sm text-white outline-none transition focus:border-white/30"
                   />
                 </div>
@@ -1282,15 +1293,19 @@ export function AdminScreen({
                       />
                       <FolderCheckRow
                         label={
-                          folderInspection.checks.masterDataFolder || !folderInspection.checks.masterSheet
-                            ? "Master sheet link"
-                            : "Master sheet link (recommended)"
+                          folderInspection.checks.setupFolder || !folderInspection.checks.masterSheet
+                            ? "01 Company Setup folder"
+                            : "01 Company Setup folder (recommended)"
                         }
-                        ok={folderInspection.checks.masterDataFolder || folderInspection.checks.masterSheet}
+                        ok={folderInspection.checks.setupFolder || folderInspection.checks.masterSheet}
                       />
+                      <FolderCheckRow label="03 Company Records folder (recommended)" ok={folderInspection.checks.recordsFolder} />
                       <FolderCheckRow label="Evidence folder (recommended)" ok={folderInspection.checks.evidenceFolder} />
                       <FolderCheckRow label="Exports folder (recommended)" ok={folderInspection.checks.exportsFolder} />
-                      <FolderCheckRow label="Admin notes folder (recommended)" ok={folderInspection.checks.adminNotesFolder} />
+                      <FolderCheckRow
+                        label="06 Management Notes folder (recommended)"
+                        ok={folderInspection.checks.managementNotesFolder}
+                      />
                     </div>
 
                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -1828,12 +1843,23 @@ export function AdminScreen({
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <FolderCheckRow label="Company folder" ok={workspaceValidation.folders.companyFolder} tone="light" />
-              <FolderCheckRow label="Audit forms folder" ok={workspaceValidation.folders.auditFormsFolder} tone="light" />
-              <FolderCheckRow label="Evidence folder" ok={workspaceValidation.folders.evidenceFolder} tone="light" />
-              <FolderCheckRow label="Exports folder" ok={workspaceValidation.folders.exportsFolder} tone="light" />
-              <FolderCheckRow label="Admin notes folder" ok={workspaceValidation.folders.adminNotesFolder} tone="light" />
+              <FolderCheckRow label="01 Company Setup" ok={workspaceValidation.folders.setupFolder} tone="light" />
+              <FolderCheckRow label="02 Audit Forms" ok={workspaceValidation.folders.auditFormsFolder} tone="light" />
+              <FolderCheckRow label="03 Company Records" ok={workspaceValidation.folders.recordsFolder} tone="light" />
+              <FolderCheckRow label="04 Evidence" ok={workspaceValidation.folders.evidenceFolder} tone="light" />
+              <FolderCheckRow label="05 Exports" ok={workspaceValidation.folders.exportsFolder} tone="light" />
+              <FolderCheckRow label="06 Management Notes" ok={workspaceValidation.folders.managementNotesFolder} tone="light" />
               <FolderCheckRow label="Actions tab" ok={workspaceValidation.tabs.Actions} tone="light" />
             </div>
+            {(workspaceValidation.repairableIssues?.length ?? 0) > 0 && !workspaceValidation.ok ? (
+              <div className="rounded-[1.5rem] border border-amber-200 bg-amber-50 p-4">
+                <p className="text-sm font-semibold text-amber-900">Needs attention</p>
+                <p className="mt-1 text-sm text-amber-800">
+                  Some ISO readiness folders or sheet items are missing. Use Fix workspace to create folders and repair the
+                  master sheet safely.
+                </p>
+              </div>
+            ) : null}
             {workspaceValidation.missingTabs.length > 0 && (
               <div className="rounded-[1.5rem] border border-rose-200 bg-rose-50 p-4">
                 <p className="text-sm font-semibold text-rose-900">Missing tabs</p>

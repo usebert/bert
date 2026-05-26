@@ -58,10 +58,16 @@ export const googleSheetsService = {
       findings,
     });
   },
-  appendEvidence<T extends JsonResponse>(sheetId: string, companyFolderId: string, evidence: unknown[]) {
+  appendEvidence<T extends JsonResponse>(
+    sheetId: string,
+    companyFolderId: string,
+    evidence: unknown[],
+    evidenceFolderId = "",
+  ) {
     return postJson<T>(`/api/google-sheet-by-id/${encodeURIComponent(sheetId)}/evidence`, {
       companyFolderId,
       evidence,
+      evidenceFolderId,
     });
   },
   appendSyncLog<T extends JsonResponse>(sheetId: string, companyFolderId: string, entries: unknown[]) {

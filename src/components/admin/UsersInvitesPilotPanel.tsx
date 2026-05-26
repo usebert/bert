@@ -233,6 +233,33 @@ function WorkspaceHealthSections({
                 {workspaceValidation.currentSchemaVersion}
               </p>
             </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {(
+                [
+                  ["01 Company Setup", workspaceValidation.folders.setupFolder],
+                  ["02 Audit Forms", workspaceValidation.folders.auditFormsFolder],
+                  ["03 Company Records", workspaceValidation.folders.recordsFolder],
+                  ["04 Evidence", workspaceValidation.folders.evidenceFolder],
+                  ["05 Exports", workspaceValidation.folders.exportsFolder],
+                  ["06 Management Notes", workspaceValidation.folders.managementNotesFolder],
+                ] as const
+              ).map(([label, ok]) => (
+                <div
+                  key={label}
+                  className={[
+                    "rounded-xl border px-3 py-2 text-sm font-semibold",
+                    ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800",
+                  ].join(" ")}
+                >
+                  {label}: {ok ? "Ready" : "Missing"}
+                </div>
+              ))}
+            </div>
+            {(workspaceValidation.repairableIssues?.length ?? 0) > 0 && !workspaceValidation.ok ? (
+              <p className="text-sm text-amber-800">
+                Some folders or sheet items need repair. Use Fix workspace to add missing ISO folders safely.
+              </p>
+            ) : null}
           </div>
         ) : (
           <div className="mt-3">

@@ -93,6 +93,16 @@ API **`BERT_ALLOWED_ORIGINS`** must include every document origin the app uses:
 
 After env change, redeploy API and confirm credentialed `POST /api/auth/master/login` from SPA and from the APK WebView.
 
+## ISO readiness folder structure
+
+See **`docs/iso-readiness-folder-structure.md`**.
+
+- [ ] New company provision creates **01–06** folders with exact names (case-insensitive match on existing; no duplicates)
+- [ ] Company master sheet **Config** stores `setupFolderId`, `auditFormsFolderId`, `recordsFolderId`, `evidenceFolderId`, `exportsFolderId`, `managementNotesFolderId`
+- [ ] **Check workspace** shows six folder statuses; **Fix workspace** creates missing folders and refreshes Config IDs
+- [ ] Evidence uploads land in **04 Evidence**; report rows use **05 Exports** links where configured
+- [ ] **Auditor / tablet**: no folder setup UI; **Company Admin**: folder health without raw Drive IDs
+
 ## Google persistence check
 
 - [ ] Connect Google from Master Initial Setup; reload SPA — session still connected

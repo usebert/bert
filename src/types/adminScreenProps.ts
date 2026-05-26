@@ -90,15 +90,17 @@ export type FolderInspection = {
     createdTime: string;
   };
   checks: {
+    setupFolder: boolean;
     auditFormsFolder: boolean;
-    masterDataFolder: boolean;
+    recordsFolder: boolean;
     masterSheet: boolean;
     evidenceFolder: boolean;
     exportsFolder: boolean;
-    adminNotesFolder: boolean;
+    managementNotesFolder: boolean;
   };
   auditFormsFolder: { id: string; name: string } | null;
-  masterDataFolder: { id: string; name: string } | null;
+  setupFolder: { id: string; name: string } | null;
+  recordsFolder: { id: string; name: string } | null;
   masterSheet: { id: string; name: string; tabs: string[] } | null;
   auditForms: { id: string; name: string }[];
   blockingItems: string[];
@@ -179,10 +181,11 @@ export type AdminScreenProps = {
   folderIdInput: string;
   auditFormsFolderInput: string;
   masterSheetInput: string;
+  setupFolderInput: string;
+  recordsFolderInput: string;
   evidenceFolderInput: string;
-  healthSafetyFolderInput: string;
   exportsFolderInput: string;
-  adminNotesFolderInput: string;
+  managementNotesFolderInput: string;
   templateNameInput: string;
   templateQuestionInput: string;
   templateQuestionTypeInput: AuditQuestion["fieldType"];
@@ -215,10 +218,11 @@ export type AdminScreenProps = {
   onFolderIdChange: (value: string) => void;
   onAuditFormsFolderChange: (value: string) => void;
   onMasterSheetChange: (value: string) => void;
+  onSetupFolderChange: (value: string) => void;
+  onRecordsFolderChange: (value: string) => void;
   onEvidenceFolderChange: (value: string) => void;
-  onHealthSafetyFolderChange: (value: string) => void;
   onExportsFolderChange: (value: string) => void;
-  onAdminNotesFolderChange: (value: string) => void;
+  onManagementNotesFolderChange: (value: string) => void;
   onScheduleNameChange: (value: string) => void;
   onScheduleAreaChange: (value: string) => void;
   onScheduleOwnerChange: (value: string) => void;
