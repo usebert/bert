@@ -9,6 +9,7 @@
 
 export type RoutedScreen =
   | "dashboard"
+  | "godmodeHome"
   | "setup"
   | "companies"
   | "users"

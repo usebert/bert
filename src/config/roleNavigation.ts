@@ -27,7 +27,7 @@ export type PresentedNavItem = {
 };
 
 const MASTER_NAV: PresentedNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: "dashboard" },
+  { id: "godmodeHome", label: "Godmode", icon: "dashboard" },
   { id: "setup", label: "Platform Setup", icon: "spark" },
   { id: "companies", label: "Companies", icon: "clipboard", adminPilotFocus: "companies" },
   { id: "onboarding", label: "Company Onboarding", icon: "spark", adminPilotFocus: "companies" },
@@ -135,7 +135,7 @@ export function getMobileBottomNavForRole(role: Role): MobileNavEntry[] {
   if (bucket === "master" || bucket === "companyAdmin") {
     const tabIds: NavItemId[] =
       bucket === "master"
-        ? ["dashboard", "setup", "companies", "users"]
+        ? ["godmodeHome", "setup", "companies", "users"]
         : ["dashboard", "actions", "audits", "users"];
     const tabs = tabIds.flatMap((id) => {
       const item = primary.find((entry) => entry.id === id);
@@ -181,4 +181,8 @@ export function isMasterCompanyScopedScreen(screen: NavItemId): boolean {
 
 export function isPlatformSetupScreen(screen: NavItemId): boolean {
   return screen === "setup" || screen === "setupInitial";
+}
+
+export function isGodmodeLandingScreen(screen: NavItemId): boolean {
+  return screen === "godmodeHome";
 }

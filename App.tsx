@@ -71,6 +71,7 @@ import {
   LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE,
 } from "./src/utils/companyWorkspaceInvite";
 import { GodmodeCompanyContextSelector } from "./src/components/godmode/GodmodeCompanyContextSelector";
+import { GodmodeStartScreen } from "./src/screens/GodmodeStartScreen";
 import {
   assertGodmodeLiveCompanyWorkspace,
   filterSelectableGodmodeCompanyFolders,
@@ -3220,6 +3221,31 @@ function App() {
     [companySheetSync?.sheetId, masterSheetInput, folderInspection?.masterSheet?.id],
   );
 
+  const godmodeCompanyPickerRows = useMemo(
+    () =>
+      selectableGodmodeFolders.map((folder) => {
+        const masterSheetId =
+          folder.id === selectedFolderId
+            ? activeCompanyMasterSheetId || folder.responseSheetId || ""
+            : folder.responseSheetId || "";
+        const setupStatusLabel =
+          folder.onboardingVerified && folder.responseSheetVerified ? "Ready" : "Setup in progress";
+        return {
+          id: folder.id,
+          name: folder.name,
+          masterSheetId,
+          setupStatusLabel,
+        };
+      }),
+    [selectableGodmodeFolders, selectedFolderId, activeCompanyMasterSheetId],
+  );
+
+  const rememberedGodmodeFolderId = readGodmodeSelectedCompanyFolderId();
+  const rememberedGodmodeFolder = useMemo(
+    () => selectableGodmodeFolders.find((folder) => folder.id === rememberedGodmodeFolderId) ?? null,
+    [selectableGodmodeFolders, rememberedGodmodeFolderId],
+  );
+
   const masterGodmodeCompanyReady = useMemo(() => {
     if (currentUser?.role !== "Master") {
       return true;
@@ -4434,6 +4460,9 @@ function App() {
           setCurrentUser(masterUser);
           setAccountNameInput(masterUser.name);
           setAccountPhotoUrl(getStoredProfilePhoto(masterUser));
+          setSelectedFolderId("");
+          setSyncState("Not synced");
+          setFolderInspection(null);
           try {
             if (window.localStorage.getItem(masterCompanySetupSessionKey) === "1") {
               setGodCompanySetupSession(true);
@@ -4444,6 +4473,9 @@ function App() {
             setGodCompanySetupSession(false);
           }
           window.localStorage.setItem(userStorageKey, JSON.stringify(masterUser));
+          if (!isSetupInitialPath() && !isSetupPath()) {
+            setScreen(getHomeScreenForRole("Master"));
+          }
           return;
         }
       } catch {
@@ -4500,6 +4532,14 @@ function App() {
           setCurrentUser(matchedUser);
           setAccountNameInput(matchedUser.name);
           setAccountPhotoUrl(getStoredProfilePhoto(matchedUser));
+          if (matchedUser.role === "Master") {
+            setSelectedFolderId("");
+            setSyncState("Not synced");
+            setFolderInspection(null);
+            if (!isSetupInitialPath() && !isSetupPath()) {
+              setScreen(getHomeScreenForRole("Master"));
+            }
+          }
           try {
             if (matchedUser.role === "Master" && window.localStorage.getItem(masterCompanySetupSessionKey) === "1") {
               setGodCompanySetupSession(true);
@@ -5073,26 +5113,10 @@ function App() {
     const storedId = readGodmodeSelectedCompanyFolderId();
     const allowedIds = new Set(selectableGodmodeFolders.map((folder) => folder.id));
 
-    if (!storedId) {
-      if (selectedFolderId) {
-        setSelectedFolderId("");
-      }
-      return;
-    }
-
-    if (!allowedIds.has(storedId)) {
+    if (storedId && !allowedIds.has(storedId)) {
       clearGodmodeSelectedCompanyFolderId();
-      if (selectedFolderId) {
-        setSelectedFolderId("");
-      }
-      return;
     }
-
-    if (selectedFolderId !== storedId) {
-      setSelectedFolderId(storedId);
-      void inspectFolderById(storedId, { silent: true });
-    }
-  }, [currentUser?.role, selectableGodmodeFolders, selectedFolderId]);
+  }, [currentUser?.role, selectableGodmodeFolders]);
 
   useEffect(() => {
     if (!googleConnected || offlineMode) {
@@ -5635,6 +5659,11 @@ function App() {
       setAccountNameInput(match.name);
       setAccountPhotoUrl(getStoredProfilePhoto(match));
       window.localStorage.setItem(userStorageKey, JSON.stringify(match));
+      if (match.role === "Master") {
+        setSelectedFolderId("");
+        setSyncState("Not synced");
+        setFolderInspection(null);
+      }
       setScreen(
         isSetupInitialPath() && canAccessGodmodeInitialSetup(match.role)
           ? "setupInitial"
@@ -5897,6 +5926,11 @@ function App() {
     setAccountNameInput(user.name);
     setAccountPhotoUrl(getStoredProfilePhoto(user));
     window.localStorage.setItem(userStorageKey, JSON.stringify(user));
+    if (user.role === "Master") {
+      setSelectedFolderId("");
+      setSyncState("Not synced");
+      setFolderInspection(null);
+    }
     setScreen(getHomeScreenForRole(user.role));
     pushToast("Profile switched", `Now viewing as ${getRoleDisplayName(user.role)}.`, "success");
   };
@@ -7808,6 +7842,7 @@ function App() {
     if (!trimmedId) {
       if (currentUser?.role === "Master") {
         clearGodmodeSelectedCompanyFolderId();
+        setScreen("godmodeHome");
       }
       setSelectedFolderId("");
       setSyncState("Not synced");
@@ -9335,6 +9370,16 @@ function App() {
   }, [googleConnected]);
 
   useEffect(() => {
+    if (currentUser?.role === "Master" && screen === "dashboard") {
+      setScreen("godmodeHome");
+    }
+    if (
+      currentUser?.role === "Master" &&
+      !masterGodmodeCompanyReady &&
+      isMasterCompanyScopedScreen(screen as NavItemId)
+    ) {
+      setScreen("godmodeHome");
+    }
     if (currentUser && !canAccessControlScreen(currentUser.role) && screen === "admin") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
@@ -9422,7 +9467,7 @@ function App() {
     ) {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
-  }, [currentUser, screen, visibleNavItems, activeAudit, auditCompletionSummary]);
+  }, [currentUser, screen, visibleNavItems, activeAudit, auditCompletionSummary, masterGodmodeCompanyReady]);
 
   let inviteTokenFromUrl = "";
   try {
@@ -9932,6 +9977,10 @@ function App() {
                   </div>
                 ) : masterPlatformHeaderScope ? (
                   <p className="mt-0.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">All workspaces</p>
+                ) : currentUser.role === "Master" && selectedFolder ? (
+                  <p className="mt-0.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                    Currently working on: <span className="font-semibold text-slate-700 dark:text-slate-200">{selectedFolder.name}</span>
+                  </p>
                 ) : null}
               </div>
 
@@ -10185,6 +10234,29 @@ function App() {
                 onSelectFolder={(folderId) => void handleSelectFolder(folderId)}
                 onNewCompany={() => setScreen("onboarding")}
                 themeMode={themeMode}
+              />
+            ) : null}
+            {screen === "godmodeHome" && currentUser.role === "Master" && !godCompanySetupOnlyShell ? (
+              <GodmodeStartScreen
+                themeMode={themeMode}
+                companies={godmodeCompanyPickerRows}
+                selectableFolders={selectableGodmodeFolders}
+                rememberedFolderId={rememberedGodmodeFolderId}
+                rememberedFolderName={rememberedGodmodeFolder?.name || ""}
+                selectedFolderId={selectedFolderId}
+                selectedFolderName={selectedFolder?.name || ""}
+                companyContextReady={masterGodmodeCompanyReady}
+                onSelectCompany={(folderId) => void handleSelectFolder(folderId)}
+                onClearCompany={() => void handleSelectFolder("")}
+                onNavigate={(nextScreen) => setScreen(nextScreen)}
+                onOpenPlatformSetup={() => setScreen("setup")}
+                onOpenTabletSetup={() => {
+                  navigateToSetupInitial();
+                  setScreen("setupInitial");
+                }}
+                onOpenDiagnostics={() => setScreen("reports")}
+                onOpenOnboarding={() => setScreen("onboarding")}
+                onNewCompany={() => setScreen("onboarding")}
               />
             ) : null}
             {screen === "dashboard" &&

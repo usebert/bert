@@ -9,7 +9,7 @@ export type Role = "Master" | "Admin" | "Manager" | "Auditor";
 
 export type { NavItemId, RoutedScreen };
 
-export type HomeScreen = "dashboard";
+export type HomeScreen = "dashboard" | "godmodeHome";
 
 export interface RoleTaskPermissions {
   canManageUsers: boolean;
@@ -36,8 +36,8 @@ export function canAccessControlScreen(role: Role) {
   return role === "Admin";
 }
 
-export function getHomeScreenForRole(_role: Role): HomeScreen {
-  return "dashboard";
+export function getHomeScreenForRole(role: Role): HomeScreen {
+  return role === "Master" ? "godmodeHome" : "dashboard";
 }
 
 /** Platform operator / setup roles use the simplified paid-pilot menu. */
@@ -195,6 +195,7 @@ export function canRoleAccessNavItem(role: Role, itemId: NavItemId) {
   if (itemId === "admin") return canAccessWorkspaceNav(role);
   if (itemId === "settings") return canAccessPilotSettings(role);
   if (itemId === "dashboard") return true;
+  if (itemId === "godmodeHome") return role === "Master";
   if (itemId === "account") return true;
   if (itemId === "emailReminders") return canAccessEmailReminders(role);
   if (itemId === "schedules") {
