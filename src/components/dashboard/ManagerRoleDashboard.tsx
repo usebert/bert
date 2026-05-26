@@ -5,12 +5,15 @@ import { WhatHappensNextPanel } from "../WhatHappensNextPanel";
 import { getAuditTrafficStatus } from "../../utils/dashboardHealth";
 import { isOverdue } from "../../utils/managerDashboard";
 import { ManagerDashboard } from "./ManagerDashboard";
+import { QmsReadinessSummaryWidget } from "../qms/QmsReadinessSummaryWidget";
+import type { QmsReadinessSummary } from "../../types/qms";
 import { DashboardQuickActions, MetricTile, RoleDashboardShell } from "./RoleDashboardPrimitives";
 import { EmptyPanel } from "./DashboardPrimitives";
 
 type Props = ManagerDashboardProps & {
   workspaceName: string;
   teamCount: number;
+  qmsSummary?: QmsReadinessSummary | null;
   onNavigate: (screen: NavItemId) => void;
 };
 
@@ -28,7 +31,7 @@ function completedWithinDays(completedAt: string, days: number): boolean {
   return Date.now() - parsed <= days * 24 * 60 * 60 * 1000;
 }
 
-export function ManagerRoleDashboard({ workspaceName, teamCount, onNavigate, ...managerProps }: Props) {
+export function ManagerRoleDashboard({ workspaceName, teamCount, qmsSummary, onNavigate, ...managerProps }: Props) {
   const { assignedAudits, actions, history } = managerProps;
 
   const openChecks = useMemo(
@@ -78,9 +81,19 @@ export function ManagerRoleDashboard({ workspaceName, teamCount, onNavigate, ...
           />
         ) : null}
 
+        {qmsSummary ? (
+          <QmsReadinessSummaryWidget
+            summary={qmsSummary}
+            compact
+            onOpenHub={() => onNavigate("qmsReadiness")}
+            onNavigate={onNavigate}
+          />
+        ) : null}
+
         <DashboardQuickActions
           role="Manager"
           actions={[
+            { label: "Quality readiness", screen: "qmsReadiness", onClick: () => onNavigate("qmsReadiness") },
             { label: "Forms & Checks", screen: "audits", onClick: () => onNavigate("audits") },
             { label: "Reports", screen: "reports", onClick: () => onNavigate("reports") },
             { label: "Team", screen: "invites", onClick: () => onNavigate("invites") },

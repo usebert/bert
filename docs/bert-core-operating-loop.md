@@ -109,6 +109,10 @@ On submit (`applyAuditSubmission` in `App.tsx`):
 | `src/services/companyAreasService.ts` | Areas API |
 | `src/services/companyAuditMappingService.ts` | Mapping API |
 
+## QMS readiness (ISO 9001 support)
+
+Lightweight quality registers and a management-review preview sit alongside the loop above — they **do not** duplicate Actions or NCRs. See [qms-readiness.md](./qms-readiness.md).
+
 ## Schema version
 
 Current: **3.0.0** (`CURRENT_SCHEMA_VERSION` in `src/schema/companySchema.ts` and `server/server.mjs`).

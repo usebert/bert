@@ -25,6 +25,8 @@ import {
   usesPilotOperatorNav,
   canAccessReports,
   canAccessSchedulesScreen,
+  canAccessQmsReadinessFull,
+  canAccessQmsReadinessNav,
   canCompleteAuditAsAuditor,
   canEditLegalName,
   canRoleAccessNavItem,
@@ -108,6 +110,7 @@ import { NonConformanceScreen } from "./src/screens/NonConformanceScreen";
 import { ReportsScreen } from "./src/screens/ReportsScreen";
 import { SchedulesScreen } from "./src/screens/SchedulesScreen";
 import { DocumentTrainingScreen } from "./src/screens/DocumentTrainingScreen";
+import { QmsReadinessScreen } from "./src/screens/QmsReadinessScreen";
 import { EmailRemindersScreen } from "./src/screens/EmailRemindersScreen";
 import { GodmodeInitialSetupScreen } from "./src/screens/GodmodeInitialSetupScreen";
 import { PilotSetupScreen } from "./src/screens/PilotSetupScreen";
@@ -156,6 +159,8 @@ import type { CompanyReportUser, ReportItem, ReportSectionKey, ReportTemplateTyp
 import type { NonConformanceRecord } from "./src/types/nonConformanceScreenProps";
 import type { SyncQueueItem, SyncStatus } from "./src/types/sync";
 import type { AuditFindingRecord, ComplianceScheduleRow } from "./src/types/complianceLoop";
+import type { QMSDocument, QMSRisk, QMSTrainingRecord } from "./src/types/qms";
+import { buildQmsReadinessSummary } from "./src/utils/qmsReadiness";
 import {
   auditIsDueFromSchedules,
   computeDueHoursFromSchedule,
@@ -2539,6 +2544,9 @@ function readStoredWorkspaceState() {
       auditFindings?: AuditFindingRecord[];
       externalEmployees?: ExternalEmployee[];
       documentDistributions?: DocumentDistribution[];
+      qmsDocuments?: QMSDocument[];
+      qmsTraining?: QMSTrainingRecord[];
+      qmsRisks?: QMSRisk[];
     };
   } catch {
     return null;
@@ -2603,6 +2611,9 @@ function getWorkspaceBootstrap() {
       auditFindings: [] as AuditFindingRecord[],
       externalEmployees: [] as ExternalEmployee[],
       documentDistributions: [] as DocumentDistribution[],
+      qmsDocuments: [] as QMSDocument[],
+      qmsTraining: [] as QMSTrainingRecord[],
+      qmsRisks: [] as QMSRisk[],
     };
   }
 
@@ -2638,6 +2649,9 @@ function getWorkspaceBootstrap() {
     auditFindings: stored?.auditFindings ?? [],
     externalEmployees: stored?.externalEmployees ?? [],
     documentDistributions: stored?.documentDistributions ?? [],
+    qmsDocuments: stored?.qmsDocuments ?? [],
+    qmsTraining: stored?.qmsTraining ?? [],
+    qmsRisks: stored?.qmsRisks ?? [],
   };
 }
 
@@ -3021,6 +3035,9 @@ function App() {
   const [documentDistributions, setDocumentDistributions] = useState<DocumentDistribution[]>(
     storedWorkspaceState?.documentDistributions ?? [],
   );
+  const [qmsDocuments, setQmsDocuments] = useState<QMSDocument[]>(storedWorkspaceState?.qmsDocuments ?? []);
+  const [qmsTraining, setQmsTraining] = useState<QMSTrainingRecord[]>(storedWorkspaceState?.qmsTraining ?? []);
+  const [qmsRisks, setQmsRisks] = useState<QMSRisk[]>(storedWorkspaceState?.qmsRisks ?? []);
   const [actionFilter, setActionFilter] = useState<"Open" | "Overdue" | "Awaiting Verification" | "Closed" | "Severity">("Open");
   const [actionSeverityFilter, setActionSeverityFilter] = useState<RiskLevel | "All">("All");
   const [actionNcFilter, setActionNcFilter] = useState<string>("All");
@@ -3279,6 +3296,27 @@ function App() {
     if (permissions.canAssignActions) return withEscalation(siteScopedActions);
     return withEscalation(siteScopedActions.filter((action) => action.assignedToName === currentUser.name || action.assignedToUserId === currentUser.username));
   }, [siteScopedActions, currentUser]);
+  const qmsReadinessSummary = useMemo(
+    () =>
+      buildQmsReadinessSummary({
+        documents: qmsDocuments,
+        training: qmsTraining,
+        nonConformances: assignmentFilteredNonConformances,
+        actions: visibleActions,
+        risks: qmsRisks,
+        auditFindings,
+        history: assignmentFilteredHistory,
+      }),
+    [
+      qmsDocuments,
+      qmsTraining,
+      assignmentFilteredNonConformances,
+      visibleActions,
+      qmsRisks,
+      auditFindings,
+      assignmentFilteredHistory,
+    ],
+  );
   const filteredActions = useMemo(() => {
     let next = [...visibleActions];
     if (actionFilter === "Open") {
@@ -4436,6 +4474,9 @@ function App() {
         auditFindings,
         externalEmployees,
         documentDistributions,
+        qmsDocuments,
+        qmsTraining,
+        qmsRisks,
       }),
     );
   }, [
@@ -4470,6 +4511,9 @@ function App() {
     auditFindings,
     externalEmployees,
     documentDistributions,
+    qmsDocuments,
+    qmsTraining,
+    qmsRisks,
   ]);
 
   useEffect(() => {
@@ -8843,6 +8887,9 @@ function App() {
     if (currentUser && !canAccessDocumentTraining(currentUser.role) && screen === "documentTraining") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
+    if (currentUser && !canAccessQmsReadinessNav(currentUser.role) && screen === "qmsReadiness") {
+      setScreen(getHomeScreenForRole(currentUser.role));
+    }
     if (currentUser && !canAccessEmailReminders(currentUser.role) && screen === "emailReminders") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
@@ -9846,6 +9893,7 @@ function App() {
                   <ManagerRoleDashboard
                     workspaceName={workspaceName}
                     teamCount={companyReportUsers.length}
+                    qmsSummary={canAccessQmsReadinessNav(currentUser.role) ? qmsReadinessSummary : null}
                     onNavigate={(nextScreen) => setScreen(nextScreen)}
                     currentUser={currentUser}
                     groupedAudits={groupedAudits}
@@ -9897,6 +9945,7 @@ function App() {
                     actions={visibleActions}
                     history={assignmentFilteredHistory}
                     openReportsCount={openActions.length}
+                    qmsSummary={canAccessQmsReadinessNav(currentUser.role) ? qmsReadinessSummary : null}
                     onNavigate={(nextScreen) => setScreen(nextScreen)}
                     onOpenAudit={startAudit}
                   />
@@ -10111,6 +10160,25 @@ function App() {
                     void processSyncQueueItem({ ...item, status: "Syncing" });
                   }
                 }}
+              />
+            )}
+
+            {screen === "qmsReadiness" && canAccessQmsReadinessNav(currentUser.role) && (
+              <QmsReadinessScreen
+                accessLevel={canAccessQmsReadinessFull(currentUser.role) ? "full" : "operational"}
+                summary={qmsReadinessSummary}
+                documents={qmsDocuments}
+                training={qmsTraining}
+                risks={qmsRisks}
+                nonConformances={assignmentFilteredNonConformances}
+                actions={visibleActions}
+                auditFindings={auditFindings}
+                history={assignmentFilteredHistory}
+                openReportsCount={reportInbox.length}
+                onNavigate={(nextScreen) => setScreen(nextScreen)}
+                onSaveDocuments={setQmsDocuments}
+                onSaveTraining={setQmsTraining}
+                onSaveRisks={setQmsRisks}
               />
             )}
 

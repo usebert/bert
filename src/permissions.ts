@@ -127,6 +127,21 @@ export function canAccessDocumentTraining(role: Role) {
   return role === "Admin" || role === "Manager";
 }
 
+/** Full QMS readiness hub (registers, management review pack). */
+export function canAccessQmsReadinessFull(role: Role) {
+  return role === "Master" || role === "Admin";
+}
+
+/** Operational QMS summary and links — no admin registers. */
+export function canAccessQmsReadinessSummary(role: Role) {
+  return role === "Manager";
+}
+
+/** QMS Readiness nav — hidden from Auditor. */
+export function canAccessQmsReadinessNav(role: Role) {
+  return canAccessQmsReadinessFull(role) || canAccessQmsReadinessSummary(role);
+}
+
 /** Master or Admin may use the in-app onboarding workspace tab (folder linking, user invites). */
 export function canAccessAdminOnboardingWorkspace(role: Role) {
   return role === "Master" || role === "Admin";
@@ -186,6 +201,7 @@ export function canRoleAccessNavItem(role: Role, itemId: NavItemId) {
     return canAccessMasterTemplatesNav(role) || canAccessSchedules(role);
   }
   if (itemId === "documentTraining") return canAccessDocumentTraining(role);
+  if (itemId === "qmsReadiness") return canAccessQmsReadinessNav(role);
   if (itemId === "reports") return canAccessReports(role) || canAccessPlatformDiagnosticsNav(role);
   if (itemId === "incidents") return canSubmitIncidents(role);
   if (itemId === "actions" || itemId === "nonConformance") return canAccessActions(role);

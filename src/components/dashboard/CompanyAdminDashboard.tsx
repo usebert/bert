@@ -5,6 +5,8 @@ import type { UserInvite } from "../../types/adminScreenProps";
 import { WhatHappensNextPanel } from "../WhatHappensNextPanel";
 import { formatInviteStatusLabel } from "../../utils/inviteStatusDisplay";
 import { getAuditTrafficStatus } from "../../utils/dashboardHealth";
+import { QmsReadinessSummaryWidget } from "../qms/QmsReadinessSummaryWidget";
+import type { QmsReadinessSummary } from "../../types/qms";
 import { DashboardQuickActions, MetricTile, RoleDashboardShell } from "./RoleDashboardPrimitives";
 import { EmptyPanel } from "./DashboardPrimitives";
 
@@ -23,6 +25,7 @@ type Props = {
   actions: ActionItem[];
   history: HistoryEntry[];
   openReportsCount: number;
+  qmsSummary?: QmsReadinessSummary | null;
   onNavigate: (screen: NavItemId) => void;
   onOpenAudit: (auditId: string) => void;
 };
@@ -34,6 +37,7 @@ export function CompanyAdminDashboard({
   actions,
   history,
   openReportsCount,
+  qmsSummary,
   onNavigate,
   onOpenAudit,
 }: Props) {
@@ -108,9 +112,19 @@ export function CompanyAdminDashboard({
         />
       </div>
 
+      {qmsSummary ? (
+        <QmsReadinessSummaryWidget
+          summary={qmsSummary}
+          compact
+          onOpenHub={() => onNavigate("qmsReadiness")}
+          onNavigate={onNavigate}
+        />
+      ) : null}
+
       <DashboardQuickActions
         role="Admin"
         actions={[
+          { label: "QMS Readiness", screen: "qmsReadiness", onClick: () => onNavigate("qmsReadiness") },
           { label: "Corrective Actions", screen: "actions", onClick: () => onNavigate("actions") },
           { label: "Invite User", screen: "users", onClick: () => onNavigate("users") },
           { label: "Forms & Checks", screen: "audits", onClick: () => onNavigate("audits") },

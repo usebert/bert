@@ -18,6 +18,8 @@ export const SECTION_INTROS = {
   auditorChecks: "Checks and audits assigned to you.",
   auditorSubmit: "Report issues and submit evidence from the field.",
   auditorHistory: "Recently completed work and sync status.",
+  qmsReadiness:
+    "BERT helps you keep quality records under control. Supports ISO 9001 readiness — BERT does not certify you.",
 } as const;
 
 export type SectionIntroKey = keyof typeof SECTION_INTROS;
