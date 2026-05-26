@@ -291,7 +291,7 @@ const TAB_COLUMNS = {
     "Auditors",
     "Assigned Role",
     "Assigned User",
-    Status,
+    "Status",
     "Created At",
     "Start Date",
     "End Date",
