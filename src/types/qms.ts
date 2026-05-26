@@ -50,6 +50,11 @@ export type QmsReadinessSummary = {
   openNonConformances: number;
   overdueCorrectiveActions: number;
   risksNeedingReview: number;
+  openHazards: number;
+  openIncidentsAndNearMisses: number;
+  overdueHsActions: number;
+  riskAssessmentsDueReview: number;
+  safetyObjectivesAtRisk: number;
   managementReviewStatus: "ready" | "attention" | "not_started";
   managementReviewDetail: string;
 };

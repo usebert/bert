@@ -14,7 +14,7 @@ export const navItems = [
   { id: "schedules", label: "Schedules", icon: "clock" },
   { id: "reports", label: "Reports", icon: "chart" },
   { id: "documentTraining", label: "Upload & training", icon: "note" },
-  { id: "qmsReadiness", label: "QMS Readiness", icon: "checklist" },
+  { id: "qmsReadiness", label: "Quality & Safety Readiness", icon: "checklist" },
   { id: "sync", label: "Sync Centre", icon: "sync" },
   { id: "admin", label: "Admin tools", icon: "shield" },
   { id: "onboarding", label: "Onboarding", icon: "spark" },

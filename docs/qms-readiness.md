@@ -1,5 +1,7 @@
 # QMS / ISO 9001 readiness (BERT)
 
+> **Superseded scope:** Health & safety (ISO 45001) registers and hub copy are documented in [quality-and-safety-readiness.md](./quality-and-safety-readiness.md). This file remains for quality-only references.
+
 BERT helps you keep quality records under control. The product **supports ISO 9001 readiness** — it does **not** certify your organisation.
 
 ## UX principles

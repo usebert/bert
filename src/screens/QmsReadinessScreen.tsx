@@ -5,8 +5,15 @@ import type { AuditFindingRecord } from "../types/complianceLoop";
 import type { NavItemId } from "../types/navigation";
 import type { NonConformanceRecord } from "../types/nonConformanceScreenProps";
 import type { ActionItem, HistoryEntry } from "../types/reportsScreenProps";
+import type { IncidentRecord } from "../types/incidentsScreenProps";
 import type { QMSDocument, QMSRisk, QMSTrainingRecord, QmsReadinessSummary } from "../types/qms";
-import { newQmsId } from "../utils/qmsReadiness";
+import type {
+  HazardReport,
+  SafetyObjective,
+  SafetyObservation,
+  SafetyRiskAssessment,
+} from "../types/safety";
+import { computeSafetyRiskScore, newQmsId } from "../utils/qmsReadiness";
 import { EmptyPanel } from "../components/dashboard/DashboardPrimitives";
 
 export type QmsReadinessAccessLevel = "full" | "operational";
@@ -23,9 +30,18 @@ export type QmsReadinessScreenProps = {
   history: HistoryEntry[];
   openReportsCount: number;
   onNavigate: (screen: NavItemId) => void;
+  incidents: IncidentRecord[];
+  hazards: HazardReport[];
+  safetyRiskAssessments: SafetyRiskAssessment[];
+  safetyObservations: SafetyObservation[];
+  safetyObjectives: SafetyObjective[];
   onSaveDocuments: (next: QMSDocument[]) => void;
   onSaveTraining: (next: QMSTrainingRecord[]) => void;
   onSaveRisks: (next: QMSRisk[]) => void;
+  onSaveHazards: (next: HazardReport[]) => void;
+  onSaveSafetyRiskAssessments: (next: SafetyRiskAssessment[]) => void;
+  onSaveSafetyObservations: (next: SafetyObservation[]) => void;
+  onSaveSafetyObjectives: (next: SafetyObjective[]) => void;
 };
 
 type HubSection =
@@ -33,6 +49,10 @@ type HubSection =
   | "documents"
   | "training"
   | "risks"
+  | "hazards"
+  | "safetyRisks"
+  | "observations"
+  | "objectives"
   | "managementReview";
 
 const panelClass = "rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm";
@@ -73,9 +93,18 @@ export function QmsReadinessScreen({
   history,
   openReportsCount,
   onNavigate,
+  incidents,
+  hazards,
+  safetyRiskAssessments,
+  safetyObservations,
+  safetyObjectives,
   onSaveDocuments,
   onSaveTraining,
   onSaveRisks,
+  onSaveHazards,
+  onSaveSafetyRiskAssessments,
+  onSaveSafetyObservations,
+  onSaveSafetyObjectives,
 }: QmsReadinessScreenProps) {
   const [section, setSection] = useState<HubSection>("hub");
 
@@ -101,8 +130,23 @@ export function QmsReadinessScreen({
         id: "actions" as const,
         title: "Corrective actions",
         description: "Assign ownership, add evidence, and verify closure.",
-        metric: summary.overdueCorrectiveActions > 0 ? `${summary.overdueCorrectiveActions} overdue` : undefined,
+        metric: summary.overdueHsActions > 0 ? `${summary.overdueHsActions} overdue` : undefined,
         onClick: () => onNavigate("actions"),
+      },
+      {
+        id: "hazards-op" as const,
+        title: "Hazard reports",
+        description: "Report and track hazards on site.",
+        metric: summary.openHazards > 0 ? `${summary.openHazards} open` : undefined,
+        onClick: () => onNavigate("incidents"),
+      },
+      {
+        id: "incidents-op" as const,
+        title: "Incidents & near misses",
+        description: "Report injuries, near misses, and follow-up actions.",
+        metric:
+          summary.openIncidentsAndNearMisses > 0 ? `${summary.openIncidentsAndNearMisses} open` : undefined,
+        onClick: () => onNavigate("incidents"),
       },
     ];
     if (accessLevel === "operational") {
@@ -118,7 +162,7 @@ export function QmsReadinessScreen({
         {
           id: "checks" as const,
           title: "Forms & checks",
-          description: "Operational checks that feed your quality records.",
+          description: "Operational checks that feed your quality and safety records.",
           metric: undefined,
           onClick: () => onNavigate("audits"),
         },
@@ -148,9 +192,53 @@ export function QmsReadinessScreen({
         onClick: () => setSection("risks"),
       },
       {
+        id: "hazards" as const,
+        title: "Hazard reports",
+        description: "Log hazards, severity, immediate action, and closure.",
+        metric: summary.openHazards > 0 ? `${summary.openHazards} open` : undefined,
+        onClick: () => setSection("hazards"),
+      },
+      {
+        id: "incidents" as const,
+        title: "Incidents & near misses",
+        description: "Uses your incident register — report and investigate from one place.",
+        metric:
+          summary.openIncidentsAndNearMisses > 0 ? `${summary.openIncidentsAndNearMisses} open` : undefined,
+        onClick: () => onNavigate("incidents"),
+      },
+      {
+        id: "safetyRisks" as const,
+        title: "Risk assessments",
+        description: "Activity-based assessments with controls and review dates.",
+        metric:
+          summary.riskAssessmentsDueReview > 0 ? `${summary.riskAssessmentsDueReview} need review` : undefined,
+        onClick: () => setSection("safetyRisks"),
+      },
+      {
+        id: "emergency" as const,
+        title: "Emergency preparedness",
+        description: "Fire exits, spill kits, and drills — use your existing check templates.",
+        metric: undefined,
+        onClick: () => onNavigate("audits"),
+      },
+      {
+        id: "observations" as const,
+        title: "Safety observations",
+        description: "Positive or improvement observations from the floor.",
+        metric: undefined,
+        onClick: () => setSection("observations"),
+      },
+      {
+        id: "objectives" as const,
+        title: "H&S objectives",
+        description: "Targets, owners, and progress for health and safety goals.",
+        metric: summary.safetyObjectivesAtRisk > 0 ? `${summary.safetyObjectivesAtRisk} need attention` : undefined,
+        onClick: () => setSection("objectives"),
+      },
+      {
         id: "review" as const,
         title: "Management review pack",
-        description: "Preview readiness data before your review meeting.",
+        description: "Preview quality and safety readiness before your review meeting.",
         metric: summary.managementReviewDetail,
         onClick: () => setSection("managementReview"),
       },
@@ -160,13 +248,13 @@ export function QmsReadinessScreen({
   return (
     <div className="space-y-4">
       <section className={panelClass}>
-        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">QMS Readiness</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Quality & Safety Readiness</p>
         <h2 className="mt-1 text-xl font-semibold text-slate-900">
-          {accessLevel === "full" ? "Keep quality records under control" : "Quality operations"}
+          {accessLevel === "full" ? "Keep quality and safety records under control" : "Quality & safety operations"}
         </h2>
         <p className="mt-2 text-sm text-slate-600">{SECTION_INTROS.qmsReadiness}</p>
         <p className="mt-2 text-xs text-slate-500">
-          Supports ISO 9001 readiness. BERT does not certify you — it helps you stay ready.
+          Supports ISO 9001 and ISO 45001 readiness. BERT does not certify you — it helps you stay ready.
         </p>
       </section>
 
@@ -199,6 +287,18 @@ export function QmsReadinessScreen({
         <TrainingRegister training={training} onSave={onSaveTraining} />
       ) : null}
       {section === "risks" && accessLevel === "full" ? <RiskRegister risks={risks} onSave={onSaveRisks} /> : null}
+      {section === "hazards" && accessLevel === "full" ? (
+        <HazardRegister hazards={hazards} onSave={onSaveHazards} />
+      ) : null}
+      {section === "safetyRisks" && accessLevel === "full" ? (
+        <SafetyRiskAssessmentRegister assessments={safetyRiskAssessments} onSave={onSaveSafetyRiskAssessments} />
+      ) : null}
+      {section === "observations" && accessLevel === "full" ? (
+        <SafetyObservationRegister observations={safetyObservations} onSave={onSaveSafetyObservations} />
+      ) : null}
+      {section === "objectives" && accessLevel === "full" ? (
+        <SafetyObjectiveRegister objectives={safetyObjectives} onSave={onSaveSafetyObjectives} />
+      ) : null}
       {section === "managementReview" && accessLevel === "full" ? (
         <ManagementReviewPack
           summary={summary}
@@ -209,6 +309,10 @@ export function QmsReadinessScreen({
           actions={actions}
           auditFindings={auditFindings}
           history={history}
+          incidents={incidents}
+          hazards={hazards}
+          safetyRiskAssessments={safetyRiskAssessments}
+          safetyObjectives={safetyObjectives}
           openActionCount={openActionCount}
           openNcrCount={openNcrCount}
         />
@@ -413,6 +517,292 @@ function RiskRegister({ risks, onSave }: { risks: QMSRisk[]; onSave: (next: QMSR
   );
 }
 
+function HazardRegister({ hazards, onSave }: { hazards: HazardReport[]; onSave: (next: HazardReport[]) => void }) {
+  const [draft, setDraft] = useState({
+    areaId: "",
+    description: "",
+    severity: "Medium" as HazardReport["severity"],
+    immediateAction: "",
+    owner: "",
+  });
+
+  function handleAdd(event: FormEvent) {
+    event.preventDefault();
+    if (!draft.description.trim()) return;
+    const now = new Date().toISOString();
+    onSave([
+      ...hazards,
+      {
+        hazardId: newQmsId("haz"),
+        areaId: draft.areaId.trim(),
+        description: draft.description.trim(),
+        severity: draft.severity,
+        immediateAction: draft.immediateAction.trim(),
+        owner: draft.owner.trim(),
+        status: "Open",
+        evidenceIds: [],
+        createdAt: now,
+        closedAt: "",
+      },
+    ]);
+    setDraft({ areaId: "", description: "", severity: "Medium", immediateAction: "", owner: "" });
+  }
+
+  return (
+    <section className={`${panelClass} space-y-4`}>
+      <h3 className="text-sm font-semibold text-slate-900">Hazard reports</h3>
+      <form onSubmit={handleAdd} className="grid gap-2 sm:grid-cols-2">
+        <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Area / location ID" value={draft.areaId} onChange={(e) => setDraft((d) => ({ ...d, areaId: e.target.value }))} />
+        <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm sm:col-span-2" placeholder="Description" value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} required />
+        <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Immediate action" value={draft.immediateAction} onChange={(e) => setDraft((d) => ({ ...d, immediateAction: e.target.value }))} />
+        <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Owner" value={draft.owner} onChange={(e) => setDraft((d) => ({ ...d, owner: e.target.value }))} />
+        <button type="submit" className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white sm:col-span-2">
+          Add hazard report
+        </button>
+      </form>
+      {hazards.length === 0 ? (
+        <EmptyPanel title="No hazard reports" text="Log hazards with severity, owner, and immediate action." />
+      ) : (
+        <ul className="space-y-2">
+          {hazards.map((hazard) => (
+            <li key={hazard.hazardId} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-sm">
+              <p className="font-semibold text-slate-900">{hazard.description}</p>
+              <p className="text-xs text-slate-600">
+                {hazard.severity} · {hazard.status} · {hazard.owner || "No owner"}
+              </p>
+              <p className="text-xs text-slate-500">Area: {hazard.areaId || "Not set"}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function SafetyRiskAssessmentRegister({
+  assessments,
+  onSave,
+}: {
+  assessments: SafetyRiskAssessment[];
+  onSave: (next: SafetyRiskAssessment[]) => void;
+}) {
+  const [draft, setDraft] = useState({
+    areaId: "",
+    activity: "",
+    hazards: "",
+    existingControls: "",
+    likelihood: 3 as SafetyRiskAssessment["likelihood"],
+    severity: 3 as SafetyRiskAssessment["severity"],
+    furtherControls: "",
+    owner: "",
+    reviewDate: "",
+  });
+
+  function handleAdd(event: FormEvent) {
+    event.preventDefault();
+    if (!draft.activity.trim()) return;
+    const now = new Date().toISOString();
+    const riskScore = computeSafetyRiskScore(draft.likelihood, draft.severity);
+    onSave([
+      ...assessments,
+      {
+        riskAssessmentId: newQmsId("sra"),
+        areaId: draft.areaId.trim(),
+        activity: draft.activity.trim(),
+        hazards: draft.hazards.trim(),
+        existingControls: draft.existingControls.trim(),
+        likelihood: draft.likelihood,
+        severity: draft.severity,
+        riskScore,
+        furtherControls: draft.furtherControls.trim(),
+        owner: draft.owner.trim(),
+        reviewDate: draft.reviewDate,
+        status: "Active",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    setDraft({
+      areaId: "",
+      activity: "",
+      hazards: "",
+      existingControls: "",
+      likelihood: 3,
+      severity: 3,
+      furtherControls: "",
+      owner: "",
+      reviewDate: "",
+    });
+  }
+
+  return (
+    <section className={`${panelClass} space-y-4`}>
+      <h3 className="text-sm font-semibold text-slate-900">Risk assessments</h3>
+      <form onSubmit={handleAdd} className="grid gap-2 sm:grid-cols-2">
+        <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Area ID" value={draft.areaId} onChange={(e) => setDraft((d) => ({ ...d, areaId: e.target.value }))} />
+        <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Activity" value={draft.activity} onChange={(e) => setDraft((d) => ({ ...d, activity: e.target.value }))} required />
+        <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm sm:col-span-2" placeholder="Hazards" value={draft.hazards} onChange={(e) => setDraft((d) => ({ ...d, hazards: e.target.value }))} />
+        <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm sm:col-span-2" placeholder="Existing controls" value={draft.existingControls} onChange={(e) => setDraft((d) => ({ ...d, existingControls: e.target.value }))} />
+        <input type="date" className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={draft.reviewDate} onChange={(e) => setDraft((d) => ({ ...d, reviewDate: e.target.value }))} />
+        <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Owner" value={draft.owner} onChange={(e) => setDraft((d) => ({ ...d, owner: e.target.value }))} />
+        <button type="submit" className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white sm:col-span-2">
+          Add risk assessment
+        </button>
+      </form>
+      {assessments.length === 0 ? (
+        <EmptyPanel title="No risk assessments" text="Capture activity hazards, controls, and review dates." />
+      ) : (
+        <ul className="space-y-2">
+          {assessments.map((row) => (
+            <li key={row.riskAssessmentId} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-sm">
+              <p className="font-semibold text-slate-900">{row.activity}</p>
+              <p className="text-xs text-slate-600">
+                Score {row.riskScore} · {row.status} · {row.owner || "No owner"}
+              </p>
+              <p className="text-xs text-slate-500">Review: {row.reviewDate || "Not set"}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function SafetyObservationRegister({
+  observations,
+  onSave,
+}: {
+  observations: SafetyObservation[];
+  onSave: (next: SafetyObservation[]) => void;
+}) {
+  const [draft, setDraft] = useState({
+    areaId: "",
+    reportedBy: "",
+    observation: "",
+    suggestion: "",
+    actionId: "",
+  });
+
+  function handleAdd(event: FormEvent) {
+    event.preventDefault();
+    if (!draft.observation.trim()) return;
+    onSave([
+      ...observations,
+      {
+        observationId: newQmsId("obs"),
+        areaId: draft.areaId.trim(),
+        reportedBy: draft.reportedBy.trim(),
+        observation: draft.observation.trim(),
+        suggestion: draft.suggestion.trim(),
+        status: "Open",
+        actionId: draft.actionId.trim(),
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    setDraft({ areaId: "", reportedBy: "", observation: "", suggestion: "", actionId: "" });
+  }
+
+  return (
+    <section className={`${panelClass} space-y-4`}>
+      <h3 className="text-sm font-semibold text-slate-900">Safety observations</h3>
+      <form onSubmit={handleAdd} className="grid gap-2 sm:grid-cols-2">
+        <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Area ID" value={draft.areaId} onChange={(e) => setDraft((d) => ({ ...d, areaId: e.target.value }))} />
+        <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Reported by" value={draft.reportedBy} onChange={(e) => setDraft((d) => ({ ...d, reportedBy: e.target.value }))} />
+        <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm sm:col-span-2" placeholder="Observation" value={draft.observation} onChange={(e) => setDraft((d) => ({ ...d, observation: e.target.value }))} required />
+        <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm sm:col-span-2" placeholder="Suggestion" value={draft.suggestion} onChange={(e) => setDraft((d) => ({ ...d, suggestion: e.target.value }))} />
+        <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm sm:col-span-2" placeholder="Linked action ID (optional)" value={draft.actionId} onChange={(e) => setDraft((d) => ({ ...d, actionId: e.target.value }))} />
+        <button type="submit" className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white sm:col-span-2">
+          Add observation
+        </button>
+      </form>
+      {observations.length === 0 ? (
+        <EmptyPanel title="No observations" text="Capture floor observations and link to corrective actions when needed." />
+      ) : (
+        <ul className="space-y-2">
+          {observations.map((row) => (
+            <li key={row.observationId} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-sm">
+              <p className="font-semibold text-slate-900">{row.observation}</p>
+              <p className="text-xs text-slate-600">
+                {row.reportedBy || "Anonymous"} · {row.status}
+              </p>
+              {row.actionId ? <p className="text-xs text-slate-500">Action: {row.actionId}</p> : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function SafetyObjectiveRegister({
+  objectives,
+  onSave,
+}: {
+  objectives: SafetyObjective[];
+  onSave: (next: SafetyObjective[]) => void;
+}) {
+  const [draft, setDraft] = useState({
+    objective: "",
+    target: "",
+    owner: "",
+    currentValue: "",
+    dueDate: "",
+    status: "On track" as SafetyObjective["status"],
+  });
+
+  function handleAdd(event: FormEvent) {
+    event.preventDefault();
+    if (!draft.objective.trim()) return;
+    const now = new Date().toISOString();
+    onSave([
+      ...objectives,
+      {
+        objectiveId: newQmsId("hso"),
+        objective: draft.objective.trim(),
+        target: draft.target.trim(),
+        owner: draft.owner.trim(),
+        currentValue: draft.currentValue.trim(),
+        dueDate: draft.dueDate,
+        status: draft.status,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    setDraft({ objective: "", target: "", owner: "", currentValue: "", dueDate: "", status: "On track" });
+  }
+
+  return (
+    <section className={`${panelClass} space-y-4`}>
+      <h3 className="text-sm font-semibold text-slate-900">H&S objectives</h3>
+      <form onSubmit={handleAdd} className="grid gap-2 sm:grid-cols-2">
+        <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm sm:col-span-2" placeholder="Objective" value={draft.objective} onChange={(e) => setDraft((d) => ({ ...d, objective: e.target.value }))} required />
+        <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Target" value={draft.target} onChange={(e) => setDraft((d) => ({ ...d, target: e.target.value }))} />
+        <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Current value" value={draft.currentValue} onChange={(e) => setDraft((d) => ({ ...d, currentValue: e.target.value }))} />
+        <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Owner" value={draft.owner} onChange={(e) => setDraft((d) => ({ ...d, owner: e.target.value }))} />
+        <input type="date" className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={draft.dueDate} onChange={(e) => setDraft((d) => ({ ...d, dueDate: e.target.value }))} />
+        <button type="submit" className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white sm:col-span-2">
+          Add objective
+        </button>
+      </form>
+      {objectives.length === 0 ? (
+        <EmptyPanel title="No H&S objectives" text="Set targets and track progress for health and safety goals." />
+      ) : (
+        <ul className="space-y-2">
+          {objectives.map((row) => (
+            <li key={row.objectiveId} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-sm">
+              <p className="font-semibold text-slate-900">{row.objective}</p>
+              <p className="text-xs text-slate-600">
+                Target {row.target} · Current {row.currentValue || "—"} · {row.status}
+              </p>
+              <p className="text-xs text-slate-500">Due: {row.dueDate || "Not set"} · {row.owner || "No owner"}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function ManagementReviewPack({
   summary,
   documents,
@@ -422,6 +812,10 @@ function ManagementReviewPack({
   actions,
   auditFindings,
   history,
+  incidents,
+  hazards,
+  safetyRiskAssessments,
+  safetyObjectives,
   openActionCount,
   openNcrCount,
 }: {
@@ -433,6 +827,10 @@ function ManagementReviewPack({
   actions: ActionItem[];
   auditFindings: AuditFindingRecord[];
   history: HistoryEntry[];
+  incidents: IncidentRecord[];
+  hazards: HazardReport[];
+  safetyRiskAssessments: SafetyRiskAssessment[];
+  safetyObjectives: SafetyObjective[];
   openActionCount: number;
   openNcrCount: number;
 }) {
@@ -440,21 +838,60 @@ function ManagementReviewPack({
   const trainingDue = training.slice(0, 5);
   const openNcrs = nonConformances.filter((n) => n.status !== "Completed").slice(0, 5);
   const openActions = actions.filter((a) => a.status !== "Closed").slice(0, 5);
+  const openIncidents = incidents.filter((i) => i.status !== "Closed").slice(0, 5);
+  const openHazards = hazards.filter((h) => h.status !== "Closed").slice(0, 5);
+  const repeatFindingTitles = auditFindings
+    .map((f) => f.questionText || "")
+    .filter(Boolean)
+    .reduce<Record<string, number>>((acc, title) => {
+      acc[title] = (acc[title] || 0) + 1;
+      return acc;
+    }, {});
+  const repeatIssues = Object.entries(repeatFindingTitles)
+    .filter(([, count]) => count > 1)
+    .map(([title, count]) => `${title} (×${count})`)
+    .slice(0, 5);
 
   return (
     <section className={`${panelClass} space-y-4`}>
       <h3 className="text-sm font-semibold text-slate-900">Management review pack (preview)</h3>
       <p className="text-sm text-slate-600">
-        Built from live workspace data — checks, findings, actions, and registers. Status:{" "}
+        Built from live workspace data — quality and safety checks, findings, actions, and registers. Status:{" "}
         <span className="font-semibold capitalize">{summary.managementReviewStatus}</span>. {summary.managementReviewDetail}
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         <PreviewBlock title="Checks completed" lines={[`${history.length} in workspace history`, `${auditFindings.length} findings on record`]} />
-        <PreviewBlock title="Corrective actions" lines={[`${openActionCount} open`, `${summary.overdueCorrectiveActions} overdue`]} />
+        <PreviewBlock title="Corrective actions" lines={[`${openActionCount} open`, `${summary.overdueCorrectiveActions} overdue (quality)`]} />
         <PreviewBlock title="Non-conformances" lines={[`${openNcrCount} open`]} />
+        <PreviewBlock
+          title="Incidents & near misses"
+          lines={openIncidents.map((i) => `${i.incidentId}: ${i.incidentType} (${i.status})`)}
+          empty="No open incidents."
+        />
+        <PreviewBlock
+          title="Hazard reports"
+          lines={openHazards.map((h) => `${h.description} (${h.severity})`)}
+          empty="No open hazards."
+        />
         <PreviewBlock title="Documents" lines={docsDue.map((d) => `${d.title} (review ${d.reviewDate || "—"})`)} empty="No documents in register." />
         <PreviewBlock title="Training" lines={trainingDue.map((t) => `${t.person}: ${t.trainingName}`)} empty="No training records." />
-        <PreviewBlock title="Risks" lines={risks.filter((r) => r.status !== "Closed").map((r) => r.title)} empty="No open risks." />
+        <PreviewBlock title="Quality risks" lines={risks.filter((r) => r.status !== "Closed").map((r) => r.title)} empty="No open quality risks." />
+        <PreviewBlock
+          title="Safety risk reviews"
+          lines={safetyRiskAssessments
+            .filter((r) => r.status !== "Closed")
+            .slice(0, 5)
+            .map((r) => `${r.activity} (review ${r.reviewDate || "—"})`)}
+          empty="No active safety risk assessments."
+        />
+        <PreviewBlock
+          title="H&S objectives"
+          lines={safetyObjectives.slice(0, 5).map((o) => `${o.objective}: ${o.currentValue || "—"} / ${o.target}`)}
+          empty="No H&S objectives."
+        />
+        <PreviewBlock title="Overdue (combined)" lines={[`${summary.overdueHsActions} actions need attention`]} />
+        <PreviewBlock title="Repeat issues" lines={repeatIssues} empty="No repeat findings detected." />
+        <PreviewBlock title="Evidence" lines={[`${history.length} completed checks in history`, "Use Reports for shared evidence packs"]} />
       </div>
       <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Open actions (sample)</p>

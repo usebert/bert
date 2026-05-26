@@ -160,6 +160,12 @@ import type { NonConformanceRecord } from "./src/types/nonConformanceScreenProps
 import type { SyncQueueItem, SyncStatus } from "./src/types/sync";
 import type { AuditFindingRecord, ComplianceScheduleRow } from "./src/types/complianceLoop";
 import type { QMSDocument, QMSRisk, QMSTrainingRecord } from "./src/types/qms";
+import type {
+  HazardReport,
+  SafetyObjective,
+  SafetyObservation,
+  SafetyRiskAssessment,
+} from "./src/types/safety";
 import { buildQmsReadinessSummary } from "./src/utils/qmsReadiness";
 import {
   auditIsDueFromSchedules,
@@ -2547,6 +2553,10 @@ function readStoredWorkspaceState() {
       qmsDocuments?: QMSDocument[];
       qmsTraining?: QMSTrainingRecord[];
       qmsRisks?: QMSRisk[];
+      hsHazardReports?: HazardReport[];
+      hsRiskAssessments?: SafetyRiskAssessment[];
+      hsSafetyObservations?: SafetyObservation[];
+      hsObjectives?: SafetyObjective[];
     };
   } catch {
     return null;
@@ -2614,6 +2624,10 @@ function getWorkspaceBootstrap() {
       qmsDocuments: [] as QMSDocument[],
       qmsTraining: [] as QMSTrainingRecord[],
       qmsRisks: [] as QMSRisk[],
+      hsHazardReports: [] as HazardReport[],
+      hsRiskAssessments: [] as SafetyRiskAssessment[],
+      hsSafetyObservations: [] as SafetyObservation[],
+      hsObjectives: [] as SafetyObjective[],
     };
   }
 
@@ -2652,6 +2666,10 @@ function getWorkspaceBootstrap() {
     qmsDocuments: stored?.qmsDocuments ?? [],
     qmsTraining: stored?.qmsTraining ?? [],
     qmsRisks: stored?.qmsRisks ?? [],
+    hsHazardReports: stored?.hsHazardReports ?? [],
+    hsRiskAssessments: stored?.hsRiskAssessments ?? [],
+    hsSafetyObservations: stored?.hsSafetyObservations ?? [],
+    hsObjectives: stored?.hsObjectives ?? [],
   };
 }
 
@@ -3038,6 +3056,14 @@ function App() {
   const [qmsDocuments, setQmsDocuments] = useState<QMSDocument[]>(storedWorkspaceState?.qmsDocuments ?? []);
   const [qmsTraining, setQmsTraining] = useState<QMSTrainingRecord[]>(storedWorkspaceState?.qmsTraining ?? []);
   const [qmsRisks, setQmsRisks] = useState<QMSRisk[]>(storedWorkspaceState?.qmsRisks ?? []);
+  const [hsHazardReports, setHsHazardReports] = useState<HazardReport[]>(storedWorkspaceState?.hsHazardReports ?? []);
+  const [hsRiskAssessments, setHsRiskAssessments] = useState<SafetyRiskAssessment[]>(
+    storedWorkspaceState?.hsRiskAssessments ?? [],
+  );
+  const [hsSafetyObservations, setHsSafetyObservations] = useState<SafetyObservation[]>(
+    storedWorkspaceState?.hsSafetyObservations ?? [],
+  );
+  const [hsObjectives, setHsObjectives] = useState<SafetyObjective[]>(storedWorkspaceState?.hsObjectives ?? []);
   const [actionFilter, setActionFilter] = useState<"Open" | "Overdue" | "Awaiting Verification" | "Closed" | "Severity">("Open");
   const [actionSeverityFilter, setActionSeverityFilter] = useState<RiskLevel | "All">("All");
   const [actionNcFilter, setActionNcFilter] = useState<string>("All");
@@ -3306,6 +3332,11 @@ function App() {
         risks: qmsRisks,
         auditFindings,
         history: assignmentFilteredHistory,
+        hazards: hsHazardReports,
+        incidents,
+        incidentActions,
+        safetyRiskAssessments: hsRiskAssessments,
+        safetyObjectives: hsObjectives,
       }),
     [
       qmsDocuments,
@@ -3315,6 +3346,11 @@ function App() {
       qmsRisks,
       auditFindings,
       assignmentFilteredHistory,
+      hsHazardReports,
+      incidents,
+      incidentActions,
+      hsRiskAssessments,
+      hsObjectives,
     ],
   );
   const filteredActions = useMemo(() => {
@@ -4477,6 +4513,10 @@ function App() {
         qmsDocuments,
         qmsTraining,
         qmsRisks,
+        hsHazardReports,
+        hsRiskAssessments,
+        hsSafetyObservations,
+        hsObjectives,
       }),
     );
   }, [
@@ -4514,6 +4554,10 @@ function App() {
     qmsDocuments,
     qmsTraining,
     qmsRisks,
+    hsHazardReports,
+    hsRiskAssessments,
+    hsSafetyObservations,
+    hsObjectives,
   ]);
 
   useEffect(() => {
@@ -10176,9 +10220,18 @@ function App() {
                 history={assignmentFilteredHistory}
                 openReportsCount={reportInbox.length}
                 onNavigate={(nextScreen) => setScreen(nextScreen)}
+                incidents={incidents}
+                hazards={hsHazardReports}
+                safetyRiskAssessments={hsRiskAssessments}
+                safetyObservations={hsSafetyObservations}
+                safetyObjectives={hsObjectives}
                 onSaveDocuments={setQmsDocuments}
                 onSaveTraining={setQmsTraining}
                 onSaveRisks={setQmsRisks}
+                onSaveHazards={setHsHazardReports}
+                onSaveSafetyRiskAssessments={setHsRiskAssessments}
+                onSaveSafetyObservations={setHsSafetyObservations}
+                onSaveSafetyObjectives={setHsObjectives}
               />
             )}
 

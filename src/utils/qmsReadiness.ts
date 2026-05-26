@@ -1,4 +1,5 @@
 import type { AuditFindingRecord } from "../types/complianceLoop";
+import type { IncidentCorrectiveAction, IncidentRecord } from "../types/incidentsScreenProps";
 import type { NonConformanceRecord } from "../types/nonConformanceScreenProps";
 import type { ActionItem, HistoryEntry } from "../types/reportsScreenProps";
 import type {
@@ -7,6 +8,7 @@ import type {
   QMSTrainingRecord,
   QmsReadinessSummary,
 } from "../types/qms";
+import type { HazardReport, SafetyObjective, SafetyRiskAssessment } from "../types/safety";
 import { isOverdue } from "./managerDashboard";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -43,6 +45,30 @@ export function riskNeedsReview(risk: QMSRisk, withinDays = 30): boolean {
   return days <= withinDays;
 }
 
+export function hazardIsOpen(hazard: HazardReport): boolean {
+  return hazard.status !== "Closed";
+}
+
+export function incidentIsOpen(incident: IncidentRecord): boolean {
+  return incident.status !== "Closed";
+}
+
+export function safetyRiskAssessmentNeedsReview(assessment: SafetyRiskAssessment, withinDays = 30): boolean {
+  if (assessment.status === "Closed") return false;
+  const days = daysUntil(assessment.reviewDate);
+  if (days === null) return assessment.status === "Due review";
+  return days <= withinDays;
+}
+
+export function safetyObjectiveNeedsAttention(objective: SafetyObjective): boolean {
+  if (objective.status === "Complete") return false;
+  return objective.status === "At risk" || objective.status === "Behind";
+}
+
+export function computeSafetyRiskScore(likelihood: number, severity: number): number {
+  return likelihood * severity;
+}
+
 export function buildQmsReadinessSummary(input: {
   documents: QMSDocument[];
   training: QMSTrainingRecord[];
@@ -51,6 +77,11 @@ export function buildQmsReadinessSummary(input: {
   risks: QMSRisk[];
   auditFindings: AuditFindingRecord[];
   history: HistoryEntry[];
+  hazards?: HazardReport[];
+  incidents?: IncidentRecord[];
+  incidentActions?: IncidentCorrectiveAction[];
+  safetyRiskAssessments?: SafetyRiskAssessment[];
+  safetyObjectives?: SafetyObjective[];
 }): QmsReadinessSummary {
   const documentsNeedingReview = input.documents.filter((doc) => documentNeedsReview(doc)).length;
   const trainingExpiringSoon = input.training.filter((row) => isTrainingExpiringSoon(row)).length;
@@ -58,18 +89,43 @@ export function buildQmsReadinessSummary(input: {
   const overdueCorrectiveActions = input.actions.filter((action) => isOverdue(action)).length;
   const risksNeedingReview = input.risks.filter((risk) => riskNeedsReview(risk)).length;
 
+  const hazards = input.hazards ?? [];
+  const incidents = input.incidents ?? [];
+  const incidentActions = input.incidentActions ?? [];
+  const safetyRiskAssessments = input.safetyRiskAssessments ?? [];
+  const safetyObjectives = input.safetyObjectives ?? [];
+
+  const openHazards = hazards.filter((h) => hazardIsOpen(h)).length;
+  const openIncidentsAndNearMisses = incidents.filter((i) => incidentIsOpen(i)).length;
+  const today = new Date().toISOString().slice(0, 10);
+  const overdueIncidentActions = incidentActions.filter(
+    (action) => action.status !== "Complete" && action.dueDate && action.dueDate < today,
+  ).length;
+  const overdueHsActions = overdueCorrectiveActions + overdueIncidentActions;
+  const riskAssessmentsDueReview = safetyRiskAssessments.filter((r) => safetyRiskAssessmentNeedsReview(r)).length;
+  const safetyObjectivesAtRisk = safetyObjectives.filter((o) => safetyObjectiveNeedsAttention(o)).length;
+
   const attentionCount =
     documentsNeedingReview +
     trainingExpiringSoon +
     openNonConformances +
     overdueCorrectiveActions +
-    risksNeedingReview;
+    risksNeedingReview +
+    openHazards +
+    openIncidentsAndNearMisses +
+    overdueIncidentActions +
+    riskAssessmentsDueReview +
+    safetyObjectivesAtRisk;
 
   const hasActivity =
     input.history.length > 0 ||
     input.auditFindings.length > 0 ||
     input.documents.length > 0 ||
-    input.training.length > 0;
+    input.training.length > 0 ||
+    hazards.length > 0 ||
+    incidents.length > 0 ||
+    safetyRiskAssessments.length > 0 ||
+    safetyObjectives.length > 0;
 
   let managementReviewStatus: QmsReadinessSummary["managementReviewStatus"] = "not_started";
   let managementReviewDetail = "Add records and complete checks to build your review pack.";
@@ -90,6 +146,11 @@ export function buildQmsReadinessSummary(input: {
     openNonConformances,
     overdueCorrectiveActions,
     risksNeedingReview,
+    openHazards,
+    openIncidentsAndNearMisses,
+    overdueHsActions,
+    riskAssessmentsDueReview,
+    safetyObjectivesAtRisk,
     managementReviewStatus,
     managementReviewDetail,
   };
