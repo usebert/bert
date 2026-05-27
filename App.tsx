@@ -3332,6 +3332,12 @@ function App() {
     currentUser?.role === "Master" &&
     isMasterCompanyScopedScreen(screen as NavItemId) &&
     !isMasterCompanyContextExemptScreen(screen as NavItemId);
+  const masterCompanyContextBlocked =
+    currentUser?.role === "Master" &&
+    !masterGodmodeCompanyReady &&
+    !godmodeNewCompanyOnboarding &&
+    !godmodeIncompleteCompanySetup &&
+    masterCompanyContextRequiredScreen;
 
   const godmodeNavDebugEnabled = useMemo(() => {
     if (typeof window === "undefined") {
@@ -3363,6 +3369,28 @@ function App() {
     },
     [godmodeNavDebugEnabled, screen, selectedFolderId, activeCompanyMasterSheetId],
   );
+  const logGodmodeGuard = useCallback(
+    (reason: string, from: Screen, to: Screen) => {
+      if (!godmodeNavDebugEnabled) {
+        return;
+      }
+      console.debug("[godmode-nav]", {
+        from,
+        to,
+        reason,
+        role: currentUser?.role ?? "",
+        selectedFolderId: selectedFolderId || "",
+        masterSheetId: activeCompanyMasterSheetId || "",
+      });
+    },
+    [godmodeNavDebugEnabled, currentUser?.role, selectedFolderId, activeCompanyMasterSheetId],
+  );
+  useEffect(() => {
+    if (!masterCompanyContextBlocked) {
+      return;
+    }
+    logGodmodeGuard("company-context-blocked", screen, screen);
+  }, [masterCompanyContextBlocked, logGodmodeGuard, screen]);
 
   const clearActiveCompanyWorkspaceState = useCallback(() => {
     setHydratedCompanyFolderId("");
@@ -9705,14 +9733,7 @@ function App() {
 
   useEffect(() => {
     if (currentUser?.role === "Master" && screen === "dashboard") {
-      setScreen("godmodeHome");
-    }
-    if (
-      currentUser?.role === "Master" &&
-      !masterGodmodeCompanyReady &&
-      !godmodeIncompleteCompanySetup &&
-      masterCompanyContextRequiredScreen
-    ) {
+      logGodmodeGuard("master-dashboard-alias", "dashboard", "godmodeHome");
       setScreen("godmodeHome");
     }
     if (currentUser && !canAccessControlScreen(currentUser.role) && screen === "admin") {
@@ -9811,6 +9832,7 @@ function App() {
     masterGodmodeCompanyReady,
     godmodeIncompleteCompanySetup,
     masterCompanyContextRequiredScreen,
+    logGodmodeGuard,
   ]);
 
   let inviteTokenFromUrl = "";
@@ -10580,6 +10602,38 @@ function App() {
                 themeMode={themeMode}
               />
             ) : null}
+            {masterCompanyContextBlocked ? (
+              <section className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-amber-900 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-100">
+                <p className="text-sm font-semibold">Select a live company workspace first.</p>
+                <p className="mt-1 text-xs">
+                  Company tools stay blocked until a live workspace and Company Master Sheet are selected.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      logGodmodeGuard("company-context-blocked", screen, "godmodeHome");
+                      setScreen("godmodeHome");
+                    }}
+                    className="inline-flex h-9 items-center rounded-lg border border-amber-300 bg-white px-3 text-xs font-semibold text-amber-900 hover:bg-amber-100 dark:border-amber-300/40 dark:bg-amber-500/10 dark:text-amber-50"
+                  >
+                    Open Godmode home
+                  </button>
+                  {selectedFolderId ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        logGodmodeGuard("continue-company-setup", screen, "onboarding");
+                        setScreen("onboarding");
+                      }}
+                      className="inline-flex h-9 items-center rounded-lg border border-amber-300 bg-white px-3 text-xs font-semibold text-amber-900 hover:bg-amber-100 dark:border-amber-300/40 dark:bg-amber-500/10 dark:text-amber-50"
+                    >
+                      Continue setup
+                    </button>
+                  ) : null}
+                </div>
+              </section>
+            ) : null}
             {screen === "godmodeHome" && currentUser.role === "Master" && !godCompanySetupOnlyShell ? (
               <GodmodeStartScreen
                 themeMode={themeMode}
@@ -11079,7 +11133,7 @@ function App() {
               />
             )}
 
-            {screen === "qmsReadiness" && canAccessQmsReadinessNav(currentUser.role) && (
+            {screen === "qmsReadiness" && canAccessQmsReadinessNav(currentUser.role) && !masterCompanyContextBlocked && (
               <QmsReadinessScreen
                 accessLevel={canAccessQmsReadinessFull(currentUser.role) ? "full" : "operational"}
                 summary={qmsReadinessSummary}
@@ -11229,10 +11283,7 @@ function App() {
                 folders={currentUser.role === "Master" ? selectableGodmodeFolders : folders}
                 selectedFolder={godmodeNewCompanyOnboarding ? null : selectedFolder}
                 masterCompanyContextBlocked={
-                  currentUser.role === "Master" &&
-                  !masterGodmodeCompanyReady &&
-                  !godmodeNewCompanyOnboarding &&
-                  !godmodeIncompleteCompanySetup
+                  masterCompanyContextBlocked
                 }
                 masterCompanyContextMessage={GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE}
                 companyMasterSheetId={godmodeNewCompanyOnboarding ? "" : activeCompanyMasterSheetId}

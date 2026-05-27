@@ -166,10 +166,15 @@ export function resolveAdminPilotFocus(screen: NavItemId): AdminPilotFocus | und
   return undefined;
 }
 
+/** Master screens that can run without an active company workspace. */
+const MASTER_PLATFORM_GLOBAL_SCREENS: NavItemId[] = ["dashboard", "godmodeHome", "setup", "setupInitial", "reports", "onboarding"];
+
 /** Company workspace required — excludes platform setup, diagnostics, and Godmode home. */
 const MASTER_COMPANY_SCOPED_SCREENS: NavItemId[] = [
   "companies",
   "users",
+  "invites",
+  "admin",
   "schedules",
   "qmsReadiness",
 ];
@@ -187,9 +192,6 @@ export function isGodmodeLandingScreen(screen: NavItemId): boolean {
   return screen === "godmodeHome";
 }
 
-/** Master screens that must stay reachable without a selected company context. */
-const MASTER_COMPANY_CONTEXT_EXEMPT_SCREENS: NavItemId[] = ["godmodeHome", "setup", "setupInitial", "reports", "onboarding"];
-
 export function isMasterCompanyContextExemptScreen(screen: NavItemId): boolean {
-  return MASTER_COMPANY_CONTEXT_EXEMPT_SCREENS.includes(screen);
+  return MASTER_PLATFORM_GLOBAL_SCREENS.includes(screen);
 }

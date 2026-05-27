@@ -114,8 +114,9 @@ assert(
   "rejects archive folder",
 );
 
-/** Keep in sync with MASTER_COMPANY_SCOPED_SCREENS in src/config/roleNavigation.ts */
-const MASTER_COMPANY_SCOPED_SCREENS = ["companies", "users", "schedules", "qmsReadiness"];
+/** Keep in sync with src/config/roleNavigation.ts */
+const MASTER_PLATFORM_GLOBAL_SCREENS = ["dashboard", "godmodeHome", "setup", "setupInitial", "reports", "onboarding"];
+const MASTER_COMPANY_SCOPED_SCREENS = ["companies", "users", "invites", "admin", "schedules", "qmsReadiness"];
 
 assert(
   !MASTER_COMPANY_SCOPED_SCREENS.includes("reports"),
@@ -136,14 +137,20 @@ function isMasterCompanyScopedScreen(screen) {
   return MASTER_COMPANY_SCOPED_SCREENS.includes(screen);
 }
 
-function resolveMasterNavTarget(input) {
-  const masterCompanyContextRequiredScreen =
-    isMasterCompanyScopedScreen(input.targetScreen) &&
-    !["godmodeHome", "setup", "setupInitial", "reports", "onboarding"].includes(input.targetScreen);
+function isMasterCompanyContextExemptScreen(screen) {
+  return MASTER_PLATFORM_GLOBAL_SCREENS.includes(screen);
+}
 
-  if (masterCompanyContextRequiredScreen && !input.companyReady && !input.incompleteCompanySetup) {
-    return "godmodeHome";
-  }
+function isMasterCompanyContextBlocked(input) {
+  return (
+    isMasterCompanyScopedScreen(input.targetScreen) &&
+    !isMasterCompanyContextExemptScreen(input.targetScreen) &&
+    !input.companyReady &&
+    !input.incompleteCompanySetup
+  );
+}
+
+function resolveMasterNavTarget(input) {
   return input.targetScreen;
 }
 
@@ -193,12 +200,39 @@ assert(
 );
 
 assert(
+  isMasterCompanyContextBlocked({
+    targetScreen: "users",
+    companyReady: false,
+    incompleteCompanySetup: false,
+  }),
+  "Company-scoped screens are blocked without forcing a redirect",
+);
+
+assert(
   resolveMasterNavTarget({
     targetScreen: "users",
     companyReady: false,
     incompleteCompanySetup: false,
-  }) === "godmodeHome",
-  "Company-scoped screens still bounce without selected company",
+  }) !== "godmodeHome",
+  "Blocked screens do not force a return to godmodeHome",
+);
+
+assert(
+  !isMasterCompanyContextBlocked({
+    targetScreen: "onboarding",
+    companyReady: false,
+    incompleteCompanySetup: true,
+  }),
+  "Incomplete setup onboarding stays reachable without a master sheet",
+);
+
+assert(
+  !isMasterCompanyContextBlocked({
+    targetScreen: "reports",
+    companyReady: false,
+    incompleteCompanySetup: false,
+  }),
+  "Diagnostics stays reachable without selected company",
 );
 
 console.log("[verify:godmode-company-context] OK");
