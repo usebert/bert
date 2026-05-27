@@ -3066,6 +3066,8 @@ function App() {
   const [screen, setScreenState] = useState<Screen>("dashboard");
   const previousScreenRef = useRef<Screen>("dashboard");
   const pendingScreenTraceRef = useRef<ScreenTraceMeta | null>(null);
+  /** Prevents auth-session bootstrap from re-homing Master when loginUsers refreshes. */
+  const authSessionBootstrapHandledRef = useRef(false);
   const [shellMoreExpanded, setShellMoreExpanded] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [dashboardPreferences, setDashboardPreferences] = useState<DashboardPreferences>(() =>
@@ -4729,7 +4731,16 @@ function App() {
           setCurrentUser(masterUser);
           setAccountNameInput(masterUser.name);
           setAccountPhotoUrl(getStoredProfilePhoto(masterUser));
-          resetMasterGodmodeCompanyContext();
+          if (!authSessionBootstrapHandledRef.current) {
+            resetMasterGodmodeCompanyContext();
+            if (!isSetupInitialPath() && !isSetupPath()) {
+              setScreen(getHomeScreenForRole("Master"), {
+                reason: "master-session-bootstrap",
+                guardOrEffectId: "auth-session-bootstrap",
+              });
+            }
+            authSessionBootstrapHandledRef.current = true;
+          }
           try {
             if (window.localStorage.getItem(masterCompanySetupSessionKey) === "1") {
               setGodCompanySetupSession(true);
@@ -4740,9 +4751,6 @@ function App() {
             setGodCompanySetupSession(false);
           }
           window.localStorage.setItem(userStorageKey, JSON.stringify(masterUser));
-          if (!isSetupInitialPath() && !isSetupPath()) {
-            setScreen(getHomeScreenForRole("Master"));
-          }
           return;
         }
       } catch {
@@ -4799,11 +4807,15 @@ function App() {
           setCurrentUser(matchedUser);
           setAccountNameInput(matchedUser.name);
           setAccountPhotoUrl(getStoredProfilePhoto(matchedUser));
-          if (matchedUser.role === "Master") {
+          if (matchedUser.role === "Master" && !authSessionBootstrapHandledRef.current) {
             resetMasterGodmodeCompanyContext();
             if (!isSetupInitialPath() && !isSetupPath()) {
-              setScreen(getHomeScreenForRole("Master"));
+              setScreen(getHomeScreenForRole("Master"), {
+                reason: "master-local-session-bootstrap",
+                guardOrEffectId: "auth-session-bootstrap",
+              });
             }
+            authSessionBootstrapHandledRef.current = true;
           }
           try {
             if (matchedUser.role === "Master" && window.localStorage.getItem(masterCompanySetupSessionKey) === "1") {
@@ -5958,6 +5970,7 @@ function App() {
       window.localStorage.setItem(userStorageKey, JSON.stringify(match));
       if (match.role === "Master") {
         resetMasterGodmodeCompanyContext();
+        authSessionBootstrapHandledRef.current = true;
       }
       setScreen(
         isSetupInitialPath() && canAccessGodmodeInitialSetup(match.role)
@@ -6223,6 +6236,7 @@ function App() {
     window.localStorage.setItem(userStorageKey, JSON.stringify(user));
     if (user.role === "Master") {
       resetMasterGodmodeCompanyContext();
+      authSessionBootstrapHandledRef.current = true;
     }
     setScreen(getHomeScreenForRole(user.role));
     pushToast("Profile switched", `Now viewing as ${getRoleDisplayName(user.role)}.`, "success");
@@ -7055,6 +7069,7 @@ function App() {
     if (currentUser?.role === "Master") {
       resetMasterGodmodeCompanyContext();
     }
+    authSessionBootstrapHandledRef.current = false;
     window.localStorage.removeItem(userStorageKey);
     setCurrentUser(null);
     setAccountNameInput("");

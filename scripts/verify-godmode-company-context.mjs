@@ -273,4 +273,101 @@ assert(
   "Diagnostics stays reachable without selected company",
 );
 
+/** Mirrors App.tsx auth-session bootstrap — loginUsers refresh must not re-home Master. */
+function simulateAuthSessionBootstrap(input) {
+  let screen = input.currentScreen;
+  let bootstrapHandled = input.bootstrapAlreadyHandled ?? false;
+  const isSetupUrl = input.setupUrl === true;
+
+  if (input.masterApiSession && !bootstrapHandled) {
+    if (!isSetupUrl) {
+      screen = "godmodeHome";
+    }
+    bootstrapHandled = true;
+  }
+
+  return { screen, bootstrapHandled };
+}
+
+function simulateGodmodeLandingInternalClick(input) {
+  let screen = input.currentScreen;
+  let bootstrapHandled = input.bootstrapAlreadyHandled ?? true;
+
+  screen = input.targetScreen;
+
+  const afterLoginUsersRefresh = simulateAuthSessionBootstrap({
+    currentScreen: screen,
+    masterApiSession: true,
+    bootstrapAlreadyHandled: bootstrapHandled,
+    setupUrl: input.setupUrl === true,
+  });
+
+  return {
+    finalScreen: afterLoginUsersRefresh.screen,
+    bootstrapHandled: afterLoginUsersRefresh.bootstrapHandled,
+  };
+}
+
+const platformSetupClick = simulateGodmodeLandingInternalClick({
+  currentScreen: "godmodeHome",
+  targetScreen: "setup",
+  bootstrapAlreadyHandled: true,
+});
+assert(
+  platformSetupClick.finalScreen === "setup",
+  "Platform setup internal click stays on setup after loginUsers refresh",
+);
+
+const reportsClick = simulateGodmodeLandingInternalClick({
+  currentScreen: "godmodeHome",
+  targetScreen: "reports",
+  bootstrapAlreadyHandled: true,
+});
+assert(
+  reportsClick.finalScreen === "reports",
+  "Diagnostics internal click stays on reports after loginUsers refresh",
+);
+
+const createCompanyClick = simulateGodmodeLandingInternalClick({
+  currentScreen: "godmodeHome",
+  targetScreen: "onboarding",
+  bootstrapAlreadyHandled: true,
+});
+assert(
+  createCompanyClick.finalScreen === "onboarding",
+  "Create company internal click stays on onboarding after loginUsers refresh",
+);
+
+const selectCompanyClick = simulateGodmodeLandingInternalClick({
+  currentScreen: "godmodeHome",
+  targetScreen: "godmodeHome",
+  bootstrapAlreadyHandled: true,
+});
+assert(
+  selectCompanyClick.finalScreen === "godmodeHome",
+  "Select company internal click does not bounce away from godmodeHome",
+);
+
+const firstBootstrap = simulateAuthSessionBootstrap({
+  currentScreen: "dashboard",
+  masterApiSession: true,
+  bootstrapAlreadyHandled: false,
+  setupUrl: false,
+});
+assert(
+  firstBootstrap.screen === "godmodeHome" && firstBootstrap.bootstrapHandled,
+  "First Master session bootstrap still lands on godmodeHome",
+);
+
+const repeatBootstrap = simulateAuthSessionBootstrap({
+  currentScreen: "setup",
+  masterApiSession: true,
+  bootstrapAlreadyHandled: true,
+  setupUrl: false,
+});
+assert(
+  repeatBootstrap.screen === "setup",
+  "Repeat auth bootstrap does not force godmodeHome when Master already navigated",
+);
+
 console.log("[verify:godmode-company-context] OK");
