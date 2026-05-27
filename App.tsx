@@ -3322,6 +3322,12 @@ function App() {
   const godmodeNewCompanyOnboarding =
     currentUser?.role === "Master" && screen === "onboarding" && !selectedFolderId;
 
+  const godmodeIncompleteCompanySetup =
+    currentUser?.role === "Master" &&
+    screen === "onboarding" &&
+    Boolean(selectedFolderId) &&
+    !masterGodmodeCompanyReady;
+
   const clearActiveCompanyWorkspaceState = useCallback(() => {
     setHydratedCompanyFolderId("");
     setInvitedUsers([]);
@@ -5678,7 +5684,7 @@ function App() {
   };
 
   const validateWorkspace = async (options?: { silent?: boolean }) => {
-    if (currentUser?.role === "Master" && !masterGodmodeCompanyReady) {
+    if (currentUser?.role === "Master" && !masterGodmodeCompanyReady && !godmodeIncompleteCompanySetup) {
       if (!options?.silent) {
         pushToast("Company workspace required", GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE, "warning");
       }
@@ -5721,7 +5727,7 @@ function App() {
   };
 
   const repairWorkspace = async () => {
-    if (currentUser?.role === "Master" && !masterGodmodeCompanyReady) {
+    if (currentUser?.role === "Master" && !masterGodmodeCompanyReady && !godmodeIncompleteCompanySetup) {
       pushToast("Company workspace required", GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE, "warning");
       return;
     }
@@ -8188,6 +8194,77 @@ function App() {
     ],
   );
 
+  const handleGodmodeContinueCompanySetup = useCallback(
+    async (folderId: string) => {
+      if (!googleConnected) {
+        pushToast("Connect required", "Connect Google before continuing company setup.", "warning");
+        return;
+      }
+
+      const trimmedId = String(folderId || "").trim();
+      const folder = selectableGodmodeFolders.find((item) => item.id === trimmedId);
+      if (!folder) {
+        pushToast("Folder missing", "That company workspace was not found.", "warning");
+        return;
+      }
+
+      if (trimmedId !== selectedFolderId) {
+        clearCompanyWorkspaceLocalStateForGodmodeSwitch();
+        clearActiveCompanyWorkspaceState();
+      }
+
+      writeGodmodeSelectedCompanyFolderId(folder.id);
+      setSelectedFolderId(trimmedId);
+      setFolderIdInput(trimmedId);
+      const knownSheetId = folder.masterSheetId || folder.responseSheetId || "";
+      setMasterSheetInput(knownSheetId);
+      setFolderInspection(null);
+      setWorkspaceValidation(null);
+      setSyncState(knownSheetId ? "Linked" : "Not synced");
+      setHydratedCompanyFolderId(trimmedId);
+      setScreen("onboarding");
+
+      try {
+        const inspection = await inspectFolderById(trimmedId, { silent: true });
+        if (trimmedId !== selectedFolderIdRef.current) {
+          return;
+        }
+        const sheetId =
+          folder.masterSheetId ||
+          folder.responseSheetId ||
+          inspection?.masterSheet?.id ||
+          "";
+        if (sheetId) {
+          setMasterSheetInput(sheetId);
+          await loadCompanySheetById(sheetId, trimmedId, { silent: true });
+          if (trimmedId !== selectedFolderIdRef.current) {
+            return;
+          }
+          await syncCompanyAreasFromServer({ silent: true });
+          if (trimmedId !== selectedFolderIdRef.current) {
+            return;
+          }
+          setHydratedCompanyFolderId(trimmedId);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to inspect the company folder.";
+        const looksLikeMissingMaster = /master sheet/i.test(message);
+        if (!looksLikeMissingMaster) {
+          pushToast("Folder check failed", message, "warning");
+        }
+      }
+    },
+    [
+      googleConnected,
+      selectableGodmodeFolders,
+      selectedFolderId,
+      clearActiveCompanyWorkspaceState,
+      inspectFolderById,
+      loadCompanySheetById,
+      syncCompanyAreasFromServer,
+    ],
+  );
+
   useEffect(() => {
     if (!googleConnected) {
       return;
@@ -9589,7 +9666,8 @@ function App() {
     if (
       currentUser?.role === "Master" &&
       !masterGodmodeCompanyReady &&
-      isMasterCompanyScopedScreen(screen as NavItemId)
+      isMasterCompanyScopedScreen(screen as NavItemId) &&
+      screen !== "onboarding"
     ) {
       setScreen("godmodeHome");
     }
@@ -9680,7 +9758,7 @@ function App() {
     ) {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
-  }, [currentUser, screen, visibleNavItems, activeAudit, auditCompletionSummary, masterGodmodeCompanyReady]);
+  }, [currentUser, screen, visibleNavItems, activeAudit, auditCompletionSummary, masterGodmodeCompanyReady, godmodeIncompleteCompanySetup]);
 
   let inviteTokenFromUrl = "";
   try {
@@ -10470,9 +10548,11 @@ function App() {
                 onNewCompany={handleGodmodeNewCompany}
                 liveCompaniesWarning={godmodeLiveCompaniesWarning}
                 onRepairLiveCompanies={() => setScreen("setupInitial")}
+                onContinueCompanySetup={(folderId) => {
+                  void handleGodmodeContinueCompanySetup(folderId);
+                }}
                 onRepairCompany={(folderId) => {
-                  void handleSelectFolder(folderId);
-                  setScreen("onboarding");
+                  void handleGodmodeContinueCompanySetup(folderId);
                 }}
               />
             ) : null}
@@ -11067,6 +11147,7 @@ function App() {
                 pilotFocus={resolveAdminPilotFocus(screen)}
                 standaloneOnboarding={screen === "onboarding"}
                 godmodeNewCompanyOnboarding={godmodeNewCompanyOnboarding}
+                godmodeIncompleteCompanySetup={godmodeIncompleteCompanySetup}
                 pilotShellScreen={
                   screen === "companies" || screen === "onboarding" ? screen : undefined
                 }
@@ -11075,7 +11156,12 @@ function App() {
                 googleConnected={googleConnected}
                 folders={currentUser.role === "Master" ? selectableGodmodeFolders : folders}
                 selectedFolder={godmodeNewCompanyOnboarding ? null : selectedFolder}
-                masterCompanyContextBlocked={currentUser.role === "Master" && !masterGodmodeCompanyReady && !godmodeNewCompanyOnboarding}
+                masterCompanyContextBlocked={
+                  currentUser.role === "Master" &&
+                  !masterGodmodeCompanyReady &&
+                  !godmodeNewCompanyOnboarding &&
+                  !godmodeIncompleteCompanySetup
+                }
                 masterCompanyContextMessage={GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE}
                 companyMasterSheetId={godmodeNewCompanyOnboarding ? "" : activeCompanyMasterSheetId}
                 onCompanyWorkspaceResetSuccess={(message) => void handleCompanyWorkspaceResetSuccess(message)}

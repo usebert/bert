@@ -56,6 +56,7 @@ type Props = {
   onNewCompany: () => void;
   liveCompaniesWarning?: string;
   onRepairLiveCompanies?: () => void;
+  onContinueCompanySetup?: (folderId: string) => void;
   onRepairCompany?: (folderId: string) => void;
 };
 
@@ -112,6 +113,7 @@ export function GodmodeStartScreen({
   onNewCompany,
   liveCompaniesWarning,
   onRepairLiveCompanies,
+  onContinueCompanySetup,
   onRepairCompany,
 }: Props) {
   const onDark = themeMode === "dark";
@@ -298,30 +300,43 @@ export function GodmodeStartScreen({
         ) : (
           <ul className="mt-4 space-y-2">
             {filteredCompanies.map((company) => (
-              <li key={company.id}>
+              <li
+                key={company.id}
+                className={[
+                  "flex w-full flex-col gap-2 rounded-2xl border px-4 py-3 transition sm:flex-row sm:items-center sm:justify-between",
+                  onDark
+                    ? "border-white/10 bg-slate-900/50 hover:border-orange-400/40"
+                    : "border-slate-200 bg-white hover:border-orange-200",
+                ].join(" ")}
+              >
                 <button
                   type="button"
                   onClick={() => handlePickCompany(company.id)}
-                  className={[
-                    "flex w-full flex-col gap-1 rounded-2xl border px-4 py-3 text-left transition sm:flex-row sm:items-center sm:justify-between",
-                    onDark
-                      ? "border-white/10 bg-slate-900/50 hover:border-orange-400/40 hover:bg-slate-900"
-                      : "border-slate-200 bg-white hover:border-orange-200 hover:bg-orange-50/50",
-                  ].join(" ")}
+                  className="min-w-0 flex-1 text-left"
                 >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold">{company.name}</p>
-                    <p className={`mt-0.5 truncate font-mono text-xs ${muted}`}>
-                      {company.masterSheetId ? `Sheet: ${company.masterSheetId}` : "Master sheet not linked yet"}
-                    </p>
-                    {company.setupStatusLabel !== "Ready" && onRepairCompany ? (
-                      <div className="mt-2 flex gap-2">
+                  <p className="truncate text-sm font-semibold">{company.name}</p>
+                  <p className={`mt-0.5 truncate font-mono text-xs ${muted}`}>
+                    {company.masterSheetId ? `Sheet: ${company.masterSheetId}` : "Master sheet not linked yet"}
+                  </p>
+                  <p className={`mt-0.5 truncate font-mono text-[11px] ${muted}`}>Folder: {company.id}</p>
+                </button>
+                <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
+                  <span
+                    className={[
+                      "inline-flex self-start rounded-full px-2.5 py-0.5 text-xs font-semibold sm:self-center",
+                      company.setupStatusLabel === "Ready"
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-amber-100 text-amber-900",
+                    ].join(" ")}
+                  >
+                    {company.setupStatusLabel}
+                  </span>
+                  {company.setupStatusLabel !== "Ready" && (onContinueCompanySetup || onRepairCompany) ? (
+                    <div className="flex flex-wrap gap-2">
+                      {onContinueCompanySetup ? (
                         <button
                           type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onRepairCompany(company.id);
-                          }}
+                          onClick={() => onContinueCompanySetup(company.id)}
                           className={[
                             "inline-flex h-8 items-center rounded-lg border px-3 text-xs font-semibold",
                             onDark
@@ -331,12 +346,11 @@ export function GodmodeStartScreen({
                         >
                           Continue setup
                         </button>
+                      ) : null}
+                      {onRepairCompany ? (
                         <button
                           type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onRepairCompany(company.id);
-                          }}
+                          onClick={() => onRepairCompany(company.id)}
                           className={[
                             "inline-flex h-8 items-center rounded-lg border px-3 text-xs font-semibold",
                             onDark
@@ -346,21 +360,10 @@ export function GodmodeStartScreen({
                         >
                           Repair setup
                         </button>
-                      </div>
-                    ) : null}
-                    <p className={`mt-0.5 truncate font-mono text-[11px] ${muted}`}>Folder: {company.id}</p>
-                  </div>
-                  <span
-                    className={[
-                      "mt-1 inline-flex shrink-0 self-start rounded-full px-2.5 py-0.5 text-xs font-semibold sm:mt-0 sm:self-center",
-                      company.setupStatusLabel === "Ready"
-                        ? "bg-emerald-100 text-emerald-800"
-                        : "bg-amber-100 text-amber-900",
-                    ].join(" ")}
-                  >
-                    {company.setupStatusLabel}
-                  </span>
-                </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
               </li>
             ))}
           </ul>

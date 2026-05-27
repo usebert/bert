@@ -274,6 +274,8 @@ export type AdminScreenProps = {
   standaloneOnboarding?: boolean;
   /** Master Godmode: onboarding with no prior company context selected. */
   godmodeNewCompanyOnboarding?: boolean;
+  /** Master Godmode: resume setup for a selected company without a linked master sheet. */
+  godmodeIncompleteCompanySetup?: boolean;
   /** Paid-pilot nav: focus Companies / Users / Invites content. */
   pilotFocus?: "companies" | "onboarding" | "users" | "invites";
   pilotShellScreen?: "companies" | "onboarding";

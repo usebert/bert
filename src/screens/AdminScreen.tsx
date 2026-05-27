@@ -481,6 +481,7 @@ export function AdminScreen({
   onArchiveSite,
   standaloneOnboarding = false,
   godmodeNewCompanyOnboarding = false,
+  godmodeIncompleteCompanySetup = false,
   pilotFocus = undefined,
   pilotShellScreen = undefined,
   hideMasterLocalDemoTools = false,
@@ -639,6 +640,42 @@ export function AdminScreen({
             role={pilotHeroLight ? "Master" : "Master"}
             tone={pilotHeroLight ? "onLight" : "onDark"}
           />
+        </section>
+      ) : null}
+
+      {godmodeIncompleteCompanySetup && selectedFolder ? (
+        <section className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-4 text-amber-950">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-800">Workspace setup</p>
+          <h3 className="mt-1 text-base font-semibold">Currently setting up: {selectedFolder.name}</h3>
+          <p className="mt-2 text-sm text-amber-900">
+            {companyMasterSheetId ? "Master sheet linked — finish workspace checks below." : "Master sheet not linked yet"}
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setPendingAdminScrollTarget("godmode-master-sheet-link")}
+              className="inline-flex h-10 items-center rounded-xl border border-amber-300 bg-white px-4 text-sm font-semibold text-amber-950 hover:bg-amber-100"
+            >
+              Create / link master sheet
+            </button>
+            <button
+              type="button"
+              onClick={onRepairWorkspace}
+              disabled={!companyMasterSheetId}
+              title={!companyMasterSheetId ? "Link a master sheet before repairing the workspace." : undefined}
+              className="inline-flex h-10 items-center rounded-xl border border-amber-300 bg-white px-4 text-sm font-semibold text-amber-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Repair workspace
+            </button>
+            <button
+              type="button"
+              onClick={onOneClickGoogleOnboarding}
+              disabled={adminOnly || !googleWorkspaceReady}
+              className="inline-flex h-10 items-center rounded-xl bg-amber-600 px-4 text-sm font-semibold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Run workspace setup
+            </button>
+          </div>
         </section>
       ) : null}
 
@@ -1087,12 +1124,18 @@ export function AdminScreen({
             <div>
               <p className={darkPanelEyebrow}>Workspace setup</p>
               <h2 className={darkPanelTitleLg}>
-                {godmodeNewCompanyOnboarding ? "Create new company" : "Set up a new company workspace"}
+                {godmodeNewCompanyOnboarding
+                  ? "Create new company"
+                  : godmodeIncompleteCompanySetup && selectedFolder
+                    ? `Continue setup for ${selectedFolder.name}`
+                    : "Set up a new company workspace"}
               </h2>
               <p className={["mt-2", darkPanelBody].join(" ")}>
                 {godmodeNewCompanyOnboarding
                   ? "Start with a clean company workspace. No previous company data will be used."
-                  : "Complete the steps below to connect Google Drive, link the company folder, and make the app live."}
+                  : godmodeIncompleteCompanySetup
+                    ? "Link the company folder and master sheet, then run workspace setup to make this company live."
+                    : "Complete the steps below to connect Google Drive, link the company folder, and make the app live."}
               </p>
             </div>
           </div>
@@ -1134,7 +1177,7 @@ export function AdminScreen({
                     className="h-12 w-full rounded-2xl border border-white/10 bg-slate-950/20 px-4 text-sm text-white outline-none transition focus:border-white/30"
                   />
                 </div>
-                <div>
+                <div id="godmode-master-sheet-link">
                   <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
                     Company master sheet link or ID
                   </label>
