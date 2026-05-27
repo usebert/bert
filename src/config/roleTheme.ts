@@ -41,6 +41,14 @@ export type RoleTheme = {
   sectionIntro: string;
   pageHeaderEyebrow: string;
   pageHeaderShell: string;
+  avatarBg: string;
+  avatarText: string;
+  tabActiveOnDark: string;
+  tabInactiveOnDark: string;
+  iconChipTint: string;
+  controlLoopCurrentOnLight: string;
+  controlLoopCurrentOnDark: string;
+  controlLoopCurrentDot: string;
 };
 
 const ROLE_THEMES: Record<RoleThemeKey, RoleTheme> = {
@@ -66,6 +74,14 @@ const ROLE_THEMES: Record<RoleThemeKey, RoleTheme> = {
     metricCard: "rounded-3xl border border-slate-200 bg-white p-5 shadow-sm",
     pageHeaderEyebrow: "text-orange-300",
     pageHeaderShell: "rounded-[2rem] bg-slate-950",
+    avatarBg: "bg-orange-500",
+    avatarText: "text-white",
+    tabActiveOnDark: "border-orange-400 bg-orange-400/15 text-orange-200",
+    tabInactiveOnDark: "border-slate-700 bg-slate-900 text-slate-300",
+    iconChipTint: "bg-orange-50 text-orange-600 ring-1 ring-orange-100",
+    controlLoopCurrentOnLight: "border-orange-300 bg-orange-50 text-orange-950 ring-1 ring-orange-200/80",
+    controlLoopCurrentOnDark: "border-orange-400/80 bg-orange-500/15 text-orange-50 ring-1 ring-orange-400/40",
+    controlLoopCurrentDot: "bg-orange-500",
     metricValue: "text-3xl font-black tracking-tight text-slate-900",
     metricValueAlert: "text-3xl font-black tracking-tight text-rose-600",
     metricLink: "text-xs font-semibold text-orange-600 hover:text-orange-700",
@@ -103,8 +119,16 @@ const ROLE_THEMES: Record<RoleThemeKey, RoleTheme> = {
     pageBackground: "bg-slate-100",
     card: "rounded-3xl border border-slate-200 bg-white p-6 shadow-sm",
     metricCard: "rounded-3xl border border-slate-200 bg-white p-5 shadow-sm",
-    pageHeaderEyebrow: "text-blue-300",
+    pageHeaderEyebrow: "text-orange-300",
     pageHeaderShell: "rounded-[2rem] bg-slate-950",
+    avatarBg: "bg-blue-500",
+    avatarText: "text-white",
+    tabActiveOnDark: "border-blue-400 bg-blue-400/15 text-blue-200",
+    tabInactiveOnDark: "border-slate-700 bg-slate-900 text-slate-300",
+    iconChipTint: "bg-blue-50 text-blue-600 ring-1 ring-blue-100",
+    controlLoopCurrentOnLight: "border-blue-300 bg-blue-50 text-blue-950 ring-1 ring-blue-200/80",
+    controlLoopCurrentOnDark: "border-blue-400/80 bg-blue-500/15 text-blue-50 ring-1 ring-blue-400/40",
+    controlLoopCurrentDot: "bg-blue-500",
     metricValue: "text-3xl font-black tracking-tight text-slate-900",
     metricValueAlert: "text-3xl font-black tracking-tight text-rose-600",
     metricLink: "text-xs font-semibold text-blue-600 hover:text-blue-700",
@@ -113,8 +137,8 @@ const ROLE_THEMES: Record<RoleThemeKey, RoleTheme> = {
     quickActionCardHover: "hover:border-blue-200 hover:shadow-md",
     quickActionIconChip:
       "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500 text-white shadow-sm",
-    primaryButton: "bg-blue-500 text-white",
-    primaryButtonHover: "hover:bg-blue-600",
+    primaryButton: "bg-orange-500 text-white",
+    primaryButtonHover: "hover:bg-orange-600",
     outlineButton: "border border-blue-300 bg-white text-blue-700 hover:bg-blue-50",
     chip: "bg-blue-100 text-blue-900 ring-1 ring-blue-500/20",
     statusTile: "border-blue-100 bg-white",
@@ -142,8 +166,16 @@ const ROLE_THEMES: Record<RoleThemeKey, RoleTheme> = {
     pageBackground: "bg-slate-100",
     card: "rounded-3xl border border-slate-200 bg-white p-6 shadow-sm",
     metricCard: "rounded-3xl border border-slate-200 bg-white p-5 shadow-sm",
-    pageHeaderEyebrow: "text-emerald-300",
+    pageHeaderEyebrow: "text-orange-300",
     pageHeaderShell: "rounded-[2rem] bg-slate-950",
+    avatarBg: "bg-emerald-500",
+    avatarText: "text-white",
+    tabActiveOnDark: "border-emerald-400 bg-emerald-400/15 text-emerald-200",
+    tabInactiveOnDark: "border-slate-700 bg-slate-900 text-slate-300",
+    iconChipTint: "bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100",
+    controlLoopCurrentOnLight: "border-emerald-300 bg-emerald-50 text-emerald-950 ring-1 ring-emerald-200/80",
+    controlLoopCurrentOnDark: "border-emerald-400/80 bg-emerald-500/15 text-emerald-50 ring-1 ring-emerald-400/40",
+    controlLoopCurrentDot: "bg-emerald-500",
     metricValue: "text-3xl font-black tracking-tight text-slate-900",
     metricValueAlert: "text-3xl font-black tracking-tight text-rose-600",
     metricLink: "text-xs font-semibold text-emerald-600 hover:text-emerald-700",
@@ -152,8 +184,8 @@ const ROLE_THEMES: Record<RoleThemeKey, RoleTheme> = {
     quickActionCardHover: "hover:border-emerald-200 hover:shadow-md",
     quickActionIconChip:
       "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-white shadow-sm",
-    primaryButton: "bg-emerald-500 text-white",
-    primaryButtonHover: "hover:bg-emerald-600",
+    primaryButton: "bg-orange-500 text-white",
+    primaryButtonHover: "hover:bg-orange-600",
     outlineButton: "border border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-50",
     chip: "bg-emerald-100 text-emerald-900 ring-1 ring-emerald-500/20",
     statusTile: "border-emerald-100 bg-white",
@@ -183,6 +215,14 @@ const ROLE_THEMES: Record<RoleThemeKey, RoleTheme> = {
     metricCard: "rounded-3xl border border-slate-200 bg-white p-5 shadow-sm",
     pageHeaderEyebrow: "text-violet-200",
     pageHeaderShell: "rounded-[2rem] bg-violet-700 shadow-lg shadow-violet-900/20",
+    avatarBg: "bg-violet-500",
+    avatarText: "text-white",
+    tabActiveOnDark: "border-violet-400 bg-violet-400/15 text-violet-200",
+    tabInactiveOnDark: "border-slate-700 bg-slate-900 text-slate-300",
+    iconChipTint: "bg-violet-50 text-violet-600 ring-1 ring-violet-100",
+    controlLoopCurrentOnLight: "border-violet-300 bg-violet-50 text-violet-950 ring-1 ring-violet-200/80",
+    controlLoopCurrentOnDark: "border-violet-400/80 bg-violet-500/15 text-violet-50 ring-1 ring-violet-400/40",
+    controlLoopCurrentDot: "bg-violet-500",
     metricValue: "text-3xl font-black tracking-tight text-slate-900",
     metricValueAlert: "text-3xl font-black tracking-tight text-rose-600",
     metricLink: "text-xs font-semibold text-violet-600 hover:text-violet-700",
@@ -211,4 +251,10 @@ export function mapRoleToThemeKey(role: Role): RoleThemeKey {
 
 export function getRoleTheme(role: Role): RoleTheme {
   return ROLE_THEMES[mapRoleToThemeKey(role)];
+}
+
+/** Tailwind classes for a filled primary CTA button for the given role. */
+export function primaryButtonClass(role: Role, extra = ""): string {
+  const theme = getRoleTheme(role);
+  return [theme.primaryButton, theme.primaryButtonHover, extra].filter(Boolean).join(" ");
 }

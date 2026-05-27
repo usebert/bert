@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import type { Role } from "../../permissions";
+import { getRoleTheme } from "../../config/roleTheme";
 import { isDebugUiAllowed } from "../../utils/debugUiVisibility";
 import { getPlainEnglishSyncStatus } from "../../utils/plainEnglishSync";
 import { StatusChip } from "../ui/StatusChip";
@@ -56,11 +58,17 @@ export type OperationalTodayStripRow = {
   onActivate: () => void;
 };
 
-const primaryRowBtn =
-  "min-h-[44px] w-full rounded-xl bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white";
-
 const secondaryLinkBtn =
   "text-xs font-semibold text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline focus-visible:outline focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 rounded-sm";
+
+function cardPrimaryButtonClass(role: Role): string {
+  const theme = getRoleTheme(role);
+  return [
+    "min-h-[44px] w-full rounded-xl px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition focus-visible:outline focus-visible:ring-2 focus-visible:ring-offset-2",
+    theme.primaryButton,
+    theme.primaryButtonHover,
+  ].join(" ");
+}
 
 function CardShell({
   icon,
@@ -90,11 +98,13 @@ function CardShell({
 }
 
 function CardFooterActions({
+  role,
   primaryLabel,
   onPrimary,
   onViewAll,
   viewAllLabel = "See full list",
 }: {
+  role: Role;
   primaryLabel: string;
   onPrimary: () => void;
   onViewAll: () => void;
@@ -102,7 +112,7 @@ function CardFooterActions({
 }) {
   return (
     <div className="flex flex-col gap-2">
-      <button type="button" onClick={onPrimary} className={primaryRowBtn}>
+      <button type="button" onClick={onPrimary} className={cardPrimaryButtonClass(role)}>
         {primaryLabel}
       </button>
       <button type="button" onClick={onViewAll} className={`w-full text-center ${secondaryLinkBtn}`}>
@@ -225,6 +235,7 @@ function AttentionSummaryBody({
 }
 
 export function OperationalDashboardCards({
+  role = "Manager",
   needsAttentionRows,
   needsAttentionSummary,
   dueTodayRows,
@@ -239,6 +250,7 @@ export function OperationalDashboardCards({
   onViewAllCompletions,
   devPreviewFill,
 }: {
+  role?: Role;
   needsAttentionRows: OperationalAttentionRow[];
   /** When set, replaces detailed “Needs attention” rows with aggregate chips. */
   needsAttentionSummary?: OperationalAttentionSummary;
@@ -258,6 +270,7 @@ export function OperationalDashboardCards({
 }) {
   const dev = isDebugUiAllowed() && devPreviewFill;
   const useTodayStrip = todayStripRows !== undefined;
+  const theme = getRoleTheme(role);
 
   const hasAttentionContent = needsAttentionSummary
     ? needsAttentionSummary.overdueActions +
@@ -275,6 +288,7 @@ export function OperationalDashboardCards({
         icon={<AlertIcon />}
         footer={
           <CardFooterActions
+            role={role}
             primaryLabel="Review overdue work"
             onPrimary={onViewAllNeedsAttention}
             onViewAll={onViewAllNeedsAttention}
@@ -308,10 +322,10 @@ export function OperationalDashboardCards({
 
       <CardShell
         title="Due today"
-        iconTint="bg-orange-50 text-orange-600 ring-1 ring-orange-100"
+        iconTint={theme.iconChipTint}
         icon={<CalendarIcon />}
         footer={
-          <CardFooterActions primaryLabel="Start today’s work" onPrimary={onViewAllDueToday} onViewAll={onViewAllDueToday} />
+          <CardFooterActions role={role} primaryLabel="Start today’s work" onPrimary={onViewAllDueToday} onViewAll={onViewAllDueToday} />
         }
       >
         {useTodayStrip ? (
@@ -361,7 +375,7 @@ export function OperationalDashboardCards({
         iconTint="bg-sky-50 text-sky-700 ring-1 ring-sky-100"
         icon={<ShieldCheckIcon />}
         footer={
-          <CardFooterActions primaryLabel="Review evidence" onPrimary={onViewAllAwaiting} onViewAll={onViewAllAwaiting} />
+          <CardFooterActions role={role} primaryLabel="Review evidence" onPrimary={onViewAllAwaiting} onViewAll={onViewAllAwaiting} />
         }
       >
         {awaitingRows.length === 0 ? (
@@ -392,7 +406,7 @@ export function OperationalDashboardCards({
         iconTint="bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100"
         icon={<PlayIcon />}
         footer={
-          <CardFooterActions primaryLabel="Continue open work" onPrimary={onViewAllInProgress} onViewAll={onViewAllInProgress} />
+          <CardFooterActions role={role} primaryLabel="Continue open work" onPrimary={onViewAllInProgress} onViewAll={onViewAllInProgress} />
         }
       >
         {inProgressRows.length === 0 ? (
@@ -425,7 +439,7 @@ export function OperationalDashboardCards({
         iconTint="bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"
         icon={<CheckCircleIcon />}
         footer={
-          <CardFooterActions primaryLabel="View completed work" onPrimary={onViewAllCompletions} onViewAll={onViewAllCompletions} />
+          <CardFooterActions role={role} primaryLabel="View completed work" onPrimary={onViewAllCompletions} onViewAll={onViewAllCompletions} />
         }
       >
         {completionRows.length === 0 ? (

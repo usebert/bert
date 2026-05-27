@@ -11,21 +11,21 @@ type Props = {
   onOpenReviewPack?: () => void;
 };
 
-function MetricTile({
-  label,
+function ControlMetricTile({
+  badge,
+  badgeClass,
   value,
-  alert,
   onClick,
 }: {
-  label: string;
-  value: number;
-  alert: boolean;
+  badge: string;
+  badgeClass: string;
+  value: string;
   onClick?: () => void;
 }) {
   const body = (
     <>
-      <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">{label}</p>
-      <p className={`mt-2 text-3xl font-black tabular-nums ${alert ? "text-rose-600" : "text-slate-900"}`}>{value}</p>
+      <span className={["inline-flex rounded-full px-2.5 py-0.5 text-xs font-black", badgeClass].join(" ")}>{badge}</span>
+      <p className="mt-3 text-lg font-black text-slate-900">{value}</p>
     </>
   );
   const className = "rounded-3xl border border-slate-200 bg-slate-50/80 p-5 text-left transition hover:border-slate-300 hover:bg-white";
@@ -40,40 +40,59 @@ function MetricTile({
 }
 
 export function QmsReadinessSummaryWidget({ summary, compact, onOpenHub, onNavigate, onOpenReviewPack }: Props) {
-  const reviewTone =
-    summary.managementReviewStatus === "ready"
-      ? "text-emerald-700"
-      : summary.managementReviewStatus === "attention"
-        ? "text-amber-700"
-        : "text-slate-600";
-
   if (compact) {
+    const documentsValue =
+      summary.documentsNeedingReview === 1
+        ? "1 to review"
+        : `${summary.documentsNeedingReview} to review`;
+    const trainingValue =
+      summary.trainingExpiringSoon === 1 ? "1 expiring" : `${summary.trainingExpiringSoon} expiring`;
+    const qualityValue = summary.openNonConformances === 1 ? "1 open" : `${summary.openNonConformances} open`;
+    const hazardsValue = summary.openHazards === 1 ? "1 open" : `${summary.openHazards} open`;
+
     return (
       <section className={DASHBOARD_CARD}>
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-3">
-            <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-50 text-amber-700 ring-1 ring-amber-100">
-              <AlertTriangleIcon className="h-5 w-5" />
-            </span>
-            <div className="min-w-0">
-            <p className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">Quality & Safety Hub</p>
-            <h3 className="mt-1 text-lg font-black text-slate-900">Quality & safety snapshot</h3>
+          <div className="min-w-0">
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-orange-600">Quality & Safety</p>
+            <h3 className="mt-1 text-xl font-black text-slate-900">Control summary</h3>
             <p className="mt-1 text-sm text-slate-600">A simple view of what needs review, action, or evidence.</p>
-            </div>
           </div>
-          {onOpenHub ? (
-            <button
-              type="button"
-              onClick={onOpenHub}
-              className="shrink-0 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-black text-slate-800 shadow-sm hover:bg-slate-50"
-            >
-              Open hub
-            </button>
+          {onOpenReviewPack ? (
+            <SecondaryButton onClick={onOpenReviewPack} className="shrink-0 gap-2 sm:min-w-[10rem]">
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
+              </svg>
+              Review pack
+            </SecondaryButton>
           ) : null}
         </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <MetricTile label="Documents to review" value={summary.documentsNeedingReview} alert={summary.documentsNeedingReview > 0} onClick={onOpenHub} />
-          <MetricTile label="Overdue actions" value={summary.overdueHsActions} alert={summary.overdueHsActions > 0} onClick={onNavigate ? () => onNavigate("actions") : onOpenHub} />
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <ControlMetricTile
+            badge="Documents"
+            badgeClass="bg-blue-100 text-blue-800"
+            value={documentsValue}
+            onClick={onOpenHub}
+          />
+          <ControlMetricTile
+            badge="Training"
+            badgeClass="bg-amber-100 text-amber-900"
+            value={trainingValue}
+            onClick={onNavigate ? () => onNavigate("documentTraining") : onOpenHub}
+          />
+          <ControlMetricTile
+            badge="Quality issues"
+            badgeClass="bg-emerald-100 text-emerald-900"
+            value={qualityValue}
+            onClick={onNavigate ? () => onNavigate("nonConformance") : onOpenHub}
+          />
+          <ControlMetricTile
+            badge="Safety hazards"
+            badgeClass="bg-rose-100 text-rose-900"
+            value={hazardsValue}
+            onClick={onOpenHub}
+          />
         </div>
       </section>
     );
@@ -91,38 +110,36 @@ export function QmsReadinessSummaryWidget({ summary, compact, onOpenHub, onNavig
         </div>
       </div>
       <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricTile
-          label="Documents to review"
-          value={summary.documentsNeedingReview}
-          alert={summary.documentsNeedingReview > 0}
+        <ControlMetricTile
+          badge="Documents"
+          badgeClass="bg-blue-100 text-blue-800"
+          value={summary.documentsNeedingReview === 1 ? "1 to review" : `${summary.documentsNeedingReview} to review`}
           onClick={onOpenHub}
         />
-        <MetricTile
-          label="Open quality issues"
-          value={summary.openNonConformances}
-          alert={summary.openNonConformances > 0}
+        <ControlMetricTile
+          badge="Training"
+          badgeClass="bg-amber-100 text-amber-900"
+          value={summary.trainingExpiringSoon === 1 ? "1 expiring" : `${summary.trainingExpiringSoon} expiring`}
+          onClick={onNavigate ? () => onNavigate("documentTraining") : onOpenHub}
+        />
+        <ControlMetricTile
+          badge="Quality issues"
+          badgeClass="bg-emerald-100 text-emerald-900"
+          value={summary.openNonConformances === 1 ? "1 open" : `${summary.openNonConformances} open`}
           onClick={onNavigate ? () => onNavigate("nonConformance") : onOpenHub}
         />
-        <MetricTile
-          label="Overdue actions"
-          value={summary.overdueHsActions}
-          alert={summary.overdueHsActions > 0}
-          onClick={onNavigate ? () => onNavigate("actions") : onOpenHub}
+        <ControlMetricTile
+          badge="Safety hazards"
+          badgeClass="bg-rose-100 text-rose-900"
+          value={summary.openHazards === 1 ? "1 open" : `${summary.openHazards} open`}
+          onClick={onOpenHub}
         />
-        <MetricTile label="Open safety hazards" value={summary.openHazards} alert={summary.openHazards > 0} onClick={onOpenHub} />
       </div>
-      <div className="mt-5 flex flex-col gap-3 rounded-3xl border border-slate-200 bg-slate-50/80 p-5 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Review pack</p>
-          <p className={`mt-1 text-sm font-bold capitalize ${reviewTone}`}>{summary.managementReviewStatus.replace("_", " ")}</p>
-          <p className="mt-1 text-sm text-slate-600">{summary.managementReviewDetail}</p>
+      {onOpenReviewPack ? (
+        <div className="mt-5 flex justify-end">
+          <SecondaryButton onClick={onOpenReviewPack}>Review pack</SecondaryButton>
         </div>
-        {onOpenReviewPack ? (
-          <SecondaryButton onClick={onOpenReviewPack} className="w-full sm:w-auto sm:min-w-[10rem]">
-            Review pack
-          </SecondaryButton>
-        ) : null}
-      </div>
+      ) : null}
     </section>
   );
 }

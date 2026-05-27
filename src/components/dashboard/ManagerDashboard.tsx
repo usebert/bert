@@ -247,7 +247,7 @@ export function ManagerDashboard({
                 <p className="mt-1 max-w-xl text-xs leading-relaxed text-slate-300">Provision through report — where you are in the quality cycle right now.</p>
               </div>
             </div>
-            <ControlLoopStrip currentStepIndex={controlLoop.currentStepIndex} tone="onDark" className="mt-1" />
+            <ControlLoopStrip currentStepIndex={controlLoop.currentStepIndex} tone="onDark" className="mt-1" role="Manager" />
           </section>
           <SyncSavedStateSummary
             offlineQueueCount={offlineQueueCount}
@@ -257,6 +257,7 @@ export function ManagerDashboard({
             onOpenSyncCentre={onOpenSyncCentre}
           />
           <OperationalDashboardCards
+            role="Manager"
             needsAttentionRows={needsAttentionRows}
             needsAttentionSummary={{
               overdueActions: overdueActions.length,

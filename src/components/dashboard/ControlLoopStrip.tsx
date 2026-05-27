@@ -1,10 +1,14 @@
+import type { Role } from "../../permissions";
+import { getRoleTheme } from "../../config/roleTheme";
+
 const STEPS = ["Provision", "Evaluate", "Action", "Verify", "Report"] as const;
 
 type ControlLoopStripProps = {
-  /** Index 0–4 of the highlighted “current” step (orange). Earlier steps show a blue check. */
+  /** Index 0–4 of the highlighted “current” step (role accent). Earlier steps show a blue check. */
   currentStepIndex: number;
   tone?: "onDark" | "onLight";
   className?: string;
+  role?: Role;
 };
 
 function StepCheckIcon({ className = "h-4 w-4" }: { className?: string }) {
@@ -42,8 +46,9 @@ export function deriveControlLoopState(input: {
   return { currentStepIndex: 2 };
 }
 
-export function ControlLoopStrip({ currentStepIndex, tone = "onDark", className = "" }: ControlLoopStripProps) {
+export function ControlLoopStrip({ currentStepIndex, tone = "onDark", className = "", role = "Manager" }: ControlLoopStripProps) {
   const onLight = tone === "onLight";
+  const theme = getRoleTheme(role);
 
   return (
     <ol
@@ -56,12 +61,12 @@ export function ControlLoopStrip({ currentStepIndex, tone = "onDark", className 
 
         const shell = onLight
           ? current
-            ? "border-orange-300 bg-orange-50 text-orange-950 ring-1 ring-orange-200/80"
+            ? theme.controlLoopCurrentOnLight
             : done
               ? "border-sky-200 bg-sky-50 text-sky-900 ring-1 ring-sky-200/80"
               : "border-slate-200 bg-slate-100 text-slate-500 ring-1 ring-slate-200/60"
           : current
-            ? "border-orange-400/80 bg-orange-500/15 text-orange-50 ring-1 ring-orange-400/40"
+            ? theme.controlLoopCurrentOnDark
             : done
               ? "border-sky-400/50 bg-sky-500/10 text-sky-100 ring-1 ring-sky-400/30"
               : "border-slate-500/30 bg-slate-950/35 text-slate-400 ring-1 ring-white/5";
@@ -82,7 +87,7 @@ export function ControlLoopStrip({ currentStepIndex, tone = "onDark", className 
                   <StepCheckIcon className="h-3.5 w-3.5 shrink-0" />
                 </span>
               ) : current ? (
-                <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--bert-signal-orange)]" aria-hidden />
+                <span className={`h-2 w-2 shrink-0 rounded-full ${theme.controlLoopCurrentDot}`} aria-hidden />
               ) : (
                 <span className={`h-2 w-2 shrink-0 rounded-full ${onLight ? "bg-slate-300" : "bg-slate-500/70"}`} aria-hidden />
               )}

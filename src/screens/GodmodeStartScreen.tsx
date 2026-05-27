@@ -254,12 +254,13 @@ export function GodmodeStartScreen({
     openHub();
   };
 
-  const landingCards: LandingCard[] = [
+  const landingCards: Array<LandingCard & { iconTone: "orange" | "blue" | "grey" | "green" }> = [
     {
       id: "existing",
       title: "Work on existing company",
-      description: "Choose a live company workspace to manage users, areas, checks, and reports.",
+      description: "Pick a live company workspace before viewing users, checks, actions, or reports.",
       actionLabel: "Select company",
+      iconTone: "orange",
       onAction: () => {
         logNavTrace("open-select-company", "godmodeHome.select-company", { view: "landing" });
         onOpenSelectCompany?.();
@@ -269,8 +270,9 @@ export function GodmodeStartScreen({
     {
       id: "new",
       title: "Create new company",
-      description: "Start with a clean company workspace. No previous company data will be used.",
-      actionLabel: "Create company",
+      description: "Start clean. No old users, checks, invites, or company data carried over.",
+      actionLabel: "Create company +",
+      iconTone: "blue",
       onAction: () => {
         logNavTrace("create-company", "onboarding", { view: "landing" });
         onCreateCompany();
@@ -279,8 +281,9 @@ export function GodmodeStartScreen({
     {
       id: "platform",
       title: "Platform setup",
-      description: "Connect Google, email, and tablet kiosk controls.",
-      actionLabel: "Open platform setup",
+      description: "Google, Shared Drive, email, and platform readiness in one place.",
+      actionLabel: "Open setup",
+      iconTone: "grey",
       onAction: () => {
         logNavTrace("open-platform-setup", "setup", { view: "landing" });
         onOpenPlatformSetup();
@@ -289,8 +292,9 @@ export function GodmodeStartScreen({
     {
       id: "diagnostics",
       title: "Reports / Diagnostics",
-      description: "Platform health and readiness checks.",
+      description: "Check platform health and readiness without entering a company workspace.",
       actionLabel: "Open diagnostics",
+      iconTone: "green",
       onAction: () => {
         logNavTrace("open-diagnostics", "reports", { view: "landing" });
         onOpenDiagnostics();
@@ -489,9 +493,10 @@ export function GodmodeStartScreen({
         role="Master"
         eyebrow="Platform control"
         title="Godmode"
-        subtitle="No company workspace loaded. Pick a company or create one."
+        subtitle="Choose what you want to do. No company is loaded until you select one."
         primaryAction={{
           label: "Select company",
+          icon: "search",
           onClick: () => {
             logNavTrace("open-select-company", "godmodeHome.select-company", { view: "landing" });
             onOpenSelectCompany?.();
@@ -503,11 +508,13 @@ export function GodmodeStartScreen({
         {landingCards.map((card, index) => (
           <DashboardLandingCard
             key={card.id}
+            role="Master"
             title={card.title}
             description={card.description}
             actionLabel={card.actionLabel}
             onAction={card.onAction}
             primary={index === 0}
+            iconTone={card.iconTone}
           />
         ))}
       </div>

@@ -4,6 +4,24 @@ import type { NavItemId } from "../../types/navigation";
 import { getRoleTheme } from "../../config/roleTheme";
 import { AlertTriangleIcon } from "../icons/AlertTriangleIcon";
 
+export type LandingCardIconTone = "orange" | "blue" | "grey" | "green";
+
+const LANDING_ICON_TONE_CLASS: Record<LandingCardIconTone, string> = {
+  orange: "bg-orange-500 text-white",
+  blue: "bg-blue-500 text-white",
+  grey: "bg-slate-400 text-white",
+  green: "bg-emerald-500 text-white",
+};
+
+function SearchIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </svg>
+  );
+}
+
 export const DASHBOARD_CARD = "rounded-3xl border border-slate-200 bg-white p-6 shadow-sm";
 
 const PRIMARY_BUTTON_BASE =
@@ -64,7 +82,7 @@ export function StatusPill({
   tone = "neutral",
 }: {
   children: ReactNode;
-  tone?: "neutral" | "success" | "warning" | "danger";
+  tone?: "neutral" | "success" | "warning" | "danger" | "info";
 }) {
   const toneClass =
     tone === "success"
@@ -73,7 +91,9 @@ export function StatusPill({
         ? "bg-amber-100 text-amber-900"
         : tone === "danger"
           ? "bg-rose-100 text-rose-900"
-          : "bg-slate-100 text-slate-700";
+          : tone === "info"
+            ? "bg-sky-100 text-sky-900"
+            : "bg-slate-100 text-slate-700";
   return (
     <span className={["inline-flex rounded-full px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide", toneClass].join(" ")}>
       {children}
@@ -92,9 +112,21 @@ export function PageHeader({
   eyebrow: string;
   title: string;
   subtitle?: string;
-  primaryAction?: { label: string; onClick: () => void };
+  primaryAction?: { label: string; onClick: () => void; icon?: "search" | "alert" | "invite" };
 }) {
   const theme = getRoleTheme(role);
+  const actionIcon =
+    primaryAction?.icon === "search" ? (
+      <SearchIcon />
+    ) : primaryAction?.icon === "alert" ? (
+      <AlertTriangleIcon className="h-4 w-4" />
+    ) : primaryAction?.icon === "invite" ? (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M19 8v6M22 11h-6" />
+      </svg>
+    ) : null;
   return (
     <header className={[theme.pageHeaderShell, "p-7 text-white"].join(" ")}>
       <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
@@ -104,8 +136,9 @@ export function PageHeader({
           {subtitle ? <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-300 md:text-base">{subtitle}</p> : null}
         </div>
         {primaryAction ? (
-          <PrimaryButton role={role} onClick={primaryAction.onClick} className="shrink-0 md:min-w-[11rem]">
+          <PrimaryButton role={role} onClick={primaryAction.onClick} className="shrink-0 gap-2 md:min-w-[11rem]">
             {primaryAction.label}
+            {actionIcon}
           </PrimaryButton>
         ) : null}
       </div>
@@ -113,31 +146,76 @@ export function PageHeader({
   );
 }
 
+function LandingCardIcon({ tone }: { tone: LandingCardIconTone }) {
+  const chip = ["mb-5 flex h-12 w-12 items-center justify-center rounded-2xl shadow-sm", LANDING_ICON_TONE_CLASS[tone]].join(" ");
+  if (tone === "orange") {
+    return (
+      <span className={chip} aria-hidden>
+        <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6" />
+        </svg>
+      </span>
+    );
+  }
+  if (tone === "blue") {
+    return (
+      <span className={chip} aria-hidden>
+        <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      </span>
+    );
+  }
+  if (tone === "grey") {
+    return (
+      <span className={chip} aria-hidden>
+        <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+        </svg>
+      </span>
+    );
+  }
+  return (
+    <span className={chip} aria-hidden>
+      <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M4 19h16M7 16V10M12 16V6M17 16v-4" />
+      </svg>
+    </span>
+  );
+}
+
 export function DashboardLandingCard({
+  role,
   title,
   description,
   actionLabel,
   onAction,
   primary = false,
+  iconTone,
 }: {
+  role: Role;
   title: string;
   description: string;
   actionLabel: string;
   onAction: () => void;
   primary?: boolean;
+  iconTone?: LandingCardIconTone;
 }) {
   return (
-    <article className={[DASHBOARD_CARD, "flex h-full flex-col"].join(" ")}>
-      <h3 className="text-lg font-black tracking-tight text-slate-900">{title}</h3>
-      <p className="mt-2 flex-1 text-sm leading-relaxed text-slate-600">{description}</p>
+    <article className={[DASHBOARD_CARD, "flex h-full flex-col p-7"].join(" ")}>
+      {iconTone ? <LandingCardIcon tone={iconTone} /> : null}
+      <h3 className="text-xl font-black tracking-tight text-slate-900">{title}</h3>
+      <p className="mt-3 flex-1 text-sm leading-relaxed text-slate-600">{description}</p>
       {primary ? (
-        <div className="mt-6">
-          <PrimaryButton role="Master" onClick={onAction} fullWidth>
+        <div className="mt-8">
+          <PrimaryButton role={role} onClick={onAction} fullWidth className="gap-2">
             {actionLabel}
+            <SearchIcon />
           </PrimaryButton>
         </div>
       ) : (
-        <div className="mt-6">
+        <div className="mt-8">
           <SecondaryButton onClick={onAction}>{actionLabel}</SecondaryButton>
         </div>
       )}
@@ -148,37 +226,152 @@ export function DashboardLandingCard({
 export function SetupChecklistRow({
   done,
   title,
-  hint,
   actionLabel,
   onAction,
+  readyBadge,
 }: {
   done: boolean;
   title: string;
-  hint: string;
-  actionLabel: string;
-  onAction: () => void;
+  actionLabel?: string;
+  onAction?: () => void;
+  readyBadge?: boolean;
 }) {
   return (
-    <li className="flex flex-col gap-3 rounded-2xl border border-slate-100 bg-slate-50/80 p-4 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex min-w-0 items-start gap-3">
+    <li className="flex flex-col gap-3 rounded-2xl border border-slate-100 bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-center gap-3">
         <span
           className={[
-            "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-black",
-            done ? "bg-emerald-500 text-white" : "border-2 border-slate-300 bg-white text-slate-400",
+            "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-black",
+            done ? "bg-emerald-500 text-white" : "border-2 border-slate-300 bg-white",
           ].join(" ")}
           aria-hidden
         >
           {done ? "✓" : ""}
         </span>
-        <span className="min-w-0">
-          <span className="block font-bold text-slate-900">{title}</span>
-          <span className="mt-0.5 block text-sm text-slate-600">{hint}</span>
-        </span>
+        <span className="font-bold text-slate-900">{title}</span>
       </div>
-      <SecondaryButton onClick={onAction} className="w-full sm:w-auto sm:min-w-[9rem]">
-        {actionLabel}
-      </SecondaryButton>
+      {readyBadge ? (
+        <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800">Ready</span>
+      ) : actionLabel && onAction ? (
+        <PrimaryButton role="Admin" onClick={onAction} className="w-full sm:w-auto sm:min-w-[8.5rem]">
+          {actionLabel}
+        </PrimaryButton>
+      ) : null}
     </li>
+  );
+}
+
+export function TodayMetricBlock({
+  value,
+  label,
+  tone,
+}: {
+  value: string;
+  label: string;
+  tone: "orange" | "blue" | "green";
+}) {
+  const bg = tone === "orange" ? "bg-orange-50" : tone === "blue" ? "bg-blue-50" : "bg-emerald-50";
+  const text = tone === "orange" ? "text-orange-700" : tone === "blue" ? "text-blue-700" : "text-emerald-700";
+  return (
+    <div className={["rounded-3xl px-5 py-5", bg].join(" ")}>
+      <p className="text-4xl font-black tabular-nums text-slate-900">{value}</p>
+      <p className={["mt-1 text-sm font-black", text].join(" ")}>{label}</p>
+    </div>
+  );
+}
+
+export function ManagerSummaryCard({
+  pill,
+  pillTone,
+  metric,
+  description,
+  actionLabel,
+  onAction,
+  primary = false,
+}: {
+  pill: string;
+  pillTone: "danger" | "warning" | "success";
+  metric: string;
+  description: string;
+  actionLabel: string;
+  onAction: () => void;
+  primary?: boolean;
+}) {
+  return (
+    <article className={[DASHBOARD_CARD, "flex h-full flex-col"].join(" ")}>
+      <StatusPill tone={pillTone === "danger" ? "danger" : pillTone === "warning" ? "warning" : "success"}>{pill}</StatusPill>
+      <p className="mt-4 text-3xl font-black tracking-tight text-slate-900">{metric}</p>
+      <p className="mt-2 flex-1 text-sm text-slate-600">{description}</p>
+      <div className="mt-6">
+        {primary ? (
+          <PrimaryButton role="Manager" onClick={onAction} fullWidth>
+            {actionLabel}
+          </PrimaryButton>
+        ) : (
+          <SecondaryButton onClick={onAction}>{actionLabel}</SecondaryButton>
+        )}
+      </div>
+    </article>
+  );
+}
+
+export function OpenActionRow({
+  title,
+  area,
+  statusLabel,
+  statusTone,
+  onOpen,
+}: {
+  title: string;
+  area: string;
+  statusLabel: string;
+  statusTone: "danger" | "warning" | "neutral" | "info";
+  onOpen: () => void;
+}) {
+  return (
+    <li className="flex flex-col gap-3 border-b border-slate-100 py-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <p className="font-black text-slate-900">{title}</p>
+        <p className="mt-0.5 text-sm text-slate-500">{area}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-3">
+        <StatusPill tone={statusTone}>{statusLabel}</StatusPill>
+        <SecondaryButton onClick={onOpen} className="min-w-[5.5rem]">
+          Open
+        </SecondaryButton>
+      </div>
+    </li>
+  );
+}
+
+export function TabletBottomNav({
+  onChecks,
+  onSubmit,
+  onHistory,
+}: {
+  onChecks: () => void;
+  onSubmit: () => void;
+  onHistory: () => void;
+}) {
+  const items = [
+    { label: "Checks", onClick: onChecks, icon: QUICK_ACTION_ICONS.checks },
+    { label: "Submit", onClick: onSubmit, icon: QUICK_ACTION_ICONS.submit },
+    { label: "History", onClick: onHistory, icon: QUICK_ACTION_ICONS.history },
+  ];
+  return (
+    <nav className="grid grid-cols-3 gap-3" aria-label="Tablet navigation">
+      {items.map((item) => (
+        <button
+          key={item.label}
+          type="button"
+          onClick={item.onClick}
+          className="flex min-h-[5.5rem] flex-col items-center justify-center gap-2 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-violet-200 hover:shadow-md"
+        >
+          <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-50 text-violet-700">{item.icon}</span>
+          <span className="text-sm font-black text-slate-900">{item.label}</span>
+        </button>
+      ))}
+    </nav>
   );
 }
 
@@ -411,7 +604,7 @@ export function RoleDashboardShell({
   title: string;
   intro?: string;
   subtitle?: string;
-  primaryAction?: { label: string; onClick: () => void };
+  primaryAction?: { label: string; onClick: () => void; icon?: "search" | "alert" | "invite" };
   children: ReactNode;
 }) {
   return (

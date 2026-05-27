@@ -10447,7 +10447,7 @@ function App() {
                     </span>
                   ) : null}
                 </div>
-                <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--bert-signal-orange)] text-[10px] font-semibold text-[var(--qms-navy-950)] ring-2 ring-white">
+                <div className={["relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-2 ring-white", roleTheme?.avatarBg ?? "bg-[var(--bert-signal-orange)]", roleTheme?.avatarText ?? "text-[var(--qms-navy-950)]", "text-[10px] font-semibold"].join(" ")}>
                   {accountPhotoUrl ? (
                     <img src={accountPhotoUrl} alt={currentUser.name} className="h-full w-full object-cover" />
                   ) : (
@@ -10780,7 +10780,12 @@ function App() {
                             applyNextBestDashboardIntent(dashboardNextBest.intent);
                           }
                         }}
-                        className="mt-3 inline-flex min-h-[44px] w-full items-center justify-center rounded-xl bg-[var(--bert-signal-orange)] px-4 text-sm font-semibold text-[var(--qms-navy-950)] shadow-sm transition hover:brightness-95 focus-visible:outline focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-offset-2 sm:w-auto"
+                        className={[
+                          "mt-3 inline-flex min-h-[44px] w-full items-center justify-center rounded-xl px-4 text-sm font-semibold shadow-sm transition focus-visible:outline focus-visible:ring-2 focus-visible:ring-offset-2 sm:w-auto",
+                          roleTheme
+                            ? [roleTheme.primaryButton, roleTheme.primaryButtonHover, "text-white"].join(" ")
+                            : "bg-[var(--bert-signal-orange)] text-[var(--qms-navy-950)] hover:brightness-95 focus-visible:ring-orange-300",
+                        ].join(" ")}
                       >
                         {dashboardNextBest.label}
                       </button>
@@ -10925,7 +10930,6 @@ function App() {
                   <ManagerRoleDashboard
                     workspaceName={workspaceName}
                     teamCount={companyReportUsers.length}
-                    qmsSummary={canAccessQmsReadinessNav(currentUser.role) ? qmsReadinessSummary : null}
                     onNavigate={(nextScreen) => setScreen(nextScreen)}
                     currentUser={currentUser}
                     groupedAudits={groupedAudits}
@@ -10976,7 +10980,8 @@ function App() {
                     assignedAudits={assignedAudits}
                     actions={visibleActions}
                     history={assignmentFilteredHistory}
-                    openReportsCount={openActions.length}
+                    openReportsCount={reportInbox.length}
+                    syncIssueCount={failedSyncCount + pendingSyncCount}
                     qmsSummary={canAccessQmsReadinessNav(currentUser.role) ? qmsReadinessSummary : null}
                     onNavigate={(nextScreen) => setScreen(nextScreen)}
                     onOpenAudit={startAudit}

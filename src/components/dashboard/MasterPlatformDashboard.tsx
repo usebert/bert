@@ -6,56 +6,76 @@ type Props = {
   pendingOnboardingCount: number;
   onNavigate: (screen: NavItemId) => void;
   onOpenInitialSetup: () => void;
+  onOpenSelectCompany?: () => void;
 };
 
-/** Master platform home — mirrors Godmode cards; no company metrics or technical status here. */
+/** Master platform home — mirrors Godmode reference layout. */
 export function MasterPlatformDashboard({
   companiesCount,
   pendingOnboardingCount,
   onNavigate,
   onOpenInitialSetup,
+  onOpenSelectCompany,
 }: Props) {
   void companiesCount;
   void pendingOnboardingCount;
 
+  const openSelect = () => {
+    onOpenSelectCompany?.();
+    onNavigate("godmodeHome");
+  };
+
   const cards = [
     {
       title: "Work on existing company",
-      description: "Choose a live company to manage users, areas, checks, and reports.",
+      description: "Pick a live company workspace before viewing users, checks, actions, or reports.",
       label: "Select company",
-      onClick: () => onNavigate("godmodeHome"),
+      iconTone: "orange" as const,
+      onClick: openSelect,
+      primary: true,
     },
     {
       title: "Create new company",
-      description: "Start a new workspace with a clean form — no previous company data.",
-      label: "Create company",
+      description: "Start clean. No old users, checks, invites, or company data carried over.",
+      label: "Create company +",
+      iconTone: "blue" as const,
       onClick: () => onNavigate("onboarding"),
     },
     {
       title: "Platform setup",
-      description: "Google, shared drive, email, and tablet kiosk.",
-      label: "Open platform setup",
+      description: "Google, Shared Drive, email, and platform readiness in one place.",
+      label: "Open setup",
+      iconTone: "grey" as const,
       onClick: () => onOpenInitialSetup(),
     },
     {
       title: "Reports / Diagnostics",
-      description: "Health checks and readiness for the platform.",
+      description: "Check platform health and readiness without entering a company workspace.",
       label: "Open diagnostics",
+      iconTone: "green" as const,
       onClick: () => onNavigate("reports"),
     },
   ];
 
   return (
-    <RoleDashboardShell role="Master" eyebrow="Platform control" title="Platform" subtitle="No company workspace loaded. Pick a company or create one.">
+    <RoleDashboardShell
+      role="Master"
+      eyebrow="Platform control"
+      title="Godmode"
+      subtitle="Choose what you want to do. No company is loaded until you select one."
+      primaryAction={{ label: "Select company", onClick: openSelect, icon: "search" }}
+    >
       <div className="grid gap-4 sm:grid-cols-2">
-        {cards.map((card, index) => (
+        {cards.map((card) => (
           <DashboardLandingCard
             key={card.title}
+            role="Master"
             title={card.title}
             description={card.description}
             actionLabel={card.label}
             onAction={card.onClick}
-            primary={index === 0}
+            primary={card.primary}
+            iconTone={card.iconTone}
           />
         ))}
       </div>
