@@ -638,7 +638,10 @@ export function ActionsScreen({
                       </span>
                     ) : null}
                     <MetaPill icon="spark" label={action.severity} />
-                    <MetaPill icon="clipboard" label={action.riskCategory} />
+                    <MetaPill
+                      icon={action.riskCategory === "Health & Safety" ? "warningTriangle" : "clipboard"}
+                      label={action.riskCategory}
+                    />
                     <MetaPill icon="user" label={action.assignedToName} />
                     <MetaPill icon="clock" label={action.dueDate || action.dueLabel} />
                     <MetaPill

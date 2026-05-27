@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { Role } from "../../permissions";
 import type { NavItemId } from "../../types/navigation";
 import { getRoleTheme } from "../../config/roleTheme";
+import { AlertTriangleIcon } from "../icons/AlertTriangleIcon";
 
 export const DASHBOARD_CARD = "rounded-3xl border border-slate-200 bg-white p-6 shadow-sm";
 
@@ -248,10 +249,21 @@ const QUICK_ACTION_ICONS: Record<string, ReactNode> = {
       <path d="m5 12 4 4 10-10" />
     </svg>
   ),
+  safety: <AlertTriangleIcon />,
 };
 
 function quickActionIconKey(label: string): keyof typeof QUICK_ACTION_ICONS {
   const lower = label.toLowerCase();
+  if (
+    lower.includes("quality & safety") ||
+    lower.includes("quality and safety") ||
+    lower.includes("incident") ||
+    lower.includes("near miss") ||
+    lower.includes("hazard") ||
+    lower.includes("safety")
+  ) {
+    return "safety";
+  }
   if (lower.includes("corrective") || lower.includes("capa") || lower.includes("action")) return "forms";
   if (lower.includes("invite")) return "invite";
   if (lower.includes("manage users") || lower.includes("users &")) return "users";

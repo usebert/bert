@@ -16,6 +16,7 @@ import type {
 import { computeSafetyRiskScore, newQmsId } from "../utils/qmsReadiness";
 import { EmptyPanel } from "../components/dashboard/DashboardPrimitives";
 import { DASHBOARD_CARD, PageHeader } from "../components/dashboard/RoleDashboardPrimitives";
+import { AlertTriangleIcon } from "../components/icons/AlertTriangleIcon";
 
 export type QmsReadinessAccessLevel = "full" | "operational";
 
@@ -63,11 +64,13 @@ function HubCard({
   description,
   metric,
   onClick,
+  safetyIcon = false,
 }: {
   title: string;
   description: string;
   metric?: string;
   onClick: () => void;
+  safetyIcon?: boolean;
 }) {
   return (
     <button
@@ -75,6 +78,11 @@ function HubCard({
       onClick={onClick}
       className="rounded-3xl border border-slate-200 bg-white p-6 text-left shadow-sm transition hover:border-slate-300 hover:shadow-md focus-visible:outline focus-visible:ring-2 focus-visible:ring-slate-400"
     >
+      {safetyIcon ? (
+        <span className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-50 text-amber-700 ring-1 ring-amber-100">
+          <AlertTriangleIcon className="h-5 w-5" />
+        </span>
+      ) : null}
       <p className="text-sm font-semibold text-slate-900">{title}</p>
       <p className="mt-1 text-sm text-slate-600">{description}</p>
       {metric ? <p className="mt-2 text-xs font-semibold text-amber-700">{metric}</p> : null}
@@ -161,6 +169,7 @@ export function QmsReadinessScreen({
         description: "Record hazards and follow-up actions.",
         metric: summary.openHazards > 0 ? `${summary.openHazards} open` : undefined,
         onClick: () => onNavigate("incidents"),
+        safetyIcon: true,
       },
       {
         id: "incidents-op" as const,
@@ -169,6 +178,7 @@ export function QmsReadinessScreen({
         metric:
           summary.openIncidentsAndNearMisses > 0 ? `${summary.openIncidentsAndNearMisses} open` : undefined,
         onClick: () => onNavigate("incidents"),
+        safetyIcon: true,
       },
     ];
     if (accessLevel === "operational") {
@@ -219,6 +229,7 @@ export function QmsReadinessScreen({
         description: "Record hazards and follow-up actions.",
         metric: summary.openHazards > 0 ? `${summary.openHazards} open` : undefined,
         onClick: () => setSection("hazards"),
+        safetyIcon: true,
       },
       {
         id: "incidents" as const,
@@ -227,6 +238,7 @@ export function QmsReadinessScreen({
         metric:
           summary.openIncidentsAndNearMisses > 0 ? `${summary.openIncidentsAndNearMisses} open` : undefined,
         onClick: () => onNavigate("incidents"),
+        safetyIcon: true,
       },
       {
         id: "safetyRisks" as const,
@@ -235,6 +247,7 @@ export function QmsReadinessScreen({
         metric:
           summary.riskAssessmentsDueReview > 0 ? `${summary.riskAssessmentsDueReview} need review` : undefined,
         onClick: () => setSection("safetyRisks"),
+        safetyIcon: true,
       },
       {
         id: "emergency" as const,
@@ -242,6 +255,7 @@ export function QmsReadinessScreen({
         description: "Fire exits, spill kits, and drills — use your existing check templates.",
         metric: undefined,
         onClick: () => onNavigate("audits"),
+        safetyIcon: true,
       },
       {
         id: "observations" as const,
@@ -249,6 +263,7 @@ export function QmsReadinessScreen({
         description: "Positive or improvement observations from the floor.",
         metric: undefined,
         onClick: () => setSection("observations"),
+        safetyIcon: true,
       },
       {
         id: "objectives" as const,
@@ -256,6 +271,7 @@ export function QmsReadinessScreen({
         description: "Targets, owners, and progress for health and safety goals.",
         metric: summary.safetyObjectivesAtRisk > 0 ? `${summary.safetyObjectivesAtRisk} need attention` : undefined,
         onClick: () => setSection("objectives"),
+        safetyIcon: true,
       },
       {
         id: "review" as const,
@@ -313,7 +329,14 @@ export function QmsReadinessScreen({
       {section === "hub" ? (
         <div ref={hubGridRef} className="grid scroll-mt-4 gap-4 sm:grid-cols-2">
           {hubCards.map((card) => (
-            <HubCard key={card.id} title={card.title} description={card.description} metric={card.metric} onClick={card.onClick} />
+            <HubCard
+              key={card.id}
+              title={card.title}
+              description={card.description}
+              metric={card.metric}
+              onClick={card.onClick}
+              safetyIcon={"safetyIcon" in card && card.safetyIcon}
+            />
           ))}
         </div>
       ) : null}

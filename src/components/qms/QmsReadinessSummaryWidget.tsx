@@ -1,6 +1,7 @@
 import type { NavItemId } from "../../types/navigation";
 import type { QmsReadinessSummary } from "../../types/qms";
 import { DASHBOARD_CARD, SecondaryButton } from "../dashboard/RoleDashboardPrimitives";
+import { AlertTriangleIcon } from "../icons/AlertTriangleIcon";
 
 type Props = {
   summary: QmsReadinessSummary;
@@ -50,10 +51,15 @@ export function QmsReadinessSummaryWidget({ summary, compact, onOpenHub, onNavig
     return (
       <section className={DASHBOARD_CARD}>
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-50 text-amber-700 ring-1 ring-amber-100">
+              <AlertTriangleIcon className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
             <p className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">Quality & Safety Hub</p>
             <h3 className="mt-1 text-lg font-black text-slate-900">Quality & safety snapshot</h3>
             <p className="mt-1 text-sm text-slate-600">A simple view of what needs review, action, or evidence.</p>
+            </div>
           </div>
           {onOpenHub ? (
             <button
@@ -75,8 +81,15 @@ export function QmsReadinessSummaryWidget({ summary, compact, onOpenHub, onNavig
 
   return (
     <section className={DASHBOARD_CARD}>
-      <h3 className="text-lg font-black text-slate-900">Control summary</h3>
-      <p className="mt-1 text-sm text-slate-600">A simple view of what needs review, action, or evidence.</p>
+      <div className="flex items-start gap-3">
+        <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-50 text-amber-700 ring-1 ring-amber-100">
+          <AlertTriangleIcon className="h-5 w-5" />
+        </span>
+        <div>
+          <h3 className="text-lg font-black text-slate-900">Control summary</h3>
+          <p className="mt-1 text-sm text-slate-600">A simple view of what needs review, action, or evidence.</p>
+        </div>
+      </div>
       <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <MetricTile
           label="Documents to review"

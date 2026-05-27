@@ -57,7 +57,7 @@ const MANAGER_NAV: PresentedNavItem[] = [
 const AUDITOR_NAV: PresentedNavItem[] = [
   { id: "dashboard", label: "Today", icon: "dashboard" },
   { id: "audits", label: "My Checks", icon: "clipboard" },
-  { id: "incidents", label: "Submit", icon: "camera" },
+  { id: "incidents", label: "Submit", icon: "warningTriangle" },
   { id: "sync", label: "History", icon: "sync" },
 ];
 
@@ -128,7 +128,7 @@ export function getMobileBottomNavForRole(role: Role): MobileNavEntry[] {
   if (bucket === "auditor") {
     return [
       { id: "dashboard", label: "Checks", icon: "dashboard" },
-      { id: "incidents", label: "Submit", icon: "camera" },
+      { id: "incidents", label: "Submit", icon: "warningTriangle" },
       { id: "sync", label: "History", icon: "sync" },
       { id: "__logout__", label: "Log out", icon: "logOut" },
     ];

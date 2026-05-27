@@ -5,6 +5,7 @@ import type { UserInvite } from "../../types/adminScreenProps";
 import { formatInviteStatusLabel } from "../../utils/inviteStatusDisplay";
 import { getAuditTrafficStatus } from "../../utils/dashboardHealth";
 import { QmsReadinessSummaryWidget } from "../qms/QmsReadinessSummaryWidget";
+import { AlertTriangleIcon } from "../icons/AlertTriangleIcon";
 import type { QmsReadinessSummary } from "../../types/qms";
 import {
   DASHBOARD_CARD,
@@ -187,9 +188,14 @@ export function CompanyAdminDashboard({
           <button
             type="button"
             onClick={() => onNavigate("qmsReadiness")}
-            className="flex w-full items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800"
+            className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800"
           >
-            Quality & Safety Hub
+            <span className="flex min-w-0 items-center gap-2.5">
+              <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-700 ring-1 ring-amber-100">
+                <AlertTriangleIcon className="h-4 w-4" />
+              </span>
+              Quality & Safety Hub
+            </span>
             <span aria-hidden>›</span>
           </button>
           <button
