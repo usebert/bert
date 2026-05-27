@@ -39,6 +39,8 @@ export type RoleTheme = {
   healthyStrip: string;
   mobileNavActive: string;
   sectionIntro: string;
+  pageHeaderEyebrow: string;
+  pageHeaderShell: string;
 };
 
 const ROLE_THEMES: Record<RoleThemeKey, RoleTheme> = {
@@ -60,8 +62,10 @@ const ROLE_THEMES: Record<RoleThemeKey, RoleTheme> = {
     bannerDetail: "text-slate-600",
     badge: "border border-orange-200 bg-orange-50 text-orange-800",
     pageBackground: "bg-slate-100",
-    card: "rounded-2xl border border-slate-200/90 bg-white shadow-sm",
-    metricCard: "rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm",
+    card: "rounded-3xl border border-slate-200 bg-white p-6 shadow-sm",
+    metricCard: "rounded-3xl border border-slate-200 bg-white p-5 shadow-sm",
+    pageHeaderEyebrow: "text-orange-300",
+    pageHeaderShell: "rounded-[2rem] bg-slate-950",
     metricValue: "text-3xl font-semibold tracking-tight text-slate-900",
     metricValueAlert: "text-3xl font-semibold tracking-tight text-rose-600",
     metricLink: "text-xs font-semibold text-orange-600 hover:text-orange-700",
@@ -97,10 +101,12 @@ const ROLE_THEMES: Record<RoleThemeKey, RoleTheme> = {
     bannerDetail: "text-slate-600",
     badge: "border border-blue-200 bg-blue-50 text-blue-800",
     pageBackground: "bg-slate-100",
-    card: "rounded-2xl border border-slate-200/90 bg-white shadow-sm",
-    metricCard: "rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm",
-    metricValue: "text-3xl font-semibold tracking-tight text-slate-900",
-    metricValueAlert: "text-3xl font-semibold tracking-tight text-rose-600",
+    card: "rounded-3xl border border-slate-200 bg-white p-6 shadow-sm",
+    metricCard: "rounded-3xl border border-slate-200 bg-white p-5 shadow-sm",
+    pageHeaderEyebrow: "text-blue-300",
+    pageHeaderShell: "rounded-[2rem] bg-slate-950",
+    metricValue: "text-3xl font-black tracking-tight text-slate-900",
+    metricValueAlert: "text-3xl font-black tracking-tight text-rose-600",
     metricLink: "text-xs font-semibold text-blue-600 hover:text-blue-700",
     quickActionCard:
       "flex min-h-[5.5rem] flex-col items-start gap-3 rounded-2xl border border-slate-200/90 bg-white p-4 text-left shadow-sm transition",
@@ -134,10 +140,12 @@ const ROLE_THEMES: Record<RoleThemeKey, RoleTheme> = {
     bannerDetail: "text-slate-600",
     badge: "border border-emerald-200 bg-emerald-50 text-emerald-800",
     pageBackground: "bg-slate-100",
-    card: "rounded-2xl border border-slate-200/90 bg-white shadow-sm",
-    metricCard: "rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm",
-    metricValue: "text-3xl font-semibold tracking-tight text-slate-900",
-    metricValueAlert: "text-3xl font-semibold tracking-tight text-rose-600",
+    card: "rounded-3xl border border-slate-200 bg-white p-6 shadow-sm",
+    metricCard: "rounded-3xl border border-slate-200 bg-white p-5 shadow-sm",
+    pageHeaderEyebrow: "text-emerald-300",
+    pageHeaderShell: "rounded-[2rem] bg-slate-950",
+    metricValue: "text-3xl font-black tracking-tight text-slate-900",
+    metricValueAlert: "text-3xl font-black tracking-tight text-rose-600",
     metricLink: "text-xs font-semibold text-emerald-600 hover:text-emerald-700",
     quickActionCard:
       "flex min-h-[5.5rem] flex-col items-start gap-3 rounded-2xl border border-slate-200/90 bg-white p-4 text-left shadow-sm transition",
@@ -171,8 +179,10 @@ const ROLE_THEMES: Record<RoleThemeKey, RoleTheme> = {
     bannerDetail: "text-slate-600",
     badge: "border border-violet-200 bg-violet-50 text-violet-800",
     pageBackground: "bg-slate-100",
-    card: "rounded-2xl border border-slate-200/90 bg-white shadow-sm",
-    metricCard: "rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm",
+    card: "rounded-3xl border border-slate-200 bg-white p-6 shadow-sm",
+    metricCard: "rounded-3xl border border-slate-200 bg-white p-5 shadow-sm",
+    pageHeaderEyebrow: "text-orange-300",
+    pageHeaderShell: "rounded-[2rem] bg-slate-950",
     metricValue: "text-3xl font-semibold tracking-tight text-slate-900",
     metricValueAlert: "text-3xl font-semibold tracking-tight text-rose-600",
     metricLink: "text-xs font-semibold text-violet-600 hover:text-violet-700",
