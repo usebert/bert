@@ -482,6 +482,7 @@ export function AuditsScreen({
     );
   }
 
+  const theme = getRoleTheme(currentUser.role);
   const adminAccentHero = currentUser.role === "Admin";
   const heroIconChip = adminAccentHero
     ? "bg-blue-50 text-blue-600 ring-1 ring-blue-100"
@@ -498,12 +499,12 @@ export function AuditsScreen({
           </div>
           <div>
             <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Forms & checks</h2>
-            <SectionIntro text={SECTION_INTROS.formsChecks} className="mt-2" role="Admin" />
+            <SectionIntro text={SECTION_INTROS.formsChecks} className="mt-2" role={currentUser.role} />
             {onNavigateToSchedules ? (
               <button
                 type="button"
                 onClick={onNavigateToSchedules}
-                className="mt-4 inline-flex h-12 items-center rounded-xl bg-orange-500 px-5 text-sm font-semibold text-white hover:bg-orange-600"
+                className={["mt-4 inline-flex h-12 items-center rounded-xl px-5 text-sm font-semibold text-white", theme.primaryButton, theme.primaryButtonHover].join(" ")}
               >
                 Add check (schedules)
               </button>
