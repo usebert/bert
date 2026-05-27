@@ -60,4 +60,7 @@ export const googleWorkspaceService = {
       }),
     );
   },
+  async getGodmodeLiveCompanies<T extends JsonResponse>() {
+    return parseResponse<T>(await fetch(apiUrl("/api/godmode/live-companies"), { credentials: "include" }));
+  },
 };

@@ -16,7 +16,8 @@ export function isReservedGodmodeCompanyFolderName(name: string | undefined): bo
     normalized === "master control" ||
     normalized === "companies" ||
     normalized === "company" ||
-    normalized === "shared drive"
+    normalized === "shared drive" ||
+    normalized === "shared drive root"
   );
 }
 

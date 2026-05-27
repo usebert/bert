@@ -24,7 +24,8 @@ function isReservedGodmodeCompanyFolderName(name) {
     normalized === "master control" ||
     normalized === "companies" ||
     normalized === "company" ||
-    normalized === "shared drive"
+    normalized === "shared drive" ||
+    normalized === "shared drive root"
   );
 }
 

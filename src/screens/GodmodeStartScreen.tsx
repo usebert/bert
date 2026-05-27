@@ -9,6 +9,7 @@ export type GodmodeCompanyPickerRow = {
   name: string;
   masterSheetId: string;
   setupStatusLabel: string;
+  setupStatus?: "ready" | "incomplete";
 };
 
 type LandingCard = {
@@ -53,6 +54,9 @@ type Props = {
   onOpenDiagnostics: () => void;
   onOpenOnboarding: () => void;
   onNewCompany: () => void;
+  liveCompaniesWarning?: string;
+  onRepairLiveCompanies?: () => void;
+  onRepairCompany?: (folderId: string) => void;
 };
 
 function LandingActionCard({
@@ -106,6 +110,9 @@ export function GodmodeStartScreen({
   onOpenDiagnostics,
   onOpenOnboarding,
   onNewCompany,
+  liveCompaniesWarning,
+  onRepairLiveCompanies,
+  onRepairCompany,
 }: Props) {
   const onDark = themeMode === "dark";
   const [view, setView] = useState<View>("landing");
@@ -267,9 +274,25 @@ export function GodmodeStartScreen({
         </label>
 
         {companies.length === 0 ? (
-          <p className={`mt-6 rounded-2xl border px-4 py-6 text-sm ${onDark ? "border-white/10 bg-slate-900/50 text-slate-300" : "border-slate-200 bg-slate-50 text-slate-700"}`}>
-            No live company workspaces yet. Create a new company to begin.
-          </p>
+          <div className={`mt-6 rounded-2xl border px-4 py-6 text-sm ${onDark ? "border-white/10 bg-slate-900/50 text-slate-300" : "border-slate-200 bg-slate-50 text-slate-700"}`}>
+            <p>
+              {liveCompaniesWarning || "No live company workspaces yet. Create a new company to begin."}
+            </p>
+            {liveCompaniesWarning && onRepairLiveCompanies ? (
+              <button
+                type="button"
+                onClick={onRepairLiveCompanies}
+                className={[
+                  "mt-3 inline-flex h-10 items-center rounded-xl border px-4 text-sm font-semibold transition",
+                  onDark
+                    ? "border-amber-400/40 bg-amber-500/20 text-amber-100 hover:bg-amber-500/30"
+                    : "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100",
+                ].join(" ")}
+              >
+                Open setup / repair
+              </button>
+            ) : null}
+          </div>
         ) : filteredCompanies.length === 0 ? (
           <p className={`mt-6 text-sm ${muted}`}>No companies match your search.</p>
         ) : (
@@ -291,6 +314,40 @@ export function GodmodeStartScreen({
                     <p className={`mt-0.5 truncate font-mono text-xs ${muted}`}>
                       {company.masterSheetId ? `Sheet: ${company.masterSheetId}` : "Master sheet not linked yet"}
                     </p>
+                    {company.setupStatusLabel !== "Ready" && onRepairCompany ? (
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onRepairCompany(company.id);
+                          }}
+                          className={[
+                            "inline-flex h-8 items-center rounded-lg border px-3 text-xs font-semibold",
+                            onDark
+                              ? "border-amber-400/40 bg-amber-500/20 text-amber-100 hover:bg-amber-500/30"
+                              : "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100",
+                          ].join(" ")}
+                        >
+                          Continue setup
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onRepairCompany(company.id);
+                          }}
+                          className={[
+                            "inline-flex h-8 items-center rounded-lg border px-3 text-xs font-semibold",
+                            onDark
+                              ? "border-amber-400/40 bg-amber-500/20 text-amber-100 hover:bg-amber-500/30"
+                              : "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100",
+                          ].join(" ")}
+                        >
+                          Repair setup
+                        </button>
+                      </div>
+                    ) : null}
                     <p className={`mt-0.5 truncate font-mono text-[11px] ${muted}`}>Folder: {company.id}</p>
                   </div>
                   <span

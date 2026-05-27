@@ -31,6 +31,7 @@ import { installSetupStatusRoutes } from "./setup-status.mjs";
 import {
   isArchiveOrNonLiveWorkspaceName,
   logInviteCompleteFailure,
+  normalizeWorkspaceFolderLabel,
   validateCompanyUserInviteTarget,
 } from "./invite-target.mjs";
 import { installCompanyWorkspaceResetRoutes } from "./company-workspace-reset.mjs";
@@ -2091,6 +2092,86 @@ function normalizeDriveFolderName(value = "") {
     .trim();
 }
 
+const LIVE_COMPANIES_FOLDER_LABEL = "Live Companies";
+
+function isLiveCompaniesFolderName(name = "") {
+  return normalizeDriveFolderName(name) === "live companies";
+}
+
+function isReservedGodmodeCompanyFolderName(name = "") {
+  const normalized = normalizeWorkspaceFolderLabel(name);
+  if (isArchiveOrNonLiveWorkspaceName(name)) {
+    return true;
+  }
+  return (
+    normalized === "live companies" ||
+    normalized === "master control" ||
+    normalized === "companies" ||
+    normalized === "company" ||
+    normalized === "shared drive" ||
+    normalized === "shared drive root"
+  );
+}
+
+function isDisallowedGodmodeCompanyDisplayName(name = "") {
+  const normalized = normalizeWorkspaceFolderLabel(name);
+  return !normalized || normalized === "bert";
+}
+
+function isSelectableGodmodeCompanyFolder(folder) {
+  return (
+    Boolean(String(folder?.id || "").trim()) &&
+    !isReservedGodmodeCompanyFolderName(folder?.name) &&
+    !isDisallowedGodmodeCompanyDisplayName(folder?.name)
+  );
+}
+
+async function listFolderChildrenInSharedDrive(auth, parentId, pageSize = 200) {
+  const drive = google.drive({ version: "v3", auth });
+  try {
+    const response = await drive.files.list({
+      includeItemsFromAllDrives: true,
+      supportsAllDrives: true,
+      corpora: "drive",
+      driveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
+      q: `'${parentId}' in parents and trashed = false`,
+      fields: "files(id,name,mimeType,createdTime)",
+      pageSize,
+      orderBy: "name_natural",
+    });
+    return response.data.files || [];
+  } catch (error) {
+    const response = await drive.files.list({
+      includeItemsFromAllDrives: true,
+      supportsAllDrives: true,
+      q: `'${parentId}' in parents and trashed = false`,
+      fields: "files(id,name,mimeType,createdTime)",
+      pageSize,
+      orderBy: "name_natural",
+    });
+    const files = response.data.files || [];
+    if (!files.length) {
+      throw error;
+    }
+    return files;
+  }
+}
+
+async function resolveLiveCompaniesFolder(auth) {
+  if (!requiredEnv.GOOGLE_SHARED_DRIVE_ID) {
+    throw new Error("GOOGLE_SHARED_DRIVE_ID is not configured on the server.");
+  }
+  const topLevelFolders = (await listFolderChildrenInSharedDrive(auth, requiredEnv.GOOGLE_SHARED_DRIVE_ID)).filter(
+    (item) => item.mimeType === "application/vnd.google-apps.folder",
+  );
+  const liveCompaniesFolder =
+    topLevelFolders.find((item) => isLiveCompaniesFolderName(item.name)) || null;
+  return {
+    liveCompaniesFolder,
+    topLevelFolders,
+  };
+}
+
 async function listDriveChildren(auth, folderId) {
   const drive = google.drive({ version: "v3", auth });
   const response = await drive.files.list({
@@ -2168,7 +2249,11 @@ async function provisionNewCompanyWorkspace(
     companyNameLen: safeName.length,
     adminEmailDomain: adminEmailDomain || undefined,
   });
-  const root = await createDriveFolder(auth, safeName, requiredEnv.GOOGLE_SHARED_DRIVE_ID);
+  const { liveCompaniesFolder } = await resolveLiveCompaniesFolder(auth);
+  if (!liveCompaniesFolder?.id) {
+    throw new Error("Live Companies folder not found. Check platform setup.");
+  }
+  const root = await createDriveFolder(auth, safeName, liveCompaniesFolder.id);
   console.log("[provision] milestone", { step: "company_root_folder", folderId: root.id });
   if (typeof onProvisionProgress === "function") {
     await onProvisionProgress({ provisionDriveFolderId: root.id });
@@ -2217,49 +2302,29 @@ async function provisionNewCompanyWorkspace(
   };
 }
 
-async function listCompanyFolders(auth) {
-  const drive = google.drive({ version: "v3", auth });
-  let folders = [];
-
-  try {
-    const response = await drive.files.list({
-      corpora: "drive",
-      driveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
-      includeItemsFromAllDrives: true,
-      supportsAllDrives: true,
-      q: "mimeType = 'application/vnd.google-apps.folder' and trashed = false",
-      fields: "files(id,name,createdTime)",
-      pageSize: 100,
-      orderBy: "name_natural",
-    });
-    folders = response.data.files || [];
-  } catch (error) {
-    const fallback = await drive.files.list({
-      includeItemsFromAllDrives: true,
-      supportsAllDrives: true,
-      q: `'${requiredEnv.GOOGLE_SHARED_DRIVE_ID}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
-      fields: "files(id,name,createdTime)",
-      pageSize: 100,
-      orderBy: "name_natural",
-    });
-    folders = fallback.data.files || [];
-
-    if (folders.length === 0) {
-      throw error;
-    }
-  }
+async function listCompanyFolders(auth, options = {}) {
+  const parentFolderId = String(options.parentFolderId || "").trim();
+  let folders = (
+    await listFolderChildrenInSharedDrive(auth, parentFolderId || requiredEnv.GOOGLE_SHARED_DRIVE_ID, 250)
+  ).filter((item) => item.mimeType === "application/vnd.google-apps.folder");
 
   const results = await Promise.all(
     folders.map(async (folder) => {
-      const children = await drive.files.list({
-        includeItemsFromAllDrives: true,
-        supportsAllDrives: true,
-        q: `'${folder.id}' in parents and trashed = false`,
-        fields: "files(id,name,mimeType)",
-        pageSize: 200,
-      });
+      const files = await listDriveChildren(auth, folder.id);
+      const isoFoldersByKey = resolveIsoFoldersFromChildren(files);
+      const setupFolder = isoFoldersByKey.setupFolderId;
+      const auditFormsFolder = isoFoldersByKey.auditFormsFolderId;
 
-      const files = children.data.files || [];
+      let auditFolderContents = [];
+      if (auditFormsFolder) {
+        auditFolderContents = await listDriveChildren(auth, auditFormsFolder.id);
+      }
+
+      let setupFolderContents = [];
+      if (setupFolder) {
+        setupFolderContents = await listDriveChildren(auth, setupFolder.id);
+      }
+
       const onboardingForm =
         files.find(
           (file) =>
@@ -2267,11 +2332,16 @@ async function listCompanyFolders(auth) {
             file.name?.toLowerCase().includes("onboarding"),
         ) || null;
 
-      const auditForms = files.filter(
+      const auditForms = auditFolderContents.filter(
         (file) =>
           file.mimeType === "application/vnd.google-apps.form" &&
           !file.name?.toLowerCase().includes("onboarding"),
       );
+
+      const masterSheet =
+        setupFolderContents.find((file) => file.mimeType === "application/vnd.google-apps.spreadsheet") ||
+        files.find((file) => file.mimeType === "application/vnd.google-apps.spreadsheet") ||
+        null;
 
       const responseSheet =
         files.find(
@@ -2281,6 +2351,8 @@ async function listCompanyFolders(auth) {
               file.name?.toLowerCase().includes("audit responses") ||
               file.name?.toLowerCase().includes("data")),
         ) || null;
+
+      const masterSheetId = masterSheet?.id || responseSheet?.id || "";
 
       return {
         id: folder.id,
@@ -2292,14 +2364,45 @@ async function listCompanyFolders(auth) {
         auditFormCount: auditForms.length,
         auditFormIds: auditForms.map((file) => file.id),
         auditFormsVerified: auditForms.length > 0,
-        responseSheetName: responseSheet?.name || "Company Response Sheet",
-        responseSheetId: responseSheet?.id || "",
-        responseSheetVerified: Boolean(responseSheet),
+        responseSheetName: masterSheet?.name || responseSheet?.name || "Company Master Sheet",
+        responseSheetId: masterSheetId,
+        responseSheetVerified: Boolean(masterSheetId),
       };
     }),
   );
 
   return results;
+}
+
+async function listGodmodeLiveCompanies(auth) {
+  const { liveCompaniesFolder } = await resolveLiveCompaniesFolder(auth);
+  if (!liveCompaniesFolder?.id) {
+    return {
+      liveCompaniesFolderId: "",
+      liveCompaniesMissing: true,
+      warning: "Live Companies folder not found. Check platform setup.",
+      companies: [],
+    };
+  }
+
+  const companies = (await listCompanyFolders(auth, { parentFolderId: liveCompaniesFolder.id })).filter(
+    (company) => isSelectableGodmodeCompanyFolder(company),
+  );
+  return {
+    liveCompaniesFolderId: liveCompaniesFolder.id,
+    liveCompaniesMissing: false,
+    warning: "",
+    companies: companies.map((company) => {
+      const masterSheetId = String(company.responseSheetId || "").trim();
+      const setupStatus = masterSheetId ? "ready" : "incomplete";
+      return {
+        ...company,
+        setupStatus,
+        setupStatusLabel: setupStatus === "ready" ? "Ready" : "Setup in progress",
+        masterSheetId,
+      };
+    }),
+  };
 }
 
 async function getDriveFile(auth, fileId) {
@@ -3593,7 +3696,8 @@ app.get("/api/google/status", async (_req, res) => {
       "GOOGLE_SHARED_DRIVE_ID is not set on the API server. Set it on the Render API service, then redeploy.";
   } else if (authed && envConfigured()) {
     try {
-      companies = await listCompanyFolders(authed);
+      const liveCompanies = await listGodmodeLiveCompanies(authed);
+      companies = liveCompanies.companies;
       sharedDriveVerified = true;
       onboardingSource = await discoverOnboardingSource(authed);
     } catch (error) {
@@ -3633,6 +3737,33 @@ app.get("/api/google/status", async (_req, res) => {
   });
 });
 
+app.get("/api/godmode/live-companies", requireGoogleWorkspaceSession, requireMasterOnlyActor, async (_req, res) => {
+  const authed = getAuthedClient();
+  if (!authed) {
+    return res.status(401).json({
+      ok: false,
+      error: "Please connect Google before loading Godmode companies.",
+    });
+  }
+  try {
+    const payload = await listGodmodeLiveCompanies(authed);
+    return res.json({
+      ok: true,
+      liveCompaniesFolderId: payload.liveCompaniesFolderId,
+      liveCompaniesMissing: payload.liveCompaniesMissing,
+      warning: payload.warning || undefined,
+      setupActions: payload.liveCompaniesMissing ? ["platformSetup"] : [],
+      companies: payload.companies,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to load Live Companies.";
+    return res.status(500).json({
+      ok: false,
+      error: message,
+    });
+  }
+});
+
 app.post("/api/google/verify-shared-drive", async (_req, res) => {
   const authed = getAuthedClient();
   const sharedDriveId = String(requiredEnv.GOOGLE_SHARED_DRIVE_ID || "").trim();
@@ -3660,10 +3791,12 @@ app.post("/api/google/verify-shared-drive", async (_req, res) => {
   }
 
   try {
-    const companies = await listCompanyFolders(authed);
+    const liveCompanies = await listGodmodeLiveCompanies(authed);
+    const companies = liveCompanies.companies;
     console.log("[google] shared drive verified", {
       sharedDriveIdPrefix: sharedDriveId.slice(0, 8),
       companiesCount: companies.length,
+      liveCompaniesFolderId: liveCompanies.liveCompaniesFolderId || undefined,
     });
     return res.json({
       ok: true,

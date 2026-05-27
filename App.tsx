@@ -217,6 +217,7 @@ import {
   syncAuditSubmissionToSheet,
 } from "./src/services/complianceSyncService";
 import { googleSheetsService } from "./src/services/googleSheetsService";
+import { googleWorkspaceService } from "./src/services/googleWorkspaceService";
 
 type AuditStatus = "green" | "amber" | "red";
 type Answer = "pass" | "nc" | "fail";
@@ -450,6 +451,9 @@ type CompanyFolder = {
   onboardingVerified: boolean;
   auditFormsVerified: boolean;
   responseSheetVerified: boolean;
+  setupStatus?: "ready" | "incomplete";
+  setupStatusLabel?: string;
+  masterSheetId?: string;
 };
 
 type OnboardingSource = {
@@ -559,6 +563,16 @@ type GoogleBackendStatus = {
   companiesCount?: number;
   companies?: CompanyFolder[];
   onboardingSource?: OnboardingSource;
+  error?: string;
+};
+
+type GodmodeLiveCompaniesPayload = {
+  ok: boolean;
+  liveCompaniesFolderId?: string;
+  liveCompaniesMissing?: boolean;
+  warning?: string;
+  setupActions?: string[];
+  companies?: CompanyFolder[];
   error?: string;
 };
 
@@ -3151,6 +3165,7 @@ function App() {
   const [scheduleDraftAuditors, setScheduleDraftAuditors] = useState<string[]>([]);
   const [scheduleValidationAttempted, setScheduleValidationAttempted] = useState(false);
   const [folders, setFolders] = useState<CompanyFolder[]>(storedWorkspaceState?.folders || []);
+  const [godmodeLiveCompaniesWarning, setGodmodeLiveCompaniesWarning] = useState("");
   const [selectedFolderId, setSelectedFolderId] = useState(storedWorkspaceState?.selectedFolderId || "");
   const selectedFolderIdRef = useRef(selectedFolderId);
   const [hydratedCompanyFolderId, setHydratedCompanyFolderId] = useState(
@@ -3267,15 +3282,20 @@ function App() {
       selectableGodmodeFolders.map((folder) => {
         const masterSheetId =
           folder.id === selectedFolderId
-            ? activeCompanyMasterSheetId || folder.responseSheetId || ""
-            : folder.responseSheetId || "";
-        const setupStatusLabel =
-          folder.onboardingVerified && folder.responseSheetVerified ? "Ready" : "Setup in progress";
+            ? activeCompanyMasterSheetId || folder.masterSheetId || folder.responseSheetId || ""
+            : folder.masterSheetId || folder.responseSheetId || "";
+        const setupStatusLabel = folder.setupStatusLabel
+          ? folder.setupStatusLabel
+          : folder.onboardingVerified && folder.responseSheetVerified
+            ? "Ready"
+            : "Setup in progress";
+        const setupStatus: "ready" | "incomplete" = masterSheetId ? "ready" : "incomplete";
         return {
           id: folder.id,
           name: folder.name,
           masterSheetId,
           setupStatusLabel,
+          setupStatus,
         };
       }),
     [selectableGodmodeFolders, selectedFolderId, activeCompanyMasterSheetId],
@@ -5355,11 +5375,14 @@ function App() {
         throw new Error(payload.error || "Unable to check the Google connection.");
       }
 
-      if (payload.connected && payload.companies) {
+      if (payload.connected && payload.companies && currentUser?.role !== "Master") {
         setFolders(payload.companies);
-        if (currentUser?.role !== "Master" && !selectedFolderId && payload.companies[0]) {
+        if (!selectedFolderId && payload.companies[0]) {
           setSelectedFolderId(payload.companies[0].id);
         }
+      }
+      if (!payload.connected) {
+        setGodmodeLiveCompaniesWarning("");
       }
     } catch (error) {
       if (!options?.silent) {
@@ -5372,6 +5395,31 @@ function App() {
     } finally {
       if (!options?.silent) {
         setGoogleStatusLoading(false);
+      }
+    }
+  };
+
+  const loadGodmodeLiveCompanies = async (options?: { silent?: boolean }) => {
+    if (currentUser?.role !== "Master" || !googleConnected) {
+      setGodmodeLiveCompaniesWarning("");
+      return;
+    }
+    try {
+      const payload = await googleWorkspaceService.getGodmodeLiveCompanies<GodmodeLiveCompaniesPayload>();
+      const companies = payload.companies || [];
+      setFolders(companies);
+      setGodmodeLiveCompaniesWarning(
+        payload.liveCompaniesMissing
+          ? payload.warning || "Live Companies folder not found. Check platform setup."
+          : "",
+      );
+    } catch (error) {
+      if (!options?.silent) {
+        pushToast(
+          "Live Companies unavailable",
+          error instanceof Error ? error.message : "Unable to load Live Companies folders.",
+          "warning",
+        );
       }
     }
   };
@@ -7987,32 +8035,44 @@ function App() {
       setMasterSheetInput(folder.responseSheetId);
     }
     setSyncState("Linked");
-    const inspection = await inspectFolderById(trimmedId, { silent: true });
-    if (trimmedId !== selectedFolderIdRef.current) {
-      return;
+    try {
+      const inspection = await inspectFolderById(trimmedId, { silent: true });
+      if (trimmedId !== selectedFolderIdRef.current) {
+        return;
+      }
+      const sheetId =
+        folder.masterSheetId ||
+        folder.responseSheetId ||
+        inspection?.masterSheet?.id ||
+        extractGoogleResourceId(masterSheetInput) ||
+        "";
+      if (sheetId) {
+        await loadCompanySheetById(sheetId, trimmedId, { silent: true });
+        if (trimmedId !== selectedFolderIdRef.current) {
+          return;
+        }
+        await syncCompanyAreasFromServer({ silent: true });
+        if (trimmedId !== selectedFolderIdRef.current) {
+          return;
+        }
+      } else {
+        throw new Error("Company Master Sheet is missing for this workspace.");
+      }
+      setHydratedCompanyFolderId(trimmedId);
+      pushToast("Folder selected", `${folder.name} is now the active company source.`, "success");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load company workspace.";
+      const looksLikeMissingMaster = /master sheet/i.test(message);
+      if (looksLikeMissingMaster) {
+        pushToast(
+          "Company setup incomplete",
+          "Company Master Sheet is missing. Use Continue setup or Repair setup to complete this workspace.",
+          "warning",
+        );
+      } else {
+        pushToast("Folder load failed", message, "warning");
+      }
     }
-    const sheetId =
-      folder.responseSheetId ||
-      inspection?.masterSheet?.id ||
-      extractGoogleResourceId(masterSheetInput) ||
-      "";
-    if (sheetId) {
-      await loadCompanySheetById(sheetId, trimmedId, { silent: true });
-      if (trimmedId !== selectedFolderIdRef.current) {
-        return;
-      }
-      await syncCompanyAreasFromServer({ silent: true });
-      if (trimmedId !== selectedFolderIdRef.current) {
-        return;
-      }
-    } else {
-      await loadCompanySheet(trimmedId, { silent: true });
-      if (trimmedId !== selectedFolderIdRef.current) {
-        return;
-      }
-    }
-    setHydratedCompanyFolderId(trimmedId);
-    pushToast("Folder selected", `${folder.name} is now the active company source.`, "success");
   };
 
   const resolveWorkspaceMasterSheetId = () =>
@@ -9517,6 +9577,12 @@ function App() {
   }, [googleConnected]);
 
   useEffect(() => {
+    if (currentUser?.role === "Master" && googleConnected) {
+      void loadGodmodeLiveCompanies({ silent: true });
+    }
+  }, [currentUser?.role, googleConnected]);
+
+  useEffect(() => {
     if (currentUser?.role === "Master" && screen === "dashboard") {
       setScreen("godmodeHome");
     }
@@ -10402,6 +10468,12 @@ function App() {
                 onOpenDiagnostics={() => setScreen("reports")}
                 onOpenOnboarding={handleGodmodeNewCompany}
                 onNewCompany={handleGodmodeNewCompany}
+                liveCompaniesWarning={godmodeLiveCompaniesWarning}
+                onRepairLiveCompanies={() => setScreen("setupInitial")}
+                onRepairCompany={(folderId) => {
+                  void handleSelectFolder(folderId);
+                  setScreen("onboarding");
+                }}
               />
             ) : null}
             {screen === "dashboard" &&
