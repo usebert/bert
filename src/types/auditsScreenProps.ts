@@ -43,4 +43,5 @@ export type AuditsScreenProps = {
   onToggleAuditAccess: (email: string, auditId: string, currentAccess: AuditAccessLevel) => void;
   onNavigateToToday?: () => void;
   onNavigateToSubmit?: () => void;
+  onNavigateToSchedules?: () => void;
 };

@@ -2,20 +2,26 @@ import { useMemo } from "react";
 import type { NavItemId } from "../../types/navigation";
 import type { ActionItem, Audit, HistoryEntry } from "../../types/reportsScreenProps";
 import type { UserInvite } from "../../types/adminScreenProps";
-import { WhatHappensNextPanel } from "../WhatHappensNextPanel";
 import { formatInviteStatusLabel } from "../../utils/inviteStatusDisplay";
 import { getAuditTrafficStatus } from "../../utils/dashboardHealth";
 import { QmsReadinessSummaryWidget } from "../qms/QmsReadinessSummaryWidget";
 import type { QmsReadinessSummary } from "../../types/qms";
-import { DashboardQuickActions, MetricTile, RoleDashboardShell } from "./RoleDashboardPrimitives";
+import { RoleDashboardShell } from "./RoleDashboardPrimitives";
 import { EmptyPanel } from "./DashboardPrimitives";
+import { getRoleTheme } from "../../config/roleTheme";
 
-const ADMIN_ONBOARDING_STEPS = [
-  "Send a user invite from Users & Invites.",
-  "The user receives a setup email and creates their login.",
-  "Assign forms, checks, and site access as needed.",
-  "They complete checks on tablet or web; reports sync to the workspace.",
-  "Review activity and reports from this dashboard.",
+const SETUP_STEPS: Array<{
+  id: string;
+  title: string;
+  hint: string;
+  screen: NavItemId;
+  actionLabel: string;
+}> = [
+  { id: "users", title: "Invite users", hint: "Send setup links so people can sign in.", screen: "users", actionLabel: "Invite user" },
+  { id: "areas", title: "Add areas", hint: "Optional — split the workspace by site or department.", screen: "admin", actionLabel: "Open workspace" },
+  { id: "checks", title: "Set up checks", hint: "Forms, access, and schedules for inspections.", screen: "audits", actionLabel: "Forms & checks" },
+  { id: "schedules", title: "Schedules", hint: "When checks are due for your team.", screen: "schedules", actionLabel: "Open schedules" },
+  { id: "reports", title: "Reports", hint: "Create packs and review shared reports.", screen: "reports", actionLabel: "Open reports" },
 ];
 
 type Props = {
@@ -41,6 +47,8 @@ export function CompanyAdminDashboard({
   onNavigate,
   onOpenAudit,
 }: Props) {
+  const theme = getRoleTheme("Admin");
+
   const activeUsers = useMemo(
     () => invitedUsers.filter((u) => u.status === "Active" || u.loginReady === true).length,
     [invitedUsers],
@@ -53,63 +61,77 @@ export function CompanyAdminDashboard({
       }).length,
     [invitedUsers],
   );
-  const completedChecks = history.length;
+  const openActions = useMemo(() => actions.filter((a) => a.status !== "Closed").length, [actions]);
   const openChecks = useMemo(
     () => assignedAudits.filter((a) => getAuditTrafficStatus(a.dueHours) !== "green").length,
     [assignedAudits],
   );
 
-  const recentActivity = useMemo(() => {
-    const fromHistory = history.slice(0, 3).map((entry) => ({
-      id: entry.id,
-      label: entry.auditName || "Completed check",
-      detail: entry.completedAt,
-      tone: "green" as const,
-    }));
-    const fromActions = actions
-      .filter((a) => a.status === "Open" || a.status === "In Progress")
-      .slice(0, 2)
-      .map((action) => ({
-        id: action.id,
-        label: action.questionText || action.auditName,
-        detail: action.status,
-        tone: "amber" as const,
-      }));
-    return [...fromHistory, ...fromActions].slice(0, 5);
-  }, [history, actions]);
+  const primaryStep = invitedUsers.length === 0 ? SETUP_STEPS[0] : openChecks > 0 ? SETUP_STEPS[2] : SETUP_STEPS[4];
 
   return (
-    <RoleDashboardShell role="Admin" title={`${workspaceName} Dashboard`} intro="Workspace metrics and quick actions for your company.">
+    <RoleDashboardShell
+      role="Admin"
+      title={`${workspaceName}`}
+      subtitle="Company dashboard"
+      intro="Work through setup once, then use Corrective Actions and Reports day to day."
+    >
+      <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
+        <p className="text-sm font-semibold text-slate-900">Suggested next step</p>
+        <p className="mt-1 text-sm text-slate-600">{primaryStep.hint}</p>
+        <button
+          type="button"
+          onClick={() => onNavigate(primaryStep.screen)}
+          className={[
+            "mt-4 inline-flex h-12 w-full items-center justify-center rounded-xl px-5 text-sm font-semibold sm:w-auto",
+            theme.primaryButton,
+            theme.primaryButtonHover,
+          ].join(" ")}
+        >
+          {primaryStep.actionLabel}
+        </button>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
+        <p className="text-sm font-semibold text-slate-900">Setup checklist</p>
+        <ol className="mt-3 space-y-2">
+          {SETUP_STEPS.map((step) => (
+            <li key={step.id}>
+              <button
+                type="button"
+                onClick={() => onNavigate(step.screen)}
+                className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-left text-sm transition hover:bg-white"
+              >
+                <span>
+                  <span className="font-semibold text-slate-900">{step.title}</span>
+                  <span className="mt-0.5 block text-xs text-slate-500">{step.hint}</span>
+                </span>
+                <span className="shrink-0 text-slate-400" aria-hidden>
+                  ›
+                </span>
+              </button>
+            </li>
+          ))}
+        </ol>
+      </section>
+
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricTile
-          role="Admin"
-          label="Active users"
-          value={String(activeUsers)}
-          linkLabel="View users"
-          onLinkClick={() => onNavigate("users")}
-        />
-        <MetricTile
-          role="Admin"
-          label="Awaiting setup"
-          value={String(awaitingSetup)}
-          alertValue={awaitingSetup > 0}
-          linkLabel="Manage invites"
-          onLinkClick={() => onNavigate("users")}
-        />
-        <MetricTile
-          role="Admin"
-          label="Completed checks"
-          value={String(completedChecks)}
-          linkLabel="View reports"
-          onLinkClick={() => onNavigate("reports")}
-        />
-        <MetricTile
-          role="Admin"
-          label="Open reports"
-          value={String(openReportsCount)}
-          linkLabel="Open reports"
-          onLinkClick={() => onNavigate("reports")}
-        />
+        <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Active users</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-900">{activeUsers}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Awaiting setup</p>
+          <p className={`mt-2 text-3xl font-semibold ${awaitingSetup > 0 ? "text-amber-700" : "text-slate-900"}`}>{awaitingSetup}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Open actions</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-900">{openActions}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Open reports</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-900">{openReportsCount}</p>
+        </div>
       </div>
 
       {qmsSummary ? (
@@ -121,55 +143,54 @@ export function CompanyAdminDashboard({
         />
       ) : null}
 
-      <DashboardQuickActions
-        role="Admin"
-        actions={[
-          { label: "Quality & Safety Hub", screen: "qmsReadiness", onClick: () => onNavigate("qmsReadiness") },
-          { label: "Corrective Actions", screen: "actions", onClick: () => onNavigate("actions") },
-          { label: "Invite User", screen: "users", onClick: () => onNavigate("users") },
-          { label: "Forms & Checks", screen: "audits", onClick: () => onNavigate("audits") },
-          { label: "Reports", screen: "reports", onClick: () => onNavigate("reports") },
-          { label: "Tablet / Kiosk", screen: "settings", onClick: () => onNavigate("settings") },
-        ]}
-      />
-
-      <div className="grid gap-3 lg:grid-cols-2">
-        <section className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
-          <p className="text-sm font-semibold text-slate-900">Recent activity</p>
-          {recentActivity.length === 0 ? (
-            <p className="mt-2 text-sm text-slate-500">Activity will appear here as users complete checks and actions.</p>
-          ) : (
-            <ul className="mt-3 space-y-2">
-              {recentActivity.map((item) => (
-                <li key={item.id} className="flex items-start gap-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-sm">
-                  <span
-                    className={[
-                      "mt-0.5 h-2 w-2 shrink-0 rounded-full",
-                      item.tone === "green" ? "bg-emerald-500" : "bg-amber-500",
-                    ].join(" ")}
-                    aria-hidden
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-semibold text-slate-900">{item.label}</span>
-                    <span className="text-xs text-slate-500">{item.detail}</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-          {openChecks > 0 ? (
-            <p className="mt-2 text-xs text-slate-500">{openChecks} open check{openChecks === 1 ? "" : "s"} need attention.</p>
-          ) : null}
-        </section>
-
-        <WhatHappensNextPanel title="What happens next?" steps={ADMIN_ONBOARDING_STEPS} className="border-blue-100 bg-blue-50/60" />
-      </div>
+      <details className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
+        <summary className="cursor-pointer text-sm font-semibold text-slate-900">More</summary>
+        <div className="mt-3 space-y-2">
+          <button
+            type="button"
+            onClick={() => onNavigate("actions")}
+            className="flex w-full items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800"
+          >
+            Corrective actions
+            <span aria-hidden>›</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onNavigate("qmsReadiness")}
+            className="flex w-full items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800"
+          >
+            Quality & Safety Hub
+            <span aria-hidden>›</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onNavigate("settings")}
+            className="flex w-full items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800"
+          >
+            Tablet / Kiosk
+            <span aria-hidden>›</span>
+          </button>
+        </div>
+      </details>
 
       {invitedUsers.length === 0 ? (
-        <EmptyPanel
-          title="No users yet"
-          text="Invite your first company user from Users & Invites. They will receive a setup email to create their login."
-        />
+        <div className="space-y-3">
+          <EmptyPanel
+            title="No users yet"
+            text="Invite your first person from Users & Invites. They will get an email to set up their login."
+          />
+          <button
+            type="button"
+            onClick={() => onNavigate("users")}
+            className={[
+              "inline-flex h-12 w-full items-center justify-center rounded-xl px-5 text-sm font-semibold sm:w-auto",
+              theme.primaryButton,
+              theme.primaryButtonHover,
+            ].join(" ")}
+          >
+            Invite user
+          </button>
+        </div>
       ) : null}
 
       {assignedAudits.length > 0 ? (
@@ -188,6 +209,10 @@ export function CompanyAdminDashboard({
             ))}
           </div>
         </section>
+      ) : null}
+
+      {history.length > 0 ? (
+        <p className="text-xs text-slate-500">{history.length} completed check{history.length === 1 ? "" : "s"} recorded.</p>
       ) : null}
     </RoleDashboardShell>
   );

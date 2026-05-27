@@ -274,15 +274,13 @@ export function QmsReadinessScreen({
         </h2>
         <p className="mt-2 text-sm text-slate-600">{SECTION_INTROS.qmsReadiness}</p>
         {accessLevel === "full" ? (
-          <p className="mt-2 text-xs text-slate-500">
-            Supports ISO 9001 and ISO 45001 readiness. Certification is handled externally.
-          </p>
-        ) : null}
-        {accessLevel === "full" ? (
-          <p className="mt-3 text-xs text-slate-500">
-            Records and exports are organised in your company workspace folders (Company Setup, Company Records, Evidence,
-            Exports, Management Notes).
-          </p>
+          <details className="mt-3">
+            <summary className="cursor-pointer text-xs font-semibold text-slate-500">About certification & folders</summary>
+            <p className="mt-2 text-xs text-slate-500">
+              BERT helps you organise evidence for quality and safety audits. Formal certification is arranged outside the app.
+              Records live in your company workspace folders on Drive.
+            </p>
+          </details>
         ) : null}
       </section>
 

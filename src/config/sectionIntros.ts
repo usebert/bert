@@ -1,25 +1,23 @@
 /** Helper copy shown at the top of major shell areas (by section key). */
 export const SECTION_INTROS = {
-  platformSetup:
-    "BERT-wide setup for Google, Drive, email, and diagnostics.",
-  companies: "Manage existing company workspaces and their setup status.",
-  workspace: "Settings and details for this company only.",
-  usersInvites: "Invite, resend, remove, or review users for this company.",
-  companyOnboarding: "Send onboarding forms and create company workspaces from responses.",
+  platformSetup: "Connect Google, email, and tablet options for the whole platform.",
+  companies: "Pick a company workspace and finish its setup.",
+  workspace: "Name, folders, and settings for this company only.",
+  usersInvites: "Invite people and see who has joined.",
+  companyOnboarding: "Send a setup form and create a new company workspace.",
   companiesInviteHelper:
-    "To email a new company onboarding form, open Company Onboarding in the menu — that screen sends the secure setup link.",
-  formsChecks: "Manage and complete company forms, checks, and audits.",
-  correctiveActions: "Track failed findings, assign ownership, upload evidence, and verify closure.",
-  reports: "Export compliance packs and review shared report inbox for this workspace.",
-  tabletKiosk: "Prepare BERT for locked-down tablet use.",
-  diagnostics: "Platform health, readiness, and technical diagnostics.",
-  team: "People in your company workspace and invite status.",
-  auditorToday: "Your assigned work and site context for today.",
-  auditorChecks: "Checks and audits assigned to you.",
-  auditorSubmit: "Report issues and submit evidence from the field.",
-  auditorHistory: "Recently completed work and sync status.",
-  qmsReadiness:
-    "BERT helps organise records and evidence for ISO 9001 and ISO 45001 readiness.",
+    "To email a new company setup form, open Company Onboarding in the menu.",
+  formsChecks: "See checks due, start inspections, and review progress.",
+  correctiveActions: "Follow up on failed findings, add evidence, and close items.",
+  reports: "Create packs and see reports shared with your team.",
+  tabletKiosk: "Lock a tablet to checks-only mode for the field.",
+  diagnostics: "Platform health and technical checks (Master only).",
+  team: "People in your company and invite status.",
+  auditorToday: "Checks assigned to you for today.",
+  auditorChecks: "All checks assigned to you.",
+  auditorSubmit: "Report a problem or near miss from the field.",
+  auditorHistory: "Checks and reports you have already sent.",
+  qmsReadiness: "Quality and safety records in one place.",
 } as const;
 
 export type SectionIntroKey = keyof typeof SECTION_INTROS;

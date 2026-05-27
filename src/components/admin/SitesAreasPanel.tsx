@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { Role } from "../../permissions";
 import { canManageAreas } from "../../permissions";
 import { SectionHeader } from "../dashboard/DashboardPrimitives";
@@ -61,9 +61,11 @@ export function SitesAreasPanel({
   onToggleUserSiteAssignment,
 }: SitesAreasPanelProps) {
   const manage = canManageAreas(currentUserRole);
+  const [manageAccessOpen, setManageAccessOpen] = useState(false);
   const active = useMemo(() => activeAreas(sites), [sites]);
   const singleWorkspace = isSingleWorkspaceMode(areaRestrictionsEnabled, sites);
-  const showAssignment = showUserAssignment && shouldShowAreaAssignment(areaRestrictionsEnabled, sites);
+  const showAssignment =
+    manageAccessOpen && showUserAssignment && shouldShowAreaAssignment(areaRestrictionsEnabled, sites);
 
   const isDark = variant === "dark";
   const chipBase = isDark
@@ -85,11 +87,11 @@ export function SitesAreasPanel({
       <SectionHeader
         icon="grid"
         eyebrow="Sites / Areas"
-        title={manage ? "Company areas" : "Area access"}
+        title={manage ? "Areas" : "Area access"}
         subtitle={
           singleWorkspace
-            ? "Single-workspace mode — users can access the whole company workspace."
-            : "Area restrictions limit Managers and Auditors to selected areas. Audit access still controls which checks they can open."
+            ? "Everyone can access this workspace."
+            : "People only see work for areas they are assigned to."
         }
         tone={isDark ? "onDark" : "onLight"}
       />
@@ -113,12 +115,12 @@ export function SitesAreasPanel({
             </p>
             {singleWorkspace ? (
               <p className={`mt-2 text-sm leading-6 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
-                Area restrictions are off. Add areas when you need to split the workspace by site or department, then enable
-                restrictions to assign users.
+                Everyone can access this workspace. Add areas when you want to split by site, then turn on restrictions to
+                limit who sees what.
               </p>
             ) : (
               <p className={`mt-2 text-sm leading-6 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
-                Area restrictions are on. Managers and Auditors with checked areas only see work for those areas.
+                Area restrictions are on. Use Manage access to choose which areas each person can use.
               </p>
             )}
             <div className="mt-3 flex flex-wrap gap-2">
@@ -126,26 +128,45 @@ export function SitesAreasPanel({
                 <button
                   type="button"
                   onClick={onEnableAreaRestrictions}
-                  className={`h-10 rounded-xl px-4 text-xs font-semibold ${isDark ? "border border-slate-700 bg-slate-950 text-white" : "bg-slate-900 text-white"}`}
+                  className={`h-11 rounded-xl px-5 text-sm font-semibold ${isDark ? "bg-orange-500 text-slate-950" : "bg-orange-500 text-white hover:bg-orange-600"}`}
                 >
                   Enable area restrictions
                 </button>
               ) : (
                 <button
                   type="button"
-                  onClick={onDisableAreaRestrictions}
-                  className={`h-10 rounded-xl border px-4 text-xs font-semibold ${isDark ? "border-slate-700 text-slate-200" : "border-slate-300 bg-white text-slate-700"}`}
+                  onClick={onAddArea}
+                  className={`h-11 rounded-xl px-5 text-sm font-semibold ${isDark ? "bg-orange-500 text-slate-950" : "bg-orange-500 text-white hover:bg-orange-600"}`}
                 >
-                  Turn off area restrictions
+                  Add area
                 </button>
               )}
-              <button
-                type="button"
-                onClick={onAddArea}
-                className={`h-10 rounded-xl border border-dashed px-4 text-xs font-semibold ${isDark ? "border-slate-600 text-slate-200" : "border-slate-300 text-slate-600"}`}
-              >
-                Add area
-              </button>
+              {areaRestrictionsEnabled ? (
+                <button
+                  type="button"
+                  onClick={onDisableAreaRestrictions}
+                  className={`h-11 rounded-xl border px-4 text-sm font-semibold ${isDark ? "border-slate-700 text-slate-200" : "border-slate-300 bg-white text-slate-700"}`}
+                >
+                  Turn off restrictions
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onAddArea}
+                  className={`h-11 rounded-xl border px-4 text-sm font-semibold ${isDark ? "border-slate-600 text-slate-200" : "border-slate-300 bg-white text-slate-800"}`}
+                >
+                  Add area
+                </button>
+              )}
+              {shouldShowAreaAssignment(areaRestrictionsEnabled, sites) ? (
+                <button
+                  type="button"
+                  onClick={() => setManageAccessOpen((open) => !open)}
+                  className={`h-11 rounded-xl border px-4 text-sm font-semibold ${isDark ? "border-slate-600 text-slate-200" : "border-slate-300 bg-white text-slate-700"}`}
+                >
+                  {manageAccessOpen ? "Hide access" : "Manage access"}
+                </button>
+              ) : null}
             </div>
           </div>
         ) : null}

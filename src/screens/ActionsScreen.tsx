@@ -468,6 +468,33 @@ export function ActionsScreen({
     if (!wide) setMobileDetailId(id);
   }, [wide]);
 
+  const actionGroups = useMemo(() => {
+    const open: ActionItem[] = [];
+    const overdue: ActionItem[] = [];
+    const awaitingEvidence: ActionItem[] = [];
+    const closed: ActionItem[] = [];
+    for (const action of actions) {
+      if (action.status === "Closed") {
+        closed.push(action);
+      } else if (isActionOverdue(action)) {
+        overdue.push(action);
+      } else if (
+        action.status === "Awaiting Verification" ||
+        (action.evidenceRequired && action.evidenceCount === 0)
+      ) {
+        awaitingEvidence.push(action);
+      } else {
+        open.push(action);
+      }
+    }
+    return [
+      { key: "overdue", title: "Overdue", items: overdue },
+      { key: "open", title: "Open", items: open },
+      { key: "awaiting", title: "Awaiting evidence", items: awaitingEvidence },
+      { key: "closed", title: "Closed", items: closed },
+    ].filter((group) => group.items.length > 0);
+  }, [actions]);
+
   if (!wide && detailAction) {
     return (
       <MobileActionDetail
@@ -503,11 +530,8 @@ export function ActionsScreen({
             <ActionsScreenIcon className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
+            <h2 className="text-2xl font-semibold tracking-tight text-slate-900">
               {canCompleteAuditAsAuditor(currentUser.role) ? "My actions" : "Corrective actions"}
-            </p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">
-              {canCompleteAuditAsAuditor(currentUser.role) ? "Assigned corrective actions" : "CAPA control centre"}
             </h2>
             <SectionIntro
               text={SECTION_INTROS.correctiveActions}
@@ -518,8 +542,9 @@ export function ActionsScreen({
         </div>
       </section>
 
-      <section className="rounded-[1.75rem] border border-slate-200/90 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 sm:grid-cols-3">
+      <details className="rounded-[1.75rem] border border-slate-200/90 bg-white p-4 shadow-sm">
+        <summary className="cursor-pointer text-sm font-semibold text-slate-900">Filter list (advanced)</summary>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
           <select
             value={actionFilter}
             onChange={(event) => onFilterChange(event.target.value as ActionFilter)}
@@ -555,7 +580,7 @@ export function ActionsScreen({
             ))}
           </select>
         </div>
-      </section>
+      </details>
 
       {actions.length === 0 ? (
         <EmptyPanel
@@ -563,8 +588,11 @@ export function ActionsScreen({
           text="Nothing needs follow-up here right now. Failed or flagged answers from audits can create actions automatically — you can also add one when a finding needs tracking."
         />
       ) : (
-        <div className="space-y-3">
-          {actions.map((action) => (
+        <div className="space-y-6">
+          {actionGroups.map((group) => (
+            <div key={group.key} className="space-y-3">
+              <h3 className="text-sm font-semibold text-slate-900">{group.title}</h3>
+              {group.items.map((action) => (
             <section
               key={action.id}
               className="cursor-pointer rounded-[1.6rem] border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-4 shadow-[0_16px_30px_rgba(15,23,42,0.06)] lg:cursor-default"
@@ -600,7 +628,6 @@ export function ActionsScreen({
               })()}
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="font-mono text-[11px] text-slate-500">Ref · {action.id}</p>
                   <p className="mt-1 text-base font-semibold text-slate-900">{action.questionText}</p>
                   <p className="mt-2 text-sm leading-relaxed text-slate-600">{action.sourceAnswer}</p>
                   <p className="mt-1 text-xs font-medium text-slate-500">{action.auditName}</p>
@@ -760,6 +787,8 @@ export function ActionsScreen({
                 );
               })()}
             </section>
+              ))}
+            </div>
           ))}
         </div>
       )}

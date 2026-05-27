@@ -88,8 +88,7 @@ export function AuditorHistoryScreen({
   return (
     <div className="space-y-5">
       <section className="rounded-2xl border border-violet-200/80 bg-violet-50/60 px-4 py-4 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-violet-700">History</p>
-        <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">Your submissions</h2>
+        <h2 className="text-2xl font-semibold tracking-tight text-slate-900">History</h2>
         <SectionIntro text={SECTION_INTROS.auditorHistory} className="mt-2" role="Auditor" />
       </section>
 
@@ -99,7 +98,7 @@ export function AuditorHistoryScreen({
           syncNeedsAttention ? "border-rose-200 bg-rose-50/80" : "border-slate-200/90 bg-white",
         ].join(" ")}
       >
-        <p className="text-sm font-semibold text-slate-900">Sync status</p>
+        <p className="text-sm font-semibold text-slate-900">Sending status</p>
         <p className="mt-1 text-sm text-slate-600">{syncSummary}</p>
       </section>
 

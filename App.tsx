@@ -10142,7 +10142,7 @@ function App() {
 
                 <div className="flex min-h-0 items-center">
                   <div className="w-full rounded-2xl border border-white/10 bg-white/[0.06] p-3 shadow-[0_16px_40px_rgba(2,6,23,0.4)] backdrop-blur-xl sm:rounded-[1.5rem] sm:p-4">
-                    <h2 className="text-center text-base font-semibold text-white sm:text-lg">Sign in to your account</h2>
+                    <h2 className="text-center text-base font-semibold text-white sm:text-lg">Sign in</h2>
                     {isDemoLoginEnabled ? (
                       <p className="mt-2 rounded-xl border border-white/10 bg-slate-950/35 px-3 py-2 text-xs text-slate-300 sm:text-sm">
                         Test accounts: <span className="font-semibold text-white">admin</span>,{" "}
@@ -10410,9 +10410,9 @@ function App() {
                   </div>
                 ) : masterPlatformHeaderScope ? (
                   <p className="mt-0.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">All workspaces</p>
-                ) : currentUser.role === "Master" && selectedFolder ? (
+                ) : currentUser.role === "Master" && selectedFolder && screen !== "godmodeHome" ? (
                   <p className="mt-0.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                    Currently working on: <span className="font-semibold text-slate-700 dark:text-slate-200">{selectedFolder.name}</span>
+                    Working on: <span className="font-semibold text-slate-700 dark:text-slate-200">{selectedFolder.name}</span>
                   </p>
                 ) : null}
               </div>
@@ -10659,6 +10659,7 @@ function App() {
             ) : null}
             {currentUser?.role === "Master" &&
             !godCompanySetupOnlyShell &&
+            screen !== "godmodeHome" &&
             isMasterCompanyScopedScreen(screen as NavItemId) ? (
               <GodmodeCompanyContextSelector
                 folders={selectableGodmodeFolders}
@@ -10893,15 +10894,12 @@ function App() {
                 demoModeActive={demoModeActive}
                 renderMasterDashboard={() => (
                   <MasterPlatformDashboard
-                    googleConnected={googleConnected}
                     companiesCount={folders.length}
                     pendingOnboardingCount={onboardingRecords.length}
-                    usersAwaitingSetupCount={platformUsersAwaitingSetupCount}
-                    activeUsersCount={platformActiveUsersCount}
                     onNavigate={(nextScreen) => setScreen(nextScreen)}
                     onOpenInitialSetup={() => {
                       navigateToSetupInitial();
-                      setScreen("setupInitial");
+                      setScreen("setup");
                     }}
                   />
                 )}
@@ -11006,6 +11004,9 @@ function App() {
                 }
                 onNavigateToSubmit={
                   canCompleteAuditAsAuditor(currentUser.role) ? () => setScreen("incidents") : undefined
+                }
+                onNavigateToSchedules={
+                  !canCompleteAuditAsAuditor(currentUser.role) ? () => setScreen("schedules") : undefined
                 }
               />
             )}

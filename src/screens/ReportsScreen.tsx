@@ -442,11 +442,8 @@ export function ReportsScreen({
             <ReportsScreenIcon name="chart" className="h-5 w-5" />
           </div>
           <div>
-            <p className={darkPanelEyebrow}>
-              {currentUserRole === "Master" ? "Reports / Diagnostics" : "Reporting outcomes"}
-            </p>
             <h2 className={darkPanelTitleLg}>
-              {currentUserRole === "Master" ? "Platform diagnostics and exports" : "Turn completed work into audit-ready packs"}
+              {currentUserRole === "Master" ? "Diagnostics" : "Reports"}
             </h2>
             <SectionIntro
               text={currentUserRole === "Master" ? SECTION_INTROS.diagnostics : SECTION_INTROS.reports}
@@ -454,15 +451,11 @@ export function ReportsScreen({
               role={currentUserRole}
               tone="onDark"
             />
-            {currentUserRole !== "Master" ? (
-              <p className="mt-2 text-sm leading-6 text-slate-300">
-                Reporting is the last step of the loop: consolidate what was evaluated and corrected for {workspaceName}, then export packs stakeholders can file, share, or archive.
-              </p>
-            ) : null}
             {currentUserRole === "Master" && buildMarker ? (
-              <p className="mt-2 inline-flex rounded-full border border-white/25 bg-white/10 px-2.5 py-1 font-mono text-[11px] text-slate-100">
-                Build marker: {buildMarker}
-              </p>
+              <details className="mt-2">
+                <summary className="cursor-pointer text-xs font-semibold text-slate-400">Build details</summary>
+                <p className="mt-1 font-mono text-[11px] text-slate-300">{buildMarker}</p>
+              </details>
             ) : null}
           </div>
         </div>
@@ -470,13 +463,36 @@ export function ReportsScreen({
 
       {currentUserRole === "Master" ? <PilotHealthPanel role="Master" /> : null}
 
-      <section className="grid grid-cols-2 gap-3">
-        <MiniMetric label="Compliance" value={`${compliance}%`} />
-        <MiniMetric label="Open actions" value={String(openActions.length)} icon="warningTriangle" />
-        <MiniMetric label="Overdue audits" value={String(overdueAudits.length)} />
-        <MiniMetric label="Evidence items" value={String(evidenceCount)} />
-      </section>
+      {currentUserRole === "Master" ? (
+        <section className="grid grid-cols-2 gap-3">
+          <MiniMetric label="Compliance" value={`${compliance}%`} />
+          <MiniMetric label="Open actions" value={String(openActions.length)} icon="warningTriangle" />
+          <MiniMetric label="Overdue audits" value={String(overdueAudits.length)} />
+          <MiniMetric label="Evidence items" value={String(evidenceCount)} />
+        </section>
+      ) : null}
 
+      {currentUserRole !== "Master" ? (
+        <section className="rounded-[1.75rem] border border-slate-200/80 bg-white p-4 shadow-sm">
+          <p className="text-sm font-semibold text-slate-900">Recent reports</p>
+          <div className="mt-3 space-y-3">
+            {reportInbox.length === 0 ? (
+              <EmptyPanel title="No reports yet" text="Create your first report pack below." />
+            ) : (
+              reportInbox.slice(0, 5).map((report) => (
+                <div key={report.id} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+                  <p className="text-sm font-semibold text-slate-900">{report.title}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {report.type} · {report.createdAt}
+                  </p>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+      ) : null}
+
+      {currentUserRole === "Master" ? (
       <section className="rounded-[1.75rem] border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)]">
         <SectionHeader
           icon="chart"
@@ -523,25 +539,31 @@ export function ReportsScreen({
           </div>
         </div>
       </section>
+      ) : null}
 
       <section className="rounded-[1.75rem] border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)]">
         <div className="mb-4 flex items-start justify-between gap-3">
           <SectionHeader
             icon="chart"
-            eyebrow="Export centre"
-            title="Report / Audit Pack Creator"
-            subtitle="Package evidence and metrics for handover—stakeholders get a finished view, not a tour of every screen in the app."
+            eyebrow="Create"
+            title="Create report"
+            subtitle={`Build a pack for ${workspaceName}.`}
           />
-          <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-            Waiting to sync {offlineQueueCount}
-          </div>
+          {currentUserRole === "Master" && offlineQueueCount > 0 ? (
+            <details className="shrink-0 text-right">
+              <summary className="cursor-pointer rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                Sync
+              </summary>
+              <p className="mt-1 text-xs text-slate-500">{offlineQueueCount} waiting to sync</p>
+            </details>
+          ) : null}
         </div>
         {!showReportCreator ? (
           <button
             onClick={() => setShowReportCreator(true)}
             className={`h-12 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}
           >
-            Create a report
+            Create report
           </button>
         ) : (
           <>
@@ -694,12 +716,13 @@ export function ReportsScreen({
         )}
       </section>
 
+      {currentUserRole === "Master" ? (
       <section className="rounded-[1.75rem] border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)]">
         <SectionHeader
           icon="dashboard"
-          eyebrow="Shared visibility"
-          title="Report inbox"
-          subtitle="Generated reports appear here for selected company users."
+          eyebrow="Recent"
+          title="Recent reports"
+          subtitle="Reports shared with your team."
         />
         <div className="mt-4 space-y-3">
           {reportInbox.length === 0 ? (
@@ -727,6 +750,7 @@ export function ReportsScreen({
           )}
         </div>
       </section>
+      ) : null}
 
       {showReportCreator && (
         <section className="rounded-[1.75rem] border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)]">

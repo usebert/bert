@@ -448,14 +448,28 @@ export function AuditsScreen({
   onToggleAuditAccess,
   onNavigateToToday,
   onNavigateToSubmit,
+  onNavigateToSchedules,
 }: AuditsScreenProps) {
   if (canCompleteAuditAsAuditor(currentUser.role)) {
+    const theme = getRoleTheme("Auditor");
     return (
       <div className="space-y-4">
         <section className="rounded-2xl border border-violet-200/80 bg-violet-50/60 px-5 py-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-violet-700">My Checks</p>
-          <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">Assigned checks</h2>
+          <h2 className="text-2xl font-semibold tracking-tight text-slate-900">My checks</h2>
           <SectionIntro text={SECTION_INTROS.auditorChecks} className="mt-2" role="Auditor" />
+          {onNavigateToToday ? (
+            <button
+              type="button"
+              onClick={onNavigateToToday}
+              className={[
+                "mt-4 inline-flex h-11 items-center rounded-xl px-5 text-sm font-semibold",
+                theme.primaryButton,
+                theme.primaryButtonHover,
+              ].join(" ")}
+            >
+              Go to Today
+            </button>
+          ) : null}
         </section>
         <AuditorChecksList
           audits={audits}
@@ -483,44 +497,28 @@ export function AuditsScreen({
             <AuditsScreenIcon className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
-              {canCompleteAuditAsAuditor(currentUser.role) ? "My Checks" : "Forms & Checks"}
-            </p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">
-              {canCompleteAuditAsAuditor(currentUser.role) ? "Assigned field audits" : "Complete and manage inspections"}
-            </h2>
-            <SectionIntro
-              text={canCompleteAuditAsAuditor(currentUser.role) ? SECTION_INTROS.auditorChecks : SECTION_INTROS.formsChecks}
-              className="mt-2"
-              role={canCompleteAuditAsAuditor(currentUser.role) ? currentUser.role : "Admin"}
-            />
-            {!canCompleteAuditAsAuditor(currentUser.role) ? (
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                Save progress mid-inspection, complete audits in the field, and let the system create corrective actions when issues are found.
-              </p>
+            <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Forms & checks</h2>
+            <SectionIntro text={SECTION_INTROS.formsChecks} className="mt-2" role="Admin" />
+            {onNavigateToSchedules ? (
+              <button
+                type="button"
+                onClick={onNavigateToSchedules}
+                className="mt-4 inline-flex h-12 items-center rounded-xl bg-orange-500 px-5 text-sm font-semibold text-white hover:bg-orange-600"
+              >
+                Add check (schedules)
+              </button>
             ) : null}
           </div>
         </div>
       </section>
 
-      <section className="grid grid-cols-1 gap-3">
-        <MiniMetric label="In progress" value={String(Object.keys(drafts).length)} />
-      </section>
-
-      {canSubmitAuditForReview(currentUser.role) && (
-        <section className="rounded-[1.75rem] border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)]">
-          <SectionHeader
-            icon="user"
-            eyebrow="Access control"
-            title="Audit access matrix"
-            subtitle="Manage exactly which users can access each audit."
-          />
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            <span className="font-semibold text-slate-800">Audit access</span> controls which checks a user can open.{" "}
-            <span className="font-semibold text-slate-800">Area access</span> (Workspace / Users &amp; Invites) controls where they work when area restrictions are on.{" "}
-            <span className="font-semibold text-slate-800">Schedules</span> control when checks are due.
+      {canSubmitAuditForReview(currentUser.role) && auditAccessMatrix.length > 0 ? (
+        <details className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-900">Manage who can open each check (advanced)</summary>
+          <p className="mt-2 text-sm text-slate-600">
+            Choose access per person. Area access is under Workspace; due dates are under Schedules.
           </p>
-          <div className="mt-4">
+          <div className="mt-4 overflow-x-auto">
             <AccessMatrixTable
               auditAccessMatrix={auditAccessMatrix}
               auditScheduleMatrix={auditScheduleMatrix}
@@ -529,8 +527,8 @@ export function AuditsScreen({
               onToggleAuditAccess={onToggleAuditAccess}
             />
           </div>
-        </section>
-      )}
+        </details>
+      ) : null}
 
       <TrafficLane title="Red" subtitle="Overdue" audits={groupedAudits.red} status="red" onOpenAudit={onOpenAudit} expanded drafts={drafts} unsyncedAuditIds={unsyncedAuditIds} />
       <TrafficLane

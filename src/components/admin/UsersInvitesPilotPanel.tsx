@@ -17,10 +17,9 @@ import {
 } from "../../utils/inviteStatusDisplay";
 
 const USER_INVITE_NEXT_STEPS = [
-  "Recipient checks Inbox and Junk/Spam for the setup email.",
-  "They open the invite link and complete name and password setup.",
-  "Verify the company master spreadsheet Users tab and Config UserAuth.",
-  "Status changes to Active when they can sign in to BERT.",
+  "They check email (and junk folder) for the setup message.",
+  "They open the link and choose a name and password.",
+  "They sign in to BERT when setup is complete.",
 ];
 
 const ROLE_HELPER: Record<string, string> = {
@@ -454,8 +453,7 @@ export function UsersInvitesPilotPanel({
             </select>
           )}
           <p className="mt-2 text-xs leading-5 text-slate-600">
-            {ROLE_HELPER[godModeFirstUserInvite ? "Admin" : inviteRoleInput] ||
-              "Invites are written to the company master spreadsheet (Users tab + Config UserAuth)."}
+            {ROLE_HELPER[godModeFirstUserInvite ? "Admin" : inviteRoleInput] || "They receive an email with a secure setup link."}
           </p>
           <button
             type="button"
@@ -583,8 +581,8 @@ export function UsersInvitesPilotPanel({
         selectedSiteId={selectedSiteId}
         userSiteAssignments={userSiteAssignments}
         reportUsers={reportUsers}
-        showSiteContext
-        showUserAssignment
+        showSiteContext={false}
+        showUserAssignment={false}
         variant="light"
         surfaceClass={pilotLightSurface}
         nestedClass={pilotLightNested}
@@ -598,7 +596,12 @@ export function UsersInvitesPilotPanel({
         onToggleUserSiteAssignment={onToggleUserSiteAssignment}
       />
 
-      <InviteStatusLegend />
+      <details className={pilotLightSurface}>
+        <summary className="cursor-pointer px-1 py-2 text-sm font-semibold text-slate-900">Invite status guide (advanced)</summary>
+        <div className="mt-2 border-t border-slate-100 pt-3">
+          <InviteStatusLegend />
+        </div>
+      </details>
 
       <section className={pilotLightSurface}>
         <button

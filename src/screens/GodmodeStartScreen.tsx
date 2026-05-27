@@ -23,18 +23,15 @@ type LandingCard = {
 type QuickLink = {
   label: string;
   screen: NavItemId;
-  requiresCompany?: boolean;
 };
 
 const QUICK_LINKS: QuickLink[] = [
-  { label: "Users & Invites", screen: "users", requiresCompany: true },
-  { label: "Areas", screen: "companies", requiresCompany: true },
-  { label: "Templates", screen: "schedules", requiresCompany: true },
-  { label: "Schedules", screen: "schedules", requiresCompany: true },
-  { label: "Quality & Safety", screen: "qmsReadiness", requiresCompany: true },
-  { label: "Reports", screen: "reports", requiresCompany: true },
-  { label: "Repair workspace", screen: "companies", requiresCompany: true },
-  { label: "Reset workspace", screen: "companies", requiresCompany: true },
+  { label: "Users & Invites", screen: "users" },
+  { label: "Areas", screen: "companies" },
+  { label: "Forms & Checks", screen: "audits" },
+  { label: "Schedules", screen: "schedules" },
+  { label: "Quality & Safety", screen: "qmsReadiness" },
+  { label: "Reports", screen: "reports" },
 ];
 
 type View = "landing" | "picker" | "hub";
@@ -72,9 +69,11 @@ type Props = {
 function LandingActionCard({
   card,
   onDark,
+  primary = false,
 }: {
   card: LandingCard;
   onDark: boolean;
+  primary?: boolean;
 }) {
   return (
     <article
@@ -93,15 +92,98 @@ function LandingActionCard({
         type="button"
         onClick={card.onAction}
         className={[
-          "mt-4 inline-flex h-11 w-full items-center justify-center rounded-xl border px-4 text-sm font-semibold transition",
-          onDark
-            ? "border-orange-400/50 bg-orange-500/20 text-orange-100 hover:bg-orange-500/30"
-            : "border-orange-300 bg-orange-50 text-orange-950 hover:bg-orange-100",
+          "mt-4 inline-flex h-12 w-full items-center justify-center rounded-xl px-4 text-sm font-semibold transition",
+          primary
+            ? onDark
+              ? "bg-orange-500 text-slate-950 hover:bg-orange-400"
+              : "bg-orange-500 text-white hover:bg-orange-600"
+            : onDark
+              ? "border border-orange-400/50 bg-orange-500/20 text-orange-100 hover:bg-orange-500/30"
+              : "border border-orange-300 bg-orange-50 text-orange-950 hover:bg-orange-100",
         ].join(" ")}
       >
         {card.actionLabel}
       </button>
     </article>
+  );
+}
+
+function CompanyPickerRow({
+  company,
+  onDark,
+  onOpen,
+  onContinueSetup,
+}: {
+  company: GodmodeCompanyPickerRow;
+  onDark: boolean;
+  onOpen: () => void;
+  onContinueSetup?: () => void;
+}) {
+  const ready = company.setupStatusLabel === "Ready";
+  const muted = onDark ? "text-slate-400" : "text-slate-600";
+
+  return (
+    <li
+      className={[
+        "rounded-2xl border px-4 py-4 transition",
+        onDark ? "border-white/10 bg-slate-900/50 hover:border-orange-400/40" : "border-slate-200 bg-white hover:border-orange-200",
+      ].join(" ")}
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-base font-semibold text-slate-900 dark:text-white">{company.name}</p>
+          <span
+            className={[
+              "mt-2 inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold",
+              ready ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900",
+            ].join(" ")}
+          >
+            {ready ? "Ready" : "Setup not finished"}
+          </span>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {ready ? (
+            <button
+              type="button"
+              onClick={onOpen}
+              className={[
+                "inline-flex h-11 min-w-[8rem] items-center justify-center rounded-xl px-4 text-sm font-semibold",
+                onDark ? "bg-orange-500 text-slate-950 hover:bg-orange-400" : "bg-orange-500 text-white hover:bg-orange-600",
+              ].join(" ")}
+            >
+              Open
+            </button>
+          ) : onContinueSetup ? (
+            <button
+              type="button"
+              onClick={onContinueSetup}
+              className={[
+                "inline-flex h-11 min-w-[8rem] items-center justify-center rounded-xl px-4 text-sm font-semibold",
+                onDark ? "bg-orange-500 text-slate-950 hover:bg-orange-400" : "bg-orange-500 text-white hover:bg-orange-600",
+              ].join(" ")}
+            >
+              Continue setup
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onOpen}
+              className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800"
+            >
+              Open
+            </button>
+          )}
+        </div>
+      </div>
+      <details className="mt-3">
+        <summary className={`cursor-pointer text-xs font-semibold ${muted}`}>Technical details</summary>
+        <p className={`mt-2 font-mono text-[11px] leading-relaxed ${muted}`}>
+          {company.masterSheetId ? `Company sheet linked` : `Company sheet not linked yet`}
+          <br />
+          Workspace id: {company.id}
+        </p>
+      </details>
+    </li>
   );
 }
 
@@ -119,12 +201,10 @@ export function GodmodeStartScreen({
   onOpenPlatformSetup,
   onOpenTabletSetup,
   onOpenDiagnostics,
-  onOpenOnboarding,
   onCreateCompany,
   liveCompaniesWarning,
   onRepairLiveCompanies,
   onContinueCompanySetup,
-  onRepairCompany,
   currentScreen = "godmodeHome",
 }: Props) {
   const onDark = themeMode === "dark";
@@ -136,12 +216,7 @@ export function GodmodeStartScreen({
     if (!query) {
       return companies;
     }
-    return companies.filter(
-      (company) =>
-        company.name.toLowerCase().includes(query) ||
-        company.id.toLowerCase().includes(query) ||
-        company.masterSheetId.toLowerCase().includes(query),
-    );
+    return companies.filter((company) => company.name.toLowerCase().includes(query));
   }, [companies, search]);
 
   const openHub = () => setView("hub");
@@ -182,7 +257,7 @@ export function GodmodeStartScreen({
     {
       id: "existing",
       title: "Work on existing company",
-      description: "Choose a live company workspace to manage users, areas, templates, and reports.",
+      description: "Choose a live company workspace to manage users, areas, checks, and reports.",
       actionLabel: "Select company",
       onAction: () => {
         logNavTrace("open-select-company", "godmodeHome.select-company", { view: "landing" });
@@ -203,7 +278,7 @@ export function GodmodeStartScreen({
     {
       id: "platform",
       title: "Platform setup",
-      description: "Connect Google, verify shared drive access, SMTP, and tablet kiosk controls.",
+      description: "Connect Google, email, and tablet kiosk controls.",
       actionLabel: "Open platform setup",
       onAction: () => {
         logNavTrace("open-platform-setup", "setup", { view: "landing" });
@@ -212,8 +287,8 @@ export function GodmodeStartScreen({
     },
     {
       id: "diagnostics",
-      title: "Reports / Diagnostics",
-      description: "Platform health, readiness checks, and Master diagnostics across workspaces.",
+      title: "Diagnostics",
+      description: "Platform health and readiness checks.",
       actionLabel: "Open diagnostics",
       onAction: () => {
         logNavTrace("open-diagnostics", "reports", { view: "landing" });
@@ -237,11 +312,11 @@ export function GodmodeStartScreen({
             onClick={() => setView("landing")}
             className={["mb-3 text-sm font-semibold", onDark ? "text-orange-300 hover:text-orange-200" : "text-orange-700 hover:text-orange-800"].join(" ")}
           >
-            ← Back to Godmode home
+            ← Back
           </button>
-          <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Company workspace</h1>
+          <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">{selectedFolderName || "Company workspace"}</h2>
           <p className={`mt-2 max-w-2xl text-sm leading-relaxed ${muted}`}>
-            Manage this company&apos;s users, areas, templates, schedules, and quality tools.
+            Choose what to do for this company.
           </p>
         </header>
 
@@ -261,41 +336,55 @@ export function GodmodeStartScreen({
           themeMode={themeMode}
         />
 
-        <section className="mt-2">
-          <p className={`text-xs font-semibold uppercase tracking-[0.18em] ${onDark ? "text-slate-500" : "text-slate-500"}`}>
-            Quick links
-          </p>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {QUICK_LINKS.map((link) => (
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {QUICK_LINKS.slice(0, 4).map((link) => (
+            <button
+              key={link.screen + link.label}
+              type="button"
+              onClick={() => {
+                logNavTrace(`quick-link:${link.label}`, link.screen, { view: "hub" });
+                onNavigate(link.screen);
+              }}
+              className={[
+                "flex min-h-[3rem] items-center justify-center rounded-xl border px-4 text-sm font-semibold transition",
+                onDark
+                  ? "border-slate-700 bg-slate-900/80 text-slate-100 hover:border-orange-400/40"
+                  : "border-slate-200 bg-white text-slate-800 hover:border-orange-200 hover:bg-orange-50/80",
+              ].join(" ")}
+            >
+              {link.label}
+            </button>
+          ))}
+        </div>
+
+        <details className={["mt-4 rounded-2xl border px-4 py-3", onDark ? "border-white/10 bg-slate-900/40" : "border-slate-200 bg-slate-50"].join(" ")}>
+          <summary className="cursor-pointer text-sm font-semibold">More for this company</summary>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {QUICK_LINKS.slice(4).map((link) => (
               <button
-                key={`${link.screen}-${link.label}`}
+                key={link.screen + link.label}
                 type="button"
-                onClick={() => {
-                  logNavTrace(`quick-link:${link.label}`, link.screen, { view: "hub" });
-                  onNavigate(link.screen);
-                }}
+                onClick={() => onNavigate(link.screen)}
                 className={[
-                  "flex min-h-[44px] items-center justify-center rounded-xl border px-3 text-sm font-semibold transition",
-                  onDark
-                    ? "border-slate-700 bg-slate-900/80 text-slate-100 hover:border-orange-400/40 hover:bg-slate-800"
-                    : "border-slate-200 bg-white text-slate-800 hover:border-orange-200 hover:bg-orange-50/80",
+                  "min-h-[2.75rem] rounded-xl border px-3 text-sm font-semibold",
+                  onDark ? "border-slate-700 text-slate-200" : "border-slate-200 bg-white text-slate-700",
                 ].join(" ")}
               >
                 {link.label}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={onOpenTabletSetup}
+              className={[
+                "min-h-[2.75rem] rounded-xl border px-3 text-left text-sm font-semibold",
+                onDark ? "border-slate-700 text-slate-300" : "border-slate-200 bg-white text-slate-600",
+              ].join(" ")}
+            >
+              Tablet / Kiosk setup
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onOpenTabletSetup}
-            className={[
-              "mt-3 text-sm font-semibold underline-offset-2 hover:underline",
-              onDark ? "text-slate-400 hover:text-slate-200" : "text-slate-600 hover:text-slate-900",
-            ].join(" ")}
-          >
-            Tablet / Kiosk setup
-          </button>
-        </section>
+        </details>
       </div>
     );
   }
@@ -314,8 +403,8 @@ export function GodmodeStartScreen({
           >
             ← Back
           </button>
-          <h1 className="text-2xl font-semibold tracking-tight">Select company</h1>
-          <p className={`mt-2 text-sm ${muted}`}>Live company workspaces only — archive and platform folders are hidden.</p>
+          <h2 className="text-2xl font-semibold tracking-tight">Select company</h2>
+          <p className={`mt-2 text-sm ${muted}`}>Search by name. Ready companies open straight away; others show Continue setup.</p>
         </header>
 
         <label className="block">
@@ -325,108 +414,49 @@ export function GodmodeStartScreen({
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search by company name…"
-            className={`h-11 w-full rounded-xl border px-4 text-sm outline-none focus:ring-2 focus:ring-orange-200 ${inputClass}`}
+            className={`h-12 w-full rounded-xl border px-4 text-sm outline-none focus:ring-2 focus:ring-orange-200 ${inputClass}`}
           />
         </label>
 
         {companies.length === 0 ? (
           <div className={`mt-6 rounded-2xl border px-4 py-6 text-sm ${onDark ? "border-white/10 bg-slate-900/50 text-slate-300" : "border-slate-200 bg-slate-50 text-slate-700"}`}>
-            <p>
-              {liveCompaniesWarning || "No live company workspaces yet. Create a new company to begin."}
-            </p>
+            <p>{liveCompaniesWarning || "No company workspaces yet."}</p>
+            <button
+              type="button"
+              onClick={onCreateCompany}
+              className={[
+                "mt-4 inline-flex h-11 items-center rounded-xl px-5 text-sm font-semibold",
+                onDark ? "bg-orange-500 text-slate-950" : "bg-orange-500 text-white hover:bg-orange-600",
+              ].join(" ")}
+            >
+              Create company
+            </button>
             {liveCompaniesWarning && onRepairLiveCompanies ? (
               <button
                 type="button"
                 onClick={onRepairLiveCompanies}
-                className={[
-                  "mt-3 inline-flex h-10 items-center rounded-xl border px-4 text-sm font-semibold transition",
-                  onDark
-                    ? "border-amber-400/40 bg-amber-500/20 text-amber-100 hover:bg-amber-500/30"
-                    : "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100",
-                ].join(" ")}
+                className="mt-2 block text-sm font-semibold text-amber-700 underline-offset-2 hover:underline dark:text-amber-200"
               >
-                Open setup / repair
+                Open platform setup
               </button>
             ) : null}
           </div>
         ) : filteredCompanies.length === 0 ? (
           <p className={`mt-6 text-sm ${muted}`}>No companies match your search.</p>
         ) : (
-          <ul className="mt-4 space-y-2">
+          <ul className="mt-4 space-y-3">
             {filteredCompanies.map((company) => (
-              <li
+              <CompanyPickerRow
                 key={company.id}
-                className={[
-                  "flex w-full flex-col gap-2 rounded-2xl border px-4 py-3 transition sm:flex-row sm:items-center sm:justify-between",
-                  onDark
-                    ? "border-white/10 bg-slate-900/50 hover:border-orange-400/40"
-                    : "border-slate-200 bg-white hover:border-orange-200",
-                ].join(" ")}
-              >
-                <button
-                  type="button"
-                  onClick={() => handlePickCompany(company.id)}
-                  className="min-w-0 flex-1 text-left"
-                >
-                  <p className="truncate text-sm font-semibold">{company.name}</p>
-                  <p className={`mt-0.5 truncate font-mono text-xs ${muted}`}>
-                    {company.masterSheetId ? `Sheet: ${company.masterSheetId}` : "Master sheet not linked yet"}
-                  </p>
-                  <p className={`mt-0.5 truncate font-mono text-[11px] ${muted}`}>Folder: {company.id}</p>
-                </button>
-                <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
-                  <span
-                    className={[
-                      "inline-flex self-start rounded-full px-2.5 py-0.5 text-xs font-semibold sm:self-center",
-                      company.setupStatusLabel === "Ready"
-                        ? "bg-emerald-100 text-emerald-800"
-                        : "bg-amber-100 text-amber-900",
-                    ].join(" ")}
-                  >
-                    {company.setupStatusLabel}
-                  </span>
-                  {company.setupStatusLabel !== "Ready" && (onContinueCompanySetup || onRepairCompany) ? (
-                    <div className="flex flex-wrap gap-2">
-                      {onContinueCompanySetup ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            logNavTrace("continue-company-setup", "onboarding", {
-                              selectedFolderId: company.id,
-                              masterSheetId: company.masterSheetId,
-                              incomplete: !Boolean(company.masterSheetId),
-                              view: "picker",
-                            });
-                            onContinueCompanySetup(company.id);
-                          }}
-                          className={[
-                            "inline-flex h-8 items-center rounded-lg border px-3 text-xs font-semibold",
-                            onDark
-                              ? "border-amber-400/40 bg-amber-500/20 text-amber-100 hover:bg-amber-500/30"
-                              : "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100",
-                          ].join(" ")}
-                        >
-                          Continue setup
-                        </button>
-                      ) : null}
-                      {onRepairCompany ? (
-                        <button
-                          type="button"
-                          onClick={() => onRepairCompany(company.id)}
-                          className={[
-                            "inline-flex h-8 items-center rounded-lg border px-3 text-xs font-semibold",
-                            onDark
-                              ? "border-amber-400/40 bg-amber-500/20 text-amber-100 hover:bg-amber-500/30"
-                              : "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100",
-                          ].join(" ")}
-                        >
-                          Repair setup
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-              </li>
+                company={company}
+                onDark={onDark}
+                onOpen={() => handlePickCompany(company.id)}
+                onContinueSetup={
+                  company.setupStatusLabel !== "Ready" && onContinueCompanySetup
+                    ? () => onContinueCompanySetup(company.id)
+                    : undefined
+                }
+              />
             ))}
           </ul>
         )}
@@ -436,16 +466,13 @@ export function GodmodeStartScreen({
 
   return (
     <div className={pageShell}>
-      <header className="mb-6 max-w-3xl">
-        <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Godmode</h1>
-        <p className={`mt-2 text-sm leading-relaxed md:text-base ${muted}`}>
-          Manage the BERT platform, onboard companies, or choose a company workspace to work on.
-        </p>
-      </header>
+      <p className={`max-w-2xl text-sm leading-relaxed md:text-base ${muted}`}>
+        Manage the platform, onboard companies, or open a company workspace.
+      </p>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        {landingCards.map((card) => (
-          <LandingActionCard key={card.id} card={card} onDark={onDark} />
+      <div className="mt-6 grid gap-4 sm:grid-cols-2">
+        {landingCards.map((card, index) => (
+          <LandingActionCard key={card.id} card={card} onDark={onDark} primary={index === 0} />
         ))}
       </div>
 
