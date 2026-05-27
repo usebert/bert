@@ -79,7 +79,8 @@ export function AccountSettingsScreen({
               <label
                 className={[
                   "mt-3 inline-flex min-h-[2.75rem] cursor-pointer items-center rounded-xl px-5 text-sm font-semibold text-white",
-                  fieldAuditor ? theme.primaryButton : "bg-slate-900",
+                  theme.primaryButton,
+                  theme.primaryButtonHover,
                   slatePrimaryCtaInteract,
                 ].join(" ")}
               >
@@ -144,7 +145,8 @@ export function AccountSettingsScreen({
             onClick={onSave}
             className={[
               "mt-4 min-h-[3rem] w-full rounded-2xl text-sm font-semibold text-white",
-              fieldAuditor ? theme.primaryButton : "bg-slate-900",
+              theme.primaryButton,
+              theme.primaryButtonHover,
               slatePrimaryCtaInteract,
             ].join(" ")}
           >

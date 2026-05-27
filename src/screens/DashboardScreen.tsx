@@ -369,7 +369,7 @@ export function DashboardScreen({
             <p className="mt-2 max-w-xl text-xs leading-relaxed text-slate-300">
               Provision through report — where you are in the quality cycle right now.
             </p>
-            <ControlLoopStrip currentStepIndex={controlLoop.currentStepIndex} tone="onDark" className="mt-2" />
+            <ControlLoopStrip currentStepIndex={controlLoop.currentStepIndex} tone="onDark" className="mt-2" role={currentUser.role} />
           </div>
           {isDebugUiAllowed() ? (
             <div className="flex shrink-0 flex-col items-end gap-2">

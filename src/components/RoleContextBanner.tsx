@@ -57,7 +57,12 @@ export function RoleContextBanner({ role, workspaceName, className = "" }: Props
       <div className="flex items-start gap-3">
         <RoleBannerIcon role={role} />
         <div className="min-w-0 flex-1">
-          <p className={["text-sm font-semibold leading-snug", theme.bannerHeadline].join(" ")}>{copy.headline}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className={["text-sm font-semibold leading-snug", theme.bannerHeadline].join(" ")}>{copy.headline}</p>
+            <span className={["inline-flex shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold", theme.badge].join(" ")}>
+              {theme.badgeShort}
+            </span>
+          </div>
           <p className={["mt-1 text-sm leading-relaxed", theme.bannerDetail].join(" ")}>{copy.detail}</p>
         </div>
       </div>

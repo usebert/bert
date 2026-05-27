@@ -160,9 +160,9 @@ export function IncidentReportingScreen({
               <p className={["mt-2", darkPanelBody].join(" ")}>Mobile-first reporting plus register, investigation workflow, corrective actions, and dashboard.</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => setView("report")} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${view === "report" ? "border-orange-400 bg-orange-400/15 text-orange-200" : "border-slate-700 bg-slate-900 text-slate-300"}`}>Report form</button>
-              <button type="button" onClick={() => setView("register")} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${view === "register" ? "border-orange-400 bg-orange-400/15 text-orange-200" : "border-slate-700 bg-slate-900 text-slate-300"}`}>Incident register</button>
-              <button type="button" onClick={() => setView("dashboard")} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${view === "dashboard" ? "border-orange-400 bg-orange-400/15 text-orange-200" : "border-slate-700 bg-slate-900 text-slate-300"}`}>Dashboard</button>
+              <button type="button" onClick={() => setView("report")} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${view === "report" ? theme.tabActiveOnDark : theme.tabInactiveOnDark}`}>Report form</button>
+              <button type="button" onClick={() => setView("register")} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${view === "register" ? theme.tabActiveOnDark : theme.tabInactiveOnDark}`}>Incident register</button>
+              <button type="button" onClick={() => setView("dashboard")} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${view === "dashboard" ? theme.tabActiveOnDark : theme.tabInactiveOnDark}`}>Dashboard</button>
             </div>
           </div>
           <p className="mt-3 text-xs text-slate-400">QR reporting link: <span className="font-semibold text-slate-200">{`${window.location.origin}/?screen=incidents`}</span></p>
@@ -216,10 +216,9 @@ export function IncidentReportingScreen({
             <button
               type="submit"
               className={[
-                "md:col-span-2 min-h-[3rem] rounded-2xl font-semibold transition active:scale-[0.98]",
-                fieldAuditor
-                  ? [theme.primaryButton, theme.primaryButtonHover, "text-white"].join(" ")
-                  : "bg-[var(--bert-signal-orange)] text-[var(--qms-navy-950)]",
+                "md:col-span-2 min-h-[3rem] rounded-2xl font-semibold text-white transition active:scale-[0.98]",
+                theme.primaryButton,
+                theme.primaryButtonHover,
               ].join(" ")}
             >
               Submit report
@@ -352,7 +351,7 @@ export function IncidentReportingScreen({
             </div>
           </div>
           {selectedIncident.status !== "Closed" && (
-            <button type="button" onClick={() => onUpdateIncident(selectedIncident.id, { status: "Closed", closedAt: new Date().toISOString(), closedBy: currentUser.name, completionDate: selectedIncident.completionDate || new Date().toISOString().slice(0, 10) }, { statusNote: "Incident closed" })} className="mt-3 h-10 rounded-lg bg-orange-600 px-4 text-sm font-semibold text-white hover:bg-orange-700">Close incident</button>
+            <button type="button" onClick={() => onUpdateIncident(selectedIncident.id, { status: "Closed", closedAt: new Date().toISOString(), closedBy: currentUser.name, completionDate: selectedIncident.completionDate || new Date().toISOString().slice(0, 10) }, { statusNote: "Incident closed" })} className={["mt-3 h-10 rounded-lg px-4 text-sm font-semibold text-white", theme.primaryButton, theme.primaryButtonHover].join(" ")}>Close incident</button>
           )}
         </section>
       )}
