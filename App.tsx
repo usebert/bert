@@ -242,6 +242,30 @@ type ScheduleLifecycle = "Live" | "Archived";
 type ScheduleListFilter = "Live" | "Archived" | "All schedules";
 type ScheduleHealthState = "Healthy" | "Due Soon" | "Overdue" | "Failing" | "Paused";
 type PreviewOrientation = "portrait" | "landscape";
+type ScreenTraceMeta = {
+  reason: string;
+  guardOrEffectId: string;
+  callerLabel?: string;
+};
+
+const APP_BUILD_TIMESTAMP = new Date().toISOString();
+const APP_BUILD_MARKER = (import.meta.env.VITE_APP_COMMIT_SHA ?? "").trim() || `build:${APP_BUILD_TIMESTAMP}`;
+
+function getDebugCallerLabel(): string | undefined {
+  try {
+    const stack = new Error().stack;
+    if (!stack) return undefined;
+    const frames = stack
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("at "));
+    const candidate = frames[2] || frames[1];
+    if (!candidate) return undefined;
+    return candidate.replace(/^at\s+/, "");
+  } catch {
+    return undefined;
+  }
+}
 
 type User = {
   username: string;
@@ -3039,7 +3063,9 @@ function App() {
     workspaceBootstrapRef.current = getWorkspaceBootstrap();
   }
   const storedWorkspaceState = workspaceBootstrapRef.current;
-  const [screen, setScreen] = useState<Screen>("dashboard");
+  const [screen, setScreenState] = useState<Screen>("dashboard");
+  const previousScreenRef = useRef<Screen>("dashboard");
+  const pendingScreenTraceRef = useRef<ScreenTraceMeta | null>(null);
   const [shellMoreExpanded, setShellMoreExpanded] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [dashboardPreferences, setDashboardPreferences] = useState<DashboardPreferences>(() =>
@@ -3349,6 +3375,18 @@ function App() {
       return (import.meta.env.VITE_DEBUG_GODMODE_NAV ?? "") === "1";
     }
   }, []);
+  const setScreen = useCallback(
+    (nextScreen: Screen, trace?: Partial<ScreenTraceMeta>) => {
+      const callerLabel = trace?.callerLabel || getDebugCallerLabel();
+      pendingScreenTraceRef.current = {
+        reason: trace?.reason || "setScreen",
+        guardOrEffectId: trace?.guardOrEffectId || callerLabel || "unknown",
+        callerLabel,
+      };
+      setScreenState(nextScreen);
+    },
+    [],
+  );
   const logGodmodeNav = useCallback(
     (eventName: string, targetScreen: Screen, details?: { selectedFolderId?: string; masterSheetId?: string; incomplete?: boolean; activeView?: string }) => {
       if (!godmodeNavDebugEnabled) {
@@ -3391,6 +3429,24 @@ function App() {
     }
     logGodmodeGuard("company-context-blocked", screen, screen);
   }, [masterCompanyContextBlocked, logGodmodeGuard, screen]);
+  useEffect(() => {
+    const previousScreen = previousScreenRef.current;
+    const trace = pendingScreenTraceRef.current;
+    if (godmodeNavDebugEnabled && previousScreen !== screen) {
+      console.debug("[godmode-nav-transition]", {
+        previousScreen,
+        nextScreen: screen,
+        reason: trace?.reason ?? "state-transition",
+        role: currentUser?.role ?? "",
+        selectedCompanyExists: Boolean(selectedFolderId),
+        masterSheetIdExists: Boolean(activeCompanyMasterSheetId),
+        guardOrEffectId: trace?.guardOrEffectId ?? "unknown",
+        callerLabel: trace?.callerLabel ?? "unknown",
+      });
+    }
+    previousScreenRef.current = screen;
+    pendingScreenTraceRef.current = null;
+  }, [screen, godmodeNavDebugEnabled, currentUser?.role, selectedFolderId, activeCompanyMasterSheetId]);
 
   const clearActiveCompanyWorkspaceState = useCallback(() => {
     setHydratedCompanyFolderId("");
@@ -9732,10 +9788,6 @@ function App() {
   }, [currentUser?.role, googleConnected]);
 
   useEffect(() => {
-    if (currentUser?.role === "Master" && screen === "dashboard") {
-      logGodmodeGuard("master-dashboard-alias", "dashboard", "godmodeHome");
-      setScreen("godmodeHome");
-    }
     if (currentUser && !canAccessControlScreen(currentUser.role) && screen === "admin") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
@@ -11070,6 +11122,7 @@ function App() {
             {screen === "reports" && canAccessReports(currentUser.role) && (
               <ReportsScreen
                 currentUserRole={currentUser.role}
+                buildMarker={currentUser.role === "Master" ? APP_BUILD_MARKER : undefined}
                 compliance={compliance}
                 openActions={openActions}
                 overdueActions={overdueActions}

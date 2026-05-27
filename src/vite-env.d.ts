@@ -15,4 +15,6 @@ interface ImportMetaEnv {
   readonly VITE_ANDROID_PILOT_BUILD_NUMBER?: string;
   readonly VITE_ANDROID_PILOT_BUILD_TIME?: string;
   readonly VITE_ANDROID_PILOT_BUILD_GIT_SHA?: string;
+  readonly VITE_DEBUG_GODMODE_NAV?: string;
+  readonly VITE_APP_COMMIT_SHA?: string;
 }

@@ -359,6 +359,7 @@ function FlowItem({ number, title, text, icon }: { number: string; title: string
 
 export function ReportsScreen({
   currentUserRole,
+  buildMarker,
   workspaceName,
   compliance,
   openActions,
@@ -389,6 +390,7 @@ export function ReportsScreen({
   onExportAuditPackPdf,
 }: {
   currentUserRole: Role;
+  buildMarker?: string;
   workspaceName: string;
   compliance: number;
   openActions: ActionItem[];
@@ -455,6 +457,11 @@ export function ReportsScreen({
             {currentUserRole !== "Master" ? (
               <p className="mt-2 text-sm leading-6 text-slate-300">
                 Reporting is the last step of the loop: consolidate what was evaluated and corrected for {workspaceName}, then export packs stakeholders can file, share, or archive.
+              </p>
+            ) : null}
+            {currentUserRole === "Master" && buildMarker ? (
+              <p className="mt-2 inline-flex rounded-full border border-white/25 bg-white/10 px-2.5 py-1 font-mono text-[11px] text-slate-100">
+                Build marker: {buildMarker}
               </p>
             ) : null}
           </div>

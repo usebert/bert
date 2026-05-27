@@ -154,6 +154,18 @@ function resolveMasterNavTarget(input) {
   return input.targetScreen;
 }
 
+function applyMasterScreenTransition(input) {
+  const blocked = isMasterCompanyContextBlocked({
+    targetScreen: input.nextScreen,
+    companyReady: input.companyReady,
+    incompleteCompanySetup: input.incompleteCompanySetup,
+  });
+  if (blocked) {
+    return { finalScreen: input.nextScreen, blocked: true };
+  }
+  return { finalScreen: input.nextScreen, blocked: false };
+}
+
 assert(
   resolveMasterNavTarget({
     targetScreen: "godmodeHome",
@@ -189,6 +201,32 @@ assert(
   }) === "reports",
   "Diagnostics remains reachable without selected company",
 );
+
+for (const nextScreen of ["setup", "setupInitial", "reports", "godmodeHome", "onboarding"]) {
+  const transition = applyMasterScreenTransition({
+    currentScreen: "godmodeHome",
+    nextScreen,
+    companyReady: false,
+    incompleteCompanySetup: false,
+  });
+  assert(
+    transition.finalScreen === nextScreen,
+    `${nextScreen} transition remains on target without bounce home`,
+  );
+}
+
+for (const nextScreen of ["companies", "users", "schedules", "qmsReadiness"]) {
+  const transition = applyMasterScreenTransition({
+    currentScreen: "godmodeHome",
+    nextScreen,
+    companyReady: false,
+    incompleteCompanySetup: false,
+  });
+  assert(
+    transition.finalScreen === nextScreen && transition.blocked,
+    `${nextScreen} is blocked inline without forced redirect`,
+  );
+}
 
 assert(
   resolveMasterNavTarget({
