@@ -3,6 +3,184 @@ import type { Role } from "../../permissions";
 import type { NavItemId } from "../../types/navigation";
 import { getRoleTheme } from "../../config/roleTheme";
 
+export const DASHBOARD_CARD = "rounded-3xl border border-slate-200 bg-white p-6 shadow-sm";
+
+const PRIMARY_BUTTON_BASE =
+  "inline-flex min-h-12 items-center justify-center rounded-2xl px-5 text-sm font-black shadow-lg transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60";
+
+const SECONDARY_BUTTON_BASE =
+  "inline-flex min-h-12 w-full items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 active:scale-[0.98]";
+
+export function PrimaryButton({
+  role,
+  children,
+  onClick,
+  className = "",
+  fullWidth = false,
+}: {
+  role: Role;
+  children: ReactNode;
+  onClick: () => void;
+  className?: string;
+  fullWidth?: boolean;
+}) {
+  const theme = getRoleTheme(role);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        PRIMARY_BUTTON_BASE,
+        theme.primaryButton,
+        theme.primaryButtonHover,
+        fullWidth ? "w-full" : "",
+        className,
+      ].join(" ")}
+    >
+      {children}
+    </button>
+  );
+}
+
+export function SecondaryButton({
+  children,
+  onClick,
+  className = "",
+}: {
+  children: ReactNode;
+  onClick: () => void;
+  className?: string;
+}) {
+  return (
+    <button type="button" onClick={onClick} className={[SECONDARY_BUTTON_BASE, className].join(" ")}>
+      {children}
+    </button>
+  );
+}
+
+export function StatusPill({
+  children,
+  tone = "neutral",
+}: {
+  children: ReactNode;
+  tone?: "neutral" | "success" | "warning" | "danger";
+}) {
+  const toneClass =
+    tone === "success"
+      ? "bg-emerald-100 text-emerald-900"
+      : tone === "warning"
+        ? "bg-amber-100 text-amber-900"
+        : tone === "danger"
+          ? "bg-rose-100 text-rose-900"
+          : "bg-slate-100 text-slate-700";
+  return (
+    <span className={["inline-flex rounded-full px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide", toneClass].join(" ")}>
+      {children}
+    </span>
+  );
+}
+
+export function PageHeader({
+  role,
+  eyebrow,
+  title,
+  subtitle,
+  primaryAction,
+}: {
+  role: Role;
+  eyebrow: string;
+  title: string;
+  subtitle?: string;
+  primaryAction?: { label: string; onClick: () => void };
+}) {
+  const theme = getRoleTheme(role);
+  return (
+    <header className={[theme.pageHeaderShell, "p-7 text-white"].join(" ")}>
+      <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+        <div className="min-w-0 flex-1">
+          <p className={["text-xs font-black uppercase tracking-[0.2em]", theme.pageHeaderEyebrow].join(" ")}>{eyebrow}</p>
+          <h1 className="mt-2 text-3xl font-black tracking-tight md:text-5xl">{title}</h1>
+          {subtitle ? <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-300 md:text-base">{subtitle}</p> : null}
+        </div>
+        {primaryAction ? (
+          <PrimaryButton role={role} onClick={primaryAction.onClick} className="shrink-0 md:min-w-[11rem]">
+            {primaryAction.label}
+          </PrimaryButton>
+        ) : null}
+      </div>
+    </header>
+  );
+}
+
+export function DashboardLandingCard({
+  title,
+  description,
+  actionLabel,
+  onAction,
+  primary = false,
+}: {
+  title: string;
+  description: string;
+  actionLabel: string;
+  onAction: () => void;
+  primary?: boolean;
+}) {
+  return (
+    <article className={[DASHBOARD_CARD, "flex h-full flex-col"].join(" ")}>
+      <h3 className="text-lg font-black tracking-tight text-slate-900">{title}</h3>
+      <p className="mt-2 flex-1 text-sm leading-relaxed text-slate-600">{description}</p>
+      {primary ? (
+        <div className="mt-6">
+          <PrimaryButton role="Master" onClick={onAction} fullWidth>
+            {actionLabel}
+          </PrimaryButton>
+        </div>
+      ) : (
+        <div className="mt-6">
+          <SecondaryButton onClick={onAction}>{actionLabel}</SecondaryButton>
+        </div>
+      )}
+    </article>
+  );
+}
+
+export function SetupChecklistRow({
+  done,
+  title,
+  hint,
+  actionLabel,
+  onAction,
+}: {
+  done: boolean;
+  title: string;
+  hint: string;
+  actionLabel: string;
+  onAction: () => void;
+}) {
+  return (
+    <li className="flex flex-col gap-3 rounded-2xl border border-slate-100 bg-slate-50/80 p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-start gap-3">
+        <span
+          className={[
+            "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-black",
+            done ? "bg-emerald-500 text-white" : "border-2 border-slate-300 bg-white text-slate-400",
+          ].join(" ")}
+          aria-hidden
+        >
+          {done ? "✓" : ""}
+        </span>
+        <span className="min-w-0">
+          <span className="block font-bold text-slate-900">{title}</span>
+          <span className="mt-0.5 block text-sm text-slate-600">{hint}</span>
+        </span>
+      </div>
+      <SecondaryButton onClick={onAction} className="w-full sm:w-auto sm:min-w-[9rem]">
+        {actionLabel}
+      </SecondaryButton>
+    </li>
+  );
+}
+
 const QUICK_ACTION_ICONS: Record<string, ReactNode> = {
   invite: (
     <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
@@ -209,26 +387,32 @@ export function StatusTile({
 
 export function RoleDashboardShell({
   role,
+  eyebrow,
   title,
   intro,
   children,
   subtitle,
+  primaryAction,
 }: {
   role: Role;
   eyebrow?: string;
   title: string;
   intro?: string;
   subtitle?: string;
+  primaryAction?: { label: string; onClick: () => void };
   children: ReactNode;
 }) {
-  void role;
   return (
-    <div className="space-y-5">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">{title}</h1>
-        {subtitle ? <p className="mt-1 text-sm text-slate-500">{subtitle}</p> : null}
-        {intro ? <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">{intro}</p> : null}
-      </header>
+    <div className="space-y-6">
+      {eyebrow ? (
+        <PageHeader role={role} eyebrow={eyebrow} title={title} subtitle={subtitle ?? intro} primaryAction={primaryAction} />
+      ) : (
+        <header>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem]">{title}</h1>
+          {subtitle ? <p className="mt-1 text-sm text-slate-500">{subtitle}</p> : null}
+          {intro ? <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">{intro}</p> : null}
+        </header>
+      )}
       {children}
     </div>
   );
