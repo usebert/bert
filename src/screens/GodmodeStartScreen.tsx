@@ -39,6 +39,13 @@ const QUICK_LINKS: QuickLink[] = [
 
 type View = "landing" | "picker" | "hub";
 
+const GODMODE_NAV_DEBUG_FLAG = "bert:debug-godmode-nav";
+
+function isGodmodeNavDebugEnabled() {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(GODMODE_NAV_DEBUG_FLAG) === "1" || (import.meta.env.VITE_DEBUG_GODMODE_NAV ?? "") === "1";
+}
+
 type Props = {
   themeMode?: "light" | "dark";
   companies: GodmodeCompanyPickerRow[];
@@ -59,6 +66,7 @@ type Props = {
   onRepairLiveCompanies?: () => void;
   onContinueCompanySetup?: (folderId: string) => void;
   onRepairCompany?: (folderId: string) => void;
+  currentScreen?: NavItemId;
 };
 
 function LandingActionCard({
@@ -117,6 +125,7 @@ export function GodmodeStartScreen({
   onRepairLiveCompanies,
   onContinueCompanySetup,
   onRepairCompany,
+  currentScreen = "godmodeHome",
 }: Props) {
   const onDark = themeMode === "dark";
   const [view, setView] = useState<View>("landing");
@@ -135,6 +144,40 @@ export function GodmodeStartScreen({
     );
   }, [companies, search]);
 
+  const openHub = () => setView("hub");
+  const selectedCompany = useMemo(() => companies.find((company) => company.id === selectedFolderId), [companies, selectedFolderId]);
+  const logNavTrace = (
+    eventName: string,
+    targetScreen: string,
+    context?: { selectedFolderId?: string; masterSheetId?: string; incomplete?: boolean; view?: View },
+  ) => {
+    if (!isGodmodeNavDebugEnabled()) return;
+    const pickedFolderId = context?.selectedFolderId ?? selectedFolderId;
+    const pickedMasterSheetId = context?.masterSheetId ?? selectedCompany?.masterSheetId ?? "";
+    const incomplete = context?.incomplete ?? !Boolean(pickedMasterSheetId);
+    console.debug("[godmode-nav]", {
+      eventName,
+      currentScreen,
+      targetScreen,
+      selectedFolderId: pickedFolderId || "",
+      masterSheetId: pickedMasterSheetId,
+      incomplete,
+      internalView: context?.view ?? view,
+    });
+  };
+
+  const handlePickCompany = (folderId: string) => {
+    const company = companies.find((item) => item.id === folderId);
+    logNavTrace("pick-company", "godmodeHome.company-hub", {
+      selectedFolderId: folderId,
+      masterSheetId: company?.masterSheetId || "",
+      incomplete: !Boolean(company?.masterSheetId),
+      view,
+    });
+    onSelectCompany(folderId);
+    openHub();
+  };
+
   const landingCards: LandingCard[] = [
     {
       id: "existing",
@@ -142,6 +185,7 @@ export function GodmodeStartScreen({
       description: "Choose a live company workspace to manage users, areas, templates, and reports.",
       actionLabel: "Select company",
       onAction: () => {
+        logNavTrace("open-select-company", "godmodeHome.select-company", { view: "landing" });
         onOpenSelectCompany?.();
         setView("picker");
       },
@@ -151,21 +195,30 @@ export function GodmodeStartScreen({
       title: "Create new company",
       description: "Start with a clean company workspace. No previous company data will be used.",
       actionLabel: "Create company",
-      onAction: onCreateCompany,
+      onAction: () => {
+        logNavTrace("create-company", "onboarding", { view: "landing" });
+        onCreateCompany();
+      },
     },
     {
       id: "platform",
       title: "Platform setup",
       description: "Connect Google, verify shared drive access, SMTP, and tablet kiosk controls.",
       actionLabel: "Open platform setup",
-      onAction: onOpenPlatformSetup,
+      onAction: () => {
+        logNavTrace("open-platform-setup", "setup", { view: "landing" });
+        onOpenPlatformSetup();
+      },
     },
     {
       id: "diagnostics",
       title: "Reports / Diagnostics",
       description: "Platform health, readiness checks, and Master diagnostics across workspaces.",
       actionLabel: "Open diagnostics",
-      onAction: onOpenDiagnostics,
+      onAction: () => {
+        logNavTrace("open-diagnostics", "reports", { view: "landing" });
+        onOpenDiagnostics();
+      },
     },
   ];
 
@@ -174,13 +227,6 @@ export function GodmodeStartScreen({
   const inputClass = onDark
     ? "border-slate-600 bg-slate-950 text-white placeholder:text-slate-500"
     : "border-slate-200 bg-white text-slate-900 placeholder:text-slate-400";
-
-  const openHub = () => setView("hub");
-
-  const handlePickCompany = (folderId: string) => {
-    onSelectCompany(folderId);
-    openHub();
-  };
 
   if (view === "hub" && selectedFolderId) {
     return (
@@ -224,7 +270,10 @@ export function GodmodeStartScreen({
               <button
                 key={`${link.screen}-${link.label}`}
                 type="button"
-                onClick={() => onNavigate(link.screen)}
+                onClick={() => {
+                  logNavTrace(`quick-link:${link.label}`, link.screen, { view: "hub" });
+                  onNavigate(link.screen);
+                }}
                 className={[
                   "flex min-h-[44px] items-center justify-center rounded-xl border px-3 text-sm font-semibold transition",
                   onDark
@@ -341,7 +390,15 @@ export function GodmodeStartScreen({
                       {onContinueCompanySetup ? (
                         <button
                           type="button"
-                          onClick={() => onContinueCompanySetup(company.id)}
+                          onClick={() => {
+                            logNavTrace("continue-company-setup", "onboarding", {
+                              selectedFolderId: company.id,
+                              masterSheetId: company.masterSheetId,
+                              incomplete: !Boolean(company.masterSheetId),
+                              view: "picker",
+                            });
+                            onContinueCompanySetup(company.id);
+                          }}
                           className={[
                             "inline-flex h-8 items-center rounded-lg border px-3 text-xs font-semibold",
                             onDark

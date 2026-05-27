@@ -127,4 +127,78 @@ assert(
   "setup is platform-scoped for Master",
 );
 
+assert(
+  !MASTER_COMPANY_SCOPED_SCREENS.includes("onboarding"),
+  "onboarding must remain reachable for new and incomplete companies",
+);
+
+function isMasterCompanyScopedScreen(screen) {
+  return MASTER_COMPANY_SCOPED_SCREENS.includes(screen);
+}
+
+function resolveMasterNavTarget(input) {
+  const masterCompanyContextRequiredScreen =
+    isMasterCompanyScopedScreen(input.targetScreen) &&
+    !["godmodeHome", "setup", "setupInitial", "reports", "onboarding"].includes(input.targetScreen);
+
+  if (masterCompanyContextRequiredScreen && !input.companyReady && !input.incompleteCompanySetup) {
+    return "godmodeHome";
+  }
+  return input.targetScreen;
+}
+
+assert(
+  resolveMasterNavTarget({
+    targetScreen: "godmodeHome",
+    companyReady: false,
+    incompleteCompanySetup: false,
+  }) === "godmodeHome",
+  "Godmode home does not bounce when no company is selected",
+);
+
+assert(
+  resolveMasterNavTarget({
+    targetScreen: "onboarding",
+    companyReady: false,
+    incompleteCompanySetup: false,
+  }) === "onboarding",
+  "Create company opens onboarding without bounce-back",
+);
+
+assert(
+  resolveMasterNavTarget({
+    targetScreen: "setup",
+    companyReady: false,
+    incompleteCompanySetup: false,
+  }) === "setup",
+  "Platform setup remains reachable without selected company",
+);
+
+assert(
+  resolveMasterNavTarget({
+    targetScreen: "reports",
+    companyReady: false,
+    incompleteCompanySetup: false,
+  }) === "reports",
+  "Diagnostics remains reachable without selected company",
+);
+
+assert(
+  resolveMasterNavTarget({
+    targetScreen: "onboarding",
+    companyReady: false,
+    incompleteCompanySetup: true,
+  }) === "onboarding",
+  "Continue setup stays on onboarding for incomplete company",
+);
+
+assert(
+  resolveMasterNavTarget({
+    targetScreen: "users",
+    companyReady: false,
+    incompleteCompanySetup: false,
+  }) === "godmodeHome",
+  "Company-scoped screens still bounce without selected company",
+);
+
 console.log("[verify:godmode-company-context] OK");

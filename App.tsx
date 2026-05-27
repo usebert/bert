@@ -43,6 +43,7 @@ import {
   getMobileBottomNavForRole,
   getMoreNavIdsForRole,
   getPresentedNavForRole,
+  isMasterCompanyContextExemptScreen,
   isMasterCompanyScopedScreen,
   resolveAdminPilotFocus,
 } from "./src/config/roleNavigation";
@@ -3327,6 +3328,41 @@ function App() {
     screen === "onboarding" &&
     Boolean(selectedFolderId) &&
     !masterGodmodeCompanyReady;
+  const masterCompanyContextRequiredScreen =
+    currentUser?.role === "Master" &&
+    isMasterCompanyScopedScreen(screen as NavItemId) &&
+    !isMasterCompanyContextExemptScreen(screen as NavItemId);
+
+  const godmodeNavDebugEnabled = useMemo(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    try {
+      return window.localStorage.getItem("bert:debug-godmode-nav") === "1" || (import.meta.env.VITE_DEBUG_GODMODE_NAV ?? "") === "1";
+    } catch {
+      return (import.meta.env.VITE_DEBUG_GODMODE_NAV ?? "") === "1";
+    }
+  }, []);
+  const logGodmodeNav = useCallback(
+    (eventName: string, targetScreen: Screen, details?: { selectedFolderId?: string; masterSheetId?: string; incomplete?: boolean; activeView?: string }) => {
+      if (!godmodeNavDebugEnabled) {
+        return;
+      }
+      const traceFolderId = details?.selectedFolderId ?? selectedFolderId;
+      const traceSheetId = details?.masterSheetId ?? activeCompanyMasterSheetId;
+      const traceIncomplete = details?.incomplete ?? !Boolean(traceSheetId);
+      console.debug("[godmode-nav]", {
+        eventName,
+        currentScreen: screen,
+        targetScreen,
+        selectedFolderId: traceFolderId || "",
+        masterSheetId: traceSheetId || "",
+        incomplete: traceIncomplete,
+        activeView: details?.activeView ?? "app-shell",
+      });
+    },
+    [godmodeNavDebugEnabled, screen, selectedFolderId, activeCompanyMasterSheetId],
+  );
 
   const clearActiveCompanyWorkspaceState = useCallback(() => {
     setHydratedCompanyFolderId("");
@@ -6748,6 +6784,7 @@ function App() {
   };
 
   const handleGodmodeNewCompany = useCallback(() => {
+    logGodmodeNav("create-company", "onboarding", { activeView: "app-shell" });
     resetMasterGodmodeCompanyContext();
     setGodModeAppInviteEmail("");
     pushToast(
@@ -6756,7 +6793,7 @@ function App() {
       "neutral",
     );
     setScreen("onboarding");
-  }, [resetMasterGodmodeCompanyContext]);
+  }, [resetMasterGodmodeCompanyContext, logGodmodeNav]);
 
   const handleCompanyWorkspaceResetSuccess = async (message: string) => {
     const companyFolderId = selectedFolder?.id || extractGoogleResourceId(folderIdInput);
@@ -8207,6 +8244,13 @@ function App() {
         pushToast("Folder missing", "That company workspace was not found.", "warning");
         return;
       }
+      const knownSheetId = folder.masterSheetId || folder.responseSheetId || "";
+      logGodmodeNav("continue-company-setup", "onboarding", {
+        selectedFolderId: trimmedId,
+        masterSheetId: knownSheetId,
+        incomplete: !Boolean(knownSheetId),
+        activeView: "app-shell",
+      });
 
       if (trimmedId !== selectedFolderId) {
         clearCompanyWorkspaceLocalStateForGodmodeSwitch();
@@ -8216,7 +8260,6 @@ function App() {
       writeGodmodeSelectedCompanyFolderId(folder.id);
       setSelectedFolderId(trimmedId);
       setFolderIdInput(trimmedId);
-      const knownSheetId = folder.masterSheetId || folder.responseSheetId || "";
       setMasterSheetInput(knownSheetId);
       setFolderInspection(null);
       setWorkspaceValidation(null);
@@ -8262,6 +8305,7 @@ function App() {
       inspectFolderById,
       loadCompanySheetById,
       syncCompanyAreasFromServer,
+      logGodmodeNav,
     ],
   );
 
@@ -9667,8 +9711,7 @@ function App() {
       currentUser?.role === "Master" &&
       !masterGodmodeCompanyReady &&
       !godmodeIncompleteCompanySetup &&
-      isMasterCompanyScopedScreen(screen as NavItemId) &&
-      screen !== "onboarding"
+      masterCompanyContextRequiredScreen
     ) {
       setScreen("godmodeHome");
     }
@@ -9759,7 +9802,16 @@ function App() {
     ) {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
-  }, [currentUser, screen, visibleNavItems, activeAudit, auditCompletionSummary, masterGodmodeCompanyReady, godmodeIncompleteCompanySetup]);
+  }, [
+    currentUser,
+    screen,
+    visibleNavItems,
+    activeAudit,
+    auditCompletionSummary,
+    masterGodmodeCompanyReady,
+    godmodeIncompleteCompanySetup,
+    masterCompanyContextRequiredScreen,
+  ]);
 
   let inviteTokenFromUrl = "";
   try {
@@ -10536,19 +10588,34 @@ function App() {
                 selectedFolderId={selectedFolderId}
                 selectedFolderName={selectedFolder?.name || ""}
                 companyContextReady={masterGodmodeCompanyReady}
-                onSelectCompany={(folderId) => void handleSelectFolder(folderId)}
+                currentScreen={screen}
+                onSelectCompany={(folderId) => {
+                  logGodmodeNav("select-company", "godmodeHome", { selectedFolderId: folderId, activeView: "picker" });
+                  void handleSelectFolder(folderId);
+                }}
                 onClearCompany={() => void handleSelectFolder("")}
-                onNavigate={(nextScreen) => setScreen(nextScreen)}
+                onNavigate={(nextScreen) => {
+                  logGodmodeNav("godmode-quick-link", nextScreen, { activeView: "hub" });
+                  setScreen(nextScreen);
+                }}
                 onOpenSelectCompany={() => {
+                  logGodmodeNav("open-select-company", "godmodeHome", { activeView: "landing" });
                   setScreen("godmodeHome");
                   void loadGodmodeLiveCompanies({ silent: true });
                 }}
-                onOpenPlatformSetup={() => setScreen("setup")}
+                onOpenPlatformSetup={() => {
+                  logGodmodeNav("open-platform-setup", "setup", { activeView: "landing" });
+                  setScreen("setup");
+                }}
                 onOpenTabletSetup={() => {
+                  logGodmodeNav("open-tablet-setup", "setupInitial", { activeView: "hub" });
                   navigateToSetupInitial();
                   setScreen("setupInitial");
                 }}
-                onOpenDiagnostics={() => setScreen("reports")}
+                onOpenDiagnostics={() => {
+                  logGodmodeNav("open-diagnostics", "reports", { activeView: "landing" });
+                  setScreen("reports");
+                }}
                 onOpenOnboarding={handleGodmodeNewCompany}
                 onCreateCompany={handleGodmodeNewCompany}
                 liveCompaniesWarning={godmodeLiveCompaniesWarning}

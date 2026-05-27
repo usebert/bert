@@ -186,3 +186,10 @@ export function isPlatformSetupScreen(screen: NavItemId): boolean {
 export function isGodmodeLandingScreen(screen: NavItemId): boolean {
   return screen === "godmodeHome";
 }
+
+/** Master screens that must stay reachable without a selected company context. */
+const MASTER_COMPANY_CONTEXT_EXEMPT_SCREENS: NavItemId[] = ["godmodeHome", "setup", "setupInitial", "reports", "onboarding"];
+
+export function isMasterCompanyContextExemptScreen(screen: NavItemId): boolean {
+  return MASTER_COMPANY_CONTEXT_EXEMPT_SCREENS.includes(screen);
+}
