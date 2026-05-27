@@ -1,9 +1,5 @@
 import type { NavItemId } from "../../types/navigation";
-import {
-  DashboardLandingCard,
-  PageHeader,
-  RoleDashboardShell,
-} from "./RoleDashboardPrimitives";
+import { DashboardLandingCard, RoleDashboardShell } from "./RoleDashboardPrimitives";
 
 type Props = {
   companiesCount: number;

@@ -4,7 +4,7 @@ import type { AuditorTaskDashboardProps } from "../../types/dashboardScreenProps
 import { getRoleTheme } from "../../config/roleTheme";
 import { getDueWarning } from "../../utils/dashboardHealth";
 import { pickNextAuditorAudit, rankAuditorAudit } from "../../utils/auditorDashboard";
-import { AuditorInfoStrip, RoleDashboardShell } from "./RoleDashboardPrimitives";
+import { DASHBOARD_CARD, PageHeader, StatusPill } from "./RoleDashboardPrimitives";
 import { AuditorStartHereCard, EmptyPanel } from "./DashboardPrimitives";
 
 type Props = AuditorTaskDashboardProps & {
@@ -40,6 +40,7 @@ export function AuditorTaskDashboard({
   onNavigate,
 }: Props) {
   void currentUser;
+  void onNavigate;
   const theme = getRoleTheme("Auditor");
 
   const sortedAudits = useMemo(
@@ -62,91 +63,53 @@ export function AuditorTaskDashboard({
   const nextAudit = useMemo(() => pickNextAuditorAudit(sortedAudits, drafts), [sortedAudits, drafts]);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {showStartHereCard ? <AuditorStartHereCard /> : null}
-      <RoleDashboardShell role="Auditor" title="Today" subtitle={`${formatTodayHeading()} · ${workspaceName}`}>
-        <section className="rounded-2xl border border-violet-100 bg-white p-4 shadow-sm">
-          <p className="text-lg font-semibold text-slate-900">Today&apos;s checks</p>
-          {displayChecks.length === 0 ? (
-            <div className="mt-4">
-              <EmptyPanel
-                title="No checks assigned"
-                text="When your manager assigns checks, they will appear here with a big Start button."
-              />
-            </div>
-          ) : (
-            <ul className="mt-4 space-y-4">
-              {displayChecks.slice(0, 8).map((audit) => {
-                const status = checkStatusLabel(audit.id, audit.dueHours, drafts);
-                const inProgress = Boolean(drafts[audit.id]);
-                return (
-                  <li
-                    key={audit.id}
-                    className="rounded-2xl border border-slate-200 bg-slate-50/90 px-4 py-4"
+      <PageHeader
+        role="Auditor"
+        eyebrow="Today"
+        title="Your checks"
+        subtitle={`${formatTodayHeading()} · ${workspaceName}`}
+      />
+      <section className={DASHBOARD_CARD}>
+        {displayChecks.length === 0 ? (
+          <EmptyPanel
+            title="No checks assigned"
+            text="When your manager assigns checks, they will appear here with a big Start button."
+          />
+        ) : (
+          <ul className="space-y-4">
+            {displayChecks.slice(0, 8).map((audit) => {
+              const status = checkStatusLabel(audit.id, audit.dueHours, drafts);
+              const inProgress = Boolean(drafts[audit.id]);
+              const pillTone = audit.dueHours < 0 ? "danger" : inProgress ? "warning" : "neutral";
+              return (
+                <li key={audit.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <p className="text-xl font-black text-slate-900">{audit.name}</p>
+                    <StatusPill tone={pillTone}>{status}</StatusPill>
+                  </div>
+                  <p className="mt-2 text-sm text-slate-600">{getDueWarning(audit.dueHours)}</p>
+                  <button
+                    type="button"
+                    onClick={() => onOpenAudit(audit.id)}
+                    className={[
+                      "mt-5 flex min-h-16 w-full items-center justify-center rounded-2xl px-6 text-lg font-black shadow-lg transition active:scale-[0.98]",
+                      theme.primaryButton,
+                      theme.primaryButtonHover,
+                    ].join(" ")}
                   >
-                    <p className="text-lg font-semibold text-slate-900">{audit.name}</p>
-                    <p className="mt-1 text-sm text-slate-600">
-                      {status} · {getDueWarning(audit.dueHours)}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => onOpenAudit(audit.id)}
-                      className={[
-                        "mt-4 flex min-h-[3.25rem] w-full items-center justify-center rounded-2xl px-6 text-base font-semibold transition active:scale-[0.98]",
-                        theme.primaryButton,
-                        theme.primaryButtonHover,
-                      ].join(" ")}
-                    >
-                      {inProgress ? "Continue check" : "Start check"}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          {nextAudit && displayChecks.length > 1 ? (
-            <p className="mt-4 text-sm text-slate-500">Next: {nextAudit.name}</p>
-          ) : null}
-        </section>
-
-        <details className="rounded-2xl border border-violet-100 bg-white p-4 shadow-sm">
-          <summary className="cursor-pointer text-sm font-semibold text-slate-900">More</summary>
-          <div className="mt-3 space-y-2">
-            <button
-              type="button"
-              onClick={() => onNavigate("audits")}
-              className={[
-                "flex min-h-[2.75rem] w-full items-center justify-center rounded-xl px-4 text-sm font-semibold",
-                theme.outlineButton,
-              ].join(" ")}
-            >
-              All my checks
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate("incidents")}
-              className={[
-                "flex min-h-[2.75rem] w-full items-center justify-center rounded-xl px-4 text-sm font-semibold",
-                theme.outlineButton,
-              ].join(" ")}
-            >
-              Submit a report
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate("sync")}
-              className={[
-                "flex min-h-[2.75rem] w-full items-center justify-center rounded-xl px-4 text-sm font-semibold",
-                theme.outlineButton,
-              ].join(" ")}
-            >
-              History
-            </button>
-          </div>
-        </details>
-
-        <AuditorInfoStrip message="Missing a check? Ask your manager to assign it to you." />
-      </RoleDashboardShell>
+                    {inProgress ? "Continue" : "Start"}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {nextAudit && displayChecks.length > 1 ? (
+          <p className="mt-4 text-sm text-slate-500">Next up: {nextAudit.name}</p>
+        ) : null}
+      </section>
     </div>
   );
 }

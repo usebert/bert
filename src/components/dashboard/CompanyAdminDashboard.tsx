@@ -6,7 +6,12 @@ import { formatInviteStatusLabel } from "../../utils/inviteStatusDisplay";
 import { getAuditTrafficStatus } from "../../utils/dashboardHealth";
 import { QmsReadinessSummaryWidget } from "../qms/QmsReadinessSummaryWidget";
 import type { QmsReadinessSummary } from "../../types/qms";
-import { RoleDashboardShell } from "./RoleDashboardPrimitives";
+import {
+  DASHBOARD_CARD,
+  MetricTile,
+  RoleDashboardShell,
+  SetupChecklistRow,
+} from "./RoleDashboardPrimitives";
 import { EmptyPanel } from "./DashboardPrimitives";
 import { getRoleTheme } from "../../config/roleTheme";
 
@@ -16,13 +21,56 @@ const SETUP_STEPS: Array<{
   hint: string;
   screen: NavItemId;
   actionLabel: string;
+  isDone: (ctx: SetupContext) => boolean;
 }> = [
-  { id: "users", title: "Invite users", hint: "Send setup links so people can sign in.", screen: "users", actionLabel: "Invite user" },
-  { id: "areas", title: "Add areas", hint: "Optional — split the workspace by site or department.", screen: "admin", actionLabel: "Open workspace" },
-  { id: "checks", title: "Set up checks", hint: "Forms, access, and schedules for inspections.", screen: "audits", actionLabel: "Forms & checks" },
-  { id: "schedules", title: "Schedules", hint: "When checks are due for your team.", screen: "schedules", actionLabel: "Open schedules" },
-  { id: "reports", title: "Reports", hint: "Create packs and review shared reports.", screen: "reports", actionLabel: "Open reports" },
+  {
+    id: "users",
+    title: "Invite users",
+    hint: "Send setup links so people can sign in.",
+    screen: "users",
+    actionLabel: "Invite user",
+    isDone: (ctx) => ctx.invitedUsers.length > 0,
+  },
+  {
+    id: "areas",
+    title: "Add areas",
+    hint: "Optional — split the workspace by site or department.",
+    screen: "admin",
+    actionLabel: "Open workspace",
+    isDone: () => false,
+  },
+  {
+    id: "checks",
+    title: "Set up checks",
+    hint: "Forms, access, and schedules for inspections.",
+    screen: "audits",
+    actionLabel: "Forms & checks",
+    isDone: (ctx) => ctx.assignedAudits.length > 0,
+  },
+  {
+    id: "schedules",
+    title: "Schedules",
+    hint: "When checks are due for your team.",
+    screen: "schedules",
+    actionLabel: "Open schedules",
+    isDone: () => false,
+  },
+  {
+    id: "reports",
+    title: "Reports",
+    hint: "Create packs and review shared reports.",
+    screen: "reports",
+    actionLabel: "Open reports",
+    isDone: (ctx) => ctx.openReportsCount > 0 || ctx.history.length > 0,
+  },
 ];
+
+type SetupContext = {
+  invitedUsers: UserInvite[];
+  assignedAudits: Audit[];
+  openReportsCount: number;
+  history: HistoryEntry[];
+};
 
 type Props = {
   workspaceName: string;
@@ -48,6 +96,7 @@ export function CompanyAdminDashboard({
   onOpenAudit,
 }: Props) {
   const theme = getRoleTheme("Admin");
+  const setupCtx: SetupContext = { invitedUsers, assignedAudits, openReportsCount, history };
 
   const activeUsers = useMemo(
     () => invitedUsers.filter((u) => u.status === "Active" || u.loginReady === true).length,
@@ -66,72 +115,53 @@ export function CompanyAdminDashboard({
     () => assignedAudits.filter((a) => getAuditTrafficStatus(a.dueHours) !== "green").length,
     [assignedAudits],
   );
-
-  const primaryStep = invitedUsers.length === 0 ? SETUP_STEPS[0] : openChecks > 0 ? SETUP_STEPS[2] : SETUP_STEPS[4];
+  const reportReady = openReportsCount > 0;
 
   return (
     <RoleDashboardShell
       role="Admin"
-      title={`${workspaceName}`}
-      subtitle="Company dashboard"
-      intro="Work through setup once, then use Corrective Actions and Reports day to day."
+      eyebrow="Company admin"
+      title="Set up and stay in control"
+      subtitle={`${workspaceName} · Work through setup once, then use Corrective Actions and Reports day to day.`}
+      primaryAction={{ label: "Invite user", onClick: () => onNavigate("users") }}
     >
-      <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
-        <p className="text-sm font-semibold text-slate-900">Suggested next step</p>
-        <p className="mt-1 text-sm text-slate-600">{primaryStep.hint}</p>
-        <button
-          type="button"
-          onClick={() => onNavigate(primaryStep.screen)}
-          className={[
-            "mt-4 inline-flex h-12 w-full items-center justify-center rounded-xl px-5 text-sm font-semibold sm:w-auto",
-            theme.primaryButton,
-            theme.primaryButtonHover,
-          ].join(" ")}
-        >
-          {primaryStep.actionLabel}
-        </button>
-      </section>
+      <div className="grid gap-6 lg:grid-cols-3">
+        <section className={[DASHBOARD_CARD, "lg:col-span-2"].join(" ")}>
+          <h2 className="text-lg font-black text-slate-900">Next steps</h2>
+          <p className="mt-1 text-sm text-slate-600">Tick off setup tasks for your workspace.</p>
+          <ol className="mt-5 space-y-3">
+            {SETUP_STEPS.map((step) => (
+              <SetupChecklistRow
+                key={step.id}
+                done={step.isDone(setupCtx)}
+                title={step.title}
+                hint={step.hint}
+                actionLabel={step.actionLabel}
+                onAction={() => onNavigate(step.screen)}
+              />
+            ))}
+          </ol>
+        </section>
 
-      <section className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
-        <p className="text-sm font-semibold text-slate-900">Setup checklist</p>
-        <ol className="mt-3 space-y-2">
-          {SETUP_STEPS.map((step) => (
-            <li key={step.id}>
-              <button
-                type="button"
-                onClick={() => onNavigate(step.screen)}
-                className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-left text-sm transition hover:bg-white"
-              >
-                <span>
-                  <span className="font-semibold text-slate-900">{step.title}</span>
-                  <span className="mt-0.5 block text-xs text-slate-500">{step.hint}</span>
-                </span>
-                <span className="shrink-0 text-slate-400" aria-hidden>
-                  ›
-                </span>
-              </button>
-            </li>
-          ))}
-        </ol>
-      </section>
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Active users</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-900">{activeUsers}</p>
-        </div>
-        <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Awaiting setup</p>
-          <p className={`mt-2 text-3xl font-semibold ${awaitingSetup > 0 ? "text-amber-700" : "text-slate-900"}`}>{awaitingSetup}</p>
-        </div>
-        <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Open actions</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-900">{openActions}</p>
-        </div>
-        <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Open reports</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-900">{openReportsCount}</p>
-        </div>
+        <aside className="space-y-4">
+          <section className={DASHBOARD_CARD}>
+            <h2 className="text-lg font-black text-slate-900">Today</h2>
+            <div className="mt-4 space-y-3">
+              <MetricTile role="Admin" label="Actions open" value={String(openActions)} alertValue={openActions > 0} onLinkClick={() => onNavigate("actions")} linkLabel="View actions" />
+              <MetricTile
+                role="Admin"
+                label="Reports ready"
+                value={reportReady ? String(openReportsCount) : "—"}
+                hint={reportReady ? "Open reports to review" : "No open report packs yet"}
+                onLinkClick={reportReady ? () => onNavigate("reports") : undefined}
+                linkLabel={reportReady ? "Open reports" : undefined}
+              />
+              <MetricTile role="Admin" label="Open checks" value={String(openChecks)} alertValue={openChecks > 0} />
+              <MetricTile role="Admin" label="Awaiting setup" value={String(awaitingSetup)} alertValue={awaitingSetup > 0} />
+              <MetricTile role="Admin" label="Active users" value={String(activeUsers)} />
+            </div>
+          </section>
+        </aside>
       </div>
 
       {qmsSummary ? (
@@ -143,13 +173,13 @@ export function CompanyAdminDashboard({
         />
       ) : null}
 
-      <details className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
-        <summary className="cursor-pointer text-sm font-semibold text-slate-900">More</summary>
-        <div className="mt-3 space-y-2">
+      <details className={DASHBOARD_CARD}>
+        <summary className="cursor-pointer text-sm font-black text-slate-900">More</summary>
+        <div className="mt-4 space-y-2">
           <button
             type="button"
             onClick={() => onNavigate("actions")}
-            className="flex w-full items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800"
+            className="flex w-full items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800"
           >
             Corrective actions
             <span aria-hidden>›</span>
@@ -157,7 +187,7 @@ export function CompanyAdminDashboard({
           <button
             type="button"
             onClick={() => onNavigate("qmsReadiness")}
-            className="flex w-full items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800"
+            className="flex w-full items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800"
           >
             Quality & Safety Hub
             <span aria-hidden>›</span>
@@ -165,7 +195,7 @@ export function CompanyAdminDashboard({
           <button
             type="button"
             onClick={() => onNavigate("settings")}
-            className="flex w-full items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800"
+            className="flex w-full items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800"
           >
             Tablet / Kiosk
             <span aria-hidden>›</span>
@@ -174,7 +204,7 @@ export function CompanyAdminDashboard({
       </details>
 
       {invitedUsers.length === 0 ? (
-        <div className="space-y-3">
+        <div className={[DASHBOARD_CARD, "space-y-4"].join(" ")}>
           <EmptyPanel
             title="No users yet"
             text="Invite your first person from Users & Invites. They will get an email to set up their login."
@@ -183,7 +213,7 @@ export function CompanyAdminDashboard({
             type="button"
             onClick={() => onNavigate("users")}
             className={[
-              "inline-flex h-12 w-full items-center justify-center rounded-xl px-5 text-sm font-semibold sm:w-auto",
+              "inline-flex min-h-12 w-full items-center justify-center rounded-2xl px-5 text-sm font-black shadow-lg sm:w-auto",
               theme.primaryButton,
               theme.primaryButtonHover,
             ].join(" ")}
@@ -194,25 +224,21 @@ export function CompanyAdminDashboard({
       ) : null}
 
       {assignedAudits.length > 0 ? (
-        <section className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
-          <p className="text-sm font-semibold text-slate-900">Upcoming checks</p>
-          <div className="mt-2 space-y-2">
+        <section className={DASHBOARD_CARD}>
+          <p className="text-lg font-black text-slate-900">Upcoming checks</p>
+          <div className="mt-4 space-y-2">
             {assignedAudits.slice(0, 3).map((audit) => (
               <button
                 key={audit.id}
                 type="button"
                 onClick={() => onOpenAudit(audit.id)}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-left text-sm font-semibold text-slate-900 hover:bg-white"
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-left text-sm font-bold text-slate-900 hover:bg-white"
               >
                 {audit.name}
               </button>
             ))}
           </div>
         </section>
-      ) : null}
-
-      {history.length > 0 ? (
-        <p className="text-xs text-slate-500">{history.length} completed check{history.length === 1 ? "" : "s"} recorded.</p>
       ) : null}
     </RoleDashboardShell>
   );

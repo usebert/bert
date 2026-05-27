@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { NavItemId } from "../types/navigation";
 import type { CompanyFolder } from "../types/dashboardScreenProps";
 import { GodmodeCompanyContextSelector } from "../components/godmode/GodmodeCompanyContextSelector";
+import { DashboardLandingCard, PageHeader } from "../components/dashboard/RoleDashboardPrimitives";
 import { GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE } from "../utils/companyWorkspaceInvite";
 
 export type GodmodeCompanyPickerRow = {
@@ -287,7 +288,7 @@ export function GodmodeStartScreen({
     },
     {
       id: "diagnostics",
-      title: "Diagnostics",
+      title: "Reports / Diagnostics",
       description: "Platform health and readiness checks.",
       actionLabel: "Open diagnostics",
       onAction: () => {
@@ -464,20 +465,54 @@ export function GodmodeStartScreen({
     );
   }
 
-  return (
-    <div className={pageShell}>
-      <p className={`max-w-2xl text-sm leading-relaxed md:text-base ${muted}`}>
-        Manage the platform, onboard companies, or open a company workspace.
-      </p>
+  if (onDark) {
+    return (
+      <div className={pageShell}>
+        <p className={`max-w-2xl text-sm leading-relaxed md:text-base ${muted}`}>
+          Manage the platform, onboard companies, or open a company workspace.
+        </p>
+        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          {landingCards.map((card, index) => (
+            <LandingActionCard key={card.id} card={card} onDark={onDark} primary={index === 0} />
+          ))}
+        </div>
+        {!companyContextReady && selectedFolderId ? (
+          <p className={`mt-4 text-sm text-amber-200`}>{GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE}</p>
+        ) : null}
+      </div>
+    );
+  }
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-2">
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        role="Master"
+        eyebrow="Platform control"
+        title="Godmode"
+        subtitle="No company workspace loaded. Pick a company or create one."
+        primaryAction={{
+          label: "Select company",
+          onClick: () => {
+            logNavTrace("open-select-company", "godmodeHome.select-company", { view: "landing" });
+            onOpenSelectCompany?.();
+            setView("picker");
+          },
+        }}
+      />
+      <div className="grid gap-4 sm:grid-cols-2">
         {landingCards.map((card, index) => (
-          <LandingActionCard key={card.id} card={card} onDark={onDark} primary={index === 0} />
+          <DashboardLandingCard
+            key={card.id}
+            title={card.title}
+            description={card.description}
+            actionLabel={card.actionLabel}
+            onAction={card.onAction}
+            primary={index === 0}
+          />
         ))}
       </div>
-
       {!companyContextReady && selectedFolderId ? (
-        <p className={`mt-4 text-sm ${onDark ? "text-amber-200" : "text-amber-800"}`}>{GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE}</p>
+        <p className="text-sm font-semibold text-amber-800">{GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE}</p>
       ) : null}
     </div>
   );

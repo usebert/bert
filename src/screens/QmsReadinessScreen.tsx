@@ -15,6 +15,7 @@ import type {
 } from "../types/safety";
 import { computeSafetyRiskScore, newQmsId } from "../utils/qmsReadiness";
 import { EmptyPanel } from "../components/dashboard/DashboardPrimitives";
+import { DASHBOARD_CARD, PageHeader } from "../components/dashboard/RoleDashboardPrimitives";
 
 export type QmsReadinessAccessLevel = "full" | "operational";
 
@@ -55,7 +56,7 @@ type HubSection =
   | "objectives"
   | "managementReview";
 
-const panelClass = "rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm";
+const panelClass = DASHBOARD_CARD;
 
 function HubCard({
   title,
@@ -72,7 +73,7 @@ function HubCard({
     <button
       type="button"
       onClick={onClick}
-      className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-slate-300 hover:shadow-md focus-visible:outline focus-visible:ring-2 focus-visible:ring-slate-400"
+      className="rounded-3xl border border-slate-200 bg-white p-6 text-left shadow-sm transition hover:border-slate-300 hover:shadow-md focus-visible:outline focus-visible:ring-2 focus-visible:ring-slate-400"
     >
       <p className="text-sm font-semibold text-slate-900">{title}</p>
       <p className="mt-1 text-sm text-slate-600">{description}</p>
@@ -267,24 +268,35 @@ export function QmsReadinessScreen({
   }, [accessLevel, onNavigate, openNcrCount, openReportsCount, summary]);
 
   return (
-    <div className="space-y-4">
-      <section className={panelClass}>
-        <h2 className="text-xl font-semibold text-slate-900">
-          {accessLevel === "full" ? "Quality & Safety Hub" : "Quality & safety operations"}
-        </h2>
-        <p className="mt-2 text-sm text-slate-600">{SECTION_INTROS.qmsReadiness}</p>
-        {accessLevel === "full" ? (
-          <details className="mt-3">
-            <summary className="cursor-pointer text-xs font-semibold text-slate-500">About certification & folders</summary>
-            <p className="mt-2 text-xs text-slate-500">
-              BERT helps you organise evidence for quality and safety audits. Formal certification is arranged outside the app.
-              Records live in your company workspace folders on Drive.
-            </p>
-          </details>
-        ) : null}
-      </section>
+    <div className="space-y-6">
+      {section === "hub" ? (
+        <PageHeader
+          role={accessLevel === "full" ? "Admin" : "Manager"}
+          eyebrow="Quality & safety"
+          title={accessLevel === "full" ? "Quality & Safety Hub" : "Quality & safety operations"}
+          subtitle={SECTION_INTROS.qmsReadiness}
+        />
+      ) : null}
 
-      <QmsReadinessSummaryWidget summary={summary} onNavigate={onNavigate} />
+      {section === "hub" ? (
+        <QmsReadinessSummaryWidget
+          summary={summary}
+          onNavigate={onNavigate}
+          onOpenReviewPack={accessLevel === "full" ? () => setSection("managementReview") : undefined}
+        />
+      ) : (
+        <QmsReadinessSummaryWidget summary={summary} compact onNavigate={onNavigate} onOpenHub={openHub} />
+      )}
+
+      {accessLevel === "full" && section === "hub" ? (
+        <details className={panelClass}>
+          <summary className="cursor-pointer text-xs font-black text-slate-500">About certification & folders</summary>
+          <p className="mt-2 text-sm text-slate-600">
+            BERT helps you organise evidence for quality and safety audits. Formal certification is arranged outside the app.
+            Records live in your company workspace folders on Drive.
+          </p>
+        </details>
+      ) : null}
 
       {section !== "hub" ? (
         <div className="flex flex-wrap items-center gap-2">
@@ -299,7 +311,7 @@ export function QmsReadinessScreen({
       ) : null}
 
       {section === "hub" ? (
-        <div ref={hubGridRef} className="grid gap-3 scroll-mt-4 sm:grid-cols-2">
+        <div ref={hubGridRef} className="grid scroll-mt-4 gap-4 sm:grid-cols-2">
           {hubCards.map((card) => (
             <HubCard key={card.id} title={card.title} description={card.description} metric={card.metric} onClick={card.onClick} />
           ))}

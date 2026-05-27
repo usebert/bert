@@ -127,8 +127,9 @@ export function getMobileBottomNavForRole(role: Role): MobileNavEntry[] {
   const bucket = getRoleNavBucket(role);
   if (bucket === "auditor") {
     return [
-      ...primary.slice(0, 4).map((item) => ({ id: item.id, label: item.label, icon: item.icon })),
-      { id: "__more__", label: "More", icon: "grid" },
+      { id: "dashboard", label: "Checks", icon: "dashboard" },
+      { id: "incidents", label: "Submit", icon: "camera" },
+      { id: "sync", label: "History", icon: "sync" },
       { id: "__logout__", label: "Log out", icon: "logOut" },
     ];
   }
