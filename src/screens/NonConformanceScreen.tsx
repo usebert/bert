@@ -4,6 +4,7 @@ import type { NonConformanceScreenProps } from "../types/nonConformanceScreenPro
 import { EmptyPanel } from "../components/dashboard/DashboardPrimitives";
 import { darkPanelEyebrow, darkPanelShell, darkPanelTitleLg } from "../styles/darkPanel";
 import { slatePrimaryCtaInteract } from "../styles/interactions";
+import { EvidenceUploadChoice } from "../components/evidence/EvidenceUploadChoice";
 
 function parseNcrSequence(reference: string) {
   const match = reference.match(/^NCR-(\d+)$/i);
@@ -94,17 +95,27 @@ export function NonConformanceScreen({
           </div>
           <textarea value={extraNotes} onChange={(event) => setExtraNotes(event.target.value)} placeholder="Extra notes" className="mt-2 min-h-[5rem] w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm" />
           <div className="mt-2">
-            <input
-              type="file"
-              multiple
-              accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
-              className="h-11 max-w-[22rem] rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-700"
-              onChange={(event) => {
-                if (event.target.files?.length) onAddEvidence(selected.id, event.target.files);
-                event.target.value = "";
-              }}
+            <EvidenceUploadChoice
+              triggerLabel="Upload evidence"
+              triggerClassName="min-h-[48px] rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white"
+              onFiles={(files) => onAddEvidence(selected.id, files)}
             />
             <p className="mt-1 text-xs text-slate-500">{selected.evidence.length} evidence file(s)</p>
+            {selected.evidence.length > 0 ? (
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {selected.evidence.map((item) => {
+                  const isImage = /\.(png|jpe?g|webp|gif|bmp|heic|heif)$/i.test(item.name);
+                  return (
+                    <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 p-2">
+                      {isImage ? (
+                        <img src={item.previewUrl} alt={item.name} className="h-24 w-full rounded-lg object-cover" />
+                      ) : null}
+                      <p className="mt-1 truncate text-xs font-medium text-slate-700">{item.name}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <button

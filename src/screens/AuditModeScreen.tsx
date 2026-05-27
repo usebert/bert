@@ -5,6 +5,7 @@ import type { Answer } from "../types/reportsScreenProps";
 import { getAuditTrafficStatus, getDueWarning } from "../utils/dashboardHealth";
 import { darkPanelDescription, darkPanelEyebrow, darkPanelShell, darkPanelTitleLg } from "../styles/darkPanel";
 import { getPlainEnglishSyncStatus } from "../utils/plainEnglishSync";
+import { EvidenceUploadChoice } from "../components/evidence/EvidenceUploadChoice";
 
 export function AuditModeScreen({
   audit,
@@ -107,30 +108,10 @@ export function AuditModeScreen({
           >
             Add note
           </button>
-          <label className={`inline-flex h-11 cursor-pointer items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}>
-            Upload photo
-            <input
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(event) => {
-                if (event.target.files?.length) {
-                  onAddEvidence(currentQuestion.id, event.target.files);
-                  event.target.value = "";
-                }
-              }}
-            />
-          </label>
-          <input
-            type="file"
-            accept="image/*"
-            className="h-11 max-w-[16rem] rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-700"
-            onChange={(event) => {
-              if (event.target.files?.length) {
-                onAddEvidence(currentQuestion.id, event.target.files);
-                event.target.value = "";
-              }
-            }}
+          <EvidenceUploadChoice
+            triggerLabel="Upload evidence"
+            triggerClassName={`min-h-[48px] rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}
+            onFiles={(files) => onAddEvidence(currentQuestion.id, files)}
           />
         </div>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -142,20 +123,11 @@ export function AuditModeScreen({
             className="min-h-[7rem] rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-900 outline-none"
           />
           <div className="flex min-h-[7rem] items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4">
-            <label className={`inline-flex h-11 cursor-pointer items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}>
-              Upload photo
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(event) => {
-                  if (event.target.files?.length) {
-                    onAddEvidence(currentQuestion.id, event.target.files);
-                    event.target.value = "";
-                  }
-                }}
-              />
-            </label>
+            <EvidenceUploadChoice
+              triggerLabel="Upload evidence"
+              triggerClassName={`min-h-[48px] rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}
+              onFiles={(files) => onAddEvidence(currentQuestion.id, files)}
+            />
           </div>
         </div>
         <p className="mt-2 text-xs text-slate-500">{evidence[currentQuestion.id]?.length || 0} photo(s) attached</p>

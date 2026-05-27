@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { SECTION_INTROS } from "../config/sectionIntros";
 import { SectionIntro } from "../components/SectionIntro";
 import { canCompleteAuditAsAuditor, getRolePermissions, type Role } from "../permissions";
@@ -8,6 +8,7 @@ import type { ActionItem, ActionStatus, RiskLevel } from "../types/reportsScreen
 import type { User } from "../types/dashboardScreenProps";
 import { slatePrimaryCtaInteract } from "../styles/interactions";
 import { getActionPrimaryCTA, getRecordNextStepText } from "../utils/recordNextStep";
+import { EvidenceUploadChoice } from "../components/evidence/EvidenceUploadChoice";
 
 type ActionFilter = "Open" | "Overdue" | "Awaiting Verification" | "Closed" | "Severity";
 const brandDarkFormControl =
@@ -122,7 +123,6 @@ function MobileActionDetail({
   canReviewSuggestions: boolean;
   availableAuditors: string[];
 }) {
-  const evidenceInputRef = useRef<HTMLInputElement>(null);
   const chip = statusChipForAction(action.status);
   const priorityHigh = action.severity === "High" || action.severity === "Critical";
   const cta = getActionPrimaryCTA(action, permissions);
@@ -193,17 +193,13 @@ function MobileActionDetail({
           <DetailRow label="Created" value={action.createdAt} />
           <DetailRow label="Location" value={action.siteArea || "—"} />
           <DetailRow label="Notes" value={action.comments?.trim() ? action.comments : "—"} />
-          <button
-            type="button"
-            className="flex min-h-[44px] w-full items-center justify-between border-b border-slate-100 px-4 py-3 text-left focus-visible:outline focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-300"
-            onClick={() => evidenceInputRef.current?.click()}
-          >
+          <div className="flex min-h-[44px] w-full items-center justify-between border-b border-slate-100 px-4 py-3 text-left">
             <span className="text-xs font-medium text-slate-500">Evidence</span>
             <span className="flex items-center gap-1 text-sm font-semibold text-slate-800">
               {action.evidenceCount > 0 ? `${action.evidenceCount} attached` : "Add photos"}
               <ChevronRight className="h-4 w-4 text-slate-400" />
             </span>
-          </button>
+          </div>
         </div>
 
         {permissions.canAssignActions && (
@@ -224,31 +220,15 @@ function MobileActionDetail({
             </select>
           </div>
         )}
-
-        <input
-          ref={evidenceInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="hidden"
-          onChange={(event) => {
-            if (event.target.files?.length) {
-              onAddEvidence(action.id, event.target.files);
-              event.target.value = "";
-            }
-          }}
-        />
       </div>
 
       <div className="shrink-0 space-y-2 border-t border-slate-200 bg-white px-3 py-3">
         {cta.kind === "uploadEvidence" ? (
-          <button
-            type="button"
-            onClick={() => evidenceInputRef.current?.click()}
-            className={`min-h-[48px] w-full rounded-2xl bg-[var(--bert-signal-orange)] text-sm font-semibold text-[var(--qms-navy-950)] shadow-md focus-visible:outline focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-offset-2 ${slatePrimaryCtaInteract}`}
-          >
-            {cta.label}
-          </button>
+          <EvidenceUploadChoice
+            triggerLabel="Upload evidence"
+            triggerClassName={`min-h-[48px] w-full rounded-2xl bg-[var(--bert-signal-orange)] text-sm font-semibold text-[var(--qms-navy-950)] shadow-md focus-visible:outline focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-offset-2 ${slatePrimaryCtaInteract}`}
+            onFiles={(files) => onAddEvidence(action.id, files)}
+          />
         ) : cta.kind === "start" ? (
           <button
             type="button"
@@ -703,13 +683,11 @@ export function ActionsScreen({
                 )}
                 <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                   {cta.kind === "uploadEvidence" ? (
-                    <button
-                      type="button"
-                      onClick={() => document.getElementById(`evidence-${action.id}`)?.click()}
-                      className={`min-h-[44px] rounded-2xl bg-[var(--bert-signal-orange)] px-5 text-sm font-semibold text-[var(--qms-navy-950)] shadow-sm focus-visible:outline focus-visible:ring-2 focus-visible:ring-orange-300 ${slatePrimaryCtaInteract}`}
-                    >
-                      {cta.label}
-                    </button>
+                    <EvidenceUploadChoice
+                      triggerLabel="Upload evidence"
+                      triggerClassName={`min-h-[48px] rounded-2xl bg-[var(--bert-signal-orange)] px-5 text-sm font-semibold text-[var(--qms-navy-950)] shadow-sm focus-visible:outline focus-visible:ring-2 focus-visible:ring-orange-300 ${slatePrimaryCtaInteract}`}
+                      onFiles={(files) => onAddEvidence(action.id, files)}
+                    />
                   ) : cta.kind === "start" ? (
                     <button
                       type="button"
@@ -755,35 +733,10 @@ export function ActionsScreen({
                   ) : null}
                 </div>
                 {action.status !== "Closed" && cta.kind !== "uploadEvidence" ? (
-                  <label className={`inline-flex min-h-[44px] w-full max-w-xs cursor-pointer items-center justify-center rounded-2xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50 focus-within:ring-2 focus-within:ring-slate-300`}>
-                    Add photo evidence
-                    <input
-                      id={`evidence-${action.id}`}
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      className="hidden"
-                      onChange={(event) => {
-                        if (event.target.files?.length) {
-                          onAddEvidence(action.id, event.target.files);
-                          event.target.value = "";
-                        }
-                      }}
-                    />
-                  </label>
-                ) : action.status !== "Closed" && cta.kind === "uploadEvidence" ? (
-                  <input
-                    id={`evidence-${action.id}`}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    className="hidden"
-                    onChange={(event) => {
-                      if (event.target.files?.length) {
-                        onAddEvidence(action.id, event.target.files);
-                        event.target.value = "";
-                      }
-                    }}
+                  <EvidenceUploadChoice
+                    triggerLabel="Upload evidence"
+                    triggerClassName="min-h-[48px] w-full max-w-xs rounded-2xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-slate-300"
+                    onFiles={(files) => onAddEvidence(action.id, files)}
                   />
                 ) : null}
               </div>

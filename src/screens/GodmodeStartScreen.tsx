@@ -114,33 +114,39 @@ function CompanyPickerRow({
   onDark,
   onOpen,
   onContinueSetup,
+  onRepairSetup,
 }: {
   company: GodmodeCompanyPickerRow;
   onDark: boolean;
   onOpen: () => void;
   onContinueSetup?: () => void;
+  onRepairSetup?: () => void;
 }) {
   const ready = company.setupStatusLabel === "Ready";
-  const muted = onDark ? "text-slate-400" : "text-slate-600";
+  const muted = onDark ? "text-slate-300" : "text-slate-600";
+  const helperCopy = ready
+    ? "This company is ready to open."
+    : "This company needs setup finishing before it can be used.";
 
   return (
     <li
       className={[
-        "rounded-2xl border px-4 py-4 transition",
-        onDark ? "border-white/10 bg-slate-900/50 hover:border-orange-400/40" : "border-slate-200 bg-white hover:border-orange-200",
+        "rounded-3xl border p-6 shadow-sm transition",
+        onDark ? "border-white/15 bg-slate-900/60 hover:border-orange-400/35" : "border-slate-200 bg-white hover:border-slate-300",
       ].join(" ")}
     >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-base font-semibold text-slate-900 dark:text-white">{company.name}</p>
+          <p className="truncate text-xl font-bold text-slate-950 dark:text-white">{company.name}</p>
           <span
             className={[
-              "mt-2 inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold",
-              ready ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900",
+              "mt-3 inline-flex rounded-full border px-3 py-1 text-xs font-semibold",
+              ready ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900",
             ].join(" ")}
           >
             {ready ? "Ready" : "Setup not finished"}
           </span>
+          <p className={`mt-3 text-sm leading-relaxed ${muted}`}>{helperCopy}</p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           {ready ? (
@@ -152,26 +158,42 @@ function CompanyPickerRow({
                 onDark ? "bg-orange-500 text-slate-950 hover:bg-orange-400" : "bg-orange-500 text-white hover:bg-orange-600",
               ].join(" ")}
             >
-              Open
+              Open company
             </button>
           ) : onContinueSetup ? (
-            <button
-              type="button"
-              onClick={onContinueSetup}
-              className={[
-                "inline-flex h-11 min-w-[8rem] items-center justify-center rounded-xl px-4 text-sm font-semibold",
-                onDark ? "bg-orange-500 text-slate-950 hover:bg-orange-400" : "bg-orange-500 text-white hover:bg-orange-600",
-              ].join(" ")}
-            >
-              Continue setup
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={onContinueSetup}
+                className={[
+                  "inline-flex h-11 min-w-[8rem] items-center justify-center rounded-xl px-4 text-sm font-semibold",
+                  onDark ? "bg-orange-500 text-slate-950 hover:bg-orange-400" : "bg-orange-500 text-white hover:bg-orange-600",
+                ].join(" ")}
+              >
+                Continue setup
+              </button>
+              {onRepairSetup ? (
+                <button
+                  type="button"
+                  onClick={onRepairSetup}
+                  className={[
+                    "inline-flex h-11 min-w-[8rem] items-center justify-center rounded-xl border px-4 text-sm font-semibold",
+                    onDark
+                      ? "border-slate-600 bg-slate-900 text-slate-200 hover:border-slate-500"
+                      : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50",
+                  ].join(" ")}
+                >
+                  Repair setup
+                </button>
+              ) : null}
+            </>
           ) : (
             <button
               type="button"
               onClick={onOpen}
               className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800"
             >
-              Open
+                Open company
             </button>
           )}
         </div>
@@ -179,9 +201,9 @@ function CompanyPickerRow({
       <details className="mt-3">
         <summary className={`cursor-pointer text-xs font-semibold ${muted}`}>Technical details</summary>
         <p className={`mt-2 font-mono text-[11px] leading-relaxed ${muted}`}>
-          {company.masterSheetId ? `Company sheet linked` : `Company sheet not linked yet`}
+          Folder ID: {company.id}
           <br />
-          Workspace id: {company.id}
+          Sheet ID: {company.masterSheetId || "Not linked yet"}
         </p>
       </details>
     </li>
@@ -206,6 +228,7 @@ export function GodmodeStartScreen({
   liveCompaniesWarning,
   onRepairLiveCompanies,
   onContinueCompanySetup,
+  onRepairCompany,
   currentScreen = "godmodeHome",
 }: Props) {
   const onDark = themeMode === "dark";
@@ -409,7 +432,7 @@ export function GodmodeStartScreen({
             ← Back
           </button>
           <h2 className="text-2xl font-semibold tracking-tight">Select company</h2>
-          <p className={`mt-2 text-sm ${muted}`}>Search by name. Ready companies open straight away; others show Continue setup.</p>
+          <p className={`mt-2 text-sm ${muted}`}>Search by name and choose whether to open the company or continue setup.</p>
         </header>
 
         <label className="block">
@@ -459,6 +482,11 @@ export function GodmodeStartScreen({
                 onContinueSetup={
                   company.setupStatusLabel !== "Ready" && onContinueCompanySetup
                     ? () => onContinueCompanySetup(company.id)
+                    : undefined
+                }
+                onRepairSetup={
+                  company.setupStatusLabel !== "Ready" && onRepairCompany
+                    ? () => onRepairCompany(company.id)
                     : undefined
                 }
               />

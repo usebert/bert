@@ -3,6 +3,7 @@ import { MetaPill, SectionHeader, StatusBadge } from "../components/dashboard/Da
 import { darkPanelEyebrow, darkPanelShell } from "../styles/darkPanel";
 import { getAuditTrafficStatus, getDueWarning } from "../utils/dashboardHealth";
 import type { CompleteAuditAnswerButtonProps, CompleteAuditScreenProps } from "../types/completeAuditScreenProps";
+import { EvidenceUploadChoice } from "../components/evidence/EvidenceUploadChoice";
 
 export function CompleteAuditScreen({
   audit,
@@ -104,18 +105,28 @@ export function CompleteAuditScreen({
               <div className="mt-3 rounded-[1.35rem] border border-dashed border-slate-200 bg-slate-50 p-3">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-slate-900">Photo evidence</p>
+                    <p className="text-sm font-semibold text-slate-900">Evidence</p>
                     <p className="mt-1 text-xs text-slate-500">
                       Capture live photos or choose files from the device.
                     </p>
                   </div>
-                  <EvidencePickerButtons compact onFiles={(files) => onAddEvidence(question.id, files)} />
+                  <EvidenceUploadChoice
+                    triggerLabel="Upload evidence"
+                    triggerClassName="min-h-[48px] rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white"
+                    onFiles={(files) => onAddEvidence(question.id, files)}
+                  />
                 </div>
                 {questionEvidence.length > 0 && (
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     {questionEvidence.map((item) => (
                       <div key={item.id} className="overflow-hidden rounded-[1.2rem] border border-slate-200 bg-white shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
-                        <img src={item.previewUrl} alt={item.name} className="h-24 w-full object-cover" />
+                        {/\.(png|jpe?g|webp|gif|bmp|heic|heif)$/i.test(item.name) ? (
+                          <img src={item.previewUrl} alt={item.name} className="h-24 w-full object-cover" />
+                        ) : (
+                          <div className="flex h-24 items-center justify-center bg-slate-100 px-3">
+                            <p className="truncate text-xs font-semibold text-slate-600">{item.name}</p>
+                          </div>
+                        )}
                         <div className="p-2">
                           <p className="truncate text-xs font-semibold text-slate-900">{item.name}</p>
                           <p className="mt-1 text-[11px] text-slate-500">{item.addedAt}</p>
@@ -169,32 +180,6 @@ export function CompleteAuditScreen({
           Submit
         </button>
       </section>
-    </div>
-  );
-}
-
-function EvidencePickerButtons({
-  onFiles,
-  compact = false,
-}: {
-  onFiles: (files: FileList) => void;
-  compact?: boolean;
-}) {
-  const inputClass = compact
-    ? "h-10 max-w-[14rem] rounded-xl border border-slate-300 bg-white px-2 text-xs text-slate-700"
-    : "h-11 max-w-[18rem] rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-700";
-
-  return (
-    <div className="flex flex-wrap gap-2">
-      <input
-        type="file"
-        accept="image/*"
-        className={inputClass}
-        onChange={(event) => {
-          if (event.target.files?.length) onFiles(event.target.files);
-          event.target.value = "";
-        }}
-      />
     </div>
   );
 }

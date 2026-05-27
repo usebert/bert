@@ -7933,7 +7933,7 @@ function App() {
       lastError: "",
       payload: { actionId, fileCount },
     });
-    pushToast("Evidence attached", `${fileCount} file${fileCount === 1 ? "" : "s"} added.`, "success");
+    pushToast("Evidence uploaded", `${fileCount} file${fileCount === 1 ? "" : "s"} added.`, "success");
   };
 
   const handleGoogleConnect = () => {
@@ -11604,7 +11604,7 @@ function App() {
                       [questionId]: [...(current[questionId] ?? []), ...nextItems],
                     }));
                     pushToast(
-                      "Evidence attached",
+                      "Evidence uploaded",
                       `${fileCount} file${fileCount === 1 ? "" : "s"} added to this question.`,
                       "success",
                     );
@@ -11635,7 +11635,7 @@ function App() {
                         [questionId]: [...(current[questionId] ?? []), ...nextItems],
                       }));
                       pushToast(
-                        "Evidence attached",
+                        "Evidence uploaded",
                         `${fileCount} file${fileCount === 1 ? "" : "s"} added to this finding.`,
                         "success",
                       );
@@ -11684,7 +11684,7 @@ function App() {
                     [questionId]: [...(current[questionId] ?? []), ...nextItems],
                   }));
                   pushToast(
-                    "Evidence attached",
+                    "Evidence uploaded",
                     `${fileCount} file${fileCount === 1 ? "" : "s"} added to this question.`,
                     "success",
                   );
