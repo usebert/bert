@@ -166,11 +166,11 @@ export function resolveAdminPilotFocus(screen: NavItemId): AdminPilotFocus | und
   return undefined;
 }
 
+/** Company workspace required — excludes platform setup, diagnostics, and Godmode home. */
 const MASTER_COMPANY_SCOPED_SCREENS: NavItemId[] = [
   "companies",
   "users",
   "schedules",
-  "reports",
   "qmsReadiness",
 ];
 

@@ -49,11 +49,12 @@ type Props = {
   onSelectCompany: (folderId: string) => void;
   onClearCompany: () => void;
   onNavigate: (screen: NavItemId) => void;
+  onOpenSelectCompany?: () => void;
   onOpenPlatformSetup: () => void;
   onOpenTabletSetup: () => void;
   onOpenDiagnostics: () => void;
   onOpenOnboarding: () => void;
-  onNewCompany: () => void;
+  onCreateCompany: () => void;
   liveCompaniesWarning?: string;
   onRepairLiveCompanies?: () => void;
   onContinueCompanySetup?: (folderId: string) => void;
@@ -106,11 +107,12 @@ export function GodmodeStartScreen({
   onSelectCompany,
   onClearCompany,
   onNavigate,
+  onOpenSelectCompany,
   onOpenPlatformSetup,
   onOpenTabletSetup,
   onOpenDiagnostics,
   onOpenOnboarding,
-  onNewCompany,
+  onCreateCompany,
   liveCompaniesWarning,
   onRepairLiveCompanies,
   onContinueCompanySetup,
@@ -139,14 +141,17 @@ export function GodmodeStartScreen({
       title: "Work on existing company",
       description: "Choose a live company workspace to manage users, areas, templates, and reports.",
       actionLabel: "Select company",
-      onAction: () => setView("picker"),
+      onAction: () => {
+        onOpenSelectCompany?.();
+        setView("picker");
+      },
     },
     {
       id: "new",
       title: "Create new company",
       description: "Start with a clean company workspace. No previous company data will be used.",
       actionLabel: "Create company",
-      onAction: onNewCompany,
+      onAction: onCreateCompany,
     },
     {
       id: "platform",
@@ -206,7 +211,7 @@ export function GodmodeStartScreen({
             }
             onSelectCompany(folderId);
           }}
-          onNewCompany={onNewCompany}
+          onNewCompany={onCreateCompany}
           themeMode={themeMode}
         />
 

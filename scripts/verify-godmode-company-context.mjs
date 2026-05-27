@@ -114,4 +114,17 @@ assert(
   "rejects archive folder",
 );
 
+/** Keep in sync with MASTER_COMPANY_SCOPED_SCREENS in src/config/roleNavigation.ts */
+const MASTER_COMPANY_SCOPED_SCREENS = ["companies", "users", "schedules", "qmsReadiness"];
+
+assert(
+  !MASTER_COMPANY_SCOPED_SCREENS.includes("reports"),
+  "reports is platform diagnostics for Master, not company-scoped",
+);
+
+assert(
+  !MASTER_COMPANY_SCOPED_SCREENS.includes("setup"),
+  "setup is platform-scoped for Master",
+);
+
 console.log("[verify:godmode-company-context] OK");

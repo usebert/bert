@@ -9666,6 +9666,7 @@ function App() {
     if (
       currentUser?.role === "Master" &&
       !masterGodmodeCompanyReady &&
+      !godmodeIncompleteCompanySetup &&
       isMasterCompanyScopedScreen(screen as NavItemId) &&
       screen !== "onboarding"
     ) {
@@ -10538,6 +10539,10 @@ function App() {
                 onSelectCompany={(folderId) => void handleSelectFolder(folderId)}
                 onClearCompany={() => void handleSelectFolder("")}
                 onNavigate={(nextScreen) => setScreen(nextScreen)}
+                onOpenSelectCompany={() => {
+                  setScreen("godmodeHome");
+                  void loadGodmodeLiveCompanies({ silent: true });
+                }}
                 onOpenPlatformSetup={() => setScreen("setup")}
                 onOpenTabletSetup={() => {
                   navigateToSetupInitial();
@@ -10545,7 +10550,7 @@ function App() {
                 }}
                 onOpenDiagnostics={() => setScreen("reports")}
                 onOpenOnboarding={handleGodmodeNewCompany}
-                onNewCompany={handleGodmodeNewCompany}
+                onCreateCompany={handleGodmodeNewCompany}
                 liveCompaniesWarning={godmodeLiveCompaniesWarning}
                 onRepairLiveCompanies={() => setScreen("setupInitial")}
                 onContinueCompanySetup={(folderId) => {
