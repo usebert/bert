@@ -87,6 +87,7 @@ export const googleSheetsService = {
     body: {
       companyFolderId: string;
       evidenceFolderId?: string;
+      localSubmissionId?: string;
       results: unknown[];
       findings: unknown[];
       evidence: unknown[];

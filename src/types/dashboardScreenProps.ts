@@ -22,6 +22,9 @@ export type EvidenceItem = {
   previewUrl: string;
   addedAt: string;
   uploaded?: boolean;
+  blobKey?: string;
+  mimeType?: string;
+  size?: number;
 };
 
 export type AuditDraft = {

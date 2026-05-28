@@ -319,6 +319,7 @@ const TAB_COLUMNS = {
   ],
   AuditResults: [
     "Result ID",
+    "Local Submission ID",
     "Audit ID",
     "Area ID",
     "Company ID",
@@ -348,6 +349,7 @@ const TAB_COLUMNS = {
   ],
   AuditFindings: [
     "Finding ID",
+    "Local Submission ID",
     "Result ID",
     "Audit ID",
     "Area ID",
@@ -374,6 +376,7 @@ const TAB_COLUMNS = {
   ],
   Evidence: [
     "Evidence ID",
+    "Local Submission ID",
     "Company ID",
     "Audit ID",
     "Action ID",
@@ -475,6 +478,7 @@ const TAB_COLUMNS = {
   ],
   SyncLog: [
     "Sync Item ID",
+    "Local Submission ID",
     "Company ID",
     "Entity Type",
     "Entity ID",
@@ -4374,6 +4378,7 @@ app.post("/api/google-sheet-by-id/:sheetId/audit-bundle", async (req, res) => {
   }
 
   const companyFolderId = String(req.body?.companyFolderId || "").trim();
+  const localSubmissionId = String(req.body?.localSubmissionId || "").trim();
 
   if (!companyFolderId) {
     return res.status(400).json({
@@ -4383,6 +4388,13 @@ app.post("/api/google-sheet-by-id/:sheetId/audit-bundle", async (req, res) => {
   }
 
   try {
+    if (localSubmissionId) {
+      const existing = rowsToRecords(await getTabValues(authed, req.params.sheetId, "AuditResults"));
+      const duplicate = existing.some((row) => String(row["Local Submission ID"] || "").trim() === localSubmissionId);
+      if (duplicate) {
+        return res.json({ ok: true, deduped: true, localSubmissionId, results: { ok: true, written: 0, skipped: 1 } });
+      }
+    }
     const config = await getConfig(authed, req.params.sheetId);
     const evidenceFolderId = String(req.body?.evidenceFolderId || config.evidenceFolderId || "").trim();
     const results = await appendRowObjects(authed, req.params.sheetId, "AuditResults", toObjectArray(req.body?.results));

@@ -219,6 +219,12 @@ import {
 } from "./src/services/complianceSyncService";
 import { googleSheetsService } from "./src/services/googleSheetsService";
 import { googleWorkspaceService } from "./src/services/googleWorkspaceService";
+import {
+  tabletOfflineService,
+  type TabletAssignedWorkCache,
+  type TabletEvidenceRef,
+  type TabletOfflineSubmission,
+} from "./src/services/tabletOfflineService";
 
 type AuditStatus = "green" | "amber" | "red";
 type Answer = "pass" | "nc" | "fail";
@@ -413,6 +419,9 @@ type EvidenceItem = {
   previewUrl: string;
   addedAt: string;
   uploaded?: boolean;
+  blobKey?: string;
+  mimeType?: string;
+  size?: number;
 };
 
 type ActionItem = {
@@ -697,16 +706,7 @@ type DraftTemplateQuestion = {
   answerPrompts?: Partial<Record<Answer, string[]>>;
 };
 
-type OfflineSubmission = {
-  id: string;
-  audit: Audit;
-  responses: Record<string, Answer>;
-  notes: Record<string, string>;
-  evidence: Record<string, EvidenceItem[]>;
-  signatureDataUrl: string;
-  queuedAt: string;
-  submittedBy: string;
-};
+type OfflineSubmission = TabletOfflineSubmission;
 
 type AuditAccessLevel = "Full access" | "Oversight" | "Can complete" | "Complete" | "No access";
 
@@ -1408,7 +1408,6 @@ async function parseJsonApiResponse<T = Record<string, unknown>>(response: Respo
 const userStorageKey = storageKeys.currentUser;
 /** When set, Master session is limited to company onboarding (no other nav or tools). Cleared on staff sign-in or logout. */
 const masterCompanySetupSessionKey = storageKeys.masterCompanySetupSession;
-const offlineQueueStorageKey = storageKeys.offlineSubmissions;
 const themeStorageKey = storageKeys.theme;
 const previewOrientationStorageKey = storageKeys.previewOrientation;
 const desktopSidebarCollapsedStorageKey = storageKeys.desktopSidebarCollapsed;
@@ -1418,7 +1417,22 @@ const folderLinksStorageKey = storageKeys.folderLinks;
 const workspaceStateStorageKey = storageKeys.workspaceState;
 const userProfilePhotosStorageKey = storageKeys.userProfilePhotos;
 const userNicknamesStorageKey = storageKeys.userNicknames;
+const tabletDeviceIdStorageKey = "bert-tablet-device-id";
 const scheduleTimeZone = "Europe/London";
+
+function readOrCreateTabletDeviceId() {
+  try {
+    const current = window.localStorage.getItem(tabletDeviceIdStorageKey);
+    if (current) {
+      return current;
+    }
+    const next = `tablet-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    window.localStorage.setItem(tabletDeviceIdStorageKey, next);
+    return next;
+  } catch {
+    return `tablet-${Date.now().toString(36)}`;
+  }
+}
 
 function AppIcon({ name, className = "h-5 w-5" }: { name: string; className?: string }) {
   const shared = {
@@ -4906,21 +4920,37 @@ function App() {
   }, [currentUser]);
 
   useEffect(() => {
-    const storedQueue = window.localStorage.getItem(offlineQueueStorageKey);
-    if (!storedQueue) {
-      return;
-    }
-
-    try {
-      setOfflineQueue(JSON.parse(storedQueue) as OfflineSubmission[]);
-    } catch {
-      window.localStorage.removeItem(offlineQueueStorageKey);
-    }
+    let alive = true;
+    const hydrateOffline = async () => {
+      if (!tabletOfflineService.canUseIndexedDb()) {
+        return;
+      }
+      const records = await tabletOfflineService.listSubmissions();
+      if (alive) {
+        setOfflineQueue(records.filter((item) => item.syncStatus !== "synced"));
+      }
+    };
+    void hydrateOffline().catch(() => undefined);
+    return () => {
+      alive = false;
+    };
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem(offlineQueueStorageKey, JSON.stringify(offlineQueue));
-  }, [offlineQueue]);
+    if (currentUser?.role !== "Auditor" || !offlineMode || audits.length > 0) {
+      return;
+    }
+    const restoreAssignedWork = async () => {
+      const cache = await tabletOfflineService.readAssignedWorkCache();
+      if (!cache) {
+        return;
+      }
+      setAudits(cache.audits || []);
+      setTemplates((cache.templates as AuditTemplate[]) || []);
+      setSites((cache.sites as Site[]) || []);
+    };
+    void restoreAssignedWork().catch(() => undefined);
+  }, [audits.length, currentUser?.role, offlineMode]);
 
   useEffect(() => {
     window.localStorage.setItem(userProfilePhotosStorageKey, JSON.stringify(userProfilePhotos));
@@ -5036,6 +5066,38 @@ function App() {
     hsRiskAssessments,
     hsSafetyObservations,
     hsObjectives,
+  ]);
+
+  useEffect(() => {
+    if (currentUser?.role !== "Auditor" || !tabletOfflineService.canUseIndexedDb()) {
+      return;
+    }
+    const cache: TabletAssignedWorkCache = {
+      role: currentUser.role,
+      companyFolderId: selectedFolderId || undefined,
+      companyName: selectedFolder?.name || workspaceName,
+      selectedSiteId: selectedSiteId || undefined,
+      audits: assignedAudits,
+      schedules: managedSchedules,
+      templates,
+      areas: areaAudits,
+      sites,
+      recentHistory: assignmentFilteredHistory.slice(0, 20),
+      updatedAt: new Date().toISOString(),
+    };
+    void tabletOfflineService.saveAssignedWorkCache(cache).catch(() => undefined);
+  }, [
+    areaAudits,
+    assignedAudits,
+    assignmentFilteredHistory,
+    currentUser?.role,
+    managedSchedules,
+    selectedFolder?.name,
+    selectedFolderId,
+    selectedSiteId,
+    sites,
+    templates,
+    workspaceName,
   ]);
 
   useEffect(() => {
@@ -5298,57 +5360,8 @@ function App() {
     if (offlineMode || offlineQueue.length === 0) {
       return;
     }
-
-    const queued = [...offlineQueue];
-    const offlineSubmittedByFallback: User = {
-      username: "offline-sync",
-      password: "",
-      role: "Auditor",
-      name: "Offline submission",
-    };
-    queued
-      .slice()
-      .reverse()
-      .forEach((submission) => {
-        const applied = applyAuditSubmission({
-          audit: submission.audit,
-          responseMap: submission.responses,
-          noteMap: submission.notes,
-          evidenceMap: submission.evidence,
-          submittedBy: submission.submittedBy,
-          submittedByUser:
-            users.find((item) => item.name === submission.submittedBy) ||
-            ({
-              ...offlineSubmittedByFallback,
-              name: submission.submittedBy?.trim() || offlineSubmittedByFallback.name,
-              username: submission.submittedBy?.trim()
-                ? submission.submittedBy.trim().toLowerCase().replace(/\s+/g, "-")
-                : offlineSubmittedByFallback.username,
-            } as User),
-          completedAt: submission.queuedAt,
-          signatureDataUrl: submission.signatureDataUrl,
-        });
-        queueSyncItem({
-          itemType: "auditSubmission",
-          localId: submission.audit.id,
-          status: "Pending Sync",
-          createdAt: submission.queuedAt,
-          retryCount: 0,
-          lastError: "",
-          payload: {
-            auditId: submission.audit.id,
-            auditName: submission.audit.name,
-            companyFolderId: selectedFolderId,
-            syncBundle: applied.syncBundle,
-            createdActions: applied.createdActions,
-          },
-        });
-      });
-
-    setOfflineQueue([]);
-    pushToast("Offline sync complete", `${queued.length} queued audit submission${queued.length === 1 ? "" : "s"} synced successfully.`, "success");
-    triggerNotification("Offline sync complete", `${queued.length} queued audit submission${queued.length === 1 ? "" : "s"} synced.`);
-  }, [offlineMode, offlineQueue]);
+    pushToast("Syncing queued checks", `Syncing ${offlineQueue.length} saved checks`, "neutral");
+  }, [offlineMode, offlineQueue.length]);
 
   useEffect(() => {
     if (!notificationsEnabled || overdueActions.length === 0) {
@@ -5405,6 +5418,13 @@ function App() {
     }
     void processSyncQueueItem(pending);
   }, [syncQueue, googleConnected, offlineMode, companySheetSync?.sheetId]);
+
+  useEffect(() => {
+    if (offlineMode || offlineQueue.length === 0 || currentUser?.role !== "Auditor") {
+      return;
+    }
+    void syncOfflineSubmissions();
+  }, [currentUser?.role, offlineMode, offlineQueue.length, syncOfflineSubmissions]);
 
   useEffect(() => {
     if (toasts.length === 0) {
@@ -6954,6 +6974,98 @@ function App() {
   };
 
   const syncProcessingRef = useRef(false);
+  const offlineSyncProcessingRef = useRef(false);
+
+  async function syncOfflineSubmissions() {
+    if (offlineMode || offlineQueue.length === 0 || offlineSyncProcessingRef.current) {
+      return;
+    }
+    offlineSyncProcessingRef.current = true;
+    pushToast("Syncing saved checks", `Syncing ${offlineQueue.length} saved checks`, "neutral");
+    try {
+      const sheetId = companySheetSync?.sheetId || extractGoogleResourceId(masterSheetInput);
+      if (!sheetId) {
+        throw new Error("Company master sheet link is required before syncing offline checks.");
+      }
+      const queued = [...offlineQueue].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+      for (const submission of queued) {
+        if (submission.syncStatus === "synced") {
+          continue;
+        }
+        setOfflineQueue((current) =>
+          current.map((item) => (item.localSubmissionId === submission.localSubmissionId ? { ...item, syncStatus: "syncing" } : item)),
+        );
+        void tabletOfflineService.upsertSubmission({ ...submission, syncStatus: "syncing" }).catch(() => undefined);
+        try {
+          const offlineSubmittedByFallback: User = {
+            username: "offline-sync",
+            password: "",
+            role: "Auditor",
+            name: "Offline submission",
+          };
+          const evidenceMap: Record<string, EvidenceItem[]> = {};
+          for (const ref of submission.evidenceRefs) {
+            const blob = await tabletOfflineService.getEvidenceBlob(ref.blobKey);
+            const previewUrl = blob ? URL.createObjectURL(blob) : "";
+            evidenceMap[ref.questionId] = [
+              ...(evidenceMap[ref.questionId] ?? []),
+              { id: ref.evidenceId, name: ref.name, previewUrl, addedAt: ref.addedAt, blobKey: ref.blobKey, mimeType: ref.mimeType, size: ref.size },
+            ];
+          }
+          const applied = applyAuditSubmission({
+            audit: submission.audit,
+            responseMap: submission.answers as Record<string, Answer>,
+            noteMap: submission.notes,
+            evidenceMap,
+            submittedBy: submission.submittedBy,
+            submittedByUser:
+              users.find((item) => item.username === submission.userId) ||
+              users.find((item) => item.name === submission.submittedBy) ||
+              offlineSubmittedByFallback,
+            completedAt: submission.createdAt,
+            signatureDataUrl: submission.signatureDataUrl,
+          });
+          await syncAuditSubmissionToSheet({
+            sheetId,
+            companyFolderId: submission.companyFolderId || selectedFolderId,
+            evidenceFolderId: buildWorkspaceFolderPayload(isoFolderInputSnapshot).evidenceFolderId,
+            submission: applied.syncBundle.payload as import("./src/types/complianceLoop").AuditSubmissionSyncPayload,
+            sheetResult: applied.syncBundle.sheetResult,
+            sheetFindings: applied.syncBundle.sheetFindings,
+            sheetEvidence: applied.syncBundle.sheetEvidence,
+            sheetSyncLog: applied.syncBundle.sheetSyncLog,
+            localSubmissionId: submission.localSubmissionId,
+          });
+          if (applied.createdActions.length > 0) {
+            const companyFolderId = submission.companyFolderId || selectedFolderId;
+            await persistActions(companyFolderId, actions.filter((action) => action.companyId === companyFolderId));
+          }
+          for (const ref of submission.evidenceRefs) {
+            void tabletOfflineService.deleteEvidenceBlob(ref.blobKey).catch(() => undefined);
+          }
+          void tabletOfflineService.deleteSubmission(submission.localSubmissionId).catch(() => undefined);
+          setOfflineQueue((current) => current.filter((item) => item.localSubmissionId !== submission.localSubmissionId));
+        } catch (error) {
+          const nextRetry = submission.retryCount + 1;
+          const nextError = error instanceof Error ? error.message : "Unable to sync saved check.";
+          const failed: OfflineSubmission = { ...submission, syncStatus: "failed", retryCount: nextRetry, lastError: nextError };
+          void tabletOfflineService.upsertSubmission(failed).catch(() => undefined);
+          setOfflineQueue((current) =>
+            current.map((item) =>
+              item.localSubmissionId === submission.localSubmissionId
+                ? { ...item, syncStatus: "failed", retryCount: nextRetry, lastError: nextError }
+                : item,
+            ),
+          );
+        }
+      }
+      if (offlineQueue.length > 0) {
+        pushToast("Sync complete", "All saved checks synced", "success");
+      }
+    } finally {
+      offlineSyncProcessingRef.current = false;
+    }
+  }
 
   const processSyncQueueItem = async (item: SyncQueueItem) => {
     if (syncProcessingRef.current) {
@@ -7100,6 +7212,44 @@ function App() {
     };
     reader.readAsDataURL(file);
   };
+
+  const handleAttachEvidenceFiles = useCallback(
+    async (questionId: string, files: FileList) => {
+      const list = Array.from(files);
+      if (list.length === 0) {
+        return;
+      }
+      setEvidenceDebugLabel(`Selected: ${list.map((file) => file.name).join(", ")}`);
+      const timestamp = formatStamp();
+      const nextItems: EvidenceItem[] = [];
+      for (const file of list) {
+        const evidenceId = `${questionId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const blobKey = `${evidenceId}-${file.name}`;
+        try {
+          if (tabletOfflineService.canUseIndexedDb()) {
+            await tabletOfflineService.saveEvidenceBlob(blobKey, file);
+          }
+        } catch {
+          // Best effort: still keep in-memory preview if blob persistence fails.
+        }
+        nextItems.push({
+          id: evidenceId,
+          name: file.name,
+          previewUrl: URL.createObjectURL(file),
+          addedAt: timestamp,
+          blobKey,
+          mimeType: file.type,
+          size: file.size,
+        });
+      }
+      setEvidence((current) => ({
+        ...current,
+        [questionId]: [...(current[questionId] ?? []), ...nextItems],
+      }));
+      pushToast("Evidence uploaded", `${list.length} file${list.length === 1 ? "" : "s"} added to this question.`, "success");
+    },
+    [],
+  );
 
   const handleSaveAccountSettings = () => {
     const trimmedName = accountNameInput.trim();
@@ -7549,28 +7699,43 @@ function App() {
     ).length;
 
     if (offlineMode) {
-      setOfflineQueue((current) => [
-        {
-          id: `offline-${activeAudit.id}-${Date.now()}`,
-          audit: activeAudit,
-          responses,
-          notes,
-          evidence,
-          signatureDataUrl,
-          queuedAt: stamp,
-          submittedBy: currentUser.name,
-        },
-        ...current,
-      ]);
-      queueSyncItem({
-        itemType: "auditSubmission",
-        localId: activeAudit.id,
-        status: "Pending Sync",
+      const localSubmissionId = `offline-${activeAudit.id}-${Date.now()}`;
+      const evidenceRefs: TabletEvidenceRef[] = Object.entries(evidence).flatMap(([questionId, items]) =>
+        items.map((item) => ({
+          evidenceId: item.id,
+          questionId,
+          name: item.name,
+          mimeType: item.mimeType || "application/octet-stream",
+          size: item.size || 0,
+          blobKey: item.blobKey || `${item.id}-${item.name}`,
+          addedAt: item.addedAt,
+        })),
+      );
+      const queuedSubmission: OfflineSubmission = {
+        localSubmissionId,
+        deviceId: readOrCreateTabletDeviceId(),
+        userId: currentUser.username,
+        companyFolderId: selectedFolderId || undefined,
+        masterSheetId: companySheetSync?.sheetId || undefined,
+        scheduleId: undefined,
+        checkId: activeAudit.id,
+        templateId: activeAudit.templateVersion || undefined,
+        areaId: activeAudit.siteArea || undefined,
+        siteId: selectedSiteId || undefined,
+        answers: responses,
+        failedAnswers: Object.fromEntries(Object.entries(responses).filter(([, value]) => value === "fail" || value === "nc")),
+        notes,
+        evidenceRefs,
+        signatureDataUrl,
         createdAt: stamp,
+        syncStatus: "queued",
         retryCount: 0,
         lastError: "",
-        payload: { auditId: activeAudit.id, auditName: activeAudit.name, companyFolderId: selectedFolderId },
-      });
+        submittedBy: currentUser.name,
+        audit: activeAudit,
+      };
+      setOfflineQueue((current) => [queuedSubmission, ...current]);
+      void tabletOfflineService.upsertSubmission(queuedSubmission).catch(() => undefined);
       setDrafts((current) => {
         const nextDrafts = { ...current };
         delete nextDrafts[activeAudit.id];
@@ -7647,28 +7812,43 @@ function App() {
     let actionsCreated = 0;
 
     if (offlineMode) {
-      setOfflineQueue((current) => [
-        {
-          id: `offline-${activeAudit.id}-${Date.now()}`,
-          audit: activeAudit,
-          responses,
-          notes,
-          evidence,
-          signatureDataUrl: "audit-mode-signature-not-required",
-          queuedAt: stamp,
-          submittedBy: currentUser.name,
-        },
-        ...current,
-      ]);
-      queueSyncItem({
-        itemType: "auditSubmission",
-        localId: activeAudit.id,
-        status: "Pending Sync",
+      const localSubmissionId = `offline-${activeAudit.id}-${Date.now()}`;
+      const evidenceRefs: TabletEvidenceRef[] = Object.entries(evidence).flatMap(([questionId, items]) =>
+        items.map((item) => ({
+          evidenceId: item.id,
+          questionId,
+          name: item.name,
+          mimeType: item.mimeType || "application/octet-stream",
+          size: item.size || 0,
+          blobKey: item.blobKey || `${item.id}-${item.name}`,
+          addedAt: item.addedAt,
+        })),
+      );
+      const queuedSubmission: OfflineSubmission = {
+        localSubmissionId,
+        deviceId: readOrCreateTabletDeviceId(),
+        userId: currentUser.username,
+        companyFolderId: selectedFolderId || undefined,
+        masterSheetId: companySheetSync?.sheetId || undefined,
+        scheduleId: undefined,
+        checkId: activeAudit.id,
+        templateId: activeAudit.templateVersion || undefined,
+        areaId: activeAudit.siteArea || undefined,
+        siteId: selectedSiteId || undefined,
+        answers: responses,
+        failedAnswers: Object.fromEntries(Object.entries(responses).filter(([, value]) => value === "fail" || value === "nc")),
+        notes,
+        evidenceRefs,
+        signatureDataUrl: "audit-mode-signature-not-required",
         createdAt: stamp,
+        syncStatus: "queued",
         retryCount: 0,
         lastError: "",
-        payload: { auditId: activeAudit.id, auditName: activeAudit.name, companyFolderId: selectedFolderId },
-      });
+        submittedBy: currentUser.name,
+        audit: activeAudit,
+      };
+      setOfflineQueue((current) => [queuedSubmission, ...current]);
+      void tabletOfflineService.upsertSubmission(queuedSubmission).catch(() => undefined);
       setDrafts((current) => {
         const nextDrafts = { ...current };
         delete nextDrafts[activeAudit.id];
@@ -10361,9 +10541,17 @@ function App() {
                 {previewOrientation === "landscape" ? "Portrait preview" : "Landscape preview"}
               </button>
               )}
-              <div className={["rounded-full px-2 py-0.5", offlineMode ? "bg-amber-500/15 text-amber-600" : "bg-blue-500/12 text-blue-800"].join(" ")}>
-                {offlineMode ? "Offline" : "Online"}
-              </div>
+              {currentUser.role === "Auditor" ? (
+                <div className={["rounded-full px-2 py-0.5", offlineMode ? "bg-amber-500/15 text-amber-700" : "bg-emerald-500/15 text-emerald-700"].join(" ")}>
+                  {offlineMode
+                    ? "You are offline. Checks will be saved on this tablet and synced when internet returns."
+                    : "Online"}
+                </div>
+              ) : (
+                <div className={["rounded-full px-2 py-0.5", offlineMode ? "bg-amber-500/15 text-amber-600" : "bg-blue-500/12 text-blue-800"].join(" ")}>
+                  {offlineMode ? "Offline" : "Online"}
+                </div>
+              )}
               <div
                 className={[
                   "rounded-full border px-2 py-0.5 text-[8px] font-semibold normal-case tracking-normal",
@@ -10838,16 +11026,38 @@ function App() {
                 </div>
               </section>
             )}
-            {(offlineMode || offlineQueue.length > 0) && (
+            {currentUser.role === "Auditor" && (offlineMode || offlineQueue.length > 0) && (
               <section className="mb-4 rounded-[1.5rem] border border-amber-200 bg-amber-50 px-4 py-4">
                 <p className="text-sm font-semibold text-amber-900">
                   {offlineMode ? "Offline mode active" : "Queued submissions waiting to sync"}
                 </p>
                 <p className="mt-1 text-sm text-amber-800">
                   {offlineMode
-                    ? "Audits can still be completed on this tablet. Submissions will queue locally until the connection returns."
+                    ? "You are offline. Checks will be saved on this tablet and synced when internet returns."
                     : `${offlineQueue.length} queued submission${offlineQueue.length === 1 ? "" : "s"} will sync automatically.`}
                 </p>
+                <p className="mt-2 text-xs text-amber-900">
+                  {offlineQueue.filter((item) => item.syncStatus !== "synced").length} waiting to sync
+                </p>
+                {offlineQueue.some((item) => item.syncStatus === "failed") && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOfflineQueue((current) => {
+                        const next = current.map((item) => (item.syncStatus === "failed" ? { ...item, syncStatus: "queued" as const, lastError: "" } : item));
+                        next.forEach((item) => {
+                          if (item.syncStatus === "queued") {
+                            void tabletOfflineService.upsertSubmission(item).catch(() => undefined);
+                          }
+                        });
+                        return next;
+                      });
+                    }}
+                    className="mt-2 rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-xs font-semibold text-amber-800"
+                  >
+                    Retry failed
+                  </button>
+                )}
               </section>
             )}
             {screen === "dashboard" && (
@@ -11591,23 +11801,7 @@ function App() {
                     }))
                   }
                   onAddEvidence={(questionId, files) => {
-                    const fileCount = files.length;
-                    setEvidenceDebugLabel(`Selected: ${Array.from(files).map((file) => file.name).join(", ")}`);
-                    const nextItems = Array.from(files).map((file) => ({
-                      id: `${questionId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                      name: file.name,
-                      previewUrl: URL.createObjectURL(file),
-                      addedAt: formatStamp(),
-                    }));
-                    setEvidence((current) => ({
-                      ...current,
-                      [questionId]: [...(current[questionId] ?? []), ...nextItems],
-                    }));
-                    pushToast(
-                      "Evidence uploaded",
-                      `${fileCount} file${fileCount === 1 ? "" : "s"} added to this question.`,
-                      "success",
-                    );
+                    void handleAttachEvidenceFiles(questionId, files);
                   }}
                   onComplete={completeAuditModeFlow}
                   onSaveAndExit={handleAuditModeSaveAndExit}
@@ -11620,25 +11814,8 @@ function App() {
                     assignedToName={activeAudit.owner}
                     offlineMode={offlineMode}
                     onAddPhoto={(files) => {
-                      const fileCount = files.length;
-                      if (!fileCount) return;
-                      const questionId = issuePrompt.question.id;
-                      setEvidenceDebugLabel(`Selected: ${Array.from(files).map((file) => file.name).join(", ")}`);
-                      const nextItems = Array.from(files).map((file) => ({
-                        id: `${questionId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                        name: file.name,
-                        previewUrl: URL.createObjectURL(file),
-                        addedAt: formatStamp(),
-                      }));
-                      setEvidence((current) => ({
-                        ...current,
-                        [questionId]: [...(current[questionId] ?? []), ...nextItems],
-                      }));
-                      pushToast(
-                        "Evidence uploaded",
-                        `${fileCount} file${fileCount === 1 ? "" : "s"} added to this finding.`,
-                        "success",
-                      );
+                      if (!files.length) return;
+                      void handleAttachEvidenceFiles(issuePrompt.question.id, files);
                     }}
                     onSave={handleAuditModeSaveIssue}
                     onCancel={() => setIssuePrompt(null)}
@@ -11671,23 +11848,7 @@ function App() {
                   }))
                 }
                 onAddEvidence={(questionId, files) => {
-                  const fileCount = files.length;
-                  setEvidenceDebugLabel(`Selected: ${Array.from(files).map((file) => file.name).join(", ")}`);
-                  const nextItems = Array.from(files).map((file) => ({
-                    id: `${questionId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                    name: file.name,
-                    previewUrl: URL.createObjectURL(file),
-                    addedAt: formatStamp(),
-                  }));
-                  setEvidence((current) => ({
-                    ...current,
-                    [questionId]: [...(current[questionId] ?? []), ...nextItems],
-                  }));
-                  pushToast(
-                    "Evidence uploaded",
-                    `${fileCount} file${fileCount === 1 ? "" : "s"} added to this question.`,
-                    "success",
-                  );
+                  void handleAttachEvidenceFiles(questionId, files);
                 }}
                 onRemoveEvidence={(questionId, evidenceId) =>
                   setEvidence((current) => ({

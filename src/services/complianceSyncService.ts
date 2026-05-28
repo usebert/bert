@@ -29,15 +29,17 @@ export async function syncAuditSubmissionToSheet(input: {
   sheetFindings: Record<string, string>[];
   sheetEvidence: Record<string, string>[];
   sheetSyncLog: Record<string, string>;
+  localSubmissionId?: string;
 }) {
-  const { sheetId, companyFolderId, evidenceFolderId, sheetResult, sheetFindings, sheetEvidence, sheetSyncLog } = input;
+  const { sheetId, companyFolderId, evidenceFolderId, sheetResult, sheetFindings, sheetEvidence, sheetSyncLog, localSubmissionId } = input;
   return googleSheetsService.syncAuditBundle(sheetId, {
     companyFolderId,
     evidenceFolderId: evidenceFolderId || "",
-    results: [sheetResult],
-    findings: sheetFindings,
-    evidence: sheetEvidence,
-    syncLogs: [sheetSyncLog],
+    localSubmissionId: localSubmissionId || "",
+    results: [{ ...sheetResult, "Local Submission ID": localSubmissionId || sheetResult["Result ID"] || "" }],
+    findings: sheetFindings.map((row) => ({ ...row, "Local Submission ID": localSubmissionId || "" })),
+    evidence: sheetEvidence.map((row) => ({ ...row, "Local Submission ID": localSubmissionId || "" })),
+    syncLogs: [{ ...sheetSyncLog, "Local Submission ID": localSubmissionId || "" }],
   });
 }
 
