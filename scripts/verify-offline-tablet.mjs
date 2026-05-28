@@ -32,4 +32,4 @@ assertContains("server/server.mjs", [
   "deduped: true",
 ]);
 
-console.log("verify:offline-tablet passed");
+console.log("[verify:offline-tablet] queue checks OK");

@@ -18,6 +18,7 @@
     "seed:master": "node scripts/seed-master.mjs",
     "migrate:userauth": "node scripts/migrate-userauth-passwords.mjs",
     "verify:auth": "node scripts/verify-auth-hardening.mjs",
+    "verify:offline-shell": "node scripts/verify-offline-shell.mjs",
     "verify:offline-tablet": "node scripts/verify-offline-tablet.mjs",
     "verify:pilot-readiness": "node scripts/verify-pilot-readiness.mjs",
     "verify:godmode-company-context": "node scripts/verify-godmode-company-context.mjs",
