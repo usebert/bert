@@ -3127,6 +3127,7 @@ function App() {
   const [signatureSignedAt, setSignatureSignedAt] = useState("");
   const [offlineMode, setOfflineMode] = useState(!window.navigator.onLine);
   const [offlineQueue, setOfflineQueue] = useState<OfflineSubmission[]>([]);
+  const [offlineSyncProgress, setOfflineSyncProgress] = useState<{ current: number; total: number } | null>(null);
   const [syncQueue, setSyncQueue] = useState<SyncQueueItem[]>(storedWorkspaceState?.syncQueue || initialSyncQueue);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [backendConfigured, setBackendConfigured] = useState(false);
@@ -7002,10 +7003,13 @@ function App() {
         throw new Error("Company master sheet link is required before syncing offline checks.");
       }
       const queued = [...offlineQueue].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
-      for (const submission of queued) {
+      setOfflineSyncProgress({ current: 0, total: queued.length });
+      for (let index = 0; index < queued.length; index += 1) {
+        const submission = queued[index];
         if (submission.syncStatus === "synced") {
           continue;
         }
+        setOfflineSyncProgress({ current: index + 1, total: queued.length });
         setOfflineQueue((current) =>
           current.map((item) => (item.localSubmissionId === submission.localSubmissionId ? { ...item, syncStatus: "syncing" } : item)),
         );
@@ -7078,6 +7082,7 @@ function App() {
       }
     } finally {
       offlineSyncProcessingRef.current = false;
+      setOfflineSyncProgress(null);
     }
   }
 
@@ -7921,7 +7926,7 @@ function App() {
       actionsCreated,
       photosCaptured,
       syncTone: googleConnected && !offlineMode ? "green" : "amber",
-      syncLabel: googleConnected && !offlineMode ? "Saved" : "Saved on this device",
+      syncLabel: googleConnected && !offlineMode ? "Check saved successfully." : "Saved on this device",
     });
     notifySelectedManagersForNonCompliance(activeAudit, currentUser.name, issuesFound, false);
     setActiveAuditId(null);
@@ -11040,6 +11045,7 @@ function App() {
                 waitingCount={offlineQueue.filter((item) => item.syncStatus !== "synced").length}
                 hasFailed={offlineQueue.some((item) => item.syncStatus === "failed")}
                 syncing={offlineQueue.some((item) => item.syncStatus === "syncing")}
+                syncProgress={offlineSyncProgress ?? undefined}
                 onRetryFailed={() => {
                   setOfflineQueue((current) => {
                     const next = current.map((item) =>

@@ -167,7 +167,7 @@ function CompanyPickerRow({
             </button>
           ) : onContinueSetup ? (
             <>
-              <button
+              <AnimatedButton
                 type="button"
                 onClick={onContinueSetup}
                 className={[
@@ -176,7 +176,7 @@ function CompanyPickerRow({
                 ].join(" ")}
               >
                 Continue setup
-              </button>
+              </AnimatedButton>
               {onRepairSetup ? (
                 <button
                   type="button"

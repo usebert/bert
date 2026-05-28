@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { AnimatedButton } from "../components/animation/AnimatedButton";
 import { SuccessTick } from "../components/animation/SuccessTick";
-import { bertFieldComplete, bertScreenEnter } from "../components/animation/animationClasses";
+import { bertFieldComplete, bertGuidancePanel, bertScreenEnter } from "../components/animation/animationClasses";
 import { usePrefersReducedMotion } from "../components/animation/usePrefersReducedMotion";
 import { StatusBadge } from "../components/dashboard/DashboardPrimitives";
 import type { AuditModeScreenProps } from "../types/auditModeScreenProps";
@@ -140,34 +140,43 @@ export function AuditModeScreen({
               onFiles={(files) => onAddEvidence(currentQuestion.id, files)}
             />
           </div>
-          <div
-            className={[
-              "mt-3 grid gap-3 sm:grid-cols-2",
-              needsEvidencePanel && !reducedMotion ? "bert-evidence-panel-enter" : "",
-            ].join(" ")}
-          >
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <textarea
-              ref={noteInputRef}
-              value={notes[currentQuestion.id] || ""}
-              onChange={(event) => onNoteChange(currentQuestion.id, event.target.value)}
-              placeholder="Add note"
-              className="min-h-[7rem] rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-900 outline-none transition-colors duration-200 focus:border-slate-400"
-            />
+            ref={noteInputRef}
+            value={notes[currentQuestion.id] || ""}
+            onChange={(event) => onNoteChange(currentQuestion.id, event.target.value)}
+            placeholder="Add note"
+            className="min-h-[7rem] rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-900 outline-none transition-colors duration-200 focus:border-slate-400"
+          />
+          {needsEvidencePanel ? (
             <div
               className={[
-                "flex min-h-[7rem] flex-col items-center justify-center rounded-2xl border border-dashed px-4 transition-colors duration-200",
-                needsEvidencePanel ? "border-amber-300 bg-amber-50" : "border-slate-300 bg-slate-50",
+                "flex min-h-[7rem] flex-col justify-center rounded-2xl border border-dashed border-amber-300 bg-amber-50 px-4 py-4",
+                "border-l-4 border-l-amber-500",
+                !reducedMotion ? bertGuidancePanel : "",
               ].join(" ")}
             >
-              {needsEvidencePanel ? (
-                <p className="mb-2 text-center text-xs font-medium text-amber-800">Photo evidence helps explain this finding</p>
-              ) : null}
+              <p className="text-sm font-semibold text-amber-950">Photo evidence helps explain this finding</p>
+              <p className="mt-1 text-sm leading-relaxed text-amber-900">
+                Add a clear photo on this tablet so your manager can review what failed.
+              </p>
+              <div className="mt-4">
+                <EvidenceUploadChoice
+                  triggerLabel="Upload evidence"
+                  triggerClassName={`min-h-[48px] rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}
+                  onFiles={(files) => onAddEvidence(currentQuestion.id, files)}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="flex min-h-[7rem] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4">
               <EvidenceUploadChoice
                 triggerLabel="Upload evidence"
                 triggerClassName={`min-h-[48px] rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}
                 onFiles={(files) => onAddEvidence(currentQuestion.id, files)}
               />
             </div>
+          )}
           </div>
           <p className="mt-2 text-xs text-slate-500">{evidence[currentQuestion.id]?.length || 0} photo(s) attached</p>
           {evidenceDebugLabel && <p className="mt-1 text-xs text-sky-700">{evidenceDebugLabel}</p>}

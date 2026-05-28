@@ -13,26 +13,28 @@ export function AnimatedCount({ value, durationMs = 600, className = "" }: Props
   const reducedMotion = usePrefersReducedMotion();
   const [display, setDisplay] = useState(reducedMotion ? value : 0);
   const frameRef = useRef<number | null>(null);
-  const startRef = useRef(0);
-  const fromRef = useRef(0);
+  const fromRef = useRef(reducedMotion ? value : 0);
 
   useEffect(() => {
     if (reducedMotion) {
       setDisplay(value);
+      fromRef.current = value;
       return;
     }
 
-    fromRef.current = display;
-    startRef.current = performance.now();
+    const from = fromRef.current;
+    const start = performance.now();
 
     const tick = (now: number) => {
-      const elapsed = now - startRef.current;
+      const elapsed = now - start;
       const progress = Math.min(1, elapsed / durationMs);
       const eased = 1 - (1 - progress) ** 3;
-      const next = Math.round(fromRef.current + (value - fromRef.current) * eased);
+      const next = Math.round(from + (value - from) * eased);
       setDisplay(next);
       if (progress < 1) {
         frameRef.current = requestAnimationFrame(tick);
+      } else {
+        fromRef.current = value;
       }
     };
 
@@ -40,7 +42,6 @@ export function AnimatedCount({ value, durationMs = 600, className = "" }: Props
     return () => {
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- animate from current display on value change
   }, [value, durationMs, reducedMotion]);
 
   return <span className={["tabular-nums", className].filter(Boolean).join(" ")}>{display}</span>;

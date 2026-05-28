@@ -4,6 +4,7 @@ import type { NavItemId } from "../../types/navigation";
 import { getRoleTheme } from "../../config/roleTheme";
 import { AlertTriangleIcon } from "../icons/AlertTriangleIcon";
 import { AnimatedButton } from "../animation/AnimatedButton";
+import { AnimatedCount } from "../animation/AnimatedCount";
 
 export type LandingCardIconTone = "orange" | "blue" | "grey" | "green";
 
@@ -273,9 +274,12 @@ export function TodayMetricBlock({
 }) {
   const bg = tone === "orange" ? "bg-orange-50" : tone === "blue" ? "bg-blue-50" : "bg-emerald-50";
   const text = tone === "orange" ? "text-orange-700" : tone === "blue" ? "text-blue-700" : "text-emerald-700";
+  const numericValue = /^\d+$/.test(value) ? Number(value) : null;
   return (
     <div className={["rounded-3xl px-5 py-5", bg].join(" ")}>
-      <p className="text-4xl font-black tabular-nums text-slate-900">{value}</p>
+      <p className="text-4xl font-black text-slate-900">
+        {numericValue !== null ? <AnimatedCount value={numericValue} durationMs={600} /> : value}
+      </p>
       <p className={["mt-1 text-sm font-black", text].join(" ")}>{label}</p>
     </div>
   );
