@@ -72,14 +72,16 @@ select {
 
 /* —— Interaction motion (logged-in app) —— */
 :root {
-  --bert-motion-duration: 220ms;
+  --bert-motion-duration: 280ms;
+  --bert-motion-card-duration: 300ms;
+  --bert-motion-panel-duration: 280ms;
   --bert-motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @keyframes bert-fade-slide-up {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(18px);
   }
   to {
     opacity: 1;
@@ -99,11 +101,59 @@ select {
 @keyframes bert-card-reveal {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(18px);
   }
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes bert-guidance-panel-open {
+  from {
+    opacity: 0;
+    max-height: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    max-height: 28rem;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bert-panel-expand {
+  from {
+    opacity: 0;
+    max-height: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    max-height: 20rem;
+    transform: scale(1);
+  }
+}
+
+@keyframes bert-thumbnail-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes bert-submit-success {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
   }
 }
 
@@ -126,11 +176,15 @@ select {
 }
 
 @keyframes bert-success-pop {
-  from {
+  0% {
     opacity: 0;
-    transform: scale(0.85);
+    transform: scale(0.65);
   }
-  to {
+  70% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  100% {
     opacity: 1;
     transform: scale(1);
   }
@@ -141,7 +195,7 @@ select {
 }
 
 .bert-card-enter {
-  animation: bert-card-reveal var(--bert-motion-duration) var(--bert-motion-ease) both;
+  animation: bert-card-reveal var(--bert-motion-card-duration) var(--bert-motion-ease) both;
 }
 
 .bert-fade-in {
@@ -149,19 +203,52 @@ select {
 }
 
 .bert-evidence-panel-enter {
-  animation: bert-fade-slide-up 260ms var(--bert-motion-ease) both;
+  animation: bert-fade-slide-up var(--bert-motion-panel-duration) var(--bert-motion-ease) both;
+}
+
+.bert-guidance-panel-enter {
+  animation: bert-guidance-panel-open var(--bert-motion-panel-duration) var(--bert-motion-ease) both;
+  overflow: hidden;
+}
+
+.bert-panel-expand {
+  animation: bert-panel-expand var(--bert-motion-panel-duration) var(--bert-motion-ease) both;
+  overflow: hidden;
+}
+
+.bert-thumbnail-slide-in {
+  animation: bert-thumbnail-slide-in var(--bert-motion-duration) var(--bert-motion-ease) both;
+}
+
+.bert-submit-success {
+  animation: bert-submit-success var(--bert-motion-duration) var(--bert-motion-ease) both;
 }
 
 .bert-field-complete {
-  animation: bert-success-pop 180ms var(--bert-motion-ease) both;
+  animation: bert-success-pop 220ms var(--bert-motion-ease) both;
 }
 
-.bert-pressable:active:not(:disabled) {
-  transform: scale(0.98);
+.bert-pressable:not(:disabled) {
+  transition:
+    transform 140ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 180ms ease-out,
+    background-color 180ms ease-out,
+    border-color 180ms ease-out,
+    opacity 180ms ease-out;
+}
+
+.bert-pressable:not(:disabled):hover {
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.14);
+}
+
+.bert-pressable:not(:disabled):active {
+  transform: scale(0.97);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
+  transition-duration: 80ms;
 }
 
 .bert-arrow-nudge:hover .bert-arrow-icon {
-  transform: translateX(3px);
+  transform: translateX(5px);
 }
 
 .bert-status-pulse {
@@ -173,7 +260,7 @@ select {
 }
 
 .bert-success-tick {
-  animation: bert-success-pop 220ms var(--bert-motion-ease) both;
+  animation: bert-success-pop 280ms var(--bert-motion-ease) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -181,6 +268,10 @@ select {
   .bert-card-enter,
   .bert-fade-in,
   .bert-evidence-panel-enter,
+  .bert-guidance-panel-enter,
+  .bert-panel-expand,
+  .bert-thumbnail-slide-in,
+  .bert-submit-success,
   .bert-field-complete,
   .bert-success-tick,
   .bert-status-pulse,
@@ -188,8 +279,10 @@ select {
     animation: none !important;
   }
 
-  .bert-pressable:active:not(:disabled) {
+  .bert-pressable:not(:disabled):hover,
+  .bert-pressable:not(:disabled):active {
     transform: none;
+    box-shadow: none;
   }
 
   .bert-arrow-nudge:hover .bert-arrow-icon {

@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import { usePrefersReducedMotion } from "./usePrefersReducedMotion";
-import { bertCardEnter } from "./animationClasses";
+import { MOTION_CARD_STAGGER_MS, bertCardEnter } from "./animationClasses";
 
 type Props = {
   children: ReactNode;
@@ -18,7 +18,7 @@ export function AnimatedCard({ children, className = "", index = 0, style, as: T
     ? style ?? {}
     : {
         ...style,
-        animationDelay: `${Math.min(index, 12) * 45}ms`,
+        animationDelay: `${Math.min(index, 12) * MOTION_CARD_STAGGER_MS}ms`,
       };
 
   return (

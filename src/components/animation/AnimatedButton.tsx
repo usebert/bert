@@ -25,8 +25,8 @@ export function AnimatedButton({
       type={type}
       disabled={isDisabled}
       className={[
-        "inline-flex items-center justify-center gap-2 transition-[transform,opacity,box-shadow] duration-200 ease-out",
-        reducedMotion ? "" : bertPressable,
+        "inline-flex items-center justify-center gap-2",
+        reducedMotion ? "transition-opacity duration-150" : bertPressable,
         showArrow && !reducedMotion ? `group ${bertArrowNudge}` : "",
         isDisabled ? "cursor-not-allowed opacity-60" : "",
         className,
@@ -45,7 +45,7 @@ export function AnimatedButton({
       ) : null}
       <span className={showArrow ? "inline-flex items-center gap-2" : undefined}>{children}</span>
       {showArrow && !loading ? (
-        <span className="bert-arrow-icon transition-transform duration-200 group-hover:translate-x-0.5" aria-hidden>
+        <span className="bert-arrow-icon transition-transform duration-150 ease-out group-hover:translate-x-1" aria-hidden>
           →
         </span>
       ) : null}

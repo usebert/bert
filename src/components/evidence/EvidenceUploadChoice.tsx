@@ -1,14 +1,14 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { AnimatedButton } from "../animation/AnimatedButton";
 import { SuccessTick } from "../animation/SuccessTick";
-import { bertEvidencePanel, bertFadeIn } from "../animation/animationClasses";
+import { bertEvidencePanel, bertFadeIn, bertPanelExpand, bertThumbnailSlide } from "../animation/animationClasses";
 import { usePrefersReducedMotion } from "../animation/usePrefersReducedMotion";
 import { bertSecondaryButtonInteract } from "../../styles/interactions";
 
 const DEVICE_ACCEPT = "image/*,application/pdf,.doc,.docx,.xls,.xlsx";
 const CAMERA_ACCEPT = "image/*";
 
-type UploadPhase = "idle" | "selecting" | "attached" | "saved";
+type UploadPhase = "idle" | "attaching" | "attached" | "saved" | "error";
 
 function CameraIcon({ className = "h-5 w-5" }: { className?: string }) {
   return (
@@ -54,26 +54,40 @@ export function EvidenceUploadChoice({
 
   useEffect(() => {
     if (phase !== "attached") return;
-    const timer = window.setTimeout(() => setPhase("saved"), 400);
+    const timer = window.setTimeout(() => setPhase("saved"), 500);
     return () => window.clearTimeout(timer);
   }, [phase]);
 
   const handleFiles = (files: FileList | null) => {
-    if (!files?.length) return;
-    setLastFiles(Array.from(files));
-    onFiles(files);
-    setPhase("attached");
-    setOpen(false);
+    if (!files?.length) {
+      setPhase("error");
+      setOpen(false);
+      return;
+    }
+    try {
+      setLastFiles(Array.from(files));
+      onFiles(files);
+      setPhase("attached");
+      setOpen(false);
+    } catch {
+      setPhase("error");
+      setOpen(false);
+    }
   };
 
   const statusLine =
-    phase === "selecting"
-      ? "Selecting…"
+    phase === "attaching"
+      ? "Attaching…"
       : phase === "attached"
-        ? "Attached"
+        ? "Attached ✓"
         : phase === "saved"
-          ? "Saved"
-          : null;
+          ? "Saved on tablet ✓"
+          : phase === "error"
+            ? "Could not attach"
+            : null;
+
+  const statusTone =
+    phase === "error" ? "text-rose-700" : phase === "attaching" ? "text-slate-600" : "text-emerald-700";
 
   return (
     <div className="space-y-2">
@@ -81,7 +95,7 @@ export function EvidenceUploadChoice({
         type="button"
         onClick={() => {
           setOpen(true);
-          setPhase("selecting");
+          setPhase("attaching");
         }}
         disabled={disabled}
         className={triggerClassName}
@@ -91,14 +105,18 @@ export function EvidenceUploadChoice({
       {statusLine ? (
         <p
           className={[
-            "flex items-center gap-2 text-xs font-medium text-emerald-700",
+            "flex items-center gap-2 text-sm font-semibold",
+            statusTone,
             phase === "saved" && !reducedMotion ? bertFadeIn : "",
           ].join(" ")}
+          role="status"
         >
-          {phase === "saved" ? <SuccessTick className="h-5 w-5" label="Evidence saved" /> : null}
+          {phase === "saved" || phase === "attached" ? (
+            <SuccessTick className="h-5 w-5" label={phase === "saved" ? "Evidence saved on tablet" : "Evidence attached"} />
+          ) : null}
           <span>{statusLine}</span>
-          {phase === "attached" && !reducedMotion ? (
-            <span className="bert-sync-spinner inline-flex text-emerald-600" aria-hidden>
+          {phase === "attaching" && !reducedMotion ? (
+            <span className="bert-sync-spinner inline-flex text-slate-500" aria-hidden>
               <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2}>
                 <path d="M12 3a9 9 0 1 0 9 9" strokeLinecap="round" className="bert-sync-spinner-stroke origin-center" />
               </svg>
@@ -107,12 +125,23 @@ export function EvidenceUploadChoice({
         </p>
       ) : null}
       {previewImage ? (
-        <div className={["overflow-hidden rounded-xl border border-slate-200 bg-white", !reducedMotion ? bertFadeIn : ""].join(" ")}>
-          {previewUrl ? <img src={previewUrl} alt={previewImage.name} className="h-28 w-full object-cover" /> : null}
+        <div
+          className={[
+            "overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm",
+            !reducedMotion ? bertPanelExpand : "",
+          ].join(" ")}
+        >
+          {previewUrl ? (
+            <img
+              src={previewUrl}
+              alt={previewImage.name}
+              className={["h-32 w-full object-cover", !reducedMotion ? bertThumbnailSlide : ""].join(" ")}
+            />
+          ) : null}
           <p className="truncate px-3 py-2 text-xs font-medium text-slate-700">{previewImage.name}</p>
         </div>
       ) : lastFiles.length > 0 ? (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+        <div className={["rounded-xl border border-slate-200 bg-slate-50 px-3 py-2", !reducedMotion ? bertPanelExpand : ""].join(" ")}>
           {lastFiles.map((file) => (
             <p key={`${file.name}-${file.size}`} className="truncate text-xs font-medium text-slate-700">
               {file.name}
@@ -158,7 +187,10 @@ export function EvidenceUploadChoice({
             <div className="mt-4 space-y-2">
               <AnimatedButton
                 type="button"
-                onClick={() => cameraInputRef.current?.click()}
+                onClick={() => {
+                  setPhase("attaching");
+                  cameraInputRef.current?.click();
+                }}
                 className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 text-sm font-semibold text-white"
               >
                 <CameraIcon />
@@ -166,7 +198,10 @@ export function EvidenceUploadChoice({
               </AnimatedButton>
               <AnimatedButton
                 type="button"
-                onClick={() => deviceInputRef.current?.click()}
+                onClick={() => {
+                  setPhase("attaching");
+                  deviceInputRef.current?.click();
+                }}
                 className={`min-h-[48px] w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-900 ${bertSecondaryButtonInteract}`}
               >
                 Choose from device
@@ -175,7 +210,7 @@ export function EvidenceUploadChoice({
                 type="button"
                 onClick={() => {
                   setOpen(false);
-                  if (phase === "selecting") setPhase("idle");
+                  if (phase === "attaching") setPhase("idle");
                 }}
                 className={`min-h-[48px] w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold text-slate-700 ${bertSecondaryButtonInteract}`}
               >
