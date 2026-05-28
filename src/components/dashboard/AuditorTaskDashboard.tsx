@@ -3,6 +3,8 @@ import type { NavItemId } from "../../types/navigation";
 import type { AuditorTaskDashboardProps } from "../../types/dashboardScreenProps";
 import { getRoleTheme } from "../../config/roleTheme";
 import { rankAuditorAudit } from "../../utils/auditorDashboard";
+import { AnimatedCard } from "../animation/AnimatedCard";
+import { AnimatedButton } from "../animation/AnimatedButton";
 import { DASHBOARD_CARD, PageHeader, TabletBottomNav } from "./RoleDashboardPrimitives";
 import { EmptyPanel } from "./DashboardPrimitives";
 
@@ -60,23 +62,28 @@ export function AuditorTaskDashboard({
       : `${displayChecks.length} checks to do. Tap start and follow the steps.`;
 
   return (
-    <div className="space-y-6">
+      <div className="space-y-6">
       <PageHeader role="Auditor" eyebrow="Tablet mode" title="Today" subtitle={checksSubtitle} />
       {displayChecks.length === 0 ? (
-        <section className={DASHBOARD_CARD}>
+        <AnimatedCard as="section" className={DASHBOARD_CARD}>
           <EmptyPanel
             title="No checks assigned"
             text="When your manager assigns checks, they will appear here with a big Start button."
           />
-        </section>
+        </AnimatedCard>
       ) : (
         <ul className="space-y-4">
-          {displayChecks.slice(0, 8).map((audit) => {
+          {displayChecks.slice(0, 8).map((audit, index) => {
             const inProgress = Boolean(drafts[audit.id]);
             const pillLabel = duePillLabel(audit.dueHours, inProgress);
             const minutes = estimateMinutes(audit.questions?.length ?? 0);
             return (
-              <li key={audit.id} className={[DASHBOARD_CARD, "flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"].join(" ")}>
+              <AnimatedCard
+                key={audit.id}
+                as="li"
+                index={index}
+                className={[DASHBOARD_CARD, "flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"].join(" ")}
+              >
                 <div className="min-w-0 flex-1">
                   <span className="inline-flex rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-black uppercase tracking-wide text-violet-800">
                     {pillLabel}
@@ -86,18 +93,19 @@ export function AuditorTaskDashboard({
                     Takes about {minutes} minute{minutes === 1 ? "" : "s"}.
                   </p>
                 </div>
-                <button
+                <AnimatedButton
                   type="button"
                   onClick={() => onOpenAudit(audit.id)}
+                  showArrow
                   className={[
-                    "flex min-h-16 shrink-0 items-center justify-center rounded-2xl px-10 text-lg font-black text-white shadow-lg transition active:scale-[0.98] sm:min-w-[8rem]",
+                    "flex min-h-16 shrink-0 items-center justify-center rounded-2xl px-10 text-lg font-black text-white shadow-lg sm:min-w-[8rem]",
                     theme.primaryButton,
                     theme.primaryButtonHover,
                   ].join(" ")}
                 >
                   {inProgress ? "Continue" : "Start"}
-                </button>
-              </li>
+                </AnimatedButton>
+              </AnimatedCard>
             );
           })}
         </ul>
@@ -107,6 +115,6 @@ export function AuditorTaskDashboard({
         onSubmit={() => onNavigate("reports")}
         onHistory={() => onNavigate("reports")}
       />
-    </div>
+      </div>
   );
 }

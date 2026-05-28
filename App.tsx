@@ -53,6 +53,12 @@ import { getRoleTheme } from "./src/config/roleTheme";
 import { storageKeys } from "./src/config/storageKeys";
 import { apiUrl } from "./src/config/apiBase";
 import { slatePrimaryCtaInteract } from "./src/styles/interactions";
+import { OfflineSyncBanner } from "./src/components/animation/OfflineSyncBanner";
+import { AnimatedScreen } from "./src/components/animation/AnimatedScreen";
+import { AnimatedButton } from "./src/components/animation/AnimatedButton";
+import { SubmitResultBanner } from "./src/components/animation/SubmitResultBanner";
+import { StatusPulse, type SyncVisualState } from "./src/components/animation/StatusPulse";
+import { bertEvidencePanel } from "./src/components/animation/animationClasses";
 import { getGreetingFirstName, getTimeBasedGreeting, getUserInitials } from "./src/utils/userDisplay";
 import { isDebugUiAllowed } from "./src/utils/debugUiVisibility";
 import { useTabletKiosk } from "./src/hooks/useTabletKiosk";
@@ -4449,6 +4455,14 @@ function App() {
     if (pendingSyncCount > 0 || offlineQueue.length > 0) return "Saving…";
     return "All work saved";
   }, [offlineMode, failedSyncCount, pendingSyncCount, offlineQueue.length]);
+
+  const headerSyncVisualState = useMemo((): SyncVisualState => {
+    if (offlineMode) return "waiting";
+    if (failedSyncCount > 0 || offlineQueue.some((item) => item.syncStatus === "failed")) return "failed";
+    if (offlineQueue.some((item) => item.syncStatus === "syncing") || pendingSyncCount > 0) return "syncing";
+    if (offlineQueue.length > 0) return "waiting";
+    return "synced";
+  }, [offlineMode, failedSyncCount, pendingSyncCount, offlineQueue]);
 
   const availableScheduleAuditors = useMemo(() => {
     const seeded = users.filter((user) => user.role === "Auditor").map((user) => user.name);
@@ -10552,14 +10566,7 @@ function App() {
                   {offlineMode ? "Offline" : "Online"}
                 </div>
               )}
-              <div
-                className={[
-                  "rounded-full border px-2 py-0.5 text-[8px] font-semibold normal-case tracking-normal",
-                  themeMode === "dark" ? "border-slate-700 bg-slate-900 text-slate-300" : "border-slate-200 bg-white text-slate-700",
-                ].join(" ")}
-              >
-                {syncPlainSummary}
-              </div>
+              <StatusPulse state={headerSyncVisualState} label={syncPlainSummary} className="text-[10px]" />
               <div className={["rounded-full border px-2 py-0.5 text-[8px]", themeMode === "dark" ? "border-slate-700 bg-slate-900 text-slate-300" : "border-[var(--bert-signal-orange)] bg-white text-[var(--qms-navy-900)]"].join(" ")}>
                 {deviceTimeLabel}
               </div>
@@ -11027,40 +11034,29 @@ function App() {
               </section>
             )}
             {currentUser.role === "Auditor" && (offlineMode || offlineQueue.length > 0) && (
-              <section className="mb-4 rounded-[1.5rem] border border-amber-200 bg-amber-50 px-4 py-4">
-                <p className="text-sm font-semibold text-amber-900">
-                  {offlineMode ? "Offline mode active" : "Queued submissions waiting to sync"}
-                </p>
-                <p className="mt-1 text-sm text-amber-800">
-                  {offlineMode
-                    ? "You are offline. Checks will be saved on this tablet and synced when internet returns."
-                    : `${offlineQueue.length} queued submission${offlineQueue.length === 1 ? "" : "s"} will sync automatically.`}
-                </p>
-                <p className="mt-2 text-xs text-amber-900">
-                  {offlineQueue.filter((item) => item.syncStatus !== "synced").length} waiting to sync
-                </p>
-                {offlineQueue.some((item) => item.syncStatus === "failed") && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOfflineQueue((current) => {
-                        const next = current.map((item) => (item.syncStatus === "failed" ? { ...item, syncStatus: "queued" as const, lastError: "" } : item));
-                        next.forEach((item) => {
-                          if (item.syncStatus === "queued") {
-                            void tabletOfflineService.upsertSubmission(item).catch(() => undefined);
-                          }
-                        });
-                        return next;
-                      });
-                    }}
-                    className="mt-2 rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-xs font-semibold text-amber-800"
-                  >
-                    Retry failed
-                  </button>
-                )}
-              </section>
+              <OfflineSyncBanner
+                offlineMode={offlineMode}
+                queuedCount={offlineQueue.length}
+                waitingCount={offlineQueue.filter((item) => item.syncStatus !== "synced").length}
+                hasFailed={offlineQueue.some((item) => item.syncStatus === "failed")}
+                syncing={offlineQueue.some((item) => item.syncStatus === "syncing")}
+                onRetryFailed={() => {
+                  setOfflineQueue((current) => {
+                    const next = current.map((item) =>
+                      item.syncStatus === "failed" ? { ...item, syncStatus: "queued" as const, lastError: "" } : item,
+                    );
+                    next.forEach((item) => {
+                      if (item.syncStatus === "queued") {
+                        void tabletOfflineService.upsertSubmission(item).catch(() => undefined);
+                      }
+                    });
+                    return next;
+                  });
+                }}
+              />
             )}
             {screen === "dashboard" && (
+              <AnimatedScreen screenKey={`dashboard-${currentUser.role}`}>
               <DashboardScreen
                 currentUser={currentUser}
                 workspaceName={workspaceName}
@@ -11198,6 +11194,7 @@ function App() {
                   />
                 )}
               />
+              </AnimatedScreen>
             )}
 
             {screen === "audits" &&
@@ -11750,7 +11747,9 @@ function App() {
             )}
 
             {screen === "complete" && canCompleteAuditAsAuditor(currentUser.role) && auditCompletionSummary && (
+              <AnimatedScreen screenKey={`audit-summary-${auditCompletionSummary.auditId}`}>
               <AuditCompletionSummary
+                offlineQueueCount={offlineQueue.length}
                 summary={auditCompletionSummary}
                 hasMoreAudits={Boolean(pickNextAuditorAudit(assignedAudits, drafts))}
                 onStartNext={() => {
@@ -11777,10 +11776,11 @@ function App() {
                   setScreen("dashboard");
                 }}
               />
+              </AnimatedScreen>
             )}
 
             {screen === "complete" && activeAudit && canCompleteAuditAsAuditor(currentUser.role) && !auditCompletionSummary && (
-              <>
+              <AnimatedScreen screenKey={`audit-check-${activeAudit.id}`}>
                 <AuditModeScreen
                   audit={activeAudit}
                   responses={responses}
@@ -11821,7 +11821,7 @@ function App() {
                     onCancel={() => setIssuePrompt(null)}
                   />
                 )}
-              </>
+              </AnimatedScreen>
             )}
 
             {screen === "complete" && activeAudit && canSubmitAuditForReview(currentUser.role) && (
@@ -12020,7 +12020,7 @@ function IssueFoundPrompt({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end bg-slate-900/45 p-3">
-      <div className="w-full rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-2xl">
+      <div className={["w-full rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-2xl", bertEvidencePanel].join(" ")}>
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-rose-600">Issue found</p>
         <p className="mt-2 text-sm font-semibold text-slate-900">{issue.question.text}</p>
         <p className="mt-1 text-xs text-slate-500">Answer: {issue.answer.toUpperCase()} • Risk: {severity}</p>
@@ -12061,9 +12061,9 @@ function IssueFoundPrompt({
           <p className="text-xs text-slate-500">{evidenceCount} photo(s) attached</p>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          <button type="button" onClick={() => onSave({ noteValue, escalate: false })} className={`h-11 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}>
+          <AnimatedButton type="button" onClick={() => onSave({ noteValue, escalate: false })} className={`h-11 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}>
             Save issue and continue
-          </button>
+          </AnimatedButton>
           <button type="button" onClick={onCancel} className="h-11 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700">
             Change answer
           </button>
@@ -12077,16 +12077,25 @@ function IssueFoundPrompt({
 function AuditCompletionSummary({
   summary,
   hasMoreAudits,
+  offlineQueueCount = 0,
   onStartNext,
   onReturnDashboard,
 }: {
   summary: AuditCompletionSummaryState;
   hasMoreAudits: boolean;
+  offlineQueueCount?: number;
   onStartNext: () => void;
   onReturnDashboard: () => void;
 }) {
+  const submittedOnline = summary.syncTone === "green";
   return (
     <div className="space-y-4">
+      <SubmitResultBanner
+        online={submittedOnline}
+        title={summary.auditName}
+        subtitle={summary.syncLabel}
+        queuedCount={offlineQueueCount}
+      />
       <section className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-[0_16px_30px_rgba(15,23,42,0.06)]">
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Audit complete</p>
         <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{summary.auditName}</h2>
@@ -12098,12 +12107,12 @@ function AuditCompletionSummary({
           <MiniMetric label="Sync status" value={summary.syncLabel} />
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          <button type="button" onClick={onStartNext} className={`h-12 rounded-2xl bg-slate-900 px-5 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}>
+          <AnimatedButton type="button" showArrow onClick={onStartNext} className={`h-12 rounded-2xl bg-slate-900 px-5 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}>
             {hasMoreAudits ? "Start next audit" : "All audits complete"}
-          </button>
-          <button type="button" onClick={onReturnDashboard} className="h-12 rounded-2xl border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700">
+          </AnimatedButton>
+          <AnimatedButton type="button" onClick={onReturnDashboard} className="h-12 rounded-2xl border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700">
             Return to dashboard
-          </button>
+          </AnimatedButton>
         </div>
       </section>
     </div>

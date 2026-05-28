@@ -3,6 +3,7 @@ import type { NavItemId } from "../../types/navigation";
 import type { ActionItem } from "../../types/reportsScreenProps";
 import type { ManagerDashboardProps } from "../../types/dashboardScreenProps";
 import { isOverdue } from "../../utils/managerDashboard";
+import { AnimatedCard } from "../animation/AnimatedCard";
 import {
   DASHBOARD_CARD,
   ManagerSummaryCard,
@@ -74,34 +75,40 @@ export function ManagerRoleDashboard({ workspaceName, teamCount, onNavigate, act
       primaryAction={{ label: "View actions", onClick: () => onNavigate("actions"), icon: "alert" }}
     >
       <div className="grid gap-4 sm:grid-cols-3">
-        <ManagerSummaryCard
-          pill="Overdue"
-          pillTone="danger"
-          metric={overdueMetric}
-          description="Need attention today."
-          actionLabel="Review →"
-          onAction={() => onNavigate("actions")}
-          primary
-        />
-        <ManagerSummaryCard
-          pill="Evidence needed"
-          pillTone="warning"
-          metric={evidenceMetric}
-          description="Waiting for a photo or document."
-          actionLabel="Add evidence"
-          onAction={() => onNavigate("actions")}
-        />
-        <ManagerSummaryCard
-          pill="Closed"
-          pillTone="success"
-          metric={closedMetric}
-          description="Completed with proof."
-          actionLabel="View report"
-          onAction={() => onNavigate("reports")}
-        />
+        <AnimatedCard index={0}>
+          <ManagerSummaryCard
+            pill="Overdue"
+            pillTone="danger"
+            metric={overdueMetric}
+            description="Need attention today."
+            actionLabel="Review →"
+            onAction={() => onNavigate("actions")}
+            primary
+          />
+        </AnimatedCard>
+        <AnimatedCard index={1}>
+          <ManagerSummaryCard
+            pill="Evidence needed"
+            pillTone="warning"
+            metric={evidenceMetric}
+            description="Waiting for a photo or document."
+            actionLabel="Add evidence"
+            onAction={() => onNavigate("actions")}
+          />
+        </AnimatedCard>
+        <AnimatedCard index={2}>
+          <ManagerSummaryCard
+            pill="Closed"
+            pillTone="success"
+            metric={closedMetric}
+            description="Completed with proof."
+            actionLabel="View report"
+            onAction={() => onNavigate("reports")}
+          />
+        </AnimatedCard>
       </div>
 
-      <section className={DASHBOARD_CARD}>
+      <AnimatedCard as="section" index={3} className={DASHBOARD_CARD}>
         <h2 className="text-lg font-black text-slate-900">Open actions</h2>
         {openActions.length === 0 ? (
           <p className="mt-4 text-sm text-slate-600">No open corrective actions right now.</p>
@@ -124,7 +131,7 @@ export function ManagerRoleDashboard({ workspaceName, teamCount, onNavigate, act
             })}
           </ul>
         )}
-      </section>
+      </AnimatedCard>
     </RoleDashboardShell>
   );
 }

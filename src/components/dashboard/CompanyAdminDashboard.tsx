@@ -4,6 +4,7 @@ import type { ActionItem, Audit, HistoryEntry } from "../../types/reportsScreenP
 import type { UserInvite } from "../../types/adminScreenProps";
 import { QmsReadinessSummaryWidget } from "../qms/QmsReadinessSummaryWidget";
 import type { QmsReadinessSummary } from "../../types/qms";
+import { AnimatedCard } from "../animation/AnimatedCard";
 import {
   DASHBOARD_CARD,
   RoleDashboardShell,
@@ -105,7 +106,7 @@ export function CompanyAdminDashboard({
       primaryAction={{ label: "Invite user", onClick: () => onNavigate("users"), icon: "invite" }}
     >
       <div className="grid gap-6 lg:grid-cols-3">
-        <section className={[DASHBOARD_CARD, "lg:col-span-2"].join(" ")}>
+        <AnimatedCard as="section" index={0} className={[DASHBOARD_CARD, "lg:col-span-2"].join(" ")}>
           <h2 className="text-lg font-black text-slate-900">Next steps</h2>
           <p className="mt-1 text-sm text-slate-600">Finish these in order. BERT will keep the complex setup underneath.</p>
           <ol className="mt-5 space-y-3">
@@ -123,21 +124,22 @@ export function CompanyAdminDashboard({
               );
             })}
           </ol>
-        </section>
+        </AnimatedCard>
 
         <aside>
-          <section className={DASHBOARD_CARD}>
+          <AnimatedCard as="section" index={1} className={DASHBOARD_CARD}>
             <h2 className="text-lg font-black text-slate-900">Today</h2>
             <div className="mt-4 space-y-3">
               <TodayMetricBlock value={String(openActions)} label="actions open" tone="orange" />
               <TodayMetricBlock value={String(reportsReady)} label="report ready" tone="blue" />
               <TodayMetricBlock value={String(syncIssueCount)} label="sync issues" tone="green" />
             </div>
-          </section>
+          </AnimatedCard>
         </aside>
       </div>
 
       {qmsSummary ? (
+        <AnimatedCard index={2}>
         <QmsReadinessSummaryWidget
           summary={qmsSummary}
           compact
@@ -145,6 +147,7 @@ export function CompanyAdminDashboard({
           onNavigate={onNavigate}
           onOpenReviewPack={() => onNavigate("reports")}
         />
+        </AnimatedCard>
       ) : null}
     </RoleDashboardShell>
   );

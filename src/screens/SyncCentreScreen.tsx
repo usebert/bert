@@ -3,7 +3,17 @@ import { getRolePermissions } from "../permissions";
 import type { SyncQueueItem, SyncStatus } from "../types/sync";
 import { EmptyPanel, MiniMetric } from "../components/dashboard/DashboardPrimitives";
 import { darkPanelBody, darkPanelEyebrow, darkPanelShell, darkPanelTitleLg } from "../styles/darkPanel";
+import { AnimatedButton } from "../components/animation/AnimatedButton";
+import { StatusPulse, type SyncVisualState } from "../components/animation/StatusPulse";
 import { slatePrimaryCtaInteract } from "../styles/interactions";
+
+function queueItemVisualState(status: SyncStatus): SyncVisualState {
+  if (status === "Syncing") return "syncing";
+  if (status === "Synced") return "synced";
+  if (status === "Failed" || status === "Conflict") return "failed";
+  if (status === "Pending Sync") return "waiting";
+  return "idle";
+}
 
 function syncTrustLabel(status: SyncStatus): string {
   if (status === "Pending Sync") return "Queued";
@@ -90,14 +100,14 @@ export function SyncCentreScreen({
                   </p>
                   {item.lastError ? <p className="mt-2 text-xs font-semibold text-rose-600">{item.lastError}</p> : null}
                 </div>
-                <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{syncTrustLabel(item.status)}</div>
+                <StatusPulse state={queueItemVisualState(item.status)} label={syncTrustLabel(item.status)} />
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 <div className="rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-500">Retries {item.retryCount}</div>
                 {(item.status === "Failed" || item.status === "Conflict") && (
-                  <button onClick={() => onRetryItem(item.localId)} className={`rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white ${slatePrimaryCtaInteract}`}>
-                    Retry
-                  </button>
+                  <AnimatedButton type="button" onClick={() => onRetryItem(item.localId)} className={`rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white ${slatePrimaryCtaInteract}`}>
+                    Retry sync
+                  </AnimatedButton>
                 )}
                 {permissions.canRepairWorkspace && <button onClick={() => onForceSyncItem(item.localId)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800">Force sync</button>}
               </div>

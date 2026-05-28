@@ -3,6 +3,7 @@ import type { Role } from "../../permissions";
 import type { NavItemId } from "../../types/navigation";
 import { getRoleTheme } from "../../config/roleTheme";
 import { AlertTriangleIcon } from "../icons/AlertTriangleIcon";
+import { AnimatedButton } from "../animation/AnimatedButton";
 
 export type LandingCardIconTone = "orange" | "blue" | "grey" | "green";
 
@@ -25,10 +26,10 @@ function SearchIcon({ className = "h-4 w-4" }: { className?: string }) {
 export const DASHBOARD_CARD = "rounded-3xl border border-slate-200 bg-white p-6 shadow-sm";
 
 const PRIMARY_BUTTON_BASE =
-  "inline-flex min-h-12 items-center justify-center rounded-2xl px-5 text-sm font-black shadow-lg transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex min-h-12 items-center justify-center rounded-2xl px-5 text-sm font-black shadow-lg disabled:cursor-not-allowed disabled:opacity-60";
 
 const SECONDARY_BUTTON_BASE =
-  "inline-flex min-h-12 w-full items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 active:scale-[0.98]";
+  "inline-flex min-h-12 w-full items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-800 shadow-sm hover:border-slate-300 hover:bg-slate-50";
 
 export function PrimaryButton({
   role,
@@ -45,7 +46,7 @@ export function PrimaryButton({
 }) {
   const theme = getRoleTheme(role);
   return (
-    <button
+    <AnimatedButton
       type="button"
       onClick={onClick}
       className={[
@@ -57,7 +58,7 @@ export function PrimaryButton({
       ].join(" ")}
     >
       {children}
-    </button>
+    </AnimatedButton>
   );
 }
 
@@ -71,9 +72,9 @@ export function SecondaryButton({
   className?: string;
 }) {
   return (
-    <button type="button" onClick={onClick} className={[SECONDARY_BUTTON_BASE, className].join(" ")}>
+    <AnimatedButton type="button" onClick={onClick} className={[SECONDARY_BUTTON_BASE, className].join(" ")}>
       {children}
-    </button>
+    </AnimatedButton>
   );
 }
 

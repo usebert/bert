@@ -1,8 +1,12 @@
 import { useMemo, useState } from "react";
 import type { NavItemId } from "../types/navigation";
 import type { CompanyFolder } from "../types/dashboardScreenProps";
+import { AnimatedButton } from "../components/animation/AnimatedButton";
+import { AnimatedCard } from "../components/animation/AnimatedCard";
+import { AnimatedScreen } from "../components/animation/AnimatedScreen";
 import { GodmodeCompanyContextSelector } from "../components/godmode/GodmodeCompanyContextSelector";
 import { DashboardLandingCard, PageHeader } from "../components/dashboard/RoleDashboardPrimitives";
+import { bertSecondaryButtonInteract } from "../styles/interactions";
 import { GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE } from "../utils/companyWorkspaceInvite";
 
 export type GodmodeCompanyPickerRow = {
@@ -89,22 +93,23 @@ function LandingActionCard({
       <p className={["mt-2 flex-1 text-sm leading-relaxed", onDark ? "text-slate-400" : "text-slate-600"].join(" ")}>
         {card.description}
       </p>
-      <button
+      <AnimatedButton
         type="button"
         onClick={card.onAction}
+        showArrow={card.actionLabel.includes("→") || card.actionLabel.includes("+")}
         className={[
-          "mt-4 inline-flex h-12 w-full items-center justify-center rounded-xl px-4 text-sm font-semibold transition",
+          "mt-4 h-12 w-full rounded-xl px-4 text-sm font-semibold",
           primary
             ? onDark
               ? "bg-orange-500 text-slate-950 hover:bg-orange-400"
               : "bg-orange-500 text-white hover:bg-orange-600"
             : onDark
-              ? "border border-orange-400/50 bg-orange-500/20 text-orange-100 hover:bg-orange-500/30"
-              : "border border-orange-300 bg-orange-50 text-orange-950 hover:bg-orange-100",
+              ? `border border-orange-400/50 bg-orange-500/20 text-orange-100 hover:bg-orange-500/30 ${bertSecondaryButtonInteract}`
+              : `border border-orange-300 bg-orange-50 text-orange-950 hover:bg-orange-100 ${bertSecondaryButtonInteract}`,
         ].join(" ")}
       >
         {card.actionLabel}
-      </button>
+      </AnimatedButton>
     </article>
   );
 }
@@ -333,6 +338,7 @@ export function GodmodeStartScreen({
 
   if (view === "hub" && selectedFolderId) {
     return (
+      <AnimatedScreen screenKey={`godmode-hub-${selectedFolderId}`}>
       <div className={pageShell}>
         <header className="mb-6">
           <button
@@ -414,11 +420,13 @@ export function GodmodeStartScreen({
           </div>
         </details>
       </div>
+      </AnimatedScreen>
     );
   }
 
   if (view === "picker") {
     return (
+      <AnimatedScreen screenKey="godmode-picker">
       <div className={pageShell}>
         <header className="mb-5">
           <button
@@ -494,28 +502,34 @@ export function GodmodeStartScreen({
           </ul>
         )}
       </div>
+      </AnimatedScreen>
     );
   }
 
   if (onDark) {
     return (
+      <AnimatedScreen screenKey="godmode-landing">
       <div className={pageShell}>
         <p className={`max-w-2xl text-sm leading-relaxed md:text-base ${muted}`}>
           Manage the platform, onboard companies, or open a company workspace.
         </p>
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           {landingCards.map((card, index) => (
-            <LandingActionCard key={card.id} card={card} onDark={onDark} primary={index === 0} />
+            <AnimatedCard key={card.id} index={index}>
+              <LandingActionCard card={card} onDark={onDark} primary={index === 0} />
+            </AnimatedCard>
           ))}
         </div>
         {!companyContextReady && selectedFolderId ? (
           <p className={`mt-4 text-sm text-amber-200`}>{GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE}</p>
         ) : null}
       </div>
+      </AnimatedScreen>
     );
   }
 
   return (
+    <AnimatedScreen screenKey="godmode-landing-light">
     <div className="space-y-6">
       <PageHeader
         role="Master"
@@ -534,21 +548,23 @@ export function GodmodeStartScreen({
       />
       <div className="grid gap-4 sm:grid-cols-2">
         {landingCards.map((card, index) => (
-          <DashboardLandingCard
-            key={card.id}
-            role="Master"
-            title={card.title}
-            description={card.description}
-            actionLabel={card.actionLabel}
-            onAction={card.onAction}
-            primary={index === 0}
-            iconTone={card.iconTone}
-          />
+          <AnimatedCard key={card.id} index={index}>
+            <DashboardLandingCard
+              role="Master"
+              title={card.title}
+              description={card.description}
+              actionLabel={card.actionLabel}
+              onAction={card.onAction}
+              primary={index === 0}
+              iconTone={card.iconTone}
+            />
+          </AnimatedCard>
         ))}
       </div>
       {!companyContextReady && selectedFolderId ? (
         <p className="text-sm font-semibold text-amber-800">{GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE}</p>
       ) : null}
     </div>
+    </AnimatedScreen>
   );
 }

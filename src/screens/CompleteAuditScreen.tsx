@@ -1,5 +1,8 @@
 import { useEffect, useRef, type PointerEvent } from "react";
+import { AnimatedButton } from "../components/animation/AnimatedButton";
+import { AnimatedScreen } from "../components/animation/AnimatedScreen";
 import { MetaPill, SectionHeader, StatusBadge } from "../components/dashboard/DashboardPrimitives";
+import { bertSecondaryButtonInteract } from "../styles/interactions";
 import { darkPanelEyebrow, darkPanelShell } from "../styles/darkPanel";
 import { getAuditTrafficStatus, getDueWarning } from "../utils/dashboardHealth";
 import type { CompleteAuditAnswerButtonProps, CompleteAuditScreenProps } from "../types/completeAuditScreenProps";
@@ -30,6 +33,7 @@ export function CompleteAuditScreen({
   const evidenceTotal = audit.questions.reduce((total, question) => total + (evidence[question.id]?.length ?? 0), 0);
 
   return (
+    <AnimatedScreen screenKey={`complete-audit-${audit.id}`}>
     <div className="space-y-4">
       <section className={darkPanelShell}>
         <div className="flex items-start justify-between gap-3">
@@ -163,24 +167,34 @@ export function CompleteAuditScreen({
       </section>
 
       <section className="grid grid-cols-3 gap-3">
-        <button onClick={onCancel} className="h-14 rounded-2xl bg-slate-100 text-sm font-semibold text-slate-700">
+        <AnimatedButton
+          type="button"
+          onClick={onCancel}
+          className={`h-14 rounded-2xl bg-slate-100 text-sm font-semibold text-slate-700 ${bertSecondaryButtonInteract}`}
+        >
           Cancel
-        </button>
-        <button onClick={onSaveDraft} className="h-14 rounded-2xl bg-slate-200 text-sm font-semibold text-slate-800">
-          Save draft
-        </button>
-        <button
+        </AnimatedButton>
+        <AnimatedButton
+          type="button"
+          onClick={onSaveDraft}
+          className={`h-14 rounded-2xl bg-slate-200 text-sm font-semibold text-slate-800 ${bertSecondaryButtonInteract}`}
+        >
+          Save
+        </AnimatedButton>
+        <AnimatedButton
+          type="button"
           onClick={onSubmit}
           disabled={!canSubmit}
           className={[
-            "h-14 rounded-2xl text-sm font-semibold text-white shadow-[0_14px_28px_rgba(15,23,42,0.18)] transition",
-            canSubmit ? `bg-slate-900 active:scale-[0.99] ${slatePrimaryCtaInteract}` : "bg-slate-300",
+            "h-14 rounded-2xl text-sm font-semibold text-white shadow-[0_14px_28px_rgba(15,23,42,0.18)]",
+            canSubmit ? `bg-slate-900 ${slatePrimaryCtaInteract}` : "bg-slate-300",
           ].join(" ")}
         >
           Submit
-        </button>
+        </AnimatedButton>
       </section>
     </div>
+    </AnimatedScreen>
   );
 }
 
