@@ -1068,6 +1068,7 @@ installGoogleFormTemplateRoutes(app, {
   withSheetsQuotaRetry,
   requiredEnv,
   requireGoogleWorkspaceSession,
+  requireMasterOnlyActor,
 });
 
 function safeLower(value) {

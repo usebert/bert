@@ -468,6 +468,228 @@ export async function ensureGoogleFormTemplateFolders(auth, category, { sharedDr
   };
 }
 
+function isDrivePermissionError(error) {
+  if (!error) return false;
+  const status = error.code ?? error.response?.status ?? error.status;
+  if (status === 403 || status === 404) return true;
+  const msg = String(error.message || error.response?.data?.error?.message || "");
+  return /permission|forbidden|not found|insufficient/i.test(msg);
+}
+
+async function readFormsScopeConnected(auth, google) {
+  const scope = String(auth?.credentials?.scope || "").toLowerCase();
+  if (scope.includes("forms.body")) {
+    return true;
+  }
+  try {
+    const token = String(auth?.credentials?.access_token || "").trim();
+    if (!token) {
+      return false;
+    }
+    const oauth2 = google.oauth2({ version: "v2", auth });
+    const { data } = await oauth2.tokeninfo({ access_token: token });
+    return String(data.scope || "")
+      .toLowerCase()
+      .includes("forms.body");
+  } catch {
+    return false;
+  }
+}
+
+async function countConfiguredCategorySubfolders(drive, rootId) {
+  const children = await listChildFolders(drive, rootId);
+  const existingNames = new Set(children.map((folder) => safeLower(folder.name)));
+  const present = CONFIGURED_TEMPLATE_CATEGORY_FOLDERS.filter((name) => existingNames.has(safeLower(name)));
+  return {
+    subfolderCount: present.length,
+    expectedSubfolderCount: CONFIGURED_TEMPLATE_CATEGORY_FOLDERS.length,
+    categoryFolders: present,
+  };
+}
+
+async function inspectConfiguredTemplateFolder(drive, folderId) {
+  const folder = await getDriveFolderById(drive, folderId);
+  const meta = await drive.files.get({
+    fileId: folderId,
+    supportsAllDrives: true,
+    fields: "id,name,capabilities",
+  });
+  const canEditFolder = meta.data.capabilities?.canEdit !== false;
+  const counts = await countConfiguredCategorySubfolders(drive, folderId);
+  return {
+    folderId,
+    folderName: String(folder.name || "").trim(),
+    canAccessFolder: true,
+    canEditFolder,
+    ...counts,
+  };
+}
+
+function buildTemplateFolderStatusPayload(input) {
+  const folderId = getConfiguredGoogleFormTemplatesFolderId();
+  const folderConfigured = Boolean(folderId);
+  let status = "missing";
+  if (input.canAccessFolder && input.canEditFolder && input.formsScopeConnected) {
+    status = "connected";
+  } else if (folderConfigured && (input.canAccessFolder === false || input.canEditFolder === false)) {
+    status = "permission_issue";
+  } else if (!folderConfigured) {
+    status = "missing";
+  } else if (!input.googleConnected) {
+    status = "missing";
+  }
+
+  return {
+    ok: true,
+    folderConfigured,
+    folderId: folderConfigured ? folderId : "",
+    folderName: input.folderName || "",
+    status,
+    googleConnected: input.googleConnected === true,
+    formsScopeConnected: input.formsScopeConnected === true,
+    canAccessFolder: input.canAccessFolder === true,
+    canEditFolder: input.canEditFolder === true,
+    subfolderCount: input.subfolderCount ?? 0,
+    expectedSubfolderCount: CONFIGURED_TEMPLATE_CATEGORY_FOLDERS.length,
+    categoryFolders: input.categoryFolders || [],
+    verifyError: input.verifyError || undefined,
+    usesConfiguredRoot: folderConfigured,
+  };
+}
+
+export function createGoogleFormTemplateFolderSetupApi(deps) {
+  const { google, getAuthedClient, envConfigured } = deps;
+
+  async function getFolderStatus() {
+    const folderId = getConfiguredGoogleFormTemplatesFolderId();
+    const folderConfigured = Boolean(folderId);
+    if (!folderConfigured) {
+      return buildTemplateFolderStatusPayload({
+        googleConnected: Boolean(getAuthedClient()),
+        formsScopeConnected: false,
+        canAccessFolder: false,
+        canEditFolder: false,
+        verifyError:
+          "BERT_GOOGLE_FORM_TEMPLATES_FOLDER_ID is not set on the API server. Set it on the Render API service, then redeploy.",
+      });
+    }
+
+    if (!envConfigured()) {
+      return buildTemplateFolderStatusPayload({
+        googleConnected: false,
+        formsScopeConnected: false,
+        canAccessFolder: false,
+        canEditFolder: false,
+        verifyError: "Google Workspace is not configured on the API server.",
+      });
+    }
+
+    const auth = getAuthedClient();
+    if (!auth) {
+      return buildTemplateFolderStatusPayload({
+        googleConnected: false,
+        formsScopeConnected: false,
+        canAccessFolder: false,
+        canEditFolder: false,
+        verifyError: "Connect Google Workspace to verify template folder access.",
+      });
+    }
+
+    const formsScopeConnected = await readFormsScopeConnected(auth, google);
+    const drive = google.drive({ version: "v3", auth });
+    try {
+      const inspected = await inspectConfiguredTemplateFolder(drive, folderId);
+      return buildTemplateFolderStatusPayload({
+        googleConnected: true,
+        formsScopeConnected,
+        canAccessFolder: true,
+        canEditFolder: inspected.canEditFolder,
+        folderName: inspected.folderName,
+        subfolderCount: inspected.subfolderCount,
+        categoryFolders: inspected.categoryFolders,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to access the configured Google Form template folder.";
+      return buildTemplateFolderStatusPayload({
+        googleConnected: true,
+        formsScopeConnected,
+        canAccessFolder: !isDrivePermissionError(error),
+        canEditFolder: false,
+        verifyError: message,
+      });
+    }
+  }
+
+  async function verifyFolder() {
+    const status = await getFolderStatus();
+    if (!status.folderConfigured) {
+      return { ok: false, ...status, verified: false, error: status.verifyError };
+    }
+    if (!status.googleConnected) {
+      return {
+        ok: false,
+        ...status,
+        verified: false,
+        error: "Connect Google Workspace before verifying the template folder.",
+      };
+    }
+    if (!status.canAccessFolder) {
+      return {
+        ok: false,
+        ...status,
+        verified: false,
+        error: status.verifyError || "Unable to access the configured Google Form template folder.",
+      };
+    }
+    if (!status.canEditFolder) {
+      return {
+        ok: false,
+        ...status,
+        verified: false,
+        error: "BERT cannot edit the Google Form template folder.",
+      };
+    }
+    return { ok: true, ...status, verified: status.status === "connected" };
+  }
+
+  async function ensureFolderStructure() {
+    const folderId = getConfiguredGoogleFormTemplatesFolderId();
+    if (!folderId) {
+      return {
+        ok: false,
+        error:
+          "BERT_GOOGLE_FORM_TEMPLATES_FOLDER_ID is not set on the API server. Set it on the Render API service, then redeploy.",
+      };
+    }
+    const auth = getAuthedClient();
+    if (!envConfigured() || !auth) {
+      return { ok: false, error: "Connect Google Workspace before repairing the template folder structure." };
+    }
+
+    const drive = google.drive({ version: "v3", auth });
+    await ensureConfiguredCategorySubfolders(drive, folderId);
+    const inspected = await inspectConfiguredTemplateFolder(drive, folderId);
+    const formsScopeConnected = await readFormsScopeConnected(auth, google);
+    return buildTemplateFolderStatusPayload({
+      googleConnected: true,
+      formsScopeConnected,
+      canAccessFolder: true,
+      canEditFolder: inspected.canEditFolder,
+      folderName: inspected.folderName,
+      subfolderCount: inspected.subfolderCount,
+      categoryFolders: inspected.categoryFolders,
+      repaired: true,
+    });
+  }
+
+  return {
+    getFolderStatus,
+    verifyFolder,
+    ensureFolderStructure,
+  };
+}
+
 export function createGoogleFormTemplatesApi({ google, getAuthedClient, envConfigured, withSheetsQuotaRetry, requiredEnv }) {
   function driveClient(auth) {
     return google.drive({ version: "v3", auth });
@@ -839,8 +1061,65 @@ export function createGoogleFormTemplatesApi({ google, getAuthedClient, envConfi
 }
 
 export function installGoogleFormTemplateRoutes(app, deps) {
-  const { requireGoogleWorkspaceSession } = deps;
+  const { requireGoogleWorkspaceSession, requireMasterOnlyActor } = deps;
   const api = createGoogleFormTemplatesApi(deps);
+  const folderSetup = createGoogleFormTemplateFolderSetupApi(deps);
+  const requireGodmodeActor = requireMasterOnlyActor || ((_req, _res, next) => next());
+
+  app.get(
+    "/api/google-form-templates/folder/status",
+    requireGodmodeActor,
+    async (_req, res) => {
+      try {
+        const payload = await folderSetup.getFolderStatus();
+        return res.json(payload);
+      } catch (error) {
+        return res.status(500).json({
+          ok: false,
+          error: error instanceof Error ? error.message : "Unable to load Google Form template folder status.",
+        });
+      }
+    },
+  );
+
+  app.post(
+    "/api/google-form-templates/folder/verify",
+    requireGodmodeActor,
+    requireGoogleWorkspaceSession,
+    async (_req, res) => {
+      try {
+        const payload = await folderSetup.verifyFolder();
+        return res.status(payload.ok ? 200 : 400).json(payload);
+      } catch (error) {
+        return res.status(500).json({
+          ok: false,
+          verified: false,
+          error: error instanceof Error ? error.message : "Unable to verify Google Form template folder.",
+        });
+      }
+    },
+  );
+
+  app.post(
+    "/api/google-form-templates/folder/ensure-structure",
+    requireGodmodeActor,
+    requireGoogleWorkspaceSession,
+    async (_req, res) => {
+      try {
+        const payload = await folderSetup.ensureFolderStructure();
+        return res.status(payload.ok === false ? 400 : 200).json(payload);
+      } catch (error) {
+        const permissionRequired = isDrivePermissionError(error);
+        return res.status(permissionRequired ? 403 : 500).json({
+          ok: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Unable to repair Google Form template folder structure.",
+        });
+      }
+    },
+  );
 
   app.get("/api/google-form-templates", requireGoogleWorkspaceSession, async (_req, res) => {
     try {

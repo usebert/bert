@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { googleWorkspaceService } from "../services/googleWorkspaceService";
+import {
+  googleFormTemplateFolderService,
+  type GoogleFormTemplateFolderStatusPayload,
+} from "../services/googleFormTemplateFolderService";
 import { fetchSetupStatus, type SetupStatusPayload } from "../services/setupStatusService";
 import type { GoogleStatusPayload } from "../services/pilotStatusService";
 import { SECTION_INTROS } from "../config/sectionIntros";
@@ -117,6 +121,23 @@ function sharedDriveStatusText(input: {
   return { label: "Not verified", tone: "warn" };
 }
 
+function templateFolderStatusText(input: {
+  status?: string;
+  verifying: boolean;
+  repairing: boolean;
+}): { label: string; tone: "ok" | "warn" | "error" } {
+  if (input.verifying || input.repairing) {
+    return { label: input.repairing ? "Repairing…" : "Verifying…", tone: "warn" };
+  }
+  if (input.status === "connected") {
+    return { label: "Connected", tone: "ok" };
+  }
+  if (input.status === "permission_issue") {
+    return { label: "Permission issue", tone: "error" };
+  }
+  return { label: "Missing", tone: "error" };
+}
+
 export function GodmodeInitialSetupScreen({
   onGoogleConnect,
   onGoogleDisconnect,
@@ -131,6 +152,12 @@ export function GodmodeInitialSetupScreen({
   const [googleLoading, setGoogleLoading] = useState(false);
   const [verifyingDrive, setVerifyingDrive] = useState(false);
   const [verifyMessage, setVerifyMessage] = useState("");
+  const [templateFolderStatus, setTemplateFolderStatus] =
+    useState<GoogleFormTemplateFolderStatusPayload | null>(null);
+  const [templateFolderLoading, setTemplateFolderLoading] = useState(false);
+  const [verifyingTemplateFolder, setVerifyingTemplateFolder] = useState(false);
+  const [repairingTemplateFolder, setRepairingTemplateFolder] = useState(false);
+  const [templateFolderMessage, setTemplateFolderMessage] = useState("");
 
   const loadGoogleStatus = useCallback(async () => {
     setGoogleLoading(true);
@@ -165,6 +192,26 @@ export function GodmodeInitialSetupScreen({
     void loadGoogleStatus();
   }, [googleConnected, loadGoogleStatus]);
 
+  const loadTemplateFolderStatus = useCallback(async () => {
+    setTemplateFolderLoading(true);
+    try {
+      const payload = await googleFormTemplateFolderService.getStatus();
+      setTemplateFolderStatus(payload);
+      setTemplateFolderMessage("");
+    } catch (error) {
+      setTemplateFolderStatus(null);
+      setTemplateFolderMessage(
+        error instanceof Error ? error.message : "Unable to load Google Form template folder status.",
+      );
+    } finally {
+      setTemplateFolderLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadTemplateFolderStatus();
+  }, [googleConnected, loadTemplateFolderStatus]);
+
   const sharedDriveId =
     String(googleStatus?.sharedDriveId || status?.sharedDriveId || "").trim();
   const sharedDriveVerified = googleStatus?.sharedDriveVerified === true;
@@ -182,6 +229,59 @@ export function GodmodeInitialSetupScreen({
   });
 
   const sections = buildSections(status, googleConnected, sharedDriveVerified, sharedDriveId);
+
+  const templateFolderId = String(templateFolderStatus?.folderId || "").trim();
+  const templateFolderBadge = templateFolderStatusText({
+    status: templateFolderStatus?.status,
+    verifying: verifyingTemplateFolder,
+    repairing: repairingTemplateFolder,
+  });
+
+  const handleVerifyTemplateFolder = async () => {
+    if (!googleConnected) {
+      setTemplateFolderMessage("Connect Google Workspace before verifying the template folder.");
+      return;
+    }
+    setVerifyingTemplateFolder(true);
+    setTemplateFolderMessage("");
+    try {
+      const payload = await googleFormTemplateFolderService.verify();
+      setTemplateFolderStatus(payload);
+      setTemplateFolderMessage(
+        payload.verified
+          ? `Template folder verified. ${payload.subfolderCount ?? 0} of ${payload.expectedSubfolderCount ?? 8} category subfolder(s) present.`
+          : payload.verifyError || payload.error || "Template folder could not be verified.",
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to verify template folder.";
+      setTemplateFolderMessage(message);
+      await loadTemplateFolderStatus();
+    } finally {
+      setVerifyingTemplateFolder(false);
+    }
+  };
+
+  const handleRepairTemplateFolder = async () => {
+    if (!googleConnected) {
+      setTemplateFolderMessage("Connect Google Workspace before repairing the template folder structure.");
+      return;
+    }
+    setRepairingTemplateFolder(true);
+    setTemplateFolderMessage("");
+    try {
+      const payload = await googleFormTemplateFolderService.ensureStructure();
+      setTemplateFolderStatus(payload);
+      setTemplateFolderMessage(
+        `Category subfolders ensured. ${payload.subfolderCount ?? 0} of ${payload.expectedSubfolderCount ?? 8} present.`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to repair template folder structure.";
+      setTemplateFolderMessage(message);
+      await loadTemplateFolderStatus();
+    } finally {
+      setRepairingTemplateFolder(false);
+    }
+  };
 
   const handleVerifySharedDrive = async () => {
     if (!googleConnected) {
