@@ -13,6 +13,7 @@ export const REQUIRED_TABS = [
   "Reports",
   "SyncLog",
   "Notes",
+  "CompanyFolders",
 ] as const;
 
 export type RequiredTab = (typeof REQUIRED_TABS)[number];
@@ -272,6 +273,16 @@ export const REQUIRED_COLUMNS: Record<RequiredTab, string[]> = {
     "Last Sync Error",
     "Remote Row ID",
     "Schema Version",
+  ],
+  CompanyFolders: [
+    "Folder Key",
+    "Folder Name",
+    "Folder ID",
+    "Parent Folder ID",
+    "Path",
+    "Created At",
+    "Last Checked At",
+    "Status",
   ],
 };
 

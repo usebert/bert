@@ -37,7 +37,9 @@ import {
   getHomeScreenForRole,
   getRoleDisplayName,
   getRolePermissions,
+  canRepairCompanyFolderStructure,
 } from "./src/permissions";
+import { companyFolderStructureService } from "./src/services/companyFolderStructureService";
 import { navItems } from "./src/config/navItems";
 import {
   getMobileBottomNavForRole,
@@ -3153,6 +3155,7 @@ function App() {
   const [folderInspectionLoading, setFolderInspectionLoading] = useState(false);
   const [workspaceValidation, setWorkspaceValidation] = useState<WorkspaceValidation | null>(null);
   const [workspaceValidationLoading, setWorkspaceValidationLoading] = useState(false);
+  const [companyFolderStructureRepairing, setCompanyFolderStructureRepairing] = useState(false);
   const storedFolderLinks = readStoredFolderLinks();
   const [folderNameInput, setFolderNameInput] = useState(storedFolderLinks?.folderNameInput || "");
   const [folderIdInput, setFolderIdInput] = useState(storedFolderLinks?.folderIdInput || "");
@@ -5962,6 +5965,59 @@ function App() {
       pushToast("Fix workspace failed", error instanceof Error ? error.message : "Unable to fix the workspace.", "warning");
     } finally {
       setWorkspaceValidationLoading(false);
+    }
+  };
+
+  const repairCompanyFolderStructure = async () => {
+    if (!currentUser || !canRepairCompanyFolderStructure(currentUser.role)) {
+      pushToast("Not allowed", "Only Admin or Master can repair the company folder structure.", "warning");
+      return;
+    }
+    if (currentUser.role === "Master" && !masterGodmodeCompanyReady && !godmodeIncompleteCompanySetup) {
+      pushToast("Company workspace required", GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE, "warning");
+      return;
+    }
+    if (!backendConfigured || !googleConnected) {
+      pushToast(
+        "Google Workspace needs setup",
+        "Connect Google in Initial Setup before repairing company Drive folders.",
+        "warning",
+      );
+      return;
+    }
+    const sheetId = extractGoogleResourceId(masterSheetInput) || companySheetSync?.sheetId || selectedFolder?.responseSheetId || "";
+    const companyFolderId = extractGoogleResourceId(folderIdInput) || selectedFolder?.id || "";
+    if (!sheetId || !companyFolderId) {
+      pushToast(
+        "Workspace link required",
+        "Link a company folder and Company Master Sheet before repairing Drive folders.",
+        "warning",
+      );
+      return;
+    }
+    setCompanyFolderStructureRepairing(true);
+    try {
+      const payload = await companyFolderStructureService.repairCompanyFolderStructure({
+        companyFolderId,
+        masterSheetId: sheetId,
+        companyName: selectedFolder?.name || folderNameInput,
+      });
+      if (payload.legacyFolderConfig) {
+        applyIsoFolderIdsToInputs(payload.legacyFolderConfig, isoFolderInputSnapshot, isoFolderInputSetters);
+      }
+      pushToast(
+        "Drive folders updated",
+        `Standard company folders are in place (${payload.folderCount ?? 0} entries). Missing folders were created; nothing was deleted.`,
+        "success",
+      );
+    } catch (error) {
+      pushToast(
+        "Folder repair failed",
+        error instanceof Error ? error.message : "Unable to repair company folder structure.",
+        "warning",
+      );
+    } finally {
+      setCompanyFolderStructureRepairing(false);
     }
   };
 
@@ -9100,6 +9156,9 @@ function App() {
     }
 
     await handleAddFolder();
+    if (canRepairCompanyFolderStructure(currentUser?.role || "Auditor")) {
+      await repairCompanyFolderStructure();
+    }
     handleVerifyOnboarding();
     handleVerifyAudits();
     handleVerifyResponseSheet();
@@ -11726,6 +11785,12 @@ function App() {
                 onRequestNotifications={requestNotificationAccess}
                 onValidateWorkspace={() => void validateWorkspace()}
                 onRepairWorkspace={repairWorkspace}
+                onRepairCompanyFolderStructure={
+                  currentUser && canRepairCompanyFolderStructure(currentUser.role)
+                    ? () => void repairCompanyFolderStructure()
+                    : undefined
+                }
+                companyFolderStructureRepairing={companyFolderStructureRepairing}
                 onTemplateNameChange={setTemplateNameInput}
                 templateCategoryInput={templateCategoryInput}
                 onTemplateCategoryChange={setTemplateCategoryInput}

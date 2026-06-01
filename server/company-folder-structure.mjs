@@ -420,7 +420,6 @@ export async function ensureCompanyFolderStructure(deps, auth, input) {
     throw new Error("The company root folder ID is missing or invalid.");
   }
 
-  const rootChildren = await listChildFolders(drive, companyRootFolderId);
   const allChildrenResponse = await drive.files.list({
     includeItemsFromAllDrives: true,
     supportsAllDrives: true,
