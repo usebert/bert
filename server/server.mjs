@@ -39,6 +39,13 @@ import {
   GOOGLE_FORMS_BODY_SCOPE,
   installGoogleFormTemplateRoutes,
 } from "./google-form-templates.mjs";
+import {
+  COMPANY_FOLDERS_TAB,
+  COMPANY_FOLDERS_COLUMNS,
+  ensureCompanyFolderStructure,
+  installCompanyFolderStructureRoutes,
+  resolveEvidenceUploadFolderId,
+} from "./company-folder-structure.mjs";
 
 dotenv.config();
 
@@ -188,7 +195,23 @@ const APP_VERSION = (() => {
 })();
 
 const CURRENT_SCHEMA_VERSION = "3.0.0";
-const REQUIRED_TABS = ["Config", "Onboarding", "Users", "Schedule", "Actions", "ActionComments", "AuditResults", "AuditFindings", "Evidence", "Incidents", "IncidentActions", "Reports", "SyncLog", "Notes"];
+const REQUIRED_TABS = [
+  "Config",
+  "Onboarding",
+  "Users",
+  "Schedule",
+  "Actions",
+  "ActionComments",
+  "AuditResults",
+  "AuditFindings",
+  "Evidence",
+  "Incidents",
+  "IncidentActions",
+  "Reports",
+  "SyncLog",
+  "Notes",
+  COMPANY_FOLDERS_TAB,
+];
 const TAB_COLUMNS = {
   Config: ["Key", "Value", "Updated At"],
   Onboarding: [
@@ -514,6 +537,7 @@ const TAB_COLUMNS = {
     "Remote Row ID",
     "Schema Version",
   ],
+  [COMPANY_FOLDERS_TAB]: COMPANY_FOLDERS_COLUMNS,
 };
 
 const CONFIG_KEYS = [
@@ -2276,8 +2300,24 @@ async function provisionNewCompanyWorkspace(
   if (typeof onProvisionProgress === "function") {
     await onProvisionProgress({ provisionDriveFolderId: root.id });
   }
-  const isoFolders = await ensureIsoReadinessFolders(auth, root.id);
-  const masterSheet = await createBlankSpreadsheet(auth, "Company Master Sheet", isoFolders.setupFolderId);
+  const companyFolderStructureDeps = {
+    google,
+    ensureTabExists,
+    ensureColumns,
+    getWorkbook,
+    getTabValues,
+    withSheetsQuotaRetry,
+    safeLower,
+  };
+  const structureBeforeSheet = await ensureCompanyFolderStructure(companyFolderStructureDeps, auth, {
+    companyName: safeName,
+    companyRootFolderId: root.id,
+    syncWorkbookTab: false,
+    placeFiles: false,
+  });
+  const workbookFolderId =
+    structureBeforeSheet.folderIds.BERT_COMPANY_WORKBOOK || structureBeforeSheet.legacyRootIds.setupFolderId || root.id;
+  const masterSheet = await createBlankSpreadsheet(auth, "Company Master Sheet", workbookFolderId);
   console.log("[provision] milestone", { step: "master_sheet_created", spreadsheetId: masterSheet.id });
   if (typeof onProvisionProgress === "function") {
     await onProvisionProgress({ provisionMasterSheetId: masterSheet.id });
@@ -2286,6 +2326,14 @@ async function provisionNewCompanyWorkspace(
     companyId: root.id,
     companyName: safeName,
   });
+  const structure = await ensureCompanyFolderStructure(companyFolderStructureDeps, auth, {
+    companyName: safeName,
+    companyRootFolderId: root.id,
+    masterSheetId: masterSheet.id,
+    syncWorkbookTab: true,
+    placeFiles: true,
+  });
+  const isoFolders = structure.legacyFolderConfig;
   const userId = `app-${String(adminEmail || "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/gi, "-")}`;
@@ -2307,6 +2355,8 @@ async function provisionNewCompanyWorkspace(
     ...(await getConfig(auth, masterSheet.id)),
     [authKey]: hashPassword(password),
     ...isoFolders,
+    companyFolderStructureVersion: "1",
+    companyFolderStructureCheckedAt: new Date().toISOString(),
   });
   console.log("[provision] new_company_workspace done", {
     companyFolderId: root.id,
@@ -2316,6 +2366,7 @@ async function provisionNewCompanyWorkspace(
     companyFolderId: root.id,
     companyFolderName: root.name,
     masterSheetId: masterSheet.id,
+    folderIds: structure.folderIds,
     ...isoFolders,
   };
 }
@@ -3440,6 +3491,36 @@ async function uploadDataUrlToDrive(auth, folderId, fileName, mimeType, dataUrl)
   };
 }
 
+async function resolveCompanyEvidenceFolderIdForUpload(
+  authed,
+  { companyFolderId, sheetId, clientEvidenceFolderId = "", evidenceKind = "photo" },
+) {
+  const clientId = String(clientEvidenceFolderId || "").trim();
+  try {
+    const structure = await ensureCompanyFolderStructure(
+      {
+        google,
+        ensureTabExists,
+        ensureColumns,
+        getWorkbook,
+        getTabValues,
+        withSheetsQuotaRetry,
+        safeLower,
+      },
+      authed,
+      {
+        companyRootFolderId: companyFolderId,
+        masterSheetId: sheetId,
+        syncWorkbookTab: false,
+        placeFiles: false,
+      },
+    );
+    return resolveEvidenceUploadFolderId(structure.folderIds, clientId, { kind: evidenceKind });
+  } catch {
+    return clientId;
+  }
+}
+
 async function appendEvidenceRecords(auth, spreadsheetId, companyFolderId, evidenceRecords, evidenceFolderId = "") {
   const enrichedRecords = [];
   for (const record of toObjectArray(evidenceRecords)) {
@@ -4277,7 +4358,12 @@ app.post("/api/google-sheet-by-id/:sheetId/evidence", async (req, res) => {
 
   try {
     const config = await getConfig(authed, req.params.sheetId);
-    const evidenceFolderId = String(req.body?.evidenceFolderId || config.evidenceFolderId || "").trim();
+    const evidenceFolderId = await resolveCompanyEvidenceFolderIdForUpload(authed, {
+      companyFolderId,
+      sheetId: req.params.sheetId,
+      clientEvidenceFolderId: String(req.body?.evidenceFolderId || config.evidenceFolderId || "").trim(),
+      evidenceKind: String(req.body?.evidenceKind || req.body?.uploadKind || "photo").trim(),
+    });
     const payload = await appendEvidenceRecords(authed, req.params.sheetId, companyFolderId, evidence, evidenceFolderId);
     return res.json(payload);
   } catch (error) {
@@ -4410,7 +4496,12 @@ app.post("/api/google-sheet-by-id/:sheetId/audit-bundle", async (req, res) => {
       }
     }
     const config = await getConfig(authed, req.params.sheetId);
-    const evidenceFolderId = String(req.body?.evidenceFolderId || config.evidenceFolderId || "").trim();
+    const evidenceFolderId = await resolveCompanyEvidenceFolderIdForUpload(authed, {
+      companyFolderId,
+      sheetId: req.params.sheetId,
+      clientEvidenceFolderId: String(req.body?.evidenceFolderId || config.evidenceFolderId || "").trim(),
+      evidenceKind: String(req.body?.evidenceKind || req.body?.uploadKind || "photo").trim(),
+    });
     const results = await appendRowObjects(authed, req.params.sheetId, "AuditResults", toObjectArray(req.body?.results));
     const findings = await appendRowObjects(authed, req.params.sheetId, "AuditFindings", toObjectArray(req.body?.findings));
     const evidence = await appendEvidenceRecords(authed, req.params.sheetId, companyFolderId, toObjectArray(req.body?.evidence), evidenceFolderId);
@@ -4505,7 +4596,27 @@ app.post("/api/google-sheet-by-id/:sheetId/repair", async (req, res) => {
         error: "Company folder ID is required before fixing the workspace.",
       });
     }
-    const isoFolders = await ensureIsoReadinessFolders(authed, companyFolderId);
+    const companyFolderStructureDeps = {
+      google,
+      ensureTabExists,
+      ensureColumns,
+      getWorkbook,
+      getTabValues,
+      withSheetsQuotaRetry,
+      safeLower,
+    };
+    const structure = await ensureCompanyFolderStructure(companyFolderStructureDeps, authed, {
+      companyName: String(req.body?.companyName || "").trim(),
+      companyRootFolderId: companyFolderId,
+      masterSheetId: req.params.sheetId,
+      syncWorkbookTab: true,
+      placeFiles: true,
+    });
+    const legacyIsoFolders = await ensureIsoReadinessFolders(authed, companyFolderId);
+    const isoFolders = {
+      ...legacyIsoFolders,
+      ...structure.legacyFolderConfig,
+    };
     const repair = await ensureTabsAndColumns(authed, req.params.sheetId, {
       createBackup: true,
       companyId: companyFolderId,
@@ -4514,6 +4625,8 @@ app.post("/api/google-sheet-by-id/:sheetId/repair", async (req, res) => {
     await updateConfig(authed, req.params.sheetId, {
       ...(await getConfig(authed, req.params.sheetId)),
       ...isoFolders,
+      companyFolderStructureVersion: "1",
+      companyFolderStructureCheckedAt: new Date().toISOString(),
     });
     await ensureCompanyMappingTabs(
       {
@@ -6027,6 +6140,24 @@ installCompanyWorkspaceResetRoutes(app, {
   ensureColumns,
   withSheetsQuotaRetry,
   TAB_COLUMNS,
+});
+
+installCompanyFolderStructureRoutes(app, {
+  google,
+  getAuthedClient,
+  envConfigured,
+  requireGoogleWorkspaceSession,
+  requireWorkspaceAdminActor,
+  ensureTabsAndColumns,
+  updateConfig,
+  getConfig,
+  getDriveFile,
+  ensureTabExists,
+  ensureColumns,
+  getWorkbook,
+  getTabValues,
+  withSheetsQuotaRetry,
+  safeLower,
 });
 
 app.use((err, req, res, _next) => {

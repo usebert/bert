@@ -19,6 +19,7 @@ export interface RoleTaskPermissions {
   canVerifyActions: boolean;
   canExportReports: boolean;
   canRepairWorkspace: boolean;
+  canRepairCompanyFolderStructure: boolean;
   canViewAllReports: boolean;
 }
 
@@ -222,6 +223,7 @@ export function getRolePermissions(role: Role): RoleTaskPermissions {
     canVerifyActions: role === "Master" || role === "Admin" || role === "Manager",
     canExportReports: role !== "Auditor",
     canRepairWorkspace: role === "Master",
+    canRepairCompanyFolderStructure: role === "Master" || role === "Admin",
     canViewAllReports: role !== "Auditor",
   };
 }
@@ -332,6 +334,10 @@ export function canViewControl(role: Role) {
 
 export function canRepairWorkspace(role: Role) {
   return getRolePermissions(role).canRepairWorkspace;
+}
+
+export function canRepairCompanyFolderStructure(role: Role) {
+  return getRolePermissions(role).canRepairCompanyFolderStructure;
 }
 
 /** Company user invites (Admin/Master) plus Manager’s scoped invites. */
