@@ -10,6 +10,8 @@ export type GoogleFormTemplateRecord = {
   googleFormDriveFileId: string;
   googleFormEditUrl: string;
   googleFormResponderUrl: string;
+  parentDriveFolderId: string;
+  parentDriveFolderName: string;
   currentDriveFolderId: string;
   currentDriveFolderName: string;
   createdBy: string;

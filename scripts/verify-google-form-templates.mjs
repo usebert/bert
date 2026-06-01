@@ -3,6 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   buildGoogleFormBatchRequests,
+  CONFIGURED_TEMPLATE_CATEGORY_FOLDERS,
+  getConfiguredGoogleFormTemplatesFolderId,
   GOOGLE_FORMS_BODY_SCOPE,
   normalizeTemplateCategory,
   TEMPLATE_CATEGORY_FOLDERS,
@@ -29,6 +31,9 @@ function assertContains(filePath, snippets) {
 assert(normalizeTemplateCategory("iso9001") === "ISO 9001");
 assert(normalizeTemplateCategory("") === "General");
 assert(TEMPLATE_CATEGORY_FOLDERS.includes("COSHH"));
+assert(CONFIGURED_TEMPLATE_CATEGORY_FOLDERS.includes("ISO 9001"));
+assert(CONFIGURED_TEMPLATE_CATEGORY_FOLDERS.includes("General"));
+assert(typeof getConfiguredGoogleFormTemplatesFolderId === "function");
 
 const mapped = buildGoogleFormBatchRequests([
   { text: "Short answer", fieldType: "Text note" },
@@ -45,9 +50,14 @@ assert(GOOGLE_FORMS_BODY_SCOPE.includes("forms"));
 assertContains("server/google-form-templates.mjs", [
   "GoogleFormTemplates",
   "BERT Master Templates",
+  "BERT_GOOGLE_FORM_TEMPLATES_FOLDER_ID",
+  "resolveGoogleFormTemplatesRoot",
+  "Parent Drive Folder ID",
   "createGoogleFormFromBertTemplate",
   "/api/google-form-templates/create-from-bert",
 ]);
+
+assertContains(".env.example", ["BERT_GOOGLE_FORM_TEMPLATES_FOLDER_ID"]);
 
 assertContains("App.tsx", [
   "googleFormTemplatesService",

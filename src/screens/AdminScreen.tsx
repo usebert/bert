@@ -2058,7 +2058,7 @@ export function AdminScreen({
                   <span className="font-semibold text-slate-900">Create Google Form template copy</span>
                   <span className="mt-1 block text-xs text-slate-500">
                     {googleConnected
-                      ? "Creates a movable backend Google Form copy in BERT Master Templates (BERT checks stay unchanged)."
+                      ? "Creates a movable backend Google Form copy in the configured master templates folder (BERT checks stay unchanged)."
                       : "Connect Google in Platform Setup to enable backend Google Form copies."}
                   </span>
                 </span>

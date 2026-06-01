@@ -15,6 +15,8 @@ export const GOOGLE_FORM_TEMPLATES_COLUMNS = [
   "Google Form Drive File ID",
   "Google Form Edit URL",
   "Google Form Responder URL",
+  "Parent Drive Folder ID",
+  "Parent Drive Folder Name",
   "Current Drive Folder ID",
   "Current Drive Folder Name",
   "Created By",
@@ -39,6 +41,22 @@ export const TEMPLATE_CATEGORY_FOLDERS = [
   "Audits",
   "General",
 ];
+
+/** Category subfolders created under a configured master templates folder. */
+export const CONFIGURED_TEMPLATE_CATEGORY_FOLDERS = [
+  "ISO 9001",
+  "ISO 14001",
+  "ISO 45001",
+  "Health & Safety",
+  "COSHH",
+  "Risk Assessments",
+  "Audits",
+  "General",
+];
+
+export function getConfiguredGoogleFormTemplatesFolderId() {
+  return String(process.env.BERT_GOOGLE_FORM_TEMPLATES_FOLDER_ID || "").trim();
+}
 
 export const GOOGLE_FORMS_BODY_SCOPE = "https://www.googleapis.com/auth/forms.body";
 
@@ -127,6 +145,8 @@ function rowToGoogleFormTemplate(record) {
     googleFormDriveFileId: String(record["Google Form Drive File ID"] || "").trim(),
     googleFormEditUrl: String(record["Google Form Edit URL"] || "").trim(),
     googleFormResponderUrl: String(record["Google Form Responder URL"] || "").trim(),
+    parentDriveFolderId: String(record["Parent Drive Folder ID"] || "").trim(),
+    parentDriveFolderName: String(record["Parent Drive Folder Name"] || "").trim(),
     currentDriveFolderId: String(record["Current Drive Folder ID"] || "").trim(),
     currentDriveFolderName: String(record["Current Drive Folder Name"] || "").trim(),
     createdBy: String(record["Created By"] || "").trim(),
@@ -149,6 +169,8 @@ function templateToSheetRow(template) {
     template.googleFormDriveFileId,
     template.googleFormEditUrl,
     template.googleFormResponderUrl,
+    template.parentDriveFolderId,
+    template.parentDriveFolderName,
     template.currentDriveFolderId,
     template.currentDriveFolderName,
     template.createdBy,
@@ -352,16 +374,20 @@ async function ensureFolder(drive, name, parentId) {
   return created.data;
 }
 
+async function getDriveFolderById(drive, folderId) {
+  const folder = await drive.files.get({
+    fileId: folderId,
+    supportsAllDrives: true,
+    fields: "id,name",
+  });
+  return folder.data;
+}
+
 async function findMasterTemplatesRoot(drive, sharedDriveId) {
   const configuredRoot = String(process.env.BERT_MASTER_TEMPLATES_FOLDER_ID || "").trim();
   if (configuredRoot) {
     try {
-      const folder = await drive.files.get({
-        fileId: configuredRoot,
-        supportsAllDrives: true,
-        fields: "id,name",
-      });
-      return folder.data;
+      return await getDriveFolderById(drive, configuredRoot);
     } catch {
       /* fall through to discovery */
     }
@@ -382,19 +408,61 @@ async function findMasterTemplatesRoot(drive, sharedDriveId) {
   );
 }
 
-export async function ensureGoogleFormTemplateFolders(auth, category, { sharedDriveId, drive }) {
+async function resolveConfiguredGoogleFormTemplatesRoot(drive) {
+  const configuredId = getConfiguredGoogleFormTemplatesFolderId();
+  if (!configuredId) return null;
+  try {
+    return await getDriveFolderById(drive, configuredId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Configured folder not found";
+    throw new Error(`BERT_GOOGLE_FORM_TEMPLATES_FOLDER_ID is invalid or inaccessible: ${message}`);
+  }
+}
+
+async function ensureConfiguredCategorySubfolders(drive, rootId) {
+  for (const name of CONFIGURED_TEMPLATE_CATEGORY_FOLDERS) {
+    await ensureFolder(drive, name, rootId);
+  }
+}
+
+/**
+ * Resolves the parent folder for Google Form template copies.
+ * When BERT_GOOGLE_FORM_TEMPLATES_FOLDER_ID is set, uses that folder and does not create BERT Master Templates.
+ */
+export async function resolveGoogleFormTemplatesRoot(drive, sharedDriveId) {
+  const configured = await resolveConfiguredGoogleFormTemplatesRoot(drive);
+  if (configured?.id) {
+    return { root: configured, usesConfiguredRoot: true };
+  }
+
   if (!sharedDriveId) {
     throw new Error("GOOGLE_SHARED_DRIVE_ID is not configured.");
   }
+
+  const discovered =
+    (await findMasterTemplatesRoot(drive, sharedDriveId)) ||
+    (await ensureFolder(drive, MASTER_TEMPLATES_ROOT_NAME, sharedDriveId));
+  return {
+    root: discovered,
+    usesConfiguredRoot: false,
+  };
+}
+
+export async function ensureGoogleFormTemplateFolders(auth, category, { sharedDriveId, drive }) {
   const driveApi = drive || auth;
-  const root =
-    (await findMasterTemplatesRoot(driveApi, sharedDriveId)) ||
-    (await ensureFolder(driveApi, MASTER_TEMPLATES_ROOT_NAME, sharedDriveId));
+  const { root, usesConfiguredRoot } = await resolveGoogleFormTemplatesRoot(driveApi, sharedDriveId);
+
+  if (usesConfiguredRoot) {
+    await ensureConfiguredCategorySubfolders(driveApi, root.id);
+  }
+
   const categoryName = normalizeTemplateCategory(category);
   const categoryFolder = await ensureFolder(driveApi, categoryName, root.id);
   return {
     rootId: root.id,
-    rootName: root.name || MASTER_TEMPLATES_ROOT_NAME,
+    rootName: root.name || (usesConfiguredRoot ? root.id : MASTER_TEMPLATES_ROOT_NAME),
+    parentDriveFolderId: root.id,
+    parentDriveFolderName: root.name || (usesConfiguredRoot ? "" : MASTER_TEMPLATES_ROOT_NAME),
     categoryFolderId: categoryFolder.id,
     categoryFolderName: categoryFolder.name || categoryName,
   };
@@ -419,19 +487,9 @@ export function createGoogleFormTemplatesApi({ google, getAuthedClient, envConfi
 
     const drive = driveClient(auth);
     const sharedDriveId = requiredEnv.GOOGLE_SHARED_DRIVE_ID;
-    const root = await findMasterTemplatesRoot(drive, sharedDriveId);
+    const { root } = await resolveGoogleFormTemplatesRoot(drive, sharedDriveId);
     if (!root?.id) {
-      const createdRoot = await ensureFolder(drive, MASTER_TEMPLATES_ROOT_NAME, sharedDriveId);
-      const createdSheet = await drive.files.create({
-        supportsAllDrives: true,
-        requestBody: {
-          name: REGISTRY_SPREADSHEET_NAME,
-          mimeType: "application/vnd.google-apps.spreadsheet",
-          parents: [createdRoot.id],
-        },
-        fields: "id,name",
-      });
-      return createdSheet.data.id;
+      throw new Error("Unable to resolve Google Form templates root folder.");
     }
 
     const children = await drive.files.list({
@@ -612,6 +670,8 @@ export function createGoogleFormTemplatesApi({ google, getAuthedClient, envConfi
         googleFormDriveFileId: formFileId,
         googleFormEditUrl: buildFormEditUrl(formId),
         googleFormResponderUrl: buildFormResponderUrl(formId),
+        parentDriveFolderId: folders.parentDriveFolderId,
+        parentDriveFolderName: folders.parentDriveFolderName,
         currentDriveFolderId: folders.categoryFolderId,
         currentDriveFolderName: folders.categoryFolderName,
         createdBy,
@@ -757,9 +817,17 @@ export function createGoogleFormTemplatesApi({ google, getAuthedClient, envConfi
     return { ok: true, template: match };
   }
 
+  async function ensureTemplateFolders(auth, category) {
+    const drive = driveClient(auth);
+    return ensureGoogleFormTemplateFolders(auth, category, {
+      sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
+      drive,
+    });
+  }
+
   return {
     createGoogleFormFromBertTemplate,
-    ensureGoogleFormTemplateFolders,
+    ensureGoogleFormTemplateFolders: ensureTemplateFolders,
     moveGoogleFormToTemplateFolder,
     copyGoogleFormTemplateToCompany,
     listGoogleFormTemplates,
@@ -832,6 +900,8 @@ export function installGoogleFormTemplateRoutes(app, deps) {
       const registrySpreadsheetId = await api.resolveRegistrySpreadsheetId(auth);
       const updated = {
         ...links.template,
+        parentDriveFolderId: folders.parentDriveFolderId,
+        parentDriveFolderName: folders.parentDriveFolderName,
         currentDriveFolderId: moved.folderId,
         currentDriveFolderName: moved.folderName,
         lastSyncedAt: new Date().toISOString(),
