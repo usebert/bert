@@ -7,7 +7,7 @@ export const SECTION_INTROS = {
   companyOnboarding: "Send a setup form and create a new company workspace.",
   companiesInviteHelper:
     "To email a new company setup form, open Company Onboarding in the menu.",
-  formsChecks: "See checks due, start inspections, and review progress.",
+  formsChecks: "Manage form and check templates. Schedules control when checks run.",
   correctiveActions: "Follow up on failed findings, add evidence, and close items.",
   reports: "Create packs and see reports shared with your team.",
   tabletKiosk: "Lock a tablet to checks-only mode for the field.",

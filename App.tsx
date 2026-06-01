@@ -4954,6 +4954,20 @@ function App() {
   }, [currentUser]);
 
   useEffect(() => {
+    if (currentUser?.role === "Master") {
+      setCreateGoogleFormTemplateCopy(true);
+    } else if (currentUser?.role === "Admin") {
+      setCreateGoogleFormTemplateCopy(false);
+    }
+  }, [currentUser?.role]);
+
+  useEffect(() => {
+    if (screen !== "admin" && adminScrollTarget) {
+      setAdminScrollTarget(null);
+    }
+  }, [screen, adminScrollTarget]);
+
+  useEffect(() => {
     let alive = true;
     const hydrateOffline = async () => {
       if (!tabletOfflineService.canUseIndexedDb()) {
@@ -9026,6 +9040,7 @@ function App() {
       })),
     );
     setSyncState("Synced");
+    await syncCompanyAuditMappingFromServer({ silent: true });
     pushToast(
       "App populated",
       folderInspection.auditForms.length > 0
@@ -11399,6 +11414,23 @@ function App() {
                 onNavigateToSchedules={
                   !canCompleteAuditAsAuditor(currentUser.role) ? () => setScreen("schedules") : undefined
                 }
+                onNavigateToTemplateBuilder={
+                  canAccessWorkspaceNav(currentUser.role)
+                    ? () => {
+                        setAdminScrollTarget("admin-audit-templates");
+                        setScreen("admin");
+                      }
+                    : undefined
+                }
+                onNavigateToWorkspace={
+                  canAccessWorkspaceNav(currentUser.role) ? () => setScreen("admin") : undefined
+                }
+                templates={templates}
+                syncState={syncState}
+                googleConnected={googleConnected}
+                companyFolderId={selectedFolderId || undefined}
+                canCreateTemplates={canAccessWorkspaceNav(currentUser.role)}
+                onToggleTemplate={handleToggleTemplate}
               />
             )}
 
@@ -11731,6 +11763,7 @@ function App() {
               (screen === "onboarding" && canAccessCompanyOnboardingNav(currentUser.role))) && (
               <AdminScreen
                 pilotFocus={resolveAdminPilotFocus(screen)}
+                initialScrollTarget={screen === "admin" ? adminScrollTarget : null}
                 standaloneOnboarding={screen === "onboarding"}
                 godmodeNewCompanyOnboarding={godmodeNewCompanyOnboarding}
                 godmodeIncompleteCompanySetup={godmodeIncompleteCompanySetup}

@@ -9,6 +9,8 @@ export type AuditTemplateRow = {
   status: string;
   defaultFrequency: string;
   createdAt: string;
+  googleFormId?: string;
+  googleFormTemplateStatus?: string;
 };
 
 export type CompanyAuditMappingPayload = {
