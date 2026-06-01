@@ -287,6 +287,8 @@ export type AdminScreenProps = {
   /** Paid-pilot nav: focus Companies / Users / Invites content. */
   pilotFocus?: "companies" | "onboarding" | "users" | "invites";
   pilotShellScreen?: "companies" | "onboarding";
+  /** Scroll to a section when the workspace screen opens (e.g. template builder). */
+  initialScrollTarget?: string | null;
   hideMasterLocalDemoTools?: boolean;
   godModeAppInviteEmail: string;
   onGodModeAppInviteEmailChange: (value: string) => void;

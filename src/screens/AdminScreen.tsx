@@ -493,6 +493,7 @@ export function AdminScreen({
   godmodeIncompleteCompanySetup = false,
   pilotFocus = undefined,
   pilotShellScreen = undefined,
+  initialScrollTarget = null,
   hideMasterLocalDemoTools = false,
   godModeAppInviteEmail,
   onGodModeAppInviteEmailChange,
@@ -557,6 +558,12 @@ export function AdminScreen({
       setAdminView("overview");
     }
   }, [pilotFocus]);
+  useEffect(() => {
+    if (initialScrollTarget) {
+      setAdminView("overview");
+      setPendingAdminScrollTarget(initialScrollTarget);
+    }
+  }, [initialScrollTarget]);
   const godModeFullVisibility = currentUser.role === "Master";
   const googleWorkspaceReady = backendConfigured && googleConnected;
   const showInitialSetupCta = currentUser.role === "Master";
@@ -2090,8 +2097,8 @@ export function AdminScreen({
                   <span className="font-semibold text-slate-900">Create Google Form template copy</span>
                   <span className="mt-1 block text-xs text-slate-500">
                     {googleConnected
-                      ? "Creates a movable backend Google Form copy in the configured master templates folder (BERT checks stay unchanged)."
-                      : "Connect Google in Platform Setup to enable backend Google Form copies."}
+                      ? "Creates a movable Google Form copy in the backend template library. BERT remains the live operational system."
+                      : "Connect Google in Workspace to enable backend Google Form copies."}
                   </span>
                 </span>
               </label>

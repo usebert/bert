@@ -1,5 +1,5 @@
 import type { Role } from "../permissions";
-import type { Audit, AuditStatus, ScheduleDay, ScheduleFrequency } from "./reportsScreenProps";
+import type { Audit, AuditStatus, AuditTemplate, ScheduleDay, ScheduleFrequency } from "./reportsScreenProps";
 import type { AuditDraft, User } from "./dashboardScreenProps";
 
 export type AuditAccessLevel = "Full access" | "Oversight" | "Can complete" | "Complete" | "No access";
@@ -44,4 +44,12 @@ export type AuditsScreenProps = {
   onNavigateToToday?: () => void;
   onNavigateToSubmit?: () => void;
   onNavigateToSchedules?: () => void;
+  onNavigateToTemplateBuilder?: () => void;
+  onNavigateToWorkspace?: () => void;
+  templates?: AuditTemplate[];
+  syncState?: string;
+  googleConnected?: boolean;
+  companyFolderId?: string;
+  canCreateTemplates?: boolean;
+  onToggleTemplate?: (templateId: string) => void;
 };

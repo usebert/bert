@@ -109,6 +109,7 @@ import {
   saveUserAuditAccessRows,
   syncAuditTemplatesToSheet,
 } from "./src/services/companyAuditMappingService";
+import { mergeAuditTemplatesFromSheet } from "./src/utils/mergeAuditTemplatesFromSheet";
 import type { AreaAuditMapping } from "./src/utils/areaAuditMapping";
 import {
   SINGLE_WORKSPACE_AREA_ID,
@@ -3203,6 +3204,7 @@ function App() {
   const [templateQuestionTypeInput, setTemplateQuestionTypeInput] = useState<AuditQuestion["fieldType"]>("Traffic light");
   const [templateDraftQuestions, setTemplateDraftQuestions] = useState<DraftTemplateQuestion[]>([]);
   const [createGoogleFormTemplateCopy, setCreateGoogleFormTemplateCopy] = useState(false);
+  const [adminScrollTarget, setAdminScrollTarget] = useState<string | null>(null);
   const [scheduleNameInput, setScheduleNameInput] = useState("");
   const [scheduleAreaInput, setScheduleAreaInput] = useState("");
   const [scheduleOwnerInput, setScheduleOwnerInput] = useState(DEFAULT_MANAGER_NAME);
@@ -8547,6 +8549,15 @@ function App() {
         if (payload.schedules?.length) {
           setComplianceSchedules(payload.schedules);
         }
+        if (payload.auditTemplates?.length) {
+          setTemplates((current) => {
+            const merged = mergeAuditTemplatesFromSheet(current, payload.auditTemplates || []);
+            return merged.map((template) => ({
+              ...template,
+              questions: template.questions.length ? template.questions : buildDefaultQuestions(template.name),
+            }));
+          });
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unable to sync audit mapping.";
         setMappingSyncError(message);
@@ -9242,7 +9253,16 @@ function App() {
       category: templateCategoryInput,
     };
 
-    setTemplates((current) => [newTemplate, ...current]);
+    const nextTemplates = [newTemplate, ...templates];
+    setTemplates(nextTemplates);
+    const masterSheetId = resolveWorkspaceMasterSheetId();
+    if (syncState === "Synced" && googleConnected && masterSheetId) {
+      try {
+        await syncAuditTemplatesToSheet(masterSheetId, nextTemplates);
+      } catch {
+        pushToast("Template saved locally", "Could not write to AuditTemplates tab yet.", "warning");
+      }
+    }
     if (syncState === "Synced") {
       setAudits((current) => [
         {
@@ -9289,11 +9309,17 @@ function App() {
             syncStatus: result.googleForm.syncStatus,
             notes: result.googleForm.notes,
           };
-          setTemplates((current) =>
-            current.map((template) =>
-              template.id === templateId ? { ...template, googleForm: googleFormMeta } : template,
-            ),
+          const templatesWithGoogle = nextTemplates.map((template) =>
+            template.id === templateId ? { ...template, googleForm: googleFormMeta } : template,
           );
+          setTemplates(templatesWithGoogle);
+          if (masterSheetId && syncState === "Synced") {
+            try {
+              await syncAuditTemplatesToSheet(masterSheetId, templatesWithGoogle);
+            } catch {
+              // BERT template already saved; sheet metadata sync is best-effort.
+            }
+          }
           pushToast(
             "Template added",
             `${trimmedName} is ready in BERT with a Google Form copy in ${result.googleForm.currentDriveFolderName || "Drive"}.`,
@@ -9302,7 +9328,13 @@ function App() {
         } else if (result.permissionRequired) {
           pushToast(
             "BERT template created",
-            "Google Forms permission is not connected yet. Reconnect Google with Forms access in Platform Setup.",
+            "Google Forms permission is not connected yet.",
+            "warning",
+          );
+        } else if (/drive|folder|edit/i.test(String(result.error || ""))) {
+          pushToast(
+            "BERT template created",
+            "BERT cannot edit the Google Form template folder.",
             "warning",
           );
         } else {
@@ -9318,7 +9350,7 @@ function App() {
       return;
     }
 
-    pushToast("Template added", `${trimmedName} is now available in the audit template builder.`, "success");
+    pushToast("Template added", `${trimmedName} is now available in Forms & Checks.`, "success");
   };
 
   const handleAddTemplateQuestion = () => {
@@ -9390,9 +9422,15 @@ function App() {
       return;
     }
     const toggledTemplate: AuditTemplate = { ...existingTemplate, active: !existingTemplate.active };
-    setTemplates((current) =>
-      current.map((template) => (template.id === templateId ? toggledTemplate : template)),
-    );
+    const nextTemplates = templates.map((template) => (template.id === templateId ? toggledTemplate : template));
+    setTemplates(nextTemplates);
+
+    const masterSheetId = resolveWorkspaceMasterSheetId();
+    if (googleConnected && masterSheetId && syncState === "Synced") {
+      void syncAuditTemplatesToSheet(masterSheetId, nextTemplates).catch(() => {
+        pushToast("Template updated locally", "Could not write status to AuditTemplates tab.", "warning");
+      });
+    }
 
     if (syncState !== "Synced") {
       return;

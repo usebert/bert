@@ -3,7 +3,8 @@ import { getRoleTheme } from "../config/roleTheme";
 import { rankAuditorAudit } from "../utils/auditorDashboard";
 import { SECTION_INTROS } from "../config/sectionIntros";
 import { SectionIntro } from "../components/SectionIntro";
-import { EmptyPanel, MiniMetric, SectionHeader, StatusBadge } from "../components/dashboard/DashboardPrimitives";
+import { EmptyPanel, SectionHeader, StatusBadge } from "../components/dashboard/DashboardPrimitives";
+import { FormsChecksTemplatesPanel } from "../components/forms/FormsChecksTemplatesPanel";
 import { amberThresholdHours, getAuditTrafficStatus, getDueWarning, statusStyles } from "../utils/dashboardHealth";
 import type {
   AuditAccessLevel,
@@ -449,6 +450,14 @@ export function AuditsScreen({
   onNavigateToToday,
   onNavigateToSubmit,
   onNavigateToSchedules,
+  onNavigateToTemplateBuilder,
+  onNavigateToWorkspace,
+  templates = [],
+  syncState = "Not synced",
+  googleConnected = false,
+  companyFolderId,
+  canCreateTemplates = false,
+  onToggleTemplate,
 }: AuditsScreenProps) {
   if (canCompleteAuditAsAuditor(currentUser.role)) {
     const theme = getRoleTheme("Auditor");
@@ -497,21 +506,64 @@ export function AuditsScreen({
           <div className={["flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl", heroIconChip].join(" ")}>
             <AuditsScreenIcon className="h-5 w-5" />
           </div>
-          <div>
+          <div className="min-w-0 flex-1">
             <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Forms & checks</h2>
-            <SectionIntro text={SECTION_INTROS.formsChecks} className="mt-2" role={currentUser.role} />
-            {onNavigateToSchedules ? (
-              <button
-                type="button"
-                onClick={onNavigateToSchedules}
-                className={["mt-4 inline-flex h-12 items-center rounded-xl px-5 text-sm font-semibold text-white", theme.primaryButton, theme.primaryButtonHover].join(" ")}
-              >
-                Add check (schedules)
-              </button>
-            ) : null}
+            <SectionIntro
+              text="Build and manage form/check templates here. Schedules control when checks run."
+              className="mt-2"
+              role={currentUser.role}
+            />
+            <div className="mt-4 flex flex-wrap gap-3">
+              {onNavigateToTemplateBuilder ? (
+                <button
+                  type="button"
+                  onClick={onNavigateToTemplateBuilder}
+                  className={[
+                    "inline-flex h-12 items-center rounded-xl px-5 text-sm font-semibold text-white",
+                    theme.primaryButton,
+                    theme.primaryButtonHover,
+                  ].join(" ")}
+                >
+                  Create form/check template
+                </button>
+              ) : null}
+              {onNavigateToSchedules ? (
+                <button
+                  type="button"
+                  onClick={onNavigateToSchedules}
+                  className={[
+                    "inline-flex h-12 items-center rounded-xl border px-5 text-sm font-semibold",
+                    theme.outlineButton,
+                  ].join(" ")}
+                >
+                  Manage schedules
+                </button>
+              ) : null}
+              {!googleConnected && onNavigateToWorkspace ? (
+                <button
+                  type="button"
+                  onClick={onNavigateToWorkspace}
+                  className={[
+                    "inline-flex h-12 items-center rounded-xl border px-5 text-sm font-semibold",
+                    theme.outlineButton,
+                  ].join(" ")}
+                >
+                  Open Workspace
+                </button>
+              ) : null}
+            </div>
           </div>
         </div>
       </section>
+
+      <FormsChecksTemplatesPanel
+        templates={templates}
+        syncState={syncState}
+        googleConnected={googleConnected}
+        companyFolderId={companyFolderId}
+        canCreateTemplates={canCreateTemplates}
+        onToggleTemplate={onToggleTemplate}
+      />
 
       {canSubmitAuditForReview(currentUser.role) && auditAccessMatrix.length > 0 ? (
         <details className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
@@ -530,35 +582,6 @@ export function AuditsScreen({
           </div>
         </details>
       ) : null}
-
-      <TrafficLane title="Red" subtitle="Overdue" audits={groupedAudits.red} status="red" onOpenAudit={onOpenAudit} expanded drafts={drafts} unsyncedAuditIds={unsyncedAuditIds} />
-      <TrafficLane
-        title="Amber"
-        subtitle={`Less than ${amberThresholdHours} hours remaining`}
-        audits={groupedAudits.amber}
-        status="amber"
-        onOpenAudit={onOpenAudit}
-        expanded
-        drafts={drafts}
-        unsyncedAuditIds={unsyncedAuditIds}
-      />
-      <TrafficLane
-        title="Green"
-        subtitle={`More than ${amberThresholdHours} hours remaining`}
-        audits={groupedAudits.green}
-        status="green"
-        onOpenAudit={onOpenAudit}
-        expanded
-        drafts={drafts}
-        unsyncedAuditIds={unsyncedAuditIds}
-      />
-
-      {audits.length === 0 && (
-        <EmptyPanel
-          title="No audits loaded yet"
-          text="Nothing to open until this workspace is connected. In Admin, link Google and your company folder, then sync so audit templates appear here."
-        />
-      )}
     </div>
   );
 }
