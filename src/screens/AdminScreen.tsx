@@ -419,6 +419,8 @@ export function AdminScreen({
   onRequestNotifications,
   onValidateWorkspace,
   onRepairWorkspace,
+  onRepairCompanyFolderStructure,
+  companyFolderStructureRepairing = false,
   onRefreshGoogleStatus,
   onRefreshOnboardingRecords,
   onSelectOnboardingRecord,
@@ -674,6 +676,21 @@ export function AdminScreen({
             >
               Repair workspace
             </button>
+            {onRepairCompanyFolderStructure ? (
+              <button
+                type="button"
+                onClick={onRepairCompanyFolderStructure}
+                disabled={!companyMasterSheetId || companyFolderStructureRepairing}
+                title={
+                  !companyMasterSheetId
+                    ? "Link a master sheet before repairing Drive folders."
+                    : "Create missing standard Drive folders (no delete, no duplicates)."
+                }
+                className="inline-flex h-10 items-center rounded-xl border border-amber-300 bg-white px-4 text-sm font-semibold text-amber-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {companyFolderStructureRepairing ? "Repairing folders…" : "Repair company folder structure"}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={onOneClickGoogleOnboarding}
@@ -1988,6 +2005,21 @@ export function AdminScreen({
           >
             Fix workspace
           </button>
+          {onRepairCompanyFolderStructure ? (
+            <button
+              type="button"
+              onClick={onRepairCompanyFolderStructure}
+              disabled={masterCompanyContextBlocked || companyFolderStructureRepairing}
+              title={
+                masterCompanyContextBlocked
+                  ? masterCompanyContextMessage
+                  : "Create missing standard Drive folders under the company root (no delete, no duplicates)."
+              }
+              className="h-12 rounded-2xl bg-blue-50 px-5 text-sm font-semibold text-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {companyFolderStructureRepairing ? "Repairing folders…" : "Repair company folder structure"}
+            </button>
+          ) : null}
         </div>
               </section>
 

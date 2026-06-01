@@ -210,6 +210,8 @@ export type AdminScreenProps = {
   onRequestNotifications: () => void;
   onValidateWorkspace: () => void;
   onRepairWorkspace: () => void;
+  onRepairCompanyFolderStructure?: () => void;
+  companyFolderStructureRepairing?: boolean;
   onRefreshGoogleStatus: () => void;
   onRefreshOnboardingRecords: () => void;
   onSelectOnboardingRecord: (recordId: string) => void;
