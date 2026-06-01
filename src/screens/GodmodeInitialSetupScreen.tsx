@@ -436,6 +436,107 @@ export function GodmodeInitialSetupScreen({
         ) : null}
       </section>
 
+      <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-sm">
+        <p className="text-sm font-semibold text-slate-900">Google Form Template Folder</p>
+        <p className="mt-1 text-sm text-slate-600">
+          Master Drive folder for movable Google Form template copies and ISO category subfolders.
+        </p>
+
+        <div className="mt-4 space-y-3 rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Folder ID</p>
+            <p className="mt-1 break-all font-mono text-sm text-slate-900">
+              {templateFolderId || "Not set on API server"}
+            </p>
+            {templateFolderStatus?.folderName ? (
+              <p className="mt-1 text-sm text-slate-600">{templateFolderStatus.folderName}</p>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Status</span>
+            <span
+              className={[
+                "rounded-full px-3 py-1 text-xs font-semibold",
+                templateFolderBadge.tone === "ok"
+                  ? "bg-emerald-100 text-emerald-800"
+                  : templateFolderBadge.tone === "error"
+                    ? "bg-rose-100 text-rose-800"
+                    : "bg-amber-100 text-amber-900",
+              ].join(" ")}
+            >
+              {templateFolderBadge.label}
+            </span>
+            {templateFolderStatus?.status === "connected" ? (
+              <span className="text-xs text-slate-600">
+                {templateFolderStatus.subfolderCount ?? 0} of {templateFolderStatus.expectedSubfolderCount ?? 8}{" "}
+                category subfolder(s)
+              </span>
+            ) : null}
+          </div>
+          {templateFolderStatus?.formsScopeConnected === false ? (
+            <p className="text-sm text-amber-800">
+              Google Forms permission is not connected yet.
+            </p>
+          ) : null}
+          {templateFolderStatus?.canEditFolder === false && templateFolderStatus?.canAccessFolder ? (
+            <p className="text-sm text-rose-700">BERT cannot edit the Google Form template folder.</p>
+          ) : null}
+          {templateFolderStatus?.verifyError ? (
+            <p className="text-sm text-rose-700">{templateFolderStatus.verifyError}</p>
+          ) : null}
+          {templateFolderMessage &&
+          !templateFolderStatus?.verifyError &&
+          templateFolderStatus?.status !== "connected" ? (
+            <p className="text-sm text-rose-700">{templateFolderMessage}</p>
+          ) : null}
+          {templateFolderMessage && templateFolderStatus?.status === "connected" ? (
+            <p className="text-sm text-emerald-700">{templateFolderMessage}</p>
+          ) : null}
+        </div>
+
+        {!templateFolderId ? (
+          <p className="mt-3 text-sm leading-6 text-slate-600">
+            Set <span className="font-mono text-slate-800">BERT_GOOGLE_FORM_TEMPLATES_FOLDER_ID</span> on the Render API
+            service (Environment → Add variable), then redeploy the API.
+          </p>
+        ) : (
+          <p className="mt-3 text-sm leading-6 text-slate-600">
+            The template folder ID is read from server environment variables (Render). BERT will not create a second root
+            folder when this variable is set.
+          </p>
+        )}
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => void handleVerifyTemplateFolder()}
+            disabled={!templateFolderId || !googleConnected || verifyingTemplateFolder || templateFolderLoading}
+            className={`h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-50 ${slatePrimaryCtaInteract}`}
+          >
+            {verifyingTemplateFolder ? "Verifying…" : "Verify template folder"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleRepairTemplateFolder()}
+            disabled={!templateFolderId || !googleConnected || repairingTemplateFolder || templateFolderLoading}
+            className={`h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-50 ${slatePrimaryCtaInteract}`}
+          >
+            {repairingTemplateFolder ? "Repairing…" : "Repair/create template folder structure"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void loadTemplateFolderStatus()}
+            disabled={templateFolderLoading}
+            className="h-11 rounded-2xl border border-slate-200 px-4 text-sm font-semibold text-slate-800"
+          >
+            {templateFolderLoading ? "Refreshing…" : "Refresh status"}
+          </button>
+        </div>
+        {!googleConnected && templateFolderId ? (
+          <p className="mt-2 text-xs text-slate-500">Connect Google Workspace before verifying template folder access.</p>
+        ) : null}
+      </section>
+
       <TabletKioskGodmodePanel
         slatePrimaryCtaInteract={slatePrimaryCtaInteract}
         onChanged={onTabletKioskChange}

@@ -25,7 +25,12 @@ async function parseJson<T extends GoogleFormTemplateFolderStatusPayload>(
   response: Response,
 ): Promise<T> {
   const payload = (await response.json()) as T;
-  if (!response.ok && payload.ok !== true) {
+  if (
+    !response.ok &&
+    payload.ok !== true &&
+    !payload.status &&
+    !payload.folderConfigured
+  ) {
     throw new Error(payload.error || payload.verifyError || "Google Form template folder request failed.");
   }
   return payload;

@@ -55,6 +55,10 @@ assertContains("server/google-form-templates.mjs", [
   "Parent Drive Folder ID",
   "createGoogleFormFromBertTemplate",
   "/api/google-form-templates/create-from-bert",
+  "/api/google-form-templates/folder/status",
+  "/api/google-form-templates/folder/verify",
+  "/api/google-form-templates/folder/ensure-structure",
+  "ensureConfiguredCategorySubfolders",
 ]);
 
 assertContains(".env.example", ["BERT_GOOGLE_FORM_TEMPLATES_FOLDER_ID"]);
@@ -66,5 +70,14 @@ assertContains("App.tsx", [
 ]);
 
 assertContains("src/screens/AdminScreen.tsx", ["Create Google Form template copy", "GoogleFormTemplatePanel"]);
+assertContains("src/screens/GodmodeInitialSetupScreen.tsx", [
+  "Google Form Template Folder",
+  "Verify template folder",
+  "Repair/create template folder structure",
+]);
+assertContains("src/services/googleFormTemplateFolderService.ts", [
+  "googleFormTemplateFolderService",
+  "/api/google-form-templates/folder/status",
+]);
 
 console.log("[verify:google-form-templates] mapping and wiring OK");
