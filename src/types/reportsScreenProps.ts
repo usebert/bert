@@ -140,10 +140,23 @@ export type ManagedSchedule = {
   healthState?: ScheduleHealthState;
 };
 
+export type AuditTemplateGoogleFormMeta = {
+  formId: string;
+  driveFileId?: string;
+  editUrl?: string;
+  responderUrl?: string;
+  folderId?: string;
+  folderName?: string;
+  syncStatus?: string;
+  notes?: string;
+};
+
 export type AuditTemplate = {
   id: string;
   name: string;
   active: boolean;
   questions: AuditQuestion[];
   source: "Google Drive" | "Built in app";
+  category?: string;
+  googleForm?: AuditTemplateGoogleFormMeta;
 };

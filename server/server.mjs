@@ -35,6 +35,10 @@ import {
   validateCompanyUserInviteTarget,
 } from "./invite-target.mjs";
 import { installCompanyWorkspaceResetRoutes } from "./company-workspace-reset.mjs";
+import {
+  GOOGLE_FORMS_BODY_SCOPE,
+  installGoogleFormTemplateRoutes,
+} from "./google-form-templates.mjs";
 
 dotenv.config();
 
@@ -102,6 +106,7 @@ const scopes = [
   "profile",
   "https://www.googleapis.com/auth/drive",
   "https://www.googleapis.com/auth/spreadsheets",
+  GOOGLE_FORMS_BODY_SCOPE,
 ];
 
 /** Pause between sequential Sheets reads (values.get / spreadsheets.get) to stay under per-user per-minute read quotas. Override with SHEETS_READ_GAP_MS (50–3000). */
@@ -1031,6 +1036,15 @@ function requireGoogleWorkspaceSession(req, res, next) {
   }
   return next();
 }
+
+installGoogleFormTemplateRoutes(app, {
+  google,
+  getAuthedClient,
+  envConfigured,
+  withSheetsQuotaRetry,
+  requiredEnv,
+  requireGoogleWorkspaceSession,
+});
 
 function safeLower(value) {
   return String(value || "").trim().toLowerCase();

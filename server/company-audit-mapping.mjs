@@ -10,6 +10,8 @@ export const AUDIT_TEMPLATES_COLUMNS = [
   "Status",
   "Default Frequency",
   "Created At",
+  "Google Form ID",
+  "Google Form Template Status",
 ];
 
 export const AREA_AUDITS_COLUMNS = [
@@ -65,6 +67,8 @@ function rowToAuditTemplate(row) {
     status: String(row.Status || row.status || "active").trim().toLowerCase(),
     defaultFrequency: String(row["Default Frequency"] || row.defaultFrequency || "").trim(),
     createdAt: String(row["Created At"] || row.createdAt || "").trim(),
+    googleFormId: String(row["Google Form ID"] || row.googleFormId || "").trim(),
+    googleFormTemplateStatus: String(row["Google Form Template Status"] || row.googleFormTemplateStatus || "").trim(),
   };
 }
 
@@ -123,6 +127,8 @@ function auditTemplatesToRows(templates) {
     template.status === "inactive" ? "inactive" : "active",
     template.defaultFrequency || "",
     template.createdAt || "",
+    template.googleFormId || "",
+    template.googleFormTemplateStatus || "",
   ]);
 }
 
@@ -346,6 +352,10 @@ export function installCompanyAuditMappingRoutes(app, deps) {
             status: template?.active === false ? "inactive" : "active",
             defaultFrequency: String(template?.defaultFrequency || "").trim(),
             createdAt: String(template?.createdAt || new Date().toISOString()).trim(),
+            googleFormId: String(template?.googleFormId || template?.googleForm?.formId || "").trim(),
+            googleFormTemplateStatus: String(
+              template?.googleFormTemplateStatus || template?.googleForm?.syncStatus || "",
+            ).trim(),
           };
         })
         .filter(Boolean);

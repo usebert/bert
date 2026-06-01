@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { SECTION_INTROS } from "../config/sectionIntros";
 import { canAccessAdmin, canAccessAdminOnboardingWorkspace, canManageAreas, getRoleDisplayName } from "../permissions";
 import { AreaAuditsSection } from "../components/admin/AreaAuditsSection";
+import { GoogleFormTemplatePanel } from "../components/admin/GoogleFormTemplatePanel";
 import { SitesAreasPanel } from "../components/admin/SitesAreasPanel";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../components/dashboard/DashboardPrimitives";
 import {
@@ -450,6 +451,12 @@ export function AdminScreen({
   onAddFolder,
   onOneClickGoogleOnboarding,
   onTemplateNameChange,
+  templateCategoryInput,
+  onTemplateCategoryChange,
+  createGoogleFormTemplateCopy,
+  onCreateGoogleFormTemplateCopyChange,
+  showCreateGoogleFormTemplateOption,
+  companyFolderId,
   onTemplateQuestionChange,
   onTemplateQuestionTypeChange,
   onAddTemplateQuestion,
@@ -2025,6 +2032,38 @@ export function AdminScreen({
               placeholder="Template name"
               className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-slate-400"
             />
+            <select
+              value={templateCategoryInput}
+              onChange={(event) => onTemplateCategoryChange(event.target.value)}
+              className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-slate-400"
+            >
+              <option value="General">General</option>
+              <option value="ISO 9001">ISO 9001</option>
+              <option value="ISO 14001">ISO 14001</option>
+              <option value="ISO 45001">ISO 45001</option>
+              <option value="Health & Safety">Health & Safety</option>
+              <option value="COSHH">COSHH</option>
+              <option value="Risk Assessments">Risk Assessments</option>
+              <option value="Audits">Audits</option>
+            </select>
+            {showCreateGoogleFormTemplateOption ? (
+              <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={createGoogleFormTemplateCopy}
+                  onChange={(event) => onCreateGoogleFormTemplateCopyChange(event.target.checked)}
+                  className="mt-1 h-4 w-4 rounded border-slate-300"
+                />
+                <span>
+                  <span className="font-semibold text-slate-900">Create Google Form template copy</span>
+                  <span className="mt-1 block text-xs text-slate-500">
+                    {googleConnected
+                      ? "Creates a movable backend Google Form copy in BERT Master Templates (BERT checks stay unchanged)."
+                      : "Connect Google in Platform Setup to enable backend Google Form copies."}
+                  </span>
+                </span>
+              </label>
+            ) : null}
             <textarea
               value={templateQuestionInput}
               onChange={(event) => onTemplateQuestionChange(event.target.value)}
@@ -2115,22 +2154,32 @@ export function AdminScreen({
             />
           ) : (
             templates.slice(0, 8).map((template) => (
-              <div key={template.id} className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-900">{template.name}</p>
-                  <p className="truncate text-xs text-slate-500">
-                    {template.source} • {template.questions.length} questions
-                  </p>
+              <div key={template.id} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-900">{template.name}</p>
+                    <p className="truncate text-xs text-slate-500">
+                      {template.source}
+                      {template.category ? ` • ${template.category}` : ""} • {template.questions.length} questions
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => onToggleTemplate(template.id)}
+                    className={[
+                      "rounded-xl px-3 py-2 text-xs font-semibold",
+                      template.active ? "bg-blue-500/12 text-blue-800" : "bg-slate-200 text-slate-700",
+                    ].join(" ")}
+                  >
+                    {template.active ? "Active" : "Inactive"}
+                  </button>
                 </div>
-                <button
-                  onClick={() => onToggleTemplate(template.id)}
-                  className={[
-                    "rounded-xl px-3 py-2 text-xs font-semibold",
-                    template.active ? "bg-blue-500/12 text-blue-800" : "bg-slate-200 text-slate-700",
-                  ].join(" ")}
-                >
-                  {template.active ? "Active" : "Inactive"}
-                </button>
+                <GoogleFormTemplatePanel
+                  templateId={template.id}
+                  templateName={template.name}
+                  category={template.category || "General"}
+                  companyFolderId={companyFolderId}
+                  googleForm={template.googleForm}
+                />
               </div>
             ))
           )}

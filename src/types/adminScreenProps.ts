@@ -242,6 +242,12 @@ export type AdminScreenProps = {
   onAddFolder: () => void;
   onOneClickGoogleOnboarding: () => void;
   onTemplateNameChange: (value: string) => void;
+  templateCategoryInput: string;
+  onTemplateCategoryChange: (value: string) => void;
+  createGoogleFormTemplateCopy: boolean;
+  onCreateGoogleFormTemplateCopyChange: (value: boolean) => void;
+  showCreateGoogleFormTemplateOption: boolean;
+  companyFolderId: string;
   onTemplateQuestionChange: (value: string) => void;
   onTemplateQuestionTypeChange: (value: AuditQuestion["fieldType"]) => void;
   onAddTemplateQuestion: () => void;

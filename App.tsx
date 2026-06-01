@@ -224,6 +224,7 @@ import {
   syncAuditSubmissionToSheet,
 } from "./src/services/complianceSyncService";
 import { googleSheetsService } from "./src/services/googleSheetsService";
+import { googleFormTemplatesService } from "./src/services/googleFormTemplatesService";
 import { googleWorkspaceService } from "./src/services/googleWorkspaceService";
 import {
   tabletOfflineService,
@@ -703,6 +704,17 @@ type AuditTemplate = {
   active: boolean;
   questions: AuditQuestion[];
   source: "Google Drive" | "Built in app";
+  category?: string;
+  googleForm?: {
+    formId: string;
+    driveFileId?: string;
+    editUrl?: string;
+    responderUrl?: string;
+    folderId?: string;
+    folderName?: string;
+    syncStatus?: string;
+    notes?: string;
+  };
 };
 
 type DraftTemplateQuestion = {
@@ -3183,9 +3195,11 @@ function App() {
     ],
   );
   const [templateNameInput, setTemplateNameInput] = useState("");
+  const [templateCategoryInput, setTemplateCategoryInput] = useState("General");
   const [templateQuestionInput, setTemplateQuestionInput] = useState("");
   const [templateQuestionTypeInput, setTemplateQuestionTypeInput] = useState<AuditQuestion["fieldType"]>("Traffic light");
   const [templateDraftQuestions, setTemplateDraftQuestions] = useState<DraftTemplateQuestion[]>([]);
+  const [createGoogleFormTemplateCopy, setCreateGoogleFormTemplateCopy] = useState(false);
   const [scheduleNameInput, setScheduleNameInput] = useState("");
   const [scheduleAreaInput, setScheduleAreaInput] = useState("");
   const [scheduleOwnerInput, setScheduleOwnerInput] = useState(DEFAULT_MANAGER_NAME);
@@ -5120,6 +5134,14 @@ function App() {
       void refreshDocumentTrainingFromServer();
     }
   }, [screen, currentUser, refreshDocumentTrainingFromServer]);
+
+  useEffect(() => {
+    if (currentUser?.role === "Master") {
+      setCreateGoogleFormTemplateCopy(true);
+    } else if (currentUser?.role === "Admin") {
+      setCreateGoogleFormTemplateCopy(false);
+    }
+  }, [currentUser?.role]);
 
   useEffect(() => {
     const handleOnline = () => setOfflineMode(false);
@@ -9133,7 +9155,7 @@ function App() {
     });
   };
 
-  const handleAddTemplate = () => {
+  const handleAddTemplate = async () => {
     const trimmedName = templateNameInput.trim();
 
     if (!trimmedName) {
@@ -9151,16 +9173,17 @@ function App() {
           }))
         : buildDefaultQuestions(trimmedName);
 
-    setTemplates((current) => [
-      {
-        id: `template-local-${Date.now()}`,
-        name: trimmedName,
-        active: true,
-        questions: templateQuestions,
-        source: "Built in app",
-      },
-      ...current,
-    ]);
+    const templateId = `template-local-${Date.now()}`;
+    const newTemplate: AuditTemplate = {
+      id: templateId,
+      name: trimmedName,
+      active: true,
+      questions: templateQuestions,
+      source: "Built in app",
+      category: templateCategoryInput,
+    };
+
+    setTemplates((current) => [newTemplate, ...current]);
     if (syncState === "Synced") {
       setAudits((current) => [
         {
@@ -9183,6 +9206,59 @@ function App() {
     setTemplateNameInput("");
     setTemplateQuestionInput("");
     setTemplateDraftQuestions([]);
+
+    if (createGoogleFormTemplateCopy && googleConnected) {
+      try {
+        const result = await googleFormTemplatesService.createFromBertTemplate({
+          id: templateId,
+          name: trimmedName,
+          category: templateCategoryInput,
+          source: "Built in app",
+          questions: templateQuestions,
+          sourceCompanyId: selectedFolderId,
+          sourceCompanyName: selectedFolder?.name || workspaceName,
+          createdBy: currentUser?.name || "BERT",
+        });
+        if (result.ok && result.googleForm) {
+          const googleFormMeta = {
+            formId: result.googleForm.googleFormId,
+            driveFileId: result.googleForm.googleFormDriveFileId,
+            editUrl: result.googleForm.googleFormEditUrl,
+            responderUrl: result.googleForm.googleFormResponderUrl,
+            folderId: result.googleForm.currentDriveFolderId,
+            folderName: result.googleForm.currentDriveFolderName,
+            syncStatus: result.googleForm.syncStatus,
+            notes: result.googleForm.notes,
+          };
+          setTemplates((current) =>
+            current.map((template) =>
+              template.id === templateId ? { ...template, googleForm: googleFormMeta } : template,
+            ),
+          );
+          pushToast(
+            "Template added",
+            `${trimmedName} is ready in BERT with a Google Form copy in ${result.googleForm.currentDriveFolderName || "Drive"}.`,
+            "success",
+          );
+        } else if (result.permissionRequired) {
+          pushToast(
+            "BERT template created",
+            "Google Forms permission is not connected yet. Reconnect Google with Forms access in Platform Setup.",
+            "warning",
+          );
+        } else {
+          pushToast(
+            "BERT template created",
+            "Google Form copy could not be created.",
+            "warning",
+          );
+        }
+      } catch {
+        pushToast("BERT template created", "Google Form copy could not be created.", "warning");
+      }
+      return;
+    }
+
     pushToast("Template added", `${trimmedName} is now available in the audit template builder.`, "success");
   };
 
@@ -11651,6 +11727,12 @@ function App() {
                 onValidateWorkspace={() => void validateWorkspace()}
                 onRepairWorkspace={repairWorkspace}
                 onTemplateNameChange={setTemplateNameInput}
+                templateCategoryInput={templateCategoryInput}
+                onTemplateCategoryChange={setTemplateCategoryInput}
+                createGoogleFormTemplateCopy={createGoogleFormTemplateCopy}
+                onCreateGoogleFormTemplateCopyChange={setCreateGoogleFormTemplateCopy}
+                showCreateGoogleFormTemplateOption={currentUser?.role === "Master" || currentUser?.role === "Admin"}
+                companyFolderId={selectedFolderId}
                 onTemplateQuestionChange={setTemplateQuestionInput}
                 onTemplateQuestionTypeChange={setTemplateQuestionTypeInput}
                 onAddTemplateQuestion={handleAddTemplateQuestion}
