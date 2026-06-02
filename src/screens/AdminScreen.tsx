@@ -458,6 +458,7 @@ export function AdminScreen({
   createGoogleFormTemplateCopy,
   onCreateGoogleFormTemplateCopyChange,
   showCreateGoogleFormTemplateOption,
+  googleFormCopyPlacement,
   companyFolderId,
   onTemplateQuestionChange,
   onTemplateQuestionTypeChange,
@@ -2097,8 +2098,12 @@ export function AdminScreen({
                   <span className="font-semibold text-slate-900">Create Google Form template copy</span>
                   <span className="mt-1 block text-xs text-slate-500">
                     {googleConnected
-                      ? "Creates a movable Google Form copy in the backend template library. BERT remains the live operational system."
-                      : "Connect Google in Workspace to enable backend Google Form copies."}
+                      ? googleFormCopyPlacement === "company"
+                        ? "Creates a Google Form copy in this company's audit folder. BERT remains the live operational system."
+                        : "Creates a movable Google Form copy in the backend template library. BERT remains the live operational system."
+                      : googleFormCopyPlacement === "company"
+                        ? "Connect Google in Workspace to store Google Form copies in the company audit folder."
+                        : "Connect Google in Workspace to enable backend Google Form copies."}
                   </span>
                 </span>
               </label>
@@ -2217,6 +2222,7 @@ export function AdminScreen({
                   templateName={template.name}
                   category={template.category || "General"}
                   companyFolderId={companyFolderId}
+                  placement={googleFormCopyPlacement}
                   googleForm={template.googleForm}
                 />
               </div>

@@ -4,11 +4,19 @@ import path from "node:path";
 import {
   buildGoogleFormBatchRequests,
   CONFIGURED_TEMPLATE_CATEGORY_FOLDERS,
+  createCompanyGoogleFormCopy,
+  createMasterGoogleFormTemplateCopy,
   getConfiguredGoogleFormTemplatesFolderId,
+  GOOGLE_FORM_PLACEMENT_COMPANY,
+  GOOGLE_FORM_PLACEMENT_MASTER,
   GOOGLE_FORMS_BODY_SCOPE,
   normalizeTemplateCategory,
   TEMPLATE_CATEGORY_FOLDERS,
 } from "../server/google-form-templates.mjs";
+import {
+  AUDITS_GOOGLE_FORMS_FOLDER_KEY,
+  COMPANY_GOOGLE_FORM_STORAGE_PATH,
+} from "../server/company-folder-structure.mjs";
 
 const root = process.cwd();
 
@@ -34,6 +42,12 @@ assert(TEMPLATE_CATEGORY_FOLDERS.includes("COSHH"));
 assert(CONFIGURED_TEMPLATE_CATEGORY_FOLDERS.includes("ISO 9001"));
 assert(CONFIGURED_TEMPLATE_CATEGORY_FOLDERS.includes("General"));
 assert(typeof getConfiguredGoogleFormTemplatesFolderId === "function");
+assert(typeof createMasterGoogleFormTemplateCopy === "function");
+assert(typeof createCompanyGoogleFormCopy === "function");
+assert(GOOGLE_FORM_PLACEMENT_MASTER === "master");
+assert(GOOGLE_FORM_PLACEMENT_COMPANY === "company");
+assert(AUDITS_GOOGLE_FORMS_FOLDER_KEY === "AUDITS_GOOGLE_FORMS");
+assert(COMPANY_GOOGLE_FORM_STORAGE_PATH === "08 - Audits / Google Forms");
 
 const mapped = buildGoogleFormBatchRequests([
   { text: "Short answer", fieldType: "Text note" },
@@ -54,6 +68,11 @@ assertContains("server/google-form-templates.mjs", [
   "resolveGoogleFormTemplatesRoot",
   "Parent Drive Folder ID",
   "createGoogleFormFromBertTemplate",
+  "createMasterGoogleFormTemplateCopy",
+  "createCompanyGoogleFormCopy",
+  "resolveCompanyGoogleFormAuditFolder",
+  "GOOGLE_FORM_PLACEMENT_COMPANY",
+  "Current Folder Path",
   "/api/google-form-templates/create-from-bert",
   "/api/google-form-templates/folder/status",
   "/api/google-form-templates/folder/verify",
@@ -66,10 +85,23 @@ assertContains(".env.example", ["BERT_GOOGLE_FORM_TEMPLATES_FOLDER_ID"]);
 assertContains("App.tsx", [
   "googleFormTemplatesService",
   "BERT template created",
-  "Google Form copy could not be created",
+  "Google Form copy could not be stored in the company audit folder",
+  "08 - Audits / Google Forms",
+  "googleFormPlacement",
 ]);
 
-assertContains("src/screens/AdminScreen.tsx", ["Create Google Form template copy", "GoogleFormTemplatePanel"]);
+assertContains("src/screens/AdminScreen.tsx", [
+  "Create Google Form template copy",
+  "GoogleFormTemplatePanel",
+  "company's audit folder",
+  "googleFormCopyPlacement",
+]);
+assertContains("src/components/forms/FormsChecksTemplatesPanel.tsx", [
+  "08 - Audits / Google Forms",
+  "BERT remains the live",
+  "operational system",
+]);
+assertContains("src/components/admin/GoogleFormTemplatePanel.tsx", ["Stored in:", "COMPANY_GOOGLE_FORM_STORAGE_PATH"]);
 assertContains("src/screens/GodmodeInitialSetupScreen.tsx", [
   "Google Form Template Folder",
   "Verify template folder",

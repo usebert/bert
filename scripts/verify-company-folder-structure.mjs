@@ -64,6 +64,9 @@ assertContains("server/company-folder-structure.mjs", [
   "01 - BERT System Files",
   "03 - Evidence",
   "FORMS_GOOGLE_COPIES",
+  "AUDITS_GOOGLE_FORMS",
+  "COMPANY_GOOGLE_FORM_STORAGE_PATH",
+  "auditsGoogleFormsFolderId",
   "ensureCompanyFolderStructure",
   "/api/company-folder/",
 ]);

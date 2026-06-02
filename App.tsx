@@ -9331,18 +9331,30 @@ function App() {
     setTemplateDraftQuestions([]);
 
     if (createGoogleFormTemplateCopy && googleConnected) {
+      const googleFormPlacement = currentUser?.role === "Master" ? "master" : "company";
+      const companyStoredPath = "08 - Audits / Google Forms";
       try {
-        const result = await googleFormTemplatesService.createFromBertTemplate({
-          id: templateId,
-          name: trimmedName,
-          category: templateCategoryInput,
-          source: "Built in app",
-          questions: templateQuestions,
-          sourceCompanyId: selectedFolderId,
-          sourceCompanyName: selectedFolder?.name || workspaceName,
-          createdBy: currentUser?.name || "BERT",
-        });
+        const result = await googleFormTemplatesService.createFromBertTemplate(
+          {
+            id: templateId,
+            name: trimmedName,
+            category: templateCategoryInput,
+            source: "Built in app",
+            questions: templateQuestions,
+            sourceCompanyId: selectedFolderId,
+            sourceCompanyName: selectedFolder?.name || workspaceName,
+            companyRootFolderId: selectedFolderId,
+            masterSheetId: masterSheetId || "",
+            createdBy: currentUser?.name || "BERT",
+            placement: googleFormPlacement,
+          },
+          { placement: googleFormPlacement },
+        );
         if (result.ok && result.googleForm) {
+          const storedPath =
+            result.storedFolderPath ||
+            result.googleForm.currentFolderPath ||
+            (googleFormPlacement === "company" ? companyStoredPath : result.googleForm.currentDriveFolderName || "Drive");
           const googleFormMeta = {
             formId: result.googleForm.googleFormId,
             driveFileId: result.googleForm.googleFormDriveFileId,
@@ -9350,6 +9362,7 @@ function App() {
             responderUrl: result.googleForm.googleFormResponderUrl,
             folderId: result.googleForm.currentDriveFolderId,
             folderName: result.googleForm.currentDriveFolderName,
+            folderPath: storedPath,
             syncStatus: result.googleForm.syncStatus,
             notes: result.googleForm.notes,
           };
@@ -9364,15 +9377,29 @@ function App() {
               // BERT template already saved; sheet metadata sync is best-effort.
             }
           }
+          const storedLine =
+            googleFormPlacement === "company" ? ` Stored in: ${companyStoredPath}.` : ` Stored in: ${storedPath}.`;
+          const moveWarning =
+            result.folderPlacementFailed || result.googleForm.syncStatus === "Created - move failed"
+              ? " Google Form copy was created but could not be moved into the company audit folder."
+              : "";
           pushToast(
             "Template added",
-            `${trimmedName} is ready in BERT with a Google Form copy in ${result.googleForm.currentDriveFolderName || "Drive"}.`,
-            "success",
+            `${trimmedName} is ready in BERT with a Google Form copy.${storedLine}${moveWarning}`,
+            result.folderPlacementFailed || result.googleForm.syncStatus === "Created - move failed" ? "warning" : "success",
           );
         } else if (result.permissionRequired) {
           pushToast(
             "BERT template created",
             "Google Forms permission is not connected yet.",
+            "warning",
+          );
+        } else if (result.userMessage) {
+          pushToast("BERT template created", result.userMessage, "warning");
+        } else if (googleFormPlacement === "company") {
+          pushToast(
+            "BERT template created",
+            "Google Form copy could not be stored in the company audit folder.",
             "warning",
           );
         } else if (/drive|folder|edit/i.test(String(result.error || ""))) {
@@ -9389,7 +9416,13 @@ function App() {
           );
         }
       } catch {
-        pushToast("BERT template created", "Google Form copy could not be created.", "warning");
+        pushToast(
+          "BERT template created",
+          googleFormPlacement === "company"
+            ? "Google Form copy could not be stored in the company audit folder."
+            : "Google Form copy could not be created.",
+          "warning",
+        );
       }
       return;
     }
@@ -11897,6 +11930,7 @@ function App() {
                 createGoogleFormTemplateCopy={createGoogleFormTemplateCopy}
                 onCreateGoogleFormTemplateCopyChange={setCreateGoogleFormTemplateCopy}
                 showCreateGoogleFormTemplateOption={currentUser?.role === "Master" || currentUser?.role === "Admin"}
+                googleFormCopyPlacement={currentUser?.role === "Master" ? "master" : "company"}
                 companyFolderId={selectedFolderId}
                 onTemplateQuestionChange={setTemplateQuestionInput}
                 onTemplateQuestionTypeChange={setTemplateQuestionTypeInput}

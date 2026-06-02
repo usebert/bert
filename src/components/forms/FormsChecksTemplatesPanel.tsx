@@ -61,7 +61,9 @@ export function FormsChecksTemplatesPanel({
       <p className="text-sm text-slate-600">
         {templates.filter((item) => item.active).length} active template
         {templates.filter((item) => item.active).length === 1 ? "" : "s"} in this workspace. Schedules control when checks
-        run.
+        run. When you create a Google Form copy here, it is stored in this company&apos;s{" "}
+        <span className="font-medium text-slate-800">08 - Audits / Google Forms</span> folder. BERT remains the live
+        operational system.
       </p>
       {sorted.map((template) => (
         <div key={template.id} className="rounded-2xl border border-slate-200/90 bg-white px-4 py-3 shadow-sm">
@@ -99,6 +101,7 @@ export function FormsChecksTemplatesPanel({
             templateName={template.name}
             category={template.category || "General"}
             companyFolderId={companyFolderId}
+            placement="company"
             googleForm={template.googleForm}
             onGoogleFormUpdated={(record) =>
               onGoogleFormUpdated?.(template.id, {

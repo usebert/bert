@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  COMPANY_GOOGLE_FORM_STORAGE_PATH,
   googleFormTemplatesService,
+  type GoogleFormTemplatePlacement,
   type GoogleFormTemplateRecord,
 } from "../../services/googleFormTemplatesService";
 
@@ -9,12 +11,14 @@ type Props = {
   templateName: string;
   category: string;
   companyFolderId?: string;
+  placement?: GoogleFormTemplatePlacement;
   googleForm?: {
     formId?: string;
     syncStatus?: string;
     editUrl?: string;
     responderUrl?: string;
     folderName?: string;
+    folderPath?: string;
   };
   onGoogleFormUpdated?: (record: GoogleFormTemplateRecord) => void;
 };
@@ -24,6 +28,7 @@ export function GoogleFormTemplatePanel({
   templateName,
   category,
   companyFolderId,
+  placement = "master",
   googleForm,
   onGoogleFormUpdated,
 }: Props) {
@@ -57,6 +62,10 @@ export function GoogleFormTemplatePanel({
   const responderUrl = record?.googleFormResponderUrl || googleForm?.responderUrl || "";
   const syncStatus = record?.syncStatus || googleForm?.syncStatus || "";
   const folderName = record?.currentDriveFolderName || googleForm?.folderName || "";
+  const storedFolderPath =
+    record?.currentFolderPath ||
+    googleForm?.folderPath ||
+    (placement === "company" ? COMPANY_GOOGLE_FORM_STORAGE_PATH : "");
 
   if (!googleForm?.formId && !record?.googleFormId) {
     return null;
@@ -79,7 +88,11 @@ export function GoogleFormTemplatePanel({
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Google Form copy</p>
           <p className="text-sm font-semibold text-slate-900">{templateName}</p>
           {syncStatus ? <p className="text-xs text-slate-500">Sync: {syncStatus}</p> : null}
-          {folderName ? <p className="text-xs text-slate-500">Folder: {folderName}</p> : null}
+          {storedFolderPath ? (
+            <p className="text-xs text-slate-500">Stored in: {storedFolderPath}</p>
+          ) : folderName ? (
+            <p className="text-xs text-slate-500">Folder: {folderName}</p>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           {editUrl ? (
@@ -117,29 +130,31 @@ export function GoogleFormTemplatePanel({
         >
           Copy responder link
         </button>
-        <button
-          type="button"
-          disabled={loading}
-          onClick={() => {
-            setLoading(true);
-            void googleFormTemplatesService
-              .moveToTemplateFolder(templateId, { category })
-              .then((payload) => {
-                if (payload.ok && payload.template) {
-                  setRecord(payload.template);
-                  onGoogleFormUpdated?.(payload.template);
-                  setMessage("Moved to template folder");
-                } else {
-                  setMessage(payload.error || "Move failed");
-                }
-              })
-              .finally(() => setLoading(false));
-          }}
-          className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700"
-        >
-          Move to template folder
-        </button>
-        {companyFolderId ? (
+        {placement === "master" ? (
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => {
+              setLoading(true);
+              void googleFormTemplatesService
+                .moveToTemplateFolder(templateId, { category })
+                .then((payload) => {
+                  if (payload.ok && payload.template) {
+                    setRecord(payload.template);
+                    onGoogleFormUpdated?.(payload.template);
+                    setMessage("Moved to template folder");
+                  } else {
+                    setMessage(payload.error || "Move failed");
+                  }
+                })
+                .finally(() => setLoading(false));
+            }}
+            className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700"
+          >
+            Move to template folder
+          </button>
+        ) : null}
+        {placement === "master" && companyFolderId ? (
           <button
             type="button"
             disabled={loading}

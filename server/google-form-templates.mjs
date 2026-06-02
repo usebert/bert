@@ -3,7 +3,16 @@
  * Server-side only — uses workspace OAuth; never exposes tokens to clients.
  */
 
+import {
+  AUDITS_GOOGLE_FORMS_FOLDER_KEY,
+  COMPANY_GOOGLE_FORM_STORAGE_PATH,
+  ensureCompanyFolderStructure,
+} from "./company-folder-structure.mjs";
+
 export const GOOGLE_FORM_TEMPLATES_TAB = "GoogleFormTemplates";
+
+export const GOOGLE_FORM_PLACEMENT_MASTER = "master";
+export const GOOGLE_FORM_PLACEMENT_COMPANY = "company";
 
 export const GOOGLE_FORM_TEMPLATES_COLUMNS = [
   "BERT Template ID",
@@ -25,6 +34,9 @@ export const GOOGLE_FORM_TEMPLATES_COLUMNS = [
   "Sync Status",
   "Reusable Template",
   "Notes",
+  "Scope",
+  "Type",
+  "Current Folder Path",
 ];
 
 export const MASTER_TEMPLATES_ROOT_NAME = "BERT Master Templates";
@@ -155,6 +167,9 @@ function rowToGoogleFormTemplate(record) {
     syncStatus: String(record["Sync Status"] || "").trim(),
     reusableTemplate: String(record["Reusable Template"] || "").trim(),
     notes: String(record.Notes || "").trim(),
+    scope: String(record.Scope || "").trim(),
+    type: String(record.Type || "").trim(),
+    currentFolderPath: String(record["Current Folder Path"] || "").trim(),
   };
 }
 
@@ -179,7 +194,18 @@ function templateToSheetRow(template) {
     template.syncStatus,
     template.reusableTemplate,
     template.notes,
+    template.scope || "",
+    template.type || "",
+    template.currentFolderPath || "",
   ];
+}
+
+function normalizeGoogleFormPlacement(value = "") {
+  const normalized = safeLower(value);
+  if (normalized === GOOGLE_FORM_PLACEMENT_COMPANY || normalized === "company") {
+    return GOOGLE_FORM_PLACEMENT_COMPANY;
+  }
+  return GOOGLE_FORM_PLACEMENT_MASTER;
 }
 
 function mapBertQuestionToFormRequest(question, index) {
@@ -468,6 +494,45 @@ export async function ensureGoogleFormTemplateFolders(auth, category, { sharedDr
   };
 }
 
+/**
+ * Master/Godmode reusable templates: central BERT_GOOGLE_FORM_TEMPLATES_FOLDER_ID + category subfolders.
+ */
+export async function ensureMasterGoogleFormTemplateFolders(auth, category, options = {}) {
+  return ensureGoogleFormTemplateFolders(auth, category, options);
+}
+
+/**
+ * Company Admin Forms & Checks copies: 08 - Audits / Google Forms (AUDITS_GOOGLE_FORMS).
+ */
+export async function resolveCompanyGoogleFormAuditFolder(deps, auth, input = {}) {
+  const companyRootFolderId = String(input.companyRootFolderId || "").trim();
+  if (!companyRootFolderId) {
+    throw new Error("Company folder ID is required to store Google Form copies.");
+  }
+  if (!deps?.companyFolderStructureDeps) {
+    throw new Error("Company folder structure is not configured on the API server.");
+  }
+
+  const structure = await ensureCompanyFolderStructure(deps.companyFolderStructureDeps, auth, {
+    companyName: String(input.companyName || "").trim(),
+    companyRootFolderId,
+    masterSheetId: String(input.masterSheetId || "").trim(),
+    syncWorkbookTab: Boolean(String(input.masterSheetId || "").trim()),
+    placeFiles: false,
+  });
+  const folderId = structure.folderIds[AUDITS_GOOGLE_FORMS_FOLDER_KEY] || "";
+  if (!folderId) {
+    throw new Error("Unable to resolve the company Google Forms audit folder.");
+  }
+  return {
+    folderId,
+    folderName: "Google Forms",
+    folderPath: COMPANY_GOOGLE_FORM_STORAGE_PATH,
+    parentDriveFolderId: structure.folderIds.AUDITS || "",
+    parentDriveFolderName: "08 - Audits",
+  };
+}
+
 function isDrivePermissionError(error) {
   if (!error) return false;
   const status = error.code ?? error.response?.status ?? error.status;
@@ -690,7 +755,238 @@ export function createGoogleFormTemplateFolderSetupApi(deps) {
   };
 }
 
-export function createGoogleFormTemplatesApi({ google, getAuthedClient, envConfigured, withSheetsQuotaRetry, requiredEnv }) {
+async function createGoogleFormBody(forms, templateName, questions) {
+  const createdForm = await forms.forms.create({
+    requestBody: {
+      info: {
+        title: templateName,
+        documentTitle: templateName,
+      },
+    },
+  });
+  const formId = String(createdForm.data.formId || "").trim();
+  const { requests, skipped } = buildGoogleFormBatchRequests(questions);
+  if (requests.length > 0) {
+    await forms.forms.batchUpdate({
+      formId,
+      requestBody: { requests },
+    });
+  }
+  return { formId, formFileId: formId, skipped };
+}
+
+export async function createMasterGoogleFormTemplateCopy(apiContext, template) {
+  const { auth, drive, forms, registrySpreadsheetId, requiredEnv } = apiContext;
+  const bertTemplateId = String(template?.id || template?.bertTemplateId || "").trim();
+  const templateName = String(template?.name || template?.templateName || "BERT Template").trim();
+  const category = normalizeTemplateCategory(template?.category || template?.source || "");
+  const questions = Array.isArray(template?.questions) ? template.questions : [];
+  const createdBy = String(template?.createdBy || "BERT").trim();
+  const sourceCompanyId = String(template?.sourceCompanyId || "").trim();
+  const sourceCompanyName = String(template?.sourceCompanyName || "").trim();
+  const now = new Date().toISOString();
+
+  const folders = await ensureMasterGoogleFormTemplateFolders(auth, category, {
+    sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
+    drive,
+  });
+
+  const { formId, formFileId, skipped } = await createGoogleFormBody(forms, templateName, questions);
+
+  let syncStatus = skipped.length > 0 ? "Created with skipped fields" : "Created";
+  let notes = skipped.length > 0 ? `Skipped BERT-only fields: ${skipped.join("; ")}` : "";
+  let folderPlacementFailed = false;
+
+  if (formFileId) {
+    try {
+      await moveGoogleFormToDriveFolder(drive, formFileId, folders.categoryFolderId);
+      syncStatus = skipped.length > 0 ? "Created with skipped fields" : "Created";
+    } catch (moveError) {
+      syncStatus = "Created - move failed";
+      folderPlacementFailed = true;
+      notes = [notes, moveError instanceof Error ? moveError.message : "Move failed"].filter(Boolean).join(" | ");
+    }
+  } else {
+    syncStatus = "Created - drive file not resolved";
+    notes = [notes, "Could not resolve Drive file id for created form."].filter(Boolean).join(" | ");
+  }
+
+  const currentFolderPath = folders.categoryFolderName
+    ? `${folders.parentDriveFolderName || "BERT Master Templates"} / ${folders.categoryFolderName}`
+    : folders.parentDriveFolderName || "BERT Master Templates";
+
+  const record = {
+    bertTemplateId,
+    templateName,
+    sourceCompanyId,
+    sourceCompanyName,
+    category,
+    googleFormId: formId,
+    googleFormDriveFileId: formFileId,
+    googleFormEditUrl: buildFormEditUrl(formId),
+    googleFormResponderUrl: buildFormResponderUrl(formId),
+    parentDriveFolderId: folders.parentDriveFolderId,
+    parentDriveFolderName: folders.parentDriveFolderName,
+    currentDriveFolderId: folders.categoryFolderId,
+    currentDriveFolderName: folders.categoryFolderName,
+    createdBy,
+    createdAt: now,
+    lastSyncedAt: now,
+    syncStatus,
+    reusableTemplate: "yes",
+    notes,
+    scope: "Master",
+    type: "Reusable Template",
+    currentFolderPath,
+  };
+
+  await apiContext.upsertRegistryRow(auth, registrySpreadsheetId, record);
+
+  return {
+    ok: true,
+    placement: GOOGLE_FORM_PLACEMENT_MASTER,
+    bertTemplateCreated: true,
+    googleForm: record,
+    registrySpreadsheetId,
+    skippedFields: skipped,
+    folderPlacementFailed,
+    storedFolderPath: currentFolderPath,
+  };
+}
+
+export async function createCompanyGoogleFormCopy(apiDeps, template) {
+  const apiContext = apiDeps.api;
+  const { auth, drive, forms, registrySpreadsheetId } = apiContext;
+  const bertTemplateId = String(template?.id || template?.bertTemplateId || "").trim();
+  const templateName = String(template?.name || template?.templateName || "BERT Template").trim();
+  const category = normalizeTemplateCategory(template?.category || template?.source || "");
+  const questions = Array.isArray(template?.questions) ? template.questions : [];
+  const createdBy = String(template?.createdBy || "BERT").trim();
+  const sourceCompanyId = String(template?.sourceCompanyId || template?.companyRootFolderId || "").trim();
+  const sourceCompanyName = String(template?.sourceCompanyName || "").trim();
+  const masterSheetId = String(template?.masterSheetId || "").trim();
+  const now = new Date().toISOString();
+
+  let folders;
+  try {
+    folders = await resolveCompanyGoogleFormAuditFolder(apiDeps, auth, {
+      companyRootFolderId: sourceCompanyId,
+      companyName: sourceCompanyName,
+      masterSheetId,
+    });
+  } catch (folderError) {
+    return {
+      ok: false,
+      placement: GOOGLE_FORM_PLACEMENT_COMPANY,
+      bertTemplateCreated: true,
+      folderPlacementFailed: true,
+      error:
+        folderError instanceof Error
+          ? folderError.message
+          : "BERT template created. Google Form copy could not be stored in the company audit folder.",
+      userMessage: "BERT template created. Google Form copy could not be stored in the company audit folder.",
+    };
+  }
+
+  const { formId, formFileId, skipped } = await createGoogleFormBody(forms, templateName, questions);
+
+  let syncStatus = skipped.length > 0 ? "Created with skipped fields" : "Created";
+  let notes = skipped.length > 0 ? `Skipped BERT-only fields: ${skipped.join("; ")}` : "";
+  let folderPlacementFailed = false;
+
+  if (formFileId) {
+    try {
+      await moveGoogleFormToDriveFolder(drive, formFileId, folders.folderId);
+      syncStatus = skipped.length > 0 ? "Created with skipped fields" : "Created";
+    } catch (moveError) {
+      syncStatus = "Created - move failed";
+      folderPlacementFailed = true;
+      notes = [notes, moveError instanceof Error ? moveError.message : "Move failed"].filter(Boolean).join(" | ");
+    }
+  } else {
+    syncStatus = "Created - drive file not resolved";
+    notes = [notes, "Could not resolve Drive file id for created form."].filter(Boolean).join(" | ");
+  }
+
+  const record = {
+    bertTemplateId,
+    templateName,
+    sourceCompanyId,
+    sourceCompanyName,
+    category,
+    googleFormId: formId,
+    googleFormDriveFileId: formFileId,
+    googleFormEditUrl: buildFormEditUrl(formId),
+    googleFormResponderUrl: buildFormResponderUrl(formId),
+    parentDriveFolderId: folders.parentDriveFolderId,
+    parentDriveFolderName: folders.parentDriveFolderName,
+    currentDriveFolderId: folders.folderId,
+    currentDriveFolderName: folders.folderName,
+    createdBy,
+    createdAt: now,
+    lastSyncedAt: now,
+    syncStatus,
+    reusableTemplate: "no",
+    notes,
+    scope: "Company",
+    type: "Company",
+    currentFolderPath: folders.folderPath,
+  };
+
+  await apiContext.upsertRegistryRow(auth, registrySpreadsheetId, record);
+
+  return {
+    ok: true,
+    placement: GOOGLE_FORM_PLACEMENT_COMPANY,
+    bertTemplateCreated: true,
+    googleForm: record,
+    registrySpreadsheetId,
+    skippedFields: skipped,
+    folderPlacementFailed,
+    storedFolderPath: folders.folderPath,
+    userMessage: folderPlacementFailed
+      ? "BERT template created. Google Form copy was created but could not be moved into the company audit folder."
+      : undefined,
+  };
+}
+
+async function moveGoogleFormToDriveFolder(drive, formFileId, folderId) {
+  const fileId = String(formFileId || "").trim();
+  const targetFolderId = String(folderId || "").trim();
+  if (!fileId || !targetFolderId) {
+    throw new Error("formFileId and folderId are required.");
+  }
+  const current = await drive.files.get({
+    fileId,
+    supportsAllDrives: true,
+    fields: "id,parents",
+  });
+  const previousParents = (current.data.parents || []).join(",");
+  await drive.files.update({
+    fileId,
+    supportsAllDrives: true,
+    addParents: targetFolderId,
+    removeParents: previousParents || undefined,
+    fields: "id,parents",
+  });
+}
+
+export function createGoogleFormTemplatesApi({
+  google,
+  getAuthedClient,
+  envConfigured,
+  withSheetsQuotaRetry,
+  requiredEnv,
+  companyFolderStructureDeps,
+  getCompanyFolderStructureDeps,
+}) {
+  function resolveCompanyFolderStructureDeps() {
+    if (companyFolderStructureDeps) return companyFolderStructureDeps;
+    if (typeof getCompanyFolderStructureDeps === "function") {
+      return getCompanyFolderStructureDeps();
+    }
+    return null;
+  }
   function driveClient(auth) {
     return google.drive({ version: "v3", auth });
   }
@@ -812,7 +1108,7 @@ export function createGoogleFormTemplatesApi({ google, getAuthedClient, envConfi
     return row;
   }
 
-  async function createGoogleFormFromBertTemplate(template) {
+  async function createGoogleFormFromBertTemplate(template, options = {}) {
     const auth = getAuthedClient();
     if (!envConfigured() || !auth) {
       return {
@@ -823,96 +1119,31 @@ export function createGoogleFormTemplatesApi({ google, getAuthedClient, envConfi
       };
     }
 
-    const drive = driveClient(auth);
-
     const bertTemplateId = String(template?.id || template?.bertTemplateId || "").trim();
-    const templateName = String(template?.name || template?.templateName || "BERT Template").trim();
-    const category = normalizeTemplateCategory(template?.category || template?.source || "");
-    const questions = Array.isArray(template?.questions) ? template.questions : [];
-    const createdBy = String(template?.createdBy || "BERT").trim();
-    const sourceCompanyId = String(template?.sourceCompanyId || "").trim();
-    const sourceCompanyName = String(template?.sourceCompanyName || "").trim();
-    const now = new Date().toISOString();
-
     if (!bertTemplateId) {
       return { ok: false, error: "BERT template id is required." };
     }
 
+    const placement = normalizeGoogleFormPlacement(options.placement || template?.placement || "");
+    const drive = driveClient(auth);
+    const forms = formsClient(auth);
+
     try {
       const registrySpreadsheetId = await resolveRegistrySpreadsheetId(auth);
-      const folders = await ensureGoogleFormTemplateFolders(auth, category, {
-        sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
+      const apiContext = {
+        auth,
         drive,
-      });
-
-      const forms = formsClient(auth);
-      const createdForm = await forms.forms.create({
-        requestBody: {
-          info: {
-            title: templateName,
-            documentTitle: templateName,
-          },
-        },
-      });
-
-      const formId = String(createdForm.data.formId || "").trim();
-      const { requests, skipped } = buildGoogleFormBatchRequests(questions);
-      if (requests.length > 0) {
-        await forms.forms.batchUpdate({
-          formId,
-          requestBody: { requests },
-        });
-      }
-
-      const formFileId = formId;
-
-      let syncStatus = skipped.length > 0 ? "Created with skipped fields" : "Created";
-      let notes = skipped.length > 0 ? `Skipped BERT-only fields: ${skipped.join("; ")}` : "";
-
-      if (formFileId) {
-        try {
-          await moveGoogleFormToTemplateFolder(auth, formFileId, folders.categoryFolderId, { drive });
-          syncStatus = skipped.length > 0 ? "Created with skipped fields" : "Created";
-        } catch (moveError) {
-          syncStatus = "Created - move failed";
-          notes = [notes, moveError instanceof Error ? moveError.message : "Move failed"].filter(Boolean).join(" | ");
-        }
-      } else {
-        syncStatus = "Created - drive file not resolved";
-        notes = [notes, "Could not resolve Drive file id for created form."].filter(Boolean).join(" | ");
-      }
-
-      const record = {
-        bertTemplateId,
-        templateName,
-        sourceCompanyId,
-        sourceCompanyName,
-        category,
-        googleFormId: formId,
-        googleFormDriveFileId: formFileId,
-        googleFormEditUrl: buildFormEditUrl(formId),
-        googleFormResponderUrl: buildFormResponderUrl(formId),
-        parentDriveFolderId: folders.parentDriveFolderId,
-        parentDriveFolderName: folders.parentDriveFolderName,
-        currentDriveFolderId: folders.categoryFolderId,
-        currentDriveFolderName: folders.categoryFolderName,
-        createdBy,
-        createdAt: now,
-        lastSyncedAt: now,
-        syncStatus,
-        reusableTemplate: "yes",
-        notes,
-      };
-
-      await upsertRegistryRow(auth, registrySpreadsheetId, record);
-
-      return {
-        ok: true,
-        bertTemplateCreated: true,
-        googleForm: record,
+        forms,
         registrySpreadsheetId,
-        skippedFields: skipped,
+        requiredEnv,
+        upsertRegistryRow,
       };
+      const apiDeps = { api: apiContext, companyFolderStructureDeps: resolveCompanyFolderStructureDeps() };
+
+      if (placement === GOOGLE_FORM_PLACEMENT_COMPANY) {
+        return await createCompanyGoogleFormCopy(apiDeps, template);
+      }
+      return await createMasterGoogleFormTemplateCopy(apiContext, template);
     } catch (error) {
       if (isGoogleFormsPermissionError(error)) {
         return {
@@ -921,13 +1152,24 @@ export function createGoogleFormTemplatesApi({ google, getAuthedClient, envConfi
           error: "Google Forms permission is not connected yet.",
           scopeHint: GOOGLE_FORMS_BODY_SCOPE,
           bertTemplateCreated: true,
+          placement,
         };
       }
+      const companyPlacement = placement === GOOGLE_FORM_PLACEMENT_COMPANY;
       return {
         ok: false,
-        error: error instanceof Error ? error.message : "Google Form creation failed",
+        error:
+          error instanceof Error
+            ? error.message
+            : companyPlacement
+              ? "BERT template created. Google Form copy could not be stored in the company audit folder."
+              : "Google Form creation failed",
         syncStatus: "Google Form creation failed",
         bertTemplateCreated: true,
+        placement,
+        userMessage: companyPlacement
+          ? "BERT template created. Google Form copy could not be stored in the company audit folder."
+          : undefined,
       };
     }
   }
@@ -939,19 +1181,7 @@ export function createGoogleFormTemplatesApi({ google, getAuthedClient, envConfi
     if (!fileId || !targetFolderId) {
       throw new Error("formFileId and folderId are required.");
     }
-    const current = await drive.files.get({
-      fileId,
-      supportsAllDrives: true,
-      fields: "id,parents",
-    });
-    const previousParents = (current.data.parents || []).join(",");
-    await drive.files.update({
-      fileId,
-      supportsAllDrives: true,
-      addParents: targetFolderId,
-      removeParents: previousParents || undefined,
-      fields: "id,parents",
-    });
+    await moveGoogleFormToDriveFolder(drive, fileId, targetFolderId);
     const folder = await drive.files.get({
       fileId: targetFolderId,
       supportsAllDrives: true,
@@ -1050,6 +1280,7 @@ export function createGoogleFormTemplatesApi({ google, getAuthedClient, envConfi
   return {
     createGoogleFormFromBertTemplate,
     ensureGoogleFormTemplateFolders: ensureTemplateFolders,
+    ensureMasterGoogleFormTemplateFolders: ensureTemplateFolders,
     moveGoogleFormToTemplateFolder,
     copyGoogleFormTemplateToCompany,
     listGoogleFormTemplates,
@@ -1148,8 +1379,10 @@ export function installGoogleFormTemplateRoutes(app, deps) {
 
   app.post("/api/google-form-templates/create-from-bert", requireGoogleWorkspaceSession, async (req, res) => {
     try {
-      const payload = await api.createGoogleFormFromBertTemplate(req.body?.template || req.body || {});
-      const status = payload.ok ? 200 : payload.permissionRequired ? 403 : 502;
+      const template = req.body?.template || req.body || {};
+      const placement = normalizeGoogleFormPlacement(req.body?.placement || template?.placement || "");
+      const payload = await api.createGoogleFormFromBertTemplate(template, { placement });
+      const status = payload.ok ? 200 : payload.permissionRequired ? 403 : payload.bertTemplateCreated ? 200 : 502;
       return res.status(status).json(payload);
     } catch (error) {
       return res.status(500).json({

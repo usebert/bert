@@ -1069,6 +1069,15 @@ installGoogleFormTemplateRoutes(app, {
   requiredEnv,
   requireGoogleWorkspaceSession,
   requireMasterOnlyActor,
+  getCompanyFolderStructureDeps: () => ({
+    google,
+    ensureTabExists,
+    ensureColumns,
+    getWorkbook,
+    getTabValues,
+    withSheetsQuotaRetry,
+    safeLower,
+  }),
 });
 
 function safeLower(value) {

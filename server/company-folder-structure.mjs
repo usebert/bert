@@ -3,6 +3,9 @@
  * Idempotent: reuses folders by exact name under each parent; never deletes.
  */
 
+export const AUDITS_GOOGLE_FORMS_FOLDER_KEY = "AUDITS_GOOGLE_FORMS";
+export const COMPANY_GOOGLE_FORM_STORAGE_PATH = "08 - Audits / Google Forms";
+
 export const COMPANY_FOLDERS_TAB = "CompanyFolders";
 export const COMPANY_FOLDERS_COLUMNS = [
   "Folder Key",
@@ -114,6 +117,7 @@ export const COMPANY_FOLDER_TREE = [
       { key: "AUDITS_SITE", name: "Site" },
       { key: "AUDITS_PROCESS", name: "Process" },
       { key: "AUDITS_ARCHIVED", name: "Archived" },
+      { key: "AUDITS_GOOGLE_FORMS", name: "Google Forms" },
     ],
   },
   {
@@ -242,6 +246,7 @@ export function buildLegacyFolderConfigFromStructure(folderIds, legacyRootIds = 
     managementNotesFolderId: folderIds.ADMIN_NOTES || legacyRootIds.managementNotesFolderId || "",
     companyWorkbookFolderId: folderIds.BERT_COMPANY_WORKBOOK || "",
     formsGoogleCopiesFolderId: folderIds.FORMS_GOOGLE_COPIES || "",
+    auditsGoogleFormsFolderId: folderIds.AUDITS_GOOGLE_FORMS || "",
     reportsFolderId: folderIds.REPORTS || "",
     evidenceOfflineUploadsFolderId: folderIds.EVIDENCE_OFFLINE_UPLOADS || "",
     evidenceDocumentsFolderId: folderIds.EVIDENCE_DOCUMENTS || "",

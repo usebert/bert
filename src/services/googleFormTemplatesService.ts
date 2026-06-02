@@ -20,7 +20,12 @@ export type GoogleFormTemplateRecord = {
   syncStatus: string;
   reusableTemplate: string;
   notes: string;
+  scope?: string;
+  type?: string;
+  currentFolderPath?: string;
 };
+
+export type GoogleFormTemplatePlacement = "master" | "company";
 
 export type BertTemplateForGoogleForm = {
   id: string;
@@ -37,7 +42,12 @@ export type BertTemplateForGoogleForm = {
   sourceCompanyId?: string;
   sourceCompanyName?: string;
   createdBy?: string;
+  placement?: GoogleFormTemplatePlacement;
+  masterSheetId?: string;
+  companyRootFolderId?: string;
 };
+
+export const COMPANY_GOOGLE_FORM_STORAGE_PATH = "08 - Audits / Google Forms";
 
 async function parseJson<T>(response: Response): Promise<T> {
   return (await response.json()) as T;
@@ -56,12 +66,16 @@ export const googleFormTemplatesService = {
     return parseJson<{ ok: boolean; template?: GoogleFormTemplateRecord; error?: string }>(response);
   },
 
-  async createFromBertTemplate(template: BertTemplateForGoogleForm) {
+  async createFromBertTemplate(
+    template: BertTemplateForGoogleForm,
+    options: { placement?: GoogleFormTemplatePlacement } = {},
+  ) {
+    const placement = options.placement || template.placement || "master";
     const response = await fetch(apiUrl("/api/google-form-templates/create-from-bert"), {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ template }),
+      body: JSON.stringify({ template, placement }),
     });
     return parseJson<{
       ok: boolean;
@@ -72,6 +86,10 @@ export const googleFormTemplatesService = {
       syncStatus?: string;
       skippedFields?: string[];
       bertTemplateCreated?: boolean;
+      placement?: GoogleFormTemplatePlacement;
+      storedFolderPath?: string;
+      folderPlacementFailed?: boolean;
+      userMessage?: string;
     }>(response);
   },
 
