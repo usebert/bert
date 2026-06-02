@@ -342,6 +342,132 @@ async function writeCompanyFoldersTab(deps, auth, spreadsheetId, entries) {
   }
 }
 
+export function buildCompanyMasterSheetName(companyName = "") {
+  const safe = String(companyName || "").trim() || "Company";
+  return `${safe} - BERT Master Sheet`;
+}
+
+function matchesCompanyMasterSheetName(name = "", companyName = "") {
+  const lower = safeLower(name);
+  const expected = safeLower(buildCompanyMasterSheetName(companyName));
+  if (lower === expected) {
+    return true;
+  }
+  if (lower === "company master sheet") {
+    return true;
+  }
+  if (lower.endsWith(" - bert master sheet")) {
+    return true;
+  }
+  return false;
+}
+
+async function listSpreadsheetsInFolder(drive, folderId) {
+  if (!folderId) {
+    return [];
+  }
+  const response = await drive.files.list({
+    includeItemsFromAllDrives: true,
+    supportsAllDrives: true,
+    q: `'${folderId}' in parents and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false`,
+    fields: "files(id,name,webViewLink,createdTime)",
+    pageSize: 50,
+    orderBy: "createdTime",
+  });
+  return response.data.files || [];
+}
+
+function buildSpreadsheetLink(spreadsheetId, webViewLink = "") {
+  if (webViewLink) {
+    return webViewLink;
+  }
+  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+}
+
+async function createCompanySpreadsheet(drive, name, parentId) {
+  const created = await drive.files.create({
+    supportsAllDrives: true,
+    requestBody: {
+      name,
+      mimeType: "application/vnd.google-apps.spreadsheet",
+      parents: [parentId],
+    },
+    fields: "id,name,webViewLink",
+  });
+  return created.data;
+}
+
+/**
+ * Find, reuse, or create the company master spreadsheet in Company Workbook. Idempotent.
+ */
+export async function ensureCompanyMasterSheet(drive, input) {
+  const companyName = String(input.companyName || "").trim();
+  const masterSheetIdHint = String(input.masterSheetId || "").trim();
+  const workbookFolderId = String(input.workbookFolderId || "").trim();
+  const legacySetupFolderId = String(input.legacySetupFolderId || "").trim();
+  const searchFolderIds = Array.from(new Set([workbookFolderId, legacySetupFolderId].filter(Boolean)));
+
+  if (masterSheetIdHint) {
+    try {
+      const meta = await drive.files.get({
+        fileId: masterSheetIdHint,
+        supportsAllDrives: true,
+        fields: "id,name,mimeType,webViewLink",
+      });
+      if (meta.data.mimeType === "application/vnd.google-apps.spreadsheet") {
+        if (workbookFolderId) {
+          await moveFileToFolderIfNeeded(drive, masterSheetIdHint, workbookFolderId);
+        }
+        return {
+          masterSheetId: meta.data.id,
+          masterSheetName: meta.data.name,
+          masterSheetLink: buildSpreadsheetLink(meta.data.id, meta.data.webViewLink),
+          status: "linked",
+          created: false,
+        };
+      }
+    } catch {
+      // Hint invalid — search or create below.
+    }
+  }
+
+  for (const folderId of searchFolderIds) {
+    const spreadsheets = await listSpreadsheetsInFolder(drive, folderId);
+    const match = spreadsheets.find((file) => matchesCompanyMasterSheetName(file.name, companyName));
+    if (match?.id) {
+      if (workbookFolderId && folderId !== workbookFolderId) {
+        await moveFileToFolderIfNeeded(drive, match.id, workbookFolderId);
+      }
+      return {
+        masterSheetId: match.id,
+        masterSheetName: match.name,
+        masterSheetLink: buildSpreadsheetLink(match.id, match.webViewLink),
+        status: "reused",
+        created: false,
+      };
+    }
+  }
+
+  const parentId = workbookFolderId || searchFolderIds[0];
+  if (!parentId) {
+    throw new Error("Company Workbook folder not found. Run folder structure repair first.");
+  }
+  const sheetName = buildCompanyMasterSheetName(companyName);
+  const created = await createCompanySpreadsheet(drive, sheetName, parentId);
+  console.log("[provision] company_master_sheet created", {
+    spreadsheetId: created.id,
+    workbookFolderId: parentId,
+    companyNameLen: companyName.length,
+  });
+  return {
+    masterSheetId: created.id,
+    masterSheetName: created.name,
+    masterSheetLink: buildSpreadsheetLink(created.id, created.webViewLink),
+    status: "created",
+    created: true,
+  };
+}
+
 async function moveFileToFolderIfNeeded(drive, fileId, targetFolderId) {
   if (!fileId || !targetFolderId) {
     return { moved: false };
@@ -473,6 +599,8 @@ export function installCompanyFolderStructureRoutes(app, deps) {
     requireGoogleWorkspaceSession,
     requireWorkspaceAdminActor,
     ensureTabsAndColumns,
+    ensureCompanyMappingTabs,
+    ensureAreasTab,
     updateConfig,
     getConfig,
     getDriveFile,
@@ -495,32 +623,70 @@ export function installCompanyFolderStructureRoutes(app, deps) {
 
     try {
       const companyRootFolderId = String(req.params.folderId || "").trim();
-      const masterSheetId = String(req.body?.masterSheetId || "").trim();
+      const masterSheetIdInput = String(req.body?.masterSheetId || "").trim();
       const companyName = String(req.body?.companyName || "").trim();
+      const ensureMasterSheet = req.body?.ensureMasterSheet !== false;
 
       if (!companyRootFolderId) {
         return res.status(400).json({ ok: false, error: "Company folder ID is required." });
       }
 
-      await getDriveFile(authed, companyRootFolderId);
+      const companyRoot = await getDriveFile(authed, companyRootFolderId);
+      const resolvedCompanyName = companyName || companyRoot.name || "";
 
-      const result = await ensureCompanyFolderStructure(deps, authed, {
-        companyName,
+      const structureWithoutSheet = await ensureCompanyFolderStructure(deps, authed, {
+        companyName: resolvedCompanyName,
         companyRootFolderId,
-        masterSheetId,
+        syncWorkbookTab: false,
+        placeFiles: false,
       });
 
-      if (masterSheetId) {
-        await ensureTabsAndColumns(authed, masterSheetId, {
-          companyId: companyRootFolderId,
-          companyName,
+      const drive = deps.google.drive({ version: "v3", auth: authed });
+      let masterSheet = null;
+      if (ensureMasterSheet || masterSheetIdInput) {
+        masterSheet = await ensureCompanyMasterSheet(drive, {
+          companyName: resolvedCompanyName,
+          masterSheetId: masterSheetIdInput,
+          workbookFolderId: structureWithoutSheet.folderIds.BERT_COMPANY_WORKBOOK || "",
+          legacySetupFolderId: structureWithoutSheet.legacyRootIds.setupFolderId || "",
         });
-        const config = await getConfig(authed, masterSheetId);
-        await updateConfig(authed, masterSheetId, {
+      }
+
+      const resolvedMasterSheetId = masterSheet?.masterSheetId || masterSheetIdInput;
+      const result = await ensureCompanyFolderStructure(deps, authed, {
+        companyName: resolvedCompanyName,
+        companyRootFolderId,
+        masterSheetId: resolvedMasterSheetId,
+        syncWorkbookTab: Boolean(resolvedMasterSheetId),
+        placeFiles: Boolean(resolvedMasterSheetId),
+      });
+
+      if (resolvedMasterSheetId) {
+        await ensureTabsAndColumns(authed, resolvedMasterSheetId, {
+          companyId: companyRootFolderId,
+          companyName: resolvedCompanyName,
+        });
+        if (typeof ensureCompanyMappingTabs === "function") {
+          await ensureCompanyMappingTabs(deps, authed, resolvedMasterSheetId);
+        }
+        if (typeof ensureAreasTab === "function") {
+          await ensureAreasTab(authed, resolvedMasterSheetId);
+        }
+        const config = await getConfig(authed, resolvedMasterSheetId);
+        await updateConfig(authed, resolvedMasterSheetId, {
           ...config,
           ...result.legacyFolderConfig,
+          masterSheetId: resolvedMasterSheetId,
           companyFolderStructureVersion: "1",
           companyFolderStructureCheckedAt: new Date().toISOString(),
+        });
+      }
+
+      if (masterSheet?.status) {
+        console.log("[provision] company_master_sheet", {
+          status: masterSheet.status,
+          spreadsheetId: masterSheet.masterSheetId,
+          companyFolderId: companyRootFolderId,
         });
       }
 
@@ -530,6 +696,11 @@ export function installCompanyFolderStructureRoutes(app, deps) {
         legacyFolderConfig: result.legacyFolderConfig,
         placed: result.placed,
         folderCount: result.entries.length,
+        masterSheetId: resolvedMasterSheetId || "",
+        masterSheetName: masterSheet?.masterSheetName || "",
+        masterSheetLink: masterSheet?.masterSheetLink || "",
+        masterSheetStatus: masterSheet?.status || (resolvedMasterSheetId ? "linked" : ""),
+        masterSheetCreated: Boolean(masterSheet?.created),
       });
     } catch (error) {
       return res.status(500).json({

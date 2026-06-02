@@ -3161,6 +3161,8 @@ function App() {
   const [workspaceValidation, setWorkspaceValidation] = useState<WorkspaceValidation | null>(null);
   const [workspaceValidationLoading, setWorkspaceValidationLoading] = useState(false);
   const [companyFolderStructureRepairing, setCompanyFolderStructureRepairing] = useState(false);
+  const [companyMasterSheetLink, setCompanyMasterSheetLink] = useState("");
+  const [companyMasterSheetProvisioning, setCompanyMasterSheetProvisioning] = useState(false);
   const storedFolderLinks = readStoredFolderLinks();
   const [folderNameInput, setFolderNameInput] = useState(storedFolderLinks?.folderNameInput || "");
   const [folderIdInput, setFolderIdInput] = useState(storedFolderLinks?.folderIdInput || "");
@@ -6008,6 +6010,43 @@ function App() {
     }
   };
 
+  const applyCompanyFolderStructureResult = (
+    payload: Awaited<ReturnType<typeof companyFolderStructureService.repairCompanyFolderStructure>>,
+  ) => {
+    if (payload.legacyFolderConfig) {
+      applyIsoFolderIdsToInputs(payload.legacyFolderConfig, isoFolderInputSnapshot, isoFolderInputSetters);
+    }
+    const resolvedMasterSheetId = String(payload.masterSheetId || "").trim();
+    if (resolvedMasterSheetId) {
+      setMasterSheetInput(resolvedMasterSheetId);
+    }
+    const link = String(payload.masterSheetLink || "").trim();
+    if (link) {
+      setCompanyMasterSheetLink(link);
+    }
+    return resolvedMasterSheetId;
+  };
+
+  const ensureCompanyWorkspaceStructure = async (options?: { masterSheetId?: string; silent?: boolean }) => {
+    const companyFolderId = extractGoogleResourceId(folderIdInput) || selectedFolder?.id || "";
+    if (!companyFolderId) {
+      throw new Error("Company folder ID is required.");
+    }
+    const payload = await companyFolderStructureService.repairCompanyFolderStructure({
+      companyFolderId,
+      masterSheetId:
+        options?.masterSheetId ||
+        extractGoogleResourceId(masterSheetInput) ||
+        companySheetSync?.sheetId ||
+        selectedFolder?.responseSheetId ||
+        "",
+      companyName: selectedFolder?.name || folderNameInput,
+      ensureMasterSheet: true,
+    });
+    applyCompanyFolderStructureResult(payload);
+    return payload;
+  };
+
   const repairCompanyFolderStructure = async () => {
     if (!currentUser || !canRepairCompanyFolderStructure(currentUser.role)) {
       pushToast("Not allowed", "Only Admin or Master can repair the company folder structure.", "warning");
@@ -6025,29 +6064,23 @@ function App() {
       );
       return;
     }
-    const sheetId = extractGoogleResourceId(masterSheetInput) || companySheetSync?.sheetId || selectedFolder?.responseSheetId || "";
     const companyFolderId = extractGoogleResourceId(folderIdInput) || selectedFolder?.id || "";
-    if (!sheetId || !companyFolderId) {
-      pushToast(
-        "Workspace link required",
-        "Link a company folder and Company Master Sheet before repairing Drive folders.",
-        "warning",
-      );
+    if (!companyFolderId) {
+      pushToast("Workspace link required", "Link a company folder before repairing Drive folders.", "warning");
       return;
     }
     setCompanyFolderStructureRepairing(true);
     try {
-      const payload = await companyFolderStructureService.repairCompanyFolderStructure({
-        companyFolderId,
-        masterSheetId: sheetId,
-        companyName: selectedFolder?.name || folderNameInput,
-      });
-      if (payload.legacyFolderConfig) {
-        applyIsoFolderIdsToInputs(payload.legacyFolderConfig, isoFolderInputSnapshot, isoFolderInputSetters);
-      }
+      const payload = await ensureCompanyWorkspaceStructure();
+      const statusLabel =
+        payload.masterSheetStatus === "created"
+          ? " Company master sheet was created."
+          : payload.masterSheetStatus === "reused"
+            ? " Existing company master sheet was linked."
+            : "";
       pushToast(
         "Drive folders updated",
-        `Standard company folders are in place (${payload.folderCount ?? 0} entries). Missing folders were created; nothing was deleted.`,
+        `Standard company folders are in place (${payload.folderCount ?? 0} entries).${statusLabel}`,
         "success",
       );
     } catch (error) {
@@ -6058,6 +6091,44 @@ function App() {
       );
     } finally {
       setCompanyFolderStructureRepairing(false);
+    }
+  };
+
+  const handleCreateCompanyMasterSheet = async () => {
+    if (!backendConfigured || !googleConnected) {
+      pushToast(
+        "Google Workspace needs setup",
+        "Connect Google in Initial Setup before creating the company master sheet.",
+        "warning",
+      );
+      return;
+    }
+    const companyFolderId = extractGoogleResourceId(folderIdInput) || selectedFolder?.id || "";
+    if (!companyFolderId) {
+      pushToast("Company folder required", "Paste the company folder link or ID first.", "warning");
+      return;
+    }
+    setCompanyMasterSheetProvisioning(true);
+    try {
+      const payload = await ensureCompanyWorkspaceStructure({
+        masterSheetId: extractGoogleResourceId(masterSheetInput) || "",
+      });
+      const link = String(payload.masterSheetLink || "").trim();
+      if (payload.masterSheetStatus === "created") {
+        pushToast("Company master sheet created", link || "The spreadsheet is ready in Company Workbook.", "success");
+      } else if (payload.masterSheetStatus === "reused") {
+        pushToast("Company master sheet linked", "An existing spreadsheet in Company Workbook was reused.", "success");
+      } else {
+        pushToast("Company master sheet ready", link || "The spreadsheet is linked to this workspace.", "success");
+      }
+    } catch (error) {
+      pushToast(
+        "Master sheet setup failed",
+        error instanceof Error ? error.message : "Unable to create the company master sheet.",
+        "warning",
+      );
+    } finally {
+      setCompanyMasterSheetProvisioning(false);
     }
   };
 
@@ -9201,19 +9272,42 @@ function App() {
       return;
     }
 
-    if (!folderIdInput || !masterSheetInput) {
+    const companyFolderId = extractGoogleResourceId(folderIdInput) || selectedFolder?.id || "";
+    if (!companyFolderId) {
+      pushToast("Missing link", "Paste the company folder link first, then run one-click onboarding.", "warning");
+      return;
+    }
+
+    setCompanyFolderStructureRepairing(true);
+    let resolvedMasterSheetId = extractGoogleResourceId(masterSheetInput) || "";
+    try {
+      if (canRepairCompanyFolderStructure(currentUser?.role || "Auditor")) {
+        const payload = await ensureCompanyWorkspaceStructure({
+          masterSheetId: resolvedMasterSheetId,
+        });
+        resolvedMasterSheetId = String(payload.masterSheetId || resolvedMasterSheetId).trim();
+      }
+    } catch (error) {
       pushToast(
-        "Missing links",
-        "Paste the company folder and master sheet links first, then run one-click onboarding.",
+        "Workspace setup failed",
+        error instanceof Error ? error.message : "Unable to prepare company folders and master sheet.",
+        "warning",
+      );
+      return;
+    } finally {
+      setCompanyFolderStructureRepairing(false);
+    }
+
+    if (!resolvedMasterSheetId) {
+      pushToast(
+        "Master sheet missing",
+        "Company master sheet could not be created. Check Google Drive permissions and try again.",
         "warning",
       );
       return;
     }
 
     await handleAddFolder();
-    if (canRepairCompanyFolderStructure(currentUser?.role || "Auditor")) {
-      await repairCompanyFolderStructure();
-    }
     handleVerifyOnboarding();
     handleVerifyAudits();
     handleVerifyResponseSheet();
@@ -11924,6 +12018,9 @@ function App() {
                     : undefined
                 }
                 companyFolderStructureRepairing={companyFolderStructureRepairing}
+                onCreateCompanyMasterSheet={() => void handleCreateCompanyMasterSheet()}
+                companyMasterSheetProvisioning={companyMasterSheetProvisioning}
+                companyMasterSheetLink={companyMasterSheetLink}
                 onTemplateNameChange={setTemplateNameInput}
                 templateCategoryInput={templateCategoryInput}
                 onTemplateCategoryChange={setTemplateCategoryInput}

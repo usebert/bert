@@ -212,6 +212,9 @@ export type AdminScreenProps = {
   onRepairWorkspace: () => void;
   onRepairCompanyFolderStructure?: () => void;
   companyFolderStructureRepairing?: boolean;
+  onCreateCompanyMasterSheet?: () => void;
+  companyMasterSheetProvisioning?: boolean;
+  companyMasterSheetLink?: string;
   onRefreshGoogleStatus: () => void;
   onRefreshOnboardingRecords: () => void;
   onSelectOnboardingRecord: (recordId: string) => void;

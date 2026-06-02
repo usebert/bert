@@ -68,15 +68,24 @@ assertContains("server/company-folder-structure.mjs", [
   "COMPANY_GOOGLE_FORM_STORAGE_PATH",
   "auditsGoogleFormsFolderId",
   "ensureCompanyFolderStructure",
+  "ensureCompanyMasterSheet",
+  "buildCompanyMasterSheetName",
+  "masterSheetStatus",
   "/api/company-folder/",
 ]);
 
 assertContains("src/services/companyFolderStructureService.ts", [
   "repairCompanyFolderStructure",
   "ensure-structure",
+  "masterSheetLink",
+  "ensureMasterSheet",
 ]);
 
-assertContains("src/screens/AdminScreen.tsx", ["Repair company folder structure"]);
+assertContains("src/screens/AdminScreen.tsx", [
+  "Repair company folder structure",
+  "Create company master sheet",
+  "Company master sheet created:",
+]);
 
 assertContains("package.json", ["verify:company-folder-structure"]);
 

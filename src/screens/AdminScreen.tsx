@@ -421,6 +421,9 @@ export function AdminScreen({
   onRepairWorkspace,
   onRepairCompanyFolderStructure,
   companyFolderStructureRepairing = false,
+  onCreateCompanyMasterSheet,
+  companyMasterSheetProvisioning = false,
+  companyMasterSheetLink = "",
   onRefreshGoogleStatus,
   onRefreshOnboardingRecords,
   onSelectOnboardingRecord,
@@ -688,12 +691,8 @@ export function AdminScreen({
               <button
                 type="button"
                 onClick={onRepairCompanyFolderStructure}
-                disabled={!companyMasterSheetId || companyFolderStructureRepairing}
-                title={
-                  !companyMasterSheetId
-                    ? "Link a master sheet before repairing Drive folders."
-                    : "Create missing standard Drive folders (no delete, no duplicates)."
-                }
+                disabled={!selectedFolder && !folderIdInput.trim() || companyFolderStructureRepairing}
+                title="Create missing standard Drive folders and company master sheet when needed (no delete, no duplicates)."
                 className="inline-flex h-10 items-center rounded-xl border border-amber-300 bg-white px-4 text-sm font-semibold text-amber-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {companyFolderStructureRepairing ? "Repairing folders…" : "Repair company folder structure"}
@@ -1216,9 +1215,49 @@ export function AdminScreen({
                   <input
                     value={masterSheetInput}
                     onChange={(event) => onMasterSheetChange(event.target.value)}
-                    placeholder="Paste the company master sheet link or ID"
+                    placeholder="Auto-created during workspace setup, or paste link / ID"
                     className="h-12 w-full rounded-2xl border border-white/10 bg-slate-950/20 px-4 text-sm text-white outline-none transition focus:border-white/30"
                   />
+                  {onCreateCompanyMasterSheet ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={onCreateCompanyMasterSheet}
+                        disabled={
+                          adminOnly ||
+                          !googleWorkspaceReady ||
+                          companyMasterSheetProvisioning ||
+                          companyFolderStructureRepairing ||
+                          !folderIdInput.trim()
+                        }
+                        className={[
+                          "h-10 rounded-xl px-4 text-sm font-semibold transition",
+                          adminOnly ||
+                          !googleWorkspaceReady ||
+                          companyMasterSheetProvisioning ||
+                          companyFolderStructureRepairing ||
+                          !folderIdInput.trim()
+                            ? "cursor-not-allowed bg-white/10 text-slate-400"
+                            : "border border-white/20 bg-white/10 text-white hover:bg-white/15",
+                        ].join(" ")}
+                      >
+                        {companyMasterSheetProvisioning ? "Creating master sheet…" : "Create company master sheet"}
+                      </button>
+                    </div>
+                  ) : null}
+                  {companyMasterSheetLink ? (
+                    <p className="mt-2 text-sm text-emerald-300">
+                      Company master sheet created:{" "}
+                      <a
+                        href={companyMasterSheetLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="break-all underline underline-offset-2"
+                      >
+                        {companyMasterSheetLink}
+                      </a>
+                    </p>
+                  ) : null}
                 </div>
                 <div>
                   <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
@@ -1297,7 +1336,7 @@ export function AdminScreen({
                     : "bg-sky-300 text-slate-900 shadow-[0_14px_28px_rgba(14,165,233,0.25)] active:scale-[0.99]",
                 ].join(" ")}
               >
-                {!googleWorkspaceReady ? "Connect Google first" : "Run workspace setup (one click)"}
+                {!googleWorkspaceReady ? "Connect Google first" : folderIdInput.trim() ? "Run workspace setup (one click)" : "Paste company folder link first"}
               </button>
               <div className="flex flex-wrap items-center gap-3">
                 {googleConnected && currentUser.role === "Master" && (

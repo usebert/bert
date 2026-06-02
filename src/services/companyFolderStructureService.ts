@@ -16,6 +16,11 @@ export type CompanyFolderStructureRepairResult = {
   legacyFolderConfig?: Record<string, string>;
   folderCount?: number;
   placed?: Array<{ type: string; fileId: string; folderId: string }>;
+  masterSheetId?: string;
+  masterSheetName?: string;
+  masterSheetLink?: string;
+  masterSheetStatus?: "created" | "reused" | "linked" | "";
+  masterSheetCreated?: boolean;
   error?: string;
 };
 
@@ -24,6 +29,7 @@ export const companyFolderStructureService = {
     companyFolderId: string;
     masterSheetId?: string;
     companyName?: string;
+    ensureMasterSheet?: boolean;
   }): Promise<CompanyFolderStructureRepairResult> {
     const companyFolderId = String(input.companyFolderId || "").trim();
     if (!companyFolderId) {
@@ -37,6 +43,7 @@ export const companyFolderStructureService = {
         body: JSON.stringify({
           masterSheetId: input.masterSheetId || "",
           companyName: input.companyName || "",
+          ensureMasterSheet: input.ensureMasterSheet !== false,
         }),
       }),
     );

@@ -43,6 +43,7 @@ import {
   COMPANY_FOLDERS_TAB,
   COMPANY_FOLDERS_COLUMNS,
   ensureCompanyFolderStructure,
+  ensureCompanyMasterSheet,
   installCompanyFolderStructureRoutes,
   resolveEvidenceUploadFolderId,
 } from "./company-folder-structure.mjs";
@@ -2327,8 +2328,18 @@ async function provisionNewCompanyWorkspace(
   });
   const workbookFolderId =
     structureBeforeSheet.folderIds.BERT_COMPANY_WORKBOOK || structureBeforeSheet.legacyRootIds.setupFolderId || root.id;
-  const masterSheet = await createBlankSpreadsheet(auth, "Company Master Sheet", workbookFolderId);
-  console.log("[provision] milestone", { step: "master_sheet_created", spreadsheetId: masterSheet.id });
+  const drive = google.drive({ version: "v3", auth });
+  const masterSheetResult = await ensureCompanyMasterSheet(drive, {
+    companyName: safeName,
+    workbookFolderId,
+    legacySetupFolderId: structureBeforeSheet.legacyRootIds.setupFolderId || "",
+  });
+  const masterSheet = { id: masterSheetResult.masterSheetId, name: masterSheetResult.masterSheetName };
+  console.log("[provision] milestone", {
+    step: "master_sheet_created",
+    spreadsheetId: masterSheet.id,
+    status: masterSheetResult.status,
+  });
   if (typeof onProvisionProgress === "function") {
     await onProvisionProgress({ provisionMasterSheetId: masterSheet.id });
   }
@@ -2404,6 +2415,24 @@ async function listCompanyFolders(auth, options = {}) {
         setupFolderContents = await listDriveChildren(auth, setupFolder.id);
       }
 
+      const bertSystemFolder = files.find(
+        (file) =>
+          file.mimeType === "application/vnd.google-apps.folder" &&
+          normalizeDriveFolderName(file.name) === "bert system files",
+      );
+      let companyWorkbookContents = [];
+      if (bertSystemFolder?.id) {
+        const bertChildren = await listDriveChildren(auth, bertSystemFolder.id);
+        const companyWorkbookFolder = bertChildren.find(
+          (file) =>
+            file.mimeType === "application/vnd.google-apps.folder" &&
+            normalizeDriveFolderName(file.name) === "company workbook",
+        );
+        if (companyWorkbookFolder?.id) {
+          companyWorkbookContents = await listDriveChildren(auth, companyWorkbookFolder.id);
+        }
+      }
+
       const onboardingForm =
         files.find(
           (file) =>
@@ -2418,6 +2447,7 @@ async function listCompanyFolders(auth, options = {}) {
       );
 
       const masterSheet =
+        companyWorkbookContents.find((file) => file.mimeType === "application/vnd.google-apps.spreadsheet") ||
         setupFolderContents.find((file) => file.mimeType === "application/vnd.google-apps.spreadsheet") ||
         files.find((file) => file.mimeType === "application/vnd.google-apps.spreadsheet") ||
         null;
@@ -2552,11 +2582,32 @@ async function inspectCompanyFolder(auth, folderId) {
     setupFolderContents = await listDriveChildren(auth, setupFolder.id);
   }
 
+  const bertSystemFolder = children.find(
+    (file) =>
+      file.mimeType === "application/vnd.google-apps.folder" &&
+      normalizeDriveFolderName(file.name) === "bert system files",
+  );
+  let companyWorkbookContents = [];
+  if (bertSystemFolder?.id) {
+    const bertChildren = await listDriveChildren(auth, bertSystemFolder.id);
+    const companyWorkbookFolder = bertChildren.find(
+      (file) =>
+        file.mimeType === "application/vnd.google-apps.folder" &&
+        normalizeDriveFolderName(file.name) === "company workbook",
+    );
+    if (companyWorkbookFolder?.id) {
+      companyWorkbookContents = await listDriveChildren(auth, companyWorkbookFolder.id);
+    }
+  }
+
   const auditForms = auditFolderContents.filter(
     (file) => file.mimeType === "application/vnd.google-apps.form",
   );
 
   const masterSheet =
+    companyWorkbookContents.find(
+      (file) => file.mimeType === "application/vnd.google-apps.spreadsheet",
+    ) ||
     setupFolderContents.find(
       (file) => file.mimeType === "application/vnd.google-apps.spreadsheet",
     ) ||
@@ -6159,6 +6210,10 @@ installCompanyFolderStructureRoutes(app, {
   requireGoogleWorkspaceSession,
   requireWorkspaceAdminActor,
   ensureTabsAndColumns,
+  ensureCompanyMappingTabs,
+  ensureAreasTab: async (auth, spreadsheetId) => {
+    await ensureColumns(auth, spreadsheetId, AREAS_TAB, AREAS_COLUMNS);
+  },
   updateConfig,
   getConfig,
   getDriveFile,
