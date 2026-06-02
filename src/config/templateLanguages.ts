@@ -1,7 +1,7 @@
 /** BERT form/check template content languages (not app UI locale). */
 export const DEFAULT_FORM_LANGUAGE = "en" as const;
 
-export const SUPPORTED_FORM_LANGUAGE_CODES = ["en", "cy", "pl", "ro", "es", "fr", "pt"] as const;
+export const SUPPORTED_FORM_LANGUAGE_CODES = ["en", "cy", "pl", "ro", "es", "fr", "pt", "it"] as const;
 
 export type FormLanguageCode = (typeof SUPPORTED_FORM_LANGUAGE_CODES)[number];
 
@@ -13,6 +13,7 @@ export const FORM_LANGUAGE_OPTIONS: ReadonlyArray<{ code: FormLanguageCode; labe
   { code: "es", label: "Spanish" },
   { code: "fr", label: "French" },
   { code: "pt", label: "Portuguese" },
+  { code: "it", label: "Italian" },
 ];
 
 export const CONFIG_KEY_DEFAULT_FORM_LANGUAGE = "defaultFormLanguage";
@@ -46,6 +47,7 @@ export const FORM_LANGUAGE_LOCALE: Record<FormLanguageCode, string> = {
   es: "es_ES",
   fr: "fr_FR",
   pt: "pt_PT",
+  it: "it_IT",
 };
 
 export function isSupportedFormLanguage(value: string): value is FormLanguageCode {

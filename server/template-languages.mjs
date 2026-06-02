@@ -4,7 +4,7 @@
 
 export const DEFAULT_FORM_LANGUAGE = "en";
 
-export const SUPPORTED_FORM_LANGUAGE_CODES = ["en", "cy", "pl", "ro", "es", "fr", "pt"];
+export const SUPPORTED_FORM_LANGUAGE_CODES = ["en", "cy", "pl", "ro", "es", "fr", "pt", "it"];
 
 export const CONFIG_KEY_DEFAULT_FORM_LANGUAGE = "defaultFormLanguage";
 
@@ -29,6 +29,7 @@ export const FORM_LANGUAGE_LOCALE = {
   es: "es_ES",
   fr: "fr_FR",
   pt: "pt_PT",
+  it: "it_IT",
 };
 
 export const AUDIT_TEMPLATE_TRANSLATIONS_TAB = "AuditTemplateTranslations";

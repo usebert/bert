@@ -18,6 +18,7 @@ English (`en`) remains the default. There is **no automatic translation** in thi
 | es   | Spanish    |
 | fr   | French     |
 | pt   | Portuguese |
+| it   | Italian    |
 
 ## Company setting
 
