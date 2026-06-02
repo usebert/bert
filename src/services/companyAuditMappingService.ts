@@ -11,6 +11,9 @@ export type AuditTemplateRow = {
   createdAt: string;
   googleFormId?: string;
   googleFormTemplateStatus?: string;
+  language?: string;
+  defaultLanguage?: string;
+  translationStatus?: string;
 };
 
 export type CompanyAuditMappingPayload = {
@@ -63,7 +66,19 @@ export async function saveAreaAuditsForArea(masterSheetId: string, areaId: strin
 
 export async function syncAuditTemplatesToSheet(
   masterSheetId: string,
-  templates: Array<{ id: string; name: string; active?: boolean; source?: string; category?: string }>,
+  templates: Array<{
+    id: string;
+    name: string;
+    active?: boolean;
+    source?: string;
+    category?: string;
+    language?: string;
+    defaultLanguage?: string;
+    translationStatus?: string;
+    googleFormId?: string;
+    googleForm?: { formId?: string; syncStatus?: string };
+    googleFormTemplateStatus?: string;
+  }>,
 ) {
   const response = await fetch(
     apiUrl(`/api/company-audit-mapping/${encodeURIComponent(masterSheetId)}/audit-templates`),

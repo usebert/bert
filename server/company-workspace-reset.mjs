@@ -14,6 +14,7 @@ import {
   USER_AUDIT_ACCESS_TAB,
   USER_AUDIT_ACCESS_COLUMNS,
 } from "./company-audit-mapping.mjs";
+import { CONFIG_KEY_DEFAULT_FORM_LANGUAGE } from "./template-languages.mjs";
 
 export const RESET_CONFIRM_PHRASE = "RESET COMPANY";
 
@@ -38,6 +39,7 @@ const PRESERVED_CONFIG_KEYS = new Set([
   "lastRepairedAt",
   "appVersion",
   CONFIG_KEY_AREA_RESTRICTIONS,
+  CONFIG_KEY_DEFAULT_FORM_LANGUAGE,
   ...ISO_FOLDER_CONFIG_KEYS,
 ]);
 

@@ -97,9 +97,16 @@ import {
 } from "./src/utils/isoReadinessFolders";
 import { createLocalAreaId, isReservedAreaName, mergeAreasFromServer } from "./src/utils/companyAreas";
 import {
+  DEFAULT_FORM_LANGUAGE,
+  defaultTranslationStatusForLanguage,
+  normalizeFormLanguage,
+  type FormLanguageCode,
+} from "./src/config/templateLanguages";
+import {
   createCompanyArea,
   fetchCompanyAreas,
   setAreaRestrictionsEnabled as patchAreaRestrictionsOnServer,
+  setDefaultFormLanguage as patchDefaultFormLanguageOnServer,
   updateCompanyArea,
 } from "./src/services/companyAreasService";
 import {
@@ -708,6 +715,9 @@ type AuditTemplate = {
   questions: AuditQuestion[];
   source: "Google Drive" | "Built in app";
   category?: string;
+  language?: string;
+  defaultLanguage?: string;
+  translationStatus?: string;
   googleForm?: {
     formId: string;
     driveFileId?: string;
@@ -3206,6 +3216,9 @@ function App() {
   );
   const [templateNameInput, setTemplateNameInput] = useState("");
   const [templateCategoryInput, setTemplateCategoryInput] = useState("General");
+  const [defaultFormLanguage, setDefaultFormLanguage] = useState<FormLanguageCode>(DEFAULT_FORM_LANGUAGE);
+  const [templateLanguageInput, setTemplateLanguageInput] = useState<FormLanguageCode>(DEFAULT_FORM_LANGUAGE);
+  const [googleFormCopyLanguage, setGoogleFormCopyLanguage] = useState<FormLanguageCode>(DEFAULT_FORM_LANGUAGE);
   const [templateQuestionInput, setTemplateQuestionInput] = useState("");
   const [templateQuestionTypeInput, setTemplateQuestionTypeInput] = useState<AuditQuestion["fieldType"]>("Traffic light");
   const [templateDraftQuestions, setTemplateDraftQuestions] = useState<DraftTemplateQuestion[]>([]);
@@ -5150,10 +5163,16 @@ function App() {
       role: currentUser.role,
       companyFolderId: selectedFolderId || undefined,
       companyName: selectedFolder?.name || workspaceName,
+      defaultFormLanguage,
       selectedSiteId: selectedSiteId || undefined,
       audits: assignedAudits,
       schedules: managedSchedules,
-      templates,
+      templates: templates.map((template) => ({
+        id: template.id,
+        language: template.language,
+        defaultLanguage: template.defaultLanguage,
+        translationStatus: template.translationStatus,
+      })),
       areas: areaAudits,
       sites,
       recentHistory: assignmentFilteredHistory.slice(0, 20),
@@ -5170,6 +5189,7 @@ function App() {
     selectedFolderId,
     selectedSiteId,
     sites,
+    defaultFormLanguage,
     templates,
     workspaceName,
   ]);
@@ -8705,6 +8725,12 @@ function App() {
         if (typeof payload.areaRestrictionsEnabled === "boolean") {
           setAreaRestrictionsEnabled(payload.areaRestrictionsEnabled);
         }
+        if (payload.defaultFormLanguage) {
+          const language = normalizeFormLanguage(payload.defaultFormLanguage);
+          setDefaultFormLanguage(language);
+          setTemplateLanguageInput((current) => (current === DEFAULT_FORM_LANGUAGE ? language : current));
+          setGoogleFormCopyLanguage((current) => (current === DEFAULT_FORM_LANGUAGE ? language : current));
+        }
         await syncCompanyAuditMappingFromServer({ silent: true });
         if (templates.some((template) => template.active)) {
           await syncAuditTemplatesToSheet(masterSheetId, templates);
@@ -9382,6 +9408,7 @@ function App() {
         : buildDefaultQuestions(trimmedName);
 
     const templateId = `template-local-${Date.now()}`;
+    const templateLanguage = normalizeFormLanguage(templateLanguageInput);
     const newTemplate: AuditTemplate = {
       id: templateId,
       name: trimmedName,
@@ -9389,6 +9416,9 @@ function App() {
       questions: templateQuestions,
       source: "Built in app",
       category: templateCategoryInput,
+      language: templateLanguage,
+      defaultLanguage: defaultFormLanguage,
+      translationStatus: defaultTranslationStatusForLanguage(templateLanguage),
     };
 
     const nextTemplates = [newTemplate, ...templates];
@@ -9428,6 +9458,7 @@ function App() {
       const googleFormPlacement = currentUser?.role === "Master" ? "master" : "company";
       const companyStoredPath = "08 - Audits / Google Forms";
       try {
+        const copyLanguage = normalizeFormLanguage(googleFormCopyLanguage || templateLanguage);
         const result = await googleFormTemplatesService.createFromBertTemplate(
           {
             id: templateId,
@@ -9441,8 +9472,11 @@ function App() {
             masterSheetId: masterSheetId || "",
             createdBy: currentUser?.name || "BERT",
             placement: googleFormPlacement,
+            language: templateLanguage,
+            defaultLanguage: defaultFormLanguage,
+            translationStatus: defaultTranslationStatusForLanguage(copyLanguage),
           },
-          { placement: googleFormPlacement },
+          { placement: googleFormPlacement, googleFormLanguage: copyLanguage },
         );
         if (result.ok && result.googleForm) {
           const storedPath =
@@ -12024,6 +12058,21 @@ function App() {
                 onTemplateNameChange={setTemplateNameInput}
                 templateCategoryInput={templateCategoryInput}
                 onTemplateCategoryChange={setTemplateCategoryInput}
+                defaultFormLanguage={defaultFormLanguage}
+                templateLanguageInput={templateLanguageInput}
+                onTemplateLanguageChange={setTemplateLanguageInput}
+                googleFormCopyLanguage={googleFormCopyLanguage}
+                onGoogleFormCopyLanguageChange={setGoogleFormCopyLanguage}
+                onDefaultFormLanguageChange={(language: FormLanguageCode) => {
+                  const normalized = normalizeFormLanguage(language);
+                  setDefaultFormLanguage(normalized);
+                  const masterSheetId = resolveWorkspaceMasterSheetId();
+                  if (syncState === "Synced" && googleConnected && masterSheetId) {
+                    void patchDefaultFormLanguageOnServer(masterSheetId, normalized).catch(() => {
+                      pushToast("Language saved locally", "Could not update Default Form Language in Config tab yet.", "warning");
+                    });
+                  }
+                }}
                 createGoogleFormTemplateCopy={createGoogleFormTemplateCopy}
                 onCreateGoogleFormTemplateCopyChange={setCreateGoogleFormTemplateCopy}
                 showCreateGoogleFormTemplateOption={currentUser?.role === "Master" || currentUser?.role === "Admin"}

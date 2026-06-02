@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { formLanguageLabel } from "../../config/templateLanguages";
 import {
   COMPANY_GOOGLE_FORM_STORAGE_PATH,
   googleFormTemplatesService,
@@ -21,6 +22,8 @@ type Props = {
     folderPath?: string;
   };
   onGoogleFormUpdated?: (record: GoogleFormTemplateRecord) => void;
+  templateLanguage?: string;
+  translationStatus?: string;
 };
 
 export function GoogleFormTemplatePanel({
@@ -31,6 +34,8 @@ export function GoogleFormTemplatePanel({
   placement = "master",
   googleForm,
   onGoogleFormUpdated,
+  templateLanguage,
+  translationStatus,
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [record, setRecord] = useState<GoogleFormTemplateRecord | null>(null);
@@ -88,6 +93,15 @@ export function GoogleFormTemplatePanel({
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Google Form copy</p>
           <p className="text-sm font-semibold text-slate-900">{templateName}</p>
           {syncStatus ? <p className="text-xs text-slate-500">Sync: {syncStatus}</p> : null}
+          {record?.language || templateLanguage ? (
+            <p className="text-xs text-slate-500">
+              Language: {formLanguageLabel(record?.language || templateLanguage || "en")}
+              {(record?.translationStatus || translationStatus) &&
+              (record?.language || templateLanguage) !== "en"
+                ? ` • ${record?.translationStatus || translationStatus}`
+                : ""}
+            </p>
+          ) : null}
           {storedFolderPath ? (
             <p className="text-xs text-slate-500">Stored in: {storedFolderPath}</p>
           ) : folderName ? (

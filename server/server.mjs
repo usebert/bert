@@ -21,6 +21,7 @@ import {
 } from "./userauth-password.mjs";
 import { installDocumentDistributionRoutes } from "./document-distribution.mjs";
 import { CONFIG_KEY_AREA_RESTRICTIONS, AREAS_TAB, AREAS_COLUMNS, installCompanyAreasRoutes } from "./company-areas.mjs";
+import { CONFIG_KEY_DEFAULT_FORM_LANGUAGE } from "./template-languages.mjs";
 import {
   installCompanyAuditMappingRoutes,
   ensureCompanyMappingTabs,
@@ -550,6 +551,7 @@ const CONFIG_KEYS = [
   "lastRepairedAt",
   "appVersion",
   CONFIG_KEY_AREA_RESTRICTIONS,
+  CONFIG_KEY_DEFAULT_FORM_LANGUAGE,
 ];
 
 const APPEND_ONLY_TABS = new Set(["ActionComments", "AuditResults", "AuditFindings", "Evidence", "Reports", "SyncLog"]);

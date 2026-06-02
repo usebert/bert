@@ -17,6 +17,7 @@ assertContains("src/services/tabletOfflineService.ts", [
   "offlineSubmissions",
   "offlineEvidenceBlobs",
   "tabletAssignedWork",
+  "defaultFormLanguage",
 ]);
 
 assertContains("App.tsx", [

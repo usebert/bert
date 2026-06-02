@@ -294,6 +294,7 @@ export const CONFIG_KEYS = [
   "lastValidatedAt",
   "lastRepairedAt",
   "appVersion",
+  "defaultFormLanguage",
 ] as const;
 
 export type ConfigKey = (typeof CONFIG_KEYS)[number];

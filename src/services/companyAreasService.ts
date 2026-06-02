@@ -7,6 +7,7 @@ export type CompanyAreasPayload = {
   areas?: Site[];
   area?: Site;
   areaRestrictionsEnabled?: boolean;
+  defaultFormLanguage?: string;
 };
 
 async function parseAreasResponse(response: Response): Promise<CompanyAreasPayload> {
@@ -50,6 +51,19 @@ export async function updateCompanyArea(
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+    },
+  );
+  return parseAreasResponse(response);
+}
+
+export async function setDefaultFormLanguage(masterSheetId: string, defaultFormLanguage: string) {
+  const response = await fetch(
+    apiUrl(`/api/company-areas/${encodeURIComponent(masterSheetId)}/default-form-language`),
+    {
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ defaultFormLanguage }),
     },
   );
   return parseAreasResponse(response);

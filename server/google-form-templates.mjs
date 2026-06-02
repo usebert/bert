@@ -8,6 +8,12 @@ import {
   COMPANY_GOOGLE_FORM_STORAGE_PATH,
   ensureCompanyFolderStructure,
 } from "./company-folder-structure.mjs";
+import { readAuditTemplateTranslations } from "./company-audit-mapping.mjs";
+import {
+  googleFormLanguageFields,
+  resolveTemplateFormCopyContent,
+  SYNC_STATUS_FALLBACK_LANGUAGE,
+} from "./template-languages.mjs";
 
 export const GOOGLE_FORM_TEMPLATES_TAB = "GoogleFormTemplates";
 
@@ -37,6 +43,10 @@ export const GOOGLE_FORM_TEMPLATES_COLUMNS = [
   "Scope",
   "Type",
   "Current Folder Path",
+  "Language",
+  "Locale",
+  "Translation Source",
+  "Translation Status",
 ];
 
 export const MASTER_TEMPLATES_ROOT_NAME = "BERT Master Templates";
@@ -170,6 +180,10 @@ function rowToGoogleFormTemplate(record) {
     scope: String(record.Scope || "").trim(),
     type: String(record.Type || "").trim(),
     currentFolderPath: String(record["Current Folder Path"] || "").trim(),
+    language: String(record.Language || "").trim(),
+    locale: String(record.Locale || "").trim(),
+    translationSource: String(record["Translation Source"] || "").trim(),
+    translationStatus: String(record["Translation Status"] || "").trim(),
   };
 }
 
@@ -197,6 +211,10 @@ function templateToSheetRow(template) {
     template.scope || "",
     template.type || "",
     template.currentFolderPath || "",
+    template.language || "",
+    template.locale || "",
+    template.translationSource || "",
+    template.translationStatus || "",
   ];
 }
 
@@ -755,12 +773,14 @@ export function createGoogleFormTemplateFolderSetupApi(deps) {
   };
 }
 
-async function createGoogleFormBody(forms, templateName, questions) {
+async function createGoogleFormBody(forms, templateName, questions, options = {}) {
+  const description = String(options.description || "").trim();
   const createdForm = await forms.forms.create({
     requestBody: {
       info: {
         title: templateName,
         documentTitle: templateName,
+        ...(description ? { description } : {}),
       },
     },
   });
@@ -775,25 +795,63 @@ async function createGoogleFormBody(forms, templateName, questions) {
   return { formId, formFileId: formId, skipped };
 }
 
-export async function createMasterGoogleFormTemplateCopy(apiContext, template) {
+async function resolveGoogleFormCopyInputs(apiContext, template, sheetDeps) {
+  const masterSheetId = String(template?.masterSheetId || "").trim();
+  const requestedLanguage = template?.googleFormLanguage || template?.language;
+  let translationRows = [];
+  if (masterSheetId && sheetDeps && apiContext?.auth) {
+    translationRows = await readAuditTemplateTranslations(sheetDeps, apiContext.auth, masterSheetId);
+  }
+  const resolved = resolveTemplateFormCopyContent(template, requestedLanguage, translationRows);
+  const langMeta = googleFormLanguageFields(
+    resolved.language,
+    resolved.translationStatus,
+    resolved.translationSource,
+  );
+  return { resolved, langMeta };
+}
+
+function applyLanguageFieldsToRegistryRecord(record, langMeta, resolved) {
+  record.language = langMeta.language;
+  record.locale = langMeta.locale;
+  record.translationSource = langMeta.translationSource;
+  record.translationStatus = langMeta.translationStatus;
+  if (resolved.usedFallback) {
+    record.notes = [
+      record.notes,
+      SYNC_STATUS_FALLBACK_LANGUAGE,
+      "Content shown in English because selected language is not available.",
+    ]
+      .filter(Boolean)
+      .join(" | ");
+  }
+}
+
+export async function createMasterGoogleFormTemplateCopy(apiContext, template, sheetDeps = null) {
   const { auth, drive, forms, registrySpreadsheetId, requiredEnv } = apiContext;
   const bertTemplateId = String(template?.id || template?.bertTemplateId || "").trim();
   const templateName = String(template?.name || template?.templateName || "BERT Template").trim();
   const category = normalizeTemplateCategory(template?.category || template?.source || "");
-  const questions = Array.isArray(template?.questions) ? template.questions : [];
   const createdBy = String(template?.createdBy || "BERT").trim();
   const sourceCompanyId = String(template?.sourceCompanyId || "").trim();
   const sourceCompanyName = String(template?.sourceCompanyName || "").trim();
   const now = new Date().toISOString();
+  const { resolved, langMeta } = await resolveGoogleFormCopyInputs(apiContext, template, sheetDeps);
 
   const folders = await ensureMasterGoogleFormTemplateFolders(auth, category, {
     sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
     drive,
   });
 
-  const { formId, formFileId, skipped } = await createGoogleFormBody(forms, templateName, questions);
+  const { formId, formFileId, skipped } = await createGoogleFormBody(
+    forms,
+    resolved.title || templateName,
+    resolved.questions,
+    { description: resolved.description },
+  );
 
-  let syncStatus = skipped.length > 0 ? "Created with skipped fields" : "Created";
+  let syncStatus =
+    resolved.syncStatusNote || (skipped.length > 0 ? "Created with skipped fields" : "Created");
   let notes = skipped.length > 0 ? `Skipped BERT-only fields: ${skipped.join("; ")}` : "";
   let folderPlacementFailed = false;
 
@@ -839,6 +897,7 @@ export async function createMasterGoogleFormTemplateCopy(apiContext, template) {
     type: "Reusable Template",
     currentFolderPath,
   };
+  applyLanguageFieldsToRegistryRecord(record, langMeta, resolved);
 
   await apiContext.upsertRegistryRow(auth, registrySpreadsheetId, record);
 
@@ -851,6 +910,7 @@ export async function createMasterGoogleFormTemplateCopy(apiContext, template) {
     skippedFields: skipped,
     folderPlacementFailed,
     storedFolderPath: currentFolderPath,
+    usedFallbackLanguage: resolved.usedFallback,
   };
 }
 
@@ -860,12 +920,13 @@ export async function createCompanyGoogleFormCopy(apiDeps, template) {
   const bertTemplateId = String(template?.id || template?.bertTemplateId || "").trim();
   const templateName = String(template?.name || template?.templateName || "BERT Template").trim();
   const category = normalizeTemplateCategory(template?.category || template?.source || "");
-  const questions = Array.isArray(template?.questions) ? template.questions : [];
   const createdBy = String(template?.createdBy || "BERT").trim();
   const sourceCompanyId = String(template?.sourceCompanyId || template?.companyRootFolderId || "").trim();
   const sourceCompanyName = String(template?.sourceCompanyName || "").trim();
   const masterSheetId = String(template?.masterSheetId || "").trim();
   const now = new Date().toISOString();
+  const sheetDeps = apiDeps.sheetDeps || null;
+  const { resolved, langMeta } = await resolveGoogleFormCopyInputs(apiContext, template, sheetDeps);
 
   let folders;
   try {
@@ -888,16 +949,23 @@ export async function createCompanyGoogleFormCopy(apiDeps, template) {
     };
   }
 
-  const { formId, formFileId, skipped } = await createGoogleFormBody(forms, templateName, questions);
+  const { formId, formFileId, skipped } = await createGoogleFormBody(
+    forms,
+    resolved.title || templateName,
+    resolved.questions,
+    { description: resolved.description },
+  );
 
-  let syncStatus = skipped.length > 0 ? "Created with skipped fields" : "Created";
+  let syncStatus =
+    resolved.syncStatusNote || (skipped.length > 0 ? "Created with skipped fields" : "Created");
   let notes = skipped.length > 0 ? `Skipped BERT-only fields: ${skipped.join("; ")}` : "";
   let folderPlacementFailed = false;
 
   if (formFileId) {
     try {
       await moveGoogleFormToDriveFolder(drive, formFileId, folders.folderId);
-      syncStatus = skipped.length > 0 ? "Created with skipped fields" : "Created";
+      syncStatus =
+        resolved.syncStatusNote || (skipped.length > 0 ? "Created with skipped fields" : "Created");
     } catch (moveError) {
       syncStatus = "Created - move failed";
       folderPlacementFailed = true;
@@ -932,6 +1000,7 @@ export async function createCompanyGoogleFormCopy(apiDeps, template) {
     type: "Company",
     currentFolderPath: folders.folderPath,
   };
+  applyLanguageFieldsToRegistryRecord(record, langMeta, resolved);
 
   await apiContext.upsertRegistryRow(auth, registrySpreadsheetId, record);
 
@@ -944,6 +1013,7 @@ export async function createCompanyGoogleFormCopy(apiDeps, template) {
     skippedFields: skipped,
     folderPlacementFailed,
     storedFolderPath: folders.folderPath,
+    usedFallbackLanguage: resolved.usedFallback,
     userMessage: folderPlacementFailed
       ? "BERT template created. Google Form copy was created but could not be moved into the company audit folder."
       : undefined,
@@ -1138,12 +1208,16 @@ export function createGoogleFormTemplatesApi({
         requiredEnv,
         upsertRegistryRow,
       };
-      const apiDeps = { api: apiContext, companyFolderStructureDeps: resolveCompanyFolderStructureDeps() };
+      const apiDeps = {
+        api: apiContext,
+        companyFolderStructureDeps: resolveCompanyFolderStructureDeps(),
+        sheetDeps: deps,
+      };
 
       if (placement === GOOGLE_FORM_PLACEMENT_COMPANY) {
         return await createCompanyGoogleFormCopy(apiDeps, template);
       }
-      return await createMasterGoogleFormTemplateCopy(apiContext, template);
+      return await createMasterGoogleFormTemplateCopy(apiContext, template, deps);
     } catch (error) {
       if (isGoogleFormsPermissionError(error)) {
         return {

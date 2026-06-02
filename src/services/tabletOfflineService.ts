@@ -45,10 +45,11 @@ export type TabletAssignedWorkCache = {
   role: string;
   companyFolderId?: string;
   companyName?: string;
+  defaultFormLanguage?: string;
   selectedSiteId?: string;
   audits: Audit[];
   schedules: unknown[];
-  templates: unknown[];
+  templates: Array<{ id?: string; language?: string; defaultLanguage?: string; translationStatus?: string }>;
   areas: unknown[];
   sites: unknown[];
   recentHistory: unknown[];

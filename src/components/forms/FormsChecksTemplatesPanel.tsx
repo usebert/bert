@@ -1,5 +1,6 @@
 import { EmptyPanel } from "../dashboard/DashboardPrimitives";
 import { GoogleFormTemplatePanel } from "../admin/GoogleFormTemplatePanel";
+import { formLanguageLabel } from "../../config/templateLanguages";
 import type { AuditTemplate } from "../../types/reportsScreenProps";
 
 type FormsChecksTemplatesPanelProps = {
@@ -72,7 +73,11 @@ export function FormsChecksTemplatesPanel({
               <p className="truncate text-sm font-semibold text-slate-900">{template.name}</p>
               <p className="mt-0.5 truncate text-xs text-slate-500">
                 {template.source}
-                {template.category ? ` • ${template.category}` : ""} • {template.questions.length} question
+                {template.category ? ` • ${template.category}` : ""} • {formLanguageLabel(template.language || "en")}
+                {template.translationStatus && template.language !== "en"
+                  ? ` • ${template.translationStatus}`
+                  : ""}{" "}
+                • {template.questions.length} question
                 {template.questions.length === 1 ? "" : "s"}
               </p>
               {template.googleForm?.formId ? (
@@ -103,6 +108,8 @@ export function FormsChecksTemplatesPanel({
             companyFolderId={companyFolderId}
             placement="company"
             googleForm={template.googleForm}
+            templateLanguage={template.language}
+            translationStatus={template.translationStatus}
             onGoogleFormUpdated={(record) =>
               onGoogleFormUpdated?.(template.id, {
                 googleFormId: record.googleFormId,

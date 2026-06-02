@@ -89,4 +89,6 @@ assertContains("src/screens/AdminScreen.tsx", [
 
 assertContains("package.json", ["verify:company-folder-structure"]);
 
+assertContains("server/company-audit-mapping.mjs", ["Language", "Default Language", "Translation Status"]);
+
 console.log(`[verify:company-folder-structure] ${nodeCount} folder nodes and wiring OK`);

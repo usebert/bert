@@ -1,3 +1,13 @@
+import {
+  AUDIT_TEMPLATE_TRANSLATIONS_COLUMNS,
+  AUDIT_TEMPLATE_TRANSLATIONS_TAB,
+  DEFAULT_FORM_LANGUAGE,
+  defaultTranslationStatusForLanguage,
+  normalizeFormLanguage,
+} from "./template-languages.mjs";
+
+export { AUDIT_TEMPLATE_TRANSLATIONS_TAB, AUDIT_TEMPLATE_TRANSLATIONS_COLUMNS };
+
 export const AUDIT_TEMPLATES_TAB = "AuditTemplates";
 export const AREA_AUDITS_TAB = "AreaAudits";
 export const USER_AREA_ACCESS_TAB = "UserAreaAccess";
@@ -12,6 +22,9 @@ export const AUDIT_TEMPLATES_COLUMNS = [
   "Created At",
   "Google Form ID",
   "Google Form Template Status",
+  "Language",
+  "Default Language",
+  "Translation Status",
 ];
 
 export const AREA_AUDITS_COLUMNS = [
@@ -69,6 +82,9 @@ function rowToAuditTemplate(row) {
     createdAt: String(row["Created At"] || row.createdAt || "").trim(),
     googleFormId: String(row["Google Form ID"] || row.googleFormId || "").trim(),
     googleFormTemplateStatus: String(row["Google Form Template Status"] || row.googleFormTemplateStatus || "").trim(),
+    language: normalizeFormLanguage(row.Language || row.language),
+    defaultLanguage: normalizeFormLanguage(row["Default Language"] || row.defaultLanguage || DEFAULT_FORM_LANGUAGE),
+    translationStatus: String(row["Translation Status"] || row.translationStatus || "").trim(),
   };
 }
 
@@ -129,6 +145,10 @@ function auditTemplatesToRows(templates) {
     template.createdAt || "",
     template.googleFormId || "",
     template.googleFormTemplateStatus || "",
+    normalizeFormLanguage(template.language),
+    normalizeFormLanguage(template.defaultLanguage || DEFAULT_FORM_LANGUAGE),
+    template.translationStatus ||
+      defaultTranslationStatusForLanguage(normalizeFormLanguage(template.language)),
   ]);
 }
 
@@ -184,6 +204,34 @@ async function readAuditTemplates(deps, auth, spreadsheetId) {
     AUDIT_TEMPLATES_COLUMNS,
     rowToAuditTemplate,
   );
+}
+
+function rowToAuditTemplateTranslation(row) {
+  const bertTemplateId = String(row["BERT Template ID"] || "").trim();
+  if (!bertTemplateId) return null;
+  return {
+    bertTemplateId,
+    language: String(row.Language || "").trim(),
+    translationStatus: String(row["Translation Status"] || "").trim(),
+    title: String(row.Title || "").trim(),
+    description: String(row.Description || "").trim(),
+    questionsJson: String(row["Questions JSON"] || "").trim(),
+  };
+}
+
+export async function readAuditTemplateTranslations(deps, auth, spreadsheetId) {
+  try {
+    return await readTabRecords(
+      deps,
+      auth,
+      spreadsheetId,
+      AUDIT_TEMPLATE_TRANSLATIONS_TAB,
+      AUDIT_TEMPLATE_TRANSLATIONS_COLUMNS,
+      rowToAuditTemplateTranslation,
+    );
+  } catch {
+    return [];
+  }
 }
 
 async function readUserAreaAccess(deps, auth, spreadsheetId) {
@@ -355,6 +403,14 @@ export function installCompanyAuditMappingRoutes(app, deps) {
             googleFormId: String(template?.googleFormId || template?.googleForm?.formId || "").trim(),
             googleFormTemplateStatus: String(
               template?.googleFormTemplateStatus || template?.googleForm?.syncStatus || "",
+            ).trim(),
+            language: normalizeFormLanguage(template?.language),
+            defaultLanguage: normalizeFormLanguage(
+              template?.defaultLanguage || template?.language || DEFAULT_FORM_LANGUAGE,
+            ),
+            translationStatus: String(
+              template?.translationStatus ||
+                defaultTranslationStatusForLanguage(normalizeFormLanguage(template?.language)),
             ).trim(),
           };
         })

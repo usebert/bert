@@ -6,6 +6,7 @@ import type {
   User,
   WorkspaceValidation,
 } from "./dashboardScreenProps";
+import type { FormLanguageCode } from "../config/templateLanguages";
 import type {
   Answer,
   AuditQuestion,
@@ -249,6 +250,12 @@ export type AdminScreenProps = {
   onTemplateNameChange: (value: string) => void;
   templateCategoryInput: string;
   onTemplateCategoryChange: (value: string) => void;
+  defaultFormLanguage: FormLanguageCode;
+  onDefaultFormLanguageChange: (value: FormLanguageCode) => void;
+  templateLanguageInput: FormLanguageCode;
+  onTemplateLanguageChange: (value: FormLanguageCode) => void;
+  googleFormCopyLanguage: FormLanguageCode;
+  onGoogleFormCopyLanguageChange: (value: FormLanguageCode) => void;
   createGoogleFormTemplateCopy: boolean;
   onCreateGoogleFormTemplateCopyChange: (value: boolean) => void;
   showCreateGoogleFormTemplateOption: boolean;

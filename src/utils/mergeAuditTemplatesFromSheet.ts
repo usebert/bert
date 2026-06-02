@@ -1,3 +1,8 @@
+import {
+  DEFAULT_FORM_LANGUAGE,
+  defaultTranslationStatusForLanguage,
+  normalizeFormLanguage,
+} from "../config/templateLanguages";
 import type { AuditTemplateRow } from "../services/companyAuditMappingService";
 import type { AuditTemplate } from "../types/reportsScreenProps";
 
@@ -20,6 +25,7 @@ export function mergeAuditTemplatesFromSheet(
     const googleFormId = String(row.googleFormId || existing?.googleForm?.formId || "").trim();
     const syncStatus = String(row.googleFormTemplateStatus || existing?.googleForm?.syncStatus || "").trim();
 
+    const language = normalizeFormLanguage(row.language || existing?.language);
     merged.push({
       id: row.id,
       name: row.name,
@@ -27,6 +33,12 @@ export function mergeAuditTemplatesFromSheet(
       questions: existing?.questions?.length ? existing.questions : [],
       source: existing?.source || "Built in app",
       category: row.category || existing?.category,
+      language,
+      defaultLanguage: normalizeFormLanguage(row.defaultLanguage || existing?.defaultLanguage || DEFAULT_FORM_LANGUAGE),
+      translationStatus:
+        row.translationStatus ||
+        existing?.translationStatus ||
+        defaultTranslationStatusForLanguage(language),
       googleForm: googleFormId
         ? {
             formId: googleFormId,

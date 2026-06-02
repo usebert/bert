@@ -62,6 +62,10 @@ assertContains("server/server.mjs", ["GOOGLE_FORMS_BODY_SCOPE", "installGoogleFo
 assert(GOOGLE_FORMS_BODY_SCOPE.includes("forms"));
 
 assertContains("server/google-form-templates.mjs", [
+  "resolveTemplateFormCopyContent",
+  "Translation Status",
+  "Language",
+  "Locale",
   "GoogleFormTemplates",
   "BERT Master Templates",
   "BERT_GOOGLE_FORM_TEMPLATES_FOLDER_ID",

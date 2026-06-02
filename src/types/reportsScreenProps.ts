@@ -158,5 +158,8 @@ export type AuditTemplate = {
   questions: AuditQuestion[];
   source: "Google Drive" | "Built in app";
   category?: string;
+  language?: string;
+  defaultLanguage?: string;
+  translationStatus?: string;
   googleForm?: AuditTemplateGoogleFormMeta;
 };

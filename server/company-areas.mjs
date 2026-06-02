@@ -1,5 +1,10 @@
 import crypto from "node:crypto";
 import { isReservedWorkspaceAreaName } from "./invite-target.mjs";
+import {
+  CONFIG_KEY_DEFAULT_FORM_LANGUAGE,
+  DEFAULT_FORM_LANGUAGE,
+  normalizeFormLanguage,
+} from "./template-languages.mjs";
 
 export const AREAS_TAB = "Areas";
 export const AREAS_COLUMNS = [
@@ -89,6 +94,11 @@ function parseRestrictionsFlag(config) {
     .toLowerCase() === "true";
 }
 
+function parseDefaultFormLanguage(config) {
+  const value = config?.[CONFIG_KEY_DEFAULT_FORM_LANGUAGE];
+  return value ? normalizeFormLanguage(value) : DEFAULT_FORM_LANGUAGE;
+}
+
 function validateAreaName(name) {
   const trimmed = normalizeAreaName(name);
   if (!trimmed) {
@@ -134,12 +144,41 @@ export function installCompanyAreasRoutes(app, deps) {
         masterSheetId,
         companyFolderId,
         areaRestrictionsEnabled: parseRestrictionsFlag(config),
+        defaultFormLanguage: parseDefaultFormLanguage(config),
         areas,
       });
     } catch (error) {
       return res.status(500).json({
         ok: false,
         error: error instanceof Error ? error.message : "Unable to load company areas.",
+      });
+    }
+  });
+
+  app.put("/api/company-areas/:masterSheetId/default-form-language", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({
+        ok: false,
+        error: "Connect Google Workspace before updating default form language.",
+      });
+    }
+
+    const masterSheetId = String(req.params.masterSheetId || "").trim();
+    if (!masterSheetId) {
+      return res.status(400).json({ ok: false, error: "masterSheetId is required." });
+    }
+
+    try {
+      const language = normalizeFormLanguage(req.body?.defaultFormLanguage);
+      await updateConfig(authed, masterSheetId, {
+        [CONFIG_KEY_DEFAULT_FORM_LANGUAGE]: language,
+      });
+      return res.json({ ok: true, defaultFormLanguage: language });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Unable to update default form language.",
       });
     }
   });

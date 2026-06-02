@@ -3,6 +3,13 @@ import { SECTION_INTROS } from "../config/sectionIntros";
 import { canAccessAdmin, canAccessAdminOnboardingWorkspace, canManageAreas, getRoleDisplayName } from "../permissions";
 import { AreaAuditsSection } from "../components/admin/AreaAuditsSection";
 import { GoogleFormTemplatePanel } from "../components/admin/GoogleFormTemplatePanel";
+import { TemplateLanguageFields } from "../components/forms/TemplateLanguageFields";
+import {
+  FORM_LANGUAGE_OPTIONS,
+  formLanguageLabel,
+  normalizeFormLanguage,
+  type FormLanguageCode,
+} from "../config/templateLanguages";
 import { SitesAreasPanel } from "../components/admin/SitesAreasPanel";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../components/dashboard/DashboardPrimitives";
 import {
@@ -458,6 +465,12 @@ export function AdminScreen({
   onTemplateNameChange,
   templateCategoryInput,
   onTemplateCategoryChange,
+  defaultFormLanguage,
+  onDefaultFormLanguageChange,
+  templateLanguageInput,
+  onTemplateLanguageChange,
+  googleFormCopyLanguage,
+  onGoogleFormCopyLanguageChange,
   createGoogleFormTemplateCopy,
   onCreateGoogleFormTemplateCopyChange,
   showCreateGoogleFormTemplateOption,
@@ -2111,6 +2124,30 @@ export function AdminScreen({
               placeholder="Template name"
               className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-slate-400"
             />
+            <label className="block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+              Company default form language
+            </label>
+            <select
+              value={defaultFormLanguage}
+              onChange={(event) =>
+                onDefaultFormLanguageChange(normalizeFormLanguage(event.target.value) as FormLanguageCode)
+              }
+              className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-slate-400"
+            >
+              {FORM_LANGUAGE_OPTIONS.map((option) => (
+                <option key={`company-default-${option.code}`} value={option.code}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <TemplateLanguageFields
+              language={templateLanguageInput}
+              translationStatus={
+                templateLanguageInput === "en" ? "Original" : "Draft translation"
+              }
+              onLanguageChange={onTemplateLanguageChange}
+              idPrefix="audit-template-builder"
+            />
             <select
               value={templateCategoryInput}
               onChange={(event) => onTemplateCategoryChange(event.target.value)}
@@ -2125,6 +2162,17 @@ export function AdminScreen({
               <option value="Risk Assessments">Risk Assessments</option>
               <option value="Audits">Audits</option>
             </select>
+            {showCreateGoogleFormTemplateOption && createGoogleFormTemplateCopy ? (
+              <TemplateLanguageFields
+                language={googleFormCopyLanguage}
+                translationStatus={
+                  googleFormCopyLanguage === "en" ? "Original" : "Draft translation"
+                }
+                onLanguageChange={onGoogleFormCopyLanguageChange}
+                showGoogleFormCopyWarning
+                idPrefix="google-form-copy"
+              />
+            ) : null}
             {showCreateGoogleFormTemplateOption ? (
               <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
                 <input
@@ -2243,7 +2291,11 @@ export function AdminScreen({
                     <p className="truncate text-sm font-semibold text-slate-900">{template.name}</p>
                     <p className="truncate text-xs text-slate-500">
                       {template.source}
-                      {template.category ? ` • ${template.category}` : ""} • {template.questions.length} questions
+                      {template.category ? ` • ${template.category}` : ""} • {formLanguageLabel(template.language || "en")}
+                      {template.translationStatus && template.language !== "en"
+                        ? ` • ${template.translationStatus}`
+                        : ""}{" "}
+                      • {template.questions.length} questions
                     </p>
                   </div>
                   <button
@@ -2263,6 +2315,8 @@ export function AdminScreen({
                   companyFolderId={companyFolderId}
                   placement={googleFormCopyPlacement}
                   googleForm={template.googleForm}
+                  templateLanguage={template.language}
+                  translationStatus={template.translationStatus}
                 />
               </div>
             ))

@@ -23,6 +23,10 @@ export type GoogleFormTemplateRecord = {
   scope?: string;
   type?: string;
   currentFolderPath?: string;
+  language?: string;
+  locale?: string;
+  translationSource?: string;
+  translationStatus?: string;
 };
 
 export type GoogleFormTemplatePlacement = "master" | "company";
@@ -45,6 +49,10 @@ export type BertTemplateForGoogleForm = {
   placement?: GoogleFormTemplatePlacement;
   masterSheetId?: string;
   companyRootFolderId?: string;
+  language?: string;
+  googleFormLanguage?: string;
+  defaultLanguage?: string;
+  translationStatus?: string;
 };
 
 export const COMPANY_GOOGLE_FORM_STORAGE_PATH = "08 - Audits / Google Forms";
@@ -68,14 +76,20 @@ export const googleFormTemplatesService = {
 
   async createFromBertTemplate(
     template: BertTemplateForGoogleForm,
-    options: { placement?: GoogleFormTemplatePlacement } = {},
+    options: { placement?: GoogleFormTemplatePlacement; googleFormLanguage?: string } = {},
   ) {
     const placement = options.placement || template.placement || "master";
     const response = await fetch(apiUrl("/api/google-form-templates/create-from-bert"), {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ template, placement }),
+      body: JSON.stringify({
+        template: {
+          ...template,
+          googleFormLanguage: options.googleFormLanguage || template.googleFormLanguage || template.language,
+        },
+        placement,
+      }),
     });
     return parseJson<{
       ok: boolean;
@@ -90,6 +104,7 @@ export const googleFormTemplatesService = {
       storedFolderPath?: string;
       folderPlacementFailed?: boolean;
       userMessage?: string;
+      usedFallbackLanguage?: boolean;
     }>(response);
   },
 
