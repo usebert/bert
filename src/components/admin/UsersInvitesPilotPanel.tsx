@@ -1,6 +1,7 @@
 import { useMemo, useState, type ComponentType } from "react";
 import type { Role } from "../../permissions";
-import { getRoleDisplayName } from "../../permissions";
+import { canInviteUsers, getRoleDisplayName } from "../../permissions";
+import { INVITE_ROLE_FORBIDDEN_MESSAGE } from "../../utils/companyWorkspaceInvite";
 import { DangerActionButton } from "../DangerActionButton";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../dashboard/DashboardPrimitives";
 import { InviteStatusLegend } from "../InviteStatusLegend";
@@ -402,6 +403,7 @@ export function UsersInvitesPilotPanel({
   ...healthProps
 }: UsersInvitesPilotPanelProps) {
   const [showHealthSync, setShowHealthSync] = useState(false);
+  const inviteAllowed = canInviteUsers(currentUser.role);
   const { pendingInvites, activeInvites } = useMemo(() => {
     const pending: UserInvite[] = [];
     const active: UserInvite[] = [];
@@ -429,6 +431,11 @@ export function UsersInvitesPilotPanel({
             {inviteWorkspaceBanner}
           </p>
         ) : null}
+        {!inviteAllowed ? (
+          <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            {INVITE_ROLE_FORBIDDEN_MESSAGE}
+          </p>
+        ) : (
         <div className={`mt-4 ${pilotLightNested}`}>
           <label htmlFor="pilot-invite-email" className="mb-1 block text-sm font-semibold text-slate-900">
             Email
@@ -482,6 +489,7 @@ export function UsersInvitesPilotPanel({
             </>
           ) : null}
         </div>
+        )}
       </section>
 
       <section className={pilotLightSurface}>

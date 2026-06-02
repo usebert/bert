@@ -18,6 +18,11 @@ export const LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE =
 export const GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE =
   "Select a live company workspace first.";
 
+export const INVITE_ROLE_FORBIDDEN_MESSAGE = "Only Company Admins can invite users.";
+
+export const INVITE_COMPANY_MISMATCH_MESSAGE =
+  "Your account is not linked to this company workspace.";
+
 export function assertLiveCompanyWorkspaceForInvite(input: {
   selectedFolder: { name: string } | null | undefined;
   masterSheetId: string;

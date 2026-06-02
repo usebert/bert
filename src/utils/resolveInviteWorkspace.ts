@@ -1,6 +1,8 @@
 import type { Role } from "../permissions";
+import { canInviteUsers } from "../permissions";
 import {
   assertLiveCompanyWorkspaceForInvite,
+  INVITE_ROLE_FORBIDDEN_MESSAGE,
   isArchiveOrNonLiveWorkspaceName,
   LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE,
 } from "./companyWorkspaceInvite";
@@ -45,7 +47,8 @@ function trimId(value: string | undefined) {
   return String(value || "").trim();
 }
 
-function resolveAdminInviteWorkspace(input: ResolveInviteWorkspaceInput): ResolvedInviteWorkspace {
+/** Company Admin and Manager: derive workspace from session hint / linked company, not Godmode selection. */
+function resolveCompanyActorInviteWorkspace(input: ResolveInviteWorkspaceInput): ResolvedInviteWorkspace {
   const active = input.activeCompany;
   const ctx = input.companyContext || {};
   const companyFolderId = trimId(active?.id || ctx.companyFolderId);
@@ -103,35 +106,14 @@ function resolveMasterInviteWorkspace(input: ResolveInviteWorkspaceInput): Resol
   };
 }
 
-/** Resolves the company workspace used for company-user invites (Master vs company Admin). */
+/** Resolves the company workspace used for company-user invites (Master vs company Admin/Manager). */
 export function resolveInviteWorkspace(input: ResolveInviteWorkspaceInput): ResolvedInviteWorkspace {
   const role = input.currentUser?.role;
+  if (!role || !canInviteUsers(role)) {
+    return { ok: false, message: INVITE_ROLE_FORBIDDEN_MESSAGE };
+  }
   if (role === "Master") {
     return resolveMasterInviteWorkspace(input);
   }
-  if (role === "Admin") {
-    return resolveAdminInviteWorkspace(input);
-  }
-
-  const selected = input.selectedCompany;
-  const companyFolderId = trimId(selected?.id || input.companyContext?.companyFolderId);
-  const masterSheetId = trimId(selected?.masterSheetId || input.companyContext?.masterSheetId);
-  const companyName = trimId(selected?.name || input.companyContext?.companyName);
-  const liveCheck = assertLiveCompanyWorkspaceForInvite({
-    selectedFolder: companyName ? { name: companyName } : null,
-    masterSheetId,
-  });
-  if (!liveCheck.ok) {
-    return { ok: false, message: liveCheck.message };
-  }
-  if (!companyFolderId) {
-    return { ok: false, message: LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE };
-  }
-  return {
-    ok: true,
-    companyFolderId,
-    masterSheetId,
-    companyName: companyName || "Company workspace",
-    displayCompanyName: companyName || "Company workspace",
-  };
+  return resolveCompanyActorInviteWorkspace(input);
 }

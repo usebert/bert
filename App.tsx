@@ -38,6 +38,7 @@ import {
   getRoleDisplayName,
   getRolePermissions,
   canRepairCompanyFolderStructure,
+  canInviteUsers,
 } from "./src/permissions";
 import { companyFolderStructureService } from "./src/services/companyFolderStructureService";
 import { navItems } from "./src/config/navItems";
@@ -77,6 +78,8 @@ import {
 import {
   GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE,
   LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE,
+  INVITE_COMPANY_MISMATCH_MESSAGE,
+  INVITE_ROLE_FORBIDDEN_MESSAGE,
 } from "./src/utils/companyWorkspaceInvite";
 import { resolveInviteWorkspace } from "./src/utils/resolveInviteWorkspace";
 import {
@@ -385,6 +388,12 @@ function formatCompanyUserInviteApiError(
   if (payload.blocker === "stale_invite_target" || payload.code === "stale_invite_target") {
     return LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE;
   }
+  if (payload.code === "invite_role_forbidden") {
+    return INVITE_ROLE_FORBIDDEN_MESSAGE;
+  }
+  if (payload.code === "invite_company_mismatch") {
+    return INVITE_COMPANY_MISMATCH_MESSAGE;
+  }
   if (response.status === 401 && /google connection required/i.test(message)) {
     return "The API server lost its Google Workspace session. Open Initial Setup, reconnect Google, then try again.";
   }
@@ -392,7 +401,7 @@ function formatCompanyUserInviteApiError(
     return "No active invite token was found. Send a new invite link instead of resending.";
   }
   if (payload.blocker === "forbidden" || payload.code === "forbidden") {
-    return "You can only invite users to your own company workspace.";
+    return message;
   }
   return message;
 }
@@ -3737,17 +3746,32 @@ function App() {
 
   const inviteCompanyContext = useMemo(() => {
     const hint = readCompanyLoginHint();
+    const isMasterActor = currentUser?.role === "Master";
     const companyFolderId =
-      selectedFolder?.id || hint?.companyFolderId || extractGoogleResourceId(folderIdInput) || "";
+      (!isMasterActor ? hint?.companyFolderId : undefined) ||
+      selectedFolder?.id ||
+      hint?.companyFolderId ||
+      extractGoogleResourceId(folderIdInput) ||
+      "";
     const masterSheetId =
-      activeCompanyMasterSheetId || hint?.masterSheetId || extractGoogleResourceId(masterSheetInput) || "";
-    const companyName = selectedFolder?.name || hint?.companyName || folderNameInput || "";
+      (!isMasterActor ? hint?.masterSheetId : undefined) ||
+      activeCompanyMasterSheetId ||
+      hint?.masterSheetId ||
+      extractGoogleResourceId(masterSheetInput) ||
+      "";
+    const companyName =
+      (!isMasterActor ? hint?.companyName : undefined) ||
+      selectedFolder?.name ||
+      hint?.companyName ||
+      folderNameInput ||
+      "";
     const workspaceSetupComplete =
       Boolean(companyFolderId && masterSheetId) &&
       Boolean(workspaceValidation?.ok) &&
       syncState === "Synced";
     return { companyFolderId, masterSheetId, companyName, workspaceSetupComplete };
   }, [
+    currentUser?.role,
     selectedFolder,
     activeCompanyMasterSheetId,
     folderIdInput,
@@ -3781,7 +3805,7 @@ function App() {
   );
 
   const inviteWorkspaceBanner = useMemo(() => {
-    if (!currentUser || currentUser.role !== "Admin") {
+    if (!currentUser || (currentUser.role !== "Admin" && currentUser.role !== "Manager")) {
       return "";
     }
     if (!resolvedInviteWorkspaceState.ok) {
@@ -6799,6 +6823,11 @@ function App() {
 
   const handleInviteUser = async () => {
     if (!currentUser) {
+      return;
+    }
+
+    if (!canInviteUsers(currentUser.role)) {
+      pushToast("Access restricted", INVITE_ROLE_FORBIDDEN_MESSAGE, "warning");
       return;
     }
 

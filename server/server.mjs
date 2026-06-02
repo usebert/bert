@@ -4859,8 +4859,8 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
     const toEmail = String(req.body?.email || "").trim().toLowerCase();
     const inviteRole = String(req.body?.role || "").trim();
     const invitedBy = String(req.body?.invitedBy || APP_BRAND_NAME).trim();
-    const companyFolderId = String(req.body?.companyFolderId || "").trim();
-    const masterSheetId = String(req.body?.masterSheetId || "").trim();
+    let companyFolderId = String(req.body?.companyFolderId || "").trim();
+    let masterSheetId = String(req.body?.masterSheetId || "").trim();
     const companyName = String(req.body?.companyName || "").trim();
     const resendRequested = req.body?.resend === true;
     const resendTokenId = String(req.body?.tokenId || "").trim();
@@ -4886,39 +4886,43 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
     const inviteActor = parseBertActorFromRequest(req);
     if (inviteActor?.kind === "company") {
       const actorRole = inviteActor.role === "Master" ? "Master" : parseRoleFromUsersSheet(inviteActor.role);
-      if (actorRole === "Admin") {
-        if (inviteActor.masterSheetId && inviteActor.masterSheetId !== masterSheetId) {
+      if (actorRole === "Admin" || actorRole === "Manager") {
+        if (inviteActor.masterSheetId && masterSheetId && inviteActor.masterSheetId !== masterSheetId) {
           res.status(403).json({
             ok: false,
-            code: "forbidden",
-            error: "You can only invite users to your own company workspace.",
+            code: "invite_company_mismatch",
+            error: "Your account is not linked to this company workspace.",
             blocker: "forbidden",
           });
           return;
         }
+        if (inviteActor.masterSheetId) {
+          masterSheetId = inviteActor.masterSheetId;
+        }
         const authForScope = getAuthedClient();
-        if (authForScope) {
+        if (authForScope && masterSheetId) {
           try {
-            const cfg = await getConfig(authForScope, inviteActor.masterSheetId || masterSheetId);
+            const cfg = await getConfig(authForScope, masterSheetId);
             const ownCompanyFolderId = String(cfg.companyId || "").trim();
-            if (ownCompanyFolderId && ownCompanyFolderId !== companyFolderId) {
-              res.status(403).json({
-                ok: false,
-                code: "forbidden",
-                error: "You can only invite users to your own company workspace.",
-                blocker: "forbidden",
-              });
-              return;
+            if (ownCompanyFolderId) {
+              if (companyFolderId && companyFolderId !== ownCompanyFolderId) {
+                console.warn("[invite] company_user client companyFolderId overridden by actor config", {
+                  clientCompanyFolderId: companyFolderId,
+                  actorCompanyFolderId: ownCompanyFolderId,
+                  actorRole,
+                });
+              }
+              companyFolderId = ownCompanyFolderId;
             }
           } catch (configErr) {
-            console.warn("[invite] company_user admin scope check failed:", configErr);
+            console.warn("[invite] company_user actor scope check failed:", configErr);
           }
         }
       } else if (actorRole !== "Master") {
         res.status(403).json({
           ok: false,
-          code: "forbidden",
-          error: "Only Master or Admin roles can invite company users.",
+          code: "invite_role_forbidden",
+          error: "Only Company Admins can invite users.",
           blocker: "forbidden",
         });
         return;
