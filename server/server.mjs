@@ -49,6 +49,7 @@ import {
   installCompanyFolderStructureRoutes,
   resolveEvidenceUploadFolderId,
 } from "./company-folder-structure.mjs";
+import { createInviteStoreApi, installCompanyOnboardingRoutes } from "./company-onboarding.mjs";
 
 dotenv.config();
 
@@ -100,6 +101,8 @@ const ONBOARDING_INVITE_TTL_MS = Math.max(
   Number(process.env.ONBOARDING_INVITE_TTL_MS || String(7 * 24 * 60 * 60 * 1000)),
 );
 const INVITE_STORE_PATH = path.join(sessionDir, "app-onboarding-invites.json");
+const COMPANY_ONBOARDING_INVITE_STORE_PATH = path.join(sessionDir, "company-onboarding-invites.json");
+const companyOnboardingInviteStore = createInviteStoreApi(COMPANY_ONBOARDING_INVITE_STORE_PATH);
 /** Pilot visibility only: `demo` = current client-side password auth. See docs/security-hardening-plan.md */
 const APP_AUTH_MODE = String(process.env.APP_AUTH_MODE || "demo").trim().toLowerCase();
 
@@ -1768,6 +1771,11 @@ function findMasterSheetIdsForCompanyLoginEmail(email) {
     }
     seen.add(sheetId);
     ordered.push(sheetId);
+  }
+  for (const sheetId of companyOnboardingInviteStore.findMasterSheetIdsForEmail(target)) {
+    if (!ordered.includes(sheetId)) {
+      ordered.push(sheetId);
+    }
   }
   return ordered;
 }
@@ -6293,6 +6301,40 @@ installCompanyFolderStructureRoutes(app, {
   getTabValues,
   withSheetsQuotaRetry,
   safeLower,
+});
+
+installCompanyOnboardingRoutes(app, {
+  sessionDir,
+  requiredEnv,
+  appBrandName: APP_BRAND_NAME,
+  emailConfigured,
+  createSmtpTransport,
+  getAuthedClient,
+  envConfigured,
+  requireGoogleWorkspaceSession,
+  requireMasterOnlyActor,
+  parseBertActorFromRequest,
+  provisionNewCompanyWorkspace,
+  appendRowObjects,
+  getConfig,
+  updateConfig,
+  getSessionCookieOptions,
+  companySessionCookie: COMPANY_SESSION_COOKIE,
+  companySessionMs: COMPANY_SESSION_MS,
+  hashPassword,
+  readCompanyUsersTabRecord,
+  writeCompanyUsers,
+  probeCompanyLoginSheet,
+  getWorkbook,
+  ensureTabExists,
+  ensureColumns,
+  getTabValues,
+  withSheetsQuotaRetry,
+  google,
+  sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
+  platformRegistrySheetId: process.env.BERT_PLATFORM_REGISTRY_SHEET_ID || "",
+  onboardingInviteTtlMs: ONBOARDING_INVITE_TTL_MS,
+  currentSchemaVersion: CURRENT_SCHEMA_VERSION,
 });
 
 app.use((err, req, res, _next) => {

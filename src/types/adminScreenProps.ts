@@ -125,7 +125,7 @@ export type ScheduleItem = {
   id: string;
 };
 
-/** Result of POST /api/onboarding/app-invites/new-company (company Google Form onboarding email). */
+/** @deprecated Google Form email path — use CompanyOnboardingInviteResult (app-hosted onboarding). */
 export type CompanyOnboardingEmailResult = {
   email: string;
   sent: boolean;
@@ -134,6 +134,23 @@ export type CompanyOnboardingEmailResult = {
   onboardingFormUrl: string;
   emailDraft?: { subject: string; body: string };
   mailtoUrl?: string;
+};
+
+export type CompanyOnboardingInviteRow = {
+  inviteId: string;
+  status: string;
+  statusLabel?: string;
+  contactEmail: string;
+  provisionalCompanyName?: string;
+  provisionError?: string;
+};
+
+export type CompanyOnboardingInviteResult = {
+  ok?: boolean;
+  inviteUrl?: string;
+  sent?: boolean;
+  mailtoUrl?: string;
+  invite?: CompanyOnboardingInviteRow;
 };
 
 export type AdminScreenProps = {
@@ -301,12 +318,23 @@ export type AdminScreenProps = {
   /** Scroll to a section when the workspace screen opens (e.g. template builder). */
   initialScrollTarget?: string | null;
   hideMasterLocalDemoTools?: boolean;
-  godModeAppInviteEmail: string;
-  onGodModeAppInviteEmailChange: (value: string) => void;
-  onSendGodModeAppCompanyInvite: () => void;
-  companyOnboardingEmailResult: CompanyOnboardingEmailResult | null;
-  companyOnboardingEmailSending: boolean;
-  onDismissCompanyOnboardingEmailResult: () => void;
+  /** @deprecated Legacy Google Form email field — app-hosted onboarding uses CompanyOnboardingInvitePanel. */
+  godModeAppInviteEmail?: string;
+  onGodModeAppInviteEmailChange?: (value: string) => void;
+  onSendGodModeAppCompanyInvite?: () => void;
+  companyOnboardingEmailResult?: CompanyOnboardingEmailResult | null;
+  companyOnboardingEmailSending?: boolean;
+  onDismissCompanyOnboardingEmailResult?: () => void;
+  onSendCompanyOnboardingInvite: (input: {
+    contactEmail: string;
+    contactName: string;
+    provisionalCompanyName: string;
+    notes: string;
+  }) => Promise<CompanyOnboardingInviteResult | null>;
+  companyOnboardingInviteResult: CompanyOnboardingInviteResult | null;
+  companyOnboardingInviteSending: boolean;
+  onDismissCompanyOnboardingInviteResult: () => void;
+  parseJsonApiResponse: <T = Record<string, unknown>>(response: Response) => Promise<T>;
   /** Master-only: navigate to protected Initial Setup (/setup/initial). */
   onOpenInitialSetup?: () => void;
   /** Master-only: company master spreadsheet ID for workspace reset. */

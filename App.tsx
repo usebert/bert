@@ -153,12 +153,13 @@ import { AccountSettingsScreen } from "./src/screens/AccountSettingsScreen";
 import { ActionsScreen } from "./src/screens/ActionsScreen";
 import { AdminScreen } from "./src/screens/AdminScreen";
 import type {
-  CompanyOnboardingEmailResult,
+  CompanyOnboardingInviteResult,
   CompanyUserInviteEmailResult,
   Site,
   UserSiteAssignments,
 } from "./src/types/adminScreenProps";
 import { AppHostedOnboardingCompletion } from "./src/screens/AppHostedOnboardingCompletion";
+import { CompanyOnboardingFormScreen } from "./src/screens/CompanyOnboardingFormScreen";
 import { PasswordResetConfirm } from "./src/screens/PasswordResetConfirm";
 import { requestPasswordReset } from "./src/services/passwordResetService";
 import { DashboardScreen } from "./src/screens/DashboardScreen";
@@ -3302,9 +3303,9 @@ function App() {
   const [inviteEmailInput, setInviteEmailInput] = useState("");
   const [inviteRoleInput, setInviteRoleInput] = useState<Role>("Manager");
   const [invitedUsers, setInvitedUsers] = useState<UserInvite[]>(storedWorkspaceState?.invitedUsers || []);
-  const [godModeAppInviteEmail, setGodModeAppInviteEmail] = useState("");
-  const [companyOnboardingEmailResult, setCompanyOnboardingEmailResult] = useState<CompanyOnboardingEmailResult | null>(null);
-  const [companyOnboardingEmailSending, setCompanyOnboardingEmailSending] = useState(false);
+  const [companyOnboardingInviteResult, setCompanyOnboardingInviteResult] =
+    useState<CompanyOnboardingInviteResult | null>(null);
+  const [companyOnboardingInviteSending, setCompanyOnboardingInviteSending] = useState(false);
   const [companyUserInviteEmailResult, setCompanyUserInviteEmailResult] = useState<CompanyUserInviteEmailResult | null>(null);
   const [companyUserInviteEmailSending, setCompanyUserInviteEmailSending] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
@@ -3598,7 +3599,7 @@ function App() {
     setExportsFolderInput("");
     setManagementNotesFolderInput("");
     setSelectedOnboardingRecordId("");
-    setCompanyOnboardingEmailResult(null);
+    setCompanyOnboardingInviteResult(null);
     setCompanyUserInviteEmailResult(null);
     setSyncState("Not synced");
   }, []);
@@ -6757,67 +6758,66 @@ function App() {
     }));
   };
 
-  const handleSendGodModeAppCompanyInvite = async () => {
-    if (!currentUser || (currentUser.role !== "Master" && currentUser.role !== "Admin")) {
-      return;
+  const handleSendCompanyOnboardingInvite = async (input: {
+    contactEmail: string;
+    contactName: string;
+    provisionalCompanyName: string;
+    notes: string;
+  }): Promise<CompanyOnboardingInviteResult | null> => {
+    if (!currentUser || currentUser.role !== "Master") {
+      pushToast("Access restricted", "Only Godmode can send company onboarding invites.", "warning");
+      return null;
     }
     if (!backendConfigured || !googleConnected) {
       pushToast(
         "Google Workspace needs setup",
-        "Connect Google in Initial Setup before provisioning a company.",
+        "Connect Google in Initial Setup before sending a company onboarding invite.",
         "warning",
       );
-      return;
+      return null;
     }
-    const trimmed = godModeAppInviteEmail.trim().toLowerCase();
-    if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
-      pushToast("Email required", "Enter a valid email address for the new company administrator.", "warning");
-      return;
-    }
-    setCompanyOnboardingEmailSending(true);
+    setCompanyOnboardingInviteSending(true);
     try {
-      const response = await fetch(apiUrl("/api/onboarding/app-invites/new-company"), {
+      const response = await fetch(apiUrl("/api/onboarding/company-onboarding/invites"), {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: trimmed }),
+        body: JSON.stringify({
+          ...input,
+          invitedBy: currentUser.name,
+        }),
       });
-      const payload = (await parseJsonApiResponse(response)) as {
+      const payload = (await parseJsonApiResponse(response)) as CompanyOnboardingInviteResult & {
         ok?: boolean;
         error?: string;
-        sent?: boolean;
-        smtpConfigured?: boolean;
-        email?: string;
-        senderEmail?: string;
-        onboardingFormUrl?: string;
-        emailDraft?: { subject: string; body: string };
-        mailtoUrl?: string;
       };
       if (!response.ok || !payload.ok) {
-        throw new Error(payload.error || "Unable to send onboarding email.");
+        throw new Error(payload.error || "Unable to send company onboarding invite.");
       }
-      const result = {
-        email: payload.email || trimmed,
+      const result: CompanyOnboardingInviteResult = {
+        ok: true,
+        inviteUrl: payload.inviteUrl,
         sent: payload.sent === true,
-        smtpConfigured: payload.smtpConfigured !== false,
-        senderEmail: payload.senderEmail || "admin@usebert.co.uk",
-        onboardingFormUrl: payload.onboardingFormUrl || "",
-        emailDraft: payload.emailDraft,
         mailtoUrl: payload.mailtoUrl,
+        invite: payload.invite,
       };
-      setCompanyOnboardingEmailResult(result);
+      setCompanyOnboardingInviteResult(result);
       if (result.sent) {
-        pushToast("Onboarding email sent", `We sent the company onboarding form to ${result.email}.`, "success");
+        pushToast("Onboarding invite sent", `We emailed ${input.contactEmail}.`, "success");
+      } else {
+        pushToast("Copy onboarding link", "SMTP is off or failed — copy the link and send it manually.", "warning");
       }
+      return result;
     } catch (error) {
-      setCompanyOnboardingEmailResult(null);
+      setCompanyOnboardingInviteResult(null);
       pushToast(
-        "Onboarding email failed",
-        error instanceof Error ? error.message : "Unable to send onboarding email.",
+        "Onboarding invite failed",
+        error instanceof Error ? error.message : "Unable to send company onboarding invite.",
         "warning",
       );
+      return null;
     } finally {
-      setCompanyOnboardingEmailSending(false);
+      setCompanyOnboardingInviteSending(false);
     }
   };
 
@@ -7320,7 +7320,7 @@ function App() {
   const handleGodmodeNewCompany = useCallback(() => {
     logGodmodeNav("create-company", "onboarding", { activeView: "app-shell" });
     resetMasterGodmodeCompanyContext();
-    setGodModeAppInviteEmail("");
+    setCompanyOnboardingInviteResult(null);
     pushToast(
       "New company onboarding",
       "Start with a clean company workspace. No previous company data will be used.",
@@ -10676,10 +10676,14 @@ function App() {
   ]);
 
   let inviteTokenFromUrl = "";
+  let companyOnboardingTokenFromUrl = "";
   try {
-    inviteTokenFromUrl = new URLSearchParams(window.location.search).get("invite")?.trim() || "";
+    const urlParams = new URLSearchParams(window.location.search);
+    inviteTokenFromUrl = urlParams.get("invite")?.trim() || "";
+    companyOnboardingTokenFromUrl = urlParams.get("company-onboarding")?.trim() || "";
   } catch {
     inviteTokenFromUrl = "";
+    companyOnboardingTokenFromUrl = "";
   }
   if (activePasswordReset) {
     const clearResetParams = () => {
@@ -10703,6 +10707,17 @@ function App() {
           setShowForgotPassword(false);
           setForgotPasswordMessage("");
           setForgotPasswordError("");
+        }}
+      />
+    );
+  }
+  if (companyOnboardingTokenFromUrl) {
+    return (
+      <CompanyOnboardingFormScreen
+        inviteToken={companyOnboardingTokenFromUrl}
+        parseJsonApiResponse={parseJsonApiResponse}
+        onComplete={() => {
+          window.location.assign(window.location.pathname);
         }}
       />
     );
@@ -12410,12 +12425,11 @@ function App() {
                 mappingSyncError={mappingSyncError}
                 onSelectAreaAuditArea={setSelectedAreaAuditAreaId}
                 onToggleAreaAudit={handleToggleAreaAudit}
-                godModeAppInviteEmail={godModeAppInviteEmail}
-                onGodModeAppInviteEmailChange={setGodModeAppInviteEmail}
-                onSendGodModeAppCompanyInvite={handleSendGodModeAppCompanyInvite}
-                companyOnboardingEmailResult={companyOnboardingEmailResult}
-                companyOnboardingEmailSending={companyOnboardingEmailSending}
-                onDismissCompanyOnboardingEmailResult={() => setCompanyOnboardingEmailResult(null)}
+                onSendCompanyOnboardingInvite={handleSendCompanyOnboardingInvite}
+                companyOnboardingInviteResult={companyOnboardingInviteResult}
+                companyOnboardingInviteSending={companyOnboardingInviteSending}
+                onDismissCompanyOnboardingInviteResult={() => setCompanyOnboardingInviteResult(null)}
+                parseJsonApiResponse={parseJsonApiResponse}
                 onOpenInitialSetup={
                   canAccessGodmodeInitialSetup(currentUser.role)
                     ? () => {

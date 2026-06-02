@@ -1,0 +1,915 @@
+/**
+ * BERT company onboarding (COMPANY_ONBOARDING): Godmode invite → customer form → provision workspace.
+ */
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+
+export const COMPANY_ONBOARDING_INVITE_TYPE = "COMPANY_ONBOARDING";
+
+/** Customer-visible lifecycle on the invite record. */
+export const COMPANY_ONBOARDING_STATUSES = new Set([
+  "invited",
+  "started",
+  "submitted",
+  "live",
+  "failed",
+  "setup_failed",
+]);
+
+const REGISTRY_SPREADSHEET_NAME = "BERT Platform Registry";
+const REGISTRY_TAB_ONBOARDING = "OnboardingInvites";
+const REGISTRY_TAB_COMPANIES = "Companies";
+
+const ONBOARDING_INVITE_COLUMNS = [
+  "Invite ID",
+  "Type",
+  "Status",
+  "Contact Email",
+  "Contact Name",
+  "Provisional Company",
+  "Notes",
+  "Invited By",
+  "Created At",
+  "Expires At",
+  "Started At",
+  "Submitted At",
+  "Live At",
+  "Company Folder ID",
+  "Master Sheet ID",
+  "Provision Error",
+];
+
+const COMPANIES_REGISTRY_COLUMNS = [
+  "Company Folder ID",
+  "Company Name",
+  "Website",
+  "Phone",
+  "Address",
+  "Industry",
+  "Sites Count",
+  "Users Count",
+  "Main Needs",
+  "Status",
+  "Onboarding Invite ID",
+  "Live At",
+];
+
+const MAIN_NEED_OPTIONS = [
+  "audits",
+  "actions",
+  "incidents",
+  "evidence",
+  "reports",
+  "scheduling",
+];
+
+function safeLower(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+export function hashCompanyOnboardingToken(rawToken) {
+  return crypto.createHash("sha256").update(String(rawToken || ""), "utf8").digest("hex");
+}
+
+export function generateCompanyOnboardingTokenParts() {
+  const inviteId = crypto.randomBytes(12).toString("hex");
+  const rawToken = crypto.randomBytes(24).toString("hex");
+  return { inviteId, rawToken, tokenHash: hashCompanyOnboardingToken(rawToken) };
+}
+
+export function buildCompanyOnboardingInviteUrl(frontendUrl, inviteId, rawToken) {
+  const base = String(frontendUrl || "").replace(/\/$/, "");
+  return `${base}/?company-onboarding=${encodeURIComponent(`${inviteId}.${rawToken}`)}`;
+}
+
+export function parseCompanyOnboardingUrlToken(param) {
+  const trimmed = String(param || "").trim();
+  if (!trimmed) {
+    return null;
+  }
+  const dot = trimmed.indexOf(".");
+  if (dot <= 0 || dot >= trimmed.length - 1) {
+    return null;
+  }
+  const inviteId = trimmed.slice(0, dot).trim();
+  const rawToken = trimmed.slice(dot + 1).trim();
+  if (!inviteId || !rawToken) {
+    return null;
+  }
+  return { inviteId, rawToken, tokenHash: hashCompanyOnboardingToken(rawToken) };
+}
+
+export function normalizeMainNeeds(value) {
+  const list = Array.isArray(value)
+    ? value
+    : String(value || "")
+        .split(/[,;]+/)
+        .map((item) => item.trim());
+  const normalized = new Set();
+  for (const item of list) {
+    const key = safeLower(item).replace(/[^a-z0-9]+/g, "_");
+    if (MAIN_NEED_OPTIONS.includes(key)) {
+      normalized.add(key);
+    }
+  }
+  return Array.from(normalized);
+}
+
+function createInviteStoreApi(storePath) {
+  function readStore() {
+    try {
+      const raw = fs.readFileSync(storePath, "utf8");
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function writeStore(store) {
+    const dir = path.dirname(storePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(storePath, JSON.stringify(store, null, 2), "utf8");
+  }
+
+  return {
+    readStore,
+    writeStore,
+    getInvite(inviteId) {
+      return readStore()[inviteId] || null;
+    },
+    patchInvite(inviteId, partial) {
+      const store = readStore();
+      if (!store[inviteId]) {
+        return null;
+      }
+      store[inviteId] = { ...store[inviteId], ...partial };
+      writeStore(store);
+      return store[inviteId];
+    },
+    createInvite(record) {
+      const store = readStore();
+      store[record.id] = record;
+      writeStore(store);
+      return record;
+    },
+    deleteInvite(inviteId) {
+      const store = readStore();
+      if (!store[inviteId]) {
+        return false;
+      }
+      delete store[inviteId];
+      writeStore(store);
+      return true;
+    },
+    listInvites() {
+      return Object.values(readStore()).sort((a, b) => Number(b.createdAt) - Number(a.createdAt));
+    },
+    findMasterSheetIdsForEmail(email) {
+      const target = safeLower(email);
+      const matches = [];
+      for (const record of Object.values(readStore())) {
+        if (safeLower(record.contactEmail) !== target) {
+          continue;
+        }
+        const sheetId = String(record.masterSheetId || record.provisionMasterSheetId || "").trim();
+        if (!sheetId) {
+          continue;
+        }
+        matches.push({ sheetId, createdAt: Number(record.createdAt) || 0 });
+      }
+      matches.sort((a, b) => b.createdAt - a.createdAt);
+      const seen = new Set();
+      const ordered = [];
+      for (const { sheetId } of matches) {
+        if (seen.has(sheetId)) {
+          continue;
+        }
+        seen.add(sheetId);
+        ordered.push(sheetId);
+      }
+      return ordered;
+    },
+  };
+}
+
+function mapInviteStatusLabel(record) {
+  const status = safeLower(record.status);
+  if (status === "live") {
+    return "Live";
+  }
+  if (status === "setup_failed" || status === "failed") {
+    return "Failed";
+  }
+  if (status === "submitted") {
+    return record.provisionStatus === "running" ? "Submitted" : "Submitted";
+  }
+  if (status === "started") {
+    return "Started";
+  }
+  return "Invited";
+}
+
+function publicInviteSummary(record) {
+  return {
+    inviteId: record.id,
+    status: record.status,
+    statusLabel: mapInviteStatusLabel(record),
+    contactEmail: record.contactEmail,
+    contactName: record.contactName || "",
+    provisionalCompanyName: record.provisionalCompanyName || "",
+    invitedBy: record.invitedBy || "",
+    expiresAt: record.expiresAt,
+    startedAt: record.startedAt ?? null,
+    submittedAt: record.submittedAt ?? null,
+    liveAt: record.liveAt ?? null,
+    provisionStatus: record.provisionStatus || "idle",
+    provisionError: record.provisionError || "",
+    companyFolderId: record.companyFolderId || record.provisionDriveFolderId || "",
+    masterSheetId: record.masterSheetId || record.provisionMasterSheetId || "",
+    canRetrySetup: ["failed", "setup_failed", "submitted"].includes(safeLower(record.status)),
+  };
+}
+
+function createPerInviteAsyncQueue() {
+  const tails = new Map();
+  return async (inviteId, fn) => {
+    const prev = tails.get(inviteId) || Promise.resolve();
+    let release = () => {};
+    const next = new Promise((resolve) => {
+      release = resolve;
+    });
+    tails.set(
+      inviteId,
+      prev.then(() => next, () => next),
+    );
+    await prev.catch(() => {});
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  };
+}
+
+async function ensureRegistryTab(auth, sheetsApi, spreadsheetId, tabName, headers, deps) {
+  const { getWorkbook, ensureTabExists, ensureColumns } = deps;
+  let workbook = await getWorkbook(auth, spreadsheetId);
+  const { workbook: workbookAfter } = await ensureTabExists(auth, spreadsheetId, tabName, workbook);
+  workbook = workbookAfter;
+  await ensureColumns(auth, spreadsheetId, tabName, headers);
+  return workbook;
+}
+
+async function resolvePlatformRegistrySpreadsheetId(auth, drive, deps) {
+  const configured = String(deps.platformRegistrySheetId || "").trim();
+  if (configured) {
+    return configured;
+  }
+  const sharedDriveId = String(deps.sharedDriveId || "").trim();
+  if (!sharedDriveId) {
+    return "";
+  }
+  const response = await drive.files.list({
+    includeItemsFromAllDrives: true,
+    supportsAllDrives: true,
+    corpora: "drive",
+    driveId: sharedDriveId,
+    q: `mimeType='application/vnd.google-apps.spreadsheet' and trashed=false and name='${REGISTRY_SPREADSHEET_NAME.replace(/'/g, "\\'")}'`,
+    fields: "files(id,name)",
+    pageSize: 5,
+  });
+  const files = response.data.files || [];
+  return files[0]?.id || "";
+}
+
+async function upsertRegistryRows(auth, sheetsApi, spreadsheetId, tabName, headers, rows, deps) {
+  if (!spreadsheetId || !rows.length) {
+    return;
+  }
+  await ensureRegistryTab(auth, sheetsApi, spreadsheetId, tabName, headers, deps);
+  const existing = await deps.getTabValues(auth, spreadsheetId, tabName);
+  const headerRow = existing[0] || headers;
+  const idHeader = tabName === REGISTRY_TAB_ONBOARDING ? "Invite ID" : "Company Folder ID";
+  const idIndex = headerRow.findIndex((h) => safeLower(h) === safeLower(idHeader));
+  const dataRows = existing.length > 1 ? existing.slice(1) : [];
+  const nextRows = [...dataRows];
+  for (const rowObject of rows) {
+    const id = String(rowObject[idHeader] || "").trim();
+    if (!id) {
+      continue;
+    }
+    const mapped = headers.map((header) => String(rowObject[header] ?? ""));
+    const rowIndex = nextRows.findIndex((row) => String(row[idIndex] || "").trim() === id);
+    if (rowIndex === -1) {
+      nextRows.push(mapped);
+    } else {
+      nextRows[rowIndex] = mapped;
+    }
+  }
+  await sheetsApi.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${tabName}!A1`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [headers, ...nextRows] },
+  });
+}
+
+function registryRowFromInvite(record) {
+  return {
+    "Invite ID": record.id,
+    Type: COMPANY_ONBOARDING_INVITE_TYPE,
+    Status: mapInviteStatusLabel(record),
+    "Contact Email": record.contactEmail,
+    "Contact Name": record.contactName || "",
+    "Provisional Company": record.provisionalCompanyName || "",
+    Notes: record.notes || "",
+    "Invited By": record.invitedBy || "",
+    "Created At": record.createdAtIso || nowIso(),
+    "Expires At": new Date(record.expiresAt).toISOString(),
+    "Started At": record.startedAt ? new Date(record.startedAt).toISOString() : "",
+    "Submitted At": record.submittedAt ? new Date(record.submittedAt).toISOString() : "",
+    "Live At": record.liveAt ? new Date(record.liveAt).toISOString() : "",
+    "Company Folder ID": record.companyFolderId || record.provisionDriveFolderId || "",
+    "Master Sheet ID": record.masterSheetId || record.provisionMasterSheetId || "",
+    "Provision Error": record.provisionError || "",
+  };
+}
+
+function registryRowFromCompany(record, form) {
+  return {
+    "Company Folder ID": record.companyFolderId || record.provisionDriveFolderId || "",
+    "Company Name": form.companyName || record.provisionalCompanyName || "",
+    Website: form.website || "",
+    Phone: form.phone || "",
+    Address: form.address || "",
+    Industry: form.industry || "",
+    "Sites Count": String(form.sitesCount ?? ""),
+    "Users Count": String(form.usersCount ?? ""),
+    "Main Needs": (form.mainNeeds || []).join(", "),
+    Status: safeLower(record.status) === "live" ? "Live" : "Onboarding",
+    "Onboarding Invite ID": record.id,
+    "Live At": record.liveAt ? new Date(record.liveAt).toISOString() : "",
+  };
+}
+
+async function syncInviteToRegistry(auth, record, deps) {
+  const drive = deps.google.drive({ version: "v3", auth });
+  const sheetsApi = deps.google.sheets({ version: "v4", auth });
+  const spreadsheetId = await resolvePlatformRegistrySpreadsheetId(auth, drive, deps);
+  if (!spreadsheetId) {
+    return { synced: false };
+  }
+  const form = record.formPayload || {};
+  await upsertRegistryRows(auth, sheetsApi, spreadsheetId, REGISTRY_TAB_ONBOARDING, ONBOARDING_INVITE_COLUMNS, [
+    registryRowFromInvite(record),
+  ], deps);
+  if (record.companyFolderId || record.provisionDriveFolderId) {
+    await upsertRegistryRows(auth, sheetsApi, spreadsheetId, REGISTRY_TAB_COMPANIES, COMPANIES_REGISTRY_COLUMNS, [
+      registryRowFromCompany(record, form),
+    ], deps);
+  }
+  return { synced: true, registrySpreadsheetId: spreadsheetId };
+}
+
+function buildConfigFromForm(form, inviteId) {
+  const mainNeeds = normalizeMainNeeds(form.mainNeeds);
+  return {
+    companyWebsite: String(form.website || "").trim(),
+    companyPhone: String(form.phone || "").trim(),
+    companyAddress: String(form.address || "").trim(),
+    companyIndustry: String(form.industry || "").trim(),
+    expectedSites: String(form.sitesCount ?? "").trim(),
+    expectedUsers: String(form.usersCount ?? "").trim(),
+    onboardingMainNeeds: mainNeeds.join(","),
+    onboardingInviteId: inviteId,
+    companyOnboardingStatus: "live",
+  };
+}
+
+export function installCompanyOnboardingRoutes(app, deps) {
+  const {
+    sessionDir,
+    requiredEnv,
+    appBrandName,
+    emailConfigured,
+    createSmtpTransport,
+    getAuthedClient,
+    envConfigured,
+    requireGoogleWorkspaceSession,
+    requireMasterOnlyActor,
+    parseBertActorFromRequest,
+    provisionNewCompanyWorkspace,
+    appendRowObjects,
+    getConfig,
+    updateConfig,
+    getSessionCookieOptions,
+    companySessionCookie,
+    companySessionMs,
+    hashPassword,
+    readCompanyUsersTabRecord,
+    probeCompanyLoginSheet,
+  } = deps;
+
+  const storePath = path.join(sessionDir, "company-onboarding-invites.json");
+  const store = createInviteStoreApi(storePath);
+  const runWithInviteLock = createPerInviteAsyncQueue();
+  const inviteTtlMs = Math.max(60 * 60 * 1000, Number(deps.onboardingInviteTtlMs || 7 * 24 * 60 * 60 * 1000));
+
+  function verifyInviteToken(record, parsed) {
+    if (!record || !parsed) {
+      return false;
+    }
+    return String(record.tokenHash || "") === String(parsed.tokenHash || "");
+  }
+
+  async function sendInviteEmail({ toEmail, invitedBy, onboardingUrl }) {
+    const subject = `Complete your ${appBrandName} company onboarding`;
+    const textBody = [
+      "Hi,",
+      "",
+      `You have been invited to set up your company on ${appBrandName}.`,
+      "",
+      "Open this secure link to submit your company details and create your administrator account:",
+      onboardingUrl,
+      "",
+      `Invited by: ${invitedBy}`,
+      "",
+      "Thanks,",
+      `${appBrandName} team`,
+    ].join("\n");
+    const htmlBody = `
+      <p>Hi,</p>
+      <p>You have been invited to set up your company on <strong>${appBrandName}</strong>.</p>
+      <p><a href="${onboardingUrl}">Complete company onboarding</a></p>
+      <p>Invited by: ${invitedBy}</p>
+    `;
+    if (!emailConfigured()) {
+      return { sent: false, mailtoUrl: `mailto:${encodeURIComponent(toEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(textBody)}` };
+    }
+    const from = requiredEnv.SMTP_FROM_NAME
+      ? `"${requiredEnv.SMTP_FROM_NAME}" <${requiredEnv.SMTP_FROM_EMAIL}>`
+      : requiredEnv.SMTP_FROM_EMAIL;
+    const transporter = createSmtpTransport();
+    await transporter.sendMail({ from, to: toEmail, subject, text: textBody, html: htmlBody });
+    return { sent: true };
+  }
+
+  app.get("/api/onboarding/company-onboarding/invites", requireGoogleWorkspaceSession, requireMasterOnlyActor, async (_req, res) => {
+    try {
+      const invites = store.listInvites().map((record) => ({
+        ...publicInviteSummary(record),
+        notes: record.notes || "",
+        consumed: Boolean(record.liveAt),
+      }));
+      return res.json({ ok: true, invites });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "Unable to list invites." });
+    }
+  });
+
+  app.post("/api/onboarding/company-onboarding/invites", requireGoogleWorkspaceSession, requireMasterOnlyActor, async (req, res) => {
+    try {
+      const actor = parseBertActorFromRequest(req);
+      const contactEmail = String(req.body?.contactEmail || req.body?.email || "").trim().toLowerCase();
+      const contactName = String(req.body?.contactName || "").trim();
+      const provisionalCompanyName = String(req.body?.provisionalCompanyName || req.body?.companyName || "").trim();
+      const notes = String(req.body?.notes || "").trim();
+      const invitedBy = String(req.body?.invitedBy || actor?.name || actor?.email || appBrandName).trim();
+
+      if (!contactEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+        return res.status(400).json({ ok: false, error: "A valid contact email is required." });
+      }
+
+      const { inviteId, rawToken, tokenHash } = generateCompanyOnboardingTokenParts();
+      const now = Date.now();
+      const record = {
+        id: inviteId,
+        inviteType: COMPANY_ONBOARDING_INVITE_TYPE,
+        status: "invited",
+        contactEmail,
+        contactName,
+        provisionalCompanyName,
+        notes,
+        invitedBy,
+        tokenHash,
+        createdAt: now,
+        createdAtIso: nowIso(),
+        expiresAt: now + inviteTtlMs,
+        startedAt: null,
+        submittedAt: null,
+        liveAt: null,
+        formPayload: null,
+        provisionStatus: "idle",
+        provisionStartedAt: null,
+        provisionFinishedAt: null,
+        provisionError: null,
+        provisionDriveFolderId: null,
+        provisionMasterSheetId: null,
+        companyFolderId: null,
+        masterSheetId: null,
+      };
+      store.createInvite(record);
+
+      const onboardingUrl = buildCompanyOnboardingInviteUrl(requiredEnv.FRONTEND_URL, inviteId, rawToken);
+      const emailResult = await sendInviteEmail({ toEmail: contactEmail, invitedBy, onboardingUrl });
+
+      const auth = getAuthedClient();
+      if (auth) {
+        await syncInviteToRegistry(auth, record, deps).catch((err) => {
+          console.warn("[company-onboarding] registry sync skipped on create", err instanceof Error ? err.message : err);
+        });
+      }
+
+      return res.json({
+        ok: true,
+        invite: publicInviteSummary(record),
+        inviteUrl: onboardingUrl,
+        tokenId: inviteId,
+        sent: emailResult.sent === true,
+        mailtoUrl: emailResult.mailtoUrl,
+        senderEmail: requiredEnv.SMTP_FROM_EMAIL || "",
+      });
+    } catch (error) {
+      console.error("[company-onboarding] create invite failed", error);
+      return res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "Unable to create invite." });
+    }
+  });
+
+  app.post("/api/onboarding/company-onboarding/invites/:inviteId/resend", requireGoogleWorkspaceSession, requireMasterOnlyActor, async (req, res) => {
+    try {
+      const inviteId = String(req.params.inviteId || "").trim();
+      const record = store.getInvite(inviteId);
+      if (!record) {
+        return res.status(404).json({ ok: false, error: "Invite not found." });
+      }
+      if (safeLower(record.status) === "live") {
+        return res.status(409).json({ ok: false, error: "This company is already live. Send a COMPANY_USER invite instead." });
+      }
+      const { rawToken, tokenHash } = generateCompanyOnboardingTokenParts();
+      const patched = store.patchInvite(inviteId, {
+        tokenHash,
+        status: "invited",
+        expiresAt: Date.now() + inviteTtlMs,
+        provisionError: null,
+      });
+      const onboardingUrl = buildCompanyOnboardingInviteUrl(requiredEnv.FRONTEND_URL, inviteId, rawToken);
+      const emailResult = await sendInviteEmail({
+        toEmail: record.contactEmail,
+        invitedBy: record.invitedBy || appBrandName,
+        onboardingUrl,
+      });
+      const auth = getAuthedClient();
+      if (auth && patched) {
+        await syncInviteToRegistry(auth, patched, deps).catch(() => {});
+      }
+      return res.json({
+        ok: true,
+        invite: publicInviteSummary(patched || record),
+        inviteUrl: onboardingUrl,
+        sent: emailResult.sent === true,
+        mailtoUrl: emailResult.mailtoUrl,
+      });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "Unable to resend invite." });
+    }
+  });
+
+  app.delete("/api/onboarding/company-onboarding/invites/:inviteId", requireGoogleWorkspaceSession, requireMasterOnlyActor, async (req, res) => {
+    const inviteId = String(req.params.inviteId || "").trim();
+    if (!store.deleteInvite(inviteId)) {
+      return res.status(404).json({ ok: false, error: "Invite not found." });
+    }
+    return res.json({ ok: true, revoked: true });
+  });
+
+  app.post("/api/onboarding/company-onboarding/invites/:inviteId/retry", requireGoogleWorkspaceSession, requireMasterOnlyActor, async (req, res) => {
+    const inviteId = String(req.params.inviteId || "").trim();
+    const record = store.getInvite(inviteId);
+    if (!record) {
+      return res.status(404).json({ ok: false, error: "Invite not found." });
+    }
+    if (!record.formPayload) {
+      return res.status(400).json({ ok: false, error: "No submitted form data to retry provisioning." });
+    }
+    store.patchInvite(inviteId, {
+      status: "submitted",
+      provisionStatus: "idle",
+      provisionError: null,
+      provisionFinishedAt: null,
+    });
+    return res.json({ ok: true, invite: publicInviteSummary(store.getInvite(inviteId)) });
+  });
+
+  app.get("/api/onboarding/company-onboarding/invite/:tokenParam", async (req, res) => {
+    const parsed = parseCompanyOnboardingUrlToken(req.params.tokenParam);
+    if (!parsed) {
+      return res.status(400).json({ ok: false, error: "Invalid onboarding link." });
+    }
+    const record = store.getInvite(parsed.inviteId);
+    if (!record || !verifyInviteToken(record, parsed)) {
+      return res.status(404).json({ ok: false, error: "This onboarding link is not valid." });
+    }
+    if (Date.now() > record.expiresAt && safeLower(record.status) !== "live") {
+      return res.status(410).json({ ok: false, code: "invite_expired", error: "This invite has expired. Ask BERT to send a new link." });
+    }
+    return res.json({
+      ok: true,
+      invite: {
+        ...publicInviteSummary(record),
+        adminEmailDefault: record.contactEmail,
+        provisionalCompanyName: record.provisionalCompanyName || "",
+        mainNeedOptions: MAIN_NEED_OPTIONS,
+      },
+    });
+  });
+
+  app.post("/api/onboarding/company-onboarding/invite/:tokenParam/start", async (req, res) => {
+    const parsed = parseCompanyOnboardingUrlToken(req.params.tokenParam);
+    if (!parsed) {
+      return res.status(400).json({ ok: false, error: "Invalid onboarding link." });
+    }
+    const record = store.getInvite(parsed.inviteId);
+    if (!record || !verifyInviteToken(record, parsed)) {
+      return res.status(404).json({ ok: false, error: "This onboarding link is not valid." });
+    }
+    if (safeLower(record.status) === "invited") {
+      store.patchInvite(parsed.inviteId, { status: "started", startedAt: Date.now() });
+    }
+    return res.json({ ok: true });
+  });
+
+  app.post("/api/onboarding/company-onboarding/invite/:tokenParam/complete", async (req, res) => {
+    if (!envConfigured()) {
+      return res.status(503).json({ ok: false, error: "Workspace setup is not available right now. Try again later." });
+    }
+    const authed = getAuthedClient();
+    if (!authed) {
+      return res.status(401).json({
+        ok: false,
+        code: "google_not_connected",
+        error: "Account setup is not available because Google Workspace is not connected on the server.",
+      });
+    }
+
+    const parsed = parseCompanyOnboardingUrlToken(req.params.tokenParam);
+    if (!parsed) {
+      return res.status(400).json({ ok: false, error: "Invalid onboarding link." });
+    }
+
+    const password = String(req.body?.password || "");
+    const confirmPassword = String(req.body?.confirmPassword || "");
+    const adminFullName = String(req.body?.adminFullName || req.body?.fullName || "").trim();
+    const adminEmail = String(req.body?.adminEmail || "").trim().toLowerCase();
+    const companyName = String(req.body?.companyName || "").trim();
+    const website = String(req.body?.website || "").trim();
+    const phone = String(req.body?.phone || "").trim();
+    const address = String(req.body?.address || "").trim();
+    const industry = String(req.body?.industry || "").trim();
+    const sitesCount = String(req.body?.sitesCount ?? req.body?.sites ?? "").trim();
+    const usersCount = String(req.body?.usersCount ?? req.body?.users ?? "").trim();
+    const mainNeeds = normalizeMainNeeds(req.body?.mainNeeds);
+
+    if (password.length < 8) {
+      return res.status(400).json({ ok: false, error: "Password must be at least 8 characters." });
+    }
+    if (confirmPassword && confirmPassword !== password) {
+      return res.status(400).json({ ok: false, error: "Password confirmation does not match." });
+    }
+    if (!adminFullName) {
+      return res.status(400).json({ ok: false, error: "Administrator name is required." });
+    }
+    if (!companyName) {
+      return res.status(400).json({ ok: false, error: "Company name is required." });
+    }
+
+    await runWithInviteLock(parsed.inviteId, async () => {
+      let record = store.getInvite(parsed.inviteId);
+      if (!record || !verifyInviteToken(record, parsed)) {
+        res.status(404).json({ ok: false, error: "This onboarding link is not valid." });
+        return;
+      }
+      if (Date.now() > record.expiresAt && safeLower(record.status) !== "live") {
+        res.status(410).json({ ok: false, code: "invite_expired", error: "This invite has expired." });
+        return;
+      }
+
+      const boundEmail = safeLower(record.contactEmail);
+      const resolvedAdminEmail = adminEmail || boundEmail;
+      if (resolvedAdminEmail !== boundEmail) {
+        res.status(400).json({ ok: false, error: "Administrator email must match the invited contact email." });
+        return;
+      }
+
+      const formPayload = {
+        companyName,
+        website,
+        phone,
+        address,
+        industry,
+        sitesCount,
+        usersCount,
+        mainNeeds,
+        adminFullName,
+        adminEmail: resolvedAdminEmail,
+      };
+
+      if (safeLower(record.status) === "live" && record.masterSheetId && record.companyFolderId) {
+        const probe = await probeCompanyLoginSheet(authed, record.masterSheetId, resolvedAdminEmail, password);
+        if (probe.passwordVerified && probe.rec) {
+          const payload = JSON.stringify({
+            v: 1,
+            email: resolvedAdminEmail,
+            masterSheetId: record.masterSheetId,
+            role: probe.rec.role,
+            name: probe.rec.name,
+          });
+          res.cookie(companySessionCookie, payload, getSessionCookieOptions({ maxAge: companySessionMs }));
+          res.json({
+            ok: true,
+            outcome: "company_onboarding",
+            status: "live",
+            masterSheetId: record.masterSheetId,
+            companyFolderId: record.companyFolderId,
+            sessionStarted: true,
+          });
+          return;
+        }
+      }
+
+      if (record.provisionStatus === "running") {
+        res.status(202).json({
+          ok: false,
+          code: "invite_in_progress",
+          provisionStatus: "running",
+          error: "Your company setup is already in progress. Keep this page open.",
+        });
+        return;
+      }
+
+      store.patchInvite(parsed.inviteId, {
+        status: "submitted",
+        submittedAt: Date.now(),
+        formPayload,
+        provisionStatus: "running",
+        provisionStartedAt: Date.now(),
+        provisionFinishedAt: null,
+        provisionError: null,
+      });
+
+      try {
+        let companyFolderId = String(record.companyFolderId || record.provisionDriveFolderId || "").trim();
+        let masterSheetId = String(record.masterSheetId || record.provisionMasterSheetId || "").trim();
+
+        if (!companyFolderId || !masterSheetId) {
+          const result = await provisionNewCompanyWorkspace(
+            authed,
+            {
+              companyName,
+              adminEmail: resolvedAdminEmail,
+              adminFullName,
+              password,
+            },
+            async (progressPatch) => {
+              store.patchInvite(parsed.inviteId, progressPatch);
+            },
+          );
+          companyFolderId = result.companyFolderId;
+          masterSheetId = result.masterSheetId;
+          store.patchInvite(parsed.inviteId, {
+            provisionDriveFolderId: companyFolderId,
+            provisionMasterSheetId: masterSheetId,
+            companyFolderId,
+            masterSheetId,
+          });
+        } else {
+          const cfg = await getConfig(authed, masterSheetId);
+          const authKey = `UserAuth.${resolvedAdminEmail}`;
+          if (!cfg[authKey]) {
+            await updateConfig(authed, masterSheetId, {
+              ...cfg,
+              ...buildConfigFromForm(formPayload, parsed.inviteId),
+              [authKey]: hashPassword(password),
+              companyId: companyFolderId,
+              companyName,
+            });
+          }
+          const existingUser = await readCompanyUsersTabRecord(authed, masterSheetId, resolvedAdminEmail);
+          if (!existingUser) {
+            await deps.writeCompanyUsers(authed, masterSheetId, companyFolderId, [
+              {
+                id: `app-${resolvedAdminEmail.replace(/[^a-z0-9]+/gi, "-")}`,
+                email: resolvedAdminEmail,
+                role: "Admin",
+                name: adminFullName,
+                invitedBy: record.invitedBy || appBrandName,
+                senderEmail: "",
+                sentAt: nowIso(),
+                updatedAt: nowIso(),
+                syncStatus: "Synced",
+              },
+            ]);
+          }
+        }
+
+        const cfgAfter = await getConfig(authed, masterSheetId);
+        await updateConfig(authed, masterSheetId, {
+          ...cfgAfter,
+          ...buildConfigFromForm(formPayload, parsed.inviteId),
+          companyId: companyFolderId,
+          companyName,
+        });
+
+        await appendRowObjects(authed, masterSheetId, "Onboarding", [
+          {
+            "Record ID": `onboarding-${parsed.inviteId}`,
+            "Company ID": companyFolderId,
+            "Company Name": companyName,
+            "Created At": nowIso(),
+            "Updated At": nowIso(),
+            "Created By": resolvedAdminEmail,
+            "Updated By": resolvedAdminEmail,
+            "Sync Status": "Synced",
+            "Sync Attempts": "0",
+            "Last Sync Error": "",
+            "Remote Row ID": parsed.inviteId,
+            "Schema Version": deps.currentSchemaVersion || "3.0.0",
+          },
+        ]);
+
+        const liveRecord = store.patchInvite(parsed.inviteId, {
+          status: "live",
+          liveAt: Date.now(),
+          provisionStatus: "succeeded",
+          provisionFinishedAt: Date.now(),
+          provisionError: null,
+          companyFolderId,
+          masterSheetId,
+          provisionDriveFolderId: companyFolderId,
+          provisionMasterSheetId: masterSheetId,
+        });
+
+        await syncInviteToRegistry(authed, liveRecord, deps).catch(() => {});
+
+        const probe = await probeCompanyLoginSheet(authed, masterSheetId, resolvedAdminEmail, password);
+        if (probe.passwordVerified && probe.rec) {
+          const payload = JSON.stringify({
+            v: 1,
+            email: resolvedAdminEmail,
+            masterSheetId,
+            role: probe.rec.role,
+            name: probe.rec.name,
+          });
+          res.cookie(companySessionCookie, payload, getSessionCookieOptions({ maxAge: companySessionMs }));
+        }
+
+        res.json({
+          ok: true,
+          outcome: "company_onboarding",
+          status: "live",
+          companyFolderId,
+          masterSheetId,
+          sessionStarted: Boolean(probe.passwordVerified),
+        });
+      } catch (error) {
+        const friendly =
+          "We could not finish setting up your company workspace. The BERT team has been notified — you can try again shortly or contact support.";
+        console.error("[company-onboarding] provision failed", error);
+        store.patchInvite(parsed.inviteId, {
+          status: "setup_failed",
+          provisionStatus: "failed",
+          provisionFinishedAt: Date.now(),
+          provisionError: error instanceof Error ? error.message : String(error),
+        });
+        const failed = store.getInvite(parsed.inviteId);
+        if (failed) {
+          await syncInviteToRegistry(authed, failed, deps).catch(() => {});
+        }
+        res.status(500).json({
+          ok: false,
+          code: "setup_failed",
+          error: friendly,
+          provisionStatus: "failed",
+          canRetrySetup: true,
+        });
+      }
+    });
+  });
+}
+
+export {
+  MAIN_NEED_OPTIONS,
+  REGISTRY_SPREADSHEET_NAME,
+  REGISTRY_TAB_COMPANIES,
+  REGISTRY_TAB_ONBOARDING,
+  createInviteStoreApi,
+};

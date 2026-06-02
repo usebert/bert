@@ -4,7 +4,7 @@ export const SECTION_INTROS = {
   companies: "Pick a company workspace and finish its setup.",
   workspace: "Name, folders, and settings for this company only.",
   usersInvites: "Invite people and see who has joined.",
-  companyOnboarding: "Send a setup form and create a new company workspace.",
+  companyOnboarding: "Send a single-use app onboarding link; BERT provisions Drive, master sheet, and the first admin when the customer submits.",
   companiesInviteHelper:
     "To email a new company setup form, open Company Onboarding in the menu.",
   formsChecks: "Manage form and check templates. Schedules control when checks run.",
