@@ -1,5 +1,9 @@
 import type { Role } from "../permissions";
-import { assertLiveCompanyWorkspaceForInvite, isArchiveOrNonLiveWorkspaceName } from "./companyWorkspaceInvite";
+import {
+  assertLiveCompanyWorkspaceForInvite,
+  isArchiveOrNonLiveWorkspaceName,
+  LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE,
+} from "./companyWorkspaceInvite";
 
 export const ADMIN_INVITE_NO_COMPANY_MESSAGE =
   "Your admin account is not linked to a company workspace yet. Ask the platform owner to complete company setup.";
@@ -87,7 +91,7 @@ function resolveMasterInviteWorkspace(input: ResolveInviteWorkspaceInput): Resol
     return { ok: false, message: liveCheck.message };
   }
   if (!companyFolderId) {
-    return { ok: false, message: liveCheck.message };
+    return { ok: false, message: LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE };
   }
 
   return {
@@ -121,7 +125,7 @@ export function resolveInviteWorkspace(input: ResolveInviteWorkspaceInput): Reso
     return { ok: false, message: liveCheck.message };
   }
   if (!companyFolderId) {
-    return { ok: false, message: liveCheck.message };
+    return { ok: false, message: LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE };
   }
   return {
     ok: true,
