@@ -75,10 +75,20 @@ import {
   isStaleOrIncompleteInviteStatus,
 } from "./src/utils/inviteStatusDisplay";
 import {
-  assertLiveCompanyWorkspaceForInvite,
   GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE,
   LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE,
 } from "./src/utils/companyWorkspaceInvite";
+import { resolveInviteWorkspace } from "./src/utils/resolveInviteWorkspace";
+import {
+  filterLiveOpenActions,
+  isDemoAction,
+  isLiveOpenAction,
+  matchesLiveActionCompany,
+} from "./src/utils/liveOpenActions";
+import {
+  clearCachedOpenActionsCount,
+  writeCachedOpenActionsCount,
+} from "./src/services/openActionsCountCache";
 import { GodmodeCompanyContextSelector } from "./src/components/godmode/GodmodeCompanyContextSelector";
 import { GodmodeStartScreen } from "./src/screens/GodmodeStartScreen";
 import {
@@ -380,6 +390,9 @@ function formatCompanyUserInviteApiError(
   }
   if (payload.blocker === "invite_not_found") {
     return "No active invite token was found. Send a new invite link instead of resending.";
+  }
+  if (payload.blocker === "forbidden" || payload.code === "forbidden") {
+    return "You can only invite users to your own company workspace.";
   }
   return message;
 }
@@ -3527,6 +3540,7 @@ function App() {
   }, [screen, godmodeNavDebugEnabled, currentUser?.role, selectedFolderId, activeCompanyMasterSheetId]);
 
   const clearActiveCompanyWorkspaceState = useCallback(() => {
+    clearCachedOpenActionsCount(selectedFolderId || undefined, currentUser?.username || undefined);
     setHydratedCompanyFolderId("");
     setInvitedUsers([]);
     setSites([]);
@@ -3640,6 +3654,13 @@ function App() {
     () => filterByAssignedSites(actions, currentUserAssignedSiteIds, sites),
     [actions, currentUserAssignedSiteIds, sites],
   );
+  const companyScopedActions = useMemo(() => {
+    let next = assignmentFilteredActions.filter((action) => !isDemoAction(action));
+    if (selectedFolderId) {
+      next = next.filter((action) => matchesLiveActionCompany(action, selectedFolderId));
+    }
+    return next;
+  }, [assignmentFilteredActions, selectedFolderId]);
   const assignmentFilteredSchedules = useMemo(
     () => filterByAssignedSites(schedules, currentUserAssignedSiteIds, sites),
     [schedules, currentUserAssignedSiteIds, sites],
@@ -3674,10 +3695,125 @@ function App() {
   }, [assignmentFilteredAudits, selectedSite]);
 
   const siteScopedActions = useMemo(() => {
-    if (!selectedSite) return assignmentFilteredActions;
+    if (!selectedSite) return companyScopedActions;
     const selectedName = normalizeIdentity(selectedSite.name);
-    return assignmentFilteredActions.filter((action) => !action.siteArea || normalizeIdentity(action.siteArea) === selectedName);
-  }, [assignmentFilteredActions, selectedSite]);
+    return companyScopedActions.filter((action) => !action.siteArea || normalizeIdentity(action.siteArea) === selectedName);
+  }, [companyScopedActions, selectedSite]);
+
+  const pendingOfflineActionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const item of syncQueue) {
+      if (item.status === "Synced" || item.itemType !== "actionUpdate") {
+        continue;
+      }
+      const payloadActions = (item.payload as { actions?: Array<{ id?: string }> })?.actions;
+      if (!Array.isArray(payloadActions)) {
+        continue;
+      }
+      for (const action of payloadActions) {
+        if (action?.id) {
+          ids.add(action.id);
+        }
+      }
+    }
+    return ids;
+  }, [syncQueue]);
+
+  const liveOpenActionsScope = useMemo(
+    () => ({
+      companyFolderId: selectedFolderId || undefined,
+      pendingOfflineActionIds,
+    }),
+    [selectedFolderId, pendingOfflineActionIds],
+  );
+
+  const liveOpenActions = useMemo(
+    () => filterLiveOpenActions(siteScopedActions, liveOpenActionsScope),
+    [siteScopedActions, liveOpenActionsScope],
+  );
+
+  const actionsCountReady = masterCompanyWorkspaceDataMatchesSelection;
+  const liveOpenActionsCount = actionsCountReady ? liveOpenActions.length : null;
+
+  const inviteCompanyContext = useMemo(() => {
+    const hint = readCompanyLoginHint();
+    const companyFolderId =
+      selectedFolder?.id || hint?.companyFolderId || extractGoogleResourceId(folderIdInput) || "";
+    const masterSheetId =
+      activeCompanyMasterSheetId || hint?.masterSheetId || extractGoogleResourceId(masterSheetInput) || "";
+    const companyName = selectedFolder?.name || hint?.companyName || folderNameInput || "";
+    const workspaceSetupComplete =
+      Boolean(companyFolderId && masterSheetId) &&
+      Boolean(workspaceValidation?.ok) &&
+      syncState === "Synced";
+    return { companyFolderId, masterSheetId, companyName, workspaceSetupComplete };
+  }, [
+    selectedFolder,
+    activeCompanyMasterSheetId,
+    folderIdInput,
+    masterSheetInput,
+    folderNameInput,
+    workspaceValidation?.ok,
+    syncState,
+  ]);
+
+  const resolvedInviteWorkspaceState = useMemo(
+    () =>
+      resolveInviteWorkspace({
+        currentUser,
+        selectedCompany: selectedFolder
+          ? {
+              id: selectedFolder.id,
+              name: selectedFolder.name,
+              masterSheetId: activeCompanyMasterSheetId,
+            }
+          : null,
+        activeCompany: inviteCompanyContext.companyFolderId
+          ? {
+              id: inviteCompanyContext.companyFolderId,
+              name: inviteCompanyContext.companyName || "Company workspace",
+              masterSheetId: inviteCompanyContext.masterSheetId,
+            }
+          : null,
+        companyContext: inviteCompanyContext,
+      }),
+    [currentUser, selectedFolder, activeCompanyMasterSheetId, inviteCompanyContext],
+  );
+
+  const inviteWorkspaceBanner = useMemo(() => {
+    if (!currentUser || currentUser.role !== "Admin") {
+      return "";
+    }
+    if (!resolvedInviteWorkspaceState.ok) {
+      return "";
+    }
+    return `Inviting users to: ${resolvedInviteWorkspaceState.displayCompanyName}`;
+  }, [currentUser, resolvedInviteWorkspaceState]);
+
+  useEffect(() => {
+    if (!currentUser || !selectedFolderId || liveOpenActionsCount === null) {
+      return;
+    }
+    writeCachedOpenActionsCount(selectedFolderId, currentUser.username, liveOpenActionsCount);
+  }, [currentUser, selectedFolderId, liveOpenActionsCount]);
+
+  useEffect(() => {
+    if (!currentUser || currentUser.role === "Master") {
+      return;
+    }
+    const hint = readCompanyLoginHint();
+    if (!hint?.companyFolderId || selectedFolderId) {
+      return;
+    }
+    setSelectedFolderId(hint.companyFolderId);
+    setFolderIdInput((current) => current.trim() || hint.companyFolderId || "");
+    if (hint.companyName && !folderNameInput.trim()) {
+      setFolderNameInput(hint.companyName);
+    }
+    if (hint.masterSheetId && !extractGoogleResourceId(masterSheetInput)) {
+      setMasterSheetInput(hint.masterSheetId);
+    }
+  }, [currentUser, selectedFolderId, folderNameInput, masterSheetInput]);
 
   const siteScopedSchedules = useMemo(() => {
     if (!selectedSite) return assignmentFilteredSchedules;
@@ -3743,7 +3879,7 @@ function App() {
 
   const complianceDelta = compliance - priorCompliance;
 
-  const openActions = useMemo(() => actions.filter((action) => action.status !== "Closed"), [actions]);
+  const openActions = useMemo(() => liveOpenActions, [liveOpenActions]);
   const overdueActions = useMemo(() => openActions.filter((action) => action.dueHours < 0), [openActions]);
   const criticalActions = useMemo(() => openActions.filter((action) => action.severity === "Critical" || action.severity === "High"), [openActions]);
   const awaitingVerificationActions = useMemo(() => openActions.filter((action) => action.status === "Awaiting Verification"), [openActions]);
@@ -3887,7 +4023,7 @@ function App() {
   const filteredActions = useMemo(() => {
     let next = [...visibleActions];
     if (actionFilter === "Open") {
-      next = next.filter((item) => item.status === "Open" || item.status === "In Progress");
+      next = next.filter((item) => isLiveOpenAction(item, liveOpenActionsScope));
     } else if (actionFilter === "Overdue") {
       next = next.filter((item) => isOverdue(item));
     } else if (actionFilter === "Awaiting Verification") {
@@ -3902,7 +4038,7 @@ function App() {
       next = next.filter((item) => item.nonConformanceId === actionNcFilter);
     }
     return next;
-  }, [visibleActions, actionFilter, actionSeverityFilter, actionNcFilter]);
+  }, [visibleActions, actionFilter, actionSeverityFilter, actionNcFilter, liveOpenActionsScope]);
   const availableNonConformanceIds = useMemo(
     () =>
       Array.from(new Set(visibleActions.map((item) => item.nonConformanceId).filter((value): value is string => Boolean(value)))).sort(
@@ -6694,8 +6830,6 @@ function App() {
       return;
     }
 
-    const sheetId = companySheetSync?.sheetId || extractGoogleResourceId(masterSheetInput);
-    const companyFolderId = selectedFolder?.id || extractGoogleResourceId(folderIdInput);
     if (!googleConnected) {
       pushToast("Google not connected", "Connect Google in Setup before sending invite links.", "warning");
       return;
@@ -6704,16 +6838,9 @@ function App() {
       pushToast("Company workspace required", GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE, "warning");
       return;
     }
-    const workspaceCheck = assertLiveCompanyWorkspaceForInvite({
-      selectedFolder,
-      masterSheetId: sheetId,
-    });
-    if (!workspaceCheck.ok) {
-      pushToast("Workspace required", workspaceCheck.message, "warning");
-      return;
-    }
-    if (!companyFolderId) {
-      pushToast("Workspace required", LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE, "warning");
+    const workspace = resolvedInviteWorkspaceState;
+    if (!workspace.ok) {
+      pushToast("Workspace required", workspace.message, "warning");
       return;
     }
 
@@ -6729,9 +6856,9 @@ function App() {
           email: trimmedEmail,
           role: inviteRole,
           invitedBy: currentUser.name,
-          companyFolderId,
-          masterSheetId: sheetId,
-          companyName: selectedFolder?.name || "",
+          companyFolderId: workspace.companyFolderId,
+          masterSheetId: workspace.masterSheetId,
+          companyName: workspace.companyName,
         }),
       });
       const payload = (await parseJsonApiResponse(response)) as {
@@ -6840,22 +6967,13 @@ function App() {
       return;
     }
 
-    const sheetId = companySheetSync?.sheetId || extractGoogleResourceId(masterSheetInput);
-    const companyFolderId = selectedFolder?.id || extractGoogleResourceId(folderIdInput);
     if (currentUser?.role === "Master" && !masterGodmodeCompanyReady) {
       pushToast("Company workspace required", GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE, "warning");
       return;
     }
-    const workspaceCheck = assertLiveCompanyWorkspaceForInvite({
-      selectedFolder,
-      masterSheetId: sheetId,
-    });
-    if (!workspaceCheck.ok) {
-      pushToast("Workspace required", workspaceCheck.message, "warning");
-      return;
-    }
-    if (!companyFolderId) {
-      pushToast("Workspace required", LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE, "warning");
+    const workspace = resolvedInviteWorkspaceState;
+    if (!workspace.ok) {
+      pushToast("Workspace required", workspace.message, "warning");
       return;
     }
 
@@ -6873,9 +6991,9 @@ function App() {
           email: invite.email,
           role: invite.role,
           invitedBy: currentUser.name,
-          companyFolderId,
-          masterSheetId: sheetId,
-          companyName: selectedFolder?.name || "",
+          companyFolderId: workspace.companyFolderId,
+          masterSheetId: workspace.masterSheetId,
+          companyName: workspace.companyName,
           resend: true,
           tokenId: getInviteServerTokenId(invite),
         }),
@@ -7436,6 +7554,10 @@ function App() {
     explicitLogoutRef.current = true;
     authBootstrapGenerationRef.current += 1;
     const logoutRole = currentUser?.role;
+    clearCachedOpenActionsCount(
+      selectedFolderId || undefined,
+      currentUser?.username || undefined,
+    );
     if (logoutRole === "Master") {
       fetch(apiUrl("/api/auth/master/logout"), { method: "POST", credentials: "include" }).catch(() => undefined);
     } else {
@@ -7458,6 +7580,8 @@ function App() {
     }
     if (logoutRole === "Master") {
       resetMasterGodmodeCompanyContext();
+    } else {
+      clearCachedOpenActionsCount();
     }
     setCurrentUser(null);
     setAccountNameInput("");
@@ -11703,6 +11827,8 @@ function App() {
                     invitedUsers={invitedUsers}
                     assignedAudits={assignedAudits}
                     actions={visibleActions}
+                    openActionsCount={liveOpenActionsCount ?? 0}
+                    openActionsCountLoading={!actionsCountReady}
                     history={assignmentFilteredHistory}
                     openReportsCount={reportInbox.length}
                     syncIssueCount={failedSyncCount + pendingSyncCount}
@@ -12103,6 +12229,7 @@ function App() {
                   masterCompanyContextBlocked
                 }
                 masterCompanyContextMessage={GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE}
+                inviteWorkspaceBanner={inviteWorkspaceBanner}
                 companyMasterSheetId={godmodeNewCompanyOnboarding ? "" : activeCompanyMasterSheetId}
                 onCompanyWorkspaceResetSuccess={(message) => void handleCompanyWorkspaceResetSuccess(message)}
                 onCompanyWorkspaceResetError={handleCompanyWorkspaceResetError}

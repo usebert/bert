@@ -70,6 +70,8 @@ type Props = {
   invitedUsers: UserInvite[];
   assignedAudits: Audit[];
   actions: ActionItem[];
+  openActionsCount?: number;
+  openActionsCountLoading?: boolean;
   history: HistoryEntry[];
   openReportsCount: number;
   syncIssueCount?: number;
@@ -83,6 +85,8 @@ export function CompanyAdminDashboard({
   invitedUsers,
   assignedAudits,
   actions,
+  openActionsCount,
+  openActionsCountLoading = false,
   history,
   openReportsCount,
   syncIssueCount = 0,
@@ -94,7 +98,15 @@ export function CompanyAdminDashboard({
   void _onOpenAudit;
 
   const setupCtx: SetupContext = { invitedUsers, assignedAudits, openReportsCount, history };
-  const openActions = useMemo(() => actions.filter((a) => a.status !== "Closed").length, [actions]);
+  const openActionsMetric = useMemo(() => {
+    if (openActionsCountLoading) {
+      return "—";
+    }
+    if (typeof openActionsCount === "number") {
+      return String(openActionsCount);
+    }
+    return String(actions.filter((a) => a.status !== "Closed").length);
+  }, [actions, openActionsCount, openActionsCountLoading]);
   const reportsReady = openReportsCount;
 
   return (
@@ -130,7 +142,7 @@ export function CompanyAdminDashboard({
           <AnimatedCard as="section" index={1} className={DASHBOARD_CARD}>
             <h2 className="text-lg font-black text-slate-900">Today</h2>
             <div className="mt-4 space-y-3">
-              <TodayMetricBlock value={String(openActions)} label="actions open" tone="orange" />
+              <TodayMetricBlock value={openActionsMetric} label="actions open" tone="orange" />
               <TodayMetricBlock value={String(reportsReady)} label="report ready" tone="blue" />
               <TodayMetricBlock value={String(syncIssueCount)} label="sync issues" tone="green" />
             </div>

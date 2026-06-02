@@ -22,6 +22,8 @@ export const storageKeys = {
   localDatabaseRoot: "bert-local-db-v1",
   /** Android pilot: device-local tablet kiosk preference (not synced to server). */
   tabletKioskEnabled: "bert-tablet-kiosk-enabled",
+  /** Scoped open-actions count cache (`${prefix}:${companyFolderId}:${userId}`). */
+  openActionsCountCache: "bert-open-actions-count",
 } as const;
 
 /** Old keys from the QMS Precast product id — migrated to `storageKeys` on first load. */

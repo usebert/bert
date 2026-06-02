@@ -342,6 +342,7 @@ export type UsersInvitesPilotPanelProps = Pick<
   | "onRepairWorkspace"
   | "masterCompanyContextBlocked"
   | "masterCompanyContextMessage"
+  | "inviteWorkspaceBanner"
   | "slatePrimaryCtaInteract"
 > & {
   godModeFirstUserInvite: boolean;
@@ -395,6 +396,7 @@ export function UsersInvitesPilotPanel({
   onToggleUserSiteAssignment,
   masterCompanyContextBlocked = false,
   masterCompanyContextMessage = "",
+  inviteWorkspaceBanner = "",
   CompanyUserInviteEmailResultPanel,
   slatePrimaryCtaInteract,
   ...healthProps
@@ -422,6 +424,11 @@ export function UsersInvitesPilotPanel({
           title="Invite user"
           subtitle="Send a secure setup link by email. The recipient completes name and password before they can sign in."
         />
+        {inviteWorkspaceBanner ? (
+          <p className="mt-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-medium text-sky-950">
+            {inviteWorkspaceBanner}
+          </p>
+        ) : null}
         <div className={`mt-4 ${pilotLightNested}`}>
           <label htmlFor="pilot-invite-email" className="mb-1 block text-sm font-semibold text-slate-900">
             Email

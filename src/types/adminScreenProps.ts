@@ -316,6 +316,8 @@ export type AdminScreenProps = {
   /** Master Godmode: block company-scoped actions until a live workspace is selected. */
   masterCompanyContextBlocked?: boolean;
   masterCompanyContextMessage?: string;
+  /** Company Admin: fixed invite target label (no Godmode company picker). */
+  inviteWorkspaceBanner?: string;
   AppIcon: ComponentType<{ name: string; className?: string }>;
   slatePrimaryCtaInteract: string;
 };

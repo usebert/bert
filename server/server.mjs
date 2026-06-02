@@ -4883,6 +4883,48 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
       return;
     }
 
+    const inviteActor = parseBertActorFromRequest(req);
+    if (inviteActor?.kind === "company") {
+      const actorRole = inviteActor.role === "Master" ? "Master" : parseRoleFromUsersSheet(inviteActor.role);
+      if (actorRole === "Admin") {
+        if (inviteActor.masterSheetId && inviteActor.masterSheetId !== masterSheetId) {
+          res.status(403).json({
+            ok: false,
+            code: "forbidden",
+            error: "You can only invite users to your own company workspace.",
+            blocker: "forbidden",
+          });
+          return;
+        }
+        const authForScope = getAuthedClient();
+        if (authForScope) {
+          try {
+            const cfg = await getConfig(authForScope, inviteActor.masterSheetId || masterSheetId);
+            const ownCompanyFolderId = String(cfg.companyId || "").trim();
+            if (ownCompanyFolderId && ownCompanyFolderId !== companyFolderId) {
+              res.status(403).json({
+                ok: false,
+                code: "forbidden",
+                error: "You can only invite users to your own company workspace.",
+                blocker: "forbidden",
+              });
+              return;
+            }
+          } catch (configErr) {
+            console.warn("[invite] company_user admin scope check failed:", configErr);
+          }
+        }
+      } else if (actorRole !== "Master") {
+        res.status(403).json({
+          ok: false,
+          code: "forbidden",
+          error: "Only Master or Admin roles can invite company users.",
+          blocker: "forbidden",
+        });
+        return;
+      }
+    }
+
     if (isArchiveOrNonLiveWorkspaceName(companyName)) {
       res.status(409).json({
         ok: false,

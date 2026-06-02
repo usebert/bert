@@ -524,6 +524,7 @@ export function AdminScreen({
   onCompanyWorkspaceResetError,
   masterCompanyContextBlocked = false,
   masterCompanyContextMessage = "",
+  inviteWorkspaceBanner = "",
   AppIcon,
   slatePrimaryCtaInteract,
 }: AdminScreenProps) {
@@ -1517,6 +1518,7 @@ export function AdminScreen({
       {usersInvitesPilotMode ? (
         <UsersInvitesPilotPanel
           currentUser={currentUser}
+          inviteWorkspaceBanner={inviteWorkspaceBanner}
           masterCompanyContextBlocked={masterCompanyContextBlocked}
           masterCompanyContextMessage={masterCompanyContextMessage}
           googleConnected={googleConnected}
