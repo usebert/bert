@@ -27,7 +27,9 @@ function SearchIcon({ className = "h-4 w-4" }: { className?: string }) {
 export const DASHBOARD_CARD = "rounded-3xl border border-slate-200 bg-white p-6 shadow-sm";
 
 const PRIMARY_BUTTON_BASE =
-  "inline-flex min-h-12 items-center justify-center rounded-2xl px-5 text-sm font-black shadow-lg disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex min-h-12 items-center justify-center gap-2 whitespace-nowrap rounded-2xl px-5 text-sm font-black shadow-lg disabled:cursor-not-allowed disabled:opacity-60";
+
+const PRIMARY_BUTTON_CONTENT = "inline-flex items-center justify-center gap-2 whitespace-nowrap";
 
 const SECONDARY_BUTTON_BASE =
   "inline-flex min-h-12 w-full items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-800 shadow-sm hover:border-slate-300 hover:bg-slate-50";
@@ -119,11 +121,11 @@ export function PageHeader({
   const theme = getRoleTheme(role);
   const actionIcon =
     primaryAction?.icon === "search" ? (
-      <SearchIcon />
+      <SearchIcon className="h-4 w-4 shrink-0" />
     ) : primaryAction?.icon === "alert" ? (
-      <AlertTriangleIcon className="h-4 w-4" />
+      <AlertTriangleIcon className="h-4 w-4 shrink-0" />
     ) : primaryAction?.icon === "invite" ? (
-      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
         <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
         <circle cx="9" cy="7" r="4" />
         <path d="M19 8v6M22 11h-6" />
@@ -138,9 +140,11 @@ export function PageHeader({
           {subtitle ? <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-300 md:text-base">{subtitle}</p> : null}
         </div>
         {primaryAction ? (
-          <PrimaryButton role={role} onClick={primaryAction.onClick} className="shrink-0 gap-2 md:min-w-[11rem]">
-            {primaryAction.label}
-            {actionIcon}
+          <PrimaryButton role={role} onClick={primaryAction.onClick} className="shrink-0 md:min-w-[11rem]">
+            <span className={PRIMARY_BUTTON_CONTENT}>
+              {primaryAction.label}
+              {actionIcon}
+            </span>
           </PrimaryButton>
         ) : null}
       </div>
@@ -211,9 +215,11 @@ export function DashboardLandingCard({
       <p className="mt-3 flex-1 text-sm leading-relaxed text-slate-600">{description}</p>
       {primary ? (
         <div className="mt-8">
-          <PrimaryButton role={role} onClick={onAction} fullWidth className="gap-2">
-            {actionLabel}
-            <SearchIcon />
+          <PrimaryButton role={role} onClick={onAction} fullWidth>
+            <span className={PRIMARY_BUTTON_CONTENT}>
+              {actionLabel}
+              <SearchIcon className="h-4 w-4 shrink-0" />
+            </span>
           </PrimaryButton>
         </div>
       ) : (

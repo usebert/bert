@@ -3103,6 +3103,10 @@ function App() {
   const pendingScreenTraceRef = useRef<ScreenTraceMeta | null>(null);
   /** Prevents auth-session bootstrap from re-homing Master when loginUsers refreshes. */
   const authSessionBootstrapHandledRef = useRef(false);
+  /** Blocks in-flight auth restore from re-applying session after explicit logout. */
+  const isLoggingOutRef = useRef(false);
+  const explicitLogoutRef = useRef(false);
+  const authBootstrapGenerationRef = useRef(0);
   const [shellMoreExpanded, setShellMoreExpanded] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [dashboardPreferences, setDashboardPreferences] = useState<DashboardPreferences>(() =>
@@ -4759,6 +4763,13 @@ function App() {
 
   useEffect(() => {
     let cancelled = false;
+    const bootstrapGeneration = authBootstrapGenerationRef.current;
+    const canRestoreAuthSession = () =>
+      !cancelled &&
+      !isLoggingOutRef.current &&
+      !explicitLogoutRef.current &&
+      bootstrapGeneration === authBootstrapGenerationRef.current;
+
     (async () => {
       try {
         const mr = await fetch(apiUrl("/api/auth/master/session"), { credentials: "include" });
@@ -4766,7 +4777,7 @@ function App() {
           ok?: boolean;
           operator?: { email: string; name: string };
         };
-        if (cancelled) {
+        if (!canRestoreAuthSession()) {
           return;
         }
         if (mr.ok && mp.ok && mp.operator) {
@@ -4776,6 +4787,9 @@ function App() {
             role: "Master",
             name: mp.operator.name || mp.operator.email,
           };
+          if (!canRestoreAuthSession()) {
+            return;
+          }
           setCurrentUser(masterUser);
           setAccountNameInput(masterUser.name);
           setAccountPhotoUrl(getStoredProfilePhoto(masterUser));
@@ -4811,7 +4825,7 @@ function App() {
           ok?: boolean;
           user?: { email: string; role: Role; name: string };
         };
-        if (cancelled) {
+        if (!canRestoreAuthSession()) {
           return;
         }
         if (cr.ok && cp.ok && cp.user?.email && cp.user?.role) {
@@ -4821,6 +4835,9 @@ function App() {
             role: cp.user.role,
             name: cp.user.name || cp.user.email,
           };
+          if (!canRestoreAuthSession()) {
+            return;
+          }
           setCurrentUser(companyUser);
           setAccountNameInput(companyUser.name);
           setAccountPhotoUrl(getStoredProfilePhoto(companyUser));
@@ -4835,6 +4852,10 @@ function App() {
         }
       } catch {
         /* fall through to localStorage */
+      }
+
+      if (!canRestoreAuthSession()) {
+        return;
       }
 
       const storedUser = window.localStorage.getItem(userStorageKey);
@@ -4852,6 +4873,9 @@ function App() {
         );
 
         if (matchedUser) {
+          if (!canRestoreAuthSession()) {
+            return;
+          }
           setCurrentUser(matchedUser);
           setAccountNameInput(matchedUser.name);
           setAccountPhotoUrl(getStoredProfilePhoto(matchedUser));
@@ -6071,6 +6095,8 @@ function App() {
     const pwd = password;
 
     const applySignedInUser = (match: User, options?: { workspaceSetupOnly?: boolean }) => {
+      isLoggingOutRef.current = false;
+      explicitLogoutRef.current = false;
       if (companySetupLoginPortal && match.role !== "Master") {
         pushToast("Master only", "Company setup sign-in is only for the workspace setup (Master) account.", "warning");
         return;
@@ -7272,12 +7298,17 @@ function App() {
   };
 
   const handleLogout = () => {
-    if (currentUser?.role === "Master") {
+    isLoggingOutRef.current = true;
+    explicitLogoutRef.current = true;
+    authBootstrapGenerationRef.current += 1;
+    const logoutRole = currentUser?.role;
+    if (logoutRole === "Master") {
       fetch(apiUrl("/api/auth/master/logout"), { method: "POST", credentials: "include" }).catch(() => undefined);
     } else {
       fetch(apiUrl("/api/auth/company/logout"), { method: "POST", credentials: "include" }).catch(() => undefined);
     }
     try {
+      window.localStorage.removeItem(userStorageKey);
       window.localStorage.removeItem(masterCompanySetupSessionKey);
     } catch {
       /* ignore */
@@ -7291,11 +7322,9 @@ function App() {
     } catch {
       window.history.replaceState({}, "", window.location.pathname);
     }
-    if (currentUser?.role === "Master") {
+    if (logoutRole === "Master") {
       resetMasterGodmodeCompanyContext();
     }
-    authSessionBootstrapHandledRef.current = false;
-    window.localStorage.removeItem(userStorageKey);
     setCurrentUser(null);
     setAccountNameInput("");
     setAccountPhotoUrl("");
