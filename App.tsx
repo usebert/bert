@@ -146,6 +146,8 @@ import type {
   UserSiteAssignments,
 } from "./src/types/adminScreenProps";
 import { AppHostedOnboardingCompletion } from "./src/screens/AppHostedOnboardingCompletion";
+import { PasswordResetConfirm } from "./src/screens/PasswordResetConfirm";
+import { requestPasswordReset } from "./src/services/passwordResetService";
 import { DashboardScreen } from "./src/screens/DashboardScreen";
 import { AuditsScreen } from "./src/screens/AuditsScreen";
 import { AuditModeScreen } from "./src/screens/AuditModeScreen";
@@ -3128,6 +3130,21 @@ function App() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
+  const [forgotPasswordSubmitting, setForgotPasswordSubmitting] = useState(false);
+  const [forgotPasswordMessage, setForgotPasswordMessage] = useState("");
+  const [forgotPasswordError, setForgotPasswordError] = useState("");
+  const [activePasswordReset, setActivePasswordReset] = useState<{ tokenId: string; code: string } | null>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const tokenId = params.get("reset")?.trim() || "";
+      const code = params.get("code")?.trim() || "";
+      return tokenId && code ? { tokenId, code } : null;
+    } catch {
+      return null;
+    }
+  });
   const [accountNameInput, setAccountNameInput] = useState("");
   const [accountNicknameInput, setAccountNicknameInput] = useState("");
   const [accountPhotoUrl, setAccountPhotoUrl] = useState("");
@@ -6465,6 +6482,32 @@ function App() {
     }
 
     pushToast("Sign in failed", "Please check your username and password.", "warning");
+  };
+
+  const handleForgotPassword = async () => {
+    setForgotPasswordError("");
+    setForgotPasswordMessage("");
+    const email = forgotPasswordEmail.trim().toLowerCase();
+    if (!email || !email.includes("@")) {
+      setForgotPasswordError("Enter the email address for your account.");
+      return;
+    }
+    setForgotPasswordSubmitting(true);
+    try {
+      const result = await requestPasswordReset(email);
+      if (result.error && !result.ok) {
+        setForgotPasswordError(result.error);
+        return;
+      }
+      setForgotPasswordMessage(
+        result.message ||
+          "If this account exists, password reset instructions will be sent.",
+      );
+    } catch {
+      setForgotPasswordError("Could not reach the server. Check your connection and try again.");
+    } finally {
+      setForgotPasswordSubmitting(false);
+    }
   };
 
   const switchUserSession = (user: User) => {
@@ -10485,6 +10528,32 @@ function App() {
   } catch {
     inviteTokenFromUrl = "";
   }
+  if (activePasswordReset) {
+    const clearResetParams = () => {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("reset");
+        url.searchParams.delete("code");
+        window.history.replaceState({}, "", url.pathname + (url.search ? url.search : "") + url.hash);
+      } catch {
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    };
+    return (
+      <PasswordResetConfirm
+        tokenId={activePasswordReset.tokenId}
+        code={activePasswordReset.code}
+        themeMode={themeMode}
+        onBackToSignIn={() => {
+          clearResetParams();
+          setActivePasswordReset(null);
+          setShowForgotPassword(false);
+          setForgotPasswordMessage("");
+          setForgotPasswordError("");
+        }}
+      />
+    );
+  }
   if (inviteTokenFromUrl) {
     return <AppHostedOnboardingCompletion inviteToken={inviteTokenFromUrl} parseJsonApiResponse={parseJsonApiResponse} />;
   }
@@ -10719,8 +10788,10 @@ function App() {
 
                 <div className="flex min-h-0 items-center">
                   <div className="w-full rounded-2xl border border-white/10 bg-white/[0.06] p-3 shadow-[0_16px_40px_rgba(2,6,23,0.4)] backdrop-blur-xl sm:rounded-[1.5rem] sm:p-4">
-                    <h2 className="text-center text-base font-semibold text-white sm:text-lg">Sign in</h2>
-                    {isDemoLoginEnabled ? (
+                    <h2 className="text-center text-base font-semibold text-white sm:text-lg">
+                      {showForgotPassword ? "Reset password" : "Sign in"}
+                    </h2>
+                    {!showForgotPassword && isDemoLoginEnabled ? (
                       <p className="mt-2 rounded-xl border border-white/10 bg-slate-950/35 px-3 py-2 text-xs text-slate-300 sm:text-sm">
                         Test accounts: <span className="font-semibold text-white">admin</span>,{" "}
                         <span className="font-semibold text-white">manager</span>,{" "}
@@ -10729,12 +10800,16 @@ function App() {
                         <span className="font-semibold text-white">VITE_DEMO_USER_PASSWORD</span> and{" "}
                         <span className="font-semibold text-white">VITE_GODMODE_PASSWORD</span> (see <span className="font-semibold text-white">.env.example</span>).
                       </p>
-                    ) : (
+                    ) : !showForgotPassword ? (
                       <p className="mt-2 text-center text-xs leading-relaxed text-slate-300 sm:text-sm">
                         Use your BERT invite email and password to continue.
                       </p>
+                    ) : (
+                      <p className="mt-2 text-center text-xs leading-relaxed text-slate-300 sm:text-sm">
+                        Enter your account email and we will send reset instructions if the account exists.
+                      </p>
                     )}
-                    {!isDemoLoginEnabled && loginUsers.length === 0 && isDebugUiAllowed() ? (
+                    {!showForgotPassword && !isDemoLoginEnabled && loginUsers.length === 0 && isDebugUiAllowed() ? (
                       <p className="mt-2 rounded-xl border border-amber-500/40 bg-amber-950/40 px-3 py-2 text-[11px] leading-snug text-amber-50 sm:text-xs">
                         No sign-in accounts are available in this build (test accounts are off, and no invites are loaded). For local
                         testing use <span className="font-semibold">npm run dev</span>, or rebuild with{" "}
@@ -10742,6 +10817,55 @@ function App() {
                         password your administrator issued once onboarding is connected.
                       </p>
                     ) : null}
+                    {showForgotPassword ? (
+                      <form
+                        className="mt-3 space-y-2.5 sm:mt-4 sm:space-y-3"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void handleForgotPassword();
+                        }}
+                      >
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-slate-100 sm:text-sm">Email</label>
+                          <input
+                            type="email"
+                            value={forgotPasswordEmail}
+                            onChange={(event) => setForgotPasswordEmail(event.target.value)}
+                            placeholder="you@company.com"
+                            autoComplete="email"
+                            className="h-11 w-full rounded-xl border border-white/10 bg-slate-950/45 px-3 text-sm text-white outline-none transition placeholder:text-slate-400 focus:border-orange-400 focus:ring-2 focus:ring-orange-400/15 sm:h-12 sm:rounded-2xl sm:px-4 sm:text-base"
+                          />
+                        </div>
+                        {forgotPasswordMessage ? (
+                          <p className="rounded-xl border border-emerald-500/30 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-100 sm:text-sm">
+                            {forgotPasswordMessage}
+                          </p>
+                        ) : null}
+                        {forgotPasswordError ? (
+                          <p className="rounded-xl border border-rose-500/40 bg-rose-950/40 px-3 py-2 text-xs text-rose-100 sm:text-sm">
+                            {forgotPasswordError}
+                          </p>
+                        ) : null}
+                        <button
+                          type="submit"
+                          disabled={forgotPasswordSubmitting}
+                          className={`h-11 w-full rounded-xl bg-gradient-to-r from-orange-400 to-orange-600 text-sm font-semibold text-slate-950 shadow-[0_10px_22px_rgba(249,115,22,0.22)] active:scale-[0.99] disabled:opacity-60 sm:h-12 sm:rounded-2xl sm:text-base ${slatePrimaryCtaInteract}`}
+                        >
+                          {forgotPasswordSubmitting ? "Sending…" : "Send reset instructions"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowForgotPassword(false);
+                            setForgotPasswordError("");
+                            setForgotPasswordMessage("");
+                          }}
+                          className="w-full text-xs font-medium text-blue-400 transition hover:text-orange-200 sm:text-sm"
+                        >
+                          ← Back to sign in
+                        </button>
+                      </form>
+                    ) : (
                     <form className="mt-3 space-y-2.5 sm:mt-4 sm:space-y-3" onSubmit={(event) => { event.preventDefault(); void handleLogin(); }}>
                       <div>
                         <label className="mb-1 block text-xs font-medium text-slate-100 sm:text-sm">Username or email</label>
@@ -10802,7 +10926,16 @@ function App() {
                       </div>
 
                       <div className="flex justify-end pt-0.5">
-                        <button type="button" className="text-xs font-medium text-blue-400 transition hover:text-orange-200 sm:text-sm">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowForgotPassword(true);
+                            setForgotPasswordEmail(username.includes("@") ? username.trim() : "");
+                            setForgotPasswordError("");
+                            setForgotPasswordMessage("");
+                          }}
+                          className="text-xs font-medium text-blue-400 transition hover:text-orange-200 sm:text-sm"
+                        >
                           Forgot password?
                         </button>
                       </div>
@@ -10814,6 +10947,7 @@ function App() {
                         Sign in
                       </button>
                     </form>
+                    )}
                   </div>
                 </div>
               </div>

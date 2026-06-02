@@ -36,6 +36,7 @@ import {
   validateCompanyUserInviteTarget,
 } from "./invite-target.mjs";
 import { installCompanyWorkspaceResetRoutes } from "./company-workspace-reset.mjs";
+import { installPasswordResetRoutes } from "./password-reset.mjs";
 import {
   GOOGLE_FORMS_BODY_SCOPE,
   installGoogleFormTemplateRoutes,
@@ -642,6 +643,8 @@ function sensitiveAbusePostRateLimit(req, res, next) {
     p.startsWith("/api/onboarding") ||
     p === "/api/auth/master/login" ||
     p === "/api/auth/company/login" ||
+    p === "/api/auth/password-reset/request" ||
+    p === "/api/auth/password-reset/confirm" ||
     p === "/api/tools/migrate-userauth-passwords" ||
     p === "/api/manager/non-compliance-alert" ||
     p === "/api/ncr/escalation-alert" ||
@@ -6203,6 +6206,25 @@ installCompanyWorkspaceResetRoutes(app, {
   ensureColumns,
   withSheetsQuotaRetry,
   TAB_COLUMNS,
+});
+
+installPasswordResetRoutes(app, {
+  sessionDir,
+  emailConfigured,
+  createSmtpTransport,
+  getFromAddress: () =>
+    requiredEnv.SMTP_FROM_NAME
+      ? `"${requiredEnv.SMTP_FROM_NAME}" <${requiredEnv.SMTP_FROM_EMAIL}>`
+      : requiredEnv.SMTP_FROM_EMAIL,
+  getFrontendUrl: () => String(requiredEnv.FRONTEND_URL || "").trim(),
+  appBrandName: APP_BRAND_NAME,
+  hashPepper: requiredEnv.SESSION_SECRET,
+  findMasterSheetIdsForCompanyLoginEmail,
+  getAuthedClient,
+  getConfig,
+  updateConfig,
+  envConfigured,
+  isProdRuntime,
 });
 
 installCompanyFolderStructureRoutes(app, {
