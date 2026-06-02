@@ -272,6 +272,21 @@ export function resolveEvidenceUploadFolderId(folderIds = {}, legacyEvidenceFold
   return legacyEvidenceFolderId || "";
 }
 
+function sheetEndColumnLetter(columnCount) {
+  const count = Math.max(Number(columnCount) || 1, 1);
+  if (count <= 26) {
+    return String.fromCharCode(64 + count);
+  }
+  let remaining = count;
+  let letters = "";
+  while (remaining > 0) {
+    const index = (remaining - 1) % 26;
+    letters = String.fromCharCode(65 + index) + letters;
+    remaining = Math.floor((remaining - 1) / 26);
+  }
+  return letters;
+}
+
 async function writeCompanyFoldersTab(deps, auth, spreadsheetId, entries) {
   const {
     ensureTabExists,
@@ -306,10 +321,15 @@ async function writeCompanyFoldersTab(deps, auth, spreadsheetId, entries) {
   const sheets = google.sheets({ version: "v4", auth });
   const existing = await getTabValues(auth, spreadsheetId, COMPANY_FOLDERS_TAB);
   const rowCount = Math.max(existing.length, rows.length, 2);
+  const columnCount = Math.max(
+    COMPANY_FOLDERS_COLUMNS.length,
+    ...rows.map((row) => row.length),
+  );
+  const lastCol = sheetEndColumnLetter(columnCount);
   await withSheetsQuotaRetry(() =>
     sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${COMPANY_FOLDERS_TAB}!A1:G${rowCount}`,
+      range: `${COMPANY_FOLDERS_TAB}!A1:${lastCol}${rowCount}`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: rows },
     }),

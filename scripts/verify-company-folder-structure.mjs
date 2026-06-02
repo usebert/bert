@@ -34,7 +34,9 @@ function countNodes(nodes) {
 const nodeCount = countNodes(COMPANY_FOLDER_TREE);
 assert(nodeCount >= 60, `Expected at least 60 folder nodes, got ${nodeCount}`);
 assert(COMPANY_FOLDERS_TAB === "CompanyFolders");
+assert(COMPANY_FOLDERS_COLUMNS.length === 8, `Expected 8 CompanyFolders columns, got ${COMPANY_FOLDERS_COLUMNS.length}`);
 assert(COMPANY_FOLDERS_COLUMNS.includes("Folder Key"));
+assert(COMPANY_FOLDERS_COLUMNS.includes("Status"));
 
 const sampleIds = {
   ADMIN_COMPANY_SETUP: "setup-1",
@@ -60,6 +62,8 @@ assertContains("server/server.mjs", [
 ]);
 
 assertContains("server/company-folder-structure.mjs", [
+  "sheetEndColumnLetter",
+  "A1:${lastCol}",
   "00 - Admin",
   "01 - BERT System Files",
   "03 - Evidence",
