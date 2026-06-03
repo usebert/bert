@@ -116,10 +116,11 @@ export function CompanyOnboardingInvitePanel({
   };
 
   const retryProvision = async (inviteId: string) => {
-    await fetch(apiUrl(`/api/onboarding/company-onboarding/invites/${encodeURIComponent(inviteId)}/retry`), {
+    const response = await fetch(apiUrl(`/api/onboarding/company-onboarding/invites/${encodeURIComponent(inviteId)}/retry`), {
       method: "POST",
       credentials: "include",
     });
+    await parseJsonApiResponse(response);
     void refreshInvites();
   };
 
@@ -260,14 +261,34 @@ export function CompanyOnboardingInvitePanel({
                         </button>
                       </>
                     ) : null}
-                    {invite.status === "setup_failed" || invite.status === "failed" ? (
+                    {invite.canRetrySetup || invite.status === "setup_failed" || invite.status === "failed" ? (
                       <button
                         type="button"
                         className="text-xs font-semibold text-amber-800"
                         onClick={() => void retryProvision(invite.inviteId)}
                       >
-                        Mark for repair
+                        Retry provisioning
                       </button>
+                    ) : null}
+                    {invite.companyFolderUrl ? (
+                      <a
+                        href={invite.companyFolderUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs font-semibold text-slate-700 underline"
+                      >
+                        Open folder
+                      </a>
+                    ) : null}
+                    {invite.masterSheetUrl ? (
+                      <a
+                        href={invite.masterSheetUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs font-semibold text-slate-700 underline"
+                      >
+                        Open sheet
+                      </a>
                     ) : null}
                   </div>
                   {invite.provisionError ? (

@@ -80,6 +80,8 @@ import {
   LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE,
   INVITE_COMPANY_MISMATCH_MESSAGE,
   INVITE_ROLE_FORBIDDEN_MESSAGE,
+  COMPANY_NOT_LIVE_INVITE_MESSAGE,
+  FIRST_ADMIN_REQUIRES_ONBOARDING_MESSAGE,
 } from "./src/utils/companyWorkspaceInvite";
 import { resolveInviteWorkspace } from "./src/utils/resolveInviteWorkspace";
 import {
@@ -394,6 +396,12 @@ function formatCompanyUserInviteApiError(
   }
   if (payload.code === "invite_company_mismatch") {
     return INVITE_COMPANY_MISMATCH_MESSAGE;
+  }
+  if (payload.code === "company_not_live") {
+    return COMPANY_NOT_LIVE_INVITE_MESSAGE;
+  }
+  if (payload.code === "first_admin_requires_onboarding") {
+    return FIRST_ADMIN_REQUIRES_ONBOARDING_MESSAGE;
   }
   if (response.status === 401 && /google connection required/i.test(message)) {
     return "The API server lost its Google Workspace session. Open Initial Setup, reconnect Google, then try again.";
@@ -6842,11 +6850,7 @@ function App() {
       return;
     }
 
-    const isGodModeFirstUserInvite =
-      currentUser.role === "Master" &&
-      (companySheetSync?.usersCount ?? 0) === 0 &&
-      invitedUsers.length === 0;
-    const inviteRole = isGodModeFirstUserInvite ? "Admin" : inviteRoleInput;
+    const inviteRole = inviteRoleInput;
 
     const trimmedEmail = inviteEmailInput.trim().toLowerCase();
     if (!trimmedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
@@ -6870,6 +6874,10 @@ function App() {
     const workspace = resolvedInviteWorkspaceState;
     if (!workspace.ok) {
       pushToast("Workspace required", workspace.message, "warning");
+      return;
+    }
+    if (currentUser.role !== "Master" && !inviteCompanyContext.workspaceSetupComplete) {
+      pushToast("Company not live", COMPANY_NOT_LIVE_INVITE_MESSAGE, "warning");
       return;
     }
 

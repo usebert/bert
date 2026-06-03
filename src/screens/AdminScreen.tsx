@@ -399,11 +399,8 @@ export function AdminScreen({
 }: AdminScreenProps) {
   const adminOnly = !canAccessAdmin(currentUser.role);
   const masterOnly = currentUser.role !== "Master";
-  const canInviteNewCompany = currentUser.role === "Master" || currentUser.role === "Admin";
-  const godModeFirstUserInvite =
-    currentUser.role === "Master" &&
-    (companySheetSync?.usersCount ?? 0) === 0 &&
-    invitedUsers.length === 0;
+  const canInviteNewCompany = currentUser.role === "Master";
+  const godModeFirstUserInvite = false;
   const isCompaniesScreen = pilotFocus === "companies" || pilotShellScreen === "companies";
   const isUsersInvitesScreen = pilotFocus === "users" || pilotFocus === "invites";
   const isOnboardingScreen =
@@ -868,20 +865,20 @@ export function AdminScreen({
         </section>
       ) : null}
 
-      {isOnboardingScreen ? (
+      {isOnboardingScreen && showOnboardingAdvancedTools ? (
         <section className={pilotLightSurface}>
           <SectionHeader
             icon="clipboard"
-            eyebrow="Submissions"
-            title="Onboarding submissions"
-            subtitle="Responses waiting to be reviewed and turned into company workspaces."
+            eyebrow="Legacy"
+            title="Google Form submissions"
+            subtitle="Optional review of legacy Google Form responses. New companies use Send company onboarding invite above."
           />
           {onboardingRecordsLoading ? (
             <p className="mt-2 text-sm text-slate-500">Loading submissions…</p>
           ) : onboardingRecords.length === 0 ? (
             <EmptyPanel
               title="No submissions yet"
-              text="Send an onboarding form using Invite new company above. Completed forms will appear here for review."
+              text="Legacy Google Form responses appear here when advanced tools are enabled. New companies use the app-hosted onboarding invite."
             />
           ) : (
             <ul className="mt-3 space-y-2">
@@ -921,7 +918,10 @@ export function AdminScreen({
         </section>
       ) : null}
 
-      {currentUser.role === "Master" && isOnboardingScreen && (onboardingMode || godModeFullVisibility) && (
+      {currentUser.role === "Master" &&
+        isOnboardingScreen &&
+        !godmodeNewCompanyOnboarding &&
+        (onboardingMode || godModeFullVisibility) && (
         <div className="space-y-3">
           <GoogleWorkspaceSetupNotice
             backendConfigured={backendConfigured}
@@ -1551,23 +1551,17 @@ export function AdminScreen({
                   </div>
                   <div>
                     <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Role to create</label>
-                    {godModeFirstUserInvite ? (
-                      <div className="h-12 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 text-sm font-semibold leading-[3rem] text-slate-200">
-                        Admin (first company user)
-                      </div>
-                    ) : (
-                      <select
-                        value={inviteRoleInput}
-                        onChange={(event) => onInviteRoleChange(event.target.value as Role)}
-                        className="h-12 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 text-sm text-white outline-none transition focus:border-sky-400"
-                      >
-                        {creatableRoles.map((role) => (
-                          <option key={role} value={role}>
-                            {role}
-                          </option>
-                        ))}
-                      </select>
-                    )}
+                    <select
+                      value={inviteRoleInput}
+                      onChange={(event) => onInviteRoleChange(event.target.value as Role)}
+                      className="h-12 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 text-sm text-white outline-none transition focus:border-sky-400"
+                    >
+                      {creatableRoles.map((role) => (
+                        <option key={role} value={role}>
+                          {role}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">

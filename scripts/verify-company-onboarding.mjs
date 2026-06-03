@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Static checks for app-hosted COMPANY_ONBOARDING flow.
+ * Static checks for app-hosted COMPANY_ONBOARDING flow and invite gates.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -24,22 +24,65 @@ const serverMain = read("server/server.mjs");
 const appTsx = read("App.tsx");
 const formScreen = read("src/screens/CompanyOnboardingFormScreen.tsx");
 const panel = read("src/components/admin/CompanyOnboardingInvitePanel.tsx");
+const adminScreen = read("src/screens/AdminScreen.tsx");
+const usersPanel = read("src/components/admin/UsersInvitesPilotPanel.tsx");
+const folderStructure = read("server/company-folder-structure.mjs");
+const companySchema = read("src/schema/companySchema.ts");
 
 assert(serverOnboarding.includes("COMPANY_ONBOARDING"), "invite type constant");
 assert(serverOnboarding.includes("installCompanyOnboardingRoutes"), "route installer");
 assert(serverOnboarding.includes("hashCompanyOnboardingToken"), "token hashing");
 assert(serverOnboarding.includes("OnboardingInvites"), "platform registry tab");
 assert(serverOnboarding.includes("provisionNewCompanyWorkspace"), "reuses provision");
+assert(serverOnboarding.includes("runHeadlessInviteProvisioning"), "godmode headless reprovision");
+assert(serverOnboarding.includes("COMPANY_WORKSPACE_STATUS"), "onboarding status constants");
+assert(serverOnboarding.includes("assertCompanyWorkspaceAcceptsUserInvite"), "live gate helper");
+assert(serverOnboarding.includes("companyOnboardingStatus"), "config status field");
+assert(serverOnboarding.includes("onboarding_provisioning"), "provisioning status");
+assert(serverOnboarding.includes("setup_failed"), "setup failed status");
+assert(serverOnboarding.includes("runWithInviteLock"), "per-invite lock for idempotency");
 
 assert(serverMain.includes("installCompanyOnboardingRoutes"), "server wires onboarding routes");
 assert(serverMain.includes("company-onboarding-invites.json"), "dedicated invite store");
+assert(serverMain.includes("assertCompanyWorkspaceAcceptsUserInvite"), "company-user live gate wired");
+assert(serverMain.includes("deprecated_onboarding_path"), "google form new-company retired");
+assert(serverOnboarding.includes("company_not_live"), "company_not_live error code");
+assert(serverMain.includes("assertCompanyWorkspaceAcceptsUserInvite"), "server uses live gate");
 
 assert(appTsx.includes("company-onboarding"), "App routes onboarding query param");
 assert(appTsx.includes("CompanyOnboardingFormScreen"), "form screen mounted");
 assert(appTsx.includes("/api/onboarding/company-onboarding/invites"), "Godmode create invite API");
+assert(appTsx.includes("COMPANY_NOT_LIVE_INVITE_MESSAGE"), "client live gate message");
 
+assert(formScreen.includes("Complete your BERT company setup"), "form heading");
 assert(formScreen.includes("mainNeeds"), "form collects main needs");
+assert(formScreen.includes("companyName"), "form collects company name");
+assert(formScreen.includes("adminFullName"), "form collects admin name");
+assert(formScreen.includes("password"), "form collects password");
+assert(formScreen.includes("sitesCount"), "form collects sites count");
+assert(formScreen.includes("usersCount"), "form collects users count");
+
 assert(panel.includes("Send company onboarding invite"), "Godmode panel label");
+assert(panel.includes("Retry provisioning"), "godmode retry provisioning");
+assert(panel.includes("Open folder"), "godmode open folder link");
+assert(panel.includes("Open sheet"), "godmode open sheet link");
+
+assert(adminScreen.includes("CompanyOnboardingInvitePanel"), "godmode onboarding panel");
+assert(adminScreen.includes('const canInviteNewCompany = currentUser.role === "Master"'), "godmode-only company invite");
+assert(adminScreen.includes("!godmodeNewCompanyOnboarding"), "hide manual setup on new company");
+assert(adminScreen.includes("const godModeFirstUserInvite = false"), "no first-admin shortcut");
+assert(!adminScreen.includes("Invite new company"), "no legacy invite new company label");
+
+assert(usersPanel.includes("COMPANY_NOT_LIVE_INVITE_MESSAGE"), "users panel live gate copy");
+assert(!usersPanel.includes("Admin (first company user)"), "no first company user invite label");
+
+assert(folderStructure.includes("ensureCompanyFolderStructure"), "folder structure helper");
+assert(folderStructure.includes("ensureCompanyMasterSheet"), "master sheet helper");
+assert(folderStructure.includes("writeCompanyFoldersTab"), "CompanyFolders tab write");
+assert(folderStructure.includes('COMPANY_FOLDERS_COLUMNS'), "CompanyFolders A:H columns");
+assert(folderStructure.includes('"Status"'), "CompanyFolders status column");
+
+assert(companySchema.includes("CompanyFolders"), "schema includes CompanyFolders tab");
 
 const pkg = JSON.parse(read("package.json"));
 assert(pkg.scripts["verify:company-onboarding"], "npm script registered");

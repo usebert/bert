@@ -23,6 +23,12 @@ export const INVITE_ROLE_FORBIDDEN_MESSAGE = "Only Company Admins can invite use
 export const INVITE_COMPANY_MISMATCH_MESSAGE =
   "Your account is not linked to this company workspace.";
 
+export const COMPANY_NOT_LIVE_INVITE_MESSAGE =
+  "This company is not live yet. Finish company onboarding before inviting users.";
+
+export const FIRST_ADMIN_REQUIRES_ONBOARDING_MESSAGE =
+  "The first company administrator is created during company onboarding. Ask your platform owner to send a company onboarding invite.";
+
 export function assertLiveCompanyWorkspaceForInvite(input: {
   selectedFolder: { name: string } | null | undefined;
   masterSheetId: string;

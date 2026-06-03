@@ -143,6 +143,11 @@ export type CompanyOnboardingInviteRow = {
   contactEmail: string;
   provisionalCompanyName?: string;
   provisionError?: string;
+  companyFolderId?: string;
+  masterSheetId?: string;
+  companyFolderUrl?: string;
+  masterSheetUrl?: string;
+  canRetrySetup?: boolean;
 };
 
 export type CompanyOnboardingInviteResult = {

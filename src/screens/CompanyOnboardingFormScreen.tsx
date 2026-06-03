@@ -193,9 +193,9 @@ export function CompanyOnboardingFormScreen({
       <div className="mx-auto max-w-2xl">
         <BertLogo variant="full" tone="onDark" size="md" />
         <p className="mt-4 text-xs font-semibold uppercase tracking-[0.28em] text-blue-400/90">Company onboarding</p>
-        <h1 className="mt-2 text-2xl font-semibold text-white">Set up your company on BERT</h1>
+        <h1 className="mt-2 text-2xl font-semibold text-white">Complete your BERT company setup</h1>
         <p className="mt-2 text-sm text-slate-300">
-          Tell us about your organisation and create the first administrator account. This link is single-use.
+          Tell us about your organisation and create the first administrator account. This secure link is single-use.
         </p>
 
         {loadError ? (

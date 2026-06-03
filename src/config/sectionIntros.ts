@@ -6,7 +6,7 @@ export const SECTION_INTROS = {
   usersInvites: "Invite people and see who has joined.",
   companyOnboarding: "Send a single-use app onboarding link; BERT provisions Drive, master sheet, and the first admin when the customer submits.",
   companiesInviteHelper:
-    "To email a new company setup form, open Company Onboarding in the menu.",
+    "To onboard a new company, open Company Onboarding and send a company onboarding invite.",
   formsChecks: "Manage form and check templates. Schedules control when checks run.",
   correctiveActions: "Follow up on failed findings, add evidence, and close items.",
   reports: "Create packs and see reports shared with your team.",

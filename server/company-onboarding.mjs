@@ -7,6 +7,14 @@ import path from "node:path";
 
 export const COMPANY_ONBOARDING_INVITE_TYPE = "COMPANY_ONBOARDING";
 
+/** Config `companyOnboardingStatus` values — gates COMPANY_USER invites until `live`. */
+export const COMPANY_WORKSPACE_STATUS = {
+  SUBMITTED: "onboarding_submitted",
+  PROVISIONING: "onboarding_provisioning",
+  LIVE: "live",
+  SETUP_FAILED: "setup_failed",
+};
+
 /** Customer-visible lifecycle on the invite record. */
 export const COMPANY_ONBOARDING_STATUSES = new Set([
   "invited",
@@ -220,6 +228,8 @@ function mapInviteStatusLabel(record) {
 }
 
 function publicInviteSummary(record) {
+  const companyFolderId = record.companyFolderId || record.provisionDriveFolderId || "";
+  const masterSheetId = record.masterSheetId || record.provisionMasterSheetId || "";
   return {
     inviteId: record.id,
     status: record.status,
@@ -234,8 +244,10 @@ function publicInviteSummary(record) {
     liveAt: record.liveAt ?? null,
     provisionStatus: record.provisionStatus || "idle",
     provisionError: record.provisionError || "",
-    companyFolderId: record.companyFolderId || record.provisionDriveFolderId || "",
-    masterSheetId: record.masterSheetId || record.provisionMasterSheetId || "",
+    companyFolderId,
+    masterSheetId,
+    companyFolderUrl: companyFolderId ? `https://drive.google.com/drive/folders/${companyFolderId}` : "",
+    masterSheetUrl: masterSheetId ? `https://docs.google.com/spreadsheets/d/${masterSheetId}/edit` : "",
     canRetrySetup: ["failed", "setup_failed", "submitted"].includes(safeLower(record.status)),
   };
 }
@@ -381,7 +393,7 @@ async function syncInviteToRegistry(auth, record, deps) {
   return { synced: true, registrySpreadsheetId: spreadsheetId };
 }
 
-function buildConfigFromForm(form, inviteId) {
+function buildConfigFromForm(form, inviteId, status = COMPANY_WORKSPACE_STATUS.LIVE) {
   const mainNeeds = normalizeMainNeeds(form.mainNeeds);
   return {
     companyWebsite: String(form.website || "").trim(),
@@ -392,8 +404,77 @@ function buildConfigFromForm(form, inviteId) {
     expectedUsers: String(form.usersCount ?? "").trim(),
     onboardingMainNeeds: mainNeeds.join(","),
     onboardingInviteId: inviteId,
-    companyOnboardingStatus: "live",
+    companyOnboardingStatus: status,
   };
+}
+
+/** Legacy workspaces without `companyOnboardingStatus` remain invite-eligible. */
+export function isCompanyWorkspaceLiveForUserInvites(config = {}) {
+  const status = safeLower(config.companyOnboardingStatus || "");
+  if (!status || status === COMPANY_WORKSPACE_STATUS.LIVE) {
+    return true;
+  }
+  if (status === COMPANY_WORKSPACE_STATUS.SETUP_FAILED || status.startsWith("onboarding_")) {
+    return false;
+  }
+  return true;
+}
+
+export async function countCompanyUsersOnSheet(auth, getTabValues, masterSheetId) {
+  const rows = await getTabValues(auth, masterSheetId, "Users");
+  if (!rows.length) {
+    return 0;
+  }
+  const headers = rows[0].map((cell) => safeLower(cell));
+  const emailIndex = headers.findIndex((h) => h === "email");
+  if (emailIndex === -1) {
+    return Math.max(0, rows.length - 1);
+  }
+  let count = 0;
+  for (const row of rows.slice(1)) {
+    const email = String(row[emailIndex] || "").trim();
+    if (email) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+export async function assertCompanyWorkspaceAcceptsUserInvite(deps, auth, { masterSheetId, inviteRole }) {
+  const { getConfig, getTabValues } = deps;
+  const sheetId = String(masterSheetId || "").trim();
+  if (!sheetId) {
+    return {
+      ok: false,
+      code: "company_not_live",
+      httpStatus: 409,
+      message:
+        "Company workspace setup is not complete yet. Finish company onboarding before inviting users.",
+    };
+  }
+  const cfg = await getConfig(auth, sheetId);
+  if (!isCompanyWorkspaceLiveForUserInvites(cfg)) {
+    return {
+      ok: false,
+      code: "company_not_live",
+      httpStatus: 409,
+      message:
+        "This company is not live yet. Complete company onboarding and provisioning before sending user invites.",
+    };
+  }
+  if (inviteRole === "Admin") {
+    const userCount = await countCompanyUsersOnSheet(auth, getTabValues, sheetId);
+    if (userCount === 0) {
+      return {
+        ok: false,
+        code: "first_admin_requires_onboarding",
+        httpStatus: 409,
+        message:
+          "The first company administrator is created during company onboarding. Send a company onboarding invite from Godmode instead.",
+      };
+    }
+  }
+  return { ok: true };
 }
 
 export function installCompanyOnboardingRoutes(app, deps) {
@@ -592,6 +673,128 @@ export function installCompanyOnboardingRoutes(app, deps) {
     return res.json({ ok: true, revoked: true });
   });
 
+  async function runHeadlessInviteProvisioning(inviteId, record, options = {}) {
+    const formPayload = record.formPayload;
+    if (!formPayload) {
+      throw new Error("No submitted form data to retry provisioning.");
+    }
+    const authed = getAuthedClient();
+    if (!authed) {
+      throw new Error("Google Workspace is not connected on the server.");
+    }
+    const resolvedAdminEmail = safeLower(formPayload.adminEmail || record.contactEmail);
+    const adminFullName = String(formPayload.adminFullName || "").trim();
+    const companyName = String(formPayload.companyName || record.provisionalCompanyName || "").trim();
+    const password = String(options.password || "").trim();
+
+    let companyFolderId = String(record.companyFolderId || record.provisionDriveFolderId || "").trim();
+    let masterSheetId = String(record.masterSheetId || record.provisionMasterSheetId || "").trim();
+
+    store.patchInvite(inviteId, {
+      status: "submitted",
+      provisionStatus: "running",
+      provisionStartedAt: Date.now(),
+      provisionFinishedAt: null,
+      provisionError: null,
+    });
+
+    if (!companyFolderId || !masterSheetId) {
+      if (!password || password.length < 8) {
+        throw new Error(
+          "Workspace folders are missing. Ask the customer to reopen their onboarding link and submit again, or resend the invite.",
+        );
+      }
+      const result = await provisionNewCompanyWorkspace(
+        authed,
+        {
+          companyName,
+          adminEmail: resolvedAdminEmail,
+          adminFullName,
+          password,
+        },
+        async (progressPatch) => {
+          store.patchInvite(inviteId, progressPatch);
+        },
+      );
+      companyFolderId = result.companyFolderId;
+      masterSheetId = result.masterSheetId;
+      store.patchInvite(inviteId, {
+        provisionDriveFolderId: companyFolderId,
+        provisionMasterSheetId: masterSheetId,
+        companyFolderId,
+        masterSheetId,
+      });
+    } else {
+      const cfg = await getConfig(authed, masterSheetId);
+      await updateConfig(authed, masterSheetId, {
+        ...cfg,
+        ...buildConfigFromForm(formPayload, inviteId, COMPANY_WORKSPACE_STATUS.PROVISIONING),
+        companyId: companyFolderId,
+        companyName,
+      });
+      const existingUser = await readCompanyUsersTabRecord(authed, masterSheetId, resolvedAdminEmail);
+      if (!existingUser && password.length >= 8) {
+        await deps.writeCompanyUsers(authed, masterSheetId, companyFolderId, [
+          {
+            id: `app-${resolvedAdminEmail.replace(/[^a-z0-9]+/gi, "-")}`,
+            email: resolvedAdminEmail,
+            role: "Admin",
+            name: adminFullName,
+            invitedBy: record.invitedBy || appBrandName,
+            senderEmail: "",
+            sentAt: nowIso(),
+            updatedAt: nowIso(),
+            syncStatus: "Synced",
+          },
+        ]);
+        const authKey = `UserAuth.${resolvedAdminEmail}`;
+        await updateConfig(authed, masterSheetId, {
+          ...(await getConfig(authed, masterSheetId)),
+          [authKey]: hashPassword(password),
+        });
+      }
+    }
+
+    const cfgAfter = await getConfig(authed, masterSheetId);
+    await updateConfig(authed, masterSheetId, {
+      ...cfgAfter,
+      ...buildConfigFromForm(formPayload, inviteId, COMPANY_WORKSPACE_STATUS.LIVE),
+      companyId: companyFolderId,
+      companyName,
+    });
+
+    await appendRowObjects(authed, masterSheetId, "Onboarding", [
+      {
+        "Record ID": `onboarding-${inviteId}`,
+        "Company ID": companyFolderId,
+        "Company Name": companyName,
+        "Created At": nowIso(),
+        "Updated At": nowIso(),
+        "Created By": resolvedAdminEmail,
+        "Updated By": resolvedAdminEmail,
+        "Sync Status": "Synced",
+        "Sync Attempts": "0",
+        "Last Sync Error": "",
+        "Remote Row ID": inviteId,
+        "Schema Version": deps.currentSchemaVersion || "3.0.0",
+      },
+    ]);
+
+    const liveRecord = store.patchInvite(inviteId, {
+      status: "live",
+      liveAt: Date.now(),
+      provisionStatus: "succeeded",
+      provisionFinishedAt: Date.now(),
+      provisionError: null,
+      companyFolderId,
+      masterSheetId,
+      provisionDriveFolderId: companyFolderId,
+      provisionMasterSheetId: masterSheetId,
+    });
+    await syncInviteToRegistry(authed, liveRecord, deps).catch(() => {});
+    return { companyFolderId, masterSheetId, liveRecord };
+  }
+
   app.post("/api/onboarding/company-onboarding/invites/:inviteId/retry", requireGoogleWorkspaceSession, requireMasterOnlyActor, async (req, res) => {
     const inviteId = String(req.params.inviteId || "").trim();
     const record = store.getInvite(inviteId);
@@ -601,13 +804,31 @@ export function installCompanyOnboardingRoutes(app, deps) {
     if (!record.formPayload) {
       return res.status(400).json({ ok: false, error: "No submitted form data to retry provisioning." });
     }
-    store.patchInvite(inviteId, {
-      status: "submitted",
-      provisionStatus: "idle",
-      provisionError: null,
-      provisionFinishedAt: null,
-    });
-    return res.json({ ok: true, invite: publicInviteSummary(store.getInvite(inviteId)) });
+    if (!envConfigured() || !getAuthedClient()) {
+      return res.status(503).json({ ok: false, error: "Google Workspace is not connected. Retry from Initial Setup." });
+    }
+    try {
+      await runWithInviteLock(inviteId, async () => {
+        await runHeadlessInviteProvisioning(inviteId, store.getInvite(inviteId) || record);
+      });
+      return res.json({ ok: true, invite: publicInviteSummary(store.getInvite(inviteId)) });
+    } catch (error) {
+      console.error("[company-onboarding] headless retry failed", error);
+      store.patchInvite(inviteId, {
+        status: "setup_failed",
+        provisionStatus: "failed",
+        provisionFinishedAt: Date.now(),
+        provisionError: error instanceof Error ? error.message : String(error),
+      });
+      const failed = store.getInvite(inviteId);
+      if (failed && getAuthedClient()) {
+        await syncInviteToRegistry(getAuthedClient(), failed, deps).catch(() => {});
+      }
+      return res.status(500).json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Unable to retry provisioning.",
+      });
+    }
   });
 
   app.get("/api/onboarding/company-onboarding/invite/:tokenParam", async (req, res) => {
@@ -756,9 +977,17 @@ export function installCompanyOnboardingRoutes(app, deps) {
         return;
       }
 
+      if (safeLower(record.status) === "setup_failed") {
+        store.patchInvite(parsed.inviteId, {
+          status: "submitted",
+          provisionStatus: "idle",
+          provisionError: null,
+        });
+      }
+
       store.patchInvite(parsed.inviteId, {
         status: "submitted",
-        submittedAt: Date.now(),
+        submittedAt: record.submittedAt || Date.now(),
         formPayload,
         provisionStatus: "running",
         provisionStartedAt: Date.now(),
@@ -769,6 +998,16 @@ export function installCompanyOnboardingRoutes(app, deps) {
       try {
         let companyFolderId = String(record.companyFolderId || record.provisionDriveFolderId || "").trim();
         let masterSheetId = String(record.masterSheetId || record.provisionMasterSheetId || "").trim();
+
+        if (masterSheetId) {
+          const cfgProvisioning = await getConfig(authed, masterSheetId);
+          await updateConfig(authed, masterSheetId, {
+            ...cfgProvisioning,
+            ...buildConfigFromForm(formPayload, parsed.inviteId, COMPANY_WORKSPACE_STATUS.PROVISIONING),
+            companyId: companyFolderId || cfgProvisioning.companyId,
+            companyName,
+          });
+        }
 
         if (!companyFolderId || !masterSheetId) {
           const result = await provisionNewCompanyWorkspace(
@@ -824,7 +1063,7 @@ export function installCompanyOnboardingRoutes(app, deps) {
         const cfgAfter = await getConfig(authed, masterSheetId);
         await updateConfig(authed, masterSheetId, {
           ...cfgAfter,
-          ...buildConfigFromForm(formPayload, parsed.inviteId),
+          ...buildConfigFromForm(formPayload, parsed.inviteId, COMPANY_WORKSPACE_STATUS.LIVE),
           companyId: companyFolderId,
           companyName,
         });
@@ -891,6 +1130,18 @@ export function installCompanyOnboardingRoutes(app, deps) {
           provisionError: error instanceof Error ? error.message : String(error),
         });
         const failed = store.getInvite(parsed.inviteId);
+        const failedSheetId = String(failed?.masterSheetId || failed?.provisionMasterSheetId || "").trim();
+        if (failedSheetId) {
+          try {
+            const cfgFailed = await getConfig(authed, failedSheetId);
+            await updateConfig(authed, failedSheetId, {
+              ...cfgFailed,
+              companyOnboardingStatus: COMPANY_WORKSPACE_STATUS.SETUP_FAILED,
+            });
+          } catch {
+            /* best-effort */
+          }
+        }
         if (failed) {
           await syncInviteToRegistry(authed, failed, deps).catch(() => {});
         }

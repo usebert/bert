@@ -1,6 +1,7 @@
 import { useMemo, useState, type ComponentType } from "react";
 import type { Role } from "../../permissions";
 import { canInviteUsers, getRoleDisplayName } from "../../permissions";
+import { COMPANY_NOT_LIVE_INVITE_MESSAGE } from "../../utils/companyWorkspaceInvite";
 import { INVITE_ROLE_FORBIDDEN_MESSAGE } from "../../utils/companyWorkspaceInvite";
 import { DangerActionButton } from "../DangerActionButton";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../dashboard/DashboardPrimitives";
@@ -431,6 +432,11 @@ export function UsersInvitesPilotPanel({
             {inviteWorkspaceBanner}
           </p>
         ) : null}
+        {!workspaceSetupComplete ? (
+          <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-950">
+            {COMPANY_NOT_LIVE_INVITE_MESSAGE}
+          </p>
+        ) : null}
         {!inviteAllowed ? (
           <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
             {INVITE_ROLE_FORBIDDEN_MESSAGE}
@@ -450,10 +456,7 @@ export function UsersInvitesPilotPanel({
           <label htmlFor="pilot-invite-role" className="mb-1 mt-3 block text-sm font-semibold text-slate-900">
             Role
           </label>
-          {godModeFirstUserInvite ? (
-            <div className={`${pilotEditableInput} font-semibold leading-[3rem]`}>Admin (first company user)</div>
-          ) : (
-            <select
+          <select
               id="pilot-invite-role"
               value={inviteRoleInput}
               onChange={(event) => onInviteRoleChange(event.target.value as Role)}
@@ -465,15 +468,24 @@ export function UsersInvitesPilotPanel({
                 </option>
               ))}
             </select>
-          )}
           <p className="mt-2 text-xs leading-5 text-slate-600">
-            {ROLE_HELPER[godModeFirstUserInvite ? "Admin" : inviteRoleInput] || "They receive an email with a secure setup link."}
+            {ROLE_HELPER[inviteRoleInput] || "They receive an email with a secure setup link."}
           </p>
           <button
             type="button"
             onClick={onInviteUser}
-            disabled={companyUserInviteEmailSending || masterCompanyContextBlocked}
-            title={masterCompanyContextBlocked ? masterCompanyContextMessage : undefined}
+            disabled={
+              companyUserInviteEmailSending ||
+              masterCompanyContextBlocked ||
+              !workspaceSetupComplete
+            }
+            title={
+              masterCompanyContextBlocked
+                ? masterCompanyContextMessage
+                : !workspaceSetupComplete
+                  ? COMPANY_NOT_LIVE_INVITE_MESSAGE
+                  : undefined
+            }
             className={`mt-4 h-12 w-full rounded-2xl bg-slate-900 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 ${slatePrimaryCtaInteract}`}
           >
             {companyUserInviteEmailSending ? "Sending…" : "Send invite"}

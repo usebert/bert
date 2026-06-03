@@ -49,7 +49,11 @@ import {
   installCompanyFolderStructureRoutes,
   resolveEvidenceUploadFolderId,
 } from "./company-folder-structure.mjs";
-import { createInviteStoreApi, installCompanyOnboardingRoutes } from "./company-onboarding.mjs";
+import {
+  assertCompanyWorkspaceAcceptsUserInvite,
+  createInviteStoreApi,
+  installCompanyOnboardingRoutes,
+} from "./company-onboarding.mjs";
 
 dotenv.config();
 
@@ -4802,63 +4806,12 @@ app.post("/api/onboarding/invite", async (req, res) => {
   }
 });
 
-app.post("/api/onboarding/app-invites/new-company", (req, res) => {
-  const run = async () => {
-    const toEmail = String(req.body?.email || "").trim().toLowerCase();
-
-    if (!toEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toEmail)) {
-      res.status(400).json({ ok: false, error: "A valid email address is required." });
-      return;
-    }
-
-    const onboardingFormUrl = getCompanyOnboardingFormUrl();
-    const { subject, textBody, senderEmail } = buildCompanyOnboardingEmailDraft();
-    const smtpConfigured = emailConfigured();
-
-    const manualPayload = () => ({
-      ok: true,
-      sent: false,
-      smtpConfigured,
-      email: toEmail,
-      senderEmail,
-      onboardingFormUrl,
-      emailDraft: { subject, body: textBody },
-      mailtoUrl: buildCompanyOnboardingMailto(toEmail),
-    });
-
-    if (!smtpConfigured) {
-      res.json(manualPayload());
-      return;
-    }
-
-    try {
-      await sendCompanyOnboardingFormEmail(toEmail);
-      res.json({
-        ok: true,
-        sent: true,
-        smtpConfigured: true,
-        email: toEmail,
-        senderEmail,
-        onboardingFormUrl,
-      });
-    } catch (err) {
-      console.warn("[smtp] company onboarding form email failed; manual fallback", err instanceof Error ? err.message : err);
-      res.json(manualPayload());
-    }
-  };
-
-  void run().catch((err) => {
-    console.error("[api] POST /api/onboarding/app-invites/new-company", err);
-    if (!res.headersSent) {
-      try {
-        res.status(500).json({
-          ok: false,
-          error: err instanceof Error ? err.message : "Unable to create onboarding invite.",
-        });
-      } catch (sendErr) {
-        console.error("[api] failed to write JSON error for new-company invite", sendErr);
-      }
-    }
+app.post("/api/onboarding/app-invites/new-company", requireGoogleWorkspaceSession, requireMasterOnlyActor, (_req, res) => {
+  res.status(410).json({
+    ok: false,
+    code: "deprecated_onboarding_path",
+    error:
+      "Google Form company onboarding is retired. Use Send company onboarding invite in Godmode to email the app-hosted setup link.",
   });
 });
 
@@ -4973,6 +4926,22 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
         });
         return;
       }
+
+      const liveGate = await assertCompanyWorkspaceAcceptsUserInvite(
+        { getConfig, getTabValues },
+        auth,
+        { masterSheetId, inviteRole },
+      );
+      if (!liveGate.ok) {
+        res.status(liveGate.httpStatus).json({
+          ok: false,
+          code: liveGate.code,
+          error: liveGate.message,
+          blocker: liveGate.code,
+        });
+        return;
+      }
+
       let id;
       if (resendRequested || resendTokenId) {
         const existing = findCompanyUserInviteForResend({
