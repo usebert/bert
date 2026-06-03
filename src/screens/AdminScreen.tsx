@@ -37,7 +37,7 @@ import {
   isStaleOrIncompleteInviteStatus,
 } from "../utils/inviteStatusDisplay";
 import type { AdminScreenProps, CompanyUserInviteEmailResult } from "../types/adminScreenProps";
-import { CompanyWorkspaceResetPanel } from "../components/admin/CompanyWorkspaceResetPanel";
+import { GodmodeCompanyWorkspacePanel } from "../components/godmode/GodmodeCompanyWorkspacePanel";
 import type { Role } from "../permissions";
 import type { Answer, AuditQuestion } from "../types/reportsScreenProps";
 
@@ -519,7 +519,7 @@ export function AdminScreen({
         </section>
       ) : null}
 
-      {godmodeIncompleteCompanySetup && selectedFolder ? (
+      {godmodeIncompleteCompanySetup && selectedFolder && !isCompaniesScreen ? (
         <section className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-4 text-amber-950">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-800">Workspace setup</p>
           <h3 className="mt-1 text-base font-semibold">Currently setting up: {selectedFolder.name}</h3>
@@ -573,118 +573,54 @@ export function AdminScreen({
       ) : null}
 
       {isCompaniesScreen ? (
-        <section className={pilotLightSurface}>
-          <SectionHeader
-            icon="clipboard"
-            eyebrow="Workspaces"
-            title="Company workspaces"
-            subtitle="Select a company to review setup status or open its Drive folder."
-          />
-          {folders.length === 0 ? (
-            <EmptyPanel
-              title="No company workspaces yet"
-              text="Link company folders from Google Drive after onboarding, or send a new onboarding form from Company Onboarding."
-            />
-          ) : (
-            <ul className="mt-3 space-y-2">
-              {folders.map((folder) => {
-                const selected = selectedFolder?.id === folder.id;
-                return (
-                  <li key={folder.id}>
-                    <button
-                      type="button"
-                      onClick={() => onSelectFolder(folder.id)}
-                      className={[
-                        "flex w-full items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition",
-                        selected
-                          ? "border-orange-300 bg-orange-50 ring-1 ring-orange-200"
-                          : "border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-white",
-                      ].join(" ")}
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-slate-900">{folder.name}</p>
-                        <p className="mt-0.5 truncate text-xs text-slate-500">
-                          {syncState === "Synced" && selected ? "Live in app" : "Setup or review"}
-                        </p>
-                      </div>
-                      <span
-                        className={[
-                          "shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold",
-                          selected && syncState === "Synced"
-                            ? "bg-emerald-100 text-emerald-800"
-                            : "bg-slate-100 text-slate-600",
-                        ].join(" ")}
-                      >
-                        {selected && syncState === "Synced" ? "Active" : "Select"}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          <p className="mt-3 text-xs leading-relaxed text-slate-600">{SECTION_INTROS.companiesInviteHelper}</p>
-          {canManageAreas(currentUser.role) && selectedFolder && !masterCompanyContextBlocked ? (
-            <div className="mt-4">
-              <SitesAreasPanel
-                currentUserRole={currentUser.role}
-                sites={sites}
-                areaRestrictionsEnabled={areaRestrictionsEnabled}
-                areaSyncLoading={areaSyncLoading}
-                areaSyncError={areaSyncError}
-                googleConnected={googleConnected}
-                variant="light"
-                surfaceClass={pilotLightSurface}
-                nestedClass={pilotLightNested}
-                onEnableAreaRestrictions={onEnableAreaRestrictions}
-                onDisableAreaRestrictions={onDisableAreaRestrictions}
-                onAddArea={onAddSite}
-                onRenameArea={onRenameArea}
-                onArchiveArea={onArchiveSite}
-                onReactivateArea={onReactivateArea}
-              />
-              <div className="mt-4">
-                <AreaAuditsSection
-                  sites={sites}
-                  areaRestrictionsEnabled={areaRestrictionsEnabled}
-                  templates={templates}
-                  areaAudits={areaAudits}
-                  mappingSyncLoading={mappingSyncLoading}
-                  mappingSyncError={mappingSyncError}
-                  selectedAreaId={selectedAreaAuditAreaId}
-                  variant="light"
-                  surfaceClass={pilotLightNested}
-                  onSelectArea={onSelectAreaAuditArea}
-                  onToggleAreaAudit={onToggleAreaAudit}
-                />
-              </div>
-            </div>
-          ) : null}
-          {!workspaceSetupComplete ? (
-            <details className="mt-4 rounded-2xl border border-amber-200 bg-amber-50/80 p-3">
-              <summary className="cursor-pointer text-sm font-semibold text-amber-950">Workspace setup status — incomplete</summary>
-              <p className="mt-2 text-sm text-amber-900/90">
-                One-time Google Drive linking and populate live in <span className="font-semibold">Company Onboarding</span>.
-                Users &amp; Invites is for access after setup.
-              </p>
-            </details>
-          ) : (
-            <p className="mt-3 text-xs font-semibold text-emerald-800">Workspace setup complete — manage users from Users &amp; Invites.</p>
-          )}
-          {currentUser.role === "Master" && selectedFolder && companyMasterSheetId && onCompanyWorkspaceResetSuccess ? (
-            <div className="mt-4">
-              <CompanyWorkspaceResetPanel
-                companyFolderId={selectedFolder.id}
-                masterSheetId={companyMasterSheetId}
-                companyName={selectedFolder.name}
-                googleConnected={googleConnected}
-                slatePrimaryCtaInteract={slatePrimaryCtaInteract}
-                onResetComplete={onCompanyWorkspaceResetSuccess}
-                onResetError={(message) => onCompanyWorkspaceResetError?.(message)}
-              />
-            </div>
-          ) : null}
-        </section>
+        <GodmodeCompanyWorkspacePanel
+          currentUserRole={currentUser.role}
+          folders={folders}
+          selectedFolder={selectedFolder}
+          companyMasterSheetId={companyMasterSheetId}
+          syncState={syncState}
+          googleConnected={googleConnected}
+          googleWorkspaceReady={googleWorkspaceReady}
+          adminOnly={adminOnly}
+          folderInspection={folderInspection}
+          folderInspectionLoading={folderInspectionLoading}
+          workspaceValidation={workspaceValidation}
+          workspaceValidationLoading={workspaceValidationLoading}
+          companySheetSync={companySheetSync}
+          invitedUsers={invitedUsers}
+          sites={sites}
+          areaRestrictionsEnabled={areaRestrictionsEnabled}
+          areaSyncLoading={areaSyncLoading}
+          areaSyncError={areaSyncError}
+          areaAudits={areaAudits}
+          selectedAreaAuditAreaId={selectedAreaAuditAreaId}
+          mappingSyncLoading={mappingSyncLoading}
+          mappingSyncError={mappingSyncError}
+          templates={templates}
+          masterCompanyContextBlocked={masterCompanyContextBlocked}
+          masterCompanyContextMessage={masterCompanyContextMessage}
+          companyFolderStructureRepairing={companyFolderStructureRepairing}
+          companyMasterSheetProvisioning={companyMasterSheetProvisioning}
+          folderIdInput={folderIdInput}
+          masterSheetInput={masterSheetInput}
+          onSelectFolder={onSelectFolder}
+          onOneClickGoogleOnboarding={onOneClickGoogleOnboarding}
+          onRepairWorkspace={onRepairWorkspace}
+          onRepairCompanyFolderStructure={onRepairCompanyFolderStructure}
+          onValidateWorkspace={onValidateWorkspace}
+          onSyncForms={onSyncForms}
+          onEnableAreaRestrictions={onEnableAreaRestrictions}
+          onDisableAreaRestrictions={onDisableAreaRestrictions}
+          onAddArea={onAddSite}
+          onRenameArea={onRenameArea}
+          onArchiveArea={onArchiveSite}
+          onReactivateArea={onReactivateArea}
+          onSelectAreaAuditArea={onSelectAreaAuditArea}
+          onToggleAreaAudit={onToggleAreaAudit}
+          onCompanyWorkspaceResetSuccess={onCompanyWorkspaceResetSuccess}
+          onCompanyWorkspaceResetError={onCompanyWorkspaceResetError}
+          slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+        />
       ) : null}
       {(!onboardingMode || godModeFullVisibility) && currentUser.role !== "Master" && !pilotFocus && (
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">

@@ -14,6 +14,7 @@ type Props = {
   slatePrimaryCtaInteract: string;
   onResetComplete: (message: string) => void;
   onResetError: (message: string) => void;
+  collapsible?: boolean;
 };
 
 const KEPT_ITEMS = [
@@ -38,10 +39,13 @@ export function CompanyWorkspaceResetPanel({
   slatePrimaryCtaInteract,
   onResetComplete,
   onResetError,
+  collapsible = false,
 }: Props) {
   const [mode, setMode] = useState<CompanyWorkspaceResetMode>("clean_onboarding");
   const [confirmPhrase, setConfirmPhrase] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [dangerOpen, setDangerOpen] = useState(false);
+  const [showResetDetails, setShowResetDetails] = useState(false);
 
   const canSubmit = useMemo(
     () =>
@@ -77,85 +81,95 @@ export function CompanyWorkspaceResetPanel({
     }
   };
 
-  return (
-    <div className="rounded-2xl border border-rose-300 bg-rose-50/90 p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-rose-800">Danger zone</p>
-      <h3 className="mt-1 text-base font-semibold text-rose-950">Reset company workspace</h3>
-      <p className="mt-2 text-sm text-rose-900/90">
-        Resets <span className="font-semibold">{companyName || "this company"}</span> to a clean onboarding state.
-        This does not delete the company folder, master sheet, or ISO Drive folders. Other companies are not affected.
+  const resetControls = (
+    <>
+      <p className="text-sm text-slate-600">
+        Use this only when setting up or clearing a test workspace. This does not delete the Google Drive folder or
+        files.
       </p>
 
-      <div className="mt-4 grid gap-4 md:grid-cols-2">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-rose-800">Kept</p>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-rose-950/90">
-            {KEPT_ITEMS.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        </div>
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-rose-800">Cleared (headers preserved)</p>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-rose-950/90">
-            {CLEARED_ITEMS.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-            {mode === "full_operational" ? (
-              <li className="font-semibold">Areas and AuditTemplates tabs (full operational mode)</li>
-            ) : (
-              <li className="font-semibold">Areas and audit templates kept (onboarding modes)</li>
-            )}
-          </ul>
-          <p className="mt-2 text-xs text-rose-900/80">
-            Evidence files in Google Drive are not deleted — only Evidence tab rows are cleared.
-          </p>
-        </div>
-      </div>
+      <button
+        type="button"
+        onClick={() => setShowResetDetails((current) => !current)}
+        className="mt-3 text-xs font-semibold text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline"
+      >
+        {showResetDetails ? "Hide reset details" : "Show reset details"}
+      </button>
 
-      <fieldset className="mt-4 space-y-2">
-        <legend className="text-xs font-semibold uppercase tracking-wide text-rose-800">Reset mode</legend>
-        <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-rose-200 bg-white/80 px-3 py-2 text-sm text-rose-950">
-          <input
-            type="radio"
-            name="company-reset-mode"
-            checked={mode === "clean_onboarding"}
-            onChange={() => setMode("clean_onboarding")}
-            className="mt-1"
-          />
-          <span>
-            <span className="font-semibold">Clean onboarding</span> — clear operational data; keep areas and audit
-            templates (default).
-          </span>
-        </label>
-        <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-rose-200 bg-white/80 px-3 py-2 text-sm text-rose-950">
-          <input
-            type="radio"
-            name="company-reset-mode"
-            checked={mode === "keep_areas_templates"}
-            onChange={() => setMode("keep_areas_templates")}
-            className="mt-1"
-          />
-          <span>
-            <span className="font-semibold">Keep areas &amp; templates</span> — same as clean onboarding (explicit
-            confirmation).
-          </span>
-        </label>
-        <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-rose-200 bg-white/80 px-3 py-2 text-sm text-rose-950">
-          <input
-            type="radio"
-            name="company-reset-mode"
-            checked={mode === "full_operational"}
-            onChange={() => setMode("full_operational")}
-            className="mt-1"
-          />
-          <span>
-            <span className="font-semibold">Full operational reset</span> — also clears Areas and AuditTemplates.
-          </span>
-        </label>
-      </fieldset>
+      {showResetDetails ? (
+        <>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Kept</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-slate-700">
+                {KEPT_ITEMS.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Cleared (headers preserved)</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-slate-700">
+                {CLEARED_ITEMS.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+                {mode === "full_operational" ? (
+                  <li className="font-semibold">Areas and AuditTemplates tabs (full operational mode)</li>
+                ) : (
+                  <li className="font-semibold">Areas and audit templates kept (onboarding modes)</li>
+                )}
+              </ul>
+              <p className="mt-2 text-xs text-slate-500">
+                Evidence files in Google Drive are not deleted — only Evidence tab rows are cleared.
+              </p>
+            </div>
+          </div>
 
-      <label className="mt-4 block text-xs font-semibold text-rose-900">
+          <fieldset className="mt-4 space-y-2">
+            <legend className="text-xs font-semibold uppercase tracking-wide text-slate-600">Reset mode</legend>
+            <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
+              <input
+                type="radio"
+                name="company-reset-mode"
+                checked={mode === "clean_onboarding"}
+                onChange={() => setMode("clean_onboarding")}
+                className="mt-1"
+              />
+              <span>
+                <span className="font-semibold">Clean onboarding</span> — clear operational data; keep areas and audit
+                templates (default).
+              </span>
+            </label>
+            <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
+              <input
+                type="radio"
+                name="company-reset-mode"
+                checked={mode === "keep_areas_templates"}
+                onChange={() => setMode("keep_areas_templates")}
+                className="mt-1"
+              />
+              <span>
+                <span className="font-semibold">Keep areas &amp; templates</span> — same as clean onboarding (explicit
+                confirmation).
+              </span>
+            </label>
+            <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
+              <input
+                type="radio"
+                name="company-reset-mode"
+                checked={mode === "full_operational"}
+                onChange={() => setMode("full_operational")}
+                className="mt-1"
+              />
+              <span>
+                <span className="font-semibold">Full operational reset</span> — also clears Areas and AuditTemplates.
+              </span>
+            </label>
+          </fieldset>
+        </>
+      ) : null}
+
+      <label className="mt-4 block text-xs font-semibold text-slate-700">
         Type {COMPANY_RESET_CONFIRM_PHRASE} to confirm
         <input
           value={confirmPhrase}
@@ -163,7 +177,7 @@ export function CompanyWorkspaceResetPanel({
           placeholder={COMPANY_RESET_CONFIRM_PHRASE}
           autoComplete="off"
           spellCheck={false}
-          className="mt-2 h-11 w-full rounded-xl border border-rose-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-200"
+          className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-200"
         />
       </label>
 
@@ -175,6 +189,58 @@ export function CompanyWorkspaceResetPanel({
       >
         {submitting ? "Resetting…" : !googleConnected ? "Connect Google first" : "Reset company workspace"}
       </DangerActionButton>
+    </>
+  );
+
+  if (collapsible) {
+    return (
+      <section className="rounded-3xl border border-slate-200/90 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h3 className="text-base font-semibold tracking-tight text-slate-900">Danger Zone</h3>
+            {!dangerOpen ? (
+              <p className="mt-1 text-sm leading-relaxed text-slate-600">
+                Reset and destructive tools for this company workspace.
+              </p>
+            ) : (
+              <p className="mt-1 text-sm text-slate-600">
+                Resets <span className="font-semibold">{companyName || "this company"}</span> to a clean onboarding
+                state. Other companies are not affected.
+              </p>
+            )}
+          </div>
+          {!dangerOpen ? (
+            <button
+              type="button"
+              onClick={() => setDangerOpen(true)}
+              className="shrink-0 rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-800 transition hover:border-rose-300 hover:bg-rose-100"
+            >
+              Open Danger Zone
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setDangerOpen(false)}
+              className="shrink-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700"
+            >
+              Close
+            </button>
+          )}
+        </div>
+        {dangerOpen ? <div className="mt-4 border-t border-slate-100 pt-4">{resetControls}</div> : null}
+      </section>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-rose-300 bg-rose-50/90 p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-rose-800">Danger zone</p>
+      <h3 className="mt-1 text-base font-semibold text-rose-950">Reset company workspace</h3>
+      <p className="mt-2 text-sm text-rose-900/90">
+        Resets <span className="font-semibold">{companyName || "this company"}</span> to a clean onboarding state.
+        This does not delete the company folder, master sheet, or ISO Drive folders. Other companies are not affected.
+      </p>
+      <div className="mt-4 text-rose-950">{resetControls}</div>
     </div>
   );
 }
