@@ -405,6 +405,9 @@ export function AdminScreen({
   const isUsersInvitesScreen = pilotFocus === "users" || pilotFocus === "invites";
   const isOnboardingScreen =
     pilotFocus === "onboarding" || pilotShellScreen === "onboarding" || standaloneOnboarding;
+  const godmodeUnifiedWorkspace =
+    currentUser.role === "Master" &&
+    (isCompaniesScreen || (isOnboardingScreen && !godmodeNewCompanyOnboarding));
   const usersInvitesPilotMode = isUsersInvitesScreen;
   const workspaceSetupComplete = syncState === "Synced" && Boolean(selectedFolder);
   const showAuditTemplateBuilder = !pilotFocus;
@@ -519,7 +522,7 @@ export function AdminScreen({
         </section>
       ) : null}
 
-      {godmodeIncompleteCompanySetup && selectedFolder && !isCompaniesScreen ? (
+      {godmodeIncompleteCompanySetup && selectedFolder && !godmodeUnifiedWorkspace ? (
         <section className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-4 text-amber-950">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-800">Workspace setup</p>
           <h3 className="mt-1 text-base font-semibold">Currently setting up: {selectedFolder.name}</h3>
@@ -572,7 +575,7 @@ export function AdminScreen({
         </p>
       ) : null}
 
-      {isCompaniesScreen ? (
+      {godmodeUnifiedWorkspace ? (
         <GodmodeCompanyWorkspacePanel
           currentUserRole={currentUser.role}
           folders={folders}
@@ -603,6 +606,13 @@ export function AdminScreen({
           companyMasterSheetProvisioning={companyMasterSheetProvisioning}
           folderIdInput={folderIdInput}
           masterSheetInput={masterSheetInput}
+          auditFormsFolderInput={auditFormsFolderInput}
+          setupFolderInput={setupFolderInput}
+          recordsFolderInput={recordsFolderInput}
+          evidenceFolderInput={evidenceFolderInput}
+          exportsFolderInput={exportsFolderInput}
+          managementNotesFolderInput={managementNotesFolderInput}
+          companyMasterSheetLink={companyMasterSheetLink}
           onSelectFolder={onSelectFolder}
           onOneClickGoogleOnboarding={onOneClickGoogleOnboarding}
           onRepairWorkspace={onRepairWorkspace}
@@ -619,7 +629,45 @@ export function AdminScreen({
           onToggleAreaAudit={onToggleAreaAudit}
           onCompanyWorkspaceResetSuccess={onCompanyWorkspaceResetSuccess}
           onCompanyWorkspaceResetError={onCompanyWorkspaceResetError}
+          onFolderIdChange={onFolderIdChange}
+          onMasterSheetChange={onMasterSheetChange}
+          onAuditFormsFolderChange={onAuditFormsFolderChange}
+          onSetupFolderChange={onSetupFolderChange}
+          onRecordsFolderChange={onRecordsFolderChange}
+          onEvidenceFolderChange={onEvidenceFolderChange}
+          onExportsFolderChange={onExportsFolderChange}
+          onManagementNotesFolderChange={onManagementNotesFolderChange}
+          onCreateCompanyMasterSheet={onCreateCompanyMasterSheet}
+          onAddFolder={onAddFolder}
+          onGoogleConnect={onGoogleConnect}
           slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+          userManagement={{
+            inviteEmailInput,
+            inviteRoleInput,
+            invitedUsers,
+            reportUsers,
+            sites,
+            selectedSiteId,
+            userSiteAssignments,
+            creatableRoles,
+            companyUserInviteEmailResult,
+            companyUserInviteEmailSending,
+            pilotEditableInput,
+            onInviteEmailChange,
+            onInviteRoleChange,
+            onInviteUser,
+            onDismissCompanyUserInviteEmailResult,
+            onResendInvite,
+            onDeleteInvite,
+            onRemoveCompanyUser,
+            onResyncUsers,
+            onSelectSite,
+            onAddSite,
+            onArchiveSite,
+            onToggleUserSiteAssignment,
+            CompanyUserInviteEmailResultPanel,
+            slatePrimaryCtaInteract,
+          }}
         />
       ) : null}
       {(!onboardingMode || godModeFullVisibility) && currentUser.role !== "Master" && !pilotFocus && (
@@ -857,6 +905,7 @@ export function AdminScreen({
       {currentUser.role === "Master" &&
         isOnboardingScreen &&
         !godmodeNewCompanyOnboarding &&
+        !godmodeUnifiedWorkspace &&
         (onboardingMode || godModeFullVisibility) && (
         <div className="space-y-3">
           <GoogleWorkspaceSetupNotice
@@ -1286,7 +1335,7 @@ export function AdminScreen({
         />
       ) : null}
 
-      {onboardingMode && (
+      {onboardingMode && !godmodeUnifiedWorkspace && (
         <>
           <section id="admin-user-management" className={onboardingPanelClass}>
             <div className="mb-4 flex items-start justify-between gap-3">

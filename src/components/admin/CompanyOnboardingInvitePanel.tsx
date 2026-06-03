@@ -131,8 +131,8 @@ export function CompanyOnboardingInvitePanel({
       <SectionHeader
         icon="spark"
         eyebrow="Godmode"
-        title="Send company onboarding invite"
-        subtitle="Single-use app link: customer submits company details, BERT provisions Drive + master sheet + first admin."
+        title="Company Onboarding"
+        subtitle="Send a single-use onboarding link. The customer completes company details and creates the first admin. BERT provisions Drive, the company master sheet, folders, and the first admin."
       />
       <div className={pilotLightNested}>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -157,7 +157,7 @@ export function CompanyOnboardingInvitePanel({
             />
           </label>
           <label className="block">
-            <span className="text-sm font-semibold text-slate-900">Provisional company name</span>
+            <span className="text-sm font-semibold text-slate-900">Provisional company name (optional)</span>
             <input
               value={provisionalCompanyName}
               onChange={(e) => setProvisionalCompanyName(e.target.value)}

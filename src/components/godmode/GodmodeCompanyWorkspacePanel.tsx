@@ -7,11 +7,18 @@ import { SitesAreasPanel } from "../admin/SitesAreasPanel";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../dashboard/DashboardPrimitives";
 import { SECTION_INTROS } from "../../config/sectionIntros";
 import { GodmodeCollapsibleSection } from "./GodmodeCollapsibleSection";
-import { resolveCompanyWorkspaceStatus, WorkspaceStatusBadge } from "./WorkspaceStatusBadge";
+import { GodmodeUserManagementSection, type GodmodeUserManagementSectionProps } from "./GodmodeUserManagementSection";
+import {
+  getCompanySetupNextAction,
+  resolveCompanySetupStatus,
+  resolveCompanyWorkspaceStatus,
+  WorkspaceStatusBadge,
+} from "./WorkspaceStatusBadge";
 import type { Site, UserInvite, FolderInspection } from "../../types/adminScreenProps";
 import type { AreaAuditMapping } from "../../utils/areaAuditMapping";
 import type { AuditTemplate } from "../../types/reportsScreenProps";
 import type { CompanyFolder, CompanySheetSyncStatus, WorkspaceValidation } from "../../types/dashboardScreenProps";
+import type { CompanySetupNextAction } from "../../utils/companyWorkspaceStatus";
 
 const pilotLightSurface = "rounded-3xl border border-slate-200/90 bg-white p-4 shadow-sm";
 const pilotLightNested = "rounded-2xl border border-slate-200 bg-slate-50 p-4";
@@ -34,7 +41,7 @@ function SetupChecklistRow({ label, ok, hint }: { label: string; ok: boolean; hi
           ok ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900",
         ].join(" ")}
       >
-        {ok ? "Ready" : "Needs work"}
+        {ok ? "Ready" : "Pending"}
       </span>
     </div>
   );
@@ -42,7 +49,7 @@ function SetupChecklistRow({ label, ok, hint }: { label: string; ok: boolean; hi
 
 function FolderCheckRow({ label, ok }: { label: string; ok: boolean }) {
   return (
-    <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+    <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2">
       <p className="text-sm text-slate-700">{label}</p>
       <span
         className={[
@@ -86,6 +93,13 @@ export type GodmodeCompanyWorkspacePanelProps = {
   companyMasterSheetProvisioning: boolean;
   folderIdInput: string;
   masterSheetInput: string;
+  auditFormsFolderInput?: string;
+  setupFolderInput?: string;
+  recordsFolderInput?: string;
+  evidenceFolderInput?: string;
+  exportsFolderInput?: string;
+  managementNotesFolderInput?: string;
+  companyMasterSheetLink?: string;
   onSelectFolder: (folderId: string) => void;
   onOneClickGoogleOnboarding: () => void;
   onRepairWorkspace: () => void;
@@ -102,8 +116,53 @@ export type GodmodeCompanyWorkspacePanelProps = {
   onToggleAreaAudit: (areaId: string, auditId: string, enabled: boolean) => void;
   onCompanyWorkspaceResetSuccess?: (message: string) => void;
   onCompanyWorkspaceResetError?: (message: string) => void;
+  onFolderIdChange?: (value: string) => void;
+  onMasterSheetChange?: (value: string) => void;
+  onAuditFormsFolderChange?: (value: string) => void;
+  onSetupFolderChange?: (value: string) => void;
+  onRecordsFolderChange?: (value: string) => void;
+  onEvidenceFolderChange?: (value: string) => void;
+  onExportsFolderChange?: (value: string) => void;
+  onManagementNotesFolderChange?: (value: string) => void;
+  onCreateCompanyMasterSheet?: () => void;
+  onAddFolder?: () => void;
+  onGoogleConnect?: () => void;
   slatePrimaryCtaInteract: string;
+  userManagement?: Omit<GodmodeUserManagementSectionProps, "companyLive" | "pilotLightNested"> & {
+    pilotEditableInput: string;
+  };
 };
+
+function runNextAction(
+  action: CompanySetupNextAction["primaryHandler"],
+  handlers: {
+    onOneClickGoogleOnboarding: () => void;
+    onValidateWorkspace: () => void;
+    onSyncForms: () => void;
+    onRepairCompanyFolderStructure?: () => void;
+    onRepairWorkspace: () => void;
+  },
+) {
+  switch (action) {
+    case "run_setup":
+      handlers.onOneClickGoogleOnboarding();
+      break;
+    case "health_check":
+      handlers.onValidateWorkspace();
+      break;
+    case "resync":
+      handlers.onSyncForms();
+      break;
+    case "repair_folders":
+      handlers.onRepairCompanyFolderStructure?.();
+      break;
+    case "repair_workspace":
+      handlers.onRepairWorkspace();
+      break;
+    default:
+      break;
+  }
+}
 
 export function GodmodeCompanyWorkspacePanel({
   currentUserRole,
@@ -135,6 +194,13 @@ export function GodmodeCompanyWorkspacePanel({
   companyMasterSheetProvisioning,
   folderIdInput,
   masterSheetInput,
+  auditFormsFolderInput = "",
+  setupFolderInput = "",
+  recordsFolderInput = "",
+  evidenceFolderInput = "",
+  exportsFolderInput = "",
+  managementNotesFolderInput = "",
+  companyMasterSheetLink,
   onSelectFolder,
   onOneClickGoogleOnboarding,
   onRepairWorkspace,
@@ -151,11 +217,27 @@ export function GodmodeCompanyWorkspacePanel({
   onToggleAreaAudit,
   onCompanyWorkspaceResetSuccess,
   onCompanyWorkspaceResetError,
+  onFolderIdChange,
+  onMasterSheetChange,
+  onAuditFormsFolderChange,
+  onSetupFolderChange,
+  onRecordsFolderChange,
+  onEvidenceFolderChange,
+  onExportsFolderChange,
+  onManagementNotesFolderChange,
+  onCreateCompanyMasterSheet,
+  onAddFolder,
+  onGoogleConnect,
   slatePrimaryCtaInteract,
+  userManagement,
 }: GodmodeCompanyWorkspacePanelProps) {
-  const workspaceSetupComplete = syncState === "Synced" && Boolean(selectedFolder);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
   const isProvisioning = companyFolderStructureRepairing || companyMasterSheetProvisioning;
-  const setupFailed = Boolean(folderInspection?.error) || (workspaceValidation != null && !workspaceValidation.ok && (workspaceValidation.missingTabs?.length ?? 0) > 0);
+  const healthCheckRun = workspaceValidation != null;
+  const workspaceHealthOk = workspaceValidation?.ok ?? false;
+  const setupFailed =
+    Boolean(folderInspection?.error) ||
+    (workspaceValidation != null && !workspaceValidation.ok && (workspaceValidation.missingTabs?.length ?? 0) > 0);
 
   const folderStatuses = useMemo(
     () =>
@@ -171,17 +253,22 @@ export function GodmodeCompanyWorkspacePanel({
           setupFailed: isSelected && setupFailed,
           onboardingVerified: folder.onboardingVerified,
           responseSheetVerified: folder.responseSheetVerified,
+          workspaceHealthOk: isSelected ? workspaceHealthOk : undefined,
+          healthCheckRun: isSelected ? healthCheckRun : undefined,
         });
-        return { folder, status, masterSheetId: isSelected ? companyMasterSheetId || masterSheetId : masterSheetId };
+        return { folder, status };
       }),
-    [folders, selectedFolder?.id, companyMasterSheetId, syncState, isProvisioning, setupFailed],
+    [
+      folders,
+      selectedFolder?.id,
+      companyMasterSheetId,
+      syncState,
+      isProvisioning,
+      setupFailed,
+      workspaceHealthOk,
+      healthCheckRun,
+    ],
   );
-
-  const selectedStatus = useMemo(() => {
-    if (!selectedFolder) return null;
-    const row = folderStatuses.find((item) => item.folder.id === selectedFolder.id);
-    return row?.status ?? "Draft";
-  }, [selectedFolder, folderStatuses]);
 
   const hasActiveAdmin = useMemo(
     () => invitedUsers.some((invite) => invite.role === "Admin" && (invite.status === "Active" || invite.loginReady)),
@@ -213,19 +300,79 @@ export function GodmodeCompanyWorkspacePanel({
     workspaceValidation?.ok ??
     (folderInspection?.masterSheet?.tabs.length ? folderInspection.blockingItems.length === 0 : false);
   const companyFoldersMappingOk = workspaceValidation?.folders.companyFolder ?? Boolean(selectedFolder);
-  const liveStatusOk = syncState === "Synced" && masterSheetOk;
+  const companyLive = syncState === "Synced" && masterSheetOk && Boolean(selectedFolder);
 
-  const workspaceSetupButtonLabel = !googleWorkspaceReady
-    ? "Connect Google first"
-    : folderInspectionLoading
-      ? "Checking links…"
-      : syncState === "Synced"
-        ? "Populate app again"
-        : "Run workspace setup";
+  const selectedStatus = useMemo(() => {
+    if (!selectedFolder) return null;
+    return resolveCompanySetupStatus({
+      folderName: selectedFolder.name,
+      hasCompanyFolder: true,
+      masterSheetId: companyMasterSheetId,
+      syncState,
+      isProvisioning,
+      setupFailed,
+      onboardingVerified: selectedFolder.onboardingVerified,
+      responseSheetVerified: selectedFolder.responseSheetVerified,
+      workspaceHealthOk,
+      healthCheckRun,
+    });
+  }, [
+    selectedFolder,
+    companyMasterSheetId,
+    syncState,
+    isProvisioning,
+    setupFailed,
+    workspaceHealthOk,
+    healthCheckRun,
+  ]);
 
-  const showAreas = canManageAreas(currentUserRole) && selectedFolder && !masterCompanyContextBlocked;
+  const nextAction = useMemo(() => {
+    if (!selectedStatus) {
+      return getCompanySetupNextAction({
+        status: "Not started",
+        googleWorkspaceReady,
+        masterSheetOk,
+        folderStructureOk,
+        healthCheckRun,
+        workspaceHealthOk,
+      });
+    }
+    return getCompanySetupNextAction({
+      status: selectedStatus,
+      googleWorkspaceReady,
+      masterSheetOk,
+      folderStructureOk,
+      healthCheckRun,
+      workspaceHealthOk,
+    });
+  }, [
+    selectedStatus,
+    googleWorkspaceReady,
+    masterSheetOk,
+    folderStructureOk,
+    healthCheckRun,
+    workspaceHealthOk,
+  ]);
+
+  const healthSummary = workspaceValidation
+    ? workspaceValidation.ok
+      ? "Healthy"
+      : "Needs attention"
+    : healthCheckRun
+      ? "Checked"
+      : "Not checked yet";
+
+  const showAreas = canManageAreas(currentUserRole) && selectedFolder && !masterCompanyContextBlocked && companyLive;
   const showReset =
     currentUserRole === "Master" && selectedFolder && companyMasterSheetId && onCompanyWorkspaceResetSuccess;
+
+  const actionHandlers = {
+    onOneClickGoogleOnboarding,
+    onValidateWorkspace,
+    onSyncForms,
+    onRepairCompanyFolderStructure,
+    onRepairWorkspace,
+  };
 
   return (
     <div className="space-y-4">
@@ -233,13 +380,13 @@ export function GodmodeCompanyWorkspacePanel({
         <SectionHeader
           icon="clipboard"
           eyebrow="Workspaces"
-          title="Company workspaces"
-          subtitle="Select a company to review setup status or open its Drive folder."
+          title="Select company"
+          subtitle="Choose which company workspace you are setting up."
         />
         {folders.length === 0 ? (
           <EmptyPanel
             title="No company workspaces yet"
-            text="Link company folders from Google Drive after onboarding, or send a new onboarding form from Company Onboarding."
+            text="Send a company onboarding invite above, or link a folder after the customer completes onboarding."
           />
         ) : (
           <ul className="mt-3 space-y-2">
@@ -260,7 +407,7 @@ export function GodmodeCompanyWorkspacePanel({
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-slate-900">{folder.name}</p>
                       {selected ? (
-                        <p className="mt-0.5 text-xs font-medium text-orange-800">Selected company</p>
+                        <p className="mt-0.5 text-xs font-medium text-orange-800">Selected</p>
                       ) : (
                         <p className="mt-0.5 truncate text-xs text-slate-500">Tap to select</p>
                       )}
@@ -280,88 +427,77 @@ export function GodmodeCompanyWorkspacePanel({
           <section className={pilotLightSurface}>
             <SectionHeader
               icon="clipboard"
-              eyebrow="Overview"
-              title={selectedFolder.name}
-              subtitle="Compact snapshot of this company workspace."
+              eyebrow="Setup"
+              title="Selected company setup"
+              subtitle={selectedFolder.name}
             />
             <div className="mt-3 flex flex-wrap items-center gap-2">
               {selectedStatus ? <WorkspaceStatusBadge status={selectedStatus} /> : null}
             </div>
-            <dl className="mt-4 grid gap-3 sm:grid-cols-2">
-              <MiniMetric label="Company folder" value={selectedFolder.name} />
-              <MiniMetric
-                label="Folder status"
-                value={folderStructureOk ? "Structure ready" : "Needs folders"}
-              />
-              <MiniMetric label="Master sheet" value={masterSheetOk ? "Linked" : "Not linked"} />
-              <MiniMetric label="Setup status" value={workspaceSetupComplete ? "Complete" : "Incomplete"} />
-              <MiniMetric label="Live status" value={liveStatusOk ? "Live in app" : "Not live"} />
-              <MiniMetric label="First admin" value={firstAdminReady ? "Ready" : "Pending onboarding"} />
-            </dl>
-          </section>
-
-          <section className={pilotLightSurface}>
-            <SectionHeader
-              icon="sync"
-              eyebrow="Setup"
-              title="Workspace setup"
-              subtitle="One-time linking, checks, and populate for this company."
-            />
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Next action</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">{nextAction.label}</p>
+              {nextAction.detail ? <p className="mt-1 text-xs text-slate-600">{nextAction.detail}</p> : null}
+            </div>
             <div className="mt-4 space-y-2">
               <SetupChecklistRow label="Company folder" ok={Boolean(selectedFolder)} />
-              <SetupChecklistRow label="Folder structure" ok={folderStructureOk} hint="ISO 01–06 folders under the company root" />
+              <SetupChecklistRow
+                label="Folder structure"
+                ok={folderStructureOk}
+                hint="ISO 01–06 folders under the company root"
+              />
               <SetupChecklistRow label="Company master sheet" ok={masterSheetOk} />
               <SetupChecklistRow
                 label="Required tabs"
                 ok={Boolean(requiredTabsOk)}
-                hint={workspaceValidation?.missingTabs.length ? `${workspaceValidation.missingTabs.length} tab(s) missing` : undefined}
+                hint={
+                  workspaceValidation?.missingTabs.length
+                    ? `${workspaceValidation.missingTabs.length} tab(s) missing`
+                    : undefined
+                }
               />
               <SetupChecklistRow label="CompanyFolders mapping" ok={companyFoldersMappingOk} />
-              <SetupChecklistRow label="First admin / onboarding" ok={firstAdminReady} />
-              <SetupChecklistRow label="Live status" ok={liveStatusOk} />
+              <SetupChecklistRow label="First admin" ok={firstAdminReady} />
+              <SetupChecklistRow label="Workspace health checked" ok={healthCheckRun && workspaceHealthOk} />
+              <SetupChecklistRow label="Company live" ok={companyLive} />
             </div>
-
-            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Workspace setup status</p>
-              {workspaceSetupComplete ? (
-                <p className="mt-2 text-sm font-semibold text-emerald-800">
-                  Workspace setup complete — manage users from Users &amp; Invites.
-                </p>
-              ) : (
-                <p className="mt-2 text-sm text-slate-700">
-                  Finish Google Drive linking and populate from this card or Company Onboarding before inviting field users.
-                </p>
-              )}
-            </div>
-
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={onOneClickGoogleOnboarding}
-                disabled={adminOnly || !googleWorkspaceReady || folderInspectionLoading}
+                onClick={() => runNextAction(nextAction.primaryHandler, actionHandlers)}
+                disabled={
+                  adminOnly ||
+                  !googleWorkspaceReady ||
+                  folderInspectionLoading ||
+                  isProvisioning ||
+                  nextAction.primaryHandler === "none"
+                }
                 className="inline-flex h-11 items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isProvisioning ? "Running setup…" : workspaceSetupButtonLabel}
+                {isProvisioning
+                  ? "Running setup…"
+                  : nextAction.primaryHandler === "health_check"
+                    ? "Continue setup"
+                    : nextAction.primaryHandler === "run_setup"
+                      ? "Continue setup"
+                      : "Continue setup"}
               </button>
               <button
                 type="button"
-                onClick={onRepairWorkspace}
-                disabled={!masterSheetOk}
-                title={!masterSheetOk ? "Link a master sheet before repairing the workspace." : undefined}
+                onClick={onOneClickGoogleOnboarding}
+                disabled={adminOnly || !googleWorkspaceReady || folderInspectionLoading || isProvisioning}
                 className="inline-flex h-11 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Repair workspace setup
+                {isProvisioning ? "Running…" : "Run / repair setup"}
               </button>
-              {selectedFolder ? (
-                <a
-                  href={`https://drive.google.com/drive/folders/${selectedFolder.id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex h-11 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800"
-                >
-                  Open company folder
-                </a>
-              ) : null}
+              <a
+                href={`https://drive.google.com/drive/folders/${selectedFolder.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-11 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800"
+              >
+                Open Drive folder
+              </a>
               {companyMasterSheetId ? (
                 <a
                   href={`https://docs.google.com/spreadsheets/d/${companyMasterSheetId}`}
@@ -369,11 +505,153 @@ export function GodmodeCompanyWorkspacePanel({
                   rel="noopener noreferrer"
                   className="inline-flex h-11 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800"
                 >
-                  Open company master sheet
+                  Open master sheet
                 </a>
               ) : null}
             </div>
           </section>
+
+          <section className={pilotLightSurface}>
+            <SectionHeader
+              icon="shield"
+              eyebrow="Health"
+              title="Workspace health"
+              subtitle="Sync status, row counts, and folder/sheet checks for this company."
+            />
+            <dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <MiniMetric
+                label="Last synced"
+                value={companySheetSync?.lastSyncedAt ?? (syncState === "Synced" ? syncState : "Not synced")}
+              />
+              <MiniMetric label="Users" value={String(companySheetSync?.usersCount ?? "—")} />
+              <MiniMetric
+                label="Audit templates"
+                value={String(templates.filter((t) => t.active).length || "—")}
+              />
+              <MiniMetric label="Schedules" value={String(companySheetSync?.schedulesCount ?? "—")} />
+              <MiniMetric label="Actions" value={String(companySheetSync?.actionsCount ?? "—")} />
+              <MiniMetric label="Last health check" value={healthSummary} />
+            </dl>
+            {setupFailed && folderInspection?.blockingItems.length ? (
+              <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                {folderInspection.blockingItems.join(" • ")}
+              </p>
+            ) : null}
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={onValidateWorkspace}
+                disabled={masterCompanyContextBlocked}
+                title={masterCompanyContextBlocked ? masterCompanyContextMessage : undefined}
+                className={`inline-flex h-11 items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 ${slatePrimaryCtaInteract}`}
+              >
+                {workspaceValidationLoading ? "Checking…" : "Run health check"}
+              </button>
+              <button
+                type="button"
+                onClick={onSyncForms}
+                disabled={adminOnly || !googleWorkspaceReady || !selectedFolder || folderInspectionLoading}
+                className="inline-flex h-11 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Re-sync from company sheet
+              </button>
+              {onRepairCompanyFolderStructure ? (
+                <button
+                  type="button"
+                  onClick={onRepairCompanyFolderStructure}
+                  disabled={masterCompanyContextBlocked || companyFolderStructureRepairing}
+                  className="inline-flex h-11 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {companyFolderStructureRepairing ? "Repairing…" : "Repair folder structure"}
+                </button>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowDiagnostics((open) => !open)}
+              className="mt-4 text-xs font-semibold text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline"
+            >
+              {showDiagnostics ? "Hide diagnostics" : "Show diagnostics"}
+            </button>
+            {showDiagnostics ? (
+              <div className="mt-4 space-y-4 border-t border-slate-100 pt-4">
+                {folderInspection ? (
+                  <div className={pilotLightNested}>
+                    <p className="text-sm font-semibold text-slate-900">Folder check — {folderInspection.folder.name}</p>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <FolderCheckRow label="Company Master Sheet" ok={folderInspection.checks.masterSheet} />
+                      <FolderCheckRow label="Audit forms folder" ok={folderInspection.checks.auditFormsFolder} />
+                      <FolderCheckRow label="01 Company Setup folder" ok={folderInspection.checks.setupFolder} />
+                      <FolderCheckRow label="03 Company Records folder" ok={folderInspection.checks.recordsFolder} />
+                      <FolderCheckRow label="Evidence folder" ok={folderInspection.checks.evidenceFolder} />
+                      <FolderCheckRow label="Exports folder" ok={folderInspection.checks.exportsFolder} />
+                      <FolderCheckRow
+                        label="06 Management Notes folder"
+                        ok={folderInspection.checks.managementNotesFolder}
+                      />
+                    </div>
+                    {folderInspection.recommendedItems.length > 0 ? (
+                      <p className="mt-2 text-xs text-slate-600">{folderInspection.recommendedItems.join(" • ")}</p>
+                    ) : null}
+                  </div>
+                ) : null}
+                {workspaceValidation ? (
+                  <div className={pilotLightNested}>
+                    <p className="text-sm font-semibold text-slate-900">Workspace validation</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Schema on sheet: {workspaceValidation.schemaVersion || "none"} • app expects{" "}
+                      {workspaceValidation.currentSchemaVersion}
+                    </p>
+                    {workspaceValidation.missingTabs.length > 0 ? (
+                      <p className="mt-2 text-sm text-rose-800">Missing tabs: {workspaceValidation.missingTabs.join(", ")}</p>
+                    ) : null}
+                    {(workspaceValidation.repairableIssues?.length ?? 0) > 0 && !workspaceValidation.ok ? (
+                      <p className="mt-2 text-sm text-amber-800">{workspaceValidation.repairableIssues?.join(" • ")}</p>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={onRepairWorkspace}
+                      disabled={masterCompanyContextBlocked}
+                      className="mt-3 h-10 rounded-xl border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-800"
+                    >
+                      Fix workspace (repair sheet &amp; folders)
+                    </button>
+                  </div>
+                ) : null}
+                <div className={pilotLightNested}>
+                  <p className="text-sm font-semibold text-slate-900">Folder &amp; sheet IDs</p>
+                  <dl className="mt-2 space-y-2 text-xs text-slate-600">
+                    <div>
+                      <dt className="font-semibold text-slate-500">Company folder ID</dt>
+                      <dd className="mt-0.5 break-all font-mono text-slate-800">{selectedFolder.id}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-semibold text-slate-500">Master sheet ID</dt>
+                      <dd className="mt-0.5 break-all font-mono text-slate-800">{companyMasterSheetId || "Not linked"}</dd>
+                    </div>
+                  </dl>
+                </div>
+              </div>
+            ) : null}
+          </section>
+
+          {userManagement ? (
+            <section className={pilotLightSurface}>
+              <SectionHeader
+                icon="user"
+                eyebrow="People"
+                title="User management"
+                subtitle="First admin via onboarding invite; field users after the company is live."
+              />
+              <div className="mt-4">
+                <GodmodeUserManagementSection
+                  {...userManagement}
+                  companyLive={companyLive}
+                  pilotLightNested={pilotLightNested}
+                />
+              </div>
+            </section>
+          ) : null}
 
           {showAreas ? (
             <>
@@ -412,119 +690,156 @@ export function GodmodeCompanyWorkspacePanel({
 
           <GodmodeCollapsibleSection
             title="Advanced tools"
-            summary="Diagnostics, raw IDs, and sync/repair utilities for this workspace."
+            summary="Manual folder/sheet IDs, legacy workspace linking, and extra repair actions."
             defaultOpen={false}
             openLabel="Show advanced tools"
             closeLabel="Hide advanced tools"
             surfaceClass={pilotLightSurface}
           >
             <div className="space-y-4">
-              {(folderInspection || selectedFolder) ? (
-                <div className={pilotLightNested}>
-                  <p className="text-sm font-semibold text-slate-900">Advanced setup diagnostics</p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {folderInspection
-                      ? `Checked ${folderInspection.folder.name}`
-                      : `Waiting to check ${selectedFolder?.name ?? "company folder"}`}
-                  </p>
-                  {folderInspection ? (
-                    <>
-                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                        <FolderCheckRow label="Company Master Sheet" ok={folderInspection.checks.masterSheet} />
-                        <FolderCheckRow label="Audit forms folder" ok={folderInspection.checks.auditFormsFolder} />
-                        <FolderCheckRow label="01 Company Setup folder" ok={folderInspection.checks.setupFolder} />
-                        <FolderCheckRow label="03 Company Records folder" ok={folderInspection.checks.recordsFolder} />
-                        <FolderCheckRow label="Evidence folder" ok={folderInspection.checks.evidenceFolder} />
-                        <FolderCheckRow label="Exports folder" ok={folderInspection.checks.exportsFolder} />
-                        <FolderCheckRow label="06 Management Notes folder" ok={folderInspection.checks.managementNotesFolder} />
-                      </div>
-                      {folderInspection.blockingItems.length > 0 ? (
-                        <p className="mt-3 text-sm text-amber-800">{folderInspection.blockingItems.join(" • ")}</p>
-                      ) : null}
-                      {folderInspection.recommendedItems.length > 0 ? (
-                        <p className="mt-2 text-xs text-slate-600">{folderInspection.recommendedItems.join(" • ")}</p>
-                      ) : null}
-                    </>
-                  ) : null}
-                </div>
-              ) : null}
-
               <div className={pilotLightNested}>
-                <p className="text-sm font-semibold text-slate-900">Raw folder / sheet IDs</p>
-                <dl className="mt-2 space-y-2 text-xs text-slate-600">
-                  <div>
-                    <dt className="font-semibold text-slate-500">Company folder ID</dt>
-                    <dd className="mt-0.5 break-all font-mono text-slate-800">{selectedFolder.id}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-semibold text-slate-500">Master sheet ID</dt>
-                    <dd className="mt-0.5 break-all font-mono text-slate-800">{companyMasterSheetId || "Not linked"}</dd>
-                  </div>
-                  {folderIdInput.trim() && folderIdInput.trim() !== selectedFolder.id ? (
-                    <div>
-                      <dt className="font-semibold text-slate-500">Folder input</dt>
-                      <dd className="mt-0.5 break-all font-mono text-slate-800">{folderIdInput.trim()}</dd>
-                    </div>
-                  ) : null}
-                  {masterSheetInput.trim() ? (
-                    <div>
-                      <dt className="font-semibold text-slate-500">Master sheet input</dt>
-                      <dd className="mt-0.5 break-all font-mono text-slate-800">{masterSheetInput.trim()}</dd>
-                    </div>
-                  ) : null}
-                </dl>
-              </div>
-
-              {workspaceValidation ? (
-                <div className={pilotLightNested}>
-                  <p className="text-sm font-semibold text-slate-900">Workspace validation</p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Schema on sheet: {workspaceValidation.schemaVersion || "none"} • app expects{" "}
-                    {workspaceValidation.currentSchemaVersion}
-                  </p>
-                  {(workspaceValidation.repairableIssues?.length ?? 0) > 0 && !workspaceValidation.ok ? (
-                    <p className="mt-2 text-sm text-amber-800">{workspaceValidation.repairableIssues?.join(" • ")}</p>
-                  ) : null}
-                </div>
-              ) : null}
-
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={onValidateWorkspace}
-                  disabled={masterCompanyContextBlocked}
-                  title={masterCompanyContextBlocked ? masterCompanyContextMessage : undefined}
-                  className={`h-11 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 ${slatePrimaryCtaInteract}`}
-                >
-                  {workspaceValidationLoading ? "Checking…" : "Check workspace"}
-                </button>
-                <button
-                  type="button"
-                  onClick={onRepairWorkspace}
-                  disabled={masterCompanyContextBlocked}
-                  className="h-11 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Fix workspace
-                </button>
-                {onRepairCompanyFolderStructure ? (
+                <p className="text-sm font-semibold text-slate-900">Legacy workspace linking</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Paste Drive links when onboarding did not auto-link, or when repairing an older company folder.
+                </p>
+                {onFolderIdChange ? (
+                  <label className="mt-3 block">
+                    <span className="text-xs font-semibold text-slate-600">Company folder link or ID</span>
+                    <input
+                      value={folderIdInput}
+                      onChange={(event) => onFolderIdChange(event.target.value)}
+                      className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-900"
+                      placeholder="Paste company folder link or ID"
+                    />
+                  </label>
+                ) : null}
+                {onMasterSheetChange ? (
+                  <label className="mt-3 block">
+                    <span className="text-xs font-semibold text-slate-600">Master sheet link or ID</span>
+                    <input
+                      value={masterSheetInput}
+                      onChange={(event) => onMasterSheetChange(event.target.value)}
+                      className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-900"
+                      placeholder="Auto-created during setup, or paste link / ID"
+                    />
+                  </label>
+                ) : null}
+                {onCreateCompanyMasterSheet ? (
                   <button
                     type="button"
-                    onClick={onRepairCompanyFolderStructure}
-                    disabled={masterCompanyContextBlocked || companyFolderStructureRepairing}
-                    className="h-11 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={onCreateCompanyMasterSheet}
+                    disabled={
+                      adminOnly ||
+                      !googleWorkspaceReady ||
+                      companyMasterSheetProvisioning ||
+                      companyFolderStructureRepairing ||
+                      !folderIdInput.trim()
+                    }
+                    className="mt-2 h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:opacity-60"
                   >
-                    {companyFolderStructureRepairing ? "Repairing folders…" : "Repair company folder structure"}
+                    {companyMasterSheetProvisioning ? "Creating master sheet…" : "Create company master sheet"}
                   </button>
                 ) : null}
-                <button
-                  type="button"
-                  onClick={onSyncForms}
-                  disabled={adminOnly || !googleWorkspaceReady || !selectedFolder || folderInspectionLoading}
-                  className="h-11 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {folderInspectionLoading ? "Checking…" : syncState === "Synced" ? "Populate app again" : "Populate app"}
-                </button>
+                {companyMasterSheetLink ? (
+                  <p className="mt-2 break-all text-xs text-emerald-800">
+                    <a href={companyMasterSheetLink} target="_blank" rel="noopener noreferrer" className="underline">
+                      {companyMasterSheetLink}
+                    </a>
+                  </p>
+                ) : null}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {onGoogleConnect && onAddFolder ? (
+                    <button
+                      type="button"
+                      onClick={!googleConnected ? onGoogleConnect : onAddFolder}
+                      disabled={adminOnly || !googleWorkspaceReady}
+                      className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800"
+                    >
+                      {!googleConnected ? "Connect Google Drive" : "Continue workspace setup"}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={onRepairWorkspace}
+                    disabled={masterCompanyContextBlocked}
+                    className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800"
+                  >
+                    Fix workspace
+                  </button>
+                </div>
               </div>
+              {(onAuditFormsFolderChange ||
+                onSetupFolderChange ||
+                onRecordsFolderChange ||
+                onEvidenceFolderChange ||
+                onExportsFolderChange ||
+                onManagementNotesFolderChange) && (
+                <div className={pilotLightNested}>
+                  <p className="text-sm font-semibold text-slate-900">Optional folder overrides</p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {onAuditFormsFolderChange ? (
+                      <label className="block sm:col-span-2">
+                        <span className="text-xs text-slate-600">Audit forms folder</span>
+                        <input
+                          value={auditFormsFolderInput}
+                          onChange={(e) => onAuditFormsFolderChange(e.target.value)}
+                          className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm"
+                        />
+                      </label>
+                    ) : null}
+                    {onSetupFolderChange ? (
+                      <label className="block">
+                        <span className="text-xs text-slate-600">01 Company Setup</span>
+                        <input
+                          value={setupFolderInput}
+                          onChange={(e) => onSetupFolderChange(e.target.value)}
+                          className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm"
+                        />
+                      </label>
+                    ) : null}
+                    {onRecordsFolderChange ? (
+                      <label className="block">
+                        <span className="text-xs text-slate-600">03 Company Records</span>
+                        <input
+                          value={recordsFolderInput}
+                          onChange={(e) => onRecordsFolderChange(e.target.value)}
+                          className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm"
+                        />
+                      </label>
+                    ) : null}
+                    {onEvidenceFolderChange ? (
+                      <label className="block">
+                        <span className="text-xs text-slate-600">Evidence</span>
+                        <input
+                          value={evidenceFolderInput}
+                          onChange={(e) => onEvidenceFolderChange(e.target.value)}
+                          className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm"
+                        />
+                      </label>
+                    ) : null}
+                    {onExportsFolderChange ? (
+                      <label className="block">
+                        <span className="text-xs text-slate-600">Exports</span>
+                        <input
+                          value={exportsFolderInput}
+                          onChange={(e) => onExportsFolderChange(e.target.value)}
+                          className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm"
+                        />
+                      </label>
+                    ) : null}
+                    {onManagementNotesFolderChange ? (
+                      <label className="block sm:col-span-2">
+                        <span className="text-xs text-slate-600">06 Management Notes</span>
+                        <input
+                          value={managementNotesFolderInput}
+                          onChange={(e) => onManagementNotesFolderChange(e.target.value)}
+                          className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm"
+                        />
+                      </label>
+                    ) : null}
+                  </div>
+                </div>
+              )}
             </div>
           </GodmodeCollapsibleSection>
 

@@ -1,10 +1,15 @@
 import {
+  getCompanySetupNextAction,
+  resolveCompanySetupStatus,
   resolveCompanyWorkspaceStatus,
   workspaceStatusBadgeClass,
-  type CompanyWorkspaceStatusLabel,
+  type CompanySetupStatusLabel,
 } from "../../utils/companyWorkspaceStatus";
 
-export function WorkspaceStatusBadge({ status }: { status: CompanyWorkspaceStatusLabel }) {
+/** @deprecated Use CompanySetupStatusLabel */
+export type CompanyWorkspaceStatusLabel = CompanySetupStatusLabel;
+
+export function WorkspaceStatusBadge({ status }: { status: CompanySetupStatusLabel }) {
   return (
     <span
       className={[
@@ -17,4 +22,9 @@ export function WorkspaceStatusBadge({ status }: { status: CompanyWorkspaceStatu
   );
 }
 
-export { resolveCompanyWorkspaceStatus, type CompanyWorkspaceStatusLabel };
+export {
+  resolveCompanyWorkspaceStatus,
+  resolveCompanySetupStatus,
+  getCompanySetupNextAction,
+  type CompanySetupStatusLabel,
+};
