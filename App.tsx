@@ -39,6 +39,7 @@ import {
   getRolePermissions,
   canRepairCompanyFolderStructure,
   canInviteUsers,
+  canManageTemplates,
 } from "./src/permissions";
 import { companyFolderStructureService } from "./src/services/companyFolderStructureService";
 import { navItems } from "./src/config/navItems";
@@ -10733,7 +10734,7 @@ function App() {
     if (currentUser && !canAccessWorkspaceNav(currentUser.role) && screen === "auditBuilder") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
-    if (currentUser && !canAccessWorkspaceNav(currentUser.role) && screen === "auditTemplateEdit") {
+    if (currentUser && !canManageTemplates(currentUser.role) && screen === "auditTemplateEdit") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
     if (currentUser && !canAccessPilotSetup(currentUser.role) && screen === "setup") {
@@ -12072,7 +12073,7 @@ function App() {
                 companyFolderId={selectedFolderId || undefined}
                 canCreateTemplates={canAccessWorkspaceNav(currentUser.role)}
                 onToggleTemplate={handleToggleTemplate}
-                onEditTemplate={canAccessWorkspaceNav(currentUser.role) ? handleEditTemplate : undefined}
+                onEditTemplate={canManageTemplates(currentUser.role) ? handleEditTemplate : undefined}
               />
             )}
 
@@ -12625,7 +12626,7 @@ function App() {
               />
             )}
 
-            {screen === "auditTemplateEdit" && currentUser && canAccessWorkspaceNav(currentUser.role) && editingTemplateId && (
+            {screen === "auditTemplateEdit" && currentUser && canManageTemplates(currentUser.role) && editingTemplateId && (
               <AuditTemplateEditScreen
                 role={currentUser.role}
                 templateId={editingTemplateId}

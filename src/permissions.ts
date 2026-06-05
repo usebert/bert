@@ -310,6 +310,10 @@ export function canManageSchedules(role: Role) {
   return getRolePermissions(role).canManageSchedules;
 }
 
+export function canManageTemplates(role: Role) {
+  return getRolePermissions(role).canManageTemplates;
+}
+
 export function canViewReports(role: Role) {
   return canAccessReports(role);
 }
