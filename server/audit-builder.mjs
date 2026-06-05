@@ -131,7 +131,15 @@ function flattenTemplateQuestions(sections) {
   return flat;
 }
 
-function templateToApiRecord(templateId, payload, actorEmail) {
+function normalizeTemplateStatus(status = "active") {
+  const value = String(status || "active").trim().toLowerCase();
+  if (value === "inactive" || value === "archived") {
+    return value;
+  }
+  return "active";
+}
+
+function templateToApiRecord(templateId, payload, actorEmail, extras = {}) {
   const now = new Date().toISOString();
   return {
     id: templateId,
@@ -139,10 +147,28 @@ function templateToApiRecord(templateId, payload, actorEmail) {
     description: payload.description,
     category: payload.category,
     sections: payload.sections,
-    created_at: now,
+    created_at: extras.created_at || now,
     updated_at: now,
     created_by: actorEmail,
     question_count: flattenTemplateQuestions(payload.sections).length,
+    version: Number(extras.version) > 0 ? Number(extras.version) : 1,
+    parent_template_id: extras.parent_template_id || null,
+    status: normalizeTemplateStatus(extras.status || payload.status || "active"),
+  };
+}
+
+function templateIsUsed(bucket, templateId) {
+  return Object.values(bucket.instances || {}).some((instance) => instance.template_id === templateId);
+}
+
+function enrichTemplate(template, bucket) {
+  if (!template) return null;
+  return {
+    ...template,
+    version: Number(template.version) > 0 ? Number(template.version) : 1,
+    parent_template_id: template.parent_template_id || null,
+    status: normalizeTemplateStatus(template.status),
+    is_used: templateIsUsed(bucket, template.id),
   };
 }
 
@@ -228,6 +254,11 @@ async function writeAuditTemplateTranslations(deps, auth, spreadsheetId, templat
   );
 }
 
+function sheetStatusForTemplate(templateRecord) {
+  const status = normalizeTemplateStatus(templateRecord.status);
+  return status === "active" ? "active" : "inactive";
+}
+
 async function writeAuditTemplateMetadata(deps, auth, spreadsheetId, templateRecord) {
   const { ensureColumns, getTabValues, rowsToRecords, withSheetsQuotaRetry, google } = deps;
   await ensureColumns(auth, spreadsheetId, AUDIT_TEMPLATES_TAB, AUDIT_TEMPLATES_COLUMNS);
@@ -238,7 +269,7 @@ async function writeAuditTemplateMetadata(deps, auth, spreadsheetId, templateRec
     templateRecord.id,
     templateRecord.template_name,
     templateRecord.category,
-    "active",
+    sheetStatusForTemplate(templateRecord),
     "",
     templateRecord.created_at,
     "",
@@ -266,6 +297,22 @@ async function writeAuditTemplateMetadata(deps, auth, spreadsheetId, templateRec
       },
     }),
   );
+}
+
+async function syncTemplateToSheets(sheetDeps, authed, masterSheetId, templateId, payload, templateRecord, actorEmail) {
+  await writeAuditTemplateMetadata(sheetDeps, authed, masterSheetId, templateRecord);
+  await writeAuditTemplateTranslations(sheetDeps, authed, masterSheetId, templateId, payload, actorEmail);
+}
+
+function createTemplateVersionRecord(sourceTemplate, payload, actorEmail, newTemplateId) {
+  const nextVersion = (Number(sourceTemplate.version) > 0 ? Number(sourceTemplate.version) : 1) + 1;
+  const parentId = sourceTemplate.parent_template_id || sourceTemplate.id;
+  return templateToApiRecord(newTemplateId, payload, actorEmail, {
+    created_at: new Date().toISOString(),
+    version: nextVersion,
+    parent_template_id: parentId,
+    status: "active",
+  });
 }
 
 function sectionsFromQuestionsJson(questionsJson) {
@@ -312,16 +359,23 @@ async function loadTemplatesFromSheets(deps, auth, spreadsheetId, sessionDir) {
     }
     const translation = translationById.get(row.id);
     const sections = sectionsFromQuestionsJson(translation?.questionsJson);
+    const existing = bucket.templates[row.id] || {};
+    const sheetStatus = String(row.status || "active").trim().toLowerCase();
     bucket.templates[row.id] = {
       id: row.id,
       template_name: row.name,
-      description: translation?.description || "",
-      category: row.category || "Audits",
-      sections,
-      created_at: row.createdAt || new Date().toISOString(),
-      updated_at: row.createdAt || new Date().toISOString(),
-      created_by: "",
-      question_count: sections.reduce((sum, section) => sum + section.questions.length, 0),
+      description: translation?.description || existing.description || "",
+      category: row.category || existing.category || "Audits",
+      sections: existing.sections?.length ? existing.sections : sections,
+      created_at: existing.created_at || row.createdAt || new Date().toISOString(),
+      updated_at: existing.updated_at || row.createdAt || new Date().toISOString(),
+      created_by: existing.created_by || "",
+      question_count: (existing.sections || sections).reduce((sum, section) => sum + section.questions.length, 0),
+      version: existing.version || 1,
+      parent_template_id: existing.parent_template_id || null,
+      status:
+        existing.status ||
+        (sheetStatus === "inactive" ? "inactive" : sheetStatus === "archived" ? "archived" : "active"),
     };
   }
   persistWorkspace(sessionDir, store, key, bucket);
@@ -393,11 +447,18 @@ export function installAuditBuilderRoutes(app, deps) {
       const masterSheetId = String(req.query?.masterSheetId || actor.masterSheetId || "").trim();
       const authed = getAuthedClient?.();
       if (envConfigured?.() && authed && masterSheetId && masterSheetId !== "local-dev") {
-        const templates = await loadTemplatesFromSheets(sheetDeps, authed, masterSheetId, sessionDir);
+        await loadTemplatesFromSheets(sheetDeps, authed, masterSheetId, sessionDir);
+        const { bucket } = getWorkspaceStore(sessionDir, masterSheetId);
+        const templates = Object.values(bucket.templates)
+          .map((template) => enrichTemplate(template, bucket))
+          .filter((template) => template.status !== "archived");
         return res.json({ ok: true, templates });
       }
       const { bucket } = getWorkspaceStore(sessionDir, masterSheetId || "local-dev");
-      return res.json({ ok: true, templates: Object.values(bucket.templates) });
+      const templates = Object.values(bucket.templates)
+        .map((template) => enrichTemplate(template, bucket))
+        .filter((template) => template.status !== "archived");
+      return res.json({ ok: true, templates });
     } catch (error) {
       return res.status(500).json({
         ok: false,
@@ -416,7 +477,7 @@ export function installAuditBuilderRoutes(app, deps) {
         await loadTemplatesFromSheets(sheetDeps, authed, masterSheetId, sessionDir);
       }
       const { bucket } = getWorkspaceStore(sessionDir, masterSheetId);
-      const template = bucket.templates[templateId];
+      const template = enrichTemplate(bucket.templates[templateId], bucket);
       if (!template) {
         return res.status(404).json({ ok: false, error: "Audit template not found." });
       }
@@ -435,23 +496,211 @@ export function installAuditBuilderRoutes(app, deps) {
       const masterSheetId = String(req.body?.masterSheetId || actor.masterSheetId || "").trim() || "local-dev";
       const payload = normalizeTemplatePayload(req.body);
       const templateId = String(req.body?.id || "").trim() || newId("ab-template");
-      const record = templateToApiRecord(templateId, payload, actor.email);
+      const { store, bucket, key } = getWorkspaceStore(sessionDir, masterSheetId);
+      const record = templateToApiRecord(templateId, payload, actor.email, {
+        status: req.body?.status,
+      });
+      bucket.templates[templateId] = record;
+      persistWorkspace(sessionDir, store, key, bucket);
+
+      const authed = getAuthedClient?.();
+      if (envConfigured?.() && authed && masterSheetId && masterSheetId !== "local-dev") {
+        await syncTemplateToSheets(sheetDeps, authed, masterSheetId, templateId, payload, record, actor.email);
+      }
+
+      return res.json({ ok: true, template: enrichTemplate(record, bucket) });
+    } catch (error) {
+      return res.status(400).json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Unable to save audit template.",
+      });
+    }
+  });
+
+  app.patch("/api/audits/templates/:id", requireActor, async (req, res) => {
+    try {
+      const actor = req.auditBuilderActor;
+      const masterSheetId = String(req.body?.masterSheetId || actor.masterSheetId || "").trim() || "local-dev";
+      const templateId = String(req.params.id || "").trim();
+      const createNewVersion = Boolean(req.body?.create_new_version);
+      const payload = normalizeTemplatePayload(req.body);
+      const requestedStatus = normalizeTemplateStatus(req.body?.status);
 
       const { store, bucket, key } = getWorkspaceStore(sessionDir, masterSheetId);
+      const existing = bucket.templates[templateId];
+      if (!existing) {
+        return res.status(404).json({ ok: false, error: "Audit template not found." });
+      }
+
+      const isUsed = templateIsUsed(bucket, templateId);
+      if (isUsed && !createNewVersion) {
+        return res.status(409).json({
+          ok: false,
+          error:
+            "This template has already been used. Saving changes will create a new version for future audits. Existing audit records will not be changed.",
+          is_used: true,
+          requires_new_version: true,
+        });
+      }
+
+      let record;
+      let targetTemplateId = templateId;
+      if (isUsed && createNewVersion) {
+        targetTemplateId = newId("ab-template");
+        record = createTemplateVersionRecord(existing, { ...payload, status: "active" }, actor.email, targetTemplateId);
+        bucket.templates[targetTemplateId] = record;
+        const archivedPrevious = {
+          ...existing,
+          status: "archived",
+          updated_at: new Date().toISOString(),
+        };
+        bucket.templates[templateId] = archivedPrevious;
+      } else {
+        record = templateToApiRecord(templateId, { ...payload, status: requestedStatus }, actor.email, {
+          created_at: existing.created_at,
+          version: existing.version || 1,
+          parent_template_id: existing.parent_template_id || null,
+          status: requestedStatus,
+        });
+        bucket.templates[templateId] = record;
+      }
+      persistWorkspace(sessionDir, store, key, bucket);
+
+      const authed = getAuthedClient?.();
+      if (envConfigured?.() && authed && masterSheetId && masterSheetId !== "local-dev") {
+        if (isUsed && createNewVersion) {
+          await writeAuditTemplateMetadata(sheetDeps, authed, masterSheetId, bucket.templates[templateId]);
+          await syncTemplateToSheets(sheetDeps, authed, masterSheetId, targetTemplateId, payload, record, actor.email);
+        } else {
+          await syncTemplateToSheets(sheetDeps, authed, masterSheetId, targetTemplateId, payload, record, actor.email);
+        }
+      }
+
+      return res.json({ ok: true, template: enrichTemplate(record, bucket) });
+    } catch (error) {
+      return res.status(400).json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Unable to update audit template.",
+      });
+    }
+  });
+
+  app.post("/api/audits/templates/:id/new-version", requireActor, async (req, res) => {
+    try {
+      const actor = req.auditBuilderActor;
+      const masterSheetId = String(req.body?.masterSheetId || actor.masterSheetId || "").trim() || "local-dev";
+      const templateId = String(req.params.id || "").trim();
+      const payload = normalizeTemplatePayload(req.body);
+      const requestedStatus = normalizeTemplateStatus(req.body?.status || "active");
+
+      const { store, bucket, key } = getWorkspaceStore(sessionDir, masterSheetId);
+      const existing = bucket.templates[templateId];
+      if (!existing) {
+        return res.status(404).json({ ok: false, error: "Audit template not found." });
+      }
+
+      const newTemplateId = newId("ab-template");
+      const record = createTemplateVersionRecord(
+        existing,
+        { ...payload, status: requestedStatus },
+        actor.email,
+        newTemplateId,
+      );
+      bucket.templates[newTemplateId] = record;
+      bucket.templates[templateId] = {
+        ...existing,
+        status: "archived",
+        updated_at: new Date().toISOString(),
+      };
+      persistWorkspace(sessionDir, store, key, bucket);
+
+      const authed = getAuthedClient?.();
+      if (envConfigured?.() && authed && masterSheetId && masterSheetId !== "local-dev") {
+        await writeAuditTemplateMetadata(sheetDeps, authed, masterSheetId, bucket.templates[templateId]);
+        await syncTemplateToSheets(sheetDeps, authed, masterSheetId, newTemplateId, payload, record, actor.email);
+      }
+
+      return res.json({ ok: true, template: enrichTemplate(record, bucket) });
+    } catch (error) {
+      return res.status(400).json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Unable to create template version.",
+      });
+    }
+  });
+
+  app.post("/api/audits/templates/:id/duplicate", requireActor, async (req, res) => {
+    try {
+      const actor = req.auditBuilderActor;
+      const masterSheetId = String(req.body?.masterSheetId || actor.masterSheetId || "").trim() || "local-dev";
+      const templateId = String(req.params.id || "").trim();
+
+      const { store, bucket, key } = getWorkspaceStore(sessionDir, masterSheetId);
+      const existing = bucket.templates[templateId];
+      if (!existing) {
+        return res.status(404).json({ ok: false, error: "Audit template not found." });
+      }
+
+      const duplicateId = newId("ab-template");
+      const payload = {
+        template_name: `${existing.template_name} (Copy)`,
+        description: existing.description || "",
+        category: existing.category || "Audits",
+        sections: existing.sections,
+        status: "active",
+      };
+      const record = templateToApiRecord(duplicateId, payload, actor.email, {
+        version: 1,
+        parent_template_id: null,
+        status: "active",
+      });
+      bucket.templates[duplicateId] = record;
+      persistWorkspace(sessionDir, store, key, bucket);
+
+      const authed = getAuthedClient?.();
+      if (envConfigured?.() && authed && masterSheetId && masterSheetId !== "local-dev") {
+        await syncTemplateToSheets(sheetDeps, authed, masterSheetId, duplicateId, payload, record, actor.email);
+      }
+
+      return res.json({ ok: true, template: enrichTemplate(record, bucket) });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Unable to duplicate audit template.",
+      });
+    }
+  });
+
+  app.post("/api/audits/templates/:id/archive", requireActor, async (req, res) => {
+    try {
+      const actor = req.auditBuilderActor;
+      const masterSheetId = String(req.body?.masterSheetId || actor.masterSheetId || "").trim() || "local-dev";
+      const templateId = String(req.params.id || "").trim();
+
+      const { store, bucket, key } = getWorkspaceStore(sessionDir, masterSheetId);
+      const existing = bucket.templates[templateId];
+      if (!existing) {
+        return res.status(404).json({ ok: false, error: "Audit template not found." });
+      }
+
+      const record = {
+        ...existing,
+        status: "archived",
+        updated_at: new Date().toISOString(),
+      };
       bucket.templates[templateId] = record;
       persistWorkspace(sessionDir, store, key, bucket);
 
       const authed = getAuthedClient?.();
       if (envConfigured?.() && authed && masterSheetId && masterSheetId !== "local-dev") {
         await writeAuditTemplateMetadata(sheetDeps, authed, masterSheetId, record);
-        await writeAuditTemplateTranslations(sheetDeps, authed, masterSheetId, templateId, payload, actor.email);
       }
 
-      return res.json({ ok: true, template: record });
+      return res.json({ ok: true, template: enrichTemplate(record, bucket) });
     } catch (error) {
-      return res.status(400).json({
+      return res.status(500).json({
         ok: false,
-        error: error instanceof Error ? error.message : "Unable to save audit template.",
+        error: error instanceof Error ? error.message : "Unable to archive audit template.",
       });
     }
   });

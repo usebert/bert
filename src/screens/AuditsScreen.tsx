@@ -459,6 +459,7 @@ export function AuditsScreen({
   companyFolderId,
   canCreateTemplates = false,
   onToggleTemplate,
+  onEditTemplate,
 }: AuditsScreenProps) {
   if (canCompleteAuditAsAuditor(currentUser.role)) {
     const theme = getRoleTheme("Auditor");
@@ -576,6 +577,7 @@ export function AuditsScreen({
         companyFolderId={companyFolderId}
         canCreateTemplates={canCreateTemplates}
         onToggleTemplate={onToggleTemplate}
+        onEditTemplate={onEditTemplate}
       />
 
       {canSubmitAuditForReview(currentUser.role) && auditAccessMatrix.length > 0 ? (

@@ -53,4 +53,5 @@ export type AuditsScreenProps = {
   companyFolderId?: string;
   canCreateTemplates?: boolean;
   onToggleTemplate?: (templateId: string) => void;
+  onEditTemplate?: (templateId: string) => void;
 };

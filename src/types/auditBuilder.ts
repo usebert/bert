@@ -19,12 +19,18 @@ export type AuditBuilderTemplateDraft = {
   sections: AuditBuilderSection[];
 };
 
+export type AuditBuilderTemplateStatus = "active" | "inactive" | "archived";
+
 export type AuditBuilderTemplateRecord = AuditBuilderTemplateDraft & {
   id: string;
   created_at: string;
   updated_at: string;
   created_by: string;
   question_count: number;
+  version?: number;
+  parent_template_id?: string | null;
+  status?: AuditBuilderTemplateStatus;
+  is_used?: boolean;
 };
 
 export type AuditBuilderInstance = {

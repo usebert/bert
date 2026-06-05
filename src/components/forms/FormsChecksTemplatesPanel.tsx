@@ -10,6 +10,7 @@ type FormsChecksTemplatesPanelProps = {
   companyFolderId?: string;
   canCreateTemplates: boolean;
   onToggleTemplate?: (templateId: string) => void;
+  onEditTemplate?: (templateId: string) => void;
   onGoogleFormUpdated?: (templateId: string, record: { googleFormId?: string; googleFormEditUrl?: string; googleFormResponderUrl?: string; syncStatus?: string; currentDriveFolderName?: string }) => void;
 };
 
@@ -39,6 +40,7 @@ export function FormsChecksTemplatesPanel({
   companyFolderId,
   canCreateTemplates,
   onToggleTemplate,
+  onEditTemplate,
   onGoogleFormUpdated,
 }: FormsChecksTemplatesPanelProps) {
   const guidance = workspaceGuidance(syncState, googleConnected);
@@ -88,18 +90,29 @@ export function FormsChecksTemplatesPanel({
                 <p className="mt-1 text-xs text-slate-400">BERT template only — no Google Form copy yet</p>
               )}
             </div>
-            {onToggleTemplate ? (
-              <button
-                type="button"
-                onClick={() => onToggleTemplate(template.id)}
-                className={[
-                  "shrink-0 rounded-xl px-3 py-2 text-xs font-semibold",
-                  template.active ? "bg-blue-500/12 text-blue-800" : "bg-slate-100 text-slate-700",
-                ].join(" ")}
-              >
-                {template.active ? "Active" : "Inactive"}
-              </button>
-            ) : null}
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {onEditTemplate ? (
+                <button
+                  type="button"
+                  onClick={() => onEditTemplate(template.id)}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+                >
+                  Edit
+                </button>
+              ) : null}
+              {onToggleTemplate ? (
+                <button
+                  type="button"
+                  onClick={() => onToggleTemplate(template.id)}
+                  className={[
+                    "rounded-xl px-3 py-2 text-xs font-semibold",
+                    template.active ? "bg-blue-500/12 text-blue-800" : "bg-slate-100 text-slate-700",
+                  ].join(" ")}
+                >
+                  {template.active ? "Active" : "Inactive"}
+                </button>
+              ) : null}
+            </div>
           </div>
           <GoogleFormTemplatePanel
             templateId={template.id}

@@ -176,6 +176,7 @@ import { DocumentTrainingScreen } from "./src/screens/DocumentTrainingScreen";
 import { QmsReadinessScreen } from "./src/screens/QmsReadinessScreen";
 import { EmailRemindersScreen } from "./src/screens/EmailRemindersScreen";
 import { AuditBuilderScreen } from "./src/screens/AuditBuilderScreen";
+import { AuditTemplateEditScreen } from "./src/screens/AuditTemplateEditScreen";
 import { auditBuilderTemplateToBertTemplate } from "./src/utils/auditBuilderMapping";
 import type { AuditBuilderTemplateRecord } from "./src/types/auditBuilder";
 import { GodmodeInitialSetupScreen } from "./src/screens/GodmodeInitialSetupScreen";
@@ -3271,6 +3272,7 @@ function App() {
     ],
   );
   const [templateNameInput, setTemplateNameInput] = useState("");
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [templateCategoryInput, setTemplateCategoryInput] = useState("General");
   const [defaultFormLanguage, setDefaultFormLanguage] = useState<FormLanguageCode>(DEFAULT_FORM_LANGUAGE);
   const [templateLanguageInput, setTemplateLanguageInput] = useState<FormLanguageCode>(DEFAULT_FORM_LANGUAGE);
@@ -9829,6 +9831,59 @@ function App() {
     startAudit(availableAudit.id);
   };
 
+  const syncTemplatesAfterBuilderChange = async (nextTemplates: AuditTemplate[]) => {
+    setTemplates(nextTemplates);
+    const masterSheetId = resolveWorkspaceMasterSheetId();
+    if (syncState === "Synced" && googleConnected && masterSheetId) {
+      try {
+        await syncAuditTemplatesToSheet(masterSheetId, nextTemplates);
+      } catch {
+        pushToast("Template saved locally", "Could not sync AuditTemplates tab yet.", "warning");
+      }
+    }
+  };
+
+  const handleEditTemplate = (templateId: string) => {
+    setEditingTemplateId(templateId);
+    setScreen("auditTemplateEdit");
+  };
+
+  const handleAuditTemplateUpdated = async (
+    record: AuditBuilderTemplateRecord,
+    options?: { replacedTemplateId?: string },
+  ) => {
+    const bertTemplate = auditBuilderTemplateToBertTemplate(record);
+    const replacedId = options?.replacedTemplateId;
+    const nextTemplates = replacedId
+      ? [
+          bertTemplate,
+          ...templates
+            .filter((template) => template.id !== bertTemplate.id && template.id !== replacedId)
+            .map((template) => (template.id === replacedId ? { ...template, active: false } : template)),
+        ]
+      : [bertTemplate, ...templates.filter((template) => template.id !== bertTemplate.id)];
+    await syncTemplatesAfterBuilderChange(nextTemplates);
+    if (replacedId && editingTemplateId === replacedId) {
+      setEditingTemplateId(record.id);
+    }
+    pushToast(
+      replacedId ? "New template version saved" : "Template updated",
+      replacedId
+        ? `${record.template_name} v${record.version || 1} is active for future audits. Existing schedules keep their original version.`
+        : `${record.template_name} has been updated.`,
+      "success",
+    );
+  };
+
+  const handleAuditTemplateArchived = async (templateId: string) => {
+    const nextTemplates = templates.map((template) =>
+      template.id === templateId ? { ...template, active: false } : template,
+    );
+    await syncTemplatesAfterBuilderChange(nextTemplates);
+    setEditingTemplateId(null);
+    pushToast("Template archived", "The template is inactive but kept for historic records.", "success");
+  };
+
   const handleAddTemplateQuestion = () => {
     const trimmedQuestion = templateQuestionInput.trim();
     if (!trimmedQuestion) {
@@ -10678,6 +10733,9 @@ function App() {
     if (currentUser && !canAccessWorkspaceNav(currentUser.role) && screen === "auditBuilder") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
+    if (currentUser && !canAccessWorkspaceNav(currentUser.role) && screen === "auditTemplateEdit") {
+      setScreen(getHomeScreenForRole(currentUser.role));
+    }
     if (currentUser && !canAccessPilotSetup(currentUser.role) && screen === "setup") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
@@ -10742,6 +10800,7 @@ function App() {
       currentUser &&
       screen !== "complete" &&
       screen !== "auditBuilder" &&
+      screen !== "auditTemplateEdit" &&
       screen !== "setupInitial" &&
       !visibleNavItems.some((item) => item.id === screen) &&
       !canRoleAccessNavItem(currentUser.role, screen)
@@ -12013,6 +12072,7 @@ function App() {
                 companyFolderId={selectedFolderId || undefined}
                 canCreateTemplates={canAccessWorkspaceNav(currentUser.role)}
                 onToggleTemplate={handleToggleTemplate}
+                onEditTemplate={canAccessWorkspaceNav(currentUser.role) ? handleEditTemplate : undefined}
               />
             )}
 
@@ -12562,6 +12622,22 @@ function App() {
                 onBack={() => setScreen("audits")}
                 onTemplateSaved={handleAuditBuilderTemplateSaved}
                 onStartAudit={handleAuditBuilderStartAudit}
+              />
+            )}
+
+            {screen === "auditTemplateEdit" && currentUser && canAccessWorkspaceNav(currentUser.role) && editingTemplateId && (
+              <AuditTemplateEditScreen
+                role={currentUser.role}
+                templateId={editingTemplateId}
+                fallbackTemplate={templates.find((template) => template.id === editingTemplateId)}
+                masterSheetId={resolveWorkspaceMasterSheetId() || undefined}
+                devApiHeaders={auditBuilderApiHeaders()}
+                onBack={() => {
+                  setEditingTemplateId(null);
+                  setScreen("audits");
+                }}
+                onTemplateUpdated={handleAuditTemplateUpdated}
+                onTemplateArchived={handleAuditTemplateArchived}
               />
             )}
 
