@@ -1,4 +1,5 @@
-import type { CompanyFolder, ScheduleListFilter } from "../types/schedulesScreenProps";
+import type { CompanyFolder, ScheduleAuditorOption, ScheduleListFilter } from "../types/schedulesScreenProps";
+import { formatUserRoleLabel } from "../utils/inviteStatusDisplay";
 import type {
   ManagedSchedule,
   ManagedScheduleAudit,
@@ -186,7 +187,7 @@ export function SchedulesScreen({
   schedules: ManagedSchedule[];
   filter: ScheduleListFilter;
   availableAudits: { id: string; name: string }[];
-  availableAuditors: string[];
+  availableAuditors: ScheduleAuditorOption[];
   editorOpen: boolean;
   editingSchedule: ManagedSchedule | null;
   scheduleName: string;
@@ -207,7 +208,7 @@ export function SchedulesScreen({
   onStartDateChange: (value: string) => void;
   onEndDateChange: (value: string) => void;
   onContinuousChange: (value: boolean) => void;
-  onToggleAuditor: (name: string) => void;
+  onToggleAuditor: (auditorId: string) => void;
   onSave: () => void;
   onCancel: () => void;
   onReactivate: (scheduleId: string) => void;
@@ -491,34 +492,50 @@ export function SchedulesScreen({
             <div className={["rounded-[1.5rem] border p-4", auditorsError ? "border-rose-300 bg-rose-50/50" : "border-slate-200 bg-slate-50"].join(" ")}>
               <p className="text-sm font-semibold text-slate-900">Select auditors for this schedule</p>
               <div className="mt-3 space-y-2">
-                {availableAuditors.map((auditor) => {
-                  const selected = selectedAuditors.includes(auditor);
-                  return (
-                    <label
-                      key={auditor}
-                      className={[
-                        "flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left",
-                        selected
-                          ? "border-[rgba(249,115,22,0.55)] bg-[rgba(249,115,22,0.18)]"
-                          : "border-[rgba(249,115,22,0.28)] bg-[rgba(249,115,22,0.08)]",
-                      ].join(" ")}
-                    >
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          checked={selected}
-                          onChange={() => onToggleAuditor(auditor)}
-                          className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400"
-                        />
-                        <span className="text-sm font-semibold text-slate-900">{auditor}</span>
-                      </div>
-                      <span className={["rounded-full px-3 py-1 text-xs font-semibold", selected ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-500"].join(" ")}>
-                        {selected ? "Added" : "Add"}
-                      </span>
-                    </label>
-                  );
-                })}
+                {availableAuditors.length === 0 ? (
+                  <p className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+                    No available auditors found. Add users in Users &amp; Invites, or check user roles.
+                  </p>
+                ) : (
+                  availableAuditors.map((auditor) => {
+                    const selected = selectedAuditors.includes(auditor.id);
+                    return (
+                      <label
+                        key={auditor.id}
+                        className={[
+                          "flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left",
+                          selected
+                            ? "border-[rgba(249,115,22,0.55)] bg-[rgba(249,115,22,0.18)]"
+                            : "border-[rgba(249,115,22,0.28)] bg-[rgba(249,115,22,0.08)]",
+                        ].join(" ")}
+                      >
+                        <div className="flex min-w-0 items-center gap-3">
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={() => onToggleAuditor(auditor.id)}
+                            className="h-4 w-4 shrink-0 rounded border-slate-300 text-slate-900 focus:ring-slate-400"
+                          />
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-slate-900">{auditor.name}</p>
+                            <p className="text-xs text-slate-500">
+                              {formatUserRoleLabel(auditor.role)} • {auditor.email}
+                            </p>
+                          </div>
+                        </div>
+                        <span className={["shrink-0 rounded-full px-3 py-1 text-xs font-semibold", selected ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-500"].join(" ")}>
+                          {selected ? "Added" : "Add"}
+                        </span>
+                      </label>
+                    );
+                  })
+                )}
               </div>
+              {auditorsError && (
+                <p className="mt-2 text-xs font-semibold text-rose-600">
+                  Please select at least one auditor for this schedule.
+                </p>
+              )}
             </div>
 
             <div className="flex flex-wrap gap-3">

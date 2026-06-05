@@ -211,6 +211,11 @@ import {
   normalizeAuditAccessLevel,
   resolveCurrentUserReportEmails,
 } from "./src/utils/auditAccess";
+import {
+  buildAvailableScheduleAuditors,
+  normalizeScheduleAuditorIds,
+  resolveScheduleAuditorLabels,
+} from "./src/utils/scheduleAuditors";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
 import { getNextBestAction } from "./src/utils/nextBestAction";
 import type { DashboardSummaryForNextAction, NextBestActionIntent } from "./src/utils/nextBestAction";
@@ -4709,11 +4714,14 @@ function App() {
     return "synced";
   }, [offlineMode, failedSyncCount, pendingSyncCount, offlineQueue]);
 
-  const availableScheduleAuditors = useMemo(() => {
-    const seeded = users.filter((user) => user.role === "Auditor").map((user) => user.name);
-    const invited = invitedUsers.filter((invite) => invite.role === "Auditor").map((invite) => invite.email);
-    return [...seeded, ...invited].filter((item, index, list) => list.indexOf(item) === index);
-  }, [invitedUsers]);
+  const availableScheduleAuditors = useMemo(
+    () => buildAvailableScheduleAuditors(companyReportUsers, invitedUsers),
+    [companyReportUsers, invitedUsers],
+  );
+  const availableActionAuditors = useMemo(
+    () => availableScheduleAuditors.map((auditor) => auditor.name),
+    [availableScheduleAuditors],
+  );
   const currentManagerAlerts = useMemo(() => {
     if (!currentUser || currentUser.role !== "Manager") {
       return [];
@@ -10315,7 +10323,7 @@ function App() {
     setScheduleDraftStartDate(schedule.startDate);
     setScheduleDraftEndDate(schedule.endDate);
     setScheduleDraftContinuous(!schedule.endDate);
-    setScheduleDraftAuditors(schedule.auditors);
+    setScheduleDraftAuditors(normalizeScheduleAuditorIds(schedule.auditors, availableScheduleAuditors));
     setScheduleValidationAttempted(false);
     setScheduleEditorOpen(true);
   };
@@ -10375,9 +10383,9 @@ function App() {
     );
   };
 
-  const handleToggleScheduleAuditor = (name: string) => {
+  const handleToggleScheduleAuditor = (auditorId: string) => {
     setScheduleDraftAuditors((current) =>
-      current.includes(name) ? current.filter((item) => item !== name) : [...current, name],
+      current.includes(auditorId) ? current.filter((item) => item !== auditorId) : [...current, auditorId],
     );
   };
 
@@ -10405,9 +10413,15 @@ function App() {
       scheduleDraftAuditors.length === 0 ||
       invalidAuditConfig
     ) {
-      pushToast("Schedule details missing", "Complete all required schedule fields before saving.", "warning");
+      const message =
+        scheduleDraftAuditors.length === 0
+          ? "Please select at least one auditor for this schedule."
+          : "Complete all required schedule fields before saving.";
+      pushToast("Schedule details missing", message, "warning");
       return;
     }
+
+    const resolvedAuditors = resolveScheduleAuditorLabels(scheduleDraftAuditors, availableScheduleAuditors);
 
     const editingSchedule = editingScheduleId
       ? managedSchedules.find((item) => item.id === editingScheduleId) || null
@@ -10426,7 +10440,7 @@ function App() {
       companyFolderId: selectedFolder.id,
       scheduleName: trimmedName,
       audits: scheduleDraftAudits,
-      auditors: scheduleDraftAuditors,
+      auditors: resolvedAuditors,
       startDate: scheduleDraftStartDate,
       endDate: resolvedEndDate,
       updatedAt: formatStamp(),
@@ -10482,7 +10496,7 @@ function App() {
     setScheduleDraftStartDate(new Date().toISOString().slice(0, 10));
     setScheduleDraftEndDate("");
     setScheduleDraftContinuous(true);
-    setScheduleDraftAuditors(schedule.auditors);
+    setScheduleDraftAuditors(normalizeScheduleAuditorIds(schedule.auditors, availableScheduleAuditors));
     setScheduleValidationAttempted(false);
     setScheduleEditorOpen(true);
   };
@@ -12010,7 +12024,7 @@ function App() {
                 actionSeverityFilter={actionSeverityFilter}
                 actionNcFilter={actionNcFilter}
                 availableNonConformanceIds={availableNonConformanceIds}
-                availableAuditors={availableScheduleAuditors}
+                availableAuditors={availableActionAuditors}
                 onFilterChange={setActionFilter}
                 onSeverityFilterChange={setActionSeverityFilter}
                 onNcFilterChange={setActionNcFilter}
