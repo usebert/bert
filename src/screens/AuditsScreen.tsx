@@ -451,6 +451,7 @@ export function AuditsScreen({
   onNavigateToSubmit,
   onNavigateToSchedules,
   onNavigateToTemplateBuilder,
+  onNavigateToAuditBuilder,
   onNavigateToWorkspace,
   templates = [],
   syncState = "Not synced",
@@ -514,17 +515,29 @@ export function AuditsScreen({
               role={currentUser.role}
             />
             <div className="mt-4 flex flex-wrap gap-3">
-              {onNavigateToTemplateBuilder ? (
+              {onNavigateToAuditBuilder ? (
                 <button
                   type="button"
-                  onClick={onNavigateToTemplateBuilder}
+                  onClick={onNavigateToAuditBuilder}
                   className={[
                     "inline-flex h-12 items-center rounded-xl px-5 text-sm font-semibold text-white",
                     theme.primaryButton,
                     theme.primaryButtonHover,
                   ].join(" ")}
                 >
-                  Create form/check template
+                  Create Audit Template
+                </button>
+              ) : null}
+              {onNavigateToTemplateBuilder ? (
+                <button
+                  type="button"
+                  onClick={onNavigateToTemplateBuilder}
+                  className={[
+                    "inline-flex h-12 items-center rounded-xl border px-5 text-sm font-semibold",
+                    theme.outlineButton,
+                  ].join(" ")}
+                >
+                  Advanced template builder
                 </button>
               ) : null}
               {onNavigateToSchedules ? (

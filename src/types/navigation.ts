@@ -29,6 +29,7 @@ export type RoutedScreen =
   | "account"
   | "emailReminders"
   | "qmsReadiness"
+  | "auditBuilder"
   | "complete";
 
 /** Sidebar / nav-gated screens only — excludes the `"complete"` audit flow route. */

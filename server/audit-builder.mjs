@@ -1,0 +1,639 @@
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import {
+  AUDIT_TEMPLATES_TAB,
+  AUDIT_TEMPLATES_COLUMNS,
+  readAuditTemplateTranslations,
+} from "./company-audit-mapping.mjs";
+import {
+  AUDIT_TEMPLATE_TRANSLATIONS_COLUMNS,
+  AUDIT_TEMPLATE_TRANSLATIONS_TAB,
+  DEFAULT_FORM_LANGUAGE,
+  defaultTranslationStatusForLanguage,
+} from "./template-languages.mjs";
+import { parseChecklistText } from "./audit-builder-parser.mjs";
+
+const STORE_DIR = "audit-builder";
+const STORE_FILE = "workspaces.json";
+
+const COMPLIANCE_FAIL = "Non-compliant";
+const COMPLIANCE_PASS = "Compliant";
+const COMPLIANCE_NA = "Not applicable";
+
+function storePath(sessionDir) {
+  return path.join(sessionDir, STORE_DIR, STORE_FILE);
+}
+
+function readStore(sessionDir) {
+  const filePath = storePath(sessionDir);
+  try {
+    const raw = fs.readFileSync(filePath, "utf8");
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== "object") {
+      return { version: 1, workspaces: {} };
+    }
+    return { version: 1, workspaces: data.workspaces || {} };
+  } catch {
+    return { version: 1, workspaces: {} };
+  }
+}
+
+function writeStore(sessionDir, store) {
+  const dir = path.join(sessionDir, STORE_DIR);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(storePath(sessionDir), JSON.stringify(store, null, 2), "utf8");
+}
+
+function workspaceKey(masterSheetId) {
+  return String(masterSheetId || "local").trim() || "local";
+}
+
+function getWorkspaceStore(sessionDir, masterSheetId) {
+  const store = readStore(sessionDir);
+  const key = workspaceKey(masterSheetId);
+  if (!store.workspaces[key]) {
+    store.workspaces[key] = { templates: {}, instances: {}, answers: {}, actions: {} };
+  }
+  return { store, bucket: store.workspaces[key], key };
+}
+
+function persistWorkspace(sessionDir, store, key, bucket) {
+  store.workspaces[key] = bucket;
+  writeStore(sessionDir, store);
+}
+
+function newId(prefix) {
+  return `${prefix}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+}
+
+function normalizeTemplatePayload(body = {}) {
+  const templateName = String(body.template_name || body.name || "").trim();
+  const description = String(body.description || "").trim();
+  const category = String(body.category || "Audits").trim();
+  const sections = Array.isArray(body.sections) ? body.sections : [];
+
+  const normalizedSections = sections
+    .map((section) => {
+      const name = String(section?.name || "General").trim() || "General";
+      const questions = Array.isArray(section?.questions)
+        ? section.questions
+            .map((question) => {
+              const questionText = String(question?.question_text || question?.text || "").trim();
+              if (!questionText) return null;
+              return {
+                question_text: questionText,
+                answer_type: String(question?.answer_type || "compliance").trim() || "compliance",
+                options: Array.isArray(question?.options) && question.options.length > 0
+                  ? question.options.map((option) => String(option).trim()).filter(Boolean)
+                  : ["Compliant", "Non-compliant", "Not applicable"],
+                requires_comment_on_failure: question?.requires_comment_on_failure !== false,
+                requires_action_on_failure: question?.requires_action_on_failure !== false,
+                allows_photo_evidence: question?.allows_photo_evidence !== false,
+              };
+            })
+            .filter(Boolean)
+        : [];
+      if (questions.length === 0) return null;
+      return { name, questions };
+    })
+    .filter(Boolean);
+
+  const questionCount = normalizedSections.reduce((sum, section) => sum + section.questions.length, 0);
+  if (!templateName) {
+    throw new Error("Template name is required.");
+  }
+  if (questionCount === 0) {
+    throw new Error("Template must include at least one question.");
+  }
+
+  return {
+    template_name: templateName,
+    description,
+    category,
+    sections: normalizedSections,
+  };
+}
+
+function flattenTemplateQuestions(sections) {
+  const flat = [];
+  let index = 0;
+  for (const section of sections) {
+    for (const question of section.questions) {
+      index += 1;
+      flat.push({
+        id: `q-${index}`,
+        section: section.name,
+        ...question,
+      });
+    }
+  }
+  return flat;
+}
+
+function templateToApiRecord(templateId, payload, actorEmail) {
+  const now = new Date().toISOString();
+  return {
+    id: templateId,
+    template_name: payload.template_name,
+    description: payload.description,
+    category: payload.category,
+    sections: payload.sections,
+    created_at: now,
+    updated_at: now,
+    created_by: actorEmail,
+    question_count: flattenTemplateQuestions(payload.sections).length,
+  };
+}
+
+function resolveActor(req, parseBertActorFromRequest) {
+  const actor = parseBertActorFromRequest?.(req);
+  if (actor?.email) {
+    return {
+      email: String(actor.email).trim().toLowerCase(),
+      role: String(actor.role || "").trim(),
+      masterSheetId: String(actor.masterSheetId || req.body?.masterSheetId || req.query?.masterSheetId || "").trim(),
+    };
+  }
+  if (process.env.NODE_ENV !== "production") {
+    const devEmail = String(req.headers["x-bert-dev-user-email"] || "dev@local.test")
+      .trim()
+      .toLowerCase();
+    if (devEmail.includes("@")) {
+      return {
+        email: devEmail,
+        role: String(req.headers["x-bert-dev-user-role"] || "Admin").trim(),
+        masterSheetId: String(req.body?.masterSheetId || req.query?.masterSheetId || "local-dev").trim(),
+      };
+    }
+  }
+  return null;
+}
+
+function requireAuditBuilderActor(req, res, next, parseBertActorFromRequest) {
+  const actor = resolveActor(req, parseBertActorFromRequest);
+  if (!actor) {
+    return res.status(401).json({ ok: false, error: "Sign in to use Audit Builder." });
+  }
+  const role = actor.role === "Master" ? "Master" : actor.role;
+  if (!["Master", "Admin", "Manager"].includes(role)) {
+    return res.status(403).json({ ok: false, error: "Only Admin or Manager roles can manage audit templates." });
+  }
+  req.auditBuilderActor = actor;
+  return next();
+}
+
+async function writeAuditTemplateTranslations(deps, auth, spreadsheetId, templateId, payload, actorEmail) {
+  const { ensureColumns, getTabValues, rowsToRecords, withSheetsQuotaRetry, google } = deps;
+  await ensureColumns(auth, spreadsheetId, AUDIT_TEMPLATE_TRANSLATIONS_TAB, AUDIT_TEMPLATE_TRANSLATIONS_COLUMNS);
+  const sheets = google.sheets({ version: "v4", auth });
+  const rows = rowsToRecords(await getTabValues(auth, spreadsheetId, AUDIT_TEMPLATE_TRANSLATIONS_TAB));
+  const kept = rows.filter((row) => String(row["BERT Template ID"] || "").trim() !== templateId);
+  const sectionJson = JSON.stringify(payload.sections.map((section) => section.name));
+  const questionsJson = JSON.stringify(flattenTemplateQuestions(payload.sections));
+  const optionsJson = JSON.stringify(["Compliant", "Non-compliant", "Not applicable"]);
+  const nextRow = [
+    templateId,
+    DEFAULT_FORM_LANGUAGE,
+    defaultTranslationStatusForLanguage(DEFAULT_FORM_LANGUAGE),
+    payload.template_name,
+    payload.description,
+    sectionJson,
+    questionsJson,
+    optionsJson,
+    "",
+    new Date().toISOString(),
+    actorEmail,
+  ];
+  const dataRows = kept.map((row) =>
+    AUDIT_TEMPLATE_TRANSLATIONS_COLUMNS.map((column) => String(row[column] || "")),
+  );
+  dataRows.push(nextRow);
+  const lastCol = String.fromCharCode(64 + AUDIT_TEMPLATE_TRANSLATIONS_COLUMNS.length);
+  await withSheetsQuotaRetry(() =>
+    sheets.spreadsheets.values.clear({
+      spreadsheetId,
+      range: `${AUDIT_TEMPLATE_TRANSLATIONS_TAB}!A:${lastCol}`,
+    }),
+  );
+  await withSheetsQuotaRetry(() =>
+    sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${AUDIT_TEMPLATE_TRANSLATIONS_TAB}!A1`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [AUDIT_TEMPLATE_TRANSLATIONS_COLUMNS, ...dataRows],
+      },
+    }),
+  );
+}
+
+async function writeAuditTemplateMetadata(deps, auth, spreadsheetId, templateRecord) {
+  const { ensureColumns, getTabValues, rowsToRecords, withSheetsQuotaRetry, google } = deps;
+  await ensureColumns(auth, spreadsheetId, AUDIT_TEMPLATES_TAB, AUDIT_TEMPLATES_COLUMNS);
+  const sheets = google.sheets({ version: "v4", auth });
+  const rows = rowsToRecords(await getTabValues(auth, spreadsheetId, AUDIT_TEMPLATES_TAB));
+  const kept = rows.filter((row) => String(row["Audit ID"] || "").trim() !== templateRecord.id);
+  const nextRow = [
+    templateRecord.id,
+    templateRecord.template_name,
+    templateRecord.category,
+    "active",
+    "",
+    templateRecord.created_at,
+    "",
+    "Audit Builder",
+    DEFAULT_FORM_LANGUAGE,
+    DEFAULT_FORM_LANGUAGE,
+    defaultTranslationStatusForLanguage(DEFAULT_FORM_LANGUAGE),
+  ];
+  const dataRows = kept.map((row) => AUDIT_TEMPLATES_COLUMNS.map((column) => String(row[column] || "")));
+  dataRows.push(nextRow);
+  const lastCol = String.fromCharCode(64 + AUDIT_TEMPLATES_COLUMNS.length);
+  await withSheetsQuotaRetry(() =>
+    sheets.spreadsheets.values.clear({
+      spreadsheetId,
+      range: `${AUDIT_TEMPLATES_TAB}!A:${lastCol}`,
+    }),
+  );
+  await withSheetsQuotaRetry(() =>
+    sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${AUDIT_TEMPLATES_TAB}!A1`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [AUDIT_TEMPLATES_COLUMNS, ...dataRows],
+      },
+    }),
+  );
+}
+
+function sectionsFromQuestionsJson(questionsJson) {
+  if (!questionsJson) {
+    return [{ name: "General", questions: [] }];
+  }
+  try {
+    const parsedQuestions = JSON.parse(questionsJson);
+    const grouped = new Map();
+    for (const item of Array.isArray(parsedQuestions) ? parsedQuestions : []) {
+      const sectionName = String(item.section || "General").trim() || "General";
+      if (!grouped.has(sectionName)) {
+        grouped.set(sectionName, []);
+      }
+      grouped.get(sectionName).push({
+        question_text: String(item.question_text || item.text || "").trim(),
+        answer_type: String(item.answer_type || "compliance"),
+        options: Array.isArray(item.options) ? item.options : ["Compliant", "Non-compliant", "Not applicable"],
+        requires_comment_on_failure: item.requires_comment_on_failure !== false,
+        requires_action_on_failure: item.requires_action_on_failure !== false,
+        allows_photo_evidence: item.allows_photo_evidence !== false,
+      });
+    }
+    const sections = [...grouped.entries()]
+      .map(([name, questions]) => ({ name, questions: questions.filter((question) => question.question_text) }))
+      .filter((section) => section.questions.length > 0);
+    return sections.length > 0 ? sections : [{ name: "General", questions: [] }];
+  } catch {
+    return [{ name: "General", questions: [] }];
+  }
+}
+
+async function loadTemplatesFromSheets(deps, auth, spreadsheetId, sessionDir) {
+  const { readAuditTemplates } = await import("./company-audit-mapping.mjs");
+  const sheetTemplates = await readAuditTemplates(deps, auth, spreadsheetId);
+  const translations = await readAuditTemplateTranslations(deps, auth, spreadsheetId);
+  const translationById = new Map(translations.map((row) => [row.bertTemplateId, row]));
+  const { bucket, store, key } = getWorkspaceStore(sessionDir, spreadsheetId);
+
+  for (const row of sheetTemplates) {
+    const isAuditBuilder = String(row.googleFormTemplateStatus || "").trim() === "Audit Builder";
+    if (!isAuditBuilder && !bucket.templates[row.id]) {
+      continue;
+    }
+    const translation = translationById.get(row.id);
+    const sections = sectionsFromQuestionsJson(translation?.questionsJson);
+    bucket.templates[row.id] = {
+      id: row.id,
+      template_name: row.name,
+      description: translation?.description || "",
+      category: row.category || "Audits",
+      sections,
+      created_at: row.createdAt || new Date().toISOString(),
+      updated_at: row.createdAt || new Date().toISOString(),
+      created_by: "",
+      question_count: sections.reduce((sum, section) => sum + section.questions.length, 0),
+    };
+  }
+  persistWorkspace(sessionDir, store, key, bucket);
+  return Object.values(bucket.templates);
+}
+
+function evaluateCompletion(instance, answers, actions) {
+  const answerList = Object.values(answers || {});
+  const hasNonCompliant = answerList.some((answer) => answer.answer === COMPLIANCE_FAIL);
+  const openActions = (actions || []).filter((action) => action.status !== "Closed");
+  if (hasNonCompliant) {
+    return { result: "Fail", reason: "One or more answers are Non-compliant." };
+  }
+  if (openActions.length > 0) {
+    return { result: "Pass with actions", reason: "Pass with open corrective actions." };
+  }
+  const allPassOrNa = answerList.every(
+    (answer) => answer.answer === COMPLIANCE_PASS || answer.answer === COMPLIANCE_NA,
+  );
+  if (allPassOrNa) {
+    return { result: "Pass", reason: "All answers are Compliant or Not applicable with no open actions." };
+  }
+  return { result: "Fail", reason: "Audit answers are incomplete." };
+}
+
+export function installAuditBuilderRoutes(app, deps) {
+  const {
+    sessionDir,
+    parseBertActorFromRequest,
+    getAuthedClient,
+    envConfigured,
+    ensureColumns,
+    getTabValues,
+    rowsToRecords,
+    withSheetsQuotaRetry,
+    google,
+    appendRowObjects,
+  } = deps;
+
+  const sheetDeps = {
+    google,
+    ensureColumns,
+    getTabValues,
+    rowsToRecords,
+    withSheetsQuotaRetry,
+  };
+
+  const requireActor = (req, res, next) => requireAuditBuilderActor(req, res, next, parseBertActorFromRequest);
+
+  app.post("/api/audits/templates/generate-from-text", requireActor, (req, res) => {
+    try {
+      const text = String(req.body?.text || "").trim();
+      if (!text) {
+        return res.status(400).json({ ok: false, error: "Checklist text is required." });
+      }
+      const template = parseChecklistText(text);
+      return res.json({ ok: true, template });
+    } catch (error) {
+      return res.status(400).json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Unable to parse checklist text.",
+      });
+    }
+  });
+
+  app.get("/api/audits/templates", requireActor, async (req, res) => {
+    try {
+      const actor = req.auditBuilderActor;
+      const masterSheetId = String(req.query?.masterSheetId || actor.masterSheetId || "").trim();
+      const authed = getAuthedClient?.();
+      if (envConfigured?.() && authed && masterSheetId && masterSheetId !== "local-dev") {
+        const templates = await loadTemplatesFromSheets(sheetDeps, authed, masterSheetId, sessionDir);
+        return res.json({ ok: true, templates });
+      }
+      const { bucket } = getWorkspaceStore(sessionDir, masterSheetId || "local-dev");
+      return res.json({ ok: true, templates: Object.values(bucket.templates) });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Unable to list audit templates.",
+      });
+    }
+  });
+
+  app.get("/api/audits/templates/:id", requireActor, async (req, res) => {
+    try {
+      const actor = req.auditBuilderActor;
+      const masterSheetId = String(req.query?.masterSheetId || actor.masterSheetId || "").trim() || "local-dev";
+      const templateId = String(req.params.id || "").trim();
+      const authed = getAuthedClient?.();
+      if (envConfigured?.() && authed && masterSheetId && masterSheetId !== "local-dev") {
+        await loadTemplatesFromSheets(sheetDeps, authed, masterSheetId, sessionDir);
+      }
+      const { bucket } = getWorkspaceStore(sessionDir, masterSheetId);
+      const template = bucket.templates[templateId];
+      if (!template) {
+        return res.status(404).json({ ok: false, error: "Audit template not found." });
+      }
+      return res.json({ ok: true, template });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Unable to load audit template.",
+      });
+    }
+  });
+
+  app.post("/api/audits/templates", requireActor, async (req, res) => {
+    try {
+      const actor = req.auditBuilderActor;
+      const masterSheetId = String(req.body?.masterSheetId || actor.masterSheetId || "").trim() || "local-dev";
+      const payload = normalizeTemplatePayload(req.body);
+      const templateId = String(req.body?.id || "").trim() || newId("ab-template");
+      const record = templateToApiRecord(templateId, payload, actor.email);
+
+      const { store, bucket, key } = getWorkspaceStore(sessionDir, masterSheetId);
+      bucket.templates[templateId] = record;
+      persistWorkspace(sessionDir, store, key, bucket);
+
+      const authed = getAuthedClient?.();
+      if (envConfigured?.() && authed && masterSheetId && masterSheetId !== "local-dev") {
+        await writeAuditTemplateMetadata(sheetDeps, authed, masterSheetId, record);
+        await writeAuditTemplateTranslations(sheetDeps, authed, masterSheetId, templateId, payload, actor.email);
+      }
+
+      return res.json({ ok: true, template: record });
+    } catch (error) {
+      return res.status(400).json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Unable to save audit template.",
+      });
+    }
+  });
+
+  app.post("/api/audits/templates/:id/start", requireActor, (req, res) => {
+    try {
+      const actor = req.auditBuilderActor;
+      const masterSheetId = String(req.body?.masterSheetId || actor.masterSheetId || "").trim() || "local-dev";
+      const templateId = String(req.params.id || "").trim();
+      const { store, bucket, key } = getWorkspaceStore(sessionDir, masterSheetId);
+      const template = bucket.templates[templateId];
+      if (!template) {
+        return res.status(404).json({ ok: false, error: "Audit template not found." });
+      }
+      const instanceId = newId("ab-instance");
+      const instance = {
+        id: instanceId,
+        template_id: templateId,
+        template_name: template.template_name,
+        status: "in_progress",
+        started_at: new Date().toISOString(),
+        started_by: actor.email,
+        master_sheet_id: masterSheetId,
+      };
+      bucket.instances[instanceId] = instance;
+      bucket.answers[instanceId] = {};
+      bucket.actions[instanceId] = [];
+      persistWorkspace(sessionDir, store, key, bucket);
+      return res.json({ ok: true, instance, template });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Unable to start audit instance.",
+      });
+    }
+  });
+
+  app.post("/api/audits/:id/answers", requireActor, (req, res) => {
+    try {
+      const actor = req.auditBuilderActor;
+      const masterSheetId = String(req.body?.masterSheetId || actor.masterSheetId || "").trim() || "local-dev";
+      const instanceId = String(req.params.id || "").trim();
+      const questionId = String(req.body?.question_id || req.body?.questionId || "").trim();
+      const answer = String(req.body?.answer || "").trim();
+      const comment = String(req.body?.comment || "").trim();
+      const photoEvidence = Boolean(req.body?.photo_evidence || req.body?.photoEvidence);
+
+      if (!questionId || !answer) {
+        return res.status(400).json({ ok: false, error: "question_id and answer are required." });
+      }
+
+      const { store, bucket, key } = getWorkspaceStore(sessionDir, masterSheetId);
+      const instance = bucket.instances[instanceId];
+      if (!instance) {
+        return res.status(404).json({ ok: false, error: "Audit instance not found." });
+      }
+      const template = bucket.templates[instance.template_id];
+      const flatQuestions = template ? flattenTemplateQuestions(template.sections) : [];
+      const question = flatQuestions.find((item) => item.id === questionId);
+
+      if (!bucket.answers[instanceId]) {
+        bucket.answers[instanceId] = {};
+      }
+      bucket.answers[instanceId][questionId] = {
+        question_id: questionId,
+        answer,
+        comment,
+        photo_evidence: photoEvidence,
+        updated_at: new Date().toISOString(),
+        updated_by: actor.email,
+      };
+
+      if (!bucket.actions[instanceId]) {
+        bucket.actions[instanceId] = [];
+      }
+
+      let createdAction = null;
+      if (answer === COMPLIANCE_FAIL && question?.requires_action_on_failure !== false) {
+        const existing = bucket.actions[instanceId].find(
+          (action) => action.question_id === questionId && action.status !== "Closed",
+        );
+        if (!existing) {
+          createdAction = {
+            id: newId("ab-action"),
+            audit_instance_id: instanceId,
+            question_id: questionId,
+            question_text: question?.question_text || questionId,
+            status: "Open",
+            created_at: new Date().toISOString(),
+            created_by: actor.email,
+            requires_comment: question?.requires_comment_on_failure !== false,
+            requires_photo: question?.allows_photo_evidence !== false,
+          };
+          bucket.actions[instanceId].push(createdAction);
+        }
+      }
+
+      persistWorkspace(sessionDir, store, key, bucket);
+      return res.json({
+        ok: true,
+        answer: bucket.answers[instanceId][questionId],
+        action: createdAction,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Unable to save audit answer.",
+      });
+    }
+  });
+
+  app.post("/api/audits/:id/complete", requireActor, async (req, res) => {
+    try {
+      const actor = req.auditBuilderActor;
+      const masterSheetId = String(req.body?.masterSheetId || actor.masterSheetId || "").trim() || "local-dev";
+      const instanceId = String(req.params.id || "").trim();
+      const { store, bucket, key } = getWorkspaceStore(sessionDir, masterSheetId);
+      const instance = bucket.instances[instanceId];
+      if (!instance) {
+        return res.status(404).json({ ok: false, error: "Audit instance not found." });
+      }
+
+      const answers = bucket.answers[instanceId] || {};
+      const actions = bucket.actions[instanceId] || [];
+      const evaluation = evaluateCompletion(instance, answers, actions);
+      instance.status = "completed";
+      instance.completed_at = new Date().toISOString();
+      instance.completed_by = actor.email;
+      instance.result = evaluation.result;
+      instance.result_reason = evaluation.reason;
+      bucket.instances[instanceId] = instance;
+      persistWorkspace(sessionDir, store, key, bucket);
+
+      const authed = getAuthedClient?.();
+      if (envConfigured?.() && authed && masterSheetId && masterSheetId !== "local-dev" && appendRowObjects) {
+        const answersJson = JSON.stringify(Object.values(answers));
+        await appendRowObjects(authed, masterSheetId, "AuditResults", [
+          {
+            "Result ID": newId("result"),
+            "Local Submission ID": instanceId,
+            "Audit ID": instance.template_id,
+            "Area ID": "area-main",
+            "Company ID": masterSheetId,
+            "Audit Name": instance.template_name,
+            "Completed By": actor.email,
+            "Completed At": instance.completed_at,
+            Status: evaluation.result,
+            "Answers JSON": answersJson,
+            "Created At": instance.completed_at,
+            "Updated At": instance.completed_at,
+            "Created By": actor.email,
+            "Updated By": actor.email,
+            "Sync Status": "synced",
+          },
+        ]);
+        const openActions = actions.filter((action) => action.status !== "Closed");
+        if (openActions.length > 0) {
+          await appendRowObjects(authed, masterSheetId, "Actions", openActions.map((action) => ({
+            "Action ID": action.id,
+            "Company ID": masterSheetId,
+            "Source Audit ID": instance.template_id,
+            "Source Audit Name": instance.template_name,
+            "Source Question ID": action.question_id,
+            "Source Question Text": action.question_text,
+            "Source Answer": COMPLIANCE_FAIL,
+            Status: "Open",
+            "Assigned To Name": "",
+            "Created By User ID": actor.email,
+            "Created At": action.created_at,
+            "Updated At": action.created_at,
+            Comments: action.requires_comment ? "Comment required on non-compliance." : "",
+            "Sync Status": "synced",
+          })));
+        }
+      }
+
+      return res.json({ ok: true, instance, evaluation });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Unable to complete audit.",
+      });
+    }
+  });
+}

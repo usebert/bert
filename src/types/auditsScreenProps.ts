@@ -45,6 +45,7 @@ export type AuditsScreenProps = {
   onNavigateToSubmit?: () => void;
   onNavigateToSchedules?: () => void;
   onNavigateToTemplateBuilder?: () => void;
+  onNavigateToAuditBuilder?: () => void;
   onNavigateToWorkspace?: () => void;
   templates?: AuditTemplate[];
   syncState?: string;

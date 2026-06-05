@@ -27,6 +27,7 @@ import {
   ensureCompanyMappingTabs,
 } from "./company-audit-mapping.mjs";
 import { installEmailReminderRoutes, startEmailReminderScheduler } from "./email-reminders.mjs";
+import { installAuditBuilderRoutes } from "./audit-builder.mjs";
 import { createGoogleOAuthSessionStore } from "./google-oauth-session.mjs";
 import { installSetupStatusRoutes } from "./setup-status.mjs";
 import {
@@ -6304,6 +6305,19 @@ installCompanyOnboardingRoutes(app, {
   platformRegistrySheetId: process.env.BERT_PLATFORM_REGISTRY_SHEET_ID || "",
   onboardingInviteTtlMs: ONBOARDING_INVITE_TTL_MS,
   currentSchemaVersion: CURRENT_SCHEMA_VERSION,
+});
+
+installAuditBuilderRoutes(app, {
+  sessionDir,
+  parseBertActorFromRequest,
+  getAuthedClient,
+  envConfigured,
+  ensureColumns,
+  getTabValues,
+  rowsToRecords,
+  withSheetsQuotaRetry,
+  google,
+  appendRowObjects,
 });
 
 app.use((err, req, res, _next) => {

@@ -175,6 +175,9 @@ import { SchedulesScreen } from "./src/screens/SchedulesScreen";
 import { DocumentTrainingScreen } from "./src/screens/DocumentTrainingScreen";
 import { QmsReadinessScreen } from "./src/screens/QmsReadinessScreen";
 import { EmailRemindersScreen } from "./src/screens/EmailRemindersScreen";
+import { AuditBuilderScreen } from "./src/screens/AuditBuilderScreen";
+import { auditBuilderTemplateToBertTemplate } from "./src/utils/auditBuilderMapping";
+import type { AuditBuilderTemplateRecord } from "./src/types/auditBuilder";
 import { GodmodeInitialSetupScreen } from "./src/screens/GodmodeInitialSetupScreen";
 import { PilotSetupScreen } from "./src/screens/PilotSetupScreen";
 import { SetupAccessDeniedPanel } from "./src/components/SetupAccessDeniedPanel";
@@ -4300,6 +4303,23 @@ function App() {
       };
     });
   }, [invitedUsers, userSiteAssignments, onboardingRecords]);
+
+  const auditBuilderApiHeaders = useCallback((): Record<string, string> => {
+    if (!currentUser || import.meta.env.PROD) {
+      return {};
+    }
+    if (!canAccessWorkspaceNav(currentUser.role)) {
+      return {};
+    }
+    const email = currentUser.username.includes("@")
+      ? currentUser.username.toLowerCase()
+      : `${currentUser.username}@local.test`;
+    return {
+      "X-Bert-Dev-User-Role": currentUser.role,
+      "X-Bert-Dev-User-Email": email,
+      "X-Bert-Dev-User-Name": currentUser.name,
+    };
+  }, [currentUser]);
 
   const documentTrainingApiHeaders = useCallback((): Record<string, string> => {
     if (!currentUser || import.meta.env.PROD) {
@@ -9762,6 +9782,45 @@ function App() {
     pushToast("Template added", `${trimmedName} is now available in Forms & Checks.`, "success");
   };
 
+  const handleAuditBuilderTemplateSaved = async (record: AuditBuilderTemplateRecord) => {
+    const bertTemplate = auditBuilderTemplateToBertTemplate(record);
+    const nextTemplates = [
+      bertTemplate,
+      ...templates.filter((template) => template.id !== bertTemplate.id),
+    ];
+    setTemplates(nextTemplates);
+    const masterSheetId = resolveWorkspaceMasterSheetId();
+    if (syncState === "Synced" && googleConnected && masterSheetId) {
+      try {
+        await syncAuditTemplatesToSheet(masterSheetId, nextTemplates);
+      } catch {
+        pushToast("Template saved", "Could not sync AuditTemplates tab yet.", "warning");
+        return;
+      }
+    }
+    pushToast("Template saved", `${record.template_name} is ready in Forms & Checks.`, "success");
+  };
+
+  const handleAuditBuilderStartAudit = (record: AuditBuilderTemplateRecord) => {
+    void handleAuditBuilderTemplateSaved(record);
+    const bertTemplate = auditBuilderTemplateToBertTemplate(record);
+    const siteArea = selectedFolder?.name || "Main site";
+    const availableAudit = buildAvailableAuditFromTemplate(
+      bertTemplate,
+      siteArea,
+      currentUser?.name || bertTemplate.name,
+    );
+    if (syncState === "Synced") {
+      setAudits((current) => {
+        if (current.some((audit) => audit.id === availableAudit.id)) {
+          return current;
+        }
+        return [availableAudit, ...current];
+      });
+    }
+    startAudit(availableAudit.id);
+  };
+
   const handleAddTemplateQuestion = () => {
     const trimmedQuestion = templateQuestionInput.trim();
     if (!trimmedQuestion) {
@@ -10602,6 +10661,9 @@ function App() {
     if (currentUser && !canAccessEmailReminders(currentUser.role) && screen === "emailReminders") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
+    if (currentUser && !canAccessWorkspaceNav(currentUser.role) && screen === "auditBuilder") {
+      setScreen(getHomeScreenForRole(currentUser.role));
+    }
     if (currentUser && !canAccessPilotSetup(currentUser.role) && screen === "setup") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
@@ -10665,6 +10727,7 @@ function App() {
     if (
       currentUser &&
       screen !== "complete" &&
+      screen !== "auditBuilder" &&
       screen !== "setupInitial" &&
       !visibleNavItems.some((item) => item.id === screen) &&
       !canRoleAccessNavItem(currentUser.role, screen)
@@ -11916,6 +11979,9 @@ function App() {
                 onNavigateToSchedules={
                   !canCompleteAuditAsAuditor(currentUser.role) ? () => setScreen("schedules") : undefined
                 }
+                onNavigateToAuditBuilder={
+                  canAccessWorkspaceNav(currentUser.role) ? () => setScreen("auditBuilder") : undefined
+                }
                 onNavigateToTemplateBuilder={
                   canAccessWorkspaceNav(currentUser.role)
                     ? () => {
@@ -12471,6 +12537,17 @@ function App() {
                 themeMode={themeMode}
                 slatePrimaryCtaInteract={slatePrimaryCtaInteract}
                 devApiHeaders={documentTrainingApiHeaders()}
+              />
+            )}
+
+            {screen === "auditBuilder" && currentUser && canAccessWorkspaceNav(currentUser.role) && (
+              <AuditBuilderScreen
+                role={currentUser.role}
+                masterSheetId={resolveWorkspaceMasterSheetId() || undefined}
+                devApiHeaders={auditBuilderApiHeaders()}
+                onBack={() => setScreen("audits")}
+                onTemplateSaved={handleAuditBuilderTemplateSaved}
+                onStartAudit={handleAuditBuilderStartAudit}
               />
             )}
 
