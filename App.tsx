@@ -262,7 +262,12 @@ import {
   syncAuditSubmissionToSheet,
 } from "./src/services/complianceSyncService";
 import { googleSheetsService } from "./src/services/googleSheetsService";
-import { googleFormTemplatesService } from "./src/services/googleFormTemplatesService";
+import { googleFormTemplateFolderService } from "./src/services/googleFormTemplateFolderService";
+import { applyGoogleFormCopyForTemplate } from "./src/utils/createGoogleFormCopyForTemplate";
+import {
+  isGoogleFormCopyWorkspaceMapped,
+  resolveGoogleFormCopyOptionState,
+} from "./src/utils/googleFormCopyOptionState";
 import { googleWorkspaceService } from "./src/services/googleWorkspaceService";
 import {
   tabletOfflineService,
@@ -768,6 +773,7 @@ type AuditTemplate = {
     responderUrl?: string;
     folderId?: string;
     folderName?: string;
+    folderPath?: string;
     syncStatus?: string;
     notes?: string;
   };
@@ -3282,6 +3288,8 @@ function App() {
   const [templateQuestionTypeInput, setTemplateQuestionTypeInput] = useState<AuditQuestion["fieldType"]>("Traffic light");
   const [templateDraftQuestions, setTemplateDraftQuestions] = useState<DraftTemplateQuestion[]>([]);
   const [createGoogleFormTemplateCopy, setCreateGoogleFormTemplateCopy] = useState(false);
+  const [googleFormsScopeConnected, setGoogleFormsScopeConnected] = useState<boolean | null>(null);
+  const [auditBuilderSavedTemplateId, setAuditBuilderSavedTemplateId] = useState<string | null>(null);
   const [adminScrollTarget, setAdminScrollTarget] = useState<string | null>(null);
   const [scheduleNameInput, setScheduleNameInput] = useState("");
   const [scheduleAreaInput, setScheduleAreaInput] = useState("");
@@ -5424,6 +5432,29 @@ function App() {
       setCreateGoogleFormTemplateCopy(false);
     }
   }, [currentUser?.role]);
+
+  useEffect(() => {
+    if (!googleConnected) {
+      setGoogleFormsScopeConnected(null);
+      return;
+    }
+    let alive = true;
+    void googleFormTemplateFolderService
+      .getStatus()
+      .then((payload) => {
+        if (alive) {
+          setGoogleFormsScopeConnected(payload.formsScopeConnected === true);
+        }
+      })
+      .catch(() => {
+        if (alive) {
+          setGoogleFormsScopeConnected(null);
+        }
+      });
+    return () => {
+      alive = false;
+    };
+  }, [googleConnected]);
 
   useEffect(() => {
     const handleOnline = () => setOfflineMode(false);
@@ -8871,6 +8902,80 @@ function App() {
     folderInspection?.masterSheet?.id ||
     "";
 
+  const googleFormCopyOption = useMemo(
+    () =>
+      resolveGoogleFormCopyOptionState({
+        role: currentUser?.role || "Auditor",
+        googleConnected,
+        workspaceMapped: isGoogleFormCopyWorkspaceMapped({
+          syncState,
+          companyFolderId: selectedFolderId || folderIdInput,
+          masterSheetId: resolveWorkspaceMasterSheetId(),
+        }),
+        formsScopeConnected: googleFormsScopeConnected,
+      }),
+    [
+      currentUser?.role,
+      googleConnected,
+      syncState,
+      selectedFolderId,
+      folderIdInput,
+      companySheetSync?.sheetId,
+      masterSheetInput,
+      folderInspection?.masterSheet?.id,
+      googleFormsScopeConnected,
+    ],
+  );
+
+  const persistGoogleFormCopyForTemplate = async (
+    nextTemplates: AuditTemplate[],
+    input: {
+      templateId: string;
+      templateName: string;
+      templateCategory: string;
+      templateLanguage: FormLanguageCode;
+      templateQuestions: AuditQuestion[];
+      createCopy: boolean;
+      googleFormCopyLanguage: FormLanguageCode;
+      defaultSuccessTitle?: string;
+      defaultSuccessMessage?: string;
+    },
+  ) => {
+    const masterSheetId = resolveWorkspaceMasterSheetId();
+    const copyResult = await applyGoogleFormCopyForTemplate({
+      templates: nextTemplates,
+      templateId: input.templateId,
+      templateName: input.templateName,
+      templateCategory: input.templateCategory,
+      templateLanguage: input.templateLanguage,
+      defaultFormLanguage,
+      templateQuestions: input.templateQuestions,
+      createCopy: input.createCopy,
+      googleConnected,
+      googleFormCopyLanguage: input.googleFormCopyLanguage,
+      placement: googleFormCopyOption.placement,
+      selectedFolderId: selectedFolderId || "",
+      selectedFolderName: selectedFolder?.name || workspaceName,
+      workspaceName,
+      masterSheetId,
+      currentUserName: currentUser?.name || "BERT",
+    });
+    setTemplates(copyResult.templates);
+    if (masterSheetId && syncState === "Synced" && copyResult.templates !== nextTemplates) {
+      try {
+        await syncAuditTemplatesToSheet(masterSheetId, copyResult.templates);
+      } catch {
+        // BERT template already saved; sheet metadata sync is best-effort.
+      }
+    }
+    if (copyResult.toast) {
+      pushToast(copyResult.toast.title, copyResult.toast.message, copyResult.toast.tone);
+    } else if (input.defaultSuccessTitle) {
+      pushToast(input.defaultSuccessTitle, input.defaultSuccessMessage || "", "success");
+    }
+    return copyResult.templates;
+  };
+
   const persistUserAccessMappingToSheet = useCallback(
     async (nextAssignments = userSiteAssignments, nextOverrides = auditAccessOverrides) => {
       const masterSheetId = resolveWorkspaceMasterSheetId();
@@ -9689,117 +9794,30 @@ function App() {
     setTemplateQuestionInput("");
     setTemplateDraftQuestions([]);
 
-    if (createGoogleFormTemplateCopy && googleConnected) {
-      const googleFormPlacement = currentUser?.role === "Master" ? "master" : "company";
-      const companyStoredPath = "08 - Audits / Google Forms";
-      try {
-        const copyLanguage = normalizeFormLanguage(googleFormCopyLanguage || templateLanguage);
-        const result = await googleFormTemplatesService.createFromBertTemplate(
-          {
-            id: templateId,
-            name: trimmedName,
-            category: templateCategoryInput,
-            source: "Built in app",
-            questions: templateQuestions,
-            sourceCompanyId: selectedFolderId,
-            sourceCompanyName: selectedFolder?.name || workspaceName,
-            companyRootFolderId: selectedFolderId,
-            masterSheetId: masterSheetId || "",
-            createdBy: currentUser?.name || "BERT",
-            placement: googleFormPlacement,
-            language: templateLanguage,
-            defaultLanguage: defaultFormLanguage,
-            translationStatus: defaultTranslationStatusForLanguage(copyLanguage),
-          },
-          { placement: googleFormPlacement, googleFormLanguage: copyLanguage },
-        );
-        if (result.ok && result.googleForm) {
-          const storedPath =
-            result.storedFolderPath ||
-            result.googleForm.currentFolderPath ||
-            (googleFormPlacement === "company" ? companyStoredPath : result.googleForm.currentDriveFolderName || "Drive");
-          const googleFormMeta = {
-            formId: result.googleForm.googleFormId,
-            driveFileId: result.googleForm.googleFormDriveFileId,
-            editUrl: result.googleForm.googleFormEditUrl,
-            responderUrl: result.googleForm.googleFormResponderUrl,
-            folderId: result.googleForm.currentDriveFolderId,
-            folderName: result.googleForm.currentDriveFolderName,
-            folderPath: storedPath,
-            syncStatus: result.googleForm.syncStatus,
-            notes: result.googleForm.notes,
-          };
-          const templatesWithGoogle = nextTemplates.map((template) =>
-            template.id === templateId ? { ...template, googleForm: googleFormMeta } : template,
-          );
-          setTemplates(templatesWithGoogle);
-          if (masterSheetId && syncState === "Synced") {
-            try {
-              await syncAuditTemplatesToSheet(masterSheetId, templatesWithGoogle);
-            } catch {
-              // BERT template already saved; sheet metadata sync is best-effort.
-            }
-          }
-          const storedLine =
-            googleFormPlacement === "company" ? ` Stored in: ${companyStoredPath}.` : ` Stored in: ${storedPath}.`;
-          const moveWarning =
-            result.folderPlacementFailed || result.googleForm.syncStatus === "Created - move failed"
-              ? " Google Form copy was created but could not be moved into the company audit folder."
-              : "";
-          pushToast(
-            "Template added",
-            `${trimmedName} is ready in BERT with a Google Form copy.${storedLine}${moveWarning}`,
-            result.folderPlacementFailed || result.googleForm.syncStatus === "Created - move failed" ? "warning" : "success",
-          );
-        } else if (result.permissionRequired) {
-          pushToast(
-            "BERT template created",
-            "Google Forms permission is not connected yet.",
-            "warning",
-          );
-        } else if (result.userMessage) {
-          pushToast("BERT template created", result.userMessage, "warning");
-        } else if (googleFormPlacement === "company") {
-          pushToast(
-            "BERT template created",
-            "Google Form copy could not be stored in the company audit folder.",
-            "warning",
-          );
-        } else if (/drive|folder|edit/i.test(String(result.error || ""))) {
-          pushToast(
-            "BERT template created",
-            "BERT cannot edit the Google Form template folder.",
-            "warning",
-          );
-        } else {
-          pushToast(
-            "BERT template created",
-            "Google Form copy could not be created.",
-            "warning",
-          );
-        }
-      } catch {
-        pushToast(
-          "BERT template created",
-          googleFormPlacement === "company"
-            ? "Google Form copy could not be stored in the company audit folder."
-            : "Google Form copy could not be created.",
-          "warning",
-        );
-      }
-      return;
-    }
-
-    pushToast("Template added", `${trimmedName} is now available in Forms & Checks.`, "success");
+    await persistGoogleFormCopyForTemplate(nextTemplates, {
+      templateId,
+      templateName: trimmedName,
+      templateCategory: templateCategoryInput,
+      templateLanguage,
+      templateQuestions,
+      createCopy: createGoogleFormTemplateCopy && !googleFormCopyOption.disabled,
+      googleFormCopyLanguage,
+      defaultSuccessTitle: "Template added",
+      defaultSuccessMessage: `${trimmedName} is now available in Forms & Checks.`,
+    });
   };
 
-  const handleAuditBuilderTemplateSaved = async (record: AuditBuilderTemplateRecord) => {
+  const handleAuditBuilderTemplateSaved = async (
+    record: AuditBuilderTemplateRecord,
+    options?: { createGoogleFormCopy?: boolean; googleFormCopyLanguage?: FormLanguageCode },
+  ) => {
     const bertTemplate = auditBuilderTemplateToBertTemplate(record);
     const nextTemplates = [
       bertTemplate,
       ...templates.filter((template) => template.id !== bertTemplate.id),
     ];
     setTemplates(nextTemplates);
+    setAuditBuilderSavedTemplateId(record.id);
     const masterSheetId = resolveWorkspaceMasterSheetId();
     if (syncState === "Synced" && googleConnected && masterSheetId) {
       try {
@@ -9809,7 +9827,19 @@ function App() {
         return;
       }
     }
-    pushToast("Template saved", `${record.template_name} is ready in Forms & Checks.`, "success");
+    await persistGoogleFormCopyForTemplate(nextTemplates, {
+      templateId: record.id,
+      templateName: record.template_name,
+      templateCategory: record.category || "Audits",
+      templateLanguage: normalizeFormLanguage(bertTemplate.language),
+      templateQuestions: bertTemplate.questions,
+      createCopy: Boolean(options?.createGoogleFormCopy),
+      googleFormCopyLanguage: normalizeFormLanguage(
+        options?.googleFormCopyLanguage || bertTemplate.language || defaultFormLanguage,
+      ),
+      defaultSuccessTitle: "Template saved",
+      defaultSuccessMessage: `${record.template_name} is ready in Forms & Checks.`,
+    });
   };
 
   const handleAuditBuilderStartAudit = (record: AuditBuilderTemplateRecord) => {
@@ -9851,7 +9881,11 @@ function App() {
 
   const handleAuditTemplateUpdated = async (
     record: AuditBuilderTemplateRecord,
-    options?: { replacedTemplateId?: string },
+    options?: {
+      replacedTemplateId?: string;
+      createGoogleFormCopy?: boolean;
+      googleFormCopyLanguage?: FormLanguageCode;
+    },
   ) => {
     const bertTemplate = auditBuilderTemplateToBertTemplate(record);
     const replacedId = options?.replacedTemplateId;
@@ -9867,12 +9901,62 @@ function App() {
     if (replacedId && editingTemplateId === replacedId) {
       setEditingTemplateId(record.id);
     }
+    if (options?.createGoogleFormCopy) {
+      await persistGoogleFormCopyForTemplate(nextTemplates, {
+        templateId: record.id,
+        templateName: record.template_name,
+        templateCategory: record.category || "Audits",
+        templateLanguage: normalizeFormLanguage(bertTemplate.language),
+        templateQuestions: bertTemplate.questions,
+        createCopy: true,
+        googleFormCopyLanguage: normalizeFormLanguage(
+          options.googleFormCopyLanguage || bertTemplate.language || defaultFormLanguage,
+        ),
+        defaultSuccessTitle: replacedId ? "New template version saved" : "Template updated",
+        defaultSuccessMessage: replacedId
+          ? `${record.template_name} v${record.version || 1} is active for future audits. Existing schedules keep their original version.`
+          : `${record.template_name} has been updated.`,
+      });
+      return;
+    }
     pushToast(
       replacedId ? "New template version saved" : "Template updated",
       replacedId
         ? `${record.template_name} v${record.version || 1} is active for future audits. Existing schedules keep their original version.`
         : `${record.template_name} has been updated.`,
       "success",
+    );
+  };
+
+  const handleGoogleFormTemplateUpdated = (
+    templateId: string,
+    record: {
+      googleFormId?: string;
+      googleFormEditUrl?: string;
+      googleFormResponderUrl?: string;
+      syncStatus?: string;
+      currentDriveFolderName?: string;
+    },
+  ) => {
+    setTemplates((current) =>
+      current.map((template) =>
+        template.id === templateId
+          ? {
+              ...template,
+              googleForm: {
+                formId: record.googleFormId || template.googleForm?.formId || "",
+                editUrl: record.googleFormEditUrl || template.googleForm?.editUrl,
+                responderUrl: record.googleFormResponderUrl || template.googleForm?.responderUrl,
+                syncStatus: record.syncStatus || template.googleForm?.syncStatus,
+                folderName: record.currentDriveFolderName || template.googleForm?.folderName,
+                folderPath: template.googleForm?.folderPath,
+                driveFileId: template.googleForm?.driveFileId,
+                folderId: template.googleForm?.folderId,
+                notes: template.googleForm?.notes,
+              },
+            }
+          : template,
+      ),
     );
   };
 
@@ -12074,6 +12158,7 @@ function App() {
                 canCreateTemplates={canAccessWorkspaceNav(currentUser.role)}
                 onToggleTemplate={handleToggleTemplate}
                 onEditTemplate={canManageTemplates(currentUser.role) ? handleEditTemplate : undefined}
+                onGoogleFormUpdated={handleGoogleFormTemplateUpdated}
               />
             )}
 
@@ -12529,8 +12614,8 @@ function App() {
                 }}
                 createGoogleFormTemplateCopy={createGoogleFormTemplateCopy}
                 onCreateGoogleFormTemplateCopyChange={setCreateGoogleFormTemplateCopy}
-                showCreateGoogleFormTemplateOption={currentUser?.role === "Master" || currentUser?.role === "Admin"}
-                googleFormCopyPlacement={currentUser?.role === "Master" ? "master" : "company"}
+                googleFormCopyOption={googleFormCopyOption}
+                googleFormCopyPlacement={googleFormCopyOption.placement}
                 companyFolderId={selectedFolderId}
                 onTemplateQuestionChange={setTemplateQuestionInput}
                 onTemplateQuestionTypeChange={setTemplateQuestionTypeInput}
@@ -12620,6 +12705,17 @@ function App() {
                 role={currentUser.role}
                 masterSheetId={resolveWorkspaceMasterSheetId() || undefined}
                 devApiHeaders={auditBuilderApiHeaders()}
+                companyFolderId={selectedFolderId || undefined}
+                googleFormCopyOption={googleFormCopyOption}
+                createGoogleFormCopy={createGoogleFormTemplateCopy}
+                onCreateGoogleFormCopyChange={setCreateGoogleFormTemplateCopy}
+                googleFormCopyLanguage={googleFormCopyLanguage}
+                onGoogleFormCopyLanguageChange={setGoogleFormCopyLanguage}
+                savedGoogleForm={
+                  auditBuilderSavedTemplateId
+                    ? templates.find((template) => template.id === auditBuilderSavedTemplateId)?.googleForm
+                    : undefined
+                }
                 onBack={() => setScreen("audits")}
                 onTemplateSaved={handleAuditBuilderTemplateSaved}
                 onStartAudit={handleAuditBuilderStartAudit}
@@ -12633,6 +12729,12 @@ function App() {
                 fallbackTemplate={templates.find((template) => template.id === editingTemplateId)}
                 masterSheetId={resolveWorkspaceMasterSheetId() || undefined}
                 devApiHeaders={auditBuilderApiHeaders()}
+                companyFolderId={selectedFolderId || undefined}
+                googleFormCopyOption={googleFormCopyOption}
+                createGoogleFormCopy={createGoogleFormTemplateCopy}
+                onCreateGoogleFormCopyChange={setCreateGoogleFormTemplateCopy}
+                googleFormCopyLanguage={googleFormCopyLanguage}
+                onGoogleFormCopyLanguageChange={setGoogleFormCopyLanguage}
                 onBack={() => {
                   setEditingTemplateId(null);
                   setScreen("audits");

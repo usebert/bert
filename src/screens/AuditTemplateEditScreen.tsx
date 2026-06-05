@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import type { FormLanguageCode } from "../config/templateLanguages";
 import { getRoleTheme } from "../config/roleTheme";
+import { CreateGoogleFormCopyOption } from "../components/forms/CreateGoogleFormCopyOption";
+import { GoogleFormTemplatePanel } from "../components/admin/GoogleFormTemplatePanel";
 import { SectionIntro } from "../components/SectionIntro";
 import {
   archiveAuditBuilderTemplate,
@@ -17,6 +20,7 @@ import type {
 } from "../types/auditBuilder";
 import type { AuditTemplate } from "../types/reportsScreenProps";
 import type { Role } from "../permissions";
+import type { GoogleFormCopyOptionState } from "../utils/googleFormCopyOptionState";
 import { bertTemplateToEditorDraft } from "../utils/auditBuilderMapping";
 import {
   addQuestionToSection,
@@ -39,8 +43,21 @@ type Props = {
   fallbackTemplate?: AuditTemplate;
   masterSheetId?: string;
   devApiHeaders?: Record<string, string>;
+  companyFolderId?: string;
+  googleFormCopyOption: GoogleFormCopyOptionState;
+  createGoogleFormCopy: boolean;
+  onCreateGoogleFormCopyChange: (value: boolean) => void;
+  googleFormCopyLanguage: FormLanguageCode;
+  onGoogleFormCopyLanguageChange: (value: FormLanguageCode) => void;
   onBack: () => void;
-  onTemplateUpdated: (template: AuditBuilderTemplateRecord, options?: { replacedTemplateId?: string }) => void;
+  onTemplateUpdated: (
+    template: AuditBuilderTemplateRecord,
+    options?: {
+      replacedTemplateId?: string;
+      createGoogleFormCopy?: boolean;
+      googleFormCopyLanguage?: FormLanguageCode;
+    },
+  ) => void;
   onTemplateArchived: (templateId: string) => void;
 };
 
@@ -56,6 +73,12 @@ export function AuditTemplateEditScreen({
   fallbackTemplate,
   masterSheetId,
   devApiHeaders,
+  companyFolderId,
+  googleFormCopyOption,
+  createGoogleFormCopy,
+  onCreateGoogleFormCopyChange,
+  googleFormCopyLanguage,
+  onGoogleFormCopyLanguageChange,
   onBack,
   onTemplateUpdated,
   onTemplateArchived,
@@ -163,6 +186,9 @@ export function AuditTemplateEditScreen({
       setShowUsedWarning(false);
       onTemplateUpdated(record, {
         replacedTemplateId: record.id !== templateId ? templateId : undefined,
+        createGoogleFormCopy:
+          createGoogleFormCopy && !googleFormCopyOption.disabled && !fallbackTemplate?.googleForm?.formId,
+        googleFormCopyLanguage,
       });
     } catch (err) {
       const typed = err as Error & { requiresNewVersion?: boolean };
@@ -357,6 +383,27 @@ export function AuditTemplateEditScreen({
             <option value="inactive">Inactive</option>
           </select>
         </label>
+        {fallbackTemplate?.googleForm?.formId ? (
+          <GoogleFormTemplatePanel
+            templateId={recordMeta.id}
+            templateName={draft.template_name}
+            category={draft.category || "General"}
+            companyFolderId={companyFolderId}
+            placement={googleFormCopyOption.placement}
+            googleForm={fallbackTemplate.googleForm}
+            templateLanguage={fallbackTemplate.language}
+            translationStatus={fallbackTemplate.translationStatus}
+          />
+        ) : (
+          <CreateGoogleFormCopyOption
+            optionState={googleFormCopyOption}
+            checked={createGoogleFormCopy}
+            onCheckedChange={onCreateGoogleFormCopyChange}
+            googleFormCopyLanguage={googleFormCopyLanguage}
+            onGoogleFormCopyLanguageChange={onGoogleFormCopyLanguageChange}
+            idPrefix="audit-template-edit-google-form-copy"
+          />
+        )}
         <p className="text-sm text-slate-600">
           {draft.sections.length} section{draft.sections.length === 1 ? "" : "s"} · {questionCount} question
           {questionCount === 1 ? "" : "s"}

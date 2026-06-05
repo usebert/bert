@@ -7,6 +7,7 @@ import type {
   WorkspaceValidation,
 } from "./dashboardScreenProps";
 import type { FormLanguageCode } from "../config/templateLanguages";
+import type { GoogleFormCopyOptionState } from "../utils/googleFormCopyOptionState";
 import type {
   Answer,
   AuditQuestion,
@@ -280,7 +281,7 @@ export type AdminScreenProps = {
   onGoogleFormCopyLanguageChange: (value: FormLanguageCode) => void;
   createGoogleFormTemplateCopy: boolean;
   onCreateGoogleFormTemplateCopyChange: (value: boolean) => void;
-  showCreateGoogleFormTemplateOption: boolean;
+  googleFormCopyOption: GoogleFormCopyOptionState;
   googleFormCopyPlacement: "master" | "company";
   companyFolderId: string;
   onTemplateQuestionChange: (value: string) => void;

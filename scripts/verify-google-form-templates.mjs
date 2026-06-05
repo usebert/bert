@@ -87,24 +87,51 @@ assertContains("server/google-form-templates.mjs", [
 assertContains(".env.example", ["BERT_GOOGLE_FORM_TEMPLATES_FOLDER_ID"]);
 
 assertContains("App.tsx", [
+  "applyGoogleFormCopyForTemplate",
+  "createGoogleFormCopyForTemplate",
+  "googleFormCopyOption",
+  "persistGoogleFormCopyForTemplate",
+]);
+assertContains("src/utils/createGoogleFormCopyForTemplate.ts", [
   "googleFormTemplatesService",
   "BERT template created",
   "Google Form copy could not be stored in the company audit folder",
-  "08 - Audits / Google Forms",
-  "googleFormPlacement",
 ]);
 
 assertContains("src/screens/AdminScreen.tsx", [
-  "Create Google Form template copy",
+  "CreateGoogleFormCopyOption",
   "GoogleFormTemplatePanel",
-  "company's audit folder",
-  "googleFormCopyPlacement",
+  "googleFormCopyOption",
+]);
+assertContains("src/components/forms/CreateGoogleFormCopyOption.tsx", [
+  "Create Google Form copy",
+  "optionState.helperText",
+]);
+assertContains("src/screens/AuditBuilderScreen.tsx", [
+  "CreateGoogleFormCopyOption",
+  "googleFormCopyOption",
+]);
+assertContains("src/screens/AuditTemplateEditScreen.tsx", [
+  "CreateGoogleFormCopyOption",
+  "GoogleFormTemplatePanel",
+  "googleFormCopyOption",
+]);
+assertContains("src/utils/googleFormCopyOptionState.ts", [
+  "Complete workspace setup before creating Google Form copies.",
+  "Google Forms permission is not connected yet.",
+  "Creates a Google Form copy in this company's audit folder",
+]);
+assertContains("src/utils/createGoogleFormCopyForTemplate.ts", [
+  "08 - Audits / Google Forms",
+  "applyGoogleFormCopyForTemplate",
 ]);
 assertContains("src/components/forms/FormsChecksTemplatesPanel.tsx", [
   "08 - Audits / Google Forms",
   "BERT remains the live",
   "operational system",
 ]);
+assertContains("src/screens/SchedulesScreen.tsx", []);
+assert(!fs.readFileSync(path.join(root, "src/screens/SchedulesScreen.tsx"), "utf8").includes("CreateGoogleFormCopyOption"));
 assertContains("src/components/admin/GoogleFormTemplatePanel.tsx", ["Stored in:", "COMPANY_GOOGLE_FORM_STORAGE_PATH"]);
 assertContains("src/screens/GodmodeInitialSetupScreen.tsx", [
   "Google Form Template Folder",

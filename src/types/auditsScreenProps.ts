@@ -54,4 +54,14 @@ export type AuditsScreenProps = {
   canCreateTemplates?: boolean;
   onToggleTemplate?: (templateId: string) => void;
   onEditTemplate?: (templateId: string) => void;
+  onGoogleFormUpdated?: (
+    templateId: string,
+    record: {
+      googleFormId?: string;
+      googleFormEditUrl?: string;
+      googleFormResponderUrl?: string;
+      syncStatus?: string;
+      currentDriveFolderName?: string;
+    },
+  ) => void;
 };

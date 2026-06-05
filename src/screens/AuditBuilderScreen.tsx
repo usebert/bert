@@ -1,6 +1,10 @@
 import { FormEvent, useMemo, useState } from "react";
+import type { FormLanguageCode } from "../config/templateLanguages";
 import { getRoleTheme } from "../config/roleTheme";
+import { CreateGoogleFormCopyOption } from "../components/forms/CreateGoogleFormCopyOption";
+import { GoogleFormTemplatePanel } from "../components/admin/GoogleFormTemplatePanel";
 import { SectionIntro } from "../components/SectionIntro";
+import type { GoogleFormCopyOptionState } from "../utils/googleFormCopyOptionState";
 import {
   generateAuditTemplateFromText,
   saveAuditBuilderTemplate,
@@ -58,8 +62,25 @@ type Props = {
   role: Role;
   masterSheetId?: string;
   devApiHeaders?: Record<string, string>;
+  companyFolderId?: string;
+  googleFormCopyOption: GoogleFormCopyOptionState;
+  createGoogleFormCopy: boolean;
+  onCreateGoogleFormCopyChange: (value: boolean) => void;
+  googleFormCopyLanguage: FormLanguageCode;
+  onGoogleFormCopyLanguageChange: (value: FormLanguageCode) => void;
+  savedGoogleForm?: {
+    formId?: string;
+    syncStatus?: string;
+    editUrl?: string;
+    responderUrl?: string;
+    folderName?: string;
+    folderPath?: string;
+  };
   onBack: () => void;
-  onTemplateSaved: (template: AuditBuilderTemplateRecord) => void;
+  onTemplateSaved: (
+    template: AuditBuilderTemplateRecord,
+    options?: { createGoogleFormCopy?: boolean; googleFormCopyLanguage?: FormLanguageCode },
+  ) => void;
   onStartAudit: (template: AuditBuilderTemplateRecord) => void;
 };
 
@@ -92,6 +113,13 @@ export function AuditBuilderScreen({
   role,
   masterSheetId,
   devApiHeaders,
+  companyFolderId,
+  googleFormCopyOption,
+  createGoogleFormCopy,
+  onCreateGoogleFormCopyChange,
+  googleFormCopyLanguage,
+  onGoogleFormCopyLanguageChange,
+  savedGoogleForm,
   onBack,
   onTemplateSaved,
   onStartAudit,
@@ -133,7 +161,10 @@ export function AuditBuilderScreen({
     try {
       const record = await saveAuditBuilderTemplate(draft, { masterSheetId, devApiHeaders });
       setSavedTemplate(record);
-      onTemplateSaved(record);
+      onTemplateSaved(record, {
+        createGoogleFormCopy: createGoogleFormCopy && !googleFormCopyOption.disabled,
+        googleFormCopyLanguage,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save template.");
     } finally {
@@ -232,15 +263,25 @@ export function AuditBuilderScreen({
               </select>
             </label>
           </div>
-          <label className="block text-sm font-semibold text-slate-700">
-            Description
-            <textarea
-              value={draft.description}
-              onChange={(event) => setDraft({ ...draft, description: event.target.value })}
-              className="mt-2 min-h-[5rem] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
-            />
-          </label>
-          <p className="text-sm text-slate-600">
+        <label className="block text-sm font-semibold text-slate-700">
+          Description
+          <textarea
+            value={draft.description}
+            onChange={(event) => setDraft({ ...draft, description: event.target.value })}
+            className="mt-2 min-h-[5rem] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+          />
+        </label>
+        {!savedGoogleForm?.formId ? (
+          <CreateGoogleFormCopyOption
+            optionState={googleFormCopyOption}
+            checked={createGoogleFormCopy}
+            onCheckedChange={onCreateGoogleFormCopyChange}
+            googleFormCopyLanguage={googleFormCopyLanguage}
+            onGoogleFormCopyLanguageChange={onGoogleFormCopyLanguageChange}
+            idPrefix="audit-builder-google-form-copy"
+          />
+        ) : null}
+        <p className="text-sm text-slate-600">
             {draft.sections.length} section{draft.sections.length === 1 ? "" : "s"} · {questionCount} question
             {questionCount === 1 ? "" : "s"} · Compliant / Non-compliant / Not applicable
           </p>
@@ -318,6 +359,16 @@ export function AuditBuilderScreen({
               </button>
             ) : null}
           </div>
+          {savedTemplate && savedGoogleForm?.formId ? (
+            <GoogleFormTemplatePanel
+              templateId={savedTemplate.id}
+              templateName={savedTemplate.template_name}
+              category={savedTemplate.category || "General"}
+              companyFolderId={companyFolderId}
+              placement={googleFormCopyOption.placement}
+              googleForm={savedGoogleForm}
+            />
+          ) : null}
         </section>
       ) : null}
     </div>

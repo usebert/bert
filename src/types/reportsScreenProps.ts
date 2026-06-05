@@ -147,6 +147,7 @@ export type AuditTemplateGoogleFormMeta = {
   responderUrl?: string;
   folderId?: string;
   folderName?: string;
+  folderPath?: string;
   syncStatus?: string;
   notes?: string;
 };

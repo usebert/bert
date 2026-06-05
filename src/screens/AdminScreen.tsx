@@ -3,6 +3,7 @@ import { SECTION_INTROS } from "../config/sectionIntros";
 import { canAccessAdmin, canAccessAdminOnboardingWorkspace, canManageAreas, getRoleDisplayName } from "../permissions";
 import { AreaAuditsSection } from "../components/admin/AreaAuditsSection";
 import { GoogleFormTemplatePanel } from "../components/admin/GoogleFormTemplatePanel";
+import { CreateGoogleFormCopyOption } from "../components/forms/CreateGoogleFormCopyOption";
 import { TemplateLanguageFields } from "../components/forms/TemplateLanguageFields";
 import {
   FORM_LANGUAGE_OPTIONS,
@@ -343,7 +344,7 @@ export function AdminScreen({
   onGoogleFormCopyLanguageChange,
   createGoogleFormTemplateCopy,
   onCreateGoogleFormTemplateCopyChange,
-  showCreateGoogleFormTemplateOption,
+  googleFormCopyOption,
   googleFormCopyPlacement,
   companyFolderId,
   onTemplateQuestionChange,
@@ -1922,39 +1923,14 @@ export function AdminScreen({
               <option value="Risk Assessments">Risk Assessments</option>
               <option value="Audits">Audits</option>
             </select>
-            {showCreateGoogleFormTemplateOption && createGoogleFormTemplateCopy ? (
-              <TemplateLanguageFields
-                language={googleFormCopyLanguage}
-                translationStatus={
-                  googleFormCopyLanguage === "en" ? "Original" : "Draft translation"
-                }
-                onLanguageChange={onGoogleFormCopyLanguageChange}
-                showGoogleFormCopyWarning
-                idPrefix="google-form-copy"
-              />
-            ) : null}
-            {showCreateGoogleFormTemplateOption ? (
-              <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={createGoogleFormTemplateCopy}
-                  onChange={(event) => onCreateGoogleFormTemplateCopyChange(event.target.checked)}
-                  className="mt-1 h-4 w-4 rounded border-slate-300"
-                />
-                <span>
-                  <span className="font-semibold text-slate-900">Create Google Form template copy</span>
-                  <span className="mt-1 block text-xs text-slate-500">
-                    {googleConnected
-                      ? googleFormCopyPlacement === "company"
-                        ? "Creates a Google Form copy in this company's audit folder. BERT remains the live operational system."
-                        : "Creates a movable Google Form copy in the backend template library. BERT remains the live operational system."
-                      : googleFormCopyPlacement === "company"
-                        ? "Connect Google in Workspace to store Google Form copies in the company audit folder."
-                        : "Connect Google in Workspace to enable backend Google Form copies."}
-                  </span>
-                </span>
-              </label>
-            ) : null}
+            <CreateGoogleFormCopyOption
+              optionState={googleFormCopyOption}
+              checked={createGoogleFormTemplateCopy}
+              onCheckedChange={onCreateGoogleFormTemplateCopyChange}
+              googleFormCopyLanguage={googleFormCopyLanguage}
+              onGoogleFormCopyLanguageChange={onGoogleFormCopyLanguageChange}
+              idPrefix="admin-google-form-copy"
+            />
             <textarea
               value={templateQuestionInput}
               onChange={(event) => onTemplateQuestionChange(event.target.value)}

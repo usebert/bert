@@ -460,6 +460,7 @@ export function AuditsScreen({
   canCreateTemplates = false,
   onToggleTemplate,
   onEditTemplate,
+  onGoogleFormUpdated,
 }: AuditsScreenProps) {
   if (canCompleteAuditAsAuditor(currentUser.role)) {
     const theme = getRoleTheme("Auditor");
@@ -578,6 +579,7 @@ export function AuditsScreen({
         canCreateTemplates={canCreateTemplates}
         onToggleTemplate={onToggleTemplate}
         onEditTemplate={onEditTemplate}
+        onGoogleFormUpdated={onGoogleFormUpdated}
       />
 
       {canSubmitAuditForReview(currentUser.role) && auditAccessMatrix.length > 0 ? (
