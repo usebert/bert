@@ -14,10 +14,24 @@ export type ScheduleDay = "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun";
 export type ScheduleLifecycle = "Live" | "Archived";
 export type ScheduleHealthState = "Healthy" | "Due Soon" | "Overdue" | "Failing" | "Paused";
 
+export type AuditQuestionFieldType =
+  | "Traffic light"
+  | "Text note"
+  | "Photo evidence"
+  | "Pass / Fail"
+  | "Yes / No"
+  | "Single choice"
+  | "Multiple choice"
+  | "Short text"
+  | "Paragraph"
+  | "Number"
+  | "Date";
+
 export type AuditQuestion = {
   id: string;
   text: string;
-  fieldType?: "Traffic light" | "Text note" | "Photo evidence" | "Pass / Fail";
+  fieldType?: AuditQuestionFieldType;
+  required?: boolean;
   riskLevel?: RiskLevel;
   riskCategory?: RiskCategory;
   autoActionRequired?: boolean;

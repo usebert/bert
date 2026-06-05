@@ -29,8 +29,10 @@ export type EvidenceItem = {
 
 export type AuditDraft = {
   responses: Record<string, Answer>;
+  textResponses?: Record<string, string>;
   notes: Record<string, string>;
   evidence: Record<string, EvidenceItem[]>;
+  questionIndex?: number;
   updatedAt: string;
 };
 

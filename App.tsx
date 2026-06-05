@@ -167,7 +167,7 @@ import { PasswordResetConfirm } from "./src/screens/PasswordResetConfirm";
 import { requestPasswordReset } from "./src/services/passwordResetService";
 import { DashboardScreen } from "./src/screens/DashboardScreen";
 import { AuditsScreen } from "./src/screens/AuditsScreen";
-import { AuditModeScreen } from "./src/screens/AuditModeScreen";
+import { CheckCompletionWizard } from "./src/components/checks/CheckCompletionWizard";
 import { CompleteAuditScreen } from "./src/screens/CompleteAuditScreen";
 import { IncidentReportingScreen } from "./src/screens/IncidentReportingScreen";
 import { NonConformanceScreen } from "./src/screens/NonConformanceScreen";
@@ -207,6 +207,7 @@ import {
 } from "./src/components/dashboard/DashboardPrimitives";
 import { clearCompanyLoginHintForEmail, readCompanyLoginHint, saveCompanyLoginHint } from "./src/lib/companyLoginHint";
 import { pickNextAuditorAudit } from "./src/utils/auditorDashboard";
+import { mergeTextIntoNotes, syncTextResponsesToAnswers } from "./src/utils/checkCompletionHelpers";
 import {
   buildAvailableAuditFromTemplate,
   isAuditorCompletableAccess,
@@ -433,7 +434,19 @@ function formatCompanyUserInviteApiError(
 type AuditQuestion = {
   id: string;
   text: string;
-  fieldType?: "Traffic light" | "Text note" | "Photo evidence" | "Pass / Fail";
+  fieldType?:
+    | "Traffic light"
+    | "Text note"
+    | "Photo evidence"
+    | "Pass / Fail"
+    | "Yes / No"
+    | "Single choice"
+    | "Multiple choice"
+    | "Short text"
+    | "Paragraph"
+    | "Number"
+    | "Date";
+  required?: boolean;
   riskLevel?: RiskLevel;
   riskCategory?: RiskCategory;
   autoActionRequired?: boolean;
@@ -473,8 +486,10 @@ type HistoryEntry = {
 
 type AuditDraft = {
   responses: Record<string, Answer>;
+  textResponses?: Record<string, string>;
   notes: Record<string, string>;
   evidence: Record<string, EvidenceItem[]>;
+  questionIndex?: number;
   updatedAt: string;
 };
 
@@ -3210,6 +3225,7 @@ function App() {
   const [drafts, setDrafts] = useState<Record<string, AuditDraft>>(storedWorkspaceState?.drafts || {});
   const [activeAuditId, setActiveAuditId] = useState<string | null>(null);
   const [responses, setResponses] = useState<Record<string, Answer>>({});
+  const [textResponses, setTextResponses] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [evidence, setEvidence] = useState<Record<string, EvidenceItem[]>>({});
   const [evidenceDebugLabel, setEvidenceDebugLabel] = useState("");
@@ -7688,6 +7704,7 @@ function App() {
     setScreen("dashboard");
     setActiveAuditId(null);
     setResponses({});
+    setTextResponses({});
     setNotes({});
     setEvidence({});
     setAuditModeQuestionIndex(0);
@@ -7789,9 +7806,10 @@ function App() {
     const draft = drafts[auditId];
     setActiveAuditId(auditId);
     setResponses(draft?.responses ?? {});
+    setTextResponses(draft?.textResponses ?? {});
     setNotes(draft?.notes ?? {});
     setEvidence(draft?.evidence ?? {});
-    setAuditModeQuestionIndex(0);
+    setAuditModeQuestionIndex(draft?.questionIndex ?? 0);
     setIssuePrompt(null);
     setAuditCompletionSummary(null);
     setScreen("complete");
@@ -7800,7 +7818,7 @@ function App() {
     }
   };
 
-  const saveDraft = () => {
+  const saveDraft = (options?: { silent?: boolean }) => {
     if (!activeAudit) {
       return;
     }
@@ -7808,12 +7826,16 @@ function App() {
       ...current,
       [activeAudit.id]: {
         responses,
+        textResponses,
         notes,
         evidence,
+        questionIndex: auditModeQuestionIndex,
         updatedAt: formatStamp(),
       },
     }));
-    pushToast("Progress saved", `${activeAudit.name} has been saved for later.`, "success");
+    if (!options?.silent) {
+      pushToast("Progress saved", `${activeAudit.name} has been saved for later.`, "success");
+    }
   };
 
   const createActionsFromAudit = (
@@ -8286,6 +8308,7 @@ function App() {
 
     setActiveAuditId(null);
     setResponses({});
+    setTextResponses({});
     setNotes({});
     setEvidence({});
     setSignatureDataUrl("");
@@ -8305,8 +8328,10 @@ function App() {
 
   const completeAuditModeFlow = () => {
     if (!activeAudit || !currentUser) return;
+    const syncedResponses = syncTextResponsesToAnswers(activeAudit, responses, textResponses, evidence);
+    const mergedNotes = mergeTextIntoNotes(activeAudit, syncedResponses, textResponses, notes);
     const stamp = formatStamp();
-    const issuesFound = activeAudit.questions.filter((question) => responses[question.id] === "fail" || responses[question.id] === "nc").length;
+    const issuesFound = activeAudit.questions.filter((question) => syncedResponses[question.id] === "fail" || syncedResponses[question.id] === "nc").length;
     const photosCaptured = Object.values(evidence).reduce((count, items) => count + items.length, 0);
     let actionsCreated = 0;
 
@@ -8334,9 +8359,9 @@ function App() {
         templateId: activeAudit.templateVersion || undefined,
         areaId: activeAudit.siteArea || undefined,
         siteId: selectedSiteId || undefined,
-        answers: responses,
-        failedAnswers: Object.fromEntries(Object.entries(responses).filter(([, value]) => value === "fail" || value === "nc")),
-        notes,
+        answers: syncedResponses,
+        failedAnswers: Object.fromEntries(Object.entries(syncedResponses).filter(([, value]) => value === "fail" || value === "nc")),
+        notes: mergedNotes,
         evidenceRefs,
         signatureDataUrl: "audit-mode-signature-not-required",
         createdAt: stamp,
@@ -8356,7 +8381,7 @@ function App() {
       setAuditCompletionSummary({
         auditId: activeAudit.id,
         auditName: activeAudit.name,
-        questionsAnswered: Object.keys(responses).length,
+        questionsAnswered: Object.keys(syncedResponses).length,
         issuesFound,
         actionsCreated,
         photosCaptured,
@@ -8365,13 +8390,14 @@ function App() {
       });
       notifySelectedManagersForNonCompliance(activeAudit, currentUser.name, issuesFound, true);
       setActiveAuditId(null);
+      setTextResponses({});
       return;
     }
 
     const applied = applyAuditSubmission({
       audit: activeAudit,
-      responseMap: responses,
-      noteMap: notes,
+      responseMap: syncedResponses,
+      noteMap: mergedNotes,
       evidenceMap: evidence,
       submittedBy: currentUser.name,
       submittedByUser: currentUser,
@@ -8401,7 +8427,7 @@ function App() {
     setAuditCompletionSummary({
       auditId: activeAudit.id,
       auditName: activeAudit.name,
-      questionsAnswered: Object.keys(responses).length,
+      questionsAnswered: Object.keys(syncedResponses).length,
       issuesFound: applied.findingsCount,
       actionsCreated,
       photosCaptured,
@@ -8410,6 +8436,7 @@ function App() {
     });
     notifySelectedManagersForNonCompliance(activeAudit, currentUser.name, issuesFound, false);
     setActiveAuditId(null);
+    setTextResponses({});
   };
 
   const handleAuditModeAnswer = (question: AuditQuestion, answer: Answer) => {
@@ -8470,9 +8497,29 @@ function App() {
     saveDraft();
     setActiveAuditId(null);
     setIssuePrompt(null);
+    setTextResponses({});
     setAuditModeQuestionIndex(0);
     setScreen("dashboard");
   };
+
+  useEffect(() => {
+    if (!activeAudit || screen !== "complete" || !currentUser || !canCompleteAuditAsAuditor(currentUser.role)) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      saveDraft({ silent: true });
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [
+    activeAudit?.id,
+    screen,
+    currentUser?.role,
+    responses,
+    textResponses,
+    notes,
+    evidence,
+    auditModeQuestionIndex,
+  ]);
 
   const updateActionStatus = (actionId: string, nextStatus?: ActionStatus) => {
     if (!currentUser) {
@@ -12771,6 +12818,7 @@ function App() {
                   const next = pickNextAuditorAudit(assignedAudits, drafts);
                   setAuditCompletionSummary(null);
                   setResponses({});
+                  setTextResponses({});
                   setNotes({});
                   setEvidence({});
                   setIssuePrompt(null);
@@ -12784,6 +12832,7 @@ function App() {
                 onReturnDashboard={() => {
                   setAuditCompletionSummary(null);
                   setResponses({});
+                  setTextResponses({});
                   setNotes({});
                   setEvidence({});
                   setIssuePrompt(null);
@@ -12795,48 +12844,49 @@ function App() {
             )}
 
             {screen === "complete" && activeAudit && canCompleteAuditAsAuditor(currentUser.role) && !auditCompletionSummary && (
-              <AnimatedScreen screenKey={`audit-check-${activeAudit.id}`}>
-                <AuditModeScreen
-                  audit={activeAudit}
-                  responses={responses}
-                  notes={notes}
-                  evidence={evidence}
-                  evidenceDebugLabel={evidenceDebugLabel}
-                  questionIndex={auditModeQuestionIndex}
-                  offlineMode={offlineMode}
-                  pendingSyncCount={pendingSyncCount}
-                  failedSyncCount={failedSyncCount}
-                  slatePrimaryCtaInteract={slatePrimaryCtaInteract}
-                  onAnswerSelect={handleAuditModeAnswer}
-                  onJumpToQuestion={setAuditModeQuestionIndex}
-                  onNoteChange={(questionId, value) =>
-                    setNotes((current) => ({
-                      ...current,
-                      [questionId]: value,
-                    }))
-                  }
-                  onAddEvidence={(questionId, files) => {
-                    void handleAttachEvidenceFiles(questionId, files);
-                  }}
-                  onComplete={completeAuditModeFlow}
-                  onSaveAndExit={handleAuditModeSaveAndExit}
-                />
-                {issuePrompt && (
-                  <IssueFoundPrompt
-                    issue={issuePrompt}
-                    existingNote={notes[issuePrompt.question.id] || ""}
-                    evidenceCount={evidence[issuePrompt.question.id]?.length ?? 0}
-                    assignedToName={activeAudit.owner}
-                    offlineMode={offlineMode}
-                    onAddPhoto={(files) => {
-                      if (!files.length) return;
-                      void handleAttachEvidenceFiles(issuePrompt.question.id, files);
-                    }}
-                    onSave={handleAuditModeSaveIssue}
-                    onCancel={() => setIssuePrompt(null)}
-                  />
-                )}
-              </AnimatedScreen>
+              <CheckCompletionWizard
+                audit={activeAudit}
+                responses={responses}
+                textResponses={textResponses}
+                notes={notes}
+                evidence={evidence}
+                questionIndex={auditModeQuestionIndex}
+                offlineMode={offlineMode}
+                pendingSyncCount={pendingSyncCount}
+                failedSyncCount={failedSyncCount}
+                savedAt={drafts[activeAudit.id]?.updatedAt ?? null}
+                slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+                onQuestionIndexChange={setAuditModeQuestionIndex}
+                onAnswerChange={(questionId, answer) =>
+                  setResponses((current) => ({
+                    ...current,
+                    [questionId]: answer,
+                  }))
+                }
+                onTextResponseChange={(questionId, value) =>
+                  setTextResponses((current) => ({
+                    ...current,
+                    [questionId]: value,
+                  }))
+                }
+                onNoteChange={(questionId, value) =>
+                  setNotes((current) => ({
+                    ...current,
+                    [questionId]: value,
+                  }))
+                }
+                onAddEvidence={(questionId, files) => {
+                  void handleAttachEvidenceFiles(questionId, files);
+                }}
+                onRemoveEvidence={(questionId, evidenceId) =>
+                  setEvidence((current) => ({
+                    ...current,
+                    [questionId]: (current[questionId] ?? []).filter((item) => item.id !== evidenceId),
+                  }))
+                }
+                onSaveAndExit={handleAuditModeSaveAndExit}
+                onSubmit={completeAuditModeFlow}
+              />
             )}
 
             {screen === "complete" && activeAudit && canSubmitAuditForReview(currentUser.role) && (
