@@ -18,6 +18,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
+import {
+  DEFAULT_PLATFORM_OWNER_EMAIL,
+  isPlatformOwnerEmail,
+  normalizePlatformOwnerEmail,
+  resolvePlatformOwnerEmail,
+} from "../shared/platform-owner.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 process.chdir(root);
@@ -139,6 +145,95 @@ if (
   console.log("[verify:auth] OK: server Config sanitisation for UserAuth.* (spot-check)");
 } else {
   console.warn("[verify:auth] WARN: could not spot-check UserAuth.* Config sanitisation in server/server.mjs");
+}
+
+function assertPlatformOwner(condition, message) {
+  if (!condition) {
+    console.error(`[verify:auth] FAIL (platform owner): ${message}`);
+    failed = true;
+  }
+}
+
+assertPlatformOwner(
+  isPlatformOwnerEmail("admin@usebert.co.uk"),
+  "admin@usebert.co.uk must be recognized as platform owner",
+);
+assertPlatformOwner(
+  isPlatformOwnerEmail("  Admin@USEBERT.co.uk  "),
+  "platform owner email must match after normalize (trim + lowercase)",
+);
+assertPlatformOwner(
+  !isPlatformOwnerEmail("pending.invite@company.test"),
+  "non-platform emails must not be treated as platform owner",
+);
+assertPlatformOwner(
+  resolvePlatformOwnerEmail({ PLATFORM_OWNER_EMAIL: "owner@example.com" }) === "owner@example.com",
+  "PLATFORM_OWNER_EMAIL env override must apply on server",
+);
+assertPlatformOwner(
+  resolvePlatformOwnerEmail({}) === DEFAULT_PLATFORM_OWNER_EMAIL,
+  `default platform owner must be ${DEFAULT_PLATFORM_OWNER_EMAIL}`,
+);
+assertPlatformOwner(
+  normalizePlatformOwnerEmail("  X@Y.Z  ") === "x@y.z",
+  "normalizePlatformOwnerEmail must lowercase and trim",
+);
+
+if (
+  serverSrc.includes("isPlatformOwnerEmail") &&
+  serverSrc.includes("platform owner must use master auth")
+) {
+  console.log("[verify:auth] OK: company login rejects platform owner (master auth only)");
+} else {
+  console.error("[verify:auth] FAIL: server company login missing platform owner guard");
+  failed = true;
+}
+
+const appTsxPath = path.join(root, "App.tsx");
+const appSrc = fs.existsSync(appTsxPath) ? fs.readFileSync(appTsxPath, "utf8") : "";
+if (appSrc.includes("platformOwnerLogin") && appSrc.includes("tryServerMasterLogin")) {
+  console.log("[verify:auth] OK: client login uses master-only path for platform owner");
+} else {
+  console.error("[verify:auth] FAIL: App.tsx missing platform owner master-only login path");
+  failed = true;
+}
+
+if (appSrc.includes("!isPlatformOwnerEmail(cp.user.email")) {
+  console.log("[verify:auth] OK: auth bootstrap ignores stale company session for platform owner");
+} else {
+  console.error("[verify:auth] FAIL: App.tsx must skip company session restore for platform owner");
+  failed = true;
+}
+
+const sharedPlatformOwnerPath = path.join(root, "shared", "platform-owner.mjs");
+if (fs.existsSync(sharedPlatformOwnerPath)) {
+  console.log("[verify:auth] OK: shared/platform-owner.mjs exists");
+} else {
+  console.error("[verify:auth] FAIL: shared/platform-owner.mjs missing");
+  failed = true;
+}
+
+const clientPlatformOwnerPath = path.join(root, "src", "config", "platformOwner.ts");
+const clientPlatformOwnerSrc = fs.existsSync(clientPlatformOwnerPath)
+  ? fs.readFileSync(clientPlatformOwnerPath, "utf8")
+  : "";
+if (
+  clientPlatformOwnerSrc.includes(DEFAULT_PLATFORM_OWNER_EMAIL) &&
+  fs.readFileSync(sharedPlatformOwnerPath, "utf8").includes(DEFAULT_PLATFORM_OWNER_EMAIL)
+) {
+  console.log("[verify:auth] OK: client and shared platform owner defaults match");
+} else {
+  console.error("[verify:auth] FAIL: platform owner default email mismatch between client and shared");
+  failed = true;
+}
+
+const passwordResetPath = path.join(root, "server", "password-reset.mjs");
+const passwordResetSrc = fs.readFileSync(passwordResetPath, "utf8");
+if (passwordResetSrc.includes("isPlatformOwnerEmail")) {
+  console.log("[verify:auth] OK: password reset resolves platform owner to master scope");
+} else {
+  console.error("[verify:auth] FAIL: password-reset.mjs missing platform owner scope");
+  failed = true;
 }
 
 console.log(`

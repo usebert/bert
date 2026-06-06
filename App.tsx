@@ -56,6 +56,7 @@ import { RoleContextBanner } from "./src/components/RoleContextBanner";
 import { getRoleTheme } from "./src/config/roleTheme";
 import { storageKeys } from "./src/config/storageKeys";
 import { apiUrl } from "./src/config/apiBase";
+import { isPlatformOwnerEmail } from "./src/config/platformOwner";
 import { slatePrimaryCtaInteract } from "./src/styles/interactions";
 import { OfflineSyncBanner } from "./src/components/animation/OfflineSyncBanner";
 import { AnimatedScreen } from "./src/components/animation/AnimatedScreen";
@@ -4481,15 +4482,17 @@ function App() {
 
   const loginUsers = useMemo(() => {
     const demoOrDev = import.meta.env.DEV === true || import.meta.env.VITE_ENABLE_DEMO_LOGIN === "true";
-    const invitedLoginUsers = invitedUsers.map((invite) => ({
-      username: invite.email.toLowerCase(),
-      password: demoOrDev
-        ? onboardingPasswordByEmail.get(normalizeIdentity(invite.email)) ||
-          String(import.meta.env.VITE_DEMO_USER_PASSWORD ?? "").trim()
-        : "",
-      role: invite.role,
-      name: invite.email,
-    }));
+    const invitedLoginUsers = invitedUsers
+      .filter((invite) => !isPlatformOwnerEmail(invite.email, import.meta.env))
+      .map((invite) => ({
+        username: invite.email.toLowerCase(),
+        password: demoOrDev
+          ? onboardingPasswordByEmail.get(normalizeIdentity(invite.email)) ||
+            String(import.meta.env.VITE_DEMO_USER_PASSWORD ?? "").trim()
+          : "",
+        role: invite.role,
+        name: invite.email,
+      }));
     const merged = [...users, ...invitedLoginUsers];
     return merged.filter(
       (user, index, list) =>
@@ -5084,7 +5087,13 @@ function App() {
         if (!canRestoreAuthSession()) {
           return;
         }
-        if (cr.ok && cp.ok && cp.user?.email && cp.user?.role) {
+        if (
+          cr.ok &&
+          cp.ok &&
+          cp.user?.email &&
+          cp.user?.role &&
+          !isPlatformOwnerEmail(cp.user.email, import.meta.env)
+        ) {
           const companyUser: User = {
             username: String(cp.user.email).toLowerCase(),
             password: "",
@@ -5121,6 +5130,13 @@ function App() {
 
       try {
         const parsed = JSON.parse(storedUser) as User;
+        if (
+          isPlatformOwnerEmail(parsed.username, import.meta.env) &&
+          parsed.role !== "Master"
+        ) {
+          window.localStorage.removeItem(userStorageKey);
+          return;
+        }
         const matchedUser = loginUsers.find(
           (user) =>
             user.username === parsed.username &&
@@ -6448,6 +6464,8 @@ function App() {
   const handleLogin = async () => {
     const loginIdentity = username.trim().toLowerCase();
     const pwd = password;
+    const platformOwnerLogin =
+      loginIdentity.includes("@") && isPlatformOwnerEmail(loginIdentity, import.meta.env);
 
     const applySignedInUser = (match: User, options?: { workspaceSetupOnly?: boolean }) => {
       isLoggingOutRef.current = false;
@@ -6501,7 +6519,7 @@ function App() {
     };
 
     const persistedMasterSheetId = companySheetSync?.sheetId || extractGoogleResourceId(masterSheetInput) || "";
-    const masterFailureGuidesUx = companySetupLoginPortal || !persistedMasterSheetId;
+    const masterFailureGuidesUx = companySetupLoginPortal || !persistedMasterSheetId || platformOwnerLogin;
     let masterGuidedFailure: null | "auth" | "network" = null;
 
     const tryServerMasterLogin = async (): Promise<boolean> => {
@@ -6545,6 +6563,8 @@ function App() {
           } else {
             masterGuidedFailure = "network";
           }
+        } else if (platformOwnerLogin) {
+          masterGuidedFailure = "auth";
         }
         return false;
       }
@@ -6657,6 +6677,26 @@ function App() {
         }
         return false;
       });
+
+    if (platformOwnerLogin) {
+      if (await tryServerMasterLogin()) {
+        return;
+      }
+      if (masterGuidedFailure === "auth") {
+        pushToast("Sign in failed", "Email, username, or password is incorrect.", "warning");
+        return;
+      }
+      if (masterGuidedFailure === "network") {
+        pushToast(
+          "Sign in failed",
+          "BERT cannot reach the sign-in server. Check your connection and try again.",
+          "warning",
+        );
+        return;
+      }
+      pushToast("Sign in failed", "Email, username, or password is incorrect.", "warning");
+      return;
+    }
 
     if (isDemoLoginEnabled) {
       const clientMatch = findClientMatch();

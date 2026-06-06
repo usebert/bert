@@ -10,6 +10,7 @@ import {
   readMasterStore,
   writeMasterStore,
 } from "./master-auth.mjs";
+import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
 
 const STORE_FILENAME = "password-reset-tokens.json";
 const RESET_TTL_MS = 30 * 60 * 1000;
@@ -155,6 +156,9 @@ function resolveAccountScope(sessionDir, email, findMasterSheetIdsForCompanyLogi
   const emailNorm = normalizeEmail(email);
   if (!emailNorm.includes("@")) {
     return { scope: "unknown", masterSheetId: "" };
+  }
+  if (isPlatformOwnerEmail(emailNorm, process.env)) {
+    return { scope: "master", masterSheetId: "", email: emailNorm };
   }
   const masterMatch = findOperatorByIdentity(sessionDir, emailNorm);
   if (masterMatch?.operator) {

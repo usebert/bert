@@ -7,6 +7,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { getSessionCookieOptions } from "./session-cookie-options.mjs";
+import { normalizePlatformOwnerEmail } from "../shared/platform-owner.mjs";
 
 const STORE_FILENAME = "master-operators.json";
 const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
@@ -74,9 +75,7 @@ export function verifyPassword(plain, stored) {
 }
 
 function normalizeEmail(email) {
-  return String(email || "")
-    .trim()
-    .toLowerCase();
+  return normalizePlatformOwnerEmail(email);
 }
 
 function normalizeName(name) {

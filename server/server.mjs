@@ -55,6 +55,7 @@ import {
   createInviteStoreApi,
   installCompanyOnboardingRoutes,
 } from "./company-onboarding.mjs";
+import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
 
 dotenv.config();
 
@@ -1750,6 +1751,9 @@ function revokeInviteRecord(id) {
 function findMasterSheetIdsForCompanyLoginEmail(email) {
   const target = String(email || "").trim().toLowerCase();
   if (!target) {
+    return [];
+  }
+  if (isPlatformOwnerEmail(target, process.env)) {
     return [];
   }
   const store = readInviteStore();
@@ -6003,6 +6007,15 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
     }
     if (!email.includes("@")) {
       return res.status(400).json({ ok: false, blocker: "invalid_email", error: "A valid email address is required." });
+    }
+
+    if (isPlatformOwnerEmail(email, process.env)) {
+      console.warn("[company-auth] login rejected — platform owner must use master auth", { email });
+      return res.status(401).json({
+        ok: false,
+        blocker: "invalid_credentials",
+        error: "Invalid email or password.",
+      });
     }
 
     const inviteSheetCandidates = findMasterSheetIdsForCompanyLoginEmail(email);
