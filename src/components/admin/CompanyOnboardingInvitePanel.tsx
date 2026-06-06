@@ -124,6 +124,15 @@ export function CompanyOnboardingInvitePanel({
     void refreshInvites();
   };
 
+  const repairInvite = async (inviteId: string) => {
+    const response = await fetch(apiUrl(`/api/onboarding/company-onboarding/invites/${encodeURIComponent(inviteId)}/repair`), {
+      method: "POST",
+      credentials: "include",
+    });
+    await parseJsonApiResponse(response);
+    void refreshInvites();
+  };
+
   const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail.trim());
 
   return (
@@ -262,13 +271,24 @@ export function CompanyOnboardingInvitePanel({
                       </>
                     ) : null}
                     {invite.canRetrySetup || invite.status === "setup_failed" || invite.status === "failed" ? (
-                      <button
-                        type="button"
-                        className="text-xs font-semibold text-amber-800"
-                        onClick={() => void retryProvision(invite.inviteId)}
-                      >
-                        Retry provisioning
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-amber-800"
+                          onClick={() => void retryProvision(invite.inviteId)}
+                        >
+                          Retry setup
+                        </button>
+                        {invite.companyFolderId ? (
+                          <button
+                            type="button"
+                            className="text-xs font-semibold text-slate-700"
+                            onClick={() => void repairInvite(invite.inviteId)}
+                          >
+                            Repair
+                          </button>
+                        ) : null}
+                      </>
                     ) : null}
                     {invite.companyFolderUrl ? (
                       <a
@@ -292,7 +312,12 @@ export function CompanyOnboardingInvitePanel({
                     ) : null}
                   </div>
                   {invite.provisionError ? (
-                    <p className="mt-2 text-xs text-rose-700">{invite.provisionError}</p>
+                    <div className="mt-2 text-xs text-rose-700">
+                      {invite.provisionStage ? (
+                        <p className="font-semibold text-rose-800">Failed at: {invite.provisionStage}</p>
+                      ) : null}
+                      <p>{invite.provisionError}</p>
+                    </div>
                   ) : null}
                 </li>
               ))}

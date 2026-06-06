@@ -63,14 +63,35 @@ const COMPANIES_REGISTRY_COLUMNS = [
   "Live At",
 ];
 
+export const COMPANY_ONBOARDING_SETUP_FAILED_MESSAGE =
+  "We couldn't finish setting up your workspace. Your details have been saved and the BERT team can finish setup.";
+
 const MAIN_NEED_OPTIONS = [
+  "iso_9001",
+  "iso_14001",
+  "iso_45001",
+  "health_safety",
+  "risk",
+  "coshh",
   "audits",
-  "actions",
-  "incidents",
-  "evidence",
-  "reports",
-  "scheduling",
+  "digital_checks",
+  "other",
 ];
+
+const MAIN_NEED_ALIASES = {
+  iso9001: "iso_9001",
+  "iso 9001": "iso_9001",
+  iso14001: "iso_14001",
+  "iso 14001": "iso_14001",
+  iso45001: "iso_45001",
+  "iso 45001": "iso_45001",
+  hs: "health_safety",
+  "h s": "health_safety",
+  "health and safety": "health_safety",
+  "health safety": "health_safety",
+  digitalchecks: "digital_checks",
+  "digital checks": "digital_checks",
+};
 
 function safeLower(value) {
   return String(value || "")
@@ -122,12 +143,57 @@ export function normalizeMainNeeds(value) {
         .map((item) => item.trim());
   const normalized = new Set();
   for (const item of list) {
-    const key = safeLower(item).replace(/[^a-z0-9]+/g, "_");
+    const compact = safeLower(item).replace(/[^a-z0-9]+/g, " ").trim();
+    const underscored = compact.replace(/\s+/g, "_");
+    const alias = MAIN_NEED_ALIASES[compact] || MAIN_NEED_ALIASES[underscored];
+    const key = alias || underscored;
     if (MAIN_NEED_OPTIONS.includes(key)) {
       normalized.add(key);
     }
   }
   return Array.from(normalized);
+}
+
+function formatCompanyAddress(form = {}) {
+  const legacy = String(form.address || "").trim();
+  if (legacy) {
+    return legacy;
+  }
+  return [
+    form.addressLine1,
+    form.addressLine2,
+    form.town,
+    form.county,
+    form.postcode,
+    form.country,
+  ]
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
+function mapInviteStatusCode(record) {
+  const status = safeLower(record.status);
+  const provisionStatus = safeLower(record.provisionStatus);
+  if (status === "live") {
+    return "LIVE";
+  }
+  if (status === "setup_failed" || status === "failed") {
+    return "SETUP_FAILED";
+  }
+  if (provisionStatus === "running") {
+    return "PROVISIONING";
+  }
+  if (status === "submitted") {
+    return "CUSTOMER_SUBMITTED";
+  }
+  if (status === "started") {
+    return "CUSTOMER_STARTED";
+  }
+  if (status === "archived") {
+    return "ARCHIVED";
+  }
+  return "INVITE_SENT";
 }
 
 function createInviteStoreApi(storePath) {
@@ -211,20 +277,26 @@ function createInviteStoreApi(storePath) {
 }
 
 function mapInviteStatusLabel(record) {
-  const status = safeLower(record.status);
-  if (status === "live") {
+  const code = mapInviteStatusCode(record);
+  if (code === "LIVE") {
     return "Live";
   }
-  if (status === "setup_failed" || status === "failed") {
-    return "Failed";
+  if (code === "SETUP_FAILED") {
+    return "Setup failed";
   }
-  if (status === "submitted") {
-    return record.provisionStatus === "running" ? "Submitted" : "Submitted";
+  if (code === "PROVISIONING") {
+    return "Provisioning";
   }
-  if (status === "started") {
+  if (code === "CUSTOMER_SUBMITTED") {
+    return "Submitted";
+  }
+  if (code === "CUSTOMER_STARTED") {
     return "Started";
   }
-  return "Invited";
+  if (code === "ARCHIVED") {
+    return "Archived";
+  }
+  return "Invite sent";
 }
 
 function publicInviteSummary(record) {
@@ -233,6 +305,7 @@ function publicInviteSummary(record) {
   return {
     inviteId: record.id,
     status: record.status,
+    statusCode: mapInviteStatusCode(record),
     statusLabel: mapInviteStatusLabel(record),
     contactEmail: record.contactEmail,
     contactName: record.contactName || "",
@@ -244,6 +317,7 @@ function publicInviteSummary(record) {
     liveAt: record.liveAt ?? null,
     provisionStatus: record.provisionStatus || "idle",
     provisionError: record.provisionError || "",
+    provisionStage: record.provisionStage || "",
     companyFolderId,
     masterSheetId,
     companyFolderUrl: companyFolderId ? `https://drive.google.com/drive/folders/${companyFolderId}` : "",
@@ -363,7 +437,7 @@ function registryRowFromCompany(record, form) {
     "Company Name": form.companyName || record.provisionalCompanyName || "",
     Website: form.website || "",
     Phone: form.phone || "",
-    Address: form.address || "",
+    Address: formatCompanyAddress(form),
     Industry: form.industry || "",
     "Sites Count": String(form.sitesCount ?? ""),
     "Users Count": String(form.usersCount ?? ""),
@@ -395,10 +469,17 @@ async function syncInviteToRegistry(auth, record, deps) {
 
 function buildConfigFromForm(form, inviteId, status = COMPANY_WORKSPACE_STATUS.LIVE) {
   const mainNeeds = normalizeMainNeeds(form.mainNeeds);
+  const address = formatCompanyAddress(form);
   return {
     companyWebsite: String(form.website || "").trim(),
     companyPhone: String(form.phone || "").trim(),
-    companyAddress: String(form.address || "").trim(),
+    companyAddress: address,
+    companyAddressLine1: String(form.addressLine1 || "").trim(),
+    companyAddressLine2: String(form.addressLine2 || "").trim(),
+    companyTown: String(form.town || "").trim(),
+    companyCounty: String(form.county || "").trim(),
+    companyPostcode: String(form.postcode || "").trim(),
+    companyCountry: String(form.country || "").trim(),
     companyIndustry: String(form.industry || "").trim(),
     expectedSites: String(form.sitesCount ?? "").trim(),
     expectedUsers: String(form.usersCount ?? "").trim(),
@@ -621,7 +702,7 @@ export function installCompanyOnboardingRoutes(app, deps) {
     companySessionMs,
     hashPassword,
     readCompanyUsersTabRecord,
-    probeCompanyLoginSheet,
+    repairCompanyInviteTarget,
   } = deps;
 
   const storePath = path.join(sessionDir, "company-onboarding-invites.json");
@@ -918,6 +999,61 @@ export function installCompanyOnboardingRoutes(app, deps) {
     return { companyFolderId, masterSheetId, liveRecord };
   }
 
+  app.post("/api/onboarding/company-onboarding/invites/:inviteId/repair", requireGoogleWorkspaceSession, requireMasterOnlyActor, async (req, res) => {
+    try {
+      const inviteId = String(req.params.inviteId || "").trim();
+      const record = store.getInvite(inviteId);
+      if (!record) {
+        return res.status(404).json({ ok: false, error: "Invite not found." });
+      }
+      const authed = getAuthedClient();
+      if (!authed) {
+        return res.status(401).json({ ok: false, error: "Connect Google Workspace before repairing workspace links." });
+      }
+      const companyFolderId = String(record.companyFolderId || record.provisionDriveFolderId || "").trim();
+      if (!companyFolderId) {
+        return res.status(400).json({
+          ok: false,
+          error: "No company folder exists yet. Use Retry setup after the customer submits the form.",
+        });
+      }
+      const repairResult = await repairCompanyInviteTarget(
+        authed,
+        {
+          companyFolderId,
+          masterSheetId: String(record.masterSheetId || record.provisionMasterSheetId || "").trim(),
+          companyName: String(record.formPayload?.companyName || record.provisionalCompanyName || "").trim(),
+        },
+        deps.inviteTargetDeps || {},
+      );
+      if (repairResult.resolved?.masterSheetId || repairResult.resolved?.companyFolderId) {
+        store.patchInvite(inviteId, {
+          companyFolderId: repairResult.resolved.companyFolderId || companyFolderId,
+          masterSheetId: repairResult.resolved.masterSheetId || record.masterSheetId,
+          provisionDriveFolderId: repairResult.resolved.companyFolderId || companyFolderId,
+          provisionMasterSheetId: repairResult.resolved.masterSheetId || record.masterSheetId,
+        });
+      }
+      const updated = store.getInvite(inviteId);
+      if (updated) {
+        await syncInviteToRegistry(authed, updated, deps).catch(() => {});
+      }
+      return res.json({
+        ok: repairResult.ok,
+        invite: publicInviteSummary(updated || record),
+        code: repairResult.code,
+        message: repairResult.message,
+        diagnostics: repairResult.diagnostics,
+        repairedInvites: repairResult.repairedInvites,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Unable to repair workspace link.",
+      });
+    }
+  });
+
   app.post("/api/onboarding/company-onboarding/invites/:inviteId/retry", requireGoogleWorkspaceSession, requireMasterOnlyActor, async (req, res) => {
     const inviteId = String(req.params.inviteId || "").trim();
     const record = store.getInvite(inviteId);
@@ -994,14 +1130,18 @@ export function installCompanyOnboardingRoutes(app, deps) {
 
   app.post("/api/onboarding/company-onboarding/invite/:tokenParam/complete", async (req, res) => {
     if (!envConfigured()) {
-      return res.status(503).json({ ok: false, error: "Workspace setup is not available right now. Try again later." });
+      return res.status(503).json({
+        ok: false,
+        code: "setup_failed",
+        error: COMPANY_ONBOARDING_SETUP_FAILED_MESSAGE,
+      });
     }
     const authed = getAuthedClient();
     if (!authed) {
-      return res.status(401).json({
+      return res.status(503).json({
         ok: false,
-        code: "google_not_connected",
-        error: "Account setup is not available because Google Workspace is not connected on the server.",
+        code: "setup_failed",
+        error: COMPANY_ONBOARDING_SETUP_FAILED_MESSAGE,
       });
     }
 
@@ -1012,11 +1152,21 @@ export function installCompanyOnboardingRoutes(app, deps) {
 
     const password = String(req.body?.password || "");
     const confirmPassword = String(req.body?.confirmPassword || "");
-    const adminFullName = String(req.body?.adminFullName || req.body?.fullName || "").trim();
+    const adminFirstName = String(req.body?.adminFirstName || "").trim();
+    const adminLastName = String(req.body?.adminLastName || "").trim();
+    const adminFullName =
+      [adminFirstName, adminLastName].filter(Boolean).join(" ") ||
+      String(req.body?.adminFullName || req.body?.fullName || "").trim();
     const adminEmail = String(req.body?.adminEmail || "").trim().toLowerCase();
     const companyName = String(req.body?.companyName || "").trim();
     const website = String(req.body?.website || "").trim();
     const phone = String(req.body?.phone || "").trim();
+    const addressLine1 = String(req.body?.addressLine1 || "").trim();
+    const addressLine2 = String(req.body?.addressLine2 || "").trim();
+    const town = String(req.body?.town || "").trim();
+    const county = String(req.body?.county || "").trim();
+    const postcode = String(req.body?.postcode || "").trim();
+    const country = String(req.body?.country || "").trim();
     const address = String(req.body?.address || "").trim();
     const industry = String(req.body?.industry || "").trim();
     const sitesCount = String(req.body?.sitesCount ?? req.body?.sites ?? "").trim();
@@ -1059,10 +1209,18 @@ export function installCompanyOnboardingRoutes(app, deps) {
         website,
         phone,
         address,
+        addressLine1,
+        addressLine2,
+        town,
+        county,
+        postcode,
+        country,
         industry,
         sitesCount,
         usersCount,
         mainNeeds,
+        adminFirstName,
+        adminLastName,
         adminFullName,
         adminEmail: resolvedAdminEmail,
       };
@@ -1118,10 +1276,10 @@ export function installCompanyOnboardingRoutes(app, deps) {
         provisionError: null,
       });
 
-      try {
-        let companyFolderId = String(record.companyFolderId || record.provisionDriveFolderId || "").trim();
-        let masterSheetId = String(record.masterSheetId || record.provisionMasterSheetId || "").trim();
+      let companyFolderId = String(record.companyFolderId || record.provisionDriveFolderId || "").trim();
+      let masterSheetId = String(record.masterSheetId || record.provisionMasterSheetId || "").trim();
 
+      try {
         if (masterSheetId) {
           const cfgProvisioning = await getConfig(authed, masterSheetId);
           await updateConfig(authed, masterSheetId, {
@@ -1243,14 +1401,13 @@ export function installCompanyOnboardingRoutes(app, deps) {
           sessionStarted: Boolean(probe.passwordVerified),
         });
       } catch (error) {
-        const friendly =
-          "We could not finish setting up your company workspace. The BERT team has been notified — you can try again shortly or contact support.";
         console.error("[company-onboarding] provision failed", error);
         store.patchInvite(parsed.inviteId, {
           status: "setup_failed",
           provisionStatus: "failed",
           provisionFinishedAt: Date.now(),
           provisionError: error instanceof Error ? error.message : String(error),
+          provisionStage: companyFolderId && masterSheetId ? "finalize" : companyFolderId ? "master_sheet" : "drive_folder",
         });
         const failed = store.getInvite(parsed.inviteId);
         const failedSheetId = String(failed?.masterSheetId || failed?.provisionMasterSheetId || "").trim();
@@ -1271,7 +1428,7 @@ export function installCompanyOnboardingRoutes(app, deps) {
         res.status(500).json({
           ok: false,
           code: "setup_failed",
-          error: friendly,
+          error: COMPANY_ONBOARDING_SETUP_FAILED_MESSAGE,
           provisionStatus: "failed",
           canRetrySetup: true,
         });
@@ -1281,6 +1438,7 @@ export function installCompanyOnboardingRoutes(app, deps) {
 }
 
 export {
+  COMPANY_ONBOARDING_SETUP_FAILED_MESSAGE,
   MAIN_NEED_OPTIONS,
   REGISTRY_SPREADSHEET_NAME,
   REGISTRY_TAB_COMPANIES,

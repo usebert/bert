@@ -80,7 +80,7 @@ export function mapInviteCompletionError(payload: InviteErrorPayload, httpStatus
     case "setup_failed":
       return (
         sanitizeRawInviteMessage(friendly) ||
-        "Account setup could not be finished. Ask your administrator to send a new invite if you still cannot sign in."
+        "We couldn't finish setting up your workspace. Your details have been saved and the BERT team can finish setup."
       );
     case "validation_error":
       return sanitizeRawInviteMessage(friendly) || "Check the form and try again.";

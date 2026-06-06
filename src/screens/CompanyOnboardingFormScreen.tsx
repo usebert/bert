@@ -3,7 +3,16 @@ import { BertLogo } from "../components/BertLogo";
 import { apiUrl } from "../config/apiBase";
 import { saveCompanyLoginHint } from "../lib/companyLoginHint";
 
-type MainNeedId = "audits" | "actions" | "incidents" | "evidence" | "reports" | "scheduling";
+type MainNeedId =
+  | "iso_9001"
+  | "iso_14001"
+  | "iso_45001"
+  | "health_safety"
+  | "risk"
+  | "coshh"
+  | "audits"
+  | "digital_checks"
+  | "other";
 
 type InviteDetails = {
   ok: true;
@@ -27,13 +36,19 @@ type CompanyOnboardingFormScreenProps = {
 };
 
 const MAIN_NEED_LABELS: Record<MainNeedId, string> = {
-  audits: "Site audits & checklists",
-  actions: "Corrective actions",
-  incidents: "Incidents & near misses",
-  evidence: "Evidence & documents",
-  reports: "Management reports",
-  scheduling: "Audit scheduling",
+  iso_9001: "ISO 9001",
+  iso_14001: "ISO 14001",
+  iso_45001: "ISO 45001",
+  health_safety: "Health & Safety",
+  risk: "Risk management",
+  coshh: "COSHH",
+  audits: "Audits",
+  digital_checks: "Digital checks",
+  other: "Other",
 };
+
+const SETUP_FAILED_MESSAGE =
+  "We couldn't finish setting up your workspace. Your details have been saved and the BERT team can finish setup.";
 
 export function CompanyOnboardingFormScreen({
   inviteToken,
@@ -45,12 +60,18 @@ export function CompanyOnboardingFormScreen({
   const [companyName, setCompanyName] = useState("");
   const [website, setWebsite] = useState("");
   const [phone, setPhone] = useState("");
-  const [address, setAddress] = useState("");
+  const [addressLine1, setAddressLine1] = useState("");
+  const [addressLine2, setAddressLine2] = useState("");
+  const [town, setTown] = useState("");
+  const [county, setCounty] = useState("");
+  const [postcode, setPostcode] = useState("");
+  const [country, setCountry] = useState("");
   const [industry, setIndustry] = useState("");
   const [sitesCount, setSitesCount] = useState("");
   const [usersCount, setUsersCount] = useState("");
   const [mainNeeds, setMainNeeds] = useState<MainNeedId[]>([]);
-  const [adminFullName, setAdminFullName] = useState("");
+  const [adminFirstName, setAdminFirstName] = useState("");
+  const [adminLastName, setAdminLastName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -111,8 +132,8 @@ export function CompanyOnboardingFormScreen({
       setSubmitError("Passwords do not match.");
       return;
     }
-    if (!companyName.trim() || !adminFullName.trim()) {
-      setSubmitError("Company name and administrator name are required.");
+    if (!companyName.trim() || !adminFirstName.trim() || !adminLastName.trim()) {
+      setSubmitError("Company name and administrator first and last name are required.");
       return;
     }
     setSubmitting(true);
@@ -125,12 +146,18 @@ export function CompanyOnboardingFormScreen({
           companyName: companyName.trim(),
           website: website.trim(),
           phone: phone.trim(),
-          address: address.trim(),
+          addressLine1: addressLine1.trim(),
+          addressLine2: addressLine2.trim(),
+          town: town.trim(),
+          county: county.trim(),
+          postcode: postcode.trim(),
+          country: country.trim(),
           industry: industry.trim(),
           sitesCount,
           usersCount,
           mainNeeds,
-          adminFullName: adminFullName.trim(),
+          adminFirstName: adminFirstName.trim(),
+          adminLastName: adminLastName.trim(),
           adminEmail: adminEmail.trim().toLowerCase(),
           password,
           confirmPassword,
@@ -139,6 +166,7 @@ export function CompanyOnboardingFormScreen({
       const payload = (await parseJsonApiResponse(response)) as {
         ok?: boolean;
         error?: string;
+        code?: string;
         sessionStarted?: boolean;
         masterSheetId?: string;
         companyFolderId?: string;
@@ -149,8 +177,10 @@ export function CompanyOnboardingFormScreen({
       }
       if (!response.ok || !payload.ok) {
         setSubmitError(
-          payload.error ||
-            "We could not finish setup. Please try again or contact BERT support if the problem continues.",
+          payload.code === "setup_failed"
+            ? SETUP_FAILED_MESSAGE
+            : payload.error ||
+                "We could not finish setup. Please try again or contact BERT support if the problem continues.",
         );
         return;
       }
@@ -179,7 +209,7 @@ export function CompanyOnboardingFormScreen({
       <div className="min-h-[100dvh] bg-slate-950 px-4 py-10 text-slate-100">
         <div className="mx-auto max-w-lg rounded-3xl border border-white/10 bg-white/5 p-8 text-center">
           <BertLogo variant="full" tone="onDark" size="md" className="mx-auto" />
-          <h1 className="mt-6 text-2xl font-semibold text-white">Your company is live</h1>
+          <h1 className="mt-6 text-2xl font-semibold text-white">Your workspace is ready</h1>
           <p className="mt-3 text-sm leading-6 text-slate-300">
             BERT has provisioned your workspace. Sign in with the email and password you chose to open your dashboard.
           </p>
@@ -195,7 +225,8 @@ export function CompanyOnboardingFormScreen({
         <p className="mt-4 text-xs font-semibold uppercase tracking-[0.28em] text-blue-400/90">Company onboarding</p>
         <h1 className="mt-2 text-2xl font-semibold text-white">Complete your BERT company setup</h1>
         <p className="mt-2 text-sm text-slate-300">
-          Tell us about your organisation and create the first administrator account. This secure link is single-use.
+          Tell us about your organisation and create the first administrator account. BERT provisions your Drive folders
+          and master sheet when you create your workspace.
         </p>
 
         {loadError ? (
@@ -233,10 +264,50 @@ export function CompanyOnboardingFormScreen({
                   />
                 </label>
                 <label className="block sm:col-span-2">
-                  <span className="text-xs font-semibold text-slate-300">Address</span>
+                  <span className="text-xs font-semibold text-slate-300">Address line 1</span>
                   <input
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
+                    value={addressLine1}
+                    onChange={(e) => setAddressLine1(e.target.value)}
+                    className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/40 px-3 text-sm text-white"
+                  />
+                </label>
+                <label className="block sm:col-span-2">
+                  <span className="text-xs font-semibold text-slate-300">Address line 2</span>
+                  <input
+                    value={addressLine2}
+                    onChange={(e) => setAddressLine2(e.target.value)}
+                    className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/40 px-3 text-sm text-white"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-semibold text-slate-300">Town / city</span>
+                  <input
+                    value={town}
+                    onChange={(e) => setTown(e.target.value)}
+                    className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/40 px-3 text-sm text-white"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-semibold text-slate-300">County / region</span>
+                  <input
+                    value={county}
+                    onChange={(e) => setCounty(e.target.value)}
+                    className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/40 px-3 text-sm text-white"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-semibold text-slate-300">Postcode</span>
+                  <input
+                    value={postcode}
+                    onChange={(e) => setPostcode(e.target.value)}
+                    className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/40 px-3 text-sm text-white"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-semibold text-slate-300">Country</span>
+                  <input
+                    value={country}
+                    onChange={(e) => setCountry(e.target.value)}
                     className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/40 px-3 text-sm text-white"
                   />
                 </label>
@@ -249,7 +320,7 @@ export function CompanyOnboardingFormScreen({
                   />
                 </label>
                 <label className="block">
-                  <span className="text-xs font-semibold text-slate-300">Sites (approx.)</span>
+                  <span className="text-xs font-semibold text-slate-300">Number of sites (approx.)</span>
                   <input
                     value={sitesCount}
                     onChange={(e) => setSitesCount(e.target.value)}
@@ -258,7 +329,7 @@ export function CompanyOnboardingFormScreen({
                   />
                 </label>
                 <label className="block">
-                  <span className="text-xs font-semibold text-slate-300">Users (approx.)</span>
+                  <span className="text-xs font-semibold text-slate-300">Estimated users</span>
                   <input
                     value={usersCount}
                     onChange={(e) => setUsersCount(e.target.value)}
@@ -288,11 +359,20 @@ export function CompanyOnboardingFormScreen({
             <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
               <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">First administrator</h2>
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                <label className="block sm:col-span-2">
-                  <span className="text-xs font-semibold text-slate-300">Full name</span>
+                <label className="block">
+                  <span className="text-xs font-semibold text-slate-300">First name</span>
                   <input
-                    value={adminFullName}
-                    onChange={(e) => setAdminFullName(e.target.value)}
+                    value={adminFirstName}
+                    onChange={(e) => setAdminFirstName(e.target.value)}
+                    required
+                    className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/40 px-3 text-sm text-white"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-semibold text-slate-300">Last name</span>
+                  <input
+                    value={adminLastName}
+                    onChange={(e) => setAdminLastName(e.target.value)}
                     required
                     className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/40 px-3 text-sm text-white"
                   />
@@ -342,7 +422,7 @@ export function CompanyOnboardingFormScreen({
               disabled={submitting}
               className="h-12 w-full rounded-2xl bg-orange-500 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-60"
             >
-              {submitting ? "Setting up your company…" : "Submit and go live"}
+              {submitting ? "Creating your workspace…" : "Create workspace"}
             </button>
           </form>
         ) : null}

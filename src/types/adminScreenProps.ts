@@ -140,10 +140,12 @@ export type CompanyOnboardingEmailResult = {
 export type CompanyOnboardingInviteRow = {
   inviteId: string;
   status: string;
+  statusCode?: string;
   statusLabel?: string;
   contactEmail: string;
   provisionalCompanyName?: string;
   provisionError?: string;
+  provisionStage?: string;
   companyFolderId?: string;
   masterSheetId?: string;
   companyFolderUrl?: string;

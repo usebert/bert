@@ -6416,6 +6416,8 @@ installCompanyOnboardingRoutes(app, {
   readCompanyUsersTabRecord,
   writeCompanyUsers,
   probeCompanyLoginSheet,
+  repairCompanyInviteTarget,
+  inviteTargetDeps: getInviteTargetDeps(),
   getWorkbook,
   ensureTabExists,
   ensureColumns,
