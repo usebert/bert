@@ -37,6 +37,8 @@ assert(serverOnboarding.includes("provisionNewCompanyWorkspace"), "reuses provis
 assert(serverOnboarding.includes("runHeadlessInviteProvisioning"), "godmode headless reprovision");
 assert(serverOnboarding.includes("COMPANY_WORKSPACE_STATUS"), "onboarding status constants");
 assert(serverOnboarding.includes("assertCompanyWorkspaceAcceptsUserInvite"), "live gate helper");
+assert(serverOnboarding.includes("ensureCompanyWorkspaceLiveIfReady"), "auto live promotion helper");
+assert(serverOnboarding.includes("readOnboardingRegistryMasterSheetForFolder"), "registry master sheet lookup");
 assert(serverOnboarding.includes("companyOnboardingStatus"), "config status field");
 assert(serverOnboarding.includes("onboarding_provisioning"), "provisioning status");
 assert(serverOnboarding.includes("setup_failed"), "setup failed status");

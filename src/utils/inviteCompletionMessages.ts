@@ -6,6 +6,7 @@ export type InviteCompletionErrorCode =
   | "invite_not_found"
   | "invite_already_used"
   | "google_not_connected"
+  | "google_access_denied"
   | "google_api_error"
   | "invite_in_progress"
   | "setup_failed"
@@ -57,7 +58,7 @@ export function mapInviteCompletionError(payload: InviteErrorPayload, httpStatus
     case "stale_invite_target":
       return (
         sanitizeRawInviteMessage(friendly) ||
-        "This invite points to a company workspace that is no longer available. Ask your administrator to send a new invite."
+        "This invite is out of date. Please ask your administrator to send a fresh invite."
       );
     case "invite_expired":
       return "This invite has expired. Ask your administrator to send a new invite.";
@@ -67,6 +68,8 @@ export function mapInviteCompletionError(payload: InviteErrorPayload, httpStatus
       return "This invite has already been used. Sign in with your email and password, or ask for a new invite.";
     case "google_not_connected":
       return "Account setup is not available right now because Google Workspace is not connected on the server. Ask your administrator to reconnect Google, then try again.";
+    case "google_access_denied":
+      return "Account setup is not available right now because BERT cannot access the company master sheet. Ask your administrator to repair the workspace link, then send a fresh invite if needed.";
     case "google_api_error":
       return (
         sanitizeRawInviteMessage(friendly) ||

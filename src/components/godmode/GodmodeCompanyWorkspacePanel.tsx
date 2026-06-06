@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Role } from "../../permissions";
 import { canManageAreas } from "../../permissions";
+import { apiUrl } from "../../config/apiBase";
 import { AreaAuditsSection } from "../admin/AreaAuditsSection";
 import { CompanyWorkspaceResetPanel } from "../admin/CompanyWorkspaceResetPanel";
 import { SitesAreasPanel } from "../admin/SitesAreasPanel";
@@ -232,6 +233,8 @@ export function GodmodeCompanyWorkspacePanel({
   userManagement,
 }: GodmodeCompanyWorkspacePanelProps) {
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [inviteTargetDiagnostic, setInviteTargetDiagnostic] = useState("");
+  const [inviteTargetRepairing, setInviteTargetRepairing] = useState(false);
   const isProvisioning = companyFolderStructureRepairing || companyMasterSheetProvisioning;
   const healthCheckRun = workspaceValidation != null;
   const workspaceHealthOk = workspaceValidation?.ok ?? false;
@@ -301,6 +304,100 @@ export function GodmodeCompanyWorkspacePanel({
     (folderInspection?.masterSheet?.tabs.length ? folderInspection.blockingItems.length === 0 : false);
   const companyFoldersMappingOk = workspaceValidation?.folders.companyFolder ?? Boolean(selectedFolder);
   const companyLive = syncState === "Synced" && masterSheetOk && Boolean(selectedFolder);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedFolder?.id || !googleWorkspaceReady || adminOnly) {
+      setInviteTargetDiagnostic("");
+      return () => {
+        cancelled = true;
+      };
+    }
+    const sheetId = companyMasterSheetId || folderInspection?.masterSheet?.id || "";
+    if (!sheetId) {
+      setInviteTargetDiagnostic("");
+      return () => {
+        cancelled = true;
+      };
+    }
+    void (async () => {
+      try {
+        const params = new URLSearchParams({
+          companyFolderId: selectedFolder.id,
+          masterSheetId: sheetId,
+          companyName: selectedFolder.name,
+        });
+        const response = await fetch(apiUrl(`/api/onboarding/company-invite-target-diagnostics?${params}`), {
+          credentials: "include",
+        });
+        const payload = (await response.json()) as {
+          verificationWouldFail?: boolean;
+          masterSheetReady?: boolean;
+          message?: string;
+          diagnostics?: string[];
+        };
+        if (cancelled) return;
+        if (
+          response.ok &&
+          payload.verificationWouldFail &&
+          payload.masterSheetReady &&
+          masterSheetOk
+        ) {
+          const detail = payload.message ? ` ${payload.message}` : "";
+          setInviteTargetDiagnostic(
+            `Master sheet looks ready in Godmode, but invite verification would fail.${detail} Repair the invite/company sheet link before sending user invites.`,
+          );
+          return;
+        }
+        setInviteTargetDiagnostic("");
+      } catch {
+        if (!cancelled) {
+          setInviteTargetDiagnostic("");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    adminOnly,
+    companyMasterSheetId,
+    folderInspection?.masterSheet?.id,
+    googleWorkspaceReady,
+    masterSheetOk,
+    selectedFolder?.id,
+    selectedFolder?.name,
+  ]);
+
+  const repairInviteCompanySheetLink = async () => {
+    if (!selectedFolder?.id || inviteTargetRepairing) {
+      return;
+    }
+    setInviteTargetRepairing(true);
+    try {
+      const response = await fetch(apiUrl("/api/onboarding/repair-company-invite-target"), {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyFolderId: selectedFolder.id,
+          masterSheetId: companyMasterSheetId || folderInspection?.masterSheet?.id || "",
+          companyName: selectedFolder.name,
+        }),
+      });
+      const payload = (await response.json()) as { ok?: boolean; message?: string; error?: string };
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.message || payload.error || "Unable to repair invite/company sheet link.");
+      }
+      setInviteTargetDiagnostic("");
+    } catch (error) {
+      setInviteTargetDiagnostic(
+        error instanceof Error ? error.message : "Unable to repair invite/company sheet link.",
+      );
+    } finally {
+      setInviteTargetRepairing(false);
+    }
+  };
 
   const selectedStatus = useMemo(() => {
     if (!selectedFolder) return null;
@@ -461,6 +558,19 @@ export function GodmodeCompanyWorkspacePanel({
               <SetupChecklistRow label="Workspace health checked" ok={healthCheckRun && workspaceHealthOk} />
               <SetupChecklistRow label="Company live" ok={companyLive} />
             </div>
+            {inviteTargetDiagnostic ? (
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                <p>{inviteTargetDiagnostic}</p>
+                <button
+                  type="button"
+                  onClick={() => void repairInviteCompanySheetLink()}
+                  disabled={adminOnly || !googleWorkspaceReady || inviteTargetRepairing}
+                  className="mt-3 inline-flex h-10 items-center rounded-xl border border-amber-300 bg-white px-4 text-sm font-semibold text-amber-950 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {inviteTargetRepairing ? "Repairing…" : "Repair invite/company sheet link"}
+                </button>
+              </div>
+            ) : null}
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 type="button"

@@ -34,8 +34,12 @@ import {
   isArchiveOrNonLiveWorkspaceName,
   logInviteCompleteFailure,
   normalizeWorkspaceFolderLabel,
-  validateCompanyUserInviteTarget,
 } from "./invite-target.mjs";
+import {
+  diagnoseCompanyInviteTarget,
+  prepareCompanyUserInviteTarget,
+  repairCompanyInviteTarget,
+} from "./resolve-invite-target.mjs";
 import { installCompanyWorkspaceResetRoutes } from "./company-workspace-reset.mjs";
 import { installPasswordResetRoutes } from "./password-reset.mjs";
 import {
@@ -1868,6 +1872,30 @@ async function assessCompanyUserInviteReadiness(auth, masterSheetId, email, invi
 async function resolveCompanyUserInviteLifecycle(auth, masterSheetId, email, tokenId = "") {
   const inviteRecord = tokenId ? getInviteRecord(tokenId) : null;
   return assessCompanyUserInviteReadiness(auth, masterSheetId, email, inviteRecord);
+}
+
+function getInviteTargetDeps() {
+  return {
+    getConfig,
+    updateConfig,
+    getTabValues,
+    google,
+    listDriveChildren,
+    normalizeDriveFolderName,
+    resolveIsoFoldersFromChildren,
+    readInviteStore,
+    writeInviteStore,
+    platformRegistrySheetId: process.env.BERT_PLATFORM_REGISTRY_SHEET_ID || "",
+    sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
+  };
+}
+
+async function validatePreparedCompanyUserInviteTarget(auth, record, tokenId = "") {
+  return prepareCompanyUserInviteTarget(auth, record, {
+    deps: getInviteTargetDeps(),
+    patchInviteRecord: tokenId ? (partial) => patchInviteRecord(tokenId, partial) : null,
+    tokenId,
+  });
 }
 
 function markInviteConsumed(id) {
@@ -4917,17 +4945,21 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
         return;
       }
 
-      const targetCheck = await validateCompanyUserInviteTarget(auth, {
-        companyFolderId,
-        masterSheetId,
-        companyName,
-      });
+      const targetCheck = await validatePreparedCompanyUserInviteTarget(
+        auth,
+        {
+          companyFolderId,
+          masterSheetId,
+          companyName,
+        },
+      );
       if (!targetCheck.ok) {
         res.status(targetCheck.httpStatus).json({
           ok: false,
           code: targetCheck.code,
           error: targetCheck.message,
           blocker: targetCheck.code,
+          diagnostics: targetCheck.diagnostics,
         });
         return;
       }
@@ -4935,7 +4967,7 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
       const liveGate = await assertCompanyWorkspaceAcceptsUserInvite(
         { getConfig, getTabValues },
         auth,
-        { masterSheetId, inviteRole },
+        { masterSheetId: targetCheck.resolved?.masterSheetId || masterSheetId, inviteRole, companyFolderId },
       );
       if (!liveGate.ok) {
         res.status(liveGate.httpStatus).json({
@@ -4970,8 +5002,8 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
           email: toEmail,
           role: inviteRole,
           invitedBy,
-          companyFolderId,
-          masterSheetId,
+          companyFolderId: targetCheck.resolved?.companyFolderId || companyFolderId,
+          masterSheetId: targetCheck.resolved?.masterSheetId || masterSheetId,
           companyName,
         }));
         console.log(`[invite] company_user created token=${id.slice(0, 8)} recipient=${toEmail}`);
@@ -5109,6 +5141,76 @@ app.delete("/api/onboarding/app-invites/:tokenId", requireGoogleWorkspaceEnv, (r
   });
 });
 
+app.post("/api/onboarding/repair-company-invite-target", requireGoogleWorkspaceSession, requireMasterOnlyActor, async (req, res) => {
+  try {
+    const authed = getAuthedClient();
+    if (!authed) {
+      return res.status(401).json({
+        ok: false,
+        code: "google_not_connected",
+        error: "Connect Google Workspace before repairing invite links.",
+      });
+    }
+    const companyFolderId = String(req.body?.companyFolderId || "").trim();
+    const masterSheetId = String(req.body?.masterSheetId || "").trim();
+    const companyName = String(req.body?.companyName || "").trim();
+    if (!companyFolderId) {
+      return res.status(400).json({ ok: false, error: "companyFolderId is required." });
+    }
+    const result = await repairCompanyInviteTarget(
+      authed,
+      { companyFolderId, masterSheetId, companyName },
+      getInviteTargetDeps(),
+    );
+    return res.json({
+      ok: result.ok,
+      code: result.code,
+      message: result.message,
+      repairedInvites: result.repairedInvites,
+      masterSheetId: result.resolved?.masterSheetId || masterSheetId,
+      companyFolderId: result.resolved?.companyFolderId || companyFolderId,
+      registryUpdated: Boolean(result.resolved?.registryUpdated),
+      promotedLive: Boolean(result.resolved?.promotedLive),
+      diagnostics: result.diagnostics,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error instanceof Error ? error.message : "Unable to repair invite/company sheet link.",
+    });
+  }
+});
+
+app.get("/api/onboarding/company-invite-target-diagnostics", requireGoogleWorkspaceSession, requireMasterOnlyActor, async (req, res) => {
+  try {
+    const authed = getAuthedClient();
+    if (!authed) {
+      return res.status(401).json({
+        ok: false,
+        code: "google_not_connected",
+        error: "Connect Google Workspace before checking invite diagnostics.",
+      });
+    }
+    const companyFolderId = String(req.query?.companyFolderId || "").trim();
+    const masterSheetId = String(req.query?.masterSheetId || "").trim();
+    const companyName = String(req.query?.companyName || "").trim();
+    if (!companyFolderId) {
+      return res.status(400).json({ ok: false, error: "companyFolderId is required." });
+    }
+    const result = await diagnoseCompanyInviteTarget(
+      authed,
+      { companyFolderId, masterSheetId, companyName },
+      getInviteTargetDeps(),
+    );
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error instanceof Error ? error.message : "Unable to load invite target diagnostics.",
+    });
+  }
+});
+
 app.get("/api/onboarding/app-invites/:tokenId", async (req, res) => {
   const tokenId = String(req.params.tokenId || "").trim();
   if (!tokenId) {
@@ -5121,22 +5223,8 @@ app.get("/api/onboarding/app-invites/:tokenId", async (req, res) => {
   const record = normalizeInviteProvisionFields(recordRaw);
   if (record.kind === "company_user" && Date.now() <= record.expiresAt) {
     const auth = getAuthedClient();
-    if (!String(record.masterSheetId || "").trim() || !String(record.companyFolderId || "").trim()) {
-      return res.status(409).json({
-        ok: false,
-        code: "stale_invite_target",
-        error:
-          "This invite points to a company workspace that is missing or no longer available. Ask your administrator to send a new invite.",
-        staleTarget: true,
-        masterSheetIdPresent: Boolean(record.masterSheetId),
-      });
-    }
     if (auth) {
-      const targetCheck = await validateCompanyUserInviteTarget(auth, {
-        companyFolderId: record.companyFolderId,
-        masterSheetId: record.masterSheetId,
-        companyName: record.companyName,
-      });
+      const targetCheck = await validatePreparedCompanyUserInviteTarget(auth, record, tokenId);
       if (!targetCheck.ok && targetCheck.code !== "google_not_connected") {
         return res.status(targetCheck.httpStatus).json({
           ok: false,
@@ -5144,19 +5232,33 @@ app.get("/api/onboarding/app-invites/:tokenId", async (req, res) => {
           error: targetCheck.message,
           staleTarget: targetCheck.code === "stale_invite_target",
           masterSheetIdPresent: targetCheck.masterSheetIdPresent,
+          diagnostics: targetCheck.diagnostics,
         });
       }
+      if (targetCheck.resolved?.masterSheetId) {
+        record = {
+          ...record,
+          companyFolderId: targetCheck.resolved.companyFolderId || record.companyFolderId,
+          masterSheetId: targetCheck.resolved.masterSheetId,
+          companyName: targetCheck.resolved.companyName || record.companyName,
+        };
+      }
+    } else if (!String(record.masterSheetId || "").trim() || !String(record.companyFolderId || "").trim()) {
+      return res.status(409).json({
+        ok: false,
+        code: "stale_invite_target",
+        error:
+          "This invite is out of date. Please ask your administrator to send a fresh invite.",
+        staleTarget: true,
+        masterSheetIdPresent: Boolean(record.masterSheetId),
+      });
     }
   }
   if (record.consumedAt) {
     const folderId = record.provisionDriveFolderId;
     if (record.kind === "company_user") {
       const auth = getAuthedClient();
-      const targetCheck = await validateCompanyUserInviteTarget(auth, {
-        companyFolderId: record.companyFolderId,
-        masterSheetId: record.masterSheetId,
-        companyName: record.companyName,
-      });
+      const targetCheck = await validatePreparedCompanyUserInviteTarget(auth, record, tokenId);
       const assessment = await assessCompanyUserInviteReadiness(
         auth,
         record.masterSheetId,
@@ -5332,11 +5434,7 @@ app.post("/api/onboarding/app-invites/:tokenId/complete", async (req, res) => {
               });
               return;
             }
-            const retryTargetCheck = await validateCompanyUserInviteTarget(authed, {
-              companyFolderId: record.companyFolderId,
-              masterSheetId: record.masterSheetId,
-              companyName: record.companyName,
-            });
+            const retryTargetCheck = await validatePreparedCompanyUserInviteTarget(authed, record, tokenId);
             if (!retryTargetCheck.ok) {
               logInviteCompleteFailure({
                 code: retryTargetCheck.code,
@@ -5344,6 +5442,7 @@ app.post("/api/onboarding/app-invites/:tokenId/complete", async (req, res) => {
                 tokenId,
                 company: retryTargetCheck.companyLabel || record.companyName,
                 masterSheetIdPresent: retryTargetCheck.masterSheetIdPresent,
+                diagnostics: retryTargetCheck.diagnostics,
               });
               res.status(retryTargetCheck.httpStatus).json({
                 ok: false,
@@ -5352,9 +5451,15 @@ app.post("/api/onboarding/app-invites/:tokenId/complete", async (req, res) => {
                 error: retryTargetCheck.message,
                 setupIncomplete: true,
                 canRetrySetup: false,
+                diagnostics: retryTargetCheck.diagnostics,
               });
               return;
             }
+            record = {
+              ...record,
+              companyFolderId: retryTargetCheck.resolved?.companyFolderId || record.companyFolderId,
+              masterSheetId: retryTargetCheck.resolved?.masterSheetId || record.masterSheetId,
+            };
             console.warn("[invite] company_user retry incomplete setup", {
               tokenIdPrefix: tokenId.slice(0, 8),
               email: record.email,
@@ -5392,11 +5497,7 @@ app.post("/api/onboarding/app-invites/:tokenId/complete", async (req, res) => {
       }
 
       if (record.kind === "company_user") {
-        const targetCheck = await validateCompanyUserInviteTarget(authed, {
-          companyFolderId: record.companyFolderId,
-          masterSheetId: record.masterSheetId,
-          companyName: record.companyName,
-        });
+        const targetCheck = await validatePreparedCompanyUserInviteTarget(authed, record, tokenId);
         if (!targetCheck.ok) {
           logInviteCompleteFailure({
             code: targetCheck.code,
@@ -5404,6 +5505,7 @@ app.post("/api/onboarding/app-invites/:tokenId/complete", async (req, res) => {
             tokenId,
             company: targetCheck.companyLabel || record.companyName,
             masterSheetIdPresent: targetCheck.masterSheetIdPresent,
+            diagnostics: targetCheck.diagnostics,
           });
           res.status(targetCheck.httpStatus).json({
             ok: false,
@@ -5412,9 +5514,15 @@ app.post("/api/onboarding/app-invites/:tokenId/complete", async (req, res) => {
             error: targetCheck.message,
             setupIncomplete: targetCheck.code === "stale_invite_target",
             canRetrySetup: false,
+            diagnostics: targetCheck.diagnostics,
           });
           return;
         }
+        record = {
+          ...record,
+          companyFolderId: targetCheck.resolved?.companyFolderId || record.companyFolderId,
+          masterSheetId: targetCheck.resolved?.masterSheetId || record.masterSheetId,
+        };
       }
 
       if (record.provisionStatus === "running" && record.provisionStartedAt != null) {

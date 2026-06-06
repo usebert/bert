@@ -440,7 +440,126 @@ export async function countCompanyUsersOnSheet(auth, getTabValues, masterSheetId
   return count;
 }
 
-export async function assertCompanyWorkspaceAcceptsUserInvite(deps, auth, { masterSheetId, inviteRole }) {
+export async function readOnboardingRegistryMasterSheetForFolder(auth, deps, companyFolderId) {
+  const folderId = String(companyFolderId || "").trim();
+  if (!folderId || !auth) {
+    return "";
+  }
+  const drive = deps.google.drive({ version: "v3", auth });
+  const spreadsheetId = await resolvePlatformRegistrySpreadsheetId(auth, drive, deps);
+  if (!spreadsheetId) {
+    return "";
+  }
+  const rows = await deps.getTabValues(auth, spreadsheetId, REGISTRY_TAB_ONBOARDING);
+  if (!rows.length) {
+    return "";
+  }
+  const headers = rows[0].map((cell) => safeLower(cell));
+  const folderIndex = headers.findIndex((header) => header === "company folder id");
+  const sheetIndex = headers.findIndex((header) => header === "master sheet id");
+  if (folderIndex === -1 || sheetIndex === -1) {
+    return "";
+  }
+  for (const row of rows.slice(1)) {
+    if (String(row[folderIndex] || "").trim() !== folderId) {
+      continue;
+    }
+    const sheetId = String(row[sheetIndex] || "").trim();
+    if (sheetId) {
+      return sheetId;
+    }
+  }
+  return "";
+}
+
+export async function writeOnboardingRegistryMasterSheetForFolder(
+  auth,
+  deps,
+  { companyFolderId, masterSheetId, companyName = "" },
+) {
+  const folderId = String(companyFolderId || "").trim();
+  const sheetId = String(masterSheetId || "").trim();
+  if (!folderId || !sheetId || !auth) {
+    return { synced: false };
+  }
+  const drive = deps.google.drive({ version: "v3", auth });
+  const sheetsApi = deps.google.sheets({ version: "v4", auth });
+  const registrySpreadsheetId = await resolvePlatformRegistrySpreadsheetId(auth, drive, deps);
+  if (!registrySpreadsheetId) {
+    return { synced: false };
+  }
+  const rows = await deps.getTabValues(auth, registrySpreadsheetId, REGISTRY_TAB_ONBOARDING);
+  const headerRow = rows[0] || ONBOARDING_INVITE_COLUMNS;
+  const folderIndex = headerRow.findIndex((header) => safeLower(header) === "company folder id");
+  const sheetIndex = headerRow.findIndex((header) => safeLower(header) === "master sheet id");
+  if (folderIndex === -1 || sheetIndex === -1) {
+    return { synced: false };
+  }
+  const dataRows = rows.length > 1 ? rows.slice(1) : [];
+  let updated = false;
+  const nextRows = dataRows.map((row) => {
+    if (String(row[folderIndex] || "").trim() !== folderId) {
+      return row;
+    }
+    updated = true;
+    const next = [...row];
+    next[sheetIndex] = sheetId;
+    return next;
+  });
+  if (!updated) {
+    const blankRow = ONBOARDING_INVITE_COLUMNS.map(() => "");
+    blankRow[folderIndex] = folderId;
+    blankRow[sheetIndex] = sheetId;
+    const companyIndex = headerRow.findIndex((header) => safeLower(header) === "provisional company");
+    if (companyIndex >= 0 && companyName) {
+      blankRow[companyIndex] = companyName;
+    }
+    nextRows.push(blankRow);
+  }
+  await ensureRegistryTab(auth, sheetsApi, registrySpreadsheetId, REGISTRY_TAB_ONBOARDING, ONBOARDING_INVITE_COLUMNS, deps);
+  await sheetsApi.spreadsheets.values.update({
+    spreadsheetId: registrySpreadsheetId,
+    range: `${REGISTRY_TAB_ONBOARDING}!A1`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [headerRow, ...nextRows] },
+  });
+  return { synced: true, registrySpreadsheetId };
+}
+
+/** Promote onboarding_* config to live when the sheet already has users (workspace ready). */
+export async function ensureCompanyWorkspaceLiveIfReady(deps, auth, { masterSheetId, companyFolderId }) {
+  const { getConfig, updateConfig, getTabValues } = deps;
+  const sheetId = String(masterSheetId || "").trim();
+  if (!sheetId || !auth) {
+    return { promoted: false, reason: "missing_sheet" };
+  }
+  let cfg;
+  try {
+    cfg = await getConfig(auth, sheetId);
+  } catch {
+    return { promoted: false, reason: "config_unreadable" };
+  }
+  if (isCompanyWorkspaceLiveForUserInvites(cfg)) {
+    return { promoted: false, alreadyLive: true };
+  }
+  const userCount = await countCompanyUsersOnSheet(auth, getTabValues, sheetId);
+  if (userCount === 0) {
+    return { promoted: false, reason: "no_users" };
+  }
+  const folderId = String(companyFolderId || cfg.companyId || "").trim();
+  await updateConfig(auth, sheetId, {
+    ...cfg,
+    companyOnboardingStatus: COMPANY_WORKSPACE_STATUS.LIVE,
+    ...(folderId ? { companyId: folderId } : {}),
+  });
+  return { promoted: true };
+}
+
+export async function assertCompanyWorkspaceAcceptsUserInvite(
+  deps,
+  auth,
+  { masterSheetId, inviteRole, companyFolderId = "" },
+) {
   const { getConfig, getTabValues } = deps;
   const sheetId = String(masterSheetId || "").trim();
   if (!sheetId) {
@@ -452,6 +571,10 @@ export async function assertCompanyWorkspaceAcceptsUserInvite(deps, auth, { mast
         "Company workspace setup is not complete yet. Finish company onboarding before inviting users.",
     };
   }
+  await ensureCompanyWorkspaceLiveIfReady(deps, auth, {
+    masterSheetId: sheetId,
+    companyFolderId,
+  }).catch(() => {});
   const cfg = await getConfig(auth, sheetId);
   if (!isCompanyWorkspaceLiveForUserInvites(cfg)) {
     return {

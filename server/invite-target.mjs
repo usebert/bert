@@ -1,5 +1,8 @@
 import { google } from "googleapis";
 
+export const STALE_INVITE_CUSTOMER_MESSAGE =
+  "This invite is out of date. Please ask your administrator to send a fresh invite.";
+
 /** Strip numeric prefixes and punctuation so "99 Archive" and "Archive" match. */
 export function normalizeWorkspaceFolderLabel(name = "") {
   return String(name || "")
@@ -38,6 +41,15 @@ export function isGoogleNotFoundError(err) {
   return /not found/i.test(message) || /requested entity was not found/i.test(message);
 }
 
+export function isGoogleAccessDeniedError(err) {
+  const status = err?.code ?? err?.response?.status ?? err?.status;
+  if (status === 403 || status === 401) {
+    return true;
+  }
+  const message = String(err?.message || err?.response?.data?.error?.message || "");
+  return /permission|forbidden|insufficient|access denied/i.test(message);
+}
+
 function staleTargetResult({ message, companyLabel, masterSheetIdPresent }) {
   return {
     ok: false,
@@ -74,8 +86,7 @@ export async function validateCompanyUserInviteTarget(auth, target = {}) {
 
   if (!companyFolderId || !masterSheetId) {
     return staleTargetResult({
-      message:
-        "This invite points to a company workspace that is missing or no longer available. Ask your administrator to send a new invite from a live company workspace.",
+      message: STALE_INVITE_CUSTOMER_MESSAGE,
       companyLabel,
       masterSheetIdPresent,
     });
@@ -153,11 +164,21 @@ export async function validateCompanyUserInviteTarget(auth, target = {}) {
   } catch (err) {
     if (isGoogleNotFoundError(err)) {
       return staleTargetResult({
-        message:
-          "The company master sheet for this invite could not be found. Ask your administrator to link a live master sheet and send a new invite.",
+        message: STALE_INVITE_CUSTOMER_MESSAGE,
         companyLabel: folderName || companyLabel,
         masterSheetIdPresent: true,
       });
+    }
+    if (isGoogleAccessDeniedError(err)) {
+      return {
+        ok: false,
+        code: "google_access_denied",
+        message:
+          "BERT cannot access the company master sheet yet. Ask your administrator to reconnect Google and repair the company workspace link.",
+        httpStatus: 403,
+        masterSheetIdPresent: true,
+        companyLabel: folderName || companyLabel,
+      };
     }
     return {
       ok: false,
@@ -183,8 +204,10 @@ export function logInviteCompleteFailure({
   tokenId,
   company,
   masterSheetIdPresent,
+  diagnostics = [],
 }) {
+  const diagnosticText = Array.isArray(diagnostics) && diagnostics.length ? diagnostics.join(",") : "";
   console.warn(
-    `[invite] complete failed code=${code || "unknown"} email=${email || ""} tokenId=${tokenId || ""} company=${company || ""} masterSheetIdPresent=${masterSheetIdPresent ? "true" : "false"}`,
+    `[invite] complete failed code=${code || "unknown"} email=${email || ""} tokenId=${tokenId || ""} company=${company || ""} masterSheetIdPresent=${masterSheetIdPresent ? "true" : "false"}${diagnosticText ? ` diagnostics=${diagnosticText}` : ""}`,
   );
 }
