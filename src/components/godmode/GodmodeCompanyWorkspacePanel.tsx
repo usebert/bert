@@ -334,6 +334,12 @@ export function GodmodeCompanyWorkspacePanel({
     registryStatus: (selectedFolder as CompanyFolder & { registryStatus?: string })?.registryStatus,
   });
   const companyLive = isCompanyRegistryLive({ status: registryStatus, registryStatus });
+  const registryLinkMissing =
+    Boolean(selectedFolder) &&
+    masterSheetOk &&
+    !companyLive &&
+    !registryStatus &&
+    registryStatus !== "Needs attention";
   const registryUnlinkReason = String(
     (selectedFolder as CompanyFolder & { registryUnlinkReason?: string })?.registryUnlinkReason || "",
   ).trim();
@@ -371,7 +377,9 @@ export function GodmodeCompanyWorkspacePanel({
     } else if (!workspaceHealthOk) {
       blockers.push("Workspace health check failed");
     }
-    if (registryStatus === "Needs attention") {
+    if (registryLinkMissing) {
+      blockers.push("Company registry link missing — run Repair / complete setup to relink");
+    } else if (registryStatus === "Needs attention") {
       blockers.push(registryUnlinkReason ? registryUnlinkReason.replace(/_/g, " ") : "Workspace needs attention");
     } else if (!companyLive && !readinessChecksGreen) {
       blockers.push("Registry status is not Live");
@@ -390,6 +398,7 @@ export function GodmodeCompanyWorkspacePanel({
     registryUnlinkReason,
     companyLive,
     readinessChecksGreen,
+    registryLinkMissing,
   ]);
 
   useEffect(() => {
@@ -467,6 +476,8 @@ export function GodmodeCompanyWorkspacePanel({
         companyId: selectedFolder.id,
         companyName: selectedFolder.name,
         checks: {
+          rootFolderId: selectedFolder.id,
+          masterSheetId: companyMasterSheetId || folderInspection?.masterSheet?.id || "",
           folderStructureOk,
           requiredTabsOk: Boolean(requiredTabsOk),
           companyFoldersMappingOk,
@@ -684,7 +695,16 @@ export function GodmodeCompanyWorkspacePanel({
             </div>
             {!companyLive ? (
               <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-                <p className="font-semibold">Company is not Live in the registry.</p>
+                <p className="font-semibold">
+                  {registryLinkMissing
+                    ? "Company registry link missing."
+                    : "Company is not Live in the registry."}
+                </p>
+                {registryLinkMissing ? (
+                  <p className="mt-1 text-xs text-amber-900">
+                    Click Repair / complete setup to relink it.
+                  </p>
+                ) : null}
                 {setupBlockers.length ? (
                   <ul className="mt-2 list-disc space-y-1 pl-5">
                     {setupBlockers.map((blocker) => (

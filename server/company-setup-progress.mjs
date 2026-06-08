@@ -8,6 +8,7 @@ import {
 } from "./company-folder-structure.mjs";
 import {
   ensureCompanyLiveIfReady,
+  ensureCompanyRegistryRecordForWorkspace,
   evaluateCompanyWorkspaceReadiness,
   getCompanyWorkspaceRegistryRecord,
   persistCompanyWorkspaceSetup,
@@ -261,35 +262,30 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
     }
   };
 
-  // 1. Resolve company registry record
+  // 1. Resolve company registry record (match or backfill before LIVE checks)
   let stepFailure = await runStep("resolve_registry", async () => {
-    let record = await withGoogleTimeout(
-      getCompanyWorkspaceRegistryRecord(auth, registryDeps, companyId),
+    const ensured = await withGoogleTimeout(
+      ensureCompanyRegistryRecordForWorkspace(auth, registryDeps, {
+        companyId,
+        companyFolderId: companyId,
+        rootFolderId: companyId,
+        masterSheetId: masterSheetIdInput,
+        companyName,
+      }),
       "resolve_registry",
     );
-    if (!record && companyId) {
-      await withGoogleTimeout(
-        persistCompanyWorkspaceSetup(auth, registryDeps, {
-          companyId,
-          companyFolderId: companyId,
-          rootFolderId: companyId,
-          masterSheetId: masterSheetIdInput,
-          companyName,
-          status: "Setup in progress",
-          markLive: false,
-          markSetupComplete: false,
-          touchSetup: true,
-        }),
-        "resolve_registry_persist",
-      ).catch(() => {});
-      record = await withGoogleTimeout(
+    const record =
+      ensured.record ||
+      (await withGoogleTimeout(
         getCompanyWorkspaceRegistryRecord(auth, registryDeps, companyId),
         "resolve_registry_reload",
-      );
-    }
+      ));
     state.registryRecord = record;
     if (record?.masterSheetId && !state.masterSheetId) {
       state.masterSheetId = String(record.masterSheetId).trim();
+    }
+    if (record?.companyId && record.companyId !== companyId) {
+      state.companyId = String(record.companyId).trim();
     }
   });
   if (stepFailure) {

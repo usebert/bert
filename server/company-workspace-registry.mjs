@@ -130,6 +130,117 @@ export function findCompanyWorkspaceRegistryRecord(map, lookupId) {
   return null;
 }
 
+/** Normalize company name for fuzzy registry matching. */
+export function normalizeCompanyRegistryNameKey(name = "") {
+  return safeLower(name).replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function workspaceLookupIds(workspace = {}) {
+  const companyId = String(
+    workspace.companyId || workspace.companyFolderId || workspace.id || "",
+  ).trim();
+  const rootFolderId = String(
+    workspace.companyFolderId || workspace.rootFolderId || companyId || "",
+  ).trim();
+  const masterSheetId = String(
+    workspace.masterSheetId || workspace.responseSheetId || "",
+  ).trim();
+  const companyName = String(workspace.companyName || workspace.name || "").trim();
+  return { companyId, rootFolderId, masterSheetId, companyName };
+}
+
+/**
+ * Multi-key registry lookup: companyId → masterSheetId → folderId → normalized name.
+ * @returns {{ record: object, matchedBy: string } | null}
+ */
+export function findCompanyWorkspaceRegistryRecordInMap(map, workspace = {}) {
+  if (!map || map.size === 0) {
+    return null;
+  }
+  const { companyId, rootFolderId, masterSheetId, companyName } = workspaceLookupIds(workspace);
+  const nameKey = normalizeCompanyRegistryNameKey(companyName);
+
+  if (companyId) {
+    const byCompanyId = findCompanyWorkspaceRegistryRecord(map, companyId);
+    if (byCompanyId) {
+      return { record: byCompanyId, matchedBy: "companyId" };
+    }
+  }
+  if (masterSheetId) {
+    for (const record of map.values()) {
+      if (String(record.masterSheetId || "").trim() === masterSheetId) {
+        return { record, matchedBy: "masterSheetId" };
+      }
+    }
+  }
+  if (rootFolderId && rootFolderId !== companyId) {
+    const byFolder = findCompanyWorkspaceRegistryRecord(map, rootFolderId);
+    if (byFolder) {
+      return { record: byFolder, matchedBy: "companyFolderId" };
+    }
+  }
+  if (nameKey && !isSystemTemplateCompany({ companyName, name: companyName })) {
+    for (const record of map.values()) {
+      if (normalizeCompanyRegistryNameKey(record.companyName) === nameKey) {
+        return { record, matchedBy: "companyName" };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Ensure a Companies registry row exists for a Godmode workspace selection.
+ * Matches before create to avoid duplicate rows; preserves existing folder/sheet IDs.
+ */
+export async function ensureCompanyRegistryRecordForWorkspace(auth, deps, selectedWorkspace = {}) {
+  const { companyId, rootFolderId, masterSheetId, companyName } = workspaceLookupIds(selectedWorkspace);
+  if (!companyId && !rootFolderId) {
+    return { record: null, created: false, matchedBy: "", reason: "missing_workspace_id" };
+  }
+  if (isSystemTemplateCompany({ companyName, name: companyName, companyId })) {
+    return { record: null, created: false, matchedBy: "", reason: "system_template" };
+  }
+
+  const { map } = await readCompanyWorkspaceRegistryMap(auth, deps);
+  const match = findCompanyWorkspaceRegistryRecordInMap(map, selectedWorkspace);
+  if (match?.record) {
+    return { record: match.record, created: false, matchedBy: match.matchedBy, reason: "found" };
+  }
+
+  const canonicalCompanyId = companyId || rootFolderId;
+  if (!canonicalCompanyId) {
+    return { record: null, created: false, matchedBy: "", reason: "missing_company_id" };
+  }
+
+  const resolvedRootFolderId = rootFolderId || canonicalCompanyId;
+  const status = deriveCompanyWorkspaceStatus({
+    rootFolderId: resolvedRootFolderId,
+    masterSheetId,
+    companyId: canonicalCompanyId,
+  });
+  const result = await persistCompanyWorkspaceSetup(auth, deps, {
+    companyId: canonicalCompanyId,
+    companyName,
+    rootFolderId: resolvedRootFolderId,
+    masterSheetId,
+    status: status === "Live" ? "Setup in progress" : status,
+    markLive: false,
+    markSetupComplete: false,
+    touchSetup: true,
+  });
+  const fresh =
+    (await getCompanyWorkspaceRegistryRecord(auth, deps, canonicalCompanyId)) ||
+    result.record ||
+    null;
+  return {
+    record: fresh,
+    created: Boolean(result.synced),
+    matchedBy: result.synced ? "created" : "",
+    reason: result.synced ? "created" : result.reason || "create_failed",
+  };
+}
+
 function findRegistryRowIndex(headerRow, rows, lookupId) {
   const id = String(lookupId || "").trim();
   if (!id) {
@@ -562,8 +673,11 @@ export async function repairCompanyWorkspaceRegistry(auth, deps, input = {}) {
 const MAPPED_FOLDER_STATUSES = new Set(["mapped", "linked", "repaired"]);
 
 function humanizeBlocker(blocker = "") {
-  return String(blocker || "")
-    .trim()
+  const normalized = String(blocker || "").trim();
+  if (normalized === "not_in_registry") {
+    return "Registry link missing — run Repair / complete setup to relink";
+  }
+  return normalized
     .replace(/_/g, " ")
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
@@ -660,26 +774,15 @@ export async function ensureCompanyLiveIfReady(auth, deps, input = {}) {
   if (!companyId || !auth) {
     return { promoted: false, reason: "missing_company_id", blockers: ["missing_company_id"] };
   }
-  let existing = await getCompanyWorkspaceRegistryRecord(auth, deps, companyId);
-  if (!existing) {
-    const checks = input.checks || {};
-    const rootFolderId = String(checks.rootFolderId || companyId).trim();
-    const masterSheetId = String(checks.masterSheetId || "").trim();
-    if (rootFolderId && masterSheetId) {
-      await persistCompanyWorkspaceSetup(auth, deps, {
-        companyId,
-        companyFolderId: companyId,
-        rootFolderId,
-        masterSheetId,
-        companyName: String(input.companyName || "").trim(),
-        status: "Setup in progress",
-        markLive: false,
-        markSetupComplete: false,
-        touchSetup: true,
-      }).catch(() => {});
-      existing = await getCompanyWorkspaceRegistryRecord(auth, deps, companyId);
-    }
-  }
+  const checks = input.checks || {};
+  const ensured = await ensureCompanyRegistryRecordForWorkspace(auth, deps, {
+    companyId,
+    companyFolderId: companyId,
+    rootFolderId: String(checks.rootFolderId || companyId).trim(),
+    masterSheetId: String(checks.masterSheetId || input.masterSheetId || "").trim(),
+    companyName: String(input.companyName || "").trim(),
+  }).catch(() => ({ record: null, created: false, reason: "ensure_failed" }));
+  let existing = ensured.record || (await getCompanyWorkspaceRegistryRecord(auth, deps, companyId));
   if (!existing) {
     return { promoted: false, reason: "not_in_registry", blockers: ["not_in_registry"] };
   }
@@ -707,7 +810,6 @@ export async function ensureCompanyLiveIfReady(auth, deps, input = {}) {
       record: existing,
     };
   }
-  const checks = input.checks || {};
   const now = nowIso();
   const registryCompanyId = String(existing.companyId || companyId).trim();
   const resolvedMasterSheetId = String(checks.masterSheetId || existing.masterSheetId || "").trim();

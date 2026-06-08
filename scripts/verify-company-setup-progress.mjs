@@ -6,6 +6,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { COMPANY_SETUP_STEPS, GOOGLE_OPERATION_TIMEOUT_MS } from "../server/company-setup-progress.mjs";
+import {
+  findCompanyWorkspaceRegistryRecordInMap,
+  normalizeCompanyRegistryNameKey,
+  normalizeCompanyWorkspaceRecord,
+} from "../server/company-workspace-registry.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -101,7 +106,70 @@ assert(usersPanel.includes("isCompanyUsersTabWritable"), "10j: invite panel uses
 
 assert(appTsx.includes("companySetupProgressService"), "App uses setup progress service");
 
+/** 11–17: Registry backfill lookup (7 cases) */
+function sampleRegistryMap(entries) {
+  const map = new Map();
+  for (const entry of entries) {
+    const record = normalizeCompanyWorkspaceRecord(entry);
+    map.set(record.companyId, record);
+  }
+  return map;
+}
+
+const registryLookupMap = sampleRegistryMap([
+  {
+    "Company ID": "folder-a",
+    "Root Folder ID": "folder-a",
+    "Master Sheet ID": "sheet-a",
+    "Company Name": "Acme Precast",
+    Status: "Setup in progress",
+  },
+  {
+    "Company ID": "legacy-id",
+    "Root Folder ID": "folder-b",
+    "Master Sheet ID": "sheet-b",
+    "Company Name": "TESTCO",
+    Status: "Live",
+  },
+]);
+
+assert(
+  findCompanyWorkspaceRegistryRecordInMap(registryLookupMap, { companyId: "folder-a" })?.matchedBy === "companyId",
+  "11: registry lookup by companyId",
+);
+assert(
+  findCompanyWorkspaceRegistryRecordInMap(registryLookupMap, { companyId: "folder-b" })?.matchedBy === "companyId",
+  "12: registry lookup by root folder id when company id differs",
+);
+assert(
+  findCompanyWorkspaceRegistryRecordInMap(registryLookupMap, { masterSheetId: "sheet-b" })?.matchedBy ===
+    "masterSheetId",
+  "13: registry lookup by masterSheetId",
+);
+assert(
+  findCompanyWorkspaceRegistryRecordInMap(registryLookupMap, { companyName: "acme  precast" })?.matchedBy ===
+    "companyName",
+  "14: registry lookup by normalized companyName",
+);
+assert(
+  !findCompanyWorkspaceRegistryRecordInMap(registryLookupMap, {
+    companyName: "BLANK COMPANY - BERT Folder Structure",
+    companyId: "blank-1",
+  }),
+  "15: system template company skipped from name lookup",
+);
+assert(
+  normalizeCompanyRegistryNameKey("  Acme—Precast!! ") === "acme precast",
+  "16: normalized company name key",
+);
+assert(registry.includes("ensureCompanyRegistryRecordForWorkspace"), "17a: ensure registry helper exported");
+assert(progress.includes("ensureCompanyRegistryRecordForWorkspace"), "17b: repair-setup resolves registry first");
+assert(registry.includes("ensureCompanyRegistryRecordForWorkspace(auth, deps, {"), "17c: mark live ensures registry");
+assert(panel.includes("Company registry link missing"), "17d: godmode panel registry link missing copy");
+assert(!panel.includes("Not In Registry"), "17e: godmode panel avoids dead-end Not In Registry copy");
+assert(registry.includes('normalized === "not_in_registry"'), "17f: not_in_registry humanized for API");
+
 const pkg = JSON.parse(read("package.json"));
 assert(pkg.scripts["verify:company-setup-progress"], "npm script registered");
 
-console.log("OK: verify-company-setup-progress (14 cases)");
+console.log("OK: verify-company-setup-progress (21 cases)");

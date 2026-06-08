@@ -79,7 +79,7 @@ export const companyWorkspaceRegistryService = {
   async markLiveIfReady(input: {
     companyId: string;
     companyName?: string;
-    checks?: Record<string, boolean | undefined>;
+    checks?: Record<string, boolean | string | undefined>;
   }) {
     return parseJson<{
       ok: true;

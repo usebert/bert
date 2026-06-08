@@ -79,6 +79,7 @@ import {
 import {
   ensureCompanyLiveIfReady,
   evaluateCompanyWorkspaceReadiness,
+  findCompanyWorkspaceRegistryRecordInMap,
   getCompanyWorkspaceRegistryRecord,
   installCompanyWorkspaceRegistryRoutes,
   mergeDriveCompanyWithRegistry,
@@ -2570,7 +2571,13 @@ async function listGodmodeLiveCompanies(auth) {
     liveCompaniesMissing: false,
     warning: "",
     companies: companies.map((company) => {
-      const registryRecord = registryMap.get(company.id) || null;
+      const registryMatch = findCompanyWorkspaceRegistryRecordInMap(registryMap, {
+        companyId: company.id,
+        companyFolderId: company.id,
+        masterSheetId: company.masterSheetId || company.responseSheetId || "",
+        companyName: company.name,
+      });
+      const registryRecord = registryMatch?.record || null;
       const merged = mergeDriveCompanyWithRegistry(company, registryRecord);
       const masterSheetId = String(merged.masterSheetId || merged.responseSheetId || "").trim();
       const setupStatus = masterSheetId ? "ready" : "incomplete";
