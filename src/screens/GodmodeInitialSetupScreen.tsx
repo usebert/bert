@@ -29,6 +29,14 @@ type Props = {
   onTabletKioskChange?: () => void;
 };
 
+const FOLDER_ROOT_WARNING_PREFIX = "Configured Drive ID is not a Shared Drive";
+const FOLDER_ROOT_VERIFIED_MESSAGE =
+  "Using this Google Drive folder as the BERT workspace root.";
+
+function isFolderRootWorkspaceWarning(warning: string): boolean {
+  return warning.startsWith(FOLDER_ROOT_WARNING_PREFIX);
+}
+
 function buildSections(
   status: SetupStatusPayload | null,
   googleConnected: boolean,
@@ -61,15 +69,15 @@ function buildSections(
     },
     {
       id: "drive",
-      title: "Shared Drive",
+      title: "Drive root",
       ok: sharedDriveConfigured && sharedDriveVerified,
       detail: !sharedDriveId
-        ? "Shared Drive ID is missing on the API server"
+        ? "Drive root ID is missing on the API server"
         : sharedDriveVerified
-          ? "Shared Drive is configured and verified"
+          ? "Drive root is configured and verified"
           : googleConnected
-            ? "Shared Drive ID is set but not verified yet"
-            : "Connect Google, then verify shared drive access",
+            ? "Drive root ID is set but not verified yet"
+            : "Connect Google, then verify Drive root access",
     },
     {
       id: "sessions",
@@ -115,8 +123,8 @@ function sharedDriveStatusText(input: {
   }
   if (input.sharedDriveVerified) {
     return {
-      label: input.sharedDriveWarning ? "Verified (folder root)" : "Verified",
-      tone: input.sharedDriveWarning ? "warn" : "ok",
+      label: "Verified",
+      tone: "ok",
     };
   }
   if (input.sharedDriveVerifyError) {
@@ -223,6 +231,10 @@ export function GodmodeInitialSetupScreen({
     googleStatus?.sharedDriveVerifyError || verifyMessage || "",
   ).trim();
   const sharedDriveWarning = String(googleStatus?.sharedDriveWarning || "").trim();
+  const isFolderRootVerified =
+    sharedDriveVerified && isFolderRootWorkspaceWarning(sharedDriveWarning);
+  const displayDriveWarning =
+    sharedDriveWarning && !isFolderRootVerified ? sharedDriveWarning : "";
   const companiesCount =
     googleStatus?.companiesCount ?? googleStatus?.companies?.length ?? 0;
   const driveStatus = sharedDriveStatusText({
@@ -291,7 +303,7 @@ export function GodmodeInitialSetupScreen({
 
   const handleVerifySharedDrive = async () => {
     if (!googleConnected) {
-      setVerifyMessage("Connect Google Workspace before verifying the shared drive.");
+      setVerifyMessage("Connect Google Workspace before verifying the Drive root.");
       return;
     }
     setVerifyingDrive(true);
@@ -311,14 +323,14 @@ export function GodmodeInitialSetupScreen({
         companiesCount: payload.companiesCount ?? current?.companiesCount,
       }));
       setVerifyMessage(
-        payload.sharedDriveWarning
-          ? payload.sharedDriveWarning
+        isFolderRootWorkspaceWarning(String(payload.sharedDriveWarning || "").trim())
+          ? FOLDER_ROOT_VERIFIED_MESSAGE
           : payload.companiesCount != null
             ? `Workspace root verified. ${payload.companiesCount} company folder(s) visible.`
             : "Workspace root verified.",
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to verify shared drive.";
+      const message = error instanceof Error ? error.message : "Unable to verify Drive root.";
       setVerifyMessage(message);
       await loadGoogleStatus();
     } finally {
@@ -371,14 +383,14 @@ export function GodmodeInitialSetupScreen({
       </section>
 
       <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-sm">
-        <p className="text-sm font-semibold text-slate-900">Google Shared Drive</p>
+        <p className="text-sm font-semibold text-slate-900">Google Drive root</p>
         <p className="mt-1 text-sm text-slate-600">
-          This is the Google Shared Drive BERT uses for company workspaces.
+          This is the Google Drive root BERT uses for company workspaces.
         </p>
 
         <div className="mt-4 space-y-3 rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Current Shared Drive ID</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Current Drive root ID</p>
             <p className="mt-1 break-all font-mono text-sm text-slate-900">
               {sharedDriveId || "Not set on API server"}
             </p>
@@ -404,13 +416,16 @@ export function GodmodeInitialSetupScreen({
           {sharedDriveVerifyError ? (
             <p className="text-sm text-rose-700">{sharedDriveVerifyError}</p>
           ) : null}
-          {sharedDriveWarning && !sharedDriveVerifyError ? (
-            <p className="text-sm text-amber-800">{sharedDriveWarning}</p>
+          {isFolderRootVerified && !sharedDriveVerifyError ? (
+            <p className="text-sm text-emerald-700">{FOLDER_ROOT_VERIFIED_MESSAGE}</p>
           ) : null}
-          {verifyMessage && !sharedDriveVerifyError && !sharedDriveWarning ? (
+          {displayDriveWarning && !sharedDriveVerifyError ? (
+            <p className="text-sm text-amber-800">{displayDriveWarning}</p>
+          ) : null}
+          {verifyMessage && !sharedDriveVerifyError && !isFolderRootVerified && !displayDriveWarning ? (
             <p className="text-sm text-emerald-700">{verifyMessage}</p>
           ) : null}
-          {verifyMessage && sharedDriveWarning && !sharedDriveVerifyError ? (
+          {verifyMessage && displayDriveWarning && !sharedDriveVerifyError ? (
             <p className="text-sm text-amber-800">{verifyMessage}</p>
           ) : null}
         </div>
@@ -418,12 +433,12 @@ export function GodmodeInitialSetupScreen({
         {!sharedDriveId ? (
           <p className="mt-3 text-sm leading-6 text-slate-600">
             Set <span className="font-mono text-slate-800">GOOGLE_SHARED_DRIVE_ID</span> on the Render API service
-            (Environment → Add variable), then redeploy the API. The ID is the Shared Drive or parent folder the
-            connected Google account can access.
+            (Environment → Add variable), then redeploy the API. The ID is the Drive root (Shared Drive or parent
+            folder) the connected Google account can access.
           </p>
         ) : (
           <p className="mt-3 text-sm leading-6 text-slate-600">
-            The Shared Drive ID is read from server environment variables (Render). To change it, update{" "}
+            The Drive root ID is read from server environment variables (Render). To change it, update{" "}
             <span className="font-mono text-slate-800">GOOGLE_SHARED_DRIVE_ID</span> on the API service and redeploy.
           </p>
         )}
@@ -435,7 +450,7 @@ export function GodmodeInitialSetupScreen({
             disabled={!sharedDriveId || !googleConnected || verifyingDrive || googleLoading}
             className={`h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-50 ${slatePrimaryCtaInteract}`}
           >
-            {verifyingDrive ? "Verifying…" : "Verify shared drive"}
+            {verifyingDrive ? "Verifying…" : "Verify Drive root"}
           </button>
           <button
             type="button"
