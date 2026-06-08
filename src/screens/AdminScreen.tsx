@@ -300,6 +300,8 @@ export function AdminScreen({
   onRepairWorkspace,
   onRepairCompanyFolderStructure,
   companyFolderStructureRepairing = false,
+  companySetupCurrentStep = "",
+  companySetupError = null,
   onCreateCompanyMasterSheet,
   companyMasterSheetProvisioning = false,
   companyMasterSheetLink = "",
@@ -613,6 +615,8 @@ export function AdminScreen({
           masterCompanyContextBlocked={masterCompanyContextBlocked}
           masterCompanyContextMessage={masterCompanyContextMessage}
           companyFolderStructureRepairing={companyFolderStructureRepairing}
+          companySetupCurrentStep={companySetupCurrentStep}
+          companySetupError={companySetupError}
           companyMasterSheetProvisioning={companyMasterSheetProvisioning}
           folderIdInput={folderIdInput}
           masterSheetInput={masterSheetInput}

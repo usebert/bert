@@ -86,6 +86,7 @@ import {
   readCompanyWorkspaceRegistryMap,
   recordCompanyWorkspaceHealthCheck,
 } from "./company-workspace-registry.mjs";
+import { installCompanySetupProgressRoutes } from "./company-setup-progress.mjs";
 import {
   inspectConfiguredWorkspaceRoot,
   listFolderChildren,
@@ -6653,6 +6654,30 @@ installCompanyWorkspaceRegistryRoutes(app, {
   safeLower,
   sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
   platformRegistrySheetId: process.env.BERT_PLATFORM_REGISTRY_SHEET_ID || "",
+});
+
+installCompanySetupProgressRoutes(app, {
+  getAuthedClient,
+  envConfigured,
+  requireGoogleWorkspaceSession,
+  requireMasterOnlyActor,
+  google,
+  getDriveFile,
+  getConfig,
+  updateConfig,
+  getTabValues,
+  ensureTabsAndColumns,
+  ensureCompanyMappingTabs,
+  ensureAreasTab: async (auth, spreadsheetId) => {
+    await ensureColumns(auth, spreadsheetId, AREAS_TAB, AREAS_COLUMNS);
+  },
+  validateWorkspace,
+  ensureTabExists,
+  ensureColumns,
+  getWorkbook,
+  withSheetsQuotaRetry,
+  safeLower,
+  registryDeps: getCompanyWorkspaceRegistryDeps(),
 });
 
 installCompanyOnboardingRoutes(app, {

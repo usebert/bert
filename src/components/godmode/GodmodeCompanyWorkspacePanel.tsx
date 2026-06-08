@@ -22,6 +22,10 @@ import type { CompanyFolder, CompanySheetSyncStatus, WorkspaceValidation } from 
 import type { CompanySetupNextAction } from "../../utils/companyWorkspaceStatus";
 import { companyWorkspaceRegistryService } from "../../services/companyWorkspaceRegistryService";
 import {
+  COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
+  COMPANY_SETUP_STEP_LABELS,
+} from "../../services/companySetupProgressService";
+import {
   getCanonicalCompanyStatus,
   isCompanyRegistryLive,
 } from "../../utils/companyWorkspaceInvite";
@@ -97,6 +101,8 @@ export type GodmodeCompanyWorkspacePanelProps = {
   masterCompanyContextBlocked: boolean;
   masterCompanyContextMessage: string;
   companyFolderStructureRepairing: boolean;
+  companySetupCurrentStep?: string;
+  companySetupError?: { failedStep: string; errorCode: string; message: string } | null;
   companyMasterSheetProvisioning: boolean;
   folderIdInput: string;
   masterSheetInput: string;
@@ -198,6 +204,8 @@ export function GodmodeCompanyWorkspacePanel({
   masterCompanyContextBlocked,
   masterCompanyContextMessage,
   companyFolderStructureRepairing,
+  companySetupCurrentStep = "",
+  companySetupError = null,
   companyMasterSheetProvisioning,
   folderIdInput,
   masterSheetInput,
@@ -711,6 +719,31 @@ export function GodmodeCompanyWorkspacePanel({
               <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                 Unlink reason: {registryUnlinkReason.replace(/_/g, " ")}
               </p>
+            ) : null}
+            {isProvisioning && companySetupCurrentStep ? (
+              <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
+                Current step:{" "}
+                {COMPANY_SETUP_STEP_LABELS[companySetupCurrentStep] ||
+                  companySetupCurrentStep.replace(/_/g, " ")}
+              </p>
+            ) : null}
+            {companySetupError ? (
+              <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-950">
+                <p className="font-semibold">{COMPANY_SETUP_DID_NOT_FINISH_MESSAGE}</p>
+                {companySetupError.failedStep ? (
+                  <p className="mt-2">
+                    Failed step:{" "}
+                    {COMPANY_SETUP_STEP_LABELS[companySetupError.failedStep] ||
+                      companySetupError.failedStep.replace(/_/g, " ")}
+                  </p>
+                ) : null}
+                {companySetupError.errorCode ? (
+                  <p className="mt-1 font-mono text-xs">Error code: {companySetupError.errorCode}</p>
+                ) : null}
+                {companySetupError.message ? (
+                  <p className="mt-2 text-xs text-rose-900">{companySetupError.message}</p>
+                ) : null}
+              </div>
             ) : null}
             <div className="mt-4 flex flex-wrap gap-2">
               {!isLiveStatus ? (

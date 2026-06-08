@@ -42,6 +42,10 @@ import {
   canManageTemplates,
 } from "./src/permissions";
 import { companyFolderStructureService } from "./src/services/companyFolderStructureService";
+import {
+  COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
+  companySetupProgressService,
+} from "./src/services/companySetupProgressService";
 import { companyWorkspaceRegistryService } from "./src/services/companyWorkspaceRegistryService";
 import { navItems } from "./src/config/navItems";
 import {
@@ -3267,6 +3271,12 @@ function App() {
   const [workspaceValidation, setWorkspaceValidation] = useState<WorkspaceValidation | null>(null);
   const [workspaceValidationLoading, setWorkspaceValidationLoading] = useState(false);
   const [companyFolderStructureRepairing, setCompanyFolderStructureRepairing] = useState(false);
+  const [companySetupCurrentStep, setCompanySetupCurrentStep] = useState("");
+  const [companySetupError, setCompanySetupError] = useState<{
+    failedStep: string;
+    errorCode: string;
+    message: string;
+  } | null>(null);
   const [companyMasterSheetLink, setCompanyMasterSheetLink] = useState("");
   const [companyMasterSheetProvisioning, setCompanyMasterSheetProvisioning] = useState(false);
   const storedFolderLinks = readStoredFolderLinks();
@@ -9960,47 +9970,70 @@ function App() {
     }
 
     setCompanyFolderStructureRepairing(true);
-    let resolvedMasterSheetId = extractGoogleResourceId(masterSheetInput) || "";
+    setCompanySetupCurrentStep("resolve_registry");
+    setCompanySetupError(null);
     try {
-      if (canRepairCompanyFolderStructure(currentUser?.role || "Auditor")) {
-        const payload = await ensureCompanyWorkspaceStructure({
-          masterSheetId: resolvedMasterSheetId,
-        });
-        resolvedMasterSheetId = String(payload.masterSheetId || resolvedMasterSheetId).trim();
+      const result = await companySetupProgressService.runSetup({
+        companyId: companyFolderId,
+        companyName: selectedFolder?.name || folderNameInput,
+        masterSheetId:
+          extractGoogleResourceId(masterSheetInput) ||
+          companySheetSync?.sheetId ||
+          selectedFolder?.responseSheetId ||
+          "",
+      });
+
+      if (result.currentStep) {
+        setCompanySetupCurrentStep(result.currentStep);
       }
-    } catch (error) {
+
+      if (result.legacyFolderConfig) {
+        applyIsoFolderIdsToInputs(result.legacyFolderConfig, isoFolderInputSnapshot, isoFolderInputSetters);
+      }
+      const resolvedMasterSheetId = String(result.masterSheetId || "").trim();
+      if (resolvedMasterSheetId) {
+        setMasterSheetInput(resolvedMasterSheetId);
+      }
+      if (result.validation) {
+        setWorkspaceValidation(result.validation as WorkspaceValidation);
+      } else if (resolvedMasterSheetId) {
+        void validateWorkspace({ silent: true });
+      }
+
+      if (!result.ok) {
+        setCompanySetupError({
+          failedStep: result.failedStep,
+          errorCode: result.errorCode,
+          message: result.message,
+        });
+        pushToast("Setup did not finish", COMPANY_SETUP_DID_NOT_FINISH_MESSAGE, "warning");
+        return;
+      }
+
+      setCompanySetupError(null);
+      await handleAddFolder();
+      handleVerifyOnboarding();
+      handleVerifyAudits();
+      handleVerifyResponseSheet();
+      await handleSyncForms();
       pushToast(
-        "Workspace setup failed",
-        error instanceof Error ? error.message : "Unable to prepare company folders and master sheet.",
-        "warning",
+        result.status === "LIVE" ? "Company is Live" : "Setup finished",
+        result.status === "LIVE"
+          ? "Company registry status is Live. User invites are now enabled."
+          : "Some setup checks still need attention. Review the checklist below.",
+        result.status === "LIVE" ? "success" : "warning",
       );
-      return;
+    } catch (error) {
+      setCompanySetupError({
+        failedStep: "",
+        errorCode: "SETUP_REQUEST_FAILED",
+        message: error instanceof Error ? error.message : "Unable to run company setup.",
+      });
+      pushToast("Setup did not finish", COMPANY_SETUP_DID_NOT_FINISH_MESSAGE, "warning");
     } finally {
       setCompanyFolderStructureRepairing(false);
+      setCompanySetupCurrentStep("");
     }
-
-    if (!resolvedMasterSheetId) {
-      pushToast(
-        "Master sheet missing",
-        "Company master sheet could not be created. Check Google Drive permissions and try again.",
-        "warning",
-      );
-      return;
-    }
-
-    await handleAddFolder();
-    handleVerifyOnboarding();
-    handleVerifyAudits();
-    handleVerifyResponseSheet();
-    await handleSyncForms();
-    void persistCompanyWorkspaceLinks({
-      companyId: companyFolderId,
-      companyName: selectedFolder?.name || folderNameInput,
-      masterSheetId: resolvedMasterSheetId,
-      companyFoldersMappingStatus: "mapped",
-      firstAdminStatus: (companySheetSync?.usersCount ?? 0) > 0 ? "ready" : "pending",
-      status: "Live",
-    });
   };
 
   const handleApplyDashboardPreset = (preset: "minimal" | "operations" | "executive") => {
@@ -12960,6 +12993,8 @@ function App() {
                     : undefined
                 }
                 companyFolderStructureRepairing={companyFolderStructureRepairing}
+                companySetupCurrentStep={companySetupCurrentStep}
+                companySetupError={companySetupError}
                 onCreateCompanyMasterSheet={() => void handleCreateCompanyMasterSheet()}
                 companyMasterSheetProvisioning={companyMasterSheetProvisioning}
                 companyMasterSheetLink={companyMasterSheetLink}
