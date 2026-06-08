@@ -564,11 +564,19 @@ export function evaluateCompanyWorkspaceReadiness(record = {}, checks = {}) {
     }
   }
 
+  const explicitChecksPass =
+    checks.folderStructureOk === true &&
+    checks.requiredTabsOk === true &&
+    checks.companyFoldersMappingOk !== false &&
+    checks.firstAdminReady === true &&
+    checks.workspaceHealthOk === true &&
+    (checks.healthCheckRun === true || checks.skipHealthCheck === true);
+
   const canonicalStatus = getCanonicalCompanyStatus(record) || deriveCompanyWorkspaceStatus(record);
   if (canonicalStatus === "Archived" || canonicalStatus === "Disconnected") {
     blockers.push(`company_${safeLower(canonicalStatus).replace(/\s+/g, "_")}`);
   }
-  if (canonicalStatus === "Needs attention") {
+  if (canonicalStatus === "Needs attention" && !explicitChecksPass) {
     blockers.push(String(record.unlinkReason || "needs_attention").trim() || "needs_attention");
   }
 
@@ -687,6 +695,7 @@ export function mergeDriveCompanyWithRegistry(driveCompany, registryRecord) {
     setupStatusLabel,
     registryStatus: canonicalStatus,
     registryUnlinkReason: registryRecord.unlinkReason,
+    firstAdminStatus: registryRecord.firstAdminStatus || driveCompany.firstAdminStatus,
     workbookFolderId: registryRecord.workbookFolderId || driveCompany.workbookFolderId,
     setupCompletedAt: registryRecord.setupCompletedAt,
     liveAt: registryRecord.liveAt,

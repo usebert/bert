@@ -2325,7 +2325,7 @@ function resolveIsoFoldersFromChildren(children) {
   return foldersByKey;
 }
 
-async function ensureIsoReadinessFolders(auth, companyFolderId) {
+export async function ensureIsoReadinessFolders(auth, companyFolderId) {
   const companyFolder = await getDriveFile(auth, companyFolderId);
   if (companyFolder.mimeType !== "application/vnd.google-apps.folder") {
     throw new Error("The company folder ID is missing or invalid.");
@@ -6667,6 +6667,7 @@ installCompanySetupProgressRoutes(app, {
   updateConfig,
   getTabValues,
   ensureTabsAndColumns,
+  ensureIsoReadinessFolders,
   ensureCompanyMappingTabs,
   ensureAreasTab: async (auth, spreadsheetId) => {
     await ensureColumns(auth, spreadsheetId, AREAS_TAB, AREAS_COLUMNS);

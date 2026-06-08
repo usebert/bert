@@ -298,7 +298,12 @@ export function GodmodeCompanyWorkspacePanel({
     [invitedUsers],
   );
 
-  const firstAdminReady = hasActiveAdmin || (companySheetSync?.usersCount ?? 0) > 0;
+  const registryFirstAdminReady =
+    String((selectedFolder as CompanyFolder & { firstAdminStatus?: string })?.firstAdminStatus || "")
+      .trim()
+      .toLowerCase() === "ready";
+  const firstAdminReady =
+    hasActiveAdmin || (companySheetSync?.usersCount ?? 0) > 0 || registryFirstAdminReady;
 
   const folderStructureOk = useMemo(() => {
     if (workspaceValidation) {
@@ -318,9 +323,11 @@ export function GodmodeCompanyWorkspacePanel({
     return false;
   }, [workspaceValidation, folderInspection]);
 
-  const requiredTabsOk =
-    workspaceValidation?.ok ??
-    (folderInspection?.masterSheet?.tabs.length ? folderInspection.blockingItems.length === 0 : false);
+  const requiredTabsOk = workspaceValidation
+    ? workspaceValidation.ok && (workspaceValidation.missingTabs?.length ?? 0) === 0
+    : folderInspection?.masterSheet?.tabs.length
+      ? folderInspection.blockingItems.length === 0
+      : false;
   const companyFoldersMappingOk = workspaceValidation?.folders.companyFolder ?? Boolean(selectedFolder);
   const registryStatus = getCanonicalCompanyStatus({
     status: (selectedFolder as CompanyFolder & { registryStatus?: string })?.registryStatus,

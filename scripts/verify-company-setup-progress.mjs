@@ -66,13 +66,19 @@ assert(panel.includes("companySetupCurrentStep"), "8: panel shows current step p
 assert(panel.includes("companySetupError"), "8b: panel shows setup error prop");
 assert(panel.includes("errorCode"), "8c: panel shows error code");
 
-/** 9: LIVE promotion + shared drive does not block readiness */
-assert(progress.includes("ensureCompanyLiveIfReady"), "9: mark_live calls ensureCompanyLiveIfReady");
+/** 9: Setup aligns with repair (ISO folders + tab repair before health check) */
+assert(progress.includes("ensureIsoReadinessFolders"), "9: setup ensures ISO readiness folders");
+assert(progress.includes("mergeWorkspaceFolderConfig"), "9b: setup merges ISO + structure folder config");
+assert(progress.includes("workspace_health_check_repair_tabs"), "9c: setup repairs tabs before final health check");
+
+/** 10: LIVE promotion + shared drive does not block readiness */
+assert(progress.includes("ensureCompanyLiveIfReady"), "10: mark_live calls ensureCompanyLiveIfReady");
 const readinessBlock = registry.slice(
   registry.indexOf("export function evaluateCompanyWorkspaceReadiness"),
   registry.indexOf("export async function ensureCompanyLiveIfReady"),
 );
-assert(!readinessBlock.includes("sharedDrive"), "9b: shared drive verification does not block LIVE");
+assert(!readinessBlock.includes("sharedDrive"), "10b: shared drive verification does not block LIVE");
+assert(readinessBlock.includes("explicitChecksPass"), "10c: stale Needs attention cleared when checks pass");
 
 /** Frontend finally clears loading */
 assert(appTsx.includes("setCompanyFolderStructureRepairing(false)"), "finally clears provisioning state");
@@ -81,4 +87,4 @@ assert(appTsx.includes("companySetupProgressService"), "App uses setup progress 
 const pkg = JSON.parse(read("package.json"));
 assert(pkg.scripts["verify:company-setup-progress"], "npm script registered");
 
-console.log("OK: verify-company-setup-progress (9 cases)");
+console.log("OK: verify-company-setup-progress (10 cases)");

@@ -37,6 +37,45 @@ export const COMPANY_SETUP_STEPS = [
 const SETUP_STATUS_LIVE = "LIVE";
 const SETUP_STATUS_NEEDS_ATTENTION = "NEEDS_ATTENTION";
 
+function mergeWorkspaceFolderConfig(structureConfig = {}, isoReadinessIds = {}) {
+  return {
+    ...isoReadinessIds,
+    ...structureConfig,
+  };
+}
+
+function deriveValidationReadiness(validation = {}) {
+  const folderStructureOk =
+    Boolean(validation.folders?.setupFolder) &&
+    Boolean(validation.folders?.auditFormsFolder) &&
+    Boolean(validation.folders?.recordsFolder);
+  const requiredTabsOk = Boolean(validation.ok) && (validation.missingTabs?.length ?? 0) === 0;
+  const companyFoldersMappingOk = Boolean(validation.folders?.companyFolder ?? validation.ok);
+  const workspaceHealthOk = Boolean(validation.ok);
+  return { folderStructureOk, requiredTabsOk, companyFoldersMappingOk, workspaceHealthOk };
+}
+
+function blockersFromValidation(validation, { firstAdminReady }) {
+  const blockers = [];
+  const readiness = deriveValidationReadiness(validation);
+  if (!readiness.folderStructureOk) {
+    blockers.push("folder_structure_incomplete");
+  }
+  if (!readiness.requiredTabsOk) {
+    blockers.push("required_tabs_missing");
+  }
+  if (!readiness.companyFoldersMappingOk) {
+    blockers.push("companyfolders_mapping_missing");
+  }
+  if (!firstAdminReady) {
+    blockers.push("first_admin_missing");
+  }
+  if (!readiness.workspaceHealthOk) {
+    blockers.push("workspace_health_failed");
+  }
+  return blockers;
+}
+
 export function withGoogleTimeout(promise, label, timeoutMs = GOOGLE_OPERATION_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -162,6 +201,7 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
     ensureTabsAndColumns,
     ensureCompanyMappingTabs,
     ensureAreasTab,
+    ensureIsoReadinessFolders,
     updateConfig,
     getConfig,
     getTabValues,
@@ -246,7 +286,18 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
     );
     state.folderIds = structure.folderIds || {};
     state.legacyRootIds = structure.legacyRootIds || {};
-    state.legacyFolderConfig = buildLegacyFolderConfigFromStructure(state.folderIds, state.legacyRootIds);
+    let isoReadinessIds = {};
+    if (typeof ensureIsoReadinessFolders === "function") {
+      isoReadinessIds = await withGoogleTimeout(
+        ensureIsoReadinessFolders(auth, companyId),
+        "ensure_iso_readiness_folders",
+      );
+      state.legacyRootIds = { ...state.legacyRootIds, ...isoReadinessIds };
+    }
+    state.legacyFolderConfig = mergeWorkspaceFolderConfig(
+      buildLegacyFolderConfigFromStructure(state.folderIds, state.legacyRootIds),
+      isoReadinessIds,
+    );
   });
   if (stepFailure) {
     return stepFailure;
@@ -293,6 +344,7 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
       ensureTabsAndColumns(auth, state.masterSheetId, {
         companyId,
         companyName: resolvedCompanyName,
+        createBackup: true,
       }),
       "ensure_required_tabs",
     );
@@ -309,6 +361,7 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
         ...state.legacyFolderConfig,
         masterSheetId: state.masterSheetId,
         companyId,
+        workbookFolderId: state.folderIds.BERT_COMPANY_WORKBOOK || config.workbookFolderId || "",
         companyFolderStructureVersion: "1",
         companyFolderStructureCheckedAt: new Date().toISOString(),
       }),
@@ -332,8 +385,12 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
       "ensure_companyfolders_mapping",
     );
     state.folderIds = result.folderIds || state.folderIds;
-    state.legacyFolderConfig = buildLegacyFolderConfigFromStructure(state.folderIds, result.legacyRootIds || state.legacyRootIds);
-    const mappingOk = Boolean(state.masterSheetId);
+    state.legacyRootIds = result.legacyRootIds || state.legacyRootIds;
+    state.legacyFolderConfig = mergeWorkspaceFolderConfig(
+      buildLegacyFolderConfigFromStructure(state.folderIds, state.legacyRootIds),
+      state.legacyRootIds,
+    );
+    const mappingOk = Boolean(state.masterSheetId) && Object.keys(state.folderIds).length > 0;
     await withGoogleTimeout(
       persistCompanyWorkspaceSetup(auth, registryDeps, {
         companyId,
@@ -352,18 +409,34 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
     if (!mappingOk) {
       state.blockers.push("companyfolders_mapping_missing");
     }
+    const sheetConfig = await withGoogleTimeout(getConfig(auth, state.masterSheetId), "ensure_companyfolders_config").catch(
+      () => ({}),
+    );
+    await withGoogleTimeout(
+      updateConfig(auth, state.masterSheetId, {
+        ...sheetConfig,
+        ...state.legacyFolderConfig,
+        masterSheetId: state.masterSheetId,
+        companyId,
+        workbookFolderId: state.folderIds.BERT_COMPANY_WORKBOOK || sheetConfig.workbookFolderId || "",
+        companyFolderStructureVersion: "1",
+        companyFolderStructureCheckedAt: new Date().toISOString(),
+      }),
+      "ensure_companyfolders_config_write",
+    ).catch(() => {});
   });
   if (stepFailure) {
     return stepFailure;
   }
 
   // 7. Ensure first admin
+  let firstAdminReady = false;
   stepFailure = await runStep("ensure_first_admin", async () => {
     const userCount = await withGoogleTimeout(
       countCompanyUsersOnSheet(auth, getTabValues, state.masterSheetId),
       "ensure_first_admin",
     );
-    const firstAdminReady = userCount > 0;
+    firstAdminReady = userCount > 0;
     await withGoogleTimeout(
       persistCompanyWorkspaceSetup(auth, registryDeps, {
         companyId,
@@ -378,9 +451,6 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
       }),
       "ensure_first_admin_persist",
     ).catch(() => {});
-    if (!firstAdminReady) {
-      state.blockers.push("first_admin_missing");
-    }
   });
   if (stepFailure) {
     return stepFailure;
@@ -388,21 +458,38 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
 
   // 8. Run workspace health check
   stepFailure = await runStep("workspace_health_check", async () => {
-    const validation = await withGoogleTimeout(
-      validateWorkspace(auth, {
-        companyFolderId: companyId,
-        sheetId: state.masterSheetId,
-        setupFolderId: state.legacyFolderConfig.setupFolderId || "",
-        auditFormsFolderId: state.legacyFolderConfig.auditFormsFolderId || "",
-        recordsFolderId: state.legacyFolderConfig.recordsFolderId || "",
-        evidenceFolderId: state.legacyFolderConfig.evidenceFolderId || "",
-        exportsFolderId: state.legacyFolderConfig.exportsFolderId || "",
-        managementNotesFolderId: state.legacyFolderConfig.managementNotesFolderId || "",
-      }),
-      "workspace_health_check",
-    );
+    const runValidation = async () =>
+      withGoogleTimeout(
+        validateWorkspace(auth, {
+          companyFolderId: companyId,
+          sheetId: state.masterSheetId,
+          setupFolderId: state.legacyFolderConfig.setupFolderId || "",
+          auditFormsFolderId: state.legacyFolderConfig.auditFormsFolderId || "",
+          recordsFolderId: state.legacyFolderConfig.recordsFolderId || "",
+          evidenceFolderId: state.legacyFolderConfig.evidenceFolderId || "",
+          exportsFolderId: state.legacyFolderConfig.exportsFolderId || "",
+          managementNotesFolderId: state.legacyFolderConfig.managementNotesFolderId || "",
+        }),
+        "workspace_health_check",
+      );
+
+    let validation = await runValidation();
+    if ((validation.missingTabs?.length ?? 0) > 0 || (validation.repairableIssues?.length ?? 0) > 0) {
+      await withGoogleTimeout(
+        ensureTabsAndColumns(auth, state.masterSheetId, {
+          companyId,
+          companyName: resolvedCompanyName,
+          createBackup: true,
+        }),
+        "workspace_health_check_repair_tabs",
+      );
+      validation = await runValidation();
+    }
     state.validation = validation;
-    const companyFoldersOk = Boolean(validation.folders?.companyFolder ?? validation.ok);
+    const readiness = deriveValidationReadiness(validation);
+    const companyFoldersOk = readiness.companyFoldersMappingOk;
+    const healthOk = readiness.requiredTabsOk && readiness.folderStructureOk && readiness.workspaceHealthOk;
+    state.blockers = blockersFromValidation(validation, { firstAdminReady });
     await withGoogleTimeout(
       recordCompanyWorkspaceHealthCheck(auth, registryDeps, {
         companyId,
@@ -412,10 +499,10 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
         companyName: resolvedCompanyName,
         workbookFolderId: state.folderIds.BERT_COMPANY_WORKBOOK || "",
         companyFoldersMappingStatus: companyFoldersOk ? "mapped" : "incomplete",
-        firstAdminStatus: state.blockers.includes("first_admin_missing") ? "pending" : "ready",
-        healthOk: Boolean(validation.ok),
-        healthSummary: validation.ok ? "healthy" : "health_check_failed",
-        unlinkReason: validation.ok
+        firstAdminStatus: firstAdminReady ? "ready" : "pending",
+        healthOk,
+        healthSummary: healthOk ? "healthy" : "health_check_failed",
+        unlinkReason: healthOk
           ? ""
           : [
               ...(validation.missingTabs?.length ? [`missing_tabs:${validation.missingTabs.join(",")}`] : []),
@@ -424,19 +511,6 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
       }),
       "workspace_health_check_record",
     ).catch(() => {});
-
-    if (!validation.folders?.setupFolder || !validation.folders?.auditFormsFolder || !validation.folders?.recordsFolder) {
-      state.blockers.push("folder_structure_incomplete");
-    }
-    if (!validation.ok || (validation.missingTabs?.length ?? 0) > 0) {
-      state.blockers.push("required_tabs_missing");
-    }
-    if (!companyFoldersOk) {
-      state.blockers.push("companyfolders_mapping_missing");
-    }
-    if (!validation.ok) {
-      state.blockers.push("workspace_health_failed");
-    }
   });
   if (stepFailure) {
     return stepFailure;
@@ -444,14 +518,11 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
 
   // 9. Mark company LIVE if ready
   stepFailure = await runStep("mark_live", async () => {
-    const folderStructureOk =
-      Boolean(state.validation?.folders?.setupFolder) &&
-      Boolean(state.validation?.folders?.auditFormsFolder) &&
-      Boolean(state.validation?.folders?.recordsFolder);
-    const requiredTabsOk = Boolean(state.validation?.ok) && (state.validation?.missingTabs?.length ?? 0) === 0;
-    const companyFoldersMappingOk = Boolean(state.validation?.folders?.companyFolder ?? state.validation?.ok);
-    const firstAdminReady = !state.blockers.includes("first_admin_missing");
-    const workspaceHealthOk = Boolean(state.validation?.ok);
+    const readiness = deriveValidationReadiness(state.validation || {});
+    const folderStructureOk = readiness.folderStructureOk;
+    const requiredTabsOk = readiness.requiredTabsOk;
+    const companyFoldersMappingOk = readiness.companyFoldersMappingOk;
+    const workspaceHealthOk = readiness.workspaceHealthOk;
 
     const liveResult = await withGoogleTimeout(
       ensureCompanyLiveIfReady(auth, registryDeps, {
@@ -480,8 +551,9 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
 
     if (liveResult.promoted || liveResult.alreadyLive || isCompanyRegistryLive({ status: registryStatus, registryStatus })) {
       state.status = SETUP_STATUS_LIVE;
+      state.blockers = [];
     } else {
-      const readiness = evaluateCompanyWorkspaceReadiness(liveResult.record || state.registryRecord || {}, {
+      const readinessEval = evaluateCompanyWorkspaceReadiness(liveResult.record || state.registryRecord || {}, {
         rootFolderId: companyId,
         masterSheetId: state.masterSheetId,
         folderStructureOk,
@@ -491,13 +563,16 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
         healthCheckRun: true,
         workspaceHealthOk,
       });
-      for (const blocker of readiness.blockers || []) {
+      state.blockers = blockersFromValidation(state.validation || {}, { firstAdminReady });
+      for (const blocker of readinessEval.blockers || []) {
         if (!state.blockers.includes(blocker)) {
           state.blockers.push(blocker);
         }
       }
       if (registryStatus !== COMPANY_REGISTRY_STATUS_LIVE) {
-        state.blockers.push("registry_not_live");
+        if (!state.blockers.includes("registry_not_live")) {
+          state.blockers.push("registry_not_live");
+        }
       }
     }
   });

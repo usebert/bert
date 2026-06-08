@@ -6419,10 +6419,13 @@ function App() {
         }),
       });
       const payload = (await response.json()) as WorkspaceValidation & { error?: string };
-      if (!response.ok || !payload.ok) {
+      if (!response.ok) {
         throw new Error(payload.error || "Unable to check the workspace.");
       }
       setWorkspaceValidation(payload);
+      if (!payload.ok) {
+        return payload;
+      }
       void persistCompanyWorkspaceLinks({
         companyId: companyFolderId,
         companyName: selectedFolder?.name || folderNameInput,
@@ -9997,7 +10000,31 @@ function App() {
       if (result.validation) {
         setWorkspaceValidation(result.validation as WorkspaceValidation);
       } else if (resolvedMasterSheetId) {
-        void validateWorkspace({ silent: true });
+        await validateWorkspace({ silent: true });
+      }
+
+      if (companyFolderId) {
+        await applyRegistryMasterSheetToFolder(companyFolderId);
+        if (result.registryStatus) {
+          setFolders((current) =>
+            current.map((folder) =>
+              folder.id === companyFolderId
+                ? {
+                    ...folder,
+                    registryStatus: result.registryStatus,
+                    setupStatusLabel: result.status === "LIVE" ? "Ready" : folder.setupStatusLabel,
+                  }
+                : folder,
+            ),
+          );
+          if (companyFolderId === selectedFolderIdRef.current) {
+            setCompanyRegistryStatus(result.registryStatus);
+          }
+        }
+        await inspectFolderById(companyFolderId, { silent: true });
+      }
+      if (resolvedMasterSheetId) {
+        await handleSyncForms();
       }
 
       if (!result.ok) {
@@ -10015,7 +10042,6 @@ function App() {
       handleVerifyOnboarding();
       handleVerifyAudits();
       handleVerifyResponseSheet();
-      await handleSyncForms();
       pushToast(
         result.status === "LIVE" ? "Company is Live" : "Setup finished",
         result.status === "LIVE"
