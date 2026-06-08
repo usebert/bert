@@ -101,6 +101,14 @@ const forbiddenInDist = [
     name: "/api/tools reference in client bundle (tool routes must stay server-only)",
     re: /\/api\/tools/i,
   },
+  {
+    name: 'legacy onboarding network error "We could not reach BERT to finish setup"',
+    re: /We could not reach BERT to finish setup/i,
+  },
+  {
+    name: 'legacy onboarding copy "Check your internet connection and try again"',
+    re: /Check your internet connection and try again/i,
+  },
 ];
 
 let failed = false;

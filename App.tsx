@@ -11179,7 +11179,6 @@ function App() {
     return (
       <CompanyOnboardingFormScreen
         inviteToken={companyOnboardingTokenFromUrl}
-        parseJsonApiResponse={parseJsonApiResponse}
         onComplete={() => {
           window.location.assign(window.location.pathname);
         }}
@@ -11187,7 +11186,7 @@ function App() {
     );
   }
   if (inviteTokenFromUrl) {
-    return <AppHostedOnboardingCompletion inviteToken={inviteTokenFromUrl} parseJsonApiResponse={parseJsonApiResponse} />;
+    return <AppHostedOnboardingCompletion inviteToken={inviteTokenFromUrl} />;
   }
 
   if (!currentUser) {

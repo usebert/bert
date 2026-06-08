@@ -5,6 +5,7 @@ export type InviteApiErrorCode =
   | "INVITE_EXPIRED"
   | "INVITE_ALREADY_USED"
   | "INVITE_WRONG_TYPE"
+  | "INVITE_IN_PROGRESS"
   | "PROVISIONING_FAILED"
   | "NETWORK_UNREACHABLE"
   | "SERVER_ERROR";
@@ -23,15 +24,19 @@ export type InviteApiSuccess<T> = {
   response: Response;
 };
 
-export type InviteApiFailure = {
+export type InviteApiFailure<T extends InviteApiPayload = InviteApiPayload> = {
   ok: false;
   code: InviteApiErrorCode;
   error?: string;
   message?: string;
   response?: Response;
+  /** Parsed JSON body on non-2xx responses (when the server returned JSON). */
+  data?: T;
 };
 
-export type InviteApiResult<T> = InviteApiSuccess<T> | InviteApiFailure;
+export type InviteApiResult<T extends InviteApiPayload = InviteApiPayload> =
+  | InviteApiSuccess<T>
+  | InviteApiFailure<T>;
 
 function isNetworkFetchError(error: unknown): boolean {
   if (error instanceof TypeError) {
@@ -50,6 +55,7 @@ function normalizeInviteErrorCode(raw: string | undefined, httpStatus: number): 
     case "INVITE_EXPIRED":
     case "INVITE_ALREADY_USED":
     case "INVITE_WRONG_TYPE":
+    case "INVITE_IN_PROGRESS":
     case "PROVISIONING_FAILED":
     case "NETWORK_UNREACHABLE":
     case "SERVER_ERROR":
@@ -62,6 +68,8 @@ function normalizeInviteErrorCode(raw: string | undefined, httpStatus: number): 
       return "INVITE_EXPIRED";
     case "invite_already_used":
       return "INVITE_ALREADY_USED";
+    case "invite_in_progress":
+      return "INVITE_IN_PROGRESS";
     case "setup_failed":
       return "PROVISIONING_FAILED";
     default:
@@ -105,6 +113,9 @@ export async function fetchInviteApi<T extends InviteApiPayload = InviteApiPaylo
       ...init,
     });
   } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw error;
+    }
     if (isNetworkFetchError(error)) {
       return { ok: false, code: "NETWORK_UNREACHABLE" };
     }
@@ -124,6 +135,7 @@ export async function fetchInviteApi<T extends InviteApiPayload = InviteApiPaylo
       error: payload?.error,
       message: payload?.message || payload?.provisionError,
       response,
+      data: payload ?? undefined,
     };
   }
 
@@ -144,6 +156,7 @@ export async function fetchInviteApi<T extends InviteApiPayload = InviteApiPaylo
       error: payload.error,
       message: payload.message || payload.provisionError,
       response,
+      data: payload,
     };
   }
 

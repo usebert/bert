@@ -1,6 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
 import { BertLogo } from "../components/BertLogo";
-import { apiUrl } from "../config/apiBase";
 import { saveCompanyLoginHint } from "../lib/companyLoginHint";
 import type { Role } from "../permissions";
 import {
@@ -54,10 +53,20 @@ type AppInviteStatusPayload = AppInviteProvisionMeta & {
 
 type AppHostedOnboardingCompletionProps = {
   inviteToken: string;
-  parseJsonApiResponse: <T = Record<string, unknown>>(response: Response) => Promise<T>;
 };
 
-export function AppHostedOnboardingCompletion({ inviteToken, parseJsonApiResponse }: AppHostedOnboardingCompletionProps) {
+function invitePollSuccessPayload(
+  status: number,
+  payload: AppInviteStatusPayload | undefined,
+): payload is AppInviteStatusPayload & { outcome: "new_company" | "company_user" } {
+  return (
+    status === 410 &&
+    Boolean(payload?.outcome) &&
+    (payload?.provisionStatus === "succeeded" || payload?.provisionStatus === undefined)
+  );
+}
+
+export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardingCompletionProps) {
   const [details, setDetails] = useState<AppInviteDetails | null>(null);
   const [loadError, setLoadError] = useState("");
   const [fullName, setFullName] = useState("");
@@ -177,83 +186,8 @@ export function AppHostedOnboardingCompletion({ inviteToken, parseJsonApiRespons
     const completeTimeoutMs = 300_000;
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), completeTimeoutMs);
-    try {
-      const response = await fetch(apiUrl(`/api/onboarding/app-invites/${encodeURIComponent(inviteToken)}/complete`), {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fullName: fullName.trim(),
-          companyName: details?.kind === "new_company" ? companyName.trim() : undefined,
-          password,
-          confirmPassword,
-        }),
-        signal: controller.signal,
-      });
-      const payload = (await parseJsonApiResponse(response)) as AppInviteStatusPayload & {
-        ok?: boolean;
-        folderUrl?: string;
-        outcome?: string;
-      };
-
-      if (response.status === 202) {
-        setSubmitError(mapInviteCompletionError({ code: "invite_in_progress", ...payload }, 202));
-        const pollUntil = Date.now() + completeTimeoutMs;
-        while (Date.now() < pollUntil) {
-          if (controller.signal.aborted) break;
-          await new Promise((resolve) => {
-            window.setTimeout(resolve, 2000);
-          });
-          const pr = await fetch(apiUrl(`/api/onboarding/app-invites/${encodeURIComponent(inviteToken)}`), {
-            signal: controller.signal,
-            credentials: "include",
-          });
-          const pp = (await parseJsonApiResponse(pr)) as AppInviteStatusPayload;
-          if (
-            pr.status === 410 &&
-            pp.outcome &&
-            (pp.provisionStatus === "succeeded" || pp.provisionStatus === undefined)
-          ) {
-            setSubmitError("");
-            if (pp.outcome === "new_company") {
-              persistCompanyLoginHint(pp);
-              setDone({
-                title: "Company workspace created",
-                message: "You can sign in with your email and the password you chose.",
-              });
-            } else {
-              persistCompanyLoginHint(pp);
-              setDone({
-                title: "Account ready",
-                message: "You can sign in with your email address and the password you chose.",
-              });
-            }
-            window.history.replaceState({}, "", window.location.pathname);
-            return;
-          }
-          if (pr.ok && pp.provisionStatus === "failed") {
-            const retryAllowed = pp.canRetrySetup !== false;
-            setCanRetrySetup(retryAllowed);
-            setSubmitError(
-              retryAllowed
-                ? mapInviteCompletionPollError(pp)
-                : mapInviteCompletionError(pp, pr.status),
-            );
-            return;
-          }
-        }
-        setSubmitError(
-          "Setup is taking longer than expected. Keep this page open, or ask your administrator to send a new invite if nothing changes.",
-        );
-        return;
-      }
-
-      if (!response.ok || !payload.ok) {
-        const retryAllowed = payload.canRetrySetup !== false && payload.code !== "stale_invite_target";
-        setCanRetrySetup(retryAllowed);
-        setSubmitError(mapInviteCompletionError(payload, response.status));
-        return;
-      }
+    const invitePath = `/api/onboarding/app-invites/${encodeURIComponent(inviteToken)}`;
+    const markSetupDone = (payload: AppInviteStatusPayload & { outcome?: string }) => {
       if (payload.outcome === "new_company") {
         persistCompanyLoginHint(payload);
         setDone({
@@ -268,11 +202,92 @@ export function AppHostedOnboardingCompletion({ inviteToken, parseJsonApiRespons
         });
       }
       window.history.replaceState({}, "", window.location.pathname);
+    };
+    try {
+      const result = await fetchInviteApi<
+        AppInviteStatusPayload & {
+          folderUrl?: string;
+          outcome?: string;
+        }
+      >(`${invitePath}/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fullName: fullName.trim(),
+          companyName: details?.kind === "new_company" ? companyName.trim() : undefined,
+          password,
+          confirmPassword,
+        }),
+        signal: controller.signal,
+      });
+
+      if (result.response?.status === 202) {
+        const inProgressPayload = result.data || { code: "invite_in_progress" };
+        setSubmitError(mapInviteCompletionError({ code: "invite_in_progress", ...inProgressPayload }, 202));
+        const pollUntil = Date.now() + completeTimeoutMs;
+        while (Date.now() < pollUntil) {
+          if (controller.signal.aborted) break;
+          await new Promise((resolve) => {
+            window.setTimeout(resolve, 2000);
+          });
+          const pollResult = await fetchInviteApi<AppInviteStatusPayload>(invitePath, {
+            signal: controller.signal,
+          });
+          const pollStatus = pollResult.response?.status ?? 0;
+          const pollPayload = pollResult.ok ? pollResult.data : pollResult.data;
+          if (invitePollSuccessPayload(pollStatus, pollPayload)) {
+            setSubmitError("");
+            markSetupDone(pollPayload);
+            return;
+          }
+          if (pollResult.ok && pollPayload?.provisionStatus === "failed") {
+            const retryAllowed = pollPayload.canRetrySetup !== false;
+            setCanRetrySetup(retryAllowed);
+            setSubmitError(
+              retryAllowed
+                ? mapInviteCompletionPollError(pollPayload)
+                : mapInviteCompletionError(pollPayload, pollStatus),
+            );
+            return;
+          }
+        }
+        setSubmitError(
+          "Setup is taking longer than expected. Keep this page open, or ask your administrator to send a new invite if nothing changes.",
+        );
+        return;
+      }
+
+      if (!result.ok) {
+        const payload = result.data || {
+          code: result.code,
+          error: result.error,
+          message: result.message,
+        };
+        const retryAllowed = payload.canRetrySetup !== false && payload.code !== "stale_invite_target";
+        setCanRetrySetup(retryAllowed);
+        if (result.code === "NETWORK_UNREACHABLE") {
+          setSubmitError(inviteCompletionNetworkError());
+          return;
+        }
+        setSubmitError(
+          mapInviteCompletionError(payload, result.response?.status ?? 0),
+        );
+        return;
+      }
+
+      const payload = result.data;
+      if (!payload.ok) {
+        const retryAllowed = payload.canRetrySetup !== false && payload.code !== "stale_invite_target";
+        setCanRetrySetup(retryAllowed);
+        setSubmitError(mapInviteCompletionError(payload, result.response.status));
+        return;
+      }
+      markSetupDone(payload);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
         setSubmitError(inviteCompletionTimeoutMessage(Math.round(completeTimeoutMs / 60_000)));
       } else {
-        setSubmitError(inviteCompletionNetworkError(error instanceof Error ? error.message : ""));
+        setSubmitError(inviteCompletionNetworkError());
       }
     } finally {
       window.clearTimeout(timeoutId);

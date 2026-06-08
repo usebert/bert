@@ -149,11 +149,8 @@ export function inviteCompletionTimeoutMessage(minutes: number): string {
   return `Setup is taking longer than expected (${minutes} minutes). Keep this page open a little longer, or ask your administrator to send a new invite if nothing changes.`;
 }
 
-export function inviteCompletionNetworkError(detail?: string): string {
-  const sanitized = sanitizeRawInviteMessage(detail || "");
-  if (sanitized && sanitized !== INVITE_NO_LONGER_VALID_MESSAGE) {
-    return sanitized;
-  }
+/** Maps real transport failures only — never surfaces parse/status error text from API responses. */
+export function inviteCompletionNetworkError(): string {
   return INVITE_NETWORK_UNAVAILABLE_MESSAGE;
 }
 

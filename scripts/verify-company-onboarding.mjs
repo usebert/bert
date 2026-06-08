@@ -29,6 +29,21 @@ const usersPanel = read("src/components/admin/UsersInvitesPilotPanel.tsx");
 const folderStructure = read("server/company-folder-structure.mjs");
 const companySchema = read("src/schema/companySchema.ts");
 const inviteMessages = read("src/utils/inviteCompletionMessages.ts");
+const inviteCompletion = read("src/screens/AppHostedOnboardingCompletion.tsx");
+const inviteApi = read("src/utils/inviteApi.ts");
+
+const LEGACY_ONBOARDING_ERROR_STRINGS = [
+  "We could not reach BERT to finish setup",
+  "Check your internet connection and try again",
+  "could not reach BERT",
+  "We could not finish setup. Please try again or contact BERT support",
+];
+
+for (const legacy of LEGACY_ONBOARDING_ERROR_STRINGS) {
+  assert(!formScreen.includes(legacy), `legacy onboarding copy removed from CompanyOnboardingFormScreen: ${legacy}`);
+  assert(!inviteCompletion.includes(legacy), `legacy onboarding copy removed from AppHostedOnboardingCompletion: ${legacy}`);
+  assert(!inviteMessages.includes(legacy), `legacy onboarding copy removed from inviteCompletionMessages: ${legacy}`);
+}
 
 assert(serverOnboarding.includes("COMPANY_ONBOARDING"), "invite type constant");
 assert(serverOnboarding.includes("installCompanyOnboardingRoutes"), "route installer");
@@ -93,6 +108,14 @@ assert(
   "customer setup failed message on form",
 );
 assert(formScreen.includes("fetchInviteApi"), "form uses shared invite API helper");
+assert(inviteCompletion.includes("fetchInviteApi"), "invite completion uses shared invite API helper");
+assert(!inviteCompletion.includes("parseJsonApiResponse"), "invite completion does not parse responses outside fetchInviteApi");
+assert(inviteApi.includes("INVITE_IN_PROGRESS"), "invite API maps in-progress setup code");
+assert(
+  inviteMessages.includes("BERT is temporarily unavailable") &&
+    !inviteMessages.includes("Check your internet connection and try again"),
+  "network errors use temporary-unavailable copy only",
+);
 assert(
   !formScreen.includes("verify the company master sheet"),
   "no master sheet verification copy on onboarding form",

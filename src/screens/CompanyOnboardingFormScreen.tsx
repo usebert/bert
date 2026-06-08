@@ -32,7 +32,6 @@ type InviteDetails = {
 
 type CompanyOnboardingFormScreenProps = {
   inviteToken: string;
-  parseJsonApiResponse: <T = Record<string, unknown>>(response: Response) => Promise<T>;
   onComplete?: () => void;
 };
 
