@@ -5093,6 +5093,7 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
           email: toEmail,
           role: inviteRole,
           invitedBy,
+          companyId: targetCheck.resolved?.companyId || companyFolderId,
           companyFolderId: targetCheck.resolved?.companyFolderId || companyFolderId,
           masterSheetId: targetCheck.resolved?.masterSheetId || masterSheetId,
           companyName,
@@ -5242,15 +5243,16 @@ app.post("/api/onboarding/repair-company-invite-target", requireGoogleWorkspaceS
         error: "Connect Google Workspace before repairing invite links.",
       });
     }
-    const companyFolderId = String(req.body?.companyFolderId || "").trim();
+    const companyId = String(req.body?.companyId || req.body?.companyFolderId || "").trim();
+    const companyFolderId = String(req.body?.companyFolderId || companyId).trim();
     const masterSheetId = String(req.body?.masterSheetId || "").trim();
     const companyName = String(req.body?.companyName || "").trim();
-    if (!companyFolderId) {
-      return res.status(400).json({ ok: false, error: "companyFolderId is required." });
+    if (!companyId) {
+      return res.status(400).json({ ok: false, error: "companyId is required." });
     }
     const result = await repairCompanyInviteTarget(
       authed,
-      { companyFolderId, masterSheetId, companyName },
+      { companyId, companyFolderId, masterSheetId, companyName },
       getInviteTargetDeps(),
     );
     return res.json({
@@ -5282,15 +5284,16 @@ app.get("/api/onboarding/company-invite-target-diagnostics", requireGoogleWorksp
         error: "Connect Google Workspace before checking invite diagnostics.",
       });
     }
-    const companyFolderId = String(req.query?.companyFolderId || "").trim();
+    const companyId = String(req.query?.companyId || req.query?.companyFolderId || "").trim();
+    const companyFolderId = String(req.query?.companyFolderId || companyId).trim();
     const masterSheetId = String(req.query?.masterSheetId || "").trim();
     const companyName = String(req.query?.companyName || "").trim();
-    if (!companyFolderId) {
-      return res.status(400).json({ ok: false, error: "companyFolderId is required." });
+    if (!companyId) {
+      return res.status(400).json({ ok: false, error: "companyId is required." });
     }
     const result = await diagnoseCompanyInviteTarget(
       authed,
-      { companyFolderId, masterSheetId, companyName },
+      { companyId, companyFolderId, masterSheetId, companyName },
       getInviteTargetDeps(),
     );
     return res.json(result);
@@ -5439,6 +5442,7 @@ async function handleAppInviteComplete(req, res) {
             }
             record = {
               ...record,
+              companyId: retryTargetCheck.resolved?.companyId || record.companyId || record.companyFolderId,
               companyFolderId: retryTargetCheck.resolved?.companyFolderId || record.companyFolderId,
               masterSheetId: retryTargetCheck.resolved?.masterSheetId || record.masterSheetId,
             };
@@ -5494,7 +5498,7 @@ async function handleAppInviteComplete(req, res) {
             code: targetCheck.code,
             message: targetCheck.message,
             error: targetCheck.message,
-            setupIncomplete: targetCheck.code === "stale_invite_target",
+            setupIncomplete: targetCheck.code === "INVITE_COMPANY_LINK_MISSING",
             canRetrySetup: false,
             diagnostics: targetCheck.diagnostics,
           });
@@ -5502,6 +5506,7 @@ async function handleAppInviteComplete(req, res) {
         }
         record = {
           ...record,
+          companyId: targetCheck.resolved?.companyId || record.companyId || record.companyFolderId,
           companyFolderId: targetCheck.resolved?.companyFolderId || record.companyFolderId,
           masterSheetId: targetCheck.resolved?.masterSheetId || record.masterSheetId,
         };

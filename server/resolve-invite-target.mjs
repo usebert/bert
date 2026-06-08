@@ -6,8 +6,17 @@ import {
   writeOnboardingRegistryMasterSheetForFolder,
 } from "./company-onboarding.mjs";
 import {
+  getCompanyWorkspaceRegistryRecord,
+  persistCompanyWorkspaceSetup,
+} from "./company-workspace-registry.mjs";
+import {
+  COMPANY_MASTER_SHEET_UNAVAILABLE_CODE,
+  COMPANY_MASTER_SHEET_UNAVAILABLE_MESSAGE,
+  customerMessageForInviteTargetCode,
+  INVITE_COMPANY_LINK_MISSING_CODE,
+  INVITE_COMPANY_LINK_MISSING_MESSAGE,
   logInviteCompleteFailure,
-  STALE_INVITE_CUSTOMER_MESSAGE,
+  mapInviteTargetCodeForCustomer,
   validateCompanyUserInviteTarget,
 } from "./invite-target.mjs";
 
@@ -26,11 +35,17 @@ export function isGoogleAccessDeniedError(err) {
 
 export function buildInviteTargetDiagnostics(resolved, targetCheck) {
   const diagnostics = [];
+  if (!trimId(resolved.companyId)) {
+    diagnostics.push("missing_company_id");
+  }
   if (!trimId(resolved.companyFolderId)) {
     diagnostics.push("missing_company_folder_id");
   }
   if (!trimId(resolved.masterSheetId)) {
     diagnostics.push("missing_master_sheet_id");
+  }
+  if (resolved.sources.includes("registry")) {
+    diagnostics.push("source_registry");
   }
   if (resolved.sources.includes("invite")) {
     diagnostics.push("source_invite");
@@ -38,14 +53,14 @@ export function buildInviteTargetDiagnostics(resolved, targetCheck) {
   if (resolved.sources.includes("provision")) {
     diagnostics.push("source_provision");
   }
-  if (resolved.sources.includes("registry")) {
-    diagnostics.push("source_registry");
-  }
   if (resolved.sources.includes("folder")) {
     diagnostics.push("source_folder_search");
   }
   if (resolved.sources.includes("config")) {
     diagnostics.push("source_config");
+  }
+  if (resolved.sources.includes("onboarding_registry")) {
+    diagnostics.push("source_onboarding_registry");
   }
   if (resolved.repaired) {
     diagnostics.push("repaired_target_ids");
@@ -53,7 +68,10 @@ export function buildInviteTargetDiagnostics(resolved, targetCheck) {
   if (targetCheck?.code === "google_access_denied") {
     diagnostics.push("google_access_denied");
   }
-  if (targetCheck?.code === "stale_invite_target") {
+  if (
+    targetCheck?.code === "stale_invite_target" ||
+    targetCheck?.code === INVITE_COMPANY_LINK_MISSING_CODE
+  ) {
     diagnostics.push("stale_invite_target");
   }
   if (targetCheck?.code === "google_api_error") {
@@ -111,23 +129,56 @@ export async function findMasterSheetInCompanyFolder(auth, companyFolderId, deps
   return masterSheet?.id ? { id: masterSheet.id, name: masterSheet.name || "" } : null;
 }
 
-export async function resolveCompanyUserInviteTarget(auth, record, deps) {
-  const sources = [];
-  let companyFolderId = trimId(record.companyFolderId || record.provisionDriveFolderId);
-  let masterSheetId = trimId(record.masterSheetId);
-  let companyName = trimId(record.companyName);
+function inviteLinkMissingResult({ companyLabel = "", masterSheetIdPresent = false } = {}) {
+  return {
+    ok: false,
+    code: INVITE_COMPANY_LINK_MISSING_CODE,
+    message: INVITE_COMPANY_LINK_MISSING_MESSAGE,
+    httpStatus: 409,
+    masterSheetIdPresent,
+    companyLabel,
+    resolved: null,
+    diagnostics: ["missing_company_link"],
+  };
+}
 
-  if (companyFolderId) {
-    sources.push("invite");
+function customerFacingTargetFailure(targetCheck, resolved) {
+  const customerCode = mapInviteTargetCodeForCustomer(targetCheck.code);
+  const customerMessage = customerMessageForInviteTargetCode(targetCheck.code) || targetCheck.message;
+  return {
+    ...targetCheck,
+    code: customerCode,
+    message: customerMessage,
+    resolved,
+    diagnostics: buildInviteTargetDiagnostics(resolved, targetCheck),
+  };
+}
+
+/**
+ * Single source of truth for company-user invite workspace resolution.
+ * Registry masterSheetId / rootFolderId win over stale invite-embedded IDs.
+ */
+export async function resolveCompanyWorkspaceForInvite(auth, invite, deps, options = {}) {
+  const sources = [];
+  const companyId = trimId(invite.companyId || invite.companyFolderId || invite.provisionDriveFolderId);
+  const companyLabel = trimId(invite.companyName) || companyId;
+
+  if (!companyId) {
+    return inviteLinkMissingResult({ companyLabel });
   }
-  if (!masterSheetId) {
-    const provisionSheetId = trimId(record.provisionMasterSheetId);
-    if (provisionSheetId) {
-      masterSheetId = provisionSheetId;
-      sources.push("provision");
-    }
+
+  let companyFolderId = "";
+  let masterSheetId = "";
+  let companyName = trimId(invite.companyName);
+
+  const registryRecord = await getCompanyWorkspaceRegistryRecord(auth, deps, companyId).catch(() => null);
+  if (registryRecord) {
+    sources.push("registry");
+    companyFolderId = trimId(registryRecord.rootFolderId || registryRecord.companyId) || companyId;
+    masterSheetId = trimId(registryRecord.masterSheetId);
+    companyName = trimId(registryRecord.companyName) || companyName;
   } else {
-    sources.push("invite");
+    companyFolderId = companyId;
   }
 
   if (!masterSheetId && companyFolderId) {
@@ -136,7 +187,7 @@ export async function resolveCompanyUserInviteTarget(auth, record, deps) {
     );
     if (registrySheetId) {
       masterSheetId = registrySheetId;
-      sources.push("registry");
+      sources.push("onboarding_registry");
     }
   }
 
@@ -151,7 +202,7 @@ export async function resolveCompanyUserInviteTarget(auth, record, deps) {
     }
   }
 
-  if (masterSheetId && !companyFolderId) {
+  if (!companyFolderId && masterSheetId) {
     try {
       const cfg = await deps.getConfig(auth, masterSheetId);
       const configFolderId = trimId(cfg.companyId);
@@ -164,11 +215,38 @@ export async function resolveCompanyUserInviteTarget(auth, record, deps) {
     }
   }
 
-  const repaired =
-    (trimId(record.masterSheetId) !== masterSheetId && Boolean(masterSheetId)) ||
-    (trimId(record.companyFolderId) !== companyFolderId && Boolean(companyFolderId));
+  if (!masterSheetId) {
+    const inviteSheetId = trimId(invite.masterSheetId || invite.provisionMasterSheetId);
+    if (inviteSheetId) {
+      masterSheetId = inviteSheetId;
+      sources.push(trimId(invite.masterSheetId) ? "invite" : "provision");
+    }
+  }
 
-  return {
+  if (!companyFolderId) {
+    const inviteFolderId = trimId(invite.companyFolderId || invite.provisionDriveFolderId);
+    if (inviteFolderId) {
+      companyFolderId = inviteFolderId;
+      if (!sources.includes("invite")) {
+        sources.push("invite");
+      }
+    }
+  }
+
+  if (!companyFolderId || !masterSheetId) {
+    return inviteLinkMissingResult({
+      companyLabel: companyName || companyLabel,
+      masterSheetIdPresent: Boolean(masterSheetId),
+    });
+  }
+
+  const repaired =
+    trimId(invite.companyId) !== companyId ||
+    trimId(invite.companyFolderId || invite.provisionDriveFolderId) !== companyFolderId ||
+    trimId(invite.masterSheetId || invite.provisionMasterSheetId) !== masterSheetId;
+
+  const resolved = {
+    companyId,
     companyFolderId,
     masterSheetId,
     companyName,
@@ -177,12 +255,81 @@ export async function resolveCompanyUserInviteTarget(auth, record, deps) {
     registryUpdated: false,
     promotedLive: false,
   };
+
+  if (options.patchInviteRecord && repaired) {
+    options.patchInviteRecord({
+      companyId,
+      companyFolderId,
+      masterSheetId,
+      companyName: companyName || invite.companyName,
+    });
+  }
+
+  if (resolved.masterSheetId && resolved.companyFolderId && resolved.sources.includes("folder")) {
+    const registryResult = await writeOnboardingRegistryMasterSheetForFolder(auth, deps, {
+      companyFolderId: resolved.companyFolderId,
+      masterSheetId: resolved.masterSheetId,
+      companyName: resolved.companyName,
+    }).catch(() => ({ synced: false }));
+    resolved.registryUpdated = Boolean(registryResult?.synced);
+  }
+
+  if (resolved.masterSheetId && resolved.companyFolderId && (repaired || resolved.sources.includes("registry"))) {
+    const persistResult = await persistCompanyWorkspaceSetup(auth, deps, {
+      companyId: resolved.companyId,
+      rootFolderId: resolved.companyFolderId,
+      masterSheetId: resolved.masterSheetId,
+      companyName: resolved.companyName,
+      touchSetup: false,
+      markSetupComplete: false,
+      markLive: false,
+    }).catch(() => ({ synced: false }));
+    if (persistResult?.synced) {
+      resolved.registryUpdated = true;
+    }
+  }
+
+  if (resolved.masterSheetId) {
+    const liveResult = await ensureCompanyWorkspaceLiveIfReady(deps, auth, resolved).catch(() => ({
+      promoted: false,
+    }));
+    resolved.promotedLive = Boolean(liveResult?.promoted);
+  }
+
+  const targetCheck = await validateCompanyUserInviteTarget(auth, resolved);
+  if (!targetCheck.ok) {
+    return customerFacingTargetFailure(targetCheck, resolved);
+  }
+
+  return {
+    ...targetCheck,
+    resolved,
+    diagnostics: buildInviteTargetDiagnostics(resolved, targetCheck),
+  };
 }
 
-export function repairPendingCompanyUserInvites(deps, { companyFolderId, masterSheetId, companyName }) {
+export async function resolveCompanyUserInviteTarget(auth, record, deps) {
+  const result = await resolveCompanyWorkspaceForInvite(auth, record, deps);
+  if (!result.resolved) {
+    return {
+      companyId: trimId(record.companyId || record.companyFolderId || record.provisionDriveFolderId),
+      companyFolderId: trimId(record.companyFolderId || record.provisionDriveFolderId),
+      masterSheetId: trimId(record.masterSheetId || record.provisionMasterSheetId),
+      companyName: trimId(record.companyName),
+      sources: [],
+      repaired: false,
+      registryUpdated: false,
+      promotedLive: false,
+    };
+  }
+  return result.resolved;
+}
+
+export function repairPendingCompanyUserInvites(deps, { companyId, companyFolderId, masterSheetId, companyName }) {
   const folderId = trimId(companyFolderId);
   const sheetId = trimId(masterSheetId);
-  if (!folderId || !sheetId) {
+  const normalizedCompanyId = trimId(companyId || folderId);
+  if (!normalizedCompanyId || !sheetId) {
     return 0;
   }
   const { readInviteStore, writeInviteStore } = deps;
@@ -192,18 +339,24 @@ export function repairPendingCompanyUserInvites(deps, { companyFolderId, masterS
     if (record.kind !== "company_user" || record.consumedAt) {
       continue;
     }
+    const recordCompanyId = trimId(record.companyId || record.companyFolderId || record.provisionDriveFolderId);
     const recordFolderId = trimId(record.companyFolderId || record.provisionDriveFolderId);
     const recordSheetId = trimId(record.masterSheetId || record.provisionMasterSheetId);
-    const matchesFolder = recordFolderId === folderId;
-    const matchesSheet = recordSheetId === sheetId;
-    if (!matchesFolder && !matchesSheet) {
+    const matchesCompany =
+      recordCompanyId === normalizedCompanyId || recordFolderId === folderId || recordSheetId === sheetId;
+    if (!matchesCompany) {
       continue;
     }
-    if (recordFolderId === folderId && recordSheetId === sheetId) {
+    if (
+      recordCompanyId === normalizedCompanyId &&
+      recordFolderId === folderId &&
+      recordSheetId === sheetId
+    ) {
       continue;
     }
     store[tokenId] = {
       ...record,
+      companyId: normalizedCompanyId,
       companyFolderId: folderId,
       masterSheetId: sheetId,
       companyName: trimId(companyName || record.companyName),
@@ -217,109 +370,89 @@ export function repairPendingCompanyUserInvites(deps, { companyFolderId, masterS
 }
 
 export async function repairCompanyInviteTarget(auth, target, deps) {
-  const resolved = await resolveCompanyUserInviteTarget(auth, target, deps);
-  let registryUpdated = false;
-  if (resolved.masterSheetId && resolved.companyFolderId && resolved.sources.includes("folder")) {
-    const registryResult = await writeOnboardingRegistryMasterSheetForFolder(auth, deps, {
-      companyFolderId: resolved.companyFolderId,
-      masterSheetId: resolved.masterSheetId,
-      companyName: resolved.companyName,
-    }).catch(() => ({ synced: false }));
-    registryUpdated = Boolean(registryResult?.synced);
-    resolved.registryUpdated = registryUpdated;
+  const invite = {
+    companyId: trimId(target.companyId || target.companyFolderId),
+    companyFolderId: trimId(target.companyFolderId),
+    masterSheetId: trimId(target.masterSheetId),
+    companyName: trimId(target.companyName),
+  };
+  const result = await resolveCompanyWorkspaceForInvite(auth, invite, deps);
+  const resolved = result.resolved;
+  if (!resolved) {
+    return {
+      ...result,
+      repairedInvites: 0,
+    };
   }
+
   const repairedInvites = repairPendingCompanyUserInvites(deps, resolved);
-  const liveResult = resolved.masterSheetId
-    ? await ensureCompanyWorkspaceLiveIfReady(deps, auth, resolved).catch(() => ({ promoted: false }))
-    : { promoted: false };
-  resolved.promotedLive = Boolean(liveResult?.promoted);
-  const targetCheck = await validateCompanyUserInviteTarget(auth, resolved);
   return {
-    ...targetCheck,
-    resolved,
+    ...result,
     repairedInvites,
-    diagnostics: buildInviteTargetDiagnostics(resolved, targetCheck),
+    diagnostics: buildInviteTargetDiagnostics(resolved, result),
   };
 }
 
 export async function prepareCompanyUserInviteTarget(auth, record, options = {}) {
-  const { deps, patchInviteRecord } = options;
-  const resolved = await resolveCompanyUserInviteTarget(auth, record, deps);
+  const { deps, patchInviteRecord, tokenId } = options;
+  const result = await resolveCompanyWorkspaceForInvite(auth, record, deps, {
+    patchInviteRecord: typeof patchInviteRecord === "function" ? patchInviteRecord : null,
+  });
 
-  if (patchInviteRecord && resolved.repaired) {
-    patchInviteRecord({
-      companyFolderId: resolved.companyFolderId,
-      masterSheetId: resolved.masterSheetId,
-      companyName: resolved.companyName || record.companyName,
-    });
-  }
-
-  if (resolved.masterSheetId && resolved.companyFolderId && resolved.sources.includes("folder")) {
-    const registryResult = await writeOnboardingRegistryMasterSheetForFolder(auth, deps, {
-      companyFolderId: resolved.companyFolderId,
-      masterSheetId: resolved.masterSheetId,
-      companyName: resolved.companyName,
-    }).catch(() => ({ synced: false }));
-    resolved.registryUpdated = Boolean(registryResult?.synced);
-  }
-
-  if (resolved.masterSheetId) {
-    const liveResult = await ensureCompanyWorkspaceLiveIfReady(deps, auth, resolved).catch(() => ({
-      promoted: false,
-    }));
-    resolved.promotedLive = Boolean(liveResult?.promoted);
-  }
-
-  const targetCheck = await validateCompanyUserInviteTarget(auth, resolved);
-  const diagnostics = buildInviteTargetDiagnostics(resolved, targetCheck);
-
-  if (!targetCheck.ok) {
+  if (!result.ok) {
     logInviteCompleteFailure({
-      code: targetCheck.code,
+      code: result.code,
       email: record.email,
-      tokenId: options.tokenId,
-      company: targetCheck.companyLabel || resolved.companyName,
-      masterSheetIdPresent: targetCheck.masterSheetIdPresent,
-      diagnostics,
+      tokenId,
+      company: result.companyLabel || result.resolved?.companyName,
+      masterSheetIdPresent: result.masterSheetIdPresent,
+      diagnostics: result.diagnostics,
     });
   }
 
-  return {
-    ...targetCheck,
-    resolved,
-    diagnostics,
-  };
+  return result;
 }
 
 export async function diagnoseCompanyInviteTarget(auth, target, deps) {
-  const resolved = await resolveCompanyUserInviteTarget(auth, target, deps);
-  const targetCheck = await validateCompanyUserInviteTarget(auth, resolved);
-  const diagnostics = buildInviteTargetDiagnostics(resolved, targetCheck);
-  const masterSheetReady = Boolean(resolved.masterSheetId);
-  const verificationWouldFail = !targetCheck.ok;
+  const invite = {
+    companyId: trimId(target.companyId || target.companyFolderId),
+    companyFolderId: trimId(target.companyFolderId),
+    masterSheetId: trimId(target.masterSheetId),
+    companyName: trimId(target.companyName),
+  };
+  const result = await resolveCompanyWorkspaceForInvite(auth, invite, deps);
+  const resolved = result.resolved;
+  const masterSheetReady = Boolean(resolved?.masterSheetId);
+  const verificationWouldFail = !result.ok;
   return {
-    ok: targetCheck.ok,
+    ok: result.ok,
     masterSheetReady,
     verificationWouldFail,
-    code: targetCheck.code,
-    message: targetCheck.message,
-    diagnostics,
+    code: result.code,
+    message: result.message,
+    diagnostics: result.diagnostics,
     resolved,
   };
 }
 
-export async function isCompanyWorkspaceReadyForInvites(auth, deps, { masterSheetId, companyFolderId }) {
-  const sheetId = trimId(masterSheetId);
-  if (!sheetId || !auth) {
+export async function isCompanyWorkspaceReadyForInvites(auth, deps, { masterSheetId, companyFolderId, companyId }) {
+  const invite = {
+    companyId: trimId(companyId || companyFolderId),
+    companyFolderId: trimId(companyFolderId),
+    masterSheetId: trimId(masterSheetId),
+  };
+  const result = await resolveCompanyWorkspaceForInvite(auth, invite, deps);
+  if (!result.ok || !result.resolved?.masterSheetId) {
     return false;
   }
+  const sheetId = result.resolved.masterSheetId;
   try {
     const cfg = await deps.getConfig(auth, sheetId);
     if (isCompanyWorkspaceLiveForUserInvites(cfg)) {
       return true;
     }
     const userCount = await countCompanyUsersOnSheet(auth, deps.getTabValues, sheetId);
-    return userCount > 0 && trimId(companyFolderId || cfg.companyId);
+    return userCount > 0 && trimId(result.resolved.companyFolderId || cfg.companyId);
   } catch {
     return false;
   }

@@ -424,9 +424,18 @@ export async function recordCompanyWorkspaceHealthCheck(auth, deps, input = {}) 
     return { synced: false, reason: "missing_company_id" };
   }
   const existing = (await readCompanyWorkspaceRegistryMap(auth, deps)).map.get(companyId);
-  const masterSheetId = String(input.masterSheetId || existing?.masterSheetId || "").trim();
-  const rootFolderId = String(input.rootFolderId || existing?.rootFolderId || companyId).trim();
   const healthOk = input.healthOk !== false;
+  // Failed health checks must never erase persisted workspace links.
+  const masterSheetId = String(
+    healthOk
+      ? input.masterSheetId || existing?.masterSheetId || ""
+      : existing?.masterSheetId || input.masterSheetId || "",
+  ).trim();
+  const rootFolderId = String(
+    healthOk
+      ? input.rootFolderId || existing?.rootFolderId || companyId
+      : existing?.rootFolderId || input.rootFolderId || companyId,
+  ).trim();
   const status = healthOk
     ? masterSheetId && rootFolderId
       ? "Live"

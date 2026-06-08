@@ -1,7 +1,20 @@
 import { google } from "googleapis";
 
-export const STALE_INVITE_CUSTOMER_MESSAGE =
-  "This invite is out of date. Please ask your administrator to send a fresh invite.";
+export const INVITE_COMPANY_LINK_MISSING_CODE = "INVITE_COMPANY_LINK_MISSING";
+export const COMPANY_MASTER_SHEET_UNAVAILABLE_CODE = "COMPANY_MASTER_SHEET_UNAVAILABLE";
+export const USER_SETUP_FAILED_CODE = "USER_SETUP_FAILED";
+
+export const INVITE_COMPANY_LINK_MISSING_MESSAGE =
+  "This invite is no longer valid. Ask your administrator to send a fresh invite.";
+
+export const COMPANY_MASTER_SHEET_UNAVAILABLE_MESSAGE =
+  "BERT is temporarily unavailable. Please try again shortly.";
+
+export const USER_SETUP_FAILED_MESSAGE =
+  "We couldn't finish setting up your account. Ask your administrator to check your invite.";
+
+/** @deprecated Use INVITE_COMPANY_LINK_MISSING_MESSAGE for customer-facing copy. */
+export const STALE_INVITE_CUSTOMER_MESSAGE = INVITE_COMPANY_LINK_MISSING_MESSAGE;
 
 /** Strip numeric prefixes and punctuation so "99 Archive" and "Archive" match. */
 export function normalizeWorkspaceFolderLabel(name = "") {
@@ -50,10 +63,42 @@ export function isGoogleAccessDeniedError(err) {
   return /permission|forbidden|insufficient|access denied/i.test(message);
 }
 
-function staleTargetResult({ message, companyLabel, masterSheetIdPresent }) {
+export function mapInviteTargetCodeForCustomer(code) {
+  const normalized = String(code || "").trim();
+  switch (normalized) {
+    case "stale_invite_target":
+    case INVITE_COMPANY_LINK_MISSING_CODE:
+      return INVITE_COMPANY_LINK_MISSING_CODE;
+    case "google_api_error":
+    case "google_access_denied":
+    case "google_not_connected":
+      return COMPANY_MASTER_SHEET_UNAVAILABLE_CODE;
+    case USER_SETUP_FAILED_CODE:
+    case "setup_failed":
+      return USER_SETUP_FAILED_CODE;
+    default:
+      return normalized;
+  }
+}
+
+export function customerMessageForInviteTargetCode(code) {
+  const mapped = mapInviteTargetCodeForCustomer(code);
+  switch (mapped) {
+    case INVITE_COMPANY_LINK_MISSING_CODE:
+      return INVITE_COMPANY_LINK_MISSING_MESSAGE;
+    case COMPANY_MASTER_SHEET_UNAVAILABLE_CODE:
+      return COMPANY_MASTER_SHEET_UNAVAILABLE_MESSAGE;
+    case USER_SETUP_FAILED_CODE:
+      return USER_SETUP_FAILED_MESSAGE;
+    default:
+      return "";
+  }
+}
+
+function staleTargetResult({ message, companyLabel, masterSheetIdPresent, code = "stale_invite_target" }) {
   return {
     ok: false,
-    code: "stale_invite_target",
+    code,
     message,
     httpStatus: 409,
     masterSheetIdPresent: Boolean(masterSheetIdPresent),
@@ -76,8 +121,7 @@ export async function validateCompanyUserInviteTarget(auth, target = {}) {
     return {
       ok: false,
       code: "google_not_connected",
-      message:
-        "BERT cannot finish account setup until Google Workspace is connected on the server. Ask your administrator to reconnect Google, then try again.",
+      message: COMPANY_MASTER_SHEET_UNAVAILABLE_MESSAGE,
       httpStatus: 401,
       masterSheetIdPresent,
       companyLabel,
@@ -86,7 +130,8 @@ export async function validateCompanyUserInviteTarget(auth, target = {}) {
 
   if (!companyFolderId || !masterSheetId) {
     return staleTargetResult({
-      message: STALE_INVITE_CUSTOMER_MESSAGE,
+      code: INVITE_COMPANY_LINK_MISSING_CODE,
+      message: INVITE_COMPANY_LINK_MISSING_MESSAGE,
       companyLabel,
       masterSheetIdPresent,
     });
@@ -94,8 +139,8 @@ export async function validateCompanyUserInviteTarget(auth, target = {}) {
 
   if (isArchiveOrNonLiveWorkspaceName(companyName)) {
     return staleTargetResult({
-      message:
-        "This invite points to an archived company workspace that is no longer used for new users. Ask your administrator to send a new invite from your active company workspace.",
+      code: INVITE_COMPANY_LINK_MISSING_CODE,
+      message: INVITE_COMPANY_LINK_MISSING_MESSAGE,
       companyLabel: companyName,
       masterSheetIdPresent: true,
     });
@@ -113,15 +158,16 @@ export async function validateCompanyUserInviteTarget(auth, target = {}) {
     const folder = folderResponse.data;
     if (folder.trashed) {
       return staleTargetResult({
-        message:
-          "The company workspace for this invite has been removed from Google Drive. Ask your administrator to send a new invite.",
+        code: INVITE_COMPANY_LINK_MISSING_CODE,
+        message: INVITE_COMPANY_LINK_MISSING_MESSAGE,
         companyLabel: folder.name || companyLabel,
         masterSheetIdPresent: true,
       });
     }
     if (folder.mimeType !== "application/vnd.google-apps.folder") {
       return staleTargetResult({
-        message: "This invite does not point to a valid company folder. Ask your administrator to send a new invite.",
+        code: INVITE_COMPANY_LINK_MISSING_CODE,
+        message: INVITE_COMPANY_LINK_MISSING_MESSAGE,
         companyLabel: folder.name || companyLabel,
         masterSheetIdPresent: true,
       });
@@ -129,8 +175,8 @@ export async function validateCompanyUserInviteTarget(auth, target = {}) {
     folderName = String(folder.name || "").trim() || folderName;
     if (isArchiveOrNonLiveWorkspaceName(folderName)) {
       return staleTargetResult({
-        message:
-          "This invite points to an archived company workspace that is no longer used for new users. Ask your administrator to send a new invite from your active company workspace.",
+        code: INVITE_COMPANY_LINK_MISSING_CODE,
+        message: INVITE_COMPANY_LINK_MISSING_MESSAGE,
         companyLabel: folderName,
         masterSheetIdPresent: true,
       });
@@ -138,8 +184,8 @@ export async function validateCompanyUserInviteTarget(auth, target = {}) {
   } catch (err) {
     if (isGoogleNotFoundError(err)) {
       return staleTargetResult({
-        message:
-          "The company workspace for this invite could not be found in Google Drive. Ask your administrator to send a new invite.",
+        code: INVITE_COMPANY_LINK_MISSING_CODE,
+        message: INVITE_COMPANY_LINK_MISSING_MESSAGE,
         companyLabel,
         masterSheetIdPresent: true,
       });
@@ -147,8 +193,7 @@ export async function validateCompanyUserInviteTarget(auth, target = {}) {
     return {
       ok: false,
       code: "google_api_error",
-      message:
-        "We could not verify your company workspace with Google right now. Wait a few minutes and try again, or ask your administrator for a new invite.",
+      message: COMPANY_MASTER_SHEET_UNAVAILABLE_MESSAGE,
       httpStatus: 503,
       masterSheetIdPresent: true,
       companyLabel,
@@ -164,7 +209,8 @@ export async function validateCompanyUserInviteTarget(auth, target = {}) {
   } catch (err) {
     if (isGoogleNotFoundError(err)) {
       return staleTargetResult({
-        message: STALE_INVITE_CUSTOMER_MESSAGE,
+        code: INVITE_COMPANY_LINK_MISSING_CODE,
+        message: INVITE_COMPANY_LINK_MISSING_MESSAGE,
         companyLabel: folderName || companyLabel,
         masterSheetIdPresent: true,
       });
@@ -173,8 +219,7 @@ export async function validateCompanyUserInviteTarget(auth, target = {}) {
       return {
         ok: false,
         code: "google_access_denied",
-        message:
-          "BERT cannot access the company master sheet yet. Ask your administrator to reconnect Google and repair the company workspace link.",
+        message: COMPANY_MASTER_SHEET_UNAVAILABLE_MESSAGE,
         httpStatus: 403,
         masterSheetIdPresent: true,
         companyLabel: folderName || companyLabel,
@@ -183,8 +228,7 @@ export async function validateCompanyUserInviteTarget(auth, target = {}) {
     return {
       ok: false,
       code: "google_api_error",
-      message:
-        "We could not verify the company master sheet with Google right now. Wait a few minutes and try again, or ask your administrator for a new invite.",
+      message: COMPANY_MASTER_SHEET_UNAVAILABLE_MESSAGE,
       httpStatus: 503,
       masterSheetIdPresent: true,
       companyLabel: folderName || companyLabel,

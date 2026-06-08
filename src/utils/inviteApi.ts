@@ -8,6 +8,8 @@ export type InviteApiErrorCode =
   | "INVITE_IN_PROGRESS"
   | "PROVISIONING_FAILED"
   | "USER_SETUP_FAILED"
+  | "INVITE_COMPANY_LINK_MISSING"
+  | "COMPANY_MASTER_SHEET_UNAVAILABLE"
   | "COMPANY_NOT_LIVE"
   | "NETWORK_UNREACHABLE"
   | "SERVER_ERROR";
@@ -60,6 +62,8 @@ function normalizeInviteErrorCode(raw: string | undefined, httpStatus: number): 
     case "INVITE_IN_PROGRESS":
     case "PROVISIONING_FAILED":
     case "USER_SETUP_FAILED":
+    case "INVITE_COMPANY_LINK_MISSING":
+    case "COMPANY_MASTER_SHEET_UNAVAILABLE":
     case "COMPANY_NOT_LIVE":
     case "NETWORK_UNREACHABLE":
     case "SERVER_ERROR":
@@ -70,6 +74,10 @@ function normalizeInviteErrorCode(raw: string | undefined, httpStatus: number): 
     case "stale_invite_target":
     case "validation_error":
       return "INVITE_INVALID";
+    case "google_api_error":
+    case "google_access_denied":
+    case "google_not_connected":
+      return "COMPANY_MASTER_SHEET_UNAVAILABLE";
     case "invite_expired":
       return "INVITE_EXPIRED";
     case "invite_already_used":

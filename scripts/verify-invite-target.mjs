@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Static checks for company-user invite target resolution and two-flow consolidation. */
+/** Static checks for company-user invite target resolution and registry unification. */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,14 +19,55 @@ function read(rel) {
 
 const inviteTarget = read("server/invite-target.mjs");
 const resolveInviteTarget = read("server/resolve-invite-target.mjs");
+const registry = read("server/company-workspace-registry.mjs");
 const serverMain = read("server/server.mjs");
 const companyOnboarding = read("server/company-onboarding.mjs");
 const inviteRoutes = read("server/invite-routes.mjs");
 const inviteMessages = read("src/utils/inviteCompletionMessages.ts");
+const inviteApi = read("src/utils/inviteApi.ts");
 const godmodePanel = read("src/components/godmode/GodmodeCompanyWorkspacePanel.tsx");
 const inviteCompletion = read("src/screens/AppHostedOnboardingCompletion.tsx");
 
-assert(inviteTarget.includes("STALE_INVITE_CUSTOMER_MESSAGE"), "stale invite customer message");
+/** 1: single registry-backed resolver */
+assert(resolveInviteTarget.includes("resolveCompanyWorkspaceForInvite"), "1: resolveCompanyWorkspaceForInvite helper");
+assert(resolveInviteTarget.includes("getCompanyWorkspaceRegistryRecord"), "2: registry is canonical source");
+
+/** 3: registry masterSheetId wins over stale invite metadata */
+assert(
+  resolveInviteTarget.includes("registryRecord.masterSheetId") &&
+    resolveInviteTarget.includes('sources.push("registry")'),
+  "3: registry masterSheetId preferred over invite",
+);
+
+/** 4–6: structured customer error codes */
+assert(inviteTarget.includes("INVITE_COMPANY_LINK_MISSING"), "4: INVITE_COMPANY_LINK_MISSING code");
+assert(inviteTarget.includes("COMPANY_MASTER_SHEET_UNAVAILABLE"), "5: COMPANY_MASTER_SHEET_UNAVAILABLE code");
+assert(inviteTarget.includes("USER_SETUP_FAILED"), "6: USER_SETUP_FAILED code");
+
+/** 7: health checks preserve persisted workspace IDs */
+assert(
+  registry.includes("Failed health checks must never erase persisted workspace links"),
+  "7: health check failures do not clear workspace IDs",
+);
+
+/** 8: repair persists registry + invite metadata */
+assert(resolveInviteTarget.includes("persistCompanyWorkspaceSetup"), "8: repair persists registry links");
+assert(resolveInviteTarget.includes("repairPendingCompanyUserInvites"), "8b: repair backfills invite metadata");
+
+/** 9: legacy customer network copy removed */
+const legacyStrings = [
+  "We could not reach BERT to finish setup",
+  "Check your internet connection and try again",
+  "We could not verify your company workspace with Google right now",
+  "We could not verify the company master sheet with Google right now",
+];
+for (const legacy of legacyStrings) {
+  assert(!inviteTarget.includes(legacy), `9: removed legacy copy: ${legacy}`);
+  assert(!inviteMessages.includes(legacy), `9: removed legacy copy from client: ${legacy}`);
+  assert(!inviteCompletion.includes(legacy), `9: removed legacy copy from completion screen: ${legacy}`);
+}
+
+assert(inviteTarget.includes("STALE_INVITE_CUSTOMER_MESSAGE"), "stale invite customer message alias");
 assert(inviteTarget.includes("google_access_denied"), "google access denied code");
 assert(inviteTarget.includes("diagnostics"), "invite failure diagnostics logging");
 
@@ -48,6 +89,9 @@ assert(serverMain.includes('app.post("/api/invites/company-user/:tokenId/complet
 assert(inviteMessages.includes("This invite is no longer valid"), "invalid invite UI message");
 assert(inviteMessages.includes("not ready for user invites"), "company not live UI message");
 assert(inviteMessages.includes("couldn't finish setting up your account"), "user setup failed UI message");
+assert(inviteMessages.includes("BERT is temporarily unavailable"), "temporarily unavailable UI message");
+assert(inviteApi.includes("INVITE_COMPANY_LINK_MISSING"), "invite API maps company link missing");
+assert(inviteApi.includes("COMPANY_MASTER_SHEET_UNAVAILABLE"), "invite API maps master sheet unavailable");
 
 assert(godmodePanel.includes("Repair invite/company sheet link"), "godmode repair button");
 assert(godmodePanel.includes("company-invite-target-diagnostics"), "godmode diagnostics fetch");
@@ -58,4 +102,4 @@ assert(!inviteCompletion.includes("/api/onboarding/app-invites/"), "retired app-
 const pkg = JSON.parse(read("package.json"));
 assert(pkg.scripts["verify:invite-target"], "npm script registered");
 
-console.log("[verify:invite-target] OK");
+console.log("[verify:invite-target] OK (9 registry cases)");

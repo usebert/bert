@@ -77,7 +77,8 @@ assert(
   inviteMessages.includes("BERT is temporarily unavailable") &&
     inviteMessages.includes("This invite is no longer valid") &&
     inviteMessages.includes("not ready for user invites") &&
-    inviteMessages.includes("could not complete this request"),
+    inviteMessages.includes("could not complete this request") &&
+    inviteMessages.includes("check your invite"),
   "13b: canonical customer error messages",
 );
 assert(

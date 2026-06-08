@@ -15,13 +15,15 @@ export const INVITE_PROVISIONING_FAILED_MESSAGE =
   "We couldn't finish setting up your workspace. Your details have been saved and the BERT team can finish setup.";
 
 export const INVITE_USER_SETUP_FAILED_MESSAGE =
-  "We couldn't finish setting up your account. Ask your administrator to send a fresh invite.";
+  "We couldn't finish setting up your account. Ask your administrator to check your invite.";
 
 export const INVITE_FALLBACK_MESSAGE = "BERT could not complete this request right now. Please try again shortly.";
 
 export type InviteCompletionErrorCode =
   | InviteApiErrorCode
   | "stale_invite_target"
+  | "INVITE_COMPANY_LINK_MISSING"
+  | "COMPANY_MASTER_SHEET_UNAVAILABLE"
   | "invite_expired"
   | "invite_not_found"
   | "invite_already_used"
@@ -47,6 +49,7 @@ const INVITE_INVALID_CODES = new Set<InviteCompletionErrorCode>([
   "INVITE_ALREADY_USED",
   "INVITE_WRONG_TYPE",
   "stale_invite_target",
+  "INVITE_COMPANY_LINK_MISSING",
   "invite_expired",
   "invite_not_found",
   "invite_already_used",
@@ -62,6 +65,12 @@ export function mapInviteApiErrorCode(code: InviteCompletionErrorCode | string |
   }
   if (normalized === "USER_SETUP_FAILED") {
     return INVITE_USER_SETUP_FAILED_MESSAGE;
+  }
+  if (normalized === "INVITE_COMPANY_LINK_MISSING") {
+    return INVITE_NO_LONGER_VALID_MESSAGE;
+  }
+  if (normalized === "COMPANY_MASTER_SHEET_UNAVAILABLE") {
+    return INVITE_NETWORK_UNAVAILABLE_MESSAGE;
   }
   if (normalized === "COMPANY_NOT_LIVE" || normalized === "company_not_live") {
     return INVITE_COMPANY_NOT_LIVE_MESSAGE;
@@ -95,16 +104,19 @@ export function mapInviteCompletionError(payload: InviteErrorPayload, httpStatus
 
   switch (code) {
     case "stale_invite_target":
+    case "INVITE_COMPANY_LINK_MISSING":
     case "invite_expired":
     case "invite_not_found":
     case "invite_already_used":
       return INVITE_NO_LONGER_VALID_MESSAGE;
     case "company_not_live":
       return INVITE_COMPANY_NOT_LIVE_MESSAGE;
+    case "COMPANY_MASTER_SHEET_UNAVAILABLE":
+      return INVITE_NETWORK_UNAVAILABLE_MESSAGE;
     case "google_not_connected":
     case "google_access_denied":
     case "google_api_error":
-      return INVITE_FALLBACK_MESSAGE;
+      return INVITE_NETWORK_UNAVAILABLE_MESSAGE;
     case "invite_in_progress":
       return "Your account setup is already in progress. Keep this page open for a few minutes.";
     case "setup_failed":
