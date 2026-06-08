@@ -57,7 +57,11 @@ const inviteGetHandler = serverOnboarding.slice(
 );
 assert(!inviteGetHandler.includes("validateCompanyUserInviteTarget"), "no master sheet check on onboarding page load");
 assert(!inviteGetHandler.includes("prepareCompanyUserInviteTarget"), "no invite target prep on onboarding load");
-assert(inviteGetHandler.includes("verifyInviteToken"), "token-only validation on onboarding load");
+assert(inviteGetHandler.includes("resolveCompanyOnboardingInviteAccess"), "token-only validation on onboarding load");
+assert(serverOnboarding.includes("PROVISIONING_FAILED"), "structured provisioning failure code");
+assert(serverOnboarding.includes("isPlatformOwnerEmail"), "platform owner excluded from onboarding invites");
+assert(inviteMessages.includes("BERT is temporarily unavailable"), "network unavailable customer message");
+assert(inviteMessages.includes("This invite is no longer valid"), "invalid invite customer message");
 
 assert(serverMain.includes("installCompanyOnboardingRoutes"), "server wires onboarding routes");
 assert(serverMain.includes("company-onboarding-invites.json"), "dedicated invite store");
@@ -85,9 +89,10 @@ assert(formScreen.includes("usersCount"), "form collects users count");
 assert(formScreen.includes("Create workspace"), "create workspace submit label");
 assert(formScreen.includes("iso_9001"), "form ISO main need labels");
 assert(
-  formScreen.includes("We couldn't finish setting up your workspace"),
+  formScreen.includes("mapCompanyOnboardingInviteError") || formScreen.includes("We couldn't finish setting up your workspace"),
   "customer setup failed message on form",
 );
+assert(formScreen.includes("fetchInviteApi"), "form uses shared invite API helper");
 assert(
   !formScreen.includes("verify the company master sheet"),
   "no master sheet verification copy on onboarding form",

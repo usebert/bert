@@ -1,6 +1,18 @@
+import type { InviteApiErrorCode } from "./inviteApi";
+
 export const INVITE_COMPLETION_PAGE_TITLE = "Finish setting up your BERT account";
 
+export const INVITE_NETWORK_UNAVAILABLE_MESSAGE =
+  "BERT is temporarily unavailable. Please try again shortly.";
+
+export const INVITE_NO_LONGER_VALID_MESSAGE =
+  "This invite is no longer valid. Ask your administrator to send a fresh invite.";
+
+export const INVITE_PROVISIONING_FAILED_MESSAGE =
+  "We couldn't finish setting up your workspace. Your details have been saved and the BERT team can finish setup.";
+
 export type InviteCompletionErrorCode =
+  | InviteApiErrorCode
   | "stale_invite_target"
   | "invite_expired"
   | "invite_not_found"
@@ -25,15 +37,43 @@ function sanitizeRawInviteMessage(raw: string): string {
     return "";
   }
   if (/requested entity was not found/i.test(text)) {
-    return "This invite points to a company workspace that is no longer available. Ask your administrator to send a new invite.";
+    return INVITE_NO_LONGER_VALID_MESSAGE;
   }
   if (/terminal/i.test(text) && /api server/i.test(text)) {
-    return "Account setup could not be completed. Ask your administrator to check BERT is ready, then send you a new invite if needed.";
+    return INVITE_NO_LONGER_VALID_MESSAGE;
   }
   if (/drive folder/i.test(text) || /provisioning stopped/i.test(text)) {
-    return "Account setup could not be completed. Ask your administrator to send a new invite if you still cannot sign in.";
+    return INVITE_NO_LONGER_VALID_MESSAGE;
   }
   return text;
+}
+
+const INVITE_INVALID_CODES = new Set<InviteCompletionErrorCode>([
+  "INVITE_INVALID",
+  "INVITE_EXPIRED",
+  "INVITE_ALREADY_USED",
+  "INVITE_WRONG_TYPE",
+  "stale_invite_target",
+  "invite_expired",
+  "invite_not_found",
+  "invite_already_used",
+]);
+
+export function mapInviteApiErrorCode(code: InviteCompletionErrorCode | string | undefined): string {
+  const normalized = String(code || "").trim() as InviteCompletionErrorCode;
+  if (normalized === "NETWORK_UNREACHABLE") {
+    return INVITE_NETWORK_UNAVAILABLE_MESSAGE;
+  }
+  if (normalized === "PROVISIONING_FAILED" || normalized === "setup_failed") {
+    return INVITE_PROVISIONING_FAILED_MESSAGE;
+  }
+  if (INVITE_INVALID_CODES.has(normalized)) {
+    return INVITE_NO_LONGER_VALID_MESSAGE;
+  }
+  if (normalized === "SERVER_ERROR") {
+    return "Something went wrong on our side. Please try again shortly.";
+  }
+  return "";
 }
 
 export function mapInviteCompletionLoadError(payload: InviteErrorPayload, httpStatus: number): string {
@@ -41,31 +81,26 @@ export function mapInviteCompletionLoadError(payload: InviteErrorPayload, httpSt
   if (mapped) {
     return mapped;
   }
-  if (httpStatus === 404) {
-    return "This invite link is not valid. Ask your administrator to send a new invite.";
+  if (httpStatus === 404 || httpStatus === 410) {
+    return INVITE_NO_LONGER_VALID_MESSAGE;
   }
-  if (httpStatus === 410) {
-    return "This invite has expired or was already used. Ask your administrator to send a new invite.";
-  }
-  return "This invite link is not valid. Ask your administrator to send a new invite.";
+  return INVITE_NO_LONGER_VALID_MESSAGE;
 }
 
 export function mapInviteCompletionError(payload: InviteErrorPayload, httpStatus: number): string {
   const code = String(payload.code || "").trim();
+  const apiMapped = mapInviteApiErrorCode(code);
+  if (apiMapped) {
+    return apiMapped;
+  }
   const friendly = String(payload.message || payload.error || payload.provisionError || "").trim();
 
   switch (code) {
     case "stale_invite_target":
-      return (
-        sanitizeRawInviteMessage(friendly) ||
-        "This invite is out of date. Please ask your administrator to send a fresh invite."
-      );
     case "invite_expired":
-      return "This invite has expired. Ask your administrator to send a new invite.";
     case "invite_not_found":
-      return "This invite link is not valid. Ask your administrator to send a new invite.";
     case "invite_already_used":
-      return "This invite has already been used. Sign in with your email and password, or ask for a new invite.";
+      return INVITE_NO_LONGER_VALID_MESSAGE;
     case "google_not_connected":
       return "Account setup is not available right now because Google Workspace is not connected on the server. Ask your administrator to reconnect Google, then try again.";
     case "google_access_denied":
@@ -78,10 +113,7 @@ export function mapInviteCompletionError(payload: InviteErrorPayload, httpStatus
     case "invite_in_progress":
       return "Your account setup is already in progress. Keep this page open for a few minutes.";
     case "setup_failed":
-      return (
-        sanitizeRawInviteMessage(friendly) ||
-        "We couldn't finish setting up your workspace. Your details have been saved and the BERT team can finish setup."
-      );
+      return sanitizeRawInviteMessage(friendly) || INVITE_PROVISIONING_FAILED_MESSAGE;
     case "validation_error":
       return sanitizeRawInviteMessage(friendly) || "Check the form and try again.";
     default:
@@ -91,11 +123,8 @@ export function mapInviteCompletionError(payload: InviteErrorPayload, httpStatus
   if (httpStatus === 401) {
     return "Account setup is not available right now. Ask your administrator to reconnect Google on the server, then try again.";
   }
-  if (httpStatus === 410) {
-    return "This invite has expired or was already used. Ask your administrator to send a new invite.";
-  }
-  if (httpStatus === 404) {
-    return "This invite link is not valid. Ask your administrator to send a new invite.";
+  if (httpStatus === 410 || httpStatus === 404) {
+    return INVITE_NO_LONGER_VALID_MESSAGE;
   }
   if (httpStatus >= 500) {
     return (
@@ -105,7 +134,7 @@ export function mapInviteCompletionError(payload: InviteErrorPayload, httpStatus
   }
 
   const sanitized = sanitizeRawInviteMessage(friendly);
-  return sanitized || "Something went wrong. Ask your administrator to send a new invite.";
+  return sanitized || INVITE_NO_LONGER_VALID_MESSAGE;
 }
 
 export function mapInviteCompletionPollError(payload: InviteErrorPayload): string {
@@ -122,8 +151,20 @@ export function inviteCompletionTimeoutMessage(minutes: number): string {
 
 export function inviteCompletionNetworkError(detail?: string): string {
   const sanitized = sanitizeRawInviteMessage(detail || "");
-  return (
-    sanitized ||
-    "We could not reach BERT to finish setup. Check your internet connection and try again."
-  );
+  if (sanitized && sanitized !== INVITE_NO_LONGER_VALID_MESSAGE) {
+    return sanitized;
+  }
+  return INVITE_NETWORK_UNAVAILABLE_MESSAGE;
+}
+
+export function mapCompanyOnboardingInviteError(
+  payload: InviteErrorPayload,
+  code: InviteApiErrorCode | string | undefined,
+  httpStatus = 0,
+): string {
+  const apiMapped = mapInviteApiErrorCode(code || payload.code);
+  if (apiMapped) {
+    return apiMapped;
+  }
+  return mapInviteCompletionError(payload, httpStatus);
 }

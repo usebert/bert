@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useState } from "react";
 import { BertLogo } from "../components/BertLogo";
-import { apiUrl } from "../config/apiBase";
 import { saveCompanyLoginHint } from "../lib/companyLoginHint";
+import { fetchInviteApi } from "../utils/inviteApi";
+import { mapCompanyOnboardingInviteError } from "../utils/inviteCompletionMessages";
 
 type MainNeedId =
   | "iso_9001"
@@ -47,12 +48,8 @@ const MAIN_NEED_LABELS: Record<MainNeedId, string> = {
   other: "Other",
 };
 
-const SETUP_FAILED_MESSAGE =
-  "We couldn't finish setting up your workspace. Your details have been saved and the BERT team can finish setup.";
-
 export function CompanyOnboardingFormScreen({
   inviteToken,
-  parseJsonApiResponse,
   onComplete,
 }: CompanyOnboardingFormScreenProps) {
   const [loadError, setLoadError] = useState("");
@@ -84,36 +81,36 @@ export function CompanyOnboardingFormScreen({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        const response = await fetch(apiUrl(`/api/onboarding/company-onboarding/invite/${tokenPath}`), {
-          credentials: "include",
-        });
-        const payload = (await parseJsonApiResponse(response)) as InviteDetails & {
-          ok?: boolean;
-          error?: string;
-        };
-        if (cancelled) return;
-        if (!response.ok || !payload.ok || !payload.invite) {
-          setLoadError(payload.error || "This onboarding link is not valid.");
-          return;
-        }
-        setDetails(payload.invite);
-        setCompanyName(payload.invite.provisionalCompanyName || "");
-        setAdminEmail(payload.invite.adminEmailDefault || payload.invite.contactEmail || "");
-        await fetch(apiUrl(`/api/onboarding/company-onboarding/invite/${tokenPath}/start`), {
-          method: "POST",
-          credentials: "include",
-        });
-      } catch {
-        if (!cancelled) {
-          setLoadError("Unable to load onboarding. Check your connection and try again.");
-        }
+      const result = await fetchInviteApi<InviteDetails>(
+        `/api/onboarding/company-onboarding/invite/${tokenPath}`,
+      );
+      if (cancelled) return;
+      if (!result.ok) {
+        setLoadError(
+          mapCompanyOnboardingInviteError(
+            { error: result.error, message: result.message, code: result.code },
+            result.code,
+            result.response?.status ?? 0,
+          ),
+        );
+        return;
       }
+      const payload = result.data;
+      if (!payload.invite) {
+        setLoadError(mapCompanyOnboardingInviteError({ code: "INVITE_INVALID" }, "INVITE_INVALID", 404));
+        return;
+      }
+      setDetails(payload.invite);
+      setCompanyName(payload.invite.provisionalCompanyName || "");
+      setAdminEmail(payload.invite.adminEmailDefault || payload.invite.contactEmail || "");
+      await fetchInviteApi(`/api/onboarding/company-onboarding/invite/${tokenPath}/start`, {
+        method: "POST",
+      });
     })();
     return () => {
       cancelled = true;
     };
-  }, [inviteToken, parseJsonApiResponse, tokenPath]);
+  }, [inviteToken, tokenPath]);
 
   const toggleNeed = (id: MainNeedId) => {
     setMainNeeds((current) =>
@@ -138,9 +135,15 @@ export function CompanyOnboardingFormScreen({
     }
     setSubmitting(true);
     try {
-      const response = await fetch(apiUrl(`/api/onboarding/company-onboarding/invite/${tokenPath}/complete`), {
+      const result = await fetchInviteApi<{
+        ok?: boolean;
+        error?: string;
+        code?: string;
+        sessionStarted?: boolean;
+        masterSheetId?: string;
+        companyFolderId?: string;
+      }>(`/api/onboarding/company-onboarding/invite/${tokenPath}/complete`, {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           companyName: companyName.trim(),
@@ -163,27 +166,23 @@ export function CompanyOnboardingFormScreen({
           confirmPassword,
         }),
       });
-      const payload = (await parseJsonApiResponse(response)) as {
-        ok?: boolean;
-        error?: string;
-        code?: string;
-        sessionStarted?: boolean;
-        masterSheetId?: string;
-        companyFolderId?: string;
-      };
-      if (response.status === 202) {
-        setSubmitError("Setup is in progress. Keep this page open for a minute, then try again.");
-        return;
-      }
-      if (!response.ok || !payload.ok) {
+
+      if (!result.ok) {
+        if (result.response?.status === 202) {
+          setSubmitError("Setup is in progress. Keep this page open for a minute, then try again.");
+          return;
+        }
         setSubmitError(
-          payload.code === "setup_failed"
-            ? SETUP_FAILED_MESSAGE
-            : payload.error ||
-                "We could not finish setup. Please try again or contact BERT support if the problem continues.",
+          mapCompanyOnboardingInviteError(
+            { error: result.error, message: result.message, code: result.code },
+            result.code,
+            result.response?.status ?? 0,
+          ),
         );
         return;
       }
+
+      const payload = result.data;
       if (payload.masterSheetId) {
         saveCompanyLoginHint({
           email: adminEmail.trim().toLowerCase(),
@@ -197,8 +196,6 @@ export function CompanyOnboardingFormScreen({
       if (payload.sessionStarted && onComplete) {
         window.setTimeout(() => onComplete(), 800);
       }
-    } catch {
-      setSubmitError("Network error while submitting. Check your connection and try again.");
     } finally {
       setSubmitting(false);
     }

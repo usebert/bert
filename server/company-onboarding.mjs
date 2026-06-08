@@ -4,11 +4,13 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
 import {
   COMPANIES_WORKSPACE_COLUMNS,
   REGISTRY_SPREADSHEET_NAME,
   REGISTRY_TAB_COMPANIES,
   persistCompanyWorkspaceSetup,
+  recordCompanyWorkspaceHealthCheck,
   upsertCompanyWorkspaceRegistryRecords,
 } from "./company-workspace-registry.mjs";
 
@@ -243,6 +245,9 @@ function createInviteStoreApi(storePath) {
     },
     findMasterSheetIdsForEmail(email) {
       const target = safeLower(email);
+      if (!target || isPlatformOwnerEmail(target, process.env)) {
+        return [];
+      }
       const matches = [];
       for (const record of Object.values(readStore())) {
         if (safeLower(record.contactEmail) !== target) {
@@ -691,6 +696,38 @@ export async function assertCompanyWorkspaceAcceptsUserInvite(
   return { ok: true };
 }
 
+function verifyInviteToken(record, parsed) {
+  if (!record || !parsed) {
+    return false;
+  }
+  return String(record.tokenHash || "") === String(parsed.tokenHash || "");
+}
+
+/** Token, invite type, status, and expiry only — no folder/sheet/health checks. */
+export function resolveCompanyOnboardingInviteAccess(record, parsed) {
+  if (!parsed) {
+    return { ok: false, httpStatus: 400, code: "INVITE_INVALID", error: "Invalid onboarding link." };
+  }
+  if (!record) {
+    return { ok: false, httpStatus: 404, code: "INVITE_INVALID", error: "This onboarding link is not valid." };
+  }
+  if (!verifyInviteToken(record, parsed)) {
+    return { ok: false, httpStatus: 404, code: "INVITE_INVALID", error: "This onboarding link is not valid." };
+  }
+  const inviteType = safeLower(record.inviteType || COMPANY_ONBOARDING_INVITE_TYPE);
+  if (inviteType !== safeLower(COMPANY_ONBOARDING_INVITE_TYPE)) {
+    return { ok: false, httpStatus: 400, code: "INVITE_WRONG_TYPE", error: "This link is not a company onboarding invite." };
+  }
+  const status = safeLower(record.status);
+  if (status === "archived" || status === "revoked") {
+    return { ok: false, httpStatus: 410, code: "INVITE_ALREADY_USED", error: "This invite is no longer valid." };
+  }
+  if (Date.now() > record.expiresAt && status !== "live") {
+    return { ok: false, httpStatus: 410, code: "INVITE_EXPIRED", error: "This invite has expired." };
+  }
+  return { ok: true, record };
+}
+
 export function installCompanyOnboardingRoutes(app, deps) {
   const {
     sessionDir,
@@ -719,13 +756,6 @@ export function installCompanyOnboardingRoutes(app, deps) {
   const store = createInviteStoreApi(storePath);
   const runWithInviteLock = createPerInviteAsyncQueue();
   const inviteTtlMs = Math.max(60 * 60 * 1000, Number(deps.onboardingInviteTtlMs || 7 * 24 * 60 * 60 * 1000));
-
-  function verifyInviteToken(record, parsed) {
-    if (!record || !parsed) {
-      return false;
-    }
-    return String(record.tokenHash || "") === String(parsed.tokenHash || "");
-  }
 
   async function sendInviteEmail({ toEmail, invitedBy, onboardingUrl }) {
     const subject = `Complete your ${appBrandName} company onboarding`;
@@ -783,6 +813,13 @@ export function installCompanyOnboardingRoutes(app, deps) {
 
       if (!contactEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
         return res.status(400).json({ ok: false, error: "A valid contact email is required." });
+      }
+      if (isPlatformOwnerEmail(contactEmail, process.env)) {
+        return res.status(400).json({
+          ok: false,
+          code: "INVITE_INVALID",
+          error: "The platform owner account cannot be used for company onboarding invites.",
+        });
       }
 
       const { inviteId, rawToken, tokenHash } = generateCompanyOnboardingTokenParts();
@@ -1102,22 +1139,22 @@ export function installCompanyOnboardingRoutes(app, deps) {
 
   app.get("/api/onboarding/company-onboarding/invite/:tokenParam", async (req, res) => {
     const parsed = parseCompanyOnboardingUrlToken(req.params.tokenParam);
-    if (!parsed) {
-      return res.status(400).json({ ok: false, error: "Invalid onboarding link." });
+    const record = parsed ? store.getInvite(parsed.inviteId) : null;
+    const access = resolveCompanyOnboardingInviteAccess(record, parsed);
+    if (!access.ok) {
+      return res.status(access.httpStatus).json({
+        ok: false,
+        code: access.code,
+        error: access.error,
+      });
     }
-    const record = store.getInvite(parsed.inviteId);
-    if (!record || !verifyInviteToken(record, parsed)) {
-      return res.status(404).json({ ok: false, error: "This onboarding link is not valid." });
-    }
-    if (Date.now() > record.expiresAt && safeLower(record.status) !== "live") {
-      return res.status(410).json({ ok: false, code: "invite_expired", error: "This invite has expired. Ask BERT to send a new link." });
-    }
+    const inviteRecord = access.record;
     return res.json({
       ok: true,
       invite: {
-        ...publicInviteSummary(record),
-        adminEmailDefault: record.contactEmail,
-        provisionalCompanyName: record.provisionalCompanyName || "",
+        ...publicInviteSummary(inviteRecord),
+        adminEmailDefault: inviteRecord.contactEmail,
+        provisionalCompanyName: inviteRecord.provisionalCompanyName || "",
         mainNeedOptions: MAIN_NEED_OPTIONS,
       },
     });
@@ -1125,24 +1162,37 @@ export function installCompanyOnboardingRoutes(app, deps) {
 
   app.post("/api/onboarding/company-onboarding/invite/:tokenParam/start", async (req, res) => {
     const parsed = parseCompanyOnboardingUrlToken(req.params.tokenParam);
-    if (!parsed) {
-      return res.status(400).json({ ok: false, error: "Invalid onboarding link." });
+    const record = parsed ? store.getInvite(parsed.inviteId) : null;
+    const access = resolveCompanyOnboardingInviteAccess(record, parsed);
+    if (!access.ok) {
+      return res.status(access.httpStatus).json({
+        ok: false,
+        code: access.code,
+        error: access.error,
+      });
     }
-    const record = store.getInvite(parsed.inviteId);
-    if (!record || !verifyInviteToken(record, parsed)) {
-      return res.status(404).json({ ok: false, error: "This onboarding link is not valid." });
-    }
-    if (safeLower(record.status) === "invited") {
+    if (safeLower(access.record.status) === "invited") {
       store.patchInvite(parsed.inviteId, { status: "started", startedAt: Date.now() });
     }
     return res.json({ ok: true });
   });
 
   app.post("/api/onboarding/company-onboarding/invite/:tokenParam/complete", async (req, res) => {
+    const parsed = parseCompanyOnboardingUrlToken(req.params.tokenParam);
+    const inviteRecord = parsed ? store.getInvite(parsed.inviteId) : null;
+    const access = resolveCompanyOnboardingInviteAccess(inviteRecord, parsed);
+    if (!access.ok) {
+      return res.status(access.httpStatus).json({
+        ok: false,
+        code: access.code,
+        error: access.error,
+      });
+    }
+
     if (!envConfigured()) {
       return res.status(503).json({
         ok: false,
-        code: "setup_failed",
+        code: "PROVISIONING_FAILED",
         error: COMPANY_ONBOARDING_SETUP_FAILED_MESSAGE,
       });
     }
@@ -1150,14 +1200,9 @@ export function installCompanyOnboardingRoutes(app, deps) {
     if (!authed) {
       return res.status(503).json({
         ok: false,
-        code: "setup_failed",
+        code: "PROVISIONING_FAILED",
         error: COMPANY_ONBOARDING_SETUP_FAILED_MESSAGE,
       });
-    }
-
-    const parsed = parseCompanyOnboardingUrlToken(req.params.tokenParam);
-    if (!parsed) {
-      return res.status(400).json({ ok: false, error: "Invalid onboarding link." });
     }
 
     const password = String(req.body?.password || "");
@@ -1198,16 +1243,26 @@ export function installCompanyOnboardingRoutes(app, deps) {
 
     await runWithInviteLock(parsed.inviteId, async () => {
       let record = store.getInvite(parsed.inviteId);
-      if (!record || !verifyInviteToken(record, parsed)) {
-        res.status(404).json({ ok: false, error: "This onboarding link is not valid." });
+      const lockedAccess = resolveCompanyOnboardingInviteAccess(record, parsed);
+      if (!lockedAccess.ok) {
+        res.status(lockedAccess.httpStatus).json({
+          ok: false,
+          code: lockedAccess.code,
+          error: lockedAccess.error,
+        });
         return;
       }
-      if (Date.now() > record.expiresAt && safeLower(record.status) !== "live") {
-        res.status(410).json({ ok: false, code: "invite_expired", error: "This invite has expired." });
-        return;
-      }
+      record = lockedAccess.record;
 
       const boundEmail = safeLower(record.contactEmail);
+      if (isPlatformOwnerEmail(boundEmail, process.env) || isPlatformOwnerEmail(adminEmail, process.env)) {
+        res.status(400).json({
+          ok: false,
+          code: "INVITE_INVALID",
+          error: "The platform owner account cannot be used for company onboarding.",
+        });
+        return;
+      }
       const resolvedAdminEmail = adminEmail || boundEmail;
       if (resolvedAdminEmail !== boundEmail) {
         res.status(400).json({ ok: false, error: "Administrator email must match the invited contact email." });
@@ -1412,35 +1467,54 @@ export function installCompanyOnboardingRoutes(app, deps) {
         });
       } catch (error) {
         console.error("[company-onboarding] provision failed", error);
+        const provisionError = error instanceof Error ? error.message : String(error);
         store.patchInvite(parsed.inviteId, {
           status: "setup_failed",
           provisionStatus: "failed",
           provisionFinishedAt: Date.now(),
-          provisionError: error instanceof Error ? error.message : String(error),
+          provisionError,
           provisionStage: companyFolderId && masterSheetId ? "finalize" : companyFolderId ? "master_sheet" : "drive_folder",
+          ...(companyFolderId ? { companyFolderId, provisionDriveFolderId: companyFolderId } : {}),
+          ...(masterSheetId ? { masterSheetId, provisionMasterSheetId: masterSheetId } : {}),
         });
         const failed = store.getInvite(parsed.inviteId);
-        const failedSheetId = String(failed?.masterSheetId || failed?.provisionMasterSheetId || "").trim();
+        const failedFolderId = String(failed?.companyFolderId || failed?.provisionDriveFolderId || companyFolderId || "").trim();
+        const failedSheetId = String(failed?.masterSheetId || failed?.provisionMasterSheetId || masterSheetId || "").trim();
         if (failedSheetId) {
           try {
             const cfgFailed = await getConfig(authed, failedSheetId);
             await updateConfig(authed, failedSheetId, {
               ...cfgFailed,
               companyOnboardingStatus: COMPANY_WORKSPACE_STATUS.SETUP_FAILED,
+              ...(failedFolderId ? { companyId: failedFolderId } : {}),
             });
           } catch {
             /* best-effort */
           }
+        }
+        if (failedFolderId && failedSheetId) {
+          await recordCompanyWorkspaceHealthCheck(authed, deps, {
+            companyId: failedFolderId,
+            companyFolderId: failedFolderId,
+            rootFolderId: failedFolderId,
+            masterSheetId: failedSheetId,
+            companyName: formPayload.companyName || companyName,
+            healthOk: false,
+            healthSummary: "provisioning_failed",
+            unlinkReason: provisionError,
+          }).catch(() => {});
         }
         if (failed) {
           await syncInviteToRegistry(authed, failed, deps).catch(() => {});
         }
         res.status(500).json({
           ok: false,
-          code: "setup_failed",
+          code: "PROVISIONING_FAILED",
           error: COMPANY_ONBOARDING_SETUP_FAILED_MESSAGE,
           provisionStatus: "failed",
           canRetrySetup: true,
+          companyFolderId: failedFolderId || undefined,
+          masterSheetId: failedSheetId || undefined,
         });
       }
     });

@@ -11,6 +11,7 @@ import {
   mapInviteCompletionLoadError,
   mapInviteCompletionPollError,
 } from "../utils/inviteCompletionMessages";
+import { fetchInviteApi } from "../utils/inviteApi";
 
 type AppInviteProvisionMeta = {
   provisionStatus?: string;
@@ -71,11 +72,8 @@ export function AppHostedOnboardingCompletion({ inviteToken, parseJsonApiRespons
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        const response = await fetch(apiUrl(`/api/onboarding/app-invites/${encodeURIComponent(inviteToken)}`), {
-          credentials: "include",
-        });
-        const payload = (await parseJsonApiResponse(response)) as AppInviteDetails & {
+      const result = await fetchInviteApi<
+        AppInviteDetails & {
           ok?: boolean;
           code?: string;
           error?: string;
@@ -83,46 +81,51 @@ export function AppHostedOnboardingCompletion({ inviteToken, parseJsonApiRespons
           canRetrySetup?: boolean;
           staleTarget?: boolean;
           storageHint?: string;
-        };
-        if (cancelled) return;
-        if (!response.ok || !payload.ok) {
-          setCanRetrySetup(false);
-          setLoadError(mapInviteCompletionLoadError(payload, response.status));
-          return;
         }
-        const retryAllowed = payload.canRetrySetup !== false && !payload.staleTarget;
-        setCanRetrySetup(retryAllowed);
-        if (payload.setupIncomplete && retryAllowed) {
-          setDetails(payload as AppInviteDetails);
-          setSubmitError(
-            "Your previous setup did not finish. Complete the form below to try again.",
-          );
-          return;
-        }
-        if (payload.setupIncomplete && !retryAllowed) {
-          setCanRetrySetup(false);
-          setLoadError(
-            mapInviteCompletionLoadError(
-              {
-                code: "stale_invite_target",
-                error: payload.storageHint || payload.error,
-              },
-              response.status,
-            ),
-          );
-          return;
-        }
-        setDetails(payload as AppInviteDetails);
-      } catch {
-        if (!cancelled) {
-          setLoadError(inviteCompletionNetworkError());
-        }
+      >(`/api/onboarding/app-invites/${encodeURIComponent(inviteToken)}`);
+      if (cancelled) return;
+      if (!result.ok) {
+        setCanRetrySetup(false);
+        setLoadError(
+          mapInviteCompletionLoadError(
+            { code: result.code, error: result.error, message: result.message },
+            result.response?.status ?? 0,
+          ),
+        );
+        return;
       }
+      const payload = result.data;
+      if (!payload.ok) {
+        setCanRetrySetup(false);
+        setLoadError(mapInviteCompletionLoadError(payload, result.response.status));
+        return;
+      }
+      const retryAllowed = payload.canRetrySetup !== false && !payload.staleTarget;
+      setCanRetrySetup(retryAllowed);
+      if (payload.setupIncomplete && retryAllowed) {
+        setDetails(payload as AppInviteDetails);
+        setSubmitError("Your previous setup did not finish. Complete the form below to try again.");
+        return;
+      }
+      if (payload.setupIncomplete && !retryAllowed) {
+        setCanRetrySetup(false);
+        setLoadError(
+          mapInviteCompletionLoadError(
+            {
+              code: "stale_invite_target",
+              error: payload.storageHint || payload.error,
+            },
+            result.response.status,
+          ),
+        );
+        return;
+      }
+      setDetails(payload as AppInviteDetails);
     })();
     return () => {
       cancelled = true;
     };
-  }, [inviteToken, parseJsonApiResponse]);
+  }, [inviteToken]);
 
   const persistCompanyLoginHint = (payload: AppInviteStatusPayload) => {
     const email = String(payload.email || details?.email || "").trim().toLowerCase();
