@@ -1,3 +1,5 @@
+import { filterCustomerFacingCompanies, isSystemTemplateCompany } from "../shared/system-template-company.mjs";
+
 /**
  * Platform Companies tab — durable company workspace setup links (Drive folder + master sheet).
  * Never overwrite non-empty registry cells with empty values unless explicitly disconnected.
@@ -107,10 +109,28 @@ export function normalizeCompanyWorkspaceRecord(rowObject = {}, headerRow = COMP
   const workbookFolderId = String(rowObject["Workbook Folder ID"] || rowObject.workbookFolderId || "").trim();
   const companyName = String(rowObject["Company Name"] || rowObject.companyName || "").trim();
   const status = String(rowObject.Status || rowObject.status || "").trim();
+  const explicitType = String(rowObject.Type || rowObject.type || rowObject.workspaceType || "").trim();
+  const explicitIsTemplate =
+    rowObject.isTemplate === true ||
+    rowObject.isSystem === true ||
+    safeLower(rowObject["Is Template"]) === "true" ||
+    safeLower(rowObject["Is System"]) === "true";
+  const templateRecord = {
+    companyName,
+    status,
+    type: explicitType,
+    isTemplate: explicitIsTemplate,
+    isSystem: rowObject.isSystem === true || safeLower(rowObject["Is System"]) === "true",
+  };
+  const isTemplate = isSystemTemplateCompany(templateRecord);
   return {
     companyId,
     companyName,
-    status,
+    status: isTemplate && !status ? "TEMPLATE" : status,
+    isTemplate,
+    isSystem: templateRecord.isSystem || isTemplate,
+    type: isTemplate ? "TEMPLATE" : explicitType,
+    workspaceType: isTemplate ? "TEMPLATE" : explicitType,
     rootFolderId,
     masterSheetId,
     workbookFolderId,
@@ -519,7 +539,7 @@ export function installCompanyWorkspaceRegistryRoutes(app, deps) {
       return res.json({
         ok: true,
         registrySpreadsheetId: spreadsheetId || undefined,
-        companies: Array.from(map.values()),
+        companies: filterCustomerFacingCompanies(Array.from(map.values())),
       });
     } catch (error) {
       return res.status(500).json({

@@ -82,6 +82,7 @@ import {
   recordCompanyWorkspaceHealthCheck,
 } from "./company-workspace-registry.mjs";
 import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
+import { isSystemTemplateCompany } from "../shared/system-template-company.mjs";
 
 dotenv.config();
 
@@ -2230,6 +2231,7 @@ function isDisallowedGodmodeCompanyDisplayName(name = "") {
 function isSelectableGodmodeCompanyFolder(folder) {
   return (
     Boolean(String(folder?.id || "").trim()) &&
+    !isSystemTemplateCompany(folder) &&
     !isReservedGodmodeCompanyFolderName(folder?.name) &&
     !isDisallowedGodmodeCompanyDisplayName(folder?.name)
   );

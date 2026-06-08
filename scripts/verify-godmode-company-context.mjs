@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 /** Mirrors src/utils/godmodeCompanyFolders.ts — keep filter rules in sync. */
 
+import {
+  filterCustomerFacingCompanies,
+  findSystemTemplateCompany,
+  isSystemTemplateCompany,
+} from "../shared/system-template-company.mjs";
+
 function normalizeWorkspaceFolderLabel(name = "") {
   return String(name || "")
     .toLowerCase()
@@ -38,6 +44,7 @@ function filterSelectableGodmodeCompanyFolders(folders) {
   return folders.filter(
     (folder) =>
       Boolean(String(folder.id || "").trim()) &&
+      !isSystemTemplateCompany(folder) &&
       !isReservedGodmodeCompanyFolderName(folder.name) &&
       !isDisallowedGodmodeCompanyDisplayName(folder.name),
   );
@@ -59,6 +66,9 @@ function assertGodmodeLiveCompanyWorkspace(input) {
   if (isDisallowedGodmodeCompanyDisplayName(companyName)) {
     return { ok: false };
   }
+  if (isSystemTemplateCompany({ name: companyName, companyName })) {
+    return { ok: false };
+  }
   if (input.selectableFolderIds && !input.selectableFolderIds.includes(companyFolderId)) {
     return { ok: false };
   }
@@ -74,6 +84,8 @@ function assert(condition, message) {
 
 const sample = [
   { id: "live-1", name: "Acme Precast" },
+  { id: "testco-1", name: "TESTCO" },
+  { id: "blank-1", name: "BLANK COMPANY - BERT Folder Structure" },
   { id: "archive-1", name: "99 Archive" },
   { id: "live-companies", name: "Live Companies" },
   { id: "master", name: "00 Master Control" },
@@ -82,7 +94,26 @@ const sample = [
 ];
 
 const filtered = filterSelectableGodmodeCompanyFolders(sample);
-assert(filtered.length === 1 && filtered[0].id === "live-1", "filters reserved and brand folders");
+assert(
+  filtered.length === 2 && filtered.some((folder) => folder.id === "live-1") && filtered.some((folder) => folder.id === "testco-1"),
+  "filters reserved, brand, and system template folders",
+);
+assert(
+  !filtered.some((folder) => folder.id === "blank-1"),
+  "BLANK COMPANY template is excluded from selectable folders",
+);
+
+assert(isSystemTemplateCompany({ name: "BLANK COMPANY" }), "detects blank company by name");
+assert(isSystemTemplateCompany({ companyName: "BLANK COMPANY - BERT Folder Structure" }), "detects blank folder structure name");
+assert(isSystemTemplateCompany({ status: "TEMPLATE" }), "detects template status flag");
+assert(!isSystemTemplateCompany({ name: "TESTCO" }), "real companies are not templates");
+
+const customerFacing = filterCustomerFacingCompanies(sample);
+assert(customerFacing.some((folder) => folder.id === "testco-1"), "customer-facing list includes TESTCO");
+assert(!customerFacing.some((folder) => folder.id === "blank-1"), "customer-facing list excludes BLANK COMPANY");
+
+const template = findSystemTemplateCompany(sample);
+assert(template?.id === "blank-1", "template still resolvable internally from unfiltered list");
 
 assert(
   assertGodmodeLiveCompanyWorkspace({
@@ -112,6 +143,16 @@ assert(
     selectableFolderIds: ["archive-1"],
   }).ok,
   "rejects archive folder",
+);
+
+assert(
+  !assertGodmodeLiveCompanyWorkspace({
+    companyFolderId: "blank-1",
+    companyName: "BLANK COMPANY - BERT Folder Structure",
+    masterSheetId: "sheet-blank",
+    selectableFolderIds: ["blank-1"],
+  }).ok,
+  "rejects system template company workspace",
 );
 
 /** Keep in sync with src/config/roleNavigation.ts */

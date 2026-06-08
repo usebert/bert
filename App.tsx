@@ -103,6 +103,7 @@ import {
   assertGodmodeLiveCompanyWorkspace,
   filterSelectableGodmodeCompanyFolders,
 } from "./src/utils/godmodeCompanyFolders";
+import { filterCustomerFacingCompanies } from "./src/utils/systemTemplateCompany";
 import {
   clearGodmodeSelectedCompanyFolderId,
   readGodmodeSelectedCompanyFolderId,
@@ -5931,9 +5932,10 @@ function App() {
       }
 
       if (payload.connected && payload.companies && currentUser?.role !== "Master") {
-        setFolders(payload.companies);
-        if (!selectedFolderId && payload.companies[0]) {
-          setSelectedFolderId(payload.companies[0].id);
+        const visibleCompanies = filterCustomerFacingCompanies(payload.companies);
+        setFolders(visibleCompanies);
+        if (!selectedFolderId && visibleCompanies[0]) {
+          setSelectedFolderId(visibleCompanies[0].id);
         }
       }
       if (!payload.connected) {
@@ -6033,7 +6035,7 @@ function App() {
     }
     try {
       const payload = await googleWorkspaceService.getGodmodeLiveCompanies<GodmodeLiveCompaniesPayload>();
-      const companies = payload.companies || [];
+      const companies = filterCustomerFacingCompanies(payload.companies || []);
       setFolders(companies);
       const restoreId = readGodmodeSelectedCompanyFolderId() || selectedFolderIdRef.current;
       if (restoreId) {

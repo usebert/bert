@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
+import { isSystemTemplateCompany } from "../shared/system-template-company.mjs";
 import {
   COMPANIES_WORKSPACE_COLUMNS,
   REGISTRY_SPREADSHEET_NAME,
@@ -672,6 +673,14 @@ export async function assertCompanyWorkspaceAcceptsUserInvite(
     companyFolderId,
   }).catch(() => {});
   const cfg = await getConfig(auth, sheetId);
+  if (isSystemTemplateCompany({ companyName: cfg.companyName, name: cfg.companyName, status: cfg.companyOnboardingStatus })) {
+    return {
+      ok: false,
+      code: "system_template_company",
+      httpStatus: 403,
+      message: "This workspace is a system template and cannot be used for live company access.",
+    };
+  }
   if (!isCompanyWorkspaceLiveForUserInvites(cfg)) {
     return {
       ok: false,

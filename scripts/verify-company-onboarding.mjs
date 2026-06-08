@@ -114,6 +114,11 @@ assert(!adminScreen.includes("Invite new company"), "no legacy invite new compan
 assert(usersPanel.includes("COMPANY_NOT_LIVE_INVITE_MESSAGE"), "users panel live gate copy");
 assert(!usersPanel.includes("Admin (first company user)"), "no first company user invite label");
 
+assert(serverOnboarding.includes("isSystemTemplateCompany"), "onboarding blocks system template workspaces");
+assert(serverOnboarding.includes("system_template_company"), "onboarding returns template access code");
+assert(serverMain.includes("isSystemTemplateCompany"), "server company list filters system templates");
+assert(appTsx.includes("filterCustomerFacingCompanies"), "client filters system templates from company lists");
+
 assert(folderStructure.includes("ensureCompanyFolderStructure"), "folder structure helper");
 assert(folderStructure.includes("ensureCompanyMasterSheet"), "master sheet helper");
 assert(folderStructure.includes("writeCompanyFoldersTab"), "CompanyFolders tab write");

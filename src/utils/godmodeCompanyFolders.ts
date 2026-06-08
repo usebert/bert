@@ -2,6 +2,7 @@ import {
   isArchiveOrNonLiveWorkspaceName,
   normalizeWorkspaceFolderLabel,
 } from "./companyWorkspaceInvite";
+import { isSystemTemplateCompany } from "./systemTemplateCompany";
 
 export { normalizeWorkspaceFolderLabel };
 
@@ -30,6 +31,7 @@ export function isDisallowedGodmodeCompanyDisplayName(name: string | undefined):
 export function isSelectableGodmodeCompanyFolder(folder: { id: string; name: string }): boolean {
   return (
     Boolean(String(folder.id || "").trim()) &&
+    !isSystemTemplateCompany(folder) &&
     !isReservedGodmodeCompanyFolderName(folder.name) &&
     !isDisallowedGodmodeCompanyDisplayName(folder.name)
   );
@@ -65,6 +67,9 @@ export function assertGodmodeLiveCompanyWorkspace(
     return { ok: false };
   }
   if (isDisallowedGodmodeCompanyDisplayName(companyName)) {
+    return { ok: false };
+  }
+  if (isSystemTemplateCompany({ name: companyName, companyName })) {
     return { ok: false };
   }
 
