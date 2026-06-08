@@ -119,6 +119,7 @@ function createMockGoogle({ driveGet, filesGet, listFiles }) {
   assert(!serverMain.includes("return res.status(500).json({\n        ok: false,\n        configured: true,\n        connected: oauthConnected,\n        googleOAuthConnected: oauthConnected,\n        sharedDriveId"), "5c: google status no longer hard-fails on drive list errors");
   assert(serverMain.includes("inspectConfiguredWorkspaceRoot"), "5d: server uses drives.get/files.get root inspection");
   assert(registry.includes("findSpreadsheetInWorkspaceRoot"), "5e: registry lookup supports folder roots");
+  assert(serverMain.includes("registryLinkMissing: !registryRecord"), "5f: live companies expose registryLinkMissing");
 }
 
 const pkg = JSON.parse(read("package.json"));

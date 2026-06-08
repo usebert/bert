@@ -172,6 +172,9 @@ assert(!panel.includes("markLiveIfReady"), "17g: godmode panel avoids mark-live-
 assert(!panel.includes("Not In Registry"), "17h: godmode panel avoids dead-end Not In Registry copy");
 assert(registry.includes('normalized === "not_in_registry"'), "17f: not_in_registry humanized for API");
 
+assert(panel.includes("registryLinkMissing"), "17i: godmode panel uses registryLinkMissing flag");
+assert(serverMain.includes("registryLinkMissing: !registryRecord"), "17j: live companies expose registryLinkMissing");
+
 const pkg = JSON.parse(read("package.json"));
 assert(pkg.scripts["verify:company-setup-progress"], "npm script registered");
 

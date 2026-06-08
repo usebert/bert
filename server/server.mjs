@@ -2589,6 +2589,7 @@ async function listGodmodeLiveCompanies(auth) {
         setupStatus,
         setupStatusLabel,
         masterSheetId,
+        registryLinkMissing: !registryRecord,
       };
     }),
   };

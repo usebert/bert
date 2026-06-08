@@ -331,12 +331,14 @@ export function GodmodeCompanyWorkspacePanel({
     registryStatus: (selectedFolder as CompanyFolder & { registryStatus?: string })?.registryStatus,
   });
   const companyLive = isCompanyRegistryLive({ status: registryStatus, registryStatus });
+  const folderRegistryLinkMissing = (selectedFolder as CompanyFolder & { registryLinkMissing?: boolean })
+    ?.registryLinkMissing;
   const registryLinkMissing =
     Boolean(selectedFolder) &&
     masterSheetOk &&
     !companyLive &&
-    !registryStatus &&
-    registryStatus !== "Needs attention";
+    (folderRegistryLinkMissing === true ||
+      (folderRegistryLinkMissing !== false && !registryStatus && registryStatus !== "Needs attention"));
   const registryUnlinkReason = String(
     (selectedFolder as CompanyFolder & { registryUnlinkReason?: string })?.registryUnlinkReason || "",
   ).trim();

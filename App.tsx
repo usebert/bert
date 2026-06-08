@@ -583,6 +583,8 @@ type CompanyFolder = {
   setupStatusLabel?: string;
   masterSheetId?: string;
   registryStatus?: string;
+  registryLinkMissing?: boolean;
+  registryUnlinkReason?: string;
 };
 
 type OnboardingSource = {
@@ -6098,6 +6100,7 @@ function App() {
                     ? "Needs attention"
                     : "Ready",
                 registryStatus: getCanonicalCompanyStatus(payload.company),
+                registryLinkMissing: false,
               }
             : folder,
         ),
@@ -9099,6 +9102,12 @@ function App() {
         onboardingVerified: existingFolder?.onboardingVerified ?? true,
         auditFormsVerified: Boolean(auditFormsFolderId),
         responseSheetVerified: true,
+        masterSheetId: masterSheetId || existingFolder?.masterSheetId,
+        setupStatus: existingFolder?.setupStatus,
+        setupStatusLabel: existingFolder?.setupStatusLabel,
+        registryStatus: existingFolder?.registryStatus,
+        registryLinkMissing: existingFolder?.registryLinkMissing,
+        registryUnlinkReason: existingFolder?.registryUnlinkReason,
       };
 
       setFolders((current) => {
@@ -10023,6 +10032,7 @@ function App() {
                     responseSheetId: registryMasterSheetId || folder.responseSheetId,
                     responseSheetVerified: Boolean(registryMasterSheetId) || folder.responseSheetVerified,
                     registryStatus: canonicalStatus,
+                    registryLinkMissing: false,
                     setupStatusLabel: isCompanyRegistryLive({ status: canonicalStatus, registryStatus: canonicalStatus })
                       ? "Ready"
                       : canonicalStatus === "Needs attention"
@@ -10046,6 +10056,7 @@ function App() {
                   ? {
                       ...folder,
                       registryStatus: result.registryStatus,
+                      registryLinkMissing: result.status !== "LIVE",
                       setupStatusLabel: result.status === "LIVE" ? "Ready" : folder.setupStatusLabel,
                     }
                   : folder,
@@ -10074,7 +10085,7 @@ function App() {
       }
 
       setCompanySetupError(null);
-      await handleAddFolder();
+      await loadGodmodeLiveCompanies({ silent: true });
       handleVerifyOnboarding();
       handleVerifyAudits();
       handleVerifyResponseSheet();

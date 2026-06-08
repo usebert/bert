@@ -52,6 +52,8 @@ export type CompanyFolder = {
   auditFormsVerified: boolean;
   responseSheetVerified: boolean;
   registryStatus?: string;
+  registryLinkMissing?: boolean;
+  registryUnlinkReason?: string;
 };
 
 export type CompanySheetSyncStatus = {
