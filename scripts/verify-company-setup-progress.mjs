@@ -11,6 +11,13 @@ import {
   normalizeCompanyRegistryNameKey,
   normalizeCompanyWorkspaceRecord,
 } from "../server/company-workspace-registry.mjs";
+import {
+  SETUP_REQUIRED_TABS,
+  buildAddSheetBatchRequests,
+  classifyGoogleSheetsAccessError,
+  findMissingRequiredTabs,
+  withOperationTimeout,
+} from "../server/ensure-required-tabs.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -175,7 +182,63 @@ assert(registry.includes('normalized === "not_in_registry"'), "17f: not_in_regis
 assert(panel.includes("registryLinkMissing"), "17i: godmode panel uses registryLinkMissing flag");
 assert(serverMain.includes("registryLinkMissing: !registryRecord"), "17j: live companies expose registryLinkMissing");
 
+/** 18–23: ensure_required_tabs optimization (6 cases) */
+assert(progress.includes('from "./ensure-required-tabs.mjs"'), "18b: ensure-required-tabs module imported");
+const ensureTabsStepBlock = progress.slice(
+  progress.indexOf('runStep("ensure_required_tabs"'),
+  progress.indexOf('runStep("ensure_companyfolders_mapping"'),
+);
+assert(ensureTabsStepBlock.includes("ensureRequiredTabs"), "18: setup step uses ensureRequiredTabs");
+assert(!ensureTabsStepBlock.includes("ensureTabsAndColumns"), "18c: ensure_required_tabs avoids heavy ensureTabsAndColumns");
+assert(progress.includes("get_spreadsheet_metadata") || read("server/ensure-required-tabs.mjs").includes("get_spreadsheet_metadata"), "18d: metadata operation name");
+
+const ensureTabsModule = read("server/ensure-required-tabs.mjs");
+assert(ensureTabsModule.includes("includeGridData: false"), "19: spreadsheets.get uses includeGridData false");
+assert(ensureTabsModule.includes("batch_create_missing_tabs"), "19b: batch create operation name");
+assert(ensureTabsModule.includes("MASTER_SHEET_ID_INVALID"), "19c: invalid id error code");
+assert(ensureTabsModule.includes("GOOGLE_PERMISSION_DENIED"), "19d: permission denied error code");
+assert(ensureTabsModule.includes("MASTER_SHEET_UNAVAILABLE"), "19e: unavailable error code");
+assert(SETUP_REQUIRED_TABS.length === 16, "19f: sixteen setup required tabs");
+assert(SETUP_REQUIRED_TABS.includes("GoogleFormTemplates"), "19g: GoogleFormTemplates in required tabs");
+
+const allPresent = SETUP_REQUIRED_TABS;
+const noMissing = findMissingRequiredTabs(allPresent);
+assert(noMissing.length === 0, "20: existing required tabs -> no batchUpdate");
+
+const missingMany = findMissingRequiredTabs(["Config"]);
+assert(missingMany.length === SETUP_REQUIRED_TABS.length - 1, "21: missing tabs detected");
+const batchRequests = buildAddSheetBatchRequests(missingMany);
+assert(batchRequests.length === missingMany.length, "21b: one addSheet request per missing tab");
+assert(batchRequests.every((req) => req.addSheet?.properties?.title), "21c: batchUpdate addSheet shape");
+
+const rerunMissing = findMissingRequiredTabs([...SETUP_REQUIRED_TABS, "Extra"]);
+assert(rerunMissing.length === 0, "22: duplicate rerun -> no duplicate tabs");
+
+let timeoutMetaError = null;
+try {
+  await withOperationTimeout(new Promise(() => {}), "get_spreadsheet_metadata", 15);
+} catch (error) {
+  timeoutMetaError = error;
+}
+assert(timeoutMetaError?.code === "GOOGLE_TIMEOUT", "23: timeout on metadata get -> GOOGLE_TIMEOUT");
+assert(String(timeoutMetaError?.message || "").includes("get_spreadsheet_metadata"), "23b: metadata timeout names operation");
+
+let timeoutBatchError = null;
+try {
+  await withOperationTimeout(new Promise(() => {}), "batch_create_missing_tabs", 15);
+} catch (error) {
+  timeoutBatchError = error;
+}
+assert(timeoutBatchError?.code === "GOOGLE_TIMEOUT", "24: timeout on batchUpdate -> GOOGLE_TIMEOUT");
+assert(String(timeoutBatchError?.message || "").includes("batch_create_missing_tabs"), "24b: batch timeout names operation");
+
+const folderInvalid = classifyGoogleSheetsAccessError(null, "application/vnd.google-apps.folder");
+assert(folderInvalid?.code === "MASTER_SHEET_ID_INVALID", "25: folder id -> MASTER_SHEET_ID_INVALID");
+
+const unavailable = classifyGoogleSheetsAccessError({ code: 404, message: "Not Found" });
+assert(unavailable?.code === "MASTER_SHEET_UNAVAILABLE", "26: invalid masterSheetId -> MASTER_SHEET_UNAVAILABLE");
+
 const pkg = JSON.parse(read("package.json"));
 assert(pkg.scripts["verify:company-setup-progress"], "npm script registered");
 
-console.log("OK: verify-company-setup-progress (21 cases)");
+console.log("OK: verify-company-setup-progress (27 cases)");

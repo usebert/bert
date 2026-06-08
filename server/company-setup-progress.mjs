@@ -16,6 +16,7 @@ import {
 } from "./company-workspace-registry.mjs";
 import { inspectConfiguredWorkspaceRoot } from "./google-workspace-root.mjs";
 import { countCompanyUsersOnSheet } from "./company-onboarding.mjs";
+import { ensureRequiredTabs } from "./ensure-required-tabs.mjs";
 import {
   COMPANY_REGISTRY_STATUS_LIVE,
   getCanonicalCompanyStatus,
@@ -107,9 +108,16 @@ export function withGoogleTimeout(promise, label, timeoutMs = GOOGLE_OPERATION_T
   });
 }
 
+const KNOWN_SETUP_ERROR_CODES = new Set([
+  "GOOGLE_TIMEOUT",
+  "MASTER_SHEET_UNAVAILABLE",
+  "GOOGLE_PERMISSION_DENIED",
+  "MASTER_SHEET_ID_INVALID",
+]);
+
 function resolveErrorCode(error) {
-  if (error?.code === "GOOGLE_TIMEOUT") {
-    return "GOOGLE_TIMEOUT";
+  if (error?.code && KNOWN_SETUP_ERROR_CODES.has(error.code)) {
+    return error.code;
   }
   const message = String(error?.message || error || "").toLowerCase();
   if (message.includes("timed out")) {
@@ -379,14 +387,11 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
 
   // 5. Ensure required tabs
   stepFailure = await runStep("ensure_required_tabs", async () => {
-    await withGoogleTimeout(
-      ensureTabsAndColumns(auth, state.masterSheetId, {
-        companyId,
-        companyName: resolvedCompanyName,
-        createBackup: true,
-      }),
-      "ensure_required_tabs",
-    );
+    await ensureRequiredTabs(auth, {
+      google,
+      withSheetsQuotaRetry: deps.withSheetsQuotaRetry,
+      timeoutMs: GOOGLE_OPERATION_TIMEOUT_MS,
+    }, state.masterSheetId);
     if (typeof ensureCompanyMappingTabs === "function") {
       await withGoogleTimeout(ensureCompanyMappingTabs(deps, auth, state.masterSheetId), "ensure_mapping_tabs");
     }
