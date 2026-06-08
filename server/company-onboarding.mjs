@@ -111,7 +111,8 @@ export function generateCompanyOnboardingTokenParts() {
 
 export function buildCompanyOnboardingInviteUrl(frontendUrl, inviteId, rawToken) {
   const base = String(frontendUrl || "").replace(/\/$/, "");
-  return `${base}/?company-onboarding=${encodeURIComponent(`${inviteId}.${rawToken}`)}`;
+  const token = `${inviteId}.${rawToken}`;
+  return `${base}/onboarding/company/${encodeURIComponent(token)}`;
 }
 
 export function parseCompanyOnboardingUrlToken(param) {
@@ -767,7 +768,7 @@ export function installCompanyOnboardingRoutes(app, deps) {
   const inviteTtlMs = Math.max(60 * 60 * 1000, Number(deps.onboardingInviteTtlMs || 7 * 24 * 60 * 60 * 1000));
 
   async function sendInviteEmail({ toEmail, invitedBy, onboardingUrl }) {
-    const subject = `Complete your ${appBrandName} company onboarding`;
+    const subject = "Set up your company on BERT";
     const textBody = [
       "Hi,",
       "",
@@ -1142,7 +1143,7 @@ export function installCompanyOnboardingRoutes(app, deps) {
     }
   });
 
-  app.get("/api/onboarding/company-onboarding/invite/:tokenParam", async (req, res) => {
+  const handleCompanyOnboardingInviteGet = async (req, res) => {
     const parsed = parseCompanyOnboardingUrlToken(req.params.tokenParam);
     const record = parsed ? store.getInvite(parsed.inviteId) : null;
     const access = resolveCompanyOnboardingInviteAccess(record, parsed);
@@ -1163,7 +1164,9 @@ export function installCompanyOnboardingRoutes(app, deps) {
         mainNeedOptions: MAIN_NEED_OPTIONS,
       },
     });
-  });
+  };
+
+  app.get("/api/onboarding/company-onboarding/invite/:tokenParam", handleCompanyOnboardingInviteGet);
 
   app.post("/api/onboarding/company-onboarding/invite/:tokenParam/start", async (req, res) => {
     const parsed = parseCompanyOnboardingUrlToken(req.params.tokenParam);
@@ -1182,7 +1185,7 @@ export function installCompanyOnboardingRoutes(app, deps) {
     return res.json({ ok: true });
   });
 
-  app.post("/api/onboarding/company-onboarding/invite/:tokenParam/complete", async (req, res) => {
+  const handleCompanyOnboardingComplete = async (req, res) => {
     const parsed = parseCompanyOnboardingUrlToken(req.params.tokenParam);
     const inviteRecord = parsed ? store.getInvite(parsed.inviteId) : null;
     const access = resolveCompanyOnboardingInviteAccess(inviteRecord, parsed);
@@ -1520,7 +1523,10 @@ export function installCompanyOnboardingRoutes(app, deps) {
         });
       }
     });
-  });
+  };
+
+  app.post("/api/onboarding/company-onboarding/invite/:tokenParam/complete", handleCompanyOnboardingComplete);
+  app.post("/api/onboarding/company/:tokenParam/complete", handleCompanyOnboardingComplete);
 }
 
 export { MAIN_NEED_OPTIONS, REGISTRY_TAB_ONBOARDING, createInviteStoreApi };

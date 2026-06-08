@@ -7,6 +7,8 @@ export type InviteApiErrorCode =
   | "INVITE_WRONG_TYPE"
   | "INVITE_IN_PROGRESS"
   | "PROVISIONING_FAILED"
+  | "USER_SETUP_FAILED"
+  | "COMPANY_NOT_LIVE"
   | "NETWORK_UNREACHABLE"
   | "SERVER_ERROR";
 
@@ -57,9 +59,13 @@ function normalizeInviteErrorCode(raw: string | undefined, httpStatus: number): 
     case "INVITE_WRONG_TYPE":
     case "INVITE_IN_PROGRESS":
     case "PROVISIONING_FAILED":
+    case "USER_SETUP_FAILED":
+    case "COMPANY_NOT_LIVE":
     case "NETWORK_UNREACHABLE":
     case "SERVER_ERROR":
       return code;
+    case "company_not_live":
+      return "COMPANY_NOT_LIVE";
     case "invite_not_found":
     case "stale_invite_target":
     case "validation_error":
@@ -71,7 +77,7 @@ function normalizeInviteErrorCode(raw: string | undefined, httpStatus: number): 
     case "invite_in_progress":
       return "INVITE_IN_PROGRESS";
     case "setup_failed":
-      return "PROVISIONING_FAILED";
+      return "USER_SETUP_FAILED";
     default:
       break;
   }

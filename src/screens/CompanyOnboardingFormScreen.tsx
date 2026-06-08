@@ -17,6 +17,7 @@ type MainNeedId =
 
 type InviteDetails = {
   ok: true;
+  type: "COMPANY_ONBOARDING";
   invite: {
     status: string;
     statusLabel: string;
@@ -81,7 +82,7 @@ export function CompanyOnboardingFormScreen({
     let cancelled = false;
     (async () => {
       const result = await fetchInviteApi<InviteDetails>(
-        `/api/onboarding/company-onboarding/invite/${tokenPath}`,
+        `/api/invites/${tokenPath}?expectedType=COMPANY_ONBOARDING`,
       );
       if (cancelled) return;
       if (!result.ok) {
@@ -95,16 +96,13 @@ export function CompanyOnboardingFormScreen({
         return;
       }
       const payload = result.data;
-      if (!payload.invite) {
-        setLoadError(mapCompanyOnboardingInviteError({ code: "INVITE_INVALID" }, "INVITE_INVALID", 404));
+      if (!payload.invite || payload.type !== "COMPANY_ONBOARDING") {
+        setLoadError(mapCompanyOnboardingInviteError({ code: "INVITE_WRONG_TYPE" }, "INVITE_WRONG_TYPE", 400));
         return;
       }
       setDetails(payload.invite);
       setCompanyName(payload.invite.provisionalCompanyName || "");
       setAdminEmail(payload.invite.adminEmailDefault || payload.invite.contactEmail || "");
-      await fetchInviteApi(`/api/onboarding/company-onboarding/invite/${tokenPath}/start`, {
-        method: "POST",
-      });
     })();
     return () => {
       cancelled = true;
@@ -141,7 +139,7 @@ export function CompanyOnboardingFormScreen({
         sessionStarted?: boolean;
         masterSheetId?: string;
         companyFolderId?: string;
-      }>(`/api/onboarding/company-onboarding/invite/${tokenPath}/complete`, {
+      }>(`/api/onboarding/company/${tokenPath}/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

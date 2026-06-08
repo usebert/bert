@@ -146,6 +146,9 @@ if (fs.existsSync(migrateScript)) {
 
 const serverPath = path.join(root, "server", "server.mjs");
 const serverSrc = fs.readFileSync(serverPath, "utf8");
+const inviteRoutesServer = fs.existsSync(path.join(root, "server", "invite-routes.mjs"))
+  ? fs.readFileSync(path.join(root, "server", "invite-routes.mjs"), "utf8")
+  : "";
 if (
   serverSrc.includes('key.toLowerCase().startsWith("userauth.")') &&
   serverSrc.includes('Value: "", value: ""')
@@ -269,6 +272,26 @@ if (serverSrc.includes("managerInvitesEnabled") && serverSrc.includes("manager_i
 
 const appTsxPath = path.join(root, "App.tsx");
 const appSrc = fs.existsSync(appTsxPath) ? fs.readFileSync(appTsxPath, "utf8") : "";
+const inviteRoutesTsPath = path.join(root, "src", "utils", "inviteRoutes.ts");
+const inviteRoutesTsSrc = fs.existsSync(inviteRoutesTsPath) ? fs.readFileSync(inviteRoutesTsPath, "utf8") : "";
+if (
+  appSrc.includes("parseInviteRoute") &&
+  inviteRoutesTsSrc.includes("/onboarding/company/") &&
+  inviteRoutesTsSrc.includes("/invite/company-user/")
+) {
+  console.log("[verify:auth] OK: App.tsx uses path-based invite routes");
+} else {
+  console.error("[verify:auth] FAIL: App.tsx missing path-based invite routes");
+  failed = true;
+}
+
+if (serverSrc.includes('app.get("/api/invites/:token"')) {
+  console.log("[verify:auth] OK: unified GET /api/invites/:token wired");
+} else {
+  console.error("[verify:auth] FAIL: server missing GET /api/invites/:token");
+  failed = true;
+}
+
 if (appSrc.includes("companyAreas") && appSrc.includes("getUserAssignedSiteIds")) {
   console.log("[verify:auth] OK: client area filtering uses session companyAreas");
 } else {

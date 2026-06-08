@@ -166,6 +166,8 @@ import type {
 } from "./src/types/adminScreenProps";
 import { AppHostedOnboardingCompletion } from "./src/screens/AppHostedOnboardingCompletion";
 import { CompanyOnboardingFormScreen } from "./src/screens/CompanyOnboardingFormScreen";
+import { INVITE_NO_LONGER_VALID_MESSAGE } from "./src/utils/inviteCompletionMessages";
+import { parseInviteRoute, redirectToInvitePath } from "./src/utils/inviteRoutes";
 import { PasswordResetConfirm } from "./src/screens/PasswordResetConfirm";
 import { requestPasswordReset } from "./src/services/passwordResetService";
 import { DashboardScreen } from "./src/screens/DashboardScreen";
@@ -11139,15 +11141,21 @@ function App() {
     logGodmodeGuard,
   ]);
 
-  let inviteTokenFromUrl = "";
-  let companyOnboardingTokenFromUrl = "";
-  try {
-    const urlParams = new URLSearchParams(window.location.search);
-    inviteTokenFromUrl = urlParams.get("invite")?.trim() || "";
-    companyOnboardingTokenFromUrl = urlParams.get("company-onboarding")?.trim() || "";
-  } catch {
-    inviteTokenFromUrl = "";
-    companyOnboardingTokenFromUrl = "";
+  const inviteRoute = parseInviteRoute();
+  if (inviteRoute.flow === "legacy_company_onboarding") {
+    redirectToInvitePath("COMPANY_ONBOARDING", inviteRoute.token);
+    return (
+      <CompanyOnboardingFormScreen
+        inviteToken={inviteRoute.token}
+        onComplete={() => {
+          window.location.assign("/");
+        }}
+      />
+    );
+  }
+  if (inviteRoute.flow === "legacy_company_user") {
+    redirectToInvitePath("COMPANY_USER", inviteRoute.token);
+    return <AppHostedOnboardingCompletion inviteToken={inviteRoute.token} />;
   }
   if (activePasswordReset) {
     const clearResetParams = () => {
@@ -11175,18 +11183,28 @@ function App() {
       />
     );
   }
-  if (companyOnboardingTokenFromUrl) {
+  if (inviteRoute.flow === "COMPANY_ONBOARDING") {
     return (
       <CompanyOnboardingFormScreen
-        inviteToken={companyOnboardingTokenFromUrl}
+        inviteToken={inviteRoute.token}
         onComplete={() => {
-          window.location.assign(window.location.pathname);
+          window.location.assign("/");
         }}
       />
     );
   }
-  if (inviteTokenFromUrl) {
-    return <AppHostedOnboardingCompletion inviteToken={inviteTokenFromUrl} />;
+  if (inviteRoute.flow === "COMPANY_USER") {
+    return <AppHostedOnboardingCompletion inviteToken={inviteRoute.token} />;
+  }
+  if (inviteRoute.flow === "invalid" && /^\/(onboarding|invite)\//i.test(window.location.pathname)) {
+    return (
+      <div className="flex min-h-[100dvh] items-center justify-center bg-slate-950 px-4 py-10 text-slate-100">
+        <div className="max-w-md rounded-3xl border border-rose-500/40 bg-rose-950/40 p-6 text-center text-sm leading-6 text-rose-100">
+          <p className="font-semibold text-white">Invite link not recognised</p>
+          <p className="mt-3">{INVITE_NO_LONGER_VALID_MESSAGE}</p>
+        </div>
+      </div>
+    );
   }
 
   if (!currentUser) {

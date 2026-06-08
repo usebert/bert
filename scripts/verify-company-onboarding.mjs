@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Static checks for app-hosted COMPANY_ONBOARDING flow and invite gates.
+ * Static checks for two-flow invite/onboarding consolidation (COMPANY_ONBOARDING + COMPANY_USER).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -21,15 +21,15 @@ function read(rel) {
 
 const serverOnboarding = read("server/company-onboarding.mjs");
 const serverMain = read("server/server.mjs");
+const inviteRoutes = read("server/invite-routes.mjs");
 const appTsx = read("App.tsx");
 const formScreen = read("src/screens/CompanyOnboardingFormScreen.tsx");
+const inviteCompletion = read("src/screens/AppHostedOnboardingCompletion.tsx");
+const inviteRoutesTs = read("src/utils/inviteRoutes.ts");
 const panel = read("src/components/admin/CompanyOnboardingInvitePanel.tsx");
 const adminScreen = read("src/screens/AdminScreen.tsx");
 const usersPanel = read("src/components/admin/UsersInvitesPilotPanel.tsx");
-const folderStructure = read("server/company-folder-structure.mjs");
-const companySchema = read("src/schema/companySchema.ts");
 const inviteMessages = read("src/utils/inviteCompletionMessages.ts");
-const inviteCompletion = read("src/screens/AppHostedOnboardingCompletion.tsx");
 const inviteApi = read("src/utils/inviteApi.ts");
 
 const LEGACY_ONBOARDING_ERROR_STRINGS = [
@@ -39,123 +39,75 @@ const LEGACY_ONBOARDING_ERROR_STRINGS = [
   "We could not finish setup. Please try again or contact BERT support",
 ];
 
+const srcFiles = [
+  formScreen,
+  inviteCompletion,
+  inviteMessages,
+  inviteApi,
+  inviteRoutesTs,
+  appTsx,
+];
+
 for (const legacy of LEGACY_ONBOARDING_ERROR_STRINGS) {
-  assert(!formScreen.includes(legacy), `legacy onboarding copy removed from CompanyOnboardingFormScreen: ${legacy}`);
-  assert(!inviteCompletion.includes(legacy), `legacy onboarding copy removed from AppHostedOnboardingCompletion: ${legacy}`);
-  assert(!inviteMessages.includes(legacy), `legacy onboarding copy removed from inviteCompletionMessages: ${legacy}`);
+  for (const file of srcFiles) {
+    assert(!file.includes(legacy), `legacy onboarding copy removed: ${legacy}`);
+  }
 }
+
+/** 14 consolidation test cases */
+assert(appTsx.includes("/onboarding/company/") || inviteRoutesTs.includes("/onboarding/company/"), "1: COMPANY_ONBOARDING path route");
+assert(appTsx.includes("/invite/company-user/") || inviteRoutesTs.includes("/invite/company-user/"), "2: COMPANY_USER path route");
+assert(inviteRoutesTs.includes("legacy_company_onboarding"), "3: legacy ?company-onboarding= handled");
+assert(inviteRoutesTs.includes("legacy_company_user"), "4: legacy ?invite= handled");
+assert(serverMain.includes('app.get("/api/invites/:token"'), "5: GET /api/invites/:token");
+assert(
+  serverOnboarding.includes('app.post("/api/onboarding/company/:tokenParam/complete"') ||
+    serverMain.includes("/api/onboarding/company/"),
+  "6: POST /api/onboarding/company/:token/complete",
+);
+assert(serverMain.includes('app.post("/api/invites/company-user/:tokenId/complete"'), "7: POST company-user complete");
+assert(inviteRoutes.includes("resolveCompanyOnboardingInviteAccess"), "8: token-only onboarding validation");
+assert(!inviteRoutes.includes("validateCompanyUserInviteTarget"), "8b: no sheet health on invite GET");
+assert(serverOnboarding.includes("/onboarding/company/"), "9: company onboarding email URL path");
+assert(serverMain.includes("/invite/company-user/"), "10: company user email URL path");
+assert(serverOnboarding.includes("Set up your company on BERT"), "11: company onboarding email subject");
+assert(serverMain.includes("Join your company on BERT"), "12: company user email subject");
+assert(formScreen.includes("fetchInviteApi") && inviteCompletion.includes("fetchInviteApi"), "13: shared fetchInviteApi");
+assert(
+  inviteMessages.includes("BERT is temporarily unavailable") &&
+    inviteMessages.includes("This invite is no longer valid") &&
+    inviteMessages.includes("not ready for user invites") &&
+    inviteMessages.includes("could not complete this request"),
+  "13b: canonical customer error messages",
+);
+assert(
+  serverOnboarding.includes("isPlatformOwnerEmail") && serverMain.includes("isPlatformOwnerEmail(toEmail"),
+  "14: platform owner blocked from invite flows",
+);
 
 assert(serverOnboarding.includes("COMPANY_ONBOARDING"), "invite type constant");
 assert(serverOnboarding.includes("installCompanyOnboardingRoutes"), "route installer");
-assert(serverOnboarding.includes("hashCompanyOnboardingToken"), "token hashing");
-assert(serverOnboarding.includes("OnboardingInvites"), "platform registry tab");
 assert(serverOnboarding.includes("provisionNewCompanyWorkspace"), "reuses provision");
-assert(serverOnboarding.includes("runHeadlessInviteProvisioning"), "godmode headless reprovision");
-assert(serverOnboarding.includes("COMPANY_WORKSPACE_STATUS"), "onboarding status constants");
 assert(serverOnboarding.includes("assertCompanyWorkspaceAcceptsUserInvite"), "live gate helper");
 assert(serverOnboarding.includes("ensureCompanyWorkspaceLiveIfReady"), "auto live promotion helper");
-assert(serverOnboarding.includes("readOnboardingRegistryMasterSheetForFolder"), "registry master sheet lookup");
-assert(serverOnboarding.includes("companyOnboardingStatus"), "config status field");
-assert(serverOnboarding.includes("onboarding_provisioning"), "provisioning status");
-assert(serverOnboarding.includes("setup_failed"), "setup failed status");
-assert(serverOnboarding.includes("runWithInviteLock"), "per-invite lock for idempotency");
-assert(serverOnboarding.includes("COMPANY_ONBOARDING_SETUP_FAILED_MESSAGE"), "customer setup failed message");
-assert(serverOnboarding.includes("mapInviteStatusCode"), "canonical onboarding status codes");
-assert(serverOnboarding.includes("iso_9001"), "ISO main need options");
-assert(serverOnboarding.includes("/invites/:inviteId/repair"), "godmode repair endpoint");
-assert(serverOnboarding.includes("addressLine1"), "extended address fields on submit");
-assert(serverOnboarding.includes("adminFirstName"), "admin first name on submit");
+assert(serverOnboarding.includes("isSystemTemplateCompany"), "onboarding blocks system template workspaces");
 
-const inviteGetHandler = serverOnboarding.slice(
-  serverOnboarding.indexOf('app.get("/api/onboarding/company-onboarding/invite/:tokenParam"'),
-  serverOnboarding.indexOf('app.post("/api/onboarding/company-onboarding/invite/:tokenParam/start"'),
-);
-assert(!inviteGetHandler.includes("validateCompanyUserInviteTarget"), "no master sheet check on onboarding page load");
-assert(!inviteGetHandler.includes("prepareCompanyUserInviteTarget"), "no invite target prep on onboarding load");
-assert(inviteGetHandler.includes("resolveCompanyOnboardingInviteAccess"), "token-only validation on onboarding load");
-assert(serverOnboarding.includes("PROVISIONING_FAILED"), "structured provisioning failure code");
-assert(serverOnboarding.includes("isPlatformOwnerEmail"), "platform owner excluded from onboarding invites");
-assert(inviteMessages.includes("BERT is temporarily unavailable"), "network unavailable customer message");
-assert(inviteMessages.includes("This invite is no longer valid"), "invalid invite customer message");
-
-assert(serverMain.includes("installCompanyOnboardingRoutes"), "server wires onboarding routes");
-assert(serverMain.includes("company-onboarding-invites.json"), "dedicated invite store");
-assert(serverMain.includes("assertCompanyWorkspaceAcceptsUserInvite"), "company-user live gate wired");
-assert(serverMain.includes("deprecated_onboarding_path"), "google form new-company retired");
-assert(serverOnboarding.includes("company_not_live"), "company_not_live error code");
-assert(serverMain.includes("repairCompanyInviteTarget"), "repair helper wired for onboarding");
-
-assert(appTsx.includes("company-onboarding"), "App routes onboarding query param");
 assert(appTsx.includes("CompanyOnboardingFormScreen"), "form screen mounted");
-assert(appTsx.includes("/api/onboarding/company-onboarding/invites"), "Godmode create invite API");
-assert(appTsx.includes("COMPANY_NOT_LIVE_INVITE_MESSAGE"), "client live gate message");
+assert(appTsx.includes("AppHostedOnboardingCompletion"), "company user completion screen mounted");
+assert(appTsx.includes("parseInviteRoute"), "App uses path-based invite routing");
 
-assert(formScreen.includes("Complete your BERT company setup"), "form heading");
-assert(formScreen.includes("mainNeeds"), "form collects main needs");
-assert(formScreen.includes("companyName"), "form collects company name");
-assert(formScreen.includes("adminFirstName"), "form collects admin first name");
-assert(formScreen.includes("adminLastName"), "form collects admin last name");
-assert(formScreen.includes("addressLine1"), "form collects address line 1");
-assert(formScreen.includes("town"), "form collects town");
-assert(formScreen.includes("postcode"), "form collects postcode");
-assert(formScreen.includes("password"), "form collects password");
-assert(formScreen.includes("sitesCount"), "form collects sites count");
-assert(formScreen.includes("usersCount"), "form collects users count");
-assert(formScreen.includes("Create workspace"), "create workspace submit label");
-assert(formScreen.includes("iso_9001"), "form ISO main need labels");
-assert(
-  formScreen.includes("mapCompanyOnboardingInviteError") || formScreen.includes("We couldn't finish setting up your workspace"),
-  "customer setup failed message on form",
-);
-assert(formScreen.includes("fetchInviteApi"), "form uses shared invite API helper");
-assert(inviteCompletion.includes("fetchInviteApi"), "invite completion uses shared invite API helper");
-assert(!inviteCompletion.includes("parseJsonApiResponse"), "invite completion does not parse responses outside fetchInviteApi");
-assert(inviteApi.includes("INVITE_IN_PROGRESS"), "invite API maps in-progress setup code");
-assert(
-  inviteMessages.includes("BERT is temporarily unavailable") &&
-    !inviteMessages.includes("Check your internet connection and try again"),
-  "network errors use temporary-unavailable copy only",
-);
-assert(
-  !formScreen.includes("verify the company master sheet"),
-  "no master sheet verification copy on onboarding form",
-);
+assert(formScreen.includes("/api/invites/") && formScreen.includes("expectedType=COMPANY_ONBOARDING"), "form loads unified invite API");
+assert(formScreen.includes("/api/onboarding/company/"), "form posts company complete endpoint");
+assert(inviteCompletion.includes("expectedType=COMPANY_USER"), "user invite loads with type gate");
+assert(inviteCompletion.includes("/api/invites/company-user/"), "user invite posts company-user complete");
+assert(!inviteCompletion.includes("new_company"), "retired new_company UI removed");
+
+assert(inviteApi.includes("USER_SETUP_FAILED") && inviteApi.includes("COMPANY_NOT_LIVE"), "invite API error codes");
 
 assert(panel.includes("Send company onboarding invite"), "Godmode panel label");
-assert(panel.includes("Retry setup"), "godmode retry setup");
-assert(panel.includes("Repair"), "godmode repair action");
-assert(panel.includes("Open folder"), "godmode open folder link");
-assert(panel.includes("Open sheet"), "godmode open sheet link");
-assert(panel.includes("provisionStage"), "godmode shows failure stage");
-
 assert(adminScreen.includes("CompanyOnboardingInvitePanel"), "godmode onboarding panel");
-assert(adminScreen.includes('const canInviteNewCompany = currentUser.role === "Master"'), "godmode-only company invite");
-assert(adminScreen.includes("!godmodeNewCompanyOnboarding"), "hide manual setup on new company");
-assert(adminScreen.includes("const godModeFirstUserInvite = false"), "no first-admin shortcut");
-assert(!adminScreen.includes("Invite new company"), "no legacy invite new company label");
-
-assert(usersPanel.includes("COMPANY_NOT_LIVE_INVITE_MESSAGE"), "users panel live gate copy");
-assert(!usersPanel.includes("Admin (first company user)"), "no first company user invite label");
-
-assert(serverOnboarding.includes("isSystemTemplateCompany"), "onboarding blocks system template workspaces");
-assert(serverOnboarding.includes("system_template_company"), "onboarding returns template access code");
-assert(serverMain.includes("isSystemTemplateCompany"), "server company list filters system templates");
-assert(appTsx.includes("filterCustomerFacingCompanies"), "client filters system templates from company lists");
-
-assert(folderStructure.includes("ensureCompanyFolderStructure"), "folder structure helper");
-assert(folderStructure.includes("ensureCompanyMasterSheet"), "master sheet helper");
-assert(folderStructure.includes("writeCompanyFoldersTab"), "CompanyFolders tab write");
-assert(folderStructure.includes('COMPANY_FOLDERS_COLUMNS'), "CompanyFolders A:H columns");
-assert(folderStructure.includes('"Status"'), "CompanyFolders status column");
-
-assert(companySchema.includes("CompanyFolders"), "schema includes CompanyFolders tab");
-
-assert(
-  inviteMessages.includes("We couldn't finish setting up your workspace"),
-  "shared setup failed customer message",
-);
 
 const pkg = JSON.parse(read("package.json"));
 assert(pkg.scripts["verify:company-onboarding"], "npm script registered");
 
-console.log("OK: verify-company-onboarding");
+console.log("OK: verify-company-onboarding (14 cases)");

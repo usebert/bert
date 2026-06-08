@@ -81,6 +81,7 @@ import {
   readCompanyWorkspaceRegistryMap,
   recordCompanyWorkspaceHealthCheck,
 } from "./company-workspace-registry.mjs";
+import { createGetInviteHandler, resolveCompanyUserInviteTokenAccess } from "./invite-routes.mjs";
 import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
 import { isSystemTemplateCompany } from "../shared/system-template-company.mjs";
 
@@ -1975,7 +1976,7 @@ function normalizeInviteProvisionFields(record) {
 
 function buildAppOnboardingUrl(tokenId) {
   const base = requiredEnv.FRONTEND_URL.replace(/\/$/, "");
-  return `${base}/?invite=${encodeURIComponent(tokenId)}`;
+  return `${base}/invite/company-user/${encodeURIComponent(tokenId)}`;
 }
 
 function buildAppOnboardingInviteMailto({ toEmail, subjectLine, invitedBy, onboardingUrl }) {
@@ -2063,7 +2064,7 @@ async function sendCompanyOnboardingFormEmail(toEmail) {
 function buildCompanyUserInviteEmailDraft({ inviteRole, inviteUrl }) {
   const senderEmail = getCompanyOnboardingSenderEmail();
   const deliverabilityNote = companyOnboardingDeliverabilityNote(senderEmail);
-  const subject = "Your BERT account invite";
+  const subject = "Join your company on BERT";
   const textBody = [
     "Hi,",
     "",
@@ -4936,6 +4937,14 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
       res.status(400).json({ ok: false, error: "A valid email address is required." });
       return;
     }
+    if (isPlatformOwnerEmail(toEmail, process.env)) {
+      res.status(400).json({
+        ok: false,
+        code: "INVITE_INVALID",
+        error: "The platform owner account cannot be used for company user invites.",
+      });
+      return;
+    }
     if (!["Admin", "Manager", "Auditor"].includes(inviteRole)) {
       res.status(400).json({ ok: false, error: "Role must be Admin, Manager, or Auditor." });
       return;
@@ -5293,153 +5302,16 @@ app.get("/api/onboarding/company-invite-target-diagnostics", requireGoogleWorksp
   }
 });
 
-app.get("/api/onboarding/app-invites/:tokenId", async (req, res) => {
-  const tokenId = String(req.params.tokenId || "").trim();
-  if (!tokenId) {
-    return res.status(400).json({ ok: false, error: "Invite token is required." });
-  }
-  const recordRaw = getInviteRecord(tokenId);
-  if (!recordRaw) {
-    return res.status(404).json({ ok: false, error: "This invite link is not valid." });
-  }
-  const record = normalizeInviteProvisionFields(recordRaw);
-  if (record.kind === "company_user" && Date.now() <= record.expiresAt) {
-    const auth = getAuthedClient();
-    if (auth) {
-      const targetCheck = await validatePreparedCompanyUserInviteTarget(auth, record, tokenId);
-      if (!targetCheck.ok && targetCheck.code !== "google_not_connected") {
-        return res.status(targetCheck.httpStatus).json({
-          ok: false,
-          code: targetCheck.code,
-          error: targetCheck.message,
-          staleTarget: targetCheck.code === "stale_invite_target",
-          masterSheetIdPresent: targetCheck.masterSheetIdPresent,
-          diagnostics: targetCheck.diagnostics,
-        });
-      }
-      if (targetCheck.resolved?.masterSheetId) {
-        record = {
-          ...record,
-          companyFolderId: targetCheck.resolved.companyFolderId || record.companyFolderId,
-          masterSheetId: targetCheck.resolved.masterSheetId,
-          companyName: targetCheck.resolved.companyName || record.companyName,
-        };
-      }
-    } else if (!String(record.masterSheetId || "").trim() || !String(record.companyFolderId || "").trim()) {
-      return res.status(409).json({
-        ok: false,
-        code: "stale_invite_target",
-        error:
-          "This invite is out of date. Please ask your administrator to send a fresh invite.",
-        staleTarget: true,
-        masterSheetIdPresent: Boolean(record.masterSheetId),
-      });
-    }
-  }
-  if (record.consumedAt) {
-    const folderId = record.provisionDriveFolderId;
-    if (record.kind === "company_user") {
-      const auth = getAuthedClient();
-      const targetCheck = await validatePreparedCompanyUserInviteTarget(auth, record, tokenId);
-      const assessment = await assessCompanyUserInviteReadiness(
-        auth,
-        record.masterSheetId,
-        record.email,
-        record,
-      );
-      if (assessment.setupIncomplete) {
-        const canRetrySetup = targetCheck.ok && targetCheck.masterSheetIdPresent;
-        return res.json({
-          ok: true,
-          kind: "company_user",
-          email: record.email,
-          role: record.role,
-          invitedBy: record.invitedBy || "",
-          companyName: record.companyName || "",
-          setupIncomplete: true,
-          canRetrySetup,
-          staleTarget: !canRetrySetup,
-          provisionStatus: record.provisionStatus,
-          masterSheetId: record.masterSheetId || "",
-          companyFolderId: record.companyFolderId || "",
-          storageHint: canRetrySetup
-            ? assessment.storageHint
-            : "This invite points to a workspace that is no longer available. Ask your administrator to send a new invite.",
-          ...assessment,
-        });
-      }
-      if (assessment.loginReady) {
-        return res.json({
-          ok: true,
-          kind: "company_user",
-          email: record.email,
-          role: record.role,
-          invitedBy: record.invitedBy || "",
-          companyName: record.companyName || "",
-          setupIncomplete: false,
-          loginReady: true,
-          status: "active",
-          masterSheetId: record.masterSheetId || "",
-          companyFolderId: record.companyFolderId || "",
-          storageHint: assessment.storageHint,
-        });
-      }
-    }
-    const consumedBody = {
-      ok: false,
-      error: "This invite has already been used.",
-      provisionStatus: record.provisionStatus || "succeeded",
-      outcome: record.kind === "new_company" ? "new_company" : "company_user",
-      ...(record.kind === "new_company" && folderId
-        ? {
-            folderUrl: `https://drive.google.com/drive/folders/${folderId}`,
-            companyFolderId: folderId,
-            masterSheetId: record.provisionMasterSheetId || "",
-          }
-        : {}),
-    };
-    return res.status(410).json(consumedBody);
-  }
-  if (Date.now() > record.expiresAt) {
-    return res.status(410).json({
-      ok: false,
-      code: "invite_expired",
-      error: "This invite has expired. Ask your administrator to send a new invite.",
-    });
-  }
-  const provisionExtras = {
-    provisionStatus: record.provisionStatus,
-    provisionStartedAt: record.provisionStartedAt,
-    provisionFinishedAt: record.provisionFinishedAt,
-    provisionError: record.provisionError || "",
-    provisionDriveFolderId: record.provisionDriveFolderId || "",
-    provisionMasterSheetId: record.provisionMasterSheetId || "",
-  };
-  const payload =
-    record.kind === "new_company"
-      ? {
-          ok: true,
-          kind: "new_company",
-          email: record.email,
-          invitedBy: record.invitedBy || "",
-          ...provisionExtras,
-        }
-      : {
-          ok: true,
-          kind: "company_user",
-          email: record.email,
-          role: record.role,
-          invitedBy: record.invitedBy || "",
-          companyName: record.companyName || "",
-          masterSheetId: record.masterSheetId || "",
-          companyFolderId: record.companyFolderId || "",
-          canRetrySetup: Boolean(record.masterSheetId),
-          ...provisionExtras,
-        };
-  return res.json(payload);
+const handleGetInviteToken = createGetInviteHandler({ sessionDir, getInviteRecord });
+
+app.get("/api/invites/:token", handleGetInviteToken);
+
+app.get("/api/onboarding/app-invites/:tokenId", (req, res) => {
+  req.query = { ...req.query, expectedType: "COMPANY_USER" };
+  return handleGetInviteToken(req, res);
 });
 
-app.post("/api/onboarding/app-invites/:tokenId/complete", async (req, res) => {
+async function handleAppInviteComplete(req, res) {
   try {
     const authed = getAuthedClient();
     const tokenId = String(req.params.tokenId || "").trim();
@@ -5478,8 +5350,36 @@ app.post("/api/onboarding/app-invites/:tokenId/complete", async (req, res) => {
       if (!record) {
         res.status(404).json({
           ok: false,
-          code: "invite_not_found",
+          code: "INVITE_INVALID",
           error: "This invite link is not valid. Ask your administrator to send a new invite.",
+        });
+        return;
+      }
+
+      if (record.kind === "new_company") {
+        res.status(400).json({
+          ok: false,
+          code: "INVITE_WRONG_TYPE",
+          error: "New company setup uses the company onboarding link from your email.",
+        });
+        return;
+      }
+
+      if (isPlatformOwnerEmail(String(record.email || "").trim(), process.env)) {
+        res.status(400).json({
+          ok: false,
+          code: "INVITE_INVALID",
+          error: "The platform owner account cannot be used for invite flows.",
+        });
+        return;
+      }
+
+      const tokenAccess = resolveCompanyUserInviteTokenAccess(record, tokenId);
+      if (!tokenAccess.ok && tokenAccess.code !== "INVITE_ALREADY_USED") {
+        res.status(tokenAccess.httpStatus).json({
+          ok: false,
+          code: tokenAccess.code,
+          error: tokenAccess.error,
         });
         return;
       }
@@ -5862,7 +5762,10 @@ app.post("/api/onboarding/app-invites/:tokenId/complete", async (req, res) => {
       });
     }
   }
-});
+}
+
+app.post("/api/onboarding/app-invites/:tokenId/complete", handleAppInviteComplete);
+app.post("/api/invites/company-user/:tokenId/complete", handleAppInviteComplete);
 
 app.get("/api/invites/smtp/status", smtpStatusGetRateLimit, async (_req, res) => {
   const config = smtpConfigSummary();
