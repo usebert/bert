@@ -166,7 +166,10 @@ assert(registry.includes("ensureCompanyRegistryRecordForWorkspace"), "17a: ensur
 assert(progress.includes("ensureCompanyRegistryRecordForWorkspace"), "17b: repair-setup resolves registry first");
 assert(registry.includes("ensureCompanyRegistryRecordForWorkspace(auth, deps, {"), "17c: mark live ensures registry");
 assert(panel.includes("Company registry link missing"), "17d: godmode panel registry link missing copy");
-assert(!panel.includes("Not In Registry"), "17e: godmode panel avoids dead-end Not In Registry copy");
+assert(panel.includes("onOneClickGoogleOnboarding"), "17e: registry relink uses repair-setup handler");
+assert(!panel.includes("Mark company LIVE if ready"), "17f: godmode panel avoids separate mark-live button");
+assert(!panel.includes("markLiveIfReady"), "17g: godmode panel avoids mark-live-if-ready endpoint");
+assert(!panel.includes("Not In Registry"), "17h: godmode panel avoids dead-end Not In Registry copy");
 assert(registry.includes('normalized === "not_in_registry"'), "17f: not_in_registry humanized for API");
 
 const pkg = JSON.parse(read("package.json"));

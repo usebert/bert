@@ -20,7 +20,6 @@ import type { AreaAuditMapping } from "../../utils/areaAuditMapping";
 import type { AuditTemplate } from "../../types/reportsScreenProps";
 import type { CompanyFolder, CompanySheetSyncStatus, WorkspaceValidation } from "../../types/dashboardScreenProps";
 import type { CompanySetupNextAction } from "../../utils/companyWorkspaceStatus";
-import { companyWorkspaceRegistryService } from "../../services/companyWorkspaceRegistryService";
 import {
   COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
   COMPANY_SETUP_STEP_LABELS,
@@ -249,8 +248,6 @@ export function GodmodeCompanyWorkspacePanel({
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [inviteTargetDiagnostic, setInviteTargetDiagnostic] = useState("");
   const [inviteTargetRepairing, setInviteTargetRepairing] = useState(false);
-  const [markLiveLoading, setMarkLiveLoading] = useState(false);
-  const [markLiveMessage, setMarkLiveMessage] = useState("");
   const isProvisioning = companyFolderStructureRepairing || companyMasterSheetProvisioning;
   const healthCheckRun = workspaceValidation != null;
   const workspaceHealthOk = workspaceValidation?.ok ?? false;
@@ -464,39 +461,6 @@ export function GodmodeCompanyWorkspacePanel({
     selectedFolder?.id,
     selectedFolder?.name,
   ]);
-
-  const markCompanyLiveIfReady = async () => {
-    if (!selectedFolder?.id || markLiveLoading) {
-      return;
-    }
-    setMarkLiveLoading(true);
-    setMarkLiveMessage("");
-    try {
-      const result = await companyWorkspaceRegistryService.markLiveIfReady({
-        companyId: selectedFolder.id,
-        companyName: selectedFolder.name,
-        checks: {
-          rootFolderId: selectedFolder.id,
-          masterSheetId: companyMasterSheetId || folderInspection?.masterSheet?.id || "",
-          folderStructureOk,
-          requiredTabsOk: Boolean(requiredTabsOk),
-          companyFoldersMappingOk,
-          firstAdminReady,
-          healthCheckRun,
-          workspaceHealthOk,
-        },
-      });
-      setMarkLiveMessage(
-        result.alreadyLive || result.promoted
-          ? "Company registry status is Live. User invites are now enabled."
-          : "Company marked Live in the registry.",
-      );
-    } catch (error) {
-      setMarkLiveMessage(error instanceof Error ? error.message : "Unable to mark company Live.");
-    } finally {
-      setMarkLiveLoading(false);
-    }
-  };
 
   const repairInviteCompanySheetLink = async () => {
     if (!selectedFolder?.id || inviteTargetRepairing) {
@@ -712,22 +676,15 @@ export function GodmodeCompanyWorkspacePanel({
                     ))}
                   </ul>
                 ) : null}
-                {readinessChecksGreen ? (
-                  <button
-                    type="button"
-                    onClick={() => void markCompanyLiveIfReady()}
-                    disabled={adminOnly || !googleWorkspaceReady || markLiveLoading}
-                    className="mt-3 inline-flex h-10 items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {markLiveLoading ? "Updating registry…" : "Mark company LIVE if ready"}
-                  </button>
-                ) : null}
+                <button
+                  type="button"
+                  onClick={() => void onOneClickGoogleOnboarding()}
+                  disabled={adminOnly || !googleWorkspaceReady || isProvisioning}
+                  className="mt-3 inline-flex h-10 items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isProvisioning ? "Running setup…" : "Repair / complete setup"}
+                </button>
               </div>
-            ) : null}
-            {markLiveMessage ? (
-              <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-                {markLiveMessage}
-              </p>
             ) : null}
             {inviteTargetDiagnostic ? (
               <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
