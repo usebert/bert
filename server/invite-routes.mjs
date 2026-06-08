@@ -161,8 +161,6 @@ export function createGetInviteHandler(deps) {
       role: record.role,
       invitedBy: record.invitedBy || "",
       companyName: record.companyName || "",
-      masterSheetId: record.masterSheetId || "",
-      companyFolderId: record.companyFolderId || "",
       setupIncomplete: Boolean(access.setupIncomplete),
       canRetrySetup: access.canRetrySetup !== false,
     });

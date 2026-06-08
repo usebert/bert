@@ -66,12 +66,15 @@ assert(
   "6: POST /api/onboarding/company/:token/complete",
 );
 assert(serverMain.includes('app.post("/api/invites/company-user/:tokenId/complete"'), "7: POST company-user complete");
+assert(serverMain.includes('inviteType: "COMPANY_USER"'), "invite record stores COMPANY_USER type");
+assert(serverMain.includes("USER_SETUP_FAILED"), "complete failure uses USER_SETUP_FAILED");
 assert(inviteRoutes.includes("resolveCompanyOnboardingInviteAccess"), "8: token-only onboarding validation");
 assert(!inviteRoutes.includes("validateCompanyUserInviteTarget"), "8b: no sheet health on invite GET");
 assert(serverOnboarding.includes("/onboarding/company/"), "9: company onboarding email URL path");
 assert(serverMain.includes("/invite/company-user/"), "10: company user email URL path");
 assert(serverOnboarding.includes("Set up your company on BERT"), "11: company onboarding email subject");
-assert(serverMain.includes("Join your company on BERT"), "12: company user email subject");
+assert(serverMain.includes("You've been invited to join"), "12: company user email subject");
+assert(serverMain.includes("Set up your BERT account"), "12b: company user email CTA");
 assert(formScreen.includes("fetchInviteApi") && inviteCompletion.includes("fetchInviteApi"), "13: shared fetchInviteApi");
 assert(
   inviteMessages.includes("BERT is temporarily unavailable") &&
@@ -103,7 +106,10 @@ assert(formScreen.includes("/api/invites/") && formScreen.includes("expectedType
 assert(formScreen.includes("/api/onboarding/company/"), "form posts company complete endpoint");
 assert(inviteCompletion.includes("expectedType=COMPANY_USER"), "user invite loads with type gate");
 assert(inviteCompletion.includes("/api/invites/company-user/"), "user invite posts company-user complete");
+assert(inviteCompletion.includes("You've been invited to join"), "user invite headline uses company name");
+assert(inviteCompletion.includes("Set up your BERT account"), "user invite submit CTA");
 assert(!inviteCompletion.includes("new_company"), "retired new_company UI removed");
+assert(!inviteCompletion.includes("details?.masterSheetId"), "user invite load does not depend on masterSheetId");
 
 assert(inviteApi.includes("USER_SETUP_FAILED") && inviteApi.includes("COMPANY_NOT_LIVE"), "invite API error codes");
 

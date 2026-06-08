@@ -16,10 +16,9 @@ import {
 } from "../../utils/inviteStatusDisplay";
 
 const USER_INVITE_NEXT_STEPS = [
-  "Recipient checks Inbox and Junk/Spam for the setup email.",
-  "They open the invite link and complete name and password setup.",
-  "Verify the company master spreadsheet Users tab and Config UserAuth.",
-  "Status changes to Active when they can sign in to BERT.",
+  "They check email (and junk folder) for the setup message.",
+  "They open the link and choose a name and password.",
+  "They sign in to BERT when setup is complete.",
 ];
 
 function isActiveCompanyUserInvite(invite: { status: string; loginReady?: boolean }) {
@@ -27,7 +26,6 @@ function isActiveCompanyUserInvite(invite: { status: string; loginReady?: boolea
 }
 
 export type GodmodeUserManagementSectionProps = {
-  companyLive: boolean;
   inviteEmailInput: string;
   inviteRoleInput: Role;
   invitedUsers: UserInvite[];
@@ -65,7 +63,6 @@ function normalizeIdentity(value: string | null | undefined) {
 }
 
 export function GodmodeUserManagementSection({
-  companyLive,
   inviteEmailInput,
   inviteRoleInput,
   invitedUsers,
@@ -93,25 +90,10 @@ export function GodmodeUserManagementSection({
   CompanyUserInviteEmailResultPanel,
   slatePrimaryCtaInteract,
 }: GodmodeUserManagementSectionProps) {
-  if (!companyLive) {
-    return (
-      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-        <p className="text-sm font-semibold text-slate-900">User invites locked until live</p>
-        <p className="mt-2 text-sm leading-relaxed text-slate-600">
-          Normal user invites are available after the company is live. The first admin is created through the company
-          onboarding invite.
-        </p>
-        <p className="mt-2 text-xs text-slate-500">
-          First admin = company onboarding invite · Normal users = company user invites after Live
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
       <p className="text-xs text-slate-500">
-        First admin = company onboarding invite · Normal users = company user invites after Live
+        Send a company user invite. The recipient sets their name and password from the email link.
       </p>
       <div className={pilotLightNested}>
         <p className="text-sm font-semibold text-slate-900">Invite users</p>

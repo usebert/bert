@@ -135,7 +135,7 @@ export type GodmodeCompanyWorkspacePanelProps = {
   onAddFolder?: () => void;
   onGoogleConnect?: () => void;
   slatePrimaryCtaInteract: string;
-  userManagement?: Omit<GodmodeUserManagementSectionProps, "companyLive" | "pilotLightNested"> & {
+  userManagement?: Omit<GodmodeUserManagementSectionProps, "pilotLightNested"> & {
     pilotEditableInput: string;
   };
 };
@@ -898,12 +898,11 @@ export function GodmodeCompanyWorkspacePanel({
                 icon="user"
                 eyebrow="People"
                 title="User management"
-                subtitle="First admin via onboarding invite; field users after the company is live."
+                subtitle="Invite users by email. They complete name and password from the link."
               />
               <div className="mt-4">
                 <GodmodeUserManagementSection
                   {...userManagement}
-                  companyLive={companyLive}
                   pilotLightNested={pilotLightNested}
                 />
               </div>

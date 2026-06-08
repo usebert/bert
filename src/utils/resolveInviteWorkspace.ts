@@ -87,9 +87,8 @@ function resolveMasterInviteWorkspace(input: ResolveInviteWorkspaceInput): Resol
   if (!companyFolderId || !masterSheetId) {
     return { ok: false, message: LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE };
   }
-  const registryStatus = String(input.companyContext?.registryStatus || "").trim();
-  if (!isCompanyRegistryLive({ status: registryStatus, registryStatus })) {
-    return { ok: false, message: ADMIN_INVITE_INCOMPLETE_SETUP_MESSAGE };
+  if (isArchiveOrNonLiveWorkspaceName(companyName)) {
+    return { ok: false, message: LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE };
   }
 
   return {

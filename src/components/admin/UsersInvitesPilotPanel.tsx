@@ -464,7 +464,7 @@ export function UsersInvitesPilotPanel({
   }, [isMasterActor, currentUser.username]);
 
   const companyLiveForInvites = isMasterActor
-    ? workspaceSetupComplete && effectiveRegistryStatus === "Live"
+    ? true
     : canInviteCompanyUsers(
         { role: currentUser.role, accessLevel: currentUser.accessLevel },
         { status: effectiveRegistryStatus, registryStatus: effectiveRegistryStatus },

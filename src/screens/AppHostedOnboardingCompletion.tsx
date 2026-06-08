@@ -18,10 +18,7 @@ type CompanyUserInviteDetails = {
   role: Role;
   invitedBy: string;
   companyName: string;
-  masterSheetId?: string;
-  companyFolderId?: string;
   setupIncomplete?: boolean;
-  canRetrySetup?: boolean;
 };
 
 type CompanyUserCompletePayload = {
@@ -47,7 +44,6 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [done, setDone] = useState(false);
   const [submitError, setSubmitError] = useState("");
 
   useEffect(() => {
@@ -106,6 +102,7 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({
             fullName: fullName.trim(),
             password,
@@ -136,17 +133,16 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
 
       const payload = result.data;
       const email = String(payload.email || details?.email || "").trim().toLowerCase();
-      const masterSheetId = String(payload.masterSheetId || details?.masterSheetId || "").trim();
+      const masterSheetId = String(payload.masterSheetId || "").trim();
       if (email && masterSheetId) {
         saveCompanyLoginHint({
           email,
           masterSheetId,
-          companyFolderId: payload.companyFolderId || details?.companyFolderId,
+          companyFolderId: payload.companyFolderId,
           companyName: details?.companyName,
         });
       }
-      setDone(true);
-      window.history.replaceState({}, "", window.location.pathname);
+      window.location.assign("/");
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
         setSubmitError(inviteCompletionTimeoutMessage(Math.round(completeTimeoutMs / 60_000)));
@@ -159,7 +155,9 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
     }
   };
 
-  const pageTitle = details ? `Join ${details.companyName || "your company"}` : INVITE_COMPLETION_PAGE_TITLE;
+  const inviteHeadline = details?.companyName
+    ? `You've been invited to join ${details.companyName} on BERT.`
+    : INVITE_COMPLETION_PAGE_TITLE;
 
   return (
     <div
@@ -175,7 +173,7 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.28em] text-blue-400/90">Company invite</p>
             <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white">
-              {!details && !loadError ? INVITE_COMPLETION_PAGE_TITLE : pageTitle}
+              {!details && !loadError ? INVITE_COMPLETION_PAGE_TITLE : inviteHeadline}
             </h1>
           </div>
         </div>
@@ -187,29 +185,12 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
           </div>
         )}
 
-        {done && (
-          <div className="rounded-2xl border border-blue-500/30 bg-blue-950/30 p-5 text-sm leading-6 text-blue-50">
-            <p className="text-base font-semibold text-white">Account ready</p>
-            <p className="mt-2">You can sign in with your email address and the password you chose.</p>
-            <a
-              href="/"
-              className="mt-4 inline-flex h-11 items-center justify-center rounded-xl bg-orange-400 px-4 text-sm font-semibold text-slate-950 no-underline"
-            >
-              Go to sign in
-            </a>
-          </div>
-        )}
-
-        {!loadError && !done && details && (
+        {!loadError && details && (
           <form onSubmit={handleSubmit} className="space-y-4 rounded-[1.75rem] border border-white/10 bg-slate-950/60 p-6 shadow-[0_24px_60px_rgba(2,6,23,0.45)] backdrop-blur-xl">
-            <p className="text-sm text-slate-300">
-              Join {details.companyName || "your company"} as {details.role}. You will sign in with {details.email}.
-            </p>
-            {details.invitedBy && (
-              <p className="text-xs text-slate-500">Invited by {details.invitedBy}</p>
-            )}
+            <p className="text-sm text-slate-300">{inviteHeadline}</p>
+            <p className="text-xs text-slate-500">Sign in email: {details.email}</p>
             <div>
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Your full name</label>
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Your name</label>
               <input
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
@@ -219,7 +200,7 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
               />
             </div>
             <div>
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Choose password</label>
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Password</label>
               <input
                 type="password"
                 value={password}
@@ -240,15 +221,12 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
               />
             </div>
             {submitError && <p className="text-sm text-rose-300">{submitError}</p>}
-            <p className="text-xs leading-relaxed text-slate-500">
-              Finish your name and password to activate your BERT account. This usually takes less than a minute.
-            </p>
             <button
               type="submit"
-              disabled={submitting || details.canRetrySetup === false}
+              disabled={submitting}
               className="h-12 w-full rounded-2xl bg-orange-400 text-sm font-semibold text-slate-950 disabled:opacity-50"
             >
-              {submitting ? "Saving…" : "Activate account"}
+              {submitting ? "Setting up…" : "Set up your BERT account"}
             </button>
           </form>
         )}

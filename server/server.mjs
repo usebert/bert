@@ -24,7 +24,9 @@ import {
   companyUserLoginReady as workbookCompanyUserLoginReady,
   findCompanyUsersTabRow as workbookFindCompanyUsersTabRow,
   managerInvitesEnabled,
+  defaultAccessLevelForRole,
   migrateUsersTabColumns,
+  parseCompanyAreas,
   parseRoleFromUsersSheet,
   readCompanyUsersTabRecord as workbookReadCompanyUsersTabRecord,
   sanitizeUsersTabRecords,
@@ -2072,16 +2074,17 @@ async function sendCompanyOnboardingFormEmail(toEmail) {
   return { subject, body: textBody, onboardingFormUrl };
 }
 
-function buildCompanyUserInviteEmailDraft({ inviteRole, inviteUrl }) {
+function buildCompanyUserInviteEmailDraft({ companyName, inviteUrl }) {
   const senderEmail = getCompanyOnboardingSenderEmail();
   const deliverabilityNote = companyOnboardingDeliverabilityNote(senderEmail);
-  const subject = "Join your company on BERT";
+  const displayCompany = String(companyName || "").trim() || "your company";
+  const subject = `You've been invited to join ${displayCompany} on BERT`;
   const textBody = [
     "Hi,",
     "",
-    `You've been invited to access BERT as a ${inviteRole}.`,
+    `You've been invited to join ${displayCompany} on BERT.`,
     "",
-    "Open this secure invite link to continue:",
+    "Set up your BERT account:",
     inviteUrl,
     "",
     deliverabilityNote,
@@ -2091,9 +2094,8 @@ function buildCompanyUserInviteEmailDraft({ inviteRole, inviteUrl }) {
   ].join("\n");
   const htmlBody = `
     <p>Hi,</p>
-    <p>You've been invited to access <strong>${APP_BRAND_NAME}</strong> as <strong>${inviteRole}</strong>.</p>
-    <p>Open this secure invite link to continue:</p>
-    <p><a href="${inviteUrl}" target="_blank" rel="noopener noreferrer">Open your BERT invite</a></p>
+    <p>You've been invited to join <strong>${displayCompany}</strong> on <strong>${APP_BRAND_NAME}</strong>.</p>
+    <p><a href="${inviteUrl}" target="_blank" rel="noopener noreferrer">Set up your BERT account</a></p>
     <p style="word-break:break-all;font-size:12px;color:#64748b;">${inviteUrl}</p>
     <p style="font-size:13px;color:#64748b;">${deliverabilityNote}</p>
     <p>Thanks,<br/>BERT Admin</p>
@@ -2101,16 +2103,16 @@ function buildCompanyUserInviteEmailDraft({ inviteRole, inviteUrl }) {
   return { subject, textBody, htmlBody, senderEmail };
 }
 
-function buildCompanyUserInviteMailto({ toEmail, inviteRole, inviteUrl }) {
-  const { subject, textBody } = buildCompanyUserInviteEmailDraft({ inviteRole, inviteUrl });
+function buildCompanyUserInviteMailto({ toEmail, companyName, inviteUrl }) {
+  const { subject, textBody } = buildCompanyUserInviteEmailDraft({ companyName, inviteUrl });
   return `mailto:${encodeURIComponent(toEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(textBody)}`;
 }
 
-async function sendCompanyUserInviteEmail({ toEmail, inviteRole, inviteUrl }) {
+async function sendCompanyUserInviteEmail({ toEmail, companyName, inviteUrl }) {
   if (!emailConfigured()) {
     throw new Error("SMTP is not configured.");
   }
-  const { subject, textBody, htmlBody } = buildCompanyUserInviteEmailDraft({ inviteRole, inviteUrl });
+  const { subject, textBody, htmlBody } = buildCompanyUserInviteEmailDraft({ companyName, inviteUrl });
   const transporter = createSmtpTransport();
   const from = requiredEnv.SMTP_FROM_NAME
     ? `"${requiredEnv.SMTP_FROM_NAME}" <${requiredEnv.SMTP_FROM_EMAIL}>`
@@ -5090,23 +5092,42 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
         return;
       }
 
-      const liveGate = await assertCompanyWorkspaceAcceptsUserInvite(
-        { getConfig, getTabValues, registryDeps: getCompanyWorkspaceRegistryDeps() },
-        auth,
-        {
-          masterSheetId: targetCheck.resolved?.masterSheetId || masterSheetId,
-          inviteRole,
-          companyFolderId: targetCheck.resolved?.companyFolderId || companyFolderId,
-        },
-      );
-      if (!liveGate.ok) {
-        res.status(liveGate.httpStatus).json({
+      const isMasterInviter = inviteActor?.kind === "master" && inviteActor?.role === "Master";
+      const resolvedCompanyName =
+        targetCheck.resolved?.companyName || companyName || targetCheck.companyLabel || "";
+      if (
+        isSystemTemplateCompany({
+          companyName: resolvedCompanyName,
+          name: resolvedCompanyName,
+        })
+      ) {
+        res.status(403).json({
           ok: false,
-          code: liveGate.code,
-          error: liveGate.message,
-          blocker: liveGate.code,
+          code: "system_template_company",
+          error: "This workspace is a system template and cannot be used for live company access.",
+          blocker: "system_template_company",
         });
         return;
+      }
+      if (!isMasterInviter) {
+        const liveGate = await assertCompanyWorkspaceAcceptsUserInvite(
+          { getConfig, getTabValues, registryDeps: getCompanyWorkspaceRegistryDeps() },
+          auth,
+          {
+            masterSheetId: targetCheck.resolved?.masterSheetId || masterSheetId,
+            inviteRole,
+            companyFolderId: targetCheck.resolved?.companyFolderId || companyFolderId,
+          },
+        );
+        if (!liveGate.ok) {
+          res.status(liveGate.httpStatus).json({
+            ok: false,
+            code: liveGate.code,
+            error: liveGate.message,
+            blocker: liveGate.code,
+          });
+          return;
+        }
       }
 
       let id;
@@ -5129,20 +5150,25 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
       } else {
         ({ id } = createInviteRecord({
           kind: "company_user",
+          inviteType: "COMPANY_USER",
+          status: "PENDING",
           email: toEmail,
           role: inviteRole,
+          accessLevel: defaultAccessLevelForRole(inviteRole),
+          companyAreas: "",
           invitedBy,
           companyId: targetCheck.resolved?.companyId || companyFolderId,
           companyFolderId: targetCheck.resolved?.companyFolderId || companyFolderId,
           masterSheetId: targetCheck.resolved?.masterSheetId || masterSheetId,
-          companyName,
+          companyName: resolvedCompanyName || companyName,
         }));
         console.log(`[invite] company_user created token=${id.slice(0, 8)} recipient=${toEmail}`);
       }
 
       const inviteUrl = buildAppOnboardingUrl(id);
+      const emailCompanyName = resolvedCompanyName || companyName;
       const { subject, textBody, senderEmail } = buildCompanyUserInviteEmailDraft({
-        inviteRole,
+        companyName: emailCompanyName,
         inviteUrl,
       });
       const smtpConfigured = emailConfigured();
@@ -5162,7 +5188,7 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
         setupIncomplete: lifecycle.setupIncomplete,
         storageHint: lifecycle.storageHint,
         emailDraft: { subject, body: textBody },
-        mailtoUrl: buildCompanyUserInviteMailto({ toEmail, inviteRole, inviteUrl }),
+        mailtoUrl: buildCompanyUserInviteMailto({ toEmail, companyName: emailCompanyName, inviteUrl }),
         ...(smtpError ? { smtpError } : {}),
       });
 
@@ -5173,7 +5199,7 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
       }
 
       try {
-        await sendCompanyUserInviteEmail({ toEmail, inviteRole, inviteUrl });
+        await sendCompanyUserInviteEmail({ toEmail, companyName: emailCompanyName, inviteUrl });
         console.log(`[smtp] company user invite email sent recipient=${toEmail}`);
         res.json({
           ok: true,
@@ -5649,6 +5675,8 @@ async function handleAppInviteComplete(req, res) {
             const userId = `app-${String(record.email || "")
               .toLowerCase()
               .replace(/[^a-z0-9]+/gi, "-")}-${String(record.role || "").toLowerCase()}`;
+            const inviteAccessLevel =
+              String(record.accessLevel || "").trim() || defaultAccessLevelForRole(record.role);
             const usersResult = await writeCompanyUsers(authed, record.masterSheetId, record.companyFolderId, [
               {
                 id: userId,
@@ -5656,6 +5684,7 @@ async function handleAppInviteComplete(req, res) {
                 role: record.role,
                 name: fullName,
                 password,
+                accessLevel: inviteAccessLevel,
                 companyAreas: String(record.companyAreas || "").trim(),
                 invitedBy: record.invitedBy || APP_BRAND_NAME,
                 senderEmail: "",
@@ -5679,12 +5708,26 @@ async function handleAppInviteComplete(req, res) {
               );
             }
             patchInviteRecord(tokenId, {
+              inviteType: "COMPANY_USER",
+              status: "USED",
               provisionStatus: "succeeded",
               provisionFinishedAt: Date.now(),
               provisionError: null,
               consumedAt: Date.now(),
             });
             completedMarked = true;
+            const sessionCompanyAreas = parseCompanyAreas(record.companyAreas || "");
+            const sessionPayload = JSON.stringify({
+              v: 1,
+              email: record.email,
+              masterSheetId: record.masterSheetId,
+              companyId: record.companyFolderId || record.companyId || "",
+              role: record.role,
+              name: fullName,
+              accessLevel: inviteAccessLevel,
+              companyAreas: sessionCompanyAreas,
+            });
+            res.cookie(COMPANY_SESSION_COOKIE, sessionPayload, getSessionCookieOptions({ maxAge: COMPANY_SESSION_MS }));
             console.log("[invite] company_user completion ok", {
               tokenIdPrefix: tokenId.slice(0, 8),
               email: record.email,
@@ -5699,10 +5742,9 @@ async function handleAppInviteComplete(req, res) {
               outcome: "company_user",
               loginReady: true,
               status: "active",
+              email: record.email,
               masterSheetId: record.masterSheetId,
               companyFolderId: record.companyFolderId,
-              storageHint:
-                "User saved on the company master spreadsheet (Users tab + Config UserAuth), not the operator Master sheet.",
             });
             return;
           } catch (completionErr) {
@@ -5710,11 +5752,11 @@ async function handleAppInviteComplete(req, res) {
               completionErr instanceof Error
                 ? completionErr.message
                 : "Unable to complete company user setup.";
-            const failureCode = /not found/i.test(msg) ? "stale_invite_target" : "setup_failed";
+            const failureCode = /not found/i.test(msg) ? "stale_invite_target" : "USER_SETUP_FAILED";
             const friendlyMessage =
               failureCode === "stale_invite_target"
                 ? "The company master sheet for this invite could not be found. Ask your administrator to send a new invite."
-                : "Account setup could not be finished on the company sheet. Ask your administrator to send a new invite if you still cannot sign in.";
+                : "We couldn't finish setting up your account. Ask your administrator to check your invite.";
             logInviteCompleteFailure({
               code: failureCode,
               email: record.email,
@@ -5762,11 +5804,11 @@ async function handleAppInviteComplete(req, res) {
         res.status(400).json({ ok: false, error: "Unknown invite type." });
       } catch (error) {
         const rawMsg = error instanceof Error ? error.message : "Unable to complete onboarding.";
-        const failureCode = /not found/i.test(rawMsg) ? "stale_invite_target" : "setup_failed";
+        const failureCode = /not found/i.test(rawMsg) ? "stale_invite_target" : "USER_SETUP_FAILED";
         const friendlyMessage =
           failureCode === "stale_invite_target"
             ? "The company workspace for this invite could not be found. Ask your administrator to send a new invite."
-            : "Account setup could not be completed. Ask your administrator to send a new invite if you still cannot sign in.";
+            : "We couldn't finish setting up your account. Ask your administrator to check your invite.";
         logInviteCompleteFailure({
           code: failureCode,
           email: record?.email,
