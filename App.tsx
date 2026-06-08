@@ -11751,10 +11751,13 @@ function App() {
                     </select>
                   </div>
                 ) : masterPlatformHeaderScope ? (
-                  <p className="mt-0.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">All workspaces</p>
+                  <p className={["mt-0.5 text-[11px] font-medium", themeMode === "dark" ? "text-slate-400" : "text-slate-500"].join(" ")}>All workspaces</p>
                 ) : currentUser.role === "Master" && selectedFolder && screen !== "godmodeHome" ? (
-                  <p className="mt-0.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                    Working on: <span className="font-semibold text-slate-700 dark:text-slate-200">{selectedFolder.name}</span>
+                  <p className={["mt-0.5 text-[11px] font-medium", themeMode === "dark" ? "text-slate-400" : "text-slate-500"].join(" ")}>
+                    Working on:{" "}
+                    <span className={["font-semibold", themeMode === "dark" ? "text-slate-200" : "text-slate-700"].join(" ")}>
+                      {selectedFolder.name}
+                    </span>
                   </p>
                 ) : null}
               </div>
@@ -11819,11 +11822,11 @@ function App() {
             ) : (
               <div className={["mt-1.5 hidden flex-wrap items-center gap-2 text-[10px] md:flex", themeMode === "dark" ? "text-slate-400" : "text-slate-500"].join(" ")}>
                 {masterPlatformHeaderScope ? (
-                  <span className="font-medium text-slate-600 dark:text-slate-300">Platform · All workspaces</span>
+                  <span className={["font-medium", themeMode === "dark" ? "text-slate-300" : "text-slate-600"].join(" ")}>Platform · All workspaces</span>
                 ) : selectedFolder ? (
-                  <span className="font-medium text-slate-600 dark:text-slate-300">Workspace · {selectedFolder.name}</span>
+                  <span className={["font-medium", themeMode === "dark" ? "text-slate-300" : "text-slate-600"].join(" ")}>Workspace · {selectedFolder.name}</span>
                 ) : currentUser.role !== "Master" ? (
-                  <span className="font-medium text-slate-600 dark:text-slate-300">{workspaceName}</span>
+                  <span className={["font-medium", themeMode === "dark" ? "text-slate-300" : "text-slate-600"].join(" ")}>{workspaceName}</span>
                 ) : null}
                 {showHeaderSiteSelector ? (
                   <select
@@ -12013,7 +12016,14 @@ function App() {
               />
             ) : null}
             {masterCompanyContextBlocked ? (
-              <section className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-amber-900 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-100">
+              <section
+                className={[
+                  "mb-4 rounded-2xl border px-4 py-4",
+                  themeMode === "dark"
+                    ? "border-amber-400/30 bg-amber-500/10 text-amber-100"
+                    : "border-amber-200 bg-amber-50 text-amber-900",
+                ].join(" ")}
+              >
                 <p className="text-sm font-semibold">Select a live company workspace first.</p>
                 <p className="mt-1 text-xs">
                   Company tools stay blocked until a live workspace and Company Master Sheet are selected.
@@ -12025,7 +12035,12 @@ function App() {
                       logGodmodeGuard("company-context-blocked", screen, "godmodeHome");
                       setScreen("godmodeHome");
                     }}
-                    className="inline-flex h-9 items-center rounded-lg border border-amber-300 bg-white px-3 text-xs font-semibold text-amber-900 hover:bg-amber-100 dark:border-amber-300/40 dark:bg-amber-500/10 dark:text-amber-50"
+                    className={[
+                      "inline-flex h-9 items-center rounded-lg border px-3 text-xs font-semibold",
+                      themeMode === "dark"
+                        ? "border-amber-300/40 bg-amber-500/10 text-amber-50 hover:bg-amber-500/20"
+                        : "border-amber-300 bg-white text-amber-900 hover:bg-amber-100",
+                    ].join(" ")}
                   >
                     Open Godmode home
                   </button>
@@ -12036,7 +12051,12 @@ function App() {
                         logGodmodeGuard("continue-company-setup", screen, "onboarding");
                         setScreen("onboarding");
                       }}
-                      className="inline-flex h-9 items-center rounded-lg border border-amber-300 bg-white px-3 text-xs font-semibold text-amber-900 hover:bg-amber-100 dark:border-amber-300/40 dark:bg-amber-500/10 dark:text-amber-50"
+                      className={[
+                      "inline-flex h-9 items-center rounded-lg border px-3 text-xs font-semibold",
+                      themeMode === "dark"
+                        ? "border-amber-300/40 bg-amber-500/10 text-amber-50 hover:bg-amber-500/20"
+                        : "border-amber-300 bg-white text-amber-900 hover:bg-amber-100",
+                    ].join(" ")}
                     >
                       Continue setup
                     </button>
@@ -12100,20 +12120,25 @@ function App() {
             !canCompleteAuditAsAuditor(currentUser.role) ? (
               <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 flex-1">
-                  <h1 className="text-xl font-semibold tracking-tight text-slate-900 md:text-2xl dark:text-slate-100">
+                  <h1 className={["text-xl font-semibold tracking-tight md:text-2xl", themeMode === "dark" ? "text-slate-100" : "text-slate-900"].join(" ")}>
                     {(() => {
                       const first = getGreetingFirstName(currentUserAppName);
                       return first ? `${getTimeBasedGreeting()}, ${first}` : getTimeBasedGreeting();
                     })()}
                   </h1>
-                  <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                  <p className={["mt-1 text-sm", themeMode === "dark" ? "text-slate-400" : "text-slate-600"].join(" ")}>
                     Here is what needs attention, what is due today, and what is waiting on someone else.
                   </p>
                   {dashboardNextBest?.intent.type === "screen" ? (
-                    <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                    <div
+                      className={[
+                        "bert-light-surface mt-3 rounded-2xl border p-3 shadow-sm",
+                        themeMode === "dark" ? "border-slate-700 bg-white" : "border-slate-200 bg-white",
+                      ].join(" ")}
+                    >
                       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Suggested next step</p>
                       {dashboardNextBest.description ? (
-                        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{dashboardNextBest.description}</p>
+                        <p className="mt-1 text-sm text-slate-600">{dashboardNextBest.description}</p>
                       ) : null}
                       <button
                         type="button"
@@ -12133,12 +12158,17 @@ function App() {
                       </button>
                     </div>
                   ) : dashboardNextBest && dashboardNextBest.intent.type === "none" ? (
-                    <p className="mt-2 text-sm font-medium text-emerald-800 dark:text-emerald-300">{dashboardNextBest.description ?? dashboardNextBest.label}</p>
+                    <p className={["mt-2 text-sm font-medium", themeMode === "dark" ? "text-emerald-300" : "text-emerald-800"].join(" ")}>{dashboardNextBest.description ?? dashboardNextBest.label}</p>
                   ) : null}
                 </div>
                 <button
                   type="button"
-                  className="shrink-0 self-end rounded-full border border-slate-200 bg-white p-2 text-slate-600 shadow-sm hover:bg-slate-50 sm:self-start dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                  className={[
+                    "shrink-0 self-end rounded-full border p-2 shadow-sm sm:self-start",
+                    themeMode === "dark"
+                      ? "border-slate-600 bg-slate-900 text-slate-200 hover:bg-slate-800"
+                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
+                  ].join(" ")}
                   aria-label="Notifications"
                 >
                   <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>

@@ -157,10 +157,10 @@ export function SectionHeader({
       </div>
       <div className="min-w-0">
         {eyebrow ? (
-          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">{eyebrow}</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">{eyebrow}</p>
         ) : null}
         <h3 className={["text-base font-semibold", onDark ? "text-[#F8FAFC]" : "text-slate-900"].join(" ")}>{title}</h3>
-        <p className={["text-sm", onDark ? "text-slate-300" : "text-slate-500"].join(" ")}>{subtitle}</p>
+        <p className={["text-sm", onDark ? "text-slate-300" : "text-slate-600"].join(" ")}>{subtitle}</p>
       </div>
     </div>
   );
@@ -232,7 +232,7 @@ export function EmptyPanel({ title, text }: { title: string; text: string }) {
   return (
     <div className="rounded-[1.5rem] border border-dashed border-slate-300 bg-gradient-to-b from-slate-50 to-white px-4 py-5">
       <p className="text-sm font-semibold text-slate-900">{title}</p>
-      <p className="mt-2 text-sm leading-6 text-slate-500">{text}</p>
+      <p className="mt-2 text-sm leading-6 text-slate-600">{text}</p>
     </div>
   );
 }

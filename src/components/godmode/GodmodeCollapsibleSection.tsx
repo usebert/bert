@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { BERT_LIGHT_SURFACE } from "../../styles/bertText";
 
 type Props = {
   title: string;
@@ -16,7 +17,7 @@ export function GodmodeCollapsibleSection({
   defaultOpen = false,
   openLabel = "Show",
   closeLabel = "Hide",
-  surfaceClass = "rounded-3xl border border-slate-200/90 bg-white p-4 shadow-sm",
+  surfaceClass = BERT_LIGHT_SURFACE,
   children,
 }: Props) {
   const [open, setOpen] = useState(defaultOpen);

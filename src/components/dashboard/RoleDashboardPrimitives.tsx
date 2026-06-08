@@ -24,7 +24,7 @@ function SearchIcon({ className = "h-4 w-4" }: { className?: string }) {
   );
 }
 
-export const DASHBOARD_CARD = "rounded-3xl border border-slate-200 bg-white p-6 shadow-sm";
+export const DASHBOARD_CARD = "bert-light-surface rounded-3xl border border-slate-200 bg-white p-6 shadow-sm";
 
 const PRIMARY_BUTTON_BASE =
   "inline-flex min-h-12 items-center justify-center gap-2 whitespace-nowrap rounded-2xl px-5 text-sm font-black shadow-lg disabled:cursor-not-allowed disabled:opacity-60";

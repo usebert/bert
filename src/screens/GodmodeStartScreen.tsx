@@ -6,6 +6,7 @@ import { AnimatedCard } from "../components/animation/AnimatedCard";
 import { AnimatedScreen } from "../components/animation/AnimatedScreen";
 import { GodmodeCompanyContextSelector } from "../components/godmode/GodmodeCompanyContextSelector";
 import { DashboardLandingCard, PageHeader } from "../components/dashboard/RoleDashboardPrimitives";
+import { bertLightMuted, bertLightTechnical, bertLightTitle, BERT_LIGHT_SURFACE } from "../styles/bertText";
 import { bertSecondaryButtonInteract } from "../styles/interactions";
 import { GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE } from "../utils/companyWorkspaceInvite";
 
@@ -128,7 +129,6 @@ function CompanyPickerRow({
   onRepairSetup?: () => void;
 }) {
   const ready = company.setupStatusLabel === "Ready";
-  const muted = onDark ? "text-slate-300" : "text-slate-600";
   const helperCopy = ready
     ? "This company is ready to open."
     : "This company needs setup finishing before it can be used.";
@@ -137,12 +137,14 @@ function CompanyPickerRow({
     <li
       className={[
         "rounded-3xl border p-6 shadow-sm transition",
-        onDark ? "border-white/15 bg-slate-900/60 hover:border-orange-400/35" : "border-slate-200 bg-white hover:border-slate-300",
+        onDark
+          ? "border-white/15 bg-slate-900/60 hover:border-orange-400/35"
+          : `${BERT_LIGHT_SURFACE} hover:border-slate-300`,
       ].join(" ")}
     >
       <div className="flex flex-col gap-4">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xl font-bold text-slate-950 dark:text-white">{company.name}</p>
+          <p className={["truncate", bertLightTitle(onDark)].join(" ")}>{company.name}</p>
           <span
             className={[
               "mt-3 inline-flex rounded-full border px-3 py-1 text-xs font-semibold",
@@ -151,7 +153,7 @@ function CompanyPickerRow({
           >
             {ready ? "Ready" : "Setup not finished"}
           </span>
-          <p className={`mt-3 text-sm leading-relaxed ${muted}`}>{helperCopy}</p>
+          <p className={`mt-3 ${bertLightMuted(onDark)}`}>{helperCopy}</p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           {ready ? (
@@ -204,8 +206,10 @@ function CompanyPickerRow({
         </div>
       </div>
       <details className="mt-3">
-        <summary className={`cursor-pointer text-xs font-semibold ${muted}`}>Technical details</summary>
-        <p className={`mt-2 font-mono text-[11px] leading-relaxed ${muted}`}>
+        <summary className={`cursor-pointer text-xs font-semibold ${onDark ? "text-slate-400" : "text-slate-600"}`}>
+          Technical details
+        </summary>
+        <p className={`mt-2 ${bertLightTechnical(onDark)}`}>
           Folder ID: {company.id}
           <br />
           Sheet ID: {company.masterSheetId || "Not linked yet"}
@@ -471,7 +475,10 @@ export function GodmodeStartScreen({
               <button
                 type="button"
                 onClick={onRepairLiveCompanies}
-                className="mt-2 block text-sm font-semibold text-amber-700 underline-offset-2 hover:underline dark:text-amber-200"
+                className={[
+                  "mt-2 block text-sm font-semibold underline-offset-2 hover:underline",
+                  onDark ? "text-amber-200" : "text-amber-800",
+                ].join(" ")}
               >
                 Open platform setup
               </button>

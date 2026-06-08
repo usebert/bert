@@ -20,9 +20,10 @@ import type { AreaAuditMapping } from "../../utils/areaAuditMapping";
 import type { AuditTemplate } from "../../types/reportsScreenProps";
 import type { CompanyFolder, CompanySheetSyncStatus, WorkspaceValidation } from "../../types/dashboardScreenProps";
 import type { CompanySetupNextAction } from "../../utils/companyWorkspaceStatus";
+import { BERT_LIGHT_NESTED, BERT_LIGHT_SURFACE } from "../../styles/bertText";
 
-const pilotLightSurface = "rounded-3xl border border-slate-200/90 bg-white p-4 shadow-sm";
-const pilotLightNested = "rounded-2xl border border-slate-200 bg-slate-50 p-4";
+const pilotLightSurface = BERT_LIGHT_SURFACE;
+const pilotLightNested = BERT_LIGHT_NESTED;
 
 function folderMasterSheetId(folder: CompanyFolder): string {
   const extended = folder as CompanyFolder & { masterSheetId?: string };
@@ -31,7 +32,7 @@ function folderMasterSheetId(folder: CompanyFolder): string {
 
 function SetupChecklistRow({ label, ok, hint }: { label: string; ok: boolean; hint?: string }) {
   return (
-    <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+    <div className="bert-light-surface flex items-start justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
       <div className="min-w-0">
         <p className="text-sm font-medium text-slate-800">{label}</p>
         {hint ? <p className="mt-0.5 text-xs text-slate-500">{hint}</p> : null}
@@ -50,7 +51,7 @@ function SetupChecklistRow({ label, ok, hint }: { label: string; ok: boolean; hi
 
 function FolderCheckRow({ label, ok }: { label: string; ok: boolean }) {
   return (
-    <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2">
+    <div className="bert-light-surface flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2">
       <p className="text-sm text-slate-700">{label}</p>
       <span
         className={[
@@ -504,7 +505,7 @@ export function GodmodeCompanyWorkspacePanel({
                     type="button"
                     onClick={() => onSelectFolder(folder.id)}
                     className={[
-                      "flex w-full items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition",
+                      "bert-light-surface flex w-full items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition",
                       selected
                         ? "border-orange-300 bg-orange-50 ring-1 ring-orange-200"
                         : "border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-white",
@@ -914,7 +915,7 @@ export function GodmodeCompanyWorkspacePanel({
                         <input
                           value={auditFormsFolderInput}
                           onChange={(e) => onAuditFormsFolderChange(e.target.value)}
-                          className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm"
+                          className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
                         />
                       </label>
                     ) : null}
@@ -924,7 +925,7 @@ export function GodmodeCompanyWorkspacePanel({
                         <input
                           value={setupFolderInput}
                           onChange={(e) => onSetupFolderChange(e.target.value)}
-                          className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm"
+                          className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
                         />
                       </label>
                     ) : null}
@@ -934,7 +935,7 @@ export function GodmodeCompanyWorkspacePanel({
                         <input
                           value={recordsFolderInput}
                           onChange={(e) => onRecordsFolderChange(e.target.value)}
-                          className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm"
+                          className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
                         />
                       </label>
                     ) : null}
@@ -944,7 +945,7 @@ export function GodmodeCompanyWorkspacePanel({
                         <input
                           value={evidenceFolderInput}
                           onChange={(e) => onEvidenceFolderChange(e.target.value)}
-                          className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm"
+                          className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
                         />
                       </label>
                     ) : null}
@@ -954,7 +955,7 @@ export function GodmodeCompanyWorkspacePanel({
                         <input
                           value={exportsFolderInput}
                           onChange={(e) => onExportsFolderChange(e.target.value)}
-                          className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm"
+                          className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
                         />
                       </label>
                     ) : null}
@@ -964,7 +965,7 @@ export function GodmodeCompanyWorkspacePanel({
                         <input
                           value={managementNotesFolderInput}
                           onChange={(e) => onManagementNotesFolderChange(e.target.value)}
-                          className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm"
+                          className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
                         />
                       </label>
                     ) : null}

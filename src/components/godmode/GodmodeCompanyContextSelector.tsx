@@ -20,15 +20,15 @@ export function GodmodeCompanyContextSelector({
   const onDark = themeMode === "dark";
   const shellClass = onDark
     ? "border-white/10 bg-slate-900/50"
-    : "border-slate-200 bg-gradient-to-b from-white to-slate-50";
-  const labelClass = onDark ? "text-slate-400" : "text-slate-500";
-  const bodyClass = onDark ? "text-slate-200" : "text-slate-700";
+    : "bert-light-surface border-slate-200 bg-gradient-to-b from-white to-slate-50";
+  const labelClass = onDark ? "text-slate-400" : "text-slate-600";
+  const bodyClass = onDark ? "text-slate-200" : "text-slate-800";
   const selectClass = onDark
     ? "border-slate-600 bg-slate-950 text-white"
     : "border-slate-200 bg-white text-slate-900";
   const ctaClass = onDark
     ? "border-orange-400/60 bg-orange-500/15 text-orange-100 hover:bg-orange-500/25"
-    : "border-orange-300 bg-orange-50 text-orange-900 hover:bg-orange-100";
+    : "border-orange-300 bg-orange-50 text-orange-950 hover:bg-orange-100";
 
   if (folders.length === 0 && !selectedFolderId) {
     return (

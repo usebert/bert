@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* App theme (data-qms-theme), not OS prefers-color-scheme — avoids white-on-white in light UI. */
+@custom-variant dark (&:where([data-qms-theme="dark"] &));
+
 /* BERT — Ink / Cobalt / Signal Orange (central brand tokens) */
 :root {
   font-family: "Inter", "Segoe UI", sans-serif;
@@ -14,6 +17,12 @@
   --bert-orange-dark: #c2410c;
   --bert-stone: #f8fafc;
   --bert-white: #ffffff;
+  /* Readable text tokens (light surfaces + dark chrome) */
+  --bert-text-main: #0f172a;
+  --bert-text-muted: #475569;
+  --bert-text-on-dark: #f1f5f9;
+  --bert-card-text: #0f172a;
+  --bert-border: rgba(148, 163, 184, 0.35);
   /* Readable cobalt-tinted text/icons on dark chrome (sidebar labels, etc.) */
   --bert-chrome-accent: #93c5fd;
 
@@ -45,6 +54,57 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+.bert-text-main {
+  color: var(--bert-text-main);
+}
+
+.bert-text-muted {
+  color: var(--bert-text-muted);
+}
+
+.bert-text-on-dark {
+  color: var(--bert-text-on-dark);
+}
+
+.bert-card-text {
+  color: var(--bert-card-text);
+}
+
+/* Light cards stay white with dark copy even inside a dark app shell. */
+.bert-light-surface {
+  color: var(--bert-card-text);
+  border-color: var(--bert-border);
+}
+
+[data-qms-theme="dark"] .qms-screen-stage .bert-light-surface {
+  background-color: var(--bert-white);
+  color: var(--bert-text-main);
+  border-color: var(--bert-border);
+}
+
+[data-qms-theme="dark"] .qms-screen-stage .bert-light-surface .text-slate-950,
+[data-qms-theme="dark"] .qms-screen-stage .bert-light-surface .text-slate-900,
+[data-qms-theme="dark"] .qms-screen-stage .bert-light-surface .text-slate-800 {
+  color: var(--bert-text-main);
+}
+
+[data-qms-theme="dark"] .qms-screen-stage .bert-light-surface .text-slate-700,
+[data-qms-theme="dark"] .qms-screen-stage .bert-light-surface .text-slate-600 {
+  color: var(--bert-text-muted);
+}
+
+[data-qms-theme="dark"] .qms-screen-stage .bert-light-surface .text-slate-500 {
+  color: #64748b;
+}
+
+[data-qms-theme="dark"] .qms-screen-stage .bert-light-surface input,
+[data-qms-theme="dark"] .qms-screen-stage .bert-light-surface select,
+[data-qms-theme="dark"] .qms-screen-stage .bert-light-surface textarea {
+  border-color: var(--bert-border);
+  background-color: var(--bert-white);
+  color: var(--bert-text-main);
 }
 
 * {
