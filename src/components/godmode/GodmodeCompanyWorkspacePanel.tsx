@@ -20,6 +20,11 @@ import type { AreaAuditMapping } from "../../utils/areaAuditMapping";
 import type { AuditTemplate } from "../../types/reportsScreenProps";
 import type { CompanyFolder, CompanySheetSyncStatus, WorkspaceValidation } from "../../types/dashboardScreenProps";
 import type { CompanySetupNextAction } from "../../utils/companyWorkspaceStatus";
+import { companyWorkspaceRegistryService } from "../../services/companyWorkspaceRegistryService";
+import {
+  getCanonicalCompanyStatus,
+  isCompanyRegistryLive,
+} from "../../utils/companyWorkspaceInvite";
 import { BERT_LIGHT_NESTED, BERT_LIGHT_SURFACE } from "../../styles/bertText";
 
 const pilotLightSurface = BERT_LIGHT_SURFACE;
@@ -236,6 +241,8 @@ export function GodmodeCompanyWorkspacePanel({
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [inviteTargetDiagnostic, setInviteTargetDiagnostic] = useState("");
   const [inviteTargetRepairing, setInviteTargetRepairing] = useState(false);
+  const [markLiveLoading, setMarkLiveLoading] = useState(false);
+  const [markLiveMessage, setMarkLiveMessage] = useState("");
   const isProvisioning = companyFolderStructureRepairing || companyMasterSheetProvisioning;
   const healthCheckRun = workspaceValidation != null;
   const workspaceHealthOk = workspaceValidation?.ok ?? false;
@@ -307,11 +314,67 @@ export function GodmodeCompanyWorkspacePanel({
     workspaceValidation?.ok ??
     (folderInspection?.masterSheet?.tabs.length ? folderInspection.blockingItems.length === 0 : false);
   const companyFoldersMappingOk = workspaceValidation?.folders.companyFolder ?? Boolean(selectedFolder);
-  const companyLive =
-    (syncState === "Synced" || syncState === "Linked") && masterSheetOk && Boolean(selectedFolder);
+  const registryStatus = getCanonicalCompanyStatus({
+    status: (selectedFolder as CompanyFolder & { registryStatus?: string })?.registryStatus,
+    registryStatus: (selectedFolder as CompanyFolder & { registryStatus?: string })?.registryStatus,
+  });
+  const companyLive = isCompanyRegistryLive({ status: registryStatus, registryStatus });
   const registryUnlinkReason = String(
     (selectedFolder as CompanyFolder & { registryUnlinkReason?: string })?.registryUnlinkReason || "",
   ).trim();
+  const setupBlockers = useMemo(() => {
+    const blockers: string[] = [];
+    if (!selectedFolder) {
+      blockers.push("Company folder not linked");
+    }
+    if (!masterSheetOk) {
+      blockers.push("Master sheet not linked");
+    }
+    if (!folderStructureOk) {
+      blockers.push("Folder structure incomplete");
+    }
+    if (!requiredTabsOk) {
+      blockers.push("Required tabs missing");
+    }
+    if (!companyFoldersMappingOk) {
+      blockers.push("CompanyFolders mapping missing");
+    }
+    if (!firstAdminReady) {
+      blockers.push("First admin not ready");
+    }
+    if (!healthCheckRun) {
+      blockers.push("Workspace health check not run");
+    } else if (!workspaceHealthOk) {
+      blockers.push("Workspace health check failed");
+    }
+    if (registryStatus === "Needs attention") {
+      blockers.push(registryUnlinkReason ? registryUnlinkReason.replace(/_/g, " ") : "Workspace needs attention");
+    } else if (!companyLive) {
+      blockers.push("Registry status is not Live");
+    }
+    return blockers;
+  }, [
+    selectedFolder,
+    masterSheetOk,
+    folderStructureOk,
+    requiredTabsOk,
+    companyFoldersMappingOk,
+    firstAdminReady,
+    healthCheckRun,
+    workspaceHealthOk,
+    registryStatus,
+    registryUnlinkReason,
+    companyLive,
+  ]);
+  const readinessChecksGreen =
+    Boolean(selectedFolder) &&
+    masterSheetOk &&
+    folderStructureOk &&
+    Boolean(requiredTabsOk) &&
+    companyFoldersMappingOk &&
+    firstAdminReady &&
+    healthCheckRun &&
+    workspaceHealthOk;
 
   useEffect(() => {
     let cancelled = false;
@@ -376,6 +439,37 @@ export function GodmodeCompanyWorkspacePanel({
     selectedFolder?.id,
     selectedFolder?.name,
   ]);
+
+  const markCompanyLiveIfReady = async () => {
+    if (!selectedFolder?.id || markLiveLoading) {
+      return;
+    }
+    setMarkLiveLoading(true);
+    setMarkLiveMessage("");
+    try {
+      const result = await companyWorkspaceRegistryService.markLiveIfReady({
+        companyId: selectedFolder.id,
+        companyName: selectedFolder.name,
+        checks: {
+          folderStructureOk,
+          requiredTabsOk: Boolean(requiredTabsOk),
+          companyFoldersMappingOk,
+          firstAdminReady,
+          healthCheckRun,
+          workspaceHealthOk,
+        },
+      });
+      setMarkLiveMessage(
+        result.alreadyLive || result.promoted
+          ? "Company registry status is Live. User invites are now enabled."
+          : "Company marked Live in the registry.",
+      );
+    } catch (error) {
+      setMarkLiveMessage(error instanceof Error ? error.message : "Unable to mark company Live.");
+    } finally {
+      setMarkLiveLoading(false);
+    }
+  };
 
   const repairInviteCompanySheetLink = async () => {
     if (!selectedFolder?.id || inviteTargetRepairing) {
@@ -566,8 +660,39 @@ export function GodmodeCompanyWorkspacePanel({
               <SetupChecklistRow label="CompanyFolders mapping" ok={companyFoldersMappingOk} />
               <SetupChecklistRow label="First admin" ok={firstAdminReady} />
               <SetupChecklistRow label="Workspace health checked" ok={healthCheckRun && workspaceHealthOk} />
-              <SetupChecklistRow label="Company live" ok={companyLive} />
+              <SetupChecklistRow
+                label="Company live"
+                ok={companyLive}
+                hint={companyLive ? "Registry status: Live" : registryStatus || "Not Live"}
+              />
             </div>
+            {!companyLive ? (
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                <p className="font-semibold">Company is not Live in the registry.</p>
+                {setupBlockers.length ? (
+                  <ul className="mt-2 list-disc space-y-1 pl-5">
+                    {setupBlockers.map((blocker) => (
+                      <li key={blocker}>{blocker}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                {readinessChecksGreen ? (
+                  <button
+                    type="button"
+                    onClick={() => void markCompanyLiveIfReady()}
+                    disabled={adminOnly || !googleWorkspaceReady || markLiveLoading}
+                    className="mt-3 inline-flex h-10 items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {markLiveLoading ? "Updating registry…" : "Mark company LIVE if ready"}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {markLiveMessage ? (
+              <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                {markLiveMessage}
+              </p>
+            ) : null}
             {inviteTargetDiagnostic ? (
               <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
                 <p>{inviteTargetDiagnostic}</p>

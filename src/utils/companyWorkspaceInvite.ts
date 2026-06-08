@@ -36,6 +36,19 @@ export type CompanyInviteTarget = {
   registryStatus?: string;
 };
 
+export const COMPANY_REGISTRY_STATUS_LIVE = "Live";
+
+export function getCanonicalCompanyStatus(company: CompanyInviteTarget = {}): string {
+  const raw = String(company.status || company.registryStatus || "").trim();
+  if (!raw) {
+    return "";
+  }
+  if (raw.toLowerCase() === "live") {
+    return COMPANY_REGISTRY_STATUS_LIVE;
+  }
+  return raw;
+}
+
 export function isCompanyAdminInviteRole(session: CompanyInviteSession = {}): boolean {
   const role = String(session.role || "").trim();
   const accessLevel = String(session.accessLevel || "")
@@ -49,10 +62,7 @@ export function isCompanyAdminInviteRole(session: CompanyInviteSession = {}): bo
 
 /** Canonical Companies registry status — only explicit Live allows company-user invites. */
 export function isCompanyRegistryLive(company: CompanyInviteTarget = {}): boolean {
-  const status = String(company.status || company.registryStatus || "")
-    .trim()
-    .toLowerCase();
-  return status === "live";
+  return getCanonicalCompanyStatus(company) === COMPANY_REGISTRY_STATUS_LIVE;
 }
 
 /** Company-scoped user invites: Company Admin + registry LIVE only (not Master/Godmode). */

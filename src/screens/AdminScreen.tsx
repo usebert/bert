@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { SECTION_INTROS } from "../config/sectionIntros";
 import { canAccessAdmin, canAccessAdminOnboardingWorkspace, canManageAreas, getRoleDisplayName } from "../permissions";
-import { isCompanyRegistryLive } from "../utils/companyWorkspaceInvite";
+import { getCanonicalCompanyStatus, isCompanyRegistryLive } from "../utils/companyWorkspaceInvite";
 import { AreaAuditsSection } from "../components/admin/AreaAuditsSection";
 import { GoogleFormTemplatePanel } from "../components/admin/GoogleFormTemplatePanel";
 import { CreateGoogleFormCopyOption } from "../components/forms/CreateGoogleFormCopyOption";
@@ -412,9 +412,13 @@ export function AdminScreen({
     currentUser.role === "Master" &&
     (isCompaniesScreen || (isOnboardingScreen && !godmodeNewCompanyOnboarding));
   const usersInvitesPilotMode = isUsersInvitesScreen;
-  const workspaceSetupComplete = isCompanyRegistryLive({
+  const canonicalRegistryStatus = getCanonicalCompanyStatus({
     status: companyRegistryStatus || selectedFolder?.registryStatus,
     registryStatus: companyRegistryStatus || selectedFolder?.registryStatus,
+  });
+  const workspaceSetupComplete = isCompanyRegistryLive({
+    status: canonicalRegistryStatus,
+    registryStatus: canonicalRegistryStatus,
   });
   const showAuditTemplateBuilder = !pilotFocus;
   const pilotHeroLight = isCompaniesScreen || isOnboardingScreen || isUsersInvitesScreen;
@@ -1304,7 +1308,7 @@ export function AdminScreen({
           companyUserInviteEmailSending={companyUserInviteEmailSending}
           godModeFirstUserInvite={godModeFirstUserInvite}
           workspaceSetupComplete={workspaceSetupComplete}
-          companyRegistryStatus={companyRegistryStatus || selectedFolder?.registryStatus || ""}
+          companyRegistryStatus={canonicalRegistryStatus}
           pilotEditableInput={pilotEditableInput}
           pilotLightSurface={pilotLightSurface}
           pilotLightNested={pilotLightNested}

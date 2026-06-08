@@ -76,6 +76,8 @@ assert(resolveInviteTarget.includes("prepareCompanyUserInviteTarget"), "prepare 
 assert(resolveInviteTarget.includes("repairCompanyInviteTarget"), "repair invite target helper");
 
 assert(companyOnboarding.includes("ensureCompanyWorkspaceLiveIfReady"), "promote live when ready");
+assert(registry.includes("ensureCompanyLiveIfReady"), "registry promote live when ready");
+assert(registry.includes("getCanonicalCompanyStatus"), "registry canonical status helper");
 
 assert(serverMain.includes("validatePreparedCompanyUserInviteTarget"), "server uses prepared invite validation on complete");
 assert(serverMain.includes("repair-company-invite-target"), "repair invite endpoint");

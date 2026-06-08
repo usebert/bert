@@ -91,6 +91,8 @@ assert(serverOnboarding.includes("installCompanyOnboardingRoutes"), "route insta
 assert(serverOnboarding.includes("provisionNewCompanyWorkspace"), "reuses provision");
 assert(serverOnboarding.includes("assertCompanyWorkspaceAcceptsUserInvite"), "live gate helper");
 assert(serverOnboarding.includes("ensureCompanyWorkspaceLiveIfReady"), "auto live promotion helper");
+assert(serverOnboarding.includes("ensureCompanyLiveIfReady"), "registry live promotion helper");
+assert(serverOnboarding.includes("getCanonicalCompanyStatus"), "onboarding uses canonical registry status");
 assert(serverOnboarding.includes("isSystemTemplateCompany"), "onboarding blocks system template workspaces");
 
 assert(appTsx.includes("CompanyOnboardingFormScreen"), "form screen mounted");

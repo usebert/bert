@@ -75,6 +75,8 @@ import {
   isCompanyWorkspaceLiveForUserInvites,
 } from "./company-onboarding.mjs";
 import {
+  ensureCompanyLiveIfReady,
+  evaluateCompanyWorkspaceReadiness,
   getCompanyWorkspaceRegistryRecord,
   installCompanyWorkspaceRegistryRoutes,
   mergeDriveCompanyWithRegistry,
@@ -85,6 +87,8 @@ import {
 import { createGetInviteHandler, resolveCompanyUserInviteTokenAccess } from "./invite-routes.mjs";
 import {
   COMPANY_NOT_LIVE_INVITE_MESSAGE,
+  COMPANY_REGISTRY_STATUS_LIVE,
+  getCanonicalCompanyStatus,
   INVITE_ROLE_FORBIDDEN_MESSAGE,
   isCompanyAdminInviteRole,
   isCompanyRegistryLive,
@@ -3146,15 +3150,28 @@ async function resolveCompanyRegistryStatusForActor(auth, actor) {
   const record = await getCompanyWorkspaceRegistryRecord(auth, getCompanyWorkspaceRegistryDeps(), companyId).catch(
     () => null,
   );
-  return String(record?.status || "").trim();
+  return getCanonicalCompanyStatus(record || {});
 }
 
 async function assertCompanyAdminWorkspaceLive(auth, actor) {
   if (!actor || actor.kind !== "company" || !isCompanyAdminInviteRole(actor)) {
     return { ok: true };
   }
+  const companyId = String(actor.companyId || "").trim();
+  const masterSheetId = String(actor.masterSheetId || "").trim();
+  if (companyId) {
+    await ensureCompanyLiveIfReady(auth, getCompanyWorkspaceRegistryDeps(), {
+      companyId,
+      companyFolderId: companyId,
+      checks: {
+        rootFolderId: companyId,
+        masterSheetId,
+        skipHealthCheck: true,
+      },
+    }).catch(() => {});
+  }
   const registryStatus = await resolveCompanyRegistryStatusForActor(auth, actor);
-  if (!isCompanyRegistryLive({ status: registryStatus })) {
+  if (!isCompanyRegistryLive({ status: registryStatus, registryStatus })) {
     return {
       ok: false,
       httpStatus: 409,
@@ -6214,7 +6231,7 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
           getCompanyWorkspaceRegistryDeps(),
           companyId,
         ).catch(() => null);
-        registryStatus = String(registryRecord?.status || "").trim();
+        registryStatus = getCanonicalCompanyStatus(registryRecord || {});
       }
       return res.json({
         ok: true,
@@ -6230,6 +6247,7 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
           companyId,
           masterSheetId: successSheetId,
           registryStatus,
+          status: registryStatus,
         },
       });
     }
@@ -6333,7 +6351,27 @@ app.get("/api/auth/company/session", async (req, res) => {
     const registryRecord = companyId
       ? await getCompanyWorkspaceRegistryRecord(auth, getCompanyWorkspaceRegistryDeps(), companyId).catch(() => null)
       : null;
-    const registryStatus = String(registryRecord?.status || "").trim();
+    const masterSheetId = String(data.masterSheetId || "").trim();
+    if (companyId) {
+      await ensureCompanyLiveIfReady(auth, getCompanyWorkspaceRegistryDeps(), {
+        companyId,
+        companyFolderId: companyId,
+        checks: {
+          rootFolderId: companyId,
+          masterSheetId,
+          skipHealthCheck: true,
+        },
+      }).catch(() => {});
+    }
+    const freshRecord = companyId
+      ? await getCompanyWorkspaceRegistryRecord(auth, getCompanyWorkspaceRegistryDeps(), companyId).catch(() => registryRecord)
+      : null;
+    const registryStatus = getCanonicalCompanyStatus(freshRecord || registryRecord || {});
+    const readiness = evaluateCompanyWorkspaceReadiness(freshRecord || registryRecord || {}, {
+      rootFolderId: companyId,
+      masterSheetId,
+      skipHealthCheck: true,
+    });
     return res.json({
       ok: true,
       user: {
@@ -6345,13 +6383,86 @@ app.get("/api/auth/company/session", async (req, res) => {
       },
       company: {
         companyId,
-        masterSheetId: String(data.masterSheetId || "").trim(),
+        masterSheetId,
         registryStatus,
+        status: registryStatus,
+        live: isCompanyRegistryLive({ status: registryStatus, registryStatus }),
+        needsAttention: readiness.needsAttention,
+        setupBlockers: readiness.setupBlockers,
       },
     });
   } catch (error) {
     console.error("[company-auth] session read failed:", error);
     return res.status(401).json({ ok: false, error: "Session invalid." });
+  }
+});
+
+app.get("/api/company/registry-status", async (req, res) => {
+  try {
+    const raw = req.signedCookies?.[COMPANY_SESSION_COOKIE];
+    if (!raw || typeof raw !== "string") {
+      return res.status(401).json({ ok: false, error: "No company session." });
+    }
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      return res.status(401).json({ ok: false, error: "Invalid session." });
+    }
+    if (data.v !== 1 || !data.email || !data.masterSheetId) {
+      return res.status(401).json({ ok: false, error: "Invalid session." });
+    }
+    if (!envConfigured()) {
+      return res.status(503).json({ ok: false, error: "Registry status is unavailable in this environment." });
+    }
+    const auth = getAuthedClient();
+    if (!auth) {
+      return res.status(401).json({ ok: false, error: "Google connection required for this action." });
+    }
+    let companyId = String(data.companyId || "").trim();
+    if (!companyId) {
+      try {
+        const cfg = await getConfig(auth, data.masterSheetId);
+        companyId = String(cfg.companyId || "").trim();
+      } catch {
+        /* best-effort */
+      }
+    }
+    if (!companyId) {
+      return res.status(409).json({ ok: false, error: "Company workspace is not linked to the registry." });
+    }
+    const masterSheetId = String(data.masterSheetId || "").trim();
+    await ensureCompanyLiveIfReady(auth, getCompanyWorkspaceRegistryDeps(), {
+      companyId,
+      companyFolderId: companyId,
+      checks: {
+        rootFolderId: companyId,
+        masterSheetId,
+        skipHealthCheck: true,
+      },
+    }).catch(() => {});
+    const record = await getCompanyWorkspaceRegistryRecord(auth, getCompanyWorkspaceRegistryDeps(), companyId).catch(
+      () => null,
+    );
+    const registryStatus = getCanonicalCompanyStatus(record || {});
+    const readiness = evaluateCompanyWorkspaceReadiness(record || {}, {
+      rootFolderId: companyId,
+      masterSheetId,
+      skipHealthCheck: true,
+    });
+    return res.json({
+      ok: true,
+      companyId,
+      registryStatus,
+      status: registryStatus,
+      live: isCompanyRegistryLive({ status: registryStatus, registryStatus }),
+      needsAttention: readiness.needsAttention,
+      setupBlockers: readiness.setupBlockers,
+      blockers: readiness.blockers,
+    });
+  } catch (error) {
+    console.error("[company-auth] registry status read failed:", error);
+    return res.status(500).json({ ok: false, error: "Unable to load company registry status." });
   }
 });
 

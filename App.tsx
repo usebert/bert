@@ -80,6 +80,7 @@ import {
 } from "./src/utils/inviteStatusDisplay";
 import {
   canInviteCompanyUsers,
+  getCanonicalCompanyStatus,
   GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE,
   isCompanyRegistryLive,
   LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE,
@@ -3441,9 +3442,46 @@ function App() {
 
   useEffect(() => {
     if (currentUser?.role === "Master") {
-      setCompanyRegistryStatus(String(selectedFolder?.registryStatus || "").trim());
+      setCompanyRegistryStatus(
+        getCanonicalCompanyStatus({
+          status: selectedFolder?.registryStatus,
+          registryStatus: selectedFolder?.registryStatus,
+        }),
+      );
     }
   }, [currentUser?.role, selectedFolder?.registryStatus]);
+
+  useEffect(() => {
+    const onInviteScreen = screen === "users" || screen === "invites";
+    if (!onInviteScreen || currentUser?.role !== "Master" || !selectedFolderId || !googleConnected) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const payload = await companyWorkspaceRegistryService.getCompany(selectedFolderId);
+        if (cancelled) return;
+        setCompanyRegistryStatus(
+          getCanonicalCompanyStatus({
+            status: payload.company?.status,
+            registryStatus: payload.company?.status,
+          }),
+        );
+      } catch {
+        if (!cancelled) {
+          setCompanyRegistryStatus(
+            getCanonicalCompanyStatus({
+              status: selectedFolder?.registryStatus,
+              registryStatus: selectedFolder?.registryStatus,
+            }),
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [screen, currentUser?.role, selectedFolderId, googleConnected, selectedFolder?.registryStatus]);
 
   const masterCompanyWorkspaceDataMatchesSelection = useMemo(() => {
     if (currentUser?.role !== "Master") {
@@ -3830,10 +3868,16 @@ function App() {
       hint?.companyName ||
       folderNameInput ||
       "";
-    const registryStatus =
-      currentUser?.role === "Master"
-        ? String(selectedFolder?.registryStatus || companyRegistryStatus || "").trim()
-        : String(companyRegistryStatus || "").trim();
+    const registryStatus = getCanonicalCompanyStatus({
+      status:
+        currentUser?.role === "Master"
+          ? companyRegistryStatus || selectedFolder?.registryStatus
+          : companyRegistryStatus,
+      registryStatus:
+        currentUser?.role === "Master"
+          ? companyRegistryStatus || selectedFolder?.registryStatus
+          : companyRegistryStatus,
+    });
     const workspaceSetupComplete = isCompanyRegistryLive({ status: registryStatus, registryStatus });
     return { companyFolderId, masterSheetId, companyName, workspaceSetupComplete, registryStatus };
   }, [
@@ -5137,7 +5181,11 @@ function App() {
             return;
           }
           setCurrentUser(companyUser);
-          setCompanyRegistryStatus(String(cp.company?.registryStatus || "").trim());
+          setCompanyRegistryStatus(
+            getCanonicalCompanyStatus({
+              registryStatus: cp.company?.registryStatus,
+            }),
+          );
           setAccountNameInput(companyUser.name);
           setAccountPhotoUrl(getStoredProfilePhoto(companyUser));
           try {
@@ -6799,7 +6847,11 @@ function App() {
           accessLevel: data.user.accessLevel,
           companyAreas: Array.isArray(data.user.companyAreas) ? data.user.companyAreas : undefined,
         };
-        setCompanyRegistryStatus(String(data.company?.registryStatus || "").trim());
+        setCompanyRegistryStatus(
+          getCanonicalCompanyStatus({
+            registryStatus: data.company?.registryStatus,
+          }),
+        );
         applySignedInUser(match);
         return true;
       } catch {

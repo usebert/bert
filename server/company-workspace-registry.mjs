@@ -1,3 +1,8 @@
+import {
+  COMPANY_REGISTRY_STATUS_LIVE,
+  getCanonicalCompanyStatus,
+  isCompanyRegistryLive,
+} from "../shared/company-invite-permissions.mjs";
 import { filterCustomerFacingCompanies, isSystemTemplateCompany } from "../shared/system-template-company.mjs";
 
 /**
@@ -507,6 +512,147 @@ export async function repairCompanyWorkspaceRegistry(auth, deps, input = {}) {
   };
 }
 
+const MAPPED_FOLDER_STATUSES = new Set(["mapped", "linked", "repaired"]);
+
+function humanizeBlocker(blocker = "") {
+  return String(blocker || "")
+    .trim()
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+/** Evaluate whether a company workspace is ready to be marked Live in the registry. */
+export function evaluateCompanyWorkspaceReadiness(record = {}, checks = {}) {
+  const blockers = [];
+  const rootFolderId = String(record.rootFolderId || record.companyId || checks.rootFolderId || "").trim();
+  const masterSheetId = String(record.masterSheetId || checks.masterSheetId || "").trim();
+
+  if (!rootFolderId) {
+    blockers.push("company_folder_not_linked");
+  }
+  if (!masterSheetId) {
+    blockers.push("master_sheet_not_linked");
+  }
+
+  if (checks.folderStructureOk === false) {
+    blockers.push("folder_structure_incomplete");
+  }
+  if (checks.requiredTabsOk === false) {
+    blockers.push("required_tabs_missing");
+  }
+  if (checks.companyFoldersMappingOk === false) {
+    blockers.push("companyfolders_mapping_missing");
+  } else if (checks.companyFoldersMappingOk === undefined) {
+    const mapping = String(record.companyFoldersMappingStatus || "")
+      .trim()
+      .toLowerCase();
+    if (mapping && !MAPPED_FOLDER_STATUSES.has(mapping)) {
+      blockers.push("companyfolders_mapping_incomplete");
+    }
+  }
+
+  if (checks.firstAdminReady === false) {
+    blockers.push("first_admin_missing");
+  } else if (checks.firstAdminReady === undefined) {
+    const firstAdmin = String(record.firstAdminStatus || "")
+      .trim()
+      .toLowerCase();
+    if (firstAdmin === "pending") {
+      blockers.push("first_admin_missing");
+    }
+  }
+
+  if (checks.workspaceHealthOk === false) {
+    blockers.push("workspace_health_failed");
+  } else if (!checks.skipHealthCheck) {
+    if (checks.healthCheckRun === false) {
+      blockers.push("health_check_not_run");
+    } else if (checks.healthCheckRun === undefined && !record.lastHealthCheckAt) {
+      blockers.push("health_check_not_run");
+    }
+  }
+
+  const canonicalStatus = getCanonicalCompanyStatus(record) || deriveCompanyWorkspaceStatus(record);
+  if (canonicalStatus === "Archived" || canonicalStatus === "Disconnected") {
+    blockers.push(`company_${safeLower(canonicalStatus).replace(/\s+/g, "_")}`);
+  }
+  if (canonicalStatus === "Needs attention") {
+    blockers.push(String(record.unlinkReason || "needs_attention").trim() || "needs_attention");
+  }
+
+  const ready = blockers.length === 0 && Boolean(rootFolderId && masterSheetId);
+  return {
+    ready,
+    blockers,
+    setupBlockers: blockers,
+    needsAttention: blockers.length > 0,
+    canonicalStatus,
+    registryStatus: canonicalStatus,
+  };
+}
+
+/** Persist Companies registry status Live when all readiness checks pass. */
+export async function ensureCompanyLiveIfReady(auth, deps, input = {}) {
+  const companyId = String(input.companyId || input.companyFolderId || input.rootFolderId || "").trim();
+  if (!companyId || !auth) {
+    return { promoted: false, reason: "missing_company_id", blockers: ["missing_company_id"] };
+  }
+  const existing = await getCompanyWorkspaceRegistryRecord(auth, deps, companyId);
+  if (!existing) {
+    return { promoted: false, reason: "not_in_registry", blockers: ["not_in_registry"] };
+  }
+  const readiness = evaluateCompanyWorkspaceReadiness(existing, input.checks || {});
+  if (isCompanyRegistryLive(existing)) {
+    return {
+      promoted: false,
+      alreadyLive: true,
+      status: COMPANY_REGISTRY_STATUS_LIVE,
+      blockers: [],
+      setupBlockers: [],
+      needsAttention: false,
+      registryStatus: COMPANY_REGISTRY_STATUS_LIVE,
+      record: existing,
+    };
+  }
+  if (!readiness.ready) {
+    return {
+      promoted: false,
+      reason: "not_ready",
+      blockers: readiness.blockers,
+      setupBlockers: readiness.setupBlockers,
+      needsAttention: true,
+      registryStatus: readiness.canonicalStatus,
+      record: existing,
+    };
+  }
+  const now = nowIso();
+  const result = await persistCompanyWorkspaceSetup(auth, deps, {
+    companyId,
+    companyName: String(input.companyName || existing.companyName || "").trim(),
+    rootFolderId: existing.rootFolderId || companyId,
+    masterSheetId: existing.masterSheetId,
+    workbookFolderId: existing.workbookFolderId,
+    companyFoldersMappingStatus: existing.companyFoldersMappingStatus,
+    firstAdminStatus: existing.firstAdminStatus,
+    status: COMPANY_REGISTRY_STATUS_LIVE,
+    setupCompletedAt: existing.setupCompletedAt || now,
+    liveAt: now,
+    unlinkReason: "",
+    markSetupComplete: true,
+    markLive: true,
+    touchSetup: false,
+  });
+  return {
+    promoted: Boolean(result.synced),
+    status: COMPANY_REGISTRY_STATUS_LIVE,
+    blockers: [],
+    setupBlockers: [],
+    needsAttention: false,
+    registryStatus: COMPANY_REGISTRY_STATUS_LIVE,
+    record: result.record || existing,
+  };
+}
+
 export function mergeDriveCompanyWithRegistry(driveCompany, registryRecord) {
   if (!registryRecord) {
     return driveCompany;
@@ -514,12 +660,13 @@ export function mergeDriveCompanyWithRegistry(driveCompany, registryRecord) {
   const masterSheetId =
     String(registryRecord.masterSheetId || "").trim() ||
     String(driveCompany.masterSheetId || driveCompany.responseSheetId || "").trim();
+  const canonicalStatus = getCanonicalCompanyStatus(registryRecord) || deriveCompanyWorkspaceStatus(registryRecord);
   const setupStatusLabel =
-    registryRecord.status === "Live"
+    canonicalStatus === COMPANY_REGISTRY_STATUS_LIVE
       ? "Ready"
-      : registryRecord.status === "Needs attention"
+      : canonicalStatus === "Needs attention"
         ? "Needs attention"
-        : registryRecord.status || driveCompany.setupStatusLabel;
+        : canonicalStatus || driveCompany.setupStatusLabel;
   return {
     ...driveCompany,
     masterSheetId,
@@ -527,7 +674,7 @@ export function mergeDriveCompanyWithRegistry(driveCompany, registryRecord) {
     responseSheetVerified: Boolean(masterSheetId) || driveCompany.responseSheetVerified,
     setupStatus: masterSheetId ? "ready" : driveCompany.setupStatus || "incomplete",
     setupStatusLabel,
-    registryStatus: registryRecord.status,
+    registryStatus: canonicalStatus,
     registryUnlinkReason: registryRecord.unlinkReason,
     workbookFolderId: registryRecord.workbookFolderId || driveCompany.workbookFolderId,
     setupCompletedAt: registryRecord.setupCompletedAt,
@@ -627,6 +774,57 @@ export function installCompanyWorkspaceRegistryRoutes(app, deps) {
         return res.status(500).json({
           ok: false,
           error: error instanceof Error ? error.message : "Unable to repair company workspace registry link.",
+        });
+      }
+    },
+  );
+
+  app.post(
+    "/api/godmode/company-workspace/mark-live-if-ready",
+    requireGoogleWorkspaceSession,
+    requireMasterOnlyActor,
+    async (req, res) => {
+      const authed = getAuthedClient();
+      if (!envConfigured() || !authed) {
+        return res.status(401).json({ ok: false, error: "Connect Google Workspace before updating company registry status." });
+      }
+      try {
+        const companyId = String(req.body?.companyId || req.body?.companyFolderId || "").trim();
+        if (!companyId) {
+          return res.status(400).json({ ok: false, error: "Company ID is required." });
+        }
+        const result = await ensureCompanyLiveIfReady(authed, deps, {
+          companyId,
+          companyName: String(req.body?.companyName || "").trim(),
+          checks: req.body?.checks || {},
+        });
+        if (!result.promoted && !result.alreadyLive) {
+          return res.status(409).json({
+            ok: false,
+            code: "COMPANY_NOT_READY",
+            error:
+              result.blockers?.length > 0
+                ? `Company is not ready to go live: ${result.blockers.map(humanizeBlocker).join("; ")}`
+                : "Company is not ready to go live.",
+            blockers: result.blockers || [],
+            setupBlockers: result.setupBlockers || [],
+            registryStatus: result.registryStatus || "",
+          });
+        }
+        return res.json({
+          ok: true,
+          promoted: Boolean(result.promoted),
+          alreadyLive: Boolean(result.alreadyLive),
+          registryStatus: result.registryStatus || COMPANY_REGISTRY_STATUS_LIVE,
+          company: result.record,
+          blockers: [],
+          setupBlockers: [],
+          needsAttention: false,
+        });
+      } catch (error) {
+        return res.status(500).json({
+          ok: false,
+          error: error instanceof Error ? error.message : "Unable to mark company live.",
         });
       }
     },

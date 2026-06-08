@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import {
   canInviteCompanyUsers,
   COMPANY_NOT_LIVE_INVITE_MESSAGE,
+  COMPANY_REGISTRY_STATUS_LIVE,
+  getCanonicalCompanyStatus,
   INVITE_ROLE_FORBIDDEN_MESSAGE,
   isCompanyAdminInviteRole,
   isCompanyRegistryLive,
@@ -80,7 +82,18 @@ assert(!usersPanel.includes("canInviteUsers(currentUser.role)"), "7e: removed ro
 
 assert(isCompanyAdminInviteRole({ role: "Admin" }), "admin role recognized");
 assert(isCompanyRegistryLive({ status: "Live" }), "registry Live recognized");
+assert(isCompanyRegistryLive({ status: "LIVE" }), "registry LIVE alias recognized");
 assert(!isCompanyRegistryLive({ status: "Ready" }), "registry Ready is not Live");
+assert(getCanonicalCompanyStatus({ status: "LIVE" }) === COMPANY_REGISTRY_STATUS_LIVE, "canonical status normalizes LIVE");
+assert(getCanonicalCompanyStatus({ registryStatus: "live" }) === COMPANY_REGISTRY_STATUS_LIVE, "canonical status normalizes live");
+
+const registry = read("server/company-workspace-registry.mjs");
+assert(registry.includes("getCanonicalCompanyStatus"), "registry uses canonical status helper");
+assert(registry.includes("ensureCompanyLiveIfReady"), "registry can persist Live when ready");
+assert(registry.includes("evaluateCompanyWorkspaceReadiness"), "registry readiness evaluation helper");
+assert(serverMain.includes("/api/company/registry-status"), "company admin fresh registry status endpoint");
+assert(usersPanel.includes("/api/company/registry-status") || usersPanel.includes("freshRegistryStatus"), "invite panel fetches fresh registry status");
+assert(read("src/components/godmode/GodmodeCompanyWorkspacePanel.tsx").includes("Mark company LIVE if ready"), "godmode mark-live action");
 
 const pkg = JSON.parse(read("package.json"));
 assert(pkg.scripts["verify:invite-permissions"], "npm script registered");

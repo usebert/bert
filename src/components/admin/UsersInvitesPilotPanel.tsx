@@ -1,9 +1,11 @@
-import { useMemo, useState, type ComponentType } from "react";
+import { useEffect, useMemo, useState, type ComponentType } from "react";
 import type { Role } from "../../permissions";
 import { getRoleDisplayName } from "../../permissions";
+import { apiUrl } from "../../config/apiBase";
 import {
   canInviteCompanyUsers,
   COMPANY_NOT_LIVE_INVITE_MESSAGE,
+  getCanonicalCompanyStatus,
   INVITE_ROLE_FORBIDDEN_MESSAGE,
   isCompanyAdminInviteRole,
 } from "../../utils/companyWorkspaceInvite";
@@ -410,19 +412,62 @@ export function UsersInvitesPilotPanel({
   ...healthProps
 }: UsersInvitesPilotPanelProps) {
   const [showHealthSync, setShowHealthSync] = useState(false);
+  const [freshRegistryStatus, setFreshRegistryStatus] = useState("");
+  const [registryStatusLoading, setRegistryStatusLoading] = useState(false);
   const isMasterActor = currentUser.role === "Master";
   const isCompanyAdmin = isCompanyAdminInviteRole({
     role: currentUser.role,
     accessLevel: currentUser.accessLevel,
   });
+  const effectiveRegistryStatus = getCanonicalCompanyStatus({
+    status: freshRegistryStatus || companyRegistryStatus,
+    registryStatus: freshRegistryStatus || companyRegistryStatus,
+  });
+
+  useEffect(() => {
+    if (isMasterActor) {
+      setFreshRegistryStatus("");
+      return;
+    }
+    let cancelled = false;
+    setRegistryStatusLoading(true);
+    void (async () => {
+      try {
+        const response = await fetch(apiUrl("/api/company/registry-status"), { credentials: "include" });
+        const payload = (await response.json()) as {
+          ok?: boolean;
+          registryStatus?: string;
+          status?: string;
+        };
+        if (cancelled) return;
+        if (response.ok && payload.ok) {
+          setFreshRegistryStatus(
+            getCanonicalCompanyStatus({
+              status: payload.status,
+              registryStatus: payload.registryStatus,
+            }),
+          );
+        }
+      } catch {
+        if (!cancelled) {
+          setFreshRegistryStatus("");
+        }
+      } finally {
+        if (!cancelled) {
+          setRegistryStatusLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isMasterActor, currentUser.username]);
+
   const companyLiveForInvites = isMasterActor
-    ? workspaceSetupComplete &&
-      String(companyRegistryStatus || "")
-        .trim()
-        .toLowerCase() === "live"
+    ? workspaceSetupComplete && effectiveRegistryStatus === "Live"
     : canInviteCompanyUsers(
         { role: currentUser.role, accessLevel: currentUser.accessLevel },
-        { status: companyRegistryStatus, registryStatus: companyRegistryStatus },
+        { status: effectiveRegistryStatus, registryStatus: effectiveRegistryStatus },
       );
   const showInviteForm = isMasterActor || isCompanyAdmin;
   const inviteFormEnabled = companyLiveForInvites;
@@ -614,7 +659,8 @@ export function UsersInvitesPilotPanel({
             <span className="font-semibold">Company Onboarding</span> before inviting field users.
           </p>
           <p className="mt-2 text-xs text-slate-500">
-            Signed in as {getRoleDisplayName(currentUser.role)} • registry: {companyRegistryStatus || "not live"} • sync:{" "}
+            Signed in as {getRoleDisplayName(currentUser.role)} • registry:{" "}
+            {registryStatusLoading ? "refreshing…" : effectiveRegistryStatus || "not live"} • sync:{" "}
             {healthProps.syncState}
           </p>
         </details>

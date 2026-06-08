@@ -75,4 +75,26 @@ export const companyWorkspaceRegistryService = {
       }),
     );
   },
+
+  async markLiveIfReady(input: {
+    companyId: string;
+    companyName?: string;
+    checks?: Record<string, boolean | undefined>;
+  }) {
+    return parseJson<{
+      ok: true;
+      promoted?: boolean;
+      alreadyLive?: boolean;
+      registryStatus: string;
+      blockers?: string[];
+      setupBlockers?: string[];
+    }>(
+      await fetch(apiUrl("/api/godmode/company-workspace/mark-live-if-ready"), {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      }),
+    );
+  },
 };

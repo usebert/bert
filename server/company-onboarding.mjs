@@ -8,6 +8,7 @@ import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
 import { isSystemTemplateCompany } from "../shared/system-template-company.mjs";
 import {
   COMPANIES_WORKSPACE_COLUMNS,
+  ensureCompanyLiveIfReady,
   getCompanyWorkspaceRegistryRecord,
   REGISTRY_SPREADSHEET_NAME,
   REGISTRY_TAB_COMPANIES,
@@ -17,6 +18,7 @@ import {
 } from "./company-workspace-registry.mjs";
 import {
   COMPANY_NOT_LIVE_INVITE_MESSAGE,
+  getCanonicalCompanyStatus,
   isCompanyRegistryLive,
 } from "../shared/company-invite-permissions.mjs";
 
@@ -688,11 +690,25 @@ export async function assertCompanyWorkspaceAcceptsUserInvite(
     };
   }
   const resolvedCompanyId = folderId || String(cfg.companyId || "").trim();
+  const userCount = await countCompanyUsersOnSheet(auth, getTabValues, sheetId).catch(() => 0);
+  if (resolvedCompanyId) {
+    await ensureCompanyLiveIfReady(auth, deps.registryDeps || deps, {
+      companyId: resolvedCompanyId,
+      companyFolderId: resolvedCompanyId,
+      companyName: cfg.companyName,
+      checks: {
+        rootFolderId: resolvedCompanyId,
+        masterSheetId: sheetId,
+        firstAdminReady: userCount > 0,
+        skipHealthCheck: true,
+      },
+    }).catch(() => {});
+  }
   const registryRecord = resolvedCompanyId
     ? await getCompanyWorkspaceRegistryRecord(auth, deps.registryDeps || deps, resolvedCompanyId).catch(() => null)
     : null;
-  const registryStatus = String(registryRecord?.status || "").trim();
-  if (!isCompanyRegistryLive({ status: registryStatus })) {
+  const registryStatus = getCanonicalCompanyStatus(registryRecord || {});
+  if (!isCompanyRegistryLive({ status: registryStatus, registryStatus })) {
     return {
       ok: false,
       code: "COMPANY_NOT_LIVE",
@@ -701,7 +717,6 @@ export async function assertCompanyWorkspaceAcceptsUserInvite(
     };
   }
   if (inviteRole === "Admin") {
-    const userCount = await countCompanyUsersOnSheet(auth, getTabValues, sheetId);
     if (userCount === 0) {
       return {
         ok: false,
