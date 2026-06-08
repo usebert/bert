@@ -6116,6 +6116,57 @@ function App() {
     }
   };
 
+  const handleCompanyRegistryUpdated = async (payload: {
+    companyId: string;
+    registryStatus: string;
+    masterSheetId?: string;
+  }) => {
+    const companyFolderId = String(payload.companyId || selectedFolderIdRef.current || "").trim();
+    if (!companyFolderId) {
+      return;
+    }
+    const canonicalStatus = getCanonicalCompanyStatus({
+      status: payload.registryStatus,
+      registryStatus: payload.registryStatus,
+    });
+    const registryMasterSheetId = String(payload.masterSheetId || "").trim();
+    const resultIsLive = isCompanyRegistryLive({
+      status: canonicalStatus,
+      registryStatus: canonicalStatus,
+    });
+    setFolders((current) =>
+      current.map((folder) =>
+        folder.id === companyFolderId
+          ? {
+              ...folder,
+              masterSheetId: registryMasterSheetId || folder.masterSheetId,
+              responseSheetId: registryMasterSheetId || folder.responseSheetId,
+              responseSheetVerified: Boolean(registryMasterSheetId) || folder.responseSheetVerified,
+              registryStatus: canonicalStatus,
+              registryLinkMissing: false,
+              setupStatusLabel: resultIsLive
+                ? "Ready"
+                : canonicalStatus === "Needs attention"
+                  ? "Needs attention"
+                  : folder.setupStatusLabel,
+            }
+          : folder,
+      ),
+    );
+    if (companyFolderId === selectedFolderIdRef.current) {
+      setCompanyRegistryStatus(canonicalStatus);
+      if (registryMasterSheetId) {
+        setMasterSheetInput((current) => current.trim() || registryMasterSheetId);
+      }
+      if (resultIsLive) {
+        setCompanySetupError(null);
+      }
+    }
+    await applyRegistryMasterSheetToFolder(companyFolderId);
+    await loadGodmodeLiveCompanies({ silent: true });
+    await inspectFolderById(companyFolderId, { silent: true });
+  };
+
   const loadGodmodeLiveCompanies = async (options?: { silent?: boolean }) => {
     if (currentUser?.role !== "Master" || !googleConnected) {
       setGodmodeLiveCompaniesWarning("");
@@ -12996,6 +13047,8 @@ function App() {
                 companyMasterSheetId={godmodeNewCompanyOnboarding ? "" : activeCompanyMasterSheetId}
                 onCompanyWorkspaceResetSuccess={(message) => void handleCompanyWorkspaceResetSuccess(message)}
                 onCompanyWorkspaceResetError={handleCompanyWorkspaceResetError}
+                onCompanyRegistryUpdated={(payload) => void handleCompanyRegistryUpdated(payload)}
+                onClearSetupError={() => setCompanySetupError(null)}
                 folderNameInput={folderNameInput}
                 folderIdInput={folderIdInput}
                 auditFormsFolderInput={auditFormsFolderInput}

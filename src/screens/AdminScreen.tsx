@@ -396,6 +396,8 @@ export function AdminScreen({
   companyMasterSheetId = "",
   onCompanyWorkspaceResetSuccess,
   onCompanyWorkspaceResetError,
+  onCompanyRegistryUpdated,
+  onClearSetupError,
   masterCompanyContextBlocked = false,
   masterCompanyContextMessage = "",
   inviteWorkspaceBanner = "",
@@ -646,6 +648,8 @@ export function AdminScreen({
           onToggleAreaAudit={onToggleAreaAudit}
           onCompanyWorkspaceResetSuccess={onCompanyWorkspaceResetSuccess}
           onCompanyWorkspaceResetError={onCompanyWorkspaceResetError}
+          onCompanyRegistryUpdated={onCompanyRegistryUpdated}
+          onClearSetupError={onClearSetupError}
           onFolderIdChange={onFolderIdChange}
           onMasterSheetChange={onMasterSheetChange}
           onAuditFormsFolderChange={onAuditFormsFolderChange}

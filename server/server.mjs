@@ -88,6 +88,7 @@ import {
   recordCompanyWorkspaceHealthCheck,
 } from "./company-workspace-registry.mjs";
 import { installCompanySetupProgressRoutes } from "./company-setup-progress.mjs";
+import { installGodmodeRegistryActionRoutes } from "./godmode-registry-actions.mjs";
 import {
   inspectConfiguredWorkspaceRoot,
   listFolderChildren,
@@ -6687,6 +6688,14 @@ installCompanySetupProgressRoutes(app, {
   withSheetsQuotaRetry,
   safeLower,
   registryDeps: getCompanyWorkspaceRegistryDeps(),
+});
+
+installGodmodeRegistryActionRoutes(app, {
+  getAuthedClient,
+  envConfigured,
+  requireGoogleWorkspaceSession,
+  requireMasterOnlyActor,
+  ...getCompanyWorkspaceRegistryDeps(),
 });
 
 installCompanyOnboardingRoutes(app, {

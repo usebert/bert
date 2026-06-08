@@ -352,6 +352,12 @@ export type AdminScreenProps = {
   companyMasterSheetId?: string;
   onCompanyWorkspaceResetSuccess?: (message: string) => void;
   onCompanyWorkspaceResetError?: (message: string) => void;
+  onCompanyRegistryUpdated?: (payload: {
+    companyId: string;
+    registryStatus: string;
+    masterSheetId?: string;
+  }) => void | Promise<void>;
+  onClearSetupError?: () => void;
   /** Master Godmode: block company-scoped actions until a live workspace is selected. */
   masterCompanyContextBlocked?: boolean;
   masterCompanyContextMessage?: string;

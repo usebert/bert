@@ -24,6 +24,7 @@ import {
   COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
   COMPANY_SETUP_STEP_LABELS,
 } from "../../services/companySetupProgressService";
+import { companyWorkspaceRegistryService } from "../../services/companyWorkspaceRegistryService";
 import {
   getCanonicalCompanyStatus,
   isCompanyRegistryLive,
@@ -130,6 +131,12 @@ export type GodmodeCompanyWorkspacePanelProps = {
   onToggleAreaAudit: (areaId: string, auditId: string, enabled: boolean) => void;
   onCompanyWorkspaceResetSuccess?: (message: string) => void;
   onCompanyWorkspaceResetError?: (message: string) => void;
+  onCompanyRegistryUpdated?: (payload: {
+    companyId: string;
+    registryStatus: string;
+    masterSheetId?: string;
+  }) => void | Promise<void>;
+  onClearSetupError?: () => void;
   onFolderIdChange?: (value: string) => void;
   onMasterSheetChange?: (value: string) => void;
   onAuditFormsFolderChange?: (value: string) => void;
@@ -235,6 +242,8 @@ export function GodmodeCompanyWorkspacePanel({
   onToggleAreaAudit,
   onCompanyWorkspaceResetSuccess,
   onCompanyWorkspaceResetError,
+  onCompanyRegistryUpdated,
+  onClearSetupError,
   onFolderIdChange,
   onMasterSheetChange,
   onAuditFormsFolderChange,
@@ -252,6 +261,10 @@ export function GodmodeCompanyWorkspacePanel({
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [inviteTargetDiagnostic, setInviteTargetDiagnostic] = useState("");
   const [inviteTargetRepairing, setInviteTargetRepairing] = useState(false);
+  const [registryRelinking, setRegistryRelinking] = useState(false);
+  const [registryForceLiveLoading, setRegistryForceLiveLoading] = useState(false);
+  const [registryRelinkSucceeded, setRegistryRelinkSucceeded] = useState(false);
+  const [registryActionError, setRegistryActionError] = useState("");
   const isProvisioning = companyFolderStructureRepairing || companyMasterSheetProvisioning;
   const healthCheckRun = workspaceValidation != null;
   const workspaceHealthOk = workspaceValidation?.ok ?? false;
@@ -413,6 +426,81 @@ export function GodmodeCompanyWorkspacePanel({
     readinessChecksGreen,
     registryLinkMissing,
   ]);
+
+  useEffect(() => {
+    setRegistryRelinkSucceeded(false);
+    setRegistryActionError("");
+  }, [selectedFolder?.id]);
+
+  const buildReadinessChecks = () => ({
+    rootFolderId: selectedFolder?.id || "",
+    masterSheetId: companyMasterSheetId || folderInspection?.masterSheet?.id || "",
+    folderStructureOk,
+    requiredTabsOk: Boolean(requiredTabsOk),
+    companyFoldersMappingOk,
+    firstAdminReady,
+    workspaceHealthOk: healthCheckRun && workspaceHealthOk,
+    healthCheckRun: healthCheckRun && workspaceHealthOk,
+    skipHealthCheck: !healthCheckRun,
+  });
+
+  const relinkCompanyRegistry = async () => {
+    if (!selectedFolder?.id || registryRelinking) {
+      return;
+    }
+    setRegistryRelinking(true);
+    setRegistryActionError("");
+    try {
+      const sheetId = companyMasterSheetId || folderInspection?.masterSheet?.id || "";
+      const result = await companyWorkspaceRegistryService.relinkRegistry({
+        workspaceId: selectedFolder.id,
+        companyFolderId: selectedFolder.id,
+        companyId: selectedFolder.id,
+        companyName: selectedFolder.name,
+        masterSheetId: sheetId,
+      });
+      setRegistryRelinkSucceeded(true);
+      onClearSetupError?.();
+      await onCompanyRegistryUpdated?.({
+        companyId: result.companyId,
+        registryStatus: result.registryStatus,
+        masterSheetId: result.masterSheetId,
+      });
+    } catch (error) {
+      setRegistryActionError(error instanceof Error ? error.message : "Unable to relink company registry record.");
+    } finally {
+      setRegistryRelinking(false);
+    }
+  };
+
+  const forceMarkLiveFromReadyChecks = async () => {
+    if (!selectedFolder?.id || registryForceLiveLoading) {
+      return;
+    }
+    setRegistryForceLiveLoading(true);
+    setRegistryActionError("");
+    try {
+      const result = await companyWorkspaceRegistryService.forceLiveIfReady({
+        companyId: selectedFolder.id,
+        companyFolderId: selectedFolder.id,
+        companyName: selectedFolder.name,
+        checks: buildReadinessChecks(),
+      });
+      onClearSetupError?.();
+      await onCompanyRegistryUpdated?.({
+        companyId: result.companyId,
+        registryStatus: result.registryStatus,
+        masterSheetId: companyMasterSheetId || folderInspection?.masterSheet?.id || "",
+      });
+    } catch (error) {
+      setRegistryActionError(error instanceof Error ? error.message : "Unable to mark company live.");
+    } finally {
+      setRegistryForceLiveLoading(false);
+    }
+  };
+
+  const showForceLiveFromReadyChecks =
+    !companyLive && readinessChecksGreen && (registryRelinkSucceeded || !registryLinkMissing);
 
   useEffect(() => {
     let cancelled = false;
@@ -684,7 +772,8 @@ export function GodmodeCompanyWorkspacePanel({
                 </p>
                 {registryLinkMissing ? (
                   <p className="mt-1 text-xs text-amber-900">
-                    Click Repair / complete setup to relink it.
+                    Relink the registry record without re-running full Google setup, then force Live when checks are
+                    ready.
                   </p>
                 ) : null}
                 {setupBlockers.length ? (
@@ -694,14 +783,39 @@ export function GodmodeCompanyWorkspacePanel({
                     ))}
                   </ul>
                 ) : null}
-                <button
-                  type="button"
-                  onClick={() => void onOneClickGoogleOnboarding()}
-                  disabled={adminOnly || !googleWorkspaceReady || isProvisioning}
-                  className="mt-3 inline-flex h-10 items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isProvisioning ? "Running setup…" : "Repair / complete setup"}
-                </button>
+                {registryActionError ? (
+                  <p className="mt-2 text-xs text-rose-800">{registryActionError}</p>
+                ) : null}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {registryLinkMissing ? (
+                    <button
+                      type="button"
+                      onClick={() => void relinkCompanyRegistry()}
+                      disabled={adminOnly || !googleWorkspaceReady || registryRelinking}
+                      className="inline-flex h-10 items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {registryRelinking ? "Relinking registry…" : "Create / relink company registry record"}
+                    </button>
+                  ) : null}
+                  {showForceLiveFromReadyChecks ? (
+                    <button
+                      type="button"
+                      onClick={() => void forceMarkLiveFromReadyChecks()}
+                      disabled={adminOnly || !googleWorkspaceReady || registryForceLiveLoading}
+                      className="inline-flex h-10 items-center rounded-xl border border-amber-400 bg-white px-4 text-sm font-semibold text-amber-950 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {registryForceLiveLoading ? "Marking Live…" : "Force mark LIVE from ready checks"}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => void onOneClickGoogleOnboarding()}
+                    disabled={adminOnly || !googleWorkspaceReady || isProvisioning}
+                    className="inline-flex h-10 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isProvisioning ? "Running setup…" : "Repair / complete setup"}
+                  </button>
+                </div>
               </div>
             ) : null}
             {inviteTargetDiagnostic ? (

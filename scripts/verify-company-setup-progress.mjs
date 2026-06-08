@@ -37,7 +37,9 @@ const serverMain = read("server/server.mjs");
 const panel = read("src/components/godmode/GodmodeCompanyWorkspacePanel.tsx");
 const appTsx = read("App.tsx");
 const service = read("src/services/companySetupProgressService.ts");
+const registryService = read("src/services/companyWorkspaceRegistryService.ts");
 const registry = read("server/company-workspace-registry.mjs");
+const registryActions = read("server/godmode-registry-actions.mjs");
 const inviteHelpers = read("src/utils/companyWorkspaceInvite.ts");
 const usersPanel = read("src/components/admin/UsersInvitesPilotPanel.tsx");
 
@@ -174,11 +176,24 @@ assert(registry.includes("ensureCompanyRegistryRecordForWorkspace"), "17a: ensur
 assert(progress.includes("ensureCompanyRegistryRecordForWorkspace"), "17b: repair-setup resolves registry first");
 assert(registry.includes("ensureCompanyRegistryRecordForWorkspace(auth, deps, {"), "17c: mark live ensures registry");
 assert(panel.includes("Company registry link missing"), "17d: godmode panel registry link missing copy");
-assert(panel.includes("onOneClickGoogleOnboarding"), "17e: registry relink uses repair-setup handler");
-assert(!panel.includes("Mark company LIVE if ready"), "17f: godmode panel avoids separate mark-live button");
-assert(!panel.includes("markLiveIfReady"), "17g: godmode panel avoids mark-live-if-ready endpoint");
-assert(!panel.includes("Not In Registry"), "17h: godmode panel avoids dead-end Not In Registry copy");
-assert(registry.includes('normalized === "not_in_registry"'), "17f: not_in_registry humanized for API");
+assert(panel.includes("relinkRegistry"), "17e: godmode panel calls relink-registry service");
+assert(panel.includes("forceLiveIfReady"), "17f: godmode panel calls force-live-if-ready service");
+assert(panel.includes("Create / relink company registry record"), "17g: godmode panel relink button");
+assert(panel.includes("Force mark LIVE from ready checks"), "17h: godmode panel force live button");
+assert(registryActions.includes("/api/godmode/companies/:workspaceId/relink-registry"), "17i: relink-registry route");
+assert(registryActions.includes("/api/godmode/companies/:companyId/force-live-if-ready"), "17j: force-live route");
+assert(!registryActions.includes("getDriveFile"), "17k: relink no Drive folder calls");
+assert(!registryActions.includes("ensureCompanyFolderStructure"), "17l: relink no folder structure calls");
+assert(!registryActions.includes("verifyWorkbookReadWrite"), "17m: force live no workbook verify");
+assert(registryActions.includes("ensureCompanyRegistryRecordForWorkspace"), "17n: relink uses ensure registry helper");
+assert(registryActions.includes("persistCompanyWorkspaceSetup"), "17o: force live persists registry only");
+assert(registryActions.includes("findCompanyWorkspaceRegistryRecordInMap"), "17p: relink finds existing row before create");
+assert(serverMain.includes("installGodmodeRegistryActionRoutes"), "17q: server installs godmode registry actions");
+assert(registryService.includes("relinkRegistry"), "17r: frontend relinkRegistry service");
+assert(registryService.includes("forceLiveIfReady"), "17s: frontend forceLiveIfReady service");
+assert(registryService.includes("REGISTRY_ACTION_TIMEOUT_MS = 30_000"), "17t: registry action 30s timeout");
+assert(!panel.includes("Not In Registry"), "17u: godmode panel avoids dead-end Not In Registry copy");
+assert(registry.includes('normalized === "not_in_registry"'), "17v: not_in_registry humanized for API");
 
 assert(panel.includes("registryLinkMissing"), "17i: godmode panel uses registryLinkMissing flag");
 assert(serverMain.includes("registryLinkMissing: !registryRecord"), "17j: live companies expose registryLinkMissing");
@@ -269,4 +284,4 @@ assert(panel.includes("Google verification is slow"), "38c: panel shows slow-ver
 const pkg = JSON.parse(read("package.json"));
 assert(pkg.scripts["verify:company-setup-progress"], "npm script registered");
 
-console.log("OK: verify-company-setup-progress (39 cases)");
+console.log("OK: verify-company-setup-progress (52 cases)");
