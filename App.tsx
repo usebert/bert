@@ -6092,8 +6092,12 @@ function App() {
                 responseSheetId: masterSheetId,
                 responseSheetVerified: true,
                 setupStatus: "ready",
-                setupStatusLabel: payload.company.status === "Needs attention" ? "Needs attention" : "Ready",
-                registryStatus: payload.company.status,
+                setupStatusLabel: isCompanyRegistryLive(payload.company)
+                  ? "Ready"
+                  : payload.company.status === "Needs attention"
+                    ? "Needs attention"
+                    : "Ready",
+                registryStatus: getCanonicalCompanyStatus(payload.company),
               }
             : folder,
         ),
@@ -10006,20 +10010,50 @@ function App() {
 
       if (companyFolderId) {
         await applyRegistryMasterSheetToFolder(companyFolderId);
-        if (result.registryStatus) {
+        try {
+          const registryPayload = await companyWorkspaceRegistryService.getCompany(companyFolderId);
+          const canonicalStatus = getCanonicalCompanyStatus(registryPayload.company);
+          const registryMasterSheetId = String(registryPayload.company.masterSheetId || "").trim();
           setFolders((current) =>
             current.map((folder) =>
               folder.id === companyFolderId
                 ? {
                     ...folder,
-                    registryStatus: result.registryStatus,
-                    setupStatusLabel: result.status === "LIVE" ? "Ready" : folder.setupStatusLabel,
+                    masterSheetId: registryMasterSheetId || folder.masterSheetId,
+                    responseSheetId: registryMasterSheetId || folder.responseSheetId,
+                    responseSheetVerified: Boolean(registryMasterSheetId) || folder.responseSheetVerified,
+                    registryStatus: canonicalStatus,
+                    setupStatusLabel: isCompanyRegistryLive({ status: canonicalStatus, registryStatus: canonicalStatus })
+                      ? "Ready"
+                      : canonicalStatus === "Needs attention"
+                        ? "Needs attention"
+                        : folder.setupStatusLabel,
                   }
                 : folder,
             ),
           );
           if (companyFolderId === selectedFolderIdRef.current) {
-            setCompanyRegistryStatus(result.registryStatus);
+            setCompanyRegistryStatus(canonicalStatus);
+            if (registryMasterSheetId) {
+              setMasterSheetInput((current) => current.trim() || registryMasterSheetId);
+            }
+          }
+        } catch {
+          if (result.registryStatus) {
+            setFolders((current) =>
+              current.map((folder) =>
+                folder.id === companyFolderId
+                  ? {
+                      ...folder,
+                      registryStatus: result.registryStatus,
+                      setupStatusLabel: result.status === "LIVE" ? "Ready" : folder.setupStatusLabel,
+                    }
+                  : folder,
+              ),
+            );
+            if (companyFolderId === selectedFolderIdRef.current) {
+              setCompanyRegistryStatus(result.registryStatus);
+            }
           }
         }
         await inspectFolderById(companyFolderId, { silent: true });

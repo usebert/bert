@@ -910,6 +910,44 @@ export function GodmodeCompanyWorkspacePanel({
                   </div>
                 ) : null}
                 <div className={pilotLightNested}>
+                  <p className="text-sm font-semibold text-slate-900">Repair setup debug</p>
+                  <dl className="mt-2 space-y-2 text-xs text-slate-600">
+                    <div>
+                      <dt className="font-semibold text-slate-500">Company ID</dt>
+                      <dd className="mt-0.5 break-all font-mono text-slate-800">{selectedFolder.id}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-semibold text-slate-500">Registry status</dt>
+                      <dd className="mt-0.5 font-mono text-slate-800">{registryStatus || "Unknown"}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-semibold text-slate-500">Master sheet ID</dt>
+                      <dd className="mt-0.5 break-all font-mono text-slate-800">{companyMasterSheetId || "Not linked"}</dd>
+                    </div>
+                    {companySetupError ? (
+                      <>
+                        <div>
+                          <dt className="font-semibold text-slate-500">Last failed step</dt>
+                          <dd className="mt-0.5 font-mono text-slate-800">
+                            {COMPANY_SETUP_STEP_LABELS[companySetupError.failedStep] || companySetupError.failedStep || "—"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="font-semibold text-slate-500">Technical error</dt>
+                          <dd className="mt-0.5 break-all font-mono text-rose-800">
+                            {companySetupError.technicalError || "—"}
+                          </dd>
+                        </div>
+                      </>
+                    ) : companyLive ? (
+                      <div>
+                        <dt className="font-semibold text-slate-500">Last repair result</dt>
+                        <dd className="mt-0.5 text-emerald-800">Registry status is Live.</dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                </div>
+                <div className={pilotLightNested}>
                   <p className="text-sm font-semibold text-slate-900">Folder &amp; sheet IDs</p>
                   <dl className="mt-2 space-y-2 text-xs text-slate-600">
                     <div>

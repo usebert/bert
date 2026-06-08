@@ -92,12 +92,16 @@ const readinessBlock = registry.slice(
 );
 assert(!readinessBlock.includes("sharedDrive"), "10c: shared drive verification does not block LIVE");
 assert(readinessBlock.includes("explicitChecksPass"), "10d: stale Needs attention cleared when checks pass");
-assert(inviteHelpers.includes("isCompanyUsersTabWritable"), "10e: Godmode Users tab invite gate");
-assert(usersPanel.includes("isCompanyUsersTabWritable"), "10f: invite panel uses Users tab gate for Master");
+assert(registry.includes("findCompanyWorkspaceRegistryRecord"), "10e: registry lookup by folder id");
+assert(registry.includes("clearUnlinkReason"), "10f: Live promotion clears unlink reason");
+assert(progress.includes("allRequiredSetupChecksPass"), "10g: force LIVE persist when checks pass");
+assert(progress.includes("mark_live_force_persist"), "10h: mark_live force persist fallback");
+assert(inviteHelpers.includes("isCompanyUsersTabWritable"), "10i: Godmode Users tab invite gate");
+assert(usersPanel.includes("isCompanyUsersTabWritable"), "10j: invite panel uses Users tab gate for Master");
 
 assert(appTsx.includes("companySetupProgressService"), "App uses setup progress service");
 
 const pkg = JSON.parse(read("package.json"));
 assert(pkg.scripts["verify:company-setup-progress"], "npm script registered");
 
-console.log("OK: verify-company-setup-progress (10 cases)");
+console.log("OK: verify-company-setup-progress (14 cases)");

@@ -74,10 +74,17 @@ function blockersFromValidation(validation, { firstAdminReady }) {
   if (!firstAdminReady) {
     blockers.push("first_admin_missing");
   }
-  if (!readiness.workspaceHealthOk) {
-    blockers.push("workspace_health_failed");
-  }
   return blockers;
+}
+
+function allRequiredSetupChecksPass(checks = {}) {
+  return (
+    checks.folderStructureOk === true &&
+    checks.requiredTabsOk === true &&
+    checks.companyFoldersMappingOk !== false &&
+    checks.firstAdminReady === true &&
+    checks.workspaceHealthOk === true
+  );
 }
 
 export function withGoogleTimeout(promise, label, timeoutMs = GOOGLE_OPERATION_TIMEOUT_MS) {
@@ -559,25 +566,65 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
     const requiredTabsOk = readiness.requiredTabsOk;
     const companyFoldersMappingOk = readiness.companyFoldersMappingOk;
     const workspaceHealthOk = readiness.workspaceHealthOk;
+    const setupChecks = {
+      rootFolderId: companyId,
+      masterSheetId: state.masterSheetId,
+      folderStructureOk,
+      requiredTabsOk,
+      companyFoldersMappingOk,
+      firstAdminReady,
+      healthCheckRun: true,
+      workspaceHealthOk,
+    };
 
-    const liveResult = await withGoogleTimeout(
+    let liveResult = await withGoogleTimeout(
       ensureCompanyLiveIfReady(auth, registryDeps, {
         companyId,
         companyFolderId: companyId,
         companyName: resolvedCompanyName,
-        checks: {
-          rootFolderId: companyId,
-          masterSheetId: state.masterSheetId,
-          folderStructureOk,
-          requiredTabsOk,
-          companyFoldersMappingOk,
-          firstAdminReady,
-          healthCheckRun: true,
-          workspaceHealthOk,
-        },
+        checks: setupChecks,
       }),
       "mark_live",
     );
+
+    if (
+      !liveResult.promoted &&
+      !liveResult.alreadyLive &&
+      allRequiredSetupChecksPass(setupChecks)
+    ) {
+      const registryCompanyId =
+        String(liveResult.record?.companyId || state.registryRecord?.companyId || companyId).trim() || companyId;
+      const forceResult = await withGoogleTimeout(
+        persistCompanyWorkspaceSetup(auth, registryDeps, {
+          companyId: registryCompanyId,
+          companyName: resolvedCompanyName,
+          rootFolderId: companyId,
+          masterSheetId: state.masterSheetId,
+          workbookFolderId: state.folderIds.BERT_COMPANY_WORKBOOK || "",
+          companyFoldersMappingStatus: companyFoldersMappingOk ? "mapped" : "incomplete",
+          firstAdminStatus: firstAdminReady ? "ready" : "pending",
+          lastHealthCheckAt: new Date().toISOString(),
+          status: COMPANY_REGISTRY_STATUS_LIVE,
+          markLive: true,
+          markSetupComplete: true,
+          clearUnlinkReason: true,
+          touchSetup: false,
+        }),
+        "mark_live_force_persist",
+      );
+      const freshRecord =
+        (await getCompanyWorkspaceRegistryRecord(auth, registryDeps, registryCompanyId)) ||
+        (await getCompanyWorkspaceRegistryRecord(auth, registryDeps, companyId));
+      if (forceResult.synced || isCompanyRegistryLive(freshRecord || {})) {
+        liveResult = {
+          promoted: Boolean(forceResult.synced),
+          alreadyLive: isCompanyRegistryLive(freshRecord || {}),
+          registryStatus: getCanonicalCompanyStatus(freshRecord || {}) || COMPANY_REGISTRY_STATUS_LIVE,
+          record: freshRecord || forceResult.record || liveResult.record,
+          blockers: [],
+        };
+      }
+    }
 
     const registryStatus =
       liveResult.registryStatus ||
@@ -589,17 +636,8 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
       state.status = SETUP_STATUS_LIVE;
       state.blockers = [];
     } else {
-      const readinessEval = evaluateCompanyWorkspaceReadiness(liveResult.record || state.registryRecord || {}, {
-        rootFolderId: companyId,
-        masterSheetId: state.masterSheetId,
-        folderStructureOk,
-        requiredTabsOk,
-        companyFoldersMappingOk,
-        firstAdminReady,
-        healthCheckRun: true,
-        workspaceHealthOk,
-      });
       state.blockers = blockersFromValidation(state.validation || {}, { firstAdminReady });
+      const readinessEval = evaluateCompanyWorkspaceReadiness(liveResult.record || state.registryRecord || {}, setupChecks);
       for (const blocker of readinessEval.blockers || []) {
         if (!state.blockers.includes(blocker)) {
           state.blockers.push(blocker);

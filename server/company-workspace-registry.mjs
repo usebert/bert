@@ -80,9 +80,15 @@ function isBlank(value) {
 }
 
 /** Merge incoming column values onto an existing row without erasing non-empty cells. */
-export function mergeRegistryRowCells(existingRow, headerRow, incomingByHeader, { allowClear = false } = {}) {
+export function mergeRegistryRowCells(
+  existingRow,
+  headerRow,
+  incomingByHeader,
+  { allowClear = false, forceClearHeaders = [] } = {},
+) {
   const width = Math.max(headerRow.length, existingRow?.length || 0, COMPANIES_WORKSPACE_COLUMNS.length);
   const next = Array.from({ length: width }, (_, index) => String(existingRow?.[index] ?? "").trim());
+  const forceClear = new Set(forceClearHeaders.map((header) => safeLower(header)));
   for (const header of headerRow) {
     if (!(header in incomingByHeader)) {
       continue;
@@ -93,6 +99,10 @@ export function mergeRegistryRowCells(existingRow, headerRow, incomingByHeader, 
       continue;
     }
     const current = String(next[index] ?? "").trim();
+    if (forceClear.has(safeLower(header))) {
+      next[index] = incoming;
+      continue;
+    }
     if (!allowClear && isBlank(incoming) && !isBlank(current)) {
       continue;
     }
@@ -101,6 +111,41 @@ export function mergeRegistryRowCells(existingRow, headerRow, incomingByHeader, 
     }
   }
   return next;
+}
+
+/** Find a Companies registry row by Company ID or Root Folder ID. */
+export function findCompanyWorkspaceRegistryRecord(map, lookupId) {
+  const id = String(lookupId || "").trim();
+  if (!id || !map) {
+    return null;
+  }
+  if (map.has(id)) {
+    return map.get(id) || null;
+  }
+  for (const record of map.values()) {
+    if (record.rootFolderId === id || record.companyId === id) {
+      return record;
+    }
+  }
+  return null;
+}
+
+function findRegistryRowIndex(headerRow, rows, lookupId) {
+  const id = String(lookupId || "").trim();
+  if (!id) {
+    return -1;
+  }
+  const idIndex = headerIndex(headerRow, COMPANY_ID_HEADERS);
+  const rootFolderIndex = headerIndex(headerRow, ROOT_FOLDER_HEADERS);
+  return rows.findIndex((row) => {
+    if (idIndex >= 0 && cellValue(row, idIndex) === id) {
+      return true;
+    }
+    if (rootFolderIndex >= 0 && cellValue(row, rootFolderIndex) === id) {
+      return true;
+    }
+    return false;
+  });
 }
 
 export function normalizeCompanyWorkspaceRecord(rowObject = {}, headerRow = COMPANIES_WORKSPACE_COLUMNS) {
@@ -292,14 +337,14 @@ export async function getCompanyWorkspaceRegistryRecord(auth, deps, companyId) {
     return null;
   }
   const { map } = await readCompanyWorkspaceRegistryMap(auth, deps);
-  return map.get(id) || null;
+  return findCompanyWorkspaceRegistryRecord(map, id);
 }
 
 export async function upsertCompanyWorkspaceRegistryRecords(
   auth,
   deps,
   records,
-  { allowClear = false, mergeBlanksOnly = true } = {},
+  { allowClear = false, mergeBlanksOnly = true, forceClearHeaders = [] } = {},
 ) {
   const sanitized = Array.isArray(records) ? records : [records];
   if (!sanitized.length) {
@@ -334,7 +379,7 @@ export async function upsertCompanyWorkspaceRegistryRecords(
       },
       headerRow,
     );
-    const rowIndex = nextRows.findIndex((row) => cellValue(row, idIndex) === companyId);
+    const rowIndex = findRegistryRowIndex(headerRow, nextRows, companyId);
     if (rowIndex === -1) {
       const mapped = headerRow.map((header) => String(incoming[header] ?? "").trim());
       if (idIndex >= 0) {
@@ -342,7 +387,7 @@ export async function upsertCompanyWorkspaceRegistryRecords(
       }
       const legacyFolderIndex = headerIndex(headerRow, ["company folder id"]);
       if (legacyFolderIndex >= 0 && legacyFolderIndex !== idIndex) {
-        mapped[legacyFolderIndex] = companyId;
+        mapped[legacyFolderIndex] = normalized.rootFolderId || companyId;
       }
       nextRows.push(mapped);
       continue;
@@ -351,14 +396,16 @@ export async function upsertCompanyWorkspaceRegistryRecords(
     headerRow.forEach((header, index) => {
       existingRowObject[header] = cellValue(nextRows[rowIndex], index);
     });
+    const existingNormalized = normalizeCompanyWorkspaceRecord(existingRowObject, headerRow);
+    const canonicalCompanyId = existingNormalized.companyId || companyId;
     const mergedRecord = mergeBlanksOnly
       ? {
-          ...normalizeCompanyWorkspaceRecord(existingRowObject, headerRow),
+          ...existingNormalized,
           ...Object.fromEntries(
             Object.entries(incoming).filter(([, value]) => !isBlank(value)),
           ),
-          companyId,
-          rootFolderId: incoming["Root Folder ID"] || existingRowObject["Root Folder ID"] || companyId,
+          companyId: canonicalCompanyId,
+          rootFolderId: incoming["Root Folder ID"] || existingRowObject["Root Folder ID"] || normalized.rootFolderId || companyId,
           masterSheetId: incoming["Master Sheet ID"] || existingRowObject["Master Sheet ID"] || "",
           workbookFolderId: incoming["Workbook Folder ID"] || existingRowObject["Workbook Folder ID"] || "",
         }
@@ -367,7 +414,7 @@ export async function upsertCompanyWorkspaceRegistryRecords(
       nextRows[rowIndex],
       headerRow,
       rowObjectFromCompanyWorkspaceRecord(mergedRecord, headerRow),
-      { allowClear },
+      { allowClear, forceClearHeaders },
     );
     nextRows[rowIndex] = mergedRow;
   }
@@ -411,7 +458,15 @@ export async function persistCompanyWorkspaceSetup(auth, deps, input = {}) {
     liveAt: input.markLive === false ? String(input.liveAt || "").trim() : input.liveAt || (status === "Live" ? now : ""),
     unlinkReason: status === "Needs attention" ? String(input.unlinkReason || "").trim() : "",
   };
-  const result = await upsertCompanyWorkspaceRegistryRecords(auth, deps, [record]);
+  const markingLive =
+    getCanonicalCompanyStatus({ status }) === COMPANY_REGISTRY_STATUS_LIVE || input.markLive === true;
+  const forceClearHeaders = [
+    ...(Array.isArray(input.forceClearHeaders) ? input.forceClearHeaders : []),
+    ...(markingLive || input.clearUnlinkReason ? ["Unlink Reason"] : []),
+  ];
+  const result = await upsertCompanyWorkspaceRegistryRecords(auth, deps, [record], {
+    forceClearHeaders,
+  });
   return { ...result, record: normalizeCompanyWorkspaceRecord(rowObjectFromCompanyWorkspaceRecord(record)) };
 }
 
@@ -434,8 +489,8 @@ export async function recordCompanyWorkspaceHealthCheck(auth, deps, input = {}) 
       : existing?.rootFolderId || input.rootFolderId || companyId,
   ).trim();
   const status = healthOk
-    ? masterSheetId && rootFolderId
-      ? "Live"
+    ? isCompanyRegistryLive(existing)
+      ? COMPANY_REGISTRY_STATUS_LIVE
       : existing?.status || "Setup in progress"
     : "Needs attention";
   return persistCompanyWorkspaceSetup(auth, deps, {
@@ -575,8 +630,16 @@ export function evaluateCompanyWorkspaceReadiness(record = {}, checks = {}) {
   const canonicalStatus = getCanonicalCompanyStatus(record) || deriveCompanyWorkspaceStatus(record);
   if (canonicalStatus === "Archived" || canonicalStatus === "Disconnected") {
     blockers.push(`company_${safeLower(canonicalStatus).replace(/\s+/g, "_")}`);
-  }
-  if (canonicalStatus === "Needs attention" && !explicitChecksPass) {
+  } else if (explicitChecksPass && rootFolderId && masterSheetId) {
+    return {
+      ready: true,
+      blockers: [],
+      setupBlockers: [],
+      needsAttention: false,
+      canonicalStatus: COMPANY_REGISTRY_STATUS_LIVE,
+      registryStatus: COMPANY_REGISTRY_STATUS_LIVE,
+    };
+  } else if (canonicalStatus === "Needs attention") {
     blockers.push(String(record.unlinkReason || "needs_attention").trim() || "needs_attention");
   }
 
@@ -644,31 +707,48 @@ export async function ensureCompanyLiveIfReady(auth, deps, input = {}) {
       record: existing,
     };
   }
+  const checks = input.checks || {};
   const now = nowIso();
+  const registryCompanyId = String(existing.companyId || companyId).trim();
+  const resolvedMasterSheetId = String(checks.masterSheetId || existing.masterSheetId || "").trim();
+  const resolvedRootFolderId = String(checks.rootFolderId || existing.rootFolderId || companyId).trim();
   const result = await persistCompanyWorkspaceSetup(auth, deps, {
-    companyId,
+    companyId: registryCompanyId,
     companyName: String(input.companyName || existing.companyName || "").trim(),
-    rootFolderId: existing.rootFolderId || companyId,
-    masterSheetId: existing.masterSheetId,
+    rootFolderId: resolvedRootFolderId,
+    masterSheetId: resolvedMasterSheetId,
     workbookFolderId: existing.workbookFolderId,
-    companyFoldersMappingStatus: existing.companyFoldersMappingStatus,
-    firstAdminStatus: existing.firstAdminStatus,
+    companyFoldersMappingStatus:
+      checks.companyFoldersMappingOk === false
+        ? existing.companyFoldersMappingStatus
+        : checks.companyFoldersMappingOk === true
+          ? "mapped"
+          : existing.companyFoldersMappingStatus,
+    firstAdminStatus:
+      checks.firstAdminReady === true ? "ready" : checks.firstAdminReady === false ? "pending" : existing.firstAdminStatus,
+    lastHealthCheckAt: existing.lastHealthCheckAt || (checks.healthCheckRun ? now : ""),
     status: COMPANY_REGISTRY_STATUS_LIVE,
     setupCompletedAt: existing.setupCompletedAt || now,
     liveAt: now,
     unlinkReason: "",
+    clearUnlinkReason: true,
     markSetupComplete: true,
     markLive: true,
     touchSetup: false,
   });
+  const freshRecord =
+    (await getCompanyWorkspaceRegistryRecord(auth, deps, registryCompanyId)) ||
+    (await getCompanyWorkspaceRegistryRecord(auth, deps, companyId)) ||
+    result.record ||
+    existing;
   return {
     promoted: Boolean(result.synced),
     status: COMPANY_REGISTRY_STATUS_LIVE,
     blockers: [],
     setupBlockers: [],
     needsAttention: false,
-    registryStatus: COMPANY_REGISTRY_STATUS_LIVE,
-    record: result.record || existing,
+    registryStatus: getCanonicalCompanyStatus(freshRecord) || COMPANY_REGISTRY_STATUS_LIVE,
+    record: freshRecord,
   };
 }
 
