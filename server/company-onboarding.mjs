@@ -1447,10 +1447,5 @@ export function installCompanyOnboardingRoutes(app, deps) {
   });
 }
 
-export {
-  COMPANY_ONBOARDING_SETUP_FAILED_MESSAGE,
-  MAIN_NEED_OPTIONS,
-  REGISTRY_TAB_ONBOARDING,
-  createInviteStoreApi,
-};
+export { MAIN_NEED_OPTIONS, REGISTRY_TAB_ONBOARDING, createInviteStoreApi };
 export { REGISTRY_SPREADSHEET_NAME, REGISTRY_TAB_COMPANIES } from "./company-workspace-registry.mjs";
