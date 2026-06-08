@@ -265,7 +265,6 @@ export function GodmodeCompanyWorkspacePanel({
   const [registryForceLiveLoading, setRegistryForceLiveLoading] = useState(false);
   const [registryRelinkSucceeded, setRegistryRelinkSucceeded] = useState(false);
   const [registryActionError, setRegistryActionError] = useState("");
-  const isProvisioning = companyFolderStructureRepairing || companyMasterSheetProvisioning;
   const healthCheckRun = workspaceValidation != null;
   const workspaceHealthOk = workspaceValidation?.ok ?? false;
   const masterSheetOk = Boolean(companyMasterSheetId || folderInspection?.checks.masterSheet);
@@ -280,7 +279,12 @@ export function GodmodeCompanyWorkspacePanel({
     status: companyRegistryStatus || (selectedFolder as CompanyFolder & { registryStatus?: string })?.registryStatus,
     registryStatus: companyRegistryStatus || (selectedFolder as CompanyFolder & { registryStatus?: string })?.registryStatus,
   });
-  const companyLive = isCompanyRegistryLive({ status: effectiveRegistryStatus, registryStatus: effectiveRegistryStatus });
+  const companyLive = isCompanyRegistryLive({
+    status: effectiveRegistryStatus,
+    registryStatus: effectiveRegistryStatus,
+  });
+  const setupRunning = companyFolderStructureRepairing || companyMasterSheetProvisioning;
+  const isProvisioning = setupRunning && !companyLive;
   const visibleSetupError = companyLive ? null : companySetupError;
   const showSlowVerifyWarning = companyLive && companySetupWarnings.length > 0;
 

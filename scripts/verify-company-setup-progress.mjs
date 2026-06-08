@@ -281,7 +281,21 @@ assert(
 assert(progress.includes("reload_registry_after_writes"), "38b: reloads registry before early LIVE evaluation");
 assert(panel.includes("Google verification is slow"), "38c: panel shows slow-verify warning when Live");
 
+/** 39–43: LIVE clears stale Godmode setup running state */
+assert(appTsx.includes("clearCompanySetupRunningState"), "39: App clears setup running state helper");
+assert(
+  appTsx.includes("isCompanyRegistryLive({ status: canonicalStatus, registryStatus: canonicalStatus })"),
+  "39b: App clears running state when registry is LIVE",
+);
+assert(panel.includes("setupRunning && !companyLive"), "40: panel derives provisioning from setupRunning && !companyLive");
+assert(
+  statusModule.indexOf("isCompanyRegistryLive") < statusModule.indexOf("input.isProvisioning"),
+  "41: workspace status resolves LIVE before provisioning flag",
+);
+assert(panel.includes("finally"), "42: godmode panel registry actions use finally");
+assert(appTsx.includes("onClearSetupError={clearCompanySetupRunningState}"), "43: clear setup error clears running state");
+
 const pkg = JSON.parse(read("package.json"));
 assert(pkg.scripts["verify:company-setup-progress"], "npm script registered");
 
-console.log("OK: verify-company-setup-progress (52 cases)");
+console.log("OK: verify-company-setup-progress (57 cases)");

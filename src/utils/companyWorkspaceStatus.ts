@@ -61,9 +61,6 @@ export function resolveCompanySetupStatus(input: {
   if (input.setupFailed) {
     return "Failed";
   }
-  if (input.isProvisioning) {
-    return "Setup in progress";
-  }
 
   const canonicalRegistry = getCanonicalCompanyStatus({
     status: input.registryStatus,
@@ -74,6 +71,9 @@ export function resolveCompanySetupStatus(input: {
       return "Needs attention";
     }
     return "Live";
+  }
+  if (input.isProvisioning) {
+    return "Setup in progress";
   }
   if (canonicalRegistry === "Needs attention") {
     return "Needs attention";

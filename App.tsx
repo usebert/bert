@@ -3283,6 +3283,11 @@ function App() {
   const [companySetupWarnings, setCompanySetupWarnings] = useState<string[]>([]);
   const [companyMasterSheetLink, setCompanyMasterSheetLink] = useState("");
   const [companyMasterSheetProvisioning, setCompanyMasterSheetProvisioning] = useState(false);
+  const clearCompanySetupRunningState = useCallback(() => {
+    setCompanyFolderStructureRepairing(false);
+    setCompanySetupCurrentStep("");
+    setCompanySetupError(null);
+  }, []);
   const storedFolderLinks = readStoredFolderLinks();
   const [folderNameInput, setFolderNameInput] = useState(storedFolderLinks?.folderNameInput || "");
   const [folderIdInput, setFolderIdInput] = useState(storedFolderLinks?.folderIdInput || "");
@@ -3465,6 +3470,25 @@ function App() {
       );
     }
   }, [currentUser?.role, selectedFolder?.registryStatus]);
+
+  useEffect(() => {
+    if (currentUser?.role !== "Master") {
+      return;
+    }
+    const canonicalStatus = getCanonicalCompanyStatus({
+      status: companyRegistryStatus || selectedFolder?.registryStatus,
+      registryStatus: companyRegistryStatus || selectedFolder?.registryStatus,
+    });
+    if (isCompanyRegistryLive({ status: canonicalStatus, registryStatus: canonicalStatus })) {
+      clearCompanySetupRunningState();
+    }
+  }, [
+    currentUser?.role,
+    selectedFolder?.id,
+    selectedFolder?.registryStatus,
+    companyRegistryStatus,
+    clearCompanySetupRunningState,
+  ]);
 
   useEffect(() => {
     const onInviteScreen = screen === "users" || screen === "invites";
@@ -6159,7 +6183,7 @@ function App() {
         setMasterSheetInput((current) => current.trim() || registryMasterSheetId);
       }
       if (resultIsLive) {
-        setCompanySetupError(null);
+        clearCompanySetupRunningState();
       }
     }
     await applyRegistryMasterSheetToFolder(companyFolderId);
@@ -10053,13 +10077,13 @@ function App() {
           "",
       });
 
-      if (result.currentStep) {
-        setCompanySetupCurrentStep(result.currentStep);
-      }
-
       const resultIsLive =
         result.status === "LIVE" ||
         isCompanyRegistryLive({ status: result.registryStatus, registryStatus: result.registryStatus });
+
+      if (!resultIsLive && result.currentStep) {
+        setCompanySetupCurrentStep(result.currentStep);
+      }
 
       if (result.legacyFolderConfig) {
         applyIsoFolderIdsToInputs(result.legacyFolderConfig, isoFolderInputSnapshot, isoFolderInputSetters);
@@ -10131,7 +10155,7 @@ function App() {
       }
 
       if (resultIsLive) {
-        setCompanySetupError(null);
+        clearCompanySetupRunningState();
         setCompanySetupWarnings(result.setupWarnings || []);
       } else if (!result.ok) {
         setCompanySetupError({
@@ -10165,8 +10189,7 @@ function App() {
       });
       pushToast("Setup did not finish", COMPANY_SETUP_DID_NOT_FINISH_MESSAGE, "warning");
     } finally {
-      setCompanyFolderStructureRepairing(false);
-      setCompanySetupCurrentStep("");
+      clearCompanySetupRunningState();
     }
   };
 
@@ -13048,7 +13071,7 @@ function App() {
                 onCompanyWorkspaceResetSuccess={(message) => void handleCompanyWorkspaceResetSuccess(message)}
                 onCompanyWorkspaceResetError={handleCompanyWorkspaceResetError}
                 onCompanyRegistryUpdated={(payload) => void handleCompanyRegistryUpdated(payload)}
-                onClearSetupError={() => setCompanySetupError(null)}
+                onClearSetupError={clearCompanySetupRunningState}
                 folderNameInput={folderNameInput}
                 folderIdInput={folderIdInput}
                 auditFormsFolderInput={auditFormsFolderInput}
