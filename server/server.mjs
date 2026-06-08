@@ -59,6 +59,13 @@ import {
   createInviteStoreApi,
   installCompanyOnboardingRoutes,
 } from "./company-onboarding.mjs";
+import {
+  installCompanyWorkspaceRegistryRoutes,
+  mergeDriveCompanyWithRegistry,
+  persistCompanyWorkspaceSetup,
+  readCompanyWorkspaceRegistryMap,
+  recordCompanyWorkspaceHealthCheck,
+} from "./company-workspace-registry.mjs";
 import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
 
 dotenv.config();
@@ -2544,6 +2551,11 @@ async function listGodmodeLiveCompanies(auth) {
     };
   }
 
+  const registryDeps = getCompanyWorkspaceRegistryDeps();
+  const { map: registryMap } = await readCompanyWorkspaceRegistryMap(auth, registryDeps).catch(() => ({
+    map: new Map(),
+  }));
+
   const companies = (await listCompanyFolders(auth, { parentFolderId: liveCompaniesFolder.id })).filter(
     (company) => isSelectableGodmodeCompanyFolder(company),
   );
@@ -2552,15 +2564,34 @@ async function listGodmodeLiveCompanies(auth) {
     liveCompaniesMissing: false,
     warning: "",
     companies: companies.map((company) => {
-      const masterSheetId = String(company.responseSheetId || "").trim();
+      const registryRecord = registryMap.get(company.id) || null;
+      const merged = mergeDriveCompanyWithRegistry(company, registryRecord);
+      const masterSheetId = String(merged.masterSheetId || merged.responseSheetId || "").trim();
       const setupStatus = masterSheetId ? "ready" : "incomplete";
+      const setupStatusLabel =
+        merged.setupStatusLabel ||
+        (setupStatus === "ready" ? "Ready" : "Setup in progress");
       return {
-        ...company,
+        ...merged,
         setupStatus,
-        setupStatusLabel: setupStatus === "ready" ? "Ready" : "Setup in progress",
+        setupStatusLabel,
         masterSheetId,
       };
     }),
+  };
+}
+
+function getCompanyWorkspaceRegistryDeps() {
+  return {
+    google,
+    getWorkbook,
+    ensureTabExists,
+    ensureColumns,
+    getTabValues,
+    withSheetsQuotaRetry,
+    safeLower,
+    sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
+    platformRegistrySheetId: process.env.BERT_PLATFORM_REGISTRY_SHEET_ID || "",
   };
 }
 
@@ -4670,8 +4701,9 @@ app.post("/api/google-sheet-by-id/:sheetId/validate", async (req, res) => {
 
   try {
     const config = await getConfig(authed, req.params.sheetId);
+    const companyFolderId = String(req.body?.companyFolderId || "").trim();
     const payload = await validateWorkspace(authed, {
-      companyFolderId: String(req.body?.companyFolderId || "").trim(),
+      companyFolderId,
       sheetId: req.params.sheetId,
       setupFolderId: String(req.body?.setupFolderId || config.setupFolderId || "").trim(),
       auditFormsFolderId: String(req.body?.auditFormsFolderId || config.auditFormsFolderId || "").trim(),
@@ -4680,6 +4712,27 @@ app.post("/api/google-sheet-by-id/:sheetId/validate", async (req, res) => {
       exportsFolderId: String(req.body?.exportsFolderId || config.exportsFolderId || "").trim(),
       managementNotesFolderId: String(req.body?.managementNotesFolderId || config.managementNotesFolderId || "").trim(),
     });
+    if (companyFolderId) {
+      const companyFoldersOk = Boolean(payload.folders?.companyFolder ?? payload.ok);
+      await recordCompanyWorkspaceHealthCheck(authed, getCompanyWorkspaceRegistryDeps(), {
+        companyId: companyFolderId,
+        companyFolderId,
+        rootFolderId: companyFolderId,
+        masterSheetId: req.params.sheetId,
+        companyName: String(req.body?.companyName || config.companyName || "").trim(),
+        workbookFolderId: String(config.workbookFolderId || "").trim(),
+        companyFoldersMappingStatus: companyFoldersOk ? "mapped" : "incomplete",
+        firstAdminStatus: String(req.body?.firstAdminStatus || "").trim(),
+        healthOk: Boolean(payload.ok),
+        healthSummary: payload.ok ? "healthy" : "health_check_failed",
+        unlinkReason: payload.ok
+          ? ""
+          : [
+              ...(payload.missingTabs?.length ? [`missing_tabs:${payload.missingTabs.join(",")}`] : []),
+              ...(payload.repairableIssues?.length ? payload.repairableIssues : []),
+            ].join("; "),
+      }).catch(() => {});
+    }
     return res.json(payload);
   } catch (error) {
     return res.status(500).json({
@@ -4760,6 +4813,20 @@ app.post("/api/google-sheet-by-id/:sheetId/repair", async (req, res) => {
       exportsFolderId: isoFolders.exportsFolderId,
       managementNotesFolderId: isoFolders.managementNotesFolderId,
     });
+    const workbookFolderId = String(structure.folderIds?.BERT_COMPANY_WORKBOOK || "").trim();
+    await persistCompanyWorkspaceSetup(authed, getCompanyWorkspaceRegistryDeps(), {
+      companyId: companyFolderId,
+      companyFolderId,
+      rootFolderId: companyFolderId,
+      masterSheetId: req.params.sheetId,
+      companyName: String(req.body?.companyName || "").trim(),
+      workbookFolderId,
+      companyFoldersMappingStatus: validation.folders?.companyFolder ? "mapped" : "repaired",
+      status: validation.ok ? "Live" : "Needs attention",
+      markSetupComplete: validation.ok,
+      markLive: validation.ok,
+      unlinkReason: validation.ok ? "" : "repair_completed_with_issues",
+    }).catch(() => {});
     return res.json({ ok: true, repair, validation, isoFolders });
   } catch (error) {
     return res.status(500).json({
@@ -6392,6 +6459,22 @@ installCompanyFolderStructureRoutes(app, {
   getTabValues,
   withSheetsQuotaRetry,
   safeLower,
+});
+
+installCompanyWorkspaceRegistryRoutes(app, {
+  getAuthedClient,
+  envConfigured,
+  requireGoogleWorkspaceSession,
+  requireMasterOnlyActor,
+  google,
+  getWorkbook,
+  ensureTabExists,
+  ensureColumns,
+  getTabValues,
+  withSheetsQuotaRetry,
+  safeLower,
+  sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
+  platformRegistrySheetId: process.env.BERT_PLATFORM_REGISTRY_SHEET_ID || "",
 });
 
 installCompanyOnboardingRoutes(app, {

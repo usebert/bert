@@ -238,9 +238,13 @@ export function GodmodeCompanyWorkspacePanel({
   const isProvisioning = companyFolderStructureRepairing || companyMasterSheetProvisioning;
   const healthCheckRun = workspaceValidation != null;
   const workspaceHealthOk = workspaceValidation?.ok ?? false;
+  const masterSheetOk = Boolean(companyMasterSheetId || folderInspection?.checks.masterSheet);
   const setupFailed =
     Boolean(folderInspection?.error) ||
-    (workspaceValidation != null && !workspaceValidation.ok && (workspaceValidation.missingTabs?.length ?? 0) > 0);
+    (workspaceValidation != null &&
+      !workspaceValidation.ok &&
+      (workspaceValidation.missingTabs?.length ?? 0) > 0 &&
+      !masterSheetOk);
 
   const folderStatuses = useMemo(
     () =>
@@ -298,12 +302,15 @@ export function GodmodeCompanyWorkspacePanel({
     return false;
   }, [workspaceValidation, folderInspection]);
 
-  const masterSheetOk = Boolean(companyMasterSheetId || folderInspection?.checks.masterSheet);
   const requiredTabsOk =
     workspaceValidation?.ok ??
     (folderInspection?.masterSheet?.tabs.length ? folderInspection.blockingItems.length === 0 : false);
   const companyFoldersMappingOk = workspaceValidation?.folders.companyFolder ?? Boolean(selectedFolder);
-  const companyLive = syncState === "Synced" && masterSheetOk && Boolean(selectedFolder);
+  const companyLive =
+    (syncState === "Synced" || syncState === "Linked") && masterSheetOk && Boolean(selectedFolder);
+  const registryUnlinkReason = String(
+    (selectedFolder as CompanyFolder & { registryUnlinkReason?: string })?.registryUnlinkReason || "",
+  ).trim();
 
   useEffect(() => {
     let cancelled = false;
@@ -422,6 +429,8 @@ export function GodmodeCompanyWorkspacePanel({
     workspaceHealthOk,
     healthCheckRun,
   ]);
+
+  const isLiveStatus = selectedStatus === "Live" || selectedStatus === "Needs attention";
 
   const nextAction = useMemo(() => {
     if (!selectedStatus) {
@@ -571,35 +580,47 @@ export function GodmodeCompanyWorkspacePanel({
                 </button>
               </div>
             ) : null}
+            {registryUnlinkReason ? (
+              <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                Unlink reason: {registryUnlinkReason.replace(/_/g, " ")}
+              </p>
+            ) : null}
             <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => runNextAction(nextAction.primaryHandler, actionHandlers)}
-                disabled={
-                  adminOnly ||
-                  !googleWorkspaceReady ||
-                  folderInspectionLoading ||
-                  isProvisioning ||
-                  nextAction.primaryHandler === "none"
-                }
-                className="inline-flex h-11 items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isProvisioning
-                  ? "Running setup…"
-                  : nextAction.primaryHandler === "health_check"
-                    ? "Continue setup"
-                    : nextAction.primaryHandler === "run_setup"
-                      ? "Continue setup"
-                      : "Continue setup"}
-              </button>
-              <button
-                type="button"
-                onClick={onOneClickGoogleOnboarding}
-                disabled={adminOnly || !googleWorkspaceReady || folderInspectionLoading || isProvisioning}
-                className="inline-flex h-11 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isProvisioning ? "Running…" : "Run / repair setup"}
-              </button>
+              {!isLiveStatus ? (
+                <button
+                  type="button"
+                  onClick={() => runNextAction(nextAction.primaryHandler, actionHandlers)}
+                  disabled={
+                    adminOnly ||
+                    !googleWorkspaceReady ||
+                    folderInspectionLoading ||
+                    isProvisioning ||
+                    nextAction.primaryHandler === "none"
+                  }
+                  className="inline-flex h-11 items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isProvisioning ? "Running setup…" : "Continue setup"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onValidateWorkspace}
+                  disabled={masterCompanyContextBlocked || workspaceValidationLoading}
+                  className="inline-flex h-11 items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {workspaceValidationLoading ? "Checking…" : "Re-check workspace"}
+                </button>
+              )}
+              {!isLiveStatus ? (
+                <button
+                  type="button"
+                  onClick={onOneClickGoogleOnboarding}
+                  disabled={adminOnly || !googleWorkspaceReady || folderInspectionLoading || isProvisioning}
+                  className="inline-flex h-11 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isProvisioning ? "Running…" : "Run setup"}
+                </button>
+              ) : null}
               <a
                 href={`https://drive.google.com/drive/folders/${selectedFolder.id}`}
                 target="_blank"

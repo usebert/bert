@@ -6,6 +6,7 @@ export type CompanySetupStatusLabel =
   | "Invited"
   | "Setup in progress"
   | "Ready for health check"
+  | "Needs attention"
   | "Live"
   | "Failed"
   | "Archived";
@@ -21,6 +22,8 @@ export function workspaceStatusBadgeClass(status: CompanySetupStatusLabel): stri
       return "bg-sky-100 text-sky-800";
     case "Ready for health check":
       return "bg-indigo-100 text-indigo-800";
+    case "Needs attention":
+      return "bg-amber-100 text-amber-900";
     case "Invited":
       return "bg-violet-100 text-violet-800";
     case "Failed":
@@ -61,12 +64,14 @@ export function resolveCompanySetupStatus(input: {
     return "Setup in progress";
   }
   const masterSheetId = String(input.masterSheetId || "").trim();
-  const synced = input.syncState === "Synced";
-  if (synced && masterSheetId && input.hasCompanyFolder) {
+  const synced = input.syncState === "Synced" || input.syncState === "Linked";
+  if (masterSheetId && input.hasCompanyFolder) {
     if (input.healthCheckRun && input.workspaceHealthOk === false) {
-      return "Ready for health check";
+      return "Needs attention";
     }
-    return "Live";
+    if (synced) {
+      return "Live";
+    }
   }
   if (masterSheetId && input.hasCompanyFolder) {
     if (synced && !input.healthCheckRun) {
@@ -131,11 +136,17 @@ export function getCompanySetupNextAction(input: {
         label: "Run a workspace health check, then re-sync from the company sheet",
         primaryHandler: "health_check",
       };
+    case "Needs attention":
+      return {
+        label: "Workspace is linked but needs attention — review health check results",
+        detail: "Re-check workspace or repair folders without re-running full setup.",
+        primaryHandler: "repair_workspace",
+      };
     case "Live":
       if (input.healthCheckRun && !input.workspaceHealthOk) {
         return {
-          label: "Fix workspace issues found in the last health check",
-          primaryHandler: "repair_workspace",
+          label: "Re-check workspace health and repair any issues found",
+          primaryHandler: "health_check",
         };
       }
       return {

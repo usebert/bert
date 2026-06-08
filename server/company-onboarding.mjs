@@ -4,6 +4,13 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import {
+  COMPANIES_WORKSPACE_COLUMNS,
+  REGISTRY_SPREADSHEET_NAME,
+  REGISTRY_TAB_COMPANIES,
+  persistCompanyWorkspaceSetup,
+  upsertCompanyWorkspaceRegistryRecords,
+} from "./company-workspace-registry.mjs";
 
 export const COMPANY_ONBOARDING_INVITE_TYPE = "COMPANY_ONBOARDING";
 
@@ -25,9 +32,7 @@ export const COMPANY_ONBOARDING_STATUSES = new Set([
   "setup_failed",
 ]);
 
-const REGISTRY_SPREADSHEET_NAME = "BERT Platform Registry";
 const REGISTRY_TAB_ONBOARDING = "OnboardingInvites";
-const REGISTRY_TAB_COMPANIES = "Companies";
 
 const ONBOARDING_INVITE_COLUMNS = [
   "Invite ID",
@@ -48,20 +53,8 @@ const ONBOARDING_INVITE_COLUMNS = [
   "Provision Error",
 ];
 
-const COMPANIES_REGISTRY_COLUMNS = [
-  "Company Folder ID",
-  "Company Name",
-  "Website",
-  "Phone",
-  "Address",
-  "Industry",
-  "Sites Count",
-  "Users Count",
-  "Main Needs",
-  "Status",
-  "Onboarding Invite ID",
-  "Live At",
-];
+/** @deprecated Use COMPANIES_WORKSPACE_COLUMNS from company-workspace-registry.mjs */
+const COMPANIES_REGISTRY_COLUMNS = COMPANIES_WORKSPACE_COLUMNS;
 
 export const COMPANY_ONBOARDING_SETUP_FAILED_MESSAGE =
   "We couldn't finish setting up your workspace. Your details have been saved and the BERT team can finish setup.";
@@ -432,19 +425,28 @@ function registryRowFromInvite(record) {
 }
 
 function registryRowFromCompany(record, form) {
+  const companyId = record.companyFolderId || record.provisionDriveFolderId || "";
+  const masterSheetId = record.masterSheetId || record.provisionMasterSheetId || "";
+  const isLive = safeLower(record.status) === "live";
   return {
-    "Company Folder ID": record.companyFolderId || record.provisionDriveFolderId || "",
-    "Company Name": form.companyName || record.provisionalCompanyName || "",
-    Website: form.website || "",
-    Phone: form.phone || "",
-    Address: formatCompanyAddress(form),
-    Industry: form.industry || "",
-    "Sites Count": String(form.sitesCount ?? ""),
-    "Users Count": String(form.usersCount ?? ""),
-    "Main Needs": (form.mainNeeds || []).join(", "),
-    Status: safeLower(record.status) === "live" ? "Live" : "Onboarding",
-    "Onboarding Invite ID": record.id,
-    "Live At": record.liveAt ? new Date(record.liveAt).toISOString() : "",
+    companyId,
+    companyName: form.companyName || record.provisionalCompanyName || "",
+    status: isLive ? "Live" : "Onboarding",
+    rootFolderId: companyId,
+    masterSheetId,
+    liveAt: record.liveAt ? new Date(record.liveAt).toISOString() : "",
+    setupCompletedAt: isLive && record.liveAt ? new Date(record.liveAt).toISOString() : "",
+    extraHeaders: {
+      Website: form.website || "",
+      Phone: form.phone || "",
+      Address: formatCompanyAddress(form),
+      Industry: form.industry || "",
+      "Sites Count": String(form.sitesCount ?? ""),
+      "Users Count": String(form.usersCount ?? ""),
+      "Main Needs": (form.mainNeeds || []).join(", "),
+      "Onboarding Invite ID": record.id,
+      "Company Folder ID": companyId,
+    },
   };
 }
 
@@ -460,9 +462,17 @@ async function syncInviteToRegistry(auth, record, deps) {
     registryRowFromInvite(record),
   ], deps);
   if (record.companyFolderId || record.provisionDriveFolderId) {
-    await upsertRegistryRows(auth, sheetsApi, spreadsheetId, REGISTRY_TAB_COMPANIES, COMPANIES_REGISTRY_COLUMNS, [
-      registryRowFromCompany(record, form),
-    ], deps);
+    const companyRow = registryRowFromCompany(record, form);
+    await upsertCompanyWorkspaceRegistryRecords(auth, deps, [companyRow]);
+    if (companyRow.masterSheetId) {
+      const live = safeLower(record.status) === "live";
+      await persistCompanyWorkspaceSetup(auth, deps, {
+        ...companyRow,
+        markSetupComplete: live,
+        markLive: live,
+        touchSetup: false,
+      }).catch(() => {});
+    }
   }
   return { synced: true, registrySpreadsheetId: spreadsheetId };
 }
@@ -1440,8 +1450,7 @@ export function installCompanyOnboardingRoutes(app, deps) {
 export {
   COMPANY_ONBOARDING_SETUP_FAILED_MESSAGE,
   MAIN_NEED_OPTIONS,
-  REGISTRY_SPREADSHEET_NAME,
-  REGISTRY_TAB_COMPANIES,
   REGISTRY_TAB_ONBOARDING,
   createInviteStoreApi,
 };
+export { REGISTRY_SPREADSHEET_NAME, REGISTRY_TAB_COMPANIES } from "./company-workspace-registry.mjs";

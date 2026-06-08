@@ -42,6 +42,7 @@ import {
   canManageTemplates,
 } from "./src/permissions";
 import { companyFolderStructureService } from "./src/services/companyFolderStructureService";
+import { companyWorkspaceRegistryService } from "./src/services/companyWorkspaceRegistryService";
 import { navItems } from "./src/config/navItems";
 import {
   getMobileBottomNavForRole,
@@ -5939,6 +5940,78 @@ function App() {
     }
   };
 
+  const persistCompanyWorkspaceLinks = async (input: {
+    companyId: string;
+    companyName?: string;
+    masterSheetId?: string;
+    workbookFolderId?: string;
+    companyFoldersMappingStatus?: string;
+    firstAdminStatus?: string;
+    status?: string;
+    markSetupComplete?: boolean;
+    markLive?: boolean;
+    unlinkReason?: string;
+  }) => {
+    if (currentUser?.role !== "Master" || !googleConnected) {
+      return;
+    }
+    const companyId = String(input.companyId || "").trim();
+    const masterSheetId = String(input.masterSheetId || "").trim();
+    if (!companyId || !masterSheetId) {
+      return;
+    }
+    try {
+      await companyWorkspaceRegistryService.persist({
+        companyId,
+        companyName: input.companyName,
+        rootFolderId: companyId,
+        masterSheetId,
+        workbookFolderId: input.workbookFolderId,
+        companyFoldersMappingStatus: input.companyFoldersMappingStatus,
+        firstAdminStatus: input.firstAdminStatus,
+        status: input.status || "Live",
+        markSetupComplete: input.markSetupComplete ?? true,
+        markLive: input.markLive ?? true,
+        unlinkReason: input.unlinkReason,
+      });
+    } catch {
+      /* registry is best-effort; Drive + sheet remain source during setup */
+    }
+  };
+
+  const applyRegistryMasterSheetToFolder = async (folderId: string) => {
+    if (currentUser?.role !== "Master" || !googleConnected) {
+      return "";
+    }
+    try {
+      const payload = await companyWorkspaceRegistryService.getCompany(folderId);
+      const masterSheetId = String(payload.company?.masterSheetId || "").trim();
+      if (!masterSheetId) {
+        return "";
+      }
+      setFolders((current) =>
+        current.map((folder) =>
+          folder.id === folderId
+            ? {
+                ...folder,
+                masterSheetId,
+                responseSheetId: masterSheetId,
+                responseSheetVerified: true,
+                setupStatus: "ready",
+                setupStatusLabel: payload.company.status === "Needs attention" ? "Needs attention" : "Ready",
+              }
+            : folder,
+        ),
+      );
+      if (folderId === selectedFolderIdRef.current) {
+        setMasterSheetInput((current) => current.trim() || masterSheetId);
+      }
+      return masterSheetId;
+    } catch {
+      return "";
+    }
+  };
+
   const loadGodmodeLiveCompanies = async (options?: { silent?: boolean }) => {
     if (currentUser?.role !== "Master" || !googleConnected) {
       setGodmodeLiveCompaniesWarning("");
@@ -5948,6 +6021,14 @@ function App() {
       const payload = await googleWorkspaceService.getGodmodeLiveCompanies<GodmodeLiveCompaniesPayload>();
       const companies = payload.companies || [];
       setFolders(companies);
+      const restoreId = readGodmodeSelectedCompanyFolderId() || selectedFolderIdRef.current;
+      if (restoreId) {
+        const restored = companies.find((company) => company.id === restoreId);
+        const registrySheetId = String(restored?.masterSheetId || restored?.responseSheetId || "").trim();
+        if (registrySheetId && restoreId === selectedFolderIdRef.current) {
+          setMasterSheetInput((current) => current.trim() || registrySheetId);
+        }
+      }
       setGodmodeLiveCompaniesWarning(
         payload.liveCompaniesMissing
           ? payload.warning || "Live Companies folder not found. Check platform setup."
@@ -6247,6 +6328,17 @@ function App() {
         throw new Error(payload.error || "Unable to check the workspace.");
       }
       setWorkspaceValidation(payload);
+      void persistCompanyWorkspaceLinks({
+        companyId: companyFolderId,
+        companyName: selectedFolder?.name || folderNameInput,
+        masterSheetId: sheetId,
+        companyFoldersMappingStatus: payload.folders?.companyFolder ? "mapped" : "incomplete",
+        firstAdminStatus: (companySheetSync?.usersCount ?? 0) > 0 ? "ready" : "",
+        status: payload.ok ? "Live" : "Needs attention",
+        markSetupComplete: payload.ok,
+        markLive: payload.ok,
+        unlinkReason: payload.ok ? "" : "health_check_failed",
+      });
       return payload;
     } catch (error) {
       if (!options?.silent) {
@@ -6296,6 +6388,16 @@ function App() {
         applyIsoFolderIdsToInputs(payload.isoFolders, isoFolderInputSnapshot, isoFolderInputSetters);
       }
       setWorkspaceValidation(payload.validation);
+      void persistCompanyWorkspaceLinks({
+        companyId: companyFolderId,
+        companyName: selectedFolder?.name || folderNameInput,
+        masterSheetId: sheetId,
+        companyFoldersMappingStatus: payload.validation.folders?.companyFolder ? "mapped" : "repaired",
+        status: payload.validation.ok ? "Live" : "Needs attention",
+        markSetupComplete: payload.validation.ok,
+        markLive: payload.validation.ok,
+        unlinkReason: payload.validation.ok ? "" : "repair_completed_with_issues",
+      });
       pushToast(
         "Workspace updated",
         payload.validation.ok
@@ -8876,6 +8978,13 @@ function App() {
       applyIsoFolderIdsToInputs(isoFolderIds, isoFolderInputSnapshot, isoFolderInputSetters);
       setSyncState("Linked");
       setWorkspaceValidation(null);
+      void persistCompanyWorkspaceLinks({
+        companyId: nextFolder.id,
+        companyName: nextFolder.name,
+        masterSheetId,
+        companyFoldersMappingStatus: "linked",
+        status: "Live",
+      });
       pushToast(
         "Company workspace linked",
         `${nextFolder.name} is ready to populate using the pasted Google links.`,
@@ -8939,8 +9048,9 @@ function App() {
 
     setSelectedFolderId(trimmedId);
     setFolderIdInput(trimmedId);
-    if (folder.responseSheetId) {
-      setMasterSheetInput(folder.responseSheetId);
+    const knownSheetId = folder.masterSheetId || folder.responseSheetId || "";
+    if (knownSheetId) {
+      setMasterSheetInput(knownSheetId);
     }
     setSyncState("Linked");
     try {
@@ -8948,9 +9058,11 @@ function App() {
       if (trimmedId !== selectedFolderIdRef.current) {
         return;
       }
+      const registrySheetId = knownSheetId ? "" : await applyRegistryMasterSheetToFolder(trimmedId);
       const sheetId =
         folder.masterSheetId ||
         folder.responseSheetId ||
+        registrySheetId ||
         inspection?.masterSheet?.id ||
         extractGoogleResourceId(masterSheetInput) ||
         "";
@@ -9765,6 +9877,14 @@ function App() {
     handleVerifyAudits();
     handleVerifyResponseSheet();
     await handleSyncForms();
+    void persistCompanyWorkspaceLinks({
+      companyId: companyFolderId,
+      companyName: selectedFolder?.name || folderNameInput,
+      masterSheetId: resolvedMasterSheetId,
+      companyFoldersMappingStatus: "mapped",
+      firstAdminStatus: (companySheetSync?.usersCount ?? 0) > 0 ? "ready" : "pending",
+      status: "Live",
+    });
   };
 
   const handleApplyDashboardPreset = (preset: "minimal" | "operations" | "executive") => {
