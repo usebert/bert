@@ -101,6 +101,7 @@ function sharedDriveStatusText(input: {
   googleConnected: boolean;
   sharedDriveVerified: boolean;
   sharedDriveVerifyError: string;
+  sharedDriveWarning: string;
   verifying: boolean;
 }): { label: string; tone: "ok" | "warn" | "error" } {
   if (input.verifying) {
@@ -113,7 +114,10 @@ function sharedDriveStatusText(input: {
     return { label: "Configured (not verified)", tone: "warn" };
   }
   if (input.sharedDriveVerified) {
-    return { label: "Verified", tone: "ok" };
+    return {
+      label: input.sharedDriveWarning ? "Verified (folder root)" : "Verified",
+      tone: input.sharedDriveWarning ? "warn" : "ok",
+    };
   }
   if (input.sharedDriveVerifyError) {
     return { label: "Invalid / inaccessible", tone: "error" };
@@ -218,6 +222,7 @@ export function GodmodeInitialSetupScreen({
   const sharedDriveVerifyError = String(
     googleStatus?.sharedDriveVerifyError || verifyMessage || "",
   ).trim();
+  const sharedDriveWarning = String(googleStatus?.sharedDriveWarning || "").trim();
   const companiesCount =
     googleStatus?.companiesCount ?? googleStatus?.companies?.length ?? 0;
   const driveStatus = sharedDriveStatusText({
@@ -225,6 +230,7 @@ export function GodmodeInitialSetupScreen({
     googleConnected,
     sharedDriveVerified,
     sharedDriveVerifyError,
+    sharedDriveWarning,
     verifying: verifyingDrive,
   });
 
@@ -301,12 +307,15 @@ export function GodmodeInitialSetupScreen({
         sharedDriveConfigured: true,
         sharedDriveVerified: true,
         sharedDriveVerifyError: undefined,
+        sharedDriveWarning: payload.sharedDriveWarning,
         companiesCount: payload.companiesCount ?? current?.companiesCount,
       }));
       setVerifyMessage(
-        payload.companiesCount != null
-          ? `Shared drive verified. ${payload.companiesCount} company folder(s) visible.`
-          : "Shared drive verified.",
+        payload.sharedDriveWarning
+          ? payload.sharedDriveWarning
+          : payload.companiesCount != null
+            ? `Workspace root verified. ${payload.companiesCount} company folder(s) visible.`
+            : "Workspace root verified.",
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to verify shared drive.";
@@ -395,8 +404,14 @@ export function GodmodeInitialSetupScreen({
           {sharedDriveVerifyError ? (
             <p className="text-sm text-rose-700">{sharedDriveVerifyError}</p>
           ) : null}
-          {verifyMessage && !sharedDriveVerifyError ? (
+          {sharedDriveWarning && !sharedDriveVerifyError ? (
+            <p className="text-sm text-amber-800">{sharedDriveWarning}</p>
+          ) : null}
+          {verifyMessage && !sharedDriveVerifyError && !sharedDriveWarning ? (
             <p className="text-sm text-emerald-700">{verifyMessage}</p>
+          ) : null}
+          {verifyMessage && sharedDriveWarning && !sharedDriveVerifyError ? (
+            <p className="text-sm text-amber-800">{verifyMessage}</p>
           ) : null}
         </div>
 

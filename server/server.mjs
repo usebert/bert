@@ -86,6 +86,11 @@ import {
   readCompanyWorkspaceRegistryMap,
   recordCompanyWorkspaceHealthCheck,
 } from "./company-workspace-registry.mjs";
+import {
+  inspectConfiguredWorkspaceRoot,
+  listFolderChildren,
+  WORKSPACE_ROOT_INACCESSIBLE_ERROR,
+} from "./google-workspace-root.mjs";
 import { createGetInviteHandler, resolveCompanyUserInviteTokenAccess } from "./invite-routes.mjs";
 import {
   COMPANY_NOT_LIVE_INVITE_MESSAGE,
@@ -2251,42 +2256,27 @@ function isSelectableGodmodeCompanyFolder(folder) {
   );
 }
 
+async function getConfiguredWorkspaceRoot(auth) {
+  return inspectConfiguredWorkspaceRoot(auth, google, requiredEnv.GOOGLE_SHARED_DRIVE_ID);
+}
+
 async function listFolderChildrenInSharedDrive(auth, parentId, pageSize = 200) {
-  const drive = google.drive({ version: "v3", auth });
-  try {
-    const response = await drive.files.list({
-      includeItemsFromAllDrives: true,
-      supportsAllDrives: true,
-      corpora: "drive",
-      driveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
-      q: `'${parentId}' in parents and trashed = false`,
-      fields: "files(id,name,mimeType,createdTime)",
-      pageSize,
-      orderBy: "name_natural",
-    });
-    return response.data.files || [];
-  } catch (error) {
-    const response = await drive.files.list({
-      includeItemsFromAllDrives: true,
-      supportsAllDrives: true,
-      q: `'${parentId}' in parents and trashed = false`,
-      fields: "files(id,name,mimeType,createdTime)",
-      pageSize,
-      orderBy: "name_natural",
-    });
-    const files = response.data.files || [];
-    if (!files.length) {
-      throw error;
-    }
-    return files;
+  const root = await getConfiguredWorkspaceRoot(auth);
+  if (!root.ok) {
+    throw new Error(root.error || WORKSPACE_ROOT_INACCESSIBLE_ERROR);
   }
+  return listFolderChildren(auth, google, root, parentId || root.id, { pageSize });
 }
 
 async function resolveLiveCompaniesFolder(auth) {
   if (!requiredEnv.GOOGLE_SHARED_DRIVE_ID) {
     throw new Error("GOOGLE_SHARED_DRIVE_ID is not configured on the server.");
   }
-  const topLevelFolders = (await listFolderChildrenInSharedDrive(auth, requiredEnv.GOOGLE_SHARED_DRIVE_ID)).filter(
+  const root = await getConfiguredWorkspaceRoot(auth);
+  if (!root.ok) {
+    throw new Error(root.error || WORKSPACE_ROOT_INACCESSIBLE_ERROR);
+  }
+  const topLevelFolders = (await listFolderChildren(auth, google, root, root.id)).filter(
     (item) => item.mimeType === "application/vnd.google-apps.folder",
   );
   const liveCompaniesFolder =
@@ -2294,6 +2284,7 @@ async function resolveLiveCompaniesFolder(auth) {
   return {
     liveCompaniesFolder,
     topLevelFolders,
+    workspaceRoot: root,
   };
 }
 
@@ -3978,6 +3969,7 @@ app.get("/api/google/status", async (_req, res) => {
   let companies = [];
   let sharedDriveVerified = false;
   let sharedDriveVerifyError = "";
+  let sharedDriveWarning = "";
   let onboardingSource = {
     configured: Boolean(requiredEnv.GOOGLE_ONBOARDING_FORM_ID || requiredEnv.GOOGLE_ONBOARDING_SHEET_ID),
     formId: requiredEnv.GOOGLE_ONBOARDING_FORM_ID || "",
@@ -3990,28 +3982,26 @@ app.get("/api/google/status", async (_req, res) => {
     sharedDriveVerifyError =
       "GOOGLE_SHARED_DRIVE_ID is not set on the API server. Set it on the Render API service, then redeploy.";
   } else if (authed && envConfigured()) {
-    try {
-      const liveCompanies = await listGodmodeLiveCompanies(authed);
-      companies = liveCompanies.companies;
+    const rootStatus = await inspectConfiguredWorkspaceRoot(authed, google, sharedDriveId);
+    if (!rootStatus.ok) {
+      sharedDriveVerifyError = rootStatus.error || WORKSPACE_ROOT_INACCESSIBLE_ERROR;
+    } else {
       sharedDriveVerified = true;
-      onboardingSource = await discoverOnboardingSource(authed);
-    } catch (error) {
-      sharedDriveVerifyError =
-        error instanceof Error ? error.message : "Unable to access the configured Google Shared Drive.";
-      return res.status(500).json({
-        ok: false,
-        configured: true,
-        connected: oauthConnected,
-        googleOAuthConnected: oauthConnected,
-        sharedDriveId,
-        sharedDriveConfigured: Boolean(sharedDriveId),
-        sharedDriveVerified: false,
-        sharedDriveVerifyError,
-        companiesCount: 0,
-        companies: [],
-        onboardingSource,
-        error: sharedDriveVerifyError,
-      });
+      if (rootStatus.warning) {
+        sharedDriveWarning = rootStatus.warning;
+      }
+      try {
+        const liveCompanies = await listGodmodeLiveCompanies(authed);
+        companies = liveCompanies.companies;
+        if (liveCompanies.warning) {
+          sharedDriveWarning = [sharedDriveWarning, liveCompanies.warning].filter(Boolean).join(" ");
+        }
+        onboardingSource = await discoverOnboardingSource(authed);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unable to list company workspaces from the configured Drive root.";
+        sharedDriveWarning = [sharedDriveWarning, message].filter(Boolean).join(" ");
+      }
     }
   } else if (sharedDriveId && !authed) {
     sharedDriveVerifyError = "Connect Google Workspace to verify shared drive access.";
@@ -4025,6 +4015,7 @@ app.get("/api/google/status", async (_req, res) => {
     sharedDriveId,
     sharedDriveConfigured: Boolean(sharedDriveId),
     sharedDriveVerified,
+    sharedDriveWarning: sharedDriveWarning || undefined,
     sharedDriveVerifyError: sharedDriveVerifyError || undefined,
     companiesCount: companies.length,
     companies,
@@ -4085,27 +4076,11 @@ app.post("/api/google/verify-shared-drive", async (_req, res) => {
     });
   }
 
-  try {
-    const liveCompanies = await listGodmodeLiveCompanies(authed);
-    const companies = liveCompanies.companies;
-    console.log("[google] shared drive verified", {
-      sharedDriveIdPrefix: sharedDriveId.slice(0, 8),
-      companiesCount: companies.length,
-      liveCompaniesFolderId: liveCompanies.liveCompaniesFolderId || undefined,
-    });
-    return res.json({
-      ok: true,
-      sharedDriveId,
-      sharedDriveConfigured: true,
-      sharedDriveVerified: true,
-      companiesCount: companies.length,
-    });
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unable to access the configured Google Shared Drive.";
+  const rootStatus = await inspectConfiguredWorkspaceRoot(authed, google, sharedDriveId);
+  if (!rootStatus.ok) {
     console.warn("[google] shared drive verify failed", {
       sharedDriveIdPrefix: sharedDriveId.slice(0, 8),
-      message,
+      message: rootStatus.error,
     });
     return res.status(400).json({
       ok: false,
@@ -4113,9 +4088,37 @@ app.post("/api/google/verify-shared-drive", async (_req, res) => {
       sharedDriveConfigured: true,
       sharedDriveVerified: false,
       companiesCount: 0,
-      error: message,
+      error: rootStatus.error,
     });
   }
+
+  let companies = [];
+  let warning = rootStatus.warning || "";
+  try {
+    const liveCompanies = await listGodmodeLiveCompanies(authed);
+    companies = liveCompanies.companies;
+    if (liveCompanies.warning) {
+      warning = [warning, liveCompanies.warning].filter(Boolean).join(" ");
+    }
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unable to list company workspaces from the configured Drive root.";
+    warning = [warning, message].filter(Boolean).join(" ");
+  }
+
+  console.log("[google] workspace root verified", {
+    sharedDriveIdPrefix: sharedDriveId.slice(0, 8),
+    rootKind: rootStatus.kind,
+    companiesCount: companies.length,
+  });
+  return res.json({
+    ok: true,
+    sharedDriveId,
+    sharedDriveConfigured: true,
+    sharedDriveVerified: true,
+    sharedDriveWarning: warning || undefined,
+    companiesCount: companies.length,
+  });
 });
 
 app.get("/api/onboarding/submissions", async (_req, res) => {

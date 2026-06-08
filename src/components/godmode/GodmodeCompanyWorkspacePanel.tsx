@@ -322,6 +322,15 @@ export function GodmodeCompanyWorkspacePanel({
   const registryUnlinkReason = String(
     (selectedFolder as CompanyFolder & { registryUnlinkReason?: string })?.registryUnlinkReason || "",
   ).trim();
+  const readinessChecksGreen =
+    Boolean(selectedFolder) &&
+    masterSheetOk &&
+    folderStructureOk &&
+    Boolean(requiredTabsOk) &&
+    companyFoldersMappingOk &&
+    firstAdminReady &&
+    healthCheckRun &&
+    workspaceHealthOk;
   const setupBlockers = useMemo(() => {
     const blockers: string[] = [];
     if (!selectedFolder) {
@@ -349,7 +358,7 @@ export function GodmodeCompanyWorkspacePanel({
     }
     if (registryStatus === "Needs attention") {
       blockers.push(registryUnlinkReason ? registryUnlinkReason.replace(/_/g, " ") : "Workspace needs attention");
-    } else if (!companyLive) {
+    } else if (!companyLive && !readinessChecksGreen) {
       blockers.push("Registry status is not Live");
     }
     return blockers;
@@ -365,16 +374,8 @@ export function GodmodeCompanyWorkspacePanel({
     registryStatus,
     registryUnlinkReason,
     companyLive,
+    readinessChecksGreen,
   ]);
-  const readinessChecksGreen =
-    Boolean(selectedFolder) &&
-    masterSheetOk &&
-    folderStructureOk &&
-    Boolean(requiredTabsOk) &&
-    companyFoldersMappingOk &&
-    firstAdminReady &&
-    healthCheckRun &&
-    workspaceHealthOk;
 
   useEffect(() => {
     let cancelled = false;

@@ -4,6 +4,7 @@ import {
   isCompanyRegistryLive,
 } from "../shared/company-invite-permissions.mjs";
 import { filterCustomerFacingCompanies, isSystemTemplateCompany } from "../shared/system-template-company.mjs";
+import { findSpreadsheetInWorkspaceRoot } from "./google-workspace-root.mjs";
 
 /**
  * Platform Companies tab — durable company workspace setup links (Drive folder + master sheet).
@@ -241,16 +242,7 @@ async function resolvePlatformRegistrySpreadsheetId(auth, drive, deps) {
   if (!sharedDriveId) {
     return "";
   }
-  const response = await drive.files.list({
-    includeItemsFromAllDrives: true,
-    supportsAllDrives: true,
-    corpora: "drive",
-    driveId: sharedDriveId,
-    q: `mimeType='application/vnd.google-apps.spreadsheet' and trashed=false and name='${REGISTRY_SPREADSHEET_NAME.replace(/'/g, "\\'")}'`,
-    fields: "files(id,name)",
-    pageSize: 5,
-  });
-  return response.data.files?.[0]?.id || "";
+  return findSpreadsheetInWorkspaceRoot(auth, deps.google, sharedDriveId, REGISTRY_SPREADSHEET_NAME);
 }
 
 async function ensureRegistryTab(auth, sheetsApi, spreadsheetId, tabName, headers, deps) {
@@ -597,7 +589,26 @@ export async function ensureCompanyLiveIfReady(auth, deps, input = {}) {
   if (!companyId || !auth) {
     return { promoted: false, reason: "missing_company_id", blockers: ["missing_company_id"] };
   }
-  const existing = await getCompanyWorkspaceRegistryRecord(auth, deps, companyId);
+  let existing = await getCompanyWorkspaceRegistryRecord(auth, deps, companyId);
+  if (!existing) {
+    const checks = input.checks || {};
+    const rootFolderId = String(checks.rootFolderId || companyId).trim();
+    const masterSheetId = String(checks.masterSheetId || "").trim();
+    if (rootFolderId && masterSheetId) {
+      await persistCompanyWorkspaceSetup(auth, deps, {
+        companyId,
+        companyFolderId: companyId,
+        rootFolderId,
+        masterSheetId,
+        companyName: String(input.companyName || "").trim(),
+        status: "Setup in progress",
+        markLive: false,
+        markSetupComplete: false,
+        touchSetup: true,
+      }).catch(() => {});
+      existing = await getCompanyWorkspaceRegistryRecord(auth, deps, companyId);
+    }
+  }
   if (!existing) {
     return { promoted: false, reason: "not_in_registry", blockers: ["not_in_registry"] };
   }

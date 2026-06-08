@@ -25,6 +25,7 @@ export type GoogleStatusPayload = {
   sharedDriveConfigured?: boolean;
   sharedDriveVerified?: boolean;
   sharedDriveVerifyError?: string;
+  sharedDriveWarning?: string;
   companiesCount?: number;
   companies?: { id: string; name: string }[];
 };

@@ -16,6 +16,7 @@ import {
   recordCompanyWorkspaceHealthCheck,
   upsertCompanyWorkspaceRegistryRecords,
 } from "./company-workspace-registry.mjs";
+import { findSpreadsheetInWorkspaceRoot } from "./google-workspace-root.mjs";
 import {
   COMPANY_NOT_LIVE_INVITE_MESSAGE,
   getCanonicalCompanyStatus,
@@ -372,17 +373,7 @@ async function resolvePlatformRegistrySpreadsheetId(auth, drive, deps) {
   if (!sharedDriveId) {
     return "";
   }
-  const response = await drive.files.list({
-    includeItemsFromAllDrives: true,
-    supportsAllDrives: true,
-    corpora: "drive",
-    driveId: sharedDriveId,
-    q: `mimeType='application/vnd.google-apps.spreadsheet' and trashed=false and name='${REGISTRY_SPREADSHEET_NAME.replace(/'/g, "\\'")}'`,
-    fields: "files(id,name)",
-    pageSize: 5,
-  });
-  const files = response.data.files || [];
-  return files[0]?.id || "";
+  return findSpreadsheetInWorkspaceRoot(auth, deps.google, sharedDriveId, REGISTRY_SPREADSHEET_NAME);
 }
 
 async function upsertRegistryRows(auth, sheetsApi, spreadsheetId, tabName, headers, rows, deps) {
