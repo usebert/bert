@@ -302,6 +302,7 @@ export function AdminScreen({
   companyFolderStructureRepairing = false,
   companySetupCurrentStep = "",
   companySetupError = null,
+  companySetupWarnings = [],
   onCreateCompanyMasterSheet,
   companyMasterSheetProvisioning = false,
   companyMasterSheetLink = "",
@@ -617,6 +618,7 @@ export function AdminScreen({
           companyFolderStructureRepairing={companyFolderStructureRepairing}
           companySetupCurrentStep={companySetupCurrentStep}
           companySetupError={companySetupError}
+          companySetupWarnings={companySetupWarnings}
           companyRegistryStatus={canonicalRegistryStatus}
           companyMasterSheetProvisioning={companyMasterSheetProvisioning}
           folderIdInput={folderIdInput}

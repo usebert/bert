@@ -34,8 +34,8 @@ export const COMPANY_SETUP_STEPS = [
   { key: "ensure_required_tabs", label: "Ensure required tabs" },
   { key: "ensure_companyfolders_mapping", label: "Ensure CompanyFolders mapping" },
   { key: "ensure_first_admin", label: "Ensure first admin" },
-  { key: "verify_workbook_read_write", label: "Verify workbook read/write" },
   { key: "mark_live", label: "Persist status LIVE if ready" },
+  { key: "verify_workbook_read_write", label: "Verify workbook read/write" },
 ];
 
 const SETUP_STATUS_LIVE = "LIVE";
@@ -111,8 +111,231 @@ function allRequiredSetupChecksPass(checks = {}) {
     checks.requiredTabsOk === true &&
     checks.companyFoldersMappingOk !== false &&
     checks.firstAdminReady === true &&
-    checks.workspaceHealthOk === true
+    (checks.workspaceHealthOk === true || checks.skipHealthCheck === true)
   );
+}
+
+function isPersistedHealthReady(record = {}) {
+  const lastHealthCheckAt = String(record.lastHealthCheckAt || "").trim();
+  if (!lastHealthCheckAt) {
+    return false;
+  }
+  const unlinkReason = String(record.unlinkReason || "").trim().toLowerCase();
+  if (
+    unlinkReason.includes("health_check_failed") ||
+    unlinkReason.includes("verify_workbook") ||
+    unlinkReason.includes("workspace_health")
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function buildSetupChecksFromCompletedSteps(state, firstAdminReady, { persistedHealthReady = false } = {}) {
+  const validation = buildValidationFromSetupState(state, {
+    workspaceHealthOk: persistedHealthReady,
+    firstAdminReady,
+  });
+  const readiness = deriveValidationReadiness(validation);
+  const mappingOk =
+    readiness.companyFoldersMappingOk && !state.blockers.includes("companyfolders_mapping_missing");
+  const skipHealthCheck = !persistedHealthReady;
+  return {
+    rootFolderId: state.companyId,
+    masterSheetId: state.masterSheetId,
+    folderStructureOk: readiness.folderStructureOk,
+    requiredTabsOk: true,
+    companyFoldersMappingOk: mappingOk,
+    firstAdminReady,
+    workspaceHealthOk: persistedHealthReady || skipHealthCheck,
+    healthCheckRun: persistedHealthReady,
+    skipHealthCheck,
+  };
+}
+
+async function executeMarkLiveStep(auth, registryDeps, state, setupChecks, resolvedCompanyName, companyId) {
+  await withGoogleTimeout(
+    ensureCompanyRegistryRecordForWorkspace(auth, registryDeps, {
+      companyId,
+      companyFolderId: companyId,
+      rootFolderId: companyId,
+      masterSheetId: state.masterSheetId,
+      companyName: resolvedCompanyName,
+    }),
+    "mark_live_ensure_registry",
+  ).catch(() => {});
+
+  const readiness = deriveValidationReadiness(state.validation || {});
+  const folderStructureOk = setupChecks.folderStructureOk ?? readiness.folderStructureOk;
+  const requiredTabsOk = setupChecks.requiredTabsOk ?? readiness.requiredTabsOk;
+  const companyFoldersMappingOk = setupChecks.companyFoldersMappingOk ?? readiness.companyFoldersMappingOk;
+  const workspaceHealthOk = setupChecks.workspaceHealthOk ?? readiness.workspaceHealthOk;
+  const firstAdminReady = setupChecks.firstAdminReady;
+  const mergedChecks = {
+    rootFolderId: companyId,
+    masterSheetId: state.masterSheetId,
+    folderStructureOk,
+    requiredTabsOk,
+    companyFoldersMappingOk,
+    firstAdminReady,
+    healthCheckRun: setupChecks.healthCheckRun ?? true,
+    workspaceHealthOk,
+    skipHealthCheck: setupChecks.skipHealthCheck,
+  };
+
+  let liveResult = await withGoogleTimeout(
+    ensureCompanyLiveIfReady(auth, registryDeps, {
+      companyId,
+      companyFolderId: companyId,
+      companyName: resolvedCompanyName,
+      checks: mergedChecks,
+    }),
+    "mark_live",
+  );
+
+  if (!liveResult.promoted && !liveResult.alreadyLive && allRequiredSetupChecksPass(mergedChecks)) {
+    const registryCompanyId =
+      String(liveResult.record?.companyId || state.registryRecord?.companyId || companyId).trim() || companyId;
+    const forceResult = await withGoogleTimeout(
+      persistCompanyWorkspaceSetup(auth, registryDeps, {
+        companyId: registryCompanyId,
+        companyName: resolvedCompanyName,
+        rootFolderId: companyId,
+        masterSheetId: state.masterSheetId,
+        workbookFolderId: state.folderIds.BERT_COMPANY_WORKBOOK || "",
+        companyFoldersMappingStatus: companyFoldersMappingOk ? "mapped" : "incomplete",
+        firstAdminStatus: firstAdminReady ? "ready" : "pending",
+        lastHealthCheckAt: new Date().toISOString(),
+        status: COMPANY_REGISTRY_STATUS_LIVE,
+        markLive: true,
+        markSetupComplete: true,
+        clearUnlinkReason: true,
+        touchSetup: false,
+      }),
+      "mark_live_force_persist",
+    );
+    const freshRecord =
+      (await getCompanyWorkspaceRegistryRecord(auth, registryDeps, registryCompanyId)) ||
+      (await getCompanyWorkspaceRegistryRecord(auth, registryDeps, companyId));
+    if (forceResult.synced || isCompanyRegistryLive(freshRecord || {})) {
+      liveResult = {
+        promoted: Boolean(forceResult.synced),
+        alreadyLive: isCompanyRegistryLive(freshRecord || {}),
+        registryStatus: getCanonicalCompanyStatus(freshRecord || {}) || COMPANY_REGISTRY_STATUS_LIVE,
+        record: freshRecord || forceResult.record || liveResult.record,
+        blockers: [],
+      };
+    }
+  }
+
+  const registryStatus =
+    liveResult.registryStatus ||
+    getCanonicalCompanyStatus(liveResult.record || state.registryRecord || {}) ||
+    "";
+  state.registryStatus = registryStatus;
+
+  if (liveResult.promoted || liveResult.alreadyLive || isCompanyRegistryLive({ status: registryStatus, registryStatus })) {
+    state.status = SETUP_STATUS_LIVE;
+    state.blockers = [];
+  } else {
+    state.blockers = blockersFromValidation(state.validation || {}, { firstAdminReady });
+    const readinessEval = evaluateCompanyWorkspaceReadiness(liveResult.record || state.registryRecord || {}, mergedChecks);
+    for (const blocker of readinessEval.blockers || []) {
+      if (!state.blockers.includes(blocker)) {
+        state.blockers.push(blocker);
+      }
+    }
+    if (registryStatus !== COMPANY_REGISTRY_STATUS_LIVE) {
+      if (!state.blockers.includes("registry_not_live")) {
+        state.blockers.push("registry_not_live");
+      }
+    }
+  }
+}
+
+async function runVerifyWorkbookWarningOnly(auth, deps, state, {
+  companyId,
+  resolvedCompanyName,
+  firstAdminReady,
+  setupWritesSucceeded,
+  registryDeps,
+}) {
+  const stepKey = "verify_workbook_read_write";
+  console.log(`[company-setup] start step=${stepKey} (warning-only) companyId=${companyId}`);
+  let verifyResult = null;
+  let verifyTimedOut = false;
+  try {
+    verifyResult = await withGoogleTimeout(
+      verifyWorkbookReadWrite(auth, { google: deps.google, withSheetsQuotaRetry: deps.withSheetsQuotaRetry }, state.masterSheetId, {
+        timeoutMs: GOOGLE_OPERATION_TIMEOUT_MS,
+      }),
+      stepKey,
+    );
+  } catch (error) {
+    const errorCode = resolveErrorCode(error);
+    const alreadyLive = state.status === SETUP_STATUS_LIVE;
+    if ((setupWritesSucceeded || alreadyLive) && errorCode === "GOOGLE_TIMEOUT") {
+      verifyTimedOut = true;
+      state.setupWarnings = ["Workbook read/write verification timed out after setup writes succeeded"];
+      state.healthStatus = SETUP_STATUS_NEEDS_ATTENTION;
+      state.setupBlockers = [];
+    } else if (alreadyLive) {
+      verifyTimedOut = true;
+      state.setupWarnings = [
+        ...(state.setupWarnings || []),
+        error instanceof Error ? error.message : String(error || "Workbook verification failed"),
+      ].filter(Boolean);
+    } else {
+      throw error;
+    }
+  }
+
+  const workspaceHealthOk = verifyTimedOut ? true : Boolean(verifyResult?.ok);
+  state.validation = buildValidationFromSetupState(state, {
+    workspaceHealthOk,
+    firstAdminReady,
+    verifyTimedOut,
+  });
+  const readiness = deriveValidationReadiness(state.validation);
+  const companyFoldersOk = readiness.companyFoldersMappingOk;
+  const healthOk = verifyTimedOut
+    ? true
+    : readiness.requiredTabsOk && readiness.folderStructureOk && readiness.workspaceHealthOk;
+
+  if (!verifyTimedOut && state.status !== SETUP_STATUS_LIVE) {
+    state.blockers = blockersFromValidation(state.validation, { firstAdminReady });
+  }
+
+  await withGoogleTimeout(
+    recordCompanyWorkspaceHealthCheck(auth, registryDeps, {
+      companyId,
+      companyFolderId: companyId,
+      rootFolderId: companyId,
+      masterSheetId: state.masterSheetId,
+      companyName: resolvedCompanyName,
+      workbookFolderId: state.folderIds.BERT_COMPANY_WORKBOOK || "",
+      companyFoldersMappingStatus: companyFoldersOk ? "mapped" : "incomplete",
+      firstAdminStatus: firstAdminReady ? "ready" : "pending",
+      healthOk,
+      healthSummary: verifyTimedOut
+        ? "verify_workbook_read_write_timeout"
+        : healthOk
+          ? "healthy"
+          : "health_check_failed",
+      unlinkReason: healthOk
+        ? ""
+        : [
+            ...(state.validation.missingTabs?.length
+              ? [`missing_tabs:${state.validation.missingTabs.join(",")}`]
+              : []),
+            ...(state.validation.repairableIssues?.length ? state.validation.repairableIssues : []),
+          ].join("; "),
+    }),
+    "verify_workbook_read_write_record",
+  ).catch(() => {});
+
+  state.completedSteps.push(stepKey);
+  console.log(`[company-setup] complete step=${stepKey} companyId=${companyId}`);
 }
 
 export function withGoogleTimeout(promise, label, timeoutMs = GOOGLE_OPERATION_TIMEOUT_MS) {
@@ -542,177 +765,54 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
 
   setupWritesSucceeded = true;
 
-  // 8. Verify workbook read/write (lightweight metadata read + SyncLog ping write)
-  stepFailure = await runStep("verify_workbook_read_write", async () => {
-    let verifyResult = null;
-    let verifyTimedOut = false;
-    try {
-      verifyResult = await withGoogleTimeout(
-        verifyWorkbookReadWrite(auth, { google, withSheetsQuotaRetry: deps.withSheetsQuotaRetry }, state.masterSheetId, {
-          timeoutMs: GOOGLE_OPERATION_TIMEOUT_MS,
-        }),
-        "verify_workbook_read_write",
-      );
-    } catch (error) {
-      const errorCode = resolveErrorCode(error);
-      if (setupWritesSucceeded && errorCode === "GOOGLE_TIMEOUT") {
-        verifyTimedOut = true;
-        state.setupWarnings = ["Workbook read/write verification timed out after setup writes succeeded"];
-        state.healthStatus = SETUP_STATUS_NEEDS_ATTENTION;
-        state.setupBlockers = [];
-      } else {
-        throw error;
-      }
+  // Reload registry after fast idempotent setup writes
+  try {
+    const reloaded =
+      (await withGoogleTimeout(
+        getCompanyWorkspaceRegistryRecord(auth, registryDeps, companyId),
+        "reload_registry_after_writes",
+      )) || state.registryRecord;
+    if (reloaded) {
+      state.registryRecord = reloaded;
     }
+  } catch {
+    // Non-blocking — early LIVE uses in-memory setup state when reload fails.
+  }
 
-    const workspaceHealthOk = verifyTimedOut ? true : Boolean(verifyResult?.ok);
-    state.validation = buildValidationFromSetupState(state, {
-      workspaceHealthOk,
-      firstAdminReady,
-      verifyTimedOut,
-    });
-    const readiness = deriveValidationReadiness(state.validation);
-    const companyFoldersOk = readiness.companyFoldersMappingOk;
-    const healthOk = verifyTimedOut
-      ? true
-      : readiness.requiredTabsOk && readiness.folderStructureOk && readiness.workspaceHealthOk;
-    state.blockers = verifyTimedOut ? [] : blockersFromValidation(state.validation, { firstAdminReady });
-    await withGoogleTimeout(
-      recordCompanyWorkspaceHealthCheck(auth, registryDeps, {
-        companyId,
-        companyFolderId: companyId,
-        rootFolderId: companyId,
-        masterSheetId: state.masterSheetId,
-        companyName: resolvedCompanyName,
-        workbookFolderId: state.folderIds.BERT_COMPANY_WORKBOOK || "",
-        companyFoldersMappingStatus: companyFoldersOk ? "mapped" : "incomplete",
-        firstAdminStatus: firstAdminReady ? "ready" : "pending",
-        healthOk,
-        healthSummary: verifyTimedOut
-          ? "verify_workbook_read_write_timeout"
-          : healthOk
-            ? "healthy"
-            : "health_check_failed",
-        unlinkReason: healthOk
-          ? ""
-          : [
-              ...(state.validation.missingTabs?.length
-                ? [`missing_tabs:${state.validation.missingTabs.join(",")}`]
-                : []),
-              ...(state.validation.repairableIssues?.length ? state.validation.repairableIssues : []),
-            ].join("; "),
-      }),
-      "verify_workbook_read_write_record",
-    ).catch(() => {});
+  const persistedHealthReady = isPersistedHealthReady(state.registryRecord || {});
+  state.validation = buildValidationFromSetupState(state, {
+    workspaceHealthOk: persistedHealthReady,
+    firstAdminReady,
+  });
+  const earlySetupChecks = buildSetupChecksFromCompletedSteps(state, firstAdminReady, { persistedHealthReady });
+
+  // 8. Mark company LIVE if ready — before slow Google workbook verify
+  stepFailure = await runStep("mark_live", async () => {
+    await executeMarkLiveStep(auth, registryDeps, state, earlySetupChecks, resolvedCompanyName, companyId);
   });
   if (stepFailure) {
     return stepFailure;
   }
 
-  // 9. Mark company LIVE if ready (ensure registry row exists before final LIVE check)
-  stepFailure = await runStep("mark_live", async () => {
-    await withGoogleTimeout(
-      ensureCompanyRegistryRecordForWorkspace(auth, registryDeps, {
-        companyId,
-        companyFolderId: companyId,
-        rootFolderId: companyId,
-        masterSheetId: state.masterSheetId,
-        companyName: resolvedCompanyName,
-      }),
-      "mark_live_ensure_registry",
-    ).catch(() => {});
-
-    const readiness = deriveValidationReadiness(state.validation || {});
-    const folderStructureOk = readiness.folderStructureOk;
-    const requiredTabsOk = readiness.requiredTabsOk;
-    const companyFoldersMappingOk = readiness.companyFoldersMappingOk;
-    const workspaceHealthOk = readiness.workspaceHealthOk;
-    const setupChecks = {
-      rootFolderId: companyId,
-      masterSheetId: state.masterSheetId,
-      folderStructureOk,
-      requiredTabsOk,
-      companyFoldersMappingOk,
+  // 9. Verify workbook read/write — warning-only after LIVE; timeout never blocks Live
+  try {
+    await runVerifyWorkbookWarningOnly(auth, deps, state, {
+      companyId,
+      resolvedCompanyName,
       firstAdminReady,
-      healthCheckRun: true,
-      workspaceHealthOk,
-    };
-
-    let liveResult = await withGoogleTimeout(
-      ensureCompanyLiveIfReady(auth, registryDeps, {
-        companyId,
-        companyFolderId: companyId,
-        companyName: resolvedCompanyName,
-        checks: setupChecks,
-      }),
-      "mark_live",
-    );
-
-    if (
-      !liveResult.promoted &&
-      !liveResult.alreadyLive &&
-      allRequiredSetupChecksPass(setupChecks)
-    ) {
-      const registryCompanyId =
-        String(liveResult.record?.companyId || state.registryRecord?.companyId || companyId).trim() || companyId;
-      const forceResult = await withGoogleTimeout(
-        persistCompanyWorkspaceSetup(auth, registryDeps, {
-          companyId: registryCompanyId,
-          companyName: resolvedCompanyName,
-          rootFolderId: companyId,
-          masterSheetId: state.masterSheetId,
-          workbookFolderId: state.folderIds.BERT_COMPANY_WORKBOOK || "",
-          companyFoldersMappingStatus: companyFoldersMappingOk ? "mapped" : "incomplete",
-          firstAdminStatus: firstAdminReady ? "ready" : "pending",
-          lastHealthCheckAt: new Date().toISOString(),
-          status: COMPANY_REGISTRY_STATUS_LIVE,
-          markLive: true,
-          markSetupComplete: true,
-          clearUnlinkReason: true,
-          touchSetup: false,
-        }),
-        "mark_live_force_persist",
-      );
-      const freshRecord =
-        (await getCompanyWorkspaceRegistryRecord(auth, registryDeps, registryCompanyId)) ||
-        (await getCompanyWorkspaceRegistryRecord(auth, registryDeps, companyId));
-      if (forceResult.synced || isCompanyRegistryLive(freshRecord || {})) {
-        liveResult = {
-          promoted: Boolean(forceResult.synced),
-          alreadyLive: isCompanyRegistryLive(freshRecord || {}),
-          registryStatus: getCanonicalCompanyStatus(freshRecord || {}) || COMPANY_REGISTRY_STATUS_LIVE,
-          record: freshRecord || forceResult.record || liveResult.record,
-          blockers: [],
-        };
-      }
-    }
-
-    const registryStatus =
-      liveResult.registryStatus ||
-      getCanonicalCompanyStatus(liveResult.record || state.registryRecord || {}) ||
-      "";
-    state.registryStatus = registryStatus;
-
-    if (liveResult.promoted || liveResult.alreadyLive || isCompanyRegistryLive({ status: registryStatus, registryStatus })) {
-      state.status = SETUP_STATUS_LIVE;
-      state.blockers = [];
+      setupWritesSucceeded,
+      registryDeps,
+    });
+  } catch (error) {
+    if (state.status === SETUP_STATUS_LIVE) {
+      state.setupWarnings = [
+        ...(state.setupWarnings || []),
+        error instanceof Error ? error.message : String(error || "Workbook verification failed"),
+      ].filter(Boolean);
+      state.completedSteps.push("verify_workbook_read_write");
     } else {
-      state.blockers = blockersFromValidation(state.validation || {}, { firstAdminReady });
-      const readinessEval = evaluateCompanyWorkspaceReadiness(liveResult.record || state.registryRecord || {}, setupChecks);
-      for (const blocker of readinessEval.blockers || []) {
-        if (!state.blockers.includes(blocker)) {
-          state.blockers.push(blocker);
-        }
-      }
-      if (registryStatus !== COMPANY_REGISTRY_STATUS_LIVE) {
-        if (!state.blockers.includes("registry_not_live")) {
-          state.blockers.push("registry_not_live");
-        }
-      }
+      return buildFailureResponse(state, error, "verify_workbook_read_write");
     }
-  });
-  if (stepFailure) {
-    return stepFailure;
   }
 
   return buildSuccessResponse(state);

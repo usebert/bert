@@ -3280,6 +3280,7 @@ function App() {
     message: string;
     technicalError?: string;
   } | null>(null);
+  const [companySetupWarnings, setCompanySetupWarnings] = useState<string[]>([]);
   const [companyMasterSheetLink, setCompanyMasterSheetLink] = useState("");
   const [companyMasterSheetProvisioning, setCompanyMasterSheetProvisioning] = useState(false);
   const storedFolderLinks = readStoredFolderLinks();
@@ -9989,6 +9990,7 @@ function App() {
     setCompanyFolderStructureRepairing(true);
     setCompanySetupCurrentStep("resolve_registry");
     setCompanySetupError(null);
+    setCompanySetupWarnings([]);
     try {
       const result = await companySetupProgressService.repairSetup({
         companyId: companyFolderId,
@@ -10079,6 +10081,7 @@ function App() {
 
       if (resultIsLive) {
         setCompanySetupError(null);
+        setCompanySetupWarnings(result.setupWarnings || []);
       } else if (!result.ok) {
         setCompanySetupError({
           failedStep: result.failedStep,
@@ -13075,6 +13078,7 @@ function App() {
                 companyFolderStructureRepairing={companyFolderStructureRepairing}
                 companySetupCurrentStep={companySetupCurrentStep}
                 companySetupError={companySetupError}
+                companySetupWarnings={companySetupWarnings}
                 onCreateCompanyMasterSheet={() => void handleCreateCompanyMasterSheet()}
                 companyMasterSheetProvisioning={companyMasterSheetProvisioning}
                 companyMasterSheetLink={companyMasterSheetLink}

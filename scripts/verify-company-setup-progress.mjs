@@ -44,10 +44,11 @@ const usersPanel = read("src/components/admin/UsersInvitesPilotPanel.tsx");
 /** 1: Nine explicit setup steps exported */
 assert(COMPANY_SETUP_STEPS.length === 9, "1: exactly 9 setup steps");
 assert(
-  COMPANY_SETUP_STEPS[0].key === "resolve_registry" && COMPANY_SETUP_STEPS[8].key === "mark_live",
+  COMPANY_SETUP_STEPS[0].key === "resolve_registry" && COMPANY_SETUP_STEPS[8].key === "verify_workbook_read_write",
   "1b: first and last step keys",
 );
-assert(COMPANY_SETUP_STEPS[7].key === "verify_workbook_read_write", "1c: step 8 verifies workbook read/write");
+assert(COMPANY_SETUP_STEPS[7].key === "mark_live", "1c: step 8 marks LIVE before verify");
+assert(COMPANY_SETUP_STEPS[8].key === "verify_workbook_read_write", "1d: step 9 verifies workbook read/write (warning-only)");
 
 /** 2: Progress response shape fields always returned */
 assert(progress.includes("companyId"), "2: companyId in progress module");
@@ -251,7 +252,21 @@ assert(statusModule.includes("registryStatus"), "33: workspace status resolves f
 assert(panel.includes("companyRegistryStatus"), "33b: godmode panel receives canonical registry status");
 assert(panel.includes("visibleSetupError"), "33c: godmode panel hides stale errors when Live");
 
+/** 34–38: Early LIVE promotion before slow Google verify (5 cases) */
+assert(progress.includes("buildSetupChecksFromCompletedSteps"), "34: builds checks from completed fast steps");
+assert(progress.includes("isPersistedHealthReady"), "35: reads persisted health readiness from registry");
+assert(progress.includes("executeMarkLiveStep"), "36: mark_live runs before verify");
+assert(progress.includes("runVerifyWorkbookWarningOnly"), "37: verify runs warning-only after mark_live");
+const markLiveRunIndex = progress.indexOf('stepFailure = await runStep("mark_live"');
+const verifyRunIndex = progress.indexOf("await runVerifyWorkbookWarningOnly");
+assert(
+  markLiveRunIndex > 0 && verifyRunIndex > markLiveRunIndex,
+  "38: mark_live precedes warning-only verify in flow",
+);
+assert(progress.includes("reload_registry_after_writes"), "38b: reloads registry before early LIVE evaluation");
+assert(panel.includes("Google verification is slow"), "38c: panel shows slow-verify warning when Live");
+
 const pkg = JSON.parse(read("package.json"));
 assert(pkg.scripts["verify:company-setup-progress"], "npm script registered");
 
-console.log("OK: verify-company-setup-progress (34 cases)");
+console.log("OK: verify-company-setup-progress (39 cases)");

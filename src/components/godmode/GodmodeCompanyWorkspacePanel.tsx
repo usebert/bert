@@ -102,6 +102,7 @@ export type GodmodeCompanyWorkspacePanelProps = {
   companyFolderStructureRepairing: boolean;
   companySetupCurrentStep?: string;
   companySetupError?: { failedStep: string; errorCode: string; message: string; technicalError?: string } | null;
+  companySetupWarnings?: string[];
   companyRegistryStatus?: string;
   companyMasterSheetProvisioning: boolean;
   folderIdInput: string;
@@ -206,6 +207,7 @@ export function GodmodeCompanyWorkspacePanel({
   companyFolderStructureRepairing,
   companySetupCurrentStep = "",
   companySetupError = null,
+  companySetupWarnings = [],
   companyRegistryStatus = "",
   companyMasterSheetProvisioning,
   folderIdInput,
@@ -267,6 +269,7 @@ export function GodmodeCompanyWorkspacePanel({
   });
   const companyLive = isCompanyRegistryLive({ status: effectiveRegistryStatus, registryStatus: effectiveRegistryStatus });
   const visibleSetupError = companyLive ? null : companySetupError;
+  const showSlowVerifyWarning = companyLive && companySetupWarnings.length > 0;
 
   const folderStatuses = useMemo(
     () =>
@@ -724,6 +727,11 @@ export function GodmodeCompanyWorkspacePanel({
                 Current step:{" "}
                 {COMPANY_SETUP_STEP_LABELS[companySetupCurrentStep] ||
                   companySetupCurrentStep.replace(/_/g, " ")}
+              </p>
+            ) : null}
+            {showSlowVerifyWarning ? (
+              <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                Company is live. Google verification is slow, but setup is complete.
               </p>
             ) : null}
             {visibleSetupError ? (
