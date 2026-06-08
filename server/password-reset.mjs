@@ -171,11 +171,17 @@ function resolveAccountScope(sessionDir, email, findMasterSheetIdsForCompanyLogi
   return { scope: "company", masterSheetId: sheetIds[0], email: emailNorm, sheetIds };
 }
 
-async function companyUserAuthExists(auth, masterSheetId, email, getConfig) {
+async function companyUserAuthExists(auth, masterSheetId, email, deps) {
   if (!auth || !masterSheetId) {
     return false;
   }
   try {
+    const { companyUserLoginReady, getCompanyUsersDeps } = deps;
+    if (typeof companyUserLoginReady === "function") {
+      const userDeps = typeof getCompanyUsersDeps === "function" ? getCompanyUsersDeps() : deps;
+      return companyUserLoginReady(auth, masterSheetId, email, userDeps);
+    }
+    const { getConfig } = deps;
     const cfg = await getConfig(auth, masterSheetId);
     const key = `UserAuth.${normalizeEmail(email)}`;
     return Boolean(cfg[key] && String(cfg[key]).trim());
@@ -217,6 +223,9 @@ export function installPasswordResetRoutes(app, deps) {
     getConfig,
     updateConfig,
     envConfigured,
+    companyUserLoginReady,
+    getCompanyUsersDeps,
+    setCompanyUserPasswordHash,
     isProdRuntime = () => process.env.NODE_ENV === "production",
   } = deps;
 
@@ -277,7 +286,7 @@ export function installPasswordResetRoutes(app, deps) {
         const candidates = account.sheetIds || (account.masterSheetId ? [account.masterSheetId] : []);
         if (auth && envConfigured?.()) {
           for (const sheetId of candidates) {
-            if (await companyUserAuthExists(auth, sheetId, email, getConfig)) {
+            if (await companyUserAuthExists(auth, sheetId, email, deps)) {
               foundSheetId = sheetId;
               break;
             }
@@ -386,14 +395,29 @@ export function installPasswordResetRoutes(app, deps) {
         if (!masterSheetId) {
           return res.status(400).json({ ok: false, error: "This reset link is invalid or has already been used." });
         }
-        const cfg = await getConfig(auth, masterSheetId);
-        const emailKey = Object.keys(cfg).find(
-          (k) => k.toLowerCase().startsWith("userauth.") && hashEmail(k.slice("UserAuth.".length), hashPepper) === record.emailHash,
+        if (typeof setCompanyUserPasswordHash !== "function" || typeof getCompanyUsersDeps !== "function") {
+          return res.status(503).json({ ok: false, error: "Password reset is not available right now. Try again later." });
+        }
+        const resetEmail = await deps.resolveCompanyUserEmailByHash?.(
+          auth,
+          masterSheetId,
+          record.emailHash,
+          (email) => hashEmail(email, hashPepper),
+          getCompanyUsersDeps(),
         );
-        if (!emailKey) {
+        if (!resetEmail) {
           return res.status(400).json({ ok: false, error: "This reset link is invalid or has already been used." });
         }
-        await updateConfig(auth, masterSheetId, { ...cfg, [emailKey]: hashPassword(password) });
+        const hashResult = await setCompanyUserPasswordHash(
+          auth,
+          masterSheetId,
+          resetEmail,
+          password,
+          getCompanyUsersDeps(),
+        );
+        if (!hashResult.ok) {
+          return res.status(400).json({ ok: false, error: "This reset link is invalid or has already been used." });
+        }
       } else if (record.userScope === "master") {
         const pwErr = validateMasterPassword(password);
         if (pwErr) {

@@ -331,6 +331,8 @@ type User = {
   password: string;
   role: Role;
   name: string;
+  accessLevel?: string;
+  companyAreas?: string[];
 };
 
 type RoleNavVisibilityMatrix = Record<Role, Record<NavItemId, boolean>>;
@@ -2240,6 +2242,10 @@ function getUserAssignedSiteIds(
 ): Set<string> | null {
   if (!user) return null;
   if (role === "Master" || role === "Admin") return null;
+  if (Array.isArray(user.companyAreas)) {
+    if (user.companyAreas.length === 0) return new Set();
+    return new Set(user.companyAreas);
+  }
   if (!areaRestrictionsEnabled) return null;
   const key = resolveUserSiteAssignmentKey(user, invitedUsers);
   const ids = userSiteAssignments[key];
@@ -5083,7 +5089,13 @@ function App() {
         const cr = await fetch(apiUrl("/api/auth/company/session"), { credentials: "include" });
         const cp = (await parseJsonApiResponse(cr)) as {
           ok?: boolean;
-          user?: { email: string; role: Role; name: string };
+          user?: {
+            email: string;
+            role: Role;
+            name: string;
+            accessLevel?: string;
+            companyAreas?: string[];
+          };
         };
         if (!canRestoreAuthSession()) {
           return;
@@ -5100,6 +5112,8 @@ function App() {
             password: "",
             role: cp.user.role,
             name: cp.user.name || cp.user.email,
+            accessLevel: cp.user.accessLevel,
+            companyAreas: Array.isArray(cp.user.companyAreas) ? cp.user.companyAreas : undefined,
           };
           if (!canRestoreAuthSession()) {
             return;
@@ -6715,7 +6729,13 @@ function App() {
         });
         const data = (await parseJsonApiResponse(response)) as {
           ok?: boolean;
-          user?: { email: string; role: Role; name: string };
+          user?: {
+            email: string;
+            role: Role;
+            name: string;
+            accessLevel?: string;
+            companyAreas?: string[];
+          };
           error?: string;
           blocker?: string;
           masterSheetId?: string;
@@ -6749,6 +6769,8 @@ function App() {
           password: "",
           role: data.user.role,
           name: data.user.name || data.user.email,
+          accessLevel: data.user.accessLevel,
+          companyAreas: Array.isArray(data.user.companyAreas) ? data.user.companyAreas : undefined,
         };
         applySignedInUser(match);
         return true;
@@ -6842,6 +6864,10 @@ function App() {
           "Your account setup is incomplete. Open your invite link again or ask an administrator to resend it.",
           "warning",
         );
+        return;
+      }
+      if (blocker === "inactive") {
+        pushToast("Sign in failed", "This account is inactive. Contact your company administrator.", "warning");
         return;
       }
       pushToast("Sign in failed", companyLoginFailure.message, "warning");

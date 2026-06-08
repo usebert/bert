@@ -991,6 +991,7 @@ export function installCompanyOnboardingRoutes(app, deps) {
             email: resolvedAdminEmail,
             role: "Admin",
             name: adminFullName,
+            password,
             invitedBy: record.invitedBy || appBrandName,
             senderEmail: "",
             sentAt: nowIso(),
@@ -998,11 +999,6 @@ export function installCompanyOnboardingRoutes(app, deps) {
             syncStatus: "Synced",
           },
         ]);
-        const authKey = `UserAuth.${resolvedAdminEmail}`;
-        await updateConfig(authed, masterSheetId, {
-          ...(await getConfig(authed, masterSheetId)),
-          [authKey]: hashPassword(password),
-        });
       }
     }
 
@@ -1378,16 +1374,12 @@ export function installCompanyOnboardingRoutes(app, deps) {
           });
         } else {
           const cfg = await getConfig(authed, masterSheetId);
-          const authKey = `UserAuth.${resolvedAdminEmail}`;
-          if (!cfg[authKey]) {
-            await updateConfig(authed, masterSheetId, {
-              ...cfg,
-              ...buildConfigFromForm(formPayload, parsed.inviteId),
-              [authKey]: hashPassword(password),
-              companyId: companyFolderId,
-              companyName,
-            });
-          }
+          await updateConfig(authed, masterSheetId, {
+            ...cfg,
+            ...buildConfigFromForm(formPayload, parsed.inviteId),
+            companyId: companyFolderId,
+            companyName,
+          });
           const existingUser = await readCompanyUsersTabRecord(authed, masterSheetId, resolvedAdminEmail);
           if (!existingUser) {
             await deps.writeCompanyUsers(authed, masterSheetId, companyFolderId, [
@@ -1396,6 +1388,7 @@ export function installCompanyOnboardingRoutes(app, deps) {
                 email: resolvedAdminEmail,
                 role: "Admin",
                 name: adminFullName,
+                password,
                 invitedBy: record.invitedBy || appBrandName,
                 senderEmail: "",
                 sentAt: nowIso(),

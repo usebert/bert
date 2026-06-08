@@ -17,8 +17,22 @@ import { getSessionCookieOptions } from "./session-cookie-options.mjs";
 import {
   isUserAuthScryptHash,
   migrateAllPlainUserAuthKeys,
-  verifyUserAuthLoginOrMigrate,
 } from "./userauth-password.mjs";
+import {
+  USERS_TAB_COLUMNS,
+  USERS_TAB_REQUIRED_COLUMNS,
+  companyUserLoginReady as workbookCompanyUserLoginReady,
+  findCompanyUsersTabRow as workbookFindCompanyUsersTabRow,
+  managerInvitesEnabled,
+  migrateUsersTabColumns,
+  parseRoleFromUsersSheet,
+  readCompanyUsersTabRecord as workbookReadCompanyUsersTabRecord,
+  sanitizeUsersTabRecords,
+  setCompanyUserPasswordHash,
+  touchCompanyUserLastLogin,
+  verifyCompanyUserPassword,
+  resolveCompanyUserEmailByHash,
+} from "./company-users.mjs";
 import { installDocumentDistributionRoutes } from "./document-distribution.mjs";
 import { CONFIG_KEY_AREA_RESTRICTIONS, AREAS_TAB, AREAS_COLUMNS, installCompanyAreasRoutes } from "./company-areas.mjs";
 import { CONFIG_KEY_DEFAULT_FORM_LANGUAGE } from "./template-languages.mjs";
@@ -58,6 +72,7 @@ import {
   assertCompanyWorkspaceAcceptsUserInvite,
   createInviteStoreApi,
   installCompanyOnboardingRoutes,
+  isCompanyWorkspaceLiveForUserInvites,
 } from "./company-onboarding.mjs";
 import {
   installCompanyWorkspaceRegistryRoutes,
@@ -251,22 +266,7 @@ const TAB_COLUMNS = {
     "Remote Row ID",
     "Schema Version",
   ],
-  Users: [
-    "User ID",
-    "Company ID",
-    "Full Name",
-    "Email",
-    "Role",
-    "Created At",
-    "Updated At",
-    "Created By",
-    "Updated By",
-    "Sync Status",
-    "Sync Attempts",
-    "Last Sync Error",
-    "Remote Row ID",
-    "Schema Version",
-  ],
+  Users: USERS_TAB_COLUMNS,
   Actions: [
     "Action ID",
     "Company ID",
@@ -1805,9 +1805,8 @@ async function companyUserLoginReady(auth, masterSheetId, email) {
     return false;
   }
   try {
-    const cfg = await getConfig(auth, masterSheetId);
-    const key = `UserAuth.${String(email).trim().toLowerCase()}`;
-    return isUserAuthScryptHash(cfg[key]);
+    await migrateUsersTabColumns(auth, masterSheetId, getCompanyUsersDeps());
+    return workbookCompanyUserLoginReady(auth, masterSheetId, email, getCompanyUsersDeps());
   } catch {
     return false;
   }
@@ -2421,6 +2420,7 @@ async function provisionNewCompanyWorkspace(
       email: adminEmail,
       role: "Admin",
       name: adminFullName || adminEmail,
+      password,
       invitedBy: APP_BRAND_NAME,
       senderEmail: "",
       sentAt: new Date().toISOString(),
@@ -2428,10 +2428,8 @@ async function provisionNewCompanyWorkspace(
       syncStatus: "Synced",
     },
   ]);
-  const authKey = `UserAuth.${String(adminEmail || "").toLowerCase()}`;
   await updateConfig(auth, masterSheet.id, {
     ...(await getConfig(auth, masterSheet.id)),
-    [authKey]: hashPassword(password),
     ...isoFolders,
     companyFolderStructureVersion: "1",
     companyFolderStructureCheckedAt: new Date().toISOString(),
@@ -2991,91 +2989,25 @@ async function updateConfig(auth, spreadsheetId, patch) {
   return merged;
 }
 
-function parseRoleFromUsersSheet(raw) {
-  const r = String(raw || "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-  if (r === "master") {
-    return "Master";
-  }
-  if (r === "admin" || r === "administrator") {
-    return "Admin";
-  }
-  if (r === "manager") {
-    return "Manager";
-  }
-  if (r === "auditor") {
-    return "Auditor";
-  }
-  if (r === "owner") {
-    return "Admin";
-  }
-  return "";
+function getCompanyUsersDeps() {
+  return {
+    getTabValues,
+    getConfig,
+    updateConfig,
+    ensureColumns,
+    google,
+    withSheetsQuotaRetry,
+  };
 }
 
 async function readCompanyUsersTabRecord(auth, spreadsheetId, email) {
-  const row = await findCompanyUsersTabRow(auth, spreadsheetId, email);
-  if (!row) {
-    return null;
-  }
-  const role = parseRoleFromUsersSheet(row.roleRaw);
-  if (!role) {
-    return null;
-  }
-  const name =
-    row.fullName ||
-    row.email ||
-    String(email || "")
-      .trim()
-      .toLowerCase();
-  return { role, name: String(name).trim() || row.email };
+  await migrateUsersTabColumns(auth, spreadsheetId, getCompanyUsersDeps());
+  return workbookReadCompanyUsersTabRecord(auth, spreadsheetId, email, getCompanyUsersDeps());
 }
 
 async function findCompanyUsersTabRow(auth, spreadsheetId, email) {
-  const rows = await getTabValues(auth, spreadsheetId, "Users");
-  if (!rows.length) {
-    return null;
-  }
-  const headers = rows[0].map((cell) => String(cell || "").trim());
-  const emailKeyIndex = headers.findIndex((h) => safeLower(h) === "email");
-  if (emailKeyIndex === -1) {
-    return null;
-  }
-  const companyIdIndex = headers.findIndex((h) => safeLower(h) === "company id");
-  const target = String(email || "")
-    .trim()
-    .toLowerCase();
-  for (let i = 1; i < rows.length; i += 1) {
-    const row = rows[i];
-    const rowEmail = String(row[emailKeyIndex] || "")
-      .trim()
-      .toLowerCase();
-    if (rowEmail !== target) {
-      continue;
-    }
-    const obj = {};
-    headers.forEach((h, idx) => {
-      obj[h] = String(row[idx] || "").trim();
-    });
-    const roleRaw = obj.Role || obj.role || "";
-    const fullName =
-      obj["Full Name"] ||
-      obj["Full name"] ||
-      obj.Name ||
-      obj.name ||
-      rowEmail;
-    const companyId = companyIdIndex >= 0 ? String(row[companyIdIndex] || "").trim() : "";
-    return {
-      sheetRowIndex: i,
-      email: rowEmail,
-      roleRaw,
-      fullName: String(fullName).trim() || rowEmail,
-      companyId,
-      userId: String(obj["User ID"] || obj.userId || "").trim(),
-    };
-  }
-  return null;
+  await migrateUsersTabColumns(auth, spreadsheetId, getCompanyUsersDeps());
+  return workbookFindCompanyUsersTabRow(auth, spreadsheetId, email, getCompanyUsersDeps());
 }
 
 async function deleteUsersTabRowByEmail(auth, spreadsheetId, email) {
@@ -3177,6 +3109,31 @@ function parseBertActorFromRequest(req) {
   return null;
 }
 
+async function assertCompanyAdminWorkspaceLive(auth, actor) {
+  if (!actor || actor.kind !== "company" || actor.role !== "Admin") {
+    return { ok: true };
+  }
+  const masterSheetId = String(actor.masterSheetId || "").trim();
+  if (!masterSheetId || !auth) {
+    return {
+      ok: false,
+      httpStatus: 409,
+      code: "company_not_live",
+      error: "This company is not live yet. Complete company onboarding before managing users.",
+    };
+  }
+  const cfg = await getConfig(auth, masterSheetId);
+  if (!isCompanyWorkspaceLiveForUserInvites(cfg)) {
+    return {
+      ok: false,
+      httpStatus: 409,
+      code: "company_not_live",
+      error: "This company is not live yet. Complete company onboarding before managing users.",
+    };
+  }
+  return { ok: true };
+}
+
 function requireWorkspaceAdminActor(req, res, next) {
   const actor = parseBertActorFromRequest(req);
   if (!actor) {
@@ -3195,7 +3152,22 @@ function requireWorkspaceAdminActor(req, res, next) {
     });
   }
   req.bertActor = { ...actor, role };
-  return next();
+  const auth = getAuthedClient();
+  assertCompanyAdminWorkspaceLive(auth, req.bertActor)
+    .then((gate) => {
+      if (!gate.ok) {
+        return res.status(gate.httpStatus || 409).json({
+          ok: false,
+          blocker: gate.code || "company_not_live",
+          error: gate.error,
+        });
+      }
+      return next();
+    })
+    .catch((error) => {
+      console.error("[company-user] admin live gate failed:", error);
+      return res.status(500).json({ ok: false, error: "Unable to verify company workspace status." });
+    });
 }
 
 function requireMasterOnlyActor(req, res, next) {
@@ -3462,6 +3434,7 @@ async function writeCompanySchedules(auth, spreadsheetId, companyFolderId, sched
 
 async function writeCompanyUsers(auth, spreadsheetId, companyFolderId, users) {
   await ensureTabsAndColumns(auth, spreadsheetId, { companyId: companyFolderId });
+  await migrateUsersTabColumns(auth, spreadsheetId, getCompanyUsersDeps());
   const rows = toObjectArray(users);
   const timestamp = new Date().toISOString();
   let written = 0;
@@ -3476,19 +3449,30 @@ async function writeCompanyUsers(auth, spreadsheetId, companyFolderId, users) {
     const userId =
       String(user.id || user["User ID"] || "").trim() ||
       `invite-${email.replace(/[^a-z0-9]+/gi, "-")}-${role.toLowerCase()}`;
-    const fullName = String(user.name || user["Full Name"] || email).trim() || email;
+    const fullName = String(user.name || user["Full Name"] || user.Name || email).trim() || email;
     const createdBy = String(user.invitedBy || user["Created By"] || APP_BRAND_NAME).trim() || APP_BRAND_NAME;
     const senderEmail = String(user.senderEmail || user["Updated By"] || "").trim();
-    const createdAt = String(user.sentAt || user["Created At"] || timestamp).trim() || timestamp;
-    const updatedAt = String(user.updatedAt || user["Updated At"] || timestamp).trim() || timestamp;
+    const createdAt = String(user.sentAt || user["Created At"] || user.CreatedAt || timestamp).trim() || timestamp;
+    const updatedAt = String(user.updatedAt || user["Updated At"] || user.UpdatedAt || timestamp).trim() || timestamp;
+    const companyAreas = String(user.companyAreas || user.CompanyAreas || "").trim();
+    const accessLevel = String(user.accessLevel || user.AccessLevel || "").trim();
+    const status = String(user.status || user.Status || "").trim();
+    const plainPassword = String(user.password || "").trim();
 
-    await updateRowById(auth, spreadsheetId, "Users", "User ID", userId, {
+    const patch = {
       "Company ID": companyFolderId,
       "Full Name": fullName,
+      Name: fullName,
       Email: email,
       Role: role,
+      AccessLevel: accessLevel || (role === "Admin" ? "full" : "operational"),
+      CompanyAreas: companyAreas,
+      Status: status || (plainPassword ? "ACTIVE" : "INVITED"),
       "Created At": createdAt,
       "Updated At": updatedAt,
+      CreatedAt: createdAt,
+      UpdatedAt: updatedAt,
+      InvitedAt: String(user.invitedAt || user.InvitedAt || createdAt).trim() || createdAt,
       "Created By": createdBy,
       "Updated By": senderEmail || createdBy,
       "Sync Status": String(user.syncStatus || "Synced"),
@@ -3496,7 +3480,24 @@ async function writeCompanyUsers(auth, spreadsheetId, companyFolderId, users) {
       "Last Sync Error": String(user.lastSyncError || ""),
       "Remote Row ID": String(user.remoteRowId || ""),
       "Schema Version": String(user.schemaVersion || CURRENT_SCHEMA_VERSION),
-    });
+    };
+
+    if (plainPassword) {
+      patch.PasswordHash = hashPassword(plainPassword);
+      patch.PasswordUpdatedAt = timestamp;
+      patch.Status = "ACTIVE";
+    }
+
+    await updateRowById(auth, spreadsheetId, "Users", "User ID", userId, patch);
+    if (plainPassword) {
+      const cfg = await getConfig(auth, spreadsheetId);
+      const legacyKey = `UserAuth.${email}`;
+      if (cfg[legacyKey]) {
+        const next = { ...cfg };
+        delete next[legacyKey];
+        await updateConfig(auth, spreadsheetId, next);
+      }
+    }
     written += 1;
   }
 
@@ -3894,6 +3895,9 @@ async function readCompanySheetById(auth, spreadsheetId) {
         }
         return row;
       });
+    }
+    if (safeLower(tab) === "users") {
+      records = sanitizeUsersTabRecords(records);
     }
     tabData[tab] = records;
   }
@@ -4988,6 +4992,15 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
         });
         return;
       }
+      if (actorRole === "Manager" && !managerInvitesEnabled()) {
+        res.status(403).json({
+          ok: false,
+          code: "manager_invite_disabled",
+          error: "Manager invites are disabled. Ask a Company Admin to invite users.",
+          blocker: "forbidden",
+        });
+        return;
+      }
     }
 
     if (isArchiveOrNonLiveWorkspaceName(companyName)) {
@@ -5696,6 +5709,8 @@ app.post("/api/onboarding/app-invites/:tokenId/complete", async (req, res) => {
                 email: record.email,
                 role: record.role,
                 name: fullName,
+                password,
+                companyAreas: String(record.companyAreas || "").trim(),
                 invitedBy: record.invitedBy || APP_BRAND_NAME,
                 senderEmail: "",
                 sentAt: new Date().toISOString(),
@@ -5704,15 +5719,17 @@ app.post("/api/onboarding/app-invites/:tokenId/complete", async (req, res) => {
               },
             ]);
             usersWriteOk = Number(usersResult?.written || 0) > 0;
-            const authKey = `UserAuth.${String(record.email || "").toLowerCase()}`;
-            await updateConfig(authed, record.masterSheetId, {
-              ...(await getConfig(authed, record.masterSheetId)),
-              [authKey]: hashPassword(password),
-            });
-            userAuthWriteOk = await companyUserLoginReady(authed, record.masterSheetId, record.email);
+            const hashResult = await setCompanyUserPasswordHash(
+              authed,
+              record.masterSheetId,
+              record.email,
+              password,
+              getCompanyUsersDeps(),
+            );
+            userAuthWriteOk = hashResult.ok || (await companyUserLoginReady(authed, record.masterSheetId, record.email));
             if (!usersWriteOk || !userAuthWriteOk) {
               throw new Error(
-                "Account setup could not be verified on the company sheet (Users tab and UserAuth).",
+                "Account setup could not be verified on the company sheet (Users tab PasswordHash).",
               );
             }
             patchInviteRecord(tokenId, {
@@ -6096,69 +6113,70 @@ app.post("/auth/google/logout", (_req, res) => {
 });
 
 /**
- * Company login requires Config `UserAuth.<email>` (scrypt hash) and a matching Users tab row.
- * Those are written when the recipient completes POST /api/onboarding/app-invites/:tokenId/complete —
- * not when an operator sends the invite email.
+ * Company login reads the workbook Users tab (ACTIVE row + PasswordHash).
+ * Legacy Config `UserAuth.<email>` is migrated into PasswordHash on successful verification.
  */
 async function probeCompanyLoginSheet(auth, masterSheetId, email, password) {
   const emailNorm = String(email || "").trim().toLowerCase();
   const sheetId = String(masterSheetId || "").trim();
-  const userAuthKey = `UserAuth.${emailNorm}`;
-  let userAuthKeyFound = false;
   let usersRowFound = false;
   let roleFound = "";
   let passwordVerified = false;
   let setupIncomplete = false;
+  let inactive = false;
 
   try {
-    const cfg = await getConfig(auth, sheetId);
-    userAuthKeyFound = Boolean(cfg[userAuthKey] && String(cfg[userAuthKey]).trim());
-    if (!userAuthKeyFound) {
-      return {
-        userAuthKeyFound,
-        usersRowFound,
-        roleFound,
-        passwordVerified,
-        setupIncomplete: true,
-        rec: null,
-        migrated: false,
-      };
-    }
-    const login = await verifyUserAuthLoginOrMigrate(auth, sheetId, emailNorm, password, getConfig, updateConfig);
+    await migrateUsersTabColumns(auth, sheetId, getCompanyUsersDeps());
+    const login = await verifyCompanyUserPassword(auth, sheetId, emailNorm, password, getCompanyUsersDeps());
     passwordVerified = Boolean(login.ok);
-    if (!passwordVerified) {
+    if (login.reason === "inactive") {
+      inactive = true;
       return {
-        userAuthKeyFound,
-        usersRowFound,
-        roleFound,
-        passwordVerified,
+        usersRowFound: true,
+        roleFound: login.rec?.role || "",
+        passwordVerified: false,
         setupIncomplete: false,
+        inactive: true,
         rec: null,
         migrated: false,
       };
     }
-    const rec = await readCompanyUsersTabRecord(auth, sheetId, emailNorm);
+    if (!passwordVerified) {
+      const recPeek = await readCompanyUsersTabRecord(auth, sheetId, emailNorm);
+      usersRowFound = Boolean(recPeek);
+      setupIncomplete = login.reason === "setup_incomplete" || !usersRowFound;
+      return {
+        usersRowFound,
+        roleFound: recPeek?.role || "",
+        passwordVerified,
+        setupIncomplete,
+        inactive: false,
+        rec: null,
+        migrated: false,
+      };
+    }
+    const rec = login.rec || (await readCompanyUsersTabRecord(auth, sheetId, emailNorm));
     usersRowFound = Boolean(rec);
     roleFound = rec?.role || "";
     if (!usersRowFound) {
       setupIncomplete = true;
     }
     return {
-      userAuthKeyFound,
       usersRowFound,
       roleFound,
       passwordVerified,
       setupIncomplete,
+      inactive: false,
       rec,
       migrated: Boolean(login.migrated),
     };
   } catch {
     return {
-      userAuthKeyFound,
       usersRowFound,
       roleFound,
       passwordVerified,
       setupIncomplete: false,
+      inactive: false,
       rec: null,
       migrated: false,
     };
@@ -6237,49 +6255,53 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
       success: Boolean(successSheetId),
       usersRowFound: lastProbe?.usersRowFound ?? false,
       roleFound: lastProbe?.roleFound || null,
-      userAuthKeyFound: lastProbe?.userAuthKeyFound ?? false,
       passwordVerified: lastProbe?.passwordVerified ?? false,
       setupIncomplete: lastProbe?.setupIncomplete ?? false,
+      inactive: lastProbe?.inactive ?? false,
     });
 
     if (successSheetId && successRec) {
+      await touchCompanyUserLastLogin(auth, successSheetId, email, getCompanyUsersDeps());
+      const companyAreas = Array.isArray(successRec.companyAreas) ? successRec.companyAreas : [];
       const payload = JSON.stringify({
         v: 1,
         email,
         masterSheetId: successSheetId,
+        companyId: successRec.companyId || "",
         role: successRec.role,
         name: successRec.name,
+        accessLevel: successRec.accessLevel || "",
+        companyAreas,
       });
       res.cookie(COMPANY_SESSION_COOKIE, payload, getSessionCookieOptions({ maxAge: COMPANY_SESSION_MS }));
       return res.json({
         ok: true,
-        user: { email, role: successRec.role, name: successRec.name },
+        user: {
+          email,
+          role: successRec.role,
+          name: successRec.name,
+          accessLevel: successRec.accessLevel || "",
+          companyAreas,
+        },
         masterSheetId: successSheetId,
       });
     }
 
-    if (!lastProbe?.userAuthKeyFound) {
-      const anyAuthOnCandidates = await (async () => {
-        for (const sheetId of sheetIdsToTry) {
-          try {
-            const cfg = await getConfig(auth, sheetId);
-            if (cfg[`UserAuth.${email}`]) {
-              return true;
-            }
-          } catch {
-            /* try next */
-          }
-        }
-        return false;
-      })();
-      if (!anyAuthOnCandidates) {
-        return res.status(403).json({
-          ok: false,
-          blocker: "setup_incomplete",
-          error:
-            "Your account setup is incomplete. Open your invite link again or ask an administrator to resend it.",
-        });
-      }
+    if (lastProbe?.inactive) {
+      return res.status(403).json({
+        ok: false,
+        blocker: "inactive",
+        error: "This account is inactive. Contact your company administrator.",
+      });
+    }
+
+    if (lastProbe?.setupIncomplete) {
+      return res.status(403).json({
+        ok: false,
+        blocker: "setup_incomplete",
+        error:
+          "Your account setup is incomplete. Open your invite link again or ask an administrator to resend it.",
+      });
     }
 
     if (!lastProbe?.passwordVerified) {
@@ -6324,6 +6346,7 @@ app.get("/api/auth/company/session", async (req, res) => {
     if (data.v !== 1 || !data.email || !data.masterSheetId) {
       return res.status(401).json({ ok: false, error: "Invalid session." });
     }
+    const sessionCompanyAreas = Array.isArray(data.companyAreas) ? data.companyAreas : [];
     if (!envConfigured()) {
       return res.json({
         ok: true,
@@ -6331,6 +6354,8 @@ app.get("/api/auth/company/session", async (req, res) => {
           email: data.email,
           role: data.role || "Admin",
           name: data.name || data.email,
+          accessLevel: data.accessLevel || "",
+          companyAreas: sessionCompanyAreas,
         },
       });
     }
@@ -6339,13 +6364,19 @@ app.get("/api/auth/company/session", async (req, res) => {
       return res.status(401).json({ ok: false, error: "Google connection required for this action." });
     }
     const rec = await readCompanyUsersTabRecord(auth, data.masterSheetId, data.email);
-    if (!rec) {
+    if (!rec || rec.status !== "ACTIVE") {
       res.clearCookie(COMPANY_SESSION_COOKIE, getSessionCookieOptions());
       return res.status(401).json({ ok: false, error: "Session invalid." });
     }
     return res.json({
       ok: true,
-      user: { email: data.email, role: rec.role, name: rec.name },
+      user: {
+        email: data.email,
+        role: rec.role,
+        name: rec.name,
+        accessLevel: rec.accessLevel || data.accessLevel || "",
+        companyAreas: rec.companyAreas?.length ? rec.companyAreas : sessionCompanyAreas,
+      },
     });
   } catch (error) {
     console.error("[company-auth] session read failed:", error);
@@ -6386,6 +6417,21 @@ app.post("/api/tools/seed-master", requireBertToolSecret, async (req, res) => {
     }
     console.error("[tools] seed-master failed:", error instanceof Error ? error.message : error);
     return res.status(500).json({ ok: false, error: "Unable to seed Master operator." });
+  }
+});
+
+app.post("/api/tools/migrate-users-tab", requireBertToolSecret, requireGoogleWorkspaceSession, async (req, res) => {
+  try {
+    const masterSheetId = String(req.body?.masterSheetId || "").trim();
+    if (!masterSheetId) {
+      return res.status(400).json({ ok: false, error: "masterSheetId is required." });
+    }
+    const auth = getAuthedClient();
+    const result = await migrateUsersTabColumns(auth, masterSheetId, getCompanyUsersDeps());
+    return res.json({ ok: true, ...result });
+  } catch (error) {
+    console.error("[tools] migrate-users-tab failed:", error);
+    return res.status(500).json({ ok: false, error: "Users tab migration failed." });
   }
 });
 
@@ -6435,7 +6481,12 @@ installPasswordResetRoutes(app, {
   getAuthedClient,
   getConfig,
   updateConfig,
+  getTabValues,
   envConfigured,
+  companyUserLoginReady,
+  getCompanyUsersDeps,
+  setCompanyUserPasswordHash,
+  resolveCompanyUserEmailByHash,
   isProdRuntime,
 });
 

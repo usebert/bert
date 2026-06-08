@@ -189,8 +189,85 @@ if (
   failed = true;
 }
 
+const companyUsersPath = path.join(root, "server", "company-users.mjs");
+const companyUsersSrc = fs.existsSync(companyUsersPath) ? fs.readFileSync(companyUsersPath, "utf8") : "";
+const requiredUserColumns = [
+  "Email",
+  "Name",
+  "Role",
+  "AccessLevel",
+  "CompanyAreas",
+  "Status",
+  "PasswordHash",
+  "PasswordUpdatedAt",
+  "LastLoginAt",
+  "InvitedAt",
+  "CreatedAt",
+  "UpdatedAt",
+];
+let usersColumnsOk = true;
+for (const col of requiredUserColumns) {
+  if (!companyUsersSrc.includes(`"${col}"`)) {
+    console.error(`[verify:auth] FAIL: company-users.mjs missing Users tab column ${col}`);
+    failed = true;
+    usersColumnsOk = false;
+  }
+}
+if (usersColumnsOk) {
+  console.log("[verify:auth] OK: Users tab required columns defined in company-users.mjs");
+}
+
+if (companyUsersSrc.includes("sanitizeUserRecordForClient") && companyUsersSrc.includes("PasswordHash")) {
+  console.log("[verify:auth] OK: PasswordHash stripped from client-facing user records");
+} else {
+  console.error("[verify:auth] FAIL: company-users.mjs missing PasswordHash sanitisation");
+  failed = true;
+}
+
+if (serverSrc.includes("sanitizeUsersTabRecords") && serverSrc.includes('safeLower(tab) === "users"')) {
+  console.log("[verify:auth] OK: company sheet read sanitises Users tab PasswordHash");
+} else {
+  console.error("[verify:auth] FAIL: server missing Users tab PasswordHash sanitisation on read");
+  failed = true;
+}
+
+if (serverSrc.includes("verifyCompanyUserPassword") && serverSrc.includes('blocker: "inactive"')) {
+  console.log("[verify:auth] OK: company login rejects inactive workbook users");
+} else {
+  console.error("[verify:auth] FAIL: server missing inactive user login rejection");
+  failed = true;
+}
+
+if (serverSrc.includes("verifyCompanyUserPassword") && serverSrc.includes("companyAreas")) {
+  console.log("[verify:auth] OK: company session includes companyAreas from workbook Users tab");
+} else {
+  console.error("[verify:auth] FAIL: server login/session missing companyAreas");
+  failed = true;
+}
+
+if (serverSrc.includes("assertCompanyAdminWorkspaceLive") && serverSrc.includes("company_not_live")) {
+  console.log("[verify:auth] OK: Company Admin user management gated until workspace LIVE");
+} else {
+  console.error("[verify:auth] FAIL: server missing Company Admin LIVE gate for user management");
+  failed = true;
+}
+
+if (serverSrc.includes("managerInvitesEnabled") && serverSrc.includes("manager_invite_disabled")) {
+  console.log("[verify:auth] OK: Manager invites disabled unless explicitly enabled");
+} else {
+  console.error("[verify:auth] FAIL: server missing Manager invite enablement gate");
+  failed = true;
+}
+
 const appTsxPath = path.join(root, "App.tsx");
 const appSrc = fs.existsSync(appTsxPath) ? fs.readFileSync(appTsxPath, "utf8") : "";
+if (appSrc.includes("companyAreas") && appSrc.includes("getUserAssignedSiteIds")) {
+  console.log("[verify:auth] OK: client area filtering uses session companyAreas");
+} else {
+  console.error("[verify:auth] FAIL: App.tsx missing companyAreas-based area filtering");
+  failed = true;
+}
+
 if (appSrc.includes("platformOwnerLogin") && appSrc.includes("tryServerMasterLogin")) {
   console.log("[verify:auth] OK: client login uses master-only path for platform owner");
 } else {
@@ -239,10 +316,10 @@ if (passwordResetSrc.includes("isPlatformOwnerEmail")) {
 console.log(`
 --- Manual checklist (pilot / staging; do not paste secrets or full hashes) ---
 
-1) Invite completion → Config
+1) Invite completion → Users tab
    - Complete a test company-user invite.
-   - In the company master sheet Config tab, find Key UserAuth.<email>.
-   - Confirm the Value starts with "scrypt$" only (lengthy; do not copy into chat/logs).
+   - In the company master sheet Users tab, confirm PasswordHash starts with "scrypt$" only (do not copy into chat/logs).
+   - Confirm Config has no remaining UserAuth.<email> row after migration.
 
 2) Company login — wrong password
    - With API Google session connected and a known test user:
@@ -259,7 +336,7 @@ console.log(`
 
 6) SPA / company sheet read
    - GET /api/company-sheet/:folderId or /api/google-sheet-by-id/:id with auth as your app does.
-   - In JSON, Config rows for UserAuth.* must have empty Value (sanitised for the browser).
+   - In JSON, Users rows must not return PasswordHash; Config UserAuth.* Values must be empty.
 
 7) Migration (optional bulk legacy plaintext → hash)
    - After .sessions/google-session.json exists:
