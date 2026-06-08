@@ -256,17 +256,17 @@ if (serverSrc.includes("verifyCompanyUserPassword") && serverSrc.includes("compa
   failed = true;
 }
 
-if (serverSrc.includes("assertCompanyAdminWorkspaceLive") && serverSrc.includes("company_not_live")) {
+if (serverSrc.includes("assertCompanyAdminWorkspaceLive") && serverSrc.includes("COMPANY_NOT_LIVE")) {
   console.log("[verify:auth] OK: Company Admin user management gated until workspace LIVE");
 } else {
   console.error("[verify:auth] FAIL: server missing Company Admin LIVE gate for user management");
   failed = true;
 }
 
-if (serverSrc.includes("managerInvitesEnabled") && serverSrc.includes("manager_invite_disabled")) {
-  console.log("[verify:auth] OK: Manager invites disabled unless explicitly enabled");
+if (serverSrc.includes("FORBIDDEN_ROLE") && serverSrc.includes("isCompanyAdminInviteRole")) {
+  console.log("[verify:auth] OK: company-user invites require Company Admin role");
 } else {
-  console.error("[verify:auth] FAIL: server missing Manager invite enablement gate");
+  console.error("[verify:auth] FAIL: server missing Company Admin invite role gate");
   failed = true;
 }
 

@@ -1,9 +1,9 @@
 import type { Role } from "../permissions";
-import { canInviteUsers } from "../permissions";
+import { canInviteUsers as canOpenInviteWorkspace } from "../permissions";
 import {
-  assertLiveCompanyWorkspaceForInvite,
   INVITE_ROLE_FORBIDDEN_MESSAGE,
   isArchiveOrNonLiveWorkspaceName,
+  isCompanyRegistryLive,
   LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE,
 } from "./companyWorkspaceInvite";
 
@@ -24,6 +24,7 @@ export type InviteCompanyContext = {
   masterSheetId?: string;
   companyName?: string;
   workspaceSetupComplete?: boolean;
+  registryStatus?: string;
 };
 
 export type ResolveInviteWorkspaceInput = {
@@ -59,15 +60,12 @@ function resolveCompanyActorInviteWorkspace(input: ResolveInviteWorkspaceInput):
     return { ok: false, message: ADMIN_INVITE_NO_COMPANY_MESSAGE };
   }
 
-  if (ctx.workspaceSetupComplete === false || isArchiveOrNonLiveWorkspaceName(companyName)) {
-    return { ok: false, message: ADMIN_INVITE_INCOMPLETE_SETUP_MESSAGE };
-  }
-
-  const liveCheck = assertLiveCompanyWorkspaceForInvite({
-    selectedFolder: { name: companyName || "Company workspace" },
-    masterSheetId,
-  });
-  if (!liveCheck.ok) {
+  const registryStatus = String(ctx.registryStatus || "").trim();
+  if (
+    ctx.workspaceSetupComplete === false ||
+    !isCompanyRegistryLive({ status: registryStatus, registryStatus }) ||
+    isArchiveOrNonLiveWorkspaceName(companyName)
+  ) {
     return { ok: false, message: ADMIN_INVITE_INCOMPLETE_SETUP_MESSAGE };
   }
 
@@ -86,15 +84,12 @@ function resolveMasterInviteWorkspace(input: ResolveInviteWorkspaceInput): Resol
   const masterSheetId = trimId(selected?.masterSheetId);
   const companyName = trimId(selected?.name);
 
-  const liveCheck = assertLiveCompanyWorkspaceForInvite({
-    selectedFolder: selected ? { name: companyName || "Company workspace" } : null,
-    masterSheetId,
-  });
-  if (!liveCheck.ok) {
-    return { ok: false, message: liveCheck.message };
-  }
-  if (!companyFolderId) {
+  if (!companyFolderId || !masterSheetId) {
     return { ok: false, message: LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE };
+  }
+  const registryStatus = String(input.companyContext?.registryStatus || "").trim();
+  if (!isCompanyRegistryLive({ status: registryStatus, registryStatus })) {
+    return { ok: false, message: ADMIN_INVITE_INCOMPLETE_SETUP_MESSAGE };
   }
 
   return {
@@ -109,7 +104,7 @@ function resolveMasterInviteWorkspace(input: ResolveInviteWorkspaceInput): Resol
 /** Resolves the company workspace used for company-user invites (Master vs company Admin/Manager). */
 export function resolveInviteWorkspace(input: ResolveInviteWorkspaceInput): ResolvedInviteWorkspace {
   const role = input.currentUser?.role;
-  if (!role || !canInviteUsers(role)) {
+  if (!role || !canOpenInviteWorkspace(role)) {
     return { ok: false, message: INVITE_ROLE_FORBIDDEN_MESSAGE };
   }
   if (role === "Master") {

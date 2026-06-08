@@ -8,12 +8,17 @@ import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
 import { isSystemTemplateCompany } from "../shared/system-template-company.mjs";
 import {
   COMPANIES_WORKSPACE_COLUMNS,
+  getCompanyWorkspaceRegistryRecord,
   REGISTRY_SPREADSHEET_NAME,
   REGISTRY_TAB_COMPANIES,
   persistCompanyWorkspaceSetup,
   recordCompanyWorkspaceHealthCheck,
   upsertCompanyWorkspaceRegistryRecords,
 } from "./company-workspace-registry.mjs";
+import {
+  COMPANY_NOT_LIVE_INVITE_MESSAGE,
+  isCompanyRegistryLive,
+} from "../shared/company-invite-permissions.mjs";
 
 export const COMPANY_ONBOARDING_INVITE_TYPE = "COMPANY_ONBOARDING";
 
@@ -660,18 +665,18 @@ export async function assertCompanyWorkspaceAcceptsUserInvite(
 ) {
   const { getConfig, getTabValues } = deps;
   const sheetId = String(masterSheetId || "").trim();
+  const folderId = String(companyFolderId || "").trim();
   if (!sheetId) {
     return {
       ok: false,
-      code: "company_not_live",
+      code: "COMPANY_NOT_LIVE",
       httpStatus: 409,
-      message:
-        "Company workspace setup is not complete yet. Finish company onboarding before inviting users.",
+      message: COMPANY_NOT_LIVE_INVITE_MESSAGE,
     };
   }
   await ensureCompanyWorkspaceLiveIfReady(deps, auth, {
     masterSheetId: sheetId,
-    companyFolderId,
+    companyFolderId: folderId,
   }).catch(() => {});
   const cfg = await getConfig(auth, sheetId);
   if (isSystemTemplateCompany({ companyName: cfg.companyName, name: cfg.companyName, status: cfg.companyOnboardingStatus })) {
@@ -682,13 +687,17 @@ export async function assertCompanyWorkspaceAcceptsUserInvite(
       message: "This workspace is a system template and cannot be used for live company access.",
     };
   }
-  if (!isCompanyWorkspaceLiveForUserInvites(cfg)) {
+  const resolvedCompanyId = folderId || String(cfg.companyId || "").trim();
+  const registryRecord = resolvedCompanyId
+    ? await getCompanyWorkspaceRegistryRecord(auth, deps.registryDeps || deps, resolvedCompanyId).catch(() => null)
+    : null;
+  const registryStatus = String(registryRecord?.status || "").trim();
+  if (!isCompanyRegistryLive({ status: registryStatus })) {
     return {
       ok: false,
-      code: "company_not_live",
+      code: "COMPANY_NOT_LIVE",
       httpStatus: 409,
-      message:
-        "This company is not live yet. Complete company onboarding and provisioning before sending user invites.",
+      message: COMPANY_NOT_LIVE_INVITE_MESSAGE,
     };
   }
   if (inviteRole === "Admin") {

@@ -79,7 +79,9 @@ import {
   isStaleOrIncompleteInviteStatus,
 } from "./src/utils/inviteStatusDisplay";
 import {
+  canInviteCompanyUsers,
   GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE,
+  isCompanyRegistryLive,
   LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE,
   INVITE_COMPANY_MISMATCH_MESSAGE,
   INVITE_ROLE_FORBIDDEN_MESSAGE,
@@ -414,13 +416,13 @@ function formatCompanyUserInviteApiError(
   if (payload.blocker === "stale_invite_target" || payload.code === "stale_invite_target") {
     return LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE;
   }
-  if (payload.code === "invite_role_forbidden") {
+  if (payload.code === "invite_role_forbidden" || payload.code === "FORBIDDEN_ROLE") {
     return INVITE_ROLE_FORBIDDEN_MESSAGE;
   }
   if (payload.code === "invite_company_mismatch") {
     return INVITE_COMPANY_MISMATCH_MESSAGE;
   }
-  if (payload.code === "company_not_live") {
+  if (payload.code === "company_not_live" || payload.code === "COMPANY_NOT_LIVE") {
     return COMPANY_NOT_LIVE_INVITE_MESSAGE;
   }
   if (payload.code === "first_admin_requires_onboarding") {
@@ -575,6 +577,7 @@ type CompanyFolder = {
   setupStatus?: "ready" | "incomplete";
   setupStatusLabel?: string;
   masterSheetId?: string;
+  registryStatus?: string;
 };
 
 type OnboardingSource = {
@@ -3354,6 +3357,7 @@ function App() {
     () => storedWorkspaceState?.selectedFolderId || "",
   );
   const [syncState, setSyncState] = useState(storedWorkspaceState?.syncState || "Not synced");
+  const [companyRegistryStatus, setCompanyRegistryStatus] = useState("");
   const [inviteEmailInput, setInviteEmailInput] = useState("");
   const [inviteRoleInput, setInviteRoleInput] = useState<Role>("Manager");
   const [invitedUsers, setInvitedUsers] = useState<UserInvite[]>(storedWorkspaceState?.invitedUsers || []);
@@ -3434,6 +3438,12 @@ function App() {
   useEffect(() => {
     selectedFolderIdRef.current = selectedFolderId;
   }, [selectedFolderId]);
+
+  useEffect(() => {
+    if (currentUser?.role === "Master") {
+      setCompanyRegistryStatus(String(selectedFolder?.registryStatus || "").trim());
+    }
+  }, [currentUser?.role, selectedFolder?.registryStatus]);
 
   const masterCompanyWorkspaceDataMatchesSelection = useMemo(() => {
     if (currentUser?.role !== "Master") {
@@ -3820,11 +3830,12 @@ function App() {
       hint?.companyName ||
       folderNameInput ||
       "";
-    const workspaceSetupComplete =
-      Boolean(companyFolderId && masterSheetId) &&
-      Boolean(workspaceValidation?.ok) &&
-      syncState === "Synced";
-    return { companyFolderId, masterSheetId, companyName, workspaceSetupComplete };
+    const registryStatus =
+      currentUser?.role === "Master"
+        ? String(selectedFolder?.registryStatus || companyRegistryStatus || "").trim()
+        : String(companyRegistryStatus || "").trim();
+    const workspaceSetupComplete = isCompanyRegistryLive({ status: registryStatus, registryStatus });
+    return { companyFolderId, masterSheetId, companyName, workspaceSetupComplete, registryStatus };
   }, [
     currentUser?.role,
     selectedFolder,
@@ -3832,8 +3843,7 @@ function App() {
     folderIdInput,
     masterSheetInput,
     folderNameInput,
-    workspaceValidation?.ok,
-    syncState,
+    companyRegistryStatus,
   ]);
 
   const resolvedInviteWorkspaceState = useMemo(
@@ -5099,6 +5109,11 @@ function App() {
             accessLevel?: string;
             companyAreas?: string[];
           };
+          company?: {
+            companyId?: string;
+            masterSheetId?: string;
+            registryStatus?: string;
+          };
         };
         if (!canRestoreAuthSession()) {
           return;
@@ -5122,6 +5137,7 @@ function App() {
             return;
           }
           setCurrentUser(companyUser);
+          setCompanyRegistryStatus(String(cp.company?.registryStatus || "").trim());
           setAccountNameInput(companyUser.name);
           setAccountPhotoUrl(getStoredProfilePhoto(companyUser));
           try {
@@ -6017,12 +6033,14 @@ function App() {
                 responseSheetVerified: true,
                 setupStatus: "ready",
                 setupStatusLabel: payload.company.status === "Needs attention" ? "Needs attention" : "Ready",
+                registryStatus: payload.company.status,
               }
             : folder,
         ),
       );
       if (folderId === selectedFolderIdRef.current) {
         setMasterSheetInput((current) => current.trim() || masterSheetId);
+        setCompanyRegistryStatus(String(payload.company?.status || "").trim());
       }
       return masterSheetId;
     } catch {
@@ -6740,6 +6758,11 @@ function App() {
             accessLevel?: string;
             companyAreas?: string[];
           };
+          company?: {
+            companyId?: string;
+            masterSheetId?: string;
+            registryStatus?: string;
+          };
           error?: string;
           blocker?: string;
           masterSheetId?: string;
@@ -6776,6 +6799,7 @@ function App() {
           accessLevel: data.user.accessLevel,
           companyAreas: Array.isArray(data.user.companyAreas) ? data.user.companyAreas : undefined,
         };
+        setCompanyRegistryStatus(String(data.company?.registryStatus || "").trim());
         applySignedInUser(match);
         return true;
       } catch {
@@ -7126,7 +7150,16 @@ function App() {
       pushToast("Workspace required", workspace.message, "warning");
       return;
     }
-    if (currentUser.role !== "Master" && !inviteCompanyContext.workspaceSetupComplete) {
+    if (
+      currentUser.role !== "Master" &&
+      !canInviteCompanyUsers(
+        { role: currentUser.role, accessLevel: currentUser.accessLevel },
+        {
+          status: inviteCompanyContext.registryStatus,
+          registryStatus: inviteCompanyContext.registryStatus,
+        },
+      )
+    ) {
       pushToast("Company not live", COMPANY_NOT_LIVE_INVITE_MESSAGE, "warning");
       return;
     }
@@ -12790,6 +12823,7 @@ function App() {
                 }
                 masterCompanyContextMessage={GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE}
                 inviteWorkspaceBanner={inviteWorkspaceBanner}
+                companyRegistryStatus={companyRegistryStatus || selectedFolder?.registryStatus || ""}
                 companyMasterSheetId={godmodeNewCompanyOnboarding ? "" : activeCompanyMasterSheetId}
                 onCompanyWorkspaceResetSuccess={(message) => void handleCompanyWorkspaceResetSuccess(message)}
                 onCompanyWorkspaceResetError={handleCompanyWorkspaceResetError}

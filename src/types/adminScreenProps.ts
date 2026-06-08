@@ -354,6 +354,8 @@ export type AdminScreenProps = {
   masterCompanyContextMessage?: string;
   /** Company Admin: fixed invite target label (no Godmode company picker). */
   inviteWorkspaceBanner?: string;
+  /** Canonical Companies registry status for invite LIVE gating. */
+  companyRegistryStatus?: string;
   AppIcon: ComponentType<{ name: string; className?: string }>;
   slatePrimaryCtaInteract: string;
 };

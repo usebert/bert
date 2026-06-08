@@ -30,6 +30,8 @@
     "verify:company-onboarding": "node scripts/verify-company-onboarding.mjs",
     "verify:company-setup-persistence": "node scripts/verify-company-setup-persistence.mjs",
     "verify:invite-target": "node scripts/verify-invite-target.mjs",
+    "verify:invite-permissions": "node scripts/verify-invite-permissions.mjs",
+    "verify:invite-workspace": "node scripts/verify-invite-workspace.mjs",
     "preview": "vite preview",
     "android:sync": "npm run build && npx cap sync android",
     "android:open": "npx cap open android",

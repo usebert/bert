@@ -1,8 +1,12 @@
 import { useMemo, useState, type ComponentType } from "react";
 import type { Role } from "../../permissions";
-import { canInviteUsers, getRoleDisplayName } from "../../permissions";
-import { COMPANY_NOT_LIVE_INVITE_MESSAGE } from "../../utils/companyWorkspaceInvite";
-import { INVITE_ROLE_FORBIDDEN_MESSAGE } from "../../utils/companyWorkspaceInvite";
+import { getRoleDisplayName } from "../../permissions";
+import {
+  canInviteCompanyUsers,
+  COMPANY_NOT_LIVE_INVITE_MESSAGE,
+  INVITE_ROLE_FORBIDDEN_MESSAGE,
+  isCompanyAdminInviteRole,
+} from "../../utils/companyWorkspaceInvite";
 import { DangerActionButton } from "../DangerActionButton";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../dashboard/DashboardPrimitives";
 import { InviteStatusLegend } from "../InviteStatusLegend";
@@ -349,6 +353,7 @@ export type UsersInvitesPilotPanelProps = Pick<
 > & {
   godModeFirstUserInvite: boolean;
   workspaceSetupComplete: boolean;
+  companyRegistryStatus?: string;
   pilotEditableInput: string;
   pilotLightSurface: string;
   pilotLightNested: string;
@@ -377,6 +382,7 @@ export function UsersInvitesPilotPanel({
   companyUserInviteEmailSending,
   godModeFirstUserInvite,
   workspaceSetupComplete,
+  companyRegistryStatus = "",
   pilotEditableInput,
   pilotLightSurface,
   pilotLightNested,
@@ -404,7 +410,22 @@ export function UsersInvitesPilotPanel({
   ...healthProps
 }: UsersInvitesPilotPanelProps) {
   const [showHealthSync, setShowHealthSync] = useState(false);
-  const inviteAllowed = canInviteUsers(currentUser.role);
+  const isMasterActor = currentUser.role === "Master";
+  const isCompanyAdmin = isCompanyAdminInviteRole({
+    role: currentUser.role,
+    accessLevel: currentUser.accessLevel,
+  });
+  const companyLiveForInvites = isMasterActor
+    ? workspaceSetupComplete &&
+      String(companyRegistryStatus || "")
+        .trim()
+        .toLowerCase() === "live"
+    : canInviteCompanyUsers(
+        { role: currentUser.role, accessLevel: currentUser.accessLevel },
+        { status: companyRegistryStatus, registryStatus: companyRegistryStatus },
+      );
+  const showInviteForm = isMasterActor || isCompanyAdmin;
+  const inviteFormEnabled = companyLiveForInvites;
   const { pendingInvites, activeInvites } = useMemo(() => {
     const pending: UserInvite[] = [];
     const active: UserInvite[] = [];
@@ -432,17 +453,17 @@ export function UsersInvitesPilotPanel({
             {inviteWorkspaceBanner}
           </p>
         ) : null}
-        {!workspaceSetupComplete ? (
-          <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-950">
-            {COMPANY_NOT_LIVE_INVITE_MESSAGE}
-          </p>
-        ) : null}
-        {!inviteAllowed ? (
+        {!showInviteForm ? (
           <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
             {INVITE_ROLE_FORBIDDEN_MESSAGE}
           </p>
         ) : (
         <div className={`mt-4 ${pilotLightNested}`}>
+          {!inviteFormEnabled ? (
+            <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-950">
+              {COMPANY_NOT_LIVE_INVITE_MESSAGE}
+            </p>
+          ) : null}
           <label htmlFor="pilot-invite-email" className="mb-1 block text-sm font-semibold text-slate-900">
             Email
           </label>
@@ -477,12 +498,12 @@ export function UsersInvitesPilotPanel({
             disabled={
               companyUserInviteEmailSending ||
               masterCompanyContextBlocked ||
-              !workspaceSetupComplete
+              !inviteFormEnabled
             }
             title={
               masterCompanyContextBlocked
                 ? masterCompanyContextMessage
-                : !workspaceSetupComplete
+                : !inviteFormEnabled
                   ? COMPANY_NOT_LIVE_INVITE_MESSAGE
                   : undefined
             }
@@ -582,18 +603,19 @@ export function UsersInvitesPilotPanel({
         </button>
       </section>
 
-      {!workspaceSetupComplete ? (
+      {showInviteForm && !inviteFormEnabled ? (
         <details className={pilotLightSurface}>
           <summary className="cursor-pointer list-none text-sm font-semibold text-slate-900">
             Workspace setup status
-            <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">Incomplete</span>
+            <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">Not live</span>
           </summary>
           <p className="mt-3 text-sm text-slate-600">
-            Finish Google Drive linking and workspace population from <span className="font-semibold">Companies</span> or{" "}
+            Finish company onboarding from <span className="font-semibold">Companies</span> or{" "}
             <span className="font-semibold">Company Onboarding</span> before inviting field users.
           </p>
           <p className="mt-2 text-xs text-slate-500">
-            Signed in as {getRoleDisplayName(currentUser.role)} • sync: {healthProps.syncState}
+            Signed in as {getRoleDisplayName(currentUser.role)} • registry: {companyRegistryStatus || "not live"} • sync:{" "}
+            {healthProps.syncState}
           </p>
         </details>
       ) : null}

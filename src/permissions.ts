@@ -344,17 +344,14 @@ export function canRepairCompanyFolderStructure(role: Role) {
   return getRolePermissions(role).canRepairCompanyFolderStructure;
 }
 
-/** Manager invites require explicit env flag on server and client. */
+/** Manager invites require explicit env flag on server and client (reserved for future use). */
 export function managerInvitesEnabled() {
   return String(import.meta.env.VITE_ENABLE_MANAGER_INVITES || "").trim().toLowerCase() === "true";
 }
 
-/** Company user invites (Admin/Master) plus Manager’s scoped invites when enabled. */
+/** Who may open invite workspace resolution — Master (Godmode) or Company Admin only. */
 export function canInviteUsers(role: Role) {
-  if (canAccessAdmin(role)) {
-    return true;
-  }
-  return role === "Manager" && managerInvitesEnabled();
+  return role === "Master" || role === "Admin";
 }
 
 /** Local-only demo payloads — Admin block or Master block in onboarding. */
@@ -373,9 +370,6 @@ export function getRoleDisplayName(role: Role) {
 export function getCreatableRoles(role: Role): Role[] {
   if (role === "Master" || role === "Admin") {
     return ["Admin", "Manager", "Auditor"];
-  }
-  if (role === "Manager" && managerInvitesEnabled()) {
-    return ["Manager", "Auditor"];
   }
   return [];
 }

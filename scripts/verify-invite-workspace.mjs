@@ -1,20 +1,32 @@
 #!/usr/bin/env node
 /** Mirrors src/utils/resolveInviteWorkspace.ts — keep invite workspace rules in sync. */
+import {
+  canInviteCompanyUsers,
+  INVITE_ROLE_FORBIDDEN_MESSAGE,
+} from "../shared/company-invite-permissions.mjs";
 
 const ADMIN_INVITE_NO_COMPANY_MESSAGE =
   "Your admin account is not linked to a company workspace yet. Ask the platform owner to complete company setup.";
 
-const INVITE_ROLE_FORBIDDEN_MESSAGE = "Only Company Admins can invite users.";
-
 const LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE =
   "Select a live company workspace before inviting users.";
 
-function canInviteUsers(role) {
-  return role === "Master" || role === "Admin" || role === "Manager";
+const ADMIN_INVITE_INCOMPLETE_SETUP_MESSAGE =
+  "Company workspace setup is not complete yet. Complete workspace setup before inviting users.";
+
+function canOpenInviteWorkspace(role) {
+  return role === "Master" || role === "Admin";
 }
 
 function trimId(value) {
   return String(value || "").trim();
+}
+
+function isCompanyRegistryLive(company = {}) {
+  const status = String(company.status || company.registryStatus || "")
+    .trim()
+    .toLowerCase();
+  return status === "live";
 }
 
 function resolveCompanyActorInviteWorkspace(input) {
@@ -23,9 +35,14 @@ function resolveCompanyActorInviteWorkspace(input) {
   const companyFolderId = trimId(active?.id || ctx.companyFolderId);
   const masterSheetId = trimId(active?.masterSheetId || ctx.masterSheetId);
   const companyName = trimId(active?.name || ctx.companyName);
+  const registryStatus = trimId(ctx.registryStatus);
 
   if (!companyFolderId || !masterSheetId) {
     return { ok: false, message: ADMIN_INVITE_NO_COMPANY_MESSAGE };
+  }
+
+  if (ctx.workspaceSetupComplete === false || !isCompanyRegistryLive({ status: registryStatus })) {
+    return { ok: false, message: ADMIN_INVITE_INCOMPLETE_SETUP_MESSAGE };
   }
 
   return {
@@ -42,9 +59,13 @@ function resolveMasterInviteWorkspace(input) {
   const companyFolderId = trimId(selected?.id);
   const masterSheetId = trimId(selected?.masterSheetId);
   const companyName = trimId(selected?.name);
+  const registryStatus = trimId(input.companyContext?.registryStatus);
 
   if (!companyFolderId || !masterSheetId) {
     return { ok: false, message: LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE };
+  }
+  if (!isCompanyRegistryLive({ status: registryStatus })) {
+    return { ok: false, message: ADMIN_INVITE_INCOMPLETE_SETUP_MESSAGE };
   }
 
   return {
@@ -58,7 +79,7 @@ function resolveMasterInviteWorkspace(input) {
 
 function resolveInviteWorkspace(input) {
   const role = input.currentUser?.role;
-  if (!role || !canInviteUsers(role)) {
+  if (!role || !canOpenInviteWorkspace(role)) {
     return { ok: false, message: INVITE_ROLE_FORBIDDEN_MESSAGE };
   }
   if (role === "Master") {
@@ -74,24 +95,9 @@ function assert(condition, message) {
   }
 }
 
-const managerFromHint = resolveInviteWorkspace({
-  currentUser: { role: "Manager" },
-  selectedCompany: { id: "wrong-folder", name: "Other Co", masterSheetId: "sheet-other" },
-  activeCompany: {
-    id: "blank-company-folder",
-    name: "BLANK COMPANY - BERT Folder Structure",
-    masterSheetId: "sheet-blank",
-  },
-  companyContext: {
-    companyFolderId: "blank-company-folder",
-    masterSheetId: "sheet-blank",
-    companyName: "BLANK COMPANY - BERT Folder Structure",
-    workspaceSetupComplete: true,
-  },
-});
 assert(
-  managerFromHint.ok && managerFromHint.companyFolderId === "blank-company-folder",
-  "Manager invite uses linked company context, not Godmode selected folder",
+  !canInviteCompanyUsers({ role: "Manager" }, { status: "Live" }),
+  "Manager cannot invite company users",
 );
 
 const adminFromHint = resolveInviteWorkspace({
@@ -107,12 +113,24 @@ const adminFromHint = resolveInviteWorkspace({
     masterSheetId: "sheet-own",
     companyName: "Acme Precast",
     workspaceSetupComplete: true,
+    registryStatus: "Live",
   },
 });
 assert(
   adminFromHint.ok && adminFromHint.companyFolderId === "own-folder",
-  "Admin invite uses linked company context, not selected folder",
+  "Admin invite uses linked company context with registry Live",
 );
+
+const adminNotLive = resolveInviteWorkspace({
+  currentUser: { role: "Admin" },
+  companyContext: {
+    companyFolderId: "own-folder",
+    masterSheetId: "sheet-own",
+    registryStatus: "Setup in progress",
+    workspaceSetupComplete: false,
+  },
+});
+assert(!adminNotLive.ok, "Admin blocked when registry is not Live");
 
 const masterNeedsSelection = resolveInviteWorkspace({
   currentUser: { role: "Master" },
@@ -124,7 +142,7 @@ assert(!masterNeedsSelection.ok, "Master still requires explicit company selecti
 const auditorBlocked = resolveInviteWorkspace({
   currentUser: { role: "Auditor" },
   activeCompany: { id: "folder", name: "Co", masterSheetId: "sheet" },
-  companyContext: { companyFolderId: "folder", masterSheetId: "sheet" },
+  companyContext: { companyFolderId: "folder", masterSheetId: "sheet", registryStatus: "Live" },
 });
 assert(
   !auditorBlocked.ok && auditorBlocked.message === INVITE_ROLE_FORBIDDEN_MESSAGE,

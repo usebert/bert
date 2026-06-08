@@ -11,6 +11,7 @@ export type InviteApiErrorCode =
   | "INVITE_COMPANY_LINK_MISSING"
   | "COMPANY_MASTER_SHEET_UNAVAILABLE"
   | "COMPANY_NOT_LIVE"
+  | "FORBIDDEN_ROLE"
   | "NETWORK_UNREACHABLE"
   | "SERVER_ERROR";
 
@@ -65,11 +66,15 @@ function normalizeInviteErrorCode(raw: string | undefined, httpStatus: number): 
     case "INVITE_COMPANY_LINK_MISSING":
     case "COMPANY_MASTER_SHEET_UNAVAILABLE":
     case "COMPANY_NOT_LIVE":
+    case "FORBIDDEN_ROLE":
     case "NETWORK_UNREACHABLE":
     case "SERVER_ERROR":
       return code;
     case "company_not_live":
       return "COMPANY_NOT_LIVE";
+    case "invite_role_forbidden":
+    case "manager_invite_disabled":
+      return "FORBIDDEN_ROLE";
     case "invite_not_found":
     case "stale_invite_target":
     case "validation_error":

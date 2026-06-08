@@ -75,6 +75,7 @@ import {
   isCompanyWorkspaceLiveForUserInvites,
 } from "./company-onboarding.mjs";
 import {
+  getCompanyWorkspaceRegistryRecord,
   installCompanyWorkspaceRegistryRoutes,
   mergeDriveCompanyWithRegistry,
   persistCompanyWorkspaceSetup,
@@ -82,6 +83,12 @@ import {
   recordCompanyWorkspaceHealthCheck,
 } from "./company-workspace-registry.mjs";
 import { createGetInviteHandler, resolveCompanyUserInviteTokenAccess } from "./invite-routes.mjs";
+import {
+  COMPANY_NOT_LIVE_INVITE_MESSAGE,
+  INVITE_ROLE_FORBIDDEN_MESSAGE,
+  isCompanyAdminInviteRole,
+  isCompanyRegistryLive,
+} from "../shared/company-invite-permissions.mjs";
 import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
 import { isSystemTemplateCompany } from "../shared/system-template-company.mjs";
 
@@ -3101,8 +3108,10 @@ function parseBertActorFromRequest(req) {
         return {
           kind: "company",
           role: String(data.role || "").trim(),
+          accessLevel: String(data.accessLevel || "").trim(),
           email: String(data.email).trim().toLowerCase(),
           masterSheetId: String(data.masterSheetId).trim(),
+          companyId: String(data.companyId || "").trim(),
         };
       }
     } catch {
@@ -3112,26 +3121,45 @@ function parseBertActorFromRequest(req) {
   return null;
 }
 
+async function resolveCompanyRegistryStatusForActor(auth, actor) {
+  if (!auth || !actor) {
+    return "";
+  }
+  let companyId = "";
+  if (actor.kind === "company") {
+    companyId = String(actor.companyId || "").trim();
+    if (!companyId) {
+      const masterSheetId = String(actor.masterSheetId || "").trim();
+      if (masterSheetId) {
+        try {
+          const cfg = await getConfig(auth, masterSheetId);
+          companyId = String(cfg.companyId || "").trim();
+        } catch {
+          /* best-effort */
+        }
+      }
+    }
+  }
+  if (!companyId) {
+    return "";
+  }
+  const record = await getCompanyWorkspaceRegistryRecord(auth, getCompanyWorkspaceRegistryDeps(), companyId).catch(
+    () => null,
+  );
+  return String(record?.status || "").trim();
+}
+
 async function assertCompanyAdminWorkspaceLive(auth, actor) {
-  if (!actor || actor.kind !== "company" || actor.role !== "Admin") {
+  if (!actor || actor.kind !== "company" || !isCompanyAdminInviteRole(actor)) {
     return { ok: true };
   }
-  const masterSheetId = String(actor.masterSheetId || "").trim();
-  if (!masterSheetId || !auth) {
+  const registryStatus = await resolveCompanyRegistryStatusForActor(auth, actor);
+  if (!isCompanyRegistryLive({ status: registryStatus })) {
     return {
       ok: false,
       httpStatus: 409,
-      code: "company_not_live",
-      error: "This company is not live yet. Complete company onboarding before managing users.",
-    };
-  }
-  const cfg = await getConfig(auth, masterSheetId);
-  if (!isCompanyWorkspaceLiveForUserInvites(cfg)) {
-    return {
-      ok: false,
-      httpStatus: 409,
-      code: "company_not_live",
-      error: "This company is not live yet. Complete company onboarding before managing users.",
+      code: "COMPANY_NOT_LIVE",
+      error: COMPANY_NOT_LIVE_INVITE_MESSAGE,
     };
   }
   return { ok: true };
@@ -4961,56 +4989,46 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
 
     const inviteActor = parseBertActorFromRequest(req);
     if (inviteActor?.kind === "company") {
-      const actorRole = inviteActor.role === "Master" ? "Master" : parseRoleFromUsersSheet(inviteActor.role);
-      if (actorRole === "Admin" || actorRole === "Manager") {
-        if (inviteActor.masterSheetId && masterSheetId && inviteActor.masterSheetId !== masterSheetId) {
-          res.status(403).json({
-            ok: false,
-            code: "invite_company_mismatch",
-            error: "Your account is not linked to this company workspace.",
-            blocker: "forbidden",
-          });
-          return;
-        }
-        if (inviteActor.masterSheetId) {
-          masterSheetId = inviteActor.masterSheetId;
-        }
-        const authForScope = getAuthedClient();
-        if (authForScope && masterSheetId) {
-          try {
-            const cfg = await getConfig(authForScope, masterSheetId);
-            const ownCompanyFolderId = String(cfg.companyId || "").trim();
-            if (ownCompanyFolderId) {
-              if (companyFolderId && companyFolderId !== ownCompanyFolderId) {
-                console.warn("[invite] company_user client companyFolderId overridden by actor config", {
-                  clientCompanyFolderId: companyFolderId,
-                  actorCompanyFolderId: ownCompanyFolderId,
-                  actorRole,
-                });
-              }
-              companyFolderId = ownCompanyFolderId;
-            }
-          } catch (configErr) {
-            console.warn("[invite] company_user actor scope check failed:", configErr);
-          }
-        }
-      } else if (actorRole !== "Master") {
+      const actorRole = parseRoleFromUsersSheet(inviteActor.role);
+      if (!isCompanyAdminInviteRole({ role: actorRole, accessLevel: inviteActor.accessLevel })) {
         res.status(403).json({
           ok: false,
-          code: "invite_role_forbidden",
-          error: "Only Company Admins can invite users.",
+          code: "FORBIDDEN_ROLE",
+          error: INVITE_ROLE_FORBIDDEN_MESSAGE,
           blocker: "forbidden",
         });
         return;
       }
-      if (actorRole === "Manager" && !managerInvitesEnabled()) {
+      if (inviteActor.masterSheetId && masterSheetId && inviteActor.masterSheetId !== masterSheetId) {
         res.status(403).json({
           ok: false,
-          code: "manager_invite_disabled",
-          error: "Manager invites are disabled. Ask a Company Admin to invite users.",
+          code: "invite_company_mismatch",
+          error: "Your account is not linked to this company workspace.",
           blocker: "forbidden",
         });
         return;
+      }
+      if (inviteActor.masterSheetId) {
+        masterSheetId = inviteActor.masterSheetId;
+      }
+      const authForScope = getAuthedClient();
+      if (authForScope && masterSheetId) {
+        try {
+          const cfg = await getConfig(authForScope, masterSheetId);
+          const ownCompanyFolderId = String(cfg.companyId || inviteActor.companyId || "").trim();
+          if (ownCompanyFolderId) {
+            if (companyFolderId && companyFolderId !== ownCompanyFolderId) {
+              console.warn("[invite] company_user client companyFolderId overridden by actor config", {
+                clientCompanyFolderId: companyFolderId,
+                actorCompanyFolderId: ownCompanyFolderId,
+                actorRole,
+              });
+            }
+            companyFolderId = ownCompanyFolderId;
+          }
+        } catch (configErr) {
+          console.warn("[invite] company_user actor scope check failed:", configErr);
+        }
       }
     }
 
@@ -5056,9 +5074,13 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
       }
 
       const liveGate = await assertCompanyWorkspaceAcceptsUserInvite(
-        { getConfig, getTabValues },
+        { getConfig, getTabValues, registryDeps: getCompanyWorkspaceRegistryDeps() },
         auth,
-        { masterSheetId: targetCheck.resolved?.masterSheetId || masterSheetId, inviteRole, companyFolderId },
+        {
+          masterSheetId: targetCheck.resolved?.masterSheetId || masterSheetId,
+          inviteRole,
+          companyFolderId: targetCheck.resolved?.companyFolderId || companyFolderId,
+        },
       );
       if (!liveGate.ok) {
         res.status(liveGate.httpStatus).json({
@@ -6184,6 +6206,16 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
         companyAreas,
       });
       res.cookie(COMPANY_SESSION_COOKIE, payload, getSessionCookieOptions({ maxAge: COMPANY_SESSION_MS }));
+      const companyId = String(successRec.companyId || "").trim();
+      let registryStatus = "";
+      if (companyId) {
+        const registryRecord = await getCompanyWorkspaceRegistryRecord(
+          auth,
+          getCompanyWorkspaceRegistryDeps(),
+          companyId,
+        ).catch(() => null);
+        registryStatus = String(registryRecord?.status || "").trim();
+      }
       return res.json({
         ok: true,
         user: {
@@ -6194,6 +6226,11 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
           companyAreas,
         },
         masterSheetId: successSheetId,
+        company: {
+          companyId,
+          masterSheetId: successSheetId,
+          registryStatus,
+        },
       });
     }
 
@@ -6257,6 +6294,7 @@ app.get("/api/auth/company/session", async (req, res) => {
       return res.status(401).json({ ok: false, error: "Invalid session." });
     }
     const sessionCompanyAreas = Array.isArray(data.companyAreas) ? data.companyAreas : [];
+    const companyIdFromSession = String(data.companyId || "").trim();
     if (!envConfigured()) {
       return res.json({
         ok: true,
@@ -6266,6 +6304,11 @@ app.get("/api/auth/company/session", async (req, res) => {
           name: data.name || data.email,
           accessLevel: data.accessLevel || "",
           companyAreas: sessionCompanyAreas,
+        },
+        company: {
+          companyId: companyIdFromSession,
+          masterSheetId: String(data.masterSheetId || "").trim(),
+          registryStatus: "",
         },
       });
     }
@@ -6278,6 +6321,19 @@ app.get("/api/auth/company/session", async (req, res) => {
       res.clearCookie(COMPANY_SESSION_COOKIE, getSessionCookieOptions());
       return res.status(401).json({ ok: false, error: "Session invalid." });
     }
+    let companyId = companyIdFromSession || String(rec.companyId || "").trim();
+    if (!companyId) {
+      try {
+        const cfg = await getConfig(auth, data.masterSheetId);
+        companyId = String(cfg.companyId || "").trim();
+      } catch {
+        /* best-effort */
+      }
+    }
+    const registryRecord = companyId
+      ? await getCompanyWorkspaceRegistryRecord(auth, getCompanyWorkspaceRegistryDeps(), companyId).catch(() => null)
+      : null;
+    const registryStatus = String(registryRecord?.status || "").trim();
     return res.json({
       ok: true,
       user: {
@@ -6286,6 +6342,11 @@ app.get("/api/auth/company/session", async (req, res) => {
         name: rec.name,
         accessLevel: rec.accessLevel || data.accessLevel || "",
         companyAreas: rec.companyAreas?.length ? rec.companyAreas : sessionCompanyAreas,
+      },
+      company: {
+        companyId,
+        masterSheetId: String(data.masterSheetId || "").trim(),
+        registryStatus,
       },
     });
   } catch (error) {

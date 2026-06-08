@@ -14,6 +14,8 @@ export type User = {
   password: string;
   role: Role;
   name: string;
+  accessLevel?: string;
+  companyAreas?: string[];
 };
 
 export type EvidenceItem = {
@@ -49,6 +51,7 @@ export type CompanyFolder = {
   onboardingVerified: boolean;
   auditFormsVerified: boolean;
   responseSheetVerified: boolean;
+  registryStatus?: string;
 };
 
 export type CompanySheetSyncStatus = {
