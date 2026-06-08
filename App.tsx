@@ -10004,6 +10004,10 @@ function App() {
         setCompanySetupCurrentStep(result.currentStep);
       }
 
+      const resultIsLive =
+        result.status === "LIVE" ||
+        isCompanyRegistryLive({ status: result.registryStatus, registryStatus: result.registryStatus });
+
       if (result.legacyFolderConfig) {
         applyIsoFolderIdsToInputs(result.legacyFolderConfig, isoFolderInputSnapshot, isoFolderInputSetters);
       }
@@ -10056,8 +10060,8 @@ function App() {
                   ? {
                       ...folder,
                       registryStatus: result.registryStatus,
-                      registryLinkMissing: result.status !== "LIVE",
-                      setupStatusLabel: result.status === "LIVE" ? "Ready" : folder.setupStatusLabel,
+                      registryLinkMissing: !resultIsLive,
+                      setupStatusLabel: resultIsLive ? "Ready" : folder.setupStatusLabel,
                     }
                   : folder,
               ),
@@ -10073,7 +10077,9 @@ function App() {
         await handleSyncForms();
       }
 
-      if (!result.ok) {
+      if (resultIsLive) {
+        setCompanySetupError(null);
+      } else if (!result.ok) {
         setCompanySetupError({
           failedStep: result.failedStep,
           errorCode: result.errorCode || "SETUP_STEP_FAILED",
@@ -10090,11 +10096,11 @@ function App() {
       handleVerifyAudits();
       handleVerifyResponseSheet();
       pushToast(
-        result.status === "LIVE" ? "Company is Live" : "Setup finished",
-        result.status === "LIVE"
+        resultIsLive ? "Company is Live" : "Setup finished",
+        resultIsLive
           ? "Company registry status is Live. User invites are now enabled."
           : "Some setup checks still need attention. Review the checklist below.",
-        result.status === "LIVE" ? "success" : "warning",
+        resultIsLive ? "success" : "warning",
       );
     } catch (error) {
       setCompanySetupError({

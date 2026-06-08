@@ -15,6 +15,9 @@ export type CompanySetupProgressResult = {
   legacyFolderConfig?: Record<string, string>;
   folderIds?: Record<string, string>;
   registryStatus?: string;
+  healthStatus?: string;
+  setupWarnings?: string[];
+  setupBlockers?: string[];
   validation?: {
     ok: boolean;
     missingTabs?: string[];

@@ -93,7 +93,7 @@ assert(panel.includes("Repair / complete setup"), "8d: repair button label");
 /** 9: Setup aligns with repair (ISO folders + tab repair before health check) */
 assert(progress.includes("ensureIsoReadinessFolders"), "9: setup ensures ISO readiness folders");
 assert(progress.includes("mergeWorkspaceFolderConfig"), "9b: setup merges ISO + structure folder config");
-assert(progress.includes("verify_workbook_read_write_repair_tabs"), "9c: setup repairs tabs before final validation");
+assert(progress.includes("verifyWorkbookReadWrite"), "9c: setup uses lightweight workbook verify");
 
 /** 10: LIVE promotion + shared drive does not block readiness */
 assert(progress.includes("ensureCompanyLiveIfReady"), "10: mark_live calls ensureCompanyLiveIfReady");
@@ -238,7 +238,20 @@ assert(folderInvalid?.code === "MASTER_SHEET_ID_INVALID", "25: folder id -> MAST
 const unavailable = classifyGoogleSheetsAccessError({ code: 404, message: "Not Found" });
 assert(unavailable?.code === "MASTER_SHEET_UNAVAILABLE", "26: invalid masterSheetId -> MASTER_SHEET_UNAVAILABLE");
 
+/** 27–33: Lightweight verify_workbook_read_write + canonical LIVE UI (7 cases) */
+const verifyWorkbookModule = read("server/verify-workbook-read-write.mjs");
+assert(verifyWorkbookModule.includes("export async function verifyWorkbookReadWrite"), "27: verifyWorkbookReadWrite exported");
+assert(progress.includes('from "./verify-workbook-read-write.mjs"'), "28: setup progress imports verify workbook module");
+assert(verifyWorkbookModule.includes("includeGridData: false"), "29: verify uses metadata-only spreadsheets.get");
+assert(verifyWorkbookModule.includes("write_sync_log_ping"), "30: verify names SyncLog ping write operation");
+assert(progress.includes("setupWritesSucceeded"), "31: repair tracks setupWritesSucceeded flag");
+assert(progress.includes("Workbook read/write verification timed out after setup writes succeeded"), "32: non-blocking verify timeout warning");
+const statusModule = read("src/utils/companyWorkspaceStatus.ts");
+assert(statusModule.includes("registryStatus"), "33: workspace status resolves from registryStatus");
+assert(panel.includes("companyRegistryStatus"), "33b: godmode panel receives canonical registry status");
+assert(panel.includes("visibleSetupError"), "33c: godmode panel hides stale errors when Live");
+
 const pkg = JSON.parse(read("package.json"));
 assert(pkg.scripts["verify:company-setup-progress"], "npm script registered");
 
-console.log("OK: verify-company-setup-progress (27 cases)");
+console.log("OK: verify-company-setup-progress (34 cases)");

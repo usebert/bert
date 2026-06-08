@@ -102,6 +102,7 @@ export type GodmodeCompanyWorkspacePanelProps = {
   companyFolderStructureRepairing: boolean;
   companySetupCurrentStep?: string;
   companySetupError?: { failedStep: string; errorCode: string; message: string; technicalError?: string } | null;
+  companyRegistryStatus?: string;
   companyMasterSheetProvisioning: boolean;
   folderIdInput: string;
   masterSheetInput: string;
@@ -205,6 +206,7 @@ export function GodmodeCompanyWorkspacePanel({
   companyFolderStructureRepairing,
   companySetupCurrentStep = "",
   companySetupError = null,
+  companyRegistryStatus = "",
   companyMasterSheetProvisioning,
   folderIdInput,
   masterSheetInput,
@@ -259,11 +261,22 @@ export function GodmodeCompanyWorkspacePanel({
       (workspaceValidation.missingTabs?.length ?? 0) > 0 &&
       !masterSheetOk);
 
+  const effectiveRegistryStatus = getCanonicalCompanyStatus({
+    status: companyRegistryStatus || (selectedFolder as CompanyFolder & { registryStatus?: string })?.registryStatus,
+    registryStatus: companyRegistryStatus || (selectedFolder as CompanyFolder & { registryStatus?: string })?.registryStatus,
+  });
+  const companyLive = isCompanyRegistryLive({ status: effectiveRegistryStatus, registryStatus: effectiveRegistryStatus });
+  const visibleSetupError = companyLive ? null : companySetupError;
+
   const folderStatuses = useMemo(
     () =>
       folders.map((folder) => {
         const masterSheetId = folderMasterSheetId(folder);
         const isSelected = selectedFolder?.id === folder.id;
+        const folderRegistryStatus = getCanonicalCompanyStatus({
+          status: (folder as CompanyFolder & { registryStatus?: string }).registryStatus,
+          registryStatus: (folder as CompanyFolder & { registryStatus?: string }).registryStatus,
+        });
         const status = resolveCompanyWorkspaceStatus({
           folderName: folder.name,
           masterSheetId: isSelected ? companyMasterSheetId || masterSheetId : masterSheetId,
@@ -275,6 +288,7 @@ export function GodmodeCompanyWorkspacePanel({
           responseSheetVerified: folder.responseSheetVerified,
           workspaceHealthOk: isSelected ? workspaceHealthOk : undefined,
           healthCheckRun: isSelected ? healthCheckRun : undefined,
+          registryStatus: isSelected ? effectiveRegistryStatus : folderRegistryStatus,
         });
         return { folder, status };
       }),
@@ -287,6 +301,7 @@ export function GodmodeCompanyWorkspacePanel({
       setupFailed,
       workspaceHealthOk,
       healthCheckRun,
+      effectiveRegistryStatus,
     ],
   );
 
@@ -326,11 +341,7 @@ export function GodmodeCompanyWorkspacePanel({
       ? folderInspection.blockingItems.length === 0
       : false;
   const companyFoldersMappingOk = workspaceValidation?.folders.companyFolder ?? Boolean(selectedFolder);
-  const registryStatus = getCanonicalCompanyStatus({
-    status: (selectedFolder as CompanyFolder & { registryStatus?: string })?.registryStatus,
-    registryStatus: (selectedFolder as CompanyFolder & { registryStatus?: string })?.registryStatus,
-  });
-  const companyLive = isCompanyRegistryLive({ status: registryStatus, registryStatus });
+  const registryStatus = effectiveRegistryStatus;
   const folderRegistryLinkMissing = (selectedFolder as CompanyFolder & { registryLinkMissing?: boolean })
     ?.registryLinkMissing;
   const registryLinkMissing =
@@ -507,6 +518,7 @@ export function GodmodeCompanyWorkspacePanel({
       responseSheetVerified: selectedFolder.responseSheetVerified,
       workspaceHealthOk,
       healthCheckRun,
+      registryStatus: effectiveRegistryStatus,
     });
   }, [
     selectedFolder,
@@ -516,6 +528,7 @@ export function GodmodeCompanyWorkspacePanel({
     setupFailed,
     workspaceHealthOk,
     healthCheckRun,
+    effectiveRegistryStatus,
   ]);
 
   const isLiveStatus = selectedStatus === "Live" || selectedStatus === "Needs attention";
@@ -713,24 +726,24 @@ export function GodmodeCompanyWorkspacePanel({
                   companySetupCurrentStep.replace(/_/g, " ")}
               </p>
             ) : null}
-            {companySetupError ? (
+            {visibleSetupError ? (
               <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-950">
                 <p className="font-semibold">{COMPANY_SETUP_DID_NOT_FINISH_MESSAGE}</p>
-                {companySetupError.failedStep ? (
+                {visibleSetupError.failedStep ? (
                   <p className="mt-2">
                     Failed step:{" "}
-                    {COMPANY_SETUP_STEP_LABELS[companySetupError.failedStep] ||
-                      companySetupError.failedStep.replace(/_/g, " ")}
+                    {COMPANY_SETUP_STEP_LABELS[visibleSetupError.failedStep] ||
+                      visibleSetupError.failedStep.replace(/_/g, " ")}
                   </p>
                 ) : null}
-                {companySetupError.errorCode ? (
-                  <p className="mt-1 font-mono text-xs">Error code: {companySetupError.errorCode}</p>
+                {visibleSetupError.errorCode ? (
+                  <p className="mt-1 font-mono text-xs">Error code: {visibleSetupError.errorCode}</p>
                 ) : null}
-                {companySetupError.message ? (
-                  <p className="mt-2 text-xs text-rose-900">{companySetupError.message}</p>
+                {visibleSetupError.message ? (
+                  <p className="mt-2 text-xs text-rose-900">{visibleSetupError.message}</p>
                 ) : null}
-                {companySetupError.technicalError ? (
-                  <p className="mt-2 font-mono text-xs text-rose-800">{companySetupError.technicalError}</p>
+                {visibleSetupError.technicalError ? (
+                  <p className="mt-2 font-mono text-xs text-rose-800">{visibleSetupError.technicalError}</p>
                 ) : null}
               </div>
             ) : null}
@@ -903,18 +916,18 @@ export function GodmodeCompanyWorkspacePanel({
                       <dt className="font-semibold text-slate-500">Master sheet ID</dt>
                       <dd className="mt-0.5 break-all font-mono text-slate-800">{companyMasterSheetId || "Not linked"}</dd>
                     </div>
-                    {companySetupError ? (
+                    {visibleSetupError ? (
                       <>
                         <div>
                           <dt className="font-semibold text-slate-500">Last failed step</dt>
                           <dd className="mt-0.5 font-mono text-slate-800">
-                            {COMPANY_SETUP_STEP_LABELS[companySetupError.failedStep] || companySetupError.failedStep || "—"}
+                            {COMPANY_SETUP_STEP_LABELS[visibleSetupError.failedStep] || visibleSetupError.failedStep || "—"}
                           </dd>
                         </div>
                         <div>
                           <dt className="font-semibold text-slate-500">Technical error</dt>
                           <dd className="mt-0.5 break-all font-mono text-rose-800">
-                            {companySetupError.technicalError || "—"}
+                            {visibleSetupError.technicalError || "—"}
                           </dd>
                         </div>
                       </>

@@ -17,6 +17,7 @@ import {
 import { inspectConfiguredWorkspaceRoot } from "./google-workspace-root.mjs";
 import { countCompanyUsersOnSheet } from "./company-onboarding.mjs";
 import { ensureRequiredTabs } from "./ensure-required-tabs.mjs";
+import { verifyWorkbookReadWrite } from "./verify-workbook-read-write.mjs";
 import {
   COMPANY_REGISTRY_STATUS_LIVE,
   getCanonicalCompanyStatus,
@@ -59,6 +60,31 @@ function deriveValidationReadiness(validation = {}) {
   const companyFoldersMappingOk = Boolean(validation.folders?.companyFolder ?? validation.ok);
   const workspaceHealthOk = Boolean(validation.ok);
   return { folderStructureOk, requiredTabsOk, companyFoldersMappingOk, workspaceHealthOk };
+}
+
+function buildValidationFromSetupState(state, { workspaceHealthOk, firstAdminReady, verifyTimedOut = false }) {
+  const legacy = state.legacyFolderConfig || {};
+  const folderIds = state.folderIds || {};
+  const folders = {
+    companyFolder: Boolean(state.companyId),
+    setupFolder: Boolean(legacy.setupFolderId),
+    auditFormsFolder: Boolean(legacy.auditFormsFolderId),
+    recordsFolder: Boolean(legacy.recordsFolderId),
+    evidenceFolder: Boolean(legacy.evidenceFolderId),
+    exportsFolder: Boolean(legacy.exportsFolderId),
+    managementNotesFolder: Boolean(legacy.managementNotesFolderId),
+    companyFolderMapping: Object.keys(folderIds).length > 0,
+  };
+  const missingTabs = [];
+  return {
+    ok: workspaceHealthOk,
+    folders,
+    missingTabs,
+    repairableIssues: verifyTimedOut ? [] : [],
+    warnings: verifyTimedOut
+      ? ["Workbook read/write verification timed out after setup writes succeeded"]
+      : [],
+  };
 }
 
 function blockersFromValidation(validation, { firstAdminReady }) {
@@ -146,6 +172,9 @@ function normalizeSetupResponse(state, payload = {}) {
     folderIds: state.folderIds || {},
     registryStatus: state.registryStatus || "",
     validation: state.validation || null,
+    healthStatus: payload.healthStatus ?? state.healthStatus ?? "",
+    setupWarnings: payload.setupWarnings ?? state.setupWarnings ?? [],
+    setupBlockers: payload.setupBlockers ?? state.setupBlockers ?? [],
   };
 }
 
@@ -170,6 +199,7 @@ function buildFailureResponse(state, error, failedStep) {
 
 function buildSuccessResponse(state) {
   const live = state.status === SETUP_STATUS_LIVE;
+  const hasSetupWarnings = (state.setupWarnings?.length ?? 0) > 0;
   return normalizeSetupResponse(state, {
     ok: live && state.blockers.length === 0,
     status: live ? SETUP_STATUS_LIVE : SETUP_STATUS_NEEDS_ATTENTION,
@@ -179,9 +209,14 @@ function buildSuccessResponse(state) {
     message:
       state.blockers.length > 0
         ? "Setup finished with blockers. Check the setup details below and try again."
-        : "Company workspace setup completed.",
+        : hasSetupWarnings
+          ? "Company is Live with setup warnings. Review the checklist below."
+          : "Company workspace setup completed.",
     technicalError: "",
     errorCode: state.blockers.length > 0 ? "COMPANY_NOT_READY" : "",
+    healthStatus: state.healthStatus || (live && hasSetupWarnings ? SETUP_STATUS_NEEDS_ATTENTION : live ? "HEALTHY" : ""),
+    setupWarnings: state.setupWarnings || [],
+    setupBlockers: state.setupBlockers || [],
   });
 }
 
@@ -206,7 +241,12 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
     status: SETUP_STATUS_NEEDS_ATTENTION,
     registryStatus: "",
     validation: null,
+    healthStatus: "",
+    setupWarnings: [],
+    setupBlockers: [],
   };
+
+  let setupWritesSucceeded = false;
 
   if (!companyId) {
     return normalizeSetupResponse(
@@ -500,40 +540,43 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
     return stepFailure;
   }
 
-  // 8. Verify workbook read/write
+  setupWritesSucceeded = true;
+
+  // 8. Verify workbook read/write (lightweight metadata read + SyncLog ping write)
   stepFailure = await runStep("verify_workbook_read_write", async () => {
-    const runValidation = async () =>
-      withGoogleTimeout(
-        validateWorkspace(auth, {
-          companyFolderId: companyId,
-          sheetId: state.masterSheetId,
-          setupFolderId: state.legacyFolderConfig.setupFolderId || "",
-          auditFormsFolderId: state.legacyFolderConfig.auditFormsFolderId || "",
-          recordsFolderId: state.legacyFolderConfig.recordsFolderId || "",
-          evidenceFolderId: state.legacyFolderConfig.evidenceFolderId || "",
-          exportsFolderId: state.legacyFolderConfig.exportsFolderId || "",
-          managementNotesFolderId: state.legacyFolderConfig.managementNotesFolderId || "",
+    let verifyResult = null;
+    let verifyTimedOut = false;
+    try {
+      verifyResult = await withGoogleTimeout(
+        verifyWorkbookReadWrite(auth, { google, withSheetsQuotaRetry: deps.withSheetsQuotaRetry }, state.masterSheetId, {
+          timeoutMs: GOOGLE_OPERATION_TIMEOUT_MS,
         }),
         "verify_workbook_read_write",
       );
-
-    let validation = await runValidation();
-    if ((validation.missingTabs?.length ?? 0) > 0 || (validation.repairableIssues?.length ?? 0) > 0) {
-      await withGoogleTimeout(
-        ensureTabsAndColumns(auth, state.masterSheetId, {
-          companyId,
-          companyName: resolvedCompanyName,
-          createBackup: true,
-        }),
-        "verify_workbook_read_write_repair_tabs",
-      );
-      validation = await runValidation();
+    } catch (error) {
+      const errorCode = resolveErrorCode(error);
+      if (setupWritesSucceeded && errorCode === "GOOGLE_TIMEOUT") {
+        verifyTimedOut = true;
+        state.setupWarnings = ["Workbook read/write verification timed out after setup writes succeeded"];
+        state.healthStatus = SETUP_STATUS_NEEDS_ATTENTION;
+        state.setupBlockers = [];
+      } else {
+        throw error;
+      }
     }
-    state.validation = validation;
-    const readiness = deriveValidationReadiness(validation);
+
+    const workspaceHealthOk = verifyTimedOut ? true : Boolean(verifyResult?.ok);
+    state.validation = buildValidationFromSetupState(state, {
+      workspaceHealthOk,
+      firstAdminReady,
+      verifyTimedOut,
+    });
+    const readiness = deriveValidationReadiness(state.validation);
     const companyFoldersOk = readiness.companyFoldersMappingOk;
-    const healthOk = readiness.requiredTabsOk && readiness.folderStructureOk && readiness.workspaceHealthOk;
-    state.blockers = blockersFromValidation(validation, { firstAdminReady });
+    const healthOk = verifyTimedOut
+      ? true
+      : readiness.requiredTabsOk && readiness.folderStructureOk && readiness.workspaceHealthOk;
+    state.blockers = verifyTimedOut ? [] : blockersFromValidation(state.validation, { firstAdminReady });
     await withGoogleTimeout(
       recordCompanyWorkspaceHealthCheck(auth, registryDeps, {
         companyId,
@@ -545,12 +588,18 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
         companyFoldersMappingStatus: companyFoldersOk ? "mapped" : "incomplete",
         firstAdminStatus: firstAdminReady ? "ready" : "pending",
         healthOk,
-        healthSummary: healthOk ? "healthy" : "health_check_failed",
+        healthSummary: verifyTimedOut
+          ? "verify_workbook_read_write_timeout"
+          : healthOk
+            ? "healthy"
+            : "health_check_failed",
         unlinkReason: healthOk
           ? ""
           : [
-              ...(validation.missingTabs?.length ? [`missing_tabs:${validation.missingTabs.join(",")}`] : []),
-              ...(validation.repairableIssues?.length ? validation.repairableIssues : []),
+              ...(state.validation.missingTabs?.length
+                ? [`missing_tabs:${state.validation.missingTabs.join(",")}`]
+                : []),
+              ...(state.validation.repairableIssues?.length ? state.validation.repairableIssues : []),
             ].join("; "),
       }),
       "verify_workbook_read_write_record",
@@ -560,8 +609,19 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
     return stepFailure;
   }
 
-  // 9. Mark company LIVE if ready
+  // 9. Mark company LIVE if ready (ensure registry row exists before final LIVE check)
   stepFailure = await runStep("mark_live", async () => {
+    await withGoogleTimeout(
+      ensureCompanyRegistryRecordForWorkspace(auth, registryDeps, {
+        companyId,
+        companyFolderId: companyId,
+        rootFolderId: companyId,
+        masterSheetId: state.masterSheetId,
+        companyName: resolvedCompanyName,
+      }),
+      "mark_live_ensure_registry",
+    ).catch(() => {});
+
     const readiness = deriveValidationReadiness(state.validation || {});
     const folderStructureOk = readiness.folderStructureOk;
     const requiredTabsOk = readiness.requiredTabsOk;

@@ -617,6 +617,7 @@ export function AdminScreen({
           companyFolderStructureRepairing={companyFolderStructureRepairing}
           companySetupCurrentStep={companySetupCurrentStep}
           companySetupError={companySetupError}
+          companyRegistryStatus={canonicalRegistryStatus}
           companyMasterSheetProvisioning={companyMasterSheetProvisioning}
           folderIdInput={folderIdInput}
           masterSheetInput={masterSheetInput}

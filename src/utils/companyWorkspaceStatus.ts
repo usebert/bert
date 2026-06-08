@@ -1,4 +1,4 @@
-import { isArchiveOrNonLiveWorkspaceName } from "./companyWorkspaceInvite";
+import { isArchiveOrNonLiveWorkspaceName, getCanonicalCompanyStatus, isCompanyRegistryLive } from "./companyWorkspaceInvite";
 
 /** Setup status shown on Godmode company workspace UI. */
 export type CompanySetupStatusLabel =
@@ -53,6 +53,7 @@ export function resolveCompanySetupStatus(input: {
   responseSheetVerified?: boolean;
   workspaceHealthOk?: boolean;
   healthCheckRun?: boolean;
+  registryStatus?: string;
 }): CompanySetupStatusLabel {
   if (isArchiveOrNonLiveWorkspaceName(input.folderName)) {
     return "Archived";
@@ -63,17 +64,27 @@ export function resolveCompanySetupStatus(input: {
   if (input.isProvisioning) {
     return "Setup in progress";
   }
+
+  const canonicalRegistry = getCanonicalCompanyStatus({
+    status: input.registryStatus,
+    registryStatus: input.registryStatus,
+  });
+  if (isCompanyRegistryLive({ status: canonicalRegistry, registryStatus: canonicalRegistry })) {
+    if (input.healthCheckRun && input.workspaceHealthOk === false) {
+      return "Needs attention";
+    }
+    return "Live";
+  }
+  if (canonicalRegistry === "Needs attention") {
+    return "Needs attention";
+  }
+
   const masterSheetId = String(input.masterSheetId || "").trim();
   const synced = input.syncState === "Synced" || input.syncState === "Linked";
   if (masterSheetId && input.hasCompanyFolder) {
     if (input.healthCheckRun && input.workspaceHealthOk === false) {
       return "Needs attention";
     }
-    if (synced) {
-      return "Live";
-    }
-  }
-  if (masterSheetId && input.hasCompanyFolder) {
     if (synced && !input.healthCheckRun) {
       return "Ready for health check";
     }
@@ -179,6 +190,7 @@ export function resolveCompanyWorkspaceStatus(input: {
   responseSheetVerified?: boolean;
   workspaceHealthOk?: boolean;
   healthCheckRun?: boolean;
+  registryStatus?: string;
 }): CompanySetupStatusLabel {
   return resolveCompanySetupStatus({
     folderName: input.folderName,
@@ -191,5 +203,6 @@ export function resolveCompanyWorkspaceStatus(input: {
     responseSheetVerified: input.responseSheetVerified,
     workspaceHealthOk: input.workspaceHealthOk,
     healthCheckRun: input.healthCheckRun,
+    registryStatus: input.registryStatus,
   });
 }
