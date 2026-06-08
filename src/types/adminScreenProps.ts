@@ -239,7 +239,7 @@ export type AdminScreenProps = {
   onRepairCompanyFolderStructure?: () => void;
   companyFolderStructureRepairing?: boolean;
   companySetupCurrentStep?: string;
-  companySetupError?: { failedStep: string; errorCode: string; message: string } | null;
+  companySetupError?: { failedStep: string; errorCode: string; message: string; technicalError?: string } | null;
   onCreateCompanyMasterSheet?: () => void;
   companyMasterSheetProvisioning?: boolean;
   companyMasterSheetLink?: string;

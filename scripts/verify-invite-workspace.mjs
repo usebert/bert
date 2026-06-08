@@ -59,13 +59,12 @@ function resolveMasterInviteWorkspace(input) {
   const companyFolderId = trimId(selected?.id);
   const masterSheetId = trimId(selected?.masterSheetId);
   const companyName = trimId(selected?.name);
-  const registryStatus = trimId(input.companyContext?.registryStatus);
 
   if (!companyFolderId || !masterSheetId) {
     return { ok: false, message: LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE };
   }
-  if (!isCompanyRegistryLive({ status: registryStatus })) {
-    return { ok: false, message: ADMIN_INVITE_INCOMPLETE_SETUP_MESSAGE };
+  if (isArchiveOrNonLiveWorkspaceName(companyName)) {
+    return { ok: false, message: LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE };
   }
 
   return {
@@ -138,6 +137,13 @@ const masterNeedsSelection = resolveInviteWorkspace({
   companyContext: { companyFolderId: "hint-folder", masterSheetId: "sheet-hint" },
 });
 assert(!masterNeedsSelection.ok, "Master still requires explicit company selection");
+
+const masterBypassesLive = resolveInviteWorkspace({
+  currentUser: { role: "Master" },
+  selectedCompany: { id: "folder-1", name: "Acme", masterSheetId: "sheet-1" },
+  companyContext: { registryStatus: "Setup in progress" },
+});
+assert(masterBypassesLive.ok, "Master bypasses registry LIVE when folder and sheet are selected");
 
 const auditorBlocked = resolveInviteWorkspace({
   currentUser: { role: "Auditor" },

@@ -3276,6 +3276,7 @@ function App() {
     failedStep: string;
     errorCode: string;
     message: string;
+    technicalError?: string;
   } | null>(null);
   const [companyMasterSheetLink, setCompanyMasterSheetLink] = useState("");
   const [companyMasterSheetProvisioning, setCompanyMasterSheetProvisioning] = useState(false);
@@ -9976,7 +9977,7 @@ function App() {
     setCompanySetupCurrentStep("resolve_registry");
     setCompanySetupError(null);
     try {
-      const result = await companySetupProgressService.runSetup({
+      const result = await companySetupProgressService.repairSetup({
         companyId: companyFolderId,
         companyName: selectedFolder?.name || folderNameInput,
         masterSheetId:
@@ -10030,8 +10031,9 @@ function App() {
       if (!result.ok) {
         setCompanySetupError({
           failedStep: result.failedStep,
-          errorCode: result.errorCode,
-          message: result.message,
+          errorCode: result.errorCode || "SETUP_STEP_FAILED",
+          message: result.message || COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
+          technicalError: result.technicalError || "",
         });
         pushToast("Setup did not finish", COMPANY_SETUP_DID_NOT_FINISH_MESSAGE, "warning");
         return;
@@ -10053,7 +10055,8 @@ function App() {
       setCompanySetupError({
         failedStep: "",
         errorCode: "SETUP_REQUEST_FAILED",
-        message: error instanceof Error ? error.message : "Unable to run company setup.",
+        message: COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
+        technicalError: error instanceof Error ? error.message : "Unable to run company setup.",
       });
       pushToast("Setup did not finish", COMPANY_SETUP_DID_NOT_FINISH_MESSAGE, "warning");
     } finally {

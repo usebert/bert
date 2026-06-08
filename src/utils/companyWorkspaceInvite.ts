@@ -70,6 +70,31 @@ export function canInviteCompanyUsers(session: CompanyInviteSession, company: Co
   return isCompanyAdminInviteRole(session) && isCompanyRegistryLive(company);
 }
 
+/** Godmode (Master): invite when the company master sheet has a writable Users tab — bypasses LIVE. */
+export function isCompanyUsersTabWritable(input: {
+  companySheetSync?: { sheetId?: string };
+  workspaceValidation?: { tabs?: Record<string, boolean>; missingTabs?: string[] } | null;
+}): boolean {
+  const sheetId = String(input.companySheetSync?.sheetId || "").trim();
+  if (!sheetId) {
+    return false;
+  }
+  const validation = input.workspaceValidation;
+  if (validation?.tabs?.Users === true) {
+    return true;
+  }
+  if ((validation?.missingTabs || []).includes("Users")) {
+    return false;
+  }
+  if (validation?.tabs?.Users === false) {
+    return false;
+  }
+  return true;
+}
+
+export const GODMODE_USERS_TAB_NOT_READY_MESSAGE =
+  "The company master sheet Users tab is not ready yet. Run Repair / complete setup first.";
+
 export const FIRST_ADMIN_REQUIRES_ONBOARDING_MESSAGE =
   "The first company administrator is created during company onboarding. Ask your platform owner to send a company onboarding invite.";
 

@@ -6,8 +6,10 @@ import {
   canInviteCompanyUsers,
   COMPANY_NOT_LIVE_INVITE_MESSAGE,
   getCanonicalCompanyStatus,
+  GODMODE_USERS_TAB_NOT_READY_MESSAGE,
   INVITE_ROLE_FORBIDDEN_MESSAGE,
   isCompanyAdminInviteRole,
+  isCompanyUsersTabWritable,
 } from "../../utils/companyWorkspaceInvite";
 import { DangerActionButton } from "../DangerActionButton";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../dashboard/DashboardPrimitives";
@@ -409,6 +411,8 @@ export function UsersInvitesPilotPanel({
   inviteWorkspaceBanner = "",
   CompanyUserInviteEmailResultPanel,
   slatePrimaryCtaInteract,
+  companySheetSync,
+  workspaceValidation,
   ...healthProps
 }: UsersInvitesPilotPanelProps) {
   const [showHealthSync, setShowHealthSync] = useState(false);
@@ -464,11 +468,17 @@ export function UsersInvitesPilotPanel({
   }, [isMasterActor, currentUser.username]);
 
   const companyLiveForInvites = isMasterActor
-    ? true
+    ? isCompanyUsersTabWritable({
+        companySheetSync: companySheetSync ?? undefined,
+        workspaceValidation,
+      })
     : canInviteCompanyUsers(
         { role: currentUser.role, accessLevel: currentUser.accessLevel },
         { status: effectiveRegistryStatus, registryStatus: effectiveRegistryStatus },
       );
+  const inviteBlockedMessage = isMasterActor
+    ? GODMODE_USERS_TAB_NOT_READY_MESSAGE
+    : COMPANY_NOT_LIVE_INVITE_MESSAGE;
   const showInviteForm = isMasterActor || isCompanyAdmin;
   const inviteFormEnabled = companyLiveForInvites;
   const { pendingInvites, activeInvites } = useMemo(() => {
@@ -506,7 +516,7 @@ export function UsersInvitesPilotPanel({
         <div className={`mt-4 ${pilotLightNested}`}>
           {!inviteFormEnabled ? (
             <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-950">
-              {COMPANY_NOT_LIVE_INVITE_MESSAGE}
+              {inviteBlockedMessage}
             </p>
           ) : null}
           <label htmlFor="pilot-invite-email" className="mb-1 block text-sm font-semibold text-slate-900">
@@ -714,7 +724,12 @@ export function UsersInvitesPilotPanel({
         </button>
         {showHealthSync ? (
           <div className="mt-4 border-t border-slate-100 pt-4">
-            <WorkspaceHealthSections {...healthProps} slatePrimaryCtaInteract={slatePrimaryCtaInteract} />
+            <WorkspaceHealthSections
+              {...healthProps}
+              companySheetSync={companySheetSync}
+              workspaceValidation={workspaceValidation}
+              slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+            />
           </div>
         ) : null}
       </section>

@@ -102,7 +102,7 @@ export type GodmodeCompanyWorkspacePanelProps = {
   masterCompanyContextMessage: string;
   companyFolderStructureRepairing: boolean;
   companySetupCurrentStep?: string;
-  companySetupError?: { failedStep: string; errorCode: string; message: string } | null;
+  companySetupError?: { failedStep: string; errorCode: string; message: string; technicalError?: string } | null;
   companyMasterSheetProvisioning: boolean;
   folderIdInput: string;
   masterSheetInput: string;
@@ -750,6 +750,9 @@ export function GodmodeCompanyWorkspacePanel({
                 {companySetupError.message ? (
                   <p className="mt-2 text-xs text-rose-900">{companySetupError.message}</p>
                 ) : null}
+                {companySetupError.technicalError ? (
+                  <p className="mt-2 font-mono text-xs text-rose-800">{companySetupError.technicalError}</p>
+                ) : null}
               </div>
             ) : null}
             <div className="mt-4 flex flex-wrap gap-2">
@@ -766,7 +769,7 @@ export function GodmodeCompanyWorkspacePanel({
                   }
                   className="inline-flex h-11 items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {isProvisioning ? "Running setup…" : "Continue setup"}
+                  {isProvisioning ? "Running setup…" : "Repair / complete setup"}
                 </button>
               ) : (
                 <button
@@ -778,16 +781,6 @@ export function GodmodeCompanyWorkspacePanel({
                   {workspaceValidationLoading ? "Checking…" : "Re-check workspace"}
                 </button>
               )}
-              {!isLiveStatus ? (
-                <button
-                  type="button"
-                  onClick={onOneClickGoogleOnboarding}
-                  disabled={adminOnly || !googleWorkspaceReady || folderInspectionLoading || isProvisioning}
-                  className="inline-flex h-11 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isProvisioning ? "Running…" : "Run setup"}
-                </button>
-              ) : null}
               <a
                 href={`https://drive.google.com/drive/folders/${selectedFolder.id}`}
                 target="_blank"

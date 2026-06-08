@@ -13,6 +13,7 @@ import {
   persistCompanyWorkspaceSetup,
   recordCompanyWorkspaceHealthCheck,
 } from "./company-workspace-registry.mjs";
+import { inspectConfiguredWorkspaceRoot } from "./google-workspace-root.mjs";
 import { countCompanyUsersOnSheet } from "./company-onboarding.mjs";
 import {
   COMPANY_REGISTRY_STATUS_LIVE,
@@ -30,12 +31,15 @@ export const COMPANY_SETUP_STEPS = [
   { key: "ensure_required_tabs", label: "Ensure required tabs" },
   { key: "ensure_companyfolders_mapping", label: "Ensure CompanyFolders mapping" },
   { key: "ensure_first_admin", label: "Ensure first admin" },
-  { key: "workspace_health_check", label: "Run workspace health check" },
-  { key: "mark_live", label: "Mark company LIVE if ready" },
+  { key: "verify_workbook_read_write", label: "Verify workbook read/write" },
+  { key: "mark_live", label: "Persist status LIVE if ready" },
 ];
 
 const SETUP_STATUS_LIVE = "LIVE";
 const SETUP_STATUS_NEEDS_ATTENTION = "NEEDS_ATTENTION";
+
+export const CUSTOMER_SETUP_FAILURE_MESSAGE =
+  "Setup did not finish. Check the setup details below and try again.";
 
 function mergeWorkspaceFolderConfig(structureConfig = {}, isoReadinessIds = {}) {
   return {
@@ -109,50 +113,60 @@ function resolveErrorCode(error) {
   return "SETUP_STEP_FAILED";
 }
 
-function buildFailureResponse(state, error, failedStep) {
-  const errorCode = resolveErrorCode(error);
-  const technicalMessage = error instanceof Error ? error.message : String(error || "Setup step failed.");
-  console.error("[company-setup]", {
-    companyId: state.companyId,
-    step: failedStep,
-    errorCode,
-    message: technicalMessage,
-  });
+function normalizeSetupResponse(state, payload = {}) {
   return {
-    ok: false,
-    status: SETUP_STATUS_NEEDS_ATTENTION,
-    currentStep: failedStep,
-    completedSteps: state.completedSteps,
-    failedStep,
-    blockers: state.blockers,
-    errorCode,
-    message: technicalMessage,
-    masterSheetId: state.masterSheetId || "",
-    legacyFolderConfig: state.legacyFolderConfig || {},
-    folderIds: state.folderIds || {},
-  };
-}
-
-function buildSuccessResponse(state) {
-  const live = state.status === SETUP_STATUS_LIVE;
-  return {
-    ok: live && state.blockers.length === 0,
-    status: live ? SETUP_STATUS_LIVE : SETUP_STATUS_NEEDS_ATTENTION,
-    currentStep: "",
-    completedSteps: state.completedSteps,
-    failedStep: "",
-    blockers: state.blockers,
-    errorCode: state.blockers.length > 0 ? "COMPANY_NOT_READY" : "",
-    message:
-      state.blockers.length > 0
-        ? "Setup finished with blockers. Check the setup details below and try again."
-        : "Company workspace setup completed.",
+    ok: Boolean(payload.ok),
+    companyId: state.companyId || "",
+    status: payload.status || SETUP_STATUS_NEEDS_ATTENTION,
+    currentStep: payload.currentStep ?? "",
+    completedSteps: payload.completedSteps ?? state.completedSteps ?? [],
+    failedStep: payload.failedStep ?? "",
+    blockers: payload.blockers ?? state.blockers ?? [],
+    message: payload.message ?? "",
+    technicalError: payload.technicalError ?? "",
+    errorCode: payload.errorCode ?? "",
     masterSheetId: state.masterSheetId || "",
     legacyFolderConfig: state.legacyFolderConfig || {},
     folderIds: state.folderIds || {},
     registryStatus: state.registryStatus || "",
     validation: state.validation || null,
   };
+}
+
+function buildFailureResponse(state, error, failedStep) {
+  const errorCode = resolveErrorCode(error);
+  const technicalMessage = error instanceof Error ? error.message : String(error || "Setup step failed.");
+  console.error(`[company-setup] failed step=${failedStep} companyId=${state.companyId}`, {
+    errorCode,
+    technicalError: technicalMessage,
+  });
+  return normalizeSetupResponse(state, {
+    ok: false,
+    status: SETUP_STATUS_NEEDS_ATTENTION,
+    currentStep: failedStep,
+    failedStep,
+    blockers: state.blockers,
+    message: CUSTOMER_SETUP_FAILURE_MESSAGE,
+    technicalError: technicalMessage,
+    errorCode,
+  });
+}
+
+function buildSuccessResponse(state) {
+  const live = state.status === SETUP_STATUS_LIVE;
+  return normalizeSetupResponse(state, {
+    ok: live && state.blockers.length === 0,
+    status: live ? SETUP_STATUS_LIVE : SETUP_STATUS_NEEDS_ATTENTION,
+    currentStep: "",
+    failedStep: "",
+    blockers: state.blockers,
+    message:
+      state.blockers.length > 0
+        ? "Setup finished with blockers. Check the setup details below and try again."
+        : "Company workspace setup completed.",
+    technicalError: "",
+    errorCode: state.blockers.length > 0 ? "COMPANY_NOT_READY" : "",
+  });
 }
 
 /**
@@ -179,19 +193,20 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
   };
 
   if (!companyId) {
-    return {
-      ok: false,
-      status: SETUP_STATUS_NEEDS_ATTENTION,
-      currentStep: COMPANY_SETUP_STEPS[0].key,
-      completedSteps: [],
-      failedStep: COMPANY_SETUP_STEPS[0].key,
-      blockers: ["company_folder_not_linked"],
-      errorCode: "MISSING_COMPANY_ID",
-      message: "Company folder ID is required.",
-      masterSheetId: "",
-      legacyFolderConfig: {},
-      folderIds: {},
-    };
+    return normalizeSetupResponse(
+      { companyId: "", completedSteps: [], blockers: ["company_folder_not_linked"] },
+      {
+        ok: false,
+        status: SETUP_STATUS_NEEDS_ATTENTION,
+        currentStep: COMPANY_SETUP_STEPS[0].key,
+        completedSteps: [],
+        failedStep: COMPANY_SETUP_STEPS[0].key,
+        blockers: ["company_folder_not_linked"],
+        errorCode: "MISSING_COMPANY_ID",
+        message: "Company folder ID is required.",
+        technicalError: "Company folder ID is required.",
+      },
+    );
   }
 
   const registryDeps = deps.registryDeps || deps;
@@ -209,15 +224,34 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
   } = deps;
 
   const runStep = async (stepKey, fn) => {
-    console.log("[company-setup] step start", { companyId, step: stepKey });
+    console.log(`[company-setup] start step=${stepKey} companyId=${companyId}`);
     try {
       await fn();
       state.completedSteps.push(stepKey);
-      console.log("[company-setup] step done", { companyId, step: stepKey });
+      console.log(`[company-setup] complete step=${stepKey} companyId=${companyId}`);
     } catch (error) {
       return buildFailureResponse(state, error, stepKey);
     }
     return null;
+  };
+
+  const logSharedDriveWarningIfNeeded = async () => {
+    const sharedDriveId = String(registryDeps.sharedDriveId || deps.sharedDriveId || "").trim();
+    if (!sharedDriveId || !google) {
+      return;
+    }
+    try {
+      const root = await inspectConfiguredWorkspaceRoot(auth, google, sharedDriveId);
+      if (root.warning) {
+        console.warn(`[company-setup] shared drive warning companyId=${companyId}`, { warning: root.warning });
+      } else if (root.ok && !root.isSharedDrive) {
+        console.warn(`[company-setup] shared drive warning companyId=${companyId}`, {
+          warning: "GOOGLE_SHARED_DRIVE_ID is a folder, not a Shared Drive. Provisioning may still work.",
+        });
+      }
+    } catch {
+      // Non-blocking — shared drive verification never blocks LIVE promotion.
+    }
   };
 
   // 1. Resolve company registry record
@@ -254,6 +288,8 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
   if (stepFailure) {
     return stepFailure;
   }
+
+  await logSharedDriveWarningIfNeeded();
 
   // 2. Ensure company folder
   stepFailure = await runStep("ensure_company_folder", async () => {
@@ -456,8 +492,8 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
     return stepFailure;
   }
 
-  // 8. Run workspace health check
-  stepFailure = await runStep("workspace_health_check", async () => {
+  // 8. Verify workbook read/write
+  stepFailure = await runStep("verify_workbook_read_write", async () => {
     const runValidation = async () =>
       withGoogleTimeout(
         validateWorkspace(auth, {
@@ -470,7 +506,7 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
           exportsFolderId: state.legacyFolderConfig.exportsFolderId || "",
           managementNotesFolderId: state.legacyFolderConfig.managementNotesFolderId || "",
         }),
-        "workspace_health_check",
+        "verify_workbook_read_write",
       );
 
     let validation = await runValidation();
@@ -481,7 +517,7 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
           companyName: resolvedCompanyName,
           createBackup: true,
         }),
-        "workspace_health_check_repair_tabs",
+        "verify_workbook_read_write_repair_tabs",
       );
       validation = await runValidation();
     }
@@ -509,7 +545,7 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
               ...(validation.repairableIssues?.length ? validation.repairableIssues : []),
             ].join("; "),
       }),
-      "workspace_health_check_record",
+      "verify_workbook_read_write_record",
     ).catch(() => {});
   });
   if (stepFailure) {
@@ -583,51 +619,77 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
   return buildSuccessResponse(state);
 }
 
+/** @deprecated Alias — use runCompanySetupProgress. */
+export const runCompanyRepairSetup = runCompanySetupProgress;
+
+async function handleCompanyRepairSetupRequest(req, res, deps) {
+  const { getAuthedClient, envConfigured } = deps;
+  const authed = getAuthedClient();
+  const companyId = String(
+    req.params?.companyId || req.body?.companyId || req.body?.companyFolderId || "",
+  ).trim();
+
+  if (!envConfigured() || !authed) {
+    return res.status(401).json({
+      ok: false,
+      companyId,
+      status: "NEEDS_ATTENTION",
+      currentStep: COMPANY_SETUP_STEPS[0].key,
+      completedSteps: [],
+      failedStep: "",
+      blockers: ["google_not_connected"],
+      message: "Connect Google Workspace before running company setup.",
+      technicalError: "Google Workspace is not connected on the API server.",
+      errorCode: "GOOGLE_NOT_CONNECTED",
+    });
+  }
+
+  try {
+    const result = await runCompanySetupProgress(authed, deps, {
+      companyId,
+      companyFolderId: companyId,
+      companyName: String(req.body?.companyName || "").trim(),
+      masterSheetId: String(req.body?.masterSheetId || "").trim(),
+    });
+    const httpStatus = result.ok ? 200 : result.failedStep ? 500 : 409;
+    return res.status(httpStatus).json(result);
+  } catch (error) {
+    console.error(`[company-setup] unhandled companyId=${companyId}`, error);
+    return res.status(500).json({
+      ok: false,
+      companyId,
+      status: "NEEDS_ATTENTION",
+      currentStep: "",
+      completedSteps: [],
+      failedStep: "unknown",
+      blockers: [],
+      message: CUSTOMER_SETUP_FAILURE_MESSAGE,
+      technicalError: error instanceof Error ? error.message : "Company setup failed.",
+      errorCode: resolveErrorCode(error),
+    });
+  }
+}
+
 export function installCompanySetupProgressRoutes(app, deps) {
-  const { getAuthedClient, envConfigured, requireGoogleWorkspaceSession, requireMasterOnlyActor } = deps;
+  const { requireGoogleWorkspaceSession, requireMasterOnlyActor } = deps;
+
+  app.post(
+    "/api/godmode/companies/:companyId/repair-setup",
+    requireGoogleWorkspaceSession,
+    requireMasterOnlyActor,
+    (req, res) => handleCompanyRepairSetupRequest(req, res, deps),
+  );
 
   app.post(
     "/api/godmode/company-workspace/run-setup",
     requireGoogleWorkspaceSession,
     requireMasterOnlyActor,
-    async (req, res) => {
-      const authed = getAuthedClient();
-      if (!envConfigured() || !authed) {
-        return res.status(401).json({
-          ok: false,
-          status: "NEEDS_ATTENTION",
-          currentStep: COMPANY_SETUP_STEPS[0].key,
-          completedSteps: [],
-          failedStep: "",
-          blockers: ["google_not_connected"],
-          errorCode: "GOOGLE_NOT_CONNECTED",
-          message: "Connect Google Workspace before running company setup.",
-        });
-      }
-
+    (req, res) => {
       const companyId = String(req.body?.companyId || req.body?.companyFolderId || "").trim();
-      try {
-        const result = await runCompanySetupProgress(authed, deps, {
-          companyId,
-          companyFolderId: companyId,
-          companyName: String(req.body?.companyName || "").trim(),
-          masterSheetId: String(req.body?.masterSheetId || "").trim(),
-        });
-        const httpStatus = result.ok ? 200 : result.failedStep ? 500 : 409;
-        return res.status(httpStatus).json(result);
-      } catch (error) {
-        console.error("[company-setup] unhandled", { companyId, error });
-        return res.status(500).json({
-          ok: false,
-          status: "NEEDS_ATTENTION",
-          currentStep: "",
-          completedSteps: [],
-          failedStep: "unknown",
-          blockers: [],
-          errorCode: resolveErrorCode(error),
-          message: error instanceof Error ? error.message : "Company setup failed.",
-        });
+      if (companyId && !req.params?.companyId) {
+        req.params = { ...(req.params || {}), companyId };
       }
+      return handleCompanyRepairSetupRequest(req, res, deps);
     },
   );
 }
