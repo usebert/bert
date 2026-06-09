@@ -252,6 +252,14 @@ import {
   type ScheduleAssigneeDiagnostics,
   type ScheduleAssigneeOption,
 } from "./src/utils/scheduleAssignees";
+import {
+  buildAssignedUsersForSave,
+  formatScheduleSaveError,
+  parseAuditorEmailsFromSheetRecord,
+  parseDueWindowFromSheet,
+  scheduleSheetRecordsPreferSchedulesTab,
+  type ScheduleAssignedUser,
+} from "./src/utils/scheduleSave";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
 import { getNextBestAction } from "./src/utils/nextBestAction";
 import type { DashboardSummaryForNextAction, NextBestActionIntent } from "./src/utils/nextBestAction";
@@ -792,6 +800,9 @@ type CompanySheetSyncStatus = {
 type SaveSchedulesResponse = {
   ok: boolean;
   error?: string;
+  message?: string;
+  code?: string;
+  technicalError?: string;
 };
 
 type GoogleDriveFilePayload = {
@@ -2556,19 +2567,22 @@ function parseManagedSchedules(records: Record<string, string>[], companyFolderI
     const scheduleId = extractByKeys(record, ["schedule id"]) || `schedule-row-${index + 1}`;
     const existing = grouped.get(scheduleId);
     const auditId = extractByKeys(record, ["audit id"]) || `audit-row-${index + 1}`;
-    const auditName = extractByKeys(record, ["audit name", "audit", "template"]) || "Unnamed audit";
+    const auditName =
+      extractByKeys(record, ["template name", "audit name", "audit", "template"]) || "Unnamed audit";
+    const dueWindow = parseDueWindowFromSheet(extractByKeys(record, ["due window"]));
 
     const audit: ManagedScheduleAudit = {
       id: `${scheduleId}-${auditId}`,
       auditId,
       auditName,
-      days: extractByKeys(record, ["days"])
+      days: extractByKeys(record, ["days of week", "days"])
         .split(",")
         .map((item) => item.trim())
         .filter(Boolean) as ScheduleDay[],
       frequency: normalizeScheduleFrequency(extractByKeys(record, ["frequency"])),
-      liveTime: extractByKeys(record, ["live time", "send time", "time"]) || "08:00",
-      completionHours: Number(extractByKeys(record, ["completion hours", "due hours", "hours"])) || 24,
+      liveTime: extractByKeys(record, ["live time", "send time", "time"]) || dueWindow.liveTime,
+      completionHours:
+        Number(extractByKeys(record, ["completion hours", "due hours", "hours"])) || dueWindow.completionHours,
     };
 
     if (existing) {
@@ -2586,10 +2600,7 @@ function parseManagedSchedules(records: Record<string, string>[], companyFolderI
       companyFolderId: rowCompanyFolderId,
       scheduleName: extractByKeys(record, ["schedule name", "name"]) || "Unnamed schedule",
       audits: [audit],
-      auditors: extractByKeys(record, ["auditors", "auditor"])
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean),
+      auditors: parseAuditorEmailsFromSheetRecord(record),
       startDate: extractByKeys(record, ["start date"]),
       endDate: extractByKeys(record, ["end date"]),
       updatedAt: extractByKeys(record, ["updated at", "updated"]),
@@ -3457,6 +3468,7 @@ function App() {
   const [scheduleDraftContinuous, setScheduleDraftContinuous] = useState(true);
   const [scheduleDraftAuditors, setScheduleDraftAuditors] = useState<string[]>([]);
   const [scheduleValidationAttempted, setScheduleValidationAttempted] = useState(false);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
   const [folders, setFolders] = useState<CompanyFolder[]>(storedWorkspaceState?.folders || []);
   const [godmodeLiveCompaniesWarning, setGodmodeLiveCompaniesWarning] = useState("");
   const [selectedFolderId, setSelectedFolderId] = useState(storedWorkspaceState?.selectedFolderId || "");
@@ -6583,13 +6595,17 @@ function App() {
 
       const nextUsersTabRows = parseCompanyUsersTabRows(payload.data.Users ?? [], folderId);
       const nextInvites = parseCompanySheetUsers(payload.data.Users ?? [], folderId);
-      const nextSchedules = parseCompanySheetSchedules(payload.data.Schedule ?? [], folderId);
+      const managedScheduleRecords = scheduleSheetRecordsPreferSchedulesTab(
+        payload.data.Schedule ?? [],
+        payload.data.Schedules ?? [],
+      );
+      const nextSchedules = parseCompanySheetSchedules(managedScheduleRecords, folderId);
       setCompanySheetSync({
         sheetId: payload.sheetId,
         sheetName: payload.sheetName,
         tabs: payload.tabs,
         usersCount: payload.data.Users?.length ?? 0,
-        schedulesCount: payload.data.Schedule?.length ?? 0,
+        schedulesCount: managedScheduleRecords.length,
         onboardingCount: payload.data.Onboarding?.length ?? 0,
         actionsCount: payload.data.Actions?.length ?? 0,
         notesCount: payload.data.Notes?.length ?? 0,
@@ -6631,7 +6647,13 @@ function App() {
       });
       setManagedSchedules((current) => {
         const remaining = current.filter((item) => item.companyFolderId !== folderId);
-        const nextManaged = [...remaining, ...parseManagedSchedules(payload.data.Schedule ?? [], folderId).map((item) => ({ ...item, healthState: computeScheduleHealthState(item) }))];
+        const nextManaged = [
+          ...remaining,
+          ...parseManagedSchedules(managedScheduleRecords, folderId).map((item) => ({
+            ...item,
+            healthState: computeScheduleHealthState(item),
+          })),
+        ];
         setComplianceSchedules((scheduleCurrent) => {
           const withoutFolder = scheduleCurrent.filter((item) => item.companyFolderId !== folderId);
           const derived = complianceSchedulesFromManaged(nextManaged.filter((item) => item.companyFolderId === folderId));
@@ -6677,13 +6699,17 @@ function App() {
 
       const nextUsersTabRows = parseCompanyUsersTabRows(payload.data.Users ?? [], companyFolderId);
       const nextInvites = parseCompanySheetUsers(payload.data.Users ?? [], companyFolderId);
-      const nextSchedules = parseCompanySheetSchedules(payload.data.Schedule ?? [], companyFolderId);
+      const managedScheduleRecords = scheduleSheetRecordsPreferSchedulesTab(
+        payload.data.Schedule ?? [],
+        payload.data.Schedules ?? [],
+      );
+      const nextSchedules = parseCompanySheetSchedules(managedScheduleRecords, companyFolderId);
       setCompanySheetSync({
         sheetId: payload.sheetId,
         sheetName: payload.sheetName,
         tabs: payload.tabs,
         usersCount: payload.data.Users?.length ?? 0,
-        schedulesCount: payload.data.Schedule?.length ?? 0,
+        schedulesCount: managedScheduleRecords.length,
         onboardingCount: payload.data.Onboarding?.length ?? 0,
         actionsCount: payload.data.Actions?.length ?? 0,
         notesCount: payload.data.Notes?.length ?? 0,
@@ -6725,7 +6751,13 @@ function App() {
       });
       setManagedSchedules((current) => {
         const remaining = current.filter((item) => item.companyFolderId !== companyFolderId);
-        const nextManaged = [...remaining, ...parseManagedSchedules(payload.data.Schedule ?? [], companyFolderId).map((item) => ({ ...item, healthState: computeScheduleHealthState(item) }))];
+        const nextManaged = [
+          ...remaining,
+          ...parseManagedSchedules(managedScheduleRecords, companyFolderId).map((item) => ({
+            ...item,
+            healthState: computeScheduleHealthState(item),
+          })),
+        ];
         setComplianceSchedules((scheduleCurrent) => {
           const withoutFolder = scheduleCurrent.filter((item) => item.companyFolderId !== companyFolderId);
           const derived = complianceSchedulesFromManaged(nextManaged.filter((item) => item.companyFolderId === companyFolderId));
@@ -11489,7 +11521,8 @@ function App() {
   };
 
   const handleSaveManagedSchedule = async () => {
-    if (!selectedFolder) {
+    const companyFolderId = inviteCompanyContext.companyFolderId || selectedFolder?.id || "";
+    if (!companyFolderId) {
       const message =
         currentUser?.role === "Master"
           ? "Link a company before creating schedules."
@@ -11498,6 +11531,10 @@ function App() {
       if (currentUser?.role && currentUser.role !== "Master") {
         setScreen(getHomeScreenForRole(currentUser.role));
       }
+      return;
+    }
+
+    if (scheduleSaving) {
       return;
     }
 
@@ -11527,7 +11564,16 @@ function App() {
       return;
     }
 
-    const resolvedAuditors = resolveScheduleAssigneeLabels(scheduleDraftAuditors, availableScheduleAssignees);
+    const assignedUsers = buildAssignedUsersForSave(
+      scheduleDraftAuditors,
+      availableScheduleAssignees,
+      companyUsersTabRows,
+    );
+    const resolvedAuditors = assignedUsers.map((user) => user.email);
+    const createdBy =
+      currentUser?.username.includes("@")
+        ? currentUser.username.toLowerCase()
+        : `${currentUser?.username || ""}@usebert.co.uk`.toLowerCase();
 
     const editingSchedule = editingScheduleId
       ? managedSchedules.find((item) => item.id === editingScheduleId) || null
@@ -11536,20 +11582,24 @@ function App() {
     const nextVersion = editingSchedule ? editingSchedule.versionNumber + 1 : 1;
     const resolvedEndDate = scheduleDraftContinuous ? "" : scheduleDraftEndDate;
     const lifecycle: ScheduleLifecycle = resolvedEndDate ? "Archived" : "Live";
+    const timestamp = formatStamp();
 
-    const nextSchedule: ManagedSchedule = {
+    const nextSchedule: ManagedSchedule & { assignedUsers?: ScheduleAssignedUser[]; createdBy?: string; createdAt?: string } = {
       id: `schedule-${Date.now()}`,
       rootId,
       versionNumber: nextVersion,
       versionLabel: formatScheduleVersionLabel(nextVersion),
       lifecycle,
-      companyFolderId: selectedFolder.id,
+      companyFolderId,
       scheduleName: trimmedName,
       audits: scheduleDraftAudits,
       auditors: resolvedAuditors,
+      assignedUsers,
       startDate: scheduleDraftStartDate,
       endDate: resolvedEndDate,
-      updatedAt: formatStamp(),
+      createdBy,
+      createdAt: editingSchedule ? undefined : timestamp,
+      updatedAt: timestamp,
     };
 
     const nextManagedSchedules = !editingSchedule
@@ -11563,30 +11613,21 @@ function App() {
           ...managedSchedules.filter((item) => item.id !== editingSchedule.id),
         ];
 
+    setScheduleSaving(true);
     try {
       await persistManagedSchedules(
-        selectedFolder.id,
-        nextManagedSchedules.filter((schedule) => schedule.companyFolderId === selectedFolder.id),
+        companyFolderId,
+        nextManagedSchedules.filter((schedule) => schedule.companyFolderId === companyFolderId),
       );
       setManagedSchedules(nextManagedSchedules);
+      pushToast("Schedule saved.", "Schedule saved.", "success");
+      resetManagedScheduleDraft();
     } catch (error) {
-      pushToast(
-        "Schedule save failed",
-        error instanceof Error ? error.message : "Unable to save the schedule to the company master sheet.",
-        "warning",
-      );
-      return;
+      const reason = error instanceof Error ? error.message : "BERT could not save this schedule. Try again.";
+      pushToast("Schedule could not be saved.", `Schedule could not be saved. Reason: ${reason}`, "warning");
+    } finally {
+      setScheduleSaving(false);
     }
-
-    pushToast(
-      lifecycle === "Archived" ? "Schedule archived" : editingSchedule ? "Schedule updated" : "Schedule created",
-      lifecycle === "Archived"
-        ? `${trimmedName} has been archived as revision ${nextSchedule.versionLabel}.`
-        : `${trimmedName} is now saved as revision ${nextSchedule.versionLabel}.`,
-      "success",
-    );
-
-    resetManagedScheduleDraft();
   };
 
   const handleReactivateSchedule = (scheduleId: string) => {
@@ -11697,12 +11738,29 @@ function App() {
   };
 
   const persistManagedSchedules = async (companyFolderId: string, nextSchedules: ManagedSchedule[]) => {
-    const sheetId = companySheetSync?.sheetId || extractGoogleResourceId(masterSheetInput);
-    if (!sheetId) {
-      throw new Error("Company master sheet link is required before saving schedules.");
+    const masterSheetId =
+      inviteCompanyContext.masterSheetId ||
+      companySheetSync?.sheetId ||
+      extractGoogleResourceId(masterSheetInput) ||
+      selectedFolder?.masterSheetId ||
+      "";
+    if (!masterSheetId) {
+      throw new Error("Company master sheet is not configured.");
     }
 
-    const response = await fetch(apiUrl(`/api/google-sheet-by-id/${encodeURIComponent(sheetId)}/schedules`), {
+    const schedulesPayload = nextSchedules.map((schedule) => {
+      const assignedUsers =
+        "assignedUsers" in schedule && Array.isArray((schedule as { assignedUsers?: ScheduleAssignedUser[] }).assignedUsers)
+          ? (schedule as { assignedUsers: ScheduleAssignedUser[] }).assignedUsers
+          : buildAssignedUsersForSave(schedule.auditors, availableScheduleAssignees, companyUsersTabRows);
+      return {
+        ...schedule,
+        assignedUsers,
+        auditors: assignedUsers.map((user) => user.email),
+      };
+    });
+
+    const response = await fetch(apiUrl(`/api/companies/${encodeURIComponent(companyFolderId)}/schedules`), {
       method: "POST",
       credentials: "include",
       headers: {
@@ -11710,13 +11768,14 @@ function App() {
       },
       body: JSON.stringify({
         companyFolderId,
-        schedules: nextSchedules,
+        masterSheetId,
+        schedules: schedulesPayload,
       }),
     });
 
     const payload = (await response.json()) as SaveSchedulesResponse;
     if (!response.ok || !payload.ok) {
-      throw new Error(payload.error || "Unable to save schedules.");
+      throw new Error(formatScheduleSaveError(payload));
     }
   };
 
@@ -13447,6 +13506,7 @@ function App() {
                 onContinuousChange={setScheduleDraftContinuous}
                 onToggleAuditor={handleToggleScheduleAuditor}
                 onSave={handleSaveManagedSchedule}
+                saving={scheduleSaving}
                 onCancel={resetManagedScheduleDraft}
                 onReactivate={handleReactivateSchedule}
                 onDelete={handleDeleteSchedule}

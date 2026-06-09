@@ -282,6 +282,7 @@ const REQUIRED_TABS = [
   "Onboarding",
   "Users",
   "Schedule",
+  "Schedules",
   "Actions",
   "ActionComments",
   "AuditResults",
@@ -4550,9 +4551,16 @@ app.post("/api/google-sheet-by-id/:sheetId/schedules", async (req, res) => {
     const payload = await writeCompanySchedules(authed, req.params.sheetId, companyFolderId, schedules);
     return res.json(payload);
   } catch (error) {
-    return res.status(500).json({
+    const technicalError = error instanceof Error ? error.message : String(error);
+    const devDiagnostics =
+      String(process.env.NODE_ENV || "").trim().toLowerCase() !== "production" ||
+      String(process.env.BERT_GODMODE_DIAGNOSTICS || "").trim().toLowerCase() === "true";
+    return res.status(502).json({
       ok: false,
-      error: error instanceof Error ? error.message : "Unable to save schedules to the company master sheet.",
+      code: "SCHEDULE_SAVE_FAILED",
+      error: "BERT could not save this schedule. Try again.",
+      message: "BERT could not save this schedule. Try again.",
+      technicalError: devDiagnostics ? technicalError : undefined,
     });
   }
 });
@@ -7112,6 +7120,13 @@ installCoreWorkflowRoutes(app, {
   readCompanySheetById,
   getCompanyUsersDeps,
   registryDeps: getCompanyWorkspaceRegistryDeps(),
+  writeLegacyCompanySchedules: writeCompanySchedules,
+  getTabValues,
+  ensureTabExists,
+  ensureColumns,
+  getWorkbook,
+  withSheetsQuotaRetry,
+  google,
 });
 
 installCompanyOnboardingRoutes(app, {

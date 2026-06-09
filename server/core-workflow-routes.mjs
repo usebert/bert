@@ -14,6 +14,7 @@ import {
 } from "./invite-service.mjs";
 import { resolveCompanyById } from "./company-registry-service.mjs";
 import { getScheduleAssigneesForCompany } from "./schedule-assignee-service.mjs";
+import { saveCompanySchedules } from "./schedule-save-service.mjs";
 
 function buildInvitePermissionSession(actor) {
   if (!actor) {
@@ -42,11 +43,25 @@ export function installCoreWorkflowRoutes(app, deps) {
     readCompanySheetById,
     getCompanyUsersDeps,
     registryDeps,
+    writeLegacyCompanySchedules,
+    getTabValues,
+    ensureTabExists,
+    ensureColumns,
+    getWorkbook,
+    withSheetsQuotaRetry,
+    google,
   } = deps;
 
   const scheduleDeps = {
     readCompanySheetById,
     ...getCompanyUsersDeps(),
+    writeLegacyCompanySchedules,
+    getTabValues,
+    ensureTabExists,
+    ensureColumns,
+    getWorkbook,
+    withSheetsQuotaRetry,
+    google,
   };
 
   app.post(
@@ -217,6 +232,67 @@ export function installCoreWorkflowRoutes(app, deps) {
       return res.status(500).json({
         ok: false,
         error: error instanceof Error ? error.message : "Unable to load schedule assignees.",
+      });
+    }
+  });
+
+  app.post("/api/companies/:companyId/schedules", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({
+        ok: false,
+        error: "Please connect Google before saving schedules.",
+      });
+    }
+
+    const companyId = String(req.params?.companyId || "").trim();
+    const masterSheetId = String(req.body?.masterSheetId || req.query?.masterSheetId || "").trim();
+    const companyFolderId = String(req.body?.companyFolderId || companyId).trim();
+    const schedules = Array.isArray(req.body?.schedules) ? req.body.schedules : [];
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const createdBy = String(actor?.email || req.body?.createdBy || "").trim();
+
+    if (!companyFolderId) {
+      return res.status(400).json({
+        ok: false,
+        code: "COMPANY_CONTEXT_MISSING",
+        error: "Company folder ID is required before saving schedules.",
+        message: "Company folder ID is required before saving schedules.",
+      });
+    }
+
+    try {
+      const result = await saveCompanySchedules(authed, { ...registryDeps, ...scheduleDeps }, {
+        companyId,
+        companyFolderId,
+        masterSheetId,
+        schedules,
+        createdBy,
+      });
+
+      if (!result.ok) {
+        return res.status(result.httpStatus || 400).json({
+          ok: false,
+          code: result.code,
+          error: result.error,
+          message: result.message || result.error,
+          technicalError: result.technicalError,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        companyId: result.companyId,
+        masterSheetId: result.masterSheetId,
+        written: result.written,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "SCHEDULE_SAVE_FAILED",
+        error: "BERT could not save this schedule. Try again.",
+        message: "BERT could not save this schedule. Try again.",
+        technicalError: error instanceof Error ? error.message : String(error),
       });
     }
   });

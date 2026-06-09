@@ -181,6 +181,7 @@ export function SchedulesScreen({
   onContinuousChange,
   onToggleAuditor,
   onSave,
+  saving = false,
   onCancel,
   onReactivate,
   onDelete,
@@ -224,6 +225,7 @@ export function SchedulesScreen({
   onContinuousChange: (value: boolean) => void;
   onToggleAuditor: (auditorId: string) => void;
   onSave: () => void;
+  saving?: boolean;
   onCancel: () => void;
   onReactivate: (scheduleId: string) => void;
   onDelete: (scheduleId: string) => void;
@@ -631,8 +633,12 @@ export function SchedulesScreen({
             </div>
 
             <div className="flex flex-wrap gap-3">
-              <button onClick={onSave} className={`h-12 rounded-2xl bg-slate-900 px-5 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}>
-                Save schedule
+              <button
+                onClick={onSave}
+                disabled={saving}
+                className={`h-12 rounded-2xl bg-slate-900 px-5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 ${slatePrimaryCtaInteract}`}
+              >
+                {saving ? "Saving schedule…" : "Save schedule"}
               </button>
               <button onClick={onCancel} className="h-12 rounded-2xl bg-slate-100 px-5 text-sm font-semibold text-slate-700">
                 Cancel
