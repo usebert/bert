@@ -35,6 +35,7 @@
     "verify:invite-workspace": "node scripts/verify-invite-workspace.mjs",
     "verify:schedule-auditors": "node scripts/verify-schedule-auditors.mjs",
     "verify:schedule-assignees": "node scripts/verify-schedule-assignees.mjs",
+    "verify:core-workflow": "node scripts/verify-core-workflow.mjs",
     "verify:shared-drive-workspace": "node scripts/verify-shared-drive-workspace.mjs",
     "preview": "vite preview",
     "android:sync": "npm run build && npx cap sync android",

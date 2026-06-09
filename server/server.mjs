@@ -93,6 +93,7 @@ import {
 } from "./company-workspace-registry.mjs";
 import { installCompanySetupProgressRoutes } from "./company-setup-progress.mjs";
 import { installGodmodeRegistryActionRoutes } from "./godmode-registry-actions.mjs";
+import { installCoreWorkflowRoutes } from "./core-workflow-routes.mjs";
 import {
   inspectConfiguredWorkspaceRoot,
   listFolderChildren,
@@ -7096,6 +7097,21 @@ installGodmodeRegistryActionRoutes(app, {
   requireMasterOnlyActor,
   processCompanyUserInvite,
   ...getCompanyWorkspaceRegistryDeps(),
+});
+
+installCoreWorkflowRoutes(app, {
+  getAuthedClient,
+  envConfigured,
+  requireGoogleWorkspaceEnv,
+  requireGoogleWorkspaceSession,
+  parseBertActorFromRequest,
+  processCompanyUserInvite,
+  getInviteRecord,
+  handleGetInviteToken,
+  handleAppInviteComplete,
+  readCompanySheetById,
+  getCompanyUsersDeps,
+  registryDeps: getCompanyWorkspaceRegistryDeps(),
 });
 
 installCompanyOnboardingRoutes(app, {
