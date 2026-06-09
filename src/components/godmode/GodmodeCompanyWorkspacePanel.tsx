@@ -88,7 +88,18 @@ export type GodmodeCompanyWorkspacePanelProps = {
   masterCompanyContextMessage: string;
   companyFolderStructureRepairing: boolean;
   companySetupCurrentStep?: string;
-  companySetupError?: { failedStep: string; errorCode: string; message: string; technicalError?: string } | null;
+  companySetupError?: {
+    failedStep: string;
+    errorCode: string;
+    message: string;
+    technicalError?: string;
+    registrySpreadsheetId?: string;
+    registryTab?: string;
+    registryLocation?: string;
+    missingColumns?: string[];
+    lookupKeys?: Record<string, string>;
+    verifyReadback?: { status?: string; companyId?: string; masterSheetId?: string } | null;
+  } | null;
   companySetupWarnings?: string[];
   companySetupResult?: MakeUsableResult | null;
   companyRegistryStatus?: string;
@@ -804,17 +815,81 @@ export function GodmodeCompanyWorkspacePanel({
                     Unlink reason: {registryUnlinkReason.replace(/_/g, " ")}
                   </p>
                 ) : null}
-                {visibleSetupError ? (
+                {visibleSetupError || companySetupResult?.registryLocation ? (
                   <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-950">
-                    {visibleSetupError.failedStep ? (
+                    {visibleSetupError?.failedStep ? (
                       <p>
                         Failed step:{" "}
                         {COMPANY_SETUP_STEP_LABELS[visibleSetupError.failedStep] ||
                           visibleSetupError.failedStep.replace(/_/g, " ")}
                       </p>
                     ) : null}
-                    {visibleSetupError.technicalError ? (
-                      <p className="mt-2 font-mono text-xs text-rose-800">{visibleSetupError.technicalError}</p>
+                    {visibleSetupError?.technicalError || companySetupResult?.technicalError ? (
+                      <p className="mt-2 font-mono text-xs text-rose-800">
+                        {visibleSetupError?.technicalError || companySetupResult?.technicalError}
+                      </p>
+                    ) : null}
+                    {companySetupResult?.registrySpreadsheetId ||
+                    visibleSetupError?.registrySpreadsheetId ||
+                    companySetupResult?.registryLocation ||
+                    visibleSetupError?.registryLocation ? (
+                      <dl className="mt-3 space-y-1 font-mono text-xs text-rose-900">
+                        <div>
+                          <dt className="inline font-semibold">Registry spreadsheet: </dt>
+                          <dd className="inline break-all">
+                            {companySetupResult?.registrySpreadsheetId ||
+                              visibleSetupError?.registrySpreadsheetId ||
+                              "—"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="inline font-semibold">Registry tab: </dt>
+                          <dd className="inline">
+                            {companySetupResult?.registryTab || visibleSetupError?.registryTab || "Companies"}
+                          </dd>
+                        </div>
+                        {(companySetupResult?.registryLocation || visibleSetupError?.registryLocation) && (
+                          <div>
+                            <dt className="inline font-semibold">Registry location: </dt>
+                            <dd className="inline break-all">
+                              {companySetupResult?.registryLocation || visibleSetupError?.registryLocation}
+                            </dd>
+                          </div>
+                        )}
+                      </dl>
+                    ) : null}
+                    {(companySetupResult?.lookupKeys && Object.keys(companySetupResult.lookupKeys).length > 0) ||
+                    (visibleSetupError?.lookupKeys && Object.keys(visibleSetupError.lookupKeys).length > 0) ? (
+                      <div className="mt-2 font-mono text-xs text-rose-900">
+                        <p className="font-semibold">Lookup keys</p>
+                        <ul className="mt-1 list-disc pl-4">
+                          {Object.entries(companySetupResult?.lookupKeys || visibleSetupError?.lookupKeys || {})
+                            .filter(([, value]) => String(value || "").trim())
+                            .map(([key, value]) => (
+                              <li key={key}>
+                                {key}: {value}
+                              </li>
+                            ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {(companySetupResult?.missingColumns?.length || visibleSetupError?.missingColumns?.length) ? (
+                      <p className="mt-2 font-mono text-xs text-rose-900">
+                        Missing columns:{" "}
+                        {(companySetupResult?.missingColumns || visibleSetupError?.missingColumns || []).join(", ")}
+                      </p>
+                    ) : null}
+                    {companySetupResult?.verifyReadback || visibleSetupError?.verifyReadback ? (
+                      <p className="mt-2 font-mono text-xs text-rose-900">
+                        Verify readback: status=
+                        {companySetupResult?.verifyReadback?.status ||
+                          visibleSetupError?.verifyReadback?.status ||
+                          "unknown"}
+                        {companySetupResult?.verifyReadback?.masterSheetId ||
+                        visibleSetupError?.verifyReadback?.masterSheetId
+                          ? `, masterSheetId=${companySetupResult?.verifyReadback?.masterSheetId || visibleSetupError?.verifyReadback?.masterSheetId}`
+                          : ""}
+                      </p>
                     ) : null}
                   </div>
                 ) : null}

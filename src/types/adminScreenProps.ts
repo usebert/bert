@@ -239,7 +239,18 @@ export type AdminScreenProps = {
   onRepairCompanyFolderStructure?: () => void;
   companyFolderStructureRepairing?: boolean;
   companySetupCurrentStep?: string;
-  companySetupError?: { failedStep: string; errorCode: string; message: string; technicalError?: string } | null;
+  companySetupError?: {
+    failedStep: string;
+    errorCode: string;
+    message: string;
+    technicalError?: string;
+    registrySpreadsheetId?: string;
+    registryTab?: string;
+    registryLocation?: string;
+    missingColumns?: string[];
+    lookupKeys?: Record<string, string>;
+    verifyReadback?: { status?: string; companyId?: string; masterSheetId?: string } | null;
+  } | null;
   companySetupWarnings?: string[];
   companySetupResult?: import("../services/companySetupProgressService").MakeUsableResult | null;
   onCreateCompanyMasterSheet?: () => void;

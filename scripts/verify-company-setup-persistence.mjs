@@ -3,6 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   COMPANIES_WORKSPACE_COLUMNS,
+  findMissingRegistryColumns,
+  findRegistryRowIndex,
   mergeRegistryRowCells,
   mergeDriveCompanyWithRegistry,
   deriveCompanyWorkspaceStatus,
@@ -33,6 +35,25 @@ assert(COMPANIES_WORKSPACE_COLUMNS.includes("Root Folder ID"));
 assert(COMPANIES_WORKSPACE_COLUMNS.includes("Last Setup At"));
 assert(COMPANIES_WORKSPACE_COLUMNS.includes("Setup Completed At"));
 assert(COMPANIES_WORKSPACE_COLUMNS.includes("Unlink Reason"));
+assert(COMPANIES_WORKSPACE_COLUMNS.includes("Health Status"));
+assert(COMPANIES_WORKSPACE_COLUMNS.includes("Updated At"));
+
+const missing = findMissingRegistryColumns(["Company ID", "Company Name", "Status"]);
+assert(missing.includes("Health Status"), "migration detects missing Health Status column");
+
+const registryRows = [
+  ["folder-a", "Acme", "sheet-a"],
+  ["folder-b", "Other Co", "sheet-b"],
+];
+const registryHeaders = ["Company ID", "Company Name", "Master Sheet ID"];
+assert(
+  findRegistryRowIndex(registryHeaders, registryRows, { masterSheetId: "sheet-b" }) === 1,
+  "upsert row match by masterSheetId",
+);
+assert(
+  findRegistryRowIndex(registryHeaders, registryRows, { companyName: "acme" }) === 0,
+  "upsert row match by normalized companyName",
+);
 
 const headerRow = ["Company ID", "Master Sheet ID", "Company Name"];
 const existing = ["co-1", "sheet-old", "Acme"];
@@ -129,6 +150,10 @@ assertContains("src/components/godmode/GodmodeCompanyWorkspacePanel.tsx", [
   "Make company usable",
   "Technical diagnostics",
   "Unlink reason:",
+  "Registry spreadsheet:",
+  "Lookup keys",
+  "Missing columns:",
+  "Verify readback:",
 ]);
 assertContains("server/godmode-registry-actions.mjs", [
   "makeCompanyUsable",
@@ -156,5 +181,11 @@ assert(
 assert(registryContent.includes("status: COMPANY_REGISTRY_STATUS_LIVE"), "persist verify writes LIVE status");
 assert(registryContent.includes("liveAt: now"), "persist verify writes liveAt");
 assert(registryContent.includes("lastSetupAt: now"), "persist verify writes updatedAt");
+assert(registryContent.includes("Persist company Live in registry"), "failed step label for registry persist");
+assert(registryContent.includes("findRegistryRowIndex"), "multi-key registry row index");
+assert(registryContent.includes("registryLocation"), "registry write returns registryLocation");
+assert(registryContent.includes("missingColumns"), "registry write returns missingColumns");
+assert(registryContent.includes("lookupKeys"), "registry write returns lookupKeys");
+assert(registryContent.includes("sheets_write_failed"), "sheets API errors surfaced");
 
 console.log("verify-company-setup-persistence: OK");

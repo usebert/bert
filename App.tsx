@@ -3281,6 +3281,12 @@ function App() {
     errorCode: string;
     message: string;
     technicalError?: string;
+    registrySpreadsheetId?: string;
+    registryTab?: string;
+    registryLocation?: string;
+    missingColumns?: string[];
+    lookupKeys?: Record<string, string>;
+    verifyReadback?: { status?: string; companyId?: string; masterSheetId?: string } | null;
   } | null>(null);
   const [companySetupWarnings, setCompanySetupWarnings] = useState<string[]>([]);
   const [companySetupResult, setCompanySetupResult] = useState<MakeUsableResult | null>(null);
@@ -10166,9 +10172,15 @@ function App() {
       } else if (!result.ok) {
         setCompanySetupError({
           failedStep: result.failedStep,
-          errorCode: result.reason || "SETUP_STEP_FAILED",
+          errorCode: result.reason || result.reasonCode || "SETUP_STEP_FAILED",
           message: result.reasonDetail || result.userMessage || COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
           technicalError: result.technicalError || "",
+          registrySpreadsheetId: result.registrySpreadsheetId || "",
+          registryTab: result.registryTab || "",
+          registryLocation: result.registryLocation || "",
+          missingColumns: result.missingColumns || [],
+          lookupKeys: result.lookupKeys || {},
+          verifyReadback: result.verifyReadback || null,
         });
         if (result.registryStatus && companyFolderId === selectedFolderIdRef.current) {
           setCompanyRegistryStatus(result.registryStatus);

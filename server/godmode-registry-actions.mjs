@@ -16,6 +16,8 @@ import {
   persistCompanyWorkspaceSetup,
   readCompanyWorkspaceRegistryMap,
   REGISTRY_PERSIST_ERROR_MESSAGES,
+  REGISTRY_PERSIST_FAILED_STEP,
+  REGISTRY_TAB_COMPANIES,
   REGISTRY_VERIFY_FAILED,
   REGISTRY_WRITE_FAILED,
 } from "./company-workspace-registry.mjs";
@@ -38,8 +40,21 @@ export const MAKE_USABLE_REASON_MESSAGES = {
   UNKNOWN: "An unexpected error occurred.",
 };
 
+function registryFailureDiagnostics(input = {}) {
+  return {
+    registrySpreadsheetId: String(input.registrySpreadsheetId || "").trim(),
+    registryTab: String(input.registryTab || REGISTRY_TAB_COMPANIES).trim(),
+    registryLocation: String(input.registryLocation || "").trim(),
+    missingColumns: Array.isArray(input.missingColumns) ? input.missingColumns : [],
+    lookupKeys:
+      input.lookupKeys && typeof input.lookupKeys === "object" ? input.lookupKeys : {},
+    verifyReadback: input.verifyReadback || null,
+  };
+}
+
 function makeUsableFailure(input = {}) {
   const reasonCode = String(input.reasonCode || "UNKNOWN").trim();
+  const diagnostics = registryFailureDiagnostics(input);
   return {
     ok: false,
     status: "NEEDS_ATTENTION",
@@ -48,9 +63,10 @@ function makeUsableFailure(input = {}) {
     reasonCode,
     reason: reasonCode,
     userMessage: MAKE_USABLE_REASON_MESSAGES[reasonCode] || MAKE_USABLE_REASON_MESSAGES.UNKNOWN,
-    failedStep: String(input.failedStep || "").trim(),
+    failedStep: String(input.failedStep || REGISTRY_PERSIST_FAILED_STEP).trim(),
     technicalError: String(input.technicalError || "").trim(),
     warnings: input.warnings || [],
+    ...diagnostics,
   };
 }
 
@@ -342,10 +358,16 @@ export async function makeCompanyUsable(auth, deps, workspace = {}) {
             : "REGISTRY_LINK_FAILED";
     return makeUsableFailure({
       reasonCode,
-      failedStep: "persist_live",
+      failedStep: error?.failedStep || REGISTRY_PERSIST_FAILED_STEP,
       companyId: workspaceId,
       companyName,
       technicalError: String(error?.technicalError || (error instanceof Error ? error.message : error) || ""),
+      registrySpreadsheetId: error?.registrySpreadsheetId,
+      registryTab: error?.registryTab,
+      registryLocation: error?.registryLocation,
+      missingColumns: error?.missingColumns,
+      lookupKeys: error?.lookupKeys,
+      verifyReadback: error?.verifyReadback,
     });
   }
 

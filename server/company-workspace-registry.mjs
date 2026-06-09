@@ -38,14 +38,26 @@ export const COMPANIES_WORKSPACE_COLUMNS = [
   "Onboarding Invite ID",
   /** @deprecated Legacy alias — kept for reads; writes mirror Company ID */
   "Company Folder ID",
+  "Health Status",
+  "Needs Attention",
+  "Setup Blockers",
+  "Created At",
+  "Updated At",
 ];
 
-const COMPANY_ID_HEADERS = ["company id", "company folder id"];
-const ROOT_FOLDER_HEADERS = ["root folder id", "company folder id", "company id"];
-const MASTER_SHEET_HEADERS = ["master sheet id"];
-const WORKBOOK_FOLDER_HEADERS = ["workbook folder id"];
+const COMPANY_ID_HEADERS = ["company id", "companyid", "company folder id", "companyfolderid"];
+const ROOT_FOLDER_HEADERS = ["root folder id", "rootfolderid", "company folder id", "companyfolderid"];
+const MASTER_SHEET_HEADERS = ["master sheet id", "mastersheetid"];
+const COMPANY_NAME_HEADERS = ["company name", "companyname"];
+const WORKBOOK_FOLDER_HEADERS = ["workbook folder id", "workbookfolderid"];
 const STATUS_HEADERS = ["status"];
-const UNLINK_REASON_HEADERS = ["unlink reason"];
+const UNLINK_REASON_HEADERS = ["unlink reason", "unlinkreason"];
+const LIVE_AT_HEADERS = ["live at", "liveat"];
+const HEALTH_STATUS_HEADERS = ["health status", "healthstatus"];
+const NEEDS_ATTENTION_HEADERS = ["needs attention", "needsattention"];
+const SETUP_BLOCKERS_HEADERS = ["setup blockers", "setupblockers"];
+const CREATED_AT_HEADERS = ["created at", "createdat"];
+const UPDATED_AT_HEADERS = ["updated at", "updatedat", "last setup at", "lastsetupat"];
 
 function safeLower(value) {
   return String(value || "")
@@ -241,22 +253,71 @@ export async function ensureCompanyRegistryRecordForWorkspace(auth, deps, select
   };
 }
 
-function findRegistryRowIndex(headerRow, rows, lookupId) {
-  const id = String(lookupId || "").trim();
-  if (!id) {
+/** Find a Companies tab row by companyId, folderId, masterSheetId, or normalized name. */
+export function findRegistryRowIndex(headerRow, rows, lookup = {}) {
+  const companyId = String(lookup.companyId || lookup.lookupId || "").trim();
+  const rootFolderId = String(lookup.rootFolderId || lookup.companyFolderId || "").trim();
+  const masterSheetId = String(lookup.masterSheetId || "").trim();
+  const companyName = String(lookup.companyName || "").trim();
+  const nameKey = normalizeCompanyRegistryNameKey(companyName);
+
+  if (!companyId && !rootFolderId && !masterSheetId && !nameKey) {
     return -1;
   }
+
   const idIndex = headerIndex(headerRow, COMPANY_ID_HEADERS);
   const rootFolderIndex = headerIndex(headerRow, ROOT_FOLDER_HEADERS);
+  const masterSheetIndex = headerIndex(headerRow, MASTER_SHEET_HEADERS);
+  const nameIndex = headerIndex(headerRow, COMPANY_NAME_HEADERS);
+
   return rows.findIndex((row) => {
-    if (idIndex >= 0 && cellValue(row, idIndex) === id) {
+    if (companyId && idIndex >= 0 && cellValue(row, idIndex) === companyId) {
       return true;
     }
-    if (rootFolderIndex >= 0 && cellValue(row, rootFolderIndex) === id) {
+    if (rootFolderId && rootFolderIndex >= 0 && cellValue(row, rootFolderIndex) === rootFolderId) {
+      return true;
+    }
+    if (companyId && rootFolderIndex >= 0 && cellValue(row, rootFolderIndex) === companyId) {
+      return true;
+    }
+    if (masterSheetId && masterSheetIndex >= 0 && cellValue(row, masterSheetIndex) === masterSheetId) {
+      return true;
+    }
+    if (
+      nameKey &&
+      nameIndex >= 0 &&
+      !isSystemTemplateCompany({ companyName, name: companyName }) &&
+      normalizeCompanyRegistryNameKey(cellValue(row, nameIndex)) === nameKey
+    ) {
       return true;
     }
     return false;
   });
+}
+
+export function findMissingRegistryColumns(headerRow = []) {
+  const normalized = headerRow.map((header) => safeLower(header));
+  return COMPANIES_WORKSPACE_COLUMNS.filter(
+    (expected) => !normalized.includes(safeLower(expected)),
+  );
+}
+
+function buildRegistryLocation(spreadsheetId, tabName = REGISTRY_TAB_COMPANIES) {
+  const id = String(spreadsheetId || "").trim();
+  if (!id) {
+    return "";
+  }
+  return `${id}/${tabName}`;
+}
+
+function buildLookupKeys(workspace = {}) {
+  const { companyId, rootFolderId, masterSheetId, companyName } = workspaceLookupIds(workspace);
+  return {
+    companyId,
+    companyFolderId: rootFolderId,
+    masterSheetId,
+    companyName,
+  };
 }
 
 export function normalizeCompanyWorkspaceRecord(rowObject = {}, headerRow = COMPANIES_WORKSPACE_COLUMNS) {
@@ -305,6 +366,13 @@ export function normalizeCompanyWorkspaceRecord(rowObject = {}, headerRow = COMP
     setupCompletedAt: String(rowObject["Setup Completed At"] || rowObject.setupCompletedAt || "").trim(),
     liveAt: String(rowObject["Live At"] || rowObject.liveAt || "").trim(),
     unlinkReason: String(rowObject["Unlink Reason"] || rowObject.unlinkReason || "").trim(),
+    healthStatus: String(rowObject["Health Status"] || rowObject.healthStatus || "").trim(),
+    needsAttention: String(rowObject["Needs Attention"] || rowObject.needsAttention || "").trim(),
+    setupBlockers: String(rowObject["Setup Blockers"] || rowObject.setupBlockers || "").trim(),
+    createdAt: String(rowObject["Created At"] || rowObject.createdAt || "").trim(),
+    updatedAt: String(
+      rowObject["Updated At"] || rowObject.updatedAt || rowObject["Last Setup At"] || rowObject.lastSetupAt || "",
+    ).trim(),
     byHeader,
   };
 }
@@ -330,6 +398,11 @@ export function rowObjectFromCompanyWorkspaceRecord(record, headerRow = COMPANIE
     "Live At": String(record.liveAt || "").trim(),
     "Unlink Reason": String(record.unlinkReason || "").trim(),
     "Company Folder ID": companyId,
+    "Health Status": String(record.healthStatus || "").trim(),
+    "Needs Attention": String(record.needsAttention || "").trim(),
+    "Setup Blockers": String(record.setupBlockers || "").trim(),
+    "Created At": String(record.createdAt || "").trim(),
+    "Updated At": String(record.updatedAt || record.lastSetupAt || "").trim(),
     ...(record.byHeader || {}),
     ...(record.extraHeaders || {}),
   };
@@ -406,16 +479,19 @@ async function ensureRegistryTab(auth, sheetsApi, spreadsheetId, tabName, header
   let workbook = await getWorkbook(auth, spreadsheetId);
   const { workbook: workbookAfter } = await ensureTabExists(auth, spreadsheetId, tabName, workbook);
   workbook = workbookAfter;
-  await ensureColumns(auth, spreadsheetId, tabName, headers);
-  return workbook;
+  const columnResult = await ensureColumns(auth, spreadsheetId, tabName, headers);
+  const addedColumns = columnResult?.addedColumns || [];
+  const headerRow = columnResult?.headers?.length ? columnResult.headers : headers;
+  return { workbook, headerRow, missingColumns: findMissingRegistryColumns(headerRow), addedColumns };
 }
 
 function recordsFromSheetValues(values, headerRow) {
   const headers = values[0] || headerRow;
   const idIndex = headerIndex(headers, COMPANY_ID_HEADERS);
+  const rootFolderIndex = headerIndex(headers, ROOT_FOLDER_HEADERS);
   const map = new Map();
   for (const row of values.slice(1)) {
-    const companyId = cellValue(row, idIndex);
+    const companyId = cellValue(row, idIndex) || cellValue(row, rootFolderIndex);
     if (!companyId) {
       continue;
     }
@@ -464,16 +540,71 @@ export async function upsertCompanyWorkspaceRegistryRecords(
   const drive = deps.google.drive({ version: "v3", auth });
   const sheetsApi = deps.google.sheets({ version: "v4", auth });
   const spreadsheetId = await resolvePlatformRegistrySpreadsheetId(auth, drive, deps);
+  const registryLocation = buildRegistryLocation(spreadsheetId);
   if (!spreadsheetId) {
-    return { synced: false, reason: "registry_missing" };
+    const configured = String(deps.platformRegistrySheetId || "").trim();
+    const sharedDriveId = String(deps.sharedDriveId || "").trim();
+    return {
+      synced: false,
+      reason: "registry_missing",
+      technicalError: configured
+        ? `Configured registry spreadsheet not found: ${configured}`
+        : sharedDriveId
+          ? `"${REGISTRY_SPREADSHEET_NAME}" not found in workspace root ${sharedDriveId}`
+          : "BERT_PLATFORM_REGISTRY_SHEET_ID and GOOGLE_SHARED_DRIVE_ID are not configured",
+      registrySpreadsheetId: configured || "",
+      registryTab: REGISTRY_TAB_COMPANIES,
+      registryLocation: configured
+        ? buildRegistryLocation(configured)
+        : sharedDriveId
+          ? `${sharedDriveId}/${REGISTRY_SPREADSHEET_NAME}/${REGISTRY_TAB_COMPANIES}`
+          : "",
+      missingColumns: [...COMPANIES_WORKSPACE_COLUMNS],
+      lookupKeys: buildLookupKeys(sanitized[0] || {}),
+    };
   }
 
-  await ensureRegistryTab(auth, sheetsApi, spreadsheetId, REGISTRY_TAB_COMPANIES, COMPANIES_WORKSPACE_COLUMNS, deps);
+  let tabEnsure;
+  try {
+    tabEnsure = await ensureRegistryTab(
+      auth,
+      sheetsApi,
+      spreadsheetId,
+      REGISTRY_TAB_COMPANIES,
+      COMPANIES_WORKSPACE_COLUMNS,
+      deps,
+    );
+  } catch (error) {
+    const technicalError = String(error?.message || error?.response?.data?.error?.message || error || "").trim();
+    return {
+      synced: false,
+      reason: "registry_tab_failed",
+      technicalError,
+      registrySpreadsheetId: spreadsheetId,
+      registryTab: REGISTRY_TAB_COMPANIES,
+      registryLocation,
+      missingColumns: [],
+      lookupKeys: buildLookupKeys(sanitized[0] || {}),
+    };
+  }
+
   const existingValues = await deps.getTabValues(auth, spreadsheetId, REGISTRY_TAB_COMPANIES);
-  const headerRow = existingValues[0]?.length ? existingValues[0] : [...COMPANIES_WORKSPACE_COLUMNS];
+  const headerRow = tabEnsure.headerRow?.length
+    ? tabEnsure.headerRow
+    : existingValues[0]?.length
+      ? existingValues[0]
+      : [...COMPANIES_WORKSPACE_COLUMNS];
+  const missingColumns = findMissingRegistryColumns(headerRow);
   const idIndex = headerIndex(headerRow, COMPANY_ID_HEADERS);
+  const rootFolderIndex = headerIndex(headerRow, ROOT_FOLDER_HEADERS);
   const dataRows = existingValues.length > 1 ? existingValues.slice(1) : [];
-  const nextRows = dataRows.map((row) => [...row]);
+  const nextRows = dataRows.map((row) => {
+    const padded = [...row];
+    while (padded.length < headerRow.length) {
+      padded.push("");
+    }
+    return padded;
+  });
 
   for (const rawRecord of sanitized) {
     const normalized = normalizeCompanyWorkspaceRecord(rawRecord, headerRow);
@@ -481,24 +612,35 @@ export async function upsertCompanyWorkspaceRegistryRecords(
     if (!companyId) {
       continue;
     }
+    const now = nowIso();
     const incoming = rowObjectFromCompanyWorkspaceRecord(
       {
         ...normalized,
         companyId,
         rootFolderId: normalized.rootFolderId || companyId,
         status: normalized.status || deriveCompanyWorkspaceStatus(normalized),
+        createdAt: normalized.createdAt || now,
+        updatedAt: normalized.updatedAt || normalized.lastSetupAt || now,
       },
       headerRow,
     );
-    const rowIndex = findRegistryRowIndex(headerRow, nextRows, companyId);
+    const rowIndex = findRegistryRowIndex(headerRow, nextRows, {
+      companyId,
+      rootFolderId: normalized.rootFolderId || companyId,
+      masterSheetId: normalized.masterSheetId,
+      companyName: normalized.companyName,
+    });
     if (rowIndex === -1) {
       const mapped = headerRow.map((header) => String(incoming[header] ?? "").trim());
       if (idIndex >= 0) {
         mapped[idIndex] = companyId;
       }
-      const legacyFolderIndex = headerIndex(headerRow, ["company folder id"]);
+      const legacyFolderIndex = headerIndex(headerRow, ["company folder id", "companyfolderid"]);
       if (legacyFolderIndex >= 0 && legacyFolderIndex !== idIndex) {
         mapped[legacyFolderIndex] = normalized.rootFolderId || companyId;
+      }
+      if (rootFolderIndex >= 0 && rootFolderIndex !== idIndex && rootFolderIndex !== legacyFolderIndex) {
+        mapped[rootFolderIndex] = normalized.rootFolderId || companyId;
       }
       nextRows.push(mapped);
       continue;
@@ -516,9 +658,20 @@ export async function upsertCompanyWorkspaceRegistryRecords(
             Object.entries(incoming).filter(([, value]) => !isBlank(value)),
           ),
           companyId: canonicalCompanyId,
-          rootFolderId: incoming["Root Folder ID"] || existingRowObject["Root Folder ID"] || normalized.rootFolderId || companyId,
-          masterSheetId: incoming["Master Sheet ID"] || existingRowObject["Master Sheet ID"] || "",
-          workbookFolderId: incoming["Workbook Folder ID"] || existingRowObject["Workbook Folder ID"] || "",
+          rootFolderId:
+            incoming["Root Folder ID"] ||
+            existingRowObject["Root Folder ID"] ||
+            normalized.rootFolderId ||
+            companyId,
+          masterSheetId:
+            incoming["Master Sheet ID"] || existingRowObject["Master Sheet ID"] || existingNormalized.masterSheetId || "",
+          workbookFolderId:
+            incoming["Workbook Folder ID"] ||
+            existingRowObject["Workbook Folder ID"] ||
+            existingNormalized.workbookFolderId ||
+            "",
+          createdAt: existingNormalized.createdAt || incoming["Created At"] || now,
+          updatedAt: incoming["Updated At"] || now,
         }
       : normalizeCompanyWorkspaceRecord({ ...existingRowObject, ...incoming }, headerRow);
     const mergedRow = mergeRegistryRowCells(
@@ -530,19 +683,39 @@ export async function upsertCompanyWorkspaceRegistryRecords(
     nextRows[rowIndex] = mergedRow;
   }
 
-  await sheetsApi.spreadsheets.values.update({
-    spreadsheetId,
-    range: `${REGISTRY_TAB_COMPANIES}!A1`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: { values: [headerRow, ...nextRows] },
-  });
+  try {
+    await sheetsApi.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${REGISTRY_TAB_COMPANIES}!A1`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [headerRow, ...nextRows] },
+    });
+  } catch (error) {
+    const technicalError = String(error?.message || error?.response?.data?.error?.message || error || "").trim();
+    return {
+      synced: false,
+      reason: "sheets_write_failed",
+      technicalError,
+      registrySpreadsheetId: spreadsheetId,
+      registryTab: REGISTRY_TAB_COMPANIES,
+      registryLocation,
+      missingColumns,
+      lookupKeys: buildLookupKeys(sanitized[0] || {}),
+    };
+  }
 
-  return { synced: true, registrySpreadsheetId: spreadsheetId };
+  return {
+    synced: true,
+    registrySpreadsheetId: spreadsheetId,
+    registryTab: REGISTRY_TAB_COMPANIES,
+    registryLocation,
+    missingColumns,
+  };
 }
 
 export const REGISTRY_WRITE_FAILED = "REGISTRY_WRITE_FAILED";
 export const REGISTRY_VERIFY_FAILED = "REGISTRY_VERIFY_FAILED";
-export const REGISTRY_PERSIST_FAILED_STEP = "persist_live";
+export const REGISTRY_PERSIST_FAILED_STEP = "Persist company Live in registry";
 
 export const REGISTRY_PERSIST_ERROR_MESSAGES = {
   [REGISTRY_WRITE_FAILED]: "BERT could not save this company as Live in the company registry.",
@@ -550,15 +723,35 @@ export const REGISTRY_PERSIST_ERROR_MESSAGES = {
     "BERT saved setup data but could not verify the company is Live in the registry.",
 };
 
-export function createRegistryPersistError(code, technicalError = "") {
+export function createRegistryPersistError(code, technicalError = "", diagnostics = {}) {
   const normalizedCode = String(code || REGISTRY_WRITE_FAILED).trim();
   const error = new Error(
     REGISTRY_PERSIST_ERROR_MESSAGES[normalizedCode] || String(technicalError || "Registry persist failed."),
   );
   error.code = normalizedCode;
+  error.reasonCode = normalizedCode;
   error.technicalError = String(technicalError || "").trim();
   error.failedStep = REGISTRY_PERSIST_FAILED_STEP;
+  error.registrySpreadsheetId = String(diagnostics.registrySpreadsheetId || "").trim();
+  error.registryTab = String(diagnostics.registryTab || REGISTRY_TAB_COMPANIES).trim();
+  error.registryLocation =
+    String(diagnostics.registryLocation || "").trim() ||
+    buildRegistryLocation(error.registrySpreadsheetId, error.registryTab);
+  error.missingColumns = Array.isArray(diagnostics.missingColumns) ? diagnostics.missingColumns : [];
+  error.lookupKeys =
+    diagnostics.lookupKeys && typeof diagnostics.lookupKeys === "object" ? diagnostics.lookupKeys : {};
+  error.verifyReadback = diagnostics.verifyReadback || null;
   return error;
+}
+
+function registryDiagnosticsFromWriteResult(writeResult = {}, lookupWorkspace = {}) {
+  return {
+    registrySpreadsheetId: String(writeResult.registrySpreadsheetId || "").trim(),
+    registryTab: String(writeResult.registryTab || REGISTRY_TAB_COMPANIES).trim(),
+    registryLocation: String(writeResult.registryLocation || "").trim(),
+    missingColumns: writeResult.missingColumns || [],
+    lookupKeys: buildLookupKeys(lookupWorkspace),
+  };
 }
 
 function resolveMappingStatusFromChecks(checks = {}, existingStatus = "") {
@@ -603,21 +796,27 @@ export async function persistAndVerifyCompanyLive(auth, deps, canonicalCompany =
   const masterSheetId = String(canonicalCompany.masterSheetId || "").trim();
   const companyName = String(canonicalCompany.companyName || "").trim();
   const checks = canonicalCompany.checks && typeof canonicalCompany.checks === "object" ? canonicalCompany.checks : {};
+  const lookupWorkspace = { companyId, companyFolderId, rootFolderId: companyFolderId, masterSheetId, companyName };
 
   if (!companyId || !auth) {
-    throw createRegistryPersistError(REGISTRY_WRITE_FAILED, "missing_company_id");
+    throw createRegistryPersistError(REGISTRY_WRITE_FAILED, "missing_company_id", {
+      lookupKeys: buildLookupKeys(lookupWorkspace),
+    });
   }
 
-  const ensured = await ensureCompanyRegistryRecordForWorkspace(auth, deps, {
-    companyId,
-    companyFolderId,
-    rootFolderId: companyFolderId,
-    masterSheetId,
-    companyName,
-  });
+  const ensured = await ensureCompanyRegistryRecordForWorkspace(auth, deps, lookupWorkspace);
   const registryRecord = ensured?.record || null;
   if (!registryRecord) {
-    throw createRegistryPersistError(REGISTRY_WRITE_FAILED, String(ensured?.reason || "ensure_failed"));
+    const { spreadsheetId } = await readCompanyWorkspaceRegistryMap(auth, deps).catch(() => ({
+      spreadsheetId: "",
+    }));
+    throw createRegistryPersistError(REGISTRY_WRITE_FAILED, String(ensured?.reason || "ensure_failed"), {
+      registrySpreadsheetId: spreadsheetId,
+      registryTab: REGISTRY_TAB_COMPANIES,
+      registryLocation: buildRegistryLocation(spreadsheetId),
+      lookupKeys: buildLookupKeys(lookupWorkspace),
+      missingColumns: spreadsheetId ? findMissingRegistryColumns(COMPANIES_WORKSPACE_COLUMNS) : [],
+    });
   }
 
   const registryCompanyId = String(registryRecord.companyId || companyId).trim();
@@ -631,9 +830,21 @@ export async function persistAndVerifyCompanyLive(auth, deps, canonicalCompany =
     const verified = await reloadRegistryRecord(auth, deps, registryCompanyId, companyId);
     const registryStatus = getCanonicalCompanyStatus(verified || {});
     if (!verified || !isCompanyRegistryLive(verified)) {
+      const { spreadsheetId, headers } = await readCompanyWorkspaceRegistryMap(auth, deps).catch(() => ({
+        spreadsheetId: "",
+        headers: COMPANIES_WORKSPACE_COLUMNS,
+      }));
       throw createRegistryPersistError(
         REGISTRY_VERIFY_FAILED,
         `registry_status=${registryStatus || "unknown"} after reload`,
+        {
+          registrySpreadsheetId: spreadsheetId,
+          registryTab: REGISTRY_TAB_COMPANIES,
+          registryLocation: buildRegistryLocation(spreadsheetId),
+          missingColumns: findMissingRegistryColumns(headers),
+          lookupKeys: buildLookupKeys({ ...lookupWorkspace, companyId: registryCompanyId }),
+          verifyReadback: verified || null,
+        },
       );
     }
     return {
@@ -667,6 +878,9 @@ export async function persistAndVerifyCompanyLive(auth, deps, canonicalCompany =
     liveAt: now,
     lastSetupAt: now,
     lastHealthCheckAt: String(canonicalCompany.lastHealthCheckAt || registryRecord.lastHealthCheckAt || "").trim(),
+    healthStatus: String(canonicalCompany.healthStatus || "HEALTHY").trim(),
+    needsAttention: "false",
+    setupBlockers: "",
     unlinkReason: "",
     clearUnlinkReason: true,
     markSetupComplete: true,
@@ -674,8 +888,17 @@ export async function persistAndVerifyCompanyLive(auth, deps, canonicalCompany =
     touchSetup: true,
   });
 
+  const writeDiag = registryDiagnosticsFromWriteResult(writeResult, {
+    ...lookupWorkspace,
+    companyId: registryCompanyId,
+  });
+
   if (!writeResult.synced) {
-    throw createRegistryPersistError(REGISTRY_WRITE_FAILED, String(writeResult.reason || "registry_write_failed"));
+    throw createRegistryPersistError(
+      REGISTRY_WRITE_FAILED,
+      String(writeResult.technicalError || writeResult.reason || "registry_write_failed"),
+      writeDiag,
+    );
   }
 
   const fresh = await reloadRegistryRecord(auth, deps, registryCompanyId, companyId);
@@ -684,6 +907,10 @@ export async function persistAndVerifyCompanyLive(auth, deps, canonicalCompany =
     throw createRegistryPersistError(
       REGISTRY_VERIFY_FAILED,
       `registry_status=${registryStatus || "unknown"} after write`,
+      {
+        ...writeDiag,
+        verifyReadback: fresh || null,
+      },
     );
   }
 
@@ -732,17 +959,25 @@ export async function persistCompanyLive(auth, deps, input = {}) {
       promoted: false,
       alreadyLive: false,
       reason: code === REGISTRY_VERIFY_FAILED ? "verify_failed" : String(error?.technicalError || code).trim(),
-      registryStatus: getCanonicalCompanyStatus(error?.record || {}) || "",
+      registryStatus: getCanonicalCompanyStatus(error?.record || error?.verifyReadback || {}) || "",
       needsAttention: true,
       setupBlockers: [code],
       healthStatus: "",
       updatedAt: "",
-      record: error?.record || null,
+      record: error?.record || error?.verifyReadback || null,
       matchedBy: "",
       persistReason: String(input.reason || "").trim(),
       errorCode: code,
+      reasonCode: code,
       technicalError,
       userMessage: REGISTRY_PERSIST_ERROR_MESSAGES[code] || technicalError,
+      failedStep: error?.failedStep || REGISTRY_PERSIST_FAILED_STEP,
+      registrySpreadsheetId: error?.registrySpreadsheetId || "",
+      registryTab: error?.registryTab || REGISTRY_TAB_COMPANIES,
+      registryLocation: error?.registryLocation || "",
+      missingColumns: error?.missingColumns || [],
+      lookupKeys: error?.lookupKeys || {},
+      verifyReadback: error?.verifyReadback || null,
     };
   }
 }
@@ -775,6 +1010,11 @@ export async function persistCompanyWorkspaceSetup(auth, deps, input = {}) {
         : input.setupCompletedAt || (status === "Live" ? now : ""),
     liveAt: input.markLive === false ? String(input.liveAt || "").trim() : input.liveAt || (status === "Live" ? now : ""),
     unlinkReason: status === "Needs attention" ? String(input.unlinkReason || "").trim() : "",
+    healthStatus: String(input.healthStatus || "").trim(),
+    needsAttention: String(input.needsAttention ?? "").trim(),
+    setupBlockers: String(input.setupBlockers || "").trim(),
+    createdAt: String(input.createdAt || "").trim(),
+    updatedAt: input.touchSetup === false ? String(input.updatedAt || "").trim() : now,
   };
   const markingLive =
     getCanonicalCompanyStatus({ status }) === COMPANY_REGISTRY_STATUS_LIVE || input.markLive === true;
@@ -785,7 +1025,11 @@ export async function persistCompanyWorkspaceSetup(auth, deps, input = {}) {
   const result = await upsertCompanyWorkspaceRegistryRecords(auth, deps, [record], {
     forceClearHeaders,
   });
-  return { ...result, record: normalizeCompanyWorkspaceRecord(rowObjectFromCompanyWorkspaceRecord(record)) };
+  return {
+    ...result,
+    technicalError: String(result.technicalError || result.reason || "").trim(),
+    record: normalizeCompanyWorkspaceRecord(rowObjectFromCompanyWorkspaceRecord(record)),
+  };
 }
 
 export async function recordCompanyWorkspaceHealthCheck(auth, deps, input = {}) {

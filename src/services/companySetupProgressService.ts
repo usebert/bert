@@ -25,7 +25,21 @@ export type CompanySetupProgressResult = {
   } | null;
 };
 
-export type MakeUsableResult = {
+export type RegistryPersistDiagnostics = {
+  registrySpreadsheetId?: string;
+  registryTab?: string;
+  registryLocation?: string;
+  missingColumns?: string[];
+  lookupKeys?: {
+    companyId?: string;
+    companyFolderId?: string;
+    masterSheetId?: string;
+    companyName?: string;
+  };
+  verifyReadback?: { status?: string; companyId?: string; masterSheetId?: string } | null;
+};
+
+export type MakeUsableResult = RegistryPersistDiagnostics & {
   ok: boolean;
   status: "LIVE" | "NEEDS_ATTENTION";
   companyId: string;
@@ -62,7 +76,7 @@ export const MAKE_USABLE_REQUEST_TIMEOUT_MS = 35_000;
 
 export const COMPANY_SETUP_STEP_LABELS: Record<string, string> = {
   ensure_registry: "Ensure company registry record",
-  persist_live: "Persist status LIVE",
+  persist_live: "Persist company Live in registry",
   ensure_users_tab: "Ensure Users tab",
   connect_google: "Connect Google Workspace",
   select_company: "Select company workspace",
@@ -125,6 +139,12 @@ async function postMakeUsable(
         warnings: payload.warnings || [],
         reasonDetail: payload.reasonDetail || userMessage,
         registryStatus: payload.registryStatus || "",
+        registrySpreadsheetId: payload.registrySpreadsheetId || "",
+        registryTab: payload.registryTab || "",
+        registryLocation: payload.registryLocation || "",
+        missingColumns: payload.missingColumns || [],
+        lookupKeys: payload.lookupKeys || {},
+        verifyReadback: payload.verifyReadback || null,
       };
     }
 
