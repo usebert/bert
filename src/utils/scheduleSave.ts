@@ -1,4 +1,4 @@
-import type { CompanyUsersTabRow, ScheduleAssigneeOption } from "./scheduleAssignees";
+import type { ScheduleAssigneeOption } from "./scheduleAssignees";
 import { normalizeScheduleValue } from "./scheduleAssignees";
 
 export type ScheduleAssignedUser = {
@@ -22,7 +22,6 @@ function accessLevelForRole(role: string): string {
 export function buildAssignedUsersForSave(
   selectedIds: string[],
   assigneeOptions: ScheduleAssigneeOption[],
-  tabRows: CompanyUsersTabRow[] = [],
 ): ScheduleAssignedUser[] {
   const users: ScheduleAssignedUser[] = [];
   const seen = new Set<string>();
@@ -40,18 +39,17 @@ export function buildAssignedUsersForSave(
         normalizeScheduleValue(option.email) === key ||
         normalizeScheduleValue(option.name) === key,
     );
-    const tabRow = tabRows.find((row) => normalizeScheduleValue(row.email) === key);
-    const email = (assignee?.email || tabRow?.email || selectedId).trim().toLowerCase();
+    const email = (assignee?.email || selectedId).trim().toLowerCase();
     if (!email) {
       continue;
     }
 
-    const role = assignee?.role || tabRow?.role || "User";
+    const role = assignee?.role || "User";
     users.push({
       email,
-      name: (assignee?.name || tabRow?.name || email.split("@")[0] || email).trim(),
+      name: (assignee?.name || email.split("@")[0] || email).trim(),
       role: String(role),
-      accessLevel: tabRow?.accessLevel?.trim() || accessLevelForRole(String(role)),
+      accessLevel: accessLevelForRole(String(role)),
     });
   }
 

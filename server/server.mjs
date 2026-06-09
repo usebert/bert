@@ -96,6 +96,7 @@ import { installGodmodeRegistryActionRoutes, relinkCompanyRegistryForWorkspace }
 import { createBackgroundJobsService } from "./background-jobs-service.mjs";
 import { BACKGROUND_INVITE_CREATED_MESSAGE } from "../shared/background-jobs.mjs";
 import { installCoreWorkflowRoutes } from "./core-workflow-routes.mjs";
+import { enrichCompanyContextFromRegistry as enrichCompanyContextFromRegistryService } from "./company-context-service.mjs";
 import {
   inspectConfiguredWorkspaceRoot,
   listFolderChildren,
@@ -3181,44 +3182,7 @@ function buildCompanySessionPayload({
 }
 
 async function enrichCompanyContextFromRegistry(auth, partial = {}) {
-  const companyId = String(partial.companyId || partial.companyFolderId || "").trim();
-  const masterSheetId = String(partial.masterSheetId || "").trim();
-  if (!companyId && !masterSheetId) {
-    return partial;
-  }
-  let registryRecord = null;
-  if (companyId) {
-    registryRecord = await getCanonicalCompanyRegistryRecord(
-      auth,
-      getCompanyWorkspaceRegistryDeps(),
-      companyId,
-    ).catch(() => null);
-  }
-  if (!registryRecord && masterSheetId) {
-    const { map } = await readCanonicalCompanyWorkspaceRegistryMap(auth, getCompanyWorkspaceRegistryDeps()).catch(
-      () => ({ map: new Map() }),
-    );
-    for (const record of map.values()) {
-      if (String(record.masterSheetId || "").trim() === masterSheetId) {
-        registryRecord = record;
-        break;
-      }
-    }
-  }
-  const resolvedCompanyId = String(
-    companyId || registryRecord?.companyId || registryRecord?.rootFolderId || "",
-  ).trim();
-  const companyFolderId = String(
-    partial.companyFolderId || registryRecord?.companyFolderId || registryRecord?.rootFolderId || resolvedCompanyId,
-  ).trim();
-  return {
-    ...partial,
-    companyId: resolvedCompanyId,
-    companyFolderId,
-    companyName: String(partial.companyName || registryRecord?.companyName || registryRecord?.name || "").trim(),
-    masterSheetId: String(partial.masterSheetId || registryRecord?.masterSheetId || "").trim(),
-    registryStatus: getCanonicalCompanyStatus(registryRecord || { status: partial.registryStatus }),
-  };
+  return enrichCompanyContextFromRegistryService(auth, getCompanyWorkspaceRegistryDeps(), partial);
 }
 
 async function readCompanyUsersTabRecord(auth, spreadsheetId, email) {

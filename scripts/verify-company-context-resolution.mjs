@@ -21,6 +21,7 @@ const serverSrc = read("server/server.mjs");
 const companyUsersSrc = read("server/company-users.mjs");
 const appSrc = read("App.tsx");
 const applyCtxSrc = read("src/utils/applyLinkedCompanyContext.ts");
+const companyContextServiceSrc = read("src/services/companyContextService.ts");
 
 assert(
   companyUsersSrc.includes("resolveCompanyContextForUser"),
@@ -44,6 +45,14 @@ assert(
 assert(
   applyCtxSrc.includes("applyLinkedCompanyContext") && appSrc.includes("applyLinkedCompanyContext"),
   "6: frontend applies linked company context after login/session restore",
+);
+assert(
+  companyContextServiceSrc.includes("resolveActiveCompanyContext") && appSrc.includes("resolveActiveCompanyContext"),
+  "6b: frontend resolves company context from single service",
+);
+assert(
+  appSrc.includes("linkedCompanyContext") && appSrc.includes("activeCompanyContext"),
+  "6c: session-linked context feeds active company resolver",
 );
 assert(
   appSrc.includes("COMPANY_USER_NO_COMPANY_MESSAGE") &&

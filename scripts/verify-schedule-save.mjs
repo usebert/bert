@@ -164,7 +164,7 @@ const sampleSchedule = {
   const schedulesScreen = read("src/screens/SchedulesScreen.tsx");
   const scheduleSaveUtil = read("src/utils/scheduleSave.ts");
   assert(appSrc.includes("assignedUsers"), "10: App sends assignedUsers");
-  assert(appSrc.includes("inviteCompanyContext.masterSheetId"), "10b: App uses company context masterSheetId");
+  assert(appSrc.includes("activeCompanyContext.masterSheetId"), "10b: App uses company context masterSheetId");
   assert(appSrc.includes("/api/companies/") && appSrc.includes("/schedules"), "10c: App calls company schedules API");
   assert(scheduleSaveUtil.includes("buildAssignedUsersForSave"), "10d: client save helper exists");
   assert(schedulesScreen.includes("Saving schedule"), "10e: save button shows saving state");

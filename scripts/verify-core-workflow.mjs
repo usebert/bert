@@ -110,6 +110,8 @@ assert(!schedulesScreen.includes("No available auditors"), "23: no 'No available
 assert(!assigneesUtil.includes("No available auditors"), "23b: no auditor-only empty message in assignees util");
 assert(appTsx.includes("/api/companies/") && appTsx.includes("schedule-assignees"), "23c: App uses schedule-assignees API");
 assert(!appTsx.includes("buildAvailableScheduleAssignees("), "23d: App no longer filters assignees locally");
+assert(appTsx.includes("resolveActiveCompanyContext"), "23e: App uses unified company context resolver");
+assert(!appTsx.includes("findPendingAssigneeInvites"), "23f: pending invites do not feed schedule assignees");
 assert(!panel.includes("could not reach BERT"), "24: no BERT reach error in godmode panel");
 assert(!appTsx.includes("could not reach BERT"), "24b: no BERT reach error in App.tsx");
 assert(panel.includes("Technical diagnostics"), "25: diagnostics section exists");

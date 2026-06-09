@@ -267,4 +267,71 @@ assert(schedulesScreenSrc.includes("Technical diagnostics"), "14l: schedule UI e
 assert(schedulesScreenSrc.includes("Assign users to this schedule"), "14m: schedule UI uses assignee wording");
 assert(schedulesScreenSrc.includes("companyAreas"), "14n: schedule UI shows company areas");
 
-console.log("[verify:schedule-assignees] OK: all 14 schedule assignee cases passed");
+/** 15: Live failure scenario — pending invites must not replace active Users tab assignees. */
+{
+  assert(appSrc.includes("resolveActiveCompanyContext"), "15: App uses unified company context resolver");
+  assert(appSrc.includes("linkedCompanyContext"), "15b: App stores session-linked company context");
+  assert(!appSrc.includes("findPendingAssigneeInvites"), "15c: App does not merge pending invites into assignees");
+  assert(!appSrc.includes("pendingAssigneeInvites"), "15d: schedule UI does not use pending invite assignee list");
+  assert(!appSrc.includes("buildAvailableScheduleAssignees("), "15e: App does not filter assignees locally");
+  assert(!/buildAssignedUsersForSave\([^)]*companyUsersTabRows/.test(appSrc), "15f: schedule save uses API assignees only");
+  assert(
+    scheduleAssigneesSrc.includes("activeUsersFound") && scheduleAssigneesSrc.includes("loadError"),
+    "15g: empty message distinguishes read failure from zero active users",
+  );
+  assert(appSrc.includes("schedule-assignees"), "15h: schedule assignees loaded from canonical API");
+  const managerScenario = buildAvailableScheduleAssigneesFromUsers(
+    [
+      {
+        email: "andy.hall@usebert.co.uk",
+        name: "Andy Hall",
+        role: "Manager",
+        accessLevel: "operational",
+        status: "ACTIVE",
+        companyId: "TESTCO",
+        companyAreas: ["Bay 1"],
+      },
+    ],
+    { companyId: "TESTCO" },
+  );
+  assert(managerScenario.assignees.some((item) => item.email === "andy.hall@usebert.co.uk"), "15i: active Manager appears for TESTCO");
+  const pendingOnly = buildAvailableScheduleAssigneesFromUsers(
+    [
+      {
+        email: "pending1@example.com",
+        name: "Pending One",
+        role: "User",
+        accessLevel: "operational",
+        status: "INVITED",
+        companyId: "TESTCO",
+        companyAreas: [],
+      },
+      {
+        email: "pending2@example.com",
+        name: "Pending Two",
+        role: "Auditor",
+        accessLevel: "AUDITOR",
+        status: "pending",
+        companyId: "TESTCO",
+        companyAreas: [],
+      },
+      {
+        email: "pending3@example.com",
+        name: "Pending Three",
+        role: "Manager",
+        accessLevel: "operational",
+        status: "Invited",
+        companyId: "TESTCO",
+        companyAreas: [],
+      },
+    ],
+    { companyId: "TESTCO" },
+  );
+  assert(pendingOnly.assignees.length === 0, "15j: pending invites alone do not populate assignee list");
+  assert(
+    managerScenario.assignees.length > 0 && pendingOnly.assignees.length === 0,
+    "15k: active Users tab wins over pending invites for schedule builder",
+  );
+}
+
+console.log("[verify:schedule-assignees] OK: all 15 schedule assignee cases passed");

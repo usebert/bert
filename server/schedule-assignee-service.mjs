@@ -54,6 +54,7 @@ function buildApiDiagnostics(baseDiagnostics = {}, context = {}) {
     currentCompanyName: String(context.companyName || "").trim() || undefined,
     masterSheetId: String(context.masterSheetId || baseDiagnostics.masterSheetId || "").trim(),
     signedInEmail: String(context.signedInEmail || "").trim() || undefined,
+    totalRowsRead: totalUsersRead,
     totalUsersRead,
     activeUsersFound,
     assignableUsersReturned,

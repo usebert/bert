@@ -416,6 +416,7 @@ export function resolveScheduleAssigneeEmptyMessage(
   const selectedArea = context.selectedArea?.trim() || "";
   const diagnostics = context.diagnostics;
   const totalUsersRead = diagnostics?.totalUsersRead ?? diagnostics?.totalRows ?? 0;
+  const activeUsersFound = diagnostics?.activeUsersFound ?? diagnostics?.activeCount ?? 0;
   if (totalUsersRead > 0 && assignees.length === 0) {
     const parts = [
       "No assignable users matched the current filters.",
@@ -435,5 +436,8 @@ export function resolveScheduleAssigneeEmptyMessage(
   if (selectedArea && diagnostics && diagnostics.excludedByArea > 0 && diagnostics.finalCount === 0) {
     return "No users are assigned to this area. Check user area access in Users & Invites.";
   }
-  return "No active users found for this company. Add users in Users & Invites.";
+  if (totalUsersRead > 0 && activeUsersFound === 0) {
+    return "No active users found for this company. Add users in Users & Invites.";
+  }
+  return "";
 }

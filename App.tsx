@@ -115,7 +115,9 @@ import {
   buildLinkedCompanyFolder,
   COMPANY_USER_NO_COMPANY_MESSAGE,
   mergeLinkedCompanyFolder,
+  type LinkedCompanyContextInput,
 } from "./src/utils/applyLinkedCompanyContext";
+import { resolveActiveCompanyContext } from "./src/services/companyContextService";
 import {
   filterLiveOpenActions,
   isDemoAction,
@@ -249,7 +251,6 @@ import {
   resolveCurrentUserReportEmails,
 } from "./src/utils/auditAccess";
 import {
-  findPendingAssigneeInvites,
   normalizeScheduleAssigneeIds,
   resolveScheduleAssigneeLabels,
   resolveScheduleAssigneeEmptyMessage,
@@ -3491,6 +3492,7 @@ function App() {
   const [inviteRoleInput, setInviteRoleInput] = useState<Role>("Manager");
   const [invitedUsers, setInvitedUsers] = useState<UserInvite[]>(storedWorkspaceState?.invitedUsers || []);
   const [companyUsersTabRows, setCompanyUsersTabRows] = useState<CompanyUsersTabRow[]>([]);
+  const [linkedCompanyContext, setLinkedCompanyContext] = useState<LinkedCompanyContextInput | null>(null);
   const [scheduleAssigneesState, setScheduleAssigneesState] = useState<{
     assignees: ScheduleAssigneeOption[];
     diagnostics?: ScheduleAssigneeDiagnostics;
@@ -4011,55 +4013,22 @@ function App() {
   const actionsCountReady = masterCompanyWorkspaceDataMatchesSelection;
   const liveOpenActionsCount = actionsCountReady ? liveOpenActions.length : null;
 
-  const inviteCompanyContext = useMemo(() => {
-    const hint = readCompanyLoginHint();
-    const isMasterActor = currentUser?.role === "Master";
-    const companyFolderId =
-      (!isMasterActor ? hint?.companyFolderId : undefined) ||
-      selectedFolder?.id ||
-      hint?.companyFolderId ||
-      extractGoogleResourceId(folderIdInput) ||
-      "";
-    const masterSheetId =
-      (!isMasterActor ? hint?.masterSheetId : undefined) ||
-      activeCompanyMasterSheetId ||
-      hint?.masterSheetId ||
-      extractGoogleResourceId(masterSheetInput) ||
-      "";
-    const companyName =
-      (!isMasterActor ? hint?.companyName : undefined) ||
-      selectedFolder?.name ||
-      hint?.companyName ||
-      folderNameInput ||
-      "";
-    const registryStatus = getCanonicalCompanyStatus({
-      status:
-        currentUser?.role === "Master"
-          ? companyRegistryStatus || selectedFolder?.registryStatus
-          : companyRegistryStatus,
-      registryStatus:
-        currentUser?.role === "Master"
-          ? companyRegistryStatus || selectedFolder?.registryStatus
-          : companyRegistryStatus,
-    });
-    const workspaceSetupComplete = isCompanyRegistryLive({ status: registryStatus, registryStatus });
-    return { companyFolderId, masterSheetId, companyName, workspaceSetupComplete, registryStatus };
-  }, [
-    currentUser?.role,
-    selectedFolder,
-    activeCompanyMasterSheetId,
-    folderIdInput,
-    masterSheetInput,
-    folderNameInput,
-    companyRegistryStatus,
-  ]);
+  const activeCompanyContext = useMemo(
+    () =>
+      resolveActiveCompanyContext({
+        currentUser,
+        linkedCompany: linkedCompanyContext,
+        selectedFolder,
+        companyRegistryStatus,
+      }),
+    [currentUser, linkedCompanyContext, selectedFolder, companyRegistryStatus],
+  );
 
   const invitePermissionSession = useMemo(() => {
     if (!currentUser) {
       return {};
     }
-    const hint = readCompanyLoginHint();
-    const companyId = inviteCompanyContext.companyFolderId || hint?.companyFolderId || "";
+    const companyId = activeCompanyContext.companyFolderId;
     if (currentUser.role === "Master") {
       return { kind: "master" as const, role: "Master" as const };
     }
@@ -4070,13 +4039,13 @@ function App() {
       companyId,
       companyFolderId: companyId,
     };
-  }, [currentUser, inviteCompanyContext.companyFolderId]);
+  }, [currentUser, activeCompanyContext.companyFolderId]);
 
   const displayInvitedUsers = useMemo(() => {
     if (!masterCompanyWorkspaceDataMatchesSelection) {
       return [];
     }
-    const companyId = inviteCompanyContext.companyFolderId;
+    const companyId = activeCompanyContext.companyFolderId;
     return invitedUsers.filter((invite) =>
       canViewInvite(invitePermissionSession, {
         kind: "company_user",
@@ -4090,7 +4059,7 @@ function App() {
     masterCompanyWorkspaceDataMatchesSelection,
     invitedUsers,
     invitePermissionSession,
-    inviteCompanyContext.companyFolderId,
+    activeCompanyContext.companyFolderId,
   ]);
 
   const resolvedInviteWorkspaceState = useMemo(
@@ -4104,16 +4073,16 @@ function App() {
               masterSheetId: activeCompanyMasterSheetId,
             }
           : null,
-        activeCompany: inviteCompanyContext.companyFolderId
+        activeCompany: activeCompanyContext.companyFolderId
           ? {
-              id: inviteCompanyContext.companyFolderId,
-              name: inviteCompanyContext.companyName || "Company workspace",
-              masterSheetId: inviteCompanyContext.masterSheetId,
+              id: activeCompanyContext.companyFolderId,
+              name: activeCompanyContext.companyName || "Company workspace",
+              masterSheetId: activeCompanyContext.masterSheetId,
             }
           : null,
-        companyContext: inviteCompanyContext,
+        companyContext: activeCompanyContext,
       }),
-    [currentUser, selectedFolder, activeCompanyMasterSheetId, inviteCompanyContext],
+    [currentUser, selectedFolder, activeCompanyMasterSheetId, activeCompanyContext],
   );
 
   const inviteWorkspaceBanner = useMemo(() => {
@@ -4138,6 +4107,19 @@ function App() {
       return;
     }
     const hint = readCompanyLoginHint();
+    if (!hint?.companyFolderId && !hint?.masterSheetId) {
+      return;
+    }
+    if (!linkedCompanyContext?.companyId) {
+      setLinkedCompanyContext({
+        companyId: hint.companyFolderId,
+        companyName: hint.companyName,
+        masterSheetId: hint.masterSheetId,
+        role: currentUser.role,
+        accessLevel: currentUser.accessLevel,
+        companyAreas: currentUser.companyAreas,
+      });
+    }
     if (!hint?.companyFolderId || selectedFolderId) {
       return;
     }
@@ -4149,7 +4131,7 @@ function App() {
     if (hint.masterSheetId && !extractGoogleResourceId(masterSheetInput)) {
       setMasterSheetInput(hint.masterSheetId);
     }
-  }, [currentUser, selectedFolderId, folderNameInput, masterSheetInput]);
+  }, [currentUser, selectedFolderId, folderNameInput, masterSheetInput, linkedCompanyContext?.companyId]);
 
   const siteScopedSchedules = useMemo(() => {
     if (!selectedSite) return assignmentFilteredSchedules;
@@ -5062,15 +5044,6 @@ function App() {
       scheduleBuilderAreaFilter,
     ],
   );
-  const pendingScheduleAssigneeInvites = useMemo(
-    () =>
-      findPendingAssigneeInvites(
-        masterCompanyWorkspaceDataMatchesSelection ? invitedUsers : [],
-        inviteCompanyContext.companyFolderId,
-      ),
-    [invitedUsers, inviteCompanyContext.companyFolderId, masterCompanyWorkspaceDataMatchesSelection],
-  );
-
   useEffect(() => {
     if (!isDebugUiAllowed() || !availableScheduleAssigneesResult.diagnostics) {
       return;
@@ -5079,7 +5052,7 @@ function App() {
   }, [availableScheduleAssigneesResult.diagnostics]);
 
   useEffect(() => {
-    const companyId = inviteCompanyContext.companyFolderId.trim();
+    const companyId = activeCompanyContext.companyFolderId.trim();
     if (!companyId || !googleConnected) {
       setScheduleAssigneesState({ assignees: [], loading: false });
       return;
@@ -5087,11 +5060,11 @@ function App() {
 
     const controller = new AbortController();
     const params = new URLSearchParams();
-    if (inviteCompanyContext.masterSheetId.trim()) {
-      params.set("masterSheetId", inviteCompanyContext.masterSheetId.trim());
+    if (activeCompanyContext.masterSheetId.trim()) {
+      params.set("masterSheetId", activeCompanyContext.masterSheetId.trim());
     }
-    if (inviteCompanyContext.companyName.trim()) {
-      params.set("companyName", inviteCompanyContext.companyName.trim());
+    if (activeCompanyContext.companyName.trim()) {
+      params.set("companyName", activeCompanyContext.companyName.trim());
     }
     if (scheduleBuilderAreaFilter.trim()) {
       params.set("area", scheduleBuilderAreaFilter.trim());
@@ -5148,9 +5121,9 @@ function App() {
     };
   }, [
     googleConnected,
-    inviteCompanyContext.companyFolderId,
-    inviteCompanyContext.companyName,
-    inviteCompanyContext.masterSheetId,
+    activeCompanyContext.companyFolderId,
+    activeCompanyContext.companyName,
+    activeCompanyContext.masterSheetId,
     scheduleBuilderAreaFilter,
     screen,
   ]);
@@ -5538,6 +5511,15 @@ function App() {
             setFolderNameInput,
             setMasterSheetInput,
             setCompanyRegistryStatus,
+          });
+          setLinkedCompanyContext({
+            companyId: cp.company?.companyId,
+            companyName: cp.company?.companyName,
+            masterSheetId: cp.company?.masterSheetId,
+            registryStatus: cp.company?.registryStatus,
+            role: cp.user?.role,
+            accessLevel: cp.user?.accessLevel,
+            companyAreas: Array.isArray(cp.user?.companyAreas) ? cp.user.companyAreas : undefined,
           });
           setAccountNameInput(companyUser.name);
           setAccountPhotoUrl(getStoredProfilePhoto(companyUser));
@@ -7329,6 +7311,15 @@ function App() {
           setMasterSheetInput,
           setCompanyRegistryStatus,
         });
+        setLinkedCompanyContext({
+          companyId: data.company?.companyId,
+          companyName: data.company?.companyName,
+          masterSheetId: resolvedSheetId,
+          registryStatus: data.company?.registryStatus,
+          role: data.user?.role,
+          accessLevel: data.user?.accessLevel,
+          companyAreas: Array.isArray(data.user?.companyAreas) ? data.user.companyAreas : undefined,
+        });
         const match: User = {
           username: String(data.user.email).toLowerCase(),
           password: "",
@@ -7697,8 +7688,8 @@ function App() {
       !canInviteCompanyUsers(
         { role: currentUser.role, accessLevel: currentUser.accessLevel },
         {
-          status: inviteCompanyContext.registryStatus,
-          registryStatus: inviteCompanyContext.registryStatus,
+          status: activeCompanyContext.registryStatus,
+          registryStatus: activeCompanyContext.registryStatus,
         },
       )
     ) {
@@ -8101,8 +8092,8 @@ function App() {
         kind: "company_user",
         inviteType: COMPANY_USER_INVITE_TYPE,
         role: invite.role,
-        companyId: invite.companyFolderId || inviteCompanyContext.companyFolderId,
-        companyFolderId: invite.companyFolderId || inviteCompanyContext.companyFolderId,
+        companyId: invite.companyFolderId || activeCompanyContext.companyFolderId,
+        companyFolderId: invite.companyFolderId || activeCompanyContext.companyFolderId,
       })
     ) {
       pushToast("Access restricted", INVITE_MANAGE_AUDITOR_ONLY_MESSAGE, "warning");
@@ -11548,7 +11539,7 @@ function App() {
   };
 
   const handleSaveManagedSchedule = async () => {
-    const companyFolderId = inviteCompanyContext.companyFolderId || selectedFolder?.id || "";
+    const companyFolderId = activeCompanyContext.companyFolderId || selectedFolder?.id || "";
     if (!companyFolderId) {
       const message =
         currentUser?.role === "Master"
@@ -11591,11 +11582,7 @@ function App() {
       return;
     }
 
-    const assignedUsers = buildAssignedUsersForSave(
-      scheduleDraftAuditors,
-      availableScheduleAssignees,
-      companyUsersTabRows,
-    );
+    const assignedUsers = buildAssignedUsersForSave(scheduleDraftAuditors, availableScheduleAssignees);
     const resolvedAuditors = assignedUsers.map((user) => user.email);
     const createdBy =
       currentUser?.username.includes("@")
@@ -11765,12 +11752,7 @@ function App() {
   };
 
   const persistManagedSchedules = async (companyFolderId: string, nextSchedules: ManagedSchedule[]) => {
-    const masterSheetId =
-      inviteCompanyContext.masterSheetId ||
-      companySheetSync?.sheetId ||
-      extractGoogleResourceId(masterSheetInput) ||
-      selectedFolder?.masterSheetId ||
-      "";
+    const masterSheetId = activeCompanyContext.masterSheetId;
     if (!masterSheetId) {
       throw new Error("Company master sheet is not configured.");
     }
@@ -11779,7 +11761,7 @@ function App() {
       const assignedUsers =
         "assignedUsers" in schedule && Array.isArray((schedule as { assignedUsers?: ScheduleAssignedUser[] }).assignedUsers)
           ? (schedule as { assignedUsers: ScheduleAssignedUser[] }).assignedUsers
-          : buildAssignedUsersForSave(schedule.auditors, availableScheduleAssignees, companyUsersTabRows);
+          : buildAssignedUsersForSave(schedule.auditors, availableScheduleAssignees);
       return {
         ...schedule,
         assignedUsers,
@@ -13511,7 +13493,6 @@ function App() {
                     ? currentUser.username.toLowerCase()
                     : `${currentUser?.username || ""}@usebert.co.uk`.toLowerCase()
                 }
-                pendingAssigneeInvites={pendingScheduleAssigneeInvites}
                 editorOpen={scheduleEditorOpen}
                 editingSchedule={editingScheduleId ? managedSchedules.find((item) => item.id === editingScheduleId) || null : null}
                 scheduleName={scheduleDraftName}

@@ -158,7 +158,6 @@ export function SchedulesScreen({
   showAssigneeDiagnostics = false,
   assigneeWarning = "",
   signedInEmail = "",
-  pendingAssigneeInvites = [],
   editorOpen,
   editingSchedule,
   scheduleName,
@@ -202,7 +201,6 @@ export function SchedulesScreen({
   showAssigneeDiagnostics?: boolean;
   assigneeWarning?: string;
   signedInEmail?: string;
-  pendingAssigneeInvites?: Array<{ email: string; status: string }>;
   editorOpen: boolean;
   editingSchedule: ManagedSchedule | null;
   scheduleName: string;
@@ -559,13 +557,6 @@ export function SchedulesScreen({
                   })
                 )}
               </div>
-              {pendingAssigneeInvites.length > 0 ? (
-                <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
-                  {pendingAssigneeInvites.length} pending user invite
-                  {pendingAssigneeInvites.length === 1 ? "" : "s"} awaiting setup — they will appear here after
-                  onboarding completes.
-                </p>
-              ) : null}
               {showAssigneeDiagnostics && assigneeDiagnostics ? (
                 <div className="mt-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
                   <button

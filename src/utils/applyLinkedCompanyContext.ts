@@ -8,6 +8,9 @@ export type LinkedCompanyContextInput = {
   companyName?: string;
   masterSheetId?: string;
   registryStatus?: string;
+  role?: string;
+  accessLevel?: string;
+  companyAreas?: string[];
 };
 
 export type LinkedCompanyFolder = {
