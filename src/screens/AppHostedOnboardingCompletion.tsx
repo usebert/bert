@@ -30,6 +30,7 @@ type CompanyUserCompletePayload = {
   outcome?: "company_user";
   masterSheetId?: string;
   companyFolderId?: string;
+  companyName?: string;
   loginReady?: boolean;
 };
 
@@ -134,12 +135,13 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
       const payload = result.data;
       const email = String(payload.email || details?.email || "").trim().toLowerCase();
       const masterSheetId = String(payload.masterSheetId || "").trim();
+      const companyFolderId = String(payload.companyFolderId || "").trim();
       if (email && masterSheetId) {
         saveCompanyLoginHint({
           email,
           masterSheetId,
-          companyFolderId: payload.companyFolderId,
-          companyName: details?.companyName,
+          companyFolderId: companyFolderId || undefined,
+          companyName: String(payload.companyName || details?.companyName || "").trim() || details?.companyName,
         });
       }
       window.location.assign("/");

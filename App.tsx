@@ -97,6 +97,12 @@ import {
 } from "./src/utils/companyWorkspaceInvite";
 import { resolveInviteWorkspace } from "./src/utils/resolveInviteWorkspace";
 import {
+  applyLinkedCompanyContext,
+  buildLinkedCompanyFolder,
+  COMPANY_USER_NO_COMPANY_MESSAGE,
+  mergeLinkedCompanyFolder,
+} from "./src/utils/applyLinkedCompanyContext";
+import {
   filterLiveOpenActions,
   isDemoAction,
   isLiveOpenAction,
@@ -3460,10 +3466,22 @@ function App() {
     [audits, activeAuditId],
   );
 
-  const selectedFolder = useMemo(
-    () => folders.find((folder) => folder.id === selectedFolderId) ?? null,
-    [folders, selectedFolderId],
-  );
+  const selectedFolder = useMemo(() => {
+    const fromFolders = folders.find((folder) => folder.id === selectedFolderId);
+    if (fromFolders) {
+      return fromFolders;
+    }
+    if (!selectedFolderId) {
+      return null;
+    }
+    const hint = readCompanyLoginHint();
+    return buildLinkedCompanyFolder({
+      companyId: selectedFolderId,
+      companyName: hint?.companyName || folderNameInput,
+      masterSheetId: hint?.masterSheetId || extractGoogleResourceId(masterSheetInput),
+      registryStatus: companyRegistryStatus,
+    });
+  }, [folders, selectedFolderId, folderNameInput, masterSheetInput, companyRegistryStatus]);
 
   useEffect(() => {
     selectedFolderIdRef.current = selectedFolderId;
@@ -5203,6 +5221,7 @@ function App() {
           };
           company?: {
             companyId?: string;
+            companyName?: string;
             masterSheetId?: string;
             registryStatus?: string;
           };
@@ -5234,6 +5253,16 @@ function App() {
               registryStatus: cp.company?.registryStatus,
             }),
           );
+          applyLinkedCompanyContext({
+            email: companyUser.username,
+            company: cp.company,
+            setSelectedFolderId,
+            setFolders: (updater) => setFolders((current) => updater(current)),
+            setFolderIdInput,
+            setFolderNameInput,
+            setMasterSheetInput,
+            setCompanyRegistryStatus,
+          });
           setAccountNameInput(companyUser.name);
           setAccountPhotoUrl(getStoredProfilePhoto(companyUser));
           try {
@@ -6047,9 +6076,29 @@ function App() {
 
       if (payload.connected && payload.companies && currentUser?.role !== "Master") {
         const visibleCompanies = filterCustomerFacingCompanies(payload.companies);
-        setFolders(visibleCompanies);
-        if (!selectedFolderId && visibleCompanies[0]) {
-          setSelectedFolderId(visibleCompanies[0].id);
+        setFolders((current) => {
+          const hint = readCompanyLoginHint();
+          if (!hint?.companyFolderId) {
+            return visibleCompanies;
+          }
+          return mergeLinkedCompanyFolder(visibleCompanies, {
+            companyId: hint.companyFolderId,
+            companyName: hint.companyName,
+            masterSheetId: hint.masterSheetId,
+          });
+        });
+        if (!selectedFolderId) {
+          const hint = readCompanyLoginHint();
+          const hintedCompany = hint?.companyFolderId
+            ? visibleCompanies.find((company) => company.id === hint.companyFolderId)
+            : undefined;
+          if (hintedCompany) {
+            setSelectedFolderId(hintedCompany.id);
+          } else if (hint?.companyFolderId) {
+            setSelectedFolderId(hint.companyFolderId);
+          } else if (visibleCompanies.length === 1) {
+            setSelectedFolderId(visibleCompanies[0].id);
+          }
         }
       }
       if (!payload.connected) {
@@ -6917,6 +6966,7 @@ function App() {
           };
           company?: {
             companyId?: string;
+            companyName?: string;
             masterSheetId?: string;
             registryStatus?: string;
           };
@@ -6939,15 +6989,22 @@ function App() {
           };
           return false;
         }
-        const resolvedSheetId = String(data.masterSheetId || masterSheetId || "").trim();
-        if (resolvedSheetId) {
-          saveCompanyLoginHint({
-            email: String(data.user.email).toLowerCase(),
+        const resolvedSheetId = String(data.masterSheetId || data.company?.masterSheetId || masterSheetId || "").trim();
+        applyLinkedCompanyContext({
+          email: String(data.user.email).toLowerCase(),
+          company: {
+            companyId: data.company?.companyId,
+            companyName: data.company?.companyName,
             masterSheetId: resolvedSheetId,
-            companyFolderId: selectedFolder?.id,
-            companyName: selectedFolder?.name,
-          });
-        }
+            registryStatus: data.company?.registryStatus,
+          },
+          setSelectedFolderId,
+          setFolders: (updater) => setFolders((current) => updater(current)),
+          setFolderIdInput,
+          setFolderNameInput,
+          setMasterSheetInput,
+          setCompanyRegistryStatus,
+        });
         const match: User = {
           username: String(data.user.email).toLowerCase(),
           password: "",
@@ -10876,7 +10933,14 @@ function App() {
 
   const handleAddSchedule = () => {
     if (!selectedFolder) {
-      pushToast("Company required", "Select a company folder before creating a schedule.", "warning");
+      const message =
+        currentUser?.role === "Master"
+          ? "Select a company folder before creating a schedule."
+          : COMPANY_USER_NO_COMPANY_MESSAGE;
+      pushToast("Company required", message, "warning");
+      if (currentUser && currentUser.role !== "Master") {
+        setScreen(getHomeScreenForRole(currentUser.role));
+      }
       return;
     }
 
@@ -11078,7 +11142,14 @@ function App() {
 
   const handleSaveManagedSchedule = async () => {
     if (!selectedFolder) {
-      pushToast("Company required", "Link a company before creating schedules.", "warning");
+      const message =
+        currentUser?.role === "Master"
+          ? "Link a company before creating schedules."
+          : COMPANY_USER_NO_COMPANY_MESSAGE;
+      pushToast("Company required", message, "warning");
+      if (currentUser?.role && currentUser.role !== "Master") {
+        setScreen(getHomeScreenForRole(currentUser.role));
+      }
       return;
     }
 

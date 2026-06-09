@@ -409,6 +409,141 @@ export async function resolveCompanyUserEmailByHash(auth, spreadsheetId, emailHa
   return "";
 }
 
+/**
+ * Resolve company workspace context for a signed-in company user.
+ * Scans LIVE companies in the main registry + fallback registry, matching ACTIVE Users tab rows by email.
+ * Invite-stored masterSheetId hints are tried first.
+ */
+export async function resolveCompanyContextForUser(auth, email, deps) {
+  const emailNorm = safeLower(email);
+  if (!emailNorm || !auth) {
+    return null;
+  }
+
+  const {
+    findMasterSheetIdsForCompanyLoginEmail,
+    readCanonicalCompanyWorkspaceRegistryMap,
+    isCompanyRegistryLive,
+    migrateUsersTabColumns: migrateColumns,
+    readCompanyUsersTabRecord: readUsersRecord,
+  } = deps;
+
+  if (typeof findMasterSheetIdsForCompanyLoginEmail !== "function") {
+    return null;
+  }
+
+  const inviteSheetIds = findMasterSheetIdsForCompanyLoginEmail(emailNorm) || [];
+  const registryResult = await readCanonicalCompanyWorkspaceRegistryMap(auth, deps).catch(() => ({
+    map: new Map(),
+  }));
+  const registryMap = registryResult?.map instanceof Map ? registryResult.map : new Map();
+
+  /** @type {Map<string, { companyId: string, companyName: string, companyFolderId: string, masterSheetId: string, registryStatus: string, registrySource: string, priority: number }>} */
+  const candidateBySheet = new Map();
+
+  const addCandidate = (candidate, priority) => {
+    const masterSheetId = String(candidate.masterSheetId || "").trim();
+    if (!masterSheetId) {
+      return;
+    }
+    const existing = candidateBySheet.get(masterSheetId);
+    if (!existing || existing.priority > priority) {
+      candidateBySheet.set(masterSheetId, { ...candidate, masterSheetId, priority });
+    }
+  };
+
+  for (const sheetId of inviteSheetIds) {
+    let matchedRegistry = false;
+    for (const [companyId, record] of registryMap.entries()) {
+      const recMaster = String(record.masterSheetId || "").trim();
+      if (recMaster !== sheetId) {
+        continue;
+      }
+      matchedRegistry = true;
+      addCandidate(
+        {
+          companyId: String(companyId || record.companyId || "").trim(),
+          companyName: String(record.companyName || record.name || "").trim(),
+          companyFolderId: String(record.companyFolderId || record.rootFolderId || companyId || "").trim(),
+          masterSheetId: recMaster,
+          registryStatus: String(record.status || record.registryStatus || "").trim(),
+          registrySource: String(record.registrySource || "main"),
+        },
+        0,
+      );
+    }
+    if (!matchedRegistry) {
+      addCandidate(
+        {
+          companyId: "",
+          companyName: "",
+          companyFolderId: "",
+          masterSheetId: sheetId,
+          registryStatus: "",
+          registrySource: "invite",
+        },
+        0,
+      );
+    }
+  }
+
+  for (const [companyId, record] of registryMap.entries()) {
+    if (typeof isCompanyRegistryLive === "function" && !isCompanyRegistryLive(record)) {
+      continue;
+    }
+    const masterSheetId = String(record.masterSheetId || "").trim();
+    if (!masterSheetId || candidateBySheet.has(masterSheetId)) {
+      continue;
+    }
+    addCandidate(
+      {
+        companyId: String(companyId || record.companyId || "").trim(),
+        companyName: String(record.companyName || record.name || "").trim(),
+        companyFolderId: String(record.companyFolderId || record.rootFolderId || companyId || "").trim(),
+        masterSheetId,
+        registryStatus: String(record.status || record.registryStatus || "").trim(),
+        registrySource: String(record.registrySource || "main"),
+      },
+      1,
+    );
+  }
+
+  const candidates = [...candidateBySheet.values()].sort((a, b) => a.priority - b.priority);
+  for (const candidate of candidates) {
+    try {
+      if (typeof migrateColumns === "function") {
+        await migrateColumns(auth, candidate.masterSheetId, deps);
+      }
+      const rec =
+        typeof readUsersRecord === "function"
+          ? await readUsersRecord(auth, candidate.masterSheetId, emailNorm, deps)
+          : null;
+      if (!rec || rec.status !== "ACTIVE") {
+        continue;
+      }
+      const companyFolderId =
+        candidate.companyFolderId ||
+        candidate.companyId ||
+        String(rec.companyId || "").trim();
+      return {
+        companyId: candidate.companyId || companyFolderId,
+        companyName: candidate.companyName,
+        companyFolderId,
+        masterSheetId: candidate.masterSheetId,
+        role: rec.role,
+        accessLevel: rec.accessLevel,
+        companyAreas: rec.companyAreas,
+        registryStatus: candidate.registryStatus,
+        registrySource: candidate.registrySource,
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
 export async function migrateUsersTabColumns(auth, spreadsheetId, deps) {
   const { ensureColumns, getTabValues, google, withSheetsQuotaRetry, getConfig } = deps;
   const { addedColumns } = await ensureColumns(auth, spreadsheetId, USERS_TAB, USERS_TAB_COLUMNS);

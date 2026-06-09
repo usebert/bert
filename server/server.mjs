@@ -34,6 +34,7 @@ import {
   touchCompanyUserLastLogin,
   verifyCompanyUserPassword,
   resolveCompanyUserEmailByHash,
+  resolveCompanyContextForUser,
 } from "./company-users.mjs";
 import { installDocumentDistributionRoutes } from "./document-distribution.mjs";
 import { CONFIG_KEY_AREA_RESTRICTIONS, AREAS_TAB, AREAS_COLUMNS, installCompanyAreasRoutes } from "./company-areas.mjs";
@@ -3021,6 +3022,82 @@ function getCompanyUsersDeps() {
   };
 }
 
+function getCompanyContextResolutionDeps() {
+  return {
+    ...getCompanyUsersDeps(),
+    ...getCompanyWorkspaceRegistryDeps(),
+    findMasterSheetIdsForCompanyLoginEmail,
+    readCanonicalCompanyWorkspaceRegistryMap,
+    isCompanyRegistryLive,
+    migrateUsersTabColumns,
+    readCompanyUsersTabRecord: workbookReadCompanyUsersTabRecord,
+  };
+}
+
+function buildCompanySessionPayload({
+  email,
+  masterSheetId,
+  companyId,
+  companyName,
+  role,
+  name,
+  accessLevel,
+  companyAreas,
+}) {
+  return JSON.stringify({
+    v: 1,
+    email: String(email || "").trim().toLowerCase(),
+    masterSheetId: String(masterSheetId || "").trim(),
+    companyId: String(companyId || "").trim(),
+    companyName: String(companyName || "").trim(),
+    role,
+    name: name || email,
+    accessLevel: accessLevel || "",
+    companyAreas: Array.isArray(companyAreas) ? companyAreas : [],
+  });
+}
+
+async function enrichCompanyContextFromRegistry(auth, partial = {}) {
+  const companyId = String(partial.companyId || partial.companyFolderId || "").trim();
+  const masterSheetId = String(partial.masterSheetId || "").trim();
+  if (!companyId && !masterSheetId) {
+    return partial;
+  }
+  let registryRecord = null;
+  if (companyId) {
+    registryRecord = await getCanonicalCompanyRegistryRecord(
+      auth,
+      getCompanyWorkspaceRegistryDeps(),
+      companyId,
+    ).catch(() => null);
+  }
+  if (!registryRecord && masterSheetId) {
+    const { map } = await readCanonicalCompanyWorkspaceRegistryMap(auth, getCompanyWorkspaceRegistryDeps()).catch(
+      () => ({ map: new Map() }),
+    );
+    for (const record of map.values()) {
+      if (String(record.masterSheetId || "").trim() === masterSheetId) {
+        registryRecord = record;
+        break;
+      }
+    }
+  }
+  const resolvedCompanyId = String(
+    companyId || registryRecord?.companyId || registryRecord?.rootFolderId || "",
+  ).trim();
+  const companyFolderId = String(
+    partial.companyFolderId || registryRecord?.companyFolderId || registryRecord?.rootFolderId || resolvedCompanyId,
+  ).trim();
+  return {
+    ...partial,
+    companyId: resolvedCompanyId,
+    companyFolderId,
+    companyName: String(partial.companyName || registryRecord?.companyName || registryRecord?.name || "").trim(),
+    masterSheetId: String(partial.masterSheetId || registryRecord?.masterSheetId || "").trim(),
+    registryStatus: getCanonicalCompanyStatus(registryRecord || { status: partial.registryStatus }),
+  };
+}
+
 async function readCompanyUsersTabRecord(auth, spreadsheetId, email) {
   await migrateUsersTabColumns(auth, spreadsheetId, getCompanyUsersDeps());
   return workbookReadCompanyUsersTabRecord(auth, spreadsheetId, email, getCompanyUsersDeps());
@@ -5734,11 +5811,23 @@ async function handleAppInviteComplete(req, res) {
             });
             completedMarked = true;
             const sessionCompanyAreas = parseCompanyAreas(record.companyAreas || "");
-            const sessionPayload = JSON.stringify({
-              v: 1,
-              email: record.email,
+            const inviteCompanyContext = await enrichCompanyContextFromRegistry(authed, {
+              companyId: record.companyId || record.companyFolderId || "",
+              companyFolderId: record.companyFolderId || record.companyId || "",
+              companyName: record.companyName || "",
               masterSheetId: record.masterSheetId,
-              companyId: record.companyFolderId || record.companyId || "",
+            });
+            const sessionCompanyId =
+              inviteCompanyContext.companyFolderId ||
+              inviteCompanyContext.companyId ||
+              record.companyFolderId ||
+              record.companyId ||
+              "";
+            const sessionPayload = buildCompanySessionPayload({
+              email: record.email,
+              masterSheetId: inviteCompanyContext.masterSheetId || record.masterSheetId,
+              companyId: sessionCompanyId,
+              companyName: inviteCompanyContext.companyName || record.companyName || "",
               role: record.role,
               name: fullName,
               accessLevel: inviteAccessLevel,
@@ -5760,8 +5849,9 @@ async function handleAppInviteComplete(req, res) {
               loginReady: true,
               status: "active",
               email: record.email,
-              masterSheetId: record.masterSheetId,
-              companyFolderId: record.companyFolderId,
+              masterSheetId: inviteCompanyContext.masterSheetId || record.masterSheetId,
+              companyFolderId: sessionCompanyId,
+              companyName: inviteCompanyContext.companyName || record.companyName || "",
             });
             return;
           } catch (completionErr) {
@@ -6230,6 +6320,16 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
       }
     }
 
+    let resolvedContext = null;
+    if (sheetIdsToTry.length === 0) {
+      resolvedContext = await resolveCompanyContextForUser(auth, email, getCompanyContextResolutionDeps()).catch(
+        () => null,
+      );
+      if (resolvedContext?.masterSheetId && !sheetIdsToTry.includes(resolvedContext.masterSheetId)) {
+        sheetIdsToTry.push(resolvedContext.masterSheetId);
+      }
+    }
+
     if (sheetIdsToTry.length === 0) {
       console.warn("[company-auth] login company_not_identified", {
         email,
@@ -6271,20 +6371,33 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
     if (successSheetId && successRec) {
       await touchCompanyUserLastLogin(auth, successSheetId, email, getCompanyUsersDeps());
       const companyAreas = Array.isArray(successRec.companyAreas) ? successRec.companyAreas : [];
-      const payload = JSON.stringify({
-        v: 1,
+      const enrichedContext = await enrichCompanyContextFromRegistry(auth, {
+        companyId: successRec.companyId || resolvedContext?.companyId || "",
+        companyFolderId:
+          resolvedContext?.companyFolderId || successRec.companyId || resolvedContext?.companyId || "",
+        companyName: resolvedContext?.companyName || "",
+        masterSheetId: successSheetId,
+        registryStatus: resolvedContext?.registryStatus || "",
+      });
+      const sessionCompanyId =
+        enrichedContext.companyFolderId ||
+        enrichedContext.companyId ||
+        successRec.companyId ||
+        "";
+      const payload = buildCompanySessionPayload({
         email,
         masterSheetId: successSheetId,
-        companyId: successRec.companyId || "",
+        companyId: sessionCompanyId,
+        companyName: enrichedContext.companyName || "",
         role: successRec.role,
         name: successRec.name,
         accessLevel: successRec.accessLevel || "",
         companyAreas,
       });
       res.cookie(COMPANY_SESSION_COOKIE, payload, getSessionCookieOptions({ maxAge: COMPANY_SESSION_MS }));
-      const companyId = String(successRec.companyId || "").trim();
-      let registryStatus = "";
-      if (companyId) {
+      const companyId = String(sessionCompanyId || "").trim();
+      let registryStatus = enrichedContext.registryStatus || "";
+      if (companyId && !registryStatus) {
         const registryRecord = await getCanonicalCompanyRegistryRecord(
           auth,
           getCompanyWorkspaceRegistryDeps(),
@@ -6304,6 +6417,7 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
         masterSheetId: successSheetId,
         company: {
           companyId,
+          companyName: enrichedContext.companyName || "",
           masterSheetId: successSheetId,
           registryStatus,
           status: registryStatus,
@@ -6372,6 +6486,7 @@ app.get("/api/auth/company/session", async (req, res) => {
     }
     const sessionCompanyAreas = Array.isArray(data.companyAreas) ? data.companyAreas : [];
     const companyIdFromSession = String(data.companyId || "").trim();
+    const companyNameFromSession = String(data.companyName || "").trim();
     if (!envConfigured()) {
       return res.json({
         ok: true,
@@ -6384,6 +6499,7 @@ app.get("/api/auth/company/session", async (req, res) => {
         },
         company: {
           companyId: companyIdFromSession,
+          companyName: companyNameFromSession,
           masterSheetId: String(data.masterSheetId || "").trim(),
           registryStatus: "",
         },
@@ -6431,6 +6547,13 @@ app.get("/api/auth/company/session", async (req, res) => {
       masterSheetId,
       skipHealthCheck: true,
     });
+    const enrichedContext = await enrichCompanyContextFromRegistry(auth, {
+      companyId,
+      companyFolderId: companyId,
+      companyName: companyNameFromSession,
+      masterSheetId,
+      registryStatus,
+    });
     return res.json({
       ok: true,
       user: {
@@ -6441,7 +6564,8 @@ app.get("/api/auth/company/session", async (req, res) => {
         companyAreas: rec.companyAreas?.length ? rec.companyAreas : sessionCompanyAreas,
       },
       company: {
-        companyId,
+        companyId: enrichedContext.companyFolderId || enrichedContext.companyId || companyId,
+        companyName: enrichedContext.companyName || companyNameFromSession,
         masterSheetId,
         registryStatus,
         status: registryStatus,

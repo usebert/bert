@@ -412,6 +412,20 @@ if (/\/api\/tools/i.test(srcCombined)) {
   console.log("[verify:auth] OK (src): no /api/tools references");
 }
 
+if (serverSrc.includes("resolveCompanyContextForUser") && serverSrc.includes("buildCompanySessionPayload")) {
+  console.log("[verify:auth] OK: company login/invite resolve full company context for session");
+} else {
+  console.error("[verify:auth] FAIL: server missing resolveCompanyContextForUser / buildCompanySessionPayload");
+  failed = true;
+}
+
+if (appSrc.includes("applyLinkedCompanyContext") && appSrc.includes("COMPANY_USER_NO_COMPANY_MESSAGE")) {
+  console.log("[verify:auth] OK: client applies linked company context after auth");
+} else {
+  console.error("[verify:auth] FAIL: App.tsx missing applyLinkedCompanyContext / COMPANY_USER_NO_COMPANY_MESSAGE");
+  failed = true;
+}
+
 if (failed) {
   process.exit(1);
 }
