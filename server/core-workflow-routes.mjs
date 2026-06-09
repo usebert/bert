@@ -15,6 +15,7 @@ import {
 import { resolveCompanyById } from "./company-registry-service.mjs";
 import { getScheduleAssigneesForCompany } from "./schedule-assignee-service.mjs";
 import { saveCompanySchedules } from "./schedule-save-service.mjs";
+import { BACKGROUND_SCHEDULE_SAVED_MESSAGE } from "../shared/background-jobs.mjs";
 
 function buildInvitePermissionSession(actor) {
   if (!actor) {
@@ -50,6 +51,7 @@ export function installCoreWorkflowRoutes(app, deps) {
     getWorkbook,
     withSheetsQuotaRetry,
     google,
+    backgroundJobs,
   } = deps;
 
   const scheduleDeps = {
@@ -238,13 +240,6 @@ export function installCoreWorkflowRoutes(app, deps) {
 
   app.post("/api/companies/:companyId/schedules", async (req, res) => {
     const authed = getAuthedClient();
-    if (!envConfigured() || !authed) {
-      return res.status(401).json({
-        ok: false,
-        error: "Please connect Google before saving schedules.",
-      });
-    }
-
     const companyId = String(req.params?.companyId || "").trim();
     const masterSheetId = String(req.body?.masterSheetId || req.query?.masterSheetId || "").trim();
     const companyFolderId = String(req.body?.companyFolderId || companyId).trim();
@@ -261,14 +256,48 @@ export function installCoreWorkflowRoutes(app, deps) {
       });
     }
 
-    try {
-      const result = await saveCompanySchedules(authed, { ...registryDeps, ...scheduleDeps }, {
-        companyId,
-        companyFolderId,
+    const saveInput = {
+      companyId,
+      companyFolderId,
+      masterSheetId,
+      schedules,
+      createdBy,
+      requestedBy: createdBy,
+    };
+
+    if (backgroundJobs?.queueScheduleSyncJob) {
+      const job = backgroundJobs.queueScheduleSyncJob(saveInput);
+      if (!envConfigured() || !authed) {
+        return res.json({
+          ok: true,
+          savedLocally: true,
+          backgroundSync: true,
+          backgroundJobId: job?.jobId || "",
+          userMessage: BACKGROUND_SCHEDULE_SAVED_MESSAGE,
+          companyId: companyFolderId,
+          masterSheetId,
+        });
+      }
+      return res.json({
+        ok: true,
+        savedLocally: true,
+        backgroundSync: true,
+        backgroundJobId: job?.jobId || "",
+        userMessage: BACKGROUND_SCHEDULE_SAVED_MESSAGE,
+        companyId: companyFolderId,
         masterSheetId,
-        schedules,
-        createdBy,
       });
+    }
+
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({
+        ok: false,
+        error: "Please connect Google before saving schedules.",
+      });
+    }
+
+    try {
+      const result = await saveCompanySchedules(authed, { ...registryDeps, ...scheduleDeps }, saveInput);
 
       if (!result.ok) {
         return res.status(result.httpStatus || 400).json({

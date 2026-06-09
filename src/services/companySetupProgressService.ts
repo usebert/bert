@@ -56,6 +56,8 @@ export type MakeUsableResult = RegistryPersistDiagnostics & {
   registrySource?: "main" | "fallback" | "";
   fallbackRegistry?: boolean;
   warning?: string;
+  backgroundSetup?: boolean;
+  backgroundJobs?: Array<{ jobId: string; type: string; status: string }>;
 };
 
 /** @deprecated Use MakeUsableResult */

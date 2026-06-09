@@ -7,6 +7,7 @@ import { CompanyWorkspaceResetPanel } from "../admin/CompanyWorkspaceResetPanel"
 import { SitesAreasPanel } from "../admin/SitesAreasPanel";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../dashboard/DashboardPrimitives";
 import { SECTION_INTROS } from "../../config/sectionIntros";
+import { GodmodeBackgroundJobsPanel } from "./GodmodeBackgroundJobsPanel";
 import { GodmodeCollapsibleSection } from "./GodmodeCollapsibleSection";
 import { GodmodeUserManagementSection, type GodmodeUserManagementSectionProps } from "./GodmodeUserManagementSection";
 import { WorkspaceStatusBadge } from "./WorkspaceStatusBadge";
@@ -833,6 +834,10 @@ export function GodmodeCompanyWorkspacePanel({
                     ) : null}
                   </div>
                 ) : null}
+                <GodmodeBackgroundJobsPanel
+                  companyId={selectedFolder?.id || folderIdInput.trim()}
+                  surfaceClass={pilotLightNested}
+                />
                 {visibleSetupError || companySetupResult?.registryLocation ? (
                   <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-950">
                     {visibleSetupError?.failedStep ? (

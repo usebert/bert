@@ -92,7 +92,9 @@ import {
   recordCompanyWorkspaceHealthCheck,
 } from "./company-workspace-registry.mjs";
 import { installCompanySetupProgressRoutes } from "./company-setup-progress.mjs";
-import { installGodmodeRegistryActionRoutes } from "./godmode-registry-actions.mjs";
+import { installGodmodeRegistryActionRoutes, relinkCompanyRegistryForWorkspace } from "./godmode-registry-actions.mjs";
+import { createBackgroundJobsService } from "./background-jobs-service.mjs";
+import { BACKGROUND_INVITE_CREATED_MESSAGE } from "../shared/background-jobs.mjs";
 import { installCoreWorkflowRoutes } from "./core-workflow-routes.mjs";
 import {
   inspectConfiguredWorkspaceRoot,
@@ -143,6 +145,7 @@ const googleOAuthStore = createGoogleOAuthSessionStore({
   sessionsDirEnv: sessionsRootRaw,
 });
 const sessionDir = googleOAuthStore.sessionDir;
+let backgroundJobs = null;
 
 const requiredEnv = {
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || "",
@@ -2207,6 +2210,7 @@ function safeSmtpErrorSummary(err) {
 
 function buildCompanyUserInviteApiPayload({
   emailSent,
+  emailPending = false,
   toEmail,
   inviteRole,
   inviteUrl,
@@ -2219,14 +2223,20 @@ function buildCompanyUserInviteApiPayload({
   smtpError,
   warnings = [],
   isGodmodeActor = false,
+  backgroundJobId = "",
 }) {
-  const userMessage = emailSent
-    ? INVITE_SENT_USER_MESSAGE
-    : INVITE_PARTIAL_SUCCESS_USER_MESSAGE;
+  const userMessage = emailPending
+    ? BACKGROUND_INVITE_CREATED_MESSAGE
+    : emailSent
+      ? INVITE_SENT_USER_MESSAGE
+      : INVITE_PARTIAL_SUCCESS_USER_MESSAGE;
   return {
     ok: true,
     inviteCreated: true,
     emailSent,
+    emailPending,
+    backgroundEmail: emailPending,
+    backgroundJobId,
     sent: emailSent,
     inviteUrl,
     userMessage,
@@ -5509,6 +5519,38 @@ async function processCompanyUserInvite(req, res) {
         return;
       }
 
+      if (backgroundJobs?.queueInviteEmailJob) {
+        const emailJob = backgroundJobs.queueInviteEmailJob({
+          toEmail,
+          companyName: emailCompanyName,
+          inviteUrl,
+          tokenId: id,
+          companyId: resolvedCompanyId || resolvedCompanyFolderId,
+          companyFolderId: resolvedCompanyFolderId,
+          requestedBy: invitedBy,
+        });
+        console.log(`[invite] company_user email queued token=${id.slice(0, 8)} job=${emailJob?.jobId || ""}`);
+        res.json(
+          buildCompanyUserInviteApiPayload({
+            emailSent: false,
+            emailPending: true,
+            backgroundJobId: emailJob?.jobId || "",
+            toEmail,
+            inviteRole,
+            inviteUrl,
+            tokenId: id,
+            senderEmail,
+            lifecycle,
+            smtpConfigured: true,
+            emailDraft,
+            mailtoUrl,
+            warnings,
+            isGodmodeActor,
+          }),
+        );
+        return;
+      }
+
       try {
         await sendCompanyUserInviteEmail({ toEmail, companyName: emailCompanyName, inviteUrl });
         console.log(`[smtp] company user invite email sent recipient=${toEmail}`);
@@ -7098,12 +7140,32 @@ installCompanySetupProgressRoutes(app, {
   registryDeps: getCompanyWorkspaceRegistryDeps(),
 });
 
+backgroundJobs = createBackgroundJobsService(sessionDir, {
+  getAuthedClient,
+  envConfigured,
+  emailConfigured,
+  sendCompanyUserInviteEmail,
+  relinkCompanyRegistryForWorkspace,
+  google,
+  getTabValues,
+  ensureTabExists,
+  ensureColumns,
+  getWorkbook,
+  withSheetsQuotaRetry,
+  writeLegacyCompanySchedules: writeCompanySchedules,
+  ...getCompanyWorkspaceRegistryDeps(),
+});
+backgroundJobs.installRoutes(app, { requireMasterOnlyActor });
+backgroundJobs.startProcessor();
+
 installGodmodeRegistryActionRoutes(app, {
   getAuthedClient,
   envConfigured,
   requireGoogleWorkspaceSession,
   requireMasterOnlyActor,
+  parseBertActorFromRequest,
   processCompanyUserInvite,
+  queueCompanySetupJobs: backgroundJobs.queueCompanySetupJobs.bind(backgroundJobs),
   ...getCompanyWorkspaceRegistryDeps(),
 });
 
@@ -7127,6 +7189,7 @@ installCoreWorkflowRoutes(app, {
   getWorkbook,
   withSheetsQuotaRetry,
   google,
+  backgroundJobs,
 });
 
 installCompanyOnboardingRoutes(app, {

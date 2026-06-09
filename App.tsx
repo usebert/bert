@@ -43,6 +43,11 @@ import {
 } from "./src/permissions";
 import { companyFolderStructureService } from "./src/services/companyFolderStructureService";
 import {
+  BACKGROUND_INVITE_CREATED_MESSAGE,
+  BACKGROUND_SCHEDULE_SAVED_MESSAGE,
+  BACKGROUND_SETUP_USER_MESSAGE,
+} from "./src/services/backgroundJobsService";
+import {
   COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
   COMPANY_SETUP_SUCCESS_MESSAGE,
   companySetupProgressService,
@@ -801,8 +806,12 @@ type SaveSchedulesResponse = {
   ok: boolean;
   error?: string;
   message?: string;
+  userMessage?: string;
   code?: string;
   technicalError?: string;
+  savedLocally?: boolean;
+  backgroundSync?: boolean;
+  backgroundJobId?: string;
 };
 
 type GoogleDriveFilePayload = {
@@ -7734,6 +7743,8 @@ function App() {
         blocker?: string;
         sent?: boolean;
         emailSent?: boolean;
+        emailPending?: boolean;
+        backgroundEmail?: boolean;
         inviteCreated?: boolean;
         userMessage?: string;
         warnings?: string[];
@@ -7764,11 +7775,16 @@ function App() {
       }
 
       const emailSent = payload.emailSent === true || payload.sent === true;
+      const emailPending = payload.emailPending === true || payload.backgroundEmail === true;
       const inviteUrl = payload.inviteUrl || "";
       const loginReady = payload.loginReady === true;
       const userMessage =
         payload.userMessage ||
-        (emailSent ? INVITE_SENT_USER_MESSAGE : INVITE_PARTIAL_SUCCESS_USER_MESSAGE);
+        (emailPending
+          ? BACKGROUND_INVITE_CREATED_MESSAGE
+          : emailSent
+            ? INVITE_SENT_USER_MESSAGE
+            : INVITE_PARTIAL_SUCCESS_USER_MESSAGE);
       const result: CompanyUserInviteEmailResult = {
         email: payload.email || trimmedEmail,
         role: (payload.role as Role) || inviteRole,
@@ -7818,6 +7834,8 @@ function App() {
       setInviteEmailInput("");
       if (emailSent) {
         pushToast("User invite sent", userMessage, "success");
+      } else if (emailPending) {
+        pushToast("Invite created", userMessage, "success");
       } else if (payload.inviteCreated !== false && inviteUrl) {
         pushToast("Invite link created", userMessage, "warning");
       }
@@ -7891,6 +7909,8 @@ function App() {
         blocker?: string;
         sent?: boolean;
         emailSent?: boolean;
+        emailPending?: boolean;
+        backgroundEmail?: boolean;
         inviteCreated?: boolean;
         userMessage?: string;
         smtpConfigured?: boolean;
@@ -7919,11 +7939,16 @@ function App() {
       }
 
       const emailSent = payload.emailSent === true || payload.sent === true;
+      const emailPending = payload.emailPending === true || payload.backgroundEmail === true;
       const inviteUrl = payload.inviteUrl || invite.appOnboardingUrl || "";
       const loginReady = payload.loginReady === true;
       const userMessage =
         payload.userMessage ||
-        (emailSent ? INVITE_SENT_USER_MESSAGE : INVITE_PARTIAL_SUCCESS_USER_MESSAGE);
+        (emailPending
+          ? BACKGROUND_INVITE_CREATED_MESSAGE
+          : emailSent
+            ? INVITE_SENT_USER_MESSAGE
+            : INVITE_PARTIAL_SUCCESS_USER_MESSAGE);
       const result: CompanyUserInviteEmailResult = {
         email: payload.email || invite.email,
         role: (payload.role as Role) || invite.role,
@@ -7969,6 +7994,8 @@ function App() {
       );
       if (emailSent) {
         pushToast("User invite resent", userMessage, "success");
+      } else if (emailPending) {
+        pushToast("Invite created", userMessage, "success");
       } else if (payload.inviteCreated !== false && inviteUrl) {
         pushToast("Invite link ready", userMessage, "warning");
       }
@@ -10644,7 +10671,7 @@ function App() {
       pushToast(
         resultIsLive ? "Company is ready" : "Setup finished",
         resultIsLive
-          ? COMPANY_SETUP_SUCCESS_MESSAGE
+          ? result.userMessage || BACKGROUND_SETUP_USER_MESSAGE
           : result.reasonDetail || result.userMessage || "Some checks still need attention.",
         resultIsLive ? "success" : "warning",
       );
@@ -11620,7 +11647,7 @@ function App() {
         nextManagedSchedules.filter((schedule) => schedule.companyFolderId === companyFolderId),
       );
       setManagedSchedules(nextManagedSchedules);
-      pushToast("Schedule saved.", "Schedule saved.", "success");
+      pushToast("Schedule saved", BACKGROUND_SCHEDULE_SAVED_MESSAGE, "success");
       resetManagedScheduleDraft();
     } catch (error) {
       const reason = error instanceof Error ? error.message : "BERT could not save this schedule. Try again.";
@@ -11777,6 +11804,7 @@ function App() {
     if (!response.ok || !payload.ok) {
       throw new Error(formatScheduleSaveError(payload));
     }
+    return payload.userMessage || BACKGROUND_SCHEDULE_SAVED_MESSAGE;
   };
 
   useEffect(() => {

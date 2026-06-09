@@ -27,7 +27,7 @@ import {
   REGISTRY_VERIFY_FAILED,
   REGISTRY_WRITE_FAILED,
 } from "./company-workspace-registry.mjs";
-import { ensureRequiredTabs } from "./ensure-required-tabs.mjs";
+import { BACKGROUND_SETUP_USER_MESSAGE } from "../shared/background-jobs.mjs";
 
 export const GODMODE_REGISTRY_ACTION_TIMEOUT_MS = 30_000;
 
@@ -428,21 +428,16 @@ export async function makeCompanyUsable(auth, deps, workspace = {}) {
     warnings.push(buildFallbackRegistryDiagnostic(mainRegistryError));
   }
 
-  if (masterSheetId && deps.google) {
-    try {
-      await withHandlerTimeout(
-        ensureRequiredTabs(auth, { ...deps, requiredTabs: ["Users"], timeoutMs: 15_000 }, masterSheetId),
-        "ensure_users_tab",
-        15_000,
-      );
-    } catch (error) {
-      warnings.push(
-        "Users tab could not be verified automatically. Invites may still work if the tab already exists.",
-      );
-      if (error instanceof Error && error.message) {
-        warnings.push(error.message);
-      }
-    }
+  let backgroundJobs = [];
+  if (typeof deps.queueCompanySetupJobs === "function") {
+    backgroundJobs = deps.queueCompanySetupJobs({
+      companyId: registryCompanyId,
+      workspaceId: registryCompanyId,
+      companyFolderId,
+      masterSheetId,
+      companyName: String(fresh?.companyName || companyName).trim(),
+      requestedBy: String(workspace.requestedBy || "").trim(),
+    });
   }
 
   const resolvedName = String(fresh?.companyName || companyName).trim();
@@ -452,7 +447,9 @@ export async function makeCompanyUsable(auth, deps, workspace = {}) {
     companyId: registryCompanyId,
     companyName: resolvedName,
     masterSheetId,
-    userMessage: "Company is ready. You can now invite users.",
+    userMessage: BACKGROUND_SETUP_USER_MESSAGE,
+    backgroundJobs,
+    backgroundSetup: true,
     warnings,
     registryStatus: getCanonicalCompanyStatus(fresh) || COMPANY_REGISTRY_STATUS_LIVE,
     registrySource: usedFallbackRegistry ? "fallback" : "main",
@@ -576,9 +573,13 @@ export function installGodmodeRegistryActionRoutes(app, deps) {
         return res.status(401).json(failure);
       }
       const workspace = workspaceFromRequest(req.params || {}, req.body || {});
+      const actor = typeof deps.parseBertActorFromRequest === "function" ? deps.parseBertActorFromRequest(req) : null;
       try {
         const result = await withHandlerTimeout(
-          makeCompanyUsable(authed, deps, workspace),
+          makeCompanyUsable(authed, deps, {
+            ...workspace,
+            requestedBy: String(actor?.email || actor?.name || "godmode").trim(),
+          }),
           "make_usable",
         );
         if (!result.ok) {
