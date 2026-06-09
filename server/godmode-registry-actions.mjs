@@ -1,11 +1,12 @@
 /**
- * Godmode registry-only actions — no Drive folder, workbook, or tab Google calls.
+ * Godmode registry actions — make-usable, relink, force-live (fast, registry-first).
  */
 import {
   COMPANY_REGISTRY_STATUS_LIVE,
   getCanonicalCompanyStatus,
   isCompanyRegistryLive,
 } from "../shared/company-invite-permissions.mjs";
+import { isSystemTemplateCompany } from "../shared/system-template-company.mjs";
 import {
   ensureCompanyRegistryRecordForWorkspace,
   evaluateCompanyWorkspaceReadiness,
@@ -15,8 +16,38 @@ import {
   persistCompanyWorkspaceSetup,
   readCompanyWorkspaceRegistryMap,
 } from "./company-workspace-registry.mjs";
+import { ensureRequiredTabs } from "./ensure-required-tabs.mjs";
 
 export const GODMODE_REGISTRY_ACTION_TIMEOUT_MS = 30_000;
+
+export const MAKE_USABLE_STATUS_LIVE = "LIVE";
+
+export const MAKE_USABLE_REASON_MESSAGES = {
+  GOOGLE_NOT_CONNECTED: "Google Workspace is not connected. Connect Google in Platform Setup first.",
+  COMPANY_FOLDER_MISSING: "Select a company folder before making the company usable.",
+  MASTER_SHEET_MISSING: "Link a master sheet before making the company usable.",
+  COMPANY_NAME_MISSING: "Company name is required.",
+  SYSTEM_TEMPLATE_COMPANY: "This workspace is a system template and cannot be made usable.",
+  REGISTRY_LINK_FAILED: "The company registry record could not be created or updated.",
+  GOOGLE_TIMEOUT: "The request timed out. Try again in a moment.",
+  UNKNOWN: "An unexpected error occurred.",
+};
+
+function makeUsableFailure(input = {}) {
+  const reasonCode = String(input.reasonCode || "UNKNOWN").trim();
+  return {
+    ok: false,
+    status: "NEEDS_ATTENTION",
+    companyId: String(input.companyId || "").trim(),
+    companyName: String(input.companyName || "").trim(),
+    reasonCode,
+    reason: reasonCode,
+    userMessage: MAKE_USABLE_REASON_MESSAGES[reasonCode] || MAKE_USABLE_REASON_MESSAGES.UNKNOWN,
+    failedStep: String(input.failedStep || "").trim(),
+    technicalError: String(input.technicalError || "").trim(),
+    warnings: input.warnings || [],
+  };
+}
 
 function withHandlerTimeout(promise, label, timeoutMs = GODMODE_REGISTRY_ACTION_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
@@ -202,6 +233,154 @@ export async function relinkCompanyRegistryForWorkspace(auth, deps, workspace = 
 /**
  * Persist status=LIVE when readiness checks pass — registry sheet only, no workbook verify.
  */
+/**
+ * Fast Godmode path: registry row + LIVE status. Optional Users tab check (warning only).
+ */
+export async function makeCompanyUsable(auth, deps, workspace = {}) {
+  const warnings = [];
+  const workspaceId = String(workspace.workspaceId || workspace.companyFolderId || workspace.companyId || "").trim();
+  const companyFolderId = String(workspace.companyFolderId || workspaceId).trim();
+  const companyName = String(workspace.companyName || "").trim();
+  const masterSheetId = String(workspace.masterSheetId || "").trim();
+
+  if (!auth) {
+    return makeUsableFailure({ reasonCode: "GOOGLE_NOT_CONNECTED", failedStep: "connect_google" });
+  }
+  if (!workspaceId || !companyFolderId) {
+    return makeUsableFailure({
+      reasonCode: "COMPANY_FOLDER_MISSING",
+      failedStep: "select_company",
+      companyName,
+    });
+  }
+  if (!masterSheetId) {
+    return makeUsableFailure({
+      reasonCode: "MASTER_SHEET_MISSING",
+      failedStep: "link_master_sheet",
+      companyId: workspaceId,
+      companyName,
+    });
+  }
+  if (!companyName) {
+    return makeUsableFailure({
+      reasonCode: "COMPANY_NAME_MISSING",
+      failedStep: "select_company",
+      companyId: workspaceId,
+    });
+  }
+  if (isSystemTemplateCompany({ companyName, name: companyName, companyId: workspaceId })) {
+    return makeUsableFailure({
+      reasonCode: "SYSTEM_TEMPLATE_COMPANY",
+      failedStep: "select_company",
+      companyId: workspaceId,
+      companyName,
+    });
+  }
+
+  let ensured;
+  try {
+    ensured = await withHandlerTimeout(
+      ensureCompanyRegistryRecordForWorkspace(auth, deps, {
+        companyId: workspaceId,
+        companyFolderId,
+        rootFolderId: companyFolderId,
+        masterSheetId,
+        companyName,
+      }),
+      "ensure_registry",
+    );
+  } catch (error) {
+    const reasonCode = error?.code === "REGISTRY_ACTION_TIMEOUT" ? "GOOGLE_TIMEOUT" : "REGISTRY_LINK_FAILED";
+    return makeUsableFailure({
+      reasonCode,
+      failedStep: "ensure_registry",
+      companyId: workspaceId,
+      companyName,
+      technicalError: error instanceof Error ? error.message : String(error || ""),
+    });
+  }
+
+  const registryRecord = ensured?.record || null;
+  const registryCompanyId = String(registryRecord?.companyId || workspaceId).trim();
+  if (!registryRecord && !ensured?.created) {
+    return makeUsableFailure({
+      reasonCode: "REGISTRY_LINK_FAILED",
+      failedStep: "ensure_registry",
+      companyId: workspaceId,
+      companyName,
+      technicalError: String(ensured?.reason || "create_failed"),
+    });
+  }
+
+  let persistResult;
+  try {
+    persistResult = await withHandlerTimeout(
+      persistCompanyLive(auth, deps, {
+        companyId: registryCompanyId,
+        companyFolderId,
+        companyName,
+        rootFolderId: companyFolderId,
+        masterSheetId,
+        reason: "make_usable",
+      }),
+      "persist_live",
+    );
+  } catch (error) {
+    const reasonCode = error?.code === "REGISTRY_ACTION_TIMEOUT" ? "GOOGLE_TIMEOUT" : "REGISTRY_LINK_FAILED";
+    return makeUsableFailure({
+      reasonCode,
+      failedStep: "persist_live",
+      companyId: registryCompanyId,
+      companyName,
+      technicalError: error instanceof Error ? error.message : String(error || ""),
+    });
+  }
+
+  const fresh =
+    (await getCompanyWorkspaceRegistryRecord(auth, deps, registryCompanyId)) ||
+    persistResult?.record ||
+    registryRecord;
+  const live = isCompanyRegistryLive(fresh) || Boolean(persistResult?.synced);
+  if (!live) {
+    return makeUsableFailure({
+      reasonCode: "REGISTRY_LINK_FAILED",
+      failedStep: "persist_live",
+      companyId: registryCompanyId,
+      companyName,
+      technicalError: String(persistResult?.reason || "not_in_registry"),
+    });
+  }
+
+  if (masterSheetId && deps.google) {
+    try {
+      await withHandlerTimeout(
+        ensureRequiredTabs(auth, { ...deps, requiredTabs: ["Users"], timeoutMs: 15_000 }, masterSheetId),
+        "ensure_users_tab",
+        15_000,
+      );
+    } catch (error) {
+      warnings.push(
+        "Users tab could not be verified automatically. Invites may still work if the tab already exists.",
+      );
+      if (error instanceof Error && error.message) {
+        warnings.push(error.message);
+      }
+    }
+  }
+
+  const resolvedName = String(fresh?.companyName || companyName).trim();
+  return {
+    ok: true,
+    status: MAKE_USABLE_STATUS_LIVE,
+    companyId: registryCompanyId,
+    companyName: resolvedName,
+    masterSheetId,
+    userMessage: "Company is ready. You can now invite users.",
+    warnings,
+    registryStatus: getCanonicalCompanyStatus(fresh) || COMPANY_REGISTRY_STATUS_LIVE,
+  };
+}
+
 export async function forceCompanyLiveIfReadyFromChecks(auth, deps, input = {}) {
   const companyId = String(input.companyId || input.companyFolderId || "").trim();
   if (!companyId) {
@@ -288,7 +467,100 @@ export async function forceCompanyLiveIfReadyFromChecks(auth, deps, input = {}) 
 }
 
 export function installGodmodeRegistryActionRoutes(app, deps) {
-  const { getAuthedClient, envConfigured, requireGoogleWorkspaceSession, requireMasterOnlyActor } = deps;
+  const {
+    getAuthedClient,
+    envConfigured,
+    requireGoogleWorkspaceSession,
+    requireMasterOnlyActor,
+    processCompanyUserInvite,
+  } = deps;
+
+  app.post(
+    "/api/godmode/companies/:workspaceId/make-usable",
+    requireGoogleWorkspaceSession,
+    requireMasterOnlyActor,
+    async (req, res) => {
+      const authed = getAuthedClient();
+      if (!envConfigured() || !authed) {
+        const failure = makeUsableFailure({ reasonCode: "GOOGLE_NOT_CONNECTED", failedStep: "connect_google" });
+        return res.status(401).json(failure);
+      }
+      const workspace = workspaceFromRequest(req.params || {}, req.body || {});
+      try {
+        const result = await withHandlerTimeout(
+          makeCompanyUsable(authed, deps, workspace),
+          "make_usable",
+        );
+        if (!result.ok) {
+          const status =
+            result.reasonCode === "GOOGLE_NOT_CONNECTED"
+              ? 401
+              : result.reasonCode === "GOOGLE_TIMEOUT"
+                ? 504
+                : 400;
+          return res.status(status).json(result);
+        }
+        return res.json(result);
+      } catch (error) {
+        const failure = makeUsableFailure({
+          reasonCode: error?.code === "REGISTRY_ACTION_TIMEOUT" ? "GOOGLE_TIMEOUT" : "UNKNOWN",
+          failedStep: "make_usable",
+          companyId: workspace.workspaceId,
+          companyName: workspace.companyName,
+          technicalError: error instanceof Error ? error.message : "Unable to make company usable.",
+        });
+        return res.status(error?.code === "REGISTRY_ACTION_TIMEOUT" ? 504 : 500).json(failure);
+      }
+    },
+  );
+
+  app.post(
+    "/api/godmode/companies/:companyId/invite-user",
+    requireGoogleWorkspaceSession,
+    requireMasterOnlyActor,
+    async (req, res) => {
+      if (typeof processCompanyUserInvite !== "function") {
+        return res.status(501).json({ ok: false, error: "Company user invite handler is not configured." });
+      }
+      const authed = getAuthedClient();
+      if (!envConfigured() || !authed) {
+        return res.status(401).json({
+          ok: false,
+          code: "google_not_connected",
+          error: "Connect Google Workspace before inviting users.",
+        });
+      }
+      const companyId = String(req.params?.companyId || req.body?.companyId || "").trim();
+      if (!companyId) {
+        return res.status(400).json({ ok: false, error: "Company ID is required." });
+      }
+      try {
+        const record = await getCompanyWorkspaceRegistryRecord(authed, deps, companyId);
+        if (!record || !isCompanyRegistryLive(record)) {
+          return res.status(409).json({
+            ok: false,
+            code: "COMPANY_NOT_LIVE",
+            error: "Company must be Live in the registry before inviting users. Use Make company usable first.",
+            blocker: "company_not_live",
+          });
+        }
+        const mergedBody = {
+          ...(req.body || {}),
+          companyId,
+          companyFolderId: String(req.body?.companyFolderId || record.rootFolderId || companyId).trim(),
+          masterSheetId: String(req.body?.masterSheetId || record.masterSheetId || "").trim(),
+          companyName: String(req.body?.companyName || record.companyName || "").trim(),
+        };
+        req.body = mergedBody;
+        return processCompanyUserInvite(req, res);
+      } catch (error) {
+        return res.status(500).json({
+          ok: false,
+          error: error instanceof Error ? error.message : "Unable to invite user.",
+        });
+      }
+    },
+  );
 
   app.post(
     "/api/godmode/companies/:workspaceId/relink-registry",

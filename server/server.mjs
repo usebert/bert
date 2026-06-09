@@ -4983,8 +4983,7 @@ app.post("/api/onboarding/app-invites/new-company", requireGoogleWorkspaceSessio
   });
 });
 
-app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, (req, res) => {
-  const run = async () => {
+async function processCompanyUserInvite(req, res) {
     const toEmail = String(req.body?.email || "").trim().toLowerCase();
     const inviteRole = String(req.body?.role || "").trim();
     const invitedBy = String(req.body?.invitedBy || APP_BRAND_NAME).trim();
@@ -5240,9 +5239,10 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
         error: error instanceof Error ? error.message : "Unable to create onboarding invite.",
       });
     }
-  };
+}
 
-  void run().catch((err) => {
+app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, (req, res) => {
+  void processCompanyUserInvite(req, res).catch((err) => {
     console.error("[api] POST /api/onboarding/app-invites/company-user", err);
     if (!res.headersSent) {
       try {
@@ -6696,6 +6696,7 @@ installGodmodeRegistryActionRoutes(app, {
   envConfigured,
   requireGoogleWorkspaceSession,
   requireMasterOnlyActor,
+  processCompanyUserInvite,
   ...getCompanyWorkspaceRegistryDeps(),
 });
 

@@ -24,6 +24,7 @@ import {
   getCanonicalCompanyStatus,
   isCompanyRegistryLive,
 } from "../shared/company-invite-permissions.mjs";
+import { makeCompanyUsable } from "./godmode-registry-actions.mjs";
 
 export const GOOGLE_OPERATION_TIMEOUT_MS = 90_000;
 
@@ -1031,18 +1032,44 @@ async function handleCompanyCompleteSetupRequest(req, res, deps) {
   }
 
   try {
-    const progressResult = await runCompanySetupProgress(authed, deps, {
+    const registryDeps = deps.registryDeps || deps;
+    const usableResult = await makeCompanyUsable(authed, registryDeps, {
+      workspaceId,
       companyId: workspaceId,
       companyFolderId: workspaceId,
       companyName,
       masterSheetId: String(req.body?.masterSheetId || "").trim(),
     });
-    const response = buildCompleteSetupResponse(progressResult, {
-      companyId: workspaceId,
-      companyName: companyName || progressResult.companyName,
+    if (usableResult.ok) {
+      return res.status(200).json({
+        ok: true,
+        status: "LIVE",
+        companyId: usableResult.companyId,
+        companyName: usableResult.companyName,
+        failedStep: "",
+        reason: "",
+        userMessage: usableResult.userMessage,
+        technicalError: "",
+        completedSteps: ["ensure_registry", "persist_live"],
+        warnings: usableResult.warnings || [],
+        masterSheetId: usableResult.masterSheetId || "",
+        registryStatus: usableResult.registryStatus || "Live",
+      });
+    }
+    const reason = usableResult.reasonCode || usableResult.reason || "UNKNOWN";
+    return res.status(usableResult.reasonCode === "GOOGLE_TIMEOUT" ? 504 : 400).json({
+      ok: false,
+      status: "NEEDS_ATTENTION",
+      companyId: usableResult.companyId || workspaceId,
+      companyName: usableResult.companyName || companyName,
+      failedStep: usableResult.failedStep || "",
+      reason,
+      userMessage: usableResult.userMessage || "Setup could not finish.",
+      technicalError: usableResult.technicalError || "",
+      completedSteps: [],
+      warnings: usableResult.warnings || [],
+      reasonDetail: usableResult.userMessage || reasonPlainEnglish(reason),
     });
-    const httpStatus = response.ok ? 200 : progressResult.failedStep ? 500 : 409;
-    return res.status(httpStatus).json(response);
   } catch (error) {
     console.error(`[company-setup] complete-setup unhandled workspaceId=${workspaceId}`, error);
     const reason = "UNKNOWN";
@@ -1085,14 +1112,42 @@ async function handleCompanyRepairSetupRequest(req, res, deps) {
   }
 
   try {
-    const result = await runCompanySetupProgress(authed, deps, {
+    const registryDeps = deps.registryDeps || deps;
+    const usableResult = await makeCompanyUsable(authed, registryDeps, {
+      workspaceId: companyId,
       companyId,
       companyFolderId: companyId,
       companyName: String(req.body?.companyName || "").trim(),
       masterSheetId: String(req.body?.masterSheetId || "").trim(),
     });
-    const httpStatus = result.ok ? 200 : result.failedStep ? 500 : 409;
-    return res.status(httpStatus).json(result);
+    if (usableResult.ok) {
+      return res.status(200).json({
+        ok: true,
+        companyId: usableResult.companyId,
+        status: "LIVE",
+        currentStep: "",
+        completedSteps: ["ensure_registry", "persist_live"],
+        failedStep: "",
+        blockers: [],
+        message: usableResult.userMessage,
+        technicalError: "",
+        masterSheetId: usableResult.masterSheetId,
+        registryStatus: usableResult.registryStatus,
+        setupWarnings: usableResult.warnings,
+      });
+    }
+    return res.status(400).json({
+      ok: false,
+      companyId: usableResult.companyId || companyId,
+      status: "NEEDS_ATTENTION",
+      currentStep: usableResult.failedStep || "",
+      completedSteps: [],
+      failedStep: usableResult.failedStep || "",
+      blockers: [usableResult.reasonCode || "setup_failed"],
+      message: usableResult.userMessage || CUSTOMER_SETUP_FAILURE_MESSAGE,
+      technicalError: usableResult.technicalError || "",
+      errorCode: usableResult.reasonCode || "UNKNOWN",
+    });
   } catch (error) {
     console.error(`[company-setup] unhandled companyId=${companyId}`, error);
     return res.status(500).json({

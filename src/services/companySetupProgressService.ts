@@ -25,56 +25,60 @@ export type CompanySetupProgressResult = {
   } | null;
 };
 
-export type CompleteSetupResult = {
+export type MakeUsableResult = {
   ok: boolean;
   status: "LIVE" | "NEEDS_ATTENTION";
   companyId: string;
   companyName: string;
   failedStep: string;
   reason: string;
+  reasonCode?: string;
   userMessage: string;
   technicalError: string;
-  completedSteps: string[];
   warnings: string[];
   reasonDetail?: string;
   masterSheetId?: string;
+  registryStatus?: string;
+};
+
+/** @deprecated Use MakeUsableResult */
+export type CompleteSetupResult = MakeUsableResult & {
+  completedSteps?: string[];
   legacyFolderConfig?: Record<string, string>;
   folderIds?: Record<string, string>;
-  registryStatus?: string;
   validation?: CompanySetupProgressResult["validation"];
 };
 
-export const COMPANY_SETUP_DID_NOT_FINISH_MESSAGE = "Setup could not finish.";
-export const COMPANY_SETUP_SUCCESS_MESSAGE = "Company is Live.";
-export const COMPANY_SETUP_SUCCESS_DETAIL = "You can now invite users.";
+export const COMPANY_SETUP_DID_NOT_FINISH_MESSAGE = "Could not make company usable.";
+export const COMPANY_SETUP_SUCCESS_MESSAGE = "Company is ready. You can now invite users.";
+export const COMPANY_SETUP_SUCCESS_DETAIL = "";
+
+export const MAKE_USABLE_REQUEST_TIMEOUT_MS = 35_000;
 
 export const COMPANY_SETUP_STEP_LABELS: Record<string, string> = {
-  resolve_registry: "Resolve company registry record",
-  ensure_company_folder: "Ensure company folder",
-  ensure_folder_structure: "Ensure standard folder structure",
-  ensure_master_sheet: "Ensure company master sheet",
-  ensure_required_tabs: "Ensure required tabs",
-  ensure_companyfolders_mapping: "Ensure CompanyFolders mapping",
-  ensure_first_admin: "Ensure first admin",
-  verify_workbook_read_write: "Verify workbook read/write",
-  workspace_health_check: "Verify workbook read/write",
-  mark_live: "Persist status LIVE if ready",
-  request_timeout: "Setup request timed out",
+  ensure_registry: "Ensure company registry record",
+  persist_live: "Persist status LIVE",
+  ensure_users_tab: "Ensure Users tab",
+  connect_google: "Connect Google Workspace",
+  select_company: "Select company workspace",
+  link_master_sheet: "Link master sheet",
+  request_timeout: "Request timed out",
+  make_usable: "Make company usable",
   unknown: "Unknown step",
 };
 
 const SETUP_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
 
-async function postCompleteSetup(
+async function postMakeUsable(
   workspaceId: string,
-  body: { companyName?: string; masterSheetId?: string },
-): Promise<CompleteSetupResult> {
+  body: { companyName?: string; masterSheetId?: string; companyFolderId?: string },
+): Promise<MakeUsableResult> {
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), SETUP_REQUEST_TIMEOUT_MS);
+  const timeoutId = window.setTimeout(() => controller.abort(), MAKE_USABLE_REQUEST_TIMEOUT_MS);
 
   try {
     const response = await fetch(
-      apiUrl(`/api/godmode/companies/${encodeURIComponent(workspaceId)}/complete-setup`),
+      apiUrl(`/api/godmode/companies/${encodeURIComponent(workspaceId)}/make-usable`),
       {
         method: "POST",
         credentials: "include",
@@ -83,19 +87,16 @@ async function postCompleteSetup(
         body: JSON.stringify({
           workspaceId,
           companyId: workspaceId,
-          companyFolderId: workspaceId,
+          companyFolderId: body.companyFolderId || workspaceId,
           companyName: body.companyName || "",
           masterSheetId: body.masterSheetId || "",
         }),
       },
     );
 
-    const payload = (await response.json()) as CompleteSetupResult & {
+    const payload = (await response.json()) as MakeUsableResult & {
       error?: string;
-      masterSheetId?: string;
-      legacyFolderConfig?: Record<string, string>;
-      registryStatus?: string;
-      validation?: CompanySetupProgressResult["validation"];
+      reasonCode?: string;
     };
 
     if (!response.ok) {
@@ -104,13 +105,13 @@ async function postCompleteSetup(
         companyId: payload.companyId || workspaceId,
         companyName: payload.companyName || body.companyName || "",
         status: payload.status || "NEEDS_ATTENTION",
-        completedSteps: payload.completedSteps || [],
         failedStep: payload.failedStep || "",
-        reason: payload.reason || "UNKNOWN",
+        reason: payload.reason || payload.reasonCode || "UNKNOWN",
+        reasonCode: payload.reasonCode || payload.reason,
         userMessage: payload.userMessage || COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
         technicalError: payload.technicalError || payload.error || "",
         warnings: payload.warnings || [],
-        reasonDetail: payload.reasonDetail,
+        reasonDetail: payload.reasonDetail || payload.userMessage,
       };
     }
 
@@ -118,9 +119,10 @@ async function postCompleteSetup(
       ...payload,
       companyId: payload.companyId || workspaceId,
       companyName: payload.companyName || body.companyName || "",
-      userMessage: payload.userMessage || (payload.ok ? COMPANY_SETUP_SUCCESS_MESSAGE : COMPANY_SETUP_DID_NOT_FINISH_MESSAGE),
+      userMessage: payload.userMessage || COMPANY_SETUP_SUCCESS_MESSAGE,
       technicalError: payload.technicalError || "",
       warnings: payload.warnings || [],
+      status: payload.status || "LIVE",
     };
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
@@ -129,13 +131,13 @@ async function postCompleteSetup(
         companyId: workspaceId,
         companyName: body.companyName || "",
         status: "NEEDS_ATTENTION",
-        completedSteps: [],
         failedStep: "request_timeout",
         reason: "GOOGLE_TIMEOUT",
+        reasonCode: "GOOGLE_TIMEOUT",
         userMessage: COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
-        technicalError: "Company setup request timed out.",
+        technicalError: "Make company usable request timed out.",
         warnings: [],
-        reasonDetail: "A Google operation timed out. Try again in a moment.",
+        reasonDetail: "The request timed out after 30 seconds. Try again in a moment.",
       };
     }
     throw error;
@@ -144,17 +146,25 @@ async function postCompleteSetup(
   }
 }
 
+async function postCompleteSetup(
+  workspaceId: string,
+  body: { companyName?: string; masterSheetId?: string },
+): Promise<CompleteSetupResult> {
+  const result = await postMakeUsable(workspaceId, body);
+  return { ...result, completedSteps: result.ok ? ["ensure_registry", "persist_live"] : [] };
+}
+
 async function postRepairSetup(
   companyId: string,
   body: { companyName?: string; masterSheetId?: string },
 ): Promise<CompanySetupProgressResult> {
-  const result = await postCompleteSetup(companyId, body);
+  const result = await postMakeUsable(companyId, body);
   return {
     ok: result.ok,
     companyId: result.companyId,
     status: result.status,
     currentStep: result.failedStep,
-    completedSteps: result.completedSteps,
+    completedSteps: result.ok ? ["ensure_registry", "persist_live"] : [],
     failedStep: result.failedStep,
     blockers: [],
     message: result.userMessage,
@@ -163,13 +173,24 @@ async function postRepairSetup(
     registryStatus: result.registryStatus,
     setupWarnings: result.warnings,
     masterSheetId: result.masterSheetId,
-    legacyFolderConfig: result.legacyFolderConfig,
-    folderIds: result.folderIds,
-    validation: result.validation,
   };
 }
 
 export const companySetupProgressService = {
+  async makeUsable(input: {
+    companyId: string;
+    companyFolderId?: string;
+    companyName?: string;
+    masterSheetId?: string;
+  }): Promise<MakeUsableResult> {
+    const companyId = String(input.companyId || "").trim();
+    if (!companyId) {
+      throw new Error("Company folder ID is required.");
+    }
+    return postMakeUsable(companyId, input);
+  },
+
+  /** @deprecated Use makeUsable — canonical path is make-usable. */
   async completeSetup(input: {
     companyId: string;
     companyName?: string;
@@ -182,7 +203,7 @@ export const companySetupProgressService = {
     return postCompleteSetup(companyId, input);
   },
 
-  /** @deprecated Delegates to completeSetup — canonical path is complete-setup. */
+  /** @deprecated Delegates to makeUsable. */
   async repairSetup(input: {
     companyId: string;
     companyName?: string;
@@ -191,7 +212,7 @@ export const companySetupProgressService = {
     return postRepairSetup(input.companyId, input);
   },
 
-  /** @deprecated Delegates to completeSetup. */
+  /** @deprecated Delegates to makeUsable. */
   async runSetup(input: {
     companyId: string;
     companyName?: string;

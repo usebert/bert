@@ -23,9 +23,8 @@ import type { CompanyFolder, CompanySheetSyncStatus, WorkspaceValidation } from 
 import {
   COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
   COMPANY_SETUP_STEP_LABELS,
-  COMPANY_SETUP_SUCCESS_DETAIL,
   COMPANY_SETUP_SUCCESS_MESSAGE,
-  type CompleteSetupResult,
+  type MakeUsableResult,
 } from "../../services/companySetupProgressService";
 import { companyWorkspaceRegistryService } from "../../services/companyWorkspaceRegistryService";
 import {
@@ -91,7 +90,7 @@ export type GodmodeCompanyWorkspacePanelProps = {
   companySetupCurrentStep?: string;
   companySetupError?: { failedStep: string; errorCode: string; message: string; technicalError?: string } | null;
   companySetupWarnings?: string[];
-  companySetupResult?: CompleteSetupResult | null;
+  companySetupResult?: MakeUsableResult | null;
   companyRegistryStatus?: string;
   companyMasterSheetProvisioning: boolean;
   folderIdInput: string;
@@ -104,8 +103,10 @@ export type GodmodeCompanyWorkspacePanelProps = {
   managementNotesFolderInput?: string;
   companyMasterSheetLink?: string;
   onSelectFolder: (folderId: string) => void;
-  onCompleteSetup: () => void;
-  /** @deprecated Use onCompleteSetup */
+  onMakeCompanyUsable: () => void;
+  /** @deprecated Use onMakeCompanyUsable */
+  onCompleteSetup?: () => void;
+  /** @deprecated Use onMakeCompanyUsable */
   onOneClickGoogleOnboarding?: () => void;
   onRepairWorkspace: () => void;
   onRepairCompanyFolderStructure?: () => void;
@@ -187,6 +188,7 @@ export function GodmodeCompanyWorkspacePanel({
   managementNotesFolderInput = "",
   companyMasterSheetLink,
   onSelectFolder,
+  onMakeCompanyUsable,
   onCompleteSetup,
   onOneClickGoogleOnboarding,
   onRepairWorkspace,
@@ -220,7 +222,7 @@ export function GodmodeCompanyWorkspacePanel({
   userManagement,
 }: GodmodeCompanyWorkspacePanelProps) {
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
-  const runCompleteSetup = onCompleteSetup || onOneClickGoogleOnboarding;
+  const runMakeUsable = onMakeCompanyUsable || onCompleteSetup || onOneClickGoogleOnboarding;
   const [inviteTargetDiagnostic, setInviteTargetDiagnostic] = useState("");
   const [inviteTargetRepairing, setInviteTargetRepairing] = useState(false);
   const [registryRelinking, setRegistryRelinking] = useState(false);
@@ -248,7 +250,6 @@ export function GodmodeCompanyWorkspacePanel({
   const setupRunning = companyFolderStructureRepairing || companyMasterSheetProvisioning;
   const isProvisioning = setupRunning && !companyLive;
   const visibleSetupError = companyLive ? null : companySetupError;
-  const showSlowVerifyWarning = companyLive && companySetupWarnings.length > 0;
 
   const folderStatuses = useMemo(
     () =>
@@ -680,7 +681,7 @@ export function GodmodeCompanyWorkspacePanel({
               icon="clipboard"
               eyebrow="Setup"
               title={selectedFolder.name}
-              subtitle="One action finishes folder, sheet, registry, and Live status."
+              subtitle="Record the company as Live in the registry, then invite users."
             />
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <span
@@ -695,39 +696,41 @@ export function GodmodeCompanyWorkspacePanel({
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => runCompleteSetup?.()}
-                disabled={adminOnly || !googleWorkspaceReady || !runCompleteSetup || isProvisioning}
+                onClick={() => runMakeUsable?.()}
+                disabled={
+                  adminOnly ||
+                  !googleWorkspaceReady ||
+                  !runMakeUsable ||
+                  isProvisioning ||
+                  !masterSheetOk
+                }
                 className="inline-flex h-11 items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isProvisioning
-                  ? "Running setup…"
-                  : companyLive
-                    ? "Run setup check again"
-                    : "Complete setup"}
+                {isProvisioning ? "Making usable…" : "Make company usable"}
               </button>
             </div>
-            {isProvisioning && companySetupCurrentStep ? (
-              <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
-                Current step:{" "}
-                {COMPANY_SETUP_STEP_LABELS[companySetupCurrentStep] ||
-                  companySetupCurrentStep.replace(/_/g, " ")}
+            {!masterSheetOk ? (
+              <p className="mt-3 text-xs text-amber-900">
+                Link a master sheet for this company before making it usable.
               </p>
             ) : null}
             {setupResultCard?.ok ? (
               <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
-                <p className="font-semibold">{COMPANY_SETUP_SUCCESS_MESSAGE}</p>
-                <p className="mt-1">{COMPANY_SETUP_SUCCESS_DETAIL}</p>
-                {showSlowVerifyWarning || (setupResultCard.warnings?.length ?? 0) > 0 ? (
-                  <p className="mt-2 text-xs text-emerald-900">
-                    Google verification is slow, but setup is complete.
-                  </p>
+                <p className="font-semibold">
+                  {setupResultCard.userMessage || COMPANY_SETUP_SUCCESS_MESSAGE}
+                </p>
+                {(setupResultCard.warnings?.length ?? 0) > 0 ? (
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-emerald-900">
+                    {setupResultCard.warnings.map((warning) => (
+                      <li key={warning}>{warning}</li>
+                    ))}
+                  </ul>
                 ) : null}
               </div>
             ) : setupResultCard && !setupResultCard.ok ? (
               <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-950">
                 <p className="font-semibold">{COMPANY_SETUP_DID_NOT_FINISH_MESSAGE}</p>
                 <p className="mt-2">Reason: {failureReasonText}</p>
-                <p className="mt-2 text-xs text-rose-900">Try again.</p>
               </div>
             ) : null}
             <button
@@ -735,7 +738,7 @@ export function GodmodeCompanyWorkspacePanel({
               onClick={() => setShowTechnicalDetails((open) => !open)}
               className="mt-4 text-xs font-semibold text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline"
             >
-              {showTechnicalDetails ? "Hide technical details" : "Show technical details"}
+              {showTechnicalDetails ? "Hide technical diagnostics" : "Technical diagnostics"}
             </button>
             {showTechnicalDetails ? (
               <div className="mt-4 space-y-4 border-t border-slate-100 pt-4">
@@ -884,16 +887,6 @@ export function GodmodeCompanyWorkspacePanel({
                     <dt className="font-semibold text-slate-500">Master sheet ID</dt>
                     <dd className="mt-0.5 break-all font-mono text-slate-800">{companyMasterSheetId || "Not linked"}</dd>
                   </div>
-                  {companySetupResult?.completedSteps?.length ? (
-                    <div>
-                      <dt className="font-semibold text-slate-500">Completed steps</dt>
-                      <dd className="mt-0.5 text-slate-800">
-                        {companySetupResult.completedSteps
-                          .map((step) => COMPANY_SETUP_STEP_LABELS[step] || step)
-                          .join(" • ")}
-                      </dd>
-                    </div>
-                  ) : null}
                 </dl>
               </div>
             ) : null}
@@ -926,7 +919,7 @@ export function GodmodeCompanyWorkspacePanel({
               </p>
             ) : null}
             <p className="mt-4 text-xs text-slate-600">
-              Health checks and repair actions are in Technical details above.
+              Health checks and repair actions are in Technical diagnostics above — they do not block invites.
             </p>
           </section>
 
@@ -938,12 +931,18 @@ export function GodmodeCompanyWorkspacePanel({
                 title="User management"
                 subtitle="Invite users by email. They complete name and password from the link."
               />
-              <div className="mt-4">
-                <GodmodeUserManagementSection
-                  {...userManagement}
-                  pilotLightNested={pilotLightNested}
-                />
-              </div>
+              {!companyLive ? (
+                <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                  Make the company usable first, then invite users.
+                </p>
+              ) : (
+                <div className="mt-4">
+                  <GodmodeUserManagementSection
+                    {...userManagement}
+                    pilotLightNested={pilotLightNested}
+                  />
+                </div>
+              )}
             </section>
           ) : null}
 

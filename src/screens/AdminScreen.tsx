@@ -337,6 +337,7 @@ export function AdminScreen({
   onOpenOnboardingForm,
   onStartCompanyOnboarding,
   onAddFolder,
+  onMakeCompanyUsable,
   onCompleteSetup,
   onOneClickGoogleOnboarding,
   onTemplateNameChange,
@@ -636,6 +637,7 @@ export function AdminScreen({
           managementNotesFolderInput={managementNotesFolderInput}
           companyMasterSheetLink={companyMasterSheetLink}
           onSelectFolder={onSelectFolder}
+          onMakeCompanyUsable={onMakeCompanyUsable || onCompleteSetup || onOneClickGoogleOnboarding}
           onCompleteSetup={onCompleteSetup || onOneClickGoogleOnboarding}
           onOneClickGoogleOnboarding={onOneClickGoogleOnboarding}
           onRepairWorkspace={onRepairWorkspace}

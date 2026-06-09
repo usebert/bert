@@ -64,15 +64,17 @@ assert(progress.includes("NEEDS_ATTENTION"), "2e: NEEDS_ATTENTION status");
 assert(progress.includes("withGoogleTimeout"), "3: withGoogleTimeout helper");
 assert(GOOGLE_OPERATION_TIMEOUT_MS >= 30_000, "3b: sensible Google timeout");
 
-/** 4: Canonical complete-setup API + legacy repair-setup delegates */
-assert(progress.includes("/api/godmode/companies/:workspaceId/complete-setup"), "4: complete-setup route");
-assert(progress.includes("handleCompanyCompleteSetupRequest"), "4a: complete-setup handler");
-assert(progress.includes("buildCompleteSetupResponse"), "4b: complete-setup response builder");
-assert(progress.includes("/api/godmode/companies/:companyId/repair-setup"), "4c: legacy repair-setup route");
-assert(progress.includes("/api/godmode/company-workspace/run-setup"), "4d: run-setup still registered");
-assert(serverMain.includes("installCompanySetupProgressRoutes"), "4e: server installs setup progress routes");
-assert(service.includes("complete-setup"), "4f: frontend calls complete-setup");
-assert(service.includes("completeSetup"), "4g: frontend completeSetup service");
+/** 4: Canonical make-usable API + legacy complete/repair delegates */
+assert(registryActions.includes("/api/godmode/companies/:workspaceId/make-usable"), "4: make-usable route");
+assert(registryActions.includes("makeCompanyUsable"), "4a: makeCompanyUsable handler");
+assert(registryActions.includes("MAKE_USABLE_REASON_MESSAGES"), "4b: make-usable plain English reasons");
+assert(progress.includes("makeCompanyUsable"), "4c: complete-setup delegates to makeCompanyUsable");
+assert(progress.includes("/api/godmode/companies/:workspaceId/complete-setup"), "4d: legacy complete-setup route");
+assert(progress.includes("/api/godmode/companies/:companyId/repair-setup"), "4e: legacy repair-setup route");
+assert(serverMain.includes("installCompanySetupProgressRoutes"), "4f: server installs setup progress routes");
+assert(serverMain.includes("installGodmodeRegistryActionRoutes"), "4g: server installs godmode registry routes");
+assert(service.includes("make-usable"), "4h: frontend calls make-usable");
+assert(service.includes("makeUsable"), "4i: frontend makeUsable service");
 
 /** 5: Backend logs companyId + step name */
 assert(progress.includes("[company-setup] start step="), "5: step start logging");
@@ -94,9 +96,9 @@ assert(appTsx.includes("setCompanyFolderStructureRepairing(false)"), "7d: finall
 assert(panel.includes("companySetupCurrentStep"), "8: panel shows current step prop");
 assert(panel.includes("companySetupError"), "8b: panel shows setup error prop");
 assert(panel.includes("technicalError"), "8c: panel shows technicalError");
-assert(panel.includes("Complete setup"), "8d: primary Complete setup button");
-assert(panel.includes("Run setup check again"), "8e: live re-check button label");
-assert(panel.includes("Technical details"), "8f: collapsed technical details section");
+assert(panel.includes("Make company usable"), "8d: primary Make company usable button");
+assert(panel.includes("Technical diagnostics"), "8e: collapsed technical diagnostics section");
+assert(panel.includes("onMakeCompanyUsable"), "8f: panel accepts onMakeCompanyUsable prop");
 
 /** 9: Setup aligns with repair (ISO folders + tab repair before health check) */
 assert(progress.includes("ensureIsoReadinessFolders"), "9: setup ensures ISO readiness folders");
@@ -122,11 +124,15 @@ assert(inviteHelpers.includes("isCompanyUsersTabWritable"), "10i: Godmode Users 
 assert(usersPanel.includes("isCompanyUsersTabWritable"), "10j: invite panel uses Users tab gate for Master");
 
 assert(appTsx.includes("companySetupProgressService"), "App uses setup progress service");
-assert(appTsx.includes("completeSetup"), "App uses completeSetup service");
-assert(appTsx.includes("handleCompleteSetup"), "App defines handleCompleteSetup");
-assert(progress.includes("SETUP_REASON_MESSAGES"), "complete-setup plain English reason messages");
-assert(progress.includes("GOOGLE_RECONNECT_REQUIRED"), "complete-setup reconnect reason code");
+assert(appTsx.includes("makeUsable"), "App uses makeUsable service");
+assert(appTsx.includes("handleMakeCompanyUsable"), "App defines handleMakeCompanyUsable");
+assert(registryActions.includes("ensureCompanyRegistryRecordForWorkspace"), "make-usable ensures registry row");
+assert(registryActions.includes("persistCompanyLive"), "make-usable persists LIVE");
+assert(registryActions.includes('requiredTabs: ["Users"]'), "make-usable optional Users tab only");
+assert(!registryActions.includes("ensureCompanyFolderStructure"), "make-usable no folder structure repair");
+assert(!registryActions.includes("verifyWorkbookReadWrite"), "make-usable no workbook verify");
 assert(service.includes("COMPANY_SETUP_SUCCESS_MESSAGE"), "frontend success copy");
+assert(service.includes("Company is ready. You can now invite users."), "frontend success message");
 assert(statusModule.includes("resolveSimpleCompanySetupStatus"), "simple setup status helper");
 assert(panel.includes("resolveSimpleCompanySetupStatus"), "godmode panel uses simple setup status");
 
@@ -195,6 +201,8 @@ assert(panel.includes("forceLiveIfReady"), "17f: godmode panel calls force-live-
 assert(panel.includes("Create / relink company registry record"), "17g: godmode panel relink in technical details");
 assert(panel.includes("Force mark LIVE from ready checks"), "17h: godmode panel force live in technical details");
 assert(!panel.includes('isProvisioning ? "Running setup…" : "Repair / complete setup"'), "17h2: no primary Repair / complete setup button");
+assert(registryActions.includes("/api/godmode/companies/:companyId/invite-user"), "17h0: godmode invite-user route");
+assert(registryActions.includes("processCompanyUserInvite"), "17h1: invite-user delegates to company-user handler");
 assert(registryActions.includes("/api/godmode/companies/:workspaceId/relink-registry"), "17i: relink-registry route");
 assert(registryActions.includes("/api/godmode/companies/:companyId/force-live-if-ready"), "17j: force-live route");
 assert(!registryActions.includes("getDriveFile"), "17k: relink no Drive folder calls");
@@ -293,7 +301,7 @@ assert(
   "38: mark_live precedes warning-only verify in flow",
 );
 assert(progress.includes("reload_registry_after_writes"), "38b: reloads registry before early LIVE evaluation");
-assert(panel.includes("Google verification is slow"), "38c: panel shows slow-verify warning when Live");
+assert(panel.includes("Make the company usable first"), "38c: panel prompts make-usable before invites");
 
 /** 39–43: LIVE clears stale Godmode setup running state */
 assert(appTsx.includes("clearCompanySetupRunningState"), "39: App clears setup running state helper");

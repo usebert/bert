@@ -44,8 +44,9 @@ import {
 import { companyFolderStructureService } from "./src/services/companyFolderStructureService";
 import {
   COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
+  COMPANY_SETUP_SUCCESS_MESSAGE,
   companySetupProgressService,
-  type CompleteSetupResult,
+  type MakeUsableResult,
 } from "./src/services/companySetupProgressService";
 import { companyWorkspaceRegistryService } from "./src/services/companyWorkspaceRegistryService";
 import { navItems } from "./src/config/navItems";
@@ -3282,7 +3283,7 @@ function App() {
     technicalError?: string;
   } | null>(null);
   const [companySetupWarnings, setCompanySetupWarnings] = useState<string[]>([]);
-  const [companySetupResult, setCompanySetupResult] = useState<CompleteSetupResult | null>(null);
+  const [companySetupResult, setCompanySetupResult] = useState<MakeUsableResult | null>(null);
   const [companyMasterSheetLink, setCompanyMasterSheetLink] = useState("");
   const [companyMasterSheetProvisioning, setCompanyMasterSheetProvisioning] = useState(false);
   const clearCompanySetupRunningState = useCallback(() => {
@@ -10048,11 +10049,11 @@ function App() {
     pushToast("Sample data cleared", "Training-only records were removed from this tablet.", "neutral");
   };
 
-  const handleCompleteSetup = async () => {
+  const handleMakeCompanyUsable = async () => {
     if (!backendConfigured || !googleConnected) {
       pushToast(
         "Google Workspace needs setup",
-        "Connect Google in Initial Setup before provisioning a company.",
+        "Connect Google in Initial Setup before making a company usable.",
         "warning",
       );
       return;
@@ -10060,24 +10061,31 @@ function App() {
 
     const companyFolderId = extractGoogleResourceId(folderIdInput) || selectedFolder?.id || "";
     if (!companyFolderId) {
-      pushToast("Missing link", "Select a company folder first, then run Complete setup.", "warning");
+      pushToast("Missing link", "Select a company folder first, then make it usable.", "warning");
+      return;
+    }
+
+    const masterSheetId =
+      extractGoogleResourceId(masterSheetInput) ||
+      companySheetSync?.sheetId ||
+      selectedFolder?.responseSheetId ||
+      "";
+    if (!masterSheetId) {
+      pushToast("Master sheet required", "Link a master sheet before making the company usable.", "warning");
       return;
     }
 
     setCompanyFolderStructureRepairing(true);
-    setCompanySetupCurrentStep("resolve_registry");
+    setCompanySetupCurrentStep("");
     setCompanySetupError(null);
     setCompanySetupWarnings([]);
     setCompanySetupResult(null);
     try {
-      const result = await companySetupProgressService.completeSetup({
+      const result = await companySetupProgressService.makeUsable({
         companyId: companyFolderId,
+        companyFolderId,
         companyName: selectedFolder?.name || folderNameInput,
-        masterSheetId:
-          extractGoogleResourceId(masterSheetInput) ||
-          companySheetSync?.sheetId ||
-          selectedFolder?.responseSheetId ||
-          "",
+        masterSheetId,
       });
       setCompanySetupResult(result);
 
@@ -10090,19 +10098,10 @@ function App() {
         setCompanySetupCurrentStep(result.failedStep);
       }
 
-      if (result.legacyFolderConfig) {
-        applyIsoFolderIdsToInputs(result.legacyFolderConfig, isoFolderInputSnapshot, isoFolderInputSetters);
-      }
-      const resolvedMasterSheetId = String(result.masterSheetId || "").trim();
+      const resolvedMasterSheetId = String(result.masterSheetId || masterSheetId).trim();
       if (resolvedMasterSheetId) {
         setMasterSheetInput(resolvedMasterSheetId);
       }
-      if (result.validation) {
-        setWorkspaceValidation(result.validation as WorkspaceValidation);
-      } else if (resolvedMasterSheetId) {
-        await validateWorkspace({ silent: true });
-      }
-
       if (companyFolderId) {
         await applyRegistryMasterSheetToFolder(companyFolderId);
         try {
@@ -10169,20 +10168,17 @@ function App() {
           message: result.reasonDetail || result.userMessage || COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
           technicalError: result.technicalError || "",
         });
-        pushToast("Setup did not finish", COMPANY_SETUP_DID_NOT_FINISH_MESSAGE, "warning");
+        pushToast("Could not make company usable", COMPANY_SETUP_DID_NOT_FINISH_MESSAGE, "warning");
         return;
       }
 
       setCompanySetupError(null);
       await loadGodmodeLiveCompanies({ silent: true });
-      handleVerifyOnboarding();
-      handleVerifyAudits();
-      handleVerifyResponseSheet();
       pushToast(
-        resultIsLive ? "Company is Live" : "Setup finished",
+        resultIsLive ? "Company is ready" : "Setup finished",
         resultIsLive
-          ? "You can now invite users."
-          : result.reasonDetail || "Some setup checks still need attention.",
+          ? COMPANY_SETUP_SUCCESS_MESSAGE
+          : result.reasonDetail || result.userMessage || "Some checks still need attention.",
         resultIsLive ? "success" : "warning",
       );
     } catch (error) {
@@ -10190,15 +10186,16 @@ function App() {
         failedStep: "",
         errorCode: "SETUP_REQUEST_FAILED",
         message: COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
-        technicalError: error instanceof Error ? error.message : "Unable to run company setup.",
+        technicalError: error instanceof Error ? error.message : "Unable to make company usable.",
       });
-      pushToast("Setup did not finish", COMPANY_SETUP_DID_NOT_FINISH_MESSAGE, "warning");
+      pushToast("Could not make company usable", COMPANY_SETUP_DID_NOT_FINISH_MESSAGE, "warning");
     } finally {
       clearCompanySetupRunningState();
     }
   };
 
-  const handleOneClickGoogleOnboarding = handleCompleteSetup;
+  const handleCompleteSetup = handleMakeCompanyUsable;
+  const handleOneClickGoogleOnboarding = handleMakeCompanyUsable;
 
   const handleApplyDashboardPreset = (preset: "minimal" | "operations" | "executive") => {
     if (preset === "minimal") {
@@ -13149,6 +13146,7 @@ function App() {
                 onOpenOnboardingForm={handleOpenOnboardingForm}
                 onStartCompanyOnboarding={handleStartCompanyOnboarding}
                 onAddFolder={handleAddFolder}
+                onMakeCompanyUsable={handleMakeCompanyUsable}
                 onCompleteSetup={handleCompleteSetup}
                 onOneClickGoogleOnboarding={handleOneClickGoogleOnboarding}
                 onRequestNotifications={requestNotificationAccess}

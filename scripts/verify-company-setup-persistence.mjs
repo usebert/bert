@@ -123,10 +123,14 @@ assertContains("App.tsx", [
 assertContains("src/utils/companyWorkspaceStatus.ts", ['"Needs attention"']);
 
 assertContains("src/components/godmode/GodmodeCompanyWorkspacePanel.tsx", [
-  "Complete setup",
-  "Run setup check again",
-  "Technical details",
+  "Make company usable",
+  "Technical diagnostics",
   "Unlink reason:",
+]);
+assertContains("server/godmode-registry-actions.mjs", [
+  "makeCompanyUsable",
+  "/api/godmode/companies/:workspaceId/make-usable",
+  "persistCompanyLive",
 ]);
 
 console.log("verify-company-setup-persistence: OK");

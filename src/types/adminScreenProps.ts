@@ -241,7 +241,7 @@ export type AdminScreenProps = {
   companySetupCurrentStep?: string;
   companySetupError?: { failedStep: string; errorCode: string; message: string; technicalError?: string } | null;
   companySetupWarnings?: string[];
-  companySetupResult?: import("../services/companySetupProgressService").CompleteSetupResult | null;
+  companySetupResult?: import("../services/companySetupProgressService").MakeUsableResult | null;
   onCreateCompanyMasterSheet?: () => void;
   companyMasterSheetProvisioning?: boolean;
   companyMasterSheetLink?: string;
@@ -275,6 +275,8 @@ export type AdminScreenProps = {
   onOpenOnboardingForm: () => void;
   onStartCompanyOnboarding: () => void;
   onAddFolder: () => void;
+  onMakeCompanyUsable?: () => void;
+  /** @deprecated Use onMakeCompanyUsable */
   onCompleteSetup?: () => void;
   onOneClickGoogleOnboarding: () => void;
   onTemplateNameChange: (value: string) => void;
