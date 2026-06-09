@@ -360,6 +360,142 @@ const KNOWN_SETUP_ERROR_CODES = new Set([
   "MASTER_SHEET_ID_INVALID",
 ]);
 
+export const SETUP_REASON_CODES = [
+  "GOOGLE_NOT_CONNECTED",
+  "GOOGLE_RECONNECT_REQUIRED",
+  "COMPANY_FOLDER_MISSING",
+  "MASTER_SHEET_MISSING",
+  "REQUIRED_TABS_FAILED",
+  "FIRST_ADMIN_FAILED",
+  "REGISTRY_LINK_FAILED",
+  "GOOGLE_TIMEOUT",
+  "UNKNOWN",
+];
+
+const SETUP_REASON_MESSAGES = {
+  GOOGLE_NOT_CONNECTED: "Google Workspace is not connected. Connect Google in Platform Setup first.",
+  GOOGLE_RECONNECT_REQUIRED: "Google connection expired or is invalid. Reconnect Google and try again.",
+  COMPANY_FOLDER_MISSING: "The company folder could not be found or is invalid.",
+  MASTER_SHEET_MISSING: "The company master sheet could not be created or linked.",
+  REQUIRED_TABS_FAILED: "Required tabs could not be added to the master sheet.",
+  FIRST_ADMIN_FAILED: "The first admin user could not be verified on the company sheet.",
+  REGISTRY_LINK_FAILED: "The company registry record could not be created or linked.",
+  GOOGLE_TIMEOUT: "A Google operation timed out. Try again in a moment.",
+  UNKNOWN: "An unexpected error occurred during setup.",
+};
+
+function mapFailedStepToReason(failedStep, errorCode) {
+  const code = String(errorCode || "").trim();
+  if (code === "GOOGLE_NOT_CONNECTED") {
+    return "GOOGLE_NOT_CONNECTED";
+  }
+  if (code === "GOOGLE_RECONNECT_REQUIRED") {
+    return "GOOGLE_RECONNECT_REQUIRED";
+  }
+  if (code === "GOOGLE_TIMEOUT" || code === "REQUEST_TIMEOUT") {
+    return "GOOGLE_TIMEOUT";
+  }
+  switch (String(failedStep || "").trim()) {
+    case "ensure_company_folder":
+      return "COMPANY_FOLDER_MISSING";
+    case "ensure_master_sheet":
+      return "MASTER_SHEET_MISSING";
+    case "ensure_required_tabs":
+      return "REQUIRED_TABS_FAILED";
+    case "ensure_first_admin":
+      return "FIRST_ADMIN_FAILED";
+    case "resolve_registry":
+    case "mark_live":
+      return "REGISTRY_LINK_FAILED";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+function reasonPlainEnglish(reason) {
+  return SETUP_REASON_MESSAGES[reason] || SETUP_REASON_MESSAGES.UNKNOWN;
+}
+
+export function buildCompleteSetupResponse(progressResult = {}, extra = {}) {
+  const companyId = String(progressResult.companyId || extra.companyId || "").trim();
+  const companyName = String(extra.companyName || progressResult.companyName || "").trim();
+  const completedSteps = progressResult.completedSteps || [];
+  const warnings = progressResult.setupWarnings || progressResult.warnings || [];
+  const isLive =
+    progressResult.status === SETUP_STATUS_LIVE ||
+    isCompanyRegistryLive({
+      status: progressResult.registryStatus,
+      registryStatus: progressResult.registryStatus,
+    });
+
+  const sharedFields = {
+    masterSheetId: progressResult.masterSheetId || "",
+    legacyFolderConfig: progressResult.legacyFolderConfig || {},
+    folderIds: progressResult.folderIds || {},
+    registryStatus: progressResult.registryStatus || "",
+    validation: progressResult.validation || null,
+  };
+
+  if (isLive && !progressResult.failedStep) {
+    return {
+      ok: true,
+      status: SETUP_STATUS_LIVE,
+      companyId,
+      companyName,
+      failedStep: "",
+      reason: "",
+      userMessage: "Company is Live.",
+      technicalError: "",
+      completedSteps,
+      warnings,
+      ...sharedFields,
+    };
+  }
+
+  const reason = mapFailedStepToReason(progressResult.failedStep, progressResult.errorCode);
+  return {
+    ok: false,
+    status: progressResult.status || SETUP_STATUS_NEEDS_ATTENTION,
+    companyId,
+    companyName,
+    failedStep: progressResult.failedStep || "",
+    reason,
+    userMessage: "Setup could not finish.",
+    technicalError: progressResult.technicalError || "",
+    completedSteps,
+    warnings,
+    reasonDetail: reasonPlainEnglish(reason),
+    ...sharedFields,
+  };
+}
+
+async function probeGoogleConnection(auth, google) {
+  if (!auth || !google) {
+    return { ok: false, reason: "GOOGLE_NOT_CONNECTED" };
+  }
+  try {
+    const drive = google.drive({ version: "v3", auth });
+    await withGoogleTimeout(drive.about.get({ fields: "user" }), "google_connection_probe", 15_000);
+    return { ok: true };
+  } catch (error) {
+    const message = String(error?.message || "").toLowerCase();
+    const status = Number(error?.code || error?.response?.status || 0);
+    if (
+      status === 401 ||
+      message.includes("invalid_grant") ||
+      message.includes("invalid credentials") ||
+      message.includes("token has been expired") ||
+      message.includes("unauthorized")
+    ) {
+      return { ok: false, reason: "GOOGLE_RECONNECT_REQUIRED" };
+    }
+    if (error?.code === "GOOGLE_TIMEOUT") {
+      return { ok: true };
+    }
+    return { ok: false, reason: "GOOGLE_RECONNECT_REQUIRED" };
+  }
+}
+
 function resolveErrorCode(error) {
   if (error?.code && KNOWN_SETUP_ERROR_CODES.has(error.code)) {
     return error.code;
@@ -817,6 +953,115 @@ export async function runCompanySetupProgress(auth, deps, input = {}) {
 /** @deprecated Alias — use runCompanySetupProgress. */
 export const runCompanyRepairSetup = runCompanySetupProgress;
 
+async function handleCompanyCompleteSetupRequest(req, res, deps) {
+  const { getAuthedClient, envConfigured, google } = deps;
+  const workspaceId = String(
+    req.params?.workspaceId || req.params?.companyId || req.body?.workspaceId || req.body?.companyId || "",
+  ).trim();
+  const companyName = String(req.body?.companyName || "").trim();
+
+  if (!envConfigured()) {
+    const reason = "GOOGLE_NOT_CONNECTED";
+    return res.status(401).json({
+      ok: false,
+      status: SETUP_STATUS_NEEDS_ATTENTION,
+      companyId: workspaceId,
+      companyName,
+      failedStep: "",
+      reason,
+      userMessage: "Setup could not finish.",
+      technicalError: "Google Workspace is not configured on the API server.",
+      completedSteps: [],
+      warnings: [],
+      reasonDetail: reasonPlainEnglish(reason),
+    });
+  }
+
+  const authed = getAuthedClient();
+  if (!authed) {
+    const reason = "GOOGLE_NOT_CONNECTED";
+    return res.status(401).json({
+      ok: false,
+      status: SETUP_STATUS_NEEDS_ATTENTION,
+      companyId: workspaceId,
+      companyName,
+      failedStep: "",
+      reason,
+      userMessage: "Setup could not finish.",
+      technicalError: "Google Workspace is not connected on the API server.",
+      completedSteps: [],
+      warnings: [],
+      reasonDetail: reasonPlainEnglish(reason),
+    });
+  }
+
+  const probe = await probeGoogleConnection(authed, google);
+  if (!probe.ok) {
+    const reason = probe.reason || "GOOGLE_RECONNECT_REQUIRED";
+    return res.status(401).json({
+      ok: false,
+      status: SETUP_STATUS_NEEDS_ATTENTION,
+      companyId: workspaceId,
+      companyName,
+      failedStep: "",
+      reason,
+      userMessage: "Setup could not finish.",
+      technicalError: reasonPlainEnglish(reason),
+      completedSteps: [],
+      warnings: [],
+      reasonDetail: reasonPlainEnglish(reason),
+    });
+  }
+
+  if (!workspaceId) {
+    const reason = "COMPANY_FOLDER_MISSING";
+    return res.status(400).json({
+      ok: false,
+      status: SETUP_STATUS_NEEDS_ATTENTION,
+      companyId: "",
+      companyName,
+      failedStep: "ensure_company_folder",
+      reason,
+      userMessage: "Setup could not finish.",
+      technicalError: "Company folder ID is required.",
+      completedSteps: [],
+      warnings: [],
+      reasonDetail: reasonPlainEnglish(reason),
+    });
+  }
+
+  try {
+    const progressResult = await runCompanySetupProgress(authed, deps, {
+      companyId: workspaceId,
+      companyFolderId: workspaceId,
+      companyName,
+      masterSheetId: String(req.body?.masterSheetId || "").trim(),
+    });
+    const response = buildCompleteSetupResponse(progressResult, {
+      companyId: workspaceId,
+      companyName: companyName || progressResult.companyName,
+    });
+    const httpStatus = response.ok ? 200 : progressResult.failedStep ? 500 : 409;
+    return res.status(httpStatus).json(response);
+  } catch (error) {
+    console.error(`[company-setup] complete-setup unhandled workspaceId=${workspaceId}`, error);
+    const reason = "UNKNOWN";
+    return res.status(500).json({
+      ok: false,
+      status: SETUP_STATUS_NEEDS_ATTENTION,
+      companyId: workspaceId,
+      companyName,
+      failedStep: "unknown",
+      reason,
+      userMessage: "Setup could not finish.",
+      technicalError: error instanceof Error ? error.message : "Company setup failed.",
+      completedSteps: [],
+      warnings: [],
+      reasonDetail: reasonPlainEnglish(reason),
+    });
+  }
+}
+
 async function handleCompanyRepairSetupRequest(req, res, deps) {
   const { getAuthedClient, envConfigured } = deps;
   const authed = getAuthedClient();
@@ -867,6 +1112,13 @@ async function handleCompanyRepairSetupRequest(req, res, deps) {
 
 export function installCompanySetupProgressRoutes(app, deps) {
   const { requireGoogleWorkspaceSession, requireMasterOnlyActor } = deps;
+
+  app.post(
+    "/api/godmode/companies/:workspaceId/complete-setup",
+    requireGoogleWorkspaceSession,
+    requireMasterOnlyActor,
+    (req, res) => handleCompanyCompleteSetupRequest(req, res, deps),
+  );
 
   app.post(
     "/api/godmode/companies/:companyId/repair-setup",

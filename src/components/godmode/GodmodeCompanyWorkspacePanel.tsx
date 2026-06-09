@@ -9,20 +9,23 @@ import { EmptyPanel, MiniMetric, SectionHeader } from "../dashboard/DashboardPri
 import { SECTION_INTROS } from "../../config/sectionIntros";
 import { GodmodeCollapsibleSection } from "./GodmodeCollapsibleSection";
 import { GodmodeUserManagementSection, type GodmodeUserManagementSectionProps } from "./GodmodeUserManagementSection";
+import { WorkspaceStatusBadge } from "./WorkspaceStatusBadge";
 import {
-  getCompanySetupNextAction,
   resolveCompanySetupStatus,
   resolveCompanyWorkspaceStatus,
-  WorkspaceStatusBadge,
-} from "./WorkspaceStatusBadge";
+  resolveSimpleCompanySetupStatus,
+  simpleSetupStatusBadgeClass,
+} from "../../utils/companyWorkspaceStatus";
 import type { Site, UserInvite, FolderInspection } from "../../types/adminScreenProps";
 import type { AreaAuditMapping } from "../../utils/areaAuditMapping";
 import type { AuditTemplate } from "../../types/reportsScreenProps";
 import type { CompanyFolder, CompanySheetSyncStatus, WorkspaceValidation } from "../../types/dashboardScreenProps";
-import type { CompanySetupNextAction } from "../../utils/companyWorkspaceStatus";
 import {
   COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
   COMPANY_SETUP_STEP_LABELS,
+  COMPANY_SETUP_SUCCESS_DETAIL,
+  COMPANY_SETUP_SUCCESS_MESSAGE,
+  type CompleteSetupResult,
 } from "../../services/companySetupProgressService";
 import { companyWorkspaceRegistryService } from "../../services/companyWorkspaceRegistryService";
 import {
@@ -58,22 +61,6 @@ function SetupChecklistRow({ label, ok, hint }: { label: string; ok: boolean; hi
   );
 }
 
-function FolderCheckRow({ label, ok }: { label: string; ok: boolean }) {
-  return (
-    <div className="bert-light-surface flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2">
-      <p className="text-sm text-slate-700">{label}</p>
-      <span
-        className={[
-          "rounded-full px-2.5 py-0.5 text-[11px] font-semibold",
-          ok ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900",
-        ].join(" ")}
-      >
-        {ok ? "Found" : "Missing"}
-      </span>
-    </div>
-  );
-}
-
 export type GodmodeCompanyWorkspacePanelProps = {
   currentUserRole: Role;
   folders: CompanyFolder[];
@@ -104,6 +91,7 @@ export type GodmodeCompanyWorkspacePanelProps = {
   companySetupCurrentStep?: string;
   companySetupError?: { failedStep: string; errorCode: string; message: string; technicalError?: string } | null;
   companySetupWarnings?: string[];
+  companySetupResult?: CompleteSetupResult | null;
   companyRegistryStatus?: string;
   companyMasterSheetProvisioning: boolean;
   folderIdInput: string;
@@ -116,7 +104,9 @@ export type GodmodeCompanyWorkspacePanelProps = {
   managementNotesFolderInput?: string;
   companyMasterSheetLink?: string;
   onSelectFolder: (folderId: string) => void;
-  onOneClickGoogleOnboarding: () => void;
+  onCompleteSetup: () => void;
+  /** @deprecated Use onCompleteSetup */
+  onOneClickGoogleOnboarding?: () => void;
   onRepairWorkspace: () => void;
   onRepairCompanyFolderStructure?: () => void;
   onValidateWorkspace: () => void;
@@ -154,37 +144,6 @@ export type GodmodeCompanyWorkspacePanelProps = {
   };
 };
 
-function runNextAction(
-  action: CompanySetupNextAction["primaryHandler"],
-  handlers: {
-    onOneClickGoogleOnboarding: () => void;
-    onValidateWorkspace: () => void;
-    onSyncForms: () => void;
-    onRepairCompanyFolderStructure?: () => void;
-    onRepairWorkspace: () => void;
-  },
-) {
-  switch (action) {
-    case "run_setup":
-      handlers.onOneClickGoogleOnboarding();
-      break;
-    case "health_check":
-      handlers.onValidateWorkspace();
-      break;
-    case "resync":
-      handlers.onSyncForms();
-      break;
-    case "repair_folders":
-      handlers.onRepairCompanyFolderStructure?.();
-      break;
-    case "repair_workspace":
-      handlers.onRepairWorkspace();
-      break;
-    default:
-      break;
-  }
-}
-
 export function GodmodeCompanyWorkspacePanel({
   currentUserRole,
   folders,
@@ -215,6 +174,7 @@ export function GodmodeCompanyWorkspacePanel({
   companySetupCurrentStep = "",
   companySetupError = null,
   companySetupWarnings = [],
+  companySetupResult = null,
   companyRegistryStatus = "",
   companyMasterSheetProvisioning,
   folderIdInput,
@@ -227,6 +187,7 @@ export function GodmodeCompanyWorkspacePanel({
   managementNotesFolderInput = "",
   companyMasterSheetLink,
   onSelectFolder,
+  onCompleteSetup,
   onOneClickGoogleOnboarding,
   onRepairWorkspace,
   onRepairCompanyFolderStructure,
@@ -258,7 +219,8 @@ export function GodmodeCompanyWorkspacePanel({
   slatePrimaryCtaInteract,
   userManagement,
 }: GodmodeCompanyWorkspacePanelProps) {
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
+  const runCompleteSetup = onCompleteSetup || onOneClickGoogleOnboarding;
   const [inviteTargetDiagnostic, setInviteTargetDiagnostic] = useState("");
   const [inviteTargetRepairing, setInviteTargetRepairing] = useState(false);
   const [registryRelinking, setRegistryRelinking] = useState(false);
@@ -628,35 +590,28 @@ export function GodmodeCompanyWorkspacePanel({
     effectiveRegistryStatus,
   ]);
 
-  const isLiveStatus = selectedStatus === "Live" || selectedStatus === "Needs attention";
-
-  const nextAction = useMemo(() => {
-    if (!selectedStatus) {
-      return getCompanySetupNextAction({
-        status: "Not started",
-        googleWorkspaceReady,
-        masterSheetOk,
-        folderStructureOk,
-        healthCheckRun,
-        workspaceHealthOk,
-      });
-    }
-    return getCompanySetupNextAction({
-      status: selectedStatus,
-      googleWorkspaceReady,
-      masterSheetOk,
-      folderStructureOk,
-      healthCheckRun,
-      workspaceHealthOk,
-    });
-  }, [
-    selectedStatus,
-    googleWorkspaceReady,
-    masterSheetOk,
-    folderStructureOk,
-    healthCheckRun,
-    workspaceHealthOk,
-  ]);
+  const simpleStatus = selectedStatus ? resolveSimpleCompanySetupStatus(selectedStatus) : "Not set up";
+  const setupResultCard =
+    companySetupResult ??
+    (companyLive && !visibleSetupError
+      ? {
+          ok: true as const,
+          userMessage: COMPANY_SETUP_SUCCESS_MESSAGE,
+          warnings: companySetupWarnings,
+        }
+      : visibleSetupError
+        ? {
+            ok: false as const,
+            userMessage: COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
+            reasonDetail: visibleSetupError.message,
+            reason: visibleSetupError.errorCode,
+          }
+        : null);
+  const failureReasonText =
+    companySetupResult?.reasonDetail ||
+    companySetupResult?.reason?.replace(/_/g, " ") ||
+    visibleSetupError?.message ||
+    "Setup could not complete.";
 
   const healthSummary = workspaceValidation
     ? workspaceValidation.ok
@@ -669,14 +624,6 @@ export function GodmodeCompanyWorkspacePanel({
   const showAreas = canManageAreas(currentUserRole) && selectedFolder && !masterCompanyContextBlocked && companyLive;
   const showReset =
     currentUserRole === "Master" && selectedFolder && companyMasterSheetId && onCompanyWorkspaceResetSuccess;
-
-  const actionHandlers = {
-    onOneClickGoogleOnboarding,
-    onValidateWorkspace,
-    onSyncForms,
-    onRepairCompanyFolderStructure,
-    onRepairWorkspace,
-  };
 
   return (
     <div className="space-y-4">
@@ -732,73 +679,126 @@ export function GodmodeCompanyWorkspacePanel({
             <SectionHeader
               icon="clipboard"
               eyebrow="Setup"
-              title="Selected company setup"
-              subtitle={selectedFolder.name}
+              title={selectedFolder.name}
+              subtitle="One action finishes folder, sheet, registry, and Live status."
             />
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              {selectedStatus ? <WorkspaceStatusBadge status={selectedStatus} /> : null}
+              <span
+                className={[
+                  "inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold",
+                  simpleSetupStatusBadgeClass(simpleStatus),
+                ].join(" ")}
+              >
+                {simpleStatus}
+              </span>
             </div>
-            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Next action</p>
-              <p className="mt-1 text-sm font-semibold text-slate-900">{nextAction.label}</p>
-              {nextAction.detail ? <p className="mt-1 text-xs text-slate-600">{nextAction.detail}</p> : null}
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => runCompleteSetup?.()}
+                disabled={adminOnly || !googleWorkspaceReady || !runCompleteSetup || isProvisioning}
+                className="inline-flex h-11 items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isProvisioning
+                  ? "Running setup…"
+                  : companyLive
+                    ? "Run setup check again"
+                    : "Complete setup"}
+              </button>
             </div>
-            <div className="mt-4 space-y-2">
-              <SetupChecklistRow label="Company folder" ok={Boolean(selectedFolder)} />
-              <SetupChecklistRow
-                label="Folder structure"
-                ok={folderStructureOk}
-                hint="ISO 01–06 folders under the company root"
-              />
-              <SetupChecklistRow label="Company master sheet" ok={masterSheetOk} />
-              <SetupChecklistRow
-                label="Required tabs"
-                ok={Boolean(requiredTabsOk)}
-                hint={
-                  workspaceValidation?.missingTabs.length
-                    ? `${workspaceValidation.missingTabs.length} tab(s) missing`
-                    : undefined
-                }
-              />
-              <SetupChecklistRow label="CompanyFolders mapping" ok={companyFoldersMappingOk} />
-              <SetupChecklistRow label="First admin" ok={firstAdminReady} />
-              <SetupChecklistRow label="Workspace health checked" ok={healthCheckRun && workspaceHealthOk} />
-              <SetupChecklistRow
-                label="Company live"
-                ok={companyLive}
-                hint={companyLive ? "Registry status: Live" : registryStatus || "Not Live"}
-              />
-            </div>
-            {!companyLive ? (
-              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-                <p className="font-semibold">
-                  {registryLinkMissing
-                    ? "Company registry link missing."
-                    : "Company is not Live in the registry."}
-                </p>
-                {registryLinkMissing ? (
-                  <p className="mt-1 text-xs text-amber-900">
-                    Relink the registry record without re-running full Google setup, then force Live when checks are
-                    ready.
+            {isProvisioning && companySetupCurrentStep ? (
+              <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
+                Current step:{" "}
+                {COMPANY_SETUP_STEP_LABELS[companySetupCurrentStep] ||
+                  companySetupCurrentStep.replace(/_/g, " ")}
+              </p>
+            ) : null}
+            {setupResultCard?.ok ? (
+              <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
+                <p className="font-semibold">{COMPANY_SETUP_SUCCESS_MESSAGE}</p>
+                <p className="mt-1">{COMPANY_SETUP_SUCCESS_DETAIL}</p>
+                {showSlowVerifyWarning || (setupResultCard.warnings?.length ?? 0) > 0 ? (
+                  <p className="mt-2 text-xs text-emerald-900">
+                    Google verification is slow, but setup is complete.
                   </p>
                 ) : null}
+              </div>
+            ) : setupResultCard && !setupResultCard.ok ? (
+              <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-950">
+                <p className="font-semibold">{COMPANY_SETUP_DID_NOT_FINISH_MESSAGE}</p>
+                <p className="mt-2">Reason: {failureReasonText}</p>
+                <p className="mt-2 text-xs text-rose-900">Try again.</p>
+              </div>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setShowTechnicalDetails((open) => !open)}
+              className="mt-4 text-xs font-semibold text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline"
+            >
+              {showTechnicalDetails ? "Hide technical details" : "Show technical details"}
+            </button>
+            {showTechnicalDetails ? (
+              <div className="mt-4 space-y-4 border-t border-slate-100 pt-4">
+                <div className="space-y-2">
+                  <SetupChecklistRow label="Company folder" ok={Boolean(selectedFolder)} />
+                  <SetupChecklistRow
+                    label="Folder structure"
+                    ok={folderStructureOk}
+                    hint="ISO 01–06 folders under the company root"
+                  />
+                  <SetupChecklistRow label="Company master sheet" ok={masterSheetOk} />
+                  <SetupChecklistRow
+                    label="Required tabs"
+                    ok={Boolean(requiredTabsOk)}
+                    hint={
+                      workspaceValidation?.missingTabs.length
+                        ? `${workspaceValidation.missingTabs.length} tab(s) missing`
+                        : undefined
+                    }
+                  />
+                  <SetupChecklistRow label="CompanyFolders mapping" ok={companyFoldersMappingOk} />
+                  <SetupChecklistRow label="First admin" ok={firstAdminReady} />
+                  <SetupChecklistRow label="Workspace health checked" ok={healthCheckRun && workspaceHealthOk} />
+                  <SetupChecklistRow
+                    label="Company live"
+                    ok={companyLive}
+                    hint={companyLive ? "Registry status: Live" : registryStatus || "Not Live"}
+                  />
+                </div>
                 {setupBlockers.length ? (
-                  <ul className="mt-2 list-disc space-y-1 pl-5">
+                  <ul className="list-disc space-y-1 pl-5 text-sm text-amber-950">
                     {setupBlockers.map((blocker) => (
                       <li key={blocker}>{blocker}</li>
                     ))}
                   </ul>
                 ) : null}
-                {registryActionError ? (
-                  <p className="mt-2 text-xs text-rose-800">{registryActionError}</p>
+                {registryUnlinkReason ? (
+                  <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                    Unlink reason: {registryUnlinkReason.replace(/_/g, " ")}
+                  </p>
                 ) : null}
-                <div className="mt-3 flex flex-wrap gap-2">
+                {visibleSetupError ? (
+                  <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-950">
+                    {visibleSetupError.failedStep ? (
+                      <p>
+                        Failed step:{" "}
+                        {COMPANY_SETUP_STEP_LABELS[visibleSetupError.failedStep] ||
+                          visibleSetupError.failedStep.replace(/_/g, " ")}
+                      </p>
+                    ) : null}
+                    {visibleSetupError.technicalError ? (
+                      <p className="mt-2 font-mono text-xs text-rose-800">{visibleSetupError.technicalError}</p>
+                    ) : null}
+                  </div>
+                ) : null}
+                {registryActionError ? <p className="text-xs text-rose-800">{registryActionError}</p> : null}
+                <div className="flex flex-wrap gap-2">
                   {registryLinkMissing ? (
                     <button
                       type="button"
                       onClick={() => void relinkCompanyRegistry()}
                       disabled={adminOnly || !googleWorkspaceReady || registryRelinking}
-                      className="inline-flex h-10 items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex h-10 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {registryRelinking ? "Relinking registry…" : "Create / relink company registry record"}
                     </button>
@@ -808,118 +808,95 @@ export function GodmodeCompanyWorkspacePanel({
                       type="button"
                       onClick={() => void forceMarkLiveFromReadyChecks()}
                       disabled={adminOnly || !googleWorkspaceReady || registryForceLiveLoading}
-                      className="inline-flex h-10 items-center rounded-xl border border-amber-400 bg-white px-4 text-sm font-semibold text-amber-950 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex h-10 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {registryForceLiveLoading ? "Marking Live…" : "Force mark LIVE from ready checks"}
                     </button>
                   ) : null}
                   <button
                     type="button"
-                    onClick={() => void onOneClickGoogleOnboarding()}
-                    disabled={adminOnly || !googleWorkspaceReady || isProvisioning}
+                    onClick={onValidateWorkspace}
+                    disabled={masterCompanyContextBlocked || workspaceValidationLoading}
                     className="inline-flex h-10 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {isProvisioning ? "Running setup…" : "Repair / complete setup"}
+                    {workspaceValidationLoading ? "Checking…" : "Re-check workspace"}
                   </button>
+                  {onRepairCompanyFolderStructure ? (
+                    <button
+                      type="button"
+                      onClick={onRepairCompanyFolderStructure}
+                      disabled={masterCompanyContextBlocked || companyFolderStructureRepairing}
+                      className="inline-flex h-10 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {companyFolderStructureRepairing ? "Repairing…" : "Repair folder structure"}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={onRepairWorkspace}
+                    disabled={masterCompanyContextBlocked}
+                    className="inline-flex h-10 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800"
+                  >
+                    Fix workspace
+                  </button>
+                  <a
+                    href={`https://drive.google.com/drive/folders/${selectedFolder.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex h-10 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800"
+                  >
+                    Open Drive folder
+                  </a>
+                  {companyMasterSheetId ? (
+                    <a
+                      href={`https://docs.google.com/spreadsheets/d/${companyMasterSheetId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex h-10 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800"
+                    >
+                      Open master sheet
+                    </a>
+                  ) : null}
                 </div>
+                {inviteTargetDiagnostic ? (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                    <p>{inviteTargetDiagnostic}</p>
+                    <button
+                      type="button"
+                      onClick={() => void repairInviteCompanySheetLink()}
+                      disabled={adminOnly || !googleWorkspaceReady || inviteTargetRepairing}
+                      className="mt-3 inline-flex h-10 items-center rounded-xl border border-amber-300 bg-white px-4 text-sm font-semibold text-amber-950 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {inviteTargetRepairing ? "Repairing…" : "Repair invite/company sheet link"}
+                    </button>
+                  </div>
+                ) : null}
+                <dl className="space-y-2 text-xs text-slate-600">
+                  <div>
+                    <dt className="font-semibold text-slate-500">Company ID</dt>
+                    <dd className="mt-0.5 break-all font-mono text-slate-800">{selectedFolder.id}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-semibold text-slate-500">Registry status</dt>
+                    <dd className="mt-0.5 font-mono text-slate-800">{registryStatus || "Unknown"}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-semibold text-slate-500">Master sheet ID</dt>
+                    <dd className="mt-0.5 break-all font-mono text-slate-800">{companyMasterSheetId || "Not linked"}</dd>
+                  </div>
+                  {companySetupResult?.completedSteps?.length ? (
+                    <div>
+                      <dt className="font-semibold text-slate-500">Completed steps</dt>
+                      <dd className="mt-0.5 text-slate-800">
+                        {companySetupResult.completedSteps
+                          .map((step) => COMPANY_SETUP_STEP_LABELS[step] || step)
+                          .join(" • ")}
+                      </dd>
+                    </div>
+                  ) : null}
+                </dl>
               </div>
             ) : null}
-            {inviteTargetDiagnostic ? (
-              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-                <p>{inviteTargetDiagnostic}</p>
-                <button
-                  type="button"
-                  onClick={() => void repairInviteCompanySheetLink()}
-                  disabled={adminOnly || !googleWorkspaceReady || inviteTargetRepairing}
-                  className="mt-3 inline-flex h-10 items-center rounded-xl border border-amber-300 bg-white px-4 text-sm font-semibold text-amber-950 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {inviteTargetRepairing ? "Repairing…" : "Repair invite/company sheet link"}
-                </button>
-              </div>
-            ) : null}
-            {registryUnlinkReason ? (
-              <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-                Unlink reason: {registryUnlinkReason.replace(/_/g, " ")}
-              </p>
-            ) : null}
-            {isProvisioning && companySetupCurrentStep ? (
-              <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
-                Current step:{" "}
-                {COMPANY_SETUP_STEP_LABELS[companySetupCurrentStep] ||
-                  companySetupCurrentStep.replace(/_/g, " ")}
-              </p>
-            ) : null}
-            {showSlowVerifyWarning ? (
-              <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-                Company is live. Google verification is slow, but setup is complete.
-              </p>
-            ) : null}
-            {visibleSetupError ? (
-              <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-950">
-                <p className="font-semibold">{COMPANY_SETUP_DID_NOT_FINISH_MESSAGE}</p>
-                {visibleSetupError.failedStep ? (
-                  <p className="mt-2">
-                    Failed step:{" "}
-                    {COMPANY_SETUP_STEP_LABELS[visibleSetupError.failedStep] ||
-                      visibleSetupError.failedStep.replace(/_/g, " ")}
-                  </p>
-                ) : null}
-                {visibleSetupError.errorCode ? (
-                  <p className="mt-1 font-mono text-xs">Error code: {visibleSetupError.errorCode}</p>
-                ) : null}
-                {visibleSetupError.message ? (
-                  <p className="mt-2 text-xs text-rose-900">{visibleSetupError.message}</p>
-                ) : null}
-                {visibleSetupError.technicalError ? (
-                  <p className="mt-2 font-mono text-xs text-rose-800">{visibleSetupError.technicalError}</p>
-                ) : null}
-              </div>
-            ) : null}
-            <div className="mt-4 flex flex-wrap gap-2">
-              {!isLiveStatus ? (
-                <button
-                  type="button"
-                  onClick={() => runNextAction(nextAction.primaryHandler, actionHandlers)}
-                  disabled={
-                    adminOnly ||
-                    !googleWorkspaceReady ||
-                    folderInspectionLoading ||
-                    isProvisioning ||
-                    nextAction.primaryHandler === "none"
-                  }
-                  className="inline-flex h-11 items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isProvisioning ? "Running setup…" : "Repair / complete setup"}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={onValidateWorkspace}
-                  disabled={masterCompanyContextBlocked || workspaceValidationLoading}
-                  className="inline-flex h-11 items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {workspaceValidationLoading ? "Checking…" : "Re-check workspace"}
-                </button>
-              )}
-              <a
-                href={`https://drive.google.com/drive/folders/${selectedFolder.id}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex h-11 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800"
-              >
-                Open Drive folder
-              </a>
-              {companyMasterSheetId ? (
-                <a
-                  href={`https://docs.google.com/spreadsheets/d/${companyMasterSheetId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex h-11 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800"
-                >
-                  Open master sheet
-                </a>
-              ) : null}
-            </div>
           </section>
 
           <section className={pilotLightSurface}>
@@ -948,140 +925,9 @@ export function GodmodeCompanyWorkspacePanel({
                 {folderInspection.blockingItems.join(" • ")}
               </p>
             ) : null}
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={onValidateWorkspace}
-                disabled={masterCompanyContextBlocked}
-                title={masterCompanyContextBlocked ? masterCompanyContextMessage : undefined}
-                className={`inline-flex h-11 items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 ${slatePrimaryCtaInteract}`}
-              >
-                {workspaceValidationLoading ? "Checking…" : "Run health check"}
-              </button>
-              <button
-                type="button"
-                onClick={onSyncForms}
-                disabled={adminOnly || !googleWorkspaceReady || !selectedFolder || folderInspectionLoading}
-                className="inline-flex h-11 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Re-sync from company sheet
-              </button>
-              {onRepairCompanyFolderStructure ? (
-                <button
-                  type="button"
-                  onClick={onRepairCompanyFolderStructure}
-                  disabled={masterCompanyContextBlocked || companyFolderStructureRepairing}
-                  className="inline-flex h-11 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {companyFolderStructureRepairing ? "Repairing…" : "Repair folder structure"}
-                </button>
-              ) : null}
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowDiagnostics((open) => !open)}
-              className="mt-4 text-xs font-semibold text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline"
-            >
-              {showDiagnostics ? "Hide diagnostics" : "Show diagnostics"}
-            </button>
-            {showDiagnostics ? (
-              <div className="mt-4 space-y-4 border-t border-slate-100 pt-4">
-                {folderInspection ? (
-                  <div className={pilotLightNested}>
-                    <p className="text-sm font-semibold text-slate-900">Folder check — {folderInspection.folder.name}</p>
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                      <FolderCheckRow label="Company Master Sheet" ok={folderInspection.checks.masterSheet} />
-                      <FolderCheckRow label="Audit forms folder" ok={folderInspection.checks.auditFormsFolder} />
-                      <FolderCheckRow label="01 Company Setup folder" ok={folderInspection.checks.setupFolder} />
-                      <FolderCheckRow label="03 Company Records folder" ok={folderInspection.checks.recordsFolder} />
-                      <FolderCheckRow label="Evidence folder" ok={folderInspection.checks.evidenceFolder} />
-                      <FolderCheckRow label="Exports folder" ok={folderInspection.checks.exportsFolder} />
-                      <FolderCheckRow
-                        label="06 Management Notes folder"
-                        ok={folderInspection.checks.managementNotesFolder}
-                      />
-                    </div>
-                    {folderInspection.recommendedItems.length > 0 ? (
-                      <p className="mt-2 text-xs text-slate-600">{folderInspection.recommendedItems.join(" • ")}</p>
-                    ) : null}
-                  </div>
-                ) : null}
-                {workspaceValidation ? (
-                  <div className={pilotLightNested}>
-                    <p className="text-sm font-semibold text-slate-900">Workspace validation</p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Schema on sheet: {workspaceValidation.schemaVersion || "none"} • app expects{" "}
-                      {workspaceValidation.currentSchemaVersion}
-                    </p>
-                    {workspaceValidation.missingTabs.length > 0 ? (
-                      <p className="mt-2 text-sm text-rose-800">Missing tabs: {workspaceValidation.missingTabs.join(", ")}</p>
-                    ) : null}
-                    {(workspaceValidation.repairableIssues?.length ?? 0) > 0 && !workspaceValidation.ok ? (
-                      <p className="mt-2 text-sm text-amber-800">{workspaceValidation.repairableIssues?.join(" • ")}</p>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={onRepairWorkspace}
-                      disabled={masterCompanyContextBlocked}
-                      className="mt-3 h-10 rounded-xl border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-800"
-                    >
-                      Fix workspace (repair sheet &amp; folders)
-                    </button>
-                  </div>
-                ) : null}
-                <div className={pilotLightNested}>
-                  <p className="text-sm font-semibold text-slate-900">Repair setup debug</p>
-                  <dl className="mt-2 space-y-2 text-xs text-slate-600">
-                    <div>
-                      <dt className="font-semibold text-slate-500">Company ID</dt>
-                      <dd className="mt-0.5 break-all font-mono text-slate-800">{selectedFolder.id}</dd>
-                    </div>
-                    <div>
-                      <dt className="font-semibold text-slate-500">Registry status</dt>
-                      <dd className="mt-0.5 font-mono text-slate-800">{registryStatus || "Unknown"}</dd>
-                    </div>
-                    <div>
-                      <dt className="font-semibold text-slate-500">Master sheet ID</dt>
-                      <dd className="mt-0.5 break-all font-mono text-slate-800">{companyMasterSheetId || "Not linked"}</dd>
-                    </div>
-                    {visibleSetupError ? (
-                      <>
-                        <div>
-                          <dt className="font-semibold text-slate-500">Last failed step</dt>
-                          <dd className="mt-0.5 font-mono text-slate-800">
-                            {COMPANY_SETUP_STEP_LABELS[visibleSetupError.failedStep] || visibleSetupError.failedStep || "—"}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="font-semibold text-slate-500">Technical error</dt>
-                          <dd className="mt-0.5 break-all font-mono text-rose-800">
-                            {visibleSetupError.technicalError || "—"}
-                          </dd>
-                        </div>
-                      </>
-                    ) : companyLive ? (
-                      <div>
-                        <dt className="font-semibold text-slate-500">Last repair result</dt>
-                        <dd className="mt-0.5 text-emerald-800">Registry status is Live.</dd>
-                      </div>
-                    ) : null}
-                  </dl>
-                </div>
-                <div className={pilotLightNested}>
-                  <p className="text-sm font-semibold text-slate-900">Folder &amp; sheet IDs</p>
-                  <dl className="mt-2 space-y-2 text-xs text-slate-600">
-                    <div>
-                      <dt className="font-semibold text-slate-500">Company folder ID</dt>
-                      <dd className="mt-0.5 break-all font-mono text-slate-800">{selectedFolder.id}</dd>
-                    </div>
-                    <div>
-                      <dt className="font-semibold text-slate-500">Master sheet ID</dt>
-                      <dd className="mt-0.5 break-all font-mono text-slate-800">{companyMasterSheetId || "Not linked"}</dd>
-                    </div>
-                  </dl>
-                </div>
-              </div>
-            ) : null}
+            <p className="mt-4 text-xs text-slate-600">
+              Health checks and repair actions are in Technical details above.
+            </p>
           </section>
 
           {userManagement ? (

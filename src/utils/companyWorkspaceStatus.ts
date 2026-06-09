@@ -1,5 +1,38 @@
 import { isArchiveOrNonLiveWorkspaceName, getCanonicalCompanyStatus, isCompanyRegistryLive } from "./companyWorkspaceInvite";
 
+/** Simplified setup status for the Godmode primary UI. */
+export type SimpleCompanySetupStatus = "Not set up" | "In progress" | "Live" | "Needs attention";
+
+export function resolveSimpleCompanySetupStatus(status: CompanySetupStatusLabel): SimpleCompanySetupStatus {
+  switch (status) {
+    case "Live":
+      return "Live";
+    case "Setup in progress":
+    case "Invited":
+    case "Ready for health check":
+      return "In progress";
+    case "Needs attention":
+    case "Failed":
+      return "Needs attention";
+    default:
+      return "Not set up";
+  }
+}
+
+export function simpleSetupStatusBadgeClass(status: SimpleCompanySetupStatus): string {
+  switch (status) {
+    case "Live":
+      return "bg-emerald-100 text-emerald-800";
+    case "In progress":
+      return "bg-sky-100 text-sky-800";
+    case "Needs attention":
+      return "bg-amber-100 text-amber-900";
+    case "Not set up":
+    default:
+      return "bg-slate-100 text-slate-600";
+  }
+}
+
 /** Setup status shown on Godmode company workspace UI. */
 export type CompanySetupStatusLabel =
   | "Not started"

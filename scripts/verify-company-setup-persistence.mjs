@@ -123,8 +123,9 @@ assertContains("App.tsx", [
 assertContains("src/utils/companyWorkspaceStatus.ts", ['"Needs attention"']);
 
 assertContains("src/components/godmode/GodmodeCompanyWorkspacePanel.tsx", [
-  "Re-check workspace",
-  "Repair / complete setup",
+  "Complete setup",
+  "Run setup check again",
+  "Technical details",
   "Unlink reason:",
 ]);
 

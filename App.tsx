@@ -45,6 +45,7 @@ import { companyFolderStructureService } from "./src/services/companyFolderStruc
 import {
   COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
   companySetupProgressService,
+  type CompleteSetupResult,
 } from "./src/services/companySetupProgressService";
 import { companyWorkspaceRegistryService } from "./src/services/companyWorkspaceRegistryService";
 import { navItems } from "./src/config/navItems";
@@ -3281,6 +3282,7 @@ function App() {
     technicalError?: string;
   } | null>(null);
   const [companySetupWarnings, setCompanySetupWarnings] = useState<string[]>([]);
+  const [companySetupResult, setCompanySetupResult] = useState<CompleteSetupResult | null>(null);
   const [companyMasterSheetLink, setCompanyMasterSheetLink] = useState("");
   const [companyMasterSheetProvisioning, setCompanyMasterSheetProvisioning] = useState(false);
   const clearCompanySetupRunningState = useCallback(() => {
@@ -10046,7 +10048,7 @@ function App() {
     pushToast("Sample data cleared", "Training-only records were removed from this tablet.", "neutral");
   };
 
-  const handleOneClickGoogleOnboarding = async () => {
+  const handleCompleteSetup = async () => {
     if (!backendConfigured || !googleConnected) {
       pushToast(
         "Google Workspace needs setup",
@@ -10058,7 +10060,7 @@ function App() {
 
     const companyFolderId = extractGoogleResourceId(folderIdInput) || selectedFolder?.id || "";
     if (!companyFolderId) {
-      pushToast("Missing link", "Paste the company folder link first, then run one-click onboarding.", "warning");
+      pushToast("Missing link", "Select a company folder first, then run Complete setup.", "warning");
       return;
     }
 
@@ -10066,8 +10068,9 @@ function App() {
     setCompanySetupCurrentStep("resolve_registry");
     setCompanySetupError(null);
     setCompanySetupWarnings([]);
+    setCompanySetupResult(null);
     try {
-      const result = await companySetupProgressService.repairSetup({
+      const result = await companySetupProgressService.completeSetup({
         companyId: companyFolderId,
         companyName: selectedFolder?.name || folderNameInput,
         masterSheetId:
@@ -10076,13 +10079,15 @@ function App() {
           selectedFolder?.responseSheetId ||
           "",
       });
+      setCompanySetupResult(result);
 
       const resultIsLive =
+        result.ok ||
         result.status === "LIVE" ||
         isCompanyRegistryLive({ status: result.registryStatus, registryStatus: result.registryStatus });
 
-      if (!resultIsLive && result.currentStep) {
-        setCompanySetupCurrentStep(result.currentStep);
+      if (!resultIsLive && result.failedStep) {
+        setCompanySetupCurrentStep(result.failedStep);
       }
 
       if (result.legacyFolderConfig) {
@@ -10156,12 +10161,12 @@ function App() {
 
       if (resultIsLive) {
         clearCompanySetupRunningState();
-        setCompanySetupWarnings(result.setupWarnings || []);
+        setCompanySetupWarnings(result.warnings || []);
       } else if (!result.ok) {
         setCompanySetupError({
           failedStep: result.failedStep,
-          errorCode: result.errorCode || "SETUP_STEP_FAILED",
-          message: result.message || COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
+          errorCode: result.reason || "SETUP_STEP_FAILED",
+          message: result.reasonDetail || result.userMessage || COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
           technicalError: result.technicalError || "",
         });
         pushToast("Setup did not finish", COMPANY_SETUP_DID_NOT_FINISH_MESSAGE, "warning");
@@ -10176,8 +10181,8 @@ function App() {
       pushToast(
         resultIsLive ? "Company is Live" : "Setup finished",
         resultIsLive
-          ? "Company registry status is Live. User invites are now enabled."
-          : "Some setup checks still need attention. Review the checklist below.",
+          ? "You can now invite users."
+          : result.reasonDetail || "Some setup checks still need attention.",
         resultIsLive ? "success" : "warning",
       );
     } catch (error) {
@@ -10192,6 +10197,8 @@ function App() {
       clearCompanySetupRunningState();
     }
   };
+
+  const handleOneClickGoogleOnboarding = handleCompleteSetup;
 
   const handleApplyDashboardPreset = (preset: "minimal" | "operations" | "executive") => {
     if (preset === "minimal") {
@@ -13142,6 +13149,7 @@ function App() {
                 onOpenOnboardingForm={handleOpenOnboardingForm}
                 onStartCompanyOnboarding={handleStartCompanyOnboarding}
                 onAddFolder={handleAddFolder}
+                onCompleteSetup={handleCompleteSetup}
                 onOneClickGoogleOnboarding={handleOneClickGoogleOnboarding}
                 onRequestNotifications={requestNotificationAccess}
                 onValidateWorkspace={() => void validateWorkspace()}
@@ -13155,6 +13163,7 @@ function App() {
                 companySetupCurrentStep={companySetupCurrentStep}
                 companySetupError={companySetupError}
                 companySetupWarnings={companySetupWarnings}
+                companySetupResult={companySetupResult}
                 onCreateCompanyMasterSheet={() => void handleCreateCompanyMasterSheet()}
                 companyMasterSheetProvisioning={companyMasterSheetProvisioning}
                 companyMasterSheetLink={companyMasterSheetLink}

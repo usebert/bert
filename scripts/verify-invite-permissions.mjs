@@ -94,7 +94,7 @@ assert(registry.includes("persistCompanyLive"), "registry persistCompanyLive hel
 assert(registry.includes("evaluateCompanyWorkspaceReadiness"), "registry readiness evaluation helper");
 assert(serverMain.includes("/api/company/registry-status"), "company admin fresh registry status endpoint");
 assert(usersPanel.includes("/api/company/registry-status") || usersPanel.includes("freshRegistryStatus"), "invite panel fetches fresh registry status");
-assert(read("src/components/godmode/GodmodeCompanyWorkspacePanel.tsx").includes("Repair / complete setup"), "godmode repair-setup action");
+assert(read("src/components/godmode/GodmodeCompanyWorkspacePanel.tsx").includes("Complete setup"), "godmode complete-setup action");
 
 const pkg = JSON.parse(read("package.json"));
 assert(pkg.scripts["verify:invite-permissions"], "npm script registered");

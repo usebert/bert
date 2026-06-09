@@ -25,8 +25,28 @@ export type CompanySetupProgressResult = {
   } | null;
 };
 
-export const COMPANY_SETUP_DID_NOT_FINISH_MESSAGE =
-  "Setup did not finish. Check the setup details below and try again.";
+export type CompleteSetupResult = {
+  ok: boolean;
+  status: "LIVE" | "NEEDS_ATTENTION";
+  companyId: string;
+  companyName: string;
+  failedStep: string;
+  reason: string;
+  userMessage: string;
+  technicalError: string;
+  completedSteps: string[];
+  warnings: string[];
+  reasonDetail?: string;
+  masterSheetId?: string;
+  legacyFolderConfig?: Record<string, string>;
+  folderIds?: Record<string, string>;
+  registryStatus?: string;
+  validation?: CompanySetupProgressResult["validation"];
+};
+
+export const COMPANY_SETUP_DID_NOT_FINISH_MESSAGE = "Setup could not finish.";
+export const COMPANY_SETUP_SUCCESS_MESSAGE = "Company is Live.";
+export const COMPANY_SETUP_SUCCESS_DETAIL = "You can now invite users.";
 
 export const COMPANY_SETUP_STEP_LABELS: Record<string, string> = {
   resolve_registry: "Resolve company registry record",
@@ -45,69 +65,77 @@ export const COMPANY_SETUP_STEP_LABELS: Record<string, string> = {
 
 const SETUP_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
 
-async function postRepairSetup(
-  companyId: string,
+async function postCompleteSetup(
+  workspaceId: string,
   body: { companyName?: string; masterSheetId?: string },
-): Promise<CompanySetupProgressResult> {
+): Promise<CompleteSetupResult> {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), SETUP_REQUEST_TIMEOUT_MS);
 
   try {
     const response = await fetch(
-      apiUrl(`/api/godmode/companies/${encodeURIComponent(companyId)}/repair-setup`),
+      apiUrl(`/api/godmode/companies/${encodeURIComponent(workspaceId)}/complete-setup`),
       {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
         body: JSON.stringify({
-          companyId,
-          companyFolderId: companyId,
+          workspaceId,
+          companyId: workspaceId,
+          companyFolderId: workspaceId,
           companyName: body.companyName || "",
           masterSheetId: body.masterSheetId || "",
         }),
       },
     );
 
-    const payload = (await response.json()) as CompanySetupProgressResult & { error?: string };
+    const payload = (await response.json()) as CompleteSetupResult & {
+      error?: string;
+      masterSheetId?: string;
+      legacyFolderConfig?: Record<string, string>;
+      registryStatus?: string;
+      validation?: CompanySetupProgressResult["validation"];
+    };
+
     if (!response.ok) {
       return {
         ok: false,
-        companyId: payload.companyId || companyId,
+        companyId: payload.companyId || workspaceId,
+        companyName: payload.companyName || body.companyName || "",
         status: payload.status || "NEEDS_ATTENTION",
-        currentStep: payload.currentStep || payload.failedStep || "",
         completedSteps: payload.completedSteps || [],
         failedStep: payload.failedStep || "",
-        blockers: payload.blockers || [],
-        message: payload.message || COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
+        reason: payload.reason || "UNKNOWN",
+        userMessage: payload.userMessage || COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
         technicalError: payload.technicalError || payload.error || "",
-        errorCode: payload.errorCode || "SETUP_STEP_FAILED",
-        masterSheetId: payload.masterSheetId,
-        legacyFolderConfig: payload.legacyFolderConfig,
-        folderIds: payload.folderIds,
-        registryStatus: payload.registryStatus,
-        validation: payload.validation,
+        warnings: payload.warnings || [],
+        reasonDetail: payload.reasonDetail,
       };
     }
+
     return {
       ...payload,
-      companyId: payload.companyId || companyId,
-      message: payload.message || "",
+      companyId: payload.companyId || workspaceId,
+      companyName: payload.companyName || body.companyName || "",
+      userMessage: payload.userMessage || (payload.ok ? COMPANY_SETUP_SUCCESS_MESSAGE : COMPANY_SETUP_DID_NOT_FINISH_MESSAGE),
       technicalError: payload.technicalError || "",
+      warnings: payload.warnings || [],
     };
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
       return {
         ok: false,
-        companyId,
+        companyId: workspaceId,
+        companyName: body.companyName || "",
         status: "NEEDS_ATTENTION",
-        currentStep: "",
         completedSteps: [],
         failedStep: "request_timeout",
-        blockers: [],
-        message: COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
+        reason: "GOOGLE_TIMEOUT",
+        userMessage: COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
         technicalError: "Company setup request timed out.",
-        errorCode: "REQUEST_TIMEOUT",
+        warnings: [],
+        reasonDetail: "A Google operation timed out. Try again in a moment.",
       };
     }
     throw error;
@@ -116,20 +144,54 @@ async function postRepairSetup(
   }
 }
 
+async function postRepairSetup(
+  companyId: string,
+  body: { companyName?: string; masterSheetId?: string },
+): Promise<CompanySetupProgressResult> {
+  const result = await postCompleteSetup(companyId, body);
+  return {
+    ok: result.ok,
+    companyId: result.companyId,
+    status: result.status,
+    currentStep: result.failedStep,
+    completedSteps: result.completedSteps,
+    failedStep: result.failedStep,
+    blockers: [],
+    message: result.userMessage,
+    technicalError: result.technicalError,
+    errorCode: result.reason,
+    registryStatus: result.registryStatus,
+    setupWarnings: result.warnings,
+    masterSheetId: result.masterSheetId,
+    legacyFolderConfig: result.legacyFolderConfig,
+    folderIds: result.folderIds,
+    validation: result.validation,
+  };
+}
+
 export const companySetupProgressService = {
+  async completeSetup(input: {
+    companyId: string;
+    companyName?: string;
+    masterSheetId?: string;
+  }): Promise<CompleteSetupResult> {
+    const companyId = String(input.companyId || "").trim();
+    if (!companyId) {
+      throw new Error("Company folder ID is required.");
+    }
+    return postCompleteSetup(companyId, input);
+  },
+
+  /** @deprecated Delegates to completeSetup — canonical path is complete-setup. */
   async repairSetup(input: {
     companyId: string;
     companyName?: string;
     masterSheetId?: string;
   }): Promise<CompanySetupProgressResult> {
-    const companyId = String(input.companyId || "").trim();
-    if (!companyId) {
-      throw new Error("Company folder ID is required.");
-    }
-    return postRepairSetup(companyId, input);
+    return postRepairSetup(input.companyId, input);
   },
 
-  /** @deprecated Delegates to repairSetup — canonical path is repair-setup. */
+  /** @deprecated Delegates to completeSetup. */
   async runSetup(input: {
     companyId: string;
     companyName?: string;

@@ -303,6 +303,7 @@ export function AdminScreen({
   companySetupCurrentStep = "",
   companySetupError = null,
   companySetupWarnings = [],
+  companySetupResult = null,
   onCreateCompanyMasterSheet,
   companyMasterSheetProvisioning = false,
   companyMasterSheetLink = "",
@@ -336,6 +337,7 @@ export function AdminScreen({
   onOpenOnboardingForm,
   onStartCompanyOnboarding,
   onAddFolder,
+  onCompleteSetup,
   onOneClickGoogleOnboarding,
   onTemplateNameChange,
   templateCategoryInput,
@@ -621,6 +623,7 @@ export function AdminScreen({
           companySetupCurrentStep={companySetupCurrentStep}
           companySetupError={companySetupError}
           companySetupWarnings={companySetupWarnings}
+          companySetupResult={companySetupResult}
           companyRegistryStatus={canonicalRegistryStatus}
           companyMasterSheetProvisioning={companyMasterSheetProvisioning}
           folderIdInput={folderIdInput}
@@ -633,6 +636,7 @@ export function AdminScreen({
           managementNotesFolderInput={managementNotesFolderInput}
           companyMasterSheetLink={companyMasterSheetLink}
           onSelectFolder={onSelectFolder}
+          onCompleteSetup={onCompleteSetup || onOneClickGoogleOnboarding}
           onOneClickGoogleOnboarding={onOneClickGoogleOnboarding}
           onRepairWorkspace={onRepairWorkspace}
           onRepairCompanyFolderStructure={onRepairCompanyFolderStructure}

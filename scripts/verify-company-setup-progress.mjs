@@ -42,6 +42,7 @@ const registry = read("server/company-workspace-registry.mjs");
 const registryActions = read("server/godmode-registry-actions.mjs");
 const inviteHelpers = read("src/utils/companyWorkspaceInvite.ts");
 const usersPanel = read("src/components/admin/UsersInvitesPilotPanel.tsx");
+const statusModule = read("src/utils/companyWorkspaceStatus.ts");
 
 /** 1: Nine explicit setup steps exported */
 assert(COMPANY_SETUP_STEPS.length === 9, "1: exactly 9 setup steps");
@@ -63,13 +64,15 @@ assert(progress.includes("NEEDS_ATTENTION"), "2e: NEEDS_ATTENTION status");
 assert(progress.includes("withGoogleTimeout"), "3: withGoogleTimeout helper");
 assert(GOOGLE_OPERATION_TIMEOUT_MS >= 30_000, "3b: sensible Google timeout");
 
-/** 4: Canonical repair-setup API + run-setup delegates */
-assert(progress.includes("/api/godmode/companies/:companyId/repair-setup"), "4: repair-setup route");
-assert(progress.includes("/api/godmode/company-workspace/run-setup"), "4b: run-setup still registered");
-assert(progress.includes("handleCompanyRepairSetupRequest"), "4c: shared repair handler");
-assert(serverMain.includes("installCompanySetupProgressRoutes"), "4d: server installs setup progress routes");
-assert(service.includes("/api/godmode/companies/"), "4e: frontend calls repair-setup");
-assert(service.includes("repairSetup"), "4f: frontend repairSetup service");
+/** 4: Canonical complete-setup API + legacy repair-setup delegates */
+assert(progress.includes("/api/godmode/companies/:workspaceId/complete-setup"), "4: complete-setup route");
+assert(progress.includes("handleCompanyCompleteSetupRequest"), "4a: complete-setup handler");
+assert(progress.includes("buildCompleteSetupResponse"), "4b: complete-setup response builder");
+assert(progress.includes("/api/godmode/companies/:companyId/repair-setup"), "4c: legacy repair-setup route");
+assert(progress.includes("/api/godmode/company-workspace/run-setup"), "4d: run-setup still registered");
+assert(serverMain.includes("installCompanySetupProgressRoutes"), "4e: server installs setup progress routes");
+assert(service.includes("complete-setup"), "4f: frontend calls complete-setup");
+assert(service.includes("completeSetup"), "4g: frontend completeSetup service");
 
 /** 5: Backend logs companyId + step name */
 assert(progress.includes("[company-setup] start step="), "5: step start logging");
@@ -91,7 +94,9 @@ assert(appTsx.includes("setCompanyFolderStructureRepairing(false)"), "7d: finall
 assert(panel.includes("companySetupCurrentStep"), "8: panel shows current step prop");
 assert(panel.includes("companySetupError"), "8b: panel shows setup error prop");
 assert(panel.includes("technicalError"), "8c: panel shows technicalError");
-assert(panel.includes("Repair / complete setup"), "8d: repair button label");
+assert(panel.includes("Complete setup"), "8d: primary Complete setup button");
+assert(panel.includes("Run setup check again"), "8e: live re-check button label");
+assert(panel.includes("Technical details"), "8f: collapsed technical details section");
 
 /** 9: Setup aligns with repair (ISO folders + tab repair before health check) */
 assert(progress.includes("ensureIsoReadinessFolders"), "9: setup ensures ISO readiness folders");
@@ -117,6 +122,13 @@ assert(inviteHelpers.includes("isCompanyUsersTabWritable"), "10i: Godmode Users 
 assert(usersPanel.includes("isCompanyUsersTabWritable"), "10j: invite panel uses Users tab gate for Master");
 
 assert(appTsx.includes("companySetupProgressService"), "App uses setup progress service");
+assert(appTsx.includes("completeSetup"), "App uses completeSetup service");
+assert(appTsx.includes("handleCompleteSetup"), "App defines handleCompleteSetup");
+assert(progress.includes("SETUP_REASON_MESSAGES"), "complete-setup plain English reason messages");
+assert(progress.includes("GOOGLE_RECONNECT_REQUIRED"), "complete-setup reconnect reason code");
+assert(service.includes("COMPANY_SETUP_SUCCESS_MESSAGE"), "frontend success copy");
+assert(statusModule.includes("resolveSimpleCompanySetupStatus"), "simple setup status helper");
+assert(panel.includes("resolveSimpleCompanySetupStatus"), "godmode panel uses simple setup status");
 
 /** 11–17: Registry backfill lookup (7 cases) */
 function sampleRegistryMap(entries) {
@@ -180,8 +192,9 @@ assert(registry.includes("ensureCompanyRegistryRecordForWorkspace(auth, deps, {"
 assert(panel.includes("Company registry link missing"), "17d: godmode panel registry link missing copy");
 assert(panel.includes("relinkRegistry"), "17e: godmode panel calls relink-registry service");
 assert(panel.includes("forceLiveIfReady"), "17f: godmode panel calls force-live-if-ready service");
-assert(panel.includes("Create / relink company registry record"), "17g: godmode panel relink button");
-assert(panel.includes("Force mark LIVE from ready checks"), "17h: godmode panel force live button");
+assert(panel.includes("Create / relink company registry record"), "17g: godmode panel relink in technical details");
+assert(panel.includes("Force mark LIVE from ready checks"), "17h: godmode panel force live in technical details");
+assert(!panel.includes('isProvisioning ? "Running setup…" : "Repair / complete setup"'), "17h2: no primary Repair / complete setup button");
 assert(registryActions.includes("/api/godmode/companies/:workspaceId/relink-registry"), "17i: relink-registry route");
 assert(registryActions.includes("/api/godmode/companies/:companyId/force-live-if-ready"), "17j: force-live route");
 assert(!registryActions.includes("getDriveFile"), "17k: relink no Drive folder calls");
@@ -264,7 +277,6 @@ assert(verifyWorkbookModule.includes("includeGridData: false"), "29: verify uses
 assert(verifyWorkbookModule.includes("write_sync_log_ping"), "30: verify names SyncLog ping write operation");
 assert(progress.includes("setupWritesSucceeded"), "31: repair tracks setupWritesSucceeded flag");
 assert(progress.includes("Workbook read/write verification timed out after setup writes succeeded"), "32: non-blocking verify timeout warning");
-const statusModule = read("src/utils/companyWorkspaceStatus.ts");
 assert(statusModule.includes("registryStatus"), "33: workspace status resolves from registryStatus");
 assert(panel.includes("companyRegistryStatus"), "33b: godmode panel receives canonical registry status");
 assert(panel.includes("visibleSetupError"), "33c: godmode panel hides stale errors when Live");
@@ -300,4 +312,4 @@ assert(appTsx.includes("onClearSetupError={clearCompanySetupRunningState}"), "43
 const pkg = JSON.parse(read("package.json"));
 assert(pkg.scripts["verify:company-setup-progress"], "npm script registered");
 
-console.log("OK: verify-company-setup-progress (57 cases)");
+console.log("OK: verify-company-setup-progress (64 cases)");
