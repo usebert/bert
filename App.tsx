@@ -96,8 +96,11 @@ import {
   LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE,
   FORBIDDEN_INVITE_ROLE_MESSAGE,
   INVITE_COMPANY_MISMATCH_MESSAGE,
+  INVITE_EMAIL_UNAVAILABLE_COMPANY_MESSAGE,
   INVITE_MANAGE_AUDITOR_ONLY_MESSAGE,
+  INVITE_PARTIAL_SUCCESS_USER_MESSAGE,
   INVITE_ROLE_FORBIDDEN_MESSAGE,
+  INVITE_SENT_USER_MESSAGE,
   COMPANY_NOT_LIVE_INVITE_MESSAGE,
   FIRST_ADMIN_REQUIRES_ONBOARDING_MESSAGE,
 } from "./src/utils/companyWorkspaceInvite";
@@ -442,7 +445,7 @@ function formatCompanyUserInviteApiError(
   if (payload.code === "invite_role_forbidden" || payload.code === "FORBIDDEN_ROLE") {
     return INVITE_ROLE_FORBIDDEN_MESSAGE;
   }
-  if (payload.code === "invite_company_mismatch") {
+  if (payload.code === "invite_company_mismatch" || payload.code === "FORBIDDEN_COMPANY") {
     return INVITE_COMPANY_MISMATCH_MESSAGE;
   }
   if (payload.code === "company_not_live" || payload.code === "COMPANY_NOT_LIVE") {
@@ -450,6 +453,9 @@ function formatCompanyUserInviteApiError(
   }
   if (payload.code === "first_admin_requires_onboarding") {
     return FIRST_ADMIN_REQUIRES_ONBOARDING_MESSAGE;
+  }
+  if (payload.code === "google_not_connected" || payload.blocker === "google_not_connected") {
+    return payload.error || INVITE_EMAIL_UNAVAILABLE_COMPANY_MESSAGE;
   }
   if (response.status === 401 && /google connection required/i.test(message)) {
     return "The API server lost its Google Workspace session. Open Initial Setup, reconnect Google, then try again.";
@@ -7400,7 +7406,7 @@ function App() {
       return;
     }
 
-    if (!googleConnected) {
+    if (currentUser.role === "Master" && !googleConnected) {
       pushToast("Google not connected", "Connect Google in Setup before sending invite links.", "warning");
       return;
     }
@@ -7460,8 +7466,13 @@ function App() {
       const payload = (await parseJsonApiResponse(response)) as {
         ok?: boolean;
         error?: string;
+        code?: string;
         blocker?: string;
         sent?: boolean;
+        emailSent?: boolean;
+        inviteCreated?: boolean;
+        userMessage?: string;
+        warnings?: string[];
         smtpConfigured?: boolean;
         email?: string;
         role?: Role;
@@ -7478,12 +7489,22 @@ function App() {
       };
 
       if (!response.ok || !payload.ok) {
-        throw new Error(formatCompanyUserInviteApiError(payload, response));
+        const errorMessage = formatCompanyUserInviteApiError(payload, response);
+        const isCompanyActor =
+          currentUser.role === "Admin" || currentUser.role === "Manager";
+        throw new Error(
+          isCompanyActor && (payload.code === "google_not_connected" || payload.blocker === "google_not_connected")
+            ? INVITE_EMAIL_UNAVAILABLE_COMPANY_MESSAGE
+            : errorMessage,
+        );
       }
 
-      const emailSent = payload.sent === true;
+      const emailSent = payload.emailSent === true || payload.sent === true;
       const inviteUrl = payload.inviteUrl || "";
       const loginReady = payload.loginReady === true;
+      const userMessage =
+        payload.userMessage ||
+        (emailSent ? INVITE_SENT_USER_MESSAGE : INVITE_PARTIAL_SUCCESS_USER_MESSAGE);
       const result: CompanyUserInviteEmailResult = {
         email: payload.email || trimmedEmail,
         role: (payload.role as Role) || inviteRole,
@@ -7491,6 +7512,7 @@ function App() {
         smtpConfigured: payload.smtpConfigured !== false,
         senderEmail: payload.senderEmail || "admin@usebert.co.uk",
         inviteUrl,
+        userMessage,
         status:
           payload.status === "setup_incomplete"
             ? "setup_incomplete"
@@ -7503,6 +7525,7 @@ function App() {
         emailDraft: payload.emailDraft,
         mailtoUrl: payload.mailtoUrl,
         smtpError: payload.smtpError,
+        showTechnicalErrors: currentUser.role === "Master",
       };
       setCompanyUserInviteEmailResult(result);
 
@@ -7530,7 +7553,9 @@ function App() {
       setInvitedUsers([createdInvite, ...invitedUsers]);
       setInviteEmailInput("");
       if (emailSent) {
-        pushToast("User invite sent", `We sent an invite to ${trimmedEmail}.`, "success");
+        pushToast("User invite sent", userMessage, "success");
+      } else if (payload.inviteCreated !== false && inviteUrl) {
+        pushToast("Invite link created", userMessage, "warning");
       }
       triggerNotification("User invite", `${trimmedEmail} has been invited as ${inviteRole}.`);
     } catch (error) {
@@ -7598,8 +7623,12 @@ function App() {
       const payload = (await parseJsonApiResponse(response)) as {
         ok?: boolean;
         error?: string;
+        code?: string;
         blocker?: string;
         sent?: boolean;
+        emailSent?: boolean;
+        inviteCreated?: boolean;
+        userMessage?: string;
         smtpConfigured?: boolean;
         email?: string;
         role?: Role;
@@ -7615,12 +7644,22 @@ function App() {
         smtpError?: string;
       };
       if (!response.ok || !payload.ok) {
-        throw new Error(formatCompanyUserInviteApiError(payload, response));
+        const errorMessage = formatCompanyUserInviteApiError(payload, response);
+        const isCompanyActor =
+          currentUser.role === "Admin" || currentUser.role === "Manager";
+        throw new Error(
+          isCompanyActor && (payload.code === "google_not_connected" || payload.blocker === "google_not_connected")
+            ? INVITE_EMAIL_UNAVAILABLE_COMPANY_MESSAGE
+            : errorMessage,
+        );
       }
 
-      const emailSent = payload.sent === true;
+      const emailSent = payload.emailSent === true || payload.sent === true;
       const inviteUrl = payload.inviteUrl || invite.appOnboardingUrl || "";
       const loginReady = payload.loginReady === true;
+      const userMessage =
+        payload.userMessage ||
+        (emailSent ? INVITE_SENT_USER_MESSAGE : INVITE_PARTIAL_SUCCESS_USER_MESSAGE);
       const result: CompanyUserInviteEmailResult = {
         email: payload.email || invite.email,
         role: (payload.role as Role) || invite.role,
@@ -7628,6 +7667,7 @@ function App() {
         smtpConfigured: payload.smtpConfigured !== false,
         senderEmail: payload.senderEmail || invite.senderEmail || "admin@usebert.co.uk",
         inviteUrl,
+        userMessage,
         status:
           payload.status === "setup_incomplete"
             ? "setup_incomplete"
@@ -7640,6 +7680,7 @@ function App() {
         emailDraft: payload.emailDraft,
         mailtoUrl: payload.mailtoUrl,
         smtpError: payload.smtpError,
+        showTechnicalErrors: currentUser.role === "Master",
       };
       setCompanyUserInviteEmailResult(result);
 
@@ -7663,7 +7704,9 @@ function App() {
         ),
       );
       if (emailSent) {
-        pushToast("User invite resent", `We sent an invite to ${invite.email}.`, "success");
+        pushToast("User invite resent", userMessage, "success");
+      } else if (payload.inviteCreated !== false && inviteUrl) {
+        pushToast("Invite link ready", userMessage, "warning");
       }
     } catch (error) {
       setCompanyUserInviteEmailResult(null);
@@ -7722,6 +7765,7 @@ function App() {
       const payload = (await parseJsonApiResponse(response)) as {
         ok?: boolean;
         error?: string;
+        code?: string;
         blocker?: string;
       };
 

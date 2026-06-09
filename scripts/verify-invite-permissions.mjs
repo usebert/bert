@@ -13,8 +13,12 @@ import {
   COMPANY_USER_INVITE_TYPE,
   FORBIDDEN_INVITE_ROLE_MESSAGE,
   getCanonicalCompanyStatus,
+  INVITE_EMAIL_UNAVAILABLE_COMPANY_MESSAGE,
+  INVITE_GOOGLE_UNAVAILABLE_GODMODE_MESSAGE,
   INVITE_MANAGE_AUDITOR_ONLY_MESSAGE,
+  INVITE_PARTIAL_SUCCESS_USER_MESSAGE,
   INVITE_ROLE_FORBIDDEN_MESSAGE,
+  INVITE_SENT_USER_MESSAGE,
   isCompanyAdminInviteRole,
   isCompanyInviteActor,
   isCompanyManagerInviteRole,
@@ -188,4 +192,34 @@ assert(permissions.includes('role === "Master"') && permissions.includes('"Admin
 const pkg = JSON.parse(read("package.json"));
 assert(pkg.scripts["verify:invite-permissions"], "19: npm script registered");
 
-console.log("[verify:invite-permissions] OK (19 cases)");
+/** 20: Invite API decoupled from Google OAuth for company actors. */
+const appMain = read("App.tsx");
+assert(
+  appMain.includes('currentUser.role === "Master" && !googleConnected'),
+  "20: Google gate limited to Master on invite send",
+);
+assert(!appMain.includes('if (!googleConnected) {\n      pushToast("Google not connected", "Connect Google in Setup before sending invite links."'), "20b: removed blanket Google gate on invite send");
+assert(serverMain.includes("buildCompanyUserInviteApiPayload"), "20c: server builds inviteCreated/emailSent payload");
+assert(serverMain.includes("inviteCreated: true"), "20d: server returns inviteCreated");
+assert(serverMain.includes("emailSent"), "20e: server returns emailSent");
+assert(serverMain.includes("userMessage"), "20f: server returns userMessage");
+assert(serverMain.includes("createInviteRecord("), "20g: server creates invite record");
+assert(
+  serverMain.indexOf("createInviteRecord(") < serverMain.indexOf("sendCompanyUserInviteEmail"),
+  "20h: invite record created before SMTP send",
+);
+assert(serverMain.includes('code: "FORBIDDEN_COMPANY"'), "20i: backend returns FORBIDDEN_COMPANY");
+assert(serverMain.includes("isCompanyActor)"), "20j: company actor fallback when Google unavailable");
+
+/** 21: Role-specific user messages exported. */
+assert(INVITE_SENT_USER_MESSAGE.includes("Invite sent"), "21: invite sent message");
+assert(INVITE_PARTIAL_SUCCESS_USER_MESSAGE.includes("Copy"), "21b: partial success mentions copy");
+assert(INVITE_EMAIL_UNAVAILABLE_COMPANY_MESSAGE.includes("BERT Admin"), "21c: company email unavailable message");
+assert(INVITE_GOOGLE_UNAVAILABLE_GODMODE_MESSAGE.includes("Google"), "21d: godmode Google message");
+
+/** 22: Frontend result panel uses userMessage, hides SMTP for company actors. */
+assert(appMain.includes("userMessage"), "22: App handles userMessage from API");
+assert(appMain.includes("showTechnicalErrors"), "22b: technical errors gated to Master");
+assert(usersPanel.includes("Copy link") || usersPanel.includes("copyTextToClipboard"), "22c: invite list can copy link");
+
+console.log("[verify:invite-permissions] OK (22 cases)");

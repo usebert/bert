@@ -108,8 +108,12 @@ import {
   COMPANY_USER_INVITE_TYPE,
   FORBIDDEN_INVITE_ROLE_MESSAGE,
   getCanonicalCompanyStatus,
+  INVITE_EMAIL_UNAVAILABLE_COMPANY_MESSAGE,
+  INVITE_GOOGLE_UNAVAILABLE_GODMODE_MESSAGE,
   INVITE_MANAGE_AUDITOR_ONLY_MESSAGE,
+  INVITE_PARTIAL_SUCCESS_USER_MESSAGE,
   INVITE_ROLE_FORBIDDEN_MESSAGE,
+  INVITE_SENT_USER_MESSAGE,
   isCompanyAdminInviteRole,
   isCompanyInviteActor,
   isCompanyRegistryLive,
@@ -2193,6 +2197,57 @@ async function sendCompanyUserInviteEmail({ toEmail, companyName, inviteUrl }) {
 function safeSmtpErrorSummary(err) {
   const message = err instanceof Error ? err.message : "SMTP send failed";
   return String(message).slice(0, 240);
+}
+
+function buildCompanyUserInviteApiPayload({
+  emailSent,
+  toEmail,
+  inviteRole,
+  inviteUrl,
+  tokenId,
+  senderEmail,
+  lifecycle,
+  smtpConfigured,
+  emailDraft,
+  mailtoUrl,
+  smtpError,
+  warnings = [],
+  isGodmodeActor = false,
+}) {
+  const userMessage = emailSent
+    ? INVITE_SENT_USER_MESSAGE
+    : INVITE_PARTIAL_SUCCESS_USER_MESSAGE;
+  return {
+    ok: true,
+    inviteCreated: true,
+    emailSent,
+    sent: emailSent,
+    inviteUrl,
+    userMessage,
+    warnings,
+    smtpConfigured,
+    email: toEmail,
+    role: inviteRole,
+    tokenId,
+    senderEmail,
+    status: lifecycle.status,
+    loginReady: lifecycle.loginReady,
+    setupIncomplete: lifecycle.setupIncomplete,
+    storageHint: lifecycle.storageHint,
+    emailDraft,
+    mailtoUrl,
+    ...(smtpError && isGodmodeActor ? { smtpError } : {}),
+  };
+}
+
+function defaultCompanyUserInviteLifecycle() {
+  return {
+    status: "awaiting_setup",
+    loginReady: false,
+    setupIncomplete: false,
+    storageHint:
+      "After the recipient completes the invite link, check this company's master spreadsheet Users tab and Config UserAuth.",
+  };
 }
 
 async function sendAppHostedOnboardingEmail({ toEmail, subjectLine, invitedBy, onboardingUrl, htmlIntro }) {
@@ -5158,7 +5213,7 @@ async function processCompanyUserInvite(req, res) {
       if (inviteActor.masterSheetId && masterSheetId && inviteActor.masterSheetId !== masterSheetId) {
         res.status(403).json({
           ok: false,
-          code: "invite_company_mismatch",
+          code: "FORBIDDEN_COMPANY",
           error: "Your account is not linked to this company workspace.",
           blocker: "forbidden",
         });
@@ -5220,18 +5275,18 @@ async function processCompanyUserInvite(req, res) {
       return;
     }
 
-    try {
-      const auth = getAuthedClient();
-      if (!auth) {
-        res.status(401).json({
-          ok: false,
-          code: "google_not_connected",
-          error: "Google Workspace connection is required before sending company user invites.",
-          blocker: "google_not_connected",
-        });
-        return;
-      }
+    const permissionSession = buildInvitePermissionSession(inviteActor);
+    const isGodmodeActor = isGodmodeInviteSession(permissionSession);
+    const isCompanyActor = isCompanyInviteActor(permissionSession);
+    const auth = getAuthedClient();
+    const warnings = [];
 
+    let resolvedCompanyName = companyName;
+    let resolvedCompanyFolderId = companyFolderId;
+    let resolvedMasterSheetId = masterSheetId;
+    let resolvedCompanyId = companyFolderId;
+
+    if (auth) {
       const targetCheck = await validatePreparedCompanyUserInviteTarget(
         auth,
         {
@@ -5251,9 +5306,13 @@ async function processCompanyUserInvite(req, res) {
         return;
       }
 
-      const isMasterInviter = inviteActor?.kind === "master" && inviteActor?.role === "Master";
-      const resolvedCompanyName =
+      resolvedCompanyName =
         targetCheck.resolved?.companyName || companyName || targetCheck.companyLabel || "";
+      resolvedCompanyFolderId = targetCheck.resolved?.companyFolderId || companyFolderId;
+      resolvedMasterSheetId = targetCheck.resolved?.masterSheetId || masterSheetId;
+      resolvedCompanyId = targetCheck.resolved?.companyId || companyFolderId;
+
+      const isMasterInviter = inviteActor?.kind === "master" && inviteActor?.role === "Master";
       if (
         isSystemTemplateCompany({
           companyName: resolvedCompanyName,
@@ -5273,9 +5332,9 @@ async function processCompanyUserInvite(req, res) {
           { getConfig, getTabValues, registryDeps: getCompanyWorkspaceRegistryDeps() },
           auth,
           {
-            masterSheetId: targetCheck.resolved?.masterSheetId || masterSheetId,
+            masterSheetId: resolvedMasterSheetId,
             inviteRole,
-            companyFolderId: targetCheck.resolved?.companyFolderId || companyFolderId,
+            companyFolderId: resolvedCompanyFolderId,
           },
         );
         if (!liveGate.ok) {
@@ -5288,12 +5347,26 @@ async function processCompanyUserInvite(req, res) {
           return;
         }
       }
+    } else if (isCompanyActor) {
+      warnings.push("platform_google_unavailable");
+    } else {
+      res.status(503).json({
+        ok: false,
+        code: "google_not_connected",
+        error: isGodmodeActor
+          ? INVITE_GOOGLE_UNAVAILABLE_GODMODE_MESSAGE
+          : INVITE_EMAIL_UNAVAILABLE_COMPANY_MESSAGE,
+        blocker: "google_not_connected",
+      });
+      return;
+    }
 
+    try {
       let id;
       if (resendRequested || resendTokenId) {
         const existing = findCompanyUserInviteForResend({
           email: toEmail,
-          masterSheetId,
+          masterSheetId: resolvedMasterSheetId,
           tokenId: resendTokenId,
         });
         if (!existing) {
@@ -5316,9 +5389,9 @@ async function processCompanyUserInvite(req, res) {
           accessLevel: defaultAccessLevelForRole(inviteRole),
           companyAreas: "",
           invitedBy,
-          companyId: targetCheck.resolved?.companyId || companyFolderId,
-          companyFolderId: targetCheck.resolved?.companyFolderId || companyFolderId,
-          masterSheetId: targetCheck.resolved?.masterSheetId || masterSheetId,
+          companyId: resolvedCompanyId || resolvedCompanyFolderId,
+          companyFolderId: resolvedCompanyFolderId,
+          masterSheetId: resolvedMasterSheetId,
           companyName: resolvedCompanyName || companyName,
         }));
         console.log(`[invite] company_user created token=${id.slice(0, 8)} recipient=${toEmail}`);
@@ -5331,53 +5404,72 @@ async function processCompanyUserInvite(req, res) {
         inviteUrl,
       });
       const smtpConfigured = emailConfigured();
-      const lifecycle = await resolveCompanyUserInviteLifecycle(auth, masterSheetId, toEmail, id);
-
-      const manualPayload = (smtpError) => ({
-        ok: true,
-        sent: false,
-        smtpConfigured,
-        email: toEmail,
-        role: inviteRole,
-        inviteUrl,
-        tokenId: id,
-        senderEmail,
-        status: lifecycle.status,
-        loginReady: lifecycle.loginReady,
-        setupIncomplete: lifecycle.setupIncomplete,
-        storageHint: lifecycle.storageHint,
-        emailDraft: { subject, body: textBody },
-        mailtoUrl: buildCompanyUserInviteMailto({ toEmail, companyName: emailCompanyName, inviteUrl }),
-        ...(smtpError ? { smtpError } : {}),
-      });
+      const lifecycle = auth
+        ? await resolveCompanyUserInviteLifecycle(auth, resolvedMasterSheetId, toEmail, id)
+        : defaultCompanyUserInviteLifecycle();
+      const emailDraft = { subject, body: textBody };
+      const mailtoUrl = buildCompanyUserInviteMailto({ toEmail, companyName: emailCompanyName, inviteUrl });
 
       if (!smtpConfigured) {
         console.warn("[smtp] company user invite email skipped; SMTP not configured");
-        res.json(manualPayload());
+        res.json(
+          buildCompanyUserInviteApiPayload({
+            emailSent: false,
+            toEmail,
+            inviteRole,
+            inviteUrl,
+            tokenId: id,
+            senderEmail,
+            lifecycle,
+            smtpConfigured,
+            emailDraft,
+            mailtoUrl,
+            warnings,
+            isGodmodeActor,
+          }),
+        );
         return;
       }
 
       try {
         await sendCompanyUserInviteEmail({ toEmail, companyName: emailCompanyName, inviteUrl });
         console.log(`[smtp] company user invite email sent recipient=${toEmail}`);
-        res.json({
-          ok: true,
-          sent: true,
-          smtpConfigured: true,
-          email: toEmail,
-          role: inviteRole,
-          inviteUrl,
-          tokenId: id,
-          senderEmail,
-          status: lifecycle.status,
-          loginReady: lifecycle.loginReady,
-          setupIncomplete: lifecycle.setupIncomplete,
-          storageHint: lifecycle.storageHint,
-        });
+        res.json(
+          buildCompanyUserInviteApiPayload({
+            emailSent: true,
+            toEmail,
+            inviteRole,
+            inviteUrl,
+            tokenId: id,
+            senderEmail,
+            lifecycle,
+            smtpConfigured: true,
+            emailDraft,
+            mailtoUrl,
+            warnings,
+            isGodmodeActor,
+          }),
+        );
       } catch (err) {
         const smtpError = safeSmtpErrorSummary(err);
         console.warn(`[smtp] company user invite email failed; manual fallback ${smtpError}`);
-        res.json(manualPayload(smtpError));
+        res.json(
+          buildCompanyUserInviteApiPayload({
+            emailSent: false,
+            toEmail,
+            inviteRole,
+            inviteUrl,
+            tokenId: id,
+            senderEmail,
+            lifecycle,
+            smtpConfigured,
+            emailDraft,
+            mailtoUrl,
+            smtpError,
+            warnings,
+            isGodmodeActor,
+          }),
+        );
       }
     } catch (error) {
       res.status(500).json({

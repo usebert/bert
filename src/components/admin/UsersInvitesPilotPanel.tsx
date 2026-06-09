@@ -30,6 +30,15 @@ import {
   isStaleOrIncompleteInviteStatus,
 } from "../../utils/inviteStatusDisplay";
 
+async function copyTextToClipboard(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const USER_INVITE_NEXT_STEPS = [
   "They check email (and junk folder) for the setup message.",
   "They open the link and choose a name and password.",
@@ -61,6 +70,7 @@ function UserInviteListRow({
   slatePrimaryCtaInteract: string;
   canRevoke?: boolean;
 }) {
+  const [copyLinkDone, setCopyLinkDone] = useState(false);
   const active = isActiveCompanyUserInvite(invite);
   const staleOrIncomplete =
     isStaleOrIncompleteInviteStatus(invite.status) || isLegacyInviteRowId(invite.id);
@@ -83,14 +93,29 @@ function UserInviteListRow({
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {invite.appOnboardingUrl ? (
-          <a
-            href={invite.appOnboardingUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center justify-center rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800 no-underline"
-          >
-            Open link
-          </a>
+          <>
+            <a
+              href={invite.appOnboardingUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center justify-center rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800 no-underline"
+            >
+              Open link
+            </a>
+            <button
+              type="button"
+              onClick={async () => {
+                const ok = await copyTextToClipboard(invite.appOnboardingUrl || "");
+                if (ok) {
+                  setCopyLinkDone(true);
+                  setTimeout(() => setCopyLinkDone(false), 2000);
+                }
+              }}
+              className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+            >
+              {copyLinkDone ? "Copied" : "Copy link"}
+            </button>
+          </>
         ) : null}
         {invite.mailtoUrl ? (
           <a

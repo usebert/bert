@@ -74,6 +74,8 @@ export type CompanyUserInviteEmailResult = {
   smtpConfigured: boolean;
   senderEmail?: string;
   inviteUrl: string;
+  userMessage?: string;
+  showTechnicalErrors?: boolean;
   status: "awaiting_setup" | "setup_incomplete" | "active";
   loginReady: boolean;
   setupIncomplete?: boolean;

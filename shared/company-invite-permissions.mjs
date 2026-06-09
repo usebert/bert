@@ -10,6 +10,17 @@ export const INVITE_MANAGE_AUDITOR_ONLY_MESSAGE =
 export const COMPANY_NOT_LIVE_INVITE_MESSAGE =
   "This company is not live yet. Finish company onboarding before inviting users.";
 
+export const INVITE_SENT_USER_MESSAGE = "Invite sent.";
+
+export const INVITE_PARTIAL_SUCCESS_USER_MESSAGE =
+  "Invite link created, but email could not be sent. Copy and send the link manually.";
+
+export const INVITE_EMAIL_UNAVAILABLE_COMPANY_MESSAGE =
+  "Invite could not be sent right now. Ask BERT Admin to check platform email/Google setup.";
+
+export const INVITE_GOOGLE_UNAVAILABLE_GODMODE_MESSAGE =
+  "Google Workspace connection is required before sending company user invites.";
+
 export const COMPANY_USER_INVITE_TYPE = "COMPANY_USER";
 
 /** Canonical persisted value in the Companies registry Status column. */

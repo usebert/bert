@@ -80,21 +80,21 @@ function CompanyUserInviteEmailResultPanel({
   const [copyLinkDone, setCopyLinkDone] = useState(false);
   const [copyDraftDone, setCopyDraftDone] = useState(false);
   const senderEmail = result.senderEmail || "admin@usebert.co.uk";
+  const headline = result.sent ? "User invite sent" : "Invite link created";
+  const bodyMessage =
+    result.userMessage ||
+    (result.sent
+      ? `We sent an invite to ${result.email} as ${result.role}.`
+      : "Email could not be sent. Copy the invite link or draft and send it manually.");
 
   if (result.sent) {
     return (
       <div className="mt-4 rounded-2xl border border-emerald-500/40 bg-emerald-950/30 p-4">
-        <p className="text-sm font-semibold text-emerald-100">User invite sent</p>
-        <p className="mt-1 text-sm leading-6 text-emerald-50/90">
-          We sent an invite to <span className="font-semibold">{result.email}</span> as{" "}
-          <span className="font-semibold">{result.role}</span>. Ask them to check their Inbox and Junk/Spam folder if it
-          does not arrive within a few minutes.
-        </p>
+        <p className="text-sm font-semibold text-emerald-100">{headline}</p>
+        <p className="mt-1 text-sm leading-6 text-emerald-50/90">{bodyMessage}</p>
         {!result.loginReady ? (
           <p className="mt-2 text-sm leading-6 text-emerald-50/90">
             The user must open the invite link and finish account setup (name and password) before they can sign in.
-            After completion, verify the <span className="font-semibold">company master spreadsheet</span> Users tab and
-            Config UserAuth — not the operator Master sheet.
           </p>
         ) : (
           <p className="mt-2 text-sm leading-6 text-emerald-50/90">This account is ready for company sign-in.</p>
@@ -116,11 +116,9 @@ function CompanyUserInviteEmailResultPanel({
 
   return (
     <div className="mt-4 rounded-2xl border border-amber-500/40 bg-amber-950/25 p-4">
-      <p className="text-sm font-semibold text-amber-100">User invite ready</p>
-      <p className="mt-1 text-sm leading-6 text-amber-50/90">
-        Email could not be sent. Copy the invite link or draft and send it manually.
-      </p>
-      {result.smtpError ? (
+      <p className="text-sm font-semibold text-amber-100">{headline}</p>
+      <p className="mt-1 text-sm leading-6 text-amber-50/90">{bodyMessage}</p>
+      {result.showTechnicalErrors && result.smtpError ? (
         <p className="mt-2 text-xs leading-5 text-amber-100/80">Reason: {result.smtpError}</p>
       ) : null}
       <dl className="mt-3 space-y-2 text-xs text-slate-300">
