@@ -120,9 +120,9 @@ import {
   isGodmodeInviteSession,
 } from "../shared/company-invite-permissions.mjs";
 import {
-  buildAvailableScheduleAuditorsFromUsers,
+  buildAvailableScheduleAssigneesFromUsers,
   inviteAccessLevelForRole,
-} from "../shared/schedule-auditors.mjs";
+} from "../shared/schedule-assignees.mjs";
 import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
 import { isSystemTemplateCompany } from "../shared/system-template-company.mjs";
 
@@ -4439,13 +4439,13 @@ app.get("/api/company-sheet/:folderId", async (req, res) => {
   }
 });
 
-app.get("/api/schedules/auditors", async (req, res) => {
+async function handleScheduleAssigneesRequest(req, res) {
   const authed = getAuthedClient();
 
   if (!envConfigured() || !authed) {
     return res.status(401).json({
       ok: false,
-      error: "Please connect Google before loading schedule auditors.",
+      error: "Please connect Google before loading schedule assignees.",
     });
   }
 
@@ -4459,7 +4459,7 @@ app.get("/api/schedules/auditors", async (req, res) => {
   if (!masterSheetId) {
     return res.status(400).json({
       ok: false,
-      error: "masterSheetId is required to load schedule auditors.",
+      error: "masterSheetId is required to load schedule assignees.",
     });
   }
 
@@ -4477,7 +4477,7 @@ app.get("/api/schedules/auditors", async (req, res) => {
       companyAreasRaw: String(row.CompanyAreas || row.companyAreas || "").trim(),
     }));
 
-    const result = buildAvailableScheduleAuditorsFromUsers(mappedUsers, {
+    const result = buildAvailableScheduleAssigneesFromUsers(mappedUsers, {
       companyId: companyFolderId,
       masterSheetId,
       selectedArea,
@@ -4489,16 +4489,20 @@ app.get("/api/schedules/auditors", async (req, res) => {
       companyId: companyFolderId,
       companyName: String(req.query.companyName || "").trim() || undefined,
       masterSheetId,
+      assignees: result.assignees,
       auditors: result.auditors,
       diagnostics: result.diagnostics,
     });
   } catch (error) {
     return res.status(500).json({
       ok: false,
-      error: error instanceof Error ? error.message : "Unable to load schedule auditors.",
+      error: error instanceof Error ? error.message : "Unable to load schedule assignees.",
     });
   }
-});
+}
+
+app.get("/api/schedules/assignees", handleScheduleAssigneesRequest);
+app.get("/api/schedules/auditors", handleScheduleAssigneesRequest);
 
 app.get("/api/google-sheet-by-id/:sheetId", async (req, res) => {
   const authed = getAuthedClient();

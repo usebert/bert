@@ -244,12 +244,13 @@ import {
   resolveCurrentUserReportEmails,
 } from "./src/utils/auditAccess";
 import {
-  buildAvailableScheduleAuditors,
-  findPendingAuditorInvites,
-  normalizeScheduleAuditorIds,
-  resolveScheduleAuditorLabels,
+  buildAvailableScheduleAssignees,
+  findPendingAssigneeInvites,
+  normalizeScheduleAssigneeIds,
+  resolveScheduleAssigneeLabels,
+  resolveScheduleAssigneeEmptyMessage,
   type CompanyUsersTabRow,
-} from "./src/utils/scheduleAuditors";
+} from "./src/utils/scheduleAssignees";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
 import { getNextBestAction } from "./src/utils/nextBestAction";
 import type { DashboardSummaryForNextAction, NextBestActionIntent } from "./src/utils/nextBestAction";
@@ -5012,9 +5013,9 @@ function App() {
     return "";
   }, [audits, scheduleDraftSelectedAuditIds]);
 
-  const availableScheduleAuditorsResult = useMemo(
+  const availableScheduleAssigneesResult = useMemo(
     () =>
-      buildAvailableScheduleAuditors(
+      buildAvailableScheduleAssignees(
         masterCompanyWorkspaceDataMatchesSelection ? companyUsersTabRows : [],
         {
           companyId: inviteCompanyContext.companyFolderId,
@@ -5031,10 +5032,18 @@ function App() {
       scheduleBuilderAreaFilter,
     ],
   );
-  const availableScheduleAuditors = availableScheduleAuditorsResult.auditors;
-  const pendingScheduleAuditorInvites = useMemo(
+  const availableScheduleAssignees = availableScheduleAssigneesResult.assignees;
+  const scheduleAssigneeEmptyMessage = useMemo(
     () =>
-      findPendingAuditorInvites(
+      resolveScheduleAssigneeEmptyMessage(availableScheduleAssignees, {
+        selectedArea: scheduleBuilderAreaFilter,
+        diagnostics: availableScheduleAssigneesResult.diagnostics,
+      }),
+    [availableScheduleAssignees, availableScheduleAssigneesResult.diagnostics, scheduleBuilderAreaFilter],
+  );
+  const pendingScheduleAssigneeInvites = useMemo(
+    () =>
+      findPendingAssigneeInvites(
         masterCompanyWorkspaceDataMatchesSelection ? invitedUsers : [],
         inviteCompanyContext.companyFolderId,
       ),
@@ -5042,14 +5051,14 @@ function App() {
   );
 
   useEffect(() => {
-    if (!isDebugUiAllowed() || !availableScheduleAuditorsResult.diagnostics) {
+    if (!isDebugUiAllowed() || !availableScheduleAssigneesResult.diagnostics) {
       return;
     }
-    console.info("[schedule-auditors]", availableScheduleAuditorsResult.diagnostics);
-  }, [availableScheduleAuditorsResult.diagnostics]);
+    console.info("[schedule-assignees]", availableScheduleAssigneesResult.diagnostics);
+  }, [availableScheduleAssigneesResult.diagnostics]);
   const availableActionAuditors = useMemo(
-    () => availableScheduleAuditors.map((auditor) => auditor.name),
-    [availableScheduleAuditors],
+    () => availableScheduleAssignees.map((assignee) => assignee.name),
+    [availableScheduleAssignees],
   );
   const currentManagerAlerts = useMemo(() => {
     if (!currentUser || currentUser.role !== "Manager") {
@@ -11336,7 +11345,7 @@ function App() {
     setScheduleDraftStartDate(schedule.startDate);
     setScheduleDraftEndDate(schedule.endDate);
     setScheduleDraftContinuous(!schedule.endDate);
-    setScheduleDraftAuditors(normalizeScheduleAuditorIds(schedule.auditors, availableScheduleAuditors));
+    setScheduleDraftAuditors(normalizeScheduleAssigneeIds(schedule.auditors, availableScheduleAssignees));
     setScheduleValidationAttempted(false);
     setScheduleEditorOpen(true);
   };
@@ -11435,13 +11444,13 @@ function App() {
     ) {
       const message =
         scheduleDraftAuditors.length === 0
-          ? "Please select at least one auditor for this schedule."
+          ? "Please select at least one user for this schedule."
           : "Complete all required schedule fields before saving.";
       pushToast("Schedule details missing", message, "warning");
       return;
     }
 
-    const resolvedAuditors = resolveScheduleAuditorLabels(scheduleDraftAuditors, availableScheduleAuditors);
+    const resolvedAuditors = resolveScheduleAssigneeLabels(scheduleDraftAuditors, availableScheduleAssignees);
 
     const editingSchedule = editingScheduleId
       ? managedSchedules.find((item) => item.id === editingScheduleId) || null
@@ -11516,7 +11525,7 @@ function App() {
     setScheduleDraftStartDate(new Date().toISOString().slice(0, 10));
     setScheduleDraftEndDate("");
     setScheduleDraftContinuous(true);
-    setScheduleDraftAuditors(normalizeScheduleAuditorIds(schedule.auditors, availableScheduleAuditors));
+    setScheduleDraftAuditors(normalizeScheduleAssigneeIds(schedule.auditors, availableScheduleAssignees));
     setScheduleValidationAttempted(false);
     setScheduleEditorOpen(true);
   };
@@ -13328,8 +13337,9 @@ function App() {
                 schedules={visibleSchedules}
                 filter={scheduleListFilter}
                 availableAudits={availableScheduleAudits}
-                availableAuditors={availableScheduleAuditors}
-                pendingAuditorInvites={pendingScheduleAuditorInvites}
+                availableAssignees={availableScheduleAssignees}
+                assigneeEmptyMessage={scheduleAssigneeEmptyMessage}
+                pendingAssigneeInvites={pendingScheduleAssigneeInvites}
                 editorOpen={scheduleEditorOpen}
                 editingSchedule={editingScheduleId ? managedSchedules.find((item) => item.id === editingScheduleId) || null : null}
                 scheduleName={scheduleDraftName}

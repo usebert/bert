@@ -1,4 +1,4 @@
-import type { CompanyFolder, ScheduleAuditorOption, ScheduleListFilter } from "../types/schedulesScreenProps";
+import type { CompanyFolder, ScheduleAssigneeOption, ScheduleListFilter } from "../types/schedulesScreenProps";
 import { formatUserRoleLabel } from "../utils/inviteStatusDisplay";
 import type {
   ManagedSchedule,
@@ -150,8 +150,9 @@ export function SchedulesScreen({
   schedules,
   filter,
   availableAudits,
-  availableAuditors,
-  pendingAuditorInvites = [],
+  availableAssignees,
+  assigneeEmptyMessage = "No active users found for this company. Add users in Users & Invites.",
+  pendingAssigneeInvites = [],
   editorOpen,
   editingSchedule,
   scheduleName,
@@ -188,8 +189,9 @@ export function SchedulesScreen({
   schedules: ManagedSchedule[];
   filter: ScheduleListFilter;
   availableAudits: { id: string; name: string }[];
-  availableAuditors: ScheduleAuditorOption[];
-  pendingAuditorInvites?: Array<{ email: string; status: string }>;
+  availableAssignees: ScheduleAssigneeOption[];
+  assigneeEmptyMessage?: string;
+  pendingAssigneeInvites?: Array<{ email: string; status: string }>;
   editorOpen: boolean;
   editingSchedule: ManagedSchedule | null;
   scheduleName: string;
@@ -256,7 +258,7 @@ export function SchedulesScreen({
             icon="clock"
             eyebrow="Schedule list"
             title={filter}
-            subtitle="Open a schedule to edit its timings, audits, auditors, and revision history."
+            subtitle="Open a schedule to edit its timings, audits, assigned users, and revision history."
           />
           <div className="w-full max-w-[18rem]">
             <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Schedule view</label>
@@ -286,7 +288,7 @@ export function SchedulesScreen({
                     <div className="mt-2 flex flex-wrap gap-2">
                       <MetaPill icon="spark" label={`${schedule.lifecycle} rev ${schedule.versionLabel}`} />
                       <MetaPill icon="clipboard" label={`${schedule.audits.length} audits`} />
-                      <MetaPill icon="user" label={`${schedule.auditors.length} auditors`} />
+                      <MetaPill icon="user" label={`${schedule.auditors.length} assigned`} />
                       {computeScheduleHealthState(schedule) === "Paused" && schedule.nextDueAt && (
                         <MetaPill icon="clock" label={`Paused until ${schedule.nextDueAt}`} />
                       )}
@@ -330,7 +332,7 @@ export function SchedulesScreen({
             icon="check"
             eyebrow="Schedule builder"
             title={editingSchedule ? "Edit schedule" : "Create schedule"}
-            subtitle="Choose audits, set timings, add auditors, and save the live or archived revision."
+            subtitle="Choose audits, set timings, assign users, and save the live or archived revision."
           />
           <div className="mt-4 space-y-4">
             <div>
@@ -492,18 +494,20 @@ export function SchedulesScreen({
             </div>
 
             <div className={["rounded-[1.5rem] border p-4", auditorsError ? "border-rose-300 bg-rose-50/50" : "border-slate-200 bg-slate-50"].join(" ")}>
-              <p className="text-sm font-semibold text-slate-900">Select auditors for this schedule</p>
+              <p className="text-sm font-semibold text-slate-900">Assign users to this schedule</p>
               <div className="mt-3 space-y-2">
-                {availableAuditors.length === 0 ? (
+                {availableAssignees.length === 0 ? (
                   <p className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-                    No available auditors found. Add users in Users &amp; Invites, or check user roles.
+                    {assigneeEmptyMessage}
                   </p>
                 ) : (
-                  availableAuditors.map((auditor) => {
-                    const selected = selectedAuditors.includes(auditor.id);
+                  availableAssignees.map((assignee) => {
+                    const selected = selectedAuditors.includes(assignee.id);
+                    const areasLabel =
+                      assignee.companyAreas.length > 0 ? assignee.companyAreas.join(", ") : "No areas assigned";
                     return (
                       <label
-                        key={auditor.id}
+                        key={assignee.id}
                         className={[
                           "flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left",
                           selected
@@ -515,16 +519,17 @@ export function SchedulesScreen({
                           <input
                             type="checkbox"
                             checked={selected}
-                            onChange={() => onToggleAuditor(auditor.id)}
+                            onChange={() => onToggleAuditor(assignee.id)}
                             className="h-4 w-4 shrink-0 rounded border-slate-300 text-slate-900 focus:ring-slate-400"
                           />
                           <div className="min-w-0">
-                            <p className="text-sm font-semibold text-slate-900">{auditor.name}</p>
+                            <p className="text-sm font-semibold text-slate-900">{assignee.name}</p>
                             <p className="text-xs text-slate-500">
-                              {formatUserRoleLabel(auditor.role)} • {auditor.email}
+                              {formatUserRoleLabel(assignee.role)} • {assignee.email}
                             </p>
-                            {auditor.areaWarning ? (
-                              <p className="mt-1 text-xs font-medium text-amber-700">{auditor.areaWarning}</p>
+                            <p className="text-xs text-slate-500">Areas: {areasLabel}</p>
+                            {assignee.areaWarning ? (
+                              <p className="mt-1 text-xs font-medium text-amber-700">{assignee.areaWarning}</p>
                             ) : null}
                           </div>
                         </div>
@@ -536,16 +541,16 @@ export function SchedulesScreen({
                   })
                 )}
               </div>
-              {pendingAuditorInvites.length > 0 ? (
+              {pendingAssigneeInvites.length > 0 ? (
                 <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
-                  {pendingAuditorInvites.length} pending auditor invite
-                  {pendingAuditorInvites.length === 1 ? "" : "s"} awaiting setup — they will appear here after
+                  {pendingAssigneeInvites.length} pending user invite
+                  {pendingAssigneeInvites.length === 1 ? "" : "s"} awaiting setup — they will appear here after
                   onboarding completes.
                 </p>
               ) : null}
               {auditorsError && (
                 <p className="mt-2 text-xs font-semibold text-rose-600">
-                  Please select at least one auditor for this schedule.
+                  Please select at least one user for this schedule.
                 </p>
               )}
             </div>

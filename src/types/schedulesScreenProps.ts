@@ -3,7 +3,7 @@
  * does not import App.tsx. Keep aligned when workspace models change.
  */
 
-export type { ScheduleAuditorOption } from "../utils/scheduleAuditors";
+export type { ScheduleAssigneeOption, ScheduleAuditorOption } from "../utils/scheduleAssignees";
 
 export type ScheduleListFilter = "Live" | "Archived" | "All schedules";
 
