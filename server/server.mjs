@@ -80,11 +80,13 @@ import {
   ensureCompanyLiveIfReady,
   evaluateCompanyWorkspaceReadiness,
   findCompanyWorkspaceRegistryRecordInMap,
+  getCanonicalCompanyRegistryRecord,
   getCompanyWorkspaceRegistryRecord,
   installCompanyWorkspaceRegistryRoutes,
   mergeDriveCompanyWithRegistry,
   persistCompanyLive,
   persistCompanyWorkspaceSetup,
+  readCanonicalCompanyWorkspaceRegistryMap,
   readCompanyWorkspaceRegistryMap,
   recordCompanyWorkspaceHealthCheck,
 } from "./company-workspace-registry.mjs";
@@ -2561,7 +2563,7 @@ async function listGodmodeLiveCompanies(auth) {
   }
 
   const registryDeps = getCompanyWorkspaceRegistryDeps();
-  const { map: registryMap } = await readCompanyWorkspaceRegistryMap(auth, registryDeps).catch(() => ({
+  const { map: registryMap } = await readCanonicalCompanyWorkspaceRegistryMap(auth, registryDeps).catch(() => ({
     map: new Map(),
   }));
 
@@ -2608,6 +2610,7 @@ function getCompanyWorkspaceRegistryDeps() {
     safeLower,
     sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
     platformRegistrySheetId: process.env.BERT_PLATFORM_REGISTRY_SHEET_ID || "",
+    sessionDir,
   };
 }
 
@@ -3151,7 +3154,7 @@ async function resolveCompanyRegistryStatusForActor(auth, actor) {
   if (!companyId) {
     return "";
   }
-  const record = await getCompanyWorkspaceRegistryRecord(auth, getCompanyWorkspaceRegistryDeps(), companyId).catch(
+  const record = await getCanonicalCompanyRegistryRecord(auth, getCompanyWorkspaceRegistryDeps(), companyId).catch(
     () => null,
   );
   return getCanonicalCompanyStatus(record || {});
@@ -6282,7 +6285,7 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
       const companyId = String(successRec.companyId || "").trim();
       let registryStatus = "";
       if (companyId) {
-        const registryRecord = await getCompanyWorkspaceRegistryRecord(
+        const registryRecord = await getCanonicalCompanyRegistryRecord(
           auth,
           getCompanyWorkspaceRegistryDeps(),
           companyId,
@@ -6405,7 +6408,7 @@ app.get("/api/auth/company/session", async (req, res) => {
       }
     }
     const registryRecord = companyId
-      ? await getCompanyWorkspaceRegistryRecord(auth, getCompanyWorkspaceRegistryDeps(), companyId).catch(() => null)
+      ? await getCanonicalCompanyRegistryRecord(auth, getCompanyWorkspaceRegistryDeps(), companyId).catch(() => null)
       : null;
     const masterSheetId = String(data.masterSheetId || "").trim();
     if (companyId) {
@@ -6420,7 +6423,7 @@ app.get("/api/auth/company/session", async (req, res) => {
       }).catch(() => {});
     }
     const freshRecord = companyId
-      ? await getCompanyWorkspaceRegistryRecord(auth, getCompanyWorkspaceRegistryDeps(), companyId).catch(() => registryRecord)
+      ? await getCanonicalCompanyRegistryRecord(auth, getCompanyWorkspaceRegistryDeps(), companyId).catch(() => registryRecord)
       : null;
     const registryStatus = getCanonicalCompanyStatus(freshRecord || registryRecord || {});
     const readiness = evaluateCompanyWorkspaceReadiness(freshRecord || registryRecord || {}, {
@@ -6497,7 +6500,7 @@ app.get("/api/company/registry-status", async (req, res) => {
         skipHealthCheck: true,
       },
     }).catch(() => {});
-    const record = await getCompanyWorkspaceRegistryRecord(auth, getCompanyWorkspaceRegistryDeps(), companyId).catch(
+    const record = await getCanonicalCompanyRegistryRecord(auth, getCompanyWorkspaceRegistryDeps(), companyId).catch(
       () => null,
     );
     const registryStatus = getCanonicalCompanyStatus(record || {});
@@ -6512,6 +6515,8 @@ app.get("/api/company/registry-status", async (req, res) => {
       registryStatus,
       status: registryStatus,
       live: isCompanyRegistryLive({ status: registryStatus, registryStatus }),
+      registrySource: record?.registrySource || "",
+      fallbackRegistry: Boolean(record?.fallbackRegistry),
       needsAttention: readiness.needsAttention,
       setupBlockers: readiness.setupBlockers,
       blockers: readiness.blockers,

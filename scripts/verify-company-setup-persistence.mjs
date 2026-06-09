@@ -1,10 +1,25 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import {
+  COMPANY_REGISTRY_STATUS_LIVE,
+  isCompanyRegistryLive,
+} from "../shared/company-invite-permissions.mjs";
+import {
+  buildFallbackRegistryDiagnostic,
+  FALLBACK_REGISTRY_BASENAME,
+  FALLBACK_REGISTRY_WARNING,
+  getFallbackRegistryRecord,
+  persistFallbackCompanyLive,
+  readFallbackRegistryMap,
+  resolveCompanyRegistryFallbackPath,
+} from "../server/company-registry-fallback.mjs";
 import {
   COMPANIES_WORKSPACE_COLUMNS,
   findMissingRegistryColumns,
   findRegistryRowIndex,
+  mergeFallbackRegistryIntoMap,
   mergeRegistryRowCells,
   mergeDriveCompanyWithRegistry,
   deriveCompanyWorkspaceStatus,
@@ -187,5 +202,79 @@ assert(registryContent.includes("registryLocation"), "registry write returns reg
 assert(registryContent.includes("missingColumns"), "registry write returns missingColumns");
 assert(registryContent.includes("lookupKeys"), "registry write returns lookupKeys");
 assert(registryContent.includes("sheets_write_failed"), "sheets API errors surfaced");
+
+assertContains("server/company-registry-fallback.mjs", [
+  "company-registry-fallback.json",
+  "persistFallbackCompanyLive",
+  "FALLBACK_REGISTRY_WARNING",
+  "Using fallback registry because main Companies registry write failed",
+]);
+
+assertContains("server/company-workspace-registry.mjs", [
+  "export async function getCanonicalCompanyRegistryRecord",
+  "mergeFallbackRegistryIntoMap",
+  "readCanonicalCompanyWorkspaceRegistryMap",
+]);
+
+assertContains("server/godmode-registry-actions.mjs", [
+  "persistFallbackCompanyLive",
+  "getCanonicalCompanyRegistryRecord",
+  "FALLBACK_REGISTRY_WARNING",
+  "buildFallbackRegistryDiagnostic",
+]);
+
+assertContains("server/server.mjs", [
+  "readCanonicalCompanyWorkspaceRegistryMap",
+  "getCanonicalCompanyRegistryRecord",
+  "sessionDir",
+]);
+
+const fallbackTempDir = fs.mkdtempSync(path.join(os.tmpdir(), "bert-fallback-registry-"));
+const fallbackWrite = persistFallbackCompanyLive(fallbackTempDir, {
+  companyId: "co-fallback-1",
+  companyFolderId: "folder-fallback-1",
+  masterSheetId: "sheet-fallback-1",
+  companyName: "Fallback Co",
+});
+assert(fallbackWrite.synced, "fallback persist writes LIVE record");
+assert(
+  resolveCompanyRegistryFallbackPath(fallbackTempDir).endsWith(FALLBACK_REGISTRY_BASENAME),
+  "fallback file uses canonical basename under session dir",
+);
+const fallbackRecord = getFallbackRegistryRecord(fallbackTempDir, "co-fallback-1");
+assert(fallbackRecord?.companyId === "co-fallback-1", "fallback read by companyId");
+assert(fallbackRecord?.masterSheetId === "sheet-fallback-1", "fallback stores masterSheetId");
+assert(isCompanyRegistryLive(fallbackRecord), "fallback record is LIVE for invites");
+assert(
+  buildFallbackRegistryDiagnostic("sheets_write_failed").includes("sheets_write_failed"),
+  "fallback diagnostic includes original error",
+);
+assert(FALLBACK_REGISTRY_WARNING.includes("fallback registry"), "fallback warning message");
+
+const mergedMap = mergeFallbackRegistryIntoMap(new Map(), fallbackTempDir);
+assert(mergedMap.get("co-fallback-1")?.registrySource === "fallback", "merged map includes fallback LIVE");
+assert(readFallbackRegistryMap(fallbackTempDir).size === 1, "fallback map has one company");
+
+const mainLiveMap = new Map([
+  [
+    "co-main-1",
+    {
+      companyId: "co-main-1",
+      status: COMPANY_REGISTRY_STATUS_LIVE,
+      rootFolderId: "co-main-1",
+      masterSheetId: "sheet-main-1",
+      companyName: "Main Co",
+    },
+  ],
+]);
+const mergedWithMain = mergeFallbackRegistryIntoMap(mainLiveMap, fallbackTempDir);
+assert(mergedWithMain.size === 2, "merge keeps main and fallback companies");
+assert(mergedWithMain.get("co-main-1")?.registrySource === "main", "main LIVE record keeps main source");
+
+try {
+  fs.rmSync(fallbackTempDir, { recursive: true, force: true });
+} catch {
+  /* best-effort cleanup */
+}
 
 console.log("verify-company-setup-persistence: OK");

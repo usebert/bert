@@ -4,6 +4,10 @@ import {
   isCompanyRegistryLive,
 } from "../shared/company-invite-permissions.mjs";
 import { filterCustomerFacingCompanies, isSystemTemplateCompany } from "../shared/system-template-company.mjs";
+import {
+  getFallbackRegistryRecord,
+  readFallbackRegistryMap,
+} from "./company-registry-fallback.mjs";
 import { findSpreadsheetInWorkspaceRoot } from "./google-workspace-root.mjs";
 
 /**
@@ -525,6 +529,73 @@ export async function getCompanyWorkspaceRegistryRecord(auth, deps, companyId) {
   }
   const { map } = await readCompanyWorkspaceRegistryMap(auth, deps);
   return findCompanyWorkspaceRegistryRecord(map, id);
+}
+
+function resolveSessionDirFromDeps(deps = {}) {
+  return String(deps.sessionDir || "").trim();
+}
+
+/** Merge fallback LIVE records into a sheet registry map (fallback fills gaps only). */
+export function mergeFallbackRegistryIntoMap(registryMap, sessionDir) {
+  const merged = new Map(registryMap || []);
+  const fallbackMap = readFallbackRegistryMap(sessionDir);
+  for (const [companyId, fallbackRecord] of fallbackMap.entries()) {
+    const existing = findCompanyWorkspaceRegistryRecord(merged, companyId);
+    if (!existing || !isCompanyRegistryLive(existing)) {
+      merged.set(companyId, { ...fallbackRecord, registrySource: "fallback", fallbackRegistry: true });
+    } else {
+      merged.set(String(existing.companyId || companyId).trim(), {
+        ...existing,
+        registrySource: "main",
+      });
+    }
+  }
+  for (const [companyId, record] of merged.entries()) {
+    if (!record.registrySource) {
+      merged.set(companyId, { ...record, registrySource: isCompanyRegistryLive(record) ? "main" : "" });
+    }
+  }
+  return merged;
+}
+
+/**
+ * Canonical company registry lookup: main Companies sheet first, then fallback JSON.
+ * LIVE from either source is accepted for invites and make-usable.
+ */
+export async function getCanonicalCompanyRegistryRecord(auth, deps, companyId) {
+  const id = String(companyId || "").trim();
+  if (!id) {
+    return null;
+  }
+  const sessionDir = resolveSessionDirFromDeps(deps);
+  const mainRecord = auth
+    ? await getCompanyWorkspaceRegistryRecord(auth, deps, id).catch(() => null)
+    : null;
+  if (mainRecord && isCompanyRegistryLive(mainRecord)) {
+    return { ...mainRecord, registrySource: "main", fallbackRegistry: false };
+  }
+  const fallbackRecord = sessionDir ? getFallbackRegistryRecord(sessionDir, id) : null;
+  if (fallbackRecord && isCompanyRegistryLive(fallbackRecord)) {
+    return { ...fallbackRecord, registrySource: "fallback", fallbackRegistry: true };
+  }
+  if (mainRecord) {
+    return { ...mainRecord, registrySource: "main", fallbackRegistry: false };
+  }
+  if (fallbackRecord) {
+    return { ...fallbackRecord, registrySource: "fallback", fallbackRegistry: true };
+  }
+  return null;
+}
+
+export async function readCanonicalCompanyWorkspaceRegistryMap(auth, deps) {
+  const sheetResult = await readCompanyWorkspaceRegistryMap(auth, deps).catch(() => ({
+    spreadsheetId: "",
+    headers: COMPANIES_WORKSPACE_COLUMNS,
+    map: new Map(),
+  }));
+  const sessionDir = resolveSessionDirFromDeps(deps);
+  const map = sessionDir ? mergeFallbackRegistryIntoMap(sheetResult.map, sessionDir) : sheetResult.map;
+  return { ...sheetResult, map };
 }
 
 export async function upsertCompanyWorkspaceRegistryRecords(

@@ -53,6 +53,9 @@ export type MakeUsableResult = RegistryPersistDiagnostics & {
   reasonDetail?: string;
   masterSheetId?: string;
   registryStatus?: string;
+  registrySource?: "main" | "fallback" | "";
+  fallbackRegistry?: boolean;
+  warning?: string;
 };
 
 /** @deprecated Use MakeUsableResult */

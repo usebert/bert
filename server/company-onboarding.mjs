@@ -9,7 +9,7 @@ import { isSystemTemplateCompany } from "../shared/system-template-company.mjs";
 import {
   COMPANIES_WORKSPACE_COLUMNS,
   ensureCompanyLiveIfReady,
-  getCompanyWorkspaceRegistryRecord,
+  getCanonicalCompanyRegistryRecord,
   REGISTRY_SPREADSHEET_NAME,
   REGISTRY_TAB_COMPANIES,
   persistCompanyWorkspaceSetup,
@@ -696,7 +696,7 @@ export async function assertCompanyWorkspaceAcceptsUserInvite(
     }).catch(() => {});
   }
   const registryRecord = resolvedCompanyId
-    ? await getCompanyWorkspaceRegistryRecord(auth, deps.registryDeps || deps, resolvedCompanyId).catch(() => null)
+    ? await getCanonicalCompanyRegistryRecord(auth, deps.registryDeps || deps, resolvedCompanyId).catch(() => null)
     : null;
   const registryStatus = getCanonicalCompanyStatus(registryRecord || {});
   if (!isCompanyRegistryLive({ status: registryStatus, registryStatus })) {

@@ -8,9 +8,15 @@ import {
 } from "../shared/company-invite-permissions.mjs";
 import { isSystemTemplateCompany } from "../shared/system-template-company.mjs";
 import {
+  buildFallbackRegistryDiagnostic,
+  FALLBACK_REGISTRY_WARNING,
+  persistFallbackCompanyLive,
+} from "./company-registry-fallback.mjs";
+import {
   ensureCompanyRegistryRecordForWorkspace,
   evaluateCompanyWorkspaceReadiness,
   findCompanyWorkspaceRegistryRecordInMap,
+  getCanonicalCompanyRegistryRecord,
   getCompanyWorkspaceRegistryRecord,
   persistAndVerifyCompanyLive,
   persistCompanyWorkspaceSetup,
@@ -334,7 +340,10 @@ export async function makeCompanyUsable(auth, deps, workspace = {}) {
     });
   }
 
+  const sessionDir = String(deps.sessionDir || "").trim();
   let persistResult;
+  let usedFallbackRegistry = false;
+  let mainRegistryError = "";
   try {
     persistResult = await withHandlerTimeout(
       persistAndVerifyCompanyLive(auth, deps, {
@@ -348,31 +357,76 @@ export async function makeCompanyUsable(auth, deps, workspace = {}) {
       "persist_live",
     );
   } catch (error) {
-    const reasonCode =
-      error?.code === "REGISTRY_ACTION_TIMEOUT"
-        ? "GOOGLE_TIMEOUT"
-        : error?.code === REGISTRY_VERIFY_FAILED
-          ? REGISTRY_VERIFY_FAILED
-          : error?.code === REGISTRY_WRITE_FAILED
-            ? REGISTRY_WRITE_FAILED
-            : "REGISTRY_LINK_FAILED";
+    mainRegistryError = String(
+      error?.technicalError || (error instanceof Error ? error.message : error) || "",
+    ).trim();
+    console.warn("[make-usable] main registry persist failed; attempting fallback", {
+      companyId: workspaceId,
+      code: error?.code,
+      technicalError: mainRegistryError,
+    });
+
+    const fallbackResult = persistFallbackCompanyLive(sessionDir, {
+      companyId: workspaceId,
+      companyFolderId,
+      masterSheetId,
+      companyName,
+    });
+    if (!fallbackResult.synced || !fallbackResult.record) {
+      const reasonCode =
+        error?.code === "REGISTRY_ACTION_TIMEOUT"
+          ? "GOOGLE_TIMEOUT"
+          : error?.code === REGISTRY_VERIFY_FAILED
+            ? REGISTRY_VERIFY_FAILED
+            : error?.code === REGISTRY_WRITE_FAILED
+              ? REGISTRY_WRITE_FAILED
+              : "REGISTRY_LINK_FAILED";
+      return makeUsableFailure({
+        reasonCode,
+        failedStep: error?.failedStep || REGISTRY_PERSIST_FAILED_STEP,
+        companyId: workspaceId,
+        companyName,
+        technicalError: mainRegistryError || String(fallbackResult.reason || ""),
+        registrySpreadsheetId: error?.registrySpreadsheetId,
+        registryTab: error?.registryTab,
+        registryLocation: error?.registryLocation,
+        missingColumns: error?.missingColumns,
+        lookupKeys: error?.lookupKeys,
+        verifyReadback: error?.verifyReadback,
+      });
+    }
+
+    usedFallbackRegistry = true;
+    persistResult = {
+      companyId: workspaceId,
+      record: fallbackResult.record,
+      registryStatus: COMPANY_REGISTRY_STATUS_LIVE,
+    };
+  }
+
+  let fresh =
+    persistResult.record ||
+    (await getCanonicalCompanyRegistryRecord(auth, deps, workspaceId)) ||
+    null;
+  const registryCompanyId = String(persistResult.companyId || fresh?.companyId || workspaceId).trim();
+  if (!fresh || !isCompanyRegistryLive(fresh)) {
+    fresh = await getCanonicalCompanyRegistryRecord(auth, deps, registryCompanyId);
+  }
+  if (!fresh || !isCompanyRegistryLive(fresh)) {
     return makeUsableFailure({
-      reasonCode,
-      failedStep: error?.failedStep || REGISTRY_PERSIST_FAILED_STEP,
+      reasonCode: usedFallbackRegistry ? REGISTRY_VERIFY_FAILED : REGISTRY_WRITE_FAILED,
+      failedStep: REGISTRY_PERSIST_FAILED_STEP,
       companyId: workspaceId,
       companyName,
-      technicalError: String(error?.technicalError || (error instanceof Error ? error.message : error) || ""),
-      registrySpreadsheetId: error?.registrySpreadsheetId,
-      registryTab: error?.registryTab,
-      registryLocation: error?.registryLocation,
-      missingColumns: error?.missingColumns,
-      lookupKeys: error?.lookupKeys,
-      verifyReadback: error?.verifyReadback,
+      technicalError: mainRegistryError || "registry_status_not_live_after_persist",
+      verifyReadback: fresh ? { status: getCanonicalCompanyStatus(fresh), companyId: fresh.companyId } : null,
     });
   }
 
-  const fresh = persistResult.record;
-  const registryCompanyId = String(persistResult.companyId || workspaceId).trim();
+  if (usedFallbackRegistry) {
+    warnings.push(FALLBACK_REGISTRY_WARNING);
+    warnings.push(buildFallbackRegistryDiagnostic(mainRegistryError));
+  }
 
   if (masterSheetId && deps.google) {
     try {
@@ -401,6 +455,10 @@ export async function makeCompanyUsable(auth, deps, workspace = {}) {
     userMessage: "Company is ready. You can now invite users.",
     warnings,
     registryStatus: getCanonicalCompanyStatus(fresh) || COMPANY_REGISTRY_STATUS_LIVE,
+    registrySource: usedFallbackRegistry ? "fallback" : "main",
+    fallbackRegistry: usedFallbackRegistry,
+    technicalError: usedFallbackRegistry ? mainRegistryError : "",
+    warning: usedFallbackRegistry ? FALLBACK_REGISTRY_WARNING : "",
   };
 }
 
@@ -567,7 +625,7 @@ export function installGodmodeRegistryActionRoutes(app, deps) {
         return res.status(400).json({ ok: false, error: "Company ID is required." });
       }
       try {
-        const record = await getCompanyWorkspaceRegistryRecord(authed, deps, companyId);
+        const record = await getCanonicalCompanyRegistryRecord(authed, deps, companyId);
         if (!record || !isCompanyRegistryLive(record)) {
           return res.status(409).json({
             ok: false,

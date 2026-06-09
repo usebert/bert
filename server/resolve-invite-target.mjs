@@ -6,7 +6,7 @@ import {
   writeOnboardingRegistryMasterSheetForFolder,
 } from "./company-onboarding.mjs";
 import {
-  getCompanyWorkspaceRegistryRecord,
+  getCanonicalCompanyRegistryRecord,
   persistCompanyWorkspaceSetup,
 } from "./company-workspace-registry.mjs";
 import {
@@ -171,7 +171,7 @@ export async function resolveCompanyWorkspaceForInvite(auth, invite, deps, optio
   let masterSheetId = "";
   let companyName = trimId(invite.companyName);
 
-  const registryRecord = await getCompanyWorkspaceRegistryRecord(auth, deps, companyId).catch(() => null);
+  const registryRecord = await getCanonicalCompanyRegistryRecord(auth, deps, companyId).catch(() => null);
   if (registryRecord) {
     sources.push("registry");
     companyFolderId = trimId(registryRecord.rootFolderId || registryRecord.companyId) || companyId;

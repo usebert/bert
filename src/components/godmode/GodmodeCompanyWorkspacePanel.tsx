@@ -337,6 +337,11 @@ export function GodmodeCompanyWorkspacePanel({
       : false;
   const companyFoldersMappingOk = workspaceValidation?.folders.companyFolder ?? Boolean(selectedFolder);
   const registryStatus = effectiveRegistryStatus;
+  const usingFallbackRegistry =
+    companySetupResult?.fallbackRegistry === true || companySetupResult?.registrySource === "fallback";
+  const fallbackRegistryDiagnostic = (companySetupResult?.warnings || []).find((warning) =>
+    warning.startsWith("Using fallback registry because main Companies registry write failed"),
+  );
   const registryStatusDisplay = companyLive
     ? "Live"
     : registryActionError
@@ -815,6 +820,19 @@ export function GodmodeCompanyWorkspacePanel({
                     Unlink reason: {registryUnlinkReason.replace(/_/g, " ")}
                   </p>
                 ) : null}
+                {usingFallbackRegistry ? (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                    <p className="font-semibold">Registry source: fallback JSON file</p>
+                    {fallbackRegistryDiagnostic ? (
+                      <p className="mt-2 font-mono text-xs text-amber-900">{fallbackRegistryDiagnostic}</p>
+                    ) : companySetupResult?.technicalError ? (
+                      <p className="mt-2 font-mono text-xs text-amber-900">
+                        Using fallback registry because main Companies registry write failed.{" "}
+                        {companySetupResult.technicalError}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
                 {visibleSetupError || companySetupResult?.registryLocation ? (
                   <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-950">
                     {visibleSetupError?.failedStep ? (
@@ -980,7 +998,10 @@ export function GodmodeCompanyWorkspacePanel({
                   </div>
                   <div>
                     <dt className="font-semibold text-slate-500">Registry status</dt>
-                    <dd className="mt-0.5 font-mono text-slate-800">{registryStatusDisplay}</dd>
+                    <dd className="mt-0.5 font-mono text-slate-800">
+                      {registryStatusDisplay}
+                      {usingFallbackRegistry ? " (fallback registry)" : ""}
+                    </dd>
                   </div>
                   <div>
                     <dt className="font-semibold text-slate-500">Master sheet ID</dt>
