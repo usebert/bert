@@ -126,6 +126,7 @@ export type GodmodeCompanyWorkspacePanelProps = {
     companyId: string;
     registryStatus: string;
     masterSheetId?: string;
+    registryLinkMissing?: boolean;
   }) => void | Promise<void>;
   onClearSetupError?: () => void;
   onFolderIdChange?: (value: string) => void;
@@ -325,6 +326,13 @@ export function GodmodeCompanyWorkspacePanel({
       : false;
   const companyFoldersMappingOk = workspaceValidation?.folders.companyFolder ?? Boolean(selectedFolder);
   const registryStatus = effectiveRegistryStatus;
+  const registryStatusDisplay = companyLive
+    ? "Live"
+    : registryActionError
+      ? registryActionError
+      : visibleSetupError?.failedStep === "persist_live" && visibleSetupError.message
+        ? visibleSetupError.message
+        : registryStatus || "Not Live";
   const folderRegistryLinkMissing = (selectedFolder as CompanyFolder & { registryLinkMissing?: boolean })
     ?.registryLinkMissing;
   const registryLinkMissing =
@@ -332,7 +340,7 @@ export function GodmodeCompanyWorkspacePanel({
     masterSheetOk &&
     !companyLive &&
     (folderRegistryLinkMissing === true ||
-      (folderRegistryLinkMissing !== false && !registryStatus && registryStatus !== "Needs attention"));
+      (folderRegistryLinkMissing !== false && !effectiveRegistryStatus && effectiveRegistryStatus !== "Needs attention"));
   const registryUnlinkReason = String(
     (selectedFolder as CompanyFolder & { registryUnlinkReason?: string })?.registryUnlinkReason || "",
   ).trim();
@@ -430,10 +438,17 @@ export function GodmodeCompanyWorkspacePanel({
       });
       setRegistryRelinkSucceeded(true);
       onClearSetupError?.();
+      const registryPayload = await companyWorkspaceRegistryService.getCompany(
+        result.companyId || selectedFolder.id,
+      );
+      const canonicalStatus = getCanonicalCompanyStatus(registryPayload.company);
+      const registryMasterSheetId = String(registryPayload.company.masterSheetId || result.masterSheetId || "").trim();
+      const relinkLive = isCompanyRegistryLive(registryPayload.company);
       await onCompanyRegistryUpdated?.({
-        companyId: result.companyId,
-        registryStatus: result.registryStatus,
-        masterSheetId: result.masterSheetId,
+        companyId: result.companyId || selectedFolder.id,
+        registryStatus: canonicalStatus || result.registryStatus,
+        masterSheetId: registryMasterSheetId,
+        registryLinkMissing: !relinkLive,
       });
     } catch (error) {
       setRegistryActionError(error instanceof Error ? error.message : "Unable to relink company registry record.");
@@ -456,10 +471,19 @@ export function GodmodeCompanyWorkspacePanel({
         checks: buildReadinessChecks(),
       });
       onClearSetupError?.();
+      const registryPayload = await companyWorkspaceRegistryService.getCompany(
+        result.companyId || selectedFolder.id,
+      );
+      const canonicalStatus = getCanonicalCompanyStatus(registryPayload.company);
+      const registryMasterSheetId = String(
+        registryPayload.company.masterSheetId || companyMasterSheetId || folderInspection?.masterSheet?.id || "",
+      ).trim();
+      const forceLive = isCompanyRegistryLive(registryPayload.company);
       await onCompanyRegistryUpdated?.({
-        companyId: result.companyId,
-        registryStatus: result.registryStatus,
-        masterSheetId: companyMasterSheetId || folderInspection?.masterSheet?.id || "",
+        companyId: result.companyId || selectedFolder.id,
+        registryStatus: canonicalStatus || result.registryStatus,
+        masterSheetId: registryMasterSheetId,
+        registryLinkMissing: !forceLive,
       });
     } catch (error) {
       setRegistryActionError(error instanceof Error ? error.message : "Unable to mark company live.");
@@ -881,7 +905,7 @@ export function GodmodeCompanyWorkspacePanel({
                   </div>
                   <div>
                     <dt className="font-semibold text-slate-500">Registry status</dt>
-                    <dd className="mt-0.5 font-mono text-slate-800">{registryStatus || "Unknown"}</dd>
+                    <dd className="mt-0.5 font-mono text-slate-800">{registryStatusDisplay}</dd>
                   </div>
                   <div>
                     <dt className="font-semibold text-slate-500">Master sheet ID</dt>

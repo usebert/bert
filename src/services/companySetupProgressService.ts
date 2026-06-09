@@ -53,6 +53,11 @@ export const COMPANY_SETUP_DID_NOT_FINISH_MESSAGE = "Could not make company usab
 export const COMPANY_SETUP_SUCCESS_MESSAGE = "Company is ready. You can now invite users.";
 export const COMPANY_SETUP_SUCCESS_DETAIL = "";
 
+export const REGISTRY_WRITE_FAILED_MESSAGE =
+  "BERT could not save this company as Live in the company registry.";
+export const REGISTRY_VERIFY_FAILED_MESSAGE =
+  "BERT saved setup data but could not verify the company is Live in the registry.";
+
 export const MAKE_USABLE_REQUEST_TIMEOUT_MS = 35_000;
 
 export const COMPANY_SETUP_STEP_LABELS: Record<string, string> = {
@@ -100,18 +105,26 @@ async function postMakeUsable(
     };
 
     if (!response.ok) {
+      const reasonCode = payload.reasonCode || payload.reason || "UNKNOWN";
+      const userMessage =
+        reasonCode === "REGISTRY_WRITE_FAILED"
+          ? REGISTRY_WRITE_FAILED_MESSAGE
+          : reasonCode === "REGISTRY_VERIFY_FAILED"
+            ? REGISTRY_VERIFY_FAILED_MESSAGE
+            : payload.userMessage || COMPANY_SETUP_DID_NOT_FINISH_MESSAGE;
       return {
         ok: false,
         companyId: payload.companyId || workspaceId,
         companyName: payload.companyName || body.companyName || "",
         status: payload.status || "NEEDS_ATTENTION",
         failedStep: payload.failedStep || "",
-        reason: payload.reason || payload.reasonCode || "UNKNOWN",
-        reasonCode: payload.reasonCode || payload.reason,
-        userMessage: payload.userMessage || COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
+        reason: reasonCode,
+        reasonCode,
+        userMessage,
         technicalError: payload.technicalError || payload.error || "",
         warnings: payload.warnings || [],
-        reasonDetail: payload.reasonDetail || payload.userMessage,
+        reasonDetail: payload.reasonDetail || userMessage,
+        registryStatus: payload.registryStatus || "",
       };
     }
 
@@ -123,6 +136,7 @@ async function postMakeUsable(
       technicalError: payload.technicalError || "",
       warnings: payload.warnings || [],
       status: payload.status || "LIVE",
+      registryStatus: payload.registryStatus || "Live",
     };
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {

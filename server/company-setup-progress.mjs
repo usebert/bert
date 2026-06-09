@@ -7,13 +7,15 @@ import {
   buildLegacyFolderConfigFromStructure,
 } from "./company-folder-structure.mjs";
 import {
-  ensureCompanyLiveIfReady,
-  persistCompanyLive,
   ensureCompanyRegistryRecordForWorkspace,
   evaluateCompanyWorkspaceReadiness,
   getCompanyWorkspaceRegistryRecord,
+  persistAndVerifyCompanyLive,
   persistCompanyWorkspaceSetup,
   recordCompanyWorkspaceHealthCheck,
+  REGISTRY_PERSIST_ERROR_MESSAGES,
+  REGISTRY_VERIFY_FAILED,
+  REGISTRY_WRITE_FAILED,
 } from "./company-workspace-registry.mjs";
 import { inspectConfiguredWorkspaceRoot } from "./google-workspace-root.mjs";
 import { countCompanyUsersOnSheet } from "./company-onboarding.mjs";
@@ -156,17 +158,6 @@ function buildSetupChecksFromCompletedSteps(state, firstAdminReady, { persistedH
 }
 
 async function executeMarkLiveStep(auth, registryDeps, state, setupChecks, resolvedCompanyName, companyId) {
-  await withGoogleTimeout(
-    ensureCompanyRegistryRecordForWorkspace(auth, registryDeps, {
-      companyId,
-      companyFolderId: companyId,
-      rootFolderId: companyId,
-      masterSheetId: state.masterSheetId,
-      companyName: resolvedCompanyName,
-    }),
-    "mark_live_ensure_registry",
-  ).catch(() => {});
-
   const readiness = deriveValidationReadiness(state.validation || {});
   const folderStructureOk = setupChecks.folderStructureOk ?? readiness.folderStructureOk;
   const requiredTabsOk = setupChecks.requiredTabsOk ?? readiness.requiredTabsOk;
@@ -185,69 +176,36 @@ async function executeMarkLiveStep(auth, registryDeps, state, setupChecks, resol
     skipHealthCheck: setupChecks.skipHealthCheck,
   };
 
-  let liveResult = await withGoogleTimeout(
-    ensureCompanyLiveIfReady(auth, registryDeps, {
+  const readinessEval = evaluateCompanyWorkspaceReadiness(state.registryRecord || {}, mergedChecks);
+  if (!readinessEval.ready && !allRequiredSetupChecksPass(mergedChecks)) {
+    const blockers = readinessEval.blockers?.length
+      ? readinessEval.blockers
+      : blockersFromValidation(state.validation || {}, { firstAdminReady });
+    const error = new Error(`Company not ready for LIVE: ${blockers.join("; ")}`);
+    error.code = "COMPANY_NOT_READY";
+    throw error;
+  }
+
+  const liveResult = await withGoogleTimeout(
+    persistAndVerifyCompanyLive(auth, registryDeps, {
       companyId,
       companyFolderId: companyId,
+      rootFolderId: companyId,
+      masterSheetId: state.masterSheetId,
       companyName: resolvedCompanyName,
+      lastHealthCheckAt: new Date().toISOString(),
+      reason: "mark_live",
       checks: mergedChecks,
+      companyFoldersMappingStatus: companyFoldersMappingOk ? "mapped" : "",
+      firstAdminStatus: firstAdminReady ? "ready" : "pending",
     }),
     "mark_live",
   );
 
-  if (!liveResult.promoted && !liveResult.alreadyLive && allRequiredSetupChecksPass(mergedChecks)) {
-    const registryCompanyId =
-      String(liveResult.record?.companyId || state.registryRecord?.companyId || companyId).trim() || companyId;
-    const forceResult = await withGoogleTimeout(
-      persistCompanyLive(auth, registryDeps, {
-        companyId: registryCompanyId,
-        companyFolderId: companyId,
-        companyName: resolvedCompanyName,
-        rootFolderId: companyId,
-        masterSheetId: state.masterSheetId,
-        lastHealthCheckAt: new Date().toISOString(),
-        reason: "mark_live_force_persist",
-        healthStatus: "HEALTHY",
-      }),
-      "mark_live_force_persist",
-    );
-    const freshRecord =
-      (await getCompanyWorkspaceRegistryRecord(auth, registryDeps, registryCompanyId)) ||
-      (await getCompanyWorkspaceRegistryRecord(auth, registryDeps, companyId));
-    if (forceResult.synced || isCompanyRegistryLive(freshRecord || {})) {
-      liveResult = {
-        promoted: Boolean(forceResult.synced),
-        alreadyLive: isCompanyRegistryLive(freshRecord || {}),
-        registryStatus: getCanonicalCompanyStatus(freshRecord || {}) || COMPANY_REGISTRY_STATUS_LIVE,
-        record: freshRecord || forceResult.record || liveResult.record,
-        blockers: [],
-      };
-    }
-  }
-
-  const registryStatus =
-    liveResult.registryStatus ||
-    getCanonicalCompanyStatus(liveResult.record || state.registryRecord || {}) ||
-    "";
-  state.registryStatus = registryStatus;
-
-  if (liveResult.promoted || liveResult.alreadyLive || isCompanyRegistryLive({ status: registryStatus, registryStatus })) {
-    state.status = SETUP_STATUS_LIVE;
-    state.blockers = [];
-  } else {
-    state.blockers = blockersFromValidation(state.validation || {}, { firstAdminReady });
-    const readinessEval = evaluateCompanyWorkspaceReadiness(liveResult.record || state.registryRecord || {}, mergedChecks);
-    for (const blocker of readinessEval.blockers || []) {
-      if (!state.blockers.includes(blocker)) {
-        state.blockers.push(blocker);
-      }
-    }
-    if (registryStatus !== COMPANY_REGISTRY_STATUS_LIVE) {
-      if (!state.blockers.includes("registry_not_live")) {
-        state.blockers.push("registry_not_live");
-      }
-    }
-  }
+  state.registryStatus = liveResult.registryStatus;
+  state.registryRecord = liveResult.record || state.registryRecord;
+  state.status = SETUP_STATUS_LIVE;
+  state.blockers = [];
 }
 
 async function runVerifyWorkbookWarningOnly(auth, deps, state, {
@@ -369,6 +327,8 @@ export const SETUP_REASON_CODES = [
   "REQUIRED_TABS_FAILED",
   "FIRST_ADMIN_FAILED",
   "REGISTRY_LINK_FAILED",
+  "REGISTRY_WRITE_FAILED",
+  "REGISTRY_VERIFY_FAILED",
   "GOOGLE_TIMEOUT",
   "UNKNOWN",
 ];
@@ -381,6 +341,8 @@ const SETUP_REASON_MESSAGES = {
   REQUIRED_TABS_FAILED: "Required tabs could not be added to the master sheet.",
   FIRST_ADMIN_FAILED: "The first admin user could not be verified on the company sheet.",
   REGISTRY_LINK_FAILED: "The company registry record could not be created or linked.",
+  REGISTRY_WRITE_FAILED: REGISTRY_PERSIST_ERROR_MESSAGES.REGISTRY_WRITE_FAILED,
+  REGISTRY_VERIFY_FAILED: REGISTRY_PERSIST_ERROR_MESSAGES.REGISTRY_VERIFY_FAILED,
   GOOGLE_TIMEOUT: "A Google operation timed out. Try again in a moment.",
   UNKNOWN: "An unexpected error occurred during setup.",
 };
@@ -396,6 +358,9 @@ function mapFailedStepToReason(failedStep, errorCode) {
   if (code === "GOOGLE_TIMEOUT" || code === "REQUEST_TIMEOUT") {
     return "GOOGLE_TIMEOUT";
   }
+  if (code === REGISTRY_WRITE_FAILED || code === REGISTRY_VERIFY_FAILED) {
+    return code;
+  }
   switch (String(failedStep || "").trim()) {
     case "ensure_company_folder":
       return "COMPANY_FOLDER_MISSING";
@@ -406,8 +371,10 @@ function mapFailedStepToReason(failedStep, errorCode) {
     case "ensure_first_admin":
       return "FIRST_ADMIN_FAILED";
     case "resolve_registry":
-    case "mark_live":
       return "REGISTRY_LINK_FAILED";
+    case "mark_live":
+    case "persist_live":
+      return REGISTRY_VERIFY_FAILED;
     default:
       return "UNKNOWN";
   }
@@ -498,6 +465,9 @@ async function probeGoogleConnection(auth, google) {
 }
 
 function resolveErrorCode(error) {
+  if (error?.code === REGISTRY_WRITE_FAILED || error?.code === REGISTRY_VERIFY_FAILED) {
+    return error.code;
+  }
   if (error?.code && KNOWN_SETUP_ERROR_CODES.has(error.code)) {
     return error.code;
   }

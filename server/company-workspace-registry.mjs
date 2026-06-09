@@ -540,78 +540,133 @@ export async function upsertCompanyWorkspaceRegistryRecords(
   return { synced: true, registrySpreadsheetId: spreadsheetId };
 }
 
+export const REGISTRY_WRITE_FAILED = "REGISTRY_WRITE_FAILED";
+export const REGISTRY_VERIFY_FAILED = "REGISTRY_VERIFY_FAILED";
+export const REGISTRY_PERSIST_FAILED_STEP = "persist_live";
+
+export const REGISTRY_PERSIST_ERROR_MESSAGES = {
+  [REGISTRY_WRITE_FAILED]: "BERT could not save this company as Live in the company registry.",
+  [REGISTRY_VERIFY_FAILED]:
+    "BERT saved setup data but could not verify the company is Live in the registry.",
+};
+
+export function createRegistryPersistError(code, technicalError = "") {
+  const normalizedCode = String(code || REGISTRY_WRITE_FAILED).trim();
+  const error = new Error(
+    REGISTRY_PERSIST_ERROR_MESSAGES[normalizedCode] || String(technicalError || "Registry persist failed."),
+  );
+  error.code = normalizedCode;
+  error.technicalError = String(technicalError || "").trim();
+  error.failedStep = REGISTRY_PERSIST_FAILED_STEP;
+  return error;
+}
+
+function resolveMappingStatusFromChecks(checks = {}, existingStatus = "") {
+  if (checks.companyFoldersMappingOk === true) {
+    return "mapped";
+  }
+  if (checks.companyFoldersMappingOk === false) {
+    return existingStatus;
+  }
+  return existingStatus;
+}
+
+function resolveFirstAdminStatusFromChecks(checks = {}, existingStatus = "") {
+  if (checks.firstAdminReady === true) {
+    return "ready";
+  }
+  if (checks.firstAdminReady === false) {
+    return "pending";
+  }
+  return existingStatus;
+}
+
+async function reloadRegistryRecord(auth, deps, registryCompanyId, lookupId) {
+  return (
+    (await getCompanyWorkspaceRegistryRecord(auth, deps, registryCompanyId)) ||
+    (await getCompanyWorkspaceRegistryRecord(auth, deps, lookupId)) ||
+    null
+  );
+}
+
 /**
- * Persist status=Live on the canonical Companies registry row (multi-key lookup before write).
- * Never infers Live from health/sync — writes explicit Status + Live At.
+ * Canonical LIVE persist: ensure registry row, write Status=Live, re-read and verify.
+ * Throws REGISTRY_WRITE_FAILED or REGISTRY_VERIFY_FAILED — never infers Live without re-read.
  */
-export async function persistCompanyLive(auth, deps, input = {}) {
-  const lookupId = String(input.companyId || input.companyFolderId || input.rootFolderId || "").trim();
-  if (!lookupId || !auth) {
-    return {
-      synced: false,
-      promoted: false,
-      reason: "missing_company_id",
-      registryStatus: "",
-      needsAttention: false,
-      setupBlockers: [],
-      healthStatus: "",
-      updatedAt: "",
-      record: null,
-      matchedBy: "",
-    };
+export async function persistAndVerifyCompanyLive(auth, deps, canonicalCompany = {}) {
+  const companyId = String(
+    canonicalCompany.companyId || canonicalCompany.companyFolderId || canonicalCompany.rootFolderId || "",
+  ).trim();
+  const companyFolderId = String(
+    canonicalCompany.companyFolderId || canonicalCompany.rootFolderId || companyId,
+  ).trim();
+  const masterSheetId = String(canonicalCompany.masterSheetId || "").trim();
+  const companyName = String(canonicalCompany.companyName || "").trim();
+  const checks = canonicalCompany.checks && typeof canonicalCompany.checks === "object" ? canonicalCompany.checks : {};
+
+  if (!companyId || !auth) {
+    throw createRegistryPersistError(REGISTRY_WRITE_FAILED, "missing_company_id");
   }
 
-  const { map } = await readCompanyWorkspaceRegistryMap(auth, deps);
-  const match = findCompanyWorkspaceRegistryRecordInMap(map, {
-    companyId: lookupId,
-    companyFolderId: String(input.companyFolderId || lookupId).trim(),
-    rootFolderId: String(input.rootFolderId || input.companyFolderId || lookupId).trim(),
-    masterSheetId: String(input.masterSheetId || "").trim(),
-    companyName: String(input.companyName || "").trim(),
+  const ensured = await ensureCompanyRegistryRecordForWorkspace(auth, deps, {
+    companyId,
+    companyFolderId,
+    rootFolderId: companyFolderId,
+    masterSheetId,
+    companyName,
   });
-  const existing = match?.record || findCompanyWorkspaceRegistryRecord(map, lookupId);
-  if (!existing) {
+  const registryRecord = ensured?.record || null;
+  if (!registryRecord) {
+    throw createRegistryPersistError(REGISTRY_WRITE_FAILED, String(ensured?.reason || "ensure_failed"));
+  }
+
+  const registryCompanyId = String(registryRecord.companyId || companyId).trim();
+  const resolvedRootFolderId = String(
+    companyFolderId || registryRecord.rootFolderId || companyId,
+  ).trim();
+  const resolvedMasterSheetId = String(masterSheetId || registryRecord.masterSheetId || "").trim();
+  const now = nowIso();
+
+  if (isCompanyRegistryLive(registryRecord)) {
+    const verified = await reloadRegistryRecord(auth, deps, registryCompanyId, companyId);
+    const registryStatus = getCanonicalCompanyStatus(verified || {});
+    if (!verified || !isCompanyRegistryLive(verified)) {
+      throw createRegistryPersistError(
+        REGISTRY_VERIFY_FAILED,
+        `registry_status=${registryStatus || "unknown"} after reload`,
+      );
+    }
     return {
-      synced: false,
+      synced: true,
       promoted: false,
-      reason: "not_in_registry",
-      registryStatus: "",
-      needsAttention: false,
-      setupBlockers: [],
-      healthStatus: "",
-      updatedAt: "",
-      record: null,
-      matchedBy: match?.matchedBy || "",
+      alreadyLive: true,
+      registryStatus: COMPANY_REGISTRY_STATUS_LIVE,
+      companyId: registryCompanyId,
+      companyFolderId: resolvedRootFolderId,
+      masterSheetId: resolvedMasterSheetId,
+      updatedAt: String(verified.lastSetupAt || now).trim() || now,
+      record: verified,
+      matchedBy: ensured.matchedBy || "",
     };
   }
 
-  const registryCompanyId = String(existing.companyId || lookupId).trim();
-  const checks = input.checks && typeof input.checks === "object" ? input.checks : {};
-  const now = nowIso();
-  const result = await persistCompanyWorkspaceSetup(auth, deps, {
+  const writeResult = await persistCompanyWorkspaceSetup(auth, deps, {
     companyId: registryCompanyId,
-    companyName: String(input.companyName || existing.companyName || "").trim(),
-    rootFolderId: String(existing.rootFolderId || input.rootFolderId || lookupId).trim(),
-    masterSheetId: String(existing.masterSheetId || input.masterSheetId || "").trim(),
-    workbookFolderId: existing.workbookFolderId,
+    companyName: companyName || registryRecord.companyName || "",
+    rootFolderId: resolvedRootFolderId,
+    masterSheetId: resolvedMasterSheetId,
+    workbookFolderId: registryRecord.workbookFolderId,
     companyFoldersMappingStatus:
-      input.companyFoldersMappingStatus ||
-      (checks.companyFoldersMappingOk === true
-        ? "mapped"
-        : checks.companyFoldersMappingOk === false
-          ? existing.companyFoldersMappingStatus
-          : existing.companyFoldersMappingStatus),
+      String(canonicalCompany.companyFoldersMappingStatus || "").trim() ||
+      resolveMappingStatusFromChecks(checks, registryRecord.companyFoldersMappingStatus),
     firstAdminStatus:
-      input.firstAdminStatus ||
-      (checks.firstAdminReady === true
-        ? "ready"
-        : checks.firstAdminReady === false
-          ? "pending"
-          : existing.firstAdminStatus),
+      String(canonicalCompany.firstAdminStatus || "").trim() ||
+      resolveFirstAdminStatusFromChecks(checks, registryRecord.firstAdminStatus),
     status: COMPANY_REGISTRY_STATUS_LIVE,
-    setupCompletedAt: existing.setupCompletedAt || now,
-    liveAt: existing.liveAt || now,
-    lastHealthCheckAt: String(input.lastHealthCheckAt || existing.lastHealthCheckAt || "").trim(),
+    setupCompletedAt: registryRecord.setupCompletedAt || now,
+    liveAt: now,
+    lastSetupAt: now,
+    lastHealthCheckAt: String(canonicalCompany.lastHealthCheckAt || registryRecord.lastHealthCheckAt || "").trim(),
     unlinkReason: "",
     clearUnlinkReason: true,
     markSetupComplete: true,
@@ -619,25 +674,77 @@ export async function persistCompanyLive(auth, deps, input = {}) {
     touchSetup: true,
   });
 
-  const fresh =
-    (await getCompanyWorkspaceRegistryRecord(auth, deps, registryCompanyId)) ||
-    (await getCompanyWorkspaceRegistryRecord(auth, deps, lookupId)) ||
-    result.record ||
-    existing;
+  if (!writeResult.synced) {
+    throw createRegistryPersistError(REGISTRY_WRITE_FAILED, String(writeResult.reason || "registry_write_failed"));
+  }
+
+  const fresh = await reloadRegistryRecord(auth, deps, registryCompanyId, companyId);
+  const registryStatus = getCanonicalCompanyStatus(fresh || {});
+  if (!fresh || !isCompanyRegistryLive(fresh)) {
+    throw createRegistryPersistError(
+      REGISTRY_VERIFY_FAILED,
+      `registry_status=${registryStatus || "unknown"} after write`,
+    );
+  }
 
   return {
-    ...result,
-    promoted: Boolean(result.synced) || isCompanyRegistryLive(fresh),
-    registryStatus: getCanonicalCompanyStatus(fresh) || COMPANY_REGISTRY_STATUS_LIVE,
-    needsAttention: false,
-    setupBlockers: [],
-    healthStatus: input.healthStatus || "HEALTHY",
-    healthIssues: input.healthIssues || [],
+    synced: true,
+    promoted: true,
+    alreadyLive: false,
+    registryStatus: COMPANY_REGISTRY_STATUS_LIVE,
+    companyId: registryCompanyId,
+    companyFolderId: resolvedRootFolderId,
+    masterSheetId: String(fresh.masterSheetId || resolvedMasterSheetId).trim(),
     updatedAt: now,
     record: fresh,
-    matchedBy: match?.matchedBy || "",
-    persistReason: String(input.reason || "").trim(),
+    matchedBy: ensured.matchedBy || "",
+    persistReason: String(canonicalCompany.reason || "").trim(),
   };
+}
+
+/**
+ * Persist status=Live on the canonical Companies registry row.
+ * Delegates to persistAndVerifyCompanyLive; returns a result object instead of throwing.
+ */
+export async function persistCompanyLive(auth, deps, input = {}) {
+  try {
+    const result = await persistAndVerifyCompanyLive(auth, deps, input);
+    return {
+      synced: true,
+      promoted: Boolean(result.promoted),
+      alreadyLive: Boolean(result.alreadyLive),
+      reason: "",
+      registryStatus: result.registryStatus,
+      needsAttention: false,
+      setupBlockers: [],
+      healthStatus: input.healthStatus || "HEALTHY",
+      healthIssues: input.healthIssues || [],
+      updatedAt: result.updatedAt,
+      record: result.record,
+      matchedBy: result.matchedBy || "",
+      persistReason: result.persistReason || String(input.reason || "").trim(),
+    };
+  } catch (error) {
+    const code = String(error?.code || REGISTRY_WRITE_FAILED).trim();
+    const technicalError = String(error?.technicalError || error?.message || "").trim();
+    return {
+      synced: false,
+      promoted: false,
+      alreadyLive: false,
+      reason: code === REGISTRY_VERIFY_FAILED ? "verify_failed" : String(error?.technicalError || code).trim(),
+      registryStatus: getCanonicalCompanyStatus(error?.record || {}) || "",
+      needsAttention: true,
+      setupBlockers: [code],
+      healthStatus: "",
+      updatedAt: "",
+      record: error?.record || null,
+      matchedBy: "",
+      persistReason: String(input.reason || "").trim(),
+      errorCode: code,
+      technicalError,
+      userMessage: REGISTRY_PERSIST_ERROR_MESSAGES[code] || technicalError,
+    };
+  }
 }
 
 export async function persistCompanyWorkspaceSetup(auth, deps, input = {}) {
@@ -981,34 +1088,43 @@ export async function ensureCompanyLiveIfReady(auth, deps, input = {}) {
       record: existing,
     };
   }
-  const registryCompanyId = String(existing.companyId || companyId).trim();
   const resolvedMasterSheetId = String(checks.masterSheetId || existing.masterSheetId || "").trim();
   const resolvedRootFolderId = String(checks.rootFolderId || existing.rootFolderId || companyId).trim();
-  const result = await persistCompanyLive(auth, deps, {
-    companyId: registryCompanyId,
-    companyFolderId: companyId,
-    companyName: String(input.companyName || existing.companyName || "").trim(),
-    rootFolderId: resolvedRootFolderId,
-    masterSheetId: resolvedMasterSheetId,
-    lastHealthCheckAt: existing.lastHealthCheckAt || (checks.healthCheckRun ? nowIso() : ""),
-    reason: "ensure_ready",
-    healthStatus: "HEALTHY",
-    checks,
-  });
-  const freshRecord =
-    (await getCompanyWorkspaceRegistryRecord(auth, deps, registryCompanyId)) ||
-    (await getCompanyWorkspaceRegistryRecord(auth, deps, companyId)) ||
-    result.record ||
-    existing;
-  return {
-    promoted: Boolean(result.synced),
-    status: COMPANY_REGISTRY_STATUS_LIVE,
-    blockers: [],
-    setupBlockers: [],
-    needsAttention: false,
-    registryStatus: getCanonicalCompanyStatus(freshRecord) || COMPANY_REGISTRY_STATUS_LIVE,
-    record: freshRecord,
-  };
+  try {
+    const result = await persistAndVerifyCompanyLive(auth, deps, {
+      companyId: String(existing.companyId || companyId).trim(),
+      companyFolderId: companyId,
+      companyName: String(input.companyName || existing.companyName || "").trim(),
+      rootFolderId: resolvedRootFolderId,
+      masterSheetId: resolvedMasterSheetId,
+      lastHealthCheckAt: existing.lastHealthCheckAt || (checks.healthCheckRun ? nowIso() : ""),
+      reason: "ensure_ready",
+      checks,
+    });
+    return {
+      promoted: Boolean(result.promoted),
+      alreadyLive: Boolean(result.alreadyLive),
+      status: COMPANY_REGISTRY_STATUS_LIVE,
+      blockers: [],
+      setupBlockers: [],
+      needsAttention: false,
+      registryStatus: result.registryStatus,
+      record: result.record,
+    };
+  } catch (error) {
+    const code = String(error?.code || REGISTRY_WRITE_FAILED).trim();
+    return {
+      promoted: false,
+      reason: code,
+      blockers: [code],
+      setupBlockers: [code],
+      needsAttention: true,
+      registryStatus: getCanonicalCompanyStatus(existing) || "",
+      record: existing,
+      technicalError: String(error?.technicalError || error?.message || "").trim(),
+      userMessage: REGISTRY_PERSIST_ERROR_MESSAGES[code] || "",
+    };
+  }
 }
 
 export function mergeDriveCompanyWithRegistry(driveCompany, registryRecord) {

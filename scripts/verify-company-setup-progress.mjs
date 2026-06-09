@@ -106,9 +106,11 @@ assert(progress.includes("mergeWorkspaceFolderConfig"), "9b: setup merges ISO + 
 assert(progress.includes("verifyWorkbookReadWrite"), "9c: setup uses lightweight workbook verify");
 
 /** 10: LIVE promotion + shared drive does not block readiness */
-assert(progress.includes("ensureCompanyLiveIfReady"), "10: mark_live calls ensureCompanyLiveIfReady");
-assert(progress.includes("persistCompanyLive"), "10a: mark_live uses persistCompanyLive fallback");
-assert(registry.includes("export async function persistCompanyLive"), "10a2: persistCompanyLive exported from registry");
+assert(progress.includes("persistAndVerifyCompanyLive"), "10: mark_live calls persistAndVerifyCompanyLive");
+assert(registry.includes("export async function persistAndVerifyCompanyLive"), "10a: persistAndVerifyCompanyLive exported");
+assert(registry.includes("REGISTRY_VERIFY_FAILED"), "10a2: REGISTRY_VERIFY_FAILED error code");
+assert(registry.includes("REGISTRY_WRITE_FAILED"), "10a3: REGISTRY_WRITE_FAILED error code");
+assert(registry.includes("export async function persistCompanyLive"), "10a4: persistCompanyLive wraps verify helper");
 assert(progress.includes("shared drive warning"), "10b: shared drive logged as warning only");
 const readinessBlock = registry.slice(
   registry.indexOf("export function evaluateCompanyWorkspaceReadiness"),
@@ -118,8 +120,8 @@ assert(!readinessBlock.includes("sharedDrive"), "10c: shared drive verification 
 assert(readinessBlock.includes("explicitChecksPass"), "10d: stale Needs attention cleared when checks pass");
 assert(registry.includes("findCompanyWorkspaceRegistryRecord"), "10e: registry lookup by folder id");
 assert(registry.includes("clearUnlinkReason"), "10f: Live promotion clears unlink reason");
-assert(progress.includes("allRequiredSetupChecksPass"), "10g: force LIVE persist when checks pass");
-assert(progress.includes("mark_live_force_persist"), "10h: mark_live force persist fallback");
+assert(progress.includes("allRequiredSetupChecksPass"), "10g: mark_live checks readiness before persist");
+assert(registry.includes("reloadRegistryRecord"), "10h: registry re-reads row after LIVE write");
 assert(inviteHelpers.includes("isCompanyUsersTabWritable"), "10i: Godmode Users tab invite gate");
 assert(usersPanel.includes("isCompanyUsersTabWritable"), "10j: invite panel uses Users tab gate for Master");
 
@@ -127,7 +129,7 @@ assert(appTsx.includes("companySetupProgressService"), "App uses setup progress 
 assert(appTsx.includes("makeUsable"), "App uses makeUsable service");
 assert(appTsx.includes("handleMakeCompanyUsable"), "App defines handleMakeCompanyUsable");
 assert(registryActions.includes("ensureCompanyRegistryRecordForWorkspace"), "make-usable ensures registry row");
-assert(registryActions.includes("persistCompanyLive"), "make-usable persists LIVE");
+assert(registryActions.includes("persistAndVerifyCompanyLive"), "make-usable persists LIVE with verify");
 assert(registryActions.includes('requiredTabs: ["Users"]'), "make-usable optional Users tab only");
 assert(!registryActions.includes("ensureCompanyFolderStructure"), "make-usable no folder structure repair");
 assert(!registryActions.includes("verifyWorkbookReadWrite"), "make-usable no workbook verify");
@@ -209,7 +211,7 @@ assert(!registryActions.includes("getDriveFile"), "17k: relink no Drive folder c
 assert(!registryActions.includes("ensureCompanyFolderStructure"), "17l: relink no folder structure calls");
 assert(!registryActions.includes("verifyWorkbookReadWrite"), "17m: force live no workbook verify");
 assert(registryActions.includes("ensureCompanyRegistryRecordForWorkspace"), "17n: relink uses ensure registry helper");
-assert(registryActions.includes("persistCompanyLive"), "17o: force live persists registry Live status");
+assert(registryActions.includes("persistAndVerifyCompanyLive"), "17o: force live persists registry Live status");
 assert(registryActions.includes("findCompanyWorkspaceRegistryRecordInMap"), "17p: relink finds existing row before create");
 assert(serverMain.includes("installGodmodeRegistryActionRoutes"), "17q: server installs godmode registry actions");
 assert(registryService.includes("relinkRegistry"), "17r: frontend relinkRegistry service");
@@ -219,6 +221,8 @@ assert(!panel.includes("Not In Registry"), "17u: godmode panel avoids dead-end N
 assert(registry.includes('normalized === "not_in_registry"'), "17v: not_in_registry humanized for API");
 
 assert(panel.includes("registryLinkMissing"), "17i: godmode panel uses registryLinkMissing flag");
+assert(panel.includes("registryStatusDisplay"), "17i2: godmode panel shows registry status or backend reason");
+assert(service.includes("REGISTRY_VERIFY_FAILED_MESSAGE"), "17i3: frontend registry verify failure copy");
 assert(serverMain.includes("registryLinkMissing: !registryRecord"), "17j: live companies expose registryLinkMissing");
 
 /** 18–23: ensure_required_tabs optimization (6 cases) */

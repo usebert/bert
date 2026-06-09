@@ -12,9 +12,12 @@ import {
   evaluateCompanyWorkspaceReadiness,
   findCompanyWorkspaceRegistryRecordInMap,
   getCompanyWorkspaceRegistryRecord,
-  persistCompanyLive,
+  persistAndVerifyCompanyLive,
   persistCompanyWorkspaceSetup,
   readCompanyWorkspaceRegistryMap,
+  REGISTRY_PERSIST_ERROR_MESSAGES,
+  REGISTRY_VERIFY_FAILED,
+  REGISTRY_WRITE_FAILED,
 } from "./company-workspace-registry.mjs";
 import { ensureRequiredTabs } from "./ensure-required-tabs.mjs";
 
@@ -29,6 +32,8 @@ export const MAKE_USABLE_REASON_MESSAGES = {
   COMPANY_NAME_MISSING: "Company name is required.",
   SYSTEM_TEMPLATE_COMPANY: "This workspace is a system template and cannot be made usable.",
   REGISTRY_LINK_FAILED: "The company registry record could not be created or updated.",
+  REGISTRY_WRITE_FAILED: REGISTRY_PERSIST_ERROR_MESSAGES.REGISTRY_WRITE_FAILED,
+  REGISTRY_VERIFY_FAILED: REGISTRY_PERSIST_ERROR_MESSAGES.REGISTRY_VERIFY_FAILED,
   GOOGLE_TIMEOUT: "The request timed out. Try again in a moment.",
   UNKNOWN: "An unexpected error occurred.",
 };
@@ -217,7 +222,43 @@ export async function relinkCompanyRegistryForWorkspace(auth, deps, workspace = 
   }
 
   const registryCompanyId = String(record.companyId || canonicalCompanyId).trim();
-  const registryStatus = getCanonicalCompanyStatus(record) || record.status || "";
+  let registryStatus = getCanonicalCompanyStatus(record) || record.status || "";
+
+  if (workspace.persistLive || workspace.markLiveIfReady) {
+    const checks = buildChecksFromBody(workspace, record);
+    const readiness = evaluateCompanyWorkspaceReadiness(record, checks);
+    if (workspace.persistLive || readiness.ready) {
+      try {
+        const liveResult = await persistAndVerifyCompanyLive(auth, deps, {
+          companyId: registryCompanyId,
+          companyFolderId: resolvedRootFolderId,
+          rootFolderId: resolvedRootFolderId,
+          masterSheetId: String(record.masterSheetId || masterSheetId).trim(),
+          companyName: String(record.companyName || companyName).trim(),
+          reason: "relink_registry",
+          checks,
+        });
+        registryStatus = liveResult.registryStatus;
+        record = liveResult.record || record;
+      } catch (error) {
+        const code = String(error?.code || REGISTRY_WRITE_FAILED).trim();
+        return {
+          ok: false,
+          reason: code,
+          companyId: registryCompanyId,
+          companyName: String(record.companyName || companyName).trim(),
+          companyFolderId: resolvedRootFolderId,
+          masterSheetId: String(record.masterSheetId || masterSheetId).trim(),
+          registryStatus: getCanonicalCompanyStatus(record) || "",
+          created: Boolean(ensured.created),
+          technicalError: String(error?.technicalError || error?.message || "").trim(),
+          userMessage: REGISTRY_PERSIST_ERROR_MESSAGES[code] || "",
+          failedStep: "persist_live",
+        };
+      }
+    }
+  }
+
   return {
     ok: true,
     companyId: registryCompanyId,
@@ -277,79 +318,39 @@ export async function makeCompanyUsable(auth, deps, workspace = {}) {
     });
   }
 
-  let ensured;
+  let persistResult;
   try {
-    ensured = await withHandlerTimeout(
-      ensureCompanyRegistryRecordForWorkspace(auth, deps, {
+    persistResult = await withHandlerTimeout(
+      persistAndVerifyCompanyLive(auth, deps, {
         companyId: workspaceId,
         companyFolderId,
         rootFolderId: companyFolderId,
         masterSheetId,
         companyName,
-      }),
-      "ensure_registry",
-    );
-  } catch (error) {
-    const reasonCode = error?.code === "REGISTRY_ACTION_TIMEOUT" ? "GOOGLE_TIMEOUT" : "REGISTRY_LINK_FAILED";
-    return makeUsableFailure({
-      reasonCode,
-      failedStep: "ensure_registry",
-      companyId: workspaceId,
-      companyName,
-      technicalError: error instanceof Error ? error.message : String(error || ""),
-    });
-  }
-
-  const registryRecord = ensured?.record || null;
-  const registryCompanyId = String(registryRecord?.companyId || workspaceId).trim();
-  if (!registryRecord && !ensured?.created) {
-    return makeUsableFailure({
-      reasonCode: "REGISTRY_LINK_FAILED",
-      failedStep: "ensure_registry",
-      companyId: workspaceId,
-      companyName,
-      technicalError: String(ensured?.reason || "create_failed"),
-    });
-  }
-
-  let persistResult;
-  try {
-    persistResult = await withHandlerTimeout(
-      persistCompanyLive(auth, deps, {
-        companyId: registryCompanyId,
-        companyFolderId,
-        companyName,
-        rootFolderId: companyFolderId,
-        masterSheetId,
         reason: "make_usable",
       }),
       "persist_live",
     );
   } catch (error) {
-    const reasonCode = error?.code === "REGISTRY_ACTION_TIMEOUT" ? "GOOGLE_TIMEOUT" : "REGISTRY_LINK_FAILED";
+    const reasonCode =
+      error?.code === "REGISTRY_ACTION_TIMEOUT"
+        ? "GOOGLE_TIMEOUT"
+        : error?.code === REGISTRY_VERIFY_FAILED
+          ? REGISTRY_VERIFY_FAILED
+          : error?.code === REGISTRY_WRITE_FAILED
+            ? REGISTRY_WRITE_FAILED
+            : "REGISTRY_LINK_FAILED";
     return makeUsableFailure({
       reasonCode,
       failedStep: "persist_live",
-      companyId: registryCompanyId,
+      companyId: workspaceId,
       companyName,
-      technicalError: error instanceof Error ? error.message : String(error || ""),
+      technicalError: String(error?.technicalError || (error instanceof Error ? error.message : error) || ""),
     });
   }
 
-  const fresh =
-    (await getCompanyWorkspaceRegistryRecord(auth, deps, registryCompanyId)) ||
-    persistResult?.record ||
-    registryRecord;
-  const live = isCompanyRegistryLive(fresh) || Boolean(persistResult?.synced);
-  if (!live) {
-    return makeUsableFailure({
-      reasonCode: "REGISTRY_LINK_FAILED",
-      failedStep: "persist_live",
-      companyId: registryCompanyId,
-      companyName,
-      technicalError: String(persistResult?.reason || "not_in_registry"),
-    });
-  }
+  const fresh = persistResult.record;
+  const registryCompanyId = String(persistResult.companyId || workspaceId).trim();
 
   if (masterSheetId && deps.google) {
     try {
@@ -436,34 +437,43 @@ export async function forceCompanyLiveIfReadyFromChecks(auth, deps, input = {}) 
     };
   }
 
-  const persistResult = await persistCompanyLive(auth, deps, {
-    companyId: registryCompanyId,
-    companyFolderId: companyId,
-    companyName: String(input.companyName || existing.companyName || "").trim(),
-    rootFolderId: checks.rootFolderId || existing.rootFolderId || companyId,
-    masterSheetId: checks.masterSheetId || existing.masterSheetId,
-    lastHealthCheckAt: existing.lastHealthCheckAt || (checks.healthCheckRun ? new Date().toISOString() : ""),
-    reason: "force_live_if_ready",
-    healthStatus: "HEALTHY",
-  });
-
-  const fresh =
-    (await getCompanyWorkspaceRegistryRecord(auth, deps, registryCompanyId)) ||
-    persistResult.record ||
-    existing;
-  const registryStatus = getCanonicalCompanyStatus(fresh) || COMPANY_REGISTRY_STATUS_LIVE;
-
-  return {
-    ok: Boolean(persistResult.synced) || isCompanyRegistryLive(fresh),
-    promoted: Boolean(persistResult.synced),
-    alreadyLive: isCompanyRegistryLive(fresh) && !persistResult.synced,
-    companyId: registryCompanyId,
-    registryStatus,
-    blockers: [],
-    setupBlockers: [],
-    needsAttention: false,
-    company: fresh,
-  };
+  try {
+    const persistResult = await persistAndVerifyCompanyLive(auth, deps, {
+      companyId: registryCompanyId,
+      companyFolderId: companyId,
+      companyName: String(input.companyName || existing.companyName || "").trim(),
+      rootFolderId: checks.rootFolderId || existing.rootFolderId || companyId,
+      masterSheetId: checks.masterSheetId || existing.masterSheetId,
+      lastHealthCheckAt: existing.lastHealthCheckAt || (checks.healthCheckRun ? new Date().toISOString() : ""),
+      reason: "force_live_if_ready",
+      checks,
+    });
+    return {
+      ok: true,
+      promoted: Boolean(persistResult.promoted),
+      alreadyLive: Boolean(persistResult.alreadyLive),
+      companyId: registryCompanyId,
+      registryStatus: persistResult.registryStatus,
+      blockers: [],
+      setupBlockers: [],
+      needsAttention: false,
+      company: persistResult.record,
+    };
+  } catch (error) {
+    const code = String(error?.code || REGISTRY_WRITE_FAILED).trim();
+    return {
+      ok: false,
+      reason: code,
+      blockers: [code],
+      setupBlockers: [code],
+      needsAttention: true,
+      registryStatus: getCanonicalCompanyStatus(existing) || "",
+      company: existing,
+      technicalError: String(error?.technicalError || error?.message || "").trim(),
+      userMessage: REGISTRY_PERSIST_ERROR_MESSAGES[code] || "",
+      failedStep: "persist_live",
+    };
+  }
 }
 
 export function installGodmodeRegistryActionRoutes(app, deps) {
@@ -617,12 +627,20 @@ export function installGodmodeRegistryActionRoutes(app, deps) {
           "force_live_if_ready",
         );
         if (!result.ok) {
-          return res.status(result.reason === "not_ready" ? 409 : 400).json({
+          const status =
+            result.reason === "not_ready"
+              ? 409
+              : result.reason === REGISTRY_VERIFY_FAILED || result.reason === REGISTRY_WRITE_FAILED
+                ? 409
+                : 400;
+          return res.status(status).json({
             ok: false,
             error:
-              result.blockers?.length > 0
+              result.userMessage ||
+              (result.blockers?.length > 0
                 ? `Company is not ready to go live: ${result.blockers.join("; ")}`
-                : result.reason || "Unable to mark company live.",
+                : result.reason || "Unable to mark company live."),
+            failedStep: result.failedStep || "persist_live",
             ...result,
           });
         }

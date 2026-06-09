@@ -6147,6 +6147,7 @@ function App() {
     companyId: string;
     registryStatus: string;
     masterSheetId?: string;
+    registryLinkMissing?: boolean;
   }) => {
     const companyFolderId = String(payload.companyId || selectedFolderIdRef.current || "").trim();
     if (!companyFolderId) {
@@ -6170,7 +6171,8 @@ function App() {
               responseSheetId: registryMasterSheetId || folder.responseSheetId,
               responseSheetVerified: Boolean(registryMasterSheetId) || folder.responseSheetVerified,
               registryStatus: canonicalStatus,
-              registryLinkMissing: false,
+              registryLinkMissing:
+                payload.registryLinkMissing !== undefined ? payload.registryLinkMissing : !resultIsLive,
               setupStatusLabel: resultIsLive
                 ? "Ready"
                 : canonicalStatus === "Needs attention"
@@ -10168,6 +10170,22 @@ function App() {
           message: result.reasonDetail || result.userMessage || COMPANY_SETUP_DID_NOT_FINISH_MESSAGE,
           technicalError: result.technicalError || "",
         });
+        if (result.registryStatus && companyFolderId === selectedFolderIdRef.current) {
+          setCompanyRegistryStatus(result.registryStatus);
+        }
+        if (result.registryStatus) {
+          setFolders((current) =>
+            current.map((folder) =>
+              folder.id === companyFolderId
+                ? {
+                    ...folder,
+                    registryStatus: result.registryStatus,
+                    registryLinkMissing: true,
+                  }
+                : folder,
+            ),
+          );
+        }
         pushToast("Could not make company usable", COMPANY_SETUP_DID_NOT_FINISH_MESSAGE, "warning");
         return;
       }

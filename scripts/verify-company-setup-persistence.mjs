@@ -104,7 +104,10 @@ assertContains("server/server.mjs", [
 ]);
 
 assertContains("server/company-workspace-registry.mjs", [
+  "export async function persistAndVerifyCompanyLive",
   "export async function persistCompanyLive",
+  "REGISTRY_WRITE_FAILED",
+  "REGISTRY_VERIFY_FAILED",
   "Failed health checks must never erase persisted workspace links",
   "wasLive",
 ]);
@@ -130,7 +133,28 @@ assertContains("src/components/godmode/GodmodeCompanyWorkspacePanel.tsx", [
 assertContains("server/godmode-registry-actions.mjs", [
   "makeCompanyUsable",
   "/api/godmode/companies/:workspaceId/make-usable",
-  "persistCompanyLive",
+  "persistAndVerifyCompanyLive",
 ]);
+
+assertContains("server/company-setup-progress.mjs", [
+  "persistAndVerifyCompanyLive",
+  "REGISTRY_WRITE_FAILED",
+  "REGISTRY_VERIFY_FAILED",
+]);
+
+const registryContent = fs.readFileSync(path.join(root, "server/company-workspace-registry.mjs"), "utf8");
+assert(registryContent.includes("ensureCompanyRegistryRecordForWorkspace(auth, deps"), "persist verify ensures registry row");
+assert(registryContent.includes("getCompanyWorkspaceRegistryRecord(auth, deps, registryCompanyId)"), "persist verify re-reads registry row");
+assert(
+  registryContent.includes("throw createRegistryPersistError") && registryContent.includes("REGISTRY_VERIFY_FAILED"),
+  "persist verify throws on not LIVE",
+);
+assert(
+  registryContent.includes("throw createRegistryPersistError") && registryContent.includes("REGISTRY_WRITE_FAILED"),
+  "persist verify throws on write failure",
+);
+assert(registryContent.includes("status: COMPANY_REGISTRY_STATUS_LIVE"), "persist verify writes LIVE status");
+assert(registryContent.includes("liveAt: now"), "persist verify writes liveAt");
+assert(registryContent.includes("lastSetupAt: now"), "persist verify writes updatedAt");
 
 console.log("verify-company-setup-persistence: OK");
