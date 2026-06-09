@@ -245,8 +245,10 @@ import {
 } from "./src/utils/auditAccess";
 import {
   buildAvailableScheduleAuditors,
+  findPendingAuditorInvites,
   normalizeScheduleAuditorIds,
   resolveScheduleAuditorLabels,
+  type CompanyUsersTabRow,
 } from "./src/utils/scheduleAuditors";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
 import { getNextBestAction } from "./src/utils/nextBestAction";
@@ -2430,7 +2432,55 @@ function parseRole(value: string): Role | null {
   return null;
 }
 
-function parseCompanySheetUsers(records: Record<string, string>[]) {
+function parseCompanyAreasFromSheet(value: string): string[] {
+  return String(value || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function mapUsersTabStatusToInviteStatus(statusRaw: string): UserInvite["status"] {
+  const status = statusRaw.trim().toLowerCase();
+  if (status === "active") {
+    return "Active";
+  }
+  if (status === "invited" || status === "pending") {
+    return "Awaiting setup";
+  }
+  return "Invite created";
+}
+
+function parseCompanyUsersTabRows(
+  records: Record<string, string>[],
+  companyFolderId: string,
+): CompanyUsersTabRow[] {
+  return records
+    .map((record) => {
+      const email = extractByKeys(record, ["email"]);
+      if (!email) {
+        return null;
+      }
+      const role = extractByKeys(record, ["role"]);
+      const accessLevel = extractByKeys(record, ["accesslevel", "access level"]);
+      const status = extractByKeys(record, ["status"]) || "ACTIVE";
+      const name = extractByKeys(record, ["name", "full name"]) || email.split("@")[0] || email;
+      const companyId = extractByKeys(record, ["company id", "companyid"]) || companyFolderId;
+      const companyAreasRaw = extractByKeys(record, ["companyareas", "company areas"]);
+      return {
+        email,
+        name,
+        role,
+        accessLevel,
+        status,
+        companyId,
+        companyAreas: parseCompanyAreasFromSheet(companyAreasRaw),
+        companyAreasRaw,
+      };
+    })
+    .filter(Boolean) as CompanyUsersTabRow[];
+}
+
+function parseCompanySheetUsers(records: Record<string, string>[], companyFolderId = "") {
   return records
     .map((record, index) => {
       const role = parseRole(extractByKeys(record, ["role"]));
@@ -2438,6 +2488,8 @@ function parseCompanySheetUsers(records: Record<string, string>[]) {
       if (!role || !email) {
         return null;
       }
+      const statusRaw = extractByKeys(record, ["status"]);
+      const companyId = extractByKeys(record, ["company id", "companyid"]) || companyFolderId;
 
       return {
         id: `sheet-user-${index + 1}`,
@@ -2445,7 +2497,9 @@ function parseCompanySheetUsers(records: Record<string, string>[]) {
         role,
         invitedBy: extractByKeys(record, ["owner", "created by", "invited by"]) || "Company sheet",
         sentAt: extractByKeys(record, ["created", "submitted", "updated"]) || "Imported",
-        status: "Invite created" as const,
+        status: mapUsersTabStatusToInviteStatus(statusRaw),
+        companyFolderId: companyId || undefined,
+        loginReady: statusRaw.trim().toLowerCase() === "active",
       };
     })
     .filter(Boolean) as UserInvite[];
@@ -3413,6 +3467,7 @@ function App() {
   const [inviteEmailInput, setInviteEmailInput] = useState("");
   const [inviteRoleInput, setInviteRoleInput] = useState<Role>("Manager");
   const [invitedUsers, setInvitedUsers] = useState<UserInvite[]>(storedWorkspaceState?.invitedUsers || []);
+  const [companyUsersTabRows, setCompanyUsersTabRows] = useState<CompanyUsersTabRow[]>([]);
   const [companyOnboardingInviteResult, setCompanyOnboardingInviteResult] =
     useState<CompanyOnboardingInviteResult | null>(null);
   const [companyOnboardingInviteSending, setCompanyOnboardingInviteSending] = useState(false);
@@ -3737,6 +3792,7 @@ function App() {
     clearCachedOpenActionsCount(selectedFolderId || undefined, currentUser?.username || undefined);
     setHydratedCompanyFolderId("");
     setInvitedUsers([]);
+    setCompanyUsersTabRows([]);
     setSites([]);
     setSelectedSiteId("");
     setUserSiteAssignments({});
@@ -4472,6 +4528,23 @@ function App() {
         name: user.name,
         role: user.role,
       }));
+    const sheetSource = masterCompanyWorkspaceDataMatchesSelection ? companyUsersTabRows : [];
+    const sheetUsers = sheetSource
+      .map((row) => {
+        const role =
+          parseRole(row.role) ||
+          (row.accessLevel.trim().toLowerCase() === "auditor" ? ("Auditor" as Role) : null);
+        if (!role) {
+          return null;
+        }
+        return {
+          username: row.email.toLowerCase(),
+          email: row.email,
+          name: row.name || row.email.split("@")[0] || row.email,
+          role,
+        };
+      })
+      .filter(Boolean) as Array<{ username: string; email: string; name: string; role: Role }>;
     const invitedSource = masterCompanyWorkspaceDataMatchesSelection ? invitedUsers : [];
     const invited = invitedSource.map((invite) => ({
       username: invite.email.toLowerCase(),
@@ -4479,9 +4552,9 @@ function App() {
       name: invite.email.split("@")[0] || invite.email,
       role: invite.role,
     }));
-    const merged = [...seededUsers, ...invited];
+    const merged = [...seededUsers, ...sheetUsers, ...invited];
     return merged.filter((user, index, list) => list.findIndex((item) => item.email === user.email) === index);
-  }, [invitedUsers, masterCompanyWorkspaceDataMatchesSelection]);
+  }, [companyUsersTabRows, invitedUsers, masterCompanyWorkspaceDataMatchesSelection, users]);
 
   const reminderUserEmail = useMemo(() => {
     if (!currentUser) {
@@ -4925,10 +4998,55 @@ function App() {
     return "synced";
   }, [offlineMode, failedSyncCount, pendingSyncCount, offlineQueue]);
 
-  const availableScheduleAuditors = useMemo(
-    () => buildAvailableScheduleAuditors(companyReportUsers, invitedUsers),
-    [companyReportUsers, invitedUsers],
+  const scheduleBuilderAreaFilter = useMemo(() => {
+    const selectedAuditIds = new Set(scheduleDraftSelectedAuditIds);
+    const areas = new Set<string>();
+    for (const audit of audits) {
+      if (selectedAuditIds.has(audit.id) && audit.siteArea?.trim()) {
+        areas.add(audit.siteArea.trim());
+      }
+    }
+    if (areas.size === 1) {
+      return [...areas][0];
+    }
+    return "";
+  }, [audits, scheduleDraftSelectedAuditIds]);
+
+  const availableScheduleAuditorsResult = useMemo(
+    () =>
+      buildAvailableScheduleAuditors(
+        masterCompanyWorkspaceDataMatchesSelection ? companyUsersTabRows : [],
+        {
+          companyId: inviteCompanyContext.companyFolderId,
+          masterSheetId: inviteCompanyContext.masterSheetId,
+          selectedArea: scheduleBuilderAreaFilter,
+          includeDiagnostics: isDebugUiAllowed(),
+        },
+      ),
+    [
+      companyUsersTabRows,
+      inviteCompanyContext.companyFolderId,
+      inviteCompanyContext.masterSheetId,
+      masterCompanyWorkspaceDataMatchesSelection,
+      scheduleBuilderAreaFilter,
+    ],
   );
+  const availableScheduleAuditors = availableScheduleAuditorsResult.auditors;
+  const pendingScheduleAuditorInvites = useMemo(
+    () =>
+      findPendingAuditorInvites(
+        masterCompanyWorkspaceDataMatchesSelection ? invitedUsers : [],
+        inviteCompanyContext.companyFolderId,
+      ),
+    [invitedUsers, inviteCompanyContext.companyFolderId, masterCompanyWorkspaceDataMatchesSelection],
+  );
+
+  useEffect(() => {
+    if (!isDebugUiAllowed() || !availableScheduleAuditorsResult.diagnostics) {
+      return;
+    }
+    console.info("[schedule-auditors]", availableScheduleAuditorsResult.diagnostics);
+  }, [availableScheduleAuditorsResult.diagnostics]);
   const availableActionAuditors = useMemo(
     () => availableScheduleAuditors.map((auditor) => auditor.name),
     [availableScheduleAuditors],
@@ -6377,7 +6495,8 @@ function App() {
         throw new Error(payload.error || "Unable to load the company master sheet.");
       }
 
-      const nextInvites = parseCompanySheetUsers(payload.data.Users ?? []);
+      const nextUsersTabRows = parseCompanyUsersTabRows(payload.data.Users ?? [], folderId);
+      const nextInvites = parseCompanySheetUsers(payload.data.Users ?? [], folderId);
       const nextSchedules = parseCompanySheetSchedules(payload.data.Schedule ?? [], folderId);
       setCompanySheetSync({
         sheetId: payload.sheetId,
@@ -6395,12 +6514,25 @@ function App() {
         lastSyncedAt: formatStamp(),
       });
 
+      setCompanyUsersTabRows(nextUsersTabRows);
       setInvitedUsers((current) => {
-        const existingIds = new Set(current.map((item) => `${item.email}-${item.role}`));
-        const merged = [...current];
+        const sheetByEmail = new Map(nextInvites.map((invite) => [invite.email.toLowerCase(), invite]));
+        const merged = current.map((invite) => {
+          const sheetInvite = sheetByEmail.get(invite.email.toLowerCase());
+          if (!sheetInvite) {
+            return invite;
+          }
+          return {
+            ...invite,
+            role: sheetInvite.role,
+            status: sheetInvite.status,
+            loginReady: sheetInvite.loginReady,
+            companyFolderId: sheetInvite.companyFolderId || invite.companyFolderId,
+          };
+        });
+        const existingEmails = new Set(merged.map((item) => item.email.toLowerCase()));
         nextInvites.forEach((invite) => {
-          const key = `${invite.email}-${invite.role}`;
-          if (!existingIds.has(key)) {
+          if (!existingEmails.has(invite.email.toLowerCase())) {
             merged.push(invite);
           }
         });
@@ -6457,7 +6589,8 @@ function App() {
         throw new Error(payload.error || "Unable to load the company master sheet.");
       }
 
-      const nextInvites = parseCompanySheetUsers(payload.data.Users ?? []);
+      const nextUsersTabRows = parseCompanyUsersTabRows(payload.data.Users ?? [], companyFolderId);
+      const nextInvites = parseCompanySheetUsers(payload.data.Users ?? [], companyFolderId);
       const nextSchedules = parseCompanySheetSchedules(payload.data.Schedule ?? [], companyFolderId);
       setCompanySheetSync({
         sheetId: payload.sheetId,
@@ -6475,12 +6608,25 @@ function App() {
         lastSyncedAt: formatStamp(),
       });
 
+      setCompanyUsersTabRows(nextUsersTabRows);
       setInvitedUsers((current) => {
-        const existingIds = new Set(current.map((item) => `${item.email}-${item.role}`));
-        const merged = [...current];
+        const sheetByEmail = new Map(nextInvites.map((invite) => [invite.email.toLowerCase(), invite]));
+        const merged = current.map((invite) => {
+          const sheetInvite = sheetByEmail.get(invite.email.toLowerCase());
+          if (!sheetInvite) {
+            return invite;
+          }
+          return {
+            ...invite,
+            role: sheetInvite.role,
+            status: sheetInvite.status,
+            loginReady: sheetInvite.loginReady,
+            companyFolderId: sheetInvite.companyFolderId || invite.companyFolderId,
+          };
+        });
+        const existingEmails = new Set(merged.map((item) => item.email.toLowerCase()));
         nextInvites.forEach((invite) => {
-          const key = `${invite.email}-${invite.role}`;
-          if (!existingIds.has(key)) {
+          if (!existingEmails.has(invite.email.toLowerCase())) {
             merged.push(invite);
           }
         });
@@ -13183,6 +13329,7 @@ function App() {
                 filter={scheduleListFilter}
                 availableAudits={availableScheduleAudits}
                 availableAuditors={availableScheduleAuditors}
+                pendingAuditorInvites={pendingScheduleAuditorInvites}
                 editorOpen={scheduleEditorOpen}
                 editingSchedule={editingScheduleId ? managedSchedules.find((item) => item.id === editingScheduleId) || null : null}
                 scheduleName={scheduleDraftName}

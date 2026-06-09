@@ -151,6 +151,7 @@ export function SchedulesScreen({
   filter,
   availableAudits,
   availableAuditors,
+  pendingAuditorInvites = [],
   editorOpen,
   editingSchedule,
   scheduleName,
@@ -188,6 +189,7 @@ export function SchedulesScreen({
   filter: ScheduleListFilter;
   availableAudits: { id: string; name: string }[];
   availableAuditors: ScheduleAuditorOption[];
+  pendingAuditorInvites?: Array<{ email: string; status: string }>;
   editorOpen: boolean;
   editingSchedule: ManagedSchedule | null;
   scheduleName: string;
@@ -521,6 +523,9 @@ export function SchedulesScreen({
                             <p className="text-xs text-slate-500">
                               {formatUserRoleLabel(auditor.role)} • {auditor.email}
                             </p>
+                            {auditor.areaWarning ? (
+                              <p className="mt-1 text-xs font-medium text-amber-700">{auditor.areaWarning}</p>
+                            ) : null}
                           </div>
                         </div>
                         <span className={["shrink-0 rounded-full px-3 py-1 text-xs font-semibold", selected ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-500"].join(" ")}>
@@ -531,6 +536,13 @@ export function SchedulesScreen({
                   })
                 )}
               </div>
+              {pendingAuditorInvites.length > 0 ? (
+                <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+                  {pendingAuditorInvites.length} pending auditor invite
+                  {pendingAuditorInvites.length === 1 ? "" : "s"} awaiting setup — they will appear here after
+                  onboarding completes.
+                </p>
+              ) : null}
               {auditorsError && (
                 <p className="mt-2 text-xs font-semibold text-rose-600">
                   Please select at least one auditor for this schedule.

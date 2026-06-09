@@ -119,6 +119,10 @@ import {
   isCompanyRegistryLive,
   isGodmodeInviteSession,
 } from "../shared/company-invite-permissions.mjs";
+import {
+  buildAvailableScheduleAuditorsFromUsers,
+  inviteAccessLevelForRole,
+} from "../shared/schedule-auditors.mjs";
 import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
 import { isSystemTemplateCompany } from "../shared/system-template-company.mjs";
 
@@ -3704,7 +3708,7 @@ async function writeCompanyUsers(auth, spreadsheetId, companyFolderId, users) {
       Name: fullName,
       Email: email,
       Role: role,
-      AccessLevel: accessLevel || (role === "Admin" ? "full" : "operational"),
+      AccessLevel: accessLevel || inviteAccessLevelForRole(role),
       CompanyAreas: companyAreas,
       Status: status || (plainPassword ? "ACTIVE" : "INVITED"),
       "Created At": createdAt,
@@ -4431,6 +4435,67 @@ app.get("/api/company-sheet/:folderId", async (req, res) => {
     return res.status(500).json({
       ok: false,
       error: error instanceof Error ? error.message : "Unable to read the company master sheet.",
+    });
+  }
+});
+
+app.get("/api/schedules/auditors", async (req, res) => {
+  const authed = getAuthedClient();
+
+  if (!envConfigured() || !authed) {
+    return res.status(401).json({
+      ok: false,
+      error: "Please connect Google before loading schedule auditors.",
+    });
+  }
+
+  const masterSheetId = String(req.query.masterSheetId || req.query.sheetId || "").trim();
+  const companyFolderId = String(req.query.companyFolderId || req.query.companyId || "").trim();
+  const selectedArea = String(req.query.area || "").trim();
+  const includeDiagnostics =
+    String(req.query.diagnostics || "").trim() === "1" ||
+    String(process.env.BERT_GODMODE_DIAGNOSTICS || "").trim().toLowerCase() === "true";
+
+  if (!masterSheetId) {
+    return res.status(400).json({
+      ok: false,
+      error: "masterSheetId is required to load schedule auditors.",
+    });
+  }
+
+  try {
+    const payload = await readCompanySheetById(authed, masterSheetId);
+    const users = Array.isArray(payload.data?.Users) ? payload.data.Users : [];
+    const mappedUsers = users.map((row) => ({
+      email: String(row.Email || row.email || "").trim(),
+      name: String(row.Name || row.name || row["Full Name"] || "").trim(),
+      role: String(row.Role || row.role || "").trim(),
+      accessLevel: String(row.AccessLevel || row.accessLevel || "").trim(),
+      status: String(row.Status || row.status || "").trim(),
+      companyId: String(row["Company ID"] || row.companyId || companyFolderId || "").trim(),
+      companyAreas: parseCompanyAreas(String(row.CompanyAreas || row.companyAreas || "")),
+      companyAreasRaw: String(row.CompanyAreas || row.companyAreas || "").trim(),
+    }));
+
+    const result = buildAvailableScheduleAuditorsFromUsers(mappedUsers, {
+      companyId: companyFolderId,
+      masterSheetId,
+      selectedArea,
+      includeDiagnostics,
+    });
+
+    return res.json({
+      ok: true,
+      companyId: companyFolderId,
+      companyName: String(req.query.companyName || "").trim() || undefined,
+      masterSheetId,
+      auditors: result.auditors,
+      diagnostics: result.diagnostics,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error instanceof Error ? error.message : "Unable to load schedule auditors.",
     });
   }
 });
@@ -5386,7 +5451,7 @@ async function processCompanyUserInvite(req, res) {
           status: "PENDING",
           email: toEmail,
           role: inviteRole,
-          accessLevel: defaultAccessLevelForRole(inviteRole),
+          accessLevel: inviteAccessLevelForRole(inviteRole),
           companyAreas: "",
           invitedBy,
           companyId: resolvedCompanyId || resolvedCompanyFolderId,
@@ -5970,7 +6035,7 @@ async function handleAppInviteComplete(req, res) {
               .toLowerCase()
               .replace(/[^a-z0-9]+/gi, "-")}-${String(record.role || "").toLowerCase()}`;
             const inviteAccessLevel =
-              String(record.accessLevel || "").trim() || defaultAccessLevelForRole(record.role);
+              String(record.accessLevel || "").trim() || inviteAccessLevelForRole(record.role);
             const usersResult = await writeCompanyUsers(authed, record.masterSheetId, record.companyFolderId, [
               {
                 id: userId,

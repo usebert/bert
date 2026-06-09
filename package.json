@@ -33,6 +33,7 @@
     "verify:invite-target": "node scripts/verify-invite-target.mjs",
     "verify:invite-permissions": "node scripts/verify-invite-permissions.mjs",
     "verify:invite-workspace": "node scripts/verify-invite-workspace.mjs",
+    "verify:schedule-auditors": "node scripts/verify-schedule-auditors.mjs",
     "verify:shared-drive-workspace": "node scripts/verify-shared-drive-workspace.mjs",
     "preview": "vite preview",
     "android:sync": "npm run build && npx cap sync android",
