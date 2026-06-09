@@ -100,12 +100,20 @@ import {
 } from "./google-workspace-root.mjs";
 import { createGetInviteHandler, resolveCompanyUserInviteTokenAccess } from "./invite-routes.mjs";
 import {
+  canCreateCompanyInvite,
+  canRevokeInvite,
+  canViewInvite,
   COMPANY_NOT_LIVE_INVITE_MESSAGE,
   COMPANY_REGISTRY_STATUS_LIVE,
+  COMPANY_USER_INVITE_TYPE,
+  FORBIDDEN_INVITE_ROLE_MESSAGE,
   getCanonicalCompanyStatus,
+  INVITE_MANAGE_AUDITOR_ONLY_MESSAGE,
   INVITE_ROLE_FORBIDDEN_MESSAGE,
   isCompanyAdminInviteRole,
+  isCompanyInviteActor,
   isCompanyRegistryLive,
+  isGodmodeInviteSession,
 } from "../shared/company-invite-permissions.mjs";
 import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
 import { isSystemTemplateCompany } from "../shared/system-template-company.mjs";
@@ -1783,6 +1791,50 @@ function revokeInviteRecord(id) {
   delete store[id];
   writeInviteStore(store);
   return true;
+}
+
+function listCompanyUserInviteRecords() {
+  const store = readInviteStore();
+  return Object.entries(store)
+    .filter(([, record]) => record.kind === "company_user")
+    .map(([id, record]) => ({ id, ...record }));
+}
+
+function buildInvitePermissionSession(actor) {
+  if (!actor) {
+    return {};
+  }
+  if (actor.kind === "master" || actor.role === "Master") {
+    return { kind: "master", role: "Master" };
+  }
+  return {
+    kind: "company",
+    role: actor.role,
+    accessLevel: actor.accessLevel,
+    companyId: actor.companyId,
+    companyFolderId: actor.companyId,
+  };
+}
+
+function publicCompanyUserInviteListItem({ id, record }) {
+  return {
+    id,
+    tokenId: id,
+    inviteType: COMPANY_USER_INVITE_TYPE,
+    kind: "company_user",
+    email: record.email || "",
+    role: record.role || "",
+    invitedBy: record.invitedBy || "",
+    companyId: record.companyId || record.companyFolderId || "",
+    companyFolderId: record.companyFolderId || record.companyId || "",
+    companyName: record.companyName || "",
+    masterSheetId: record.masterSheetId || "",
+    status: record.consumedAt ? "active" : record.status || "PENDING",
+    loginReady: record.provisionStatus === "succeeded" && Boolean(record.consumedAt),
+    createdAt: record.createdAt || null,
+    expiresAt: record.expiresAt || null,
+    consumedAt: record.consumedAt || null,
+  };
 }
 
 /** Master sheet IDs from company-user invites for this email (newest first). */
@@ -5102,15 +5154,7 @@ async function processCompanyUserInvite(req, res) {
     const inviteActor = parseBertActorFromRequest(req);
     if (inviteActor?.kind === "company") {
       const actorRole = parseRoleFromUsersSheet(inviteActor.role);
-      if (!isCompanyAdminInviteRole({ role: actorRole, accessLevel: inviteActor.accessLevel })) {
-        res.status(403).json({
-          ok: false,
-          code: "FORBIDDEN_ROLE",
-          error: INVITE_ROLE_FORBIDDEN_MESSAGE,
-          blocker: "forbidden",
-        });
-        return;
-      }
+      inviteActor.role = actorRole;
       if (inviteActor.masterSheetId && masterSheetId && inviteActor.masterSheetId !== masterSheetId) {
         res.status(403).json({
           ok: false,
@@ -5142,6 +5186,28 @@ async function processCompanyUserInvite(req, res) {
           console.warn("[invite] company_user actor scope check failed:", configErr);
         }
       }
+      const permissionSession = buildInvitePermissionSession(inviteActor);
+      const targetCompanyId =
+        companyFolderId || String(inviteActor.companyId || "").trim();
+      if (!canCreateCompanyInvite(permissionSession, targetCompanyId, inviteRole)) {
+        const blockedRole =
+          isCompanyInviteActor(permissionSession) && inviteRole !== "Auditor";
+        res.status(403).json({
+          ok: false,
+          code: blockedRole ? "FORBIDDEN_INVITE_ROLE" : "FORBIDDEN_ROLE",
+          error: blockedRole ? FORBIDDEN_INVITE_ROLE_MESSAGE : INVITE_ROLE_FORBIDDEN_MESSAGE,
+          blocker: "forbidden",
+        });
+        return;
+      }
+    } else if (inviteActor && !isGodmodeInviteSession(buildInvitePermissionSession(inviteActor))) {
+      res.status(403).json({
+        ok: false,
+        code: "FORBIDDEN_ROLE",
+        error: INVITE_ROLE_FORBIDDEN_MESSAGE,
+        blocker: "forbidden",
+      });
+      return;
     }
 
     if (isArchiveOrNonLiveWorkspaceName(companyName)) {
@@ -5337,6 +5403,30 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
   });
 });
 
+app.get("/api/onboarding/app-invites", requireGoogleWorkspaceEnv, (req, res) => {
+  const actor = parseBertActorFromRequest(req);
+  const permissionSession = buildInvitePermissionSession(actor);
+  if (!actor || (!isGodmodeInviteSession(permissionSession) && !isCompanyInviteActor(permissionSession))) {
+    res.status(403).json({
+      ok: false,
+      code: "FORBIDDEN_ROLE",
+      error: INVITE_ROLE_FORBIDDEN_MESSAGE,
+      blocker: "forbidden",
+    });
+    return;
+  }
+  const invites = listCompanyUserInviteRecords()
+    .filter((entry) =>
+      canViewInvite(permissionSession, {
+        ...entry,
+        inviteType: COMPANY_USER_INVITE_TYPE,
+        type: COMPANY_USER_INVITE_TYPE,
+      }),
+    )
+    .map((entry) => publicCompanyUserInviteListItem({ id: entry.id, record: entry }));
+  res.json({ ok: true, invites });
+});
+
 app.delete("/api/onboarding/app-invites/:tokenId", requireGoogleWorkspaceEnv, (req, res) => {
   const run = async () => {
     const tokenId = String(req.params.tokenId || "").trim();
@@ -5347,6 +5437,24 @@ app.delete("/api/onboarding/app-invites/:tokenId", requireGoogleWorkspaceEnv, (r
     const record = getInviteRecord(tokenId);
     if (!record) {
       res.status(404).json({ ok: false, error: "Invite not found." });
+      return;
+    }
+    const actor = parseBertActorFromRequest(req);
+    const permissionSession = buildInvitePermissionSession(actor);
+    if (
+      !canRevokeInvite(permissionSession, {
+        ...record,
+        id: tokenId,
+        inviteType: COMPANY_USER_INVITE_TYPE,
+        type: COMPANY_USER_INVITE_TYPE,
+      })
+    ) {
+      res.status(403).json({
+        ok: false,
+        code: "FORBIDDEN_ROLE",
+        error: INVITE_MANAGE_AUDITOR_ONLY_MESSAGE,
+        blocker: "forbidden",
+      });
       return;
     }
     if (record.consumedAt) {

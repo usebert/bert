@@ -95,8 +95,8 @@ function assert(condition, message) {
 }
 
 assert(
-  !canInviteCompanyUsers({ role: "Manager" }, { status: "Live" }),
-  "Manager cannot invite company users",
+  canInviteCompanyUsers({ role: "Manager" }, { status: "Live" }),
+  "Manager can invite Auditors when company is Live",
 );
 
 const adminFromHint = resolveInviteWorkspace({

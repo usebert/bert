@@ -349,9 +349,9 @@ export function managerInvitesEnabled() {
   return String(import.meta.env.VITE_ENABLE_MANAGER_INVITES || "").trim().toLowerCase() === "true";
 }
 
-/** Who may open invite workspace resolution — Master (Godmode) or Company Admin only. */
+/** Who may open invite workspace resolution — Master (Godmode), Company Admin, or Manager. */
 export function canInviteUsers(role: Role) {
-  return role === "Master" || role === "Admin";
+  return role === "Master" || role === "Admin" || role === "Manager";
 }
 
 /** Local-only demo payloads — Admin block or Master block in onboarding. */
@@ -368,8 +368,11 @@ export function getRoleDisplayName(role: Role) {
 }
 
 export function getCreatableRoles(role: Role): Role[] {
-  if (role === "Master" || role === "Admin") {
+  if (role === "Master") {
     return ["Admin", "Manager", "Auditor"];
+  }
+  if (role === "Admin" || role === "Manager") {
+    return ["Auditor"];
   }
   return [];
 }

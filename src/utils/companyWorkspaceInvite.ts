@@ -18,7 +18,14 @@ export const LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE =
 export const GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE =
   "Select a live company workspace first.";
 
-export const INVITE_ROLE_FORBIDDEN_MESSAGE = "Only Company Admins can invite users.";
+export const INVITE_ROLE_FORBIDDEN_MESSAGE = "You do not have permission to invite users.";
+
+export const FORBIDDEN_INVITE_ROLE_MESSAGE = "You can only invite Auditors for your company.";
+
+export const INVITE_MANAGE_AUDITOR_ONLY_MESSAGE =
+  "You can only manage Auditor invites for your company.";
+
+export const COMPANY_USER_INVITE_TYPE = "COMPANY_USER";
 
 export const INVITE_COMPANY_MISMATCH_MESSAGE =
   "Your account is not linked to this company workspace.";
@@ -49,6 +56,13 @@ export function getCanonicalCompanyStatus(company: CompanyInviteTarget = {}): st
   return raw;
 }
 
+export function isGodmodeInviteSession(session: CompanyInviteSession & { kind?: string } = {}): boolean {
+  if (session.kind === "master") {
+    return true;
+  }
+  return String(session.role || "").trim() === "Master";
+}
+
 export function isCompanyAdminInviteRole(session: CompanyInviteSession = {}): boolean {
   const role = String(session.role || "").trim();
   const accessLevel = String(session.accessLevel || "")
@@ -60,14 +74,106 @@ export function isCompanyAdminInviteRole(session: CompanyInviteSession = {}): bo
   return accessLevel === "admin" || accessLevel === "company admin" || accessLevel === "full";
 }
 
+export function isCompanyManagerInviteRole(session: CompanyInviteSession = {}): boolean {
+  return String(session.role || "").trim() === "Manager";
+}
+
+export function isCompanyInviteActor(session: CompanyInviteSession = {}): boolean {
+  return isCompanyAdminInviteRole(session) || isCompanyManagerInviteRole(session);
+}
+
 /** Canonical Companies registry status — only explicit Live allows company-user invites. */
 export function isCompanyRegistryLive(company: CompanyInviteTarget = {}): boolean {
   return getCanonicalCompanyStatus(company) === COMPANY_REGISTRY_STATUS_LIVE;
 }
 
-/** Company-scoped user invites: Company Admin + registry LIVE only (not Master/Godmode). */
+/** Company-scoped user invites: Company Admin or Manager + registry LIVE (not Master/Godmode). */
 export function canInviteCompanyUsers(session: CompanyInviteSession, company: CompanyInviteTarget): boolean {
-  return isCompanyAdminInviteRole(session) && isCompanyRegistryLive(company);
+  return isCompanyInviteActor(session) && isCompanyRegistryLive(company);
+}
+
+function sessionCompanyId(session: CompanyInviteSession & { companyId?: string; companyFolderId?: string } = {}) {
+  return String(session.companyId || session.companyFolderId || "").trim();
+}
+
+function inviteCompanyId(invite: {
+  companyId?: string;
+  companyFolderId?: string;
+} = {}) {
+  return String(invite.companyId || invite.companyFolderId || "").trim();
+}
+
+export function isAuditorInviteRole(role = ""): boolean {
+  return String(role || "").trim() === "Auditor";
+}
+
+export function canCreateCompanyInvite(
+  session: CompanyInviteSession & { kind?: string; companyId?: string; companyFolderId?: string },
+  targetCompanyId = "",
+  targetRole = "",
+): boolean {
+  if (isGodmodeInviteSession(session)) {
+    return true;
+  }
+  if (!isCompanyInviteActor(session)) {
+    return false;
+  }
+  if (!isAuditorInviteRole(targetRole)) {
+    return false;
+  }
+  const companyId = String(targetCompanyId || "").trim();
+  if (!companyId) {
+    return false;
+  }
+  return sessionCompanyId(session) === companyId;
+}
+
+export function canViewInvite(
+  session: CompanyInviteSession & { kind?: string; companyId?: string; companyFolderId?: string },
+  invite: {
+    kind?: string;
+    inviteType?: string;
+    type?: string;
+    role?: string;
+    companyId?: string;
+    companyFolderId?: string;
+  } = {},
+): boolean {
+  if (isGodmodeInviteSession(session)) {
+    return true;
+  }
+  if (!isCompanyInviteActor(session)) {
+    return false;
+  }
+  const inviteType = String(invite.inviteType || invite.type || "").trim();
+  if (inviteType && inviteType !== COMPANY_USER_INVITE_TYPE) {
+    return false;
+  }
+  if (invite.kind && invite.kind !== "company_user") {
+    return false;
+  }
+  if (!isAuditorInviteRole(invite.role)) {
+    return false;
+  }
+  const companyId = inviteCompanyId(invite);
+  if (!companyId) {
+    return false;
+  }
+  return sessionCompanyId(session) === companyId;
+}
+
+export function canRevokeInvite(
+  session: CompanyInviteSession & { kind?: string; companyId?: string; companyFolderId?: string },
+  invite: {
+    kind?: string;
+    inviteType?: string;
+    type?: string;
+    role?: string;
+    companyId?: string;
+    companyFolderId?: string;
+  } = {},
+): boolean {
+  return canViewInvite(session, invite);
 }
 
 /** Godmode (Master): invite when the company master sheet has a writable Users tab — bypasses LIVE. */

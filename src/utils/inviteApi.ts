@@ -12,6 +12,7 @@ export type InviteApiErrorCode =
   | "COMPANY_MASTER_SHEET_UNAVAILABLE"
   | "COMPANY_NOT_LIVE"
   | "FORBIDDEN_ROLE"
+  | "FORBIDDEN_INVITE_ROLE"
   | "NETWORK_UNREACHABLE"
   | "SERVER_ERROR";
 
@@ -67,6 +68,7 @@ function normalizeInviteErrorCode(raw: string | undefined, httpStatus: number): 
     case "COMPANY_MASTER_SHEET_UNAVAILABLE":
     case "COMPANY_NOT_LIVE":
     case "FORBIDDEN_ROLE":
+    case "FORBIDDEN_INVITE_ROLE":
     case "NETWORK_UNREACHABLE":
     case "SERVER_ERROR":
       return code;

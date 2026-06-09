@@ -4,11 +4,15 @@ import { getRoleDisplayName } from "../../permissions";
 import { apiUrl } from "../../config/apiBase";
 import {
   canInviteCompanyUsers,
+  canRevokeInvite,
+  canViewInvite,
   COMPANY_NOT_LIVE_INVITE_MESSAGE,
+  COMPANY_USER_INVITE_TYPE,
   getCanonicalCompanyStatus,
   GODMODE_USERS_TAB_NOT_READY_MESSAGE,
+  INVITE_MANAGE_AUDITOR_ONLY_MESSAGE,
   INVITE_ROLE_FORBIDDEN_MESSAGE,
-  isCompanyAdminInviteRole,
+  isCompanyInviteActor,
   isCompanyUsersTabWritable,
 } from "../../utils/companyWorkspaceInvite";
 import { DangerActionButton } from "../DangerActionButton";
@@ -48,12 +52,14 @@ function UserInviteListRow({
   onDeleteInvite,
   onRemoveCompanyUser,
   slatePrimaryCtaInteract,
+  canRevoke = true,
 }: {
   invite: UserInvite;
   onResendInvite: (invite: UserInvite) => void;
   onDeleteInvite: (invite: UserInvite) => void;
   onRemoveCompanyUser: (invite: UserInvite) => void;
   slatePrimaryCtaInteract: string;
+  canRevoke?: boolean;
 }) {
   const active = isActiveCompanyUserInvite(invite);
   const staleOrIncomplete =
@@ -115,7 +121,7 @@ function UserInviteListRow({
           >
             Remove user
           </DangerActionButton>
-        ) : (
+        ) : canRevoke ? (
           <DangerActionButton
             type="button"
             onClick={() => onDeleteInvite(invite)}
@@ -124,7 +130,7 @@ function UserInviteListRow({
           >
             {staleOrIncomplete ? "Revoke" : "Delete"}
           </DangerActionButton>
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -358,6 +364,7 @@ export type UsersInvitesPilotPanelProps = Pick<
   godModeFirstUserInvite: boolean;
   workspaceSetupComplete: boolean;
   companyRegistryStatus?: string;
+  companyFolderId?: string;
   pilotEditableInput: string;
   pilotLightSurface: string;
   pilotLightNested: string;
@@ -387,6 +394,7 @@ export function UsersInvitesPilotPanel({
   godModeFirstUserInvite,
   workspaceSetupComplete,
   companyRegistryStatus = "",
+  companyFolderId = "",
   pilotEditableInput,
   pilotLightSurface,
   pilotLightNested,
@@ -419,10 +427,26 @@ export function UsersInvitesPilotPanel({
   const [freshRegistryStatus, setFreshRegistryStatus] = useState("");
   const [registryStatusLoading, setRegistryStatusLoading] = useState(false);
   const isMasterActor = currentUser.role === "Master";
-  const isCompanyAdmin = isCompanyAdminInviteRole({
+  const invitePermissionSession = {
+    kind: isMasterActor ? "master" : "company",
+    role: currentUser.role,
+    accessLevel: currentUser.accessLevel,
+    companyId: companyFolderId,
+    companyFolderId,
+  } as const;
+  const isCompanyInviteActorRole = isCompanyInviteActor({
     role: currentUser.role,
     accessLevel: currentUser.accessLevel,
   });
+  const inviteRecordScope = (invite: UserInvite) => ({
+    kind: "company_user" as const,
+    inviteType: COMPANY_USER_INVITE_TYPE,
+    role: invite.role,
+    companyId: invite.companyFolderId || companyFolderId,
+    companyFolderId: invite.companyFolderId || companyFolderId,
+  });
+  const canManageInvite = (invite: UserInvite) => canRevokeInvite(invitePermissionSession, inviteRecordScope(invite));
+  const canSeeInvite = (invite: UserInvite) => canViewInvite(invitePermissionSession, inviteRecordScope(invite));
   const effectiveRegistryStatus = getCanonicalCompanyStatus({
     status: freshRegistryStatus || companyRegistryStatus,
     registryStatus: freshRegistryStatus || companyRegistryStatus,
@@ -479,12 +503,15 @@ export function UsersInvitesPilotPanel({
   const inviteBlockedMessage = isMasterActor
     ? GODMODE_USERS_TAB_NOT_READY_MESSAGE
     : COMPANY_NOT_LIVE_INVITE_MESSAGE;
-  const showInviteForm = isMasterActor || isCompanyAdmin;
+  const showInviteForm = isMasterActor || isCompanyInviteActorRole;
   const inviteFormEnabled = companyLiveForInvites;
   const { pendingInvites, activeInvites } = useMemo(() => {
     const pending: UserInvite[] = [];
     const active: UserInvite[] = [];
     for (const invite of invitedUsers) {
+      if (!canSeeInvite(invite)) {
+        continue;
+      }
       if (isActiveCompanyUserInvite(invite)) {
         active.push(invite);
       } else {
@@ -492,7 +519,7 @@ export function UsersInvitesPilotPanel({
       }
     }
     return { pendingInvites: pending, activeInvites: active };
-  }, [invitedUsers]);
+  }, [invitedUsers, companyFolderId, currentUser.role, currentUser.accessLevel]);
 
   return (
     <div id="admin-user-management" className="space-y-4">
@@ -547,6 +574,9 @@ export function UsersInvitesPilotPanel({
           <p className="mt-2 text-xs leading-5 text-slate-600">
             {ROLE_HELPER[inviteRoleInput] || "They receive an email with a secure setup link."}
           </p>
+          {isCompanyInviteActorRole && !isMasterActor ? (
+            <p className="mt-2 text-xs font-medium text-slate-600">{INVITE_MANAGE_AUDITOR_ONLY_MESSAGE}</p>
+          ) : null}
           <button
             type="button"
             onClick={onInviteUser}
@@ -601,6 +631,7 @@ export function UsersInvitesPilotPanel({
                 onDeleteInvite={onDeleteInvite}
                 onRemoveCompanyUser={onRemoveCompanyUser}
                 slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+                canRevoke={canManageInvite(invite)}
               />
             ))}
           </div>
@@ -628,6 +659,7 @@ export function UsersInvitesPilotPanel({
                 onDeleteInvite={onDeleteInvite}
                 onRemoveCompanyUser={onRemoveCompanyUser}
                 slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+                canRevoke={canManageInvite(invite)}
               />
             ))}
             {reportUsers

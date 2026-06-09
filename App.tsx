@@ -85,12 +85,18 @@ import {
   isStaleOrIncompleteInviteStatus,
 } from "./src/utils/inviteStatusDisplay";
 import {
+  canCreateCompanyInvite,
   canInviteCompanyUsers,
+  canRevokeInvite,
+  canViewInvite,
+  COMPANY_USER_INVITE_TYPE,
   getCanonicalCompanyStatus,
   GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE,
   isCompanyRegistryLive,
   LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE,
+  FORBIDDEN_INVITE_ROLE_MESSAGE,
   INVITE_COMPANY_MISMATCH_MESSAGE,
+  INVITE_MANAGE_AUDITOR_ONLY_MESSAGE,
   INVITE_ROLE_FORBIDDEN_MESSAGE,
   COMPANY_NOT_LIVE_INVITE_MESSAGE,
   FIRST_ADMIN_REQUIRES_ONBOARDING_MESSAGE,
@@ -369,6 +375,7 @@ type UserInvite = {
   loginReady?: boolean;
   /** Server-issued invite token when present (may match `id` on new invites). */
   tokenId?: string;
+  companyFolderId?: string;
 };
 
 /** 24-byte hex token from POST /api/onboarding/app-invites/company-user */
@@ -428,6 +435,9 @@ function formatCompanyUserInviteApiError(
   const message = payload.error || "Unable to send invite email.";
   if (payload.blocker === "stale_invite_target" || payload.code === "stale_invite_target") {
     return LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE;
+  }
+  if (payload.code === "FORBIDDEN_INVITE_ROLE") {
+    return FORBIDDEN_INVITE_ROLE_MESSAGE;
   }
   if (payload.code === "invite_role_forbidden" || payload.code === "FORBIDDEN_ROLE") {
     return INVITE_ROLE_FORBIDDEN_MESSAGE;
@@ -3779,10 +3789,6 @@ function App() {
     setFolderInspection(null);
   }, [clearActiveCompanyWorkspaceState]);
 
-  const displayInvitedUsers = useMemo(
-    () => (masterCompanyWorkspaceDataMatchesSelection ? invitedUsers : []),
-    [masterCompanyWorkspaceDataMatchesSelection, invitedUsers],
-  );
   const displaySites = useMemo(
     () => (masterCompanyWorkspaceDataMatchesSelection ? sites : []),
     [masterCompanyWorkspaceDataMatchesSelection, sites],
@@ -3954,6 +3960,45 @@ function App() {
     masterSheetInput,
     folderNameInput,
     companyRegistryStatus,
+  ]);
+
+  const invitePermissionSession = useMemo(() => {
+    if (!currentUser) {
+      return {};
+    }
+    const hint = readCompanyLoginHint();
+    const companyId = inviteCompanyContext.companyFolderId || hint?.companyFolderId || "";
+    if (currentUser.role === "Master") {
+      return { kind: "master" as const, role: "Master" as const };
+    }
+    return {
+      kind: "company" as const,
+      role: currentUser.role,
+      accessLevel: currentUser.accessLevel,
+      companyId,
+      companyFolderId: companyId,
+    };
+  }, [currentUser, inviteCompanyContext.companyFolderId]);
+
+  const displayInvitedUsers = useMemo(() => {
+    if (!masterCompanyWorkspaceDataMatchesSelection) {
+      return [];
+    }
+    const companyId = inviteCompanyContext.companyFolderId;
+    return invitedUsers.filter((invite) =>
+      canViewInvite(invitePermissionSession, {
+        kind: "company_user",
+        inviteType: COMPANY_USER_INVITE_TYPE,
+        role: invite.role,
+        companyId: invite.companyFolderId || companyId,
+        companyFolderId: invite.companyFolderId || companyId,
+      }),
+    );
+  }, [
+    masterCompanyWorkspaceDataMatchesSelection,
+    invitedUsers,
+    invitePermissionSession,
+    inviteCompanyContext.companyFolderId,
   ]);
 
   const resolvedInviteWorkspaceState = useMemo(
@@ -7382,6 +7427,19 @@ function App() {
       return;
     }
 
+    if (
+      !canCreateCompanyInvite(invitePermissionSession, workspace.companyFolderId, inviteRole)
+    ) {
+      pushToast(
+        "Role restricted",
+        currentUser.role === "Admin" || currentUser.role === "Manager"
+          ? FORBIDDEN_INVITE_ROLE_MESSAGE
+          : INVITE_ROLE_FORBIDDEN_MESSAGE,
+        "warning",
+      );
+      return;
+    }
+
     setCompanyUserInviteEmailSending(true);
     try {
       const response = await fetch(apiUrl("/api/onboarding/app-invites/company-user"), {
@@ -7460,6 +7518,7 @@ function App() {
         loginReady,
         mailtoUrl: result.mailtoUrl,
         appOnboardingUrl: inviteUrl || undefined,
+        companyFolderId: workspace.companyFolderId,
       };
       if (result.setupIncomplete) {
         pushToast(
@@ -7699,6 +7758,19 @@ function App() {
         "This user finished setup and can sign in. Use Remove user to delete them from the company sheet.",
         "warning",
       );
+      return;
+    }
+
+    if (
+      !canRevokeInvite(invitePermissionSession, {
+        kind: "company_user",
+        inviteType: COMPANY_USER_INVITE_TYPE,
+        role: invite.role,
+        companyId: invite.companyFolderId || inviteCompanyContext.companyFolderId,
+        companyFolderId: invite.companyFolderId || inviteCompanyContext.companyFolderId,
+      })
+    ) {
+      pushToast("Access restricted", INVITE_MANAGE_AUDITOR_ONLY_MESSAGE, "warning");
       return;
     }
 

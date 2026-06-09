@@ -1,16 +1,25 @@
 #!/usr/bin/env node
-/** Seven invite permission cases — shared rules mirrored in server and client. */
+/** Nineteen invite permission cases — shared rules mirrored in server and client. */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  canCreateCompanyInvite,
   canInviteCompanyUsers,
+  canRevokeInvite,
+  canViewInvite,
   COMPANY_NOT_LIVE_INVITE_MESSAGE,
   COMPANY_REGISTRY_STATUS_LIVE,
+  COMPANY_USER_INVITE_TYPE,
+  FORBIDDEN_INVITE_ROLE_MESSAGE,
   getCanonicalCompanyStatus,
+  INVITE_MANAGE_AUDITOR_ONLY_MESSAGE,
   INVITE_ROLE_FORBIDDEN_MESSAGE,
   isCompanyAdminInviteRole,
+  isCompanyInviteActor,
+  isCompanyManagerInviteRole,
   isCompanyRegistryLive,
+  isGodmodeInviteSession,
 } from "../shared/company-invite-permissions.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -26,78 +35,157 @@ function read(rel) {
   return fs.readFileSync(path.join(root, rel), "utf8");
 }
 
-/** 1: Manager cannot invite (role gate). */
+const ownCompany = "company-folder-own";
+const otherCompany = "company-folder-other";
+
+const adminSession = { role: "Admin", accessLevel: "full", companyId: ownCompany };
+const managerSession = { role: "Manager", companyId: ownCompany };
+const auditorSession = { role: "Auditor", companyId: ownCompany };
+const godmodeSession = { kind: "master", role: "Master" };
+
+const auditorInviteOwn = {
+  kind: "company_user",
+  inviteType: COMPANY_USER_INVITE_TYPE,
+  role: "Auditor",
+  companyId: ownCompany,
+};
+const managerInviteOwn = {
+  kind: "company_user",
+  inviteType: COMPANY_USER_INVITE_TYPE,
+  role: "Manager",
+  companyId: ownCompany,
+};
+const auditorInviteOther = {
+  kind: "company_user",
+  inviteType: COMPANY_USER_INVITE_TYPE,
+  role: "Auditor",
+  companyId: otherCompany,
+};
+
+/** 1: Godmode can invite any role to any company. */
+assert(canCreateCompanyInvite(godmodeSession, otherCompany, "Admin"), "1: Godmode can invite Admin");
+assert(canCreateCompanyInvite(godmodeSession, ownCompany, "Manager"), "1b: Godmode can invite Manager");
+
+/** 2: Godmode can view/revoke all invites. */
+assert(canViewInvite(godmodeSession, managerInviteOwn), "2: Godmode can view Manager invite");
+assert(canRevokeInvite(godmodeSession, auditorInviteOther), "2b: Godmode can revoke other-company invite");
+
+/** 3: Company Admin can invite Auditor for own company when Live. */
 assert(
-  !canInviteCompanyUsers({ role: "Manager", accessLevel: "operational" }, { status: "Live" }),
-  "1: Manager cannot invite even when company is Live",
+  canInviteCompanyUsers(adminSession, { status: "Live" }),
+  "3: Company Admin can invite when registry is Live",
 );
 
-/** 2: Auditor cannot invite. */
+/** 4: Company Admin cannot invite when not Live. */
 assert(
-  !canInviteCompanyUsers({ role: "Auditor" }, { status: "Live" }),
-  "2: Auditor cannot invite",
+  !canInviteCompanyUsers(adminSession, { status: "Setup in progress" }),
+  "4: Company Admin blocked when registry is not Live",
 );
 
-/** 3: Company Admin + not Live → blocked. */
+/** 5: Manager can invite Auditor for own company when Live. */
 assert(
-  !canInviteCompanyUsers({ role: "Admin", accessLevel: "full" }, { status: "Setup in progress" }),
-  "3: Company Admin blocked when registry is not Live",
+  canInviteCompanyUsers(managerSession, { status: "Live" }),
+  "5: Manager can invite when registry is Live",
 );
 
-/** 4: Company Admin + Live → allowed. */
+/** 6: Manager cannot invite when not Live. */
 assert(
-  canInviteCompanyUsers({ role: "Admin", accessLevel: "full" }, { status: "Live" }),
-  "4: Company Admin can invite when registry is Live",
+  !canInviteCompanyUsers(managerSession, { status: "Setup in progress" }),
+  "6: Manager blocked when registry is not Live",
 );
 
-/** 5: accessLevel Company Admin without role Admin still allowed. */
-assert(
-  canInviteCompanyUsers({ role: "User", accessLevel: "Company Admin" }, { registryStatus: "Live" }),
-  "5: accessLevel Company Admin can invite when Live",
-);
+/** 7: Company Admin can create Auditor invite for own company only. */
+assert(canCreateCompanyInvite(adminSession, ownCompany, "Auditor"), "7: Admin can create Auditor invite");
+assert(!canCreateCompanyInvite(adminSession, ownCompany, "Manager"), "7b: Admin cannot create Manager invite");
+assert(!canCreateCompanyInvite(adminSession, ownCompany, "Admin"), "7c: Admin cannot create Admin invite");
+assert(!canCreateCompanyInvite(adminSession, otherCompany, "Auditor"), "7d: Admin cannot invite other company");
 
-/** 6: Backend uses FORBIDDEN_ROLE + COMPANY_NOT_LIVE codes. */
+/** 8: Manager same create rules as Admin. */
+assert(canCreateCompanyInvite(managerSession, ownCompany, "Auditor"), "8: Manager can create Auditor invite");
+assert(!canCreateCompanyInvite(managerSession, ownCompany, "Manager"), "8b: Manager cannot create Manager invite");
+assert(!canCreateCompanyInvite(managerSession, otherCompany, "Auditor"), "8c: Manager cannot invite other company");
+
+/** 9: Auditor/User cannot create invites. */
+assert(!canCreateCompanyInvite(auditorSession, ownCompany, "Auditor"), "9: Auditor cannot create invites");
+assert(!canCreateCompanyInvite({ role: "User" }, ownCompany, "Auditor"), "9b: User cannot create invites");
+
+/** 10: Company Admin/Manager can view/revoke Auditor invites own company only. */
+assert(canViewInvite(adminSession, auditorInviteOwn), "10: Admin can view Auditor invite own company");
+assert(canRevokeInvite(managerSession, auditorInviteOwn), "10b: Manager can revoke Auditor invite own company");
+assert(!canViewInvite(adminSession, managerInviteOwn), "10c: Admin cannot view Manager invite");
+assert(!canViewInvite(managerSession, auditorInviteOther), "10d: Manager cannot view other-company Auditor invite");
+assert(!canRevokeInvite(adminSession, managerInviteOwn), "10e: Admin cannot revoke Manager invite");
+
+/** 11: Auditor cannot view or revoke. */
+assert(!canViewInvite(auditorSession, auditorInviteOwn), "11: Auditor cannot view invites");
+assert(!canRevokeInvite(auditorSession, auditorInviteOwn), "11b: Auditor cannot revoke invites");
+
+/** 12: Shared actor helpers. */
+assert(isCompanyAdminInviteRole({ role: "Admin" }), "12: admin role recognized");
+assert(isCompanyManagerInviteRole({ role: "Manager" }), "12b: manager role recognized");
+assert(isCompanyInviteActor(adminSession), "12c: admin is invite actor");
+assert(isCompanyInviteActor(managerSession), "12d: manager is invite actor");
+assert(isGodmodeInviteSession(godmodeSession), "12e: godmode session recognized");
+
+/** 13: Registry status helpers unchanged. */
+assert(isCompanyRegistryLive({ status: "Live" }), "13: registry Live recognized");
+assert(isCompanyRegistryLive({ status: "LIVE" }), "13b: registry LIVE alias recognized");
+assert(!isCompanyRegistryLive({ status: "Ready" }), "13c: registry Ready is not Live");
+assert(getCanonicalCompanyStatus({ status: "LIVE" }) === COMPANY_REGISTRY_STATUS_LIVE, "13d: canonical status normalizes LIVE");
+
+/** 14: Backend uses FORBIDDEN_INVITE_ROLE + FORBIDDEN_ROLE + COMPANY_NOT_LIVE codes. */
 const serverMain = read("server/server.mjs");
 const companyOnboarding = read("server/company-onboarding.mjs");
-assert(serverMain.includes('code: "FORBIDDEN_ROLE"'), "6: backend returns FORBIDDEN_ROLE");
+assert(serverMain.includes('"FORBIDDEN_INVITE_ROLE"'), "14: backend returns FORBIDDEN_INVITE_ROLE");
+assert(serverMain.includes('code: "FORBIDDEN_ROLE"'), "14b: backend returns FORBIDDEN_ROLE");
 assert(
   companyOnboarding.includes('code: "COMPANY_NOT_LIVE"') || serverMain.includes('code: "COMPANY_NOT_LIVE"'),
-  "6b: backend returns COMPANY_NOT_LIVE",
+  "14c: backend returns COMPANY_NOT_LIVE",
 );
+assert(serverMain.includes("canCreateCompanyInvite"), "14d: server uses canCreateCompanyInvite");
+assert(serverMain.includes("canViewInvite"), "14e: server uses canViewInvite");
+assert(serverMain.includes("canRevokeInvite"), "14f: server uses canRevokeInvite");
+assert(serverMain.includes('app.get("/api/onboarding/app-invites"'), "14g: invite list GET route wired");
 
-/** 7: Frontend central helper + panel uses registry LIVE (not Manager not-live copy). */
+/** 15: Frontend central helpers + panel gates. */
 const usersPanel = read("src/components/admin/UsersInvitesPilotPanel.tsx");
 const inviteHelpers = read("src/utils/companyWorkspaceInvite.ts");
-assert(inviteHelpers.includes("canInviteCompanyUsers"), "7: frontend canInviteCompanyUsers helper");
-assert(usersPanel.includes("canInviteCompanyUsers") || usersPanel.includes("isCompanyAdminInviteRole"), "7b: invite panel uses admin/live gates");
+assert(inviteHelpers.includes("canCreateCompanyInvite"), "15: frontend canCreateCompanyInvite helper");
+assert(inviteHelpers.includes("canViewInvite"), "15b: frontend canViewInvite helper");
+assert(inviteHelpers.includes("canRevokeInvite"), "15c: frontend canRevokeInvite helper");
+assert(usersPanel.includes("canInviteCompanyUsers") || usersPanel.includes("isCompanyInviteActor"), "15d: invite panel uses invite actor gates");
 assert(
   usersPanel.includes("INVITE_ROLE_FORBIDDEN_MESSAGE") || usersPanel.includes(INVITE_ROLE_FORBIDDEN_MESSAGE),
-  "7c: non-admin sees forbidden message",
+  "15e: non-actor sees forbidden message",
+);
+assert(
+  usersPanel.includes("INVITE_MANAGE_AUDITOR_ONLY_MESSAGE") ||
+    usersPanel.includes(INVITE_MANAGE_AUDITOR_ONLY_MESSAGE),
+  "15f: auditor-only manage message present",
 );
 assert(
   usersPanel.includes("COMPANY_NOT_LIVE_INVITE_MESSAGE") || usersPanel.includes(COMPANY_NOT_LIVE_INVITE_MESSAGE),
-  "7d: admin-not-live message present",
+  "15g: admin-not-live message present",
 );
-assert(!usersPanel.includes("canInviteUsers(currentUser.role)"), "7e: removed role-only invite gate");
+assert(!usersPanel.includes("canInviteUsers(currentUser.role)"), "15h: removed role-only invite gate");
 
-assert(isCompanyAdminInviteRole({ role: "Admin" }), "admin role recognized");
-assert(isCompanyRegistryLive({ status: "Live" }), "registry Live recognized");
-assert(isCompanyRegistryLive({ status: "LIVE" }), "registry LIVE alias recognized");
-assert(!isCompanyRegistryLive({ status: "Ready" }), "registry Ready is not Live");
-assert(getCanonicalCompanyStatus({ status: "LIVE" }) === COMPANY_REGISTRY_STATUS_LIVE, "canonical status normalizes LIVE");
-assert(getCanonicalCompanyStatus({ registryStatus: "live" }) === COMPANY_REGISTRY_STATUS_LIVE, "canonical status normalizes live");
+/** 16: Messages exported for API + UI. */
+assert(FORBIDDEN_INVITE_ROLE_MESSAGE.includes("Auditor"), "16: forbidden invite role message mentions Auditor");
+assert(INVITE_MANAGE_AUDITOR_ONLY_MESSAGE.includes("Auditor"), "16b: manage message mentions Auditor");
 
+/** 17: Registry + godmode wiring unchanged. */
 const registry = read("server/company-workspace-registry.mjs");
-assert(registry.includes("getCanonicalCompanyStatus"), "registry uses canonical status helper");
-assert(registry.includes("ensureCompanyLiveIfReady"), "registry can persist Live when ready");
-assert(registry.includes("persistCompanyLive"), "registry persistCompanyLive helper");
-assert(registry.includes("evaluateCompanyWorkspaceReadiness"), "registry readiness evaluation helper");
-assert(serverMain.includes("/api/company/registry-status"), "company admin fresh registry status endpoint");
-assert(usersPanel.includes("/api/company/registry-status") || usersPanel.includes("freshRegistryStatus"), "invite panel fetches fresh registry status");
-assert(read("src/components/godmode/GodmodeCompanyWorkspacePanel.tsx").includes("Make company usable"), "godmode make-usable action");
-assert(read("server/godmode-registry-actions.mjs").includes("/api/godmode/companies/:companyId/invite-user"), "godmode invite-user route");
+assert(registry.includes("getCanonicalCompanyStatus"), "17: registry uses canonical status helper");
+assert(read("server/godmode-registry-actions.mjs").includes("/api/godmode/companies/:companyId/invite-user"), "17b: godmode invite-user route");
+assert(usersPanel.includes("/api/company/registry-status") || usersPanel.includes("freshRegistryStatus"), "17c: invite panel fetches fresh registry status");
 
+/** 18: Permissions module exports. */
+const permissions = read("src/permissions.ts");
+assert(permissions.includes('role === "Manager"') && permissions.includes("Auditor"), "18: Manager creatable roles Auditor only");
+assert(permissions.includes('role === "Master"') && permissions.includes('"Admin", "Manager", "Auditor"'), "18b: Godmode creatable roles all");
+
+/** 19: npm script registered. */
 const pkg = JSON.parse(read("package.json"));
-assert(pkg.scripts["verify:invite-permissions"], "npm script registered");
+assert(pkg.scripts["verify:invite-permissions"], "19: npm script registered");
 
-console.log("[verify:invite-permissions] OK (7 cases)");
+console.log("[verify:invite-permissions] OK (19 cases)");

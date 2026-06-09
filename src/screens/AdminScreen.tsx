@@ -1326,6 +1326,7 @@ export function AdminScreen({
           godModeFirstUserInvite={godModeFirstUserInvite}
           workspaceSetupComplete={workspaceSetupComplete}
           companyRegistryStatus={canonicalRegistryStatus}
+          companyFolderId={companyFolderId}
           pilotEditableInput={pilotEditableInput}
           pilotLightSurface={pilotLightSurface}
           pilotLightNested={pilotLightNested}
