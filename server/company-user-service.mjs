@@ -4,33 +4,55 @@
 import { parseCompanyAreas, sanitizeUsersTabRecords, migrateUsersTabColumns } from "./company-users.mjs";
 import { buildAvailableScheduleAssigneesFromUsers } from "../shared/schedule-assignees.mjs";
 
+function pickRowValue(row, ...keys) {
+  if (!row || typeof row !== "object") {
+    return "";
+  }
+  for (const key of keys) {
+    const want = String(key).trim().toLowerCase();
+    for (const [rawKey, rawValue] of Object.entries(row)) {
+      if (String(rawKey).trim().toLowerCase() === want) {
+        return String(rawValue ?? "").trim();
+      }
+    }
+  }
+  return "";
+}
+
 function mapUsersTabRow(row, companyFolderId = "") {
+  const companyAreasRaw = pickRowValue(row, "CompanyAreas", "Company Areas", "companyAreas");
   return {
-    email: String(row.Email || row.email || "").trim(),
-    name: String(row.Name || row.name || row["Full Name"] || "").trim(),
-    role: String(row.Role || row.role || "").trim(),
-    accessLevel: String(row.AccessLevel || row.accessLevel || "").trim(),
-    status: String(row.Status || row.status || "").trim(),
-    companyId: String(row["Company ID"] || row.companyId || companyFolderId || "").trim(),
-    companyAreas: parseCompanyAreas(String(row.CompanyAreas || row.companyAreas || "")),
-    companyAreasRaw: String(row.CompanyAreas || row.companyAreas || "").trim(),
+    email: pickRowValue(row, "Email", "email"),
+    name: pickRowValue(row, "Name", "name", "Full Name"),
+    role: pickRowValue(row, "Role", "role"),
+    accessLevel: pickRowValue(row, "AccessLevel", "Access Level", "accessLevel"),
+    status: pickRowValue(row, "Status", "status"),
+    companyId: pickRowValue(row, "Company ID", "CompanyId", "companyId") || companyFolderId,
+    companyAreas: parseCompanyAreas(companyAreasRaw),
+    companyAreasRaw,
   };
 }
 
 export async function getCompanyUsers(auth, masterSheetId, deps, options = {}) {
   const sheetId = String(masterSheetId || "").trim();
   if (!sheetId || !auth) {
-    return [];
+    throw new Error("masterSheetId and Google auth are required to read company users.");
   }
   const { readCompanySheetById } = deps;
   if (typeof readCompanySheetById !== "function") {
-    return [];
+    throw new Error("readCompanySheetById is not configured.");
   }
   if (typeof migrateUsersTabColumns === "function" && deps.getTabValues) {
     await migrateUsersTabColumns(auth, sheetId, deps).catch(() => null);
   }
   const payload = await readCompanySheetById(auth, sheetId);
-  const rawUsers = Array.isArray(payload?.data?.Users) ? payload.data.Users : [];
+  if (!payload || payload.ok === false) {
+    throw new Error(String(payload?.error || "Unable to read company workbook Users tab."));
+  }
+  if (!payload.data || !Array.isArray(payload.data.Users)) {
+    throw new Error("Company workbook Users tab is missing or unreadable.");
+  }
+  const rawUsers = payload.data.Users;
   const companyFolderId = String(options.companyFolderId || options.companyId || "").trim();
   return sanitizeUsersTabRecords(rawUsers.map((row) => mapUsersTabRow(row, companyFolderId)));
 }

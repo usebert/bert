@@ -35,6 +35,13 @@ export type ScheduleAssigneeDiagnostics = {
   excludedByArea: number;
   excludedNotAssignable: number;
   finalCount: number;
+  currentCompanyId?: string;
+  currentCompanyName?: string;
+  signedInEmail?: string;
+  totalUsersRead?: number;
+  activeUsersFound?: number;
+  assignableUsersReturned?: number;
+  dataSource?: string;
   candidates: Array<{
     email: string;
     role: string;
@@ -386,13 +393,45 @@ export function resolveScheduleAuditorLabels(
 
 export function resolveScheduleAssigneeEmptyMessage(
   assignees: ScheduleAssigneeOption[],
-  context: { selectedArea?: string; diagnostics?: ScheduleAssigneeDiagnostics },
+  context: {
+    selectedArea?: string;
+    diagnostics?: ScheduleAssigneeDiagnostics;
+    loadError?: string;
+    loading?: boolean;
+    warning?: string;
+  },
 ): string {
+  if (context.loadError?.trim()) {
+    return context.loadError.trim();
+  }
+  if (context.loading) {
+    return "Loading assignable users…";
+  }
   if (assignees.length > 0) {
-    return "";
+    return context.warning?.trim() || "";
+  }
+  if (context.warning?.trim()) {
+    return context.warning.trim();
   }
   const selectedArea = context.selectedArea?.trim() || "";
   const diagnostics = context.diagnostics;
+  const totalUsersRead = diagnostics?.totalUsersRead ?? diagnostics?.totalRows ?? 0;
+  if (totalUsersRead > 0 && assignees.length === 0) {
+    const parts = [
+      "No assignable users matched the current filters.",
+      `Read ${totalUsersRead} user row${totalUsersRead === 1 ? "" : "s"}.`,
+    ];
+    if (diagnostics?.excludedByStatus) {
+      parts.push(`${diagnostics.excludedByStatus} excluded by status.`);
+    }
+    if (diagnostics?.excludedByCompany) {
+      parts.push(`${diagnostics.excludedByCompany} excluded by company.`);
+    }
+    if (diagnostics?.excludedByArea) {
+      parts.push(`${diagnostics.excludedByArea} excluded by area.`);
+    }
+    return parts.join(" ");
+  }
   if (selectedArea && diagnostics && diagnostics.excludedByArea > 0 && diagnostics.finalCount === 0) {
     return "No users are assigned to this area. Check user area access in Users & Invites.";
   }

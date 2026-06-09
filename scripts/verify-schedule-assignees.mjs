@@ -229,11 +229,13 @@ const godmodeOnlyUser = {
 /** 13: PasswordHash is not returned from server sanitisation path. */
 {
   const companyUsersSrc = read("server/company-users.mjs");
-  const serverSrc = read("server/server.mjs");
+  const assigneeService = read("server/schedule-assignee-service.mjs");
+  const coreRoutes = read("server/core-workflow-routes.mjs");
   assert(companyUsersSrc.includes("sanitizeUsersTabRecords"), "13: sanitizeUsersTabRecords exists");
-  assert(serverSrc.includes("sanitizeUsersTabRecords(records)"), "13b: company sheet read sanitises Users tab");
-  assert(serverSrc.includes("/api/schedules/assignees"), "13c: schedule assignees endpoint exists");
-  assert(serverSrc.includes("/api/schedules/auditors"), "13d: legacy schedule auditors endpoint kept");
+  assert(assigneeService.includes("getScheduleAssigneesForCompany"), "13b: schedule assignee service exists");
+  assert(coreRoutes.includes("/api/companies/:companyId/schedule-assignees"), "13c: company schedule-assignees route exists");
+  assert(coreRoutes.includes("USERS_TAB_READ_FAILED") || assigneeService.includes("USERS_TAB_READ_FAILED"), "13d: users tab read failure code");
+  assert(coreRoutes.includes("COMPANY_CONTEXT_MISSING") || assigneeService.includes("COMPANY_CONTEXT_MISSING"), "13e: company context missing code");
 }
 
 /** 14: Diagnostics show why a user was excluded. */
@@ -259,9 +261,9 @@ const appSrc = read("App.tsx");
 const schedulesScreenSrc = read("src/screens/SchedulesScreen.tsx");
 assert(scheduleAssigneesSrc.includes("CompanyUsersTabRow"), "14h: scheduleAssignees defines CompanyUsersTabRow");
 assert(scheduleAssigneesSrc.includes("canCompleteAuditUser"), "14i: canCompleteAuditUser helper exists");
-assert(appSrc.includes("companyUsersTabRows"), "14j: App stores Users tab rows for schedule builder");
-assert(appSrc.includes("parseCompanyUsersTabRows"), "14k: App parses Users tab rows from company sheet");
-assert(appSrc.includes("buildAvailableScheduleAssignees"), "14l: App builds available schedule assignees");
+assert(appSrc.includes("/api/companies/"), "14j: App loads schedule assignees from company API");
+assert(appSrc.includes("schedule-assignees"), "14k: App calls schedule-assignees endpoint");
+assert(schedulesScreenSrc.includes("Technical diagnostics"), "14l: schedule UI exposes technical diagnostics");
 assert(schedulesScreenSrc.includes("Assign users to this schedule"), "14m: schedule UI uses assignee wording");
 assert(schedulesScreenSrc.includes("companyAreas"), "14n: schedule UI shows company areas");
 

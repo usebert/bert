@@ -1,4 +1,6 @@
+import { useState } from "react";
 import type { CompanyFolder, ScheduleAssigneeOption, ScheduleListFilter } from "../types/schedulesScreenProps";
+import type { ScheduleAssigneeDiagnostics } from "../utils/scheduleAssignees";
 import { formatUserRoleLabel } from "../utils/inviteStatusDisplay";
 import type {
   ManagedSchedule,
@@ -152,6 +154,10 @@ export function SchedulesScreen({
   availableAudits,
   availableAssignees,
   assigneeEmptyMessage = "No active users found for this company. Add users in Users & Invites.",
+  assigneeDiagnostics,
+  showAssigneeDiagnostics = false,
+  assigneeWarning = "",
+  signedInEmail = "",
   pendingAssigneeInvites = [],
   editorOpen,
   editingSchedule,
@@ -191,6 +197,10 @@ export function SchedulesScreen({
   availableAudits: { id: string; name: string }[];
   availableAssignees: ScheduleAssigneeOption[];
   assigneeEmptyMessage?: string;
+  assigneeDiagnostics?: ScheduleAssigneeDiagnostics;
+  showAssigneeDiagnostics?: boolean;
+  assigneeWarning?: string;
+  signedInEmail?: string;
   pendingAssigneeInvites?: Array<{ email: string; status: string }>;
   editorOpen: boolean;
   editingSchedule: ManagedSchedule | null;
@@ -220,6 +230,7 @@ export function SchedulesScreen({
   onPause: (scheduleId: string) => void;
   onResume: (scheduleId: string) => void;
 }) {
+  const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   const nameError = validationAttempted && !scheduleName.trim();
   const auditsError = validationAttempted && scheduleAudits.length === 0;
   const startDateError = validationAttempted && !startDate;
@@ -495,6 +506,11 @@ export function SchedulesScreen({
 
             <div className={["rounded-[1.5rem] border p-4", auditorsError ? "border-rose-300 bg-rose-50/50" : "border-slate-200 bg-slate-50"].join(" ")}>
               <p className="text-sm font-semibold text-slate-900">Assign users to this schedule</p>
+              {assigneeWarning ? (
+                <p className="mt-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+                  {assigneeWarning}
+                </p>
+              ) : null}
               <div className="mt-3 space-y-2">
                 {availableAssignees.length === 0 ? (
                   <p className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
@@ -547,6 +563,65 @@ export function SchedulesScreen({
                   {pendingAssigneeInvites.length === 1 ? "" : "s"} awaiting setup — they will appear here after
                   onboarding completes.
                 </p>
+              ) : null}
+              {showAssigneeDiagnostics && assigneeDiagnostics ? (
+                <div className="mt-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowTechnicalDetails((value) => !value)}
+                    className="text-xs font-semibold text-slate-700 underline-offset-2 hover:underline"
+                  >
+                    {showTechnicalDetails ? "Hide technical diagnostics" : "Technical diagnostics"}
+                  </button>
+                  {showTechnicalDetails ? (
+                    <dl className="mt-3 grid gap-2 text-xs text-slate-600">
+                      <div>
+                        <dt className="font-semibold text-slate-800">currentCompanyId</dt>
+                        <dd>{assigneeDiagnostics.currentCompanyId || assigneeDiagnostics.companyId || "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold text-slate-800">currentCompanyName</dt>
+                        <dd>{assigneeDiagnostics.currentCompanyName || "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold text-slate-800">masterSheetId</dt>
+                        <dd>{assigneeDiagnostics.masterSheetId || "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold text-slate-800">signedInEmail</dt>
+                        <dd>{assigneeDiagnostics.signedInEmail || signedInEmail || "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold text-slate-800">totalUsersRead</dt>
+                        <dd>{assigneeDiagnostics.totalUsersRead ?? assigneeDiagnostics.totalRows ?? 0}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold text-slate-800">activeUsersFound</dt>
+                        <dd>{assigneeDiagnostics.activeUsersFound ?? assigneeDiagnostics.activeCount ?? 0}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold text-slate-800">assignableUsersReturned</dt>
+                        <dd>{assigneeDiagnostics.assignableUsersReturned ?? assigneeDiagnostics.finalCount ?? 0}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold text-slate-800">excludedByStatus</dt>
+                        <dd>{assigneeDiagnostics.excludedByStatus ?? 0}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold text-slate-800">excludedByCompany</dt>
+                        <dd>{assigneeDiagnostics.excludedByCompany ?? 0}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold text-slate-800">excludedByArea</dt>
+                        <dd>{assigneeDiagnostics.excludedByArea ?? 0}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold text-slate-800">dataSource</dt>
+                        <dd>{assigneeDiagnostics.dataSource || "—"}</dd>
+                      </div>
+                    </dl>
+                  ) : null}
+                </div>
               ) : null}
               {auditorsError && (
                 <p className="mt-2 text-xs font-semibold text-rose-600">

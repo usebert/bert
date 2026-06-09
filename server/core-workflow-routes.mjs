@@ -169,6 +169,7 @@ export function installCoreWorkflowRoutes(app, deps) {
     const includeDiagnostics =
       String(req.query.diagnostics || "").trim() === "1" ||
       String(process.env.BERT_GODMODE_DIAGNOSTICS || "").trim().toLowerCase() === "true";
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
 
     try {
       const result = await getScheduleAssigneesForCompany(authed, { ...registryDeps, ...scheduleDeps }, {
@@ -178,12 +179,27 @@ export function installCoreWorkflowRoutes(app, deps) {
         companyName: String(req.query.companyName || "").trim(),
         selectedArea,
         includeDiagnostics,
+        sessionActor: actor
+          ? {
+              email: actor.email,
+              name: actor.name,
+              role: actor.role,
+              accessLevel: actor.accessLevel,
+              companyId: actor.companyId || actor.companyFolderId || companyId,
+              companyFolderId: actor.companyFolderId || actor.companyId || companyId,
+              status: "active",
+            }
+          : null,
+        signedInEmail: actor?.email,
       });
 
       if (!result.ok) {
         return res.status(result.httpStatus || 400).json({
           ok: false,
+          code: result.code,
           error: result.error,
+          message: result.message || result.error,
+          technicalError: result.technicalError,
         });
       }
 
@@ -195,6 +211,7 @@ export function installCoreWorkflowRoutes(app, deps) {
         assignees: result.assignees,
         auditors: result.auditors,
         diagnostics: result.diagnostics,
+        warning: result.warning,
       });
     } catch (error) {
       return res.status(500).json({
