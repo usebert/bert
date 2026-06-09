@@ -100,6 +100,13 @@ assertContains("server/server.mjs", [
   "readCompanyWorkspaceRegistryMap",
   "recordCompanyWorkspaceHealthCheck",
   "persistCompanyWorkspaceSetup",
+  "persistCompanyLive",
+]);
+
+assertContains("server/company-workspace-registry.mjs", [
+  "export async function persistCompanyLive",
+  "Failed health checks must never erase persisted workspace links",
+  "wasLive",
 ]);
 
 assertContains("server/company-onboarding.mjs", [

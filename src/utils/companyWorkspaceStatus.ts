@@ -67,9 +67,6 @@ export function resolveCompanySetupStatus(input: {
     registryStatus: input.registryStatus,
   });
   if (isCompanyRegistryLive({ status: canonicalRegistry, registryStatus: canonicalRegistry })) {
-    if (input.healthCheckRun && input.workspaceHealthOk === false) {
-      return "Needs attention";
-    }
     return "Live";
   }
   if (input.isProvisioning) {
@@ -154,14 +151,12 @@ export function getCompanySetupNextAction(input: {
         primaryHandler: "repair_workspace",
       };
     case "Live":
-      if (input.healthCheckRun && !input.workspaceHealthOk) {
-        return {
-          label: "Re-check workspace health and repair any issues found",
-          primaryHandler: "health_check",
-        };
-      }
       return {
         label: "Company is live — invite field users from User management",
+        detail:
+          input.healthCheckRun && !input.workspaceHealthOk
+            ? "Workspace health needs attention — re-check when convenient."
+            : undefined,
         primaryHandler: "none",
       };
     case "Failed":

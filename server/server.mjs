@@ -83,6 +83,7 @@ import {
   getCompanyWorkspaceRegistryRecord,
   installCompanyWorkspaceRegistryRoutes,
   mergeDriveCompanyWithRegistry,
+  persistCompanyLive,
   persistCompanyWorkspaceSetup,
   readCompanyWorkspaceRegistryMap,
   recordCompanyWorkspaceHealthCheck,

@@ -100,6 +100,8 @@ assert(progress.includes("verifyWorkbookReadWrite"), "9c: setup uses lightweight
 
 /** 10: LIVE promotion + shared drive does not block readiness */
 assert(progress.includes("ensureCompanyLiveIfReady"), "10: mark_live calls ensureCompanyLiveIfReady");
+assert(progress.includes("persistCompanyLive"), "10a: mark_live uses persistCompanyLive fallback");
+assert(registry.includes("export async function persistCompanyLive"), "10a2: persistCompanyLive exported from registry");
 assert(progress.includes("shared drive warning"), "10b: shared drive logged as warning only");
 const readinessBlock = registry.slice(
   registry.indexOf("export function evaluateCompanyWorkspaceReadiness"),
@@ -186,7 +188,7 @@ assert(!registryActions.includes("getDriveFile"), "17k: relink no Drive folder c
 assert(!registryActions.includes("ensureCompanyFolderStructure"), "17l: relink no folder structure calls");
 assert(!registryActions.includes("verifyWorkbookReadWrite"), "17m: force live no workbook verify");
 assert(registryActions.includes("ensureCompanyRegistryRecordForWorkspace"), "17n: relink uses ensure registry helper");
-assert(registryActions.includes("persistCompanyWorkspaceSetup"), "17o: force live persists registry only");
+assert(registryActions.includes("persistCompanyLive"), "17o: force live persists registry Live status");
 assert(registryActions.includes("findCompanyWorkspaceRegistryRecordInMap"), "17p: relink finds existing row before create");
 assert(serverMain.includes("installGodmodeRegistryActionRoutes"), "17q: server installs godmode registry actions");
 assert(registryService.includes("relinkRegistry"), "17r: frontend relinkRegistry service");

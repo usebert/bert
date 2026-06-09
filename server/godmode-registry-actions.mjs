@@ -11,6 +11,7 @@ import {
   evaluateCompanyWorkspaceReadiness,
   findCompanyWorkspaceRegistryRecordInMap,
   getCompanyWorkspaceRegistryRecord,
+  persistCompanyLive,
   persistCompanyWorkspaceSetup,
   readCompanyWorkspaceRegistryMap,
 } from "./company-workspace-registry.mjs";
@@ -256,22 +257,15 @@ export async function forceCompanyLiveIfReadyFromChecks(auth, deps, input = {}) 
     };
   }
 
-  const now = new Date().toISOString();
-  const persistResult = await persistCompanyWorkspaceSetup(auth, deps, {
+  const persistResult = await persistCompanyLive(auth, deps, {
     companyId: registryCompanyId,
+    companyFolderId: companyId,
     companyName: String(input.companyName || existing.companyName || "").trim(),
     rootFolderId: checks.rootFolderId || existing.rootFolderId || companyId,
     masterSheetId: checks.masterSheetId || existing.masterSheetId,
-    workbookFolderId: existing.workbookFolderId,
-    companyFoldersMappingStatus:
-      checks.companyFoldersMappingOk === true ? "mapped" : existing.companyFoldersMappingStatus,
-    firstAdminStatus: checks.firstAdminReady === true ? "ready" : existing.firstAdminStatus,
-    lastHealthCheckAt: existing.lastHealthCheckAt || (checks.healthCheckRun ? now : ""),
-    status: COMPANY_REGISTRY_STATUS_LIVE,
-    markLive: true,
-    markSetupComplete: true,
-    clearUnlinkReason: true,
-    touchSetup: false,
+    lastHealthCheckAt: existing.lastHealthCheckAt || (checks.healthCheckRun ? new Date().toISOString() : ""),
+    reason: "force_live_if_ready",
+    healthStatus: "HEALTHY",
   });
 
   const fresh =

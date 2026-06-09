@@ -90,6 +90,7 @@ assert(getCanonicalCompanyStatus({ registryStatus: "live" }) === COMPANY_REGISTR
 const registry = read("server/company-workspace-registry.mjs");
 assert(registry.includes("getCanonicalCompanyStatus"), "registry uses canonical status helper");
 assert(registry.includes("ensureCompanyLiveIfReady"), "registry can persist Live when ready");
+assert(registry.includes("persistCompanyLive"), "registry persistCompanyLive helper");
 assert(registry.includes("evaluateCompanyWorkspaceReadiness"), "registry readiness evaluation helper");
 assert(serverMain.includes("/api/company/registry-status"), "company admin fresh registry status endpoint");
 assert(usersPanel.includes("/api/company/registry-status") || usersPanel.includes("freshRegistryStatus"), "invite panel fetches fresh registry status");

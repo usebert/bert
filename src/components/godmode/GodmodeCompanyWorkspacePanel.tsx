@@ -402,10 +402,12 @@ export function GodmodeCompanyWorkspacePanel({
     if (!firstAdminReady) {
       blockers.push("First admin not ready");
     }
-    if (!healthCheckRun) {
-      blockers.push("Workspace health check not run");
-    } else if (!workspaceHealthOk) {
-      blockers.push("Workspace health check failed");
+    if (!companyLive) {
+      if (!healthCheckRun) {
+        blockers.push("Workspace health check not run");
+      } else if (!workspaceHealthOk) {
+        blockers.push("Workspace health check failed");
+      }
     }
     if (registryLinkMissing) {
       blockers.push("Company registry link missing — run Repair / complete setup to relink");

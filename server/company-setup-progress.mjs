@@ -8,6 +8,7 @@ import {
 } from "./company-folder-structure.mjs";
 import {
   ensureCompanyLiveIfReady,
+  persistCompanyLive,
   ensureCompanyRegistryRecordForWorkspace,
   evaluateCompanyWorkspaceReadiness,
   getCompanyWorkspaceRegistryRecord,
@@ -197,20 +198,15 @@ async function executeMarkLiveStep(auth, registryDeps, state, setupChecks, resol
     const registryCompanyId =
       String(liveResult.record?.companyId || state.registryRecord?.companyId || companyId).trim() || companyId;
     const forceResult = await withGoogleTimeout(
-      persistCompanyWorkspaceSetup(auth, registryDeps, {
+      persistCompanyLive(auth, registryDeps, {
         companyId: registryCompanyId,
+        companyFolderId: companyId,
         companyName: resolvedCompanyName,
         rootFolderId: companyId,
         masterSheetId: state.masterSheetId,
-        workbookFolderId: state.folderIds.BERT_COMPANY_WORKBOOK || "",
-        companyFoldersMappingStatus: companyFoldersMappingOk ? "mapped" : "incomplete",
-        firstAdminStatus: firstAdminReady ? "ready" : "pending",
         lastHealthCheckAt: new Date().toISOString(),
-        status: COMPANY_REGISTRY_STATUS_LIVE,
-        markLive: true,
-        markSetupComplete: true,
-        clearUnlinkReason: true,
-        touchSetup: false,
+        reason: "mark_live_force_persist",
+        healthStatus: "HEALTHY",
       }),
       "mark_live_force_persist",
     );

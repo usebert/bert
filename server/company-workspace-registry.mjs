@@ -540,6 +540,106 @@ export async function upsertCompanyWorkspaceRegistryRecords(
   return { synced: true, registrySpreadsheetId: spreadsheetId };
 }
 
+/**
+ * Persist status=Live on the canonical Companies registry row (multi-key lookup before write).
+ * Never infers Live from health/sync — writes explicit Status + Live At.
+ */
+export async function persistCompanyLive(auth, deps, input = {}) {
+  const lookupId = String(input.companyId || input.companyFolderId || input.rootFolderId || "").trim();
+  if (!lookupId || !auth) {
+    return {
+      synced: false,
+      promoted: false,
+      reason: "missing_company_id",
+      registryStatus: "",
+      needsAttention: false,
+      setupBlockers: [],
+      healthStatus: "",
+      updatedAt: "",
+      record: null,
+      matchedBy: "",
+    };
+  }
+
+  const { map } = await readCompanyWorkspaceRegistryMap(auth, deps);
+  const match = findCompanyWorkspaceRegistryRecordInMap(map, {
+    companyId: lookupId,
+    companyFolderId: String(input.companyFolderId || lookupId).trim(),
+    rootFolderId: String(input.rootFolderId || input.companyFolderId || lookupId).trim(),
+    masterSheetId: String(input.masterSheetId || "").trim(),
+    companyName: String(input.companyName || "").trim(),
+  });
+  const existing = match?.record || findCompanyWorkspaceRegistryRecord(map, lookupId);
+  if (!existing) {
+    return {
+      synced: false,
+      promoted: false,
+      reason: "not_in_registry",
+      registryStatus: "",
+      needsAttention: false,
+      setupBlockers: [],
+      healthStatus: "",
+      updatedAt: "",
+      record: null,
+      matchedBy: match?.matchedBy || "",
+    };
+  }
+
+  const registryCompanyId = String(existing.companyId || lookupId).trim();
+  const checks = input.checks && typeof input.checks === "object" ? input.checks : {};
+  const now = nowIso();
+  const result = await persistCompanyWorkspaceSetup(auth, deps, {
+    companyId: registryCompanyId,
+    companyName: String(input.companyName || existing.companyName || "").trim(),
+    rootFolderId: String(existing.rootFolderId || input.rootFolderId || lookupId).trim(),
+    masterSheetId: String(existing.masterSheetId || input.masterSheetId || "").trim(),
+    workbookFolderId: existing.workbookFolderId,
+    companyFoldersMappingStatus:
+      input.companyFoldersMappingStatus ||
+      (checks.companyFoldersMappingOk === true
+        ? "mapped"
+        : checks.companyFoldersMappingOk === false
+          ? existing.companyFoldersMappingStatus
+          : existing.companyFoldersMappingStatus),
+    firstAdminStatus:
+      input.firstAdminStatus ||
+      (checks.firstAdminReady === true
+        ? "ready"
+        : checks.firstAdminReady === false
+          ? "pending"
+          : existing.firstAdminStatus),
+    status: COMPANY_REGISTRY_STATUS_LIVE,
+    setupCompletedAt: existing.setupCompletedAt || now,
+    liveAt: existing.liveAt || now,
+    lastHealthCheckAt: String(input.lastHealthCheckAt || existing.lastHealthCheckAt || "").trim(),
+    unlinkReason: "",
+    clearUnlinkReason: true,
+    markSetupComplete: true,
+    markLive: true,
+    touchSetup: true,
+  });
+
+  const fresh =
+    (await getCompanyWorkspaceRegistryRecord(auth, deps, registryCompanyId)) ||
+    (await getCompanyWorkspaceRegistryRecord(auth, deps, lookupId)) ||
+    result.record ||
+    existing;
+
+  return {
+    ...result,
+    promoted: Boolean(result.synced) || isCompanyRegistryLive(fresh),
+    registryStatus: getCanonicalCompanyStatus(fresh) || COMPANY_REGISTRY_STATUS_LIVE,
+    needsAttention: false,
+    setupBlockers: [],
+    healthStatus: input.healthStatus || "HEALTHY",
+    healthIssues: input.healthIssues || [],
+    updatedAt: now,
+    record: fresh,
+    matchedBy: match?.matchedBy || "",
+    persistReason: String(input.reason || "").trim(),
+  };
+}
+
 export async function persistCompanyWorkspaceSetup(auth, deps, input = {}) {
   const companyId = String(input.companyId || input.rootFolderId || input.companyFolderId || "").trim();
   const masterSheetId = String(input.masterSheetId || "").trim();
@@ -586,8 +686,24 @@ export async function recordCompanyWorkspaceHealthCheck(auth, deps, input = {}) 
   if (!companyId) {
     return { synced: false, reason: "missing_company_id" };
   }
-  const existing = (await readCompanyWorkspaceRegistryMap(auth, deps)).map.get(companyId);
+  const { map } = await readCompanyWorkspaceRegistryMap(auth, deps);
+  const match = findCompanyWorkspaceRegistryRecordInMap(map, {
+    companyId,
+    companyFolderId: companyId,
+    rootFolderId: String(input.rootFolderId || companyId).trim(),
+    masterSheetId: String(input.masterSheetId || "").trim(),
+    companyName: String(input.companyName || "").trim(),
+  });
+  const existing = match?.record || map.get(companyId) || null;
+  const registryCompanyId = String(existing?.companyId || companyId).trim();
   const healthOk = input.healthOk !== false;
+  const wasLive = isCompanyRegistryLive(existing);
+  const now = nowIso();
+  const healthIssues = String(
+    input.unlinkReason ||
+      input.healthSummary ||
+      (healthOk ? "" : "health_check_failed"),
+  ).trim();
   // Failed health checks must never erase persisted workspace links.
   const masterSheetId = String(
     healthOk
@@ -599,13 +715,68 @@ export async function recordCompanyWorkspaceHealthCheck(auth, deps, input = {}) 
       ? input.rootFolderId || existing?.rootFolderId || companyId
       : existing?.rootFolderId || input.rootFolderId || companyId,
   ).trim();
-  const status = healthOk
-    ? isCompanyRegistryLive(existing)
-      ? COMPANY_REGISTRY_STATUS_LIVE
-      : existing?.status || "Setup in progress"
-    : "Needs attention";
+
+  if (wasLive) {
+    return persistCompanyWorkspaceSetup(auth, deps, {
+      companyId: registryCompanyId,
+      companyName: input.companyName || existing?.companyName || "",
+      rootFolderId,
+      masterSheetId,
+      workbookFolderId: input.workbookFolderId || existing?.workbookFolderId || "",
+      companyFoldersMappingStatus: input.companyFoldersMappingStatus || existing?.companyFoldersMappingStatus || "",
+      firstAdminStatus: input.firstAdminStatus || existing?.firstAdminStatus || "",
+      status: COMPANY_REGISTRY_STATUS_LIVE,
+      lastHealthCheckAt: now,
+      unlinkReason: healthOk ? "" : healthIssues,
+      forceClearHeaders: healthOk ? ["Unlink Reason"] : [],
+      touchSetup: false,
+      markSetupComplete: false,
+      markLive: false,
+      setupCompletedAt: existing?.setupCompletedAt || "",
+      liveAt: existing?.liveAt || "",
+    });
+  }
+
+  if (healthOk && rootFolderId && masterSheetId) {
+    const readiness = evaluateCompanyWorkspaceReadiness(
+      { ...existing, rootFolderId, masterSheetId },
+      {
+        rootFolderId,
+        masterSheetId,
+        folderStructureOk: input.folderStructureOk,
+        requiredTabsOk: input.requiredTabsOk,
+        companyFoldersMappingOk:
+          input.companyFoldersMappingOk ??
+          (String(input.companyFoldersMappingStatus || existing?.companyFoldersMappingStatus || "")
+            .trim()
+            .toLowerCase() === "mapped"),
+        firstAdminReady:
+          input.firstAdminReady ??
+          String(input.firstAdminStatus || existing?.firstAdminStatus || "")
+            .trim()
+            .toLowerCase() !== "pending",
+        workspaceHealthOk: true,
+        healthCheckRun: true,
+        skipHealthCheck: true,
+      },
+    );
+    if (readiness.ready) {
+      return persistCompanyLive(auth, deps, {
+        companyId: registryCompanyId,
+        companyFolderId: companyId,
+        rootFolderId,
+        masterSheetId,
+        companyName: input.companyName || existing?.companyName || "",
+        lastHealthCheckAt: now,
+        reason: "health_check_ready",
+        healthStatus: "HEALTHY",
+      });
+    }
+  }
+
+  const status = healthOk ? existing?.status || "Setup in progress" : "Needs attention";
   return persistCompanyWorkspaceSetup(auth, deps, {
-    companyId,
+    companyId: registryCompanyId,
     companyName: input.companyName || existing?.companyName || "",
     rootFolderId,
     masterSheetId,
@@ -613,8 +784,8 @@ export async function recordCompanyWorkspaceHealthCheck(auth, deps, input = {}) 
     companyFoldersMappingStatus: input.companyFoldersMappingStatus || existing?.companyFoldersMappingStatus || "",
     firstAdminStatus: input.firstAdminStatus || existing?.firstAdminStatus || "",
     status,
-    lastHealthCheckAt: nowIso(),
-    unlinkReason: healthOk ? "" : String(input.unlinkReason || input.healthSummary || "health_check_failed").trim(),
+    lastHealthCheckAt: now,
+    unlinkReason: healthOk ? "" : healthIssues,
     touchSetup: false,
     markSetupComplete: false,
     markLive: false,
@@ -810,33 +981,19 @@ export async function ensureCompanyLiveIfReady(auth, deps, input = {}) {
       record: existing,
     };
   }
-  const now = nowIso();
   const registryCompanyId = String(existing.companyId || companyId).trim();
   const resolvedMasterSheetId = String(checks.masterSheetId || existing.masterSheetId || "").trim();
   const resolvedRootFolderId = String(checks.rootFolderId || existing.rootFolderId || companyId).trim();
-  const result = await persistCompanyWorkspaceSetup(auth, deps, {
+  const result = await persistCompanyLive(auth, deps, {
     companyId: registryCompanyId,
+    companyFolderId: companyId,
     companyName: String(input.companyName || existing.companyName || "").trim(),
     rootFolderId: resolvedRootFolderId,
     masterSheetId: resolvedMasterSheetId,
-    workbookFolderId: existing.workbookFolderId,
-    companyFoldersMappingStatus:
-      checks.companyFoldersMappingOk === false
-        ? existing.companyFoldersMappingStatus
-        : checks.companyFoldersMappingOk === true
-          ? "mapped"
-          : existing.companyFoldersMappingStatus,
-    firstAdminStatus:
-      checks.firstAdminReady === true ? "ready" : checks.firstAdminReady === false ? "pending" : existing.firstAdminStatus,
-    lastHealthCheckAt: existing.lastHealthCheckAt || (checks.healthCheckRun ? now : ""),
-    status: COMPANY_REGISTRY_STATUS_LIVE,
-    setupCompletedAt: existing.setupCompletedAt || now,
-    liveAt: now,
-    unlinkReason: "",
-    clearUnlinkReason: true,
-    markSetupComplete: true,
-    markLive: true,
-    touchSetup: false,
+    lastHealthCheckAt: existing.lastHealthCheckAt || (checks.healthCheckRun ? nowIso() : ""),
+    reason: "ensure_ready",
+    healthStatus: "HEALTHY",
+    checks,
   });
   const freshRecord =
     (await getCompanyWorkspaceRegistryRecord(auth, deps, registryCompanyId)) ||
@@ -861,13 +1018,16 @@ export function mergeDriveCompanyWithRegistry(driveCompany, registryRecord) {
   const masterSheetId =
     String(registryRecord.masterSheetId || "").trim() ||
     String(driveCompany.masterSheetId || driveCompany.responseSheetId || "").trim();
-  const canonicalStatus = getCanonicalCompanyStatus(registryRecord) || deriveCompanyWorkspaceStatus(registryRecord);
+  const canonicalStatus = getCanonicalCompanyStatus(registryRecord);
+  const derivedStatus = deriveCompanyWorkspaceStatus(registryRecord);
   const setupStatusLabel =
     canonicalStatus === COMPANY_REGISTRY_STATUS_LIVE
       ? "Ready"
       : canonicalStatus === "Needs attention"
         ? "Needs attention"
-        : canonicalStatus || driveCompany.setupStatusLabel;
+        : canonicalStatus ||
+          (derivedStatus === "Live" ? "Setup in progress" : derivedStatus) ||
+          driveCompany.setupStatusLabel;
   return {
     ...driveCompany,
     masterSheetId,
