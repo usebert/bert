@@ -353,6 +353,7 @@ export function AdminScreen({
   googleFormCopyOption,
   googleFormCopyPlacement,
   companyFolderId,
+  companyName = "",
   onTemplateQuestionChange,
   onTemplateQuestionTypeChange,
   onAddTemplateQuestion,
@@ -1328,6 +1329,7 @@ export function AdminScreen({
           workspaceSetupComplete={workspaceSetupComplete}
           companyRegistryStatus={canonicalRegistryStatus}
           companyFolderId={companyFolderId}
+          companyName={companyName || selectedFolder?.name || ""}
           pilotEditableInput={pilotEditableInput}
           pilotLightSurface={pilotLightSurface}
           pilotLightNested={pilotLightNested}

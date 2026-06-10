@@ -82,7 +82,7 @@ assert(!canCreateCompanyInvite(adminSession, ownCompany, "Master"), "20: Company
 assert(canCreateCompanyInvite(managerSession, ownCompany, "Auditor"), "21: Manager can invite Auditor");
 assert(!canCreateCompanyInvite(managerSession, ownCompany, "Admin"), "22: Manager cannot invite Admin");
 assert(usersPanel.includes("COMPANY_USER_INVITE_TYPE") || usersPanel.includes("Auditor"), "23: Users panel targets company-user invites");
-assert(usersPanel.includes("fetchCompanyInviteReadiness"), "23b: Users panel uses invite-readiness endpoint");
+assert(usersPanel.includes("canCreateCompanyInvite"), "23b: Users panel uses permission-based invite gating");
 assert(usersPanel.includes("isCompanyInviteActor"), "23b1: Users panel gates form on invite actor permission");
 assert(!usersPanel.includes("isCompanyRegistryLive"), "23b2: Users panel does not gate invites on registry Live");
 assert(

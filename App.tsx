@@ -13929,7 +13929,8 @@ function App() {
                 onCreateGoogleFormTemplateCopyChange={setCreateGoogleFormTemplateCopy}
                 googleFormCopyOption={googleFormCopyOption}
                 googleFormCopyPlacement={googleFormCopyOption.placement}
-                companyFolderId={selectedFolderId}
+                companyFolderId={activeCompanyContext.companyFolderId || selectedFolderId}
+                companyName={activeCompanyContext.companyName || selectedFolder?.name || ""}
                 onTemplateQuestionChange={setTemplateQuestionInput}
                 onTemplateQuestionTypeChange={setTemplateQuestionTypeInput}
                 onAddTemplateQuestion={handleAddTemplateQuestion}

@@ -307,6 +307,7 @@ export type AdminScreenProps = {
   googleFormCopyOption: GoogleFormCopyOptionState;
   googleFormCopyPlacement: "master" | "company";
   companyFolderId: string;
+  companyName?: string;
   onTemplateQuestionChange: (value: string) => void;
   onTemplateQuestionTypeChange: (value: AuditQuestion["fieldType"]) => void;
   onAddTemplateQuestion: () => void;

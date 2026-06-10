@@ -1,17 +1,16 @@
-import { useEffect, useMemo, useState, type ComponentType } from "react";
+import { useMemo, useState, type ComponentType } from "react";
 import type { Role } from "../../permissions";
 import { canShowTechnicalUi } from "../../utils/uxDeclutter";
-import { fetchCompanyInviteReadiness, type CompanyInviteReadiness } from "../../services/companyInviteReadinessService";
 import {
+  canCreateCompanyInvite,
   canRevokeInvite,
   canViewInvite,
-  COMPANY_NOT_LIVE_INVITE_MESSAGE,
   COMPANY_USER_INVITE_TYPE,
-  GODMODE_USERS_TAB_NOT_READY_MESSAGE,
+  INVITE_COMPANY_CONTEXT_REQUIRED_MESSAGE,
   INVITE_MANAGE_AUDITOR_ONLY_MESSAGE,
   INVITE_ROLE_FORBIDDEN_MESSAGE,
   isCompanyInviteActor,
-  isCompanyUsersTabWritable,
+  isGodmodeInviteSession,
 } from "../../utils/companyWorkspaceInvite";
 import { DangerActionButton } from "../DangerActionButton";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../dashboard/DashboardPrimitives";
@@ -388,6 +387,7 @@ export type UsersInvitesPilotPanelProps = Pick<
   workspaceSetupComplete: boolean;
   companyRegistryStatus?: string;
   companyFolderId?: string;
+  companyName?: string;
   pilotEditableInput: string;
   pilotLightSurface: string;
   pilotLightNested: string;
@@ -418,6 +418,7 @@ export function UsersInvitesPilotPanel({
   workspaceSetupComplete,
   companyRegistryStatus = "",
   companyFolderId = "",
+  companyName = "",
   pilotEditableInput,
   pilotLightSurface,
   pilotLightNested,
@@ -447,86 +448,35 @@ export function UsersInvitesPilotPanel({
   ...healthProps
 }: UsersInvitesPilotPanelProps) {
   const [showHealthSync, setShowHealthSync] = useState(false);
-  const [inviteReadiness, setInviteReadiness] = useState<CompanyInviteReadiness | null>(null);
-  const [inviteReadinessLoading, setInviteReadinessLoading] = useState(false);
   const isMasterActor = currentUser.role === "Master";
+  const resolvedCompanyId = String(companyFolderId || "").trim();
+  const resolvedCompanyName = String(companyName || "").trim();
+  const hasCompanyContext = Boolean(resolvedCompanyId && resolvedCompanyName);
   const invitePermissionSession = {
     kind: isMasterActor ? "master" : "company",
     role: currentUser.role,
     accessLevel: currentUser.accessLevel,
-    companyId: companyFolderId,
-    companyFolderId,
+    companyId: resolvedCompanyId,
+    companyFolderId: resolvedCompanyId,
   } as const;
   const isCompanyInviteActorRole = isCompanyInviteActor({
     role: currentUser.role,
     accessLevel: currentUser.accessLevel,
   });
-  const showInviteForm = isMasterActor || isCompanyInviteActorRole;
-  const masterSheetId = String(
-    companySheetSync?.sheetId ||
-      healthProps.selectedFolder?.responseSheetId ||
-      "",
-  ).trim();
-  const godmodeUsersTabWritable = isMasterActor
-    ? isCompanyUsersTabWritable({
-        companySheetSync: companySheetSync ?? undefined,
-        workspaceValidation,
-      })
-    : false;
-
-  useEffect(() => {
-    if (!companyFolderId || !showInviteForm) {
-      setInviteReadiness(null);
-      return;
-    }
-    let cancelled = false;
-    setInviteReadinessLoading(true);
-    void (async () => {
-      try {
-        const readiness = await fetchCompanyInviteReadiness({
-          companyId: companyFolderId,
-          companyFolderId,
-          masterSheetId,
-          registryStatus: companyRegistryStatus,
-          workspaceSetupComplete,
-          godmodeUsersTabWritable: isMasterActor ? godmodeUsersTabWritable : undefined,
-        });
-        if (cancelled) return;
-        setInviteReadiness(readiness);
-      } catch {
-        if (!cancelled) {
-          setInviteReadiness(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setInviteReadinessLoading(false);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    companyFolderId,
-    companyRegistryStatus,
-    godmodeUsersTabWritable,
-    isMasterActor,
-    masterSheetId,
-    workspaceSetupComplete,
-    currentUser.username,
-    showInviteForm,
-  ]);
-
-  const inviteFormEnabled = inviteReadiness?.canInvite === true;
-  const inviteBlockedMessage =
-    inviteReadiness?.userMessage ||
-    (isMasterActor ? GODMODE_USERS_TAB_NOT_READY_MESSAGE : COMPANY_NOT_LIVE_INVITE_MESSAGE);
+  const hasInvitePermission =
+    isGodmodeInviteSession(invitePermissionSession) ||
+    canCreateCompanyInvite(invitePermissionSession, resolvedCompanyId, inviteRoleInput);
+  const showInviteForm = hasInvitePermission && (isMasterActor || isCompanyInviteActorRole);
+  const inviteFormEnabled = hasCompanyContext && hasInvitePermission;
+  const inviteBlockedMessage = !hasCompanyContext
+    ? INVITE_COMPANY_CONTEXT_REQUIRED_MESSAGE
+    : INVITE_ROLE_FORBIDDEN_MESSAGE;
   const inviteRecordScope = (invite: UserInvite) => ({
     kind: "company_user" as const,
     inviteType: COMPANY_USER_INVITE_TYPE,
     role: invite.role,
-    companyId: invite.companyFolderId || companyFolderId,
-    companyFolderId: invite.companyFolderId || companyFolderId,
+    companyId: invite.companyFolderId || resolvedCompanyId,
+    companyFolderId: invite.companyFolderId || resolvedCompanyId,
   });
   const canManageInvite = (invite: UserInvite) => canRevokeInvite(invitePermissionSession, inviteRecordScope(invite));
   const canSeeInvite = (invite: UserInvite) => canViewInvite(invitePermissionSession, inviteRecordScope(invite));
@@ -564,16 +514,13 @@ export function UsersInvitesPilotPanel({
           <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
             {INVITE_ROLE_FORBIDDEN_MESSAGE}
           </p>
-        ) : inviteReadinessLoading ? (
-          <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-            Checking whether this company can accept invites…
-          </p>
-        ) : !inviteFormEnabled ? (
-          <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-950">
-            {inviteBlockedMessage}
-          </p>
         ) : (
           <div className={`mt-4 ${pilotLightNested}`}>
+            {!inviteFormEnabled ? (
+              <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-950">
+                {inviteBlockedMessage}
+              </p>
+            ) : null}
             <label htmlFor="pilot-invite-email" className="mb-1 block text-sm font-semibold text-slate-900">
               Email
             </label>
@@ -608,8 +555,18 @@ export function UsersInvitesPilotPanel({
             <button
               type="button"
               onClick={onInviteUser}
-              disabled={companyUserInviteEmailSending || masterCompanyContextBlocked}
-              title={masterCompanyContextBlocked ? masterCompanyContextMessage : undefined}
+              disabled={
+                companyUserInviteEmailSending ||
+                masterCompanyContextBlocked ||
+                !inviteFormEnabled
+              }
+              title={
+                masterCompanyContextBlocked
+                  ? masterCompanyContextMessage
+                  : !inviteFormEnabled
+                    ? inviteBlockedMessage
+                    : undefined
+              }
               className={`mt-4 h-12 w-full rounded-2xl bg-slate-900 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 ${slatePrimaryCtaInteract}`}
             >
               {companyUserInviteEmailSending ? "Sending…" : "Send invite"}
