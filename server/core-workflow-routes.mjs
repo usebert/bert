@@ -21,6 +21,7 @@ import {
   resolveCompanyScheduleContext,
   saveCompanySchedules,
 } from "./schedule-service.mjs";
+import { getReportsDashboard } from "./reports-dashboard-service.mjs";
 import { BACKGROUND_SCHEDULE_SAVED_MESSAGE } from "../shared/background-jobs.mjs";
 
 function buildInvitePermissionSession(actor) {
@@ -346,6 +347,86 @@ export function installCoreWorkflowRoutes(app, deps) {
       return res.status(500).json({
         ok: false,
         error: error instanceof Error ? error.message : "Unable to load schedule assignees.",
+      });
+    }
+  });
+
+  app.get("/api/companies/:companyId/reports/dashboard", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({
+        ok: false,
+        error: "Please connect Google before loading reports.",
+        message: "Could not load reports right now. Try again.",
+      });
+    }
+
+    const companyId = String(req.params?.companyId || "").trim();
+    const masterSheetId = String(req.query.masterSheetId || req.query.sheetId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const includeDiagnostics =
+      String(req.query.diagnostics || "").trim() === "1" ||
+      String(process.env.BERT_GODMODE_DIAGNOSTICS || "").trim().toLowerCase() === "true";
+
+    try {
+      const result = await getReportsDashboard(authed, { ...registryDeps, ...scheduleDeps }, {
+        companyId,
+        companyFolderId: String(req.query.companyFolderId || companyId).trim(),
+        masterSheetId,
+        companyName: String(req.query.companyName || "").trim(),
+        dateRange: String(req.query.dateRange || "30").trim(),
+        site: String(req.query.site || "").trim(),
+        area: String(req.query.area || "").trim(),
+        assignee: String(req.query.assignee || "").trim(),
+        status: String(req.query.status || "").trim(),
+        includeDiagnostics,
+        actor: actor
+          ? {
+              kind: actor.kind,
+              email: actor.email,
+              name: actor.name,
+              role: actor.role,
+              accessLevel: actor.accessLevel,
+              companyId: actor.companyId || actor.companyFolderId || companyId,
+              companyFolderId: actor.companyFolderId || actor.companyId || companyId,
+              companyAreas: actor.companyAreas,
+            }
+          : null,
+      });
+
+      if (!result.ok) {
+        return res.status(result.httpStatus || 400).json({
+          ok: false,
+          code: result.code,
+          error: result.error,
+          message: result.message || result.error,
+          technicalError: result.technicalError,
+          diagnostics: result.diagnostics,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        cached: result.cached === true,
+        refreshing: result.refreshing === true,
+        stale: result.stale === true,
+        companyId: result.companyId,
+        companyFolderId: result.companyFolderId,
+        companyName: result.companyName,
+        masterSheetId: result.masterSheetId,
+        summary: result.summary,
+        charts: result.charts,
+        filters: result.filters,
+        emptyState: result.emptyState,
+        diagnostics: result.diagnostics,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "REPORTS_LOAD_FAILED",
+        error: "Could not load reports right now. Try again.",
+        message: "Could not load reports right now. Try again.",
+        technicalError: error instanceof Error ? error.message : String(error),
       });
     }
   });

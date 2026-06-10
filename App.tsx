@@ -13578,6 +13578,7 @@ function App() {
             {screen === "reports" && canAccessReports(currentUser.role) && (
               <ReportsScreen
                 currentUserRole={currentUser.role}
+                companyContext={activeCompanyContext}
                 buildMarker={currentUser.role === "Master" ? APP_BUILD_MARKER : undefined}
                 compliance={compliance}
                 openActions={openActions}

@@ -21,6 +21,8 @@ import { SectionIntro } from "../components/SectionIntro";
 import { darkPanelEyebrow, darkPanelShell, darkPanelTitleLg } from "../styles/darkPanel";
 import type { Role } from "../permissions";
 import { slatePrimaryCtaInteract } from "../styles/interactions";
+import { ReportsDashboardPanel } from "../components/reports/ReportsDashboardPanel";
+import type { ResolvedCompanyContext } from "../services/companyContextService";
 
 const reportTemplates: {
   type: ReportTemplateType;
@@ -359,6 +361,7 @@ function FlowItem({ number, title, text, icon }: { number: string; title: string
 
 export function ReportsScreen({
   currentUserRole,
+  companyContext,
   buildMarker,
   workspaceName,
   compliance,
@@ -390,6 +393,7 @@ export function ReportsScreen({
   onExportAuditPackPdf,
 }: {
   currentUserRole: Role;
+  companyContext: ResolvedCompanyContext;
   buildMarker?: string;
   workspaceName: string;
   compliance: number;
@@ -462,6 +466,11 @@ export function ReportsScreen({
       </section>
 
       {currentUserRole === "Master" ? <PilotHealthPanel role="Master" /> : null}
+
+      <ReportsDashboardPanel
+        companyContext={companyContext}
+        showDiagnostics={currentUserRole === "Master"}
+      />
 
       {currentUserRole === "Master" ? (
         <section className="grid grid-cols-2 gap-3">

@@ -33,6 +33,8 @@ const coreRoutes = read("server/core-workflow-routes.mjs");
 const masterAuth = read("server/master-auth.mjs");
 const serverMain = read("server/server.mjs");
 const companyUsers = read("server/company-users.mjs");
+const reportsDashboardPanel = read("src/components/reports/ReportsDashboardPanel.tsx");
+const reportsScreen = read("src/screens/ReportsScreen.tsx");
 const pkg = JSON.parse(read("package.json"));
 
 const ROUTED_SCREENS = [
@@ -108,7 +110,17 @@ assert(coreRoutes.includes("/api/invites/company-user/:token"), "invite token lo
 assert(coreRoutes.includes("/api/companies/:companyId/schedule-assignees"), "schedule assignees API");
 assert(coreRoutes.includes("/api/companies/:companyId/schedules"), "schedule save API");
 assert(coreRoutes.includes('app.get("/api/companies/:companyId/schedules"'), "schedule list API");
+assert(coreRoutes.includes("/api/companies/:companyId/reports/dashboard"), "reports dashboard API");
 assert(appTsx.includes("listCompanySchedules"), "App lists schedules via company context service");
+assert(
+  appTsx.includes("activeCompanyContext") && reportsScreen.includes("ReportsDashboardPanel"),
+  "reports dashboard wired in App",
+);
+assert(
+  reportsDashboardPanel.includes("readReportsDashboardCache") &&
+    reportsDashboardPanel.includes("REPORTS_DASHBOARD_LOAD_TIMEOUT_MS"),
+  "reports cache-first with timeout",
+);
 assert(companyUsers.includes("sanitizeUserRecordForClient"), "PasswordHash stripped from client records");
 assert(!/res\.json\([\s\S]{0,200}PasswordHash/.test(serverMain), "login responses do not expose PasswordHash");
 

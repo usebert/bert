@@ -70,6 +70,7 @@ const assigneeService = read("server/schedule-assignee-service.mjs");
 const scheduleSaveService = read("server/schedule-save-service.mjs");
 const backgroundService = read("server/background-jobs-service.mjs");
 const appTsx = read("App.tsx");
+const reportsScreen = read("src/screens/ReportsScreen.tsx");
 const accountScreen = read("src/screens/AccountSettingsScreen.tsx");
 const accountSummary = read("src/components/AccountIdentitySummary.tsx");
 const schedulesScreen = read("src/screens/SchedulesScreen.tsx");
@@ -334,6 +335,12 @@ assert(serverMain.includes("installCoreWorkflowRoutes"), "X1: core workflow rout
 assert(!appTsx.includes("buildAvailableScheduleAssignees("), "X2: App does not filter assignees locally (empty when API has users)");
 assert(appTsx.includes("readScheduleAssigneesCache") && appTsx.includes("SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS"), "X3: assignees cache-first with 2s timeout");
 assert(pkg.scripts["verify:app-paths"] && pkg.scripts["verify:login-performance"], "X4: path and login-performance verify scripts registered");
+assert(coreRoutes.includes("/api/companies/:companyId/reports/dashboard"), "X5: reports dashboard API route");
+assert(
+  appTsx.includes("activeCompanyContext") && reportsScreen.includes("ReportsDashboardPanel"),
+  "X6: live reports dashboard wired",
+);
+assert(pkg.scripts["verify:reports-dashboard"], "X7: reports dashboard verify script registered");
 
 console.log(`[verify:end-to-end-smoke] OK — ${caseCount} cases passed (static + shared modules)`);
 console.log(`
