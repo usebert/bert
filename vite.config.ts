@@ -1,4 +1,6 @@
 import type { ServerResponse } from "node:http";
+import fs from "node:fs";
+import path from "node:path";
 import { defineConfig, loadEnv, type ProxyOptions } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -56,13 +58,28 @@ function sanitizeViteAppName(mode: string, cwd: string): string {
   return raw;
 }
 
+function readBuildGitSha(cwd: string): string {
+  try {
+    const metaPath = path.join(cwd, "public/build-meta.json");
+    if (!fs.existsSync(metaPath)) {
+      return "";
+    }
+    const meta = JSON.parse(fs.readFileSync(metaPath, "utf8")) as { shortSha?: string; gitSha?: string };
+    return String(meta.shortSha || meta.gitSha || "").trim();
+  } catch {
+    return "";
+  }
+}
+
 export default defineConfig(({ mode }) => {
   const sanitizedViteAppName = sanitizeViteAppName(mode, process.cwd());
+  const buildGitSha = readBuildGitSha(process.cwd());
 
   return {
     plugins: [react(), tailwindcss()],
     define: {
       "import.meta.env.VITE_APP_NAME": JSON.stringify(sanitizedViteAppName),
+      "import.meta.env.VITE_BUILD_GIT_SHA": JSON.stringify(buildGitSha),
     },
     server: {
       allowedHosts: true,

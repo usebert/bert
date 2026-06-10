@@ -4,6 +4,8 @@ dist/
 **/.DS_Store
 .env
 .env.local
+scripts/live-path-secrets.local.json
+public/build-meta.json
 .sessions/
 *.tsbuildinfo
 vite.config.js

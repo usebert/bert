@@ -902,13 +902,24 @@ function smtpStartupLogPayload() {
   };
 }
 
+function resolveBuildGitSha() {
+  const full = String(process.env.RENDER_GIT_COMMIT || process.env.BERT_BUILD_GIT_SHA || "").trim();
+  if (!full) {
+    return { gitSha: "", shortSha: "" };
+  }
+  return { gitSha: full, shortSha: full.length > 12 ? full.slice(0, 7) : full };
+}
+
 function getHealthPayload() {
   const googleOk = envConfigured();
   const googleOAuthConnected = googleOAuthStore.hasTokens();
+  const build = resolveBuildGitSha();
   return {
     ok: true,
     service: "bert-api",
     version: APP_VERSION,
+    gitSha: build.gitSha || undefined,
+    shortSha: build.shortSha || undefined,
     environment: nodeEnvLabel(),
     /** @deprecated use googleConfigured */
     configured: googleOk,
@@ -928,11 +939,14 @@ function getReadinessPayload() {
   const googleOAuthConnected = googleOAuthStore.hasTokens();
   const productionOk = !evaluation.isProduction || evaluation.blockingIssues.length === 0;
   const ready = writable && productionOk;
+  const build = resolveBuildGitSha();
   return {
     ok: ready,
     ready,
     service: "bert-api",
     version: APP_VERSION,
+    gitSha: build.gitSha || undefined,
+    shortSha: build.shortSha || undefined,
     environment: nodeEnvLabel(),
     googleConfigured: googleOk,
     googleEnvConfigured: googleOk,
