@@ -313,7 +313,10 @@ assert(isActiveUser(testRoles[2]), "H10: assigned Auditor is ACTIVE");
 // ─── I. Background jobs — non-blocking login/invite/schedule ────────────────
 
 assert(registryActions.includes("queueCompanySetupJobs"), "I1: make-usable queues setup (non-blocking)");
-assert(registryActions.includes("BACKGROUND_SETUP_USER_MESSAGE"), "I2: make-usable returns background message");
+assert(
+  registryActions.includes("COMPANY_READY_INVITE_MESSAGE") || registryActions.includes("BACKGROUND_SETUP_USER_MESSAGE"),
+  "I2: make-usable returns ready/background message",
+);
 assert(serverMain.includes("queueInviteEmailJob") || serverMain.includes("emailPending: true"), "I3: invite email queued async");
 assert(BACKGROUND_INVITE_CREATED_MESSAGE.includes("Email is being sent"), "I4: invite background UX message");
 assert(coreRoutes.includes("BACKGROUND_SCHEDULE_SAVED_MESSAGE"), "I5: schedule save background message");

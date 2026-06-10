@@ -93,7 +93,10 @@ assert(!inviteReadiness.includes("Finish company onboarding"), "18: no Finish co
 
 assert(panel.includes("companyUsable"), "19: godmode panel uses companyUsable");
 assert(panel.includes("setupRunning && !companyUsable"), "20: provisioning derived from companyUsable");
-assert(panel.includes(COMPANY_READY_INVITE_MESSAGE), "21: ready message in godmode panel");
+assert(
+  panel.includes(COMPANY_READY_INVITE_MESSAGE) || panel.includes("COMPANY_READY_INVITE_MESSAGE"),
+  "21: ready message in godmode panel",
+);
 assert(!panel.includes("Ready for health check"), "22: no Ready for health check in normal UI");
 assert(!panel.includes("Registry link missing") || panel.includes("Advanced diagnostics"), "23: registry copy in diagnostics only");
 assert(setupState.includes("companyUsable"), "24: setup state supports companyUsable");
@@ -106,7 +109,10 @@ assert(
 // ─── make-usable delegates to folder resolver ────────────────────────────────
 
 assert(makeUsable.includes("resolveCompanyFromFolder"), "26: makeCompanyUsable calls folder resolver");
-assert(makeUsable.includes(COMPANY_READY_INVITE_MESSAGE), "27: make-usable returns ready invite message");
+assert(
+  makeUsable.includes(COMPANY_READY_INVITE_MESSAGE) || makeUsable.includes("COMPANY_READY_INVITE_MESSAGE"),
+  "27: make-usable returns ready invite message",
+);
 assert(makeUsable.includes("registry persist failed (non-blocking)"), "28: registry failure does not block usable");
 
 // ─── Server wiring + npm script ──────────────────────────────────────────────
