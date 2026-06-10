@@ -3,6 +3,7 @@ import { google } from "googleapis";
 export const INVITE_COMPANY_LINK_MISSING_CODE = "INVITE_COMPANY_LINK_MISSING";
 export const COMPANY_MASTER_SHEET_UNAVAILABLE_CODE = "COMPANY_MASTER_SHEET_UNAVAILABLE";
 export const USER_SETUP_FAILED_CODE = "USER_SETUP_FAILED";
+export const USER_ACCOUNT_CREATE_FAILED_CODE = "USER_ACCOUNT_CREATE_FAILED";
 
 export const INVITE_COMPANY_LINK_MISSING_MESSAGE =
   "This invite is no longer valid. Ask your administrator to send a fresh invite.";
@@ -11,7 +12,9 @@ export const COMPANY_MASTER_SHEET_UNAVAILABLE_MESSAGE =
   "BERT is temporarily unavailable. Please try again shortly.";
 
 export const USER_SETUP_FAILED_MESSAGE =
-  "We couldn't finish setting up your account. Ask your administrator to check your invite.";
+  "We couldn't finish creating your account. Your invite is still valid. Please try again or contact your manager.";
+
+export const USER_ACCOUNT_CREATE_FAILED_MESSAGE = USER_SETUP_FAILED_MESSAGE;
 
 /** @deprecated Use INVITE_COMPANY_LINK_MISSING_MESSAGE for customer-facing copy. */
 export const STALE_INVITE_CUSTOMER_MESSAGE = INVITE_COMPANY_LINK_MISSING_MESSAGE;
@@ -74,8 +77,9 @@ export function mapInviteTargetCodeForCustomer(code) {
     case "google_not_connected":
       return COMPANY_MASTER_SHEET_UNAVAILABLE_CODE;
     case USER_SETUP_FAILED_CODE:
+    case USER_ACCOUNT_CREATE_FAILED_CODE:
     case "setup_failed":
-      return USER_SETUP_FAILED_CODE;
+      return USER_ACCOUNT_CREATE_FAILED_CODE;
     default:
       return normalized;
   }
@@ -89,7 +93,8 @@ export function customerMessageForInviteTargetCode(code) {
     case COMPANY_MASTER_SHEET_UNAVAILABLE_CODE:
       return COMPANY_MASTER_SHEET_UNAVAILABLE_MESSAGE;
     case USER_SETUP_FAILED_CODE:
-      return USER_SETUP_FAILED_MESSAGE;
+    case USER_ACCOUNT_CREATE_FAILED_CODE:
+      return USER_ACCOUNT_CREATE_FAILED_MESSAGE;
     default:
       return "";
   }

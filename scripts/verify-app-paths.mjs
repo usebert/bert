@@ -96,6 +96,13 @@ assert(inviteRoutes.includes("/onboarding/company/"), "company onboarding invite
 assert(inviteRoutes.includes("/invite/company-user/"), "company user invite path");
 assert(appTsx.includes("CompanyOnboardingFormScreen"), "onboarding invite screen wired");
 assert(appTsx.includes("AppHostedOnboardingCompletion"), "company user invite completion screen wired");
+const inviteCompletionScreen = read("src/screens/AppHostedOnboardingCompletion.tsx");
+assert(inviteCompletionScreen.includes("Create account"), "company-user invite button is Create account");
+assert(!inviteCompletionScreen.includes("Create workspace"), "company-user invite must not show Create workspace");
+assert(
+  inviteRoutes.includes("resolveInviteFlowFromToken") && inviteRoutes.includes("isCompanyUserInviteToken"),
+  "misrouted invite tokens resolve to correct flow",
+);
 assert(appTsx.includes("PasswordResetConfirm"), "password reset path wired");
 assert(appTsx.includes("GodmodeStartScreen"), "godmode home screen wired");
 assert(appTsx.includes("SchedulesScreen"), "schedules screen wired");

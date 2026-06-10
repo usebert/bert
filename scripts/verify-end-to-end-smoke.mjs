@@ -191,6 +191,14 @@ assert(serverMain.includes("buildCompanySessionPayload") && serverMain.includes(
 assert(companyUsers.includes("isPasswordHash"), "E7: password hash validation helper");
 assert(!coreRoutes.includes("PasswordHash:"), "E8: invite routes do not return PasswordHash");
 assert(inviteService.includes("assertCompanyLiveForInvite"), "E9: invite service gates non-Live companies");
+const inviteCompletionScreen = read("src/screens/AppHostedOnboardingCompletion.tsx");
+assert(inviteCompletionScreen.includes("Create account"), "E10: company-user invite button is Create account");
+assert(!inviteCompletionScreen.includes("Create workspace"), "E11: company-user invite must not show Create workspace");
+assert(serverMain.includes("USER_ACCOUNT_CREATE_FAILED"), "E12: company-user failure uses USER_ACCOUNT_CREATE_FAILED");
+assert(
+  !inviteCompletionScreen.includes("couldn't finish setting up your workspace"),
+  "E13: workspace setup error never on company-user page",
+);
 
 // ─── F. Schedule assignment — all roles; pending invites don't hide active ───
 

@@ -29,6 +29,7 @@
     "verify:company-folder-structure": "node scripts/verify-company-folder-structure.mjs",
     "verify:company-setup-progress": "node scripts/verify-company-setup-progress.mjs",
     "verify:company-onboarding": "node scripts/verify-company-onboarding.mjs",
+    "verify:company-user-invite-flow": "node scripts/verify-company-user-invite-flow.mjs",
     "verify:company-setup-persistence": "node scripts/verify-company-setup-persistence.mjs",
     "verify:invite-target": "node scripts/verify-invite-target.mjs",
     "verify:invite-permissions": "node scripts/verify-invite-permissions.mjs",

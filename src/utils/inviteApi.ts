@@ -8,6 +8,7 @@ export type InviteApiErrorCode =
   | "INVITE_IN_PROGRESS"
   | "PROVISIONING_FAILED"
   | "USER_SETUP_FAILED"
+  | "USER_ACCOUNT_CREATE_FAILED"
   | "INVITE_COMPANY_LINK_MISSING"
   | "COMPANY_MASTER_SHEET_UNAVAILABLE"
   | "COMPANY_NOT_LIVE"
@@ -65,6 +66,7 @@ function normalizeInviteErrorCode(raw: string | undefined, httpStatus: number): 
     case "INVITE_IN_PROGRESS":
     case "PROVISIONING_FAILED":
     case "USER_SETUP_FAILED":
+    case "USER_ACCOUNT_CREATE_FAILED":
     case "INVITE_COMPANY_LINK_MISSING":
     case "COMPANY_MASTER_SHEET_UNAVAILABLE":
     case "COMPANY_NOT_LIVE":

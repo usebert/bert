@@ -200,7 +200,12 @@ import type {
 import { AppHostedOnboardingCompletion } from "./src/screens/AppHostedOnboardingCompletion";
 import { CompanyOnboardingFormScreen } from "./src/screens/CompanyOnboardingFormScreen";
 import { INVITE_NO_LONGER_VALID_MESSAGE } from "./src/utils/inviteCompletionMessages";
-import { parseInviteRoute, redirectToInvitePath } from "./src/utils/inviteRoutes";
+import {
+  companyOnboardingPath,
+  companyUserInvitePath,
+  parseInviteRoute,
+  redirectToInvitePath,
+} from "./src/utils/inviteRoutes";
 import { PasswordResetConfirm } from "./src/screens/PasswordResetConfirm";
 import { requestPasswordReset } from "./src/services/passwordResetService";
 import { DashboardScreen } from "./src/screens/DashboardScreen";
@@ -12180,6 +12185,9 @@ function App() {
     );
   }
   if (inviteRoute.flow === "COMPANY_ONBOARDING") {
+    if (window.location.pathname !== companyOnboardingPath(inviteRoute.token)) {
+      redirectToInvitePath("COMPANY_ONBOARDING", inviteRoute.token);
+    }
     return (
       <CompanyOnboardingFormScreen
         inviteToken={inviteRoute.token}
@@ -12190,6 +12198,9 @@ function App() {
     );
   }
   if (inviteRoute.flow === "COMPANY_USER") {
+    if (window.location.pathname !== companyUserInvitePath(inviteRoute.token)) {
+      redirectToInvitePath("COMPANY_USER", inviteRoute.token);
+    }
     return <AppHostedOnboardingCompletion inviteToken={inviteRoute.token} />;
   }
   if (inviteRoute.flow === "invalid" && /^\/(onboarding|invite)\//i.test(window.location.pathname)) {

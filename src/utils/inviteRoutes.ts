@@ -11,6 +11,31 @@ export type ParsedInviteRoute =
 
 const COMPANY_ONBOARDING_PATH_RE = /^\/onboarding\/company\/([^/]+)\/?$/i;
 const COMPANY_USER_PATH_RE = /^\/invite\/company-user\/([^/]+)\/?$/i;
+/** 48-char hex — company-user invite token (no dot). */
+const COMPANY_USER_TOKEN_RE = /^[a-f0-9]{48}$/i;
+
+export function isCompanyUserInviteToken(token: string): boolean {
+  return COMPANY_USER_TOKEN_RE.test(String(token || "").trim());
+}
+
+export function isCompanyOnboardingInviteToken(token: string): boolean {
+  return String(token || "").trim().includes(".");
+}
+
+/** Resolve flow from token shape when path and token disagree (mis-linked emails). */
+export function resolveInviteFlowFromToken(token: string, pathFlow: InviteFlowType): InviteFlowType {
+  const trimmed = String(token || "").trim();
+  if (!trimmed) {
+    return pathFlow;
+  }
+  if (isCompanyUserInviteToken(trimmed)) {
+    return "COMPANY_USER";
+  }
+  if (isCompanyOnboardingInviteToken(trimmed)) {
+    return "COMPANY_ONBOARDING";
+  }
+  return pathFlow;
+}
 
 export function companyOnboardingPath(token: string): string {
   return `/onboarding/company/${encodeURIComponent(token)}`;
@@ -28,13 +53,19 @@ export function parseInviteRoute(location?: Pick<Location, "pathname" | "search"
   const onboardingMatch = pathname.match(COMPANY_ONBOARDING_PATH_RE);
   if (onboardingMatch?.[1]) {
     const token = decodeURIComponent(onboardingMatch[1]).trim();
-    return token ? { flow: "COMPANY_ONBOARDING", token } : { flow: "invalid" };
+    if (!token) {
+      return { flow: "invalid" };
+    }
+    return { flow: resolveInviteFlowFromToken(token, "COMPANY_ONBOARDING"), token };
   }
 
   const userMatch = pathname.match(COMPANY_USER_PATH_RE);
   if (userMatch?.[1]) {
     const token = decodeURIComponent(userMatch[1]).trim();
-    return token ? { flow: "COMPANY_USER", token } : { flow: "invalid" };
+    if (!token) {
+      return { flow: "invalid" };
+    }
+    return { flow: resolveInviteFlowFromToken(token, "COMPANY_USER"), token };
   }
 
   try {

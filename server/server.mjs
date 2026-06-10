@@ -5970,7 +5970,9 @@ async function handleAppInviteComplete(req, res) {
           provisionStatus: "failed",
           provisionFinishedAt: Date.now(),
           provisionError:
-            "The previous workspace setup attempt appears stuck or timed out. You can try completing onboarding again.",
+            record.kind === "company_user"
+              ? "The previous account creation attempt appears stuck or timed out. You can try again."
+              : "The previous workspace setup attempt appears stuck or timed out. You can try completing onboarding again.",
         });
       }
 
@@ -6143,11 +6145,11 @@ async function handleAppInviteComplete(req, res) {
               completionErr instanceof Error
                 ? completionErr.message
                 : "Unable to complete company user setup.";
-            const failureCode = /not found/i.test(msg) ? "stale_invite_target" : "USER_SETUP_FAILED";
+            const failureCode = /not found/i.test(msg) ? "stale_invite_target" : "USER_ACCOUNT_CREATE_FAILED";
             const friendlyMessage =
               failureCode === "stale_invite_target"
                 ? "The company master sheet for this invite could not be found. Ask your administrator to send a new invite."
-                : "We couldn't finish setting up your account. Ask your administrator to check your invite.";
+                : "We couldn't finish creating your account. Please try again.";
             logInviteCompleteFailure({
               code: failureCode,
               email: record.email,
@@ -6195,11 +6197,22 @@ async function handleAppInviteComplete(req, res) {
         res.status(400).json({ ok: false, error: "Unknown invite type." });
       } catch (error) {
         const rawMsg = error instanceof Error ? error.message : "Unable to complete onboarding.";
-        const failureCode = /not found/i.test(rawMsg) ? "stale_invite_target" : "USER_SETUP_FAILED";
+        const failureCode =
+          record?.kind === "company_user"
+            ? /not found/i.test(rawMsg)
+              ? "stale_invite_target"
+              : "USER_ACCOUNT_CREATE_FAILED"
+            : /not found/i.test(rawMsg)
+              ? "stale_invite_target"
+              : "USER_SETUP_FAILED";
         const friendlyMessage =
           failureCode === "stale_invite_target"
-            ? "The company workspace for this invite could not be found. Ask your administrator to send a new invite."
-            : "We couldn't finish setting up your account. Ask your administrator to check your invite.";
+            ? record?.kind === "company_user"
+              ? "The company master sheet for this invite could not be found. Ask your administrator to send a new invite."
+              : "The company workspace for this invite could not be found. Ask your administrator to send a new invite."
+            : record?.kind === "company_user"
+              ? "We couldn't finish creating your account. Please try again."
+              : "We couldn't finish setting up your account. Ask your administrator to check your invite.";
         logInviteCompleteFailure({
           code: failureCode,
           email: record?.email,
@@ -6217,6 +6230,7 @@ async function handleAppInviteComplete(req, res) {
           provisionStatus: "failed",
           provisionFinishedAt: Date.now(),
           provisionError: friendlyMessage,
+          ...(record?.kind === "company_user" ? { consumedAt: null } : {}),
         });
         res.status(failureCode === "stale_invite_target" ? 409 : 500).json({
           ok: false,

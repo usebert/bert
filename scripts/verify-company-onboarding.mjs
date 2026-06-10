@@ -107,7 +107,9 @@ assert(formScreen.includes("/api/onboarding/company/"), "form posts company comp
 assert(inviteCompletion.includes("expectedType=COMPANY_USER"), "user invite loads with type gate");
 assert(inviteCompletion.includes("/api/invites/company-user/"), "user invite posts company-user complete");
 assert(inviteCompletion.includes("You've been invited to join"), "user invite headline uses company name");
-assert(inviteCompletion.includes("Set up your BERT account"), "user invite submit CTA");
+assert(inviteCompletion.includes("Create account"), "user invite submit CTA");
+assert(inviteCompletion.includes("Create your BERT account"), "user invite page title");
+assert(!inviteCompletion.includes("Create workspace"), "user invite must not show Create workspace");
 assert(!inviteCompletion.includes("new_company"), "retired new_company UI removed");
 assert(!inviteCompletion.includes("details?.masterSheetId"), "user invite load does not depend on masterSheetId");
 

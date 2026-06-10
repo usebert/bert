@@ -6,7 +6,7 @@ import {
   INVITE_COMPLETION_PAGE_TITLE,
   inviteCompletionNetworkError,
   inviteCompletionTimeoutMessage,
-  mapInviteCompletionError,
+  mapCompanyUserInviteError,
   mapInviteCompletionLoadError,
 } from "../utils/inviteCompletionMessages";
 import { fetchInviteApi } from "../utils/inviteApi";
@@ -70,7 +70,9 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
       }
       setDetails(payload);
       if (payload.setupIncomplete) {
-        setSubmitError("Your previous setup did not finish. Complete the form below to try again.");
+        setSubmitError(
+          "Your previous attempt did not finish. Your invite is still valid — complete the form below to create your account.",
+        );
       }
     })();
     return () => {
@@ -119,7 +121,7 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
           return;
         }
         setSubmitError(
-          mapInviteCompletionError(
+          mapCompanyUserInviteError(
             {
               code: result.code,
               error: result.error,
@@ -175,7 +177,7 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.28em] text-blue-400/90">Company invite</p>
             <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white">
-              {!details && !loadError ? INVITE_COMPLETION_PAGE_TITLE : inviteHeadline}
+              {details?.companyName ? inviteHeadline : INVITE_COMPLETION_PAGE_TITLE}
             </h1>
           </div>
         </div>
@@ -189,8 +191,12 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
 
         {!loadError && details && (
           <form onSubmit={handleSubmit} className="space-y-4 rounded-[1.75rem] border border-white/10 bg-slate-950/60 p-6 shadow-[0_24px_60px_rgba(2,6,23,0.45)] backdrop-blur-xl">
-            <p className="text-sm text-slate-300">{inviteHeadline}</p>
-            <p className="text-xs text-slate-500">Sign in email: {details.email}</p>
+            {details.companyName ? (
+              <p className="text-sm text-slate-300">
+                Joining <span className="font-semibold text-white">{details.companyName}</span>
+              </p>
+            ) : null}
+            <p className="text-xs text-slate-500">Sign-in email: {details.email}</p>
             <div>
               <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Your name</label>
               <input
@@ -228,7 +234,7 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
               disabled={submitting}
               className="h-12 w-full rounded-2xl bg-orange-400 text-sm font-semibold text-slate-950 disabled:opacity-50"
             >
-              {submitting ? "Setting up…" : "Set up your BERT account"}
+              {submitting ? "Creating account…" : "Create account"}
             </button>
           </form>
         )}
