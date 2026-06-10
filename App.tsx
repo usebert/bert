@@ -93,7 +93,6 @@ import {
 } from "./src/utils/inviteStatusDisplay";
 import {
   canCreateCompanyInvite,
-  canInviteCompanyUsers,
   canRevokeInvite,
   canViewInvite,
   COMPANY_USER_INVITE_TYPE,

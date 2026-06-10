@@ -28,7 +28,6 @@ import {
   REGISTRY_WRITE_FAILED,
 } from "./company-workspace-registry.mjs";
 import { BACKGROUND_SETUP_USER_MESSAGE } from "../shared/background-jobs.mjs";
-import { canInviteUsersForCompany } from "./company-invite-readiness.mjs";
 
 export const GODMODE_REGISTRY_ACTION_TIMEOUT_MS = 30_000;
 
@@ -628,19 +627,6 @@ export function installGodmodeRegistryActionRoutes(app, deps) {
       }
       try {
         const record = await getCanonicalCompanyRegistryRecord(authed, deps, companyId);
-        const canInvite = await canInviteUsersForCompany(authed, deps, companyId, {
-          companyId,
-          companyFolderId: String(req.body?.companyFolderId || record?.rootFolderId || companyId).trim(),
-          masterSheetId: String(req.body?.masterSheetId || record?.masterSheetId || "").trim(),
-        });
-        if (!canInvite) {
-          return res.status(409).json({
-            ok: false,
-            code: "COMPANY_NOT_LIVE",
-            error: "Company must be usable before inviting users. Use Make company usable first.",
-            blocker: "company_not_live",
-          });
-        }
         const mergedBody = {
           ...(req.body || {}),
           companyId,

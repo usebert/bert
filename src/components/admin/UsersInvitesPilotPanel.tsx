@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type ComponentType } from "react";
 import type { Role } from "../../permissions";
-import { getRoleDisplayName } from "../../permissions";
 import { canShowTechnicalUi } from "../../utils/uxDeclutter";
 import { fetchCompanyInviteReadiness, type CompanyInviteReadiness } from "../../services/companyInviteReadinessService";
 import {
@@ -462,15 +461,6 @@ export function UsersInvitesPilotPanel({
     role: currentUser.role,
     accessLevel: currentUser.accessLevel,
   });
-  const inviteRecordScope = (invite: UserInvite) => ({
-    kind: "company_user" as const,
-    inviteType: COMPANY_USER_INVITE_TYPE,
-    role: invite.role,
-    companyId: invite.companyFolderId || companyFolderId,
-    companyFolderId: invite.companyFolderId || companyFolderId,
-  });
-  const canManageInvite = (invite: UserInvite) => canRevokeInvite(invitePermissionSession, inviteRecordScope(invite));
-  const canSeeInvite = (invite: UserInvite) => canViewInvite(invitePermissionSession, inviteRecordScope(invite));
   const showInviteForm = isMasterActor || isCompanyInviteActorRole;
   const masterSheetId = String(
     companySheetSync?.sheetId ||
@@ -524,12 +514,22 @@ export function UsersInvitesPilotPanel({
     masterSheetId,
     workspaceSetupComplete,
     currentUser.username,
+    showInviteForm,
   ]);
 
   const inviteFormEnabled = inviteReadiness?.canInvite === true;
   const inviteBlockedMessage =
     inviteReadiness?.userMessage ||
     (isMasterActor ? GODMODE_USERS_TAB_NOT_READY_MESSAGE : COMPANY_NOT_LIVE_INVITE_MESSAGE);
+  const inviteRecordScope = (invite: UserInvite) => ({
+    kind: "company_user" as const,
+    inviteType: COMPANY_USER_INVITE_TYPE,
+    role: invite.role,
+    companyId: invite.companyFolderId || companyFolderId,
+    companyFolderId: invite.companyFolderId || companyFolderId,
+  });
+  const canManageInvite = (invite: UserInvite) => canRevokeInvite(invitePermissionSession, inviteRecordScope(invite));
+  const canSeeInvite = (invite: UserInvite) => canViewInvite(invitePermissionSession, inviteRecordScope(invite));
   const { pendingInvites, activeInvites } = useMemo(() => {
     const pending: UserInvite[] = [];
     const active: UserInvite[] = [];
@@ -564,27 +564,30 @@ export function UsersInvitesPilotPanel({
           <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
             {INVITE_ROLE_FORBIDDEN_MESSAGE}
           </p>
+        ) : inviteReadinessLoading ? (
+          <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            Checking whether this company can accept invites…
+          </p>
+        ) : !inviteFormEnabled ? (
+          <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-950">
+            {inviteBlockedMessage}
+          </p>
         ) : (
-        <div className={`mt-4 ${pilotLightNested}`}>
-          {!inviteFormEnabled ? (
-            <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-950">
-              {inviteBlockedMessage}
-            </p>
-          ) : null}
-          <label htmlFor="pilot-invite-email" className="mb-1 block text-sm font-semibold text-slate-900">
-            Email
-          </label>
-          <input
-            id="pilot-invite-email"
-            value={inviteEmailInput}
-            onChange={(event) => onInviteEmailChange(event.target.value)}
-            placeholder="name@company.com"
-            className={pilotEditableInput}
-          />
-          <label htmlFor="pilot-invite-role" className="mb-1 mt-3 block text-sm font-semibold text-slate-900">
-            Role
-          </label>
-          <select
+          <div className={`mt-4 ${pilotLightNested}`}>
+            <label htmlFor="pilot-invite-email" className="mb-1 block text-sm font-semibold text-slate-900">
+              Email
+            </label>
+            <input
+              id="pilot-invite-email"
+              value={inviteEmailInput}
+              onChange={(event) => onInviteEmailChange(event.target.value)}
+              placeholder="name@company.com"
+              className={pilotEditableInput}
+            />
+            <label htmlFor="pilot-invite-role" className="mb-1 mt-3 block text-sm font-semibold text-slate-900">
+              Role
+            </label>
+            <select
               id="pilot-invite-role"
               value={inviteRoleInput}
               onChange={(event) => onInviteRoleChange(event.target.value as Role)}
@@ -596,42 +599,32 @@ export function UsersInvitesPilotPanel({
                 </option>
               ))}
             </select>
-          <p className="mt-2 text-xs leading-5 text-slate-600">
-            {ROLE_HELPER[inviteRoleInput] || "They receive an email with a secure setup link."}
-          </p>
-          {isCompanyInviteActorRole && !isMasterActor ? (
-            <p className="mt-2 text-xs font-medium text-slate-600">{INVITE_MANAGE_AUDITOR_ONLY_MESSAGE}</p>
-          ) : null}
-          <button
-            type="button"
-            onClick={onInviteUser}
-            disabled={
-              companyUserInviteEmailSending ||
-              masterCompanyContextBlocked ||
-              !inviteFormEnabled
-            }
-            title={
-              masterCompanyContextBlocked
-                ? masterCompanyContextMessage
-                : !inviteFormEnabled
-                  ? COMPANY_NOT_LIVE_INVITE_MESSAGE
-                  : undefined
-            }
-            className={`mt-4 h-12 w-full rounded-2xl bg-slate-900 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 ${slatePrimaryCtaInteract}`}
-          >
-            {companyUserInviteEmailSending ? "Sending…" : "Send invite"}
-          </button>
-          {companyUserInviteEmailResult ? (
-            <>
-              <CompanyUserInviteEmailResultPanel
-                result={companyUserInviteEmailResult}
-                onDismiss={onDismissCompanyUserInviteEmailResult}
-                slatePrimaryCtaInteract={slatePrimaryCtaInteract}
-              />
-              <WhatHappensNextPanel steps={USER_INVITE_NEXT_STEPS} className="mt-3 border-sky-100 bg-sky-50/50" />
-            </>
-          ) : null}
-        </div>
+            <p className="mt-2 text-xs leading-5 text-slate-600">
+              {ROLE_HELPER[inviteRoleInput] || "They receive an email with a secure setup link."}
+            </p>
+            {isCompanyInviteActorRole && !isMasterActor ? (
+              <p className="mt-2 text-xs font-medium text-slate-600">{INVITE_MANAGE_AUDITOR_ONLY_MESSAGE}</p>
+            ) : null}
+            <button
+              type="button"
+              onClick={onInviteUser}
+              disabled={companyUserInviteEmailSending || masterCompanyContextBlocked}
+              title={masterCompanyContextBlocked ? masterCompanyContextMessage : undefined}
+              className={`mt-4 h-12 w-full rounded-2xl bg-slate-900 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 ${slatePrimaryCtaInteract}`}
+            >
+              {companyUserInviteEmailSending ? "Sending…" : "Send invite"}
+            </button>
+            {companyUserInviteEmailResult ? (
+              <>
+                <CompanyUserInviteEmailResultPanel
+                  result={companyUserInviteEmailResult}
+                  onDismiss={onDismissCompanyUserInviteEmailResult}
+                  slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+                />
+                <WhatHappensNextPanel steps={USER_INVITE_NEXT_STEPS} className="mt-3 border-sky-100 bg-sky-50/50" />
+              </>
+            ) : null}
+          </div>
         )}
       </section>
 
@@ -716,30 +709,6 @@ export function UsersInvitesPilotPanel({
           </button>
         ) : null}
       </section>
-
-      {showInviteForm && !inviteFormEnabled ? (
-        <details className={pilotLightSurface}>
-          <summary className="cursor-pointer list-none text-sm font-semibold text-slate-900">
-            Workspace setup status
-            <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">Not live</span>
-          </summary>
-          <p className="mt-3 text-sm text-slate-600">
-            Finish company onboarding from <span className="font-semibold">Companies</span> or{" "}
-            <span className="font-semibold">Company Onboarding</span> before inviting field users.
-          </p>
-          {canShowTechnicalUi(currentUser.role) ? (
-            <p className="mt-2 text-xs text-slate-500">
-              Signed in as {getRoleDisplayName(currentUser.role)} • readiness:{" "}
-              {inviteReadinessLoading
-                ? "refreshing…"
-                : inviteReadiness?.companyStatus || inviteReadiness?.source || "not usable"}{" "}
-              • sync: {healthProps.syncState}
-            </p>
-          ) : (
-            <p className="mt-2 text-xs text-slate-500">Signed in as {getRoleDisplayName(currentUser.role)}</p>
-          )}
-        </details>
-      ) : null}
 
       <SitesAreasPanel
         currentUserRole={currentUser.role}

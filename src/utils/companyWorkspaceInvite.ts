@@ -20,6 +20,9 @@ export const GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE =
 
 export const INVITE_ROLE_FORBIDDEN_MESSAGE = "You do not have permission to invite users.";
 
+export const INVITE_COMPANY_CONTEXT_REQUIRED_MESSAGE =
+  "Your account is not linked to a company.";
+
 export const FORBIDDEN_INVITE_ROLE_MESSAGE = "You can only invite Auditors for your company.";
 
 export const INVITE_MANAGE_AUDITOR_ONLY_MESSAGE =
@@ -98,9 +101,10 @@ export function isCompanyRegistryLive(company: CompanyInviteTarget = {}): boolea
   return getCanonicalCompanyStatus(company) === COMPANY_REGISTRY_STATUS_LIVE;
 }
 
-/** Company-scoped user invites: Company Admin or Manager + registry LIVE (not Master/Godmode). */
+/** Company-scoped user invites: Company Admin or Manager (registry LIVE is not required). */
 export function canInviteCompanyUsers(session: CompanyInviteSession, company: CompanyInviteTarget): boolean {
-  return isCompanyInviteActor(session) && isCompanyRegistryLive(company);
+  void company;
+  return isCompanyInviteActor(session);
 }
 
 function sessionCompanyId(session: CompanyInviteSession & { companyId?: string; companyFolderId?: string } = {}) {

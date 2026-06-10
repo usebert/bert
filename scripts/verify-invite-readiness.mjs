@@ -46,6 +46,9 @@ assert(inviteService.includes("assertCompanyInviteReady"), "8: invite service de
 
 assert(usersPanel.includes("fetchCompanyInviteReadiness"), "9: Users panel uses invite-readiness endpoint");
 assert(!usersPanel.includes("/api/company/registry-status"), "10: Users panel no longer uses registry-status for gating");
+assert(!usersPanel.includes("Not live"), "10b: Users panel no longer shows Not live invite gate");
+assert(!usersPanel.includes("isCompanyRegistryLive"), "10c: Users panel no longer gates on registry Live");
+assert(usersPanel.includes("inviteReadiness?.canInvite"), "10d: Users panel enables form from invite-readiness");
 assert(readinessService.includes("/invite-readiness"), "11: frontend service calls invite-readiness");
 
 assert(
@@ -75,6 +78,18 @@ assert(
     context: { companyId: "f1", companyFolderId: "f1", masterSheetId: "s1" },
   }),
   "16: company context with ids allows invites",
+);
+assert(
+  canInviteUsersForCompanyFromData({
+    context: {
+      companyId: "f1",
+      companyFolderId: "f1",
+      masterSheetId: "s1",
+      workspaceSetupComplete: false,
+      registryStatus: "Setup in progress",
+    },
+  }),
+  "16b: non-Live registry with linked workspace still allows invites",
 );
 assert(
   !canInviteUsersForCompanyFromData({ record: { status: "Archived", rootFolderId: "f1", masterSheetId: "s1" } }),

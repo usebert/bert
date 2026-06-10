@@ -38,6 +38,7 @@ import { companyWorkspaceRegistryService } from "../../services/companyWorkspace
 import {
   getCanonicalCompanyStatus,
   isCompanyRegistryLive,
+  isCompanyUsersTabWritable,
 } from "../../utils/companyWorkspaceInvite";
 import { BERT_LIGHT_NESTED, BERT_LIGHT_SURFACE } from "../../styles/bertText";
 
@@ -267,6 +268,14 @@ export function GodmodeCompanyWorkspacePanel({
     status: effectiveRegistryStatus,
     registryStatus: effectiveRegistryStatus,
   });
+  const godmodeUsersTabWritable = isCompanyUsersTabWritable({
+    companySheetSync: companySheetSync ?? undefined,
+    workspaceValidation,
+  });
+  const hasLinkedCompanyWorkspace = Boolean(
+    selectedFolder?.id && (companyMasterSheetId || companySheetSync?.sheetId),
+  );
+  const canShowUserInvites = godmodeUsersTabWritable || hasLinkedCompanyWorkspace;
   const setupRunning = companyFolderStructureRepairing || companyMasterSheetProvisioning;
   const isProvisioning = setupRunning && !companyLive;
   const visibleSetupError = companyLive ? null : companySetupError;
@@ -1159,9 +1168,9 @@ export function GodmodeCompanyWorkspacePanel({
                 title="User management"
                 subtitle="Invite users by email. They complete name and password from the link."
               />
-              {!companyLive ? (
+              {!canShowUserInvites ? (
                 <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-                  Make the company usable first, then invite users.
+                  Link a company folder and master sheet first, then invite users.
                 </p>
               ) : (
                 <div className="mt-4">

@@ -91,7 +91,10 @@ const inviteReadiness = read("shared/company-invite-readiness.mjs");
 const coreRoutes = read("server/core-workflow-routes.mjs");
 assert(coreRoutes.includes("/api/companies/:companyId/invite-readiness"), "11: invite-readiness route exists");
 assert(inviteReadiness.includes("canInviteUsersForCompanyFromData"), "11b: canonical invite readiness helper");
-assert(read("server/invite-service.mjs").includes("assertCompanyInviteReady"), "11c: invite API uses canonical readiness gate");
+assert(
+  !read("server/core-workflow-routes.mjs").includes("assertCompanyLiveForInvite"),
+  "11c: auditor invite API does not live-gate",
+);
 
 const pkg = JSON.parse(read("package.json"));
 assert(pkg.scripts["verify:invite-readiness"], "11d: verify:invite-readiness npm script");

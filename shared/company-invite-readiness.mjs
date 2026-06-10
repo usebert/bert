@@ -66,13 +66,10 @@ function isCompanyContextUsable(context = {}) {
   if (context.archived === true) {
     return false;
   }
-  if (context.usable === false || context.workspaceSetupComplete === false) {
+  if (context.usable === false) {
     return false;
   }
   if (context.usable === true || context.workspaceSetupComplete === true) {
-    return true;
-  }
-  if (isCompanyRegistryLive({ status: context.registryStatus, registryStatus: context.registryStatus })) {
     return true;
   }
   return true;

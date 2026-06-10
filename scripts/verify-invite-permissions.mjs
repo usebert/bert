@@ -80,10 +80,10 @@ assert(
   "3: Company Admin can invite when registry is Live",
 );
 
-/** 4: Company Admin cannot invite when not Live. */
+/** 4: Company Admin can invite when not Live (permission-only gate). */
 assert(
-  !canInviteCompanyUsers(adminSession, { status: "Setup in progress" }),
-  "4: Company Admin blocked when registry is not Live",
+  canInviteCompanyUsers(adminSession, { status: "Setup in progress" }),
+  "4: Company Admin can invite when registry is not Live",
 );
 
 /** 5: Manager can invite Auditor for own company when Live. */
@@ -92,10 +92,10 @@ assert(
   "5: Manager can invite when registry is Live",
 );
 
-/** 6: Manager cannot invite when not Live. */
+/** 6: Manager can invite when not Live (permission-only gate). */
 assert(
-  !canInviteCompanyUsers(managerSession, { status: "Setup in progress" }),
-  "6: Manager blocked when registry is not Live",
+  canInviteCompanyUsers(managerSession, { status: "Setup in progress" }),
+  "6: Manager can invite when registry is not Live",
 );
 
 /** 7: Company Admin can create Auditor invite for own company only. */
@@ -168,8 +168,8 @@ assert(
   "15f: auditor-only manage message present",
 );
 assert(
-  usersPanel.includes("COMPANY_NOT_LIVE_INVITE_MESSAGE") || usersPanel.includes(COMPANY_NOT_LIVE_INVITE_MESSAGE),
-  "15g: admin-not-live message present",
+  !usersPanel.includes("COMPANY_NOT_LIVE_INVITE_MESSAGE"),
+  "15g: Users panel no longer blocks with not-live message",
 );
 assert(!usersPanel.includes("canInviteUsers(currentUser.role)"), "15h: removed role-only invite gate");
 
@@ -181,7 +181,7 @@ assert(INVITE_MANAGE_AUDITOR_ONLY_MESSAGE.includes("Auditor"), "16b: manage mess
 const registry = read("server/company-workspace-registry.mjs");
 assert(registry.includes("getCanonicalCompanyStatus"), "17: registry uses canonical status helper");
 assert(read("server/godmode-registry-actions.mjs").includes("/api/godmode/companies/:companyId/invite-user"), "17b: godmode invite-user route");
-assert(usersPanel.includes("fetchCompanyInviteReadiness"), "17c: invite panel uses invite-readiness endpoint");
+assert(usersPanel.includes("canCreateCompanyInvite"), "17c: invite panel uses permission-based gating");
 
 /** 18: Permissions module exports. */
 const permissions = read("src/permissions.ts");

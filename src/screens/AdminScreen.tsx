@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { SECTION_INTROS } from "../config/sectionIntros";
 import { canAccessAdmin, canAccessAdminOnboardingWorkspace, canManageAreas, getRoleDisplayName } from "../permissions";
-import { getCanonicalCompanyStatus, isCompanyRegistryLive } from "../utils/companyWorkspaceInvite";
+import { getCanonicalCompanyStatus } from "../utils/companyWorkspaceInvite";
 import { AreaAuditsSection } from "../components/admin/AreaAuditsSection";
 import { GoogleFormTemplatePanel } from "../components/admin/GoogleFormTemplatePanel";
 import { CreateGoogleFormCopyOption } from "../components/forms/CreateGoogleFormCopyOption";
@@ -423,10 +423,12 @@ export function AdminScreen({
     status: companyRegistryStatus || selectedFolder?.registryStatus,
     registryStatus: companyRegistryStatus || selectedFolder?.registryStatus,
   });
-  const workspaceSetupComplete = isCompanyRegistryLive({
-    status: canonicalRegistryStatus,
-    registryStatus: canonicalRegistryStatus,
-  });
+  const masterSheetIdForInviteContext = String(
+    companySheetSync?.sheetId || selectedFolder?.responseSheetId || "",
+  ).trim();
+  const workspaceSetupComplete = Boolean(
+    String(companyFolderId || selectedFolder?.id || "").trim() && masterSheetIdForInviteContext,
+  );
   const showAuditTemplateBuilder = !pilotFocus;
   const pilotHeroLight = isCompaniesScreen || isOnboardingScreen || isUsersInvitesScreen;
   const pilotLightSurface = "rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm";

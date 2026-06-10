@@ -1,5 +1,5 @@
 import type { Role } from "../permissions";
-import { getCanonicalCompanyStatus, isCompanyRegistryLive } from "../utils/companyWorkspaceInvite";
+import { getCanonicalCompanyStatus } from "../utils/companyWorkspaceInvite";
 import type { LinkedCompanyContextInput } from "../utils/applyLinkedCompanyContext";
 
 export type ResolvedCompanyContext = {
@@ -69,7 +69,7 @@ export function resolveActiveCompanyContext(input: ResolveActiveCompanyContextIn
     companyName,
     masterSheetId,
     registryStatus,
-    workspaceSetupComplete: isCompanyRegistryLive({ status: registryStatus, registryStatus }),
+    workspaceSetupComplete: Boolean(companyFolderId && masterSheetId),
     role: input.currentUser?.role,
     accessLevel: input.currentUser?.accessLevel,
     companyAreas: Array.isArray(input.currentUser?.companyAreas) ? input.currentUser.companyAreas : undefined,

@@ -8,7 +8,6 @@ import {
   INVITE_ROLE_FORBIDDEN_MESSAGE,
 } from "../shared/company-invite-permissions.mjs";
 import {
-  assertCompanyLiveForInvite,
   buildAuditorInviteBody,
   resolveCompanyUserInviteAccess,
 } from "./invite-service.mjs";
@@ -178,22 +177,7 @@ export function installCoreWorkflowRoutes(app, deps) {
         });
       }
 
-      if (!isGodmode && authed) {
-        const liveGate = await assertCompanyLiveForInvite(authed, registryDeps, companyId, {
-          companyId,
-          companyFolderId: String(req.body?.companyFolderId || actor.companyFolderId || companyId).trim(),
-          masterSheetId: String(req.body?.masterSheetId || actor.masterSheetId || "").trim(),
-        });
-        if (!liveGate.ok) {
-          return res.status(liveGate.httpStatus).json({
-            ok: false,
-            code: liveGate.code,
-            error: liveGate.message,
-            blocker: liveGate.code,
-          });
-        }
-        req.body = buildAuditorInviteBody(companyId, req.body, liveGate.record);
-      } else if (authed) {
+      if (authed) {
         const record = await resolveCompanyById(authed, registryDeps, companyId).catch(() => null);
         req.body = buildAuditorInviteBody(companyId, req.body, record);
       } else {
