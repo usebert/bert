@@ -32,7 +32,7 @@ type QuickLink = {
 };
 
 const QUICK_LINKS: QuickLink[] = [
-  { label: "Users & Invites", screen: "users" },
+  { label: "People", screen: "users" },
   { label: "Areas", screen: "companies" },
   { label: "Forms & Checks", screen: "audits" },
   { label: "Schedules", screen: "schedules" },

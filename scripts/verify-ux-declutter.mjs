@@ -48,8 +48,26 @@ const UX_STATUS = {
   couldNotSaveSchedule: "Could not save schedule",
 };
 
-const COMPANY_ADMIN_NAV_IDS = ["dashboard", "audits", "schedules", "users", "reports", "account"];
-const MANAGER_NAV_IDS = ["dashboard", "audits", "schedules", "invites", "reports", "account"];
+const COMPANY_ADMIN_NAV_IDS = [
+  "dashboard",
+  "users",
+  "schedules",
+  "audits",
+  "actions",
+  "nonConformance",
+  "reports",
+  "account",
+];
+const MANAGER_NAV_IDS = [
+  "dashboard",
+  "invites",
+  "schedules",
+  "audits",
+  "actions",
+  "nonConformance",
+  "reports",
+  "account",
+];
 const AUDITOR_NAV_IDS = ["dashboard", "audits", "account"];
 
 const MORE_BY_BUCKET = {
@@ -81,9 +99,10 @@ assert(getAccountRoleLabel("Manager") === "Manager", "Manager account role label
 
 /** 4: Company Admin nav is decluttered. */
 assert(
-  COMPANY_ADMIN_NAV_IDS.join() === "dashboard,audits,schedules,users,reports,account",
-  "company admin primary nav",
+  COMPANY_ADMIN_NAV_IDS.join() === "dashboard,users,schedules,audits,actions,nonConformance,reports,account",
+  "company admin primary nav follows BERT product flow",
 );
+assert(COMPANY_ADMIN_NAV_IDS.includes("actions") && COMPANY_ADMIN_NAV_IDS.includes("nonConformance"), "admin sees actions and NCRs");
 assert(!COMPANY_ADMIN_NAV_IDS.includes("admin"), "no workspace tab for company admin");
 assert(!COMPANY_ADMIN_NAV_IDS.includes("sync"), "no sync tab for company admin");
 

@@ -9,7 +9,7 @@ export const navItems = [
   { id: "settings", label: "Settings", icon: "shield" },
   { id: "audits", label: "Audits", icon: "clipboard" },
   { id: "actions", label: "Actions", icon: "warningTriangle" },
-  { id: "nonConformance", label: "Non-conformance", icon: "checklist" },
+  { id: "nonConformance", label: "NCRs", icon: "checklist" },
   { id: "incidents", label: "Incidents", icon: "warningTriangle" },
   { id: "schedules", label: "Schedules", icon: "clock" },
   { id: "reports", label: "Reports", icon: "chart" },

@@ -153,7 +153,7 @@ export function SchedulesScreen({
   filter,
   availableAudits,
   availableAssignees,
-  assigneeEmptyMessage = "No active users found for this company. Add users in Users & Invites.",
+  assigneeEmptyMessage = "No active users found for this company. Add people in People.",
   assigneeDiagnostics,
   showAssigneeDiagnostics = false,
   assigneeWarning = "",

@@ -60,7 +60,7 @@ export function canAccessPilotUsers(role: Role) {
   return role === "Master" || role === "Admin";
 }
 
-/** Sidebar “Users & Invites” (company scope). */
+/** Sidebar “People” / users & invites (company scope). */
 export function canAccessUsersInvitesNav(role: Role) {
   return role === "Master" || role === "Admin" || role === "Manager";
 }

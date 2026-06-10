@@ -32,27 +32,32 @@ const MASTER_NAV: PresentedNavItem[] = [
   { id: "setup", label: "Platform Setup", icon: "spark" },
   { id: "companies", label: "Companies", icon: "clipboard", adminPilotFocus: "companies" },
   { id: "onboarding", label: "Company Onboarding", icon: "spark", adminPilotFocus: "companies" },
-  { id: "users", label: "Users & Invites", icon: "user", adminPilotFocus: "users" },
+  { id: "users", label: "People", icon: "user", adminPilotFocus: "users" },
   { id: "schedules", label: "Templates", icon: "clock" },
   { id: "reports", label: "Reports / Diagnostics", icon: "chart" },
   { id: "account", label: "Account", icon: "user" },
   { id: "setupInitial", label: "Tablet / Kiosk", icon: "shield" },
 ];
 
+/** Product flow: Dashboard → People → Scheduling → Complete Work → Actions/NCRs → Reports */
 const COMPANY_ADMIN_NAV: PresentedNavItem[] = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
-  { id: "audits", label: "Checks", icon: "clipboard" },
+  { id: "users", label: "People", icon: "user", adminPilotFocus: "users" },
   { id: "schedules", label: "Schedules", icon: "clock" },
-  { id: "users", label: "Users & Invites", icon: "user", adminPilotFocus: "users" },
+  { id: "audits", label: "Complete Work", icon: "clipboard" },
+  { id: "actions", label: "Actions", icon: "warningTriangle" },
+  { id: "nonConformance", label: "NCRs", icon: "checklist" },
   { id: "reports", label: "Reports", icon: "chart" },
   { id: "account", label: "Account", icon: "user" },
 ];
 
 const MANAGER_NAV: PresentedNavItem[] = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
-  { id: "audits", label: "Checks", icon: "clipboard" },
+  { id: "invites", label: "People", icon: "user", adminPilotFocus: "invites" },
   { id: "schedules", label: "Schedules", icon: "clock" },
-  { id: "invites", label: "Users & Invites", icon: "user", adminPilotFocus: "invites" },
+  { id: "audits", label: "Complete Work", icon: "clipboard" },
+  { id: "actions", label: "Actions", icon: "warningTriangle" },
+  { id: "nonConformance", label: "NCRs", icon: "checklist" },
   { id: "reports", label: "Reports", icon: "chart" },
   { id: "account", label: "Account", icon: "user" },
 ];
@@ -97,7 +102,7 @@ function canPresentNavItem(role: Role, item: PresentedNavItem): boolean {
   if (item.id === "onboarding") return canAccessCompanyOnboardingNav(role);
   if (item.id === "users") return canAccessUsersInvitesNav(role);
   if (item.id === "invites") {
-    if (item.label === "Team" || item.label === "Users & Invites") return canAccessTeamNav(role);
+    if (item.label === "Team" || item.label === "People" || item.label === "Users & Invites") return canAccessTeamNav(role);
     return canAccessUsersInvitesNav(role);
   }
   if (item.id === "admin") return canAccessWorkspaceNav(role);
@@ -106,7 +111,13 @@ function canPresentNavItem(role: Role, item: PresentedNavItem): boolean {
     return canAccessSchedules(role);
   }
   if (item.id === "reports" && item.label.includes("Diagnostics")) return canAccessPlatformDiagnosticsNav(role);
-  if (item.id === "audits" && (item.label === "Checks" || item.label === "Forms & Checks" || item.label === "My Checks")) {
+  if (
+    item.id === "audits" &&
+    (item.label === "Checks" ||
+      item.label === "Complete Work" ||
+      item.label === "Forms & Checks" ||
+      item.label === "My Checks")
+  ) {
     return canAccessFormsChecksNav(role) || role === "Auditor";
   }
   return canRoleAccessNavItem(role, item.id);
@@ -144,7 +155,7 @@ export function getMobileBottomNavForRole(role: Role): MobileNavEntry[] {
     const tabIds: NavItemId[] =
       bucket === "master"
         ? ["godmodeHome", "setup", "companies", "users"]
-        : ["dashboard", "actions", "audits", "users"];
+        : ["dashboard", "users", "schedules", "audits"];
     const tabs = tabIds.flatMap((id) => {
       const item = primary.find((entry) => entry.id === id);
       return item ? [{ id: item.id, label: item.label, icon: item.icon }] : [];

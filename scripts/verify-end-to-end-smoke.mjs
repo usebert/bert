@@ -322,7 +322,8 @@ assert(godmodePanel.includes("GodmodeBackgroundJobsPanel"), "I10b: background jo
 assert(roleNav.includes('if (role === "Master") return "master"'), "J1: role nav buckets defined");
 assert(roleNav.includes("COMPANY_ADMIN_NAV") && roleNav.includes("MANAGER_NAV") && roleNav.includes("AUDITOR_NAV"), "J2: per-role nav templates");
 assert(roleNav.includes('id: "schedules", label: "Schedules"'), "J3: Manager/Admin see Schedules");
-assert(roleNav.includes('id: "invites", label: "Users & Invites"'), "J4: Manager sees Users & Invites");
+assert(roleNav.includes('id: "invites", label: "People"'), "J4: Manager sees People nav");
+assert(roleNav.includes('id: "audits", label: "Complete Work"'), "J4b: Admin/Manager see Complete Work nav");
 assert(roleNav.includes('id: "audits", label: "My Checks"'), "J5: Auditor sees My Checks");
 assert(roleNav.includes("getPresentedNavForRole"), "J6: nav resolved per role");
 assert(appTsx.includes("getPresentedNavForRole"), "J7: App uses role-based nav");

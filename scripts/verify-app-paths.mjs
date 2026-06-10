@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
  * Major role/path contract — routes, nav, handlers, and must-not-break guards.
+ * Module map: docs/MODULE_MAP.md (Dashboard → People → Scheduling → Complete Work → Actions/NCRs → Reports).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -72,8 +73,8 @@ for (const screen of ROUTED_SCREENS) {
 
 const ROLE_NAV_EXPECTATIONS = {
   Master: ["godmodeHome", "setup", "companies", "users", "account"],
-  Admin: ["dashboard", "audits", "schedules", "users", "reports", "account"],
-  Manager: ["dashboard", "audits", "schedules", "invites", "reports", "account"],
+  Admin: ["dashboard", "users", "schedules", "audits", "actions", "nonConformance", "reports", "account"],
+  Manager: ["dashboard", "invites", "schedules", "audits", "actions", "nonConformance", "reports", "account"],
   Auditor: ["dashboard", "audits", "account"],
 };
 
