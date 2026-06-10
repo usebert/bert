@@ -314,7 +314,7 @@ assert(
   appTsx.includes("isCompanyRegistryLive({ status: canonicalStatus, registryStatus: canonicalStatus })"),
   "39b: App clears running state when registry is LIVE",
 );
-assert(panel.includes("setupRunning && !companyLive"), "40: panel derives provisioning from setupRunning && !companyLive");
+assert(panel.includes("setupRunning && !companyUsable"), "40: panel derives provisioning from setupRunning && !companyUsable");
 assert(
   statusModule.indexOf("isCompanyRegistryLive") < statusModule.indexOf("input.isProvisioning"),
   "41: workspace status resolves LIVE before provisioning flag",

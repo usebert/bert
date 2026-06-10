@@ -1492,6 +1492,7 @@ export function installCompanyWorkspaceRegistryRoutes(app, deps) {
     const healthCheckRun = Boolean(String(record.lastHealthCheckAt || "").trim());
     const unlinkReason = String(record.unlinkReason || "").trim().toLowerCase();
     const phase = resolveCompanySetupPhase({
+      companyUsable: hasFolder && Boolean(masterSheetId),
       companyLive: isCompanyRegistryLive(record),
       hasCompanyFolder: hasFolder,
       masterSheetId,

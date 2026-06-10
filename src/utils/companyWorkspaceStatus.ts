@@ -16,6 +16,7 @@ export function resolveSimpleCompanySetupStatus(input: {
   isProvisioning?: boolean;
   setupFailed?: boolean;
   companyLive?: boolean;
+  companyUsable?: boolean;
   backgroundWorkRunning?: boolean;
   healthCheckRunning?: boolean;
   workspaceHealthOk?: boolean;
@@ -23,10 +24,15 @@ export function resolveSimpleCompanySetupStatus(input: {
   registryStatus?: string;
 }): SimpleCompanySetupStatus {
   const archived = isArchiveOrNonLiveWorkspaceName(input.folderName);
+  const hasWorkbook = Boolean(String(input.masterSheetId || "").trim());
   const phase = resolveCompanySetupPhase({
     archived,
     setupFailed: input.setupFailed,
-    companyLive: input.companyLive ?? isCompanyRegistryLive({ status: input.registryStatus, registryStatus: input.registryStatus }),
+    companyUsable:
+      input.companyUsable ??
+      (Boolean(input.hasCompanyFolder && hasWorkbook) ||
+        Boolean(input.companyLive) ||
+        isCompanyRegistryLive({ status: input.registryStatus, registryStatus: input.registryStatus })),
     hasCompanyFolder: input.hasCompanyFolder,
     masterSheetId: input.masterSheetId,
     syncState: input.syncState,
@@ -142,6 +148,7 @@ export function getCompanySetupNextAction(input: {
   healthCheckRun: boolean;
   workspaceHealthOk: boolean;
   companyLive?: boolean;
+  companyUsable?: boolean;
 }): CompanySetupNextAction {
   if (!input.googleWorkspaceReady) {
     return {
@@ -162,7 +169,7 @@ export function getCompanySetupNextAction(input: {
         primaryHandler: "run_setup",
       };
     case "Setup in progress":
-      if (input.companyLive) {
+      if (input.companyUsable || input.companyLive) {
         return {
           label: "Invite users from User management",
           primaryHandler: "invite_users",

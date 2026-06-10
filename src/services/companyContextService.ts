@@ -7,6 +7,8 @@ export type ResolvedCompanyContext = {
   companyFolderId: string;
   companyName: string;
   masterSheetId: string;
+  status?: string;
+  usable?: boolean;
   registryStatus: string;
   workspaceSetupComplete: boolean;
   role?: Role;
@@ -63,13 +65,17 @@ export function resolveActiveCompanyContext(input: ResolveActiveCompanyContextIn
       : linked.registryStatus || input.companyRegistryStatus || selected?.registryStatus,
   });
 
+  const workspaceSetupComplete = Boolean(companyFolderId && masterSheetId);
+
   return {
     companyId: companyFolderId,
     companyFolderId,
     companyName,
     masterSheetId,
+    status: workspaceSetupComplete ? "USABLE" : undefined,
+    usable: workspaceSetupComplete,
     registryStatus,
-    workspaceSetupComplete: Boolean(companyFolderId && masterSheetId),
+    workspaceSetupComplete,
     role: input.currentUser?.role,
     accessLevel: input.currentUser?.accessLevel,
     companyAreas: Array.isArray(input.currentUser?.companyAreas) ? input.currentUser.companyAreas : undefined,

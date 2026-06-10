@@ -29,6 +29,7 @@
     "verify:google-form-templates": "node scripts/verify-google-form-templates.mjs",
     "verify:template-languages": "node scripts/verify-template-languages.mjs",
     "verify:company-folder-structure": "node scripts/verify-company-folder-structure.mjs",
+    "verify:company-folder-source-of-truth": "node scripts/verify-company-folder-source-of-truth.mjs",
     "verify:company-setup-progress": "node scripts/verify-company-setup-progress.mjs",
     "verify:company-setup-finalize": "node scripts/verify-company-setup-finalize.mjs",
     "verify:setup-next-actions": "node scripts/verify-setup-next-actions.mjs",

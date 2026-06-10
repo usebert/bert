@@ -2,6 +2,7 @@
  * Canonical company invite readiness — setup page, invite UI, and API gates share this logic.
  * Health checks, Google diagnostics, email, and background sync never block invites.
  */
+import { isCompanyWorkspaceUsable } from "./company-folder-context.mjs";
 import {
   COMPANY_NOT_LIVE_INVITE_MESSAGE,
   COMPANY_REGISTRY_STATUS_LIVE,
@@ -15,6 +16,7 @@ export const INVITE_READINESS_SOURCE = {
   SETUP_COMPLETED: "setup_completed",
   WORKSPACE_DERIVED: "workspace_derived",
   COMPANY_CONTEXT: "company_context",
+  COMPANY_FOLDER: "company_folder",
   GODMODE_USERS_TAB: "godmode_users_tab",
 };
 
@@ -130,13 +132,13 @@ export function evaluateCompanyInviteReadiness(input = {}) {
     };
   }
 
-  if (isCompanyContextUsable(context)) {
+  if (isCompanyWorkspaceUsable(context) || isCompanyContextUsable(context)) {
     return {
       canInvite: true,
-      companyStatus: isCompanyRegistryLive(context)
-        ? COMPANY_REGISTRY_STATUS_LIVE
-        : COMPANY_REGISTRY_STATUS_LIVE,
-      source: INVITE_READINESS_SOURCE.COMPANY_CONTEXT,
+      companyStatus: COMPANY_REGISTRY_STATUS_LIVE,
+      source: isCompanyWorkspaceUsable(context)
+        ? INVITE_READINESS_SOURCE.COMPANY_FOLDER
+        : INVITE_READINESS_SOURCE.COMPANY_CONTEXT,
       userMessage: "",
     };
   }

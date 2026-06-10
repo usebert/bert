@@ -11,7 +11,7 @@ export const INVITE_MANAGE_AUDITOR_ONLY_MESSAGE =
   "You can only manage Auditor invites for your company.";
 
 export const COMPANY_NOT_LIVE_INVITE_MESSAGE =
-  "This company is not live yet. Finish company onboarding before inviting users.";
+  "Link a company folder and workbook before inviting users.";
 
 export const INVITE_SENT_USER_MESSAGE = "Invite sent.";
 

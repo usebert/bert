@@ -34,6 +34,7 @@ import {
   COMPANY_SETUP_SUCCESS_MESSAGE,
   type MakeUsableResult,
 } from "../../services/companySetupProgressService";
+import { COMPANY_READY_INVITE_MESSAGE } from "../../utils/companyFolderContext";
 import { companyWorkspaceRegistryService } from "../../services/companyWorkspaceRegistryService";
 import {
   getCanonicalCompanyStatus,
@@ -268,17 +269,21 @@ export function GodmodeCompanyWorkspacePanel({
     status: effectiveRegistryStatus,
     registryStatus: effectiveRegistryStatus,
   });
+  const resolvedMasterSheetId = companyMasterSheetId || folderInspection?.masterSheet?.id || companySheetSync?.sheetId || "";
+  const companyUsable = Boolean(
+    selectedFolder?.id &&
+      resolvedMasterSheetId &&
+      !setupFailed,
+  );
   const godmodeUsersTabWritable = isCompanyUsersTabWritable({
     companySheetSync: companySheetSync ?? undefined,
     workspaceValidation,
   });
-  const hasLinkedCompanyWorkspace = Boolean(
-    selectedFolder?.id && (companyMasterSheetId || companySheetSync?.sheetId),
-  );
-  const canShowUserInvites = godmodeUsersTabWritable || hasLinkedCompanyWorkspace;
+  const hasLinkedCompanyWorkspace = Boolean(selectedFolder?.id && resolvedMasterSheetId);
+  const canShowUserInvites = companyUsable || godmodeUsersTabWritable || hasLinkedCompanyWorkspace;
   const setupRunning = companyFolderStructureRepairing || companyMasterSheetProvisioning;
-  const isProvisioning = setupRunning && !companyLive;
-  const visibleSetupError = companyLive ? null : companySetupError;
+  const isProvisioning = setupRunning && !companyUsable;
+  const visibleSetupError = companyUsable ? null : companySetupError;
 
   const folderStatuses = useMemo(
     () =>
@@ -656,7 +661,7 @@ export function GodmodeCompanyWorkspacePanel({
     }
     return resolveCompanySetupPhase({
       setupFailed,
-      companyLive,
+      companyUsable,
       hasCompanyFolder: true,
       masterSheetId: companyMasterSheetId,
       syncState,
@@ -668,7 +673,7 @@ export function GodmodeCompanyWorkspacePanel({
   }, [
     selectedFolder,
     setupFailed,
-    companyLive,
+    companyUsable,
     companyMasterSheetId,
     syncState,
     isProvisioning,
@@ -687,7 +692,7 @@ export function GodmodeCompanyWorkspacePanel({
           syncState,
           isProvisioning,
           setupFailed,
-          companyLive,
+          companyUsable,
           backgroundWorkRunning,
           healthCheckRun,
           workspaceHealthOk,
@@ -704,10 +709,10 @@ export function GodmodeCompanyWorkspacePanel({
   }, [selectedFolder?.id, setupPhase]);
   const setupResultCard =
     companySetupResult ??
-    (companyLive && !visibleSetupError
+    (companyUsable && !visibleSetupError
       ? {
           ok: true as const,
-          userMessage: COMPANY_SETUP_SUCCESS_MESSAGE,
+          userMessage: COMPANY_READY_INVITE_MESSAGE,
           warnings: companySetupWarnings,
         }
       : visibleSetupError
@@ -732,7 +737,7 @@ export function GodmodeCompanyWorkspacePanel({
       ? "Checked"
       : "Not checked yet";
 
-  const showAreas = canManageAreas(currentUserRole) && selectedFolder && !masterCompanyContextBlocked && companyLive;
+  const showAreas = canManageAreas(currentUserRole) && selectedFolder && !masterCompanyContextBlocked && companyUsable;
   const showReset =
     currentUserRole === "Master" && selectedFolder && companyMasterSheetId && onCompanyWorkspaceResetSuccess;
 
@@ -788,10 +793,9 @@ export function GodmodeCompanyWorkspacePanel({
                         syncState: isSelected ? syncState : undefined,
                         isProvisioning: isSelected && isProvisioning,
                         setupFailed: isSelected && setupFailed,
-                        companyLive: isCompanyRegistryLive({
-                          status: isSelected ? effectiveRegistryStatus : folderRegistryStatus,
-                          registryStatus: isSelected ? effectiveRegistryStatus : folderRegistryStatus,
-                        }),
+                        companyUsable: isSelected
+                          ? companyUsable
+                          : Boolean(masterSheetId),
                         healthCheckRun: isSelected ? healthCheckRun : undefined,
                         workspaceHealthOk: isSelected ? workspaceHealthOk : undefined,
                         registryStatus: isSelected ? effectiveRegistryStatus : folderRegistryStatus,
@@ -814,7 +818,7 @@ export function GodmodeCompanyWorkspacePanel({
               icon="clipboard"
               eyebrow="Setup"
               title={selectedFolder.name}
-              subtitle="Record the company as Live in the registry, then invite users."
+              subtitle="Select the company folder, resolve the workbook, then invite users."
             />
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <span
@@ -862,11 +866,13 @@ export function GodmodeCompanyWorkspacePanel({
             {simpleStatus === "Working in the background" && !primarySetupAction?.label ? (
               <p className="mt-3 text-xs text-slate-600">{UX_STATUS.workingInBackground}</p>
             ) : null}
-            {!masterSheetOk ? (
+            {!companyUsable ? (
               <p className="mt-3 text-xs text-amber-900">
-                Link a master sheet for this company before making it usable.
+                Select a company folder with a workbook, or run setup to resolve the master sheet.
               </p>
-            ) : null}
+            ) : (
+              <p className="mt-3 text-xs text-emerald-900">{COMPANY_READY_INVITE_MESSAGE}</p>
+            )}
             {setupResultCard?.ok ? (
               <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
                 <p className="font-semibold">
@@ -1170,7 +1176,7 @@ export function GodmodeCompanyWorkspacePanel({
               />
               {!canShowUserInvites ? (
                 <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-                  Link a company folder and master sheet first, then invite users.
+                  Make the company usable first — select a folder and resolve the workbook, then invite users.
                 </p>
               ) : (
                 <div className="mt-4">

@@ -40,6 +40,7 @@ function isSynced(syncState = "") {
  *   archived?: boolean;
  *   setupFailed?: boolean;
  *   companyLive?: boolean;
+ *   companyUsable?: boolean;
  *   hasCompanyFolder?: boolean;
  *   masterSheetId?: string;
  *   syncState?: string;
@@ -58,11 +59,11 @@ export function resolveCompanySetupPhase(input = {}) {
     return COMPANY_SETUP_PHASE.SETUP_FAILED;
   }
 
-  const companyLive = Boolean(input.companyLive);
+  const companyUsable = Boolean(input.companyUsable || input.companyLive);
   const healthCheckRun = Boolean(input.healthCheckRun);
   const workspaceHealthOk = input.workspaceHealthOk !== false;
 
-  if (companyLive) {
+  if (companyUsable) {
     if (healthCheckRun && !workspaceHealthOk) {
       return COMPANY_SETUP_PHASE.HEALTH_CHECK_FAILED_LIVE;
     }

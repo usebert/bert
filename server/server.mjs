@@ -92,6 +92,7 @@ import {
   recordCompanyWorkspaceHealthCheck,
 } from "./company-workspace-registry.mjs";
 import { installCompanySetupProgressRoutes } from "./company-setup-progress.mjs";
+import { installCompanyFolderResolverRoutes } from "./company-folder-resolver.mjs";
 import { installGodmodeRegistryActionRoutes, relinkCompanyRegistryForWorkspace } from "./godmode-registry-actions.mjs";
 import { createBackgroundJobsService } from "./background-jobs-service.mjs";
 import { BACKGROUND_INVITE_CREATED_MESSAGE } from "../shared/background-jobs.mjs";
@@ -7162,6 +7163,18 @@ installGodmodeRegistryActionRoutes(app, {
   parseBertActorFromRequest,
   processCompanyUserInvite,
   queueCompanySetupJobs: backgroundJobs.queueCompanySetupJobs.bind(backgroundJobs),
+  ...getCompanyWorkspaceRegistryDeps(),
+});
+
+installCompanyFolderResolverRoutes(app, {
+  getAuthedClient,
+  envConfigured,
+  requireGoogleWorkspaceSession,
+  requireMasterOnlyActor,
+  google,
+  queueCompanySetupJobs: backgroundJobs.queueCompanySetupJobs.bind(backgroundJobs),
+  queueCompanyHealthCheckIfReady: backgroundJobs.queueCompanyHealthCheckIfReady.bind(backgroundJobs),
+  enqueueJob: backgroundJobs.enqueueJob.bind(backgroundJobs),
   ...getCompanyWorkspaceRegistryDeps(),
 });
 

@@ -34,7 +34,7 @@ export const INVITE_COMPANY_MISMATCH_MESSAGE =
   "Your account is not linked to this company workspace.";
 
 export const COMPANY_NOT_LIVE_INVITE_MESSAGE =
-  "This company is not live yet. Finish company onboarding before inviting users.";
+  "Link a company folder and workbook before inviting users.";
 
 export const INVITE_SENT_USER_MESSAGE = "Invite sent.";
 
