@@ -39,6 +39,7 @@
     "verify:core-workflow": "node scripts/verify-core-workflow.mjs",
     "verify:background-jobs": "node scripts/verify-background-jobs.mjs",
     "verify:ux-declutter": "node scripts/verify-ux-declutter.mjs",
+    "verify:end-to-end-smoke": "node scripts/verify-end-to-end-smoke.mjs",
     "verify:shared-drive-workspace": "node scripts/verify-shared-drive-workspace.mjs",
     "preview": "vite preview",
     "android:sync": "npm run build && npx cap sync android",
