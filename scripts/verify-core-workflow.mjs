@@ -41,6 +41,7 @@ const assigneeService = read("server/schedule-assignee-service.mjs");
 const coreRoutes = read("server/core-workflow-routes.mjs");
 const panel = read("src/components/godmode/GodmodeCompanyWorkspacePanel.tsx");
 const statusModule = read("src/utils/companyWorkspaceStatus.ts");
+const setupStateTs = read("src/utils/companySetupState.ts");
 const appTsx = read("App.tsx");
 const schedulesScreen = read("src/screens/SchedulesScreen.tsx");
 const assigneesUtil = read("src/utils/scheduleAssignees.ts");
@@ -114,15 +115,16 @@ assert(appTsx.includes("resolveActiveCompanyContext"), "23e: App uses unified co
 assert(!appTsx.includes("findPendingAssigneeInvites"), "23f: pending invites do not feed schedule assignees");
 assert(!panel.includes("could not reach BERT"), "24: no BERT reach error in godmode panel");
 assert(!appTsx.includes("could not reach BERT"), "24b: no BERT reach error in App.tsx");
-assert(panel.includes("Technical diagnostics"), "25: diagnostics section exists");
+assert(panel.includes("Advanced diagnostics"), "25: diagnostics section exists");
 assert(panel.includes("showTechnicalDetails"), "25b: diagnostics toggle state");
 assert(panel.includes("useState(false)"), "26: diagnostics collapsed by default");
 
-/** 27–28: single make-usable button + Usable status label */
-assert(panel.includes("Make company usable"), "27: single make-usable button");
-assert(!panel.includes("Run workspace setup") || panel.includes("onRunWorkspaceSetup"), "27b: no duplicate setup CTA in unified panel");
-assert(statusModule.includes('"Usable"'), "28: simple status includes Usable");
-assert(statusModule.includes('return "Usable"'), "28b: Live maps to Usable label");
+/** 27–28: single make-usable button + Ready status label */
+assert(setupStateTs.includes("Make company usable"), "27: make-usable primary action label");
+assert(panel.includes("resolveCompanySetupPrimaryAction"), "27b: panel uses primary action resolver");
+assert(!panel.includes("Run workspace setup") || panel.includes("onRunWorkspaceSetup"), "27c: no duplicate setup CTA in unified panel");
+assert(setupStateTs.includes('"Ready"'), "28: simple status includes Ready");
+assert(setupStateTs.includes('return "Ready"'), "28b: Live maps to Ready label");
 
 /** 29: central services + npm script */
 assert(registryService.includes("resolveCompanyById"), "29: company-registry-service");

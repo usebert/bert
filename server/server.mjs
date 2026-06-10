@@ -7105,6 +7105,8 @@ installCompanyWorkspaceRegistryRoutes(app, {
   safeLower,
   sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
   platformRegistrySheetId: process.env.BERT_PLATFORM_REGISTRY_SHEET_ID || "",
+  queueCompanyHealthCheckIfReady: (...args) => backgroundJobs.queueCompanyHealthCheckIfReady(...args),
+  parseBertActorFromRequest,
 });
 
 installCompanySetupProgressRoutes(app, {

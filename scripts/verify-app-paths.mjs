@@ -171,4 +171,8 @@ for (const screen of ROUTED_SCREENS.filter((s) => s !== "complete")) {
   );
 }
 
+const companyWorkspaceStatus = read("src/utils/companyWorkspaceStatus.ts");
+assert(!companyWorkspaceStatus.includes("Ready for health check"), "no dead-end Ready for health check status");
+assert(pkg.scripts["verify:setup-next-actions"], "verify:setup-next-actions npm script registered");
+
 console.log(`[verify:app-paths] OK — ${caseCount} cases passed`);

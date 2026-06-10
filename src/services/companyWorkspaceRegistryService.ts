@@ -177,4 +177,12 @@ export const companyWorkspaceRegistryService = {
       checks: input.checks,
     });
   },
+
+  async ensureBackgroundHealth(companyId: string): Promise<{ queued: boolean; jobId?: string }> {
+    const payload = await postRegistryAction<{ ok: boolean; queued?: boolean; jobId?: string }>(
+      `/api/godmode/companies/${encodeURIComponent(companyId)}/ensure-background-health`,
+      {},
+    );
+    return { queued: Boolean(payload.queued), jobId: payload.jobId };
+  },
 };

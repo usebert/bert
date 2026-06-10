@@ -3,6 +3,10 @@ import {
   getCanonicalCompanyStatus,
   isCompanyRegistryLive,
 } from "../shared/company-invite-permissions.mjs";
+import {
+  resolveCompanySetupPhase,
+  shouldAutoQueueHealthCheck,
+} from "../shared/company-setup-state.mjs";
 import { filterCustomerFacingCompanies, isSystemTemplateCompany } from "../shared/system-template-company.mjs";
 import {
   getFallbackRegistryRecord,
@@ -1478,6 +1482,38 @@ export function mergeDriveCompanyWithRegistry(driveCompany, registryRecord) {
 export function installCompanyWorkspaceRegistryRoutes(app, deps) {
   const { getAuthedClient, envConfigured, requireGoogleWorkspaceSession, requireMasterOnlyActor } = deps;
 
+  function maybeQueueBackgroundHealthCheck(record, requestedBy = "system") {
+    if (typeof deps.queueCompanyHealthCheckIfReady !== "function" || !record) {
+      return null;
+    }
+    const companyId = String(record.companyId || record.rootFolderId || "").trim();
+    const masterSheetId = String(record.masterSheetId || "").trim();
+    const hasFolder = Boolean(String(record.rootFolderId || record.companyId || "").trim());
+    const healthCheckRun = Boolean(String(record.lastHealthCheckAt || "").trim());
+    const unlinkReason = String(record.unlinkReason || "").trim().toLowerCase();
+    const phase = resolveCompanySetupPhase({
+      companyLive: isCompanyRegistryLive(record),
+      hasCompanyFolder: hasFolder,
+      masterSheetId,
+      syncState: hasFolder && masterSheetId ? "Synced" : "",
+      healthCheckRun,
+      workspaceHealthOk: !unlinkReason.includes("health_check_failed"),
+    });
+    if (!shouldAutoQueueHealthCheck(phase)) {
+      return null;
+    }
+    return deps.queueCompanyHealthCheckIfReady({
+      autoQueue: true,
+      companyId,
+      requestedBy,
+      payload: {
+        masterSheetId,
+        companyFolderId: companyId,
+        companyName: String(record.companyName || "").trim(),
+      },
+    });
+  }
+
   app.get("/api/godmode/company-workspace", requireGoogleWorkspaceSession, requireMasterOnlyActor, async (_req, res) => {
     const authed = getAuthedClient();
     if (!envConfigured() || !authed) {
@@ -1513,6 +1549,9 @@ export function installCompanyWorkspaceRegistryRoutes(app, deps) {
         if (!record) {
           return res.status(404).json({ ok: false, error: "Company workspace record not found in registry." });
         }
+        const actor =
+          typeof deps.parseBertActorFromRequest === "function" ? deps.parseBertActorFromRequest(req) : null;
+        maybeQueueBackgroundHealthCheck(record, String(actor?.email || actor?.name || "godmode").trim());
         return res.json({
           ok: true,
           company: record,
@@ -1522,6 +1561,37 @@ export function installCompanyWorkspaceRegistryRoutes(app, deps) {
         return res.status(500).json({
           ok: false,
           error: error instanceof Error ? error.message : "Unable to load company workspace record.",
+        });
+      }
+    },
+  );
+
+  app.post(
+    "/api/godmode/companies/:companyId/ensure-background-health",
+    requireGoogleWorkspaceSession,
+    requireMasterOnlyActor,
+    async (req, res) => {
+      const authed = getAuthedClient();
+      if (!envConfigured() || !authed) {
+        return res.status(401).json({ ok: false, error: "Connect Google Workspace before queueing background health." });
+      }
+      try {
+        const companyId = String(req.params.companyId || "").trim();
+        const record = await getCompanyWorkspaceRegistryRecord(authed, deps, companyId);
+        if (!record) {
+          return res.status(404).json({ ok: false, error: "Company workspace record not found in registry." });
+        }
+        const actor =
+          typeof deps.parseBertActorFromRequest === "function" ? deps.parseBertActorFromRequest(req) : null;
+        const job = maybeQueueBackgroundHealthCheck(
+          record,
+          String(actor?.email || actor?.name || "godmode").trim(),
+        );
+        return res.json({ ok: true, queued: Boolean(job), jobId: job?.jobId || "" });
+      } catch (error) {
+        return res.status(500).json({
+          ok: false,
+          error: error instanceof Error ? error.message : "Unable to queue background health check.",
         });
       }
     },

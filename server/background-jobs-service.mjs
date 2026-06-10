@@ -466,6 +466,40 @@ export function createBackgroundJobsService(sessionDir, deps = {}) {
     app.get("/api/companies/:companyId/background-jobs", requireMasterOnlyActor, listHandler);
   }
 
+  function hasActiveJobForCompany(companyId, type) {
+    const id = String(companyId || "").trim();
+    if (!id) {
+      return false;
+    }
+    const store = readStore();
+    return Object.values(store.jobs).some(
+      (job) =>
+        String(job.companyId || "").trim() === id &&
+        job.type === type &&
+        (job.status === BACKGROUND_JOB_STATUSES.QUEUED || job.status === BACKGROUND_JOB_STATUSES.RUNNING),
+    );
+  }
+
+  function queueCompanyHealthCheckIfReady(input = {}) {
+    if (!input.autoQueue) {
+      return null;
+    }
+    const companyId = String(input.companyId || input.workspaceId || "").trim();
+    if (!companyId) {
+      return null;
+    }
+    if (hasActiveJobForCompany(companyId, BACKGROUND_JOB_TYPES.VERIFY_COMPANY_HEALTH)) {
+      return null;
+    }
+    return enqueueJob({
+      type: BACKGROUND_JOB_TYPES.VERIFY_COMPANY_HEALTH,
+      companyId,
+      requestedBy: String(input.requestedBy || "system").trim(),
+      userMessage: "",
+      payload: input.payload && typeof input.payload === "object" ? input.payload : {},
+    });
+  }
+
   function queueCompanySetupJobs(input = {}) {
     const companyId = String(input.companyId || input.workspaceId || "").trim();
     const requestedBy = String(input.requestedBy || "").trim();
@@ -530,6 +564,7 @@ export function createBackgroundJobsService(sessionDir, deps = {}) {
     persistPendingSchedules,
     readPendingSchedules,
     queueCompanySetupJobs,
+    queueCompanyHealthCheckIfReady,
     queueInviteEmailJob,
     queueScheduleSyncJob,
     processNextJob,

@@ -101,6 +101,15 @@ assert(
   "30: legacy invite links resolve flow explicitly",
 );
 
+const setupState = read("shared/company-setup-state.mjs");
+const setupStateTs = read("src/utils/companySetupState.ts");
+assert(!read("src/utils/companyWorkspaceStatus.ts").includes("Ready for health check"), "31: no dead-end health-check status");
+assert(setupState.includes("HEALTH_CHECK_READY"), "32: HEALTH_CHECK_READY phase defined");
+assert(godmodeWorkspace.includes("resolveCompanySetupPrimaryAction"), "33: godmode panel resolves next primary action");
+assert(godmodeWorkspace.includes("Invite users"), "34: godmode ready state invites users");
+assert(pkg.scripts["verify:setup-next-actions"], "35: verify:setup-next-actions npm script");
+assert(setupStateTs.includes("Working in the background"), "36: plain working-in-background status");
+
 assert(pkg.scripts["verify:admin-paths"], "npm script registered");
 
 console.log(`OK: verify-admin-paths (${caseCount} cases)`);

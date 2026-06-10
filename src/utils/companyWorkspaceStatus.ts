@@ -1,44 +1,51 @@
 import { isArchiveOrNonLiveWorkspaceName, getCanonicalCompanyStatus, isCompanyRegistryLive } from "./companyWorkspaceInvite";
+import {
+  resolveCompanySetupDisplayStatus,
+  resolveCompanySetupPhase,
+  type CompanySetupDisplayStatus,
+} from "./companySetupState";
 
 /** Simplified setup status for the Godmode primary UI. */
-export type SimpleCompanySetupStatus = "Not set up" | "In progress" | "Usable" | "Needs attention";
+export type SimpleCompanySetupStatus = CompanySetupDisplayStatus;
 
-export function resolveSimpleCompanySetupStatus(status: CompanySetupStatusLabel): SimpleCompanySetupStatus {
-  switch (status) {
-    case "Live":
-      return "Usable";
-    case "Setup in progress":
-    case "Invited":
-    case "Ready for health check":
-      return "In progress";
-    case "Needs attention":
-    case "Failed":
-      return "Needs attention";
-    default:
-      return "Not set up";
-  }
+export function resolveSimpleCompanySetupStatus(input: {
+  folderName: string;
+  hasCompanyFolder: boolean;
+  masterSheetId?: string;
+  syncState?: string;
+  isProvisioning?: boolean;
+  setupFailed?: boolean;
+  companyLive?: boolean;
+  backgroundWorkRunning?: boolean;
+  healthCheckRunning?: boolean;
+  workspaceHealthOk?: boolean;
+  healthCheckRun?: boolean;
+  registryStatus?: string;
+}): SimpleCompanySetupStatus {
+  const archived = isArchiveOrNonLiveWorkspaceName(input.folderName);
+  const phase = resolveCompanySetupPhase({
+    archived,
+    setupFailed: input.setupFailed,
+    companyLive: input.companyLive ?? isCompanyRegistryLive({ status: input.registryStatus, registryStatus: input.registryStatus }),
+    hasCompanyFolder: input.hasCompanyFolder,
+    masterSheetId: input.masterSheetId,
+    syncState: input.syncState,
+    isProvisioning: input.isProvisioning,
+    backgroundWorkRunning: input.backgroundWorkRunning,
+    healthCheckRunning: input.healthCheckRunning,
+    healthCheckRun: input.healthCheckRun,
+    workspaceHealthOk: input.workspaceHealthOk,
+  });
+  return resolveCompanySetupDisplayStatus(phase);
 }
 
-export function simpleSetupStatusBadgeClass(status: SimpleCompanySetupStatus): string {
-  switch (status) {
-    case "Usable":
-      return "bg-emerald-100 text-emerald-800";
-    case "In progress":
-      return "bg-sky-100 text-sky-800";
-    case "Needs attention":
-      return "bg-amber-100 text-amber-900";
-    case "Not set up":
-    default:
-      return "bg-slate-100 text-slate-600";
-  }
-}
+export { simpleSetupStatusBadgeClass } from "./companySetupState";
 
-/** Setup status shown on Godmode company workspace UI. */
+/** Setup status shown on Godmode company workspace UI (internal detail labels). */
 export type CompanySetupStatusLabel =
   | "Not started"
   | "Invited"
   | "Setup in progress"
-  | "Ready for health check"
   | "Needs attention"
   | "Live"
   | "Failed"
@@ -53,8 +60,6 @@ export function workspaceStatusBadgeClass(status: CompanySetupStatusLabel): stri
       return "bg-emerald-100 text-emerald-800";
     case "Setup in progress":
       return "bg-sky-100 text-sky-800";
-    case "Ready for health check":
-      return "bg-indigo-100 text-indigo-800";
     case "Needs attention":
       return "bg-amber-100 text-amber-900";
     case "Invited":
@@ -72,7 +77,7 @@ export function workspaceStatusBadgeClass(status: CompanySetupStatusLabel): stri
 export type CompanySetupNextAction = {
   label: string;
   detail?: string;
-  primaryHandler: "run_setup" | "health_check" | "resync" | "repair_folders" | "repair_workspace" | "open_onboarding" | "none";
+  primaryHandler: "run_setup" | "resync" | "repair_folders" | "repair_workspace" | "open_onboarding" | "invite_users" | "none";
 };
 
 export function resolveCompanySetupStatus(input: {
@@ -116,7 +121,7 @@ export function resolveCompanySetupStatus(input: {
       return "Needs attention";
     }
     if (synced && !input.healthCheckRun) {
-      return "Ready for health check";
+      return "Setup in progress";
     }
     return "Setup in progress";
   }
@@ -136,6 +141,7 @@ export function getCompanySetupNextAction(input: {
   folderStructureOk: boolean;
   healthCheckRun: boolean;
   workspaceHealthOk: boolean;
+  companyLive?: boolean;
 }): CompanySetupNextAction {
   if (!input.googleWorkspaceReady) {
     return {
@@ -156,6 +162,12 @@ export function getCompanySetupNextAction(input: {
         primaryHandler: "run_setup",
       };
     case "Setup in progress":
+      if (input.companyLive) {
+        return {
+          label: "Invite users from User management",
+          primaryHandler: "invite_users",
+        };
+      }
       if (!input.masterSheetOk) {
         return {
           label: "Run setup to link the master sheet and ISO folders",
@@ -169,33 +181,24 @@ export function getCompanySetupNextAction(input: {
         };
       }
       return {
-        label: "Run setup to sync this company into the app",
+        label: "Make company usable",
         primaryHandler: "run_setup",
-      };
-    case "Ready for health check":
-      return {
-        label: "Run a workspace health check, then re-sync from the company sheet",
-        primaryHandler: "health_check",
       };
     case "Needs attention":
       return {
-        label: "Workspace is linked but needs attention — review health check results",
-        detail: "Re-check workspace or repair folders without re-running full setup.",
-        primaryHandler: "repair_workspace",
+        label: "Workspace is linked but needs attention — review advanced diagnostics",
+        detail: "Health checks run in the background and do not block invites.",
+        primaryHandler: "none",
       };
     case "Live":
       return {
-        label: "Company is live — invite field users from User management",
-        detail:
-          input.healthCheckRun && !input.workspaceHealthOk
-            ? "Workspace health needs attention — re-check when convenient."
-            : undefined,
-        primaryHandler: "none",
+        label: "Invite users from User management",
+        primaryHandler: "invite_users",
       };
     case "Failed":
       return {
-        label: "Repair folder structure or workspace setup, then re-run health check",
-        primaryHandler: "repair_workspace",
+        label: "Could not finish setup — use advanced diagnostics to retry",
+        primaryHandler: "none",
       };
     case "Archived":
       return {

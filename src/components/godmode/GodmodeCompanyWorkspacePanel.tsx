@@ -17,6 +17,13 @@ import {
   resolveSimpleCompanySetupStatus,
   simpleSetupStatusBadgeClass,
 } from "../../utils/companyWorkspaceStatus";
+import {
+  resolveCompanySetupDisplayStatus,
+  resolveCompanySetupPhase,
+  resolveCompanySetupPrimaryAction,
+  shouldAutoQueueHealthCheck,
+} from "../../utils/companySetupState";
+import { UX_STATUS } from "../../utils/uxDeclutter";
 import type { Site, UserInvite, FolderInspection } from "../../types/adminScreenProps";
 import type { AreaAuditMapping } from "../../utils/areaAuditMapping";
 import type { AuditTemplate } from "../../types/reportsScreenProps";
@@ -632,7 +639,60 @@ export function GodmodeCompanyWorkspacePanel({
     effectiveRegistryStatus,
   ]);
 
-  const simpleStatus = selectedStatus ? resolveSimpleCompanySetupStatus(selectedStatus) : "Not set up";
+  const backgroundWorkRunning =
+    isProvisioning || Boolean(companySetupResult?.backgroundSetup) || Boolean(companySetupResult?.backgroundJobs?.length);
+  const setupPhase = useMemo(() => {
+    if (!selectedFolder) {
+      return null;
+    }
+    return resolveCompanySetupPhase({
+      setupFailed,
+      companyLive,
+      hasCompanyFolder: true,
+      masterSheetId: companyMasterSheetId,
+      syncState,
+      isProvisioning,
+      backgroundWorkRunning,
+      healthCheckRun,
+      workspaceHealthOk,
+    });
+  }, [
+    selectedFolder,
+    setupFailed,
+    companyLive,
+    companyMasterSheetId,
+    syncState,
+    isProvisioning,
+    backgroundWorkRunning,
+    healthCheckRun,
+    workspaceHealthOk,
+  ]);
+
+  const simpleStatus = setupPhase
+    ? resolveCompanySetupDisplayStatus(setupPhase)
+    : selectedFolder
+      ? resolveSimpleCompanySetupStatus({
+          folderName: selectedFolder.name,
+          hasCompanyFolder: true,
+          masterSheetId: companyMasterSheetId,
+          syncState,
+          isProvisioning,
+          setupFailed,
+          companyLive,
+          backgroundWorkRunning,
+          healthCheckRun,
+          workspaceHealthOk,
+          registryStatus: effectiveRegistryStatus,
+        })
+      : "Not set up";
+  const primarySetupAction = setupPhase ? resolveCompanySetupPrimaryAction(setupPhase) : null;
+
+  useEffect(() => {
+    if (!selectedFolder?.id || !setupPhase || !shouldAutoQueueHealthCheck(setupPhase)) {
+      return;
+    }
+    void companyWorkspaceRegistryService.ensureBackgroundHealth(selectedFolder.id).catch(() => {});
+  }, [selectedFolder?.id, setupPhase]);
   const setupResultCard =
     companySetupResult ??
     (companyLive && !visibleSetupError
@@ -683,8 +743,14 @@ export function GodmodeCompanyWorkspacePanel({
           />
         ) : (
           <ul className="mt-3 space-y-2">
-            {folderStatuses.map(({ folder, status }) => {
+            {folderStatuses.map(({ folder }) => {
               const selected = selectedFolder?.id === folder.id;
+              const masterSheetId = folderMasterSheetId(folder);
+              const isSelected = selected;
+              const folderRegistryStatus = getCanonicalCompanyStatus({
+                status: (folder as CompanyFolder & { registryStatus?: string }).registryStatus,
+                registryStatus: (folder as CompanyFolder & { registryStatus?: string }).registryStatus,
+              });
               return (
                 <li key={folder.id}>
                   <button
@@ -705,7 +771,24 @@ export function GodmodeCompanyWorkspacePanel({
                         <p className="mt-0.5 truncate text-xs text-slate-500">Tap to select</p>
                       )}
                     </div>
-                    <WorkspaceStatusBadge status={status} />
+                    <WorkspaceStatusBadge
+                      status={resolveSimpleCompanySetupStatus({
+                        folderName: folder.name,
+                        hasCompanyFolder: true,
+                        masterSheetId: isSelected ? companyMasterSheetId || masterSheetId : masterSheetId,
+                        syncState: isSelected ? syncState : undefined,
+                        isProvisioning: isSelected && isProvisioning,
+                        setupFailed: isSelected && setupFailed,
+                        companyLive: isCompanyRegistryLive({
+                          status: isSelected ? effectiveRegistryStatus : folderRegistryStatus,
+                          registryStatus: isSelected ? effectiveRegistryStatus : folderRegistryStatus,
+                        }),
+                        healthCheckRun: isSelected ? healthCheckRun : undefined,
+                        workspaceHealthOk: isSelected ? workspaceHealthOk : undefined,
+                        registryStatus: isSelected ? effectiveRegistryStatus : folderRegistryStatus,
+                      })}
+                      displayAsSimple
+                    />
                   </button>
                 </li>
               );
@@ -735,21 +818,41 @@ export function GodmodeCompanyWorkspacePanel({
               </span>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => runMakeUsable?.()}
-                disabled={
-                  adminOnly ||
-                  !googleWorkspaceReady ||
-                  !runMakeUsable ||
-                  isProvisioning ||
-                  !masterSheetOk
-                }
-                className="inline-flex h-11 items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isProvisioning ? "Making usable…" : "Make company usable"}
-              </button>
+              {primarySetupAction?.action === "make_usable" ? (
+                <button
+                  type="button"
+                  onClick={() => runMakeUsable?.()}
+                  disabled={
+                    adminOnly ||
+                    !googleWorkspaceReady ||
+                    !runMakeUsable ||
+                    isProvisioning ||
+                    !masterSheetOk
+                  }
+                  className="inline-flex h-11 items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isProvisioning ? "Making usable…" : primarySetupAction.label}
+                </button>
+              ) : primarySetupAction?.action === "invite_users" ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    document.getElementById("godmode-user-management")?.scrollIntoView({ behavior: "smooth" });
+                  }}
+                  className="inline-flex h-11 items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white"
+                >
+                  {primarySetupAction.label}
+                </button>
+              ) : primarySetupAction?.label ? (
+                <p className="text-sm font-semibold text-amber-950">{primarySetupAction.label}</p>
+              ) : null}
             </div>
+            {primarySetupAction?.detail ? (
+              <p className="mt-3 text-xs text-slate-600">{primarySetupAction.detail}</p>
+            ) : null}
+            {simpleStatus === "Working in the background" && !primarySetupAction?.label ? (
+              <p className="mt-3 text-xs text-slate-600">{UX_STATUS.workingInBackground}</p>
+            ) : null}
             {!masterSheetOk ? (
               <p className="mt-3 text-xs text-amber-900">
                 Link a master sheet for this company before making it usable.
@@ -1020,8 +1123,8 @@ export function GodmodeCompanyWorkspacePanel({
           <section className={pilotLightSurface}>
             <SectionHeader
               icon="shield"
-              eyebrow="Health"
-              title="Workspace health"
+              eyebrow="Overview"
+              title="Workspace overview"
               subtitle="Sync status, row counts, and folder/sheet checks for this company."
             />
             <dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -1036,7 +1139,7 @@ export function GodmodeCompanyWorkspacePanel({
               />
               <MiniMetric label="Schedules" value={String(companySheetSync?.schedulesCount ?? "—")} />
               <MiniMetric label="Actions" value={String(companySheetSync?.actionsCount ?? "—")} />
-              <MiniMetric label="Last health check" value={healthSummary} />
+              <MiniMetric label="Last readiness check" value={healthSummary} />
             </dl>
             {setupFailed && folderInspection?.blockingItems.length ? (
               <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -1044,12 +1147,12 @@ export function GodmodeCompanyWorkspacePanel({
               </p>
             ) : null}
             <p className="mt-4 text-xs text-slate-600">
-              Health checks and repair actions are in Technical diagnostics above — they do not block invites.
+              Background checks and repair actions are in Advanced diagnostics above — they do not block invites.
             </p>
           </section>
 
           {userManagement ? (
-            <section className={pilotLightSurface}>
+            <section id="godmode-user-management" className={pilotLightSurface}>
               <SectionHeader
                 icon="user"
                 eyebrow="People"

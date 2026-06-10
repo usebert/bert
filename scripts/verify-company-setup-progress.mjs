@@ -43,6 +43,7 @@ const registryActions = read("server/godmode-registry-actions.mjs");
 const inviteHelpers = read("src/utils/companyWorkspaceInvite.ts");
 const usersPanel = read("src/components/admin/UsersInvitesPilotPanel.tsx");
 const statusModule = read("src/utils/companyWorkspaceStatus.ts");
+const setupState = read("shared/company-setup-state.mjs");
 
 /** 1: Nine explicit setup steps exported */
 assert(COMPANY_SETUP_STEPS.length === 9, "1: exactly 9 setup steps");
@@ -96,8 +97,8 @@ assert(appTsx.includes("setCompanyFolderStructureRepairing(false)"), "7d: finall
 assert(panel.includes("companySetupCurrentStep"), "8: panel shows current step prop");
 assert(panel.includes("companySetupError"), "8b: panel shows setup error prop");
 assert(panel.includes("technicalError"), "8c: panel shows technicalError");
-assert(panel.includes("Make company usable"), "8d: primary Make company usable button");
-assert(panel.includes("Technical diagnostics"), "8e: collapsed technical diagnostics section");
+assert(setupState.includes("Make company usable") || panel.includes("resolveCompanySetupPrimaryAction"), "8d: primary Make company usable action");
+assert(panel.includes("Advanced diagnostics"), "8e: collapsed advanced diagnostics section");
 assert(panel.includes("onMakeCompanyUsable"), "8f: panel accepts onMakeCompanyUsable prop");
 
 /** 9: Setup aligns with repair (ISO folders + tab repair before health check) */
