@@ -30,6 +30,7 @@ const roleNav = read("src/config/roleNavigation.ts");
 const permissions = read("src/permissions.ts");
 const navigation = read("src/types/navigation.ts");
 const inviteRoutes = read("src/utils/inviteRoutes.ts");
+const formScreen = read("src/screens/CompanyOnboardingFormScreen.tsx");
 const coreRoutes = read("server/core-workflow-routes.mjs");
 const masterAuth = read("server/master-auth.mjs");
 const serverMain = read("server/server.mjs");
@@ -100,9 +101,12 @@ const inviteCompletionScreen = read("src/screens/AppHostedOnboardingCompletion.t
 assert(inviteCompletionScreen.includes("Create account"), "company-user invite button is Create account");
 assert(!inviteCompletionScreen.includes("Create workspace"), "company-user invite must not show Create workspace");
 assert(
-  inviteRoutes.includes("resolveInviteFlowFromToken") && inviteRoutes.includes("isCompanyUserInviteToken"),
-  "misrouted invite tokens resolve to correct flow",
+  inviteRoutes.includes("resolveLegacyInviteFlow") &&
+    inviteRoutes.includes("INVITE_FLOW_COMPANY_ONBOARDING") &&
+    !inviteRoutes.includes("resolveInviteFlowFromToken"),
+  "invite flows: path-authoritative canonical routes, legacy token resolver only",
 );
+assert(formScreen.includes("Create workspace"), "company onboarding retains Create workspace CTA");
 assert(appTsx.includes("PasswordResetConfirm"), "password reset path wired");
 assert(appTsx.includes("GodmodeStartScreen"), "godmode home screen wired");
 assert(appTsx.includes("SchedulesScreen"), "schedules screen wired");

@@ -1,10 +1,17 @@
 /** Path-based invite routes — COMPANY_ONBOARDING and COMPANY_USER only. */
 
-export type InviteFlowType = "COMPANY_ONBOARDING" | "COMPANY_USER";
+import {
+  INVITE_FLOW_COMPANY_ONBOARDING,
+  INVITE_FLOW_COMPANY_USER,
+  type InviteFlowType,
+} from "./inviteFlowTypes";
+
+export type { InviteFlowType };
+export { INVITE_FLOW_COMPANY_ONBOARDING, INVITE_FLOW_COMPANY_USER, GODMODE_COMPANY_SETUP_FLOW } from "./inviteFlowTypes";
 
 export type ParsedInviteRoute =
-  | { flow: "COMPANY_ONBOARDING"; token: string }
-  | { flow: "COMPANY_USER"; token: string }
+  | { flow: typeof INVITE_FLOW_COMPANY_ONBOARDING; token: string }
+  | { flow: typeof INVITE_FLOW_COMPANY_USER; token: string }
   | { flow: "legacy_company_onboarding"; token: string }
   | { flow: "legacy_company_user"; token: string }
   | { flow: "invalid" };
@@ -22,19 +29,22 @@ export function isCompanyOnboardingInviteToken(token: string): boolean {
   return String(token || "").trim().includes(".");
 }
 
-/** Resolve flow from token shape when path and token disagree (mis-linked emails). */
-export function resolveInviteFlowFromToken(token: string, pathFlow: InviteFlowType): InviteFlowType {
+/**
+ * Legacy query-param links only — pick canonical path when old URLs omit route prefix.
+ * Canonical paths (/onboarding/company/, /invite/company-user/) are authoritative and must not be overridden.
+ */
+export function resolveLegacyInviteFlow(token: string, hintedFlow: InviteFlowType): InviteFlowType {
   const trimmed = String(token || "").trim();
   if (!trimmed) {
-    return pathFlow;
+    return hintedFlow;
   }
   if (isCompanyUserInviteToken(trimmed)) {
-    return "COMPANY_USER";
+    return INVITE_FLOW_COMPANY_USER;
   }
   if (isCompanyOnboardingInviteToken(trimmed)) {
-    return "COMPANY_ONBOARDING";
+    return INVITE_FLOW_COMPANY_ONBOARDING;
   }
-  return pathFlow;
+  return hintedFlow;
 }
 
 export function companyOnboardingPath(token: string): string {
@@ -53,19 +63,13 @@ export function parseInviteRoute(location?: Pick<Location, "pathname" | "search"
   const onboardingMatch = pathname.match(COMPANY_ONBOARDING_PATH_RE);
   if (onboardingMatch?.[1]) {
     const token = decodeURIComponent(onboardingMatch[1]).trim();
-    if (!token) {
-      return { flow: "invalid" };
-    }
-    return { flow: resolveInviteFlowFromToken(token, "COMPANY_ONBOARDING"), token };
+    return token ? { flow: INVITE_FLOW_COMPANY_ONBOARDING, token } : { flow: "invalid" };
   }
 
   const userMatch = pathname.match(COMPANY_USER_PATH_RE);
   if (userMatch?.[1]) {
     const token = decodeURIComponent(userMatch[1]).trim();
-    if (!token) {
-      return { flow: "invalid" };
-    }
-    return { flow: resolveInviteFlowFromToken(token, "COMPANY_USER"), token };
+    return token ? { flow: INVITE_FLOW_COMPANY_USER, token } : { flow: "invalid" };
   }
 
   try {
@@ -87,6 +91,6 @@ export function parseInviteRoute(location?: Pick<Location, "pathname" | "search"
 
 /** Replace URL with canonical path route (drops legacy query params). */
 export function redirectToInvitePath(flow: InviteFlowType, token: string): void {
-  const path = flow === "COMPANY_ONBOARDING" ? companyOnboardingPath(token) : companyUserInvitePath(token);
+  const path = flow === INVITE_FLOW_COMPANY_ONBOARDING ? companyOnboardingPath(token) : companyUserInvitePath(token);
   window.history.replaceState({}, "", path);
 }

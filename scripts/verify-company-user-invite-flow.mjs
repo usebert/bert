@@ -63,11 +63,12 @@ for (const phrase of WORKSPACE_UI) {
 }
 
 assert(
-  inviteRoutesTs.includes("resolveInviteFlowFromToken") &&
-    inviteRoutesTs.includes("isCompanyUserInviteToken") &&
-    formScreen.includes("COMPANY_ONBOARDING") &&
-    inviteCompletion.includes("COMPANY_USER"),
-  "7: COMPANY_ONBOARDING and COMPANY_USER routes are separate",
+  inviteRoutesTs.includes("/onboarding/company/") &&
+    inviteRoutesTs.includes("/invite/company-user/") &&
+    inviteRoutesTs.includes("INVITE_FLOW_COMPANY_ONBOARDING") &&
+    inviteRoutesTs.includes("INVITE_FLOW_COMPANY_USER") &&
+    !inviteRoutesTs.includes("resolveInviteFlowFromToken"),
+  "7: COMPANY_ONBOARDING and COMPANY_USER routes are separate and path-authoritative",
 );
 
 assert(
