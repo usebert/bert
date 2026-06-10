@@ -67,8 +67,22 @@ const ONBOARDING_INVITE_COLUMNS = [
 /** @deprecated Use COMPANIES_WORKSPACE_COLUMNS from company-workspace-registry.mjs */
 const COMPANIES_REGISTRY_COLUMNS = COMPANIES_WORKSPACE_COLUMNS;
 
-export const COMPANY_ONBOARDING_SETUP_FAILED_MESSAGE =
-  "We couldn't finish setting up your workspace. Your details have been saved and the BERT team can finish setup.";
+export const COMPANY_ONBOARDING_INTERNAL_SETUP_ERROR_MESSAGE =
+  "Company setup could not finish because of an internal setup error.";
+
+/** Customer-safe copy for provisioning failures (never raw stack traces or ReferenceErrors). */
+export const COMPANY_ONBOARDING_SETUP_FAILED_MESSAGE = COMPANY_ONBOARDING_INTERNAL_SETUP_ERROR_MESSAGE;
+
+export function customerProvisionErrorSummary(record) {
+  const raw = String(record?.provisionError || "").trim();
+  if (!raw) {
+    return "";
+  }
+  if (safeLower(record?.status) === "setup_failed" || safeLower(record?.provisionStatus) === "failed") {
+    return COMPANY_ONBOARDING_INTERNAL_SETUP_ERROR_MESSAGE;
+  }
+  return "";
+}
 
 const MAIN_NEED_OPTIONS = [
   "iso_9001",
@@ -774,6 +788,7 @@ export function installCompanyOnboardingRoutes(app, deps) {
     companySessionMs,
     hashPassword,
     readCompanyUsersTabRecord,
+    probeCompanyLoginSheet,
     repairCompanyInviteTarget,
   } = deps;
 

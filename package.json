@@ -30,6 +30,7 @@
     "verify:template-languages": "node scripts/verify-template-languages.mjs",
     "verify:company-folder-structure": "node scripts/verify-company-folder-structure.mjs",
     "verify:company-setup-progress": "node scripts/verify-company-setup-progress.mjs",
+    "verify:company-setup-finalize": "node scripts/verify-company-setup-finalize.mjs",
     "verify:company-onboarding": "node scripts/verify-company-onboarding.mjs",
     "verify:company-user-invite-flow": "node scripts/verify-company-user-invite-flow.mjs",
     "verify:admin-paths": "node scripts/verify-admin-paths.mjs",

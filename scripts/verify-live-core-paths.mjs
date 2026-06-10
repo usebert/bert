@@ -5,6 +5,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { loadLivePathConfig, missingLiveCredentials } from "./lib/live-path-config.mjs";
 import { LiveHttpClient, assertNoPasswordHash, redactJson } from "./lib/live-http-client.mjs";
 
@@ -128,9 +129,29 @@ async function runPreflightAudit(config) {
   return { api, frontendMeta, localDistMeta };
 }
 
+function runStaticFinalizeGuards() {
+  const companyOnboarding = fs.readFileSync(path.join(configRoot, "server/company-onboarding.mjs"), "utf8");
+  const serverMain = fs.readFileSync(path.join(configRoot, "server/server.mjs"), "utf8");
+  assert(
+    /probeCompanyLoginSheet,\s*\n\s*repairCompanyInviteTarget/.test(companyOnboarding),
+    "static: company onboarding destructures probeCompanyLoginSheet (no ReferenceError at finalize)",
+  );
+  assert(serverMain.includes("probeCompanyLoginSheet,"), "static: server passes probeCompanyLoginSheet to onboarding deps");
+  assert(
+    companyOnboarding.includes("COMPANY_ONBOARDING_INTERNAL_SETUP_ERROR_MESSAGE"),
+    "static: customer-safe internal setup error message defined",
+  );
+  const pkg = JSON.parse(fs.readFileSync(path.join(configRoot, "package.json"), "utf8"));
+  assert(pkg.scripts["verify:company-setup-finalize"], "static: verify:company-setup-finalize npm script registered");
+}
+
+const configRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+
 async function main() {
   const config = loadLivePathConfig();
   log(`API ${config.apiBase} | frontend ${config.frontendUrl} | local git ${config.localGitSha || "unknown"}`);
+
+  runStaticFinalizeGuards();
 
   await runPreflightAudit(config);
 

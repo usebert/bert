@@ -15,7 +15,7 @@ export const INVITE_COMPANY_NOT_LIVE_MESSAGE =
   "This company is not ready for user invites yet. Ask your administrator to finish company setup first.";
 
 export const INVITE_PROVISIONING_FAILED_MESSAGE =
-  "We couldn't finish setting up your workspace. Your details have been saved and the BERT team can finish setup.";
+  "Company setup could not finish because of an internal setup error.";
 
 /** @deprecated Use COMPANY_USER_ACCOUNT_CREATE_FAILED_MESSAGE for company-user invites. */
 export const INVITE_USER_SETUP_FAILED_MESSAGE = COMPANY_USER_ACCOUNT_CREATE_FAILED_MESSAGE;

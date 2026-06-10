@@ -62,6 +62,8 @@ assert(
   "10: onboarding path is authoritative (no token-shape override on canonical routes)",
 );
 assert(companyOnboarding.includes("provisionNewCompanyWorkspace"), "11: company onboarding provisions workspace");
+assert(companyOnboarding.includes("probeCompanyLoginSheet"), "11b: company onboarding finalize probes Users tab login");
+assert(companyOnboarding.includes("COMPANY_ONBOARDING_INTERNAL_SETUP_ERROR_MESSAGE"), "11c: customer-safe internal setup error copy");
 
 // ─── Company Admin login & dashboard ───────────────────────────────────────
 

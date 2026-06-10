@@ -107,6 +107,9 @@ assert(
   "invite flows: path-authoritative canonical routes, legacy token resolver only",
 );
 assert(formScreen.includes("Create workspace"), "company onboarding retains Create workspace CTA");
+const companyOnboarding = read("server/company-onboarding.mjs");
+assert(companyOnboarding.includes("probeCompanyLoginSheet"), "company onboarding finalize binds probeCompanyLoginSheet");
+assert(pkg.scripts["verify:company-setup-finalize"], "verify:company-setup-finalize npm script registered");
 assert(appTsx.includes("PasswordResetConfirm"), "password reset path wired");
 assert(appTsx.includes("GodmodeStartScreen"), "godmode home screen wired");
 assert(appTsx.includes("SchedulesScreen"), "schedules screen wired");

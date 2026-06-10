@@ -6,6 +6,7 @@ import {
   COMPANY_ONBOARDING_INVITE_TYPE,
   MAIN_NEED_OPTIONS,
   createInviteStoreApi,
+  customerProvisionErrorSummary,
   parseCompanyOnboardingUrlToken,
   resolveCompanyOnboardingInviteAccess,
 } from "./company-onboarding.mjs";
@@ -36,7 +37,7 @@ function publicCompanyOnboardingInvite(record) {
     adminEmailDefault: record.contactEmail || "",
     provisionalCompanyName: record.provisionalCompanyName || "",
     provisionStatus: record.provisionStatus,
-    provisionError: record.provisionError,
+    provisionError: customerProvisionErrorSummary(record),
     canRetrySetup: record.status === "setup_failed" || record.provisionStatus === "failed",
   };
 }
