@@ -140,6 +140,8 @@ export type ManagedSchedule = {
   scheduleName: string;
   audits: ManagedScheduleAudit[];
   auditors: string[];
+  assignedUserEmails?: string[];
+  assignedUsers?: Array<{ email: string; name?: string; role?: string; accessLevel?: string }>;
   startDate: string;
   endDate: string;
   updatedAt: string;

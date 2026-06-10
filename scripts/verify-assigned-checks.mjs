@@ -1,0 +1,139 @@
+#!/usr/bin/env node
+/** Assigned-check contract — save, load, dashboard filter, completion roles, legacy fallbacks. */
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  assignedUserEmailsFromSchedule,
+  buildSchedulesTabRows,
+  parseAssignedUsersFromRecord,
+} from "../shared/schedule-save.mjs";
+import {
+  getScheduleAssignedEmails,
+  isScheduleAssignedToUser,
+  isScheduleAssignedToAnyEmail,
+} from "../shared/schedule-assignment.mjs";
+import { canCompleteAudit } from "../shared/schedule-assignees.mjs";
+
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+function assert(condition, message) {
+  if (!condition) {
+    console.error("FAIL:", message);
+    process.exit(1);
+  }
+}
+
+function read(rel) {
+  return fs.readFileSync(path.join(root, rel), "utf8");
+}
+
+const roles = [
+  { email: "admin@testco.test", name: "Co Admin", role: "Admin" },
+  { email: "manager@testco.test", name: "Site Manager", role: "Manager" },
+  { email: "auditor@testco.test", name: "Field Auditor", role: "Auditor" },
+  { email: "user@testco.test", name: "Operator", role: "User" },
+];
+
+const sampleSchedule = {
+  id: "schedule-1",
+  companyFolderId: "company-1",
+  scheduleName: "Daily walk",
+  lifecycle: "Live",
+  startDate: "2026-06-01",
+  endDate: "",
+  audits: [{ auditId: "audit-1", auditName: "Fire walk", frequency: "Daily" }],
+};
+
+/** 1: save writes assignedUserEmails on schedule payload and sheet rows. */
+{
+  const assignedUsers = roles.slice(0, 2).map((user) => ({
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    accessLevel: "operational",
+  }));
+  const payload = {
+    ...sampleSchedule,
+    assignedUserEmails: assignedUsers.map((user) => user.email),
+    assignedUsers,
+    auditors: assignedUsers.map((user) => user.email),
+  };
+  assert(
+    assignedUserEmailsFromSchedule(payload).join(",") === "admin@testco.test,manager@testco.test",
+    "1: save payload exposes assignedUserEmails",
+  );
+  const rows = buildSchedulesTabRows(payload, assignedUsers);
+  assert(rows[0]["Assigned User Emails"] === "admin@testco.test, manager@testco.test", "1b: sheet Assigned User Emails written");
+}
+
+/** 2: load reads assignedUserEmails with legacy fallbacks. */
+{
+  const fromCanonical = parseAssignedUsersFromRecord({
+    "Assigned User Emails": "manager@testco.test",
+    "Assigned User Names": "Site Manager",
+    "Assigned User Roles": "Manager",
+  });
+  assert(fromCanonical[0]?.email === "manager@testco.test", "2: load from Assigned User Emails");
+
+  const legacy = getScheduleAssignedEmails({ auditors: "auditor@testco.test, user@testco.test" });
+  assert(legacy.length === 2 && legacy.includes("auditor@testco.test"), "2b: legacy auditors fallback");
+
+  const fromJson = getScheduleAssignedEmails({
+    assignedUsersJson: JSON.stringify([{ email: "admin@testco.test", role: "Admin" }]),
+  });
+  assert(fromJson[0] === "admin@testco.test", "2c: assignedUsersJson fallback");
+}
+
+/** 3: helper normalizes trim + lowercase; no Auditor-only gate. */
+{
+  const schedule = { assignedUserEmails: " Manager@TestCo.TEST , auditor@testco.test " };
+  assert(isScheduleAssignedToUser(schedule, "  MANAGER@testco.test "), "3: email match is trim+lowercase");
+  assert(!isScheduleAssignedToUser(schedule, "other@testco.test"), "3b: non-assignee rejected");
+  assert(
+    isScheduleAssignedToAnyEmail(schedule, new Set(["AUDITOR@testco.test"])),
+    "3c: Set membership uses normalized emails",
+  );
+}
+
+/** 4: each assignable role can complete; shared module used across app surfaces. */
+for (const user of roles) {
+  assert(canCompleteAudit(user), `4: ${user.role} can complete assigned checks`);
+}
+const appSrc = read("App.tsx");
+const complianceSrc = read("src/utils/complianceSchedule.ts");
+const scheduleSaveSrc = read("shared/schedule-save.mjs");
+assert(appSrc.includes("getScheduleAssignedEmails"), "4b: App uses getScheduleAssignedEmails");
+assert(appSrc.includes("assignedUserEmails"), "4c: App persists assignedUserEmails");
+assert(appSrc.includes("isScheduleAssignedToAnyEmail"), "4d: App filters by assignment helper");
+assert(complianceSrc.includes("getScheduleAssignedEmails"), "4e: compliance schedule uses helper");
+assert(scheduleSaveSrc.includes("getScheduleAssignedEmails"), "4f: schedule save uses helper");
+assert(read("src/permissions.ts").includes("canCompleteAssignedCheck"), "4g: completion permission helper exists");
+
+/** 5: assigned users see schedule; non-selected users do not. */
+{
+  const schedule = {
+    assignedUserEmails: ["manager@testco.test", "auditor@testco.test"],
+    auditors: ["manager@testco.test", "auditor@testco.test"],
+  };
+  assert(isScheduleAssignedToUser(schedule, "manager@testco.test"), "5: selected manager sees schedule");
+  assert(isScheduleAssignedToUser(schedule, "auditor@testco.test"), "5b: selected auditor sees schedule");
+  assert(!isScheduleAssignedToUser(schedule, "user@testco.test"), "5c: non-selected user hidden");
+  assert(!isScheduleAssignedToUser(schedule, "admin@testco.test"), "5d: non-selected admin hidden");
+}
+
+/** 6: active schedules remain visible when due date is upcoming (not only due today). */
+{
+  const complianceSrcText = read("src/utils/complianceSchedule.ts");
+  assert(
+    complianceSrcText.includes("isActiveScheduleRow") && complianceSrcText.includes("nextDueDate.trim()"),
+    "6: upcoming assigned schedules stay visible",
+  );
+}
+
+/** 7: userMatchesScheduleAssignment no longer gates on assignedRole. */
+{
+  assert(!complianceSrc.includes("assignedRole && schedule.assignedRole"), "7: no assignedRole gate on schedule match");
+}
+
+console.log("[verify:assigned-checks] OK: assigned-check contract verified");

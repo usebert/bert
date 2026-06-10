@@ -1,4 +1,8 @@
 import type { ComplianceScheduleRow } from "../types/complianceLoop";
+import {
+  getScheduleAssignedEmails,
+  isScheduleAssignedToAnyEmail,
+} from "./scheduleAssignment";
 
 export function isScheduleDue(nextDueDate: string, today = new Date()): boolean {
   if (!nextDueDate.trim()) {
@@ -15,25 +19,24 @@ export function isScheduleDue(nextDueDate: string, today = new Date()): boolean 
 
 export function userMatchesScheduleAssignment(
   schedule: ComplianceScheduleRow,
-  user: { name: string; username: string; role: string },
+  _user: { name: string; username: string; role: string },
   userEmails: Set<string>,
 ): boolean {
-  if (schedule.assignedRole && schedule.assignedRole.trim().toLowerCase() !== user.role.trim().toLowerCase()) {
-    return false;
+  void _user;
+  const assignedEmails = getScheduleAssignedEmails(schedule);
+  if (assignedEmails.length === 0) {
+    const legacyAssigned = String(schedule.assignedUser || "").trim();
+    if (!legacyAssigned) {
+      return true;
+    }
+    return isScheduleAssignedToAnyEmail({ assignedUserEmails: legacyAssigned }, userEmails);
   }
-  const assignedRaw = schedule.assignedUser.trim();
-  if (!assignedRaw) {
-    return true;
-  }
-  const assignedParts = assignedRaw
-    .split(",")
-    .map((part) => part.trim().toLowerCase())
-    .filter(Boolean);
-  const userName = user.name.trim().toLowerCase();
-  const userUsername = user.username.trim().toLowerCase();
-  return assignedParts.some(
-    (part) => userEmails.has(part) || userName === part || userUsername === part || userUsername.split("@")[0] === part,
-  );
+  return isScheduleAssignedToAnyEmail(schedule, userEmails);
+}
+
+function isActiveScheduleRow(schedule: ComplianceScheduleRow): boolean {
+  const status = (schedule.status || "").trim().toLowerCase();
+  return status !== "paused" && status !== "archived";
 }
 
 export function schedulesForAudit(
@@ -73,7 +76,9 @@ export function auditIsDueFromSchedules(
   if (matching.length === 0) {
     return true;
   }
-  return matching.some((schedule) => isScheduleDue(schedule.nextDueDate));
+  return matching.some(
+    (schedule) => isActiveScheduleRow(schedule) && (isScheduleDue(schedule.nextDueDate) || Boolean(schedule.nextDueDate.trim())),
+  );
 }
 
 export function computeDueHoursFromSchedule(nextDueDate: string): number {
@@ -108,12 +113,15 @@ export function complianceSchedulesFromManaged(
     companyFolderId: string;
     lifecycle: string;
     nextDueAt?: string;
-    auditors: string[];
+    auditors?: string[];
+    assignedUserEmails?: string[];
+    assignedUsers?: Array<{ email?: string }>;
     audits: Array<{ auditId: string; auditName: string; frequency: string }>;
   }>,
 ): ComplianceScheduleRow[] {
-  return managed.flatMap((schedule) =>
-    schedule.audits.map((audit) => ({
+  return managed.flatMap((schedule) => {
+    const assignedEmails = getScheduleAssignedEmails(schedule);
+    return schedule.audits.map((audit) => ({
       scheduleId: schedule.id,
       areaId: "",
       auditId: audit.auditId,
@@ -121,9 +129,10 @@ export function complianceSchedulesFromManaged(
       frequency: audit.frequency,
       nextDueDate: schedule.nextDueAt || "",
       assignedRole: "",
-      assignedUser: schedule.auditors.join(", "),
+      assignedUser: assignedEmails.join(", "),
+      assignedUserEmails: assignedEmails,
       companyFolderId: schedule.companyFolderId,
       status: schedule.lifecycle === "Archived" ? "archived" : "active",
-    })),
-  );
+    }));
+  });
 }

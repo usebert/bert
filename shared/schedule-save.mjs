@@ -2,6 +2,7 @@
  * Schedule save helpers — Schedules tab columns, assignedUsers payload, backward-compat load.
  */
 import { inviteAccessLevelForRole } from "./schedule-assignees.mjs";
+import { getScheduleAssignedEmails } from "./schedule-assignment.mjs";
 
 export const SCHEDULES_TAB = "Schedules";
 
@@ -98,17 +99,25 @@ export function assignedUsersFromSchedule(schedule = {}) {
     return schedule.assignedUsers.map((user) => normalizeAssignedUser(user)).filter(Boolean);
   }
 
-  const legacyValues = Array.isArray(schedule.auditors) ? schedule.auditors : [];
-  return legacyValues
-    .map((value) =>
-      normalizeAssignedUser({
-        email: value,
-        name: String(value).split("@")[0] || value,
-        role: "User",
-        accessLevel: "operational",
-      }),
-    )
-    .filter(Boolean);
+  const emails = getScheduleAssignedEmails(schedule);
+  if (emails.length > 0) {
+    return emails
+      .map((email) =>
+        normalizeAssignedUser({
+          email,
+          name: email.split("@")[0] || email,
+          role: "User",
+          accessLevel: "operational",
+        }),
+      )
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+export function assignedUserEmailsFromSchedule(schedule = {}) {
+  return getScheduleAssignedEmails(schedule);
 }
 
 export function formatDueWindow(audit = {}) {
@@ -130,7 +139,7 @@ export function parseDueWindow(value) {
 
 export function buildSchedulesTabRows(schedule = {}, assignedUsers = []) {
   const users = assignedUsers.length > 0 ? assignedUsers : assignedUsersFromSchedule(schedule);
-  const emails = users.map((user) => user.email).join(", ");
+  const emails = assignedUserEmailsFromSchedule({ ...schedule, assignedUsers: users }).join(", ");
   const names = users.map((user) => user.name).join(", ");
   const roles = users.map((user) => user.role).join(", ");
   const continuous = !String(schedule.endDate || "").trim();

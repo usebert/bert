@@ -252,6 +252,11 @@ export function canCompleteAuditAsAuditor(role: Role) {
   return role === "Auditor";
 }
 
+/** Any assignable company role may complete a check they are scheduled on. */
+export function canCompleteAssignedCheck(role: Role) {
+  return role === "Auditor" || role === "Admin" || role === "Manager";
+}
+
 /** Manager/Admin completion & sign-off path — non-Auditor roles only. */
 export function canSubmitAuditForReview(role: Role) {
   return canAccessAuditsCentre(role);

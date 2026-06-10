@@ -270,11 +270,16 @@ assert(coreRoutes.includes("queueScheduleSyncJob") || scheduleSaveService.includ
   assert(preferred[0]["Schedule ID"] === "new", "G8: Schedules tab preferred over legacy Schedule tab");
 }
 assert(appTsx.includes("assignedUsers") && appTsx.includes("/schedules"), "G9: App saves schedules with assignedUsers via API");
+assert(appTsx.includes("assignedUserEmails"), "G10: App saves assignedUserEmails on schedules");
 
 // ─── H. Complete check — assigned user sees, completes, submits, dashboard ───
 
 assert(appTsx.includes("assignedAudits"), "H1: App computes assigned audits for user");
-assert(appTsx.includes("canCompleteAuditAsAuditor"), "H2: check completion gated to assignable roles");
+assert(
+  appTsx.includes("isScheduleAssignedToAnyEmail") && appTsx.includes("getScheduleAssignedEmails"),
+  "H2: assigned audits filtered via shared assignment helpers",
+);
+assert(read("src/permissions.ts").includes("canCompleteAssignedCheck"), "H2b: assigned completion roles supported");
 assert(appTsx.includes("CheckCompletionWizard"), "H3: check completion wizard wired");
 assert(appTsx.includes("completeAuditModeFlow"), "H4: submit handler exists");
 assert(checkWizard.includes("Review") && checkReview.includes("Submit check"), "H5: wizard review + submit UI");

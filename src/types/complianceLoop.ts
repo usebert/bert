@@ -10,6 +10,7 @@ export type ComplianceScheduleRow = {
   nextDueDate: string;
   assignedRole: string;
   assignedUser: string;
+  assignedUserEmails?: string[];
   companyFolderId: string;
   status?: string;
 };

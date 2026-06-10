@@ -263,7 +263,6 @@ import {
 import {
   buildAssignedUsersForSave,
   formatScheduleSaveError,
-  parseAuditorEmailsFromSheetRecord,
   parseDueWindowFromSheet,
   scheduleSheetRecordsPreferSchedulesTab,
   type ScheduleAssignedUser,
@@ -297,6 +296,8 @@ import {
   userMatchesScheduleAssignment,
   complianceSchedulesFromManaged,
 } from "./src/utils/complianceSchedule";
+import { getScheduleAssignedEmails, isScheduleAssignedToAnyEmail } from "./src/utils/scheduleAssignment";
+import { parseAssignedUsersFromSheetRecord } from "./src/utils/scheduleSave";
 import { buildAuditSubmissionBundle, parseAuditFindingsFromSheet } from "./src/utils/auditSheetRows";
 import {
   applyAcceptedSuggestion,
@@ -705,6 +706,8 @@ type ManagedSchedule = {
   scheduleName: string;
   audits: ManagedScheduleAudit[];
   auditors: string[];
+  assignedUserEmails?: string[];
+  assignedUsers?: ScheduleAssignedUser[];
   startDate: string;
   endDate: string;
   updatedAt: string;
@@ -2603,6 +2606,9 @@ function parseManagedSchedules(records: Record<string, string>[], companyFolderI
       return;
     }
 
+    const assignedUsers = parseAssignedUsersFromSheetRecord(record);
+    const assignedUserEmails = assignedUsers.map((user: ScheduleAssignedUser) => user.email);
+
     grouped.set(scheduleId, {
       id: scheduleId,
       rootId: extractByKeys(record, ["root id"]) || scheduleId,
@@ -2613,7 +2619,9 @@ function parseManagedSchedules(records: Record<string, string>[], companyFolderI
       companyFolderId: rowCompanyFolderId,
       scheduleName: extractByKeys(record, ["schedule name", "name"]) || "Unnamed schedule",
       audits: [audit],
-      auditors: parseAuditorEmailsFromSheetRecord(record),
+      assignedUsers,
+      assignedUserEmails,
+      auditors: assignedUserEmails,
       startDate: extractByKeys(record, ["start date"]),
       endDate: extractByKeys(record, ["end date"]),
       updatedAt: extractByKeys(record, ["updated at", "updated"]),
@@ -4823,11 +4831,32 @@ function App() {
     if (!currentUser) {
       return siteScopedAudits.filter((audit) => !isAuditCompleted(audit));
     }
+    const userEmails = resolveCurrentUserReportEmails(currentUser, companyReportUsers);
+    const liveManagedSchedules = managedSchedules.filter(
+      (schedule) =>
+        schedule.lifecycle === "Live" &&
+        (!selectedFolderId || schedule.companyFolderId === selectedFolderId),
+    );
+
+    const isAuditAssignedToCurrentUser = (auditId: string, auditName: string) => {
+      const normalizedName = auditName.trim().toLowerCase();
+      const matchingSchedules = liveManagedSchedules.filter((schedule) =>
+        schedule.audits.some(
+          (scheduleAudit) =>
+            scheduleAudit.auditId === auditId ||
+            scheduleAudit.auditName.trim().toLowerCase() === normalizedName,
+        ),
+      );
+      if (matchingSchedules.length === 0) {
+        return false;
+      }
+      return matchingSchedules.some((schedule) => isScheduleAssignedToAnyEmail(schedule, userEmails));
+    };
+
     const applyScheduleDue = (items: Audit[]) => {
       if (!selectedFolderId || complianceSchedules.length === 0) {
         return items;
       }
-      const userEmails = resolveCurrentUserReportEmails(currentUser, companyReportUsers);
       return items
         .filter((audit) => {
           const areaId =
@@ -4848,10 +4877,9 @@ function App() {
           if (allowedSchedules.length === 0) {
             return false;
           }
-          return allowedSchedules.some((schedule) => {
-            const nextDue = schedule.nextDueDate || nearestNextDueDate(audit.id, audit.name, areaId, complianceSchedules, selectedFolderId);
-            return auditIsDueFromSchedules(audit.id, audit.name, areaId, [schedule], selectedFolderId);
-          });
+          return allowedSchedules.some((schedule) =>
+            auditIsDueFromSchedules(audit.id, audit.name, areaId, [schedule], selectedFolderId),
+          );
         })
         .map((audit) => {
           const areaId =
@@ -4868,11 +4896,10 @@ function App() {
           };
         });
     };
-    if (canAccessAdmin(currentUser.role) || currentUser.role === "Manager") {
-      return applyScheduleDue(siteScopedAudits.filter((audit) => !isAuditCompleted(audit)));
-    }
+
     const base = siteScopedAudits.filter((audit) => {
       if (isAuditCompleted(audit)) return false;
+      if (isAuditAssignedToCurrentUser(audit.id, audit.name)) return true;
       if (audit.owner === currentUser.name) return true;
       if (currentUserAuditAccess.allowedAuditIds.has(audit.id)) return true;
       if (currentUserAuditAccess.allowedAuditNames.has(audit.name)) return true;
@@ -4888,7 +4915,9 @@ function App() {
       resolveAuditAreaId({ siteArea }, sites, areaRestrictionsEnabled) || SINGLE_WORKSPACE_AREA_ID;
     const extras: Audit[] = [];
     availableScheduleAudits.forEach((option) => {
+      const hasScheduleAssignment = isAuditAssignedToCurrentUser(option.id, option.name);
       const hasAccess =
+        hasScheduleAssignment ||
         currentUserAuditAccess.allowedAuditIds.has(option.id) ||
         currentUserAuditAccess.allowedAuditNames.has(option.name);
       if (!hasAccess) {
@@ -4933,6 +4962,7 @@ function App() {
     complianceSchedules,
     selectedFolderId,
     companyReportUsers,
+    managedSchedules,
   ]);
 
   const dashboardNextActionInput = useMemo((): DashboardSummaryForNextAction | null => {
@@ -5209,7 +5239,7 @@ function App() {
           ),
         );
         const scheduledAssignments = matchingSchedules.filter((schedule) =>
-          schedule.auditors.some((auditor) => matchesIdentity(identityTokens, auditor)),
+          getScheduleAssignedEmails(schedule).some((email: string) => matchesIdentity(identityTokens, email)),
         );
         const directAuditAssignments = audits.filter(
           (audit) =>
@@ -11618,6 +11648,7 @@ function App() {
       scheduleName: trimmedName,
       audits: scheduleDraftAudits,
       auditors: resolvedAuditors,
+      assignedUserEmails: resolvedAuditors,
       assignedUsers,
       startDate: scheduleDraftStartDate,
       endDate: resolvedEndDate,
@@ -11772,10 +11803,12 @@ function App() {
         "assignedUsers" in schedule && Array.isArray((schedule as { assignedUsers?: ScheduleAssignedUser[] }).assignedUsers)
           ? (schedule as { assignedUsers: ScheduleAssignedUser[] }).assignedUsers
           : buildAssignedUsersForSave(schedule.auditors, availableScheduleAssignees);
+      const assignedUserEmails = assignedUsers.map((user) => user.email);
       return {
         ...schedule,
         assignedUsers,
-        auditors: assignedUsers.map((user) => user.email),
+        assignedUserEmails,
+        auditors: assignedUserEmails,
       };
     });
 

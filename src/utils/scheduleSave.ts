@@ -1,5 +1,6 @@
 import type { ScheduleAssigneeOption } from "./scheduleAssignees";
 import { normalizeScheduleValue } from "./scheduleAssignees";
+import { getScheduleAssignedEmails } from "./scheduleAssignment";
 
 export type ScheduleAssignedUser = {
   email: string;
@@ -57,23 +58,41 @@ export function buildAssignedUsersForSave(
 }
 
 export function parseAuditorEmailsFromSheetRecord(record: Record<string, string>): string[] {
-  const assignedEmails = extractSheetField(record, ["assigned user emails"]);
-  if (assignedEmails) {
-    return assignedEmails
+  return getScheduleAssignedEmails({
+    assignedUserEmails: extractSheetField(record, ["assigned user emails"]),
+    auditorEmails: extractSheetField(record, ["auditor emails"]),
+    auditors: extractSheetField(record, ["auditors", "auditor"]),
+    assignedAuditors: extractSheetField(record, ["assigned auditors"]),
+  });
+}
+
+export function parseAssignedUsersFromSheetRecord(record: Record<string, string>): ScheduleAssignedUser[] {
+  const emailsRaw = extractSheetField(record, ["assigned user emails"]);
+  if (emailsRaw) {
+    const emails = emailsRaw
       .split(",")
       .map((entry) => entry.trim())
       .filter(Boolean);
+    const names = extractSheetField(record, ["assigned user names"])
+      .split(",")
+      .map((entry) => entry.trim());
+    const roles = extractSheetField(record, ["assigned user roles"])
+      .split(",")
+      .map((entry) => entry.trim());
+    return emails.map((email, index) => ({
+      email: email.trim().toLowerCase(),
+      name: names[index] || email.split("@")[0] || email,
+      role: roles[index] || "User",
+      accessLevel: accessLevelForRole(roles[index] || "User"),
+    }));
   }
 
-  const legacy = extractSheetField(record, ["auditors", "auditor emails", "assigned auditors", "auditor"]);
-  if (!legacy) {
-    return [];
-  }
-
-  return legacy
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
+  return parseAuditorEmailsFromSheetRecord(record).map((email) => ({
+    email: email.trim().toLowerCase(),
+    name: email.split("@")[0] || email,
+    role: "User",
+    accessLevel: "operational",
+  }));
 }
 
 export function parseDueWindowFromSheet(value: string): { liveTime: string; completionHours: number } {
