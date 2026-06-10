@@ -22,6 +22,7 @@ import {
   getCanonicalCompanyStatus,
   isCompanyRegistryLive,
 } from "../shared/company-invite-permissions.mjs";
+import { assertCompanyInviteReady } from "./company-invite-readiness.mjs";
 
 export const COMPANY_ONBOARDING_INVITE_TYPE = "COMPANY_ONBOARDING";
 
@@ -712,13 +713,17 @@ export async function assertCompanyWorkspaceAcceptsUserInvite(
   const registryRecord = resolvedCompanyId
     ? await getCanonicalCompanyRegistryRecord(auth, deps.registryDeps || deps, resolvedCompanyId).catch(() => null)
     : null;
-  const registryStatus = getCanonicalCompanyStatus(registryRecord || {});
-  if (!isCompanyRegistryLive({ status: registryStatus, registryStatus })) {
+  const inviteReady = await assertCompanyInviteReady(auth, deps.registryDeps || deps, resolvedCompanyId, {
+    companyId: resolvedCompanyId,
+    companyFolderId: folderId || resolvedCompanyId,
+    masterSheetId: sheetId,
+  });
+  if (!inviteReady.ok) {
     return {
       ok: false,
-      code: "COMPANY_NOT_LIVE",
-      httpStatus: 409,
-      message: COMPANY_NOT_LIVE_INVITE_MESSAGE,
+      code: inviteReady.code || "COMPANY_NOT_LIVE",
+      httpStatus: inviteReady.httpStatus || 409,
+      message: inviteReady.message || COMPANY_NOT_LIVE_INVITE_MESSAGE,
     };
   }
   if (inviteRole === "Admin") {

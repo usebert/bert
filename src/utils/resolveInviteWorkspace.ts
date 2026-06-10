@@ -3,7 +3,6 @@ import { canInviteUsers as canOpenInviteWorkspace } from "../permissions";
 import {
   INVITE_ROLE_FORBIDDEN_MESSAGE,
   isArchiveOrNonLiveWorkspaceName,
-  isCompanyRegistryLive,
   LIVE_WORKSPACE_INVITE_REQUIRED_MESSAGE,
 } from "./companyWorkspaceInvite";
 
@@ -60,12 +59,7 @@ function resolveCompanyActorInviteWorkspace(input: ResolveInviteWorkspaceInput):
     return { ok: false, message: ADMIN_INVITE_NO_COMPANY_MESSAGE };
   }
 
-  const registryStatus = String(ctx.registryStatus || "").trim();
-  if (
-    ctx.workspaceSetupComplete === false ||
-    !isCompanyRegistryLive({ status: registryStatus, registryStatus }) ||
-    isArchiveOrNonLiveWorkspaceName(companyName)
-  ) {
+  if (isArchiveOrNonLiveWorkspaceName(companyName)) {
     return { ok: false, message: ADMIN_INVITE_INCOMPLETE_SETUP_MESSAGE };
   }
 

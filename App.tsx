@@ -7878,20 +7878,6 @@ function App() {
       return;
     }
     if (
-      currentUser.role !== "Master" &&
-      !canInviteCompanyUsers(
-        { role: currentUser.role, accessLevel: currentUser.accessLevel },
-        {
-          status: activeCompanyContext.registryStatus,
-          registryStatus: activeCompanyContext.registryStatus,
-        },
-      )
-    ) {
-      pushToast("Company not live", COMPANY_NOT_LIVE_INVITE_MESSAGE, "warning");
-      return;
-    }
-
-    if (
       !canCreateCompanyInvite(invitePermissionSession, workspace.companyFolderId, inviteRole)
     ) {
       pushToast(

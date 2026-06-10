@@ -12,6 +12,7 @@ import {
   buildAuditorInviteBody,
   resolveCompanyUserInviteAccess,
 } from "./invite-service.mjs";
+import { resolveCompanyInviteReadiness } from "./company-invite-readiness.mjs";
 import { resolveCompanyById } from "./company-registry-service.mjs";
 import { getScheduleAssigneesForCompany } from "./schedule-assignee-service.mjs";
 import {
@@ -73,6 +74,67 @@ export function installCoreWorkflowRoutes(app, deps) {
     google,
   };
 
+  app.get("/api/companies/:companyId/invite-readiness", async (req, res) => {
+    const companyId = String(req.params?.companyId || "").trim();
+    if (!companyId) {
+      return res.status(400).json({ ok: false, error: "Company ID is required." });
+    }
+
+    const actor = parseBertActorFromRequest(req);
+    if (!actor) {
+      return res.status(403).json({
+        ok: false,
+        code: "FORBIDDEN_ROLE",
+        error: INVITE_ROLE_FORBIDDEN_MESSAGE,
+      });
+    }
+
+    const permissionSession = buildInvitePermissionSession(actor);
+    const isGodmode = isGodmodeInviteSession(permissionSession);
+    const isCompanyActor = isCompanyInviteActor(permissionSession);
+    if (!isGodmode && !isCompanyActor) {
+      return res.status(403).json({
+        ok: false,
+        code: "FORBIDDEN_ROLE",
+        error: INVITE_ROLE_FORBIDDEN_MESSAGE,
+      });
+    }
+
+    const authed = getAuthedClient();
+    const masterSheetId = String(req.query.masterSheetId || req.query.sheetId || actor.masterSheetId || "").trim();
+    const context = {
+      companyId,
+      companyFolderId: String(req.query.companyFolderId || actor.companyFolderId || actor.companyId || companyId).trim(),
+      masterSheetId,
+      registryStatus: String(req.query.registryStatus || "").trim(),
+      workspaceSetupComplete:
+        req.query.workspaceSetupComplete === "true"
+          ? true
+          : req.query.workspaceSetupComplete === "false"
+            ? false
+            : undefined,
+      godmodeUsersTabWritable: req.query.godmodeUsersTabWritable === "true" ? true : undefined,
+    };
+
+    try {
+      const readiness = await resolveCompanyInviteReadiness(authed, registryDeps, companyId, context);
+      return res.json({
+        ok: readiness.ok !== false,
+        canInvite: readiness.canInvite,
+        companyStatus: readiness.companyStatus,
+        source: readiness.source,
+        userMessage: readiness.userMessage,
+        reasonCode: readiness.reasonCode,
+        nextAction: readiness.nextAction,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Unable to evaluate invite readiness.",
+      });
+    }
+  });
+
   app.post(
     "/api/companies/:companyId/invites/auditor",
     requireGoogleWorkspaceEnv,
@@ -117,7 +179,11 @@ export function installCoreWorkflowRoutes(app, deps) {
       }
 
       if (!isGodmode && authed) {
-        const liveGate = await assertCompanyLiveForInvite(authed, registryDeps, companyId);
+        const liveGate = await assertCompanyLiveForInvite(authed, registryDeps, companyId, {
+          companyId,
+          companyFolderId: String(req.body?.companyFolderId || actor.companyFolderId || companyId).trim(),
+          masterSheetId: String(req.body?.masterSheetId || actor.masterSheetId || "").trim(),
+        });
         if (!liveGate.ok) {
           return res.status(liveGate.httpStatus).json({
             ok: false,

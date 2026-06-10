@@ -41,7 +41,7 @@ function resolveCompanyActorInviteWorkspace(input) {
     return { ok: false, message: ADMIN_INVITE_NO_COMPANY_MESSAGE };
   }
 
-  if (ctx.workspaceSetupComplete === false || !isCompanyRegistryLive({ status: registryStatus })) {
+  if (ctx.workspaceSetupComplete === false) {
     return { ok: false, message: ADMIN_INVITE_INCOMPLETE_SETUP_MESSAGE };
   }
 
@@ -129,7 +129,21 @@ const adminNotLive = resolveInviteWorkspace({
     workspaceSetupComplete: false,
   },
 });
-assert(!adminNotLive.ok, "Admin blocked when registry is not Live");
+assert(!adminNotLive.ok, "Admin blocked when workspace setup is explicitly incomplete");
+
+const adminLinkedWithoutRegistryLive = resolveInviteWorkspace({
+  currentUser: { role: "Admin" },
+  activeCompany: { id: "own-folder", name: "Acme", masterSheetId: "sheet-own" },
+  companyContext: {
+    companyFolderId: "own-folder",
+    masterSheetId: "sheet-own",
+    registryStatus: "Setup in progress",
+  },
+});
+assert(
+  adminLinkedWithoutRegistryLive.ok && adminLinkedWithoutRegistryLive.companyFolderId === "own-folder",
+  "Admin workspace resolves when linked; invite readiness is checked separately",
+);
 
 const masterNeedsSelection = resolveInviteWorkspace({
   currentUser: { role: "Master" },

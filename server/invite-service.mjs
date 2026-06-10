@@ -8,9 +8,9 @@ import {
   canViewInvite,
   COMPANY_USER_INVITE_TYPE,
   isCompanyInviteActor,
-  isCompanyRegistryLive,
   isGodmodeInviteSession,
 } from "../shared/company-invite-permissions.mjs";
+import { assertCompanyInviteReady } from "./company-invite-readiness.mjs";
 import { resolveCompanyById } from "./company-registry-service.mjs";
 import { resolveCompanyUserInviteTokenAccess } from "./invite-routes.mjs";
 
@@ -24,17 +24,8 @@ export {
   isGodmodeInviteSession,
 };
 
-export async function assertCompanyLiveForInvite(auth, deps, companyId) {
-  const record = await resolveCompanyById(auth, deps, companyId);
-  if (!record || !isCompanyRegistryLive(record)) {
-    return {
-      ok: false,
-      code: "COMPANY_NOT_LIVE",
-      message: "This company is not live yet. Finish company onboarding before inviting users.",
-      httpStatus: 409,
-    };
-  }
-  return { ok: true, record };
+export async function assertCompanyLiveForInvite(auth, deps, companyId, context = {}) {
+  return assertCompanyInviteReady(auth, deps, companyId, context);
 }
 
 export function resolveCompanyUserInviteAccess(record, tokenId) {

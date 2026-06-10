@@ -1,7 +1,7 @@
 /**
  * Canonical company registry lookups and LIVE persistence — main sheet + fallback JSON.
  */
-import { isCompanyRegistryLive } from "../shared/company-invite-permissions.mjs";
+import { canInviteUsersForCompanyFromData } from "../shared/company-invite-readiness.mjs";
 import { makeCompanyUsable } from "./godmode-registry-actions.mjs";
 import {
   findCompanyWorkspaceRegistryRecordInMap,
@@ -45,7 +45,7 @@ export async function persistCompanyUsable(auth, deps, workspace = {}) {
 }
 
 export function isCompanyUsable(record = {}) {
-  return isCompanyRegistryLive(record);
+  return canInviteUsersForCompanyFromData({ record });
 }
 
 export async function getCompanyRegistryRecord(auth, deps, companyId) {

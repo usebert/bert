@@ -190,7 +190,9 @@ assert(serverMain.includes('status: "ACTIVE"') || serverMain.includes('status: "
 assert(serverMain.includes("buildCompanySessionPayload") && serverMain.includes("handleAppInviteComplete"), "E6: invite completion sets session");
 assert(companyUsers.includes("isPasswordHash"), "E7: password hash validation helper");
 assert(!coreRoutes.includes("PasswordHash:"), "E8: invite routes do not return PasswordHash");
-assert(inviteService.includes("assertCompanyLiveForInvite"), "E9: invite service gates non-Live companies");
+assert(inviteService.includes("assertCompanyInviteReady"), "E9: invite service gates non-usable companies");
+assert(read("server/core-workflow-routes.mjs").includes("/api/companies/:companyId/invite-readiness"), "E9b: invite-readiness endpoint");
+assert(pkg.scripts["verify:invite-readiness"], "E9c: verify:invite-readiness npm script");
 const inviteCompletionScreen = read("src/screens/AppHostedOnboardingCompletion.tsx");
 assert(inviteCompletionScreen.includes("Create account"), "E10: company-user invite button is Create account");
 assert(!inviteCompletionScreen.includes("Create workspace"), "E11: company-user invite must not show Create workspace");

@@ -276,6 +276,17 @@ async function main() {
   assertNoPasswordHash(managerSession.json, "manager session");
   note("manager-session", { email: managerSession.json?.user?.email });
 
+  const inviteReadiness = await managerClient.request(
+    `/api/companies/${encodeURIComponent(resolvedCompanyId)}/invite-readiness?masterSheetId=${encodeURIComponent(resolvedSheetId)}&companyFolderId=${encodeURIComponent(resolvedCompanyId)}`,
+  );
+  assert(inviteReadiness.status === 200 && inviteReadiness.json?.ok === true, "12b: invite-readiness returns ok", inviteReadiness.json);
+  assert(inviteReadiness.json?.canInvite === true, "12c: usable company reports canInvite true", inviteReadiness.json);
+  note("invite-readiness", {
+    canInvite: inviteReadiness.json?.canInvite,
+    source: inviteReadiness.json?.source,
+    companyStatus: inviteReadiness.json?.companyStatus,
+  });
+
   // ─── Schedule assignees ───────────────────────────────────────────────────
   const assigneesRes = await adminClient.request(
     `/api/companies/${encodeURIComponent(resolvedCompanyId)}/schedule-assignees?masterSheetId=${encodeURIComponent(resolvedSheetId)}`,

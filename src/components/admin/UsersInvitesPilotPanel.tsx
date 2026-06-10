@@ -2,14 +2,12 @@ import { useEffect, useMemo, useState, type ComponentType } from "react";
 import type { Role } from "../../permissions";
 import { getRoleDisplayName } from "../../permissions";
 import { canShowTechnicalUi } from "../../utils/uxDeclutter";
-import { apiUrl } from "../../config/apiBase";
+import { fetchCompanyInviteReadiness, type CompanyInviteReadiness } from "../../services/companyInviteReadinessService";
 import {
-  canInviteCompanyUsers,
   canRevokeInvite,
   canViewInvite,
   COMPANY_NOT_LIVE_INVITE_MESSAGE,
   COMPANY_USER_INVITE_TYPE,
-  getCanonicalCompanyStatus,
   GODMODE_USERS_TAB_NOT_READY_MESSAGE,
   INVITE_MANAGE_AUDITOR_ONLY_MESSAGE,
   INVITE_ROLE_FORBIDDEN_MESSAGE,
@@ -450,8 +448,8 @@ export function UsersInvitesPilotPanel({
   ...healthProps
 }: UsersInvitesPilotPanelProps) {
   const [showHealthSync, setShowHealthSync] = useState(false);
-  const [freshRegistryStatus, setFreshRegistryStatus] = useState("");
-  const [registryStatusLoading, setRegistryStatusLoading] = useState(false);
+  const [inviteReadiness, setInviteReadiness] = useState<CompanyInviteReadiness | null>(null);
+  const [inviteReadinessLoading, setInviteReadinessLoading] = useState(false);
   const isMasterActor = currentUser.role === "Master";
   const invitePermissionSession = {
     kind: isMasterActor ? "master" : "company",
@@ -473,64 +471,65 @@ export function UsersInvitesPilotPanel({
   });
   const canManageInvite = (invite: UserInvite) => canRevokeInvite(invitePermissionSession, inviteRecordScope(invite));
   const canSeeInvite = (invite: UserInvite) => canViewInvite(invitePermissionSession, inviteRecordScope(invite));
-  const effectiveRegistryStatus = getCanonicalCompanyStatus({
-    status: freshRegistryStatus || companyRegistryStatus,
-    registryStatus: freshRegistryStatus || companyRegistryStatus,
-  });
+  const showInviteForm = isMasterActor || isCompanyInviteActorRole;
+  const masterSheetId = String(
+    companySheetSync?.sheetId ||
+      healthProps.selectedFolder?.responseSheetId ||
+      "",
+  ).trim();
+  const godmodeUsersTabWritable = isMasterActor
+    ? isCompanyUsersTabWritable({
+        companySheetSync: companySheetSync ?? undefined,
+        workspaceValidation,
+      })
+    : false;
 
   useEffect(() => {
-    if (isMasterActor) {
-      setFreshRegistryStatus("");
+    if (!companyFolderId || !showInviteForm) {
+      setInviteReadiness(null);
       return;
     }
     let cancelled = false;
-    setRegistryStatusLoading(true);
+    setInviteReadinessLoading(true);
     void (async () => {
       try {
-        const response = await fetch(apiUrl("/api/company/registry-status"), { credentials: "include" });
-        const payload = (await response.json()) as {
-          ok?: boolean;
-          registryStatus?: string;
-          status?: string;
-        };
+        const readiness = await fetchCompanyInviteReadiness({
+          companyId: companyFolderId,
+          companyFolderId,
+          masterSheetId,
+          registryStatus: companyRegistryStatus,
+          workspaceSetupComplete,
+          godmodeUsersTabWritable: isMasterActor ? godmodeUsersTabWritable : undefined,
+        });
         if (cancelled) return;
-        if (response.ok && payload.ok) {
-          setFreshRegistryStatus(
-            getCanonicalCompanyStatus({
-              status: payload.status,
-              registryStatus: payload.registryStatus,
-            }),
-          );
-        }
+        setInviteReadiness(readiness);
       } catch {
         if (!cancelled) {
-          setFreshRegistryStatus("");
+          setInviteReadiness(null);
         }
       } finally {
         if (!cancelled) {
-          setRegistryStatusLoading(false);
+          setInviteReadinessLoading(false);
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [isMasterActor, currentUser.username]);
+  }, [
+    companyFolderId,
+    companyRegistryStatus,
+    godmodeUsersTabWritable,
+    isMasterActor,
+    masterSheetId,
+    workspaceSetupComplete,
+    currentUser.username,
+  ]);
 
-  const companyLiveForInvites = isMasterActor
-    ? isCompanyUsersTabWritable({
-        companySheetSync: companySheetSync ?? undefined,
-        workspaceValidation,
-      })
-    : canInviteCompanyUsers(
-        { role: currentUser.role, accessLevel: currentUser.accessLevel },
-        { status: effectiveRegistryStatus, registryStatus: effectiveRegistryStatus },
-      );
-  const inviteBlockedMessage = isMasterActor
-    ? GODMODE_USERS_TAB_NOT_READY_MESSAGE
-    : COMPANY_NOT_LIVE_INVITE_MESSAGE;
-  const showInviteForm = isMasterActor || isCompanyInviteActorRole;
-  const inviteFormEnabled = companyLiveForInvites;
+  const inviteFormEnabled = inviteReadiness?.canInvite === true;
+  const inviteBlockedMessage =
+    inviteReadiness?.userMessage ||
+    (isMasterActor ? GODMODE_USERS_TAB_NOT_READY_MESSAGE : COMPANY_NOT_LIVE_INVITE_MESSAGE);
   const { pendingInvites, activeInvites } = useMemo(() => {
     const pending: UserInvite[] = [];
     const active: UserInvite[] = [];
@@ -730,9 +729,11 @@ export function UsersInvitesPilotPanel({
           </p>
           {canShowTechnicalUi(currentUser.role) ? (
             <p className="mt-2 text-xs text-slate-500">
-              Signed in as {getRoleDisplayName(currentUser.role)} • registry:{" "}
-              {registryStatusLoading ? "refreshing…" : effectiveRegistryStatus || "not live"} • sync:{" "}
-              {healthProps.syncState}
+              Signed in as {getRoleDisplayName(currentUser.role)} • readiness:{" "}
+              {inviteReadinessLoading
+                ? "refreshing…"
+                : inviteReadiness?.companyStatus || inviteReadiness?.source || "not usable"}{" "}
+              • sync: {healthProps.syncState}
             </p>
           ) : (
             <p className="mt-2 text-xs text-slate-500">Signed in as {getRoleDisplayName(currentUser.role)}</p>

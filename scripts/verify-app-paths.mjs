@@ -147,6 +147,7 @@ assert(canCreateCompanyInvite(managerSession, ownCompany, "Auditor"), "Manager c
 assert(!canCreateCompanyInvite(adminSession, ownCompany, "Manager"), "Admin cannot invite Manager");
 assert(!canCreateCompanyInvite(managerSession, ownCompany, "Admin"), "Manager cannot invite Admin");
 assert(canInviteCompanyUsers(managerSession, { status: "Live" }), "Manager can invite when Live");
+assert(read("server/core-workflow-routes.mjs").includes("/api/companies/:companyId/invite-readiness"), "Manager invite readiness endpoint");
 
 for (const role of ["Admin", "Manager", "Auditor", "User"]) {
   assert(canCompleteAudit({ email: `${role}@test.com`, role }), `${role} can complete assigned checks`);

@@ -181,7 +181,7 @@ assert(INVITE_MANAGE_AUDITOR_ONLY_MESSAGE.includes("Auditor"), "16b: manage mess
 const registry = read("server/company-workspace-registry.mjs");
 assert(registry.includes("getCanonicalCompanyStatus"), "17: registry uses canonical status helper");
 assert(read("server/godmode-registry-actions.mjs").includes("/api/godmode/companies/:companyId/invite-user"), "17b: godmode invite-user route");
-assert(usersPanel.includes("/api/company/registry-status") || usersPanel.includes("freshRegistryStatus"), "17c: invite panel fetches fresh registry status");
+assert(usersPanel.includes("fetchCompanyInviteReadiness"), "17c: invite panel uses invite-readiness endpoint");
 
 /** 18: Permissions module exports. */
 const permissions = read("src/permissions.ts");

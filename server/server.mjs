@@ -96,6 +96,7 @@ import { installGodmodeRegistryActionRoutes, relinkCompanyRegistryForWorkspace }
 import { createBackgroundJobsService } from "./background-jobs-service.mjs";
 import { BACKGROUND_INVITE_CREATED_MESSAGE } from "../shared/background-jobs.mjs";
 import { installCoreWorkflowRoutes } from "./core-workflow-routes.mjs";
+import { assertCompanyInviteReady } from "./company-invite-readiness.mjs";
 import { enrichCompanyContextFromRegistry as enrichCompanyContextFromRegistryService } from "./company-context-service.mjs";
 import {
   inspectConfiguredWorkspaceRoot,
@@ -3342,26 +3343,27 @@ async function assertCompanyAdminWorkspaceLive(auth, actor) {
   if (!actor || actor.kind !== "company" || !isCompanyAdminInviteRole(actor)) {
     return { ok: true };
   }
-  const companyId = String(actor.companyId || "").trim();
+  const companyId = String(actor.companyId || actor.companyFolderId || "").trim();
   const masterSheetId = String(actor.masterSheetId || "").trim();
-  if (companyId) {
-    await ensureCompanyLiveIfReady(auth, getCompanyWorkspaceRegistryDeps(), {
-      companyId,
-      companyFolderId: companyId,
-      checks: {
-        rootFolderId: companyId,
-        masterSheetId,
-        skipHealthCheck: true,
-      },
-    }).catch(() => {});
-  }
-  const registryStatus = await resolveCompanyRegistryStatusForActor(auth, actor);
-  if (!isCompanyRegistryLive({ status: registryStatus, registryStatus })) {
+  if (!companyId) {
     return {
       ok: false,
       httpStatus: 409,
       code: "COMPANY_NOT_LIVE",
       error: COMPANY_NOT_LIVE_INVITE_MESSAGE,
+    };
+  }
+  const inviteReady = await assertCompanyInviteReady(auth, getCompanyWorkspaceRegistryDeps(), companyId, {
+    companyId,
+    companyFolderId: companyId,
+    masterSheetId,
+  }).catch(() => null);
+  if (!inviteReady?.ok) {
+    return {
+      ok: false,
+      httpStatus: inviteReady?.httpStatus || 409,
+      code: inviteReady?.code || "COMPANY_NOT_LIVE",
+      error: inviteReady?.message || COMPANY_NOT_LIVE_INVITE_MESSAGE,
     };
   }
   return { ok: true };

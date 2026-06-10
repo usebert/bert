@@ -82,6 +82,8 @@ assert(!canCreateCompanyInvite(adminSession, ownCompany, "Master"), "20: Company
 assert(canCreateCompanyInvite(managerSession, ownCompany, "Auditor"), "21: Manager can invite Auditor");
 assert(!canCreateCompanyInvite(managerSession, ownCompany, "Admin"), "22: Manager cannot invite Admin");
 assert(usersPanel.includes("COMPANY_USER_INVITE_TYPE") || usersPanel.includes("Auditor"), "23: Users panel targets company-user invites");
+assert(usersPanel.includes("fetchCompanyInviteReadiness"), "23b: Users panel uses invite-readiness endpoint");
+assert(read("server/core-workflow-routes.mjs").includes("/api/companies/:companyId/invite-readiness"), "23c: invite-readiness API route");
 
 // ─── Godmode tools hidden from normal company users ──────────────────────────
 

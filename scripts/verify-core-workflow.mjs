@@ -79,7 +79,7 @@ assert(serverMain.includes("enrichCompanyContextFromRegistry"), "11b: session en
 
 /** 12–16: invite permissions + token-before-email + inviteUrl on email fail */
 assert(coreRoutes.includes("/api/companies/:companyId/invites/auditor"), "12: auditor invite route");
-assert(inviteService.includes("assertCompanyLiveForInvite"), "13: invite service live gate");
+assert(inviteService.includes("assertCompanyInviteReady"), "13: invite service uses canonical readiness gate");
 assert(canCreateCompanyInvite({ role: "Admin", companyId: "c1" }, "c1", "Auditor"), "14: Admin can invite Auditor own company");
 assert(!canCreateCompanyInvite({ role: "Admin", companyId: "c1" }, "c2", "Auditor"), "14b: Admin cannot invite other company");
 assert(canInviteCompanyUsers({ role: "Manager", companyId: "c1" }, { status: "Live" }), "15: Manager can invite when Live");
