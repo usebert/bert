@@ -137,6 +137,7 @@ export type ManagedSchedule = {
   versionLabel: string;
   lifecycle: ScheduleLifecycle;
   companyFolderId: string;
+  companyId?: string;
   scheduleName: string;
   audits: ManagedScheduleAudit[];
   auditors: string[];
@@ -154,6 +155,8 @@ export type ManagedSchedule = {
   lastCompletedAt?: string;
   nextDueAt?: string;
   healthState?: ScheduleHealthState;
+  createdBy?: string;
+  createdAt?: string;
 };
 
 export type AuditTemplateGoogleFormMeta = {

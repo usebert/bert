@@ -251,6 +251,8 @@ const assigneeOptions = testRoles.map((u) => ({ id: u.email, email: u.email, nam
   assert(users.some((u) => u.role === "Manager") && users.some((u) => u.role === "Auditor"), "G2: Manager + Auditor roles saved");
 }
 assert(coreRoutes.includes("/api/companies/:companyId/schedules"), "G3: company schedules save route");
+assert(coreRoutes.includes('app.get("/api/companies/:companyId/schedules"'), "G3b: company schedules list route");
+assert(read("src/services/scheduleService.ts").includes("listCompanySchedules"), "G3c: frontend schedule list service");
 assert(coreRoutes.includes("savedLocally: true") || scheduleSaveService.includes("savedLocally"), "G4: schedule save acks local persistence");
 assert(coreRoutes.includes("queueScheduleSyncJob") || scheduleSaveService.includes("queueScheduleSyncJob"), "G5: schedule sync queued in background");
 {
@@ -269,7 +271,10 @@ assert(coreRoutes.includes("queueScheduleSyncJob") || scheduleSaveService.includ
   const preferred = scheduleRecordsPreferSchedulesTab([{ "Schedule ID": "legacy" }], [{ "Schedule ID": "new" }]);
   assert(preferred[0]["Schedule ID"] === "new", "G8: Schedules tab preferred over legacy Schedule tab");
 }
-assert(appTsx.includes("assignedUsers") && appTsx.includes("/schedules"), "G9: App saves schedules with assignedUsers via API");
+assert(
+  appTsx.includes("assignedUsers") && appTsx.includes("saveCompanySchedule"),
+  "G9: App saves schedules with assignedUsers via schedule service",
+);
 assert(appTsx.includes("assignedUserEmails"), "G10: App saves assignedUserEmails on schedules");
 
 // ─── H. Complete check — assigned user sees, completes, submits, dashboard ───

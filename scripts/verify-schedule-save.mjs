@@ -156,6 +156,8 @@ const sampleSchedule = {
   const coreRoutes = read("server/core-workflow-routes.mjs");
   assert(saveService.includes("SCHEDULE_SAVE_FAILED"), "9c: service returns failure code");
   assert(coreRoutes.includes("/api/companies/:companyId/schedules"), "9d: company schedules save route");
+  assert(coreRoutes.includes('app.get("/api/companies/:companyId/schedules"'), "9e: company schedules list route");
+  assert(read("server/schedule-service.mjs").includes("listCompanySchedules"), "9f: shared schedule service lists by company");
 }
 
 /** 10: No PasswordHash in save path; frontend uses company context + assignedUsers. */
@@ -165,7 +167,8 @@ const sampleSchedule = {
   const scheduleSaveUtil = read("src/utils/scheduleSave.ts");
   assert(appSrc.includes("assignedUsers"), "10: App sends assignedUsers");
   assert(appSrc.includes("activeCompanyContext.masterSheetId"), "10b: App uses company context masterSheetId");
-  assert(appSrc.includes("/api/companies/") && appSrc.includes("/schedules"), "10c: App calls company schedules API");
+  assert(appSrc.includes("listCompanySchedules"), "10c: App lists schedules via schedule service");
+  assert(read("src/services/scheduleService.ts").includes("saveCompanySchedule"), "10c2: schedule service save helper");
   assert(scheduleSaveUtil.includes("buildAssignedUsersForSave"), "10d: client save helper exists");
   assert(schedulesScreen.includes("Saving schedule"), "10e: save button shows saving state");
   assert(!saveServiceIncludesPasswordHash(read("server/schedule-save-service.mjs")), "10f: save service has no PasswordHash");

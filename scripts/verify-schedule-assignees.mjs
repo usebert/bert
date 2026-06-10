@@ -234,6 +234,7 @@ const godmodeOnlyUser = {
   assert(companyUsersSrc.includes("sanitizeUsersTabRecords"), "13: sanitizeUsersTabRecords exists");
   assert(assigneeService.includes("getScheduleAssigneesForCompany"), "13b: schedule assignee service exists");
   assert(coreRoutes.includes("/api/companies/:companyId/schedule-assignees"), "13c: company schedule-assignees route exists");
+  assert(coreRoutes.includes('app.get("/api/companies/:companyId/schedules"'), "13d: company schedules list route exists");
   assert(coreRoutes.includes("USERS_TAB_READ_FAILED") || assigneeService.includes("USERS_TAB_READ_FAILED"), "13d: users tab read failure code");
   assert(coreRoutes.includes("COMPANY_CONTEXT_MISSING") || assigneeService.includes("COMPANY_CONTEXT_MISSING"), "13e: company context missing code");
 }

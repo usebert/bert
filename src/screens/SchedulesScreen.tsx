@@ -181,6 +181,8 @@ export function SchedulesScreen({
   onToggleAuditor,
   onSave,
   saving = false,
+  schedulesLoading = false,
+  schedulesLoadError = "",
   onCancel,
   onReactivate,
   onDelete,
@@ -224,6 +226,8 @@ export function SchedulesScreen({
   onToggleAuditor: (auditorId: string) => void;
   onSave: () => void;
   saving?: boolean;
+  schedulesLoading?: boolean;
+  schedulesLoadError?: string;
   onCancel: () => void;
   onReactivate: (scheduleId: string) => void;
   onDelete: (scheduleId: string) => void;
@@ -285,9 +289,13 @@ export function SchedulesScreen({
           </div>
         </div>
         <div className="mt-4 space-y-3">
-          {schedules.length === 0 ? (
+          {schedulesLoadError ? (
+            <EmptyPanel title="Schedules unavailable" text={schedulesLoadError} />
+          ) : schedulesLoading && schedules.length === 0 ? (
+            <EmptyPanel title="Loading schedules" text="Pulling live schedules for this company…" />
+          ) : schedules.length === 0 ? (
             <EmptyPanel
-              title="No schedules in this view"
+              title="No schedules found"
               text="Nothing listed — add a schedule or switch Live / Archived so saved schedules can appear here."
             />
           ) : (
@@ -306,7 +314,19 @@ export function SchedulesScreen({
                     </div>
                     <p className="mt-2 text-xs text-slate-500">
                       Start {schedule.startDate} {schedule.endDate ? `• End ${schedule.endDate}` : "• No end date"}
+                      {schedule.audits[0]?.frequency ? ` • ${schedule.audits[0].frequency}` : ""}
                     </p>
+                    {schedule.createdBy || schedule.createdAt ? (
+                      <p className="mt-1 text-xs text-slate-400">
+                        Created
+                        {schedule.createdBy ? ` by ${schedule.createdBy}` : ""}
+                        {schedule.createdAt
+                          ? ` at ${schedule.createdAt}`
+                          : schedule.updatedAt
+                            ? ` • Updated ${schedule.updatedAt}`
+                            : ""}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex gap-2">
                     <button onClick={() => onOpenSchedule(schedule.id)} className={`rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white ${slatePrimaryCtaInteract}`}>

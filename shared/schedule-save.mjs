@@ -137,16 +137,33 @@ export function parseDueWindow(value) {
   return { liveTime, completionHours };
 }
 
+function scheduleStatusForSave(schedule = {}) {
+  const lifecycle = String(schedule.lifecycle || "").trim().toLowerCase();
+  const explicit = String(schedule.status || "").trim();
+  if (explicit) {
+    return explicit;
+  }
+  if (lifecycle === "archived") {
+    return "Archived";
+  }
+  return "ACTIVE";
+}
+
 export function buildSchedulesTabRows(schedule = {}, assignedUsers = []) {
   const users = assignedUsers.length > 0 ? assignedUsers : assignedUsersFromSchedule(schedule);
   const emails = assignedUserEmailsFromSchedule({ ...schedule, assignedUsers: users }).join(", ");
   const names = users.map((user) => user.name).join(", ");
   const roles = users.map((user) => user.role).join(", ");
   const continuous = !String(schedule.endDate || "").trim();
+  const createdByEmail = String(schedule.createdByEmail || schedule.createdBy || "").trim();
+  const createdByRole = String(schedule.createdByRole || users[0]?.role || "").trim();
+  const assignedUsersJson =
+    schedule.assignedUsersJson ||
+    (users.length > 0 ? JSON.stringify(users) : "");
 
   return (Array.isArray(schedule.audits) ? schedule.audits : []).map((audit) => ({
     "Schedule ID": String(schedule.id || "").trim(),
-    "Company Folder ID": String(schedule.companyFolderId || "").trim(),
+    "Company Folder ID": String(schedule.companyFolderId || schedule.companyId || "").trim(),
     "Schedule Name": String(schedule.scheduleName || "").trim(),
     "Template Name": String(audit.auditName || "").trim(),
     "Audit ID": String(audit.auditId || "").trim(),
@@ -159,13 +176,18 @@ export function buildSchedulesTabRows(schedule = {}, assignedUsers = []) {
     "Assigned User Emails": emails,
     "Assigned User Names": names,
     "Assigned User Roles": roles,
-    Status: String(schedule.status || schedule.lifecycle || "Live").trim(),
-    "Created By": String(schedule.createdBy || "").trim(),
+    Status: scheduleStatusForSave(schedule),
+    "Created By": createdByEmail,
     "Created At": String(schedule.createdAt || schedule.updatedAt || "").trim(),
     "Updated At": String(schedule.updatedAt || "").trim(),
     Auditors: emails,
     "Auditor Emails": emails,
     "Assigned Auditors": names || emails,
+    companyId: String(schedule.companyId || schedule.companyFolderId || "").trim(),
+    assignedUserEmails: emails,
+    assignedUsersJson,
+    createdByEmail,
+    createdByRole,
   }));
 }
 

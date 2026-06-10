@@ -270,6 +270,7 @@ import {
   scheduleSheetRecordsPreferSchedulesTab,
   type ScheduleAssignedUser,
 } from "./src/utils/scheduleSave";
+import { listCompanySchedules, saveCompanySchedule } from "./src/services/scheduleService";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
 import { getNextBestAction } from "./src/utils/nextBestAction";
 import type { DashboardSummaryForNextAction, NextBestActionIntent } from "./src/utils/nextBestAction";
@@ -706,6 +707,7 @@ type ManagedSchedule = {
   versionLabel: string;
   lifecycle: ScheduleLifecycle;
   companyFolderId: string;
+  companyId?: string;
   scheduleName: string;
   audits: ManagedScheduleAudit[];
   auditors: string[];
@@ -723,6 +725,8 @@ type ManagedSchedule = {
   lastCompletedAt?: string;
   nextDueAt?: string;
   healthState?: ScheduleHealthState;
+  createdBy?: string;
+  createdAt?: string;
 };
 
 type AuditScheduleMatrixInfo = {
@@ -2578,8 +2582,15 @@ function parseManagedSchedules(records: Record<string, string>[], companyFolderI
 
   records.forEach((record, index) => {
     const rowCompanyFolderId =
-      extractByKeys(record, ["company folder id", "company folder", "folder id"]) || companyFolderId;
-    if (rowCompanyFolderId !== companyFolderId) {
+      extractByKeys(record, ["company folder id", "company folder", "folder id", "company id"]) ||
+      companyFolderId;
+    const storedCompanyFolderId = extractByKeys(record, [
+      "company folder id",
+      "company folder",
+      "folder id",
+      "company id",
+    ]);
+    if (storedCompanyFolderId && storedCompanyFolderId !== companyFolderId) {
       return;
     }
 
@@ -3514,6 +3525,10 @@ function App() {
     warning?: string;
     loading: boolean;
   }>({ assignees: [], loading: false });
+  const [companySchedulesState, setCompanySchedulesState] = useState<{
+    loading: boolean;
+    loadError?: string;
+  }>({ loading: false });
   const [companyOnboardingInviteResult, setCompanyOnboardingInviteResult] =
     useState<CompanyOnboardingInviteResult | null>(null);
   const [companyOnboardingInviteSending, setCompanyOnboardingInviteSending] = useState(false);
@@ -5222,6 +5237,78 @@ function App() {
     scheduleBuilderAreaFilter,
     screen,
   ]);
+
+  const applyListedCompanySchedules = useCallback((companyId: string, schedules: ManagedSchedule[]) => {
+    setManagedSchedules((current) => {
+      const remaining = current.filter((item) => item.companyFolderId !== companyId);
+      const nextManaged = [
+        ...remaining,
+        ...schedules.map((item) => ({
+          ...item,
+          healthState: computeScheduleHealthState(item),
+        })),
+      ];
+      setComplianceSchedules((scheduleCurrent) => {
+        const withoutFolder = scheduleCurrent.filter((item) => item.companyFolderId !== companyId);
+        const derived = complianceSchedulesFromManaged(nextManaged.filter((item) => item.companyFolderId === companyId));
+        return [...withoutFolder, ...derived];
+      });
+      return nextManaged;
+    });
+  }, []);
+
+  useEffect(() => {
+    const companyId = activeCompanyContext.companyFolderId.trim();
+    const masterSheetId = activeCompanyContext.masterSheetId.trim();
+    if (!companyId || !masterSheetId || !googleConnected) {
+      setCompanySchedulesState({ loading: false });
+      return;
+    }
+
+    const controller = new AbortController();
+    let cancelled = false;
+    setCompanySchedulesState({ loading: true, loadError: undefined });
+
+    void (async () => {
+      try {
+        const result = await listCompanySchedules(activeCompanyContext, { signal: controller.signal });
+        if (cancelled) {
+          return;
+        }
+        if (!result.ok) {
+          setCompanySchedulesState({
+            loading: false,
+            loadError: result.loadError || "Could not load schedules for this company.",
+          });
+          return;
+        }
+        setCompanySchedulesState({ loading: false });
+        applyListedCompanySchedules(companyId, result.schedules as ManagedSchedule[]);
+      } catch (error) {
+        if (cancelled || (error instanceof DOMException && error.name === "AbortError")) {
+          return;
+        }
+        setCompanySchedulesState({
+          loading: false,
+          loadError:
+            error instanceof Error ? error.message : "Could not load schedules for this company.",
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [
+    googleConnected,
+    activeCompanyContext.companyFolderId,
+    activeCompanyContext.companyName,
+    activeCompanyContext.masterSheetId,
+    screen,
+    applyListedCompanySchedules,
+  ]);
+
   const availableActionAuditors = useMemo(
     () => availableScheduleAssignees.map((assignee) => assignee.name),
     [availableScheduleAssignees],
@@ -11697,13 +11784,20 @@ function App() {
     const lifecycle: ScheduleLifecycle = resolvedEndDate ? "Archived" : "Live";
     const timestamp = formatStamp();
 
-    const nextSchedule: ManagedSchedule & { assignedUsers?: ScheduleAssignedUser[]; createdBy?: string; createdAt?: string } = {
+    const nextSchedule: ManagedSchedule & {
+      assignedUsers?: ScheduleAssignedUser[];
+      createdBy?: string;
+      createdByEmail?: string;
+      createdByRole?: string;
+      createdAt?: string;
+    } = {
       id: `schedule-${Date.now()}`,
       rootId,
       versionNumber: nextVersion,
       versionLabel: formatScheduleVersionLabel(nextVersion),
       lifecycle,
       companyFolderId,
+      companyId: companyFolderId,
       scheduleName: trimmedName,
       audits: scheduleDraftAudits,
       auditors: resolvedAuditors,
@@ -11712,6 +11806,8 @@ function App() {
       startDate: scheduleDraftStartDate,
       endDate: resolvedEndDate,
       createdBy,
+      createdByEmail: createdBy,
+      createdByRole: currentUser?.role,
       createdAt: editingSchedule ? undefined : timestamp,
       updatedAt: timestamp,
     };
@@ -11852,11 +11948,6 @@ function App() {
   };
 
   const persistManagedSchedules = async (companyFolderId: string, nextSchedules: ManagedSchedule[]) => {
-    const masterSheetId = activeCompanyContext.masterSheetId;
-    if (!masterSheetId) {
-      throw new Error("Company master sheet is not configured.");
-    }
-
     const schedulesPayload = nextSchedules.map((schedule) => {
       const assignedUsers =
         "assignedUsers" in schedule && Array.isArray((schedule as { assignedUsers?: ScheduleAssignedUser[] }).assignedUsers)
@@ -11865,30 +11956,35 @@ function App() {
       const assignedUserEmails = assignedUsers.map((user) => user.email);
       return {
         ...schedule,
+        companyFolderId: schedule.companyFolderId || companyFolderId,
         assignedUsers,
         assignedUserEmails,
         auditors: assignedUserEmails,
       };
     });
 
-    const response = await fetch(apiUrl(`/api/companies/${encodeURIComponent(companyFolderId)}/schedules`), {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        companyFolderId,
-        masterSheetId,
-        schedules: schedulesPayload,
-      }),
-    });
+    const createdBy =
+      currentUser?.username.includes("@")
+        ? currentUser.username.toLowerCase()
+        : `${currentUser?.username || ""}@usebert.co.uk`.toLowerCase();
 
-    const payload = (await response.json()) as SaveSchedulesResponse;
-    if (!response.ok || !payload.ok) {
-      throw new Error(formatScheduleSaveError(payload));
+    const saveResult = await saveCompanySchedule(
+      {
+        ...activeCompanyContext,
+        companyFolderId,
+        companyId: companyFolderId,
+      },
+      schedulesPayload,
+      {
+        createdBy,
+        createdByRole: currentUser?.role,
+      },
+    );
+
+    if (!saveResult.ok) {
+      throw new Error(saveResult.error || UX_STATUS.couldNotSaveSchedule);
     }
-    return payload.userMessage || BACKGROUND_SCHEDULE_SAVED_MESSAGE;
+    return saveResult.userMessage || BACKGROUND_SCHEDULE_SAVED_MESSAGE;
   };
 
   useEffect(() => {
@@ -13594,6 +13690,8 @@ function App() {
                 companyActionsBlocked={currentUser.role === "Master" && !masterGodmodeCompanyReady}
                 companyActionsBlockedMessage={GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE}
                 schedules={visibleSchedules}
+                schedulesLoading={companySchedulesState.loading}
+                schedulesLoadError={companySchedulesState.loadError}
                 filter={scheduleListFilter}
                 availableAudits={availableScheduleAudits}
                 availableAssignees={availableScheduleAssignees}

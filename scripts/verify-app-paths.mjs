@@ -107,6 +107,8 @@ assert(coreRoutes.includes("/api/companies/:companyId/invites/auditor"), "audito
 assert(coreRoutes.includes("/api/invites/company-user/:token"), "invite token lookup API");
 assert(coreRoutes.includes("/api/companies/:companyId/schedule-assignees"), "schedule assignees API");
 assert(coreRoutes.includes("/api/companies/:companyId/schedules"), "schedule save API");
+assert(coreRoutes.includes('app.get("/api/companies/:companyId/schedules"'), "schedule list API");
+assert(appTsx.includes("listCompanySchedules"), "App lists schedules via company context service");
 assert(companyUsers.includes("sanitizeUserRecordForClient"), "PasswordHash stripped from client records");
 assert(!/res\.json\([\s\S]{0,200}PasswordHash/.test(serverMain), "login responses do not expose PasswordHash");
 

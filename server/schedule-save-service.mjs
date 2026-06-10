@@ -49,10 +49,10 @@ export async function saveCompanySchedules(auth, deps, input = {}) {
   }
 
   const resolvedCompanyId = String(
-    companyFolderId ||
-      registryRecord?.companyId ||
-      registryRecord?.rootFolderId ||
+    registryRecord?.rootFolderId ||
+      companyFolderId ||
       registryRecord?.companyFolderId ||
+      registryRecord?.companyId ||
       companyId,
   ).trim();
 
@@ -95,13 +95,20 @@ export async function saveCompanySchedules(auth, deps, input = {}) {
     const nextRows = schedules.flatMap((schedule) => {
       const assignedUsers = assignedUsersFromSchedule({
         ...schedule,
-        createdBy: schedule.createdBy || createdBy,
+        createdBy: schedule.createdBy || schedule.createdByEmail || createdBy,
       });
+      const actorRole = String(schedule.createdByRole || "").trim();
       return buildSchedulesTabRows(
         {
           ...schedule,
-          companyFolderId: schedule.companyFolderId || resolvedCompanyId,
-          createdBy: schedule.createdBy || createdBy,
+          companyId: schedule.companyId || schedule.companyFolderId || resolvedCompanyId,
+          companyFolderId: schedule.companyFolderId || schedule.companyId || resolvedCompanyId,
+          createdBy: schedule.createdBy || schedule.createdByEmail || createdBy,
+          createdByEmail: schedule.createdByEmail || schedule.createdBy || createdBy,
+          createdByRole: actorRole,
+          assignedUsersJson:
+            schedule.assignedUsersJson ||
+            (assignedUsers.length > 0 ? JSON.stringify(assignedUsers) : ""),
         },
         assignedUsers,
       );

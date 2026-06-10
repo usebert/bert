@@ -14,7 +14,13 @@ import {
 } from "./invite-service.mjs";
 import { resolveCompanyById } from "./company-registry-service.mjs";
 import { getScheduleAssigneesForCompany } from "./schedule-assignee-service.mjs";
-import { saveCompanySchedules } from "./schedule-save-service.mjs";
+import {
+  canListCompanySchedules,
+  getCompanySchedule,
+  listCompanySchedules,
+  resolveCompanyScheduleContext,
+  saveCompanySchedules,
+} from "./schedule-service.mjs";
 import { BACKGROUND_SCHEDULE_SAVED_MESSAGE } from "../shared/background-jobs.mjs";
 
 function buildInvitePermissionSession(actor) {
@@ -169,6 +175,112 @@ export function installCoreWorkflowRoutes(app, deps) {
       return handleAppInviteComplete(req, res);
     }
     return res.status(501).json({ ok: false, error: "Invite completion handler is not configured." });
+  });
+
+  app.get("/api/companies/:companyId/schedules", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({
+        ok: false,
+        error: "Please connect Google before loading schedules.",
+        message: "Could not load schedules for this company.",
+      });
+    }
+
+    const companyId = String(req.params?.companyId || "").trim();
+    const masterSheetId = String(req.query.masterSheetId || req.query.sheetId || "").trim();
+    const scheduleId = String(req.query.scheduleId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+
+    try {
+      const contextInput = {
+        companyId,
+        companyFolderId: String(req.query.companyFolderId || companyId).trim(),
+        masterSheetId,
+        companyName: String(req.query.companyName || "").trim(),
+      };
+
+      const resolved = await resolveCompanyScheduleContext(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        contextInput,
+      );
+      if (!resolved.ok) {
+        return res.status(resolved.httpStatus || 400).json({
+          ok: false,
+          code: resolved.code,
+          error: resolved.error,
+          message: resolved.message || resolved.error,
+          technicalError: resolved.technicalError,
+        });
+      }
+
+      if (
+        !canListCompanySchedules(actor, resolved.companyFolderId, [
+          companyId,
+          resolved.companyId,
+          ...resolved.alternateIds,
+        ])
+      ) {
+        return res.status(403).json({
+          ok: false,
+          code: "SCHEDULE_LIST_FORBIDDEN",
+          error: "You do not have permission to view schedules for this company.",
+          message: "You do not have permission to view schedules for this company.",
+        });
+      }
+
+      if (scheduleId) {
+        const one = await getCompanySchedule(authed, { ...registryDeps, ...scheduleDeps }, {
+          ...contextInput,
+          scheduleId,
+        });
+        if (!one.ok) {
+          return res.status(one.httpStatus || 404).json({
+            ok: false,
+            code: one.code,
+            error: one.error,
+            message: one.message || one.error,
+            technicalError: one.technicalError,
+          });
+        }
+        return res.json({
+          ok: true,
+          companyId: one.companyId,
+          companyFolderId: one.companyFolderId,
+          masterSheetId: one.masterSheetId,
+          schedule: one.schedule,
+        });
+      }
+
+      const listed = await listCompanySchedules(authed, { ...registryDeps, ...scheduleDeps }, contextInput);
+      if (!listed.ok) {
+        return res.status(listed.httpStatus || 400).json({
+          ok: false,
+          code: listed.code,
+          error: listed.error,
+          message: listed.message || listed.error,
+          technicalError: listed.technicalError,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        companyId: listed.companyId,
+        companyFolderId: listed.companyFolderId,
+        companyName: listed.companyName,
+        masterSheetId: listed.masterSheetId,
+        schedules: listed.schedules,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "SCHEDULE_LIST_FAILED",
+        error: "Could not load schedules for this company.",
+        message: "Could not load schedules for this company.",
+        technicalError: error instanceof Error ? error.message : String(error),
+      });
+    }
   });
 
   app.get("/api/companies/:companyId/schedule-assignees", async (req, res) => {
