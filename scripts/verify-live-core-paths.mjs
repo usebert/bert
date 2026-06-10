@@ -60,18 +60,91 @@ function findCompany(companies, nameHint) {
   );
 }
 
+async function runPreflightAudit(config) {
+  const api = new LiveHttpClient(config.apiBase, config.origin);
+
+  const health = await api.request("/api/health");
+  assert(health.status === 200 && health.json?.ok === true, "preflight: API health ok", health.json);
+  note("api-health", {
+    version: health.json?.version,
+    gitSha: health.json?.gitSha || health.json?.commit || null,
+    googleOAuthConnected: health.json?.googleOAuthConnected,
+  });
+
+  const readiness = await api.request("/api/readiness");
+  assert(readiness.status === 200 && readiness.json?.ready === true, "preflight: API readiness ok", readiness.json);
+
+  const frontendMeta = await fetchFrontendBundleMeta(config.frontendUrl);
+  note("frontend-deploy", {
+    htmlStatus: frontendMeta.htmlStatus,
+    bundlePath: frontendMeta.bundlePath,
+    gitSha: frontendMeta.buildMeta?.gitSha || null,
+    shortSha: frontendMeta.buildMeta?.shortSha || null,
+    builtAt: frontendMeta.buildMeta?.builtAt || null,
+  });
+
+  const localDistMetaPath = path.join(config.root, "dist/build-meta.json");
+  let localDistMeta = null;
+  if (fs.existsSync(localDistMetaPath)) {
+    localDistMeta = JSON.parse(fs.readFileSync(localDistMetaPath, "utf8"));
+    note("local-dist", {
+      bundleHint: fs
+        .readFileSync(path.join(config.root, "dist/index.html"), "utf8")
+        .match(/\/assets\/index-[^"]+\.js/)?.[0],
+      gitSha: localDistMeta?.gitSha || null,
+      shortSha: localDistMeta?.shortSha || null,
+    });
+  }
+
+  if (!frontendMeta.buildMeta?.gitSha) {
+    log("BLOCKER: deployed frontend missing /build-meta.json — SPA not redeployed from latest build");
+  } else if (config.localGitSha && frontendMeta.buildMeta.gitSha !== config.localGitSha) {
+    log(
+      `BLOCKER: deployed frontend git ${frontendMeta.buildMeta.shortSha} != local ${config.localGitSha.slice(0, 7)} — redeploy SPA`,
+    );
+  }
+  if (!health.json?.gitSha && config.localGitSha) {
+    log("BLOCKER: deployed API health has no gitSha — redeploy API from latest commit");
+  }
+
+  const badMaster = await api.request("/api/auth/master/login", {
+    method: "POST",
+    body: { email: config.masterEmail, password: "__verify_live_wrong_password__" },
+  });
+  assert(badMaster.status === 401, "preflight: master login rejects wrong password", {
+    status: badMaster.status,
+    body: badMaster.json,
+  });
+
+  const noSession = await api.request("/api/auth/master/session");
+  assert(noSession.status === 401, "preflight: master session requires login", { status: noSession.status });
+
+  const fakeInvite = await api.request("/api/invites/company-user/000000000000000000000000000000000000000000000000");
+  assert(fakeInvite.status >= 400, "preflight: invalid company-user token rejected", {
+    status: fakeInvite.status,
+    code: fakeInvite.json?.code,
+  });
+
+  return { api, frontendMeta, localDistMeta };
+}
+
 async function main() {
   const config = loadLivePathConfig();
   log(`API ${config.apiBase} | frontend ${config.frontendUrl} | local git ${config.localGitSha || "unknown"}`);
+
+  await runPreflightAudit(config);
 
   const missing = missingLiveCredentials(config);
   if (missing.length > 0) {
     console.error(
       [
-        "[verify:live-core-paths] Missing live credentials — set env vars or create scripts/live-path-secrets.local.json:",
+        "[verify:live-core-paths] BLOCKER: missing live credentials — authenticated journey not run.",
+        "Set env vars or create scripts/live-path-secrets.local.json:",
         ...missing.map((key) => `  - ${key}`),
         "Optional file shape:",
         '  { "masterPassword": "...", "adminEmail": "...", "adminPassword": "...", "managerPassword": "..." }',
+        "",
+        "Preflight audit above completed (health, readiness, deployment drift, anonymous auth gates).",
       ].join("\n"),
     );
     process.exit(1);
@@ -82,24 +155,9 @@ async function main() {
   const adminClient = new LiveHttpClient(config.apiBase, config.origin);
   const managerClient = new LiveHttpClient(config.apiBase, config.origin);
 
-  // ─── API health + deployment metadata ─────────────────────────────────────
-  const health = await api.request("/api/health");
-  assert(health.status === 200 && health.json?.ok === true, "1: API health ok", health.json);
-  note("api-health", {
-    version: health.json?.version,
-    gitSha: health.json?.gitSha || health.json?.commit || null,
-    googleOAuthConnected: health.json?.googleOAuthConnected,
-  });
-
-  const frontendMeta = await fetchFrontendBundleMeta(config.frontendUrl);
-  note("frontend-deploy", {
-    htmlStatus: frontendMeta.htmlStatus,
-    bundlePath: frontendMeta.bundlePath,
-    gitSha: frontendMeta.buildMeta?.gitSha || null,
-    shortSha: frontendMeta.buildMeta?.shortSha || null,
-    builtAt: frontendMeta.buildMeta?.builtAt || null,
-  });
   if (config.requireShaMatch && config.localGitSha) {
+    const health = await api.request("/api/health");
+    const frontendMeta = await fetchFrontendBundleMeta(config.frontendUrl);
     const apiSha = String(health.json?.gitSha || "").trim();
     const feSha = String(frontendMeta.buildMeta?.gitSha || "").trim();
     assert(apiSha && apiSha === config.localGitSha, "deployed API gitSha matches local HEAD", { apiSha, local: config.localGitSha });
