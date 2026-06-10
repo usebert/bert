@@ -263,7 +263,7 @@ assert(scheduleAssigneesSrc.includes("CompanyUsersTabRow"), "14h: scheduleAssign
 assert(scheduleAssigneesSrc.includes("canCompleteAuditUser"), "14i: canCompleteAuditUser helper exists");
 assert(appSrc.includes("/api/companies/"), "14j: App loads schedule assignees from company API");
 assert(appSrc.includes("schedule-assignees"), "14k: App calls schedule-assignees endpoint");
-assert(schedulesScreenSrc.includes("Technical diagnostics"), "14l: schedule UI exposes technical diagnostics");
+assert(schedulesScreenSrc.includes("Advanced diagnostics"), "14l: schedule UI exposes advanced diagnostics for godmode");
 assert(schedulesScreenSrc.includes("Assign users to this schedule"), "14m: schedule UI uses assignee wording");
 assert(schedulesScreenSrc.includes("companyAreas"), "14n: schedule UI shows company areas");
 

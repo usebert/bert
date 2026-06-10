@@ -7,6 +7,7 @@ export type AccountUser = {
   password: string;
   role: Role;
   name: string;
+  email?: string;
 };
 
 export type AccountSettingsScreenProps = {
@@ -15,6 +16,7 @@ export type AccountSettingsScreenProps = {
   accountPhotoUrl: string;
   themeMode: ThemeMode;
   companyName: string;
+  actingCompanyName?: string;
   slatePrimaryCtaInteract: string;
   onAccountNameChange: (value: string) => void;
   onAccountPhotoChange: (file: File) => void;

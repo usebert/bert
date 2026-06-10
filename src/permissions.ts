@@ -364,7 +364,8 @@ export function canViewAccount(role: Role) {
 }
 
 export function getRoleDisplayName(role: Role) {
-  return role === "Master" ? "Platform owner" : role;
+  if (role === "Master") return "Platform Admin";
+  return role;
 }
 
 export function getCreatableRoles(role: Role): Role[] {

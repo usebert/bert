@@ -78,6 +78,8 @@ import { StatusPulse, type SyncVisualState } from "./src/components/animation/St
 import { bertEvidencePanel } from "./src/components/animation/animationClasses";
 import { getGreetingFirstName, getTimeBasedGreeting, getUserInitials } from "./src/utils/userDisplay";
 import { isDebugUiAllowed } from "./src/utils/debugUiVisibility";
+import { AccountIdentitySummary } from "./src/components/AccountIdentitySummary";
+import { UX_STATUS, canShowTechnicalUi, resolveUserEmail } from "./src/utils/uxDeclutter";
 import { useTabletKiosk } from "./src/hooks/useTabletKiosk";
 import { isTabletKioskEnabled } from "./src/utils/tabletKioskStorage";
 import { AuditorTaskDashboard } from "./src/components/dashboard/AuditorTaskDashboard";
@@ -376,6 +378,7 @@ type User = {
   password: string;
   role: Role;
   name: string;
+  email?: string;
   accessLevel?: string;
   companyAreas?: string[];
 };
@@ -4418,14 +4421,17 @@ function App() {
       icon: item.icon,
     }));
     const seen = new Set(fromRoleNav.map((item) => item.id));
-    const extras = navItems.filter((item) => {
-      if (seen.has(item.id)) {
-        return false;
-      }
-      const baselineVisible = canRoleAccessNavItem(currentUser.role, item.id);
-      const matrixVisible = roleNavVisibility[currentUser.role]?.[item.id] ?? baselineVisible;
-      return baselineVisible && matrixVisible;
-    });
+    const extras =
+      currentUser.role === "Master"
+        ? navItems.filter((item) => {
+            if (seen.has(item.id)) {
+              return false;
+            }
+            const baselineVisible = canRoleAccessNavItem(currentUser.role, item.id);
+            const matrixVisible = roleNavVisibility[currentUser.role]?.[item.id] ?? baselineVisible;
+            return baselineVisible && matrixVisible;
+          })
+        : [];
     return [...fromRoleNav, ...extras];
   }, [currentUser, presentedNav, roleNavVisibility]);
 
@@ -4447,7 +4453,7 @@ function App() {
     }
     const primaryIds = new Set(presentedNav.map((item) => item.id));
     const moreIds = getMoreNavIdsForRole(currentUser.role);
-    const layoutMoreIds = currentUser.role === "Auditor" ? moreIds : [...moreIds, ...MORE_MENU_NAV_IDS];
+    const layoutMoreIds = currentUser.role === "Master" ? [...moreIds, ...MORE_MENU_NAV_IDS] : moreIds;
     return layoutMoreIds.flatMap((id) => {
       if (primaryIds.has(id) || !visibleNavIdSet.has(id)) {
         return [];
@@ -4473,7 +4479,7 @@ function App() {
     const orderedIds = [
       ...presentedNav.map((item) => item.id),
       ...roleMoreIds,
-      ...(currentUser.role === "Auditor" ? [] : MORE_MENU_NAV_IDS),
+      ...(currentUser.role === "Master" ? MORE_MENU_NAV_IDS : []),
     ];
     const seen = new Set<string>();
     const out: Array<{ id: NavItemId; label: string; icon: string }> = [];
@@ -5421,6 +5427,7 @@ function App() {
         if (mr.ok && mp.ok && mp.operator) {
           const masterUser: User = {
             username: String(mp.operator.email).toLowerCase(),
+            email: String(mp.operator.email).toLowerCase(),
             password: "",
             role: "Master",
             name: mp.operator.name || mp.operator.email,
@@ -5487,6 +5494,7 @@ function App() {
         ) {
           const companyUser: User = {
             username: String(cp.user.email).toLowerCase(),
+            email: String(cp.user.email).toLowerCase(),
             password: "",
             role: cp.user.role,
             name: cp.user.name || cp.user.email,
@@ -7220,6 +7228,7 @@ function App() {
       }
       const match: User = {
         username: String(data.operator.email).toLowerCase(),
+        email: String(data.operator.email).toLowerCase(),
         password: "",
         role: "Master",
         name: data.operator.name || data.operator.email,
@@ -7322,6 +7331,7 @@ function App() {
         });
         const match: User = {
           username: String(data.user.email).toLowerCase(),
+          email: String(data.user.email).toLowerCase(),
           password: "",
           role: data.user.role,
           name: data.user.name || data.user.email,
@@ -8598,7 +8608,7 @@ function App() {
     const updatedUser = { ...currentUser, name: trimmedName };
     setCurrentUser(updatedUser);
     window.localStorage.setItem(userStorageKey, JSON.stringify(updatedUser));
-    pushToast("Account updated", "Your account settings have been saved on this device.", "success");
+    pushToast(UX_STATUS.saved, "Your account settings have been saved on this device.", "success");
   };
 
   const startAudit = (auditId: string) => {
@@ -11634,11 +11644,11 @@ function App() {
         nextManagedSchedules.filter((schedule) => schedule.companyFolderId === companyFolderId),
       );
       setManagedSchedules(nextManagedSchedules);
-      pushToast("Schedule saved", BACKGROUND_SCHEDULE_SAVED_MESSAGE, "success");
+      pushToast(UX_STATUS.scheduleSaved, BACKGROUND_SCHEDULE_SAVED_MESSAGE, "success");
       resetManagedScheduleDraft();
     } catch (error) {
-      const reason = error instanceof Error ? error.message : "BERT could not save this schedule. Try again.";
-      pushToast("Schedule could not be saved.", `Schedule could not be saved. Reason: ${reason}`, "warning");
+      const reason = error instanceof Error ? error.message : UX_STATUS.couldNotSaveSchedule;
+      pushToast(UX_STATUS.couldNotSaveSchedule, reason, "warning");
     } finally {
       setScheduleSaving(false);
     }
@@ -12603,9 +12613,14 @@ function App() {
                   <p className={["truncate text-sm font-semibold", themeMode === "dark" ? "text-white" : "text-slate-900"].join(" ")}>
                     {currentUserAppName || currentUser.name}
                   </p>
+                  {resolveUserEmail(currentUser) ? (
+                    <p className={["truncate text-xs", themeMode === "dark" ? "text-slate-400" : "text-slate-500"].join(" ")}>
+                      {resolveUserEmail(currentUser)}
+                    </p>
+                  ) : null}
                   {roleTheme ? (
                     <span className={["mt-0.5 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold", roleTheme.badge].join(" ")}>
-                      {roleTheme.badgeShort}
+                      {currentUser.role === "Master" ? "Godmode" : roleTheme.badgeShort}
                     </span>
                   ) : null}
                 </div>
@@ -12786,10 +12801,16 @@ function App() {
                   {getUserInitials(currentUser.name, currentUser.username)}
                 </span>
                 {!desktopSidebarCollapsed && (
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold text-white">{currentUser.name}</span>
-                    <span className="block truncate text-xs text-slate-400">{getRoleDisplayName(currentUser.role)}</span>
-                  </span>
+                  <AccountIdentitySummary
+                    name={currentUserAppName || currentUser.name}
+                    username={currentUser.username}
+                    email={currentUser.email}
+                    role={currentUser.role}
+                    companyName={currentUser.role === "Master" ? undefined : workspaceName}
+                    actingCompanyName={currentUser.role === "Master" ? selectedFolder?.name : undefined}
+                    compact
+                    tone="onDark"
+                  />
                 )}
               </div>
               <button
@@ -13486,7 +13507,7 @@ function App() {
                 availableAssignees={availableScheduleAssignees}
                 assigneeEmptyMessage={scheduleAssigneeEmptyMessage}
                 assigneeDiagnostics={scheduleAssigneesState.diagnostics}
-                showAssigneeDiagnostics={isDebugUiAllowed()}
+                showAssigneeDiagnostics={canShowTechnicalUi(currentUser.role)}
                 assigneeWarning={scheduleAssigneesState.warning}
                 signedInEmail={
                   currentUser?.username.includes("@")
@@ -13850,6 +13871,7 @@ function App() {
                 accountPhotoUrl={accountPhotoUrl}
                 themeMode={themeMode}
                 companyName={workspaceName}
+                actingCompanyName={currentUser.role === "Master" ? selectedFolder?.name : undefined}
                 slatePrimaryCtaInteract={slatePrimaryCtaInteract}
                 onAccountNameChange={setAccountNameInput}
                 onAccountPhotoChange={handleAccountPhotoChange}

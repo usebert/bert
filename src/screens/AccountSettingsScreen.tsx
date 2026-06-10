@@ -1,7 +1,9 @@
-import { canCompleteAuditAsAuditor, getRoleDisplayName } from "../permissions";
+import { canCompleteAuditAsAuditor } from "../permissions";
 import { getRoleTheme } from "../config/roleTheme";
+import { AccountIdentitySummary } from "../components/AccountIdentitySummary";
 import type { AccountSettingsScreenProps } from "../types/accountScreenProps";
 import { darkPanelDescription, darkPanelEyebrow, darkPanelShellCompact, darkPanelTitleSm } from "../styles/darkPanel";
+import { UX_STATUS } from "../utils/uxDeclutter";
 
 export function AccountSettingsScreen({
   currentUser,
@@ -9,6 +11,7 @@ export function AccountSettingsScreen({
   accountPhotoUrl,
   themeMode,
   companyName,
+  actingCompanyName,
   slatePrimaryCtaInteract,
   onAccountNameChange,
   onAccountPhotoChange,
@@ -61,6 +64,20 @@ export function AccountSettingsScreen({
         </section>
       ) : null}
 
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Signed in as</p>
+        <div className="mt-3">
+          <AccountIdentitySummary
+            name={accountNameInput || currentUser.name}
+            username={currentUser.username}
+            email={currentUser.email}
+            role={currentUser.role}
+            companyName={companyName}
+            actingCompanyName={actingCompanyName}
+          />
+        </div>
+      </section>
+
       {!godMode && (
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-4">
@@ -74,8 +91,6 @@ export function AccountSettingsScreen({
               )}
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-slate-900">{accountNameInput || currentUser.name}</p>
-              <p className="text-xs text-slate-500">{getRoleDisplayName(currentUser.role)}</p>
               <label
                 className={[
                   "mt-3 inline-flex min-h-[2.75rem] cursor-pointer items-center rounded-xl px-5 text-sm font-semibold text-white",
@@ -150,7 +165,7 @@ export function AccountSettingsScreen({
               slatePrimaryCtaInteract,
             ].join(" ")}
           >
-            Save
+            {UX_STATUS.saved}
           </button>
         </section>
       )}

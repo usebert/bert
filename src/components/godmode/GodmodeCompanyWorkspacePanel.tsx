@@ -779,7 +779,7 @@ export function GodmodeCompanyWorkspacePanel({
               onClick={() => setShowTechnicalDetails((open) => !open)}
               className="mt-4 text-xs font-semibold text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline"
             >
-              {showTechnicalDetails ? "Hide technical diagnostics" : "Technical diagnostics"}
+              {showTechnicalDetails ? "Hide advanced diagnostics" : "Advanced diagnostics"}
             </button>
             {showTechnicalDetails ? (
               <div className="mt-4 space-y-4 border-t border-slate-100 pt-4">

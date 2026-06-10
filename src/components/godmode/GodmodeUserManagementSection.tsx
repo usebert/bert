@@ -145,7 +145,7 @@ export function GodmodeUserManagementSection({
           onClick={onResyncUsers}
           className="mt-2 h-10 w-full rounded-xl border border-slate-300 bg-white text-sm font-semibold text-slate-800"
         >
-          Re-sync users from company sheet
+          Refresh users from company data
         </button>
       </div>
 

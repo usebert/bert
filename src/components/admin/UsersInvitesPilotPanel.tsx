@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ComponentType } from "react";
 import type { Role } from "../../permissions";
 import { getRoleDisplayName } from "../../permissions";
+import { canShowTechnicalUi } from "../../utils/uxDeclutter";
 import { apiUrl } from "../../config/apiBase";
 import {
   canInviteCompanyUsers,
@@ -706,13 +707,15 @@ export function UsersInvitesPilotPanel({
               ))}
           </div>
         )}
-        <button
-          type="button"
-          onClick={onResyncUsers}
-          className="mt-3 h-11 w-full rounded-2xl border border-slate-300 bg-white text-sm font-semibold text-slate-700"
-        >
-          Re-sync users from company sheet
-        </button>
+        {canShowTechnicalUi(currentUser.role) ? (
+          <button
+            type="button"
+            onClick={onResyncUsers}
+            className="mt-3 h-11 w-full rounded-2xl border border-slate-300 bg-white text-sm font-semibold text-slate-700"
+          >
+            Re-sync users from company sheet
+          </button>
+        ) : null}
       </section>
 
       {showInviteForm && !inviteFormEnabled ? (
@@ -725,11 +728,15 @@ export function UsersInvitesPilotPanel({
             Finish company onboarding from <span className="font-semibold">Companies</span> or{" "}
             <span className="font-semibold">Company Onboarding</span> before inviting field users.
           </p>
-          <p className="mt-2 text-xs text-slate-500">
-            Signed in as {getRoleDisplayName(currentUser.role)} • registry:{" "}
-            {registryStatusLoading ? "refreshing…" : effectiveRegistryStatus || "not live"} • sync:{" "}
-            {healthProps.syncState}
-          </p>
+          {canShowTechnicalUi(currentUser.role) ? (
+            <p className="mt-2 text-xs text-slate-500">
+              Signed in as {getRoleDisplayName(currentUser.role)} • registry:{" "}
+              {registryStatusLoading ? "refreshing…" : effectiveRegistryStatus || "not live"} • sync:{" "}
+              {healthProps.syncState}
+            </p>
+          ) : (
+            <p className="mt-2 text-xs text-slate-500">Signed in as {getRoleDisplayName(currentUser.role)}</p>
+          )}
         </details>
       ) : null}
 

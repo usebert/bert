@@ -3,6 +3,8 @@ import {
   backgroundJobsService,
   type BackgroundJobRecord,
 } from "../../services/backgroundJobsService";
+import { UX_STATUS, backgroundJobsBannerForRole, canShowTechnicalUi } from "../../utils/uxDeclutter";
+import type { Role } from "../../permissions";
 
 function statusTone(status: BackgroundJobRecord["status"]) {
   if (status === "COMPLETED") {
@@ -20,10 +22,13 @@ function statusTone(status: BackgroundJobRecord["status"]) {
 export function GodmodeBackgroundJobsPanel({
   companyId,
   surfaceClass = "",
+  viewerRole = "Master",
 }: {
   companyId?: string;
   surfaceClass?: string;
+  viewerRole?: Role;
 }) {
+  const technical = canShowTechnicalUi(viewerRole);
   const [jobs, setJobs] = useState<BackgroundJobRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -58,9 +63,13 @@ export function GodmodeBackgroundJobsPanel({
     <div className={["space-y-3", surfaceClass].filter(Boolean).join(" ")}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-sm font-semibold text-slate-900">Background jobs</p>
+          <p className="text-sm font-semibold text-slate-900">
+            {technical ? "Background jobs" : "Updates"}
+          </p>
           <p className="text-xs text-slate-500">
-            Setup, invite email, and schedule sync run here — not shown to company users.
+            {technical
+              ? "Setup, invite email, and schedule sync run here — not shown to company users."
+              : UX_STATUS.workingInBackground}
           </p>
         </div>
         <button
@@ -79,38 +88,40 @@ export function GodmodeBackgroundJobsPanel({
         <p className="text-sm text-slate-500">No background jobs yet for this workspace.</p>
       ) : null}
 
-      {activeJobs.length > 0 ? (
+      {backgroundJobsBannerForRole(viewerRole, activeJobs.length) ? (
         <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
-          {activeJobs.length} job(s) in progress
+          {backgroundJobsBannerForRole(viewerRole, activeJobs.length)}
         </div>
       ) : null}
 
-      {attentionJobs.length > 0 ? (
+      {technical && attentionJobs.length > 0 ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-          {attentionJobs.length} job(s) need attention — review technical details below.
+          {attentionJobs.length} job(s) need attention — review advanced diagnostics below.
         </div>
       ) : null}
 
-      <div className="space-y-2">
-        {jobs.slice(0, 12).map((job) => (
-          <div key={job.jobId} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-medium text-slate-800">{job.type.replace(/_/g, " ")}</p>
-              <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${statusTone(job.status)}`}>
-                {job.statusBadge || job.status}
-              </span>
+      {technical ? (
+        <div className="space-y-2">
+          {jobs.slice(0, 12).map((job) => (
+            <div key={job.jobId} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-medium text-slate-800">{job.type.replace(/_/g, " ")}</p>
+                <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${statusTone(job.status)}`}>
+                  {job.statusBadge || job.status}
+                </span>
+              </div>
+              {job.userMessage ? <p className="mt-1 text-xs text-slate-600">{job.userMessage}</p> : null}
+              {job.technicalError ? (
+                <p className="mt-1 font-mono text-[11px] text-amber-900">{job.technicalError}</p>
+              ) : null}
+              <p className="mt-1 text-[11px] text-slate-400">
+                {job.createdAt ? new Date(job.createdAt).toLocaleString() : ""}
+                {job.attempts ? ` · ${job.attempts} attempt(s)` : ""}
+              </p>
             </div>
-            {job.userMessage ? <p className="mt-1 text-xs text-slate-600">{job.userMessage}</p> : null}
-            {job.technicalError ? (
-              <p className="mt-1 font-mono text-[11px] text-amber-900">{job.technicalError}</p>
-            ) : null}
-            <p className="mt-1 text-[11px] text-slate-400">
-              {job.createdAt ? new Date(job.createdAt).toLocaleString() : ""}
-              {job.attempts ? ` · ${job.attempts} attempt(s)` : ""}
-            </p>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

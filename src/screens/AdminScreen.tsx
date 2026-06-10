@@ -29,6 +29,7 @@ import { DangerActionButton } from "../components/DangerActionButton";
 import { UsersInvitesPilotPanel } from "../components/admin/UsersInvitesPilotPanel";
 import { InviteStatusLegend } from "../components/InviteStatusLegend";
 import { isDebugUiAllowed } from "../utils/debugUiVisibility";
+import { canShowTechnicalUi } from "../utils/uxDeclutter";
 import { WhatHappensNextPanel } from "../components/WhatHappensNextPanel";
 import {
   formatInviteStatusLabel,
@@ -1602,12 +1603,14 @@ export function AdminScreen({
                     <WhatHappensNextPanel steps={USER_INVITE_NEXT_STEPS} className="mt-3 border-sky-100 bg-sky-50/50" />
                   </>
                 ) : null}
-                <button
-                  onClick={onResyncUsers}
-                  className="mt-2 h-11 w-full rounded-2xl border border-slate-700 bg-slate-950 text-sm font-semibold text-slate-200 transition hover:bg-slate-900"
-                >
-                  Re-sync users from company sheet
-                </button>
+                {canShowTechnicalUi(currentUser.role) ? (
+                  <button
+                    onClick={onResyncUsers}
+                    className="mt-2 h-11 w-full rounded-2xl border border-slate-700 bg-slate-950 text-sm font-semibold text-slate-200 transition hover:bg-slate-900"
+                  >
+                    Re-sync users from company sheet
+                  </button>
+                ) : null}
               </div>
 
               {invitedUsers.length === 0 ? (

@@ -6,6 +6,7 @@ import {
   canAccessPlatformDiagnosticsNav,
   canAccessPilotSetup,
   canAccessPilotCompanies,
+  canAccessSchedules,
   canAccessTabletKioskNav,
   canAccessTeamNav,
   canAccessUsersInvitesNav,
@@ -34,38 +35,39 @@ const MASTER_NAV: PresentedNavItem[] = [
   { id: "users", label: "Users & Invites", icon: "user", adminPilotFocus: "users" },
   { id: "schedules", label: "Templates", icon: "clock" },
   { id: "reports", label: "Reports / Diagnostics", icon: "chart" },
+  { id: "account", label: "Account", icon: "user" },
   { id: "setupInitial", label: "Tablet / Kiosk", icon: "shield" },
 ];
 
 const COMPANY_ADMIN_NAV: PresentedNavItem[] = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
-  { id: "actions", label: "Corrective Actions", icon: "warningTriangle" },
-  { id: "admin", label: "Workspace", icon: "spark" },
+  { id: "audits", label: "Checks", icon: "clipboard" },
+  { id: "schedules", label: "Schedules", icon: "clock" },
   { id: "users", label: "Users & Invites", icon: "user", adminPilotFocus: "users" },
-  { id: "audits", label: "Forms & Checks", icon: "clipboard" },
   { id: "reports", label: "Reports", icon: "chart" },
-  { id: "settings", label: "Tablet / Kiosk", icon: "shield" },
+  { id: "account", label: "Account", icon: "user" },
 ];
 
 const MANAGER_NAV: PresentedNavItem[] = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
-  { id: "audits", label: "Forms & Checks", icon: "clipboard" },
+  { id: "audits", label: "Checks", icon: "clipboard" },
+  { id: "schedules", label: "Schedules", icon: "clock" },
+  { id: "invites", label: "Users & Invites", icon: "user", adminPilotFocus: "invites" },
   { id: "reports", label: "Reports", icon: "chart" },
-  { id: "invites", label: "Team", icon: "user", adminPilotFocus: "invites" },
+  { id: "account", label: "Account", icon: "user" },
 ];
 
 const AUDITOR_NAV: PresentedNavItem[] = [
-  { id: "dashboard", label: "Today", icon: "dashboard" },
+  { id: "dashboard", label: "Dashboard", icon: "dashboard" },
   { id: "audits", label: "My Checks", icon: "clipboard" },
-  { id: "incidents", label: "Submit", icon: "warningTriangle" },
-  { id: "sync", label: "History", icon: "sync" },
+  { id: "account", label: "Account", icon: "user" },
 ];
 
 const MORE_BY_BUCKET: Record<RoleNavBucket, NavItemId[]> = {
-  master: ["qmsReadiness", "account", "emailReminders"],
-  companyAdmin: ["qmsReadiness", "nonConformance", "incidents", "schedules", "documentTraining", "sync", "account", "emailReminders"],
-  manager: ["qmsReadiness", "actions", "nonConformance", "incidents", "schedules", "documentTraining", "sync", "account", "emailReminders"],
-  auditor: ["account"],
+  master: ["qmsReadiness", "emailReminders"],
+  companyAdmin: [],
+  manager: [],
+  auditor: [],
 };
 
 export function getRoleNavBucket(role: Role): RoleNavBucket {
@@ -94,12 +96,17 @@ function canPresentNavItem(role: Role, item: PresentedNavItem): boolean {
   if (item.id === "companies") return canAccessPilotCompanies(role);
   if (item.id === "onboarding") return canAccessCompanyOnboardingNav(role);
   if (item.id === "users") return canAccessUsersInvitesNav(role);
-  if (item.id === "invites" && item.label === "Team") return canAccessTeamNav(role);
-  if (item.id === "invites") return canAccessUsersInvitesNav(role);
+  if (item.id === "invites") {
+    if (item.label === "Team" || item.label === "Users & Invites") return canAccessTeamNav(role);
+    return canAccessUsersInvitesNav(role);
+  }
   if (item.id === "admin") return canAccessWorkspaceNav(role);
   if (item.id === "schedules" && item.label === "Templates") return canAccessMasterTemplatesNav(role);
+  if (item.id === "schedules" && item.label === "Schedules") {
+    return canAccessSchedules(role);
+  }
   if (item.id === "reports" && item.label.includes("Diagnostics")) return canAccessPlatformDiagnosticsNav(role);
-  if (item.id === "audits" && (item.label === "Forms & Checks" || item.label === "My Checks")) {
+  if (item.id === "audits" && (item.label === "Checks" || item.label === "Forms & Checks" || item.label === "My Checks")) {
     return canAccessFormsChecksNav(role) || role === "Auditor";
   }
   return canRoleAccessNavItem(role, item.id);
@@ -127,9 +134,9 @@ export function getMobileBottomNavForRole(role: Role): MobileNavEntry[] {
   const bucket = getRoleNavBucket(role);
   if (bucket === "auditor") {
     return [
-      { id: "dashboard", label: "Checks", icon: "dashboard" },
-      { id: "incidents", label: "Submit", icon: "warningTriangle" },
-      { id: "sync", label: "History", icon: "sync" },
+      { id: "dashboard", label: "Dashboard", icon: "dashboard" },
+      { id: "audits", label: "My Checks", icon: "clipboard" },
+      { id: "account", label: "Account", icon: "user" },
       { id: "__logout__", label: "Log out", icon: "logOut" },
     ];
   }

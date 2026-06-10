@@ -564,7 +564,7 @@ export function SchedulesScreen({
                     onClick={() => setShowTechnicalDetails((value) => !value)}
                     className="text-xs font-semibold text-slate-700 underline-offset-2 hover:underline"
                   >
-                    {showTechnicalDetails ? "Hide technical diagnostics" : "Technical diagnostics"}
+                    {showTechnicalDetails ? "Hide advanced diagnostics" : "Advanced diagnostics"}
                   </button>
                   {showTechnicalDetails ? (
                     <dl className="mt-3 grid gap-2 text-xs text-slate-600">
