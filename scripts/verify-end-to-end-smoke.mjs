@@ -327,6 +327,8 @@ assert(roleNav.includes('id: "account"'), "J8: all roles have Account nav");
 assert(pkg.scripts["verify:end-to-end-smoke"], "PKG: npm script registered");
 assert(serverMain.includes("installCoreWorkflowRoutes"), "X1: core workflow routes installed");
 assert(!appTsx.includes("buildAvailableScheduleAssignees("), "X2: App does not filter assignees locally (empty when API has users)");
+assert(appTsx.includes("readScheduleAssigneesCache") && appTsx.includes("SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS"), "X3: assignees cache-first with 2s timeout");
+assert(pkg.scripts["verify:app-paths"] && pkg.scripts["verify:login-performance"], "X4: path and login-performance verify scripts registered");
 
 console.log(`[verify:end-to-end-smoke] OK — ${caseCount} cases passed (static + shared modules)`);
 console.log(`

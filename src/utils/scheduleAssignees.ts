@@ -391,6 +391,62 @@ export function resolveScheduleAuditorLabels(
   return resolveScheduleAssigneeLabels(auditorIds, options);
 }
 
+export const SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS = 2000;
+
+export type ScheduleAssigneesCacheEntry = {
+  companyId: string;
+  area: string;
+  assignees: ScheduleAssigneeOption[];
+  diagnostics?: ScheduleAssigneeDiagnostics;
+  warning?: string;
+  cachedAt: number;
+};
+
+function scheduleAssigneesCacheKey(companyId: string, area: string): string {
+  return `${companyId.trim()}::${area.trim().toLowerCase()}`;
+}
+
+export function readScheduleAssigneesCache(
+  storageKey: string,
+  companyId: string,
+  area: string,
+): ScheduleAssigneesCacheEntry | null {
+  if (typeof window === "undefined" || !companyId.trim()) {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as Record<string, ScheduleAssigneesCacheEntry>;
+    const entry = parsed[scheduleAssigneesCacheKey(companyId, area)];
+    if (!entry || !Array.isArray(entry.assignees)) {
+      return null;
+    }
+    return entry;
+  } catch {
+    return null;
+  }
+}
+
+export function writeScheduleAssigneesCache(
+  storageKey: string,
+  entry: ScheduleAssigneesCacheEntry,
+): void {
+  if (typeof window === "undefined" || !entry.companyId.trim()) {
+    return;
+  }
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    const parsed = raw ? (JSON.parse(raw) as Record<string, ScheduleAssigneesCacheEntry>) : {};
+    parsed[scheduleAssigneesCacheKey(entry.companyId, entry.area)] = entry;
+    window.localStorage.setItem(storageKey, JSON.stringify(parsed));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
 export function resolveScheduleAssigneeEmptyMessage(
   assignees: ScheduleAssigneeOption[],
   context: {

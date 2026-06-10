@@ -254,8 +254,11 @@ import {
 } from "./src/utils/auditAccess";
 import {
   normalizeScheduleAssigneeIds,
+  readScheduleAssigneesCache,
   resolveScheduleAssigneeLabels,
   resolveScheduleAssigneeEmptyMessage,
+  SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS,
+  writeScheduleAssigneesCache,
   type CompanyUsersTabRow,
   type ScheduleAssigneeDiagnostics,
   type ScheduleAssigneeOption,
@@ -5095,6 +5098,8 @@ function App() {
     }
 
     const controller = new AbortController();
+    let loadTimedOut = false;
+    let cancelled = false;
     const params = new URLSearchParams();
     if (activeCompanyContext.masterSheetId.trim()) {
       params.set("masterSheetId", activeCompanyContext.masterSheetId.trim());
@@ -5109,11 +5114,20 @@ function App() {
       params.set("diagnostics", "1");
     }
 
+    const areaFilter = scheduleBuilderAreaFilter.trim();
+    const cachedEntry = readScheduleAssigneesCache(storageKeys.scheduleAssigneesCache, companyId, areaFilter);
     setScheduleAssigneesState((previous) => ({
-      ...previous,
+      assignees: cachedEntry?.assignees ?? previous.assignees,
+      diagnostics: cachedEntry?.diagnostics ?? previous.diagnostics,
+      warning: cachedEntry?.warning,
       loading: true,
       loadError: undefined,
     }));
+
+    const timeoutId = window.setTimeout(() => {
+      loadTimedOut = true;
+      controller.abort();
+    }, SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS);
 
     void (async () => {
       try {
@@ -5134,14 +5148,55 @@ function App() {
           throw new Error(payload.message || payload.error || "Unable to load schedule assignees.");
         }
 
+        const assignees = Array.isArray(payload.assignees) ? payload.assignees : [];
+        writeScheduleAssigneesCache(storageKeys.scheduleAssigneesCache, {
+          companyId,
+          area: areaFilter,
+          assignees,
+          diagnostics: payload.diagnostics,
+          warning: payload.warning,
+          cachedAt: Date.now(),
+        });
+        if (cancelled) {
+          return;
+        }
         setScheduleAssigneesState({
-          assignees: Array.isArray(payload.assignees) ? payload.assignees : [],
+          assignees,
           diagnostics: payload.diagnostics,
           warning: payload.warning,
           loading: false,
         });
       } catch (error) {
+        if (cancelled) {
+          return;
+        }
         if (error instanceof DOMException && error.name === "AbortError") {
+          if (!loadTimedOut) {
+            return;
+          }
+          if (cachedEntry) {
+            setScheduleAssigneesState({
+              assignees: cachedEntry.assignees,
+              diagnostics: cachedEntry.diagnostics,
+              warning: cachedEntry.warning || "Showing recently loaded users while the list refreshes.",
+              loading: false,
+            });
+          } else {
+            setScheduleAssigneesState({
+              assignees: [],
+              loadError: "Assignable users are taking longer than usual. Try again in a moment.",
+              loading: false,
+            });
+          }
+          return;
+        }
+        if (cachedEntry) {
+          setScheduleAssigneesState({
+            assignees: cachedEntry.assignees,
+            diagnostics: cachedEntry.diagnostics,
+            warning: cachedEntry.warning || "Showing recently loaded users because the list could not be refreshed.",
+            loading: false,
+          });
           return;
         }
         setScheduleAssigneesState({
@@ -5149,10 +5204,14 @@ function App() {
           loadError: error instanceof Error ? error.message : "Unable to load schedule assignees.",
           loading: false,
         });
+      } finally {
+        window.clearTimeout(timeoutId);
       }
     })();
 
     return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
       controller.abort();
     };
   }, [

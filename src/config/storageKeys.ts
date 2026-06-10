@@ -24,6 +24,8 @@ export const storageKeys = {
   tabletKioskEnabled: "bert-tablet-kiosk-enabled",
   /** Scoped open-actions count cache (`${prefix}:${companyFolderId}:${userId}`). */
   openActionsCountCache: "bert-open-actions-count",
+  /** Schedule builder assignees — keyed by company id + area in JSON payload. */
+  scheduleAssigneesCache: "bert-schedule-assignees-cache",
 } as const;
 
 /** Old keys from the QMS Precast product id — migrated to `storageKeys` on first load. */

@@ -109,6 +109,8 @@ assert(appSrc.includes("isScheduleAssignedToAnyEmail"), "4d: App filters by assi
 assert(complianceSrc.includes("getScheduleAssignedEmails"), "4e: compliance schedule uses helper");
 assert(scheduleSaveSrc.includes("getScheduleAssignedEmails"), "4f: schedule save uses helper");
 assert(read("src/permissions.ts").includes("canCompleteAssignedCheck"), "4g: completion permission helper exists");
+assert(read("src/utils/scheduleAssignees.ts").includes("SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS"), "4h: assignee load timeout constant");
+assert(appSrc.includes("readScheduleAssigneesCache"), "4i: App uses assignee cache on load");
 
 /** 5: assigned users see schedule; non-selected users do not. */
 {
