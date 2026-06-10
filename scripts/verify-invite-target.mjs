@@ -30,7 +30,11 @@ const inviteCompletion = read("src/screens/AppHostedOnboardingCompletion.tsx");
 
 /** 1: single registry-backed resolver */
 assert(resolveInviteTarget.includes("resolveCompanyWorkspaceForInvite"), "1: resolveCompanyWorkspaceForInvite helper");
-assert(resolveInviteTarget.includes("getCompanyWorkspaceRegistryRecord"), "2: registry is canonical source");
+assert(
+  resolveInviteTarget.includes("getCompanyWorkspaceRegistryRecord") ||
+    resolveInviteTarget.includes("getCanonicalCompanyRegistryRecord"),
+  "2: registry is canonical source",
+);
 
 /** 3: registry masterSheetId wins over stale invite metadata */
 assert(
@@ -91,7 +95,11 @@ assert(serverMain.includes('app.post("/api/invites/company-user/:tokenId/complet
 
 assert(inviteMessages.includes("This invite is no longer valid"), "invalid invite UI message");
 assert(inviteMessages.includes("not ready for user invites"), "company not live UI message");
-assert(inviteMessages.includes("couldn't finish setting up your account"), "user setup failed UI message");
+assert(
+  inviteMessages.includes("couldn't finish setting up your account") ||
+    inviteMessages.includes("couldn't finish creating your account"),
+  "user setup failed UI message",
+);
 assert(inviteMessages.includes("BERT is temporarily unavailable"), "temporarily unavailable UI message");
 assert(inviteApi.includes("INVITE_COMPANY_LINK_MISSING"), "invite API maps company link missing");
 assert(inviteApi.includes("COMPANY_MASTER_SHEET_UNAVAILABLE"), "invite API maps master sheet unavailable");

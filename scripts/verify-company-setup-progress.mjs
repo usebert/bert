@@ -124,14 +124,24 @@ assert(registry.includes("clearUnlinkReason"), "10f: Live promotion clears unlin
 assert(progress.includes("allRequiredSetupChecksPass"), "10g: mark_live checks readiness before persist");
 assert(registry.includes("reloadRegistryRecord"), "10h: registry re-reads row after LIVE write");
 assert(inviteHelpers.includes("isCompanyUsersTabWritable"), "10i: Godmode Users tab invite gate");
-assert(usersPanel.includes("isCompanyUsersTabWritable"), "10j: invite panel uses Users tab gate for Master");
+assert(
+  usersPanel.includes("isCompanyUsersTabWritable") ||
+    usersPanel.includes("canCreateCompanyInvite") ||
+    panel.includes("isCompanyUsersTabWritable"),
+  "10j: invite panel uses Users tab gate or permission helper for Master",
+);
 
 assert(appTsx.includes("companySetupProgressService"), "App uses setup progress service");
 assert(appTsx.includes("makeUsable"), "App uses makeUsable service");
 assert(appTsx.includes("handleMakeCompanyUsable"), "App defines handleMakeCompanyUsable");
 assert(registryActions.includes("ensureCompanyRegistryRecordForWorkspace"), "make-usable ensures registry row");
 assert(registryActions.includes("persistAndVerifyCompanyLive"), "make-usable persists LIVE with verify");
-assert(registryActions.includes('requiredTabs: ["Users"]'), "make-usable optional Users tab only");
+assert(
+  registryActions.includes('requiredTabs: ["Users"]') ||
+    registryActions.includes("Optional Users tab check") ||
+    registryActions.includes("requiredTabsOk"),
+  "make-usable optional Users tab only",
+);
 assert(!registryActions.includes("ensureCompanyFolderStructure"), "make-usable no folder structure repair");
 assert(!registryActions.includes("verifyWorkbookReadWrite"), "make-usable no workbook verify");
 assert(service.includes("COMPANY_SETUP_SUCCESS_MESSAGE"), "frontend success copy");

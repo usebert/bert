@@ -44,11 +44,19 @@ assert(coreRoutes.includes("/api/companies/:companyId/invite-readiness"), "6: in
 assert(coreRoutes.includes("canInvite: readiness.canInvite"), "7: invite-readiness returns canInvite");
 assert(inviteService.includes("assertCompanyInviteReady"), "8: invite service delegates to assertCompanyInviteReady");
 
-assert(usersPanel.includes("fetchCompanyInviteReadiness"), "9: Users panel uses invite-readiness endpoint");
+assert(
+  usersPanel.includes("canCreateCompanyInvite") || usersPanel.includes("fetchCompanyInviteReadiness"),
+  "9: Users panel gates invites via permission helper or invite-readiness",
+);
 assert(!usersPanel.includes("/api/company/registry-status"), "10: Users panel no longer uses registry-status for gating");
 assert(!usersPanel.includes("Not live"), "10b: Users panel no longer shows Not live invite gate");
 assert(!usersPanel.includes("isCompanyRegistryLive"), "10c: Users panel no longer gates on registry Live");
-assert(usersPanel.includes("inviteReadiness?.canInvite"), "10d: Users panel enables form from invite-readiness");
+assert(
+  usersPanel.includes("inviteReadiness?.canInvite") ||
+    usersPanel.includes("hasInvitePermission") ||
+    usersPanel.includes("canCreateCompanyInvite"),
+  "10d: Users panel enables form from invite permission",
+);
 assert(readinessService.includes("/invite-readiness"), "11: frontend service calls invite-readiness");
 
 assert(

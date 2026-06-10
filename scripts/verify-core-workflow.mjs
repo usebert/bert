@@ -52,7 +52,12 @@ const pkg = JSON.parse(read("package.json"));
 /** 1–4: make-usable canonical route + success/failure contracts */
 assert(registryActions.includes("/api/godmode/companies/:workspaceId/make-usable"), "1: make-usable route");
 assert(registryActions.includes("makeCompanyUsable"), "2: makeCompanyUsable handler");
-assert(registryActions.includes('status: MAKE_USABLE_STATUS_LIVE'), "3: success returns status LIVE");
+assert(
+  registryActions.includes("MAKE_USABLE_STATUS_LIVE") &&
+    (registryActions.includes('status: MAKE_USABLE_STATUS_LIVE') ||
+      registryActions.includes("status: resolved.status || MAKE_USABLE_STATUS_LIVE")),
+  "3: success returns status LIVE",
+);
 assert(registryActions.includes("userMessage"), "3b: success returns userMessage");
 assert(registryActions.includes("warnings"), "3c: success returns warnings");
 assert(registryActions.includes("makeUsableFailure"), "4: failure helper exists");

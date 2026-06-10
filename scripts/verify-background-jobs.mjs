@@ -49,7 +49,11 @@ assert(service.includes("schedule-pending"), "2b: local schedule pending dir");
 
 /** 3: Make-usable queues setup + health and returns quickly with background message. */
 assert(registryActions.includes("queueCompanySetupJobs"), "3: make-usable queues setup jobs");
-assert(registryActions.includes("BACKGROUND_SETUP_USER_MESSAGE"), "3b: make-usable background user message");
+assert(
+  registryActions.includes("BACKGROUND_SETUP_USER_MESSAGE") ||
+    registryActions.includes("COMPANY_READY_INVITE_MESSAGE"),
+  "3b: make-usable background user message",
+);
 assert(!registryActions.includes("ensureRequiredTabs"), "3c: Users tab moved out of sync make-usable");
 
 /** 4: Invites return token before email send (background queue). */

@@ -18,7 +18,7 @@ export async function resolveCompanyForUser(auth, email, deps) {
 
 export async function enrichCompanyContextFromRegistry(auth, deps, partial = {}) {
   const companyId = String(partial.companyId || partial.companyFolderId || "").trim();
-  const masterSheetId = String(partial.masterSheetId || "").trim();
+  let masterSheetId = String(partial.masterSheetId || "").trim();
   if (!companyId && !masterSheetId) {
     return partial;
   }
@@ -52,7 +52,7 @@ export async function enrichCompanyContextFromRegistry(auth, deps, partial = {})
       registryRecord?.name ||
       cleanCompanyNameFromFolder(partial.folderName),
   ).trim();
-  const masterSheetId = String(partial.masterSheetId || registryRecord?.masterSheetId || "").trim();
+  masterSheetId = String(partial.masterSheetId || registryRecord?.masterSheetId || masterSheetId).trim();
   const context = {
     companyId: resolvedCompanyId,
     companyFolderId,

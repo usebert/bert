@@ -5,6 +5,19 @@ import {
   INVITE_ROLE_FORBIDDEN_MESSAGE,
 } from "../shared/company-invite-permissions.mjs";
 
+function normalizeWorkspaceFolderLabel(name = "") {
+  return String(name || "")
+    .toLowerCase()
+    .replace(/^\d+\s*/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function isArchiveOrNonLiveWorkspaceName(name) {
+  const normalized = normalizeWorkspaceFolderLabel(name);
+  return normalized === "archive" || normalized === "archived";
+}
+
 const ADMIN_INVITE_NO_COMPANY_MESSAGE =
   "Your admin account is not linked to a company workspace yet. Ask the platform owner to complete company setup.";
 

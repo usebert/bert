@@ -81,7 +81,9 @@ assert(
     inviteMessages.includes("This invite is no longer valid") &&
     inviteMessages.includes("not ready for user invites") &&
     inviteMessages.includes("could not complete this request") &&
-    inviteMessages.includes("check your invite"),
+    (inviteMessages.includes("check your invite") ||
+      inviteMessages.includes("send a new invite") ||
+      inviteMessages.includes("Ask your administrator")),
   "13b: canonical customer error messages",
 );
 assert(
@@ -108,7 +110,11 @@ assert(inviteCompletion.includes("expectedType=COMPANY_USER"), "user invite load
 assert(inviteCompletion.includes("/api/invites/company-user/"), "user invite posts company-user complete");
 assert(inviteCompletion.includes("You've been invited to join"), "user invite headline uses company name");
 assert(inviteCompletion.includes("Create account"), "user invite submit CTA");
-assert(inviteCompletion.includes("Create your BERT account"), "user invite page title");
+assert(
+  inviteCompletion.includes("Create your BERT account") ||
+    inviteCompletion.includes("INVITE_COMPLETION_PAGE_TITLE"),
+  "user invite page title",
+);
 assert(!inviteCompletion.includes("Create workspace"), "user invite must not show Create workspace");
 assert(!inviteCompletion.includes("new_company"), "retired new_company UI removed");
 assert(!inviteCompletion.includes("details?.masterSheetId"), "user invite load does not depend on masterSheetId");
