@@ -105,23 +105,28 @@ const pendingInvite = {
   assert(userService.includes("members.unshift(fallbackMember)"), "7b: signed-in user prepended when missing");
 }
 
-/** 8: Frontend loads active members from canonical API with cache. */
+/** 8: Frontend loads active members from canonical API with cache + safe JSON fetch. */
 {
   const appSrc = read("App.tsx");
   const service = read("src/services/companyUserService.ts");
+  const fetchJson = read("src/utils/fetchJson.ts");
   assert(service.includes("fetchCompanyMembers"), "8: frontend fetchCompanyMembers");
   assert(service.includes("readCompanyMembersCache"), "8b: cache read");
   assert(service.includes("COMPANY_MEMBERS_LOAD_TIMEOUT_MS"), "8c: load timeout");
+  assert(service.includes("fetchJson"), "8c2: safe fetchJson used");
+  assert(fetchJson.includes("NON_JSON_RESPONSE"), "8c3: NON_JSON_RESPONSE handled");
   assert(appSrc.includes("/api/companies/") && appSrc.includes("fetchCompanyMembers"), "8d: App uses company users API");
   assert(appSrc.includes("readCompanyMembersCache"), "8e: App uses members cache");
 }
 
-/** 9: Users panel — active from /users, pending invites separate. */
+/** 9: Users panel — active from /users, pending invites separate, godmode-only workbook hint. */
 {
   const panel = read("src/components/admin/UsersInvitesPilotPanel.tsx");
   assert(panel.includes("Pending invites"), "9: pending invites section");
   assert(panel.includes("activeCompanyMembers"), "9b: active members prop");
   assert(panel.includes("activeMembersLoadError"), "9c: load error UI");
+  assert(panel.includes("canShowTechnicalUi(currentUser.role)"), "9c2: godmode gates error detail");
+  assert(panel.includes("Could not load company users. Try again."), "9c3: normal user load error");
   assert(panel.includes("!isActiveCompanyUserInvite(invite)"), "9d: pending excludes active invite rows");
   assert(!panel.includes("activeInvites.map"), "9e: active list not driven by invite rows");
 }
