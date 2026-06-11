@@ -642,7 +642,9 @@ export function UsersInvitesPilotPanel({
         {activeMembersLoadError ? (
           <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
             <p className="text-sm font-semibold text-rose-900">Could not load active users</p>
-            <p className="mt-1 text-sm text-rose-800">{activeMembersLoadError}</p>
+            <p className="mt-1 text-sm text-rose-800">
+              {canShowTechnicalUi(currentUser.role) ? activeMembersLoadError : "Could not load company users. Try again."}
+            </p>
           </div>
         ) : null}
         {activeMembersWarning ? (
@@ -660,7 +662,9 @@ export function UsersInvitesPilotPanel({
               title={activeMembersLoadError ? "Active users unavailable" : "No active users yet"}
               text={
                 activeMembersLoadError
-                  ? "Fix the workbook connection above, then re-sync users."
+                  ? canShowTechnicalUi(currentUser.role)
+                    ? "Fix the workbook connection above, then re-sync users."
+                    : "Could not load company users. Try again."
                   : "Active users from the company workbook appear here after setup is complete."
               }
             />

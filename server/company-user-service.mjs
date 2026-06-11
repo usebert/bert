@@ -151,6 +151,14 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
       error: "Company workspace could not be resolved.",
       message: "Company workspace could not be resolved.",
       httpStatus: 404,
+      diagnostics: {
+        currentCompanyId: companyFolderId,
+        currentCompanyName: companyName || undefined,
+        masterSheetId: "",
+        signedInEmail: normalizeEmail(sessionActor?.email || ""),
+        activeUsersFound: 0,
+        dataSource: "users_tab",
+      },
     };
   }
 
@@ -176,6 +184,14 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
       error: "Company master sheet is not configured.",
       message: "Company master sheet is not configured.",
       httpStatus: 404,
+      diagnostics: {
+        currentCompanyId: resolvedCompanyId,
+        currentCompanyName: companyName || undefined,
+        masterSheetId: "",
+        signedInEmail: normalizeEmail(sessionActor?.email || ""),
+        activeUsersFound: 0,
+        dataSource: "users_tab",
+      },
     };
   }
 
@@ -216,6 +232,14 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
       masterSheetId,
       users: members,
       activeCount: members.length,
+      diagnostics: {
+        currentCompanyId: resolvedCompanyId,
+        currentCompanyName: companyName || undefined,
+        masterSheetId,
+        signedInEmail: normalizeEmail(sessionActor?.email || ""),
+        activeUsersFound: members.length,
+        dataSource: "users_tab",
+      },
     };
   } catch (error) {
     const technicalError = error instanceof Error ? error.message : String(error);
@@ -226,6 +250,14 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
       message: "Could not load users from the company workbook.",
       technicalError: isDevDiagnosticsEnabled() ? technicalError : undefined,
       httpStatus: 502,
+      diagnostics: {
+        currentCompanyId: resolvedCompanyId,
+        currentCompanyName: companyName || undefined,
+        masterSheetId,
+        signedInEmail: normalizeEmail(sessionActor?.email || ""),
+        activeUsersFound: 0,
+        dataSource: "users_tab",
+      },
     };
   }
 }

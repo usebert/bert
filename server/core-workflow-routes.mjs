@@ -373,27 +373,33 @@ export function installCoreWorkflowRoutes(app, deps) {
         return res.status(result.httpStatus || 400).json({
           ok: false,
           code: result.code,
-          error: result.error,
           message: result.message || result.error,
+          diagnostics: result.diagnostics,
           technicalError: result.technicalError,
         });
       }
 
       return res.json({
         ok: true,
+        users: result.users,
+        diagnostics: result.diagnostics,
         companyId: result.companyId,
         companyFolderId: result.companyFolderId,
         companyName: result.companyName,
         masterSheetId: result.masterSheetId,
-        users: result.users,
         activeCount: result.activeCount,
       });
     } catch (error) {
       return res.status(500).json({
         ok: false,
         code: "USERS_TAB_READ_FAILED",
-        error: "Could not load users from the company workbook.",
         message: "Could not load users from the company workbook.",
+        diagnostics: {
+          currentCompanyId: companyId,
+          masterSheetId,
+          activeUsersFound: 0,
+          dataSource: "users_tab",
+        },
         technicalError: error instanceof Error ? error.message : String(error),
       });
     }

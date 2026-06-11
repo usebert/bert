@@ -1,4 +1,5 @@
 import type { CompanyUsersTabRow } from "../utils/scheduleAssignees";
+import { fetchJson } from "../utils/fetchJson";
 
 export type CompanyMember = CompanyUsersTabRow & {
   companyFolderId?: string;
@@ -12,6 +13,7 @@ export type CompanyMembersCacheEntry = {
 };
 
 export const COMPANY_MEMBERS_LOAD_TIMEOUT_MS = 2000;
+export const COMPANY_MEMBERS_USER_MESSAGE = "Could not load company users. Try again.";
 
 function companyMembersCacheKey(companyId: string): string {
   return companyId.trim();
@@ -56,7 +58,29 @@ export type FetchCompanyMembersResult = {
   members: CompanyMember[];
   warning?: string;
   loadError?: string;
+  loadErrorDetail?: string;
 };
+
+function buildLoadErrorDetail(
+  code: string | undefined,
+  message: string | undefined,
+  diagnostics?: { url?: string; contentType?: string; status?: number; rawSnippet?: string },
+): string {
+  const parts = [code, message].filter(Boolean);
+  if (diagnostics?.url) {
+    parts.push(`url=${diagnostics.url}`);
+  }
+  if (diagnostics?.status) {
+    parts.push(`status=${diagnostics.status}`);
+  }
+  if (diagnostics?.contentType) {
+    parts.push(`content-type=${diagnostics.contentType}`);
+  }
+  if (diagnostics?.rawSnippet) {
+    parts.push(`body=${diagnostics.rawSnippet}`);
+  }
+  return parts.join(" — ") || COMPANY_MEMBERS_USER_MESSAGE;
+}
 
 export async function fetchCompanyMembers(
   apiUrl: (path: string) => string,
@@ -69,7 +93,12 @@ export async function fetchCompanyMembers(
 ): Promise<FetchCompanyMembersResult> {
   const companyId = input.companyId.trim();
   if (!companyId) {
-    return { ok: false, members: [], loadError: "Company workspace is not selected." };
+    return {
+      ok: false,
+      members: [],
+      loadError: COMPANY_MEMBERS_USER_MESSAGE,
+      loadErrorDetail: "Company workspace is not selected.",
+    };
   }
 
   const params = new URLSearchParams();
@@ -80,23 +109,36 @@ export async function fetchCompanyMembers(
     params.set("companyName", input.companyName.trim());
   }
 
-  const response = await fetch(
-    apiUrl(`/api/companies/${encodeURIComponent(companyId)}/users?${params.toString()}`),
-    { credentials: "include", signal: input.signal },
-  );
-  const payload = (await response.json()) as {
+  const path = `/api/companies/${encodeURIComponent(companyId)}/users?${params.toString()}`;
+  const result = await fetchJson<{
     ok?: boolean;
     users?: CompanyMember[];
     message?: string;
     error?: string;
     code?: string;
-  };
+    technicalError?: string;
+  }>(apiUrl(path), { signal: input.signal });
 
+  if (!result.ok) {
+    return {
+      ok: false,
+      members: [],
+      loadError: COMPANY_MEMBERS_USER_MESSAGE,
+      loadErrorDetail: buildLoadErrorDetail(result.code, result.message, result.diagnostics),
+    };
+  }
+
+  const { data: payload, response } = result;
   if (!response.ok || payload.ok === false) {
     return {
       ok: false,
       members: [],
-      loadError: payload.message || payload.error || "Could not load users from the company workbook.",
+      loadError: COMPANY_MEMBERS_USER_MESSAGE,
+      loadErrorDetail: buildLoadErrorDetail(
+        payload.code,
+        payload.message || payload.error || payload.technicalError,
+        { status: response.status, url: apiUrl(path) },
+      ),
     };
   }
 

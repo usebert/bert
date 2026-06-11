@@ -121,6 +121,7 @@ import {
 import { resolveActiveCompanyContext } from "./src/services/companyContextService";
 import {
   COMPANY_MEMBERS_LOAD_TIMEOUT_MS,
+  COMPANY_MEMBERS_USER_MESSAGE,
   fetchCompanyMembers,
   readCompanyMembersCache,
   writeCompanyMembersCache,
@@ -5284,7 +5285,7 @@ function App() {
         });
 
         if (!result.ok) {
-          throw new Error(result.loadError || "Could not load users from the company workbook.");
+          throw new Error(result.loadErrorDetail || result.loadError || COMPANY_MEMBERS_USER_MESSAGE);
         }
 
         writeCompanyMembersCache(storageKeys.companyMembersCache, {
@@ -5335,7 +5336,7 @@ function App() {
         }
         setCompanyMembersState({
           members: [],
-          loadError: error instanceof Error ? error.message : "Could not load users from the company workbook.",
+          loadError: error instanceof Error ? error.message : COMPANY_MEMBERS_USER_MESSAGE,
           loading: false,
         });
       } finally {
@@ -8492,7 +8493,7 @@ function App() {
         companyName: activeCompanyContext.companyName,
       });
       if (!membersResult.ok) {
-        throw new Error(membersResult.loadError || "Could not load users from the company workbook.");
+        throw new Error(membersResult.loadErrorDetail || membersResult.loadError || COMPANY_MEMBERS_USER_MESSAGE);
       }
       setCompanyUsersTabRows(membersResult.members);
       setCompanyMembersState({

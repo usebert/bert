@@ -7263,14 +7263,41 @@ installAuditBuilderRoutes(app, {
   appendRowObjects,
 });
 
+app.use((req, res, next) => {
+  const path = String(req.path || req.url || "");
+  if (path.startsWith("/api/")) {
+    return res.status(404).json({
+      ok: false,
+      code: "API_ROUTE_NOT_FOUND",
+      message: `API route not found: ${req.method} ${req.originalUrl || path}`,
+    });
+  }
+  return next();
+});
+
 app.use((err, req, res, _next) => {
   if (res.headersSent) {
     console.error("[express] error after headers sent:", err);
     return;
   }
-  res.status(500).json({
+  const path = String(req.path || req.url || "");
+  const isApiRoute = path.startsWith("/api/");
+  const technicalError = err instanceof Error ? err.message : String(err);
+  console.error("[express] unhandled error:", technicalError);
+  if (isApiRoute) {
+    return res.status(500).json({
+      ok: false,
+      code: "INTERNAL_SERVER_ERROR",
+      message: "An unexpected error occurred.",
+      technicalError:
+        String(process.env.BERT_GODMODE_DIAGNOSTICS || "").trim().toLowerCase() === "true"
+          ? technicalError
+          : undefined,
+    });
+  }
+  return res.status(500).json({
     ok: false,
-    error: err instanceof Error ? err.message : "Internal server error",
+    error: technicalError || "Internal server error",
   });
 });
 
