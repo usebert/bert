@@ -255,6 +255,7 @@ export function AdminScreen({
   activeCompanyMembers = [],
   activeMembersLoading = false,
   activeMembersLoadError,
+  activeMembersLoadErrorDetail,
   activeMembersWarning,
   userSiteAssignments,
   onToggleUserSiteAssignment,
@@ -1326,6 +1327,7 @@ export function AdminScreen({
           activeCompanyMembers={activeCompanyMembers}
           activeMembersLoading={activeMembersLoading}
           activeMembersLoadError={activeMembersLoadError}
+          activeMembersLoadErrorDetail={activeMembersLoadErrorDetail}
           activeMembersWarning={activeMembersWarning}
           sites={sites}
           selectedSiteId={selectedSiteId}

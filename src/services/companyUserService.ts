@@ -12,6 +12,20 @@ export type CompanyMembersCacheEntry = {
   warning?: string;
 };
 
+export type CompanyMembersDiagnostics = {
+  companyId?: string;
+  companyFolderId?: string;
+  companyName?: string;
+  masterSheetId?: string;
+  signedInEmail?: string;
+  signedInRole?: string;
+  dataSource?: string;
+  failedStep?: string;
+  durationMs?: number;
+  upstreamStatus?: number;
+  upstreamMessage?: string;
+};
+
 export const COMPANY_MEMBERS_LOAD_TIMEOUT_MS = 2000;
 export const COMPANY_MEMBERS_USER_MESSAGE = "Could not load company users. Try again.";
 
@@ -59,26 +73,26 @@ export type FetchCompanyMembersResult = {
   warning?: string;
   loadError?: string;
   loadErrorDetail?: string;
+  diagnostics?: CompanyMembersDiagnostics;
 };
 
 function buildLoadErrorDetail(
-  code: string | undefined,
-  message: string | undefined,
-  diagnostics?: { url?: string; contentType?: string; status?: number; rawSnippet?: string },
+  reasonCode: string | undefined,
+  diagnostics?: CompanyMembersDiagnostics,
+  upstreamMessage?: string,
 ): string {
-  const parts = [code, message].filter(Boolean);
-  if (diagnostics?.url) {
-    parts.push(`url=${diagnostics.url}`);
-  }
-  if (diagnostics?.status) {
-    parts.push(`status=${diagnostics.status}`);
-  }
-  if (diagnostics?.contentType) {
-    parts.push(`content-type=${diagnostics.contentType}`);
-  }
-  if (diagnostics?.rawSnippet) {
-    parts.push(`body=${diagnostics.rawSnippet}`);
-  }
+  const parts = [
+    reasonCode,
+    diagnostics?.companyId ? `companyId=${diagnostics.companyId}` : "",
+    diagnostics?.companyFolderId ? `companyFolderId=${diagnostics.companyFolderId}` : "",
+    diagnostics?.masterSheetId ? `masterSheetId=${diagnostics.masterSheetId}` : "",
+    diagnostics?.failedStep ? `failedStep=${diagnostics.failedStep}` : "",
+    diagnostics?.signedInEmail ? `signedInEmail=${diagnostics.signedInEmail}` : "",
+    diagnostics?.dataSource ? `dataSource=${diagnostics.dataSource}` : "",
+    upstreamMessage || diagnostics?.upstreamMessage
+      ? `upstreamMessage=${upstreamMessage || diagnostics?.upstreamMessage}`
+      : "",
+  ].filter(Boolean);
   return parts.join(" — ") || COMPANY_MEMBERS_USER_MESSAGE;
 }
 
@@ -116,34 +130,49 @@ export async function fetchCompanyMembers(
     message?: string;
     error?: string;
     code?: string;
+    reasonCode?: string;
+    warning?: string;
     technicalError?: string;
+    diagnostics?: CompanyMembersDiagnostics;
   }>(apiUrl(path), { signal: input.signal });
 
   if (!result.ok) {
+    const transportDetail = [
+      result.code,
+      result.message,
+      result.diagnostics?.url ? `url=${result.diagnostics.url}` : "",
+      result.diagnostics?.status ? `status=${result.diagnostics.status}` : "",
+    ]
+      .filter(Boolean)
+      .join(" — ");
     return {
       ok: false,
       members: [],
       loadError: COMPANY_MEMBERS_USER_MESSAGE,
-      loadErrorDetail: buildLoadErrorDetail(result.code, result.message, result.diagnostics),
+      loadErrorDetail: transportDetail || COMPANY_MEMBERS_USER_MESSAGE,
     };
   }
 
   const { data: payload, response } = result;
   if (!response.ok || payload.ok === false) {
+    const diagnostics = payload.diagnostics;
     return {
       ok: false,
       members: [],
       loadError: COMPANY_MEMBERS_USER_MESSAGE,
       loadErrorDetail: buildLoadErrorDetail(
-        payload.code,
+        payload.reasonCode || payload.code,
+        diagnostics,
         payload.message || payload.error || payload.technicalError,
-        { status: response.status, url: apiUrl(path) },
       ),
+      diagnostics,
     };
   }
 
   return {
     ok: true,
     members: Array.isArray(payload.users) ? payload.users : [],
+    warning: payload.warning,
+    diagnostics: payload.diagnostics,
   };
 }

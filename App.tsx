@@ -3543,6 +3543,7 @@ function App() {
   const [companyMembersState, setCompanyMembersState] = useState<{
     members: CompanyMember[];
     loadError?: string;
+    loadErrorDetail?: string;
     warning?: string;
     loading: boolean;
   }>({ members: [], loading: false });
@@ -5292,6 +5293,7 @@ function App() {
           companyId,
           members: result.members,
           cachedAt: Date.now(),
+          warning: result.warning,
         });
         if (cancelled) {
           return;
@@ -5299,6 +5301,7 @@ function App() {
         setCompanyUsersTabRows(result.members);
         setCompanyMembersState({
           members: result.members,
+          warning: result.warning,
           loading: false,
         });
       } catch (error) {
@@ -5336,7 +5339,8 @@ function App() {
         }
         setCompanyMembersState({
           members: [],
-          loadError: error instanceof Error ? error.message : COMPANY_MEMBERS_USER_MESSAGE,
+          loadError: COMPANY_MEMBERS_USER_MESSAGE,
+          loadErrorDetail: error instanceof Error ? error.message : COMPANY_MEMBERS_USER_MESSAGE,
           loading: false,
         });
       } finally {
@@ -8498,12 +8502,14 @@ function App() {
       setCompanyUsersTabRows(membersResult.members);
       setCompanyMembersState({
         members: membersResult.members,
+        warning: membersResult.warning,
         loading: false,
       });
       writeCompanyMembersCache(storageKeys.companyMembersCache, {
         companyId: companyFolderId,
         members: membersResult.members,
         cachedAt: Date.now(),
+        warning: membersResult.warning,
       });
 
       const manualMasterSheetIdForSheet = manualMasterSheetId;
@@ -13974,6 +13980,7 @@ function App() {
                 activeCompanyMembers={companyMembersState.members}
                 activeMembersLoading={companyMembersState.loading}
                 activeMembersLoadError={companyMembersState.loadError}
+                activeMembersLoadErrorDetail={companyMembersState.loadErrorDetail}
                 activeMembersWarning={companyMembersState.warning}
                 userSiteAssignments={displayUserSiteAssignments}
                 onToggleUserSiteAssignment={handleToggleUserSiteAssignment}

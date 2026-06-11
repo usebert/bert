@@ -205,6 +205,7 @@ export type AdminScreenProps = {
   }>;
   activeMembersLoading?: boolean;
   activeMembersLoadError?: string;
+  activeMembersLoadErrorDetail?: string;
   activeMembersWarning?: string;
   userSiteAssignments: UserSiteAssignments;
   onToggleUserSiteAssignment: (email: string, siteId: string) => void;

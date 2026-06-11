@@ -2,7 +2,6 @@
  * Company workbook Users tab reads — never expose PasswordHash to clients.
  */
 import {
-  isActiveUser,
   parseRoleForClient,
   buildAvailableScheduleAssigneesFromUsers,
 } from "../shared/schedule-assignees.mjs";
@@ -13,6 +12,9 @@ import {
   normalizeUserStatus,
 } from "./company-users.mjs";
 import { resolveCompanyById } from "./company-registry-service.mjs";
+import { resolveCompanyFromFolder } from "./company-folder-resolver.mjs";
+
+const COMPANY_USERS_LOAD_FAILED = "COMPANY_USERS_LOAD_FAILED";
 
 function pickRowValue(row, ...keys) {
   if (!row || typeof row !== "object") {
@@ -46,6 +48,132 @@ function isActiveSessionActor(actor) {
   }
   const status = String(actor.status || "active").trim().toLowerCase();
   return status === "active" || status === "";
+}
+
+function looksLikeDriveId(value) {
+  const id = String(value || "").trim();
+  return id.length >= 10 && /^[a-zA-Z0-9_-]+$/.test(id);
+}
+
+function buildDiagnostics(base = {}) {
+  const companyFolderId = String(base.companyFolderId || base.companyId || "").trim();
+  const companyId = String(base.companyId || companyFolderId).trim();
+  const signedInEmail = normalizeEmail(base.signedInEmail || "");
+  return {
+    companyId: companyId || undefined,
+    companyFolderId: companyFolderId || companyId || undefined,
+    companyName: String(base.companyName || "").trim() || undefined,
+    masterSheetId: String(base.masterSheetId || "").trim() || undefined,
+    signedInEmail: signedInEmail || undefined,
+    signedInRole: String(base.signedInRole || "").trim() || undefined,
+    dataSource: String(base.dataSource || "").trim() || undefined,
+    failedStep: String(base.failedStep || "").trim() || undefined,
+    durationMs: typeof base.durationMs === "number" ? base.durationMs : undefined,
+    upstreamStatus:
+      typeof base.upstreamStatus === "number" && Number.isFinite(base.upstreamStatus)
+        ? base.upstreamStatus
+        : undefined,
+    upstreamMessage: String(base.upstreamMessage || "").trim() || undefined,
+  };
+}
+
+function buildFailure(reasonCode, message, diagnostics = {}, extra = {}) {
+  return {
+    ok: false,
+    code: COMPANY_USERS_LOAD_FAILED,
+    reasonCode,
+    message,
+    error: message,
+    httpStatus: extra.httpStatus || 400,
+    diagnostics: buildDiagnostics(diagnostics),
+    technicalError: extra.technicalError,
+  };
+}
+
+function classifyReadError(error, payload) {
+  const message = String(error instanceof Error ? error.message : error || "").trim();
+  const lower = message.toLowerCase();
+  const code = String(error?.code || payload?.code || "").trim();
+  const upstreamStatus = Number(error?.response?.status || error?.status || payload?.status || 0);
+
+  if (code === "GOOGLE_PERMISSION_DENIED" || upstreamStatus === 403 || lower.includes("permission")) {
+    return {
+      reasonCode: "PERMISSION_DENIED",
+      failedStep: "read_users_tab",
+      upstreamStatus: upstreamStatus || 403,
+      upstreamMessage: message,
+    };
+  }
+  if (
+    code === "GOOGLE_AUTH_FAILED" ||
+    lower.includes("invalid_grant") ||
+    lower.includes("invalid credentials") ||
+    lower.includes("not connected")
+  ) {
+    return {
+      reasonCode: "GOOGLE_AUTH_FAILED",
+      failedStep: "connect_google",
+      upstreamStatus: upstreamStatus || 401,
+      upstreamMessage: message,
+    };
+  }
+  if (lower.includes("users tab is missing") || lower.includes("users tab")) {
+    return {
+      reasonCode: "USERS_TAB_MISSING",
+      failedStep: "read_users_tab",
+      upstreamStatus: upstreamStatus || undefined,
+      upstreamMessage: message,
+    };
+  }
+  return {
+    reasonCode: "USERS_TAB_READ_FAILED",
+    failedStep: "read_users_tab",
+    upstreamStatus: upstreamStatus || undefined,
+    upstreamMessage: message || String(payload?.error || ""),
+  };
+}
+
+function canUseSessionFallback(sessionActor, companyFolderId) {
+  if (!sessionActor || !isActiveSessionActor(sessionActor)) {
+    return false;
+  }
+  const email = normalizeEmail(sessionActor.email);
+  const name = String(sessionActor.name || "").trim();
+  const role = String(sessionActor.role || sessionActor.accessLevel || "").trim();
+  const actorCompanyId = String(sessionActor.companyId || sessionActor.companyFolderId || "").trim();
+  if (!email || !name || !role || !actorCompanyId) {
+    return false;
+  }
+  return actorCompanyId === String(companyFolderId || "").trim();
+}
+
+function buildSessionFallbackSuccess(sessionActor, context = {}) {
+  const companyFolderId = String(context.companyFolderId || context.companyId || "").trim();
+  const member = buildSessionActorMember(sessionActor, companyFolderId);
+  if (!member) {
+    return null;
+  }
+  return {
+    ok: true,
+    companyId: companyFolderId,
+    companyFolderId,
+    companyName: context.companyName || undefined,
+    masterSheetId: context.masterSheetId || undefined,
+    users: [member],
+    activeCount: 1,
+    warning:
+      context.warning ||
+      "Showing signed-in user because the company users list could not be loaded.",
+    diagnostics: buildDiagnostics({
+      ...context,
+      companyId: companyFolderId,
+      companyFolderId,
+      signedInEmail: member.email,
+      signedInRole: member.role,
+      dataSource: "session-fallback",
+      durationMs: context.durationMs,
+    }),
+  };
 }
 
 function mapUsersTabRow(row, companyFolderId = "") {
@@ -120,7 +248,11 @@ export async function getCompanyUsers(auth, masterSheetId, deps, options = {}) {
   }
   const payload = await readCompanySheetById(auth, sheetId);
   if (!payload || payload.ok === false) {
-    throw new Error(String(payload?.error || "Unable to read company workbook Users tab."));
+    const error = new Error(String(payload?.error || "Unable to read company workbook Users tab."));
+    if (payload?.status) {
+      error.status = payload.status;
+    }
+    throw error;
   }
   if (!payload.data || !Array.isArray(payload.data.Users)) {
     throw new Error("Company workbook Users tab is missing or unreadable.");
@@ -130,36 +262,101 @@ export async function getCompanyUsers(auth, masterSheetId, deps, options = {}) {
   return sanitizeUsersTabRecords(rawUsers.map((row) => mapUsersTabRow(row, companyFolderId)));
 }
 
+async function resolveMasterSheetFromFolder(auth, deps, companyFolderId, companyName, masterSheetHint = "") {
+  try {
+    const resolved = await resolveCompanyFromFolder(auth, deps, companyFolderId, {
+      companyName,
+      masterSheetId: masterSheetHint,
+      ensureStructure: false,
+    });
+    if (!resolved?.ok) {
+      const reasonCode = String(resolved?.reasonCode || "").trim();
+      if (reasonCode === "MASTER_SHEET_MISSING") {
+        return { ok: false, reasonCode: "MISSING_MASTER_SHEET_ID", resolved };
+      }
+      if (reasonCode === "COMPANY_FOLDER_MISSING" || reasonCode === "COMPANY_FOLDER_INVALID") {
+        return { ok: false, reasonCode: "COMPANY_NOT_FOUND", resolved };
+      }
+      return { ok: false, reasonCode: "COMPANY_NOT_FOUND", resolved };
+    }
+    return {
+      ok: true,
+      masterSheetId: String(resolved.masterSheetId || "").trim(),
+      companyName: String(resolved.companyName || companyName || "").trim(),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      reasonCode: "COMPANY_NOT_FOUND",
+      error,
+    };
+  }
+}
+
 /**
  * Canonical active company members from the Users tab — all roles, companyId = companyFolderId.
  */
 export async function listActiveCompanyMembers(auth, deps, companyContext = {}) {
+  const startedAt = Date.now();
+  const sessionActor = companyContext.sessionActor || null;
+  const signedInEmail = normalizeEmail(sessionActor?.email || "");
+  const signedInRole = String(sessionActor?.role || sessionActor?.accessLevel || "").trim();
+
   const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
   let masterSheetId = String(companyContext.masterSheetId || "").trim();
   let companyName = String(companyContext.companyName || "").trim();
-  const sessionActor = companyContext.sessionActor || null;
+
+  const baseDiagnostics = () =>
+    buildDiagnostics({
+      companyId: companyFolderId,
+      companyFolderId,
+      companyName,
+      masterSheetId,
+      signedInEmail,
+      signedInRole,
+      dataSource: "users_tab",
+      durationMs: Date.now() - startedAt,
+    });
+
+  if (!auth) {
+    return buildFailure(
+      "GOOGLE_AUTH_FAILED",
+      "Please connect Google before loading company users.",
+      { ...baseDiagnostics(), failedStep: "connect_google", dataSource: "users_tab" },
+      { httpStatus: 401 },
+    );
+  }
+
+  if (!companyFolderId) {
+    const failure = buildFailure(
+      "MISSING_COMPANY_CONTEXT",
+      "Company workspace is not selected.",
+      { ...baseDiagnostics(), failedStep: "select_company" },
+      { httpStatus: 404 },
+    );
+    const fallback = canUseSessionFallback(sessionActor, companyFolderId)
+      ? buildSessionFallbackSuccess(sessionActor, {
+          companyFolderId,
+          companyName,
+          masterSheetId,
+          durationMs: Date.now() - startedAt,
+        })
+      : null;
+    return fallback || failure;
+  }
+
+  if (!looksLikeDriveId(companyFolderId)) {
+    return buildFailure(
+      "INVALID_COMPANY_ID",
+      "Company workspace id is invalid.",
+      { ...baseDiagnostics(), failedStep: "select_company" },
+      { httpStatus: 400 },
+    );
+  }
 
   let registryRecord = null;
   if (companyFolderId) {
     registryRecord = await resolveCompanyById(auth, deps, companyFolderId).catch(() => null);
-  }
-
-  if (!registryRecord && !masterSheetId) {
-    return {
-      ok: false,
-      code: "COMPANY_CONTEXT_MISSING",
-      error: "Company workspace could not be resolved.",
-      message: "Company workspace could not be resolved.",
-      httpStatus: 404,
-      diagnostics: {
-        currentCompanyId: companyFolderId,
-        currentCompanyName: companyName || undefined,
-        masterSheetId: "",
-        signedInEmail: normalizeEmail(sessionActor?.email || ""),
-        activeUsersFound: 0,
-        dataSource: "users_tab",
-      },
-    };
   }
 
   if (registryRecord) {
@@ -169,31 +366,46 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
       String(registryRecord.companyName || registryRecord.name || registryRecord.companyFolderName || "").trim();
   }
 
-  const resolvedCompanyId = String(
-    companyFolderId ||
-      registryRecord?.companyFolderId ||
-      registryRecord?.rootFolderId ||
-      registryRecord?.companyId ||
-      "",
-  ).trim();
-
   if (!masterSheetId) {
-    return {
-      ok: false,
-      code: "COMPANY_CONTEXT_MISSING",
-      error: "Company master sheet is not configured.",
-      message: "Company master sheet is not configured.",
-      httpStatus: 404,
-      diagnostics: {
-        currentCompanyId: resolvedCompanyId,
-        currentCompanyName: companyName || undefined,
-        masterSheetId: "",
-        signedInEmail: normalizeEmail(sessionActor?.email || ""),
-        activeUsersFound: 0,
-        dataSource: "users_tab",
-      },
-    };
+    const folderResolved = await resolveMasterSheetFromFolder(auth, deps, companyFolderId, companyName, masterSheetId);
+    if (folderResolved.ok) {
+      masterSheetId = folderResolved.masterSheetId;
+      companyName = folderResolved.companyName || companyName;
+    } else {
+      const reasonCode = folderResolved.reasonCode || "MISSING_MASTER_SHEET_ID";
+      const failure = buildFailure(
+        reasonCode,
+        reasonCode === "COMPANY_NOT_FOUND"
+          ? "Company workspace could not be found."
+          : "Company master sheet is not configured.",
+        {
+          ...baseDiagnostics(),
+          companyName,
+          failedStep: reasonCode === "COMPANY_NOT_FOUND" ? "resolve_company_folder" : "link_master_sheet",
+          upstreamMessage:
+            folderResolved.resolved?.userMessage ||
+            (folderResolved.error instanceof Error ? folderResolved.error.message : String(folderResolved.error || "")),
+        },
+        {
+          httpStatus: reasonCode === "COMPANY_NOT_FOUND" ? 404 : 404,
+          technicalError: isDevDiagnosticsEnabled()
+            ? folderResolved.resolved?.userMessage || String(folderResolved.error || "")
+            : undefined,
+        },
+      );
+      const fallback = canUseSessionFallback(sessionActor, companyFolderId)
+        ? buildSessionFallbackSuccess(sessionActor, {
+            companyFolderId,
+            companyName,
+            masterSheetId,
+            durationMs: Date.now() - startedAt,
+          })
+        : null;
+      return fallback || failure;
+    }
   }
+
+  const resolvedCompanyId = companyFolderId;
 
   try {
     const rawUsers = await getCompanyUsers(auth, masterSheetId, deps, {
@@ -232,33 +444,51 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
       masterSheetId,
       users: members,
       activeCount: members.length,
-      diagnostics: {
-        currentCompanyId: resolvedCompanyId,
-        currentCompanyName: companyName || undefined,
+      diagnostics: buildDiagnostics({
+        companyId: resolvedCompanyId,
+        companyFolderId: resolvedCompanyId,
+        companyName,
         masterSheetId,
-        signedInEmail: normalizeEmail(sessionActor?.email || ""),
-        activeUsersFound: members.length,
+        signedInEmail,
+        signedInRole,
         dataSource: "users_tab",
-      },
+        durationMs: Date.now() - startedAt,
+      }),
     };
   } catch (error) {
+    const classified = classifyReadError(error);
     const technicalError = error instanceof Error ? error.message : String(error);
-    return {
-      ok: false,
-      code: "USERS_TAB_READ_FAILED",
-      error: "Could not load users from the company workbook.",
-      message: "Could not load users from the company workbook.",
-      technicalError: isDevDiagnosticsEnabled() ? technicalError : undefined,
-      httpStatus: 502,
-      diagnostics: {
-        currentCompanyId: resolvedCompanyId,
-        currentCompanyName: companyName || undefined,
+    const failure = buildFailure(
+      classified.reasonCode,
+      "Could not load users from the company workbook.",
+      {
+        companyId: resolvedCompanyId,
+        companyFolderId: resolvedCompanyId,
+        companyName,
         masterSheetId,
-        signedInEmail: normalizeEmail(sessionActor?.email || ""),
-        activeUsersFound: 0,
+        signedInEmail,
+        signedInRole,
         dataSource: "users_tab",
+        failedStep: classified.failedStep,
+        durationMs: Date.now() - startedAt,
+        upstreamStatus: classified.upstreamStatus,
+        upstreamMessage: classified.upstreamMessage || technicalError,
       },
-    };
+      {
+        httpStatus: classified.reasonCode === "PERMISSION_DENIED" ? 403 : 502,
+        technicalError: isDevDiagnosticsEnabled() ? technicalError : undefined,
+      },
+    );
+
+    const fallback = canUseSessionFallback(sessionActor, resolvedCompanyId)
+      ? buildSessionFallbackSuccess(sessionActor, {
+          companyFolderId: resolvedCompanyId,
+          companyName,
+          masterSheetId,
+          durationMs: Date.now() - startedAt,
+        })
+      : null;
+    return fallback || failure;
   }
 }
 

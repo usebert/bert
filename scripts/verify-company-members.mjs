@@ -95,14 +95,17 @@ const pendingInvite = {
 {
   const userService = read("server/company-user-service.mjs");
   assert(userService.includes("USERS_TAB_READ_FAILED"), "6: users tab read failure code");
-  assert(userService.includes("COMPANY_CONTEXT_MISSING"), "6b: company context missing code");
+  assert(userService.includes("MISSING_COMPANY_CONTEXT"), "6b: company context missing reasonCode");
+  assert(userService.includes("COMPANY_USERS_LOAD_FAILED"), "6c: structured failure code");
 }
 
-/** 7: Signed-in user fallback when workbook read yields no rows. */
+/** 7: Signed-in user fallback when workbook read yields no rows or load fails. */
 {
   const userService = read("server/company-user-service.mjs");
   assert(userService.includes("buildSessionActorMember"), "7: session actor fallback member");
   assert(userService.includes("members.unshift(fallbackMember)"), "7b: signed-in user prepended when missing");
+  assert(userService.includes("buildSessionFallbackSuccess"), "7c: session fallback on load failure");
+  assert(userService.includes('dataSource: "session-fallback"'), "7d: session-fallback dataSource");
 }
 
 /** 8: Frontend loads active members from canonical API with cache + safe JSON fetch. */
@@ -126,6 +129,7 @@ const pendingInvite = {
   assert(panel.includes("activeCompanyMembers"), "9b: active members prop");
   assert(panel.includes("activeMembersLoadError"), "9c: load error UI");
   assert(panel.includes("canShowTechnicalUi(currentUser.role)"), "9c2: godmode gates error detail");
+  assert(panel.includes("activeMembersLoadErrorDetail"), "9c2b: technical error detail prop");
   assert(panel.includes("Could not load company users. Try again."), "9c3: normal user load error");
   assert(panel.includes("!isActiveCompanyUserInvite(invite)"), "9d: pending excludes active invite rows");
   assert(!panel.includes("activeInvites.map"), "9e: active list not driven by invite rows");

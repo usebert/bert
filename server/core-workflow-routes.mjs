@@ -337,43 +337,56 @@ export function installCoreWorkflowRoutes(app, deps) {
 
   app.get("/api/companies/:companyId/users", async (req, res) => {
     const authed = getAuthedClient();
+    const companyId = String(req.params?.companyId || "").trim();
+    const companyFolderId = String(req.query.companyFolderId || companyId).trim();
+    const masterSheetId = String(req.query.masterSheetId || req.query.sheetId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const sessionActor = actor
+      ? {
+          email: actor.email,
+          name: actor.name,
+          role: actor.role,
+          accessLevel: actor.accessLevel,
+          companyId: actor.companyId || actor.companyFolderId || companyFolderId,
+          companyFolderId: actor.companyFolderId || actor.companyId || companyFolderId,
+          companyAreas: actor.companyAreas,
+          status: "active",
+        }
+      : null;
+
     if (!envConfigured() || !authed) {
       return res.status(401).json({
         ok: false,
-        error: "Please connect Google before loading company users.",
+        code: "COMPANY_USERS_LOAD_FAILED",
         message: "Please connect Google before loading company users.",
+        reasonCode: "GOOGLE_AUTH_FAILED",
+        diagnostics: {
+          companyId: companyFolderId || companyId || undefined,
+          companyFolderId: companyFolderId || companyId || undefined,
+          masterSheetId: masterSheetId || undefined,
+          signedInEmail: String(actor?.email || "").trim() || undefined,
+          signedInRole: String(actor?.role || actor?.accessLevel || "").trim() || undefined,
+          dataSource: "users_tab",
+          failedStep: "connect_google",
+        },
       });
     }
 
-    const companyId = String(req.params?.companyId || "").trim();
-    const masterSheetId = String(req.query.masterSheetId || req.query.sheetId || "").trim();
-    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
-
     try {
       const result = await listActiveCompanyMembers(authed, { ...registryDeps, ...getCompanyUsersDeps() }, {
-        companyId,
-        companyFolderId: String(req.query.companyFolderId || companyId).trim(),
+        companyId: companyFolderId,
+        companyFolderId,
         masterSheetId,
         companyName: String(req.query.companyName || "").trim(),
-        sessionActor: actor
-          ? {
-              email: actor.email,
-              name: actor.name,
-              role: actor.role,
-              accessLevel: actor.accessLevel,
-              companyId: actor.companyId || actor.companyFolderId || companyId,
-              companyFolderId: actor.companyFolderId || actor.companyId || companyId,
-              companyAreas: actor.companyAreas,
-              status: "active",
-            }
-          : null,
+        sessionActor,
       });
 
       if (!result.ok) {
         return res.status(result.httpStatus || 400).json({
           ok: false,
-          code: result.code,
+          code: result.code || "COMPANY_USERS_LOAD_FAILED",
           message: result.message || result.error,
+          reasonCode: result.reasonCode,
           diagnostics: result.diagnostics,
           technicalError: result.technicalError,
         });
@@ -382,6 +395,7 @@ export function installCoreWorkflowRoutes(app, deps) {
       return res.json({
         ok: true,
         users: result.users,
+        warning: result.warning,
         diagnostics: result.diagnostics,
         companyId: result.companyId,
         companyFolderId: result.companyFolderId,
@@ -390,17 +404,23 @@ export function installCoreWorkflowRoutes(app, deps) {
         activeCount: result.activeCount,
       });
     } catch (error) {
+      const upstreamMessage = error instanceof Error ? error.message : String(error);
       return res.status(500).json({
         ok: false,
-        code: "USERS_TAB_READ_FAILED",
+        code: "COMPANY_USERS_LOAD_FAILED",
         message: "Could not load users from the company workbook.",
+        reasonCode: "USERS_TAB_READ_FAILED",
         diagnostics: {
-          currentCompanyId: companyId,
-          masterSheetId,
-          activeUsersFound: 0,
+          companyId: companyFolderId || companyId || undefined,
+          companyFolderId: companyFolderId || companyId || undefined,
+          masterSheetId: masterSheetId || undefined,
+          signedInEmail: String(actor?.email || "").trim() || undefined,
+          signedInRole: String(actor?.role || actor?.accessLevel || "").trim() || undefined,
           dataSource: "users_tab",
+          failedStep: "read_users_tab",
+          upstreamMessage,
         },
-        technicalError: error instanceof Error ? error.message : String(error),
+        technicalError: upstreamMessage,
       });
     }
   });

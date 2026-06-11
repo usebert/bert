@@ -47,6 +47,7 @@
     "verify:schedule-auditors": "node scripts/verify-schedule-auditors.mjs",
     "verify:api-json-contract": "node scripts/verify-api-json-contract.mjs",
     "verify:company-members": "node scripts/verify-company-members.mjs",
+    "verify:company-members-diagnostics": "node scripts/verify-company-members-diagnostics.mjs",
     "verify:schedule-assignees": "node scripts/verify-schedule-assignees.mjs",
     "verify:schedule-save": "node scripts/verify-schedule-save.mjs",
     "verify:assigned-checks": "node scripts/verify-assigned-checks.mjs",

@@ -1,5 +1,7 @@
 import { useMemo, useState, type ComponentType } from "react";
 import type { Role } from "../../permissions";
+import { COMPANY_MEMBERS_USER_MESSAGE } from "../../services/companyUserService";
+import { isDebugUiAllowed } from "../../utils/debugUiVisibility";
 import { canShowTechnicalUi } from "../../utils/uxDeclutter";
 import {
   canCreateCompanyInvite,
@@ -341,6 +343,7 @@ export type UsersInvitesPilotPanelProps = Pick<
   | "activeCompanyMembers"
   | "activeMembersLoading"
   | "activeMembersLoadError"
+  | "activeMembersLoadErrorDetail"
   | "activeMembersWarning"
   | "sites"
   | "selectedSiteId"
@@ -407,6 +410,7 @@ export function UsersInvitesPilotPanel({
   activeCompanyMembers = [],
   activeMembersLoading = false,
   activeMembersLoadError,
+  activeMembersLoadErrorDetail,
   activeMembersWarning,
   sites,
   selectedSiteId,
@@ -643,7 +647,9 @@ export function UsersInvitesPilotPanel({
           <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
             <p className="text-sm font-semibold text-rose-900">Could not load active users</p>
             <p className="mt-1 text-sm text-rose-800">
-              {canShowTechnicalUi(currentUser.role) ? activeMembersLoadError : "Could not load company users. Try again."}
+              {canShowTechnicalUi(currentUser.role) || isDebugUiAllowed()
+                ? activeMembersLoadErrorDetail || activeMembersLoadError
+                : COMPANY_MEMBERS_USER_MESSAGE}
             </p>
           </div>
         ) : null}
@@ -662,9 +668,9 @@ export function UsersInvitesPilotPanel({
               title={activeMembersLoadError ? "Active users unavailable" : "No active users yet"}
               text={
                 activeMembersLoadError
-                  ? canShowTechnicalUi(currentUser.role)
+                  ? canShowTechnicalUi(currentUser.role) || isDebugUiAllowed()
                     ? "Fix the workbook connection above, then re-sync users."
-                    : "Could not load company users. Try again."
+                    : COMPANY_MEMBERS_USER_MESSAGE
                   : "Active users from the company workbook appear here after setup is complete."
               }
             />
