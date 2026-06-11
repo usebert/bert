@@ -26,6 +26,8 @@ export const storageKeys = {
   openActionsCountCache: "bert-open-actions-count",
   /** Schedule builder assignees — keyed by company id + area in JSON payload. */
   scheduleAssigneesCache: "bert-schedule-assignees-cache",
+  /** Active company members — keyed by company folder id in JSON payload. */
+  companyMembersCache: "bert-company-members-cache",
   /** Reports dashboard — keyed by company id + filter key in JSON payload. */
   reportsDashboardCache: "bert-reports-dashboard-cache",
 } as const;

@@ -120,6 +120,13 @@ import {
 } from "./src/utils/applyLinkedCompanyContext";
 import { resolveActiveCompanyContext } from "./src/services/companyContextService";
 import {
+  COMPANY_MEMBERS_LOAD_TIMEOUT_MS,
+  fetchCompanyMembers,
+  readCompanyMembersCache,
+  writeCompanyMembersCache,
+  type CompanyMember,
+} from "./src/services/companyUserService";
+import {
   filterLiveOpenActions,
   isDemoAction,
   isLiveOpenAction,
@@ -3532,6 +3539,12 @@ function App() {
     warning?: string;
     loading: boolean;
   }>({ assignees: [], loading: false });
+  const [companyMembersState, setCompanyMembersState] = useState<{
+    members: CompanyMember[];
+    loadError?: string;
+    warning?: string;
+    loading: boolean;
+  }>({ members: [], loading: false });
   const [companySchedulesState, setCompanySchedulesState] = useState<{
     loading: boolean;
     loadError?: string;
@@ -4564,30 +4577,29 @@ function App() {
   );
 
   const companyReportUsers = useMemo(() => {
-    const seededUsers = users
-      .filter((user) => user.role !== "Master")
-      .map((user) => ({
-        username: user.username,
-        email:
-          user.username === "admin"
-            ? "andy@usebert.co.uk"
-            : user.username === "manager"
-              ? "james@usebert.co.uk"
-              : user.username === "tom"
-                ? "tom@usebert.co.uk"
-                : "sarah@usebert.co.uk",
-        name: user.name,
-        role: user.role,
-      }));
-    const sheetSource = masterCompanyWorkspaceDataMatchesSelection ? companyUsersTabRows : [];
-    const sheetUsers = sheetSource
+    if (!masterCompanyWorkspaceDataMatchesSelection) {
+      return users
+        .filter((user) => user.role !== "Master")
+        .map((user) => ({
+          username: user.username,
+          email:
+            user.username === "admin"
+              ? "andy@usebert.co.uk"
+              : user.username === "manager"
+                ? "james@usebert.co.uk"
+                : user.username === "tom"
+                  ? "tom@usebert.co.uk"
+                  : "sarah@usebert.co.uk",
+          name: user.name,
+          role: user.role,
+        }));
+    }
+    const memberUsers = companyMembersState.members
       .map((row) => {
         const role =
           parseRole(row.role) ||
-          (row.accessLevel.trim().toLowerCase() === "auditor" ? ("Auditor" as Role) : null);
-        if (!role) {
-          return null;
-        }
+          (row.accessLevel.trim().toLowerCase() === "auditor" ? ("Auditor" as Role) : null) ||
+          ("User" as Role);
         return {
           username: row.email.toLowerCase(),
           email: row.email,
@@ -4595,17 +4607,11 @@ function App() {
           role,
         };
       })
-      .filter(Boolean) as Array<{ username: string; email: string; name: string; role: Role }>;
-    const invitedSource = masterCompanyWorkspaceDataMatchesSelection ? invitedUsers : [];
-    const invited = invitedSource.map((invite) => ({
-      username: invite.email.toLowerCase(),
-      email: invite.email,
-      name: invite.email.split("@")[0] || invite.email,
-      role: invite.role,
-    }));
-    const merged = [...seededUsers, ...sheetUsers, ...invited];
-    return merged.filter((user, index, list) => list.findIndex((item) => item.email === user.email) === index);
-  }, [companyUsersTabRows, invitedUsers, masterCompanyWorkspaceDataMatchesSelection, users]);
+      .filter((user) => user.email);
+    return memberUsers.filter(
+      (user, index, list) => list.findIndex((item) => item.email.toLowerCase() === user.email.toLowerCase()) === index,
+    );
+  }, [companyMembersState.members, masterCompanyWorkspaceDataMatchesSelection, users]);
 
   const reminderUserEmail = useMemo(() => {
     if (!currentUser) {
@@ -5243,6 +5249,111 @@ function App() {
     activeCompanyContext.masterSheetId,
     scheduleBuilderAreaFilter,
     screen,
+  ]);
+
+  useEffect(() => {
+    const companyId = activeCompanyContext.companyFolderId.trim();
+    if (!companyId || !googleConnected || !masterCompanyWorkspaceDataMatchesSelection) {
+      setCompanyMembersState({ members: [], loading: false });
+      return;
+    }
+
+    const controller = new AbortController();
+    let loadTimedOut = false;
+    let cancelled = false;
+    const cachedEntry = readCompanyMembersCache(storageKeys.companyMembersCache, companyId);
+    setCompanyMembersState((previous) => ({
+      members: cachedEntry?.members ?? previous.members,
+      warning: cachedEntry?.warning,
+      loading: true,
+      loadError: undefined,
+    }));
+
+    const timeoutId = window.setTimeout(() => {
+      loadTimedOut = true;
+      controller.abort();
+    }, COMPANY_MEMBERS_LOAD_TIMEOUT_MS);
+
+    void (async () => {
+      try {
+        const result = await fetchCompanyMembers(apiUrl, {
+          companyId,
+          masterSheetId: activeCompanyContext.masterSheetId,
+          companyName: activeCompanyContext.companyName,
+          signal: controller.signal,
+        });
+
+        if (!result.ok) {
+          throw new Error(result.loadError || "Could not load users from the company workbook.");
+        }
+
+        writeCompanyMembersCache(storageKeys.companyMembersCache, {
+          companyId,
+          members: result.members,
+          cachedAt: Date.now(),
+        });
+        if (cancelled) {
+          return;
+        }
+        setCompanyUsersTabRows(result.members);
+        setCompanyMembersState({
+          members: result.members,
+          loading: false,
+        });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        if (error instanceof DOMException && error.name === "AbortError") {
+          if (!loadTimedOut) {
+            return;
+          }
+          if (cachedEntry) {
+            setCompanyUsersTabRows(cachedEntry.members);
+            setCompanyMembersState({
+              members: cachedEntry.members,
+              warning: cachedEntry.warning || "Showing recently loaded users while the list refreshes.",
+              loading: false,
+            });
+          } else {
+            setCompanyMembersState({
+              members: [],
+              loadError: "Company users are taking longer than usual. Try again in a moment.",
+              loading: false,
+            });
+          }
+          return;
+        }
+        if (cachedEntry) {
+          setCompanyUsersTabRows(cachedEntry.members);
+          setCompanyMembersState({
+            members: cachedEntry.members,
+            warning: cachedEntry.warning || "Showing recently loaded users because the list could not be refreshed.",
+            loading: false,
+          });
+          return;
+        }
+        setCompanyMembersState({
+          members: [],
+          loadError: error instanceof Error ? error.message : "Could not load users from the company workbook.",
+          loading: false,
+        });
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [
+    googleConnected,
+    masterCompanyWorkspaceDataMatchesSelection,
+    activeCompanyContext.companyFolderId,
+    activeCompanyContext.companyName,
+    activeCompanyContext.masterSheetId,
   ]);
 
   const applyListedCompanySchedules = useCallback((companyId: string, schedules: ManagedSchedule[]) => {
@@ -8370,17 +8481,45 @@ function App() {
     }
 
     try {
-      const manualMasterSheetId = extractGoogleResourceId(masterSheetInput) || companySheetSync?.sheetId || "";
-      const payload = manualMasterSheetId
-        ? await loadCompanySheetById(manualMasterSheetId, companyFolderId, { silent: true })
+      const manualMasterSheetId =
+        activeCompanyContext.masterSheetId.trim() ||
+        extractGoogleResourceId(masterSheetInput) ||
+        companySheetSync?.sheetId ||
+        "";
+      const membersResult = await fetchCompanyMembers(apiUrl, {
+        companyId: companyFolderId,
+        masterSheetId: manualMasterSheetId,
+        companyName: activeCompanyContext.companyName,
+      });
+      if (!membersResult.ok) {
+        throw new Error(membersResult.loadError || "Could not load users from the company workbook.");
+      }
+      setCompanyUsersTabRows(membersResult.members);
+      setCompanyMembersState({
+        members: membersResult.members,
+        loading: false,
+      });
+      writeCompanyMembersCache(storageKeys.companyMembersCache, {
+        companyId: companyFolderId,
+        members: membersResult.members,
+        cachedAt: Date.now(),
+      });
+
+      const manualMasterSheetIdForSheet = manualMasterSheetId;
+      const payload = manualMasterSheetIdForSheet
+        ? await loadCompanySheetById(manualMasterSheetIdForSheet, companyFolderId, { silent: true })
         : await loadCompanySheet(companyFolderId, { silent: true });
 
       if (!payload) {
         throw new Error("Unable to load the company sheet.");
       }
 
-      const syncedUsers = payload.data.Users?.length ?? 0;
-      pushToast("Users re-synced", `${syncedUsers} user row${syncedUsers === 1 ? "" : "s"} pulled from the company sheet.`, "success");
+      const syncedUsers = membersResult.members.length;
+      pushToast(
+        "Users re-synced",
+        `${syncedUsers} active user${syncedUsers === 1 ? "" : "s"} loaded from the company workbook.`,
+        "success",
+      );
     } catch (error) {
       pushToast(
         "Resync failed",
@@ -13831,6 +13970,10 @@ function App() {
                 sites={displaySites}
                 selectedSiteId={selectedSiteId}
                 reportUsers={companyReportUsers}
+                activeCompanyMembers={companyMembersState.members}
+                activeMembersLoading={companyMembersState.loading}
+                activeMembersLoadError={companyMembersState.loadError}
+                activeMembersWarning={companyMembersState.warning}
                 userSiteAssignments={displayUserSiteAssignments}
                 onToggleUserSiteAssignment={handleToggleUserSiteAssignment}
                 creatableRoles={creatableRoles}

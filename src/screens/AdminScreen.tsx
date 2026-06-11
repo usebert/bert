@@ -252,6 +252,10 @@ export function AdminScreen({
   onSelectAreaAuditArea,
   onToggleAreaAudit,
   reportUsers,
+  activeCompanyMembers = [],
+  activeMembersLoading = false,
+  activeMembersLoadError,
+  activeMembersWarning,
   userSiteAssignments,
   onToggleUserSiteAssignment,
   onEnableAreaRestrictions,
@@ -1319,6 +1323,10 @@ export function AdminScreen({
           inviteRoleInput={inviteRoleInput}
           invitedUsers={invitedUsers}
           reportUsers={reportUsers}
+          activeCompanyMembers={activeCompanyMembers}
+          activeMembersLoading={activeMembersLoading}
+          activeMembersLoadError={activeMembersLoadError}
+          activeMembersWarning={activeMembersWarning}
           sites={sites}
           selectedSiteId={selectedSiteId}
           userSiteAssignments={userSiteAssignments}

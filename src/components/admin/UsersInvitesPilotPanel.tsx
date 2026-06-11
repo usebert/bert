@@ -338,6 +338,10 @@ export type UsersInvitesPilotPanelProps = Pick<
   | "inviteRoleInput"
   | "invitedUsers"
   | "reportUsers"
+  | "activeCompanyMembers"
+  | "activeMembersLoading"
+  | "activeMembersLoadError"
+  | "activeMembersWarning"
   | "sites"
   | "selectedSiteId"
   | "areaRestrictionsEnabled"
@@ -400,6 +404,10 @@ export function UsersInvitesPilotPanel({
   inviteRoleInput,
   invitedUsers,
   reportUsers,
+  activeCompanyMembers = [],
+  activeMembersLoading = false,
+  activeMembersLoadError,
+  activeMembersWarning,
   sites,
   selectedSiteId,
   areaRestrictionsEnabled,
@@ -476,21 +484,36 @@ export function UsersInvitesPilotPanel({
   });
   const canManageInvite = (invite: UserInvite) => canRevokeInvite(invitePermissionSession, inviteRecordScope(invite));
   const canSeeInvite = (invite: UserInvite) => canViewInvite(invitePermissionSession, inviteRecordScope(invite));
-  const { pendingInvites, activeInvites } = useMemo(() => {
+  const pendingInvites = useMemo(() => {
     const pending: UserInvite[] = [];
-    const active: UserInvite[] = [];
     for (const invite of invitedUsers) {
       if (!canSeeInvite(invite)) {
         continue;
       }
-      if (isActiveCompanyUserInvite(invite)) {
-        active.push(invite);
-      } else {
+      if (!isActiveCompanyUserInvite(invite)) {
         pending.push(invite);
       }
     }
-    return { pendingInvites: pending, activeInvites: active };
+    return pending;
   }, [invitedUsers, companyFolderId, currentUser.role, currentUser.accessLevel]);
+
+  const activeMembers = useMemo(() => {
+    const seen = new Set<string>();
+    const members: Array<{ email: string; name: string; role: string }> = [];
+    for (const member of activeCompanyMembers) {
+      const email = member.email.trim().toLowerCase();
+      if (!email || seen.has(email)) {
+        continue;
+      }
+      seen.add(email);
+      members.push({
+        email: member.email,
+        name: member.name || member.email.split("@")[0] || member.email,
+        role: member.role,
+      });
+    }
+    return members;
+  }, [activeCompanyMembers]);
 
   return (
     <div id="admin-user-management" className="space-y-4">
@@ -616,40 +639,48 @@ export function UsersInvitesPilotPanel({
           title="Active users"
           subtitle="People who can sign in or are recorded as active in the company sheet."
         />
-        {activeInvites.length === 0 && reportUsers.filter((u) => u.role !== "Master").length === 0 ? (
+        {activeMembersLoadError ? (
+          <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
+            <p className="text-sm font-semibold text-rose-900">Could not load active users</p>
+            <p className="mt-1 text-sm text-rose-800">{activeMembersLoadError}</p>
+          </div>
+        ) : null}
+        {activeMembersWarning ? (
+          <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            {activeMembersWarning}
+          </p>
+        ) : null}
+        {activeMembersLoading && activeMembers.length === 0 ? (
           <div className="mt-3">
-            <EmptyPanel title="No active users yet" text="Users appear here after they complete invite setup." />
+            <EmptyPanel title="Loading active users…" text="Reading the company workbook Users tab." />
+          </div>
+        ) : activeMembers.length === 0 ? (
+          <div className="mt-3">
+            <EmptyPanel
+              title={activeMembersLoadError ? "Active users unavailable" : "No active users yet"}
+              text={
+                activeMembersLoadError
+                  ? "Fix the workbook connection above, then re-sync users."
+                  : "Active users from the company workbook appear here after setup is complete."
+              }
+            />
           </div>
         ) : (
           <div className="mt-3 space-y-2">
-            {activeInvites.map((invite) => (
-              <UserInviteListRow
-                key={invite.id}
-                invite={invite}
-                onResendInvite={onResendInvite}
-                onDeleteInvite={onDeleteInvite}
-                onRemoveCompanyUser={onRemoveCompanyUser}
-                slatePrimaryCtaInteract={slatePrimaryCtaInteract}
-                canRevoke={canManageInvite(invite)}
-              />
-            ))}
-            {reportUsers
-              .filter((user) => user.role !== "Master")
-              .filter((user) => !activeInvites.some((inv) => inv.email.toLowerCase() === user.email.toLowerCase()))
-              .map((user) => (
-                <div
-                  key={user.email}
-                  className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
-                >
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">{user.email}</p>
-                    <p className="mt-1 text-xs text-slate-500">From company sheet</p>
-                  </div>
-                  <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
-                    {formatUserRoleLabel(user.role)}
-                  </span>
+            {activeMembers.map((member) => (
+              <div
+                key={member.email}
+                className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
+              >
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">{member.email}</p>
+                  <p className="mt-1 text-xs text-slate-500">{member.name}</p>
                 </div>
-              ))}
+                <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
+                  {formatUserRoleLabel(member.role)}
+                </span>
+              </div>
+            ))}
           </div>
         )}
         {canShowTechnicalUi(currentUser.role) ? (

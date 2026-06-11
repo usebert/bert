@@ -194,6 +194,18 @@ export type AdminScreenProps = {
   onSelectAreaAuditArea: (areaId: string) => void;
   onToggleAreaAudit: (areaId: string, auditId: string, enabled: boolean) => void;
   reportUsers: CompanyReportUser[];
+  activeCompanyMembers?: Array<{
+    email: string;
+    name: string;
+    role: string;
+    accessLevel: string;
+    status: string;
+    companyId: string;
+    companyAreas: string[];
+  }>;
+  activeMembersLoading?: boolean;
+  activeMembersLoadError?: string;
+  activeMembersWarning?: string;
   userSiteAssignments: UserSiteAssignments;
   onToggleUserSiteAssignment: (email: string, siteId: string) => void;
   onEnableAreaRestrictions: () => void;

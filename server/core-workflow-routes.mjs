@@ -13,6 +13,7 @@ import {
 } from "./invite-service.mjs";
 import { resolveCompanyInviteReadiness } from "./company-invite-readiness.mjs";
 import { resolveCompanyById } from "./company-registry-service.mjs";
+import { listActiveCompanyMembers } from "./company-user-service.mjs";
 import { getScheduleAssigneesForCompany } from "./schedule-assignee-service.mjs";
 import {
   canListCompanySchedules,
@@ -329,6 +330,70 @@ export function installCoreWorkflowRoutes(app, deps) {
         code: "SCHEDULE_LIST_FAILED",
         error: "Could not load schedules for this company.",
         message: "Could not load schedules for this company.",
+        technicalError: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.get("/api/companies/:companyId/users", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({
+        ok: false,
+        error: "Please connect Google before loading company users.",
+        message: "Please connect Google before loading company users.",
+      });
+    }
+
+    const companyId = String(req.params?.companyId || "").trim();
+    const masterSheetId = String(req.query.masterSheetId || req.query.sheetId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+
+    try {
+      const result = await listActiveCompanyMembers(authed, { ...registryDeps, ...getCompanyUsersDeps() }, {
+        companyId,
+        companyFolderId: String(req.query.companyFolderId || companyId).trim(),
+        masterSheetId,
+        companyName: String(req.query.companyName || "").trim(),
+        sessionActor: actor
+          ? {
+              email: actor.email,
+              name: actor.name,
+              role: actor.role,
+              accessLevel: actor.accessLevel,
+              companyId: actor.companyId || actor.companyFolderId || companyId,
+              companyFolderId: actor.companyFolderId || actor.companyId || companyId,
+              companyAreas: actor.companyAreas,
+              status: "active",
+            }
+          : null,
+      });
+
+      if (!result.ok) {
+        return res.status(result.httpStatus || 400).json({
+          ok: false,
+          code: result.code,
+          error: result.error,
+          message: result.message || result.error,
+          technicalError: result.technicalError,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        companyId: result.companyId,
+        companyFolderId: result.companyFolderId,
+        companyName: result.companyName,
+        masterSheetId: result.masterSheetId,
+        users: result.users,
+        activeCount: result.activeCount,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "USERS_TAB_READ_FAILED",
+        error: "Could not load users from the company workbook.",
+        message: "Could not load users from the company workbook.",
         technicalError: error instanceof Error ? error.message : String(error),
       });
     }
