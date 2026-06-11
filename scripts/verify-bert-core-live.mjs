@@ -72,6 +72,9 @@ function runStaticGuards() {
   );
   assert(inviteService.includes("isCompanyUserInviteActiveForResend"), "static: invite resend helper");
   assert(userService.includes("sanitizeUsersTabRecords"), "static: PasswordHash stripped from users");
+  assert(userService.includes("listActiveCompanyMembers"), "static: listActiveCompanyMembers service");
+  assert(coreRoutes.includes('app.get("/api/companies/:companyId/users"'), "static: company users list route");
+  assert(pkg.scripts["verify:company-members"], "static: verify:company-members script");
   assert(companyUsers.includes("sanitizeUserRecordForClient"), "static: user records sanitized");
   assert(scheduleService.includes("listCompanySchedules"), "static: schedule list service");
   assert(serverMain.includes("company_user replace token="), "static: resend replaces expired invites");
@@ -224,26 +227,39 @@ async function runLiveJourney(config) {
   });
   assert(invitedLogin.status === 200 && invitedLogin.json?.ok === true, "live-17: new user can log in");
 
+  const companyUsersRes = await adminClient.request(
+    `/api/companies/${encodeURIComponent(resolvedCompanyId)}/users?masterSheetId=${encodeURIComponent(resolvedSheetId)}`,
+  );
+  assert(companyUsersRes.status === 200 && Array.isArray(companyUsersRes.json?.users), "live-18: company active users load");
+  assertNoPasswordHash(companyUsersRes.json, "company users");
+  assert(
+    companyUsersRes.json.users.some(
+      (row) => String(row?.email || "").toLowerCase() === config.adminEmail.toLowerCase(),
+    ),
+    "live-18b: signed-in admin appears in own company user list",
+    { users: companyUsersRes.json.users?.map((row) => row?.email) },
+  );
+
   const assigneesRes = await adminClient.request(
     `/api/companies/${encodeURIComponent(resolvedCompanyId)}/schedule-assignees?masterSheetId=${encodeURIComponent(resolvedSheetId)}`,
   );
-  assert(assigneesRes.status === 200 && Array.isArray(assigneesRes.json?.assignees), "live-18: schedule assignees load");
+  assert(assigneesRes.status === 200 && Array.isArray(assigneesRes.json?.assignees), "live-19: schedule assignees load");
   assertNoPasswordHash(assigneesRes.json, "schedule assignees");
 
   const godmodeSchedules = await masterClient.request(
     `/api/companies/${encodeURIComponent(resolvedCompanyId)}/schedules?masterSheetId=${encodeURIComponent(resolvedSheetId)}`,
   );
-  assert(godmodeSchedules.status === 200 && godmodeSchedules.json?.ok === true, "live-19: Godmode reads company schedules");
+  assert(godmodeSchedules.status === 200 && godmodeSchedules.json?.ok === true, "live-20: Godmode reads company schedules");
   const managerSchedules = await managerClient.request(
     `/api/companies/${encodeURIComponent(resolvedCompanyId)}/schedules?masterSheetId=${encodeURIComponent(resolvedSheetId)}`,
   );
-  assert(managerSchedules.status === 200 && managerSchedules.json?.ok === true, "live-20: manager reads company schedules");
+  assert(managerSchedules.status === 200 && managerSchedules.json?.ok === true, "live-21: manager reads company schedules");
 
   const schedules = Array.isArray(godmodeSchedules.json?.schedules) ? godmodeSchedules.json.schedules : [];
   if (schedules.length > 0) {
     const sample = schedules[0];
     const assigned = getScheduleAssignedEmails(sample);
-    assert(assigned.length > 0, "live-20b: schedule exposes assignedUserEmails", { scheduleId: sample.id, assigned });
+    assert(assigned.length > 0, "live-21b: schedule exposes assignedUserEmails", { scheduleId: sample.id, assigned });
   } else {
     log("WARN: no schedules in company — assignedUserEmails on-sheet check skipped");
   }
@@ -254,8 +270,8 @@ async function runLiveJourney(config) {
       signal: AbortSignal.timeout(30_000),
     });
     const bundle = await bundleRes.text();
-    assert(!bundle.includes("PasswordHash"), "live-21: frontend bundle does not ship PasswordHash literal");
-    assert(!bundle.includes("Ready for health check"), "live-22: no health-check dead-end copy in bundle");
+    assert(!bundle.includes("PasswordHash"), "live-22: frontend bundle does not ship PasswordHash literal");
+    assert(!bundle.includes("Ready for health check"), "live-23: no health-check dead-end copy in bundle");
   }
 
   log(`OK — ${caseCount} total cases passed (static + live)`);

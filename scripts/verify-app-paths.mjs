@@ -122,6 +122,7 @@ assert(serverMain.includes('app.post("/api/auth/company/login"'), "company login
 assert(serverMain.includes('app.get("/api/auth/company/session"'), "company session API");
 assert(coreRoutes.includes("/api/companies/:companyId/invites/auditor"), "auditor invite API");
 assert(coreRoutes.includes("/api/invites/company-user/:token"), "invite token lookup API");
+assert(coreRoutes.includes('app.get("/api/companies/:companyId/users"'), "company users list API");
 assert(coreRoutes.includes("/api/companies/:companyId/schedule-assignees"), "schedule assignees API");
 assert(coreRoutes.includes("/api/companies/:companyId/schedules"), "schedule save API");
 assert(coreRoutes.includes('app.get("/api/companies/:companyId/schedules"'), "schedule list API");
@@ -165,6 +166,8 @@ assert(
 assert(getScheduleAssignedEmails({ assignedUserEmails: "a@test.com, b@test.com" }).length === 2, "assignedUserEmails canonical");
 
 assert(appTsx.includes("readScheduleAssigneesCache") && appTsx.includes("SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS"), "assignees cache-first with timeout");
+assert(appTsx.includes("readCompanyMembersCache") && appTsx.includes("fetchCompanyMembers"), "company members cache-first API");
+assert(pkg.scripts["verify:company-members"], "verify:company-members npm script registered");
 assert(appTsx.includes("canShowTechnicalUi"), "technical UI gated in App");
 assert(permissions.includes("canCompleteAssignedCheck"), "assigned check completion permission exists");
 

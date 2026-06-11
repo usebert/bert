@@ -111,6 +111,8 @@ assert(scheduleSaveSrc.includes("getScheduleAssignedEmails"), "4f: schedule save
 assert(read("src/permissions.ts").includes("canCompleteAssignedCheck"), "4g: completion permission helper exists");
 assert(read("src/utils/scheduleAssignees.ts").includes("SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS"), "4h: assignee load timeout constant");
 assert(appSrc.includes("readScheduleAssigneesCache"), "4i: App uses assignee cache on load");
+assert(appSrc.includes("readCompanyMembersCache"), "4i2: App uses company members cache on load");
+assert(read("server/company-user-service.mjs").includes("listActiveCompanyMembers"), "4i3: shared listActiveCompanyMembers service");
 assert(appSrc.includes("listCompanySchedules"), "4j: App loads company schedules via shared list service");
 assert(read("src/screens/SchedulesScreen.tsx").includes("schedulesLoadError"), "4k: schedules UI surfaces list read failures");
 
