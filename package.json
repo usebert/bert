@@ -14,6 +14,8 @@
     "server": "node server/server.mjs",
     "google:connect": "node scripts/print-google-connect-urls.mjs",
     "build": "node scripts/write-build-meta.mjs && tsc -b && vite build && cp public/build-meta.json dist/build-meta.json",
+    "verify:bert-core-live": "node scripts/verify-bert-core-live.mjs",
+    "verify:invite-resend": "node scripts/verify-invite-resend.mjs",
     "verify:live-core-paths": "node scripts/verify-live-core-paths.mjs",
     "verify:live-ui-paths": "node scripts/verify-live-ui-paths.mjs",
     "check:server": "node --check server/server.mjs",

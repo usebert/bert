@@ -37,6 +37,17 @@ export function resolveCompanyUserInviteAccess(record, tokenId) {
 /**
  * Prepare body for auditor invite on a company — role fixed to Auditor for company actors.
  */
+/** True when an existing company-user invite token can be resent as-is (pending, not expired). */
+export function isCompanyUserInviteActiveForResend(record) {
+  if (!record || record.kind !== "company_user") {
+    return false;
+  }
+  if (record.consumedAt) {
+    return false;
+  }
+  return Date.now() <= Number(record.expiresAt || 0);
+}
+
 export function buildAuditorInviteBody(companyId, body = {}, registryRecord = null) {
   const id = String(companyId || "").trim();
   return {

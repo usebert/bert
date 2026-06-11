@@ -125,11 +125,7 @@ function UserInviteListRow({
         <button
           type="button"
           onClick={() => onResendInvite(invite)}
-          title={
-            staleOrIncomplete
-              ? "Send a fresh invite from a live company workspace"
-              : "Resend invite email"
-          }
+          title={staleOrIncomplete ? "Send a fresh invite link" : "Resend invite email"}
           className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
         >
           {staleOrIncomplete ? "Send fresh invite" : "Resend"}

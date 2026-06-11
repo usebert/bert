@@ -1668,7 +1668,7 @@ export function AdminScreen({
                           onClick={() => onResendInvite(invite)}
                           title={
                             staleOrIncomplete
-                              ? "Send a fresh invite from a live company workspace"
+                              ? "Send a fresh invite link"
                               : "Resend invite email"
                           }
                           className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700"

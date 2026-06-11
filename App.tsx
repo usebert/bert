@@ -7996,7 +7996,7 @@ function App() {
       if (result.setupIncomplete) {
         pushToast(
           "Stale invite",
-          "This invite points to a workspace that could not be finished. Revoke it and send a fresh invite from a live company workspace.",
+          "This invite could not be completed. Use Send fresh invite to issue a new link.",
           "warning",
         );
       }
@@ -8025,21 +8025,8 @@ function App() {
   const handleResendInvite = async (invite: UserInvite) => {
     if (!currentUser) return;
 
-    if (isLegacyInviteRow(invite) || isStaleOrIncompleteInviteStatus(invite.status)) {
-      console.warn("[invite] resend skipped — stale or incomplete invite row", {
-        id: invite.id,
-        email: invite.email,
-        role: invite.role,
-        status: invite.status,
-      });
-      setCompanyUserInviteEmailResult(null);
-      pushToast(
-        "Send a fresh invite",
-        "This invite points to a workspace that is missing or no longer live. Revoke it, select a live company workspace, enter the email above, and use Send invite link.",
-        "warning",
-      );
-      return;
-    }
+    const staleOrIncomplete =
+      isLegacyInviteRow(invite) || isStaleOrIncompleteInviteStatus(invite.status);
 
     if (currentUser?.role === "Master" && !masterGodmodeCompanyReady) {
       pushToast("Company workspace required", GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE, "warning");
@@ -8069,7 +8056,7 @@ function App() {
           masterSheetId: workspace.masterSheetId,
           companyName: workspace.companyName,
           resend: true,
-          tokenId: getInviteServerTokenId(invite),
+          tokenId: staleOrIncomplete ? "" : getInviteServerTokenId(invite),
         }),
       });
       const payload = (await parseJsonApiResponse(response)) as {

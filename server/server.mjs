@@ -5438,16 +5438,29 @@ async function processCompanyUserInvite(req, res) {
           masterSheetId: resolvedMasterSheetId,
           tokenId: resendTokenId,
         });
-        if (!existing) {
-          res.status(404).json({
-            ok: false,
-            error: "No active invite found for this user. Send a new invite link instead.",
-            blocker: "invite_not_found",
-          });
-          return;
+        if (existing) {
+          id = existing.id;
+          console.log(`[invite] company_user resend token=${id.slice(0, 8)} recipient=${toEmail}`);
+        } else {
+          if (resendTokenId) {
+            revokeInviteRecord(resendTokenId);
+          }
+          ({ id } = createInviteRecord({
+            kind: "company_user",
+            inviteType: "COMPANY_USER",
+            status: "PENDING",
+            email: toEmail,
+            role: inviteRole,
+            accessLevel: inviteAccessLevelForRole(inviteRole),
+            companyAreas: "",
+            invitedBy,
+            companyId: resolvedCompanyId || resolvedCompanyFolderId,
+            companyFolderId: resolvedCompanyFolderId,
+            masterSheetId: resolvedMasterSheetId,
+            companyName: resolvedCompanyName || companyName,
+          }));
+          console.log(`[invite] company_user replace token=${id.slice(0, 8)} recipient=${toEmail}`);
         }
-        id = existing.id;
-        console.log(`[invite] company_user resend token=${id.slice(0, 8)} recipient=${toEmail}`);
       } else {
         ({ id } = createInviteRecord({
           kind: "company_user",

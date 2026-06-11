@@ -16,8 +16,8 @@ const INVITE_STATUS_HELP: Record<string, string> = {
   "Invite created": "An invite link exists, but email may not have been sent.",
   "Email sent": "The setup email was sent. The user still needs to open it.",
   "Awaiting setup": "The user has not completed name/password setup yet.",
-  "Setup incomplete": "This invite points to a workspace that is missing, archived, or incomplete. Revoke it and send a fresh invite from a live company workspace.",
-  "Stale invite": "This invite points to a workspace that is missing, archived, or incomplete. Revoke it and send a fresh invite from a live company workspace.",
+  "Setup incomplete": "This invite could not be completed. Use Send fresh invite to issue a new link.",
+  "Stale invite": "This invite could not be completed. Use Send fresh invite to issue a new link.",
   Active: "The user has completed setup and can sign in.",
   Removed: "The user was removed or deactivated.",
 };
@@ -68,7 +68,7 @@ export const INVITE_STATUS_LEGEND: Array<{ status: string; description: string }
   { status: "Invite created", description: "Invite link created; email may not have been sent yet." },
   { status: "Email sent", description: "Setup email sent; waiting for the user to open it." },
   { status: "Awaiting setup", description: "User opened the email but has not finished setup." },
-  { status: "Stale invite", description: "Workspace missing, archived, or setup could not finish — revoke and send a fresh invite." },
+  { status: "Stale invite", description: "Setup could not finish — use Send fresh invite to issue a new link." },
   { status: "Active", description: "User completed setup and can sign in." },
   { status: "Removed", description: "User was removed or deactivated." },
 ];
