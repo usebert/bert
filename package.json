@@ -45,6 +45,7 @@
     "verify:invite-readiness": "node scripts/verify-invite-readiness.mjs",
     "verify:invite-hotfix": "node scripts/verify-invite-hotfix.mjs",
     "verify:schedule-auditors": "node scripts/verify-schedule-auditors.mjs",
+    "verify:api-json-contract": "node scripts/verify-api-json-contract.mjs",
     "verify:company-members": "node scripts/verify-company-members.mjs",
     "verify:schedule-assignees": "node scripts/verify-schedule-assignees.mjs",
     "verify:schedule-save": "node scripts/verify-schedule-save.mjs",
