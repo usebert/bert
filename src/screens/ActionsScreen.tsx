@@ -56,10 +56,6 @@ function isActionDueSoon(action: ActionItem) {
   return action.status !== "Closed" && action.dueHours >= 0 && action.dueHours <= 24;
 }
 
-function isDueToday(action: ActionItem) {
-  return action.dueHours >= 0 && action.dueHours <= 24;
-}
-
 function getActionUrgency(action: ActionItem): "Escalated" | "Overdue" | "Stuck" | "Due soon" | "Normal" {
   if (isActionEscalated(action)) return "Escalated";
   if (isActionOverdue(action)) return "Overdue";
@@ -76,55 +72,53 @@ function statusChipForAction(status: ActionStatus) {
   return { variant: "draft" as const, label: status === "Open" ? "Open" : status };
 }
 
-function useWideLayout() {
-  const query = "(min-width: 1024px)";
-  const [wide, setWide] = useState(() => (typeof window !== "undefined" ? window.matchMedia(query).matches : true));
-  useEffect(() => {
-    const mq = window.matchMedia(query);
-    const handler = () => setWide(mq.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, []);
-  return wide;
+function formatOpenActionOptionLabel(action: ActionItem) {
+  const ref = action.nonConformanceId ? `${action.nonConformanceId} · ` : "";
+  const audit = action.auditName ? ` (${action.auditName})` : "";
+  const text = action.questionText.trim();
+  const clipped = text.length > 72 ? `${text.slice(0, 69)}…` : text;
+  return `${ref}${clipped}${audit}`;
 }
 
-function ChevronRight({ className = "h-5 w-5" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-      <path d="m9 6 6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function MobileActionDetail({
+function ActionDetailPanel({
   action,
   role,
   permissions,
-  onBack,
+  canReviewSuggestions,
+  availableAuditors,
+  filterControl,
   onAdvanceAction,
   onAssignAction,
   onAddEvidence,
   onAcceptSuggestion,
   onEditSuggestion,
   onIgnoreSuggestion,
-  canReviewSuggestions,
-  availableAuditors,
 }: {
   action: ActionItem;
   role: Role;
   permissions: ReturnType<typeof getRolePermissions>;
-  onBack: () => void;
+  canReviewSuggestions: boolean;
+  availableAuditors: string[];
+  filterControl: string;
   onAdvanceAction: (actionId: string, nextStatus?: ActionStatus) => void;
   onAssignAction: (actionId: string, assignee: string) => void;
   onAddEvidence: (actionId: string, files: FileList) => void;
   onAcceptSuggestion: (actionId: string) => void;
   onEditSuggestion: (actionId: string) => void;
   onIgnoreSuggestion: (actionId: string) => void;
-  canReviewSuggestions: boolean;
-  availableAuditors: string[];
 }) {
   const chip = statusChipForAction(action.status);
-  const priorityHigh = action.severity === "High" || action.severity === "Critical";
+  const urgency = getActionUrgency(action);
+  const urgencyTone =
+    urgency === "Escalated"
+      ? "bg-rose-200 text-rose-900"
+      : urgency === "Overdue"
+        ? "bg-rose-100 text-rose-700"
+        : urgency === "Stuck"
+          ? "bg-amber-100 text-amber-800"
+          : urgency === "Due soon"
+            ? "bg-amber-50 text-amber-700"
+            : "bg-slate-100 text-slate-700";
   const cta = getActionPrimaryCTA(action, permissions);
   const nextStep = getRecordNextStepText("action", action.status, role, {
     evidenceRequired: action.evidenceRequired,
@@ -132,39 +126,49 @@ function MobileActionDetail({
   });
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-slate-50 lg:hidden">
-      <header className="shrink-0 bg-gradient-to-r from-[#071525] via-[#0c1f36] to-[#050b14] px-3 py-3 text-white ring-1 ring-white/10">
-        <div className="flex items-center justify-between gap-2">
-          <button
-            type="button"
-            onClick={onBack}
-            className="min-h-[44px] rounded-full border border-white/15 bg-white/10 px-3 py-2 text-xs font-semibold text-white focus-visible:outline focus-visible:ring-2 focus-visible:ring-white/60"
-          >
-            Back
-          </button>
-          <p className="text-sm font-semibold">Action</p>
-          <span className="w-10 shrink-0" aria-hidden />
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <StatusChip variant={chip.variant}>{chip.label}</StatusChip>
+    <section className="rounded-[1.6rem] border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-4 shadow-[0_16px_30px_rgba(15,23,42,0.06)]">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <StatusChip variant={chip.variant}>{chip.label}</StatusChip>
+        <div className={`rounded-full px-3 py-1 text-xs font-semibold ${urgencyTone}`}>{urgency}</div>
+      </div>
+      <div className="min-w-0">
+        <p className="mt-1 text-base font-semibold text-slate-900">{action.questionText}</p>
+        <p className="mt-2 text-sm leading-relaxed text-slate-600">{action.sourceAnswer}</p>
+        <p className="mt-1 text-xs font-medium text-slate-500">{action.auditName}</p>
+        <div className="mt-3 flex flex-wrap gap-2">
           {action.nonConformanceId ? (
-            <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-200 ring-1 ring-white/20">
+            <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[11px] font-semibold text-slate-700">
               NCR {action.nonConformanceId}
             </span>
           ) : null}
+          <MetaPill icon="spark" label={action.severity} />
+          <MetaPill
+            icon={action.riskCategory === "Health & Safety" ? "warningTriangle" : "clipboard"}
+            label={action.riskCategory}
+          />
+          <MetaPill icon="user" label={action.assignedToName} />
+          <MetaPill icon="clock" label={action.dueDate || action.dueLabel} />
+          <MetaPill
+            icon="camera"
+            label={
+              action.evidenceRequired
+                ? action.evidenceCount === 0
+                  ? "Evidence required"
+                  : `${action.evidenceCount} photos`
+                : action.evidenceCount > 0
+                  ? `${action.evidenceCount} photos`
+                  : "Evidence optional"
+            }
+          />
+          {action.siteArea ? <MetaPill icon="clipboard" label={action.siteArea} /> : null}
         </div>
-        <p className="mt-2 font-mono text-[11px] text-slate-400">Ref · {action.id}</p>
-        <h2 className="mt-1 text-lg font-semibold leading-snug text-white">{action.questionText}</h2>
-        <p className="mt-2 text-xs leading-relaxed text-slate-300">{action.sourceAnswer}</p>
-        <p className="mt-2 text-xs text-slate-400">{action.auditName}</p>
-      </header>
-
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-4">
-        <div className="rounded-2xl border border-slate-200 bg-sky-50/80 p-3 text-sm text-slate-800">
+        <p className="mt-3 rounded-xl border border-sky-100 bg-sky-50/90 px-3 py-2 text-sm text-slate-800">
           <span className="font-semibold text-slate-900">Next step. </span>
           {nextStep.replace(/^Next step:\s*/i, "")}
-        </div>
-
+        </p>
+        {action.status !== "Closed" && action.evidenceRequired && action.evidenceCount === 0 && (
+          <p className="mt-2 text-xs font-semibold text-amber-800">Photos are still required before this can be verified.</p>
+        )}
         {canReviewSuggestions ? (
           <SuggestedFixPanel
             action={action}
@@ -173,128 +177,92 @@ function MobileActionDetail({
             onIgnoreSuggestion={onIgnoreSuggestion}
           />
         ) : null}
-
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <DetailRow label="Owner" value={action.assignedToName} />
-          <DetailRow
-            label="Due"
-            value={action.dueDate || action.dueLabel}
-            valueClassName={isDueToday(action) ? "text-orange-600 font-semibold" : undefined}
-          />
-          <div className="flex min-h-[44px] items-center justify-between border-b border-slate-100 px-4 py-3">
-            <span className="text-xs font-medium text-slate-500">Status</span>
-            <StatusChip variant={chip.variant}>{chip.label}</StatusChip>
-          </div>
-          <DetailRow
-            label="Priority"
-            value={action.severity}
-            valueClassName={priorityHigh ? "text-rose-600 font-semibold" : undefined}
-          />
-          <DetailRow label="Created" value={action.createdAt} />
-          <DetailRow label="Location" value={action.siteArea || "—"} />
-          <DetailRow label="Notes" value={action.comments?.trim() ? action.comments : "—"} />
-          <div className="flex min-h-[44px] w-full items-center justify-between border-b border-slate-100 px-4 py-3 text-left">
-            <span className="text-xs font-medium text-slate-500">Evidence</span>
-            <span className="flex items-center gap-1 text-sm font-semibold text-slate-800">
-              {action.evidenceCount > 0 ? `${action.evidenceCount} attached` : "Add photos"}
-              <ChevronRight className="h-4 w-4 text-slate-400" />
-            </span>
-          </div>
-        </div>
-
-        {permissions.canAssignActions && (
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-600">Owner (assign)</label>
-            <select
-              value={action.assignedToName}
-              onChange={(event) => onAssignAction(action.id, event.target.value)}
-              className={`min-h-[44px] w-full rounded-2xl px-4 text-sm ${brandDarkFormControl}`}
-            >
-              {[action.assignedToName, ...availableAuditors]
-                .filter((value, index, list) => value && list.indexOf(value) === index)
-                .map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-            </select>
-          </div>
-        )}
+        {action.correctiveAction?.trim() && action.suggestionStatus && action.suggestionStatus !== "suggested" ? (
+          <p className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            <span className="font-semibold text-slate-900">Corrective action. </span>
+            {action.correctiveAction}
+          </p>
+        ) : null}
       </div>
 
-      <div className="shrink-0 space-y-2 border-t border-slate-200 bg-white px-3 py-3">
-        {cta.kind === "uploadEvidence" ? (
+      <div className="mt-4 flex flex-col gap-3">
+        {permissions.canAssignActions && (
+          <select
+            value={action.assignedToName}
+            onChange={(event) => onAssignAction(action.id, event.target.value)}
+            className={`min-h-[44px] w-full max-w-md rounded-2xl px-4 text-sm ${filterControl}`}
+          >
+            {[action.assignedToName, ...availableAuditors]
+              .filter((value, index, list) => value && list.indexOf(value) === index)
+              .map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+          </select>
+        )}
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          {cta.kind === "uploadEvidence" ? (
+            <EvidenceUploadChoice
+              triggerLabel="Upload evidence"
+              triggerClassName={`min-h-[48px] rounded-2xl bg-[var(--bert-signal-orange)] px-5 text-sm font-semibold text-[var(--qms-navy-950)] shadow-sm focus-visible:outline focus-visible:ring-2 focus-visible:ring-orange-300 ${slatePrimaryCtaInteract}`}
+              onFiles={(files) => onAddEvidence(action.id, files)}
+            />
+          ) : cta.kind === "start" ? (
+            <button
+              type="button"
+              onClick={() => onAdvanceAction(action.id, "In Progress")}
+              className={`min-h-[44px] rounded-2xl bg-[var(--bert-signal-orange)] px-5 text-sm font-semibold text-[var(--qms-navy-950)] shadow-sm focus-visible:outline focus-visible:ring-2 focus-visible:ring-orange-300 ${slatePrimaryCtaInteract}`}
+            >
+              {cta.label}
+            </button>
+          ) : cta.kind === "submitVerification" ? (
+            <button
+              type="button"
+              onClick={() => onAdvanceAction(action.id, "Awaiting Verification")}
+              className={`min-h-[44px] rounded-2xl bg-[var(--bert-signal-orange)] px-5 text-sm font-semibold text-[var(--qms-navy-950)] shadow-sm focus-visible:outline focus-visible:ring-2 focus-visible:ring-orange-300 ${slatePrimaryCtaInteract}`}
+            >
+              {cta.label}
+            </button>
+          ) : cta.kind === "verifyClose" ? (
+            <button
+              type="button"
+              onClick={() => onAdvanceAction(action.id, "Closed")}
+              className={`min-h-[44px] rounded-2xl bg-[var(--bert-signal-orange)] px-5 text-sm font-semibold text-[var(--qms-navy-950)] shadow-sm focus-visible:outline focus-visible:ring-2 focus-visible:ring-orange-300 ${slatePrimaryCtaInteract}`}
+            >
+              {cta.label}
+            </button>
+          ) : (
+            <p className="text-sm text-slate-500">No further actions from you on this item.</p>
+          )}
+          {action.status === "In Progress" && cta.kind === "uploadEvidence" ? (
+            <button
+              type="button"
+              onClick={() => onAdvanceAction(action.id, "Awaiting Verification")}
+              className="min-h-[44px] rounded-2xl border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-800 focus-visible:outline focus-visible:ring-2 focus-visible:ring-slate-300"
+            >
+              Mark ready for review
+            </button>
+          ) : null}
+          {permissions.canVerifyActions && action.status === "Awaiting Verification" ? (
+            <button
+              type="button"
+              onClick={() => onAdvanceAction(action.id, "Rejected")}
+              className="min-h-[44px] rounded-2xl border border-rose-200 bg-rose-50 px-5 text-sm font-semibold text-rose-800 focus-visible:outline focus-visible:ring-2 focus-visible:ring-rose-300"
+            >
+              Reject with feedback
+            </button>
+          ) : null}
+        </div>
+        {action.status !== "Closed" && cta.kind !== "uploadEvidence" ? (
           <EvidenceUploadChoice
             triggerLabel="Upload evidence"
-            triggerClassName={`min-h-[48px] w-full rounded-2xl bg-[var(--bert-signal-orange)] text-sm font-semibold text-[var(--qms-navy-950)] shadow-md focus-visible:outline focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-offset-2 ${slatePrimaryCtaInteract}`}
+            triggerClassName="min-h-[48px] w-full max-w-xs rounded-2xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-slate-300"
             onFiles={(files) => onAddEvidence(action.id, files)}
           />
-        ) : cta.kind === "start" ? (
-          <button
-            type="button"
-            onClick={() => onAdvanceAction(action.id, "In Progress")}
-            className={`min-h-[48px] w-full rounded-2xl bg-[var(--bert-signal-orange)] text-sm font-semibold text-[var(--qms-navy-950)] shadow-md focus-visible:outline focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-offset-2 ${slatePrimaryCtaInteract}`}
-          >
-            {cta.label}
-          </button>
-        ) : cta.kind === "submitVerification" ? (
-          <button
-            type="button"
-            onClick={() => onAdvanceAction(action.id, "Awaiting Verification")}
-            className={`min-h-[48px] w-full rounded-2xl bg-[var(--bert-signal-orange)] text-sm font-semibold text-[var(--qms-navy-950)] shadow-md focus-visible:outline focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-offset-2 ${slatePrimaryCtaInteract}`}
-          >
-            {cta.label}
-          </button>
-        ) : cta.kind === "verifyClose" ? (
-          <button
-            type="button"
-            onClick={() => onAdvanceAction(action.id, "Closed")}
-            className={`min-h-[48px] w-full rounded-2xl bg-[var(--bert-signal-orange)] text-sm font-semibold text-[var(--qms-navy-950)] shadow-md focus-visible:outline focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-offset-2 ${slatePrimaryCtaInteract}`}
-          >
-            {cta.label}
-          </button>
-        ) : (
-          <p className="py-2 text-center text-xs text-slate-500">No further actions from you on this item.</p>
-        )}
-
-        {action.status === "In Progress" && cta.kind === "uploadEvidence" ? (
-          <button
-            type="button"
-            onClick={() => onAdvanceAction(action.id, "Awaiting Verification")}
-            className="min-h-[44px] w-full rounded-2xl border border-slate-200 py-2 text-sm font-semibold text-slate-800 focus-visible:outline focus-visible:ring-2 focus-visible:ring-slate-300"
-          >
-            Mark ready for review (photos attached)
-          </button>
-        ) : null}
-
-        {action.status === "Awaiting Verification" && permissions.canVerifyActions ? (
-          <button
-            type="button"
-            onClick={() => onAdvanceAction(action.id, "Rejected")}
-            className="min-h-[44px] w-full rounded-2xl border border-rose-200 bg-rose-50 py-2 text-sm font-semibold text-rose-800 focus-visible:outline focus-visible:ring-2 focus-visible:ring-rose-300"
-          >
-            Reject with feedback
-          </button>
         ) : null}
       </div>
-    </div>
-  );
-}
-
-function DetailRow({
-  label,
-  value,
-  valueClassName,
-}: {
-  label: string;
-  value: string;
-  valueClassName?: string;
-}) {
-  return (
-    <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 last:border-b-0">
-      <span className="text-xs font-medium text-slate-500">{label}</span>
-      <span className={`max-w-[60%] text-right text-sm text-slate-900 ${valueClassName ?? ""}`.trim()}>{value}</span>
-    </div>
+    </section>
   );
 }
 
@@ -426,73 +394,27 @@ export function ActionsScreen({
 }) {
   const canReviewSuggestions = currentUser.role === "Admin" || currentUser.role === "Manager";
   const permissions = getRolePermissions(currentUser.role);
-  const wide = useWideLayout();
-  const [mobileDetailId, setMobileDetailId] = useState<string | null>(null);
+  const [selectedActionId, setSelectedActionId] = useState("");
 
-  const detailAction = useMemo(
-    () => (mobileDetailId ? actions.find((a) => a.id === mobileDetailId) : undefined),
-    [actions, mobileDetailId],
+  const openActions = useMemo(
+    () => actions.filter((action) => action.status !== "Closed"),
+    [actions],
+  );
+
+  const selectedAction = useMemo(
+    () => openActions.find((action) => action.id === selectedActionId),
+    [openActions, selectedActionId],
   );
 
   useEffect(() => {
-    if (wide) setMobileDetailId(null);
-  }, [wide]);
-
-  useEffect(() => {
-    if (mobileDetailId && !actions.some((a) => a.id === mobileDetailId)) {
-      setMobileDetailId(null);
+    if (selectedActionId && !openActions.some((action) => action.id === selectedActionId)) {
+      setSelectedActionId("");
     }
-  }, [actions, mobileDetailId]);
+  }, [openActions, selectedActionId]);
 
-  const openDetail = useCallback((id: string) => {
-    if (!wide) setMobileDetailId(id);
-  }, [wide]);
-
-  const actionGroups = useMemo(() => {
-    const open: ActionItem[] = [];
-    const overdue: ActionItem[] = [];
-    const awaitingEvidence: ActionItem[] = [];
-    const closed: ActionItem[] = [];
-    for (const action of actions) {
-      if (action.status === "Closed") {
-        closed.push(action);
-      } else if (isActionOverdue(action)) {
-        overdue.push(action);
-      } else if (
-        action.status === "Awaiting Verification" ||
-        (action.evidenceRequired && action.evidenceCount === 0)
-      ) {
-        awaitingEvidence.push(action);
-      } else {
-        open.push(action);
-      }
-    }
-    return [
-      { key: "overdue", title: "Overdue", items: overdue },
-      { key: "open", title: "Open", items: open },
-      { key: "awaiting", title: "Awaiting evidence", items: awaitingEvidence },
-      { key: "closed", title: "Closed", items: closed },
-    ].filter((group) => group.items.length > 0);
-  }, [actions]);
-
-  if (!wide && detailAction) {
-    return (
-      <MobileActionDetail
-        action={detailAction}
-        role={currentUser.role}
-        permissions={permissions}
-        onBack={() => setMobileDetailId(null)}
-        onAdvanceAction={onAdvanceAction}
-        onAssignAction={onAssignAction}
-        onAddEvidence={onAddEvidence}
-        onAcceptSuggestion={onAcceptSuggestion}
-        onEditSuggestion={onEditSuggestion}
-        onIgnoreSuggestion={onIgnoreSuggestion}
-        canReviewSuggestions={canReviewSuggestions}
-        availableAuditors={availableAuditors}
-      />
-    );
-  }
+  const handleSelectAction = useCallback((actionId: string) => {
+    setSelectedActionId(actionId);
+  }, []);
 
   const filterControl = currentUser.role === "Admin" || currentUser.role === "Manager" ? lightFilterControl : brandDarkFormControl;
   const heroIconChip =
@@ -562,192 +484,50 @@ export function ActionsScreen({
         </div>
       </details>
 
-      {actions.length === 0 ? (
-        <EmptyPanel
-          title="No open actions"
-          text="Nothing needs follow-up here right now. Failed or flagged answers from audits can create actions automatically — you can also add one when a finding needs tracking."
+      <section className="rounded-[1.75rem] border border-slate-200/90 bg-white p-4 shadow-sm">
+        <label className="mb-2 block text-sm font-semibold text-slate-900">Open corrective action</label>
+        <p className="mb-3 text-sm text-slate-500">Choose an open action to view details and update it.</p>
+        {openActions.length === 0 ? (
+          <EmptyPanel
+            title="No open actions"
+            text="Nothing needs follow-up here right now. Failed or flagged answers from audits can create actions automatically."
+          />
+        ) : (
+          <select
+            value={selectedActionId}
+            onChange={(event) => handleSelectAction(event.target.value)}
+            className={`h-12 w-full rounded-2xl px-4 text-sm ${filterControl}`}
+          >
+            <option value="">Select an open corrective action…</option>
+            {openActions.map((action) => (
+              <option key={action.id} value={action.id}>
+                {formatOpenActionOptionLabel(action)}
+              </option>
+            ))}
+          </select>
+        )}
+      </section>
+
+      {selectedAction ? (
+        <ActionDetailPanel
+          action={selectedAction}
+          role={currentUser.role}
+          permissions={permissions}
+          canReviewSuggestions={canReviewSuggestions}
+          availableAuditors={availableAuditors}
+          filterControl={filterControl}
+          onAdvanceAction={onAdvanceAction}
+          onAssignAction={onAssignAction}
+          onAddEvidence={onAddEvidence}
+          onAcceptSuggestion={onAcceptSuggestion}
+          onEditSuggestion={onEditSuggestion}
+          onIgnoreSuggestion={onIgnoreSuggestion}
         />
-      ) : (
-        <div className="space-y-6">
-          {actionGroups.map((group) => (
-            <div key={group.key} className="space-y-3">
-              <h3 className="text-sm font-semibold text-slate-900">{group.title}</h3>
-              {group.items.map((action) => (
-            <section
-              key={action.id}
-              className="cursor-pointer rounded-[1.6rem] border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-4 shadow-[0_16px_30px_rgba(15,23,42,0.06)] lg:cursor-default"
-              onClick={() => openDetail(action.id)}
-              onKeyDown={(e) => {
-                if (!wide && (e.key === "Enter" || e.key === " ")) {
-                  e.preventDefault();
-                  openDetail(action.id);
-                }
-              }}
-              role={wide ? undefined : "button"}
-              tabIndex={wide ? undefined : 0}
-            >
-              {(() => {
-                const urgency = getActionUrgency(action);
-                const urgencyTone =
-                  urgency === "Escalated"
-                    ? "bg-rose-200 text-rose-900"
-                    : urgency === "Overdue"
-                      ? "bg-rose-100 text-rose-700"
-                      : urgency === "Stuck"
-                        ? "bg-amber-100 text-amber-800"
-                        : urgency === "Due soon"
-                          ? "bg-amber-50 text-amber-700"
-                          : "bg-slate-100 text-slate-700";
-                const chip = statusChipForAction(action.status);
-                return (
-                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                    <StatusChip variant={chip.variant}>{chip.label}</StatusChip>
-                    <div className={`rounded-full px-3 py-1 text-xs font-semibold ${urgencyTone}`}>{urgency}</div>
-                  </div>
-                );
-              })()}
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="mt-1 text-base font-semibold text-slate-900">{action.questionText}</p>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-600">{action.sourceAnswer}</p>
-                  <p className="mt-1 text-xs font-medium text-slate-500">{action.auditName}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {action.nonConformanceId ? (
-                      <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[11px] font-semibold text-slate-700">
-                        NCR {action.nonConformanceId}
-                      </span>
-                    ) : null}
-                    <MetaPill icon="spark" label={action.severity} />
-                    <MetaPill
-                      icon={action.riskCategory === "Health & Safety" ? "warningTriangle" : "clipboard"}
-                      label={action.riskCategory}
-                    />
-                    <MetaPill icon="user" label={action.assignedToName} />
-                    <MetaPill icon="clock" label={action.dueDate || action.dueLabel} />
-                    <MetaPill
-                      icon="camera"
-                      label={
-                        action.evidenceRequired
-                          ? action.evidenceCount === 0
-                            ? "Evidence required"
-                            : `${action.evidenceCount} photos`
-                          : action.evidenceCount > 0
-                            ? `${action.evidenceCount} photos`
-                            : "Evidence optional"
-                      }
-                    />
-                    {action.siteArea ? <MetaPill icon="clipboard" label={action.siteArea} /> : null}
-                  </div>
-                  <p className="mt-3 rounded-xl border border-sky-100 bg-sky-50/90 px-3 py-2 text-sm text-slate-800">
-                    <span className="font-semibold text-slate-900">Next step. </span>
-                    {getRecordNextStepText("action", action.status, currentUser.role, {
-                      evidenceRequired: action.evidenceRequired,
-                      evidenceCount: action.evidenceCount,
-                    }).replace(/^Next step:\s*/i, "")}
-                  </p>
-                  {action.status !== "Closed" && action.evidenceRequired && action.evidenceCount === 0 && (
-                    <p className="mt-2 text-xs font-semibold text-amber-800">Photos are still required before this can be verified.</p>
-                  )}
-                  {canReviewSuggestions ? (
-                    <SuggestedFixPanel
-                      action={action}
-                      onAcceptSuggestion={onAcceptSuggestion}
-                      onEditSuggestion={onEditSuggestion}
-                      onIgnoreSuggestion={onIgnoreSuggestion}
-                    />
-                  ) : null}
-                  {action.correctiveAction?.trim() && action.suggestionStatus && action.suggestionStatus !== "suggested" ? (
-                    <p className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                      <span className="font-semibold text-slate-900">Corrective action. </span>
-                      {action.correctiveAction}
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-              {(() => {
-                const cta = getActionPrimaryCTA(action, permissions);
-                return (
-              <div className="mt-4 hidden flex-col gap-3 lg:flex" onClick={(e) => e.stopPropagation()}>
-                {permissions.canAssignActions && (
-                  <select
-                    value={action.assignedToName}
-                    onChange={(event) => onAssignAction(action.id, event.target.value)}
-                    className={`min-h-[44px] w-full max-w-md rounded-2xl px-4 text-sm ${brandDarkFormControl}`}
-                  >
-                    {[action.assignedToName, ...availableAuditors].filter((value, index, list) => value && list.indexOf(value) === index).map((name) => (
-                      <option key={name} value={name}>
-                        {name}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                  {cta.kind === "uploadEvidence" ? (
-                    <EvidenceUploadChoice
-                      triggerLabel="Upload evidence"
-                      triggerClassName={`min-h-[48px] rounded-2xl bg-[var(--bert-signal-orange)] px-5 text-sm font-semibold text-[var(--qms-navy-950)] shadow-sm focus-visible:outline focus-visible:ring-2 focus-visible:ring-orange-300 ${slatePrimaryCtaInteract}`}
-                      onFiles={(files) => onAddEvidence(action.id, files)}
-                    />
-                  ) : cta.kind === "start" ? (
-                    <button
-                      type="button"
-                      onClick={() => onAdvanceAction(action.id, "In Progress")}
-                      className={`min-h-[44px] rounded-2xl bg-[var(--bert-signal-orange)] px-5 text-sm font-semibold text-[var(--qms-navy-950)] shadow-sm focus-visible:outline focus-visible:ring-2 focus-visible:ring-orange-300 ${slatePrimaryCtaInteract}`}
-                    >
-                      {cta.label}
-                    </button>
-                  ) : cta.kind === "submitVerification" ? (
-                    <button
-                      type="button"
-                      onClick={() => onAdvanceAction(action.id, "Awaiting Verification")}
-                      className={`min-h-[44px] rounded-2xl bg-[var(--bert-signal-orange)] px-5 text-sm font-semibold text-[var(--qms-navy-950)] shadow-sm focus-visible:outline focus-visible:ring-2 focus-visible:ring-orange-300 ${slatePrimaryCtaInteract}`}
-                    >
-                      {cta.label}
-                    </button>
-                  ) : cta.kind === "verifyClose" ? (
-                    <button
-                      type="button"
-                      onClick={() => onAdvanceAction(action.id, "Closed")}
-                      className={`min-h-[44px] rounded-2xl bg-[var(--bert-signal-orange)] px-5 text-sm font-semibold text-[var(--qms-navy-950)] shadow-sm focus-visible:outline focus-visible:ring-2 focus-visible:ring-orange-300 ${slatePrimaryCtaInteract}`}
-                    >
-                      {cta.label}
-                    </button>
-                  ) : null}
-                  {action.status === "In Progress" && cta.kind === "uploadEvidence" ? (
-                    <button
-                      type="button"
-                      onClick={() => onAdvanceAction(action.id, "Awaiting Verification")}
-                      className="min-h-[44px] rounded-2xl border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-800 focus-visible:outline focus-visible:ring-2 focus-visible:ring-slate-300"
-                    >
-                      Mark ready for review
-                    </button>
-                  ) : null}
-                  {permissions.canVerifyActions && action.status === "Awaiting Verification" ? (
-                    <button
-                      type="button"
-                      onClick={() => onAdvanceAction(action.id, "Rejected")}
-                      className="min-h-[44px] rounded-2xl border border-rose-200 bg-rose-50 px-5 text-sm font-semibold text-rose-800 focus-visible:outline focus-visible:ring-2 focus-visible:ring-rose-300"
-                    >
-                      Reject with feedback
-                    </button>
-                  ) : null}
-                </div>
-                {action.status !== "Closed" && cta.kind !== "uploadEvidence" ? (
-                  <EvidenceUploadChoice
-                    triggerLabel="Upload evidence"
-                    triggerClassName="min-h-[48px] w-full max-w-xs rounded-2xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-slate-300"
-                    onFiles={(files) => onAddEvidence(action.id, files)}
-                  />
-                ) : null}
-              </div>
-                );
-              })()}
-            </section>
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
+      ) : openActions.length > 0 ? (
+        <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center text-sm text-slate-500">
+          Select an open corrective action above to see what to do next.
+        </p>
+      ) : null}
     </div>
   );
 }
