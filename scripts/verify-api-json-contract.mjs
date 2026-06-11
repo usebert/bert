@@ -54,7 +54,10 @@ assert(companyUserServiceTs.includes("COMPANY_MEMBERS_USER_MESSAGE"), "5d: user-
 /** 6: Users panel — workbook fix hint godmode-only. */
 assert(panel.includes("Fix the workbook connection above, then re-sync users."), "6: godmode workbook hint exists");
 assert(panel.includes("canShowTechnicalUi(currentUser.role)"), "6b: technical UI gates error detail");
-assert(panel.includes("Could not load company users. Try again."), "6c: normal user message");
+assert(
+  panel.includes("Could not load company users. Try again.") || panel.includes("COMPANY_MEMBERS_USER_MESSAGE"),
+  "6c: normal user message",
+);
 
 /** 7: npm script registered. */
 assert(pkg.scripts["verify:api-json-contract"], "7: verify:api-json-contract npm script");

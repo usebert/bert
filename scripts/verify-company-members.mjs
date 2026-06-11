@@ -130,7 +130,10 @@ const pendingInvite = {
   assert(panel.includes("activeMembersLoadError"), "9c: load error UI");
   assert(panel.includes("canShowTechnicalUi(currentUser.role)"), "9c2: godmode gates error detail");
   assert(panel.includes("activeMembersLoadErrorDetail"), "9c2b: technical error detail prop");
-  assert(panel.includes("Could not load company users. Try again."), "9c3: normal user load error");
+  assert(
+    panel.includes("Could not load company users. Try again.") || panel.includes("COMPANY_MEMBERS_USER_MESSAGE"),
+    "9c3: normal user load error",
+  );
   assert(panel.includes("!isActiveCompanyUserInvite(invite)"), "9d: pending excludes active invite rows");
   assert(!panel.includes("activeInvites.map"), "9e: active list not driven by invite rows");
 }
