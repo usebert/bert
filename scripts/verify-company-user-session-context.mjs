@@ -152,7 +152,7 @@ assert(
   assert(matched?.companyFolderId !== companyBFolder, "9e: company A login never resolves company B folder");
 }
 
-assert(authService.includes("validateCompanyFolderPlacement"), "10: login validates company folder under Live Companies");
+assert(authService.includes("validateCompanyFolderUnderCompaniesRoot"), "10: login validates company folder under Live Companies");
 assert(authService.includes("folder_not_in_companies_root"), "11: login rejects wrong Drive parent");
 assert(serverMain.includes("folderPlacementOk"), "12: session surfaces folder placement status");
 assert(authService.includes("folderPlacementOk"), "12b: session API exposes folder placement");
