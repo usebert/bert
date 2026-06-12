@@ -124,6 +124,7 @@ import {
   COMPANY_MEMBERS_USER_MESSAGE,
   fetchCompanyMembers,
   readCompanyMembersCache,
+  updateCompanyMember,
   writeCompanyMembersCache,
   type CompanyMember,
 } from "./src/services/companyUserService";
@@ -3557,6 +3558,7 @@ function App() {
   const [companyOnboardingInviteSending, setCompanyOnboardingInviteSending] = useState(false);
   const [companyUserInviteEmailResult, setCompanyUserInviteEmailResult] = useState<CompanyUserInviteEmailResult | null>(null);
   const [companyUserInviteEmailSending, setCompanyUserInviteEmailSending] = useState(false);
+  const [companyMemberEditing, setCompanyMemberEditing] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [companySheetSync, setCompanySheetSync] = useState<CompanySheetSyncStatus | null>(storedWorkspaceState?.companySheetSync || null);
   const [selectedReportTemplate, setSelectedReportTemplate] = useState<ReportTemplateType>("Executive summary");
@@ -8340,6 +8342,130 @@ function App() {
         error instanceof Error ? error.message : "Unable to remove user from the company sheet.",
         "warning",
       );
+    }
+  };
+
+  const refreshActiveCompanyMembers = async () => {
+    const companyFolderId = selectedFolder?.id || extractGoogleResourceId(folderIdInput);
+    if (!companyFolderId) {
+      return;
+    }
+    const manualMasterSheetId =
+      activeCompanyContext.masterSheetId.trim() ||
+      extractGoogleResourceId(masterSheetInput) ||
+      companySheetSync?.sheetId ||
+      "";
+    const membersResult = await fetchCompanyMembers(apiUrl, {
+      companyId: companyFolderId,
+      masterSheetId: manualMasterSheetId,
+      companyName: activeCompanyContext.companyName,
+    });
+    if (!membersResult.ok) {
+      throw new Error(membersResult.loadErrorDetail || membersResult.loadError || COMPANY_MEMBERS_USER_MESSAGE);
+    }
+    setCompanyUsersTabRows(membersResult.members);
+    setCompanyMembersState({
+      members: membersResult.members,
+      warning: membersResult.warning,
+      loading: false,
+      loadError: undefined,
+      loadErrorDetail: undefined,
+    });
+    writeCompanyMembersCache(storageKeys.companyMembersCache, {
+      companyId: companyFolderId,
+      members: membersResult.members,
+      cachedAt: Date.now(),
+      warning: membersResult.warning,
+    });
+  };
+
+  const handleUpdateCompanyMember = async (member: CompanyMember, input: { name: string; role: string }) => {
+    if (currentUser?.role !== "Master" && currentUser?.role !== "Admin") {
+      pushToast("Access restricted", "Only Company Admin can edit active users.", "warning");
+      return;
+    }
+    const companyFolderId = selectedFolder?.id || extractGoogleResourceId(folderIdInput);
+    const masterSheetId =
+      activeCompanyContext.masterSheetId.trim() ||
+      extractGoogleResourceId(masterSheetInput) ||
+      companySheetSync?.sheetId ||
+      "";
+    if (!companyFolderId || !masterSheetId) {
+      pushToast("Workspace required", "Select a company folder and master sheet before editing users.", "warning");
+      return;
+    }
+    const name = input.name.trim();
+    if (!name) {
+      pushToast("Name required", "Display name cannot be empty.", "warning");
+      return;
+    }
+    setCompanyMemberEditing(true);
+    try {
+      const result = await updateCompanyMember(apiUrl, {
+        companyId: companyFolderId,
+        email: member.email,
+        masterSheetId,
+        name,
+        role: input.role,
+      });
+      if (!result.ok) {
+        throw new Error(result.error || "Unable to update user.");
+      }
+      await refreshActiveCompanyMembers();
+      pushToast("User updated", `${member.email} was saved to the company workbook.`, "success");
+    } catch (error) {
+      pushToast(
+        "Update failed",
+        error instanceof Error ? error.message : "Unable to update user.",
+        "warning",
+      );
+    } finally {
+      setCompanyMemberEditing(false);
+    }
+  };
+
+  const handleDeactivateCompanyMember = async (member: CompanyMember) => {
+    if (currentUser?.role !== "Master" && currentUser?.role !== "Admin") {
+      pushToast("Access restricted", "Only Company Admin can deactivate users.", "warning");
+      return;
+    }
+    const companyFolderId = selectedFolder?.id || extractGoogleResourceId(folderIdInput);
+    const masterSheetId =
+      activeCompanyContext.masterSheetId.trim() ||
+      extractGoogleResourceId(masterSheetInput) ||
+      companySheetSync?.sheetId ||
+      "";
+    if (!companyFolderId || !masterSheetId) {
+      pushToast("Workspace required", "Select a company folder and master sheet before deactivating users.", "warning");
+      return;
+    }
+    const confirmed = window.confirm(
+      `Deactivate ${member.email}?\n\nThey will remain on the Users tab as inactive and will no longer be able to sign in.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+    setCompanyMemberEditing(true);
+    try {
+      const result = await updateCompanyMember(apiUrl, {
+        companyId: companyFolderId,
+        email: member.email,
+        masterSheetId,
+        status: "INACTIVE",
+      });
+      if (!result.ok) {
+        throw new Error(result.error || "Unable to deactivate user.");
+      }
+      await refreshActiveCompanyMembers();
+      pushToast("User deactivated", `${member.email} can no longer sign in.`, "success");
+    } catch (error) {
+      pushToast(
+        "Deactivate failed",
+        error instanceof Error ? error.message : "Unable to deactivate user.",
+        "warning",
+      );
+    } finally {
+      setCompanyMemberEditing(false);
     }
   };
 
@@ -14078,6 +14204,9 @@ function App() {
                 onResendInvite={handleResendInvite}
                 onDeleteInvite={handleDeleteInvite}
                 onRemoveCompanyUser={handleRemoveCompanyUser}
+                onUpdateCompanyMember={handleUpdateCompanyMember}
+                onDeactivateCompanyMember={handleDeactivateCompanyMember}
+                companyMemberEditing={companyMemberEditing}
                 onResyncUsers={handleResyncUsers}
                 areaRestrictionsEnabled={areaRestrictionsEnabled}
                 areaSyncLoading={areaSyncLoading}

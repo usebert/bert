@@ -179,3 +179,50 @@ export async function fetchCompanyMembers(
 
 /** Alias — listActiveUsers reads Users tab; never returns PasswordHash. */
 export { fetchCompanyMembers as listActiveUsers };
+
+export type UpdateCompanyMemberInput = {
+  companyId: string;
+  email: string;
+  masterSheetId: string;
+  name?: string;
+  role?: string;
+  status?: string;
+  companyAreas?: string[];
+};
+
+export async function updateCompanyMember(
+  apiUrl: (path: string) => string,
+  input: UpdateCompanyMemberInput,
+): Promise<{ ok: boolean; user?: CompanyMember; error?: string }> {
+  const companyId = input.companyId.trim();
+  const email = input.email.trim().toLowerCase();
+  const masterSheetId = input.masterSheetId.trim();
+  if (!companyId || !email || !masterSheetId) {
+    return { ok: false, error: "Company workspace and user email are required." };
+  }
+
+  const params = new URLSearchParams({ masterSheetId });
+  const path = `/api/companies/${encodeURIComponent(companyId)}/users/${encodeURIComponent(email)}?${params.toString()}`;
+  const result = await fetchJson<{ ok?: boolean; user?: CompanyMember; error?: string }>(apiUrl(path), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      masterSheetId,
+      name: input.name,
+      role: input.role,
+      status: input.status,
+      companyAreas: input.companyAreas,
+    }),
+  });
+
+  if (!result.ok) {
+    return { ok: false, error: result.message || "Could not update user." };
+  }
+
+  const { data: payload, response } = result;
+  if (!response.ok || payload.ok === false) {
+    return { ok: false, error: payload.error || "Could not update user." };
+  }
+
+  return { ok: true, user: payload.user };
+}

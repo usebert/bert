@@ -382,3 +382,17 @@ export function getCreatableRoles(role: Role): Role[] {
   }
   return [];
 }
+
+/** Company Admin or platform Master may edit active users on the Users tab. */
+export function canManageCompanyMembers(role: Role): boolean {
+  return role === "Master" || role === "Admin";
+}
+
+export type EditableCompanyMemberRole = "Admin" | "Manager" | "Auditor" | "User";
+
+export function getEditableCompanyMemberRoles(role: Role): EditableCompanyMemberRole[] {
+  if (canManageCompanyMembers(role)) {
+    return ["Admin", "Manager", "Auditor", "User"];
+  }
+  return [];
+}

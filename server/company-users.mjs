@@ -84,7 +84,7 @@ export function parseRoleFromUsersSheet(raw) {
   if (r === "master") {
     return "Master";
   }
-  if (r === "admin" || r === "administrator" || r === "owner") {
+  if (r === "admin" || r === "administrator" || r === "owner" || r === "company admin") {
     return "Admin";
   }
   if (r === "manager") {
@@ -93,7 +93,98 @@ export function parseRoleFromUsersSheet(raw) {
   if (r === "auditor") {
     return "Auditor";
   }
+  if (r === "user") {
+    return "User";
+  }
   return "";
+}
+
+export function isValidCompanyUserEmail(email) {
+  const normalized = safeLower(email);
+  return normalized.includes("@") && normalized.length > 3 && !/\s/.test(normalized);
+}
+
+/** Persisted Users tab Role column — never store platform Master as a company role. */
+export function normalizeCompanyUserRoleForSheet(role) {
+  const parsed = parseRoleFromUsersSheet(role);
+  if (parsed === "Master") {
+    return "";
+  }
+  return parsed;
+}
+
+export function validateCompanyUserEditInput(input = {}) {
+  const errors = [];
+  const name =
+    input.name !== undefined && input.name !== null ? String(input.name).trim() : undefined;
+  if (name !== undefined && !name) {
+    errors.push("name_required");
+  }
+  let role;
+  if (input.role !== undefined && input.role !== null && String(input.role).trim()) {
+    role = normalizeCompanyUserRoleForSheet(input.role);
+    if (!role) {
+      errors.push("invalid_role");
+    }
+  }
+  let status;
+  if (input.status !== undefined && input.status !== null && String(input.status).trim()) {
+    status = normalizeUserStatus(input.status);
+    if (!["ACTIVE", "INACTIVE", "INVITED"].includes(status)) {
+      errors.push("invalid_status");
+    }
+  }
+  return { ok: errors.length === 0, errors, name, role, status };
+}
+
+export async function updateCompanyUserRecord(auth, spreadsheetId, email, updates, deps) {
+  const emailNorm = safeLower(email);
+  if (!isValidCompanyUserEmail(emailNorm)) {
+    return { ok: false, reason: "invalid_email" };
+  }
+
+  const validated = validateCompanyUserEditInput(updates);
+  if (!validated.ok) {
+    return { ok: false, reason: validated.errors[0] || "invalid_input" };
+  }
+
+  if (typeof deps.migrateUsersTabColumns === "function") {
+    await deps.migrateUsersTabColumns(auth, spreadsheetId, deps).catch(() => null);
+  }
+
+  const match = await findCompanyUsersTabRow(auth, spreadsheetId, emailNorm, deps);
+  if (!match) {
+    return { ok: false, reason: "user_not_found" };
+  }
+
+  const now = new Date().toISOString();
+  const patch = { UpdatedAt: now };
+
+  if (validated.name !== undefined) {
+    patch.Name = validated.name;
+    patch["Full Name"] = validated.name;
+  }
+  if (validated.role) {
+    patch.Role = validated.role;
+    patch.AccessLevel = defaultAccessLevelForRole(validated.role);
+  }
+  if (validated.status) {
+    patch.Status = validated.status;
+  }
+  if (updates.companyAreas !== undefined) {
+    const areas = Array.isArray(updates.companyAreas)
+      ? updates.companyAreas.map((part) => String(part || "").trim()).filter(Boolean)
+      : parseCompanyAreas(updates.companyAreas);
+    patch.CompanyAreas = areas.join(", ");
+  }
+
+  await writeUsersRowPatch(auth, spreadsheetId, match, patch, deps);
+
+  const rec = await readCompanyUsersTabRecord(auth, spreadsheetId, emailNorm, deps);
+  if (!rec) {
+    return { ok: false, reason: "user_not_found" };
+  }
+  return { ok: true, user: rec };
 }
 
 export function sanitizeUserRecordForClient(record) {

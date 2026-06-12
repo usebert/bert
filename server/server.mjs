@@ -35,6 +35,7 @@ import {
   verifyCompanyUserPassword,
   resolveCompanyUserEmailByHash,
   resolveCompanyContextForUser,
+  updateCompanyUserRecord,
 } from "./company-users.mjs";
 import {
   readCompanyUsers as workbookReadCompanyUsers,
@@ -4561,6 +4562,125 @@ app.post("/api/google-sheet-by-id/:sheetId/schedules", async (req, res) => {
     });
   }
 });
+
+app.patch(
+  "/api/companies/:companyFolderId/users/:email",
+  requireGoogleWorkspaceSession,
+  requireWorkspaceAdminActor,
+  async (req, res) => {
+    try {
+      const auth = getAuthedClient();
+      const companyFolderId = String(req.params.companyFolderId || "").trim();
+      const email = String(req.params.email || "")
+        .trim()
+        .toLowerCase();
+      const masterSheetId = String(req.query?.masterSheetId || req.body?.masterSheetId || "").trim();
+      const actor = req.bertActor;
+
+      if (!companyFolderId || !email || !email.includes("@")) {
+        return res.status(400).json({ ok: false, error: "Company folder ID and a valid email are required." });
+      }
+      if (!masterSheetId) {
+        return res.status(400).json({
+          ok: false,
+          blocker: "missing_master_sheet",
+          error: "Company master spreadsheet ID is required to update this user.",
+        });
+      }
+
+      if (actor.kind === "company" && actor.masterSheetId && actor.masterSheetId !== masterSheetId) {
+        return res.status(403).json({
+          ok: false,
+          blocker: "forbidden",
+          error: "You can only update users in your own company workspace.",
+        });
+      }
+
+      if (actor.kind === "company" && actor.email === email) {
+        const roleChangeRequested = req.body?.role !== undefined && String(req.body.role || "").trim();
+        const statusChangeRequested =
+          req.body?.status !== undefined && String(req.body.status || "").trim().toLowerCase() !== "active";
+        if (roleChangeRequested || statusChangeRequested) {
+          return res.status(403).json({
+            ok: false,
+            blocker: "self_edit_forbidden",
+            error: "You cannot change your own role or deactivate your own account while signed in.",
+          });
+        }
+      }
+
+      const updates = {};
+      if (req.body?.name !== undefined) {
+        updates.name = req.body.name;
+      }
+      if (req.body?.role !== undefined) {
+        updates.role = req.body.role;
+      }
+      if (req.body?.status !== undefined) {
+        updates.status = req.body.status;
+      }
+      if (req.body?.companyAreas !== undefined) {
+        updates.companyAreas = req.body.companyAreas;
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ ok: false, error: "No user fields were provided to update." });
+      }
+
+      const result = await updateCompanyUserRecord(auth, masterSheetId, email, updates, getCompanyUsersDeps());
+      if (!result.ok) {
+        const reason = String(result.reason || "").trim();
+        if (reason === "user_not_found") {
+          return res.status(404).json({ ok: false, error: "No user with this email was found on the company Users tab." });
+        }
+        if (reason === "name_required") {
+          return res.status(400).json({ ok: false, error: "Display name is required." });
+        }
+        if (reason === "invalid_role") {
+          return res.status(400).json({ ok: false, error: "Role must be Company Admin, Manager, Auditor, or User." });
+        }
+        if (reason === "invalid_email") {
+          return res.status(400).json({ ok: false, error: "Email address is invalid." });
+        }
+        return res.status(400).json({ ok: false, error: "Unable to update user.", reason });
+      }
+
+      const { parseRoleForClient } = await import("../shared/schedule-assignees.mjs");
+      const user = result.user;
+      const companyAreas = Array.isArray(user.companyAreas) ? user.companyAreas : parseCompanyAreas(user.companyAreasRaw);
+      const clientUser = sanitizeUsersTabRecords([
+        {
+          email: user.email,
+          name: user.name || email,
+          role: parseRoleForClient(user.role),
+          accessLevel: user.accessLevel || "",
+          status: user.status || "ACTIVE",
+          companyId: companyFolderId,
+          companyFolderId,
+          companyAreas,
+          companyAreasRaw: companyAreas.join(", "),
+        },
+      ])[0];
+
+      console.log("[company-user] patch", {
+        email,
+        companyFolderId,
+        masterSheetIdPrefix: masterSheetId.slice(0, 8),
+        actorKind: actor.kind,
+        actorRole: actor.role,
+        fields: Object.keys(updates),
+      });
+
+      return res.json({ ok: true, user: clientUser });
+    } catch (error) {
+      console.error("[company-user] patch failed:", error);
+      return res.status(500).json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Unable to update company user.",
+      });
+    }
+  },
+);
 
 app.delete(
   "/api/companies/:companyFolderId/users/:email",

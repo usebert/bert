@@ -74,8 +74,14 @@ export const INVITE_STATUS_LEGEND: Array<{ status: string; description: string }
 ];
 
 export function formatUserRoleLabel(role: string): string {
-  if (role === "Master") return "Admin";
-  return role;
+  const normalized = String(role || "").trim();
+  if (normalized === "Master") {
+    return "Admin";
+  }
+  if (normalized === "Admin") {
+    return "Company Admin";
+  }
+  return normalized || "User";
 }
 
 export function isStaleOrIncompleteInviteStatus(status: string): boolean {

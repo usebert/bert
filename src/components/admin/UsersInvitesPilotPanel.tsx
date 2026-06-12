@@ -15,7 +15,10 @@ import {
   isGodmodeInviteSession,
 } from "../../utils/companyWorkspaceInvite";
 import { DangerActionButton } from "../DangerActionButton";
+import { ActiveUserCard } from "./ActiveUserCard";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../dashboard/DashboardPrimitives";
+import type { CompanyMember } from "../../services/companyUserService";
+import { canManageCompanyMembers } from "../../permissions";
 import { InviteStatusLegend } from "../InviteStatusLegend";
 import { WhatHappensNextPanel } from "../WhatHappensNextPanel";
 import { SitesAreasPanel } from "./SitesAreasPanel";
@@ -373,6 +376,8 @@ export type UsersInvitesPilotPanelProps = Pick<
   | "onResendInvite"
   | "onDeleteInvite"
   | "onRemoveCompanyUser"
+  | "onUpdateCompanyMember"
+  | "onDeactivateCompanyMember"
   | "onResyncUsers"
   | "onSelectSite"
   | "onAddSite"
@@ -399,6 +404,7 @@ export type UsersInvitesPilotPanelProps = Pick<
     onDismiss: () => void;
     slatePrimaryCtaInteract: string;
   }>;
+  companyMemberEditing?: boolean;
 };
 
 export function UsersInvitesPilotPanel({
@@ -437,7 +443,10 @@ export function UsersInvitesPilotPanel({
   onResendInvite,
   onDeleteInvite,
   onRemoveCompanyUser,
+  onUpdateCompanyMember,
+  onDeactivateCompanyMember,
   onResyncUsers,
+  companyMemberEditing = false,
   onSelectSite,
   onAddSite,
   onArchiveSite,
@@ -678,18 +687,29 @@ export function UsersInvitesPilotPanel({
         ) : (
           <div className="mt-3 space-y-2">
             {activeMembers.map((member) => (
-              <div
+              <ActiveUserCard
                 key={member.email}
-                className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
-              >
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">{member.email}</p>
-                  <p className="mt-1 text-xs text-slate-500">{member.name}</p>
-                </div>
-                <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
-                  {formatUserRoleLabel(member.role)}
-                </span>
-              </div>
+                member={member}
+                currentUserRole={currentUser.role}
+                currentUserEmail={currentUser.email}
+                editing={companyMemberEditing}
+                slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+                onEdit={(target, input) => onUpdateCompanyMember(target, input)}
+                onDeactivate={onDeactivateCompanyMember}
+                onRemove={
+                  canManageCompanyMembers(currentUser.role)
+                    ? (target) =>
+                        onRemoveCompanyUser({
+                          id: `active-${target.email}`,
+                          email: target.email,
+                          role: target.role as Role,
+                          status: "Active",
+                          invitedBy: currentUser.name,
+                          sentAt: "",
+                        })
+                    : undefined
+                }
+              />
             ))}
           </div>
         )}

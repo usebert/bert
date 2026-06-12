@@ -346,6 +346,28 @@ export type AdminScreenProps = {
   onResendInvite: (invite: UserInvite) => void;
   onDeleteInvite: (invite: UserInvite) => void;
   onRemoveCompanyUser: (invite: UserInvite) => void;
+  onUpdateCompanyMember: (
+    member: {
+      email: string;
+      name: string;
+      role: string;
+      accessLevel: string;
+      status: string;
+      companyId: string;
+      companyAreas: string[];
+    },
+    input: { name: string; role: string },
+  ) => void | Promise<void>;
+  onDeactivateCompanyMember: (member: {
+    email: string;
+    name: string;
+    role: string;
+    accessLevel: string;
+    status: string;
+    companyId: string;
+    companyAreas: string[];
+  }) => void | Promise<void>;
+  companyMemberEditing?: boolean;
   onResyncUsers: () => void;
   onSelectSite: (siteId: string) => void;
   onAddSite: () => void;

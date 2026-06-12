@@ -57,7 +57,7 @@ export function belongsToCurrentCompany(user, companyId) {
 
 export function parseRoleForClient(roleRaw) {
   const role = normalize(roleRaw);
-  if (role === "admin" || role === "company admin") return "Admin";
+  if (role === "admin" || role === "company admin" || role === "administrator") return "Admin";
   if (role === "manager") return "Manager";
   if (role === "auditor") return "Auditor";
   if (role === "user") return "User";
