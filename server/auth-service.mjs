@@ -66,6 +66,19 @@ export async function probeCompanyLoginSheet(auth, masterSheetId, email, passwor
         passwordVerified: false,
         setupIncomplete: false,
         inactive: true,
+        cacheOnly: false,
+        rec: null,
+        migrated: false,
+      };
+    }
+    if (login.reason === "cache_only") {
+      return {
+        usersRowFound: false,
+        roleFound: "",
+        passwordVerified: false,
+        setupIncomplete: false,
+        inactive: false,
+        cacheOnly: true,
         rec: null,
         migrated: false,
       };
@@ -208,6 +221,15 @@ export async function performCompanyLogin(auth, deps, input = {}) {
         httpStatus: 403,
         blocker: "inactive",
         error: "This account is inactive. Contact your company administrator.",
+      };
+    }
+    if (lastProbe?.cacheOnly) {
+      return {
+        ok: false,
+        httpStatus: 403,
+        blocker: "cache_only",
+        error:
+          "Your account is not active in this company. Ask your administrator to check the Users tab.",
       };
     }
     if (lastProbe?.setupIncomplete) {

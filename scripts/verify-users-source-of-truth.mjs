@@ -76,6 +76,8 @@ assert(sheetFlow.includes('status !== "ACTIVE"'), "7: non-ACTIVE rows filtered o
 /** 8: canLoginCompanyUser is sheet-only. */
 assert(sheetFlow.includes("findCompanyUsersTabRow"), "8: login requires Users tab row");
 assert(authService.includes("canLoginCompanyUser"), "8b: auth login uses canLoginCompanyUser");
+assert(sheetFlow.includes('reason: "cache_only"'), "8c: cache-only login denied");
+assert(read("server/company-users-cache.mjs").includes("rebuildCompanyUsersCache"), "8d: server cache rebuild");
 
 /** 9: companyUserLoginReady no Config UserAuth fallback. */
 {

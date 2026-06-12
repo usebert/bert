@@ -249,6 +249,8 @@ export function GodmodeCompanyWorkspacePanel({
   const [inviteTargetRepairing, setInviteTargetRepairing] = useState(false);
   const [usersTabRepairing, setUsersTabRepairing] = useState(false);
   const [usersTabRepairMessage, setUsersTabRepairMessage] = useState("");
+  const [usersCacheRebuilding, setUsersCacheRebuilding] = useState(false);
+  const [usersCacheRebuildMessage, setUsersCacheRebuildMessage] = useState("");
   const [registryRelinking, setRegistryRelinking] = useState(false);
   const [registryForceLiveLoading, setRegistryForceLiveLoading] = useState(false);
   const [registryRelinkSucceeded, setRegistryRelinkSucceeded] = useState(false);
@@ -598,6 +600,56 @@ export function GodmodeCompanyWorkspacePanel({
     selectedFolder?.id,
     selectedFolder?.name,
   ]);
+
+  const rebuildUsersFromSheet = async () => {
+    if (!selectedFolder?.id || usersCacheRebuilding) {
+      return;
+    }
+    const masterSheetId = companyMasterSheetId || folderInspection?.masterSheet?.id || "";
+    if (!masterSheetId) {
+      setUsersCacheRebuildMessage("Link a company master sheet before rebuilding users from the sheet.");
+      return;
+    }
+    setUsersCacheRebuilding(true);
+    setUsersCacheRebuildMessage("");
+    try {
+      const response = await fetch(
+        apiUrl(`/api/godmode/companies/${encodeURIComponent(selectedFolder.id)}/rebuild-users-from-sheet`),
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            companyFolderId: selectedFolder.id,
+            masterSheetId,
+            companyName: selectedFolder.name,
+          }),
+        },
+      );
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        technicalError?: string;
+        activeCount?: number;
+        cacheOnlyUsersRemoved?: number;
+        removed?: string[];
+        kept?: string[];
+      };
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.technicalError || payload.error || "Unable to rebuild users from sheet.");
+      }
+      const removed = Array.isArray(payload.removed) ? payload.removed : [];
+      setUsersCacheRebuildMessage(
+        `Rebuilt user cache from sheet (${payload.activeCount ?? 0} active). Removed ${payload.cacheOnlyUsersRemoved ?? removed.length} cache-only user(s).`,
+      );
+    } catch (error) {
+      setUsersCacheRebuildMessage(
+        error instanceof Error ? error.message : "Unable to rebuild users from sheet.",
+      );
+    } finally {
+      setUsersCacheRebuilding(false);
+    }
+  };
 
   const repairUsersTab = async () => {
     if (!selectedFolder?.id || usersTabRepairing) {
@@ -1139,6 +1191,14 @@ export function GodmodeCompanyWorkspacePanel({
                   >
                     {usersTabRepairing ? "Repairing Users tab…" : "Repair Users tab"}
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => void rebuildUsersFromSheet()}
+                    disabled={masterCompanyContextBlocked || usersCacheRebuilding || !resolvedMasterSheetId}
+                    className="inline-flex h-10 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {usersCacheRebuilding ? "Rebuilding users…" : "Rebuild users from sheet"}
+                  </button>
                   <a
                     href={`https://drive.google.com/drive/folders/${selectedFolder.id}`}
                     target="_blank"
@@ -1161,6 +1221,11 @@ export function GodmodeCompanyWorkspacePanel({
                 {usersTabRepairMessage ? (
                   <p className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
                     {usersTabRepairMessage}
+                  </p>
+                ) : null}
+                {usersCacheRebuildMessage ? (
+                  <p className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
+                    {usersCacheRebuildMessage}
                   </p>
                 ) : null}
                 {inviteTargetDiagnostic ? (

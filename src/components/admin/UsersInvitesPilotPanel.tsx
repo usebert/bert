@@ -1,6 +1,9 @@
 import { useMemo, useState, type ComponentType } from "react";
 import type { Role } from "../../permissions";
-import { COMPANY_MEMBERS_USER_MESSAGE } from "../../services/companyUserService";
+import {
+  COMPANY_MEMBERS_LOADING_MESSAGE,
+  COMPANY_MEMBERS_USER_MESSAGE,
+} from "../../services/companyUserService";
 import { isDebugUiAllowed } from "../../utils/debugUiVisibility";
 import { canShowTechnicalUi } from "../../utils/uxDeclutter";
 import {
@@ -661,14 +664,14 @@ export function UsersInvitesPilotPanel({
             </p>
           </div>
         ) : null}
-        {activeMembersWarning ? (
+        {activeMembersWarning && (canShowTechnicalUi(currentUser.role) || isDebugUiAllowed()) ? (
           <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
             {activeMembersWarning}
           </p>
         ) : null}
         {activeMembersLoading && activeMembers.length === 0 ? (
           <div className="mt-3">
-            <EmptyPanel title="Loading active users…" text="Reading the company workbook Users tab." />
+            <EmptyPanel title={COMPANY_MEMBERS_LOADING_MESSAGE} text="Reading the company workbook Users tab." />
           </div>
         ) : activeMembers.length === 0 ? (
           <div className="mt-3">

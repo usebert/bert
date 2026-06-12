@@ -82,6 +82,53 @@ function resolveCompanyUsersDeps(deps) {
 }
 
 /**
+ * Read Users tab rows and return ACTIVE members plus sheet row counts for diagnostics.
+ */
+export async function readActiveUsersFromSheetWithStats(auth, deps, companyContext = {}) {
+  const masterSheetId = String(companyContext.masterSheetId || "").trim();
+  const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
+  if (!auth || !masterSheetId) {
+    return { members: [], totalSheetRows: 0, activeSheetUsers: 0 };
+  }
+
+  const enrichedDeps = {
+    ...deps,
+    resolveUsersTab: deps.resolveUsersTab || resolveUsersTab,
+    migrateUsersTabColumns: deps.migrateUsersTabColumns || migrateUsersTabColumns,
+  };
+
+  if (typeof enrichedDeps.migrateUsersTabColumns === "function" && enrichedDeps.getTabValues) {
+    await enrichedDeps.migrateUsersTabColumns(auth, masterSheetId, enrichedDeps).catch(() => null);
+  }
+
+  const readResult = await readCompanyUsers(auth, masterSheetId, enrichedDeps, {
+    companyFolderId,
+    companyId: companyFolderId,
+  });
+  if (!readResult?.ok || !Array.isArray(readResult.records)) {
+    return { members: [], totalSheetRows: 0, activeSheetUsers: 0 };
+  }
+
+  const rawUsers = readResult.records.map((row) => mapUsersTabRow(row, companyFolderId));
+  const members = [];
+  const seen = new Set();
+  for (const row of rawUsers) {
+    const member = mapActiveCompanyMember(row, companyFolderId);
+    if (!member || seen.has(member.email)) {
+      continue;
+    }
+    seen.add(member.email);
+    members.push(member);
+  }
+
+  return {
+    members,
+    totalSheetRows: rawUsers.length,
+    activeSheetUsers: members.length,
+  };
+}
+
+/**
  * ACTIVE users only from the company workbook Users tab — no invites, cache, or session merge.
  */
 export async function listActiveUsersFromSheet(auth, deps, companyContext = {}) {
@@ -128,6 +175,7 @@ export async function listActiveUsersFromSheet(auth, deps, companyContext = {}) 
  */
 export async function canLoginCompanyUser(auth, email, password, companyContext = {}, deps = {}) {
   const masterSheetId = String(companyContext.masterSheetId || "").trim();
+  const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
   const emailNorm = safeLower(email);
   const pwd = String(password || "");
   if (!auth || !masterSheetId || !emailNorm || !pwd) {
@@ -135,12 +183,36 @@ export async function canLoginCompanyUser(auth, email, password, companyContext 
   }
 
   const userDeps = resolveCompanyUsersDeps(deps);
+  const companyUsersCache = userDeps.companyUsersCache;
   if (typeof userDeps.migrateUsersTabColumns === "function") {
     await userDeps.migrateUsersTabColumns(auth, masterSheetId, userDeps).catch(() => null);
   }
 
   const row = await findCompanyUsersTabRow(auth, masterSheetId, emailNorm, userDeps).catch(() => null);
   if (!row) {
+    const cacheHit =
+      companyUsersCache &&
+      ((companyFolderId &&
+        typeof companyUsersCache.isUserInCache === "function" &&
+        companyUsersCache.isUserInCache(companyFolderId, emailNorm)) ||
+        (typeof companyUsersCache.isUserInCacheByMasterSheet === "function" &&
+          companyUsersCache.isUserInCacheByMasterSheet(masterSheetId, emailNorm)));
+    if (cacheHit) {
+      const resolvedFolderId =
+        companyFolderId ||
+        (typeof companyUsersCache.findCompanyFolderIdByMasterSheet === "function"
+          ? companyUsersCache.findCompanyFolderIdByMasterSheet(masterSheetId)
+          : "");
+      if (typeof companyUsersCache.rebuildFromSheet === "function") {
+        await companyUsersCache
+          .rebuildFromSheet(auth, deps, {
+            companyFolderId: resolvedFolderId,
+            masterSheetId,
+          })
+          .catch(() => null);
+      }
+      return { ok: false, reason: "cache_only" };
+    }
     return { ok: false, reason: "user_not_found" };
   }
 

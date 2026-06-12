@@ -76,12 +76,12 @@ for (const code of REASON_CODES) {
   assert(userService.includes("companyId: companyFolderId"), "4c: companyId equals companyFolderId");
 }
 
-/** 5: Session fallback on load failure returns ok:true with session-fallback dataSource. */
+/** 5: No session fallback in active users list; cache reconciliation diagnostics instead. */
 {
-  assert(userService.includes("buildSessionFallbackSuccess"), "5: session fallback builder");
-  assert(userService.includes('dataSource: "session-fallback"'), "5b: session-fallback dataSource");
-  assert(userService.includes("canUseSessionFallback"), "5c: session fallback guard");
-  assert(coreRoutes.includes("warning: result.warning"), "5d: route returns warning on fallback");
+  assert(!userService.includes("buildSessionFallbackSuccess"), "5: session fallback removed from active list");
+  assert(!userService.includes('dataSource: "session-fallback"'), "5b: no session-fallback dataSource");
+  assert(userService.includes("cacheOnlyUsersRemoved"), "5c: cache reconciliation diagnostics");
+  assert(userService.includes("totalSheetRows"), "5d: totalSheetRows diagnostics");
 }
 
 /** 6: Frontend surfaces friendly message for normal users; diagnostics for godmode/dev. */

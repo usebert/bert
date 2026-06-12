@@ -111,6 +111,8 @@ import {
   probeCompanyLoginSheet as probeCompanyLoginSheetCore,
 } from "./auth-service.mjs";
 import { completeInviteToUserRow } from "./company-user-sheet-flow.mjs";
+import { createCompanyUsersCacheApi } from "./company-users-cache.mjs";
+import { rebuildUsersFromSheet } from "./company-user-service.mjs";
 import {
   inspectConfiguredWorkspaceRoot,
   listFolderChildren,
@@ -196,7 +198,9 @@ const ONBOARDING_INVITE_TTL_MS = Math.max(
 );
 const INVITE_STORE_PATH = path.join(sessionDir, "app-onboarding-invites.json");
 const COMPANY_ONBOARDING_INVITE_STORE_PATH = path.join(sessionDir, "company-onboarding-invites.json");
+const COMPANY_USERS_CACHE_PATH = path.join(sessionDir, "company-users-cache.json");
 const companyOnboardingInviteStore = createInviteStoreApi(COMPANY_ONBOARDING_INVITE_STORE_PATH);
+const companyUsersCacheApi = createCompanyUsersCacheApi(COMPANY_USERS_CACHE_PATH);
 /** Pilot visibility only: `demo` = current client-side password auth. See docs/security-hardening-plan.md */
 const APP_AUTH_MODE = String(process.env.APP_AUTH_MODE || "demo").trim().toLowerCase();
 
@@ -3184,6 +3188,11 @@ function getCompanyUsersDeps() {
     readCompanyUsers: workbookReadCompanyUsers,
     migrateUsersTabColumns,
     repairUsersTab,
+    companyUsersCache: {
+      ...companyUsersCacheApi,
+      rebuildFromSheet: async (auth, deps, context = {}) =>
+        rebuildUsersFromSheet(auth, { ...deps, companyUsersCache: companyUsersCacheApi }, context),
+    },
   };
 }
 
@@ -6233,6 +6242,19 @@ async function handleAppInviteComplete(req, res) {
                 "Account setup could not be verified on the company sheet (Users tab PasswordHash).",
               );
             }
+            const inviteFolderId = String(record.companyFolderId || record.companyId || "").trim();
+            if (inviteFolderId) {
+              await rebuildUsersFromSheet(
+                authed,
+                { ...getCompanyWorkspaceRegistryDeps(), ...getCompanyUsersDeps() },
+                {
+                  companyFolderId: inviteFolderId,
+                  companyId: inviteFolderId,
+                  masterSheetId: record.masterSheetId,
+                  companyName: record.companyName || "",
+                },
+              ).catch(() => null);
+            }
             patchInviteRecord(tokenId, {
               inviteType: "COMPANY_USER",
               status: "USED",
@@ -6926,6 +6948,70 @@ app.post("/api/tools/migrate-users-tab", requireBertToolSecret, requireGoogleWor
     return res.status(500).json({ ok: false, error: "Users tab migration failed." });
   }
 });
+
+app.post(
+  "/api/godmode/companies/:companyId/rebuild-users-from-sheet",
+  requireGoogleWorkspaceSession,
+  requireMasterOnlyActor,
+  async (req, res) => {
+    try {
+      const companyFolderId = String(req.params?.companyId || req.body?.companyFolderId || "").trim();
+      let masterSheetId = String(req.body?.masterSheetId || req.query?.masterSheetId || "").trim();
+      const companyName = String(req.body?.companyName || "").trim();
+      const auth = getAuthedClient();
+      if (!auth) {
+        return res.status(401).json({ ok: false, error: "Please connect Google before rebuilding users." });
+      }
+      if (!companyFolderId) {
+        return res.status(400).json({ ok: false, error: "companyFolderId is required." });
+      }
+      if (!masterSheetId) {
+        const folderResolved = await resolveCompanyFromFolder(
+          auth,
+          { google, ...getCompanyWorkspaceRegistryDeps() },
+          companyFolderId,
+          { companyName, ensureStructure: false },
+        );
+        if (folderResolved?.ok) {
+          masterSheetId = String(folderResolved.masterSheetId || "").trim();
+        }
+      }
+      const result = await rebuildUsersFromSheet(
+        auth,
+        { ...getCompanyWorkspaceRegistryDeps(), ...getCompanyUsersDeps() },
+        { companyFolderId, companyId: companyFolderId, masterSheetId, companyName },
+      );
+      if (!result.ok) {
+        return res.status(result.httpStatus || 502).json({
+          ok: false,
+          error: result.message || result.error || "Could not rebuild users from sheet.",
+          reasonCode: result.reasonCode,
+          diagnostics: result.diagnostics,
+        });
+      }
+      return res.json({
+        ok: true,
+        companyFolderId: result.companyFolderId,
+        masterSheetId: result.masterSheetId,
+        activeCount: result.activeCount,
+        users: result.users,
+        removed: result.removed,
+        kept: result.kept,
+        cacheUsersBefore: result.cacheUsersBefore,
+        cacheOnlyUsersRemoved: result.cacheOnlyUsersRemoved,
+        diagnostics: result.diagnostics,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[godmode] rebuild-users-from-sheet failed:", message);
+      return res.status(500).json({
+        ok: false,
+        error: "Rebuild users from sheet failed.",
+        technicalError: message,
+      });
+    }
+  },
+);
 
 app.post(
   "/api/godmode/companies/:companyId/repair-users-tab",

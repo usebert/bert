@@ -55,7 +55,7 @@ assert(companyUserServiceTs.includes("COMPANY_MEMBERS_USER_MESSAGE"), "5d: user-
 assert(panel.includes("Fix the workbook connection above, then re-sync users."), "6: godmode workbook hint exists");
 assert(panel.includes("canShowTechnicalUi(currentUser.role)"), "6b: technical UI gates error detail");
 assert(
-  panel.includes("Could not load company users. Try again.") || panel.includes("COMPANY_MEMBERS_USER_MESSAGE"),
+  panel.includes("COMPANY_MEMBERS_USER_MESSAGE"),
   "6c: normal user message",
 );
 

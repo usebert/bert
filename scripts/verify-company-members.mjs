@@ -123,7 +123,11 @@ const pendingInvite = {
   assert(service.includes("fetchJson"), "8c2: safe fetchJson used");
   assert(fetchJson.includes("NON_JSON_RESPONSE"), "8c3: NON_JSON_RESPONSE handled");
   assert(appSrc.includes("/api/companies/") && appSrc.includes("fetchCompanyMembers"), "8d: App uses company users API");
-  assert(appSrc.includes("readCompanyMembersCache"), "8e: App uses members cache");
+  assert(appSrc.includes("readCompanyMembersCache"), "8e: App uses members cache for loading optimisation");
+  assert(
+    !/fetchCompanyMembers[\s\S]{0,4000}Showing recently loaded users/.test(appSrc),
+    "8f: company members path has no stale-cache banner",
+  );
 }
 
 /** 9: Users panel — active from /users, pending invites separate, godmode-only workbook hint. */
@@ -134,10 +138,8 @@ const pendingInvite = {
   assert(panel.includes("activeMembersLoadError"), "9c: load error UI");
   assert(panel.includes("canShowTechnicalUi(currentUser.role)"), "9c2: godmode gates error detail");
   assert(panel.includes("activeMembersLoadErrorDetail"), "9c2b: technical error detail prop");
-  assert(
-    panel.includes("Could not load company users. Try again.") || panel.includes("COMPANY_MEMBERS_USER_MESSAGE"),
-    "9c3: normal user load error",
-  );
+  assert(panel.includes("COMPANY_MEMBERS_USER_MESSAGE"), "9c3: normal user load error constant");
+  assert(panel.includes("COMPANY_MEMBERS_LOADING_MESSAGE"), "9c3b: loading message constant");
   assert(panel.includes("!isActiveCompanyUserInvite(invite)"), "9d: pending excludes active invite rows");
   assert(!panel.includes("activeInvites.map"), "9e: active list not driven by invite rows");
 }

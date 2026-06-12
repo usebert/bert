@@ -5249,12 +5249,11 @@ function App() {
     let loadTimedOut = false;
     let cancelled = false;
     const cachedEntry = readCompanyMembersCache(storageKeys.companyMembersCache, companyId);
-    setCompanyMembersState((previous) => ({
-      members: cachedEntry?.members ?? previous.members,
-      warning: cachedEntry?.warning,
+    setCompanyMembersState({
+      members: cachedEntry?.members ?? [],
       loading: true,
       loadError: undefined,
-    }));
+    });
 
     const timeoutId = window.setTimeout(() => {
       loadTimedOut = true;
@@ -5278,7 +5277,6 @@ function App() {
           companyId,
           members: result.members,
           cachedAt: Date.now(),
-          warning: result.warning,
         });
         if (cancelled) {
           return;
@@ -5286,42 +5284,16 @@ function App() {
         setCompanyUsersTabRows(result.members);
         setCompanyMembersState({
           members: result.members,
-          warning: result.warning,
           loading: false,
         });
       } catch (error) {
         if (cancelled) {
           return;
         }
-        if (error instanceof DOMException && error.name === "AbortError") {
-          if (!loadTimedOut) {
-            return;
-          }
-          if (cachedEntry) {
-            setCompanyUsersTabRows(cachedEntry.members);
-            setCompanyMembersState({
-              members: cachedEntry.members,
-              warning: cachedEntry.warning || "Showing recently loaded users while the list refreshes.",
-              loading: false,
-            });
-          } else {
-            setCompanyMembersState({
-              members: [],
-              loadError: "Company users are taking longer than usual. Try again in a moment.",
-              loading: false,
-            });
-          }
+        if (error instanceof DOMException && error.name === "AbortError" && !loadTimedOut) {
           return;
         }
-        if (cachedEntry) {
-          setCompanyUsersTabRows(cachedEntry.members);
-          setCompanyMembersState({
-            members: cachedEntry.members,
-            warning: cachedEntry.warning || "Showing recently loaded users because the list could not be refreshed.",
-            loading: false,
-          });
-          return;
-        }
+        setCompanyUsersTabRows([]);
         setCompanyMembersState({
           members: [],
           loadError: COMPANY_MEMBERS_USER_MESSAGE,

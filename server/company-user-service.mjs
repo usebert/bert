@@ -14,7 +14,10 @@ import {
 import { readCompanyUsers, resolveUsersTab } from "./users-tab-reader.mjs";
 import { resolveCompanyById } from "./company-registry-service.mjs";
 import { resolveCompanyFromFolder } from "./company-folder-resolver.mjs";
-import { listActiveUsersFromSheet } from "./company-user-sheet-flow.mjs";
+import {
+  listActiveUsersFromSheet,
+  readActiveUsersFromSheetWithStats,
+} from "./company-user-sheet-flow.mjs";
 
 const COMPANY_USERS_LOAD_FAILED = "COMPANY_USERS_LOAD_FAILED";
 
@@ -68,7 +71,24 @@ function buildDiagnostics(base = {}) {
         ? base.upstreamStatus
         : undefined,
     upstreamMessage: String(base.upstreamMessage || "").trim() || undefined,
+    totalSheetRows: typeof base.totalSheetRows === "number" ? base.totalSheetRows : undefined,
+    activeSheetUsers: typeof base.activeSheetUsers === "number" ? base.activeSheetUsers : undefined,
+    cacheUsersBefore: typeof base.cacheUsersBefore === "number" ? base.cacheUsersBefore : undefined,
+    cacheOnlyUsersRemoved:
+      typeof base.cacheOnlyUsersRemoved === "number" ? base.cacheOnlyUsersRemoved : undefined,
   };
+}
+
+function reconcileCompanyUsersCache(companyFolderId, members, meta = {}, deps = {}) {
+  const cache = deps.companyUsersCache;
+  if (!cache || typeof cache.rebuildCompanyUsersCache !== "function" || !companyFolderId) {
+    return {
+      cacheUsersBefore: 0,
+      cacheOnlyUsersRemoved: 0,
+      cacheOnlyEmails: [],
+    };
+  }
+  return cache.rebuildCompanyUsersCache(companyFolderId, members, meta);
 }
 
 function buildFailure(reasonCode, message, diagnostics = {}, extra = {}) {
@@ -341,16 +361,16 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
   const resolvedCompanyId = companyFolderId;
 
   const loadActiveUsersForSheet = async (sheetId) =>
-    listActiveUsersFromSheet(auth, deps, {
+    readActiveUsersFromSheetWithStats(auth, deps, {
       masterSheetId: sheetId,
       companyFolderId: resolvedCompanyId,
       companyId: resolvedCompanyId,
     });
 
   try {
-    let members;
+    let sheetResult;
     try {
-      members = await loadActiveUsersForSheet(masterSheetId);
+      sheetResult = await loadActiveUsersForSheet(masterSheetId);
     } catch (firstError) {
       if (isStaleMasterSheetError(firstError) && companyFolderId) {
         const folderResolved = await resolveMasterSheetFromFolder(
@@ -365,7 +385,7 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
           if (refreshedSheetId && refreshedSheetId !== masterSheetId) {
             masterSheetId = refreshedSheetId;
             companyName = folderResolved.companyName || companyName;
-            members = await loadActiveUsersForSheet(masterSheetId);
+            sheetResult = await loadActiveUsersForSheet(masterSheetId);
           } else {
             throw firstError;
           }
@@ -376,6 +396,14 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
         throw firstError;
       }
     }
+
+    const members = Array.isArray(sheetResult?.members) ? sheetResult.members : [];
+    const cacheStats = reconcileCompanyUsersCache(
+      resolvedCompanyId,
+      members,
+      { masterSheetId },
+      deps,
+    );
 
     return {
       ok: true,
@@ -394,7 +422,12 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
         signedInRole,
         dataSource: "users_tab",
         durationMs: Date.now() - startedAt,
+        totalSheetRows: sheetResult?.totalSheetRows ?? members.length,
+        activeSheetUsers: sheetResult?.activeSheetUsers ?? members.length,
+        cacheUsersBefore: cacheStats.cacheUsersBefore,
+        cacheOnlyUsersRemoved: cacheStats.cacheOnlyUsersRemoved,
       }),
+      cacheReconciliation: cacheStats,
     };
   } catch (error) {
     const classified = classifyReadError(error);
@@ -476,3 +509,33 @@ export async function getAssignableUsers(auth, masterSheetId, deps, options = {}
 }
 
 export { listActiveCompanyMembers as listActiveUsers };
+
+/**
+ * Godmode — read Users tab ACTIVE rows and replace server cache (remove cache-only users).
+ */
+export async function rebuildUsersFromSheet(auth, deps, companyContext = {}) {
+  const listed = await listActiveCompanyMembers(auth, deps, companyContext);
+  if (!listed.ok) {
+    return listed;
+  }
+  const reconciliation = listed.cacheReconciliation || {
+    cacheUsersBefore: listed.diagnostics?.cacheUsersBefore ?? 0,
+    cacheOnlyUsersRemoved: listed.diagnostics?.cacheOnlyUsersRemoved ?? 0,
+    cacheOnlyEmails: [],
+    keptEmails: (listed.users || []).map((row) => row.email),
+  };
+  return {
+    ok: true,
+    companyId: listed.companyId,
+    companyFolderId: listed.companyFolderId,
+    companyName: listed.companyName,
+    masterSheetId: listed.masterSheetId,
+    users: listed.users,
+    activeCount: listed.activeCount,
+    diagnostics: listed.diagnostics,
+    removed: reconciliation.cacheOnlyEmails || [],
+    kept: reconciliation.keptEmails || (listed.users || []).map((row) => row.email),
+    cacheUsersBefore: reconciliation.cacheUsersBefore,
+    cacheOnlyUsersRemoved: reconciliation.cacheOnlyUsersRemoved,
+  };
+}

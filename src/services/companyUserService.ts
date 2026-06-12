@@ -24,10 +24,15 @@ export type CompanyMembersDiagnostics = {
   durationMs?: number;
   upstreamStatus?: number;
   upstreamMessage?: string;
+  totalSheetRows?: number;
+  activeSheetUsers?: number;
+  cacheUsersBefore?: number;
+  cacheOnlyUsersRemoved?: number;
 };
 
 export const COMPANY_MEMBERS_LOAD_TIMEOUT_MS = 2000;
-export const COMPANY_MEMBERS_USER_MESSAGE = "Could not load company users. Try again.";
+export const COMPANY_MEMBERS_LOADING_MESSAGE = "Loading company users…";
+export const COMPANY_MEMBERS_USER_MESSAGE = "Could not load company users.";
 
 function companyMembersCacheKey(companyId: string): string {
   return companyId.trim();
