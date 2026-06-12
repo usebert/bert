@@ -5,7 +5,10 @@
 import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
 import { readCompanyUsersTabRecord, touchCompanyUserLastLogin } from "./company-users.mjs";
 import { resolveCompanyContextForUser } from "./company-users.mjs";
-import { enrichCompanyContextFromRegistry } from "./company-context-service.mjs";
+import {
+  enrichCompanyContextFromRegistry,
+  resolveCompanyContextFromLoginWorkbook,
+} from "./company-context-service.mjs";
 import { canLoginCompanyUser } from "./company-user-sheet-flow.mjs";
 
 export function buildCompanySessionPayload({
@@ -193,18 +196,6 @@ export async function probeCompanyLoginSheet(auth, masterSheetId, email, passwor
   }
 }
 
-function folderFirstCompanyContext(successRec, resolvedContext, masterSheetId) {
-  const companyFolderId = String(
-    successRec?.companyId || resolvedContext?.companyFolderId || resolvedContext?.companyId || "",
-  ).trim();
-  return {
-    companyId: companyFolderId,
-    companyFolderId,
-    companyName: String(resolvedContext?.companyName || "").trim(),
-    masterSheetId: String(masterSheetId || "").trim(),
-  };
-}
-
 /**
  * Company login — workbook Users tab only; registry enrichment is non-blocking.
  */
@@ -263,15 +254,16 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     }
   }
 
-  let resolvedContext = null;
   const companyUsersDeps = getCompanyUsersDeps();
   const contextDeps = getCompanyContextResolutionDeps();
+  const enrichmentDeps = {
+    ...getCompanyWorkspaceRegistryDeps(),
+    getConfig: typeof deps.getConfig === "function" ? deps.getConfig : undefined,
+  };
 
-  if (!resolvedContext) {
-    resolvedContext = await resolveCompanyContextForUser(auth, email, contextDeps).catch(() => null);
-    if (resolvedContext?.masterSheetId && !sheetIdsToTry.includes(resolvedContext.masterSheetId)) {
-      sheetIdsToTry.push(resolvedContext.masterSheetId);
-    }
+  const discoveryContext = await resolveCompanyContextForUser(auth, email, contextDeps).catch(() => null);
+  if (discoveryContext?.masterSheetId && !sheetIdsToTry.includes(discoveryContext.masterSheetId)) {
+    sheetIdsToTry.push(discoveryContext.masterSheetId);
   }
 
   if (sheetIdsToTry.length === 0) {
@@ -343,24 +335,29 @@ export async function performCompanyLogin(auth, deps, input = {}) {
 
   await touchCompanyUserLastLogin(auth, successSheetId, email, companyUsersDeps);
 
-  if (!resolvedContext) {
-    resolvedContext = await resolveCompanyContextForUser(auth, email, contextDeps).catch(() => null);
+  const workbookContext =
+    (await resolveCompanyContextFromLoginWorkbook(auth, enrichmentDeps, successSheetId).catch(() => null)) || {
+      companyFolderId: "",
+      companyName: "",
+      masterSheetId: successSheetId,
+    };
+
+  let sessionCompanyFolderId = String(workbookContext.companyFolderId || "").trim();
+  const usersTabFolderId = String(successRec.companyId || "").trim();
+  if (!sessionCompanyFolderId && usersTabFolderId) {
+    sessionCompanyFolderId = usersTabFolderId;
   }
 
-  const baseContext = folderFirstCompanyContext(successRec, resolvedContext, successSheetId);
-  const enrichmentDeps = {
-    ...getCompanyWorkspaceRegistryDeps(),
-    getConfig: typeof deps.getConfig === "function" ? deps.getConfig : undefined,
-  };
   const enrichedContext = await enrichCompanyContextFromRegistry(auth, enrichmentDeps, {
-    companyId: baseContext.companyFolderId,
-    companyFolderId: baseContext.companyFolderId,
-    companyName: baseContext.companyName,
     masterSheetId: successSheetId,
-  }).catch(() => baseContext);
+    companyFolderId: sessionCompanyFolderId,
+    companyName: String(workbookContext.companyName || "").trim(),
+    registryStatus: workbookContext.registryStatus,
+    registrySource: workbookContext.registrySource,
+  }).catch(() => workbookContext);
 
   const sessionCompanyId = String(
-    enrichedContext.companyFolderId || enrichedContext.companyId || baseContext.companyFolderId,
+    enrichedContext.companyFolderId || enrichedContext.companyId || sessionCompanyFolderId,
   ).trim();
   const companyAreas = Array.isArray(successRec.companyAreas) ? successRec.companyAreas : [];
 
@@ -378,7 +375,7 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     company: {
       companyId: sessionCompanyId,
       companyFolderId: sessionCompanyId,
-      companyName: String(enrichedContext.companyName || baseContext.companyName || "").trim(),
+      companyName: String(enrichedContext.companyName || workbookContext.companyName || "").trim(),
       masterSheetId: successSheetId,
       registryStatus: String(enrichedContext.registryStatus || "").trim() || undefined,
     },
@@ -386,7 +383,7 @@ export async function performCompanyLogin(auth, deps, input = {}) {
       email,
       masterSheetId: successSheetId,
       companyId: sessionCompanyId,
-      companyName: enrichedContext.companyName || baseContext.companyName || "",
+      companyName: enrichedContext.companyName || workbookContext.companyName || "",
       role: successRec.role,
       name: successRec.name,
       accessLevel: successRec.accessLevel || "",

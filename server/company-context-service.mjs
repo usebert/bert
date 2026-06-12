@@ -50,6 +50,65 @@ async function readCompanyFieldsFromConfig(auth, masterSheetId, getConfig) {
   }
 }
 
+/** Exact masterSheetId match only — never fuzzy name or unrelated folder id. */
+export async function findRegistryRecordByMasterSheetId(auth, deps, masterSheetId) {
+  const sheetId = trim(masterSheetId);
+  if (!auth || !sheetId) {
+    return null;
+  }
+  const { map } = await readCanonicalCompanyWorkspaceRegistryMap(auth, deps).catch(() => ({
+    map: new Map(),
+  }));
+  for (const record of map.values()) {
+    if (trim(record.masterSheetId) === sheetId) {
+      return record;
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve company folder from the workbook the user authenticated against.
+ * Config tab + exact registry masterSheetId match — never registry name guess.
+ */
+export async function resolveCompanyContextFromLoginWorkbook(auth, deps, masterSheetId) {
+  const sheetId = trim(masterSheetId);
+  if (!auth || !sheetId) {
+    return null;
+  }
+
+  const fromConfig = await readCompanyFieldsFromConfig(auth, sheetId, deps.getConfig);
+  let companyFolderId = trim(fromConfig.companyFolderId);
+  let companyName = trim(fromConfig.companyName);
+
+  const registryRecord = await findRegistryRecordByMasterSheetId(auth, deps, sheetId);
+  const registryFolderId = registryRecord
+    ? trim(registryRecord.companyFolderId || registryRecord.rootFolderId || registryRecord.companyId)
+    : "";
+
+  if (!companyFolderId && registryFolderId) {
+    companyFolderId = registryFolderId;
+  }
+
+  if (!companyName && registryRecord) {
+    companyName = trim(registryRecord.companyName || registryRecord.name);
+  }
+
+  if (!companyName && companyFolderId) {
+    companyName = await readCompanyNameFromDriveFolder(auth, deps, companyFolderId);
+  }
+
+  return {
+    companyId: companyFolderId,
+    companyFolderId,
+    companyName,
+    masterSheetId: sheetId,
+    registryRecord,
+    registryStatus: getCanonicalCompanyStatus(registryRecord || {}),
+    registrySource: trim(registryRecord?.registrySource) || undefined,
+  };
+}
+
 /** Resolve companyFolderId, companyName, and masterSheetId from folder, registry, and Config tab. */
 export async function resolveCompanyContextFields(auth, deps, partial = {}) {
   let companyFolderId = trim(partial.companyFolderId || partial.companyId);
@@ -57,18 +116,23 @@ export async function resolveCompanyContextFields(auth, deps, partial = {}) {
   let companyName = trim(partial.companyName);
 
   let registryRecord = null;
-  if (companyFolderId) {
-    registryRecord = await resolveCompanyById(auth, deps, companyFolderId).catch(() => null);
+  if (masterSheetId) {
+    registryRecord = await findRegistryRecordByMasterSheetId(auth, deps, masterSheetId);
+    const fromConfig = await readCompanyFieldsFromConfig(auth, masterSheetId, deps.getConfig);
+    if (fromConfig.companyFolderId) {
+      companyFolderId = fromConfig.companyFolderId;
+    }
+    companyName = companyName || fromConfig.companyName;
   }
-  if (!registryRecord && masterSheetId) {
-    const { map } = await readCanonicalCompanyWorkspaceRegistryMap(auth, deps).catch(() => ({
-      map: new Map(),
-    }));
-    for (const record of map.values()) {
-      if (trim(record.masterSheetId) === masterSheetId) {
-        registryRecord = record;
-        break;
-      }
+  if (!registryRecord && companyFolderId) {
+    registryRecord = await resolveCompanyById(auth, deps, companyFolderId).catch(() => null);
+    if (
+      registryRecord &&
+      masterSheetId &&
+      trim(registryRecord.masterSheetId) &&
+      trim(registryRecord.masterSheetId) !== masterSheetId
+    ) {
+      registryRecord = null;
     }
   }
 

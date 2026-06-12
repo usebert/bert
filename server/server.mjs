@@ -104,7 +104,7 @@ import { createBackgroundJobsService } from "./background-jobs-service.mjs";
 import { BACKGROUND_INVITE_CREATED_MESSAGE } from "../shared/background-jobs.mjs";
 import { installCoreWorkflowRoutes } from "./core-workflow-routes.mjs";
 import { assertCompanyInviteReady } from "./company-invite-readiness.mjs";
-import { enrichCompanyContextFromRegistry as enrichCompanyContextFromRegistryService } from "./company-context-service.mjs";
+import { enrichCompanyContextFromRegistry as enrichCompanyContextFromRegistryService, resolveCompanyContextFromLoginWorkbook } from "./company-context-service.mjs";
 import {
   buildCompanySessionApiResponse,
   buildCompanySessionPayload,
@@ -6784,7 +6784,15 @@ app.get("/api/auth/company/session", async (req, res) => {
       return res.status(401).json({ ok: false, error: "Session invalid." });
     }
     let companyId = companyIdFromSession || String(rec.companyId || "").trim();
-    if (!companyId) {
+    const masterSheetId = String(data.masterSheetId || "").trim();
+    const workbookContext = await resolveCompanyContextFromLoginWorkbook(
+      auth,
+      getCompanyContextEnrichmentDeps(),
+      masterSheetId,
+    ).catch(() => null);
+    if (workbookContext?.companyFolderId) {
+      companyId = String(workbookContext.companyFolderId).trim();
+    } else if (!companyId) {
       try {
         const cfg = await getConfig(auth, data.masterSheetId);
         companyId = String(cfg.companyId || "").trim();
@@ -6794,8 +6802,7 @@ app.get("/api/auth/company/session", async (req, res) => {
     }
     const registryRecord = companyId
       ? await getCanonicalCompanyRegistryRecord(auth, getCompanyWorkspaceRegistryDeps(), companyId).catch(() => null)
-      : null;
-    const masterSheetId = String(data.masterSheetId || "").trim();
+      : workbookContext?.registryRecord || null;
     if (companyId) {
       await ensureCompanyLiveIfReady(auth, getCompanyWorkspaceRegistryDeps(), {
         companyId,
@@ -6817,10 +6824,9 @@ app.get("/api/auth/company/session", async (req, res) => {
       skipHealthCheck: true,
     });
     const enrichedContext = await enrichCompanyContextFromRegistry(auth, {
-      companyId,
-      companyFolderId: companyId,
-      companyName: companyNameFromSession,
       masterSheetId,
+      companyFolderId: companyId,
+      companyName: companyNameFromSession || workbookContext?.companyName || "",
       registryStatus,
     });
     const sessionCompanyId = enrichedContext.companyFolderId || enrichedContext.companyId || companyId;
