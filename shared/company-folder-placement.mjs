@@ -6,11 +6,12 @@ export const FOLDER_NOT_IN_COMPANIES_ROOT = "FOLDER_NOT_IN_COMPANIES_ROOT";
 
 export const LIVE_COMPANIES_FOLDER_LABEL = "Live Companies";
 
-export const FOLDER_PLACEMENT_USER_MESSAGE =
-  "This company folder is not under Live Companies in Google Drive. Move it into Live Companies or re-provision the workspace.";
+export const FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE =
+  "This company is not set up in BERT. Contact your administrator.";
 
-export const FOLDER_PLACEMENT_LOGIN_MESSAGE =
-  "Your company workspace is not in the correct Google Drive location. Contact your administrator — the folder must be under Live Companies.";
+export const FOLDER_PLACEMENT_USER_MESSAGE = FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE;
+
+export const FOLDER_PLACEMENT_LOGIN_MESSAGE = FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE;
 
 function safeLower(value = "") {
   return String(value || "")

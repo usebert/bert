@@ -59,8 +59,11 @@ assert(resolver.includes("installCompanyFolderResolverRoutes"), "5: resolver rou
 assert(resolver.includes("/api/godmode/companies/:companyFolderId/resolve-from-folder"), "6: resolve-from-folder route");
 assert(resolver.includes("queuePostResolveBackgroundJobs"), "7: post-resolve background jobs queued");
 assert(resolver.includes("rebuildRegistryCache"), "8: registry cache rebuild is non-blocking");
-assert(resolver.includes("validateCompanyFolderPlacement"), "8b: resolver validates Live Companies placement");
-assert(placement.includes("export async function validateCompanyFolderPlacement"), "8c: placement validator exported");
+assert(resolver.includes("validateCompanyFolderUnderCompaniesRoot"), "8b: resolver validates Live Companies placement");
+assert(
+  placement.includes("export async function validateCompanyFolderUnderCompaniesRoot"),
+  "8c: placement validator exported",
+);
 assert(placement.includes("FOLDER_NOT_IN_COMPANIES_ROOT"), "8d: placement reason code present");
 assert(placement.includes("/api/godmode/companies/:companyFolderId/folder-placement"), "8e: godmode placement diagnostic route");
 assert(placementShared.includes("isLiveCompaniesFolderName"), "8f: shared Live Companies name matcher");
@@ -81,8 +84,12 @@ assert(
 );
 assert(contextService.includes("resolveCompanyContextFromFolder"), "12: context service exposes folder resolver");
 assert(contextService.includes("COMPANY_CONTEXT_STATUS_USABLE"), "13: context service sets USABLE status");
-assert(contextService.includes("validateCompanyFolderPlacement"), "13b: context service validates folder placement");
+assert(contextService.includes("validateCompanyFolderUnderCompaniesRoot"), "13b: context service validates folder placement");
 assert(contextShared.includes("folderPlacementOk"), "13c: usable context requires folder placement");
+assert(
+  !isCompanyWorkspaceUsable({ companyId: "f1", companyFolderId: "f1", masterSheetId: "s1", folderPlacementOk: false }),
+  "13d: invalid folder placement blocks usable",
+);
 
 // ─── Invite readiness (no registry Live block) ─────────────────────────────
 
@@ -132,9 +139,22 @@ assert(makeUsable.includes("registry persist failed (non-blocking)"), "28: regis
 
 assert(serverMain.includes("installCompanyFolderResolverRoutes"), "29: server installs folder resolver routes");
 assert(serverMain.includes("installCompanyFolderPlacementRoutes"), "29b: server installs folder placement routes");
-assert(read("server/auth-service.mjs").includes("validateCompanyFolderPlacement"), "29c: login validates folder placement");
-assert(read("server/auth-service.mjs").includes("folder_not_in_companies_root"), "29d: login blocker for wrong folder parent");
-assert(panel.includes("Under Live Companies"), "29e: godmode diagnostics show folder placement");
+assert(
+  read("server/auth-service.mjs").includes("validateCompanyFolderUnderCompaniesRoot"),
+  "29c: login validates folder placement",
+);
+assert(read("server/auth-service.mjs").includes("FOLDER_NOT_IN_COMPANIES_ROOT"), "29d: login denies with reason code");
+assert(
+  placementShared.includes("This company is not set up in BERT. Contact your administrator."),
+  "29e: canonical deny message",
+);
+assert(read("server/master-auth.mjs").includes("rejectInvalidCompanyFolder"), "29f: godmode select rejects invalid folders");
+assert(
+  read("server/company-workspace-registry.mjs").includes("invalidateRegistryRecordOutsideCompaniesRoot"),
+  "29g: registry invalidates rows outside Companies root",
+);
+assert(read("server/core-workflow-routes.mjs").includes("rejectCompanyApiIfFolderInvalid"), "29h: company APIs reject invalid folder");
+assert(panel.includes("Under Live Companies"), "29i: godmode diagnostics show folder placement");
 assert(pkg.scripts["verify:company-folder-source-of-truth"], "30: npm script registered");
 
 assert(isLiveCompaniesFolderName("01 Live Companies"), "31: matches numbered Live Companies folder");

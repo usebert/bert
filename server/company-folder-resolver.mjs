@@ -14,7 +14,7 @@ import {
   ensureCompanyMasterSheet,
 } from "./company-folder-structure.mjs";
 import { ensureRequiredTabs, findMissingRequiredTabs } from "./ensure-required-tabs.mjs";
-import { validateCompanyFolderPlacement } from "./company-folder-placement.mjs";
+import { validateCompanyFolderUnderCompaniesRoot } from "./company-folder-placement.mjs";
 import { persistCompanyWorkspaceSetup } from "./company-workspace-registry.mjs";
 
 function trim(value) {
@@ -246,7 +246,7 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
   const folderPlacement =
     options.skipFolderPlacementCheck === true
       ? { ok: true }
-      : await validateCompanyFolderPlacement(auth, deps, folderId, { companyFolderName: companyName });
+      : await validateCompanyFolderUnderCompaniesRoot(auth, deps, folderId, { companyFolderName: companyName });
   if (!folderPlacement.ok) {
     return {
       ok: false,

@@ -14,6 +14,7 @@ import {
 import { readCompanyUsers, resolveUsersTab } from "./users-tab-reader.mjs";
 import { resolveCompanyContextFields } from "./company-context-service.mjs";
 import { resolveCompanyFromFolder } from "./company-folder-resolver.mjs";
+import { rejectIfCompanyFolderNotUnderCompaniesRoot } from "./company-folder-placement.mjs";
 import {
   listActiveUsersFromSheet,
   readActiveUsersFromSheetWithStats,
@@ -327,6 +328,23 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
       "Company workspace id is invalid.",
       { ...baseDiagnostics(), failedStep: "select_company" },
       { httpStatus: 400 },
+    );
+  }
+
+  const folderPlacementDenial = await rejectIfCompanyFolderNotUnderCompaniesRoot(auth, deps, companyFolderId, {
+    companyFolderName: companyName,
+    denialOverrides: {
+      code: "COMPANY_USERS_LOAD_FAILED",
+      message: "This company is not set up in BERT. Contact your administrator.",
+      diagnostics: { ...baseDiagnostics(), failedStep: "select_company" },
+    },
+  });
+  if (folderPlacementDenial) {
+    return buildFailure(
+      folderPlacementDenial.reasonCode,
+      folderPlacementDenial.message,
+      folderPlacementDenial.diagnostics || { ...baseDiagnostics(), failedStep: "select_company" },
+      { httpStatus: 403 },
     );
   }
 

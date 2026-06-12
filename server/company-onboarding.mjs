@@ -23,6 +23,11 @@ import {
   isCompanyRegistryLive,
 } from "../shared/company-invite-permissions.mjs";
 import { assertCompanyInviteReady } from "./company-invite-readiness.mjs";
+import { validateCompanyFolderUnderCompaniesRoot } from "./company-folder-placement.mjs";
+import {
+  FOLDER_NOT_IN_COMPANIES_ROOT,
+  FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE,
+} from "../shared/company-folder-placement.mjs";
 
 export const COMPANY_ONBOARDING_INVITE_TYPE = "COMPANY_ONBOARDING";
 
@@ -696,6 +701,20 @@ export async function assertCompanyWorkspaceAcceptsUserInvite(
     };
   }
   const resolvedCompanyId = folderId || String(cfg.companyId || "").trim();
+  if (resolvedCompanyId) {
+    const placement = await validateCompanyFolderUnderCompaniesRoot(auth, deps.registryDeps || deps, resolvedCompanyId, {
+      companyFolderName: cfg.companyName,
+    }).catch(() => ({ ok: false, reasonCode: FOLDER_NOT_IN_COMPANIES_ROOT }));
+    if (!placement.ok) {
+      return {
+        ok: false,
+        code: FOLDER_NOT_IN_COMPANIES_ROOT,
+        httpStatus: 403,
+        message: FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE,
+        reasonCode: FOLDER_NOT_IN_COMPANIES_ROOT,
+      };
+    }
+  }
   const userCount = await countCompanyUsersOnSheet(auth, getTabValues, sheetId).catch(() => 0);
   if (resolvedCompanyId) {
     await ensureCompanyLiveIfReady(auth, deps.registryDeps || deps, {

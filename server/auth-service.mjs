@@ -9,8 +9,11 @@ import {
   enrichCompanyContextFromRegistry,
   resolveCompanyContextFromLoginWorkbook,
 } from "./company-context-service.mjs";
-import { FOLDER_PLACEMENT_LOGIN_MESSAGE } from "../shared/company-folder-placement.mjs";
-import { validateCompanyFolderPlacement } from "./company-folder-placement.mjs";
+import {
+  FOLDER_NOT_IN_COMPANIES_ROOT,
+  FOLDER_PLACEMENT_LOGIN_MESSAGE,
+} from "../shared/company-folder-placement.mjs";
+import { validateCompanyFolderUnderCompaniesRoot } from "./company-folder-placement.mjs";
 import { canLoginCompanyUser } from "./company-user-sheet-flow.mjs";
 
 export function buildCompanySessionPayload({
@@ -368,16 +371,16 @@ export async function performCompanyLogin(auth, deps, input = {}) {
       ...enrichmentDeps,
       sharedDriveId: String(deps.sharedDriveId || enrichmentDeps.sharedDriveId || "").trim(),
     };
-    const folderPlacement = await validateCompanyFolderPlacement(auth, placementDeps, sessionCompanyId, {
+    const folderPlacement = await validateCompanyFolderUnderCompaniesRoot(auth, placementDeps, sessionCompanyId, {
       companyFolderName: String(enrichedContext.companyName || workbookContext.companyName || "").trim(),
-    }).catch(() => ({ ok: false, reasonCode: "FOLDER_NOT_IN_COMPANIES_ROOT" }));
+    }).catch(() => ({ ok: false, reasonCode: FOLDER_NOT_IN_COMPANIES_ROOT }));
     if (!folderPlacement.ok) {
       return {
         ok: false,
         httpStatus: 403,
         blocker: "folder_not_in_companies_root",
         error: FOLDER_PLACEMENT_LOGIN_MESSAGE,
-        reasonCode: folderPlacement.reasonCode,
+        reasonCode: FOLDER_NOT_IN_COMPANIES_ROOT,
         folderPlacement,
       };
     }

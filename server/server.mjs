@@ -98,7 +98,10 @@ import {
   recordCompanyWorkspaceHealthCheck,
 } from "./company-workspace-registry.mjs";
 import { installCompanySetupProgressRoutes } from "./company-setup-progress.mjs";
-import { installCompanyFolderPlacementRoutes } from "./company-folder-placement.mjs";
+import {
+  installCompanyFolderPlacementRoutes,
+  rejectIfCompanyFolderNotUnderCompaniesRoot,
+} from "./company-folder-placement.mjs";
 import { installCompanyFolderResolverRoutes, resolveCompanyFromFolder } from "./company-folder-resolver.mjs";
 import { installGodmodeRegistryActionRoutes, relinkCompanyRegistryForWorkspace } from "./godmode-registry-actions.mjs";
 import { createBackgroundJobsService } from "./background-jobs-service.mjs";
@@ -748,7 +751,21 @@ app.use(securityHeadersMiddleware);
 app.use(bertCorsMiddleware);
 app.use(express.json({ limit: "16mb" }));
 app.use(cookieParser(requiredEnv.SESSION_SECRET));
-installMasterAuthRoutes(app, { sessionDir });
+installMasterAuthRoutes(app, {
+  sessionDir,
+  rejectInvalidCompanyFolder: async (companyFolderId, options = {}) => {
+    const authed = getAuthedClient();
+    if (!authed || !envConfigured()) {
+      return null;
+    }
+    return rejectIfCompanyFolderNotUnderCompaniesRoot(
+      authed,
+      { google, sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID },
+      companyFolderId,
+      options,
+    );
+  },
+});
 const emailDeliveryDeps = {
   sessionDir,
   emailConfigured,
@@ -4405,7 +4422,16 @@ app.get("/api/company-folder/:folderId", async (req, res) => {
   }
 
   try {
-    const inspection = await inspectCompanyFolder(authed, req.params.folderId);
+    const folderId = String(req.params.folderId || "").trim();
+    const folderDenial = await rejectIfCompanyFolderNotUnderCompaniesRoot(
+      authed,
+      { google, sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID },
+      folderId,
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
+    const inspection = await inspectCompanyFolder(authed, folderId);
     return res.json(inspection);
   } catch (error) {
     return res.status(500).json({
@@ -4472,7 +4498,16 @@ app.get("/api/company-sheet/:folderId", async (req, res) => {
   }
 
   try {
-    const payload = await readCompanyMasterSheet(authed, req.params.folderId);
+    const folderId = String(req.params.folderId || "").trim();
+    const folderDenial = await rejectIfCompanyFolderNotUnderCompaniesRoot(
+      authed,
+      { google, sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID },
+      folderId,
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
+    const payload = await readCompanyMasterSheet(authed, folderId);
     return res.json(payload);
   } catch (error) {
     return res.status(500).json({

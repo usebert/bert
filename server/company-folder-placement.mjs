@@ -3,6 +3,7 @@
  */
 import {
   FOLDER_NOT_IN_COMPANIES_ROOT,
+  FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE,
   FOLDER_PLACEMENT_USER_MESSAGE,
   isFolderUnderLiveCompanies,
   isLiveCompaniesFolderName,
@@ -138,9 +139,9 @@ export async function buildCompanyFolderAncestorPath(auth, deps, companyFolderId
 }
 
 /**
- * Validate company folder placement under Live Companies.
+ * Validate company folder is under the canonical Live Companies parent (Drive parents walk).
  */
-export async function validateCompanyFolderPlacement(auth, deps, companyFolderId, options = {}) {
+export async function validateCompanyFolderUnderCompaniesRoot(auth, deps, companyFolderId, options = {}) {
   const folderId = trim(companyFolderId || options.companyFolderId);
   if (!auth || !folderId) {
     return {
@@ -254,6 +255,40 @@ export async function validateCompanyFolderPlacement(auth, deps, companyFolderId
   };
 }
 
+/** @deprecated Use validateCompanyFolderUnderCompaniesRoot */
+export const validateCompanyFolderPlacement = validateCompanyFolderUnderCompaniesRoot;
+
+export { isFolderUnderLiveCompanies };
+
+export function buildFolderPlacementApiDenial(placement = {}, overrides = {}) {
+  return {
+    ok: false,
+    code: FOLDER_NOT_IN_COMPANIES_ROOT,
+    reasonCode: FOLDER_NOT_IN_COMPANIES_ROOT,
+    error: FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE,
+    message: FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE,
+    folderPlacement: placement,
+    folderPlacementOk: false,
+    ...overrides,
+  };
+}
+
+export async function rejectIfCompanyFolderNotUnderCompaniesRoot(auth, deps, companyFolderId, options = {}) {
+  const folderId = trim(companyFolderId || options.companyFolderId);
+  if (!folderId) {
+    return null;
+  }
+  const placement = await validateCompanyFolderUnderCompaniesRoot(auth, deps, folderId, options).catch(() => ({
+    ok: false,
+    reasonCode: FOLDER_NOT_IN_COMPANIES_ROOT,
+    userMessage: FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE,
+  }));
+  if (placement.ok) {
+    return null;
+  }
+  return buildFolderPlacementApiDenial(placement, options.denialOverrides || {});
+}
+
 export function installCompanyFolderPlacementRoutes(app, deps) {
   const { getAuthedClient, envConfigured, requireGoogleWorkspaceSession, requireMasterOnlyActor } = deps;
 
@@ -277,7 +312,7 @@ export function installCompanyFolderPlacementRoutes(app, deps) {
       }
       const companyFolderId = trim(req.params.companyFolderId || req.query?.companyFolderId);
       try {
-        const result = await validateCompanyFolderPlacement(authed, deps, companyFolderId, {
+        const result = await validateCompanyFolderUnderCompaniesRoot(authed, deps, companyFolderId, {
           companyFolderName: trim(req.query?.companyName),
         });
         return res.status(200).json({

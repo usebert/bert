@@ -275,7 +275,7 @@ export function handleSeedMasterRequest(input) {
  * @param {{ sessionDir: string }} opts
  */
 export function installMasterAuthRoutes(app, opts) {
-  const { sessionDir } = opts;
+  const { sessionDir, rejectInvalidCompanyFolder } = opts;
 
   app.post("/api/auth/master/login", (req, res) => {
     const identity = String(req.body?.email || req.body?.username || "")
@@ -305,7 +305,7 @@ export function installMasterAuthRoutes(app, opts) {
     return res.json({ ok: true });
   });
 
-  app.post("/api/auth/master/company-context", (req, res) => {
+  app.post("/api/auth/master/company-context", async (req, res) => {
     const raw = req.signedCookies?.[MASTER_SESSION_COOKIE];
     if (!raw || typeof raw !== "string") {
       return res.status(401).json({ ok: false, error: "No Master session." });
@@ -326,6 +326,15 @@ export function installMasterAuthRoutes(app, opts) {
       const companyName = String(req.body?.companyName || req.body?.selectedCompanyName || "").trim();
       const masterSheetId = String(req.body?.masterSheetId || "").trim();
       const selectedCompanyName = companyName;
+
+      if (companyFolderId && typeof rejectInvalidCompanyFolder === "function") {
+        const denial = await rejectInvalidCompanyFolder(companyFolderId, {
+          companyFolderName: companyName,
+        });
+        if (denial) {
+          return res.status(403).json(denial);
+        }
+      }
 
       const nextPayload = buildMasterSessionPayload({
         email: op.email,

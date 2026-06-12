@@ -24,6 +24,16 @@ import {
 } from "./schedule-service.mjs";
 import { getReportsDashboard } from "./reports-dashboard-service.mjs";
 import { BACKGROUND_SCHEDULE_SAVED_MESSAGE } from "../shared/background-jobs.mjs";
+import { rejectIfCompanyFolderNotUnderCompaniesRoot } from "./company-folder-placement.mjs";
+
+async function rejectCompanyApiIfFolderInvalid(authed, deps, companyFolderId, companyName = "") {
+  if (!authed || !companyFolderId) {
+    return null;
+  }
+  return rejectIfCompanyFolderNotUnderCompaniesRoot(authed, deps, companyFolderId, {
+    companyFolderName: companyName,
+  });
+}
 
 function buildInvitePermissionSession(actor) {
   if (!actor) {
@@ -102,9 +112,22 @@ export function installCoreWorkflowRoutes(app, deps) {
 
     const authed = getAuthedClient();
     const masterSheetId = String(req.query.masterSheetId || req.query.sheetId || actor.masterSheetId || "").trim();
+    const companyFolderId = String(
+      req.query.companyFolderId || actor.companyFolderId || actor.companyId || companyId,
+    ).trim();
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      registryDeps,
+      companyFolderId,
+      String(req.query.companyName || actor?.companyName || "").trim(),
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
+
     const context = {
       companyId,
-      companyFolderId: String(req.query.companyFolderId || actor.companyFolderId || actor.companyId || companyId).trim(),
+      companyFolderId,
       masterSheetId,
       registryStatus: String(req.query.registryStatus || "").trim(),
       workspaceSetupComplete:
@@ -243,6 +266,18 @@ export function installCoreWorkflowRoutes(app, deps) {
     const masterSheetId = String(req.query.masterSheetId || req.query.sheetId || "").trim();
     const scheduleId = String(req.query.scheduleId || "").trim();
     const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const companyFolderId = String(
+      req.query.companyFolderId || actor?.companyFolderId || actor?.companyId || companyId,
+    ).trim();
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...getCompanyUsersDeps() },
+      companyFolderId,
+      String(req.query.companyName || actor?.companyName || "").trim(),
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
 
     try {
       const contextInput = {
@@ -446,11 +481,21 @@ export function installCoreWorkflowRoutes(app, deps) {
       String(req.query.diagnostics || "").trim() === "1" ||
       String(process.env.BERT_GODMODE_DIAGNOSTICS || "").trim().toLowerCase() === "true";
     const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const companyFolderId = String(req.query.companyFolderId || actor?.companyFolderId || companyId).trim();
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      companyFolderId,
+      String(req.query.companyName || actor?.companyName || "").trim(),
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
 
     try {
       const result = await getScheduleAssigneesForCompany(authed, { ...registryDeps, ...scheduleDeps }, {
         companyId,
-        companyFolderId: String(req.query.companyFolderId || companyId).trim(),
+        companyFolderId,
         masterSheetId,
         companyName: String(req.query.companyName || "").trim(),
         selectedArea,
@@ -513,11 +558,21 @@ export function installCoreWorkflowRoutes(app, deps) {
     const includeDiagnostics =
       String(req.query.diagnostics || "").trim() === "1" ||
       String(process.env.BERT_GODMODE_DIAGNOSTICS || "").trim().toLowerCase() === "true";
+    const companyFolderId = String(req.query.companyFolderId || actor?.companyFolderId || companyId).trim();
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      companyFolderId,
+      String(req.query.companyName || actor?.companyName || "").trim(),
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
 
     try {
       const result = await getReportsDashboard(authed, { ...registryDeps, ...scheduleDeps }, {
         companyId,
-        companyFolderId: String(req.query.companyFolderId || companyId).trim(),
+        companyFolderId,
         masterSheetId,
         companyName: String(req.query.companyName || "").trim(),
         dateRange: String(req.query.dateRange || "30").trim(),
@@ -593,6 +648,18 @@ export function installCoreWorkflowRoutes(app, deps) {
         error: "Company folder ID is required before saving schedules.",
         message: "Company folder ID is required before saving schedules.",
       });
+    }
+
+    if (authed) {
+      const folderDenial = await rejectCompanyApiIfFolderInvalid(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        companyFolderId,
+        String(req.body?.companyName || actor?.companyName || "").trim(),
+      );
+      if (folderDenial) {
+        return res.status(403).json(folderDenial);
+      }
     }
 
     const saveInput = {

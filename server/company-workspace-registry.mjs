@@ -12,7 +12,8 @@ import {
   getFallbackRegistryRecord,
   readFallbackRegistryMap,
 } from "./company-registry-fallback.mjs";
-import { validateCompanyFolderPlacement } from "./company-folder-placement.mjs";
+import { validateCompanyFolderUnderCompaniesRoot } from "./company-folder-placement.mjs";
+import { FOLDER_NOT_IN_COMPANIES_ROOT } from "../shared/company-folder-placement.mjs";
 import { findSpreadsheetInWorkspaceRoot } from "./google-workspace-root.mjs";
 
 /**
@@ -444,6 +445,54 @@ export function deriveCompanyWorkspaceStatus(record = {}) {
   return explicit || "Not started";
 }
 
+function uniqueBlockers(values = []) {
+  return [...new Set(values.map((entry) => String(entry || "").trim()).filter(Boolean))];
+}
+
+/** Mark a registry row invalid when its root folder is outside Live Companies. */
+export function invalidateRegistryRecordOutsideCompaniesRoot(record = {}, placement = {}) {
+  if (!record || placement.ok !== false) {
+    return record;
+  }
+  const rootFolderId = String(record.rootFolderId || record.companyId || "").trim();
+  if (!rootFolderId) {
+    return record;
+  }
+  const existingBlockers = String(record.setupBlockers || "")
+    .split(/[;,]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return {
+    ...record,
+    status: "Needs attention",
+    needsAttention: "yes",
+    folderNotInCompaniesRoot: true,
+    folderPlacementOk: false,
+    unlinkReason: "folder_not_in_companies_root",
+    setupBlockers: uniqueBlockers([...existingBlockers, "folder_not_in_companies_root"]).join("; "),
+    registryStatus: "Needs attention",
+  };
+}
+
+export async function annotateRegistryRecordFolderPlacement(auth, deps, record = {}) {
+  const rootFolderId = String(record.rootFolderId || record.companyId || "").trim();
+  if (!auth || !rootFolderId) {
+    return record;
+  }
+  const placement = await validateCompanyFolderUnderCompaniesRoot(auth, deps, rootFolderId, {
+    companyFolderName: String(record.companyName || "").trim(),
+  }).catch(() => ({ ok: false, reasonCode: FOLDER_NOT_IN_COMPANIES_ROOT }));
+  return invalidateRegistryRecordOutsideCompaniesRoot(record, placement);
+}
+
+export async function annotateRegistryMapFolderPlacement(auth, deps, map = new Map()) {
+  const annotated = new Map();
+  for (const [companyId, record] of map.entries()) {
+    annotated.set(companyId, await annotateRegistryRecordFolderPlacement(auth, deps, record));
+  }
+  return annotated;
+}
+
 export function diagnoseCompanyWorkspaceUnlink(record = {}, context = {}) {
   const rootFolderId = String(record.rootFolderId || record.companyId || context.companyFolderId || "").trim();
   const masterSheetId = String(record.masterSheetId || context.masterSheetId || "").trim();
@@ -579,18 +628,25 @@ export async function getCanonicalCompanyRegistryRecord(auth, deps, companyId) {
   const mainRecord = auth
     ? await getCompanyWorkspaceRegistryRecord(auth, deps, id).catch(() => null)
     : null;
+  const annotate = async (record, source, fallbackRegistry) => {
+    if (!record || !auth) {
+      return record ? { ...record, registrySource: source, fallbackRegistry } : null;
+    }
+    const annotated = await annotateRegistryRecordFolderPlacement(auth, deps, record);
+    return { ...annotated, registrySource: source, fallbackRegistry };
+  };
   if (mainRecord && isCompanyRegistryLive(mainRecord)) {
-    return { ...mainRecord, registrySource: "main", fallbackRegistry: false };
+    return annotate(mainRecord, "main", false);
   }
   const fallbackRecord = sessionDir ? getFallbackRegistryRecord(sessionDir, id) : null;
   if (fallbackRecord && isCompanyRegistryLive(fallbackRecord)) {
-    return { ...fallbackRecord, registrySource: "fallback", fallbackRegistry: true };
+    return annotate(fallbackRecord, "fallback", true);
   }
   if (mainRecord) {
-    return { ...mainRecord, registrySource: "main", fallbackRegistry: false };
+    return annotate(mainRecord, "main", false);
   }
   if (fallbackRecord) {
-    return { ...fallbackRecord, registrySource: "fallback", fallbackRegistry: true };
+    return annotate(fallbackRecord, "fallback", true);
   }
   return null;
 }
@@ -602,7 +658,10 @@ export async function readCanonicalCompanyWorkspaceRegistryMap(auth, deps) {
     map: new Map(),
   }));
   const sessionDir = resolveSessionDirFromDeps(deps);
-  const map = sessionDir ? mergeFallbackRegistryIntoMap(sheetResult.map, sessionDir) : sheetResult.map;
+  let map = sessionDir ? mergeFallbackRegistryIntoMap(sheetResult.map, sessionDir) : sheetResult.map;
+  if (auth && map.size > 0) {
+    map = await annotateRegistryMapFolderPlacement(auth, deps, map);
+  }
   return { ...sheetResult, map };
 }
 
@@ -1168,11 +1227,19 @@ export async function recordCompanyWorkspaceHealthCheck(auth, deps, input = {}) 
   }
 
   if (healthOk && rootFolderId && masterSheetId) {
+    let folderPlacementOk = input.folderPlacementOk;
+    if (typeof folderPlacementOk !== "boolean") {
+      const placement = await validateCompanyFolderUnderCompaniesRoot(auth, deps, rootFolderId, {
+        companyFolderName: input.companyName || existing?.companyName || "",
+      }).catch(() => ({ ok: false }));
+      folderPlacementOk = Boolean(placement.ok);
+    }
     const readiness = evaluateCompanyWorkspaceReadiness(
       { ...existing, rootFolderId, masterSheetId },
       {
         rootFolderId,
         masterSheetId,
+        folderPlacementOk,
         folderStructureOk: input.folderStructureOk,
         requiredTabsOk: input.requiredTabsOk,
         companyFoldersMappingOk:
@@ -1394,7 +1461,7 @@ export async function ensureCompanyLiveIfReady(auth, deps, input = {}) {
   if (typeof checks.folderPlacementOk !== "boolean") {
     const rootFolderId = String(checks.rootFolderId || existing.rootFolderId || companyId).trim();
     if (rootFolderId) {
-      const placement = await validateCompanyFolderPlacement(auth, deps, rootFolderId).catch(() => ({
+      const placement = await validateCompanyFolderUnderCompaniesRoot(auth, deps, rootFolderId).catch(() => ({
         ok: false,
       }));
       checks.folderPlacementOk = Boolean(placement.ok);
