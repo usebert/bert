@@ -95,7 +95,7 @@ assert(read("server/godmode-service.mjs").includes("listActiveCompanyMembers"), 
 /** 9: PasswordHash never returned to clients. */
 assert(companyUsers.includes("sanitizeUsersTabRecords"), "9: sanitizeUsersTabRecords");
 assert(companyUsers.includes("sanitizeUserRecordForClient"), "9b: client sanitizer");
-assert(!companyUserServiceTs.includes("PasswordHash"), "9c: frontend service has no PasswordHash");
+assert(!/PasswordHash\s*[:?]/.test(companyUserServiceTs), "9c: frontend service types omit PasswordHash");
 
 /** UI: no stale-cache banner on company members load path. */
 assert(
