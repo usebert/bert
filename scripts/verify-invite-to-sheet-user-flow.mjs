@@ -83,7 +83,26 @@ assert(serverMain.includes("consumedAt: null"), "11b: failure clears consumedAt"
 /** 12: canLoginCompanyUser requires ACTIVE status. */
 assert(sheetFlow.includes('rec.status !== "ACTIVE"'), "12: inactive Users tab row blocks login");
 
+/** 13: Invite completion session uses login workbook resolver. */
+assert(serverMain.includes("resolveCompanyContextFromLoginWorkbook"), "13: invite completion uses login workbook resolver");
+{
+  const completionBlock = serverMain.slice(
+    serverMain.indexOf('if (record.kind === "company_user")'),
+    serverMain.indexOf("} catch (completionErr)"),
+  );
+  assert(
+    completionBlock.includes("completeInviteToUserRow") &&
+      completionBlock.includes("resolveCompanyContextFromLoginWorkbook"),
+    "13b: company_user completion block resolves workbook context after sheet write",
+  );
+  assert(
+    completionBlock.indexOf("completeInviteToUserRow") <
+      completionBlock.indexOf("resolveCompanyContextFromLoginWorkbook"),
+    "13c: sheet write precedes workbook context in completion block",
+  );
+}
+
 const pkg = JSON.parse(read("package.json"));
 assert(pkg.scripts["verify:invite-to-sheet-user-flow"], "npm script registered");
 
-console.log("[verify:invite-to-sheet-user-flow] OK: all 12 invite-to-sheet-user cases passed");
+console.log("[verify:invite-to-sheet-user-flow] OK: all 14 invite-to-sheet-user cases passed");

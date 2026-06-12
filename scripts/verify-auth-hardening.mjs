@@ -146,6 +146,9 @@ if (fs.existsSync(migrateScript)) {
 
 const serverPath = path.join(root, "server", "server.mjs");
 const serverSrc = fs.readFileSync(serverPath, "utf8");
+const authServicePath = path.join(root, "server", "auth-service.mjs");
+const authServiceSrc = fs.existsSync(authServicePath) ? fs.readFileSync(authServicePath, "utf8") : "";
+const companyAuthSrc = `${serverSrc}\n${authServiceSrc}`;
 const inviteRoutesServer = fs.existsSync(path.join(root, "server", "invite-routes.mjs"))
   ? fs.readFileSync(path.join(root, "server", "invite-routes.mjs"), "utf8")
   : "";
@@ -191,8 +194,9 @@ assertPlatformOwner(
 );
 
 if (
-  serverSrc.includes("isPlatformOwnerEmail") &&
-  serverSrc.includes("platform owner must use master auth")
+  companyAuthSrc.includes("isPlatformOwnerEmail") &&
+  (companyAuthSrc.includes("platform owner must use master auth") ||
+    (authServiceSrc.includes("isPlatformOwner(email") && authServiceSrc.includes('blocker: "invalid_credentials"')))
 ) {
   console.log("[verify:auth] OK: company login rejects platform owner (master auth only)");
 } else {
@@ -242,14 +246,20 @@ if (serverSrc.includes("sanitizeUsersTabRecords") && serverSrc.includes('safeLow
   failed = true;
 }
 
-if (serverSrc.includes("verifyCompanyUserPassword") && serverSrc.includes('blocker: "inactive"')) {
+if (
+  (companyAuthSrc.includes("verifyCompanyUserPassword") || companyAuthSrc.includes("canLoginCompanyUser")) &&
+  companyAuthSrc.includes('blocker: "inactive"')
+) {
   console.log("[verify:auth] OK: company login rejects inactive workbook users");
 } else {
   console.error("[verify:auth] FAIL: server missing inactive user login rejection");
   failed = true;
 }
 
-if (serverSrc.includes("verifyCompanyUserPassword") && serverSrc.includes("companyAreas")) {
+if (
+  (companyAuthSrc.includes("verifyCompanyUserPassword") || companyAuthSrc.includes("canLoginCompanyUser")) &&
+  companyAuthSrc.includes("companyAreas")
+) {
   console.log("[verify:auth] OK: company session includes companyAreas from workbook Users tab");
 } else {
   console.error("[verify:auth] FAIL: server login/session missing companyAreas");
@@ -412,7 +422,10 @@ if (/\/api\/tools/i.test(srcCombined)) {
   console.log("[verify:auth] OK (src): no /api/tools references");
 }
 
-if (serverSrc.includes("resolveCompanyContextForUser") && serverSrc.includes("buildCompanySessionPayload")) {
+if (
+  (companyAuthSrc.includes("resolveCompanyContextForUser") || authServiceSrc.includes("resolveCompanyContextForUser")) &&
+  companyAuthSrc.includes("buildCompanySessionPayload")
+) {
   console.log("[verify:auth] OK: company login/invite resolve full company context for session");
 } else {
   console.error("[verify:auth] FAIL: server missing resolveCompanyContextForUser / buildCompanySessionPayload");
