@@ -117,7 +117,7 @@ export async function fetchCompanyMembers(
       ok: false,
       members: [],
       loadError: COMPANY_MEMBERS_USER_MESSAGE,
-      loadErrorDetail: "Company workspace is not selected.",
+      loadErrorDetail: "No company linked.",
     };
   }
 

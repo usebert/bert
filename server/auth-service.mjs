@@ -267,7 +267,7 @@ export async function performCompanyLogin(auth, deps, input = {}) {
   const companyUsersDeps = getCompanyUsersDeps();
   const contextDeps = getCompanyContextResolutionDeps();
 
-  if (sheetIdsToTry.length === 0) {
+  if (!resolvedContext) {
     resolvedContext = await resolveCompanyContextForUser(auth, email, contextDeps).catch(() => null);
     if (resolvedContext?.masterSheetId && !sheetIdsToTry.includes(resolvedContext.masterSheetId)) {
       sheetIdsToTry.push(resolvedContext.masterSheetId);
@@ -343,17 +343,21 @@ export async function performCompanyLogin(auth, deps, input = {}) {
 
   await touchCompanyUserLastLogin(auth, successSheetId, email, companyUsersDeps);
 
+  if (!resolvedContext) {
+    resolvedContext = await resolveCompanyContextForUser(auth, email, contextDeps).catch(() => null);
+  }
+
   const baseContext = folderFirstCompanyContext(successRec, resolvedContext, successSheetId);
-  const enrichedContext = await enrichCompanyContextFromRegistry(
-    auth,
-    getCompanyWorkspaceRegistryDeps(),
-    {
-      companyId: baseContext.companyFolderId,
-      companyFolderId: baseContext.companyFolderId,
-      companyName: baseContext.companyName,
-      masterSheetId: successSheetId,
-    },
-  ).catch(() => baseContext);
+  const enrichmentDeps = {
+    ...getCompanyWorkspaceRegistryDeps(),
+    getConfig: typeof deps.getConfig === "function" ? deps.getConfig : undefined,
+  };
+  const enrichedContext = await enrichCompanyContextFromRegistry(auth, enrichmentDeps, {
+    companyId: baseContext.companyFolderId,
+    companyFolderId: baseContext.companyFolderId,
+    companyName: baseContext.companyName,
+    masterSheetId: successSheetId,
+  }).catch(() => baseContext);
 
   const sessionCompanyId = String(
     enrichedContext.companyFolderId || enrichedContext.companyId || baseContext.companyFolderId,

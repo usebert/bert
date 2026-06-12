@@ -1,6 +1,7 @@
 /**
  * Company workbook Users tab reads — never expose PasswordHash to clients.
  */
+import { cleanCompanyNameFromFolder } from "../shared/company-folder-context.mjs";
 import {
   parseRoleForClient,
   buildAvailableScheduleAssigneesFromUsers,
@@ -340,6 +341,30 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
     companyName =
       companyName ||
       String(registryRecord.companyName || registryRecord.name || registryRecord.companyFolderName || "").trim();
+  }
+
+  if (!companyName && companyFolderId && deps?.google) {
+    try {
+      const drive = deps.google.drive({ version: "v3", auth });
+      const meta = await drive.files.get({
+        fileId: companyFolderId,
+        supportsAllDrives: true,
+        fields: "name",
+      });
+      companyName = cleanCompanyNameFromFolder(meta.data?.name);
+    } catch {
+      /* non-blocking */
+    }
+  }
+
+  if ((!companyName || !companyFolderId) && masterSheetId && typeof deps.getConfig === "function") {
+    try {
+      const cfg = await deps.getConfig(auth, masterSheetId);
+      companyName = companyName || String(cfg.companyName || "").trim();
+      companyFolderId = companyFolderId || String(cfg.companyId || "").trim();
+    } catch {
+      /* non-blocking */
+    }
   }
 
   if (!masterSheetId) {

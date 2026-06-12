@@ -3209,8 +3209,15 @@ function getCompanyContextResolutionDeps() {
   };
 }
 
+function getCompanyContextEnrichmentDeps() {
+  return {
+    ...getCompanyWorkspaceRegistryDeps(),
+    getConfig,
+  };
+}
+
 async function enrichCompanyContextFromRegistry(auth, partial = {}) {
-  return enrichCompanyContextFromRegistryService(auth, getCompanyWorkspaceRegistryDeps(), partial);
+  return enrichCompanyContextFromRegistryService(auth, getCompanyContextEnrichmentDeps(), partial);
 }
 
 async function probeCompanyLoginSheet(auth, masterSheetId, email, password) {
@@ -3301,7 +3308,17 @@ function parseBertActorFromRequest(req) {
     try {
       const data = JSON.parse(masterRaw);
       if (data.v === 1 && data.email) {
-        return { kind: "master", role: "Master", email: String(data.email).trim().toLowerCase() };
+        const companyFolderId = String(data.companyFolderId || data.companyId || "").trim();
+        return {
+          kind: "master",
+          role: "Master",
+          email: String(data.email).trim().toLowerCase(),
+          name: String(data.name || data.email).trim(),
+          companyId: companyFolderId || undefined,
+          companyFolderId: companyFolderId || undefined,
+          companyName: String(data.companyName || data.selectedCompanyName || "").trim() || undefined,
+          masterSheetId: String(data.masterSheetId || "").trim() || undefined,
+        };
       }
     } catch {
       /* invalid session */
@@ -3312,13 +3329,18 @@ function parseBertActorFromRequest(req) {
     try {
       const data = JSON.parse(companyRaw);
       if (data.v === 1 && data.email && data.masterSheetId) {
+        const companyFolderId = String(data.companyId || "").trim();
         return {
           kind: "company",
           role: String(data.role || "").trim(),
           accessLevel: String(data.accessLevel || "").trim(),
           email: String(data.email).trim().toLowerCase(),
+          name: String(data.name || data.email).trim(),
           masterSheetId: String(data.masterSheetId).trim(),
-          companyId: String(data.companyId || "").trim(),
+          companyId: companyFolderId,
+          companyFolderId,
+          companyName: String(data.companyName || "").trim() || undefined,
+          companyAreas: Array.isArray(data.companyAreas) ? data.companyAreas : undefined,
         };
       }
     } catch {
@@ -6688,6 +6710,7 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
       getCompanyUsersDeps,
       getCompanyContextResolutionDeps,
       getCompanyWorkspaceRegistryDeps,
+      getConfig,
     });
 
     if (!result.ok) {
@@ -6801,6 +6824,28 @@ app.get("/api/auth/company/session", async (req, res) => {
       registryStatus,
     });
     const sessionCompanyId = enrichedContext.companyFolderId || enrichedContext.companyId || companyId;
+    const resolvedCompanyName = String(enrichedContext.companyName || companyNameFromSession || "").trim();
+    const resolvedMasterSheetId = String(enrichedContext.masterSheetId || masterSheetId).trim();
+    if (
+      resolvedCompanyName !== companyNameFromSession ||
+      sessionCompanyId !== companyIdFromSession ||
+      resolvedMasterSheetId !== String(data.masterSheetId || "").trim()
+    ) {
+      res.cookie(
+        COMPANY_SESSION_COOKIE,
+        buildCompanySessionPayload({
+          email: data.email,
+          masterSheetId: resolvedMasterSheetId,
+          companyId: sessionCompanyId,
+          companyName: resolvedCompanyName,
+          role: rec.role,
+          name: rec.name,
+          accessLevel: rec.accessLevel || data.accessLevel || "",
+          companyAreas: rec.companyAreas?.length ? rec.companyAreas : sessionCompanyAreas,
+        }),
+        getSessionCookieOptions({ maxAge: COMPANY_SESSION_MS }),
+      );
+    }
     return res.json(
       buildCompanySessionApiResponse({
         email: data.email,
@@ -6810,8 +6855,8 @@ app.get("/api/auth/company/session", async (req, res) => {
         companyAreas: rec.companyAreas?.length ? rec.companyAreas : sessionCompanyAreas,
         companyId: sessionCompanyId,
         companyFolderId: sessionCompanyId,
-        companyName: enrichedContext.companyName || companyNameFromSession,
-        masterSheetId,
+        companyName: resolvedCompanyName,
+        masterSheetId: resolvedMasterSheetId,
         registryStatus,
         status: registryStatus,
         live: isCompanyRegistryLive({ status: registryStatus, registryStatus }),
@@ -7240,6 +7285,7 @@ installCoreWorkflowRoutes(app, {
   readCompanySheetById,
   getCompanyUsersDeps,
   registryDeps: getCompanyWorkspaceRegistryDeps(),
+  getConfig,
   writeLegacyCompanySchedules: writeCompanySchedules,
   getTabValues,
   ensureTabExists,

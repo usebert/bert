@@ -40,7 +40,7 @@ export function buildLinkedCompanyFolder(input: LinkedCompanyContextInput): Link
   });
   return {
     id: companyId,
-    name: String(input.companyName || "").trim() || "Company workspace",
+    name: String(input.companyName || "").trim(),
     onboardingFormName: "",
     auditFormCount: 0,
     responseSheetName: "",

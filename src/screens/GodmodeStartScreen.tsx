@@ -352,7 +352,7 @@ export function GodmodeStartScreen({
           >
             ← Back
           </button>
-          <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">{selectedFolderName || "Company workspace"}</h2>
+          <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">{selectedFolderName || "No company linked"}</h2>
           <p className={`mt-2 max-w-2xl text-sm leading-relaxed ${muted}`}>
             Choose what to do for this company.
           </p>

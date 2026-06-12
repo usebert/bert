@@ -62,8 +62,8 @@ function resolveCompanyActorInviteWorkspace(input) {
     ok: true,
     companyFolderId,
     masterSheetId,
-    companyName: companyName || "Company workspace",
-    displayCompanyName: companyName || "Company workspace",
+    companyName: companyName || "No company linked",
+    displayCompanyName: companyName || "No company linked",
   };
 }
 
@@ -84,8 +84,8 @@ function resolveMasterInviteWorkspace(input) {
     ok: true,
     companyFolderId,
     masterSheetId,
-    companyName: companyName || "Company workspace",
-    displayCompanyName: companyName || "Company workspace",
+    companyName: companyName || "No company linked",
+    displayCompanyName: companyName || "No company linked",
   };
 }
 

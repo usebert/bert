@@ -4135,7 +4135,7 @@ function App() {
         activeCompany: activeCompanyContext.companyFolderId
           ? {
               id: activeCompanyContext.companyFolderId,
-              name: activeCompanyContext.companyName || "Company workspace",
+              name: activeCompanyContext.companyName,
               masterSheetId: activeCompanyContext.masterSheetId,
             }
           : null,
@@ -5132,7 +5132,8 @@ function App() {
 
   useEffect(() => {
     const companyId = activeCompanyContext.companyFolderId.trim();
-    if (!companyId || !googleConnected) {
+    const canLoadCompanyApi = Boolean(companyId) && (currentUser?.role !== "Master" || googleConnected);
+    if (!canLoadCompanyApi) {
       setScheduleAssigneesState({ assignees: [], loading: false });
       return;
     }
@@ -5256,6 +5257,7 @@ function App() {
     };
   }, [
     googleConnected,
+    currentUser?.role,
     activeCompanyContext.companyFolderId,
     activeCompanyContext.companyName,
     activeCompanyContext.masterSheetId,
@@ -5265,7 +5267,8 @@ function App() {
 
   useEffect(() => {
     const companyId = activeCompanyContext.companyFolderId.trim();
-    if (!companyId || !googleConnected || !masterCompanyWorkspaceDataMatchesSelection) {
+    const canLoadCompanyApi = Boolean(companyId) && (currentUser?.role !== "Master" || googleConnected);
+    if (!canLoadCompanyApi || !masterCompanyWorkspaceDataMatchesSelection) {
       setCompanyMembersState({ members: [], loading: false });
       return;
     }
@@ -5349,6 +5352,7 @@ function App() {
     };
   }, [
     googleConnected,
+    currentUser?.role,
     masterCompanyWorkspaceDataMatchesSelection,
     activeCompanyContext.companyFolderId,
     activeCompanyContext.companyName,

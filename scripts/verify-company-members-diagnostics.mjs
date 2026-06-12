@@ -76,6 +76,9 @@ for (const code of REASON_CODES) {
   assert(userService.includes("resolveCompanyFromFolder"), "4: folder resolver used");
   assert(userService.includes("resolveMasterSheetFromFolder"), "4b: folder master sheet resolver");
   assert(userService.includes("companyId: companyFolderId"), "4c: companyId equals companyFolderId");
+  assert(userService.includes("cleanCompanyNameFromFolder"), "4d: folder name resolved for diagnostics");
+  assert(coreRoutes.includes("actor?.companyFolderId"), "4e: users route uses session companyFolderId");
+  assert(coreRoutes.includes("actor?.masterSheetId"), "4f: users route uses session masterSheetId");
 }
 
 /** 5: No session fallback in active users list; cache reconciliation diagnostics instead. */

@@ -39,7 +39,7 @@ export function resolveHeaderWorkingOn(input: HeaderWorkingOnInput): HeaderWorki
 
   return {
     companyLabel: "",
-    workingOnLine: "Your account is not linked to a company",
+    workingOnLine: "Working on: No company linked",
     hasCompany: false,
   };
 }
