@@ -167,4 +167,18 @@ const pendingInvite = {
   assert(assignees.some((item) => item.email === activeManager.email), "12: normalized companyId matches folder");
 }
 
-console.log("[verify:company-members] OK: all 12 company member cases passed");
+/** 13: Active user edit — PATCH route, validation, writeback. */
+{
+  const companyUsers = read("server/company-users.mjs");
+  const serverMain = read("server/server.mjs");
+  const panel = read("src/components/admin/UsersInvitesPilotPanel.tsx");
+  const service = read("src/services/companyUserService.ts");
+  assert(companyUsers.includes("updateCompanyUserRecord"), "13: updateCompanyUserRecord exported");
+  assert(companyUsers.includes("isValidCompanyUserEmail"), "13b: email validation");
+  assert(serverMain.includes('app.patch("/api/companies/:companyFolderId/users/:email"'), "13c: PATCH route");
+  assert(service.includes("updateCompanyMember"), "13d: client updateCompanyMember");
+  assert(panel.includes("ActiveUserCard"), "13e: active user cards in panel");
+  assert(panel.includes("onUpdateCompanyMember"), "13f: edit handler wired");
+}
+
+console.log("[verify:company-members] OK: all 13 company member cases passed");

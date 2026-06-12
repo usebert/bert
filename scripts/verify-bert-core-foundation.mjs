@@ -51,6 +51,10 @@ function runStaticGuards() {
   const godmodeService = read("server/godmode-service.mjs");
   const coreRoutes = read("server/core-workflow-routes.mjs");
   const usersPanel = read("src/components/admin/UsersInvitesPilotPanel.tsx");
+  const companyUsers = read("server/company-users.mjs");
+  const serverMain = read("server/server.mjs");
+  const activeUserCard = read("src/components/admin/ActiveUserCard.tsx");
+  const inviteDisplay = read("src/utils/inviteStatusDisplay.ts");
   const appTsx = read("App.tsx");
   const uxDeclutter = read("src/utils/uxDeclutter.ts");
 
@@ -60,6 +64,14 @@ function runStaticGuards() {
   assert(!authService.includes("getCanonicalCompanyRegistryRecord"), "static: login skips registry gate");
   assert(userService.includes("listActiveUsers"), "static: companyUserService listActiveUsers");
   assert(userService.includes("sanitizeUsersTabRecords"), "static: PasswordHash stripped server-side");
+  assert(companyUsers.includes("updateCompanyUserRecord"), "static: Users tab writeback on edit");
+  assert(companyUsers.includes("validateCompanyUserEditInput"), "static: edit validation trims name/email");
+  assert(serverMain.includes('app.patch("/api/companies/:companyFolderId/users/:email"'), "static: PATCH user edit route");
+  assert(read("src/services/companyUserService.ts").includes("updateCompanyMember"), "static: client updateCompanyMember");
+  assert(activeUserCard.includes("ActiveUserCard"), "static: active user cards with action menu");
+  assert(usersPanel.includes("ActiveUserCard"), "static: users panel renders active user cards");
+  assert(inviteDisplay.includes("Company Admin"), "static: role display Company Admin label");
+  assert(!companyUsers.includes("abusive") && !companyUsers.includes("profan"), "static: no abusive name filtering");
   assert(inviteService.includes("isCompanyUserInviteActiveForResend"), "static: invite resend helper");
   assert(scheduleService.includes("listSchedulesAssignedToUser"), "static: schedule assigned-user list");
   assert(scheduleService.includes("companyFolderId && masterSheetId"), "static: folder-first schedule context");
@@ -205,6 +217,24 @@ async function runLiveJourney(config) {
     "8: Active user appears in People",
     { emails: membersAfter.json?.users?.map((r) => r?.email) },
   );
+
+  const editedName = "Foundation Verify Edited";
+  const editRes = await adminClient.request(
+    `/api/companies/${encodeURIComponent(resolvedCompanyId)}/users/${encodeURIComponent(inviteEmail)}?masterSheetId=${encodeURIComponent(resolvedSheetId)}`,
+    {
+      method: "PATCH",
+      body: { masterSheetId: resolvedSheetId, name: editedName, role: "Auditor" },
+    },
+  );
+  assert(editRes.status === 200 && editRes.json?.ok === true, "8c: Company Admin can edit active user", editRes.json);
+  assertNoPasswordHash(editRes.json, "user edit");
+  assert(String(editRes.json?.user?.name || "").trim() === editedName, "8d: edited name returned");
+
+  const membersEdited = await adminClient.request(
+    `/api/companies/${encodeURIComponent(resolvedCompanyId)}/users?masterSheetId=${encodeURIComponent(resolvedSheetId)}`,
+  );
+  const editedRow = membersEdited.json?.users?.find((row) => String(row?.email || "").toLowerCase() === inviteEmail);
+  assert(editedRow && String(editedRow.name || "").trim() === editedName, "8e: edited user in refreshed list");
 
   const assigneesRes = await adminClient.request(
     `/api/companies/${encodeURIComponent(resolvedCompanyId)}/schedule-assignees?masterSheetId=${encodeURIComponent(resolvedSheetId)}`,
