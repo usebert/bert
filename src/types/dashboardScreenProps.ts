@@ -14,6 +14,7 @@ export type User = {
   password: string;
   role: Role;
   name: string;
+  email?: string;
   accessLevel?: string;
   companyAreas?: string[];
 };

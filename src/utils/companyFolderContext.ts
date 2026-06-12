@@ -18,9 +18,6 @@ export function cleanCompanyNameFromFolder(folderName = ""): string {
 
 export const FOLDER_NOT_IN_COMPANIES_ROOT = "FOLDER_NOT_IN_COMPANIES_ROOT";
 
-export const FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE =
-  "This company is not set up in BERT. Contact your administrator.";
-
 export function isCompanyFolderLinkValid(context: { folderPlacementOk?: boolean } | null | undefined): boolean {
   return context?.folderPlacementOk !== false;
 }

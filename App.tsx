@@ -5853,7 +5853,7 @@ function App() {
               companyAreas: Array.isArray(cp.user?.companyAreas) ? cp.user.companyAreas : undefined,
             });
           } else {
-            clearCompanyLoginHintForEmail(companyUser.email);
+            clearCompanyLoginHintForEmail(companyUser.username);
             clearGodmodeSelectedCompanyFolderId();
             setLinkedCompanyContext(null);
             setSelectedFolderId("");
