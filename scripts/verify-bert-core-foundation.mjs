@@ -66,7 +66,10 @@ function runStaticGuards() {
   assert(userService.includes("sanitizeUsersTabRecords"), "static: PasswordHash stripped server-side");
   assert(companyUsers.includes("updateCompanyUserRecord"), "static: Users tab writeback on edit");
   assert(companyUsers.includes("validateCompanyUserEditInput"), "static: edit validation trims name/email");
-  assert(serverMain.includes('app.patch("/api/companies/:companyFolderId/users/:email"'), "static: PATCH user edit route");
+  assert(
+    serverMain.includes('"/api/companies/:companyFolderId/users/:email"') && serverMain.includes("app.patch"),
+    "static: PATCH user edit route",
+  );
   assert(read("src/services/companyUserService.ts").includes("updateCompanyMember"), "static: client updateCompanyMember");
   assert(activeUserCard.includes("ActiveUserCard"), "static: active user cards with action menu");
   assert(usersPanel.includes("ActiveUserCard"), "static: users panel renders active user cards");

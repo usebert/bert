@@ -711,7 +711,7 @@ export function AdminScreen({
             CompanyUserInviteEmailResultPanel,
             slatePrimaryCtaInteract,
             currentUserRole: currentUser.role,
-            currentUserEmail: currentUser.email,
+            currentUserEmail: currentUser.username,
           }}
         />
       ) : null}

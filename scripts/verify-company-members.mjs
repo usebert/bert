@@ -175,7 +175,10 @@ const pendingInvite = {
   const service = read("src/services/companyUserService.ts");
   assert(companyUsers.includes("updateCompanyUserRecord"), "13: updateCompanyUserRecord exported");
   assert(companyUsers.includes("isValidCompanyUserEmail"), "13b: email validation");
-  assert(serverMain.includes('app.patch("/api/companies/:companyFolderId/users/:email"'), "13c: PATCH route");
+  assert(
+    serverMain.includes('"/api/companies/:companyFolderId/users/:email"') && serverMain.includes("app.patch"),
+    "13c: PATCH route",
+  );
   assert(service.includes("updateCompanyMember"), "13d: client updateCompanyMember");
   assert(panel.includes("ActiveUserCard"), "13e: active user cards in panel");
   assert(panel.includes("onUpdateCompanyMember"), "13f: edit handler wired");

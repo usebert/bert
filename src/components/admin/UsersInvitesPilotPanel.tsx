@@ -18,6 +18,7 @@ import { DangerActionButton } from "../DangerActionButton";
 import { ActiveUserCard } from "./ActiveUserCard";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../dashboard/DashboardPrimitives";
 import { canManageCompanyMembers } from "../../permissions";
+import type { CompanyMember } from "../../services/companyUserService";
 import { InviteStatusLegend } from "../InviteStatusLegend";
 import { WhatHappensNextPanel } from "../WhatHappensNextPanel";
 import { SitesAreasPanel } from "./SitesAreasPanel";
@@ -511,7 +512,7 @@ export function UsersInvitesPilotPanel({
 
   const activeMembers = useMemo(() => {
     const seen = new Set<string>();
-    const members: Array<{ email: string; name: string; role: string }> = [];
+    const members: CompanyMember[] = [];
     for (const member of activeCompanyMembers) {
       const email = member.email.trim().toLowerCase();
       if (!email || seen.has(email)) {
@@ -519,9 +520,8 @@ export function UsersInvitesPilotPanel({
       }
       seen.add(email);
       members.push({
-        email: member.email,
+        ...member,
         name: member.name || member.email.split("@")[0] || member.email,
-        role: member.role,
       });
     }
     return members;
@@ -690,7 +690,7 @@ export function UsersInvitesPilotPanel({
                 key={member.email}
                 member={member}
                 currentUserRole={currentUser.role}
-                currentUserEmail={currentUser.email}
+                currentUserEmail={currentUser.username}
                 editing={companyMemberEditing}
                 slatePrimaryCtaInteract={slatePrimaryCtaInteract}
                 onEdit={(target, input) => onUpdateCompanyMember(target, input)}
