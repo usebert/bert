@@ -176,3 +176,6 @@ export async function fetchCompanyMembers(
     diagnostics: payload.diagnostics,
   };
 }
+
+/** Alias — listActiveUsers reads Users tab; never returns PasswordHash. */
+export { fetchCompanyMembers as listActiveUsers };

@@ -285,6 +285,7 @@ import {
   scheduleSheetRecordsPreferSchedulesTab,
   type ScheduleAssignedUser,
 } from "./src/utils/scheduleSave";
+import { companyLogin } from "./src/services/authService";
 import { listCompanySchedules, saveCompanySchedule } from "./src/services/scheduleService";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
 import { getNextBestAction } from "./src/utils/nextBestAction";
@@ -7559,36 +7560,15 @@ function App() {
       const email = loginIdentity.trim().toLowerCase();
       const masterSheetId = resolveCompanyLoginMasterSheetId(email);
       try {
-        const response = await fetch(apiUrl("/api/auth/company/login"), {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email,
-            password: pwd,
-            ...(masterSheetId ? { masterSheetId } : {}),
-          }),
+        const loginResult = await companyLogin({
+          email,
+          password: pwd,
+          masterSheetId: masterSheetId || undefined,
         });
-        const data = (await parseJsonApiResponse(response)) as {
-          ok?: boolean;
-          user?: {
-            email: string;
-            role: Role;
-            name: string;
-            accessLevel?: string;
-            companyAreas?: string[];
-          };
-          company?: {
-            companyId?: string;
-            companyName?: string;
-            masterSheetId?: string;
-            registryStatus?: string;
-          };
-          error?: string;
-          blocker?: string;
-          masterSheetId?: string;
-        };
-        if (response.status === 401 && String(data.error || "").toLowerCase().includes("google connection")) {
+        if (
+          loginResult.blocker === "google_required" ||
+          String(loginResult.error || "").toLowerCase().includes("google connection")
+        ) {
           companyLoginFailure = {
             blocker: "google_required",
             message:
@@ -7596,21 +7576,25 @@ function App() {
           };
           return false;
         }
-        if (!response.ok || !data.ok || !data.user?.email || !data.user?.role) {
+        if (!loginResult.ok || !loginResult.user?.email || !loginResult.user?.role) {
           companyLoginFailure = {
-            blocker: data.blocker,
-            message: data.error || "Sign in failed.",
+            blocker: loginResult.blocker,
+            message: loginResult.error || "Sign in failed.",
           };
           return false;
         }
-        const resolvedSheetId = String(data.masterSheetId || data.company?.masterSheetId || masterSheetId || "").trim();
+        const loggedInUser = loginResult.user;
+        const loggedInCompany = loginResult.company;
+        const resolvedSheetId = String(
+          loginResult.masterSheetId || loggedInCompany?.masterSheetId || masterSheetId || "",
+        ).trim();
         applyLinkedCompanyContext({
-          email: String(data.user.email).toLowerCase(),
+          email: String(loggedInUser.email).toLowerCase(),
           company: {
-            companyId: data.company?.companyId,
-            companyName: data.company?.companyName,
+            companyId: loggedInCompany?.companyId,
+            companyName: loggedInCompany?.companyName,
             masterSheetId: resolvedSheetId,
-            registryStatus: data.company?.registryStatus,
+            registryStatus: loggedInCompany?.registryStatus,
           },
           setSelectedFolderId,
           setFolders: (updater) => setFolders((current) => updater(current)),
@@ -7620,26 +7604,26 @@ function App() {
           setCompanyRegistryStatus,
         });
         setLinkedCompanyContext({
-          companyId: data.company?.companyId,
-          companyName: data.company?.companyName,
+          companyId: loggedInCompany?.companyId,
+          companyName: loggedInCompany?.companyName,
           masterSheetId: resolvedSheetId,
-          registryStatus: data.company?.registryStatus,
-          role: data.user?.role,
-          accessLevel: data.user?.accessLevel,
-          companyAreas: Array.isArray(data.user?.companyAreas) ? data.user.companyAreas : undefined,
+          registryStatus: loggedInCompany?.registryStatus,
+          role: loggedInUser.role,
+          accessLevel: loggedInUser.accessLevel,
+          companyAreas: Array.isArray(loggedInUser.companyAreas) ? loggedInUser.companyAreas : undefined,
         });
         const match: User = {
-          username: String(data.user.email).toLowerCase(),
-          email: String(data.user.email).toLowerCase(),
+          username: String(loggedInUser.email).toLowerCase(),
+          email: String(loggedInUser.email).toLowerCase(),
           password: "",
-          role: data.user.role,
-          name: data.user.name || data.user.email,
-          accessLevel: data.user.accessLevel,
-          companyAreas: Array.isArray(data.user.companyAreas) ? data.user.companyAreas : undefined,
+          role: loggedInUser.role,
+          name: loggedInUser.name || loggedInUser.email,
+          accessLevel: loggedInUser.accessLevel,
+          companyAreas: Array.isArray(loggedInUser.companyAreas) ? loggedInUser.companyAreas : undefined,
         };
         setCompanyRegistryStatus(
           getCanonicalCompanyStatus({
-            registryStatus: data.company?.registryStatus,
+            registryStatus: loggedInCompany?.registryStatus,
           }),
         );
         applySignedInUser(match);

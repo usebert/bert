@@ -535,3 +535,5 @@ export async function getAssignableUsers(auth, masterSheetId, deps, options = {}
     diagnostics: result.diagnostics,
   };
 }
+
+export { listActiveCompanyMembers as listActiveUsers };

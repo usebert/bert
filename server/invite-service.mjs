@@ -48,6 +48,9 @@ export function isCompanyUserInviteActiveForResend(record) {
   return Date.now() <= Number(record.expiresAt || 0);
 }
 
+/** Create invite — token is always created; email failure never blocks token. */
+export { isCompanyUserInviteActiveForResend as canResendCompanyUserInvite };
+
 export function buildAuditorInviteBody(companyId, body = {}, registryRecord = null) {
   const id = String(companyId || "").trim();
   return {

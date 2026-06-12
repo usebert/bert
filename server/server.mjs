@@ -100,6 +100,11 @@ import { installCoreWorkflowRoutes } from "./core-workflow-routes.mjs";
 import { assertCompanyInviteReady } from "./company-invite-readiness.mjs";
 import { enrichCompanyContextFromRegistry as enrichCompanyContextFromRegistryService } from "./company-context-service.mjs";
 import {
+  buildCompanySessionPayload,
+  performCompanyLogin,
+  probeCompanyLoginSheet as probeCompanyLoginSheetCore,
+} from "./auth-service.mjs";
+import {
   inspectConfiguredWorkspaceRoot,
   listFolderChildren,
   WORKSPACE_ROOT_INACCESSIBLE_ERROR,
@@ -3174,31 +3179,12 @@ function getCompanyContextResolutionDeps() {
   };
 }
 
-function buildCompanySessionPayload({
-  email,
-  masterSheetId,
-  companyId,
-  companyName,
-  role,
-  name,
-  accessLevel,
-  companyAreas,
-}) {
-  return JSON.stringify({
-    v: 1,
-    email: String(email || "").trim().toLowerCase(),
-    masterSheetId: String(masterSheetId || "").trim(),
-    companyId: String(companyId || "").trim(),
-    companyName: String(companyName || "").trim(),
-    role,
-    name: name || email,
-    accessLevel: accessLevel || "",
-    companyAreas: Array.isArray(companyAreas) ? companyAreas : [],
-  });
-}
-
 async function enrichCompanyContextFromRegistry(auth, partial = {}) {
   return enrichCompanyContextFromRegistryService(auth, getCompanyWorkspaceRegistryDeps(), partial);
+}
+
+async function probeCompanyLoginSheet(auth, masterSheetId, email, password) {
+  return probeCompanyLoginSheetCore(auth, masterSheetId, email, password, getCompanyUsersDeps());
 }
 
 async function readCompanyUsersTabRecord(auth, spreadsheetId, email) {
@@ -6538,252 +6524,33 @@ app.post("/auth/google/logout", (_req, res) => {
   });
 });
 
-/**
- * Company login reads the workbook Users tab (ACTIVE row + PasswordHash).
- * Legacy Config `UserAuth.<email>` is migrated into PasswordHash on successful verification.
- */
-async function probeCompanyLoginSheet(auth, masterSheetId, email, password) {
-  const emailNorm = String(email || "").trim().toLowerCase();
-  const sheetId = String(masterSheetId || "").trim();
-  let usersRowFound = false;
-  let roleFound = "";
-  let passwordVerified = false;
-  let setupIncomplete = false;
-  let inactive = false;
-
-  try {
-    await migrateUsersTabColumns(auth, sheetId, getCompanyUsersDeps());
-    const login = await verifyCompanyUserPassword(auth, sheetId, emailNorm, password, getCompanyUsersDeps());
-    passwordVerified = Boolean(login.ok);
-    if (login.reason === "inactive") {
-      inactive = true;
-      return {
-        usersRowFound: true,
-        roleFound: login.rec?.role || "",
-        passwordVerified: false,
-        setupIncomplete: false,
-        inactive: true,
-        rec: null,
-        migrated: false,
-      };
-    }
-    if (!passwordVerified) {
-      const recPeek = await readCompanyUsersTabRecord(auth, sheetId, emailNorm);
-      usersRowFound = Boolean(recPeek);
-      setupIncomplete = login.reason === "setup_incomplete" || !usersRowFound;
-      return {
-        usersRowFound,
-        roleFound: recPeek?.role || "",
-        passwordVerified,
-        setupIncomplete,
-        inactive: false,
-        rec: null,
-        migrated: false,
-      };
-    }
-    const rec = login.rec || (await readCompanyUsersTabRecord(auth, sheetId, emailNorm));
-    usersRowFound = Boolean(rec);
-    roleFound = rec?.role || "";
-    if (!usersRowFound) {
-      setupIncomplete = true;
-    }
-    return {
-      usersRowFound,
-      roleFound,
-      passwordVerified,
-      setupIncomplete,
-      inactive: false,
-      rec,
-      migrated: Boolean(login.migrated),
-    };
-  } catch {
-    return {
-      usersRowFound,
-      roleFound,
-      passwordVerified,
-      setupIncomplete: false,
-      inactive: false,
-      rec: null,
-      migrated: false,
-    };
-  }
-}
-
 app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, res) => {
   try {
     const auth = getAuthedClient();
-    const requestedSheetId = String(req.body?.masterSheetId || "").trim();
-    const email = String(req.body?.email || req.body?.username || "")
-      .trim()
-      .toLowerCase();
-    const password = String(req.body?.password || "");
-    if (!email || !password) {
-      return res.status(400).json({
-        ok: false,
-        blocker: "missing_fields",
-        error: "Email and password are required.",
-      });
-    }
-    if (!email.includes("@")) {
-      return res.status(400).json({ ok: false, blocker: "invalid_email", error: "A valid email address is required." });
-    }
-
-    if (isPlatformOwnerEmail(email, process.env)) {
-      console.warn("[company-auth] login rejected — platform owner must use master auth", { email });
-      return res.status(401).json({
-        ok: false,
-        blocker: "invalid_credentials",
-        error: "Invalid email or password.",
-      });
-    }
-
-    const inviteSheetCandidates = findMasterSheetIdsForCompanyLoginEmail(email);
-    const sheetIdsToTry = [];
-    if (requestedSheetId) {
-      sheetIdsToTry.push(requestedSheetId);
-    }
-    for (const candidateId of inviteSheetCandidates) {
-      if (!sheetIdsToTry.includes(candidateId)) {
-        sheetIdsToTry.push(candidateId);
-      }
-    }
-
-    let resolvedContext = null;
-    if (sheetIdsToTry.length === 0) {
-      resolvedContext = await resolveCompanyContextForUser(auth, email, getCompanyContextResolutionDeps()).catch(
-        () => null,
-      );
-      if (resolvedContext?.masterSheetId && !sheetIdsToTry.includes(resolvedContext.masterSheetId)) {
-        sheetIdsToTry.push(resolvedContext.masterSheetId);
-      }
-    }
-
-    if (sheetIdsToTry.length === 0) {
-      console.warn("[company-auth] login company_not_identified", {
-        email,
-        inviteCandidateCount: 0,
-      });
-      return res.status(400).json({
-        ok: false,
-        blocker: "company_not_identified",
-        error: "Select your company or use your invite link before signing in.",
-      });
-    }
-
-    let successSheetId = "";
-    let successRec = null;
-    let lastProbe = null;
-    for (const sheetId of sheetIdsToTry) {
-      const probe = await probeCompanyLoginSheet(auth, sheetId, email, password);
-      lastProbe = probe;
-      if (probe.passwordVerified && probe.rec) {
-        successSheetId = sheetId;
-        successRec = probe.rec;
-        break;
-      }
-    }
-
-    console.log("[company-auth] login attempt", {
-      email,
-      requestedSheetProvided: Boolean(requestedSheetId),
-      sheetsTried: sheetIdsToTry.length,
-      inviteCandidateCount: inviteSheetCandidates.length,
-      success: Boolean(successSheetId),
-      usersRowFound: lastProbe?.usersRowFound ?? false,
-      roleFound: lastProbe?.roleFound || null,
-      passwordVerified: lastProbe?.passwordVerified ?? false,
-      setupIncomplete: lastProbe?.setupIncomplete ?? false,
-      inactive: lastProbe?.inactive ?? false,
+    const result = await performCompanyLogin(auth, {
+      email: String(req.body?.email || req.body?.username || "").trim(),
+      password: String(req.body?.password || ""),
+      masterSheetId: String(req.body?.masterSheetId || "").trim(),
+      findMasterSheetIdsForCompanyLoginEmail,
+      getCompanyUsersDeps,
+      getCompanyContextResolutionDeps,
+      getCompanyWorkspaceRegistryDeps,
     });
 
-    if (successSheetId && successRec) {
-      await touchCompanyUserLastLogin(auth, successSheetId, email, getCompanyUsersDeps());
-      const companyAreas = Array.isArray(successRec.companyAreas) ? successRec.companyAreas : [];
-      const enrichedContext = await enrichCompanyContextFromRegistry(auth, {
-        companyId: successRec.companyId || resolvedContext?.companyId || "",
-        companyFolderId:
-          resolvedContext?.companyFolderId || successRec.companyId || resolvedContext?.companyId || "",
-        companyName: resolvedContext?.companyName || "",
-        masterSheetId: successSheetId,
-        registryStatus: resolvedContext?.registryStatus || "",
-      });
-      const sessionCompanyId =
-        enrichedContext.companyFolderId ||
-        enrichedContext.companyId ||
-        successRec.companyId ||
-        "";
-      const payload = buildCompanySessionPayload({
-        email,
-        masterSheetId: successSheetId,
-        companyId: sessionCompanyId,
-        companyName: enrichedContext.companyName || "",
-        role: successRec.role,
-        name: successRec.name,
-        accessLevel: successRec.accessLevel || "",
-        companyAreas,
-      });
-      res.cookie(COMPANY_SESSION_COOKIE, payload, getSessionCookieOptions({ maxAge: COMPANY_SESSION_MS }));
-      const companyId = String(sessionCompanyId || "").trim();
-      let registryStatus = enrichedContext.registryStatus || "";
-      if (companyId && !registryStatus) {
-        const registryRecord = await getCanonicalCompanyRegistryRecord(
-          auth,
-          getCompanyWorkspaceRegistryDeps(),
-          companyId,
-        ).catch(() => null);
-        registryStatus = getCanonicalCompanyStatus(registryRecord || {});
-      }
-      return res.json({
-        ok: true,
-        user: {
-          email,
-          role: successRec.role,
-          name: successRec.name,
-          accessLevel: successRec.accessLevel || "",
-          companyAreas,
-        },
-        masterSheetId: successSheetId,
-        company: {
-          companyId,
-          companyName: enrichedContext.companyName || "",
-          masterSheetId: successSheetId,
-          registryStatus,
-          status: registryStatus,
-        },
-      });
-    }
-
-    if (lastProbe?.inactive) {
-      return res.status(403).json({
+    if (!result.ok) {
+      return res.status(result.httpStatus || 400).json({
         ok: false,
-        blocker: "inactive",
-        error: "This account is inactive. Contact your company administrator.",
+        blocker: result.blocker,
+        error: result.error,
       });
     }
 
-    if (lastProbe?.setupIncomplete) {
-      return res.status(403).json({
-        ok: false,
-        blocker: "setup_incomplete",
-        error:
-          "Your account setup is incomplete. Open your invite link again or ask an administrator to resend it.",
-      });
-    }
-
-    if (!lastProbe?.passwordVerified) {
-      return res.status(401).json({
-        ok: false,
-        blocker: "invalid_credentials",
-        error: "Invalid email or password.",
-      });
-    }
-
-    return res.status(403).json({
-      ok: false,
-      blocker: lastProbe?.usersRowFound ? "role_unsupported" : "setup_incomplete",
-      error: lastProbe?.usersRowFound
-        ? "This account role is not supported for sign in."
-        : "Your account setup is incomplete. Open your invite link again or ask an administrator to resend it.",
+    res.cookie(COMPANY_SESSION_COOKIE, result.sessionPayload, getSessionCookieOptions({ maxAge: COMPANY_SESSION_MS }));
+    return res.json({
+      ok: true,
+      user: result.user,
+      masterSheetId: result.masterSheetId,
+      company: result.company,
     });
   } catch (error) {
     console.error("[company-auth] login failed:", error);

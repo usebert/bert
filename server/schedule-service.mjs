@@ -11,6 +11,7 @@ import {
   findCompanyScheduleById,
 } from "../shared/schedule-list.mjs";
 import { saveCompanySchedules } from "./schedule-save-service.mjs";
+import { isScheduleAssignedToUser } from "../shared/schedule-assignment.mjs";
 
 function isDevDiagnosticsEnabled() {
   return (
@@ -44,6 +45,23 @@ export async function resolveCompanyScheduleContext(auth, deps, input = {}) {
   let masterSheetId = String(input.masterSheetId || "").trim();
   const companyFolderId = String(input.companyFolderId || companyId).trim();
   let companyName = String(input.companyName || "").trim();
+
+  // Folder-first: workbook + folder id are sufficient — registry is cache only.
+  if (companyFolderId && masterSheetId) {
+    const alternateIds = [companyFolderId, companyId]
+      .map((entry) => String(entry || "").trim())
+      .filter(Boolean)
+      .filter((entry, index, all) => all.indexOf(entry) === index);
+    return {
+      ok: true,
+      companyId: companyFolderId,
+      companyFolderId,
+      companyName,
+      masterSheetId,
+      alternateIds,
+      registryRecord: null,
+    };
+  }
 
   let registryRecord = null;
   if (companyId) {
@@ -189,6 +207,17 @@ export async function saveCompanySchedule(auth, deps, input = {}) {
     ...input,
     schedules,
   });
+}
+
+/** Schedules where userEmail appears in assignedUserEmails. */
+export async function listSchedulesAssignedToUser(auth, deps, input = {}) {
+  const listed = await listCompanySchedules(auth, deps, input);
+  if (!listed.ok) {
+    return listed;
+  }
+  const userEmail = String(input.userEmail || input.email || "").trim().toLowerCase();
+  const schedules = (listed.schedules || []).filter((schedule) => isScheduleAssignedToUser(schedule, userEmail));
+  return { ...listed, schedules };
 }
 
 export { saveCompanySchedules };

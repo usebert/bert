@@ -8,7 +8,7 @@ import {
 } from "../shared/company-folder-context.mjs";
 import { getCanonicalCompanyStatus } from "../shared/company-invite-permissions.mjs";
 import { resolveCompanyById } from "./company-registry-service.mjs";
-import { resolveCompanyFromFolder } from "./company-folder-resolver.mjs";
+import { resolveCompanyFromFolder } from "./company-service.mjs";
 import { resolveCompanyContextForUser } from "./company-users.mjs";
 import { readCanonicalCompanyWorkspaceRegistryMap } from "./company-workspace-registry.mjs";
 
