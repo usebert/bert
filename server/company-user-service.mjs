@@ -11,6 +11,7 @@ import {
   migrateUsersTabColumns,
   normalizeUserStatus,
 } from "./company-users.mjs";
+import { readCompanyUsers, resolveUsersTab } from "./users-tab-reader.mjs";
 import { resolveCompanyById } from "./company-registry-service.mjs";
 import { resolveCompanyFromFolder } from "./company-folder-resolver.mjs";
 
@@ -96,9 +97,14 @@ function classifyReadError(error, payload) {
   const code = String(error?.code || payload?.code || "").trim();
   const upstreamStatus = Number(error?.response?.status || error?.status || payload?.status || 0);
 
-  if (code === "GOOGLE_PERMISSION_DENIED" || upstreamStatus === 403 || lower.includes("permission")) {
+  if (
+    code === "GOOGLE_SHEETS_PERMISSION_DENIED" ||
+    code === "GOOGLE_PERMISSION_DENIED" ||
+    upstreamStatus === 403 ||
+    lower.includes("permission")
+  ) {
     return {
-      reasonCode: "PERMISSION_DENIED",
+      reasonCode: "GOOGLE_SHEETS_PERMISSION_DENIED",
       failedStep: "read_users_tab",
       upstreamStatus: upstreamStatus || 403,
       upstreamMessage: message,
@@ -234,32 +240,44 @@ function buildSessionActorMember(actor, companyFolderId) {
   };
 }
 
+function isStaleMasterSheetError(error) {
+  const code = String(error?.code || "").trim();
+  const message = String(error instanceof Error ? error.message : error || "").toLowerCase();
+  const upstreamStatus = Number(error?.upstreamStatus || error?.response?.status || error?.status || 0);
+  return (
+    code === "MASTER_SHEET_UNAVAILABLE" ||
+    upstreamStatus === 404 ||
+    message.includes("not found") ||
+    message.includes("unable to parse range") ||
+    message.includes("requested entity was not found")
+  );
+}
+
 export async function getCompanyUsers(auth, masterSheetId, deps, options = {}) {
   const sheetId = String(masterSheetId || "").trim();
   if (!sheetId || !auth) {
     throw new Error("masterSheetId and Google auth are required to read company users.");
   }
-  const { readCompanySheetById } = deps;
-  if (typeof readCompanySheetById !== "function") {
-    throw new Error("readCompanySheetById is not configured.");
+
+  const enrichedDeps = {
+    ...deps,
+    resolveUsersTab: deps.resolveUsersTab || resolveUsersTab,
+    migrateUsersTabColumns: deps.migrateUsersTabColumns || migrateUsersTabColumns,
+  };
+
+  if (typeof enrichedDeps.migrateUsersTabColumns === "function" && enrichedDeps.getTabValues) {
+    await enrichedDeps.migrateUsersTabColumns(auth, sheetId, enrichedDeps).catch(() => null);
   }
-  if (typeof migrateUsersTabColumns === "function" && deps.getTabValues) {
-    await migrateUsersTabColumns(auth, sheetId, deps).catch(() => null);
-  }
-  const payload = await readCompanySheetById(auth, sheetId);
-  if (!payload || payload.ok === false) {
-    const error = new Error(String(payload?.error || "Unable to read company workbook Users tab."));
-    if (payload?.status) {
-      error.status = payload.status;
-    }
+
+  const readResult = await readCompanyUsers(auth, sheetId, enrichedDeps, options);
+  if (!readResult?.ok || !Array.isArray(readResult.records)) {
+    const error = new Error("Company workbook Users tab is missing or unreadable.");
+    error.code = "USERS_TAB_READ_FAILED";
     throw error;
   }
-  if (!payload.data || !Array.isArray(payload.data.Users)) {
-    throw new Error("Company workbook Users tab is missing or unreadable.");
-  }
-  const rawUsers = payload.data.Users;
+
   const companyFolderId = String(options.companyFolderId || options.companyId || "").trim();
-  return sanitizeUsersTabRecords(rawUsers.map((row) => mapUsersTabRow(row, companyFolderId)));
+  return sanitizeUsersTabRecords(readResult.records.map((row) => mapUsersTabRow(row, companyFolderId)));
 }
 
 async function resolveMasterSheetFromFolder(auth, deps, companyFolderId, companyName, masterSheetHint = "") {
@@ -407,11 +425,41 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
 
   const resolvedCompanyId = companyFolderId;
 
-  try {
-    const rawUsers = await getCompanyUsers(auth, masterSheetId, deps, {
+  const loadUsersForSheet = async (sheetId) =>
+    getCompanyUsers(auth, sheetId, deps, {
       companyFolderId: resolvedCompanyId,
       companyId: resolvedCompanyId,
     });
+
+  try {
+    let rawUsers;
+    try {
+      rawUsers = await loadUsersForSheet(masterSheetId);
+    } catch (firstError) {
+      if (isStaleMasterSheetError(firstError) && companyFolderId) {
+        const folderResolved = await resolveMasterSheetFromFolder(
+          auth,
+          deps,
+          companyFolderId,
+          companyName,
+          masterSheetId,
+        );
+        if (folderResolved.ok) {
+          const refreshedSheetId = String(folderResolved.masterSheetId || "").trim();
+          if (refreshedSheetId && refreshedSheetId !== masterSheetId) {
+            masterSheetId = refreshedSheetId;
+            companyName = folderResolved.companyName || companyName;
+            rawUsers = await loadUsersForSheet(masterSheetId);
+          } else {
+            throw firstError;
+          }
+        } else {
+          throw firstError;
+        }
+      } else {
+        throw firstError;
+      }
+    }
 
     const members = [];
     const seen = new Set();
@@ -475,7 +523,11 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
         upstreamMessage: classified.upstreamMessage || technicalError,
       },
       {
-        httpStatus: classified.reasonCode === "PERMISSION_DENIED" ? 403 : 502,
+        httpStatus:
+          classified.reasonCode === "GOOGLE_SHEETS_PERMISSION_DENIED" ||
+          classified.reasonCode === "PERMISSION_DENIED"
+            ? 403
+            : 502,
         technicalError: isDevDiagnosticsEnabled() ? technicalError : undefined,
       },
     );

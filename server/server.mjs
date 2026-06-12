@@ -36,6 +36,11 @@ import {
   resolveCompanyUserEmailByHash,
   resolveCompanyContextForUser,
 } from "./company-users.mjs";
+import {
+  readCompanyUsers as workbookReadCompanyUsers,
+  repairUsersTab,
+  resolveUsersTab,
+} from "./users-tab-reader.mjs";
 import { installDocumentDistributionRoutes } from "./document-distribution.mjs";
 import { CONFIG_KEY_AREA_RESTRICTIONS, AREAS_TAB, AREAS_COLUMNS, installCompanyAreasRoutes } from "./company-areas.mjs";
 import { CONFIG_KEY_DEFAULT_FORM_LANGUAGE } from "./template-languages.mjs";
@@ -92,7 +97,7 @@ import {
   recordCompanyWorkspaceHealthCheck,
 } from "./company-workspace-registry.mjs";
 import { installCompanySetupProgressRoutes } from "./company-setup-progress.mjs";
-import { installCompanyFolderResolverRoutes } from "./company-folder-resolver.mjs";
+import { installCompanyFolderResolverRoutes, resolveCompanyFromFolder } from "./company-folder-resolver.mjs";
 import { installGodmodeRegistryActionRoutes, relinkCompanyRegistryForWorkspace } from "./godmode-registry-actions.mjs";
 import { createBackgroundJobsService } from "./background-jobs-service.mjs";
 import { BACKGROUND_INVITE_CREATED_MESSAGE } from "../shared/background-jobs.mjs";
@@ -3164,6 +3169,10 @@ function getCompanyUsersDeps() {
     ensureColumns,
     google,
     withSheetsQuotaRetry,
+    resolveUsersTab,
+    readCompanyUsers: workbookReadCompanyUsers,
+    migrateUsersTabColumns,
+    repairUsersTab,
   };
 }
 
@@ -4094,6 +4103,20 @@ async function readCompanySheetById(auth, spreadsheetId) {
     if (tabIndex > 0) {
       await sleep(SHEETS_READ_GAP_MS);
     }
+    if (safeLower(tab) === "users") {
+      try {
+        const usersRead = await workbookReadCompanyUsers(auth, spreadsheetId, getCompanyUsersDeps(), {
+          createIfMissing: false,
+        });
+        headerRowByTab[tab] = usersRead.resolved?.headers || [];
+        tabData[tab] = usersRead.records || [];
+      } catch {
+        tabData[tab] = [];
+        headerRowByTab[tab] = [];
+      }
+      continue;
+    }
+
     if (!availableTabs.some((name) => safeLower(name) === safeLower(tab))) {
       tabData[tab] = [];
       headerRowByTab[tab] = [];
@@ -4117,9 +4140,6 @@ async function readCompanySheetById(auth, spreadsheetId) {
         }
         return row;
       });
-    }
-    if (safeLower(tab) === "users") {
-      records = sanitizeUsersTabRecords(records);
     }
     tabData[tab] = records;
   }
@@ -6796,6 +6816,61 @@ app.post("/api/tools/migrate-users-tab", requireBertToolSecret, requireGoogleWor
     return res.status(500).json({ ok: false, error: "Users tab migration failed." });
   }
 });
+
+app.post(
+  "/api/godmode/companies/:companyId/repair-users-tab",
+  requireGoogleWorkspaceSession,
+  requireMasterOnlyActor,
+  async (req, res) => {
+    try {
+      const companyFolderId = String(req.params?.companyId || req.body?.companyFolderId || "").trim();
+      let masterSheetId = String(req.body?.masterSheetId || req.query?.masterSheetId || "").trim();
+      const auth = getAuthedClient();
+      if (!auth) {
+        return res.status(401).json({ ok: false, error: "Please connect Google before repairing the Users tab." });
+      }
+      if (!masterSheetId && companyFolderId) {
+        const folderResolved = await resolveCompanyFromFolder(
+          auth,
+          { google, ...getCompanyWorkspaceRegistryDeps() },
+          companyFolderId,
+          {
+            companyName: String(req.body?.companyName || "").trim(),
+            ensureStructure: false,
+          },
+        );
+        if (folderResolved?.ok) {
+          masterSheetId = String(folderResolved.masterSheetId || "").trim();
+        }
+      }
+      if (!masterSheetId) {
+        return res.status(400).json({ ok: false, error: "masterSheetId is required to repair the Users tab." });
+      }
+      const result = await repairUsersTab(auth, masterSheetId, getCompanyUsersDeps());
+      return res.json({
+        ok: true,
+        companyFolderId: companyFolderId || undefined,
+        masterSheetId,
+        tabTitle: result.tabTitle,
+        created: result.created,
+        matchKind: result.matchKind,
+        legacySource: result.legacySource,
+        addedHeaders: result.addedHeaders,
+        rowCount: result.rowCount,
+        migration: result.migration,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[godmode] repair-users-tab failed:", message);
+      return res.status(500).json({
+        ok: false,
+        error: "Users tab repair failed.",
+        technicalError: message,
+        reasonCode: error?.reasonCode || error?.code,
+      });
+    }
+  },
+);
 
 app.post("/api/tools/migrate-userauth-passwords", requireBertToolSecret, requireGoogleWorkspaceSession, async (req, res) => {
   try {

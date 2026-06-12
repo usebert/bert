@@ -151,9 +151,21 @@ function pickField(obj, ...keys) {
   return "";
 }
 
+async function resolveUsersTabTitle(auth, spreadsheetId, deps, options = {}) {
+  if (deps.usersTabTitle) {
+    return String(deps.usersTabTitle).trim();
+  }
+  if (typeof deps.resolveUsersTab === "function") {
+    const resolved = await deps.resolveUsersTab(auth, spreadsheetId, deps, options);
+    return String(resolved?.tabTitle || USERS_TAB).trim() || USERS_TAB;
+  }
+  return USERS_TAB;
+}
+
 export async function findCompanyUsersTabRow(auth, spreadsheetId, email, deps) {
   const { getTabValues } = deps;
-  const rows = await getTabValues(auth, spreadsheetId, USERS_TAB);
+  const tabTitle = await resolveUsersTabTitle(auth, spreadsheetId, deps, { createIfMissing: false });
+  const rows = await getTabValues(auth, spreadsheetId, tabTitle);
   if (!rows.length) {
     return null;
   }
@@ -229,7 +241,8 @@ export async function readCompanyUsersTabRecord(auth, spreadsheetId, email, deps
 
 async function writeUsersRowPatch(auth, spreadsheetId, match, patch, deps) {
   const { google, withSheetsQuotaRetry, ensureColumns } = deps;
-  await ensureColumns(auth, spreadsheetId, USERS_TAB, USERS_TAB_COLUMNS);
+  const tabTitle = await resolveUsersTabTitle(auth, spreadsheetId, deps, { createIfMissing: true });
+  await ensureColumns(auth, spreadsheetId, tabTitle, USERS_TAB_COLUMNS);
   const headers = match.headers?.length ? match.headers : USERS_TAB_COLUMNS;
   const current = match.rowObject || {};
   const nextRecord = { ...current, ...patch };
@@ -238,7 +251,7 @@ async function writeUsersRowPatch(auth, spreadsheetId, match, patch, deps) {
   await withSheetsQuotaRetry(() =>
     sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${USERS_TAB}!A${match.sheetRowIndex + 1}`,
+      range: `${tabTitle}!A${match.sheetRowIndex + 1}`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [nextRow] },
     }),
@@ -391,7 +404,8 @@ export async function resolveCompanyUserEmailByHash(auth, spreadsheetId, emailHa
       return email;
     }
   }
-  const rows = await getTabValues(auth, spreadsheetId, USERS_TAB);
+  const tabTitle = await resolveUsersTabTitle(auth, spreadsheetId, deps, { createIfMissing: false });
+  const rows = await getTabValues(auth, spreadsheetId, tabTitle);
   if (!rows.length) {
     return "";
   }
@@ -546,8 +560,9 @@ export async function resolveCompanyContextForUser(auth, email, deps) {
 
 export async function migrateUsersTabColumns(auth, spreadsheetId, deps) {
   const { ensureColumns, getTabValues, google, withSheetsQuotaRetry, getConfig } = deps;
-  const { addedColumns } = await ensureColumns(auth, spreadsheetId, USERS_TAB, USERS_TAB_COLUMNS);
-  const rows = await getTabValues(auth, spreadsheetId, USERS_TAB);
+  const tabTitle = await resolveUsersTabTitle(auth, spreadsheetId, deps, { createIfMissing: true });
+  const { addedColumns } = await ensureColumns(auth, spreadsheetId, tabTitle, USERS_TAB_COLUMNS);
+  const rows = await getTabValues(auth, spreadsheetId, tabTitle);
   if (rows.length < 2) {
     return { ok: true, addedColumns, backfilled: 0 };
   }
@@ -618,13 +633,13 @@ export async function migrateUsersTabColumns(auth, spreadsheetId, deps) {
     await withSheetsQuotaRetry(() =>
       sheets.spreadsheets.values.clear({
         spreadsheetId,
-        range: `${USERS_TAB}!A:ZZ`,
+        range: `${tabTitle}!A:ZZ`,
       }),
     );
     await withSheetsQuotaRetry(() =>
       sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `${USERS_TAB}!A1`,
+        range: `${tabTitle}!A1`,
         valueInputOption: "USER_ENTERED",
         requestBody: { values: nextRows },
       }),

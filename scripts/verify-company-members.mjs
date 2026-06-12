@@ -94,7 +94,10 @@ const pendingInvite = {
 /** 6: Structured failure — not silent empty. */
 {
   const userService = read("server/company-user-service.mjs");
+  const reader = read("server/users-tab-reader.mjs");
   assert(userService.includes("USERS_TAB_READ_FAILED"), "6: users tab read failure code");
+  assert(reader.includes("readCompanyUsers"), "6a: dedicated users tab reader");
+  assert(userService.includes("readCompanyUsers"), "6a2: list path uses readCompanyUsers");
   assert(userService.includes("MISSING_COMPANY_CONTEXT"), "6b: company context missing reasonCode");
   assert(userService.includes("COMPANY_USERS_LOAD_FAILED"), "6c: structured failure code");
 }

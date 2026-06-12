@@ -234,6 +234,7 @@ const godmodeOnlyUser = {
   const coreRoutes = read("server/core-workflow-routes.mjs");
   assert(companyUsersSrc.includes("sanitizeUsersTabRecords"), "13: sanitizeUsersTabRecords exists");
   assert(companyUserService.includes("listActiveCompanyMembers"), "13a: listActiveCompanyMembers exists");
+  assert(companyUserService.includes("readCompanyUsers"), "13a2: assignees share readCompanyUsers path");
   assert(assigneeService.includes("getScheduleAssigneesForCompany"), "13b: schedule assignee service exists");
   assert(coreRoutes.includes("/api/companies/:companyId/users"), "13b2: company users list route exists");
   assert(coreRoutes.includes("/api/companies/:companyId/schedule-assignees"), "13c: company schedule-assignees route exists");

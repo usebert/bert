@@ -247,6 +247,8 @@ export function GodmodeCompanyWorkspacePanel({
   const runMakeUsable = onMakeCompanyUsable || onCompleteSetup || onOneClickGoogleOnboarding;
   const [inviteTargetDiagnostic, setInviteTargetDiagnostic] = useState("");
   const [inviteTargetRepairing, setInviteTargetRepairing] = useState(false);
+  const [usersTabRepairing, setUsersTabRepairing] = useState(false);
+  const [usersTabRepairMessage, setUsersTabRepairMessage] = useState("");
   const [registryRelinking, setRegistryRelinking] = useState(false);
   const [registryForceLiveLoading, setRegistryForceLiveLoading] = useState(false);
   const [registryRelinkSucceeded, setRegistryRelinkSucceeded] = useState(false);
@@ -596,6 +598,53 @@ export function GodmodeCompanyWorkspacePanel({
     selectedFolder?.id,
     selectedFolder?.name,
   ]);
+
+  const repairUsersTab = async () => {
+    if (!selectedFolder?.id || usersTabRepairing) {
+      return;
+    }
+    const masterSheetId = companyMasterSheetId || folderInspection?.masterSheet?.id || "";
+    if (!masterSheetId) {
+      setUsersTabRepairMessage("Link a company master sheet before repairing the Users tab.");
+      return;
+    }
+    setUsersTabRepairing(true);
+    setUsersTabRepairMessage("");
+    try {
+      const response = await fetch(
+        apiUrl(`/api/godmode/companies/${encodeURIComponent(selectedFolder.id)}/repair-users-tab`),
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            companyFolderId: selectedFolder.id,
+            masterSheetId,
+            companyName: selectedFolder.name,
+          }),
+        },
+      );
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        technicalError?: string;
+        rowCount?: number;
+        tabTitle?: string;
+      };
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.technicalError || payload.error || "Unable to repair the Users tab.");
+      }
+      setUsersTabRepairMessage(
+        `Users tab repaired (${payload.tabTitle || "Users"}, ${payload.rowCount ?? 0} row(s)).`,
+      );
+    } catch (error) {
+      setUsersTabRepairMessage(
+        error instanceof Error ? error.message : "Unable to repair the Users tab.",
+      );
+    } finally {
+      setUsersTabRepairing(false);
+    }
+  };
 
   const repairInviteCompanySheetLink = async () => {
     if (!selectedFolder?.id || inviteTargetRepairing) {
@@ -1082,6 +1131,14 @@ export function GodmodeCompanyWorkspacePanel({
                   >
                     Fix workspace
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => void repairUsersTab()}
+                    disabled={masterCompanyContextBlocked || usersTabRepairing || !resolvedMasterSheetId}
+                    className="inline-flex h-10 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {usersTabRepairing ? "Repairing Users tab…" : "Repair Users tab"}
+                  </button>
                   <a
                     href={`https://drive.google.com/drive/folders/${selectedFolder.id}`}
                     target="_blank"
@@ -1101,6 +1158,11 @@ export function GodmodeCompanyWorkspacePanel({
                     </a>
                   ) : null}
                 </div>
+                {usersTabRepairMessage ? (
+                  <p className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
+                    {usersTabRepairMessage}
+                  </p>
+                ) : null}
                 {inviteTargetDiagnostic ? (
                   <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
                     <p>{inviteTargetDiagnostic}</p>

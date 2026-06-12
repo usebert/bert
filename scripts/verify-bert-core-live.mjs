@@ -75,6 +75,9 @@ function runStaticGuards() {
   assert(userService.includes("listActiveCompanyMembers"), "static: listActiveCompanyMembers service");
   assert(coreRoutes.includes('app.get("/api/companies/:companyId/users"'), "static: company users list route");
   assert(pkg.scripts["verify:company-members"], "static: verify:company-members script");
+  assert(pkg.scripts["verify:users-tab-reader"], "static: verify:users-tab-reader script");
+  assert(pkg.scripts["verify:godmode-company-members"], "static: verify:godmode-company-members script");
+  assert(read("server/users-tab-reader.mjs").includes("resolveUsersTab"), "static: resolveUsersTab module");
   assert(companyUsers.includes("sanitizeUserRecordForClient"), "static: user records sanitized");
   assert(scheduleService.includes("listCompanySchedules"), "static: schedule list service");
   assert(serverMain.includes("company_user replace token="), "static: resend replaces expired invites");
