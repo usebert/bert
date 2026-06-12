@@ -384,6 +384,9 @@ export function AdminScreen({
   onResendInvite,
   onDeleteInvite,
   onRemoveCompanyUser,
+  onUpdateCompanyMember,
+  onDeactivateCompanyMember,
+  companyMemberEditing = false,
   onResyncUsers,
   onSelectSite,
   onAddSite,
@@ -694,6 +697,12 @@ export function AdminScreen({
             onResendInvite,
             onDeleteInvite,
             onRemoveCompanyUser,
+            onUpdateCompanyMember,
+            onDeactivateCompanyMember,
+            activeCompanyMembers,
+            activeMembersLoading,
+            activeMembersLoadError,
+            companyMemberEditing,
             onResyncUsers,
             onSelectSite,
             onAddSite,
@@ -701,6 +710,8 @@ export function AdminScreen({
             onToggleUserSiteAssignment,
             CompanyUserInviteEmailResultPanel,
             slatePrimaryCtaInteract,
+            currentUserRole: currentUser.role,
+            currentUserEmail: currentUser.email,
           }}
         />
       ) : null}
@@ -1357,6 +1368,9 @@ export function AdminScreen({
           onResendInvite={onResendInvite}
           onDeleteInvite={onDeleteInvite}
           onRemoveCompanyUser={onRemoveCompanyUser}
+          onUpdateCompanyMember={onUpdateCompanyMember}
+          onDeactivateCompanyMember={onDeactivateCompanyMember}
+          companyMemberEditing={companyMemberEditing}
           onResyncUsers={onResyncUsers}
           areaRestrictionsEnabled={areaRestrictionsEnabled}
           areaSyncLoading={areaSyncLoading}
