@@ -6288,12 +6288,25 @@ async function handleAppInviteComplete(req, res) {
             });
             completedMarked = true;
             const sessionCompanyAreas = parseCompanyAreas(record.companyAreas || "");
-            const inviteCompanyContext = await enrichCompanyContextFromRegistry(authed, {
-              companyId: record.companyId || record.companyFolderId || "",
-              companyFolderId: record.companyFolderId || record.companyId || "",
-              companyName: record.companyName || "",
-              masterSheetId: record.masterSheetId,
-            });
+            const workbookContext = await resolveCompanyContextFromLoginWorkbook(
+              authed,
+              getCompanyContextEnrichmentDeps(),
+              record.masterSheetId,
+            ).catch(() => null);
+            const inviteCompanyContext = workbookContext
+              ? await enrichCompanyContextFromRegistry(authed, {
+                  companyFolderId: workbookContext.companyFolderId || record.companyFolderId || record.companyId || "",
+                  companyId: workbookContext.companyFolderId || record.companyFolderId || record.companyId || "",
+                  companyName: workbookContext.companyName || record.companyName || "",
+                  masterSheetId: record.masterSheetId,
+                  registryStatus: workbookContext.registryStatus,
+                })
+              : await enrichCompanyContextFromRegistry(authed, {
+                  companyId: record.companyId || record.companyFolderId || "",
+                  companyFolderId: record.companyFolderId || record.companyId || "",
+                  companyName: record.companyName || "",
+                  masterSheetId: record.masterSheetId,
+                });
             const sessionCompanyId =
               inviteCompanyContext.companyFolderId ||
               inviteCompanyContext.companyId ||

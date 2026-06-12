@@ -26,6 +26,7 @@ const accountSummary = read("src/components/AccountIdentitySummary.tsx");
 const uxDeclutter = read("src/utils/uxDeclutter.ts");
 const appTsx = read("App.tsx");
 const serverMain = read("server/server.mjs");
+const authService = read("server/auth-service.mjs");
 const pkg = JSON.parse(read("package.json"));
 
 assert(pkg.scripts["verify:account-ui"], "PKG: npm script registered");
@@ -42,9 +43,12 @@ assert(
   serverMain.includes('app.get("/api/auth/company/session"') && serverMain.includes("companyName"),
   "session refresh returns companyName",
 );
-assert(serverMain.includes("buildCompanySessionPayload"), "company session payload builder exists");
 assert(
-  /buildCompanySessionPayload[\s\S]*?email[\s\S]*?companyName[\s\S]*?role/.test(serverMain),
+  authService.includes("buildCompanySessionPayload") || serverMain.includes("buildCompanySessionPayload"),
+  "company session payload builder exists",
+);
+assert(
+  /buildCompanySessionPayload[\s\S]*?email[\s\S]*?companyName[\s\S]*?role/.test(authService),
   "session payload includes email, role, companyName",
 );
 
