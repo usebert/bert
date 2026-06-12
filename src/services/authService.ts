@@ -16,6 +16,8 @@ export type CompanyLoginCompany = {
   companyName: string;
   masterSheetId: string;
   registryStatus?: string;
+  folderPlacementOk?: boolean;
+  reasonCode?: string;
 };
 
 export type CompanyLoginResult = {
@@ -24,6 +26,7 @@ export type CompanyLoginResult = {
   company?: CompanyLoginCompany;
   masterSheetId?: string;
   blocker?: string;
+  reasonCode?: string;
   error?: string;
 };
 
@@ -31,6 +34,8 @@ export type CompanySessionResult = {
   ok: boolean;
   user?: CompanyLoginUser;
   company?: CompanyLoginCompany;
+  folderPlacementOk?: boolean;
+  reasonCode?: string;
   error?: string;
 };
 
@@ -46,6 +51,7 @@ export async function companyLogin(input: {
     company?: CompanyLoginCompany;
     masterSheetId?: string;
     blocker?: string;
+    reasonCode?: string;
     error?: string;
   }>(apiUrl("/api/auth/company/login"), {
     method: "POST",
@@ -67,6 +73,7 @@ export async function companyLogin(input: {
     return {
       ok: false,
       blocker: payload.blocker,
+      reasonCode: payload.reasonCode,
       error: payload.error || "Sign in failed.",
     };
   }
@@ -93,6 +100,8 @@ export async function fetchCompanySession(): Promise<CompanySessionResult> {
     ok?: boolean;
     user?: CompanyLoginUser;
     company?: CompanyLoginCompany;
+    folderPlacementOk?: boolean;
+    reasonCode?: string;
     error?: string;
   }>(apiUrl("/api/auth/company/session"), { credentials: "include" });
 
@@ -105,7 +114,16 @@ export async function fetchCompanySession(): Promise<CompanySessionResult> {
     return { ok: false, error: payload.error || "No company session." };
   }
 
-  return { ok: true, user: payload.user, company: payload.company };
+  const folderPlacementOk = payload.folderPlacementOk ?? payload.company?.folderPlacementOk;
+  const reasonCode = payload.reasonCode || payload.company?.reasonCode;
+
+  return {
+    ok: true,
+    user: payload.user,
+    company: payload.company,
+    folderPlacementOk,
+    reasonCode,
+  };
 }
 
 export async function companyLogout(): Promise<void> {

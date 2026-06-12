@@ -42,10 +42,14 @@ export function buildCompanySessionPayload({
 /** API session shape for company users — never includes PasswordHash. */
 export function buildCompanySessionApiResponse(input = {}) {
   const email = String(input.email || "").trim().toLowerCase();
-  const companyFolderId = String(input.companyFolderId || input.companyId || "").trim();
-  const companyId = String(input.companyId || companyFolderId).trim();
-  const companyName = String(input.companyName || "").trim();
+  const folderPlacementOk = input.folderPlacementOk !== false;
+  const companyFolderId = folderPlacementOk
+    ? String(input.companyFolderId || input.companyId || "").trim()
+    : "";
+  const companyId = folderPlacementOk ? String(input.companyId || companyFolderId).trim() : "";
+  const companyName = folderPlacementOk ? String(input.companyName || "").trim() : "";
   const masterSheetId = String(input.masterSheetId || "").trim();
+  const reasonCode = folderPlacementOk ? undefined : String(input.reasonCode || "").trim() || undefined;
   return {
     ok: true,
     user: {
@@ -65,6 +69,9 @@ export function buildCompanySessionApiResponse(input = {}) {
       live: input.live,
       needsAttention: input.needsAttention,
       setupBlockers: input.setupBlockers,
+      folderPlacementOk,
+      folderPlacement: input.folderPlacement,
+      reasonCode,
     },
     email,
     name: String(input.name || email).trim() || email,
@@ -75,6 +82,9 @@ export function buildCompanySessionApiResponse(input = {}) {
     companyName,
     masterSheetId,
     selectedCompanyName: companyName || undefined,
+    folderPlacementOk,
+    folderPlacement: input.folderPlacement,
+    reasonCode,
   };
 }
 

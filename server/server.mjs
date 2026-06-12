@@ -6888,9 +6888,12 @@ app.get("/api/auth/company/session", async (req, res) => {
     const sessionCompanyId = enrichedContext.companyFolderId || enrichedContext.companyId || companyId;
     const resolvedCompanyName = String(enrichedContext.companyName || companyNameFromSession || "").trim();
     const resolvedMasterSheetId = String(enrichedContext.masterSheetId || masterSheetId).trim();
+    const effectiveCompanyId = folderPlacementOk ? sessionCompanyId : "";
+    const effectiveCompanyName = folderPlacementOk ? resolvedCompanyName : "";
     if (
-      resolvedCompanyName !== companyNameFromSession ||
-      sessionCompanyId !== companyIdFromSession ||
+      !folderPlacementOk ||
+      effectiveCompanyName !== companyNameFromSession ||
+      effectiveCompanyId !== companyIdFromSession ||
       resolvedMasterSheetId !== String(data.masterSheetId || "").trim()
     ) {
       res.cookie(
@@ -6898,8 +6901,8 @@ app.get("/api/auth/company/session", async (req, res) => {
         buildCompanySessionPayload({
           email: data.email,
           masterSheetId: resolvedMasterSheetId,
-          companyId: sessionCompanyId,
-          companyName: resolvedCompanyName,
+          companyId: effectiveCompanyId,
+          companyName: effectiveCompanyName,
           role: rec.role,
           name: rec.name,
           accessLevel: rec.accessLevel || data.accessLevel || "",
@@ -6915,9 +6918,9 @@ app.get("/api/auth/company/session", async (req, res) => {
         name: rec.name,
         accessLevel: rec.accessLevel || data.accessLevel || "",
         companyAreas: rec.companyAreas?.length ? rec.companyAreas : sessionCompanyAreas,
-        companyId: sessionCompanyId,
-        companyFolderId: sessionCompanyId,
-        companyName: resolvedCompanyName,
+        companyId: effectiveCompanyId,
+        companyFolderId: effectiveCompanyId,
+        companyName: effectiveCompanyName,
         masterSheetId: resolvedMasterSheetId,
         registryStatus,
         status: registryStatus,

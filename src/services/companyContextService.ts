@@ -1,6 +1,7 @@
 import type { Role } from "../permissions";
 import { getCanonicalCompanyStatus } from "../utils/companyWorkspaceInvite";
 import type { LinkedCompanyContextInput } from "../utils/applyLinkedCompanyContext";
+import { isCompanyFolderLinkValid, isCompanyWorkspaceUsable } from "../utils/companyFolderContext";
 
 export type ResolvedCompanyContext = {
   companyId: string;
@@ -46,15 +47,28 @@ export function resolveActiveCompanyContext(input: ResolveActiveCompanyContextIn
   const selectedMasterSheetId = String(selected?.masterSheetId || "").trim();
   const selectedCompanyName = String(selected?.name || "").trim();
 
-  const companyFolderId = isMasterActor
-    ? selectedCompanyId || linkedCompanyId
-    : linkedCompanyId || selectedCompanyId;
-  const masterSheetId = isMasterActor
-    ? selectedMasterSheetId || linkedMasterSheetId
-    : linkedMasterSheetId || selectedMasterSheetId;
-  const companyName = isMasterActor
-    ? selectedCompanyName || linkedCompanyName
-    : linkedCompanyName || selectedCompanyName;
+  const linkedPlacementOk = isCompanyFolderLinkValid(linked);
+  const companyFolderId = linkedPlacementOk
+    ? isMasterActor
+      ? selectedCompanyId || linkedCompanyId
+      : linkedCompanyId || selectedCompanyId
+    : isMasterActor
+      ? selectedCompanyId
+      : "";
+  const masterSheetId = linkedPlacementOk
+    ? isMasterActor
+      ? selectedMasterSheetId || linkedMasterSheetId
+      : linkedMasterSheetId || selectedMasterSheetId
+    : isMasterActor
+      ? selectedMasterSheetId
+      : linkedMasterSheetId;
+  const companyName = linkedPlacementOk
+    ? isMasterActor
+      ? selectedCompanyName || linkedCompanyName
+      : linkedCompanyName || selectedCompanyName
+    : isMasterActor
+      ? selectedCompanyName
+      : "";
 
   const registryStatus = getCanonicalCompanyStatus({
     status: isMasterActor
@@ -65,7 +79,12 @@ export function resolveActiveCompanyContext(input: ResolveActiveCompanyContextIn
       : linked.registryStatus || input.companyRegistryStatus || selected?.registryStatus,
   });
 
-  const workspaceSetupComplete = Boolean(companyFolderId && masterSheetId);
+  const workspaceSetupComplete = isCompanyWorkspaceUsable({
+    companyId: companyFolderId,
+    companyFolderId,
+    masterSheetId,
+    folderPlacementOk: linkedPlacementOk,
+  });
 
   return {
     companyId: companyFolderId,

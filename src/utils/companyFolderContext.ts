@@ -4,6 +4,9 @@ export const COMPANY_CONTEXT_STATUS_USABLE = "USABLE";
 
 export const COMPANY_READY_INVITE_MESSAGE = "Company is ready. You can now invite users.";
 
+export const FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE =
+  "This company is not set up in BERT. Contact your administrator.";
+
 export function cleanCompanyNameFromFolder(folderName = ""): string {
   const raw = String(folderName || "").trim();
   if (!raw) {
@@ -13,6 +16,15 @@ export function cleanCompanyNameFromFolder(folderName = ""): string {
   return withoutSuffix || raw;
 }
 
+export const FOLDER_NOT_IN_COMPANIES_ROOT = "FOLDER_NOT_IN_COMPANIES_ROOT";
+
+export const FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE =
+  "This company is not set up in BERT. Contact your administrator.";
+
+export function isCompanyFolderLinkValid(context: { folderPlacementOk?: boolean } | null | undefined): boolean {
+  return context?.folderPlacementOk !== false;
+}
+
 export function isCompanyWorkspaceUsable(context: {
   companyId?: string;
   companyFolderId?: string;
@@ -20,6 +32,7 @@ export function isCompanyWorkspaceUsable(context: {
   archived?: boolean;
   status?: string;
   usable?: boolean;
+  folderPlacementOk?: boolean;
 } = {}): boolean {
   const companyId = String(context.companyId || context.companyFolderId || "").trim();
   const masterSheetId = String(context.masterSheetId || "").trim();
@@ -34,6 +47,9 @@ export function isCompanyWorkspaceUsable(context: {
     return false;
   }
   if (context.usable === false) {
+    return false;
+  }
+  if (context.folderPlacementOk === false) {
     return false;
   }
   return true;

@@ -8,6 +8,8 @@ export type LinkedCompanyContextInput = {
   companyName?: string;
   masterSheetId?: string;
   registryStatus?: string;
+  folderPlacementOk?: boolean;
+  reasonCode?: string;
   role?: string;
   accessLevel?: string;
   companyAreas?: string[];
@@ -90,6 +92,9 @@ export function applyLinkedCompanyContext(input: {
   setMasterSheetInput?: (updater: (current: string) => string) => void;
   setCompanyRegistryStatus?: (value: string) => void;
 }): boolean {
+  if (input.company?.folderPlacementOk === false) {
+    return false;
+  }
   const companyId = String(input.company?.companyId || "").trim();
   const masterSheetId = String(input.company?.masterSheetId || "").trim();
   if (!companyId) {
