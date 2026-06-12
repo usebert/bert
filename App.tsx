@@ -4796,25 +4796,7 @@ function App() {
     return lookup;
   }, [onboardingRecords]);
 
-  const loginUsers = useMemo(() => {
-    const demoOrDev = import.meta.env.DEV === true || import.meta.env.VITE_ENABLE_DEMO_LOGIN === "true";
-    const invitedLoginUsers = invitedUsers
-      .filter((invite) => !isPlatformOwnerEmail(invite.email, import.meta.env))
-      .map((invite) => ({
-        username: invite.email.toLowerCase(),
-        password: demoOrDev
-          ? onboardingPasswordByEmail.get(normalizeIdentity(invite.email)) ||
-            String(import.meta.env.VITE_DEMO_USER_PASSWORD ?? "").trim()
-          : "",
-        role: invite.role,
-        name: invite.email,
-      }));
-    const merged = [...users, ...invitedLoginUsers];
-    return merged.filter(
-      (user, index, list) =>
-        list.findIndex((item) => item.username === user.username && item.role === user.role) === index,
-    );
-  }, [invitedUsers, onboardingPasswordByEmail, users]);
+  const loginUsers = useMemo(() => users, [users]);
 
   const availableScheduleAudits = useMemo(() => {
     const templateOptions = templates

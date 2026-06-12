@@ -277,6 +277,7 @@ assert(schedulesScreenSrc.includes("companyAreas"), "14n: schedule UI shows comp
   assert(appSrc.includes("resolveActiveCompanyContext"), "15: App uses unified company context resolver");
   assert(appSrc.includes("linkedCompanyContext"), "15b: App stores session-linked company context");
   assert(!appSrc.includes("findPendingAssigneeInvites"), "15c: App does not merge pending invites into assignees");
+  assert(!appSrc.includes("invitedLoginUsers"), "15c2: App does not merge invites into login users");
   assert(!appSrc.includes("pendingAssigneeInvites"), "15d: schedule UI does not use pending invite assignee list");
   assert(!appSrc.includes("buildAvailableScheduleAssignees("), "15e: App does not filter assignees locally");
   assert(!/buildAssignedUsersForSave\([^)]*companyUsersTabRows/.test(appSrc), "15f: schedule save uses API assignees only");

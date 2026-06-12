@@ -3,14 +3,10 @@
  * No registry live/health/setup gates on login; registry is cache/diagnostics only.
  */
 import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
-import {
-  migrateUsersTabColumns,
-  readCompanyUsersTabRecord,
-  touchCompanyUserLastLogin,
-  verifyCompanyUserPassword,
-} from "./company-users.mjs";
+import { readCompanyUsersTabRecord, touchCompanyUserLastLogin } from "./company-users.mjs";
 import { resolveCompanyContextForUser } from "./company-users.mjs";
 import { enrichCompanyContextFromRegistry } from "./company-context-service.mjs";
+import { canLoginCompanyUser } from "./company-user-sheet-flow.mjs";
 
 export function buildCompanySessionPayload({
   email,
@@ -41,21 +37,32 @@ export function buildCompanySessionPayload({
 export async function probeCompanyLoginSheet(auth, masterSheetId, email, password, companyUsersDeps) {
   const emailNorm = String(email || "").trim().toLowerCase();
   const sheetId = String(masterSheetId || "").trim();
-  let usersRowFound = false;
-  let roleFound = "";
-  let passwordVerified = false;
-  let setupIncomplete = false;
-  let inactive = false;
 
   try {
-    await migrateUsersTabColumns(auth, sheetId, companyUsersDeps);
-    const login = await verifyCompanyUserPassword(auth, sheetId, emailNorm, password, companyUsersDeps);
-    passwordVerified = Boolean(login.ok);
-    if (login.reason === "inactive") {
-      inactive = true;
+    const login = await canLoginCompanyUser(
+      auth,
+      emailNorm,
+      password,
+      { masterSheetId: sheetId },
+      companyUsersDeps,
+    );
+    if (login.ok && login.user) {
+      const rec =
+        (await readCompanyUsersTabRecord(auth, sheetId, emailNorm, companyUsersDeps)) || login.user;
       return {
         usersRowFound: true,
-        roleFound: login.rec?.role || "",
+        roleFound: rec?.role || login.user.role || "",
+        passwordVerified: true,
+        setupIncomplete: false,
+        inactive: false,
+        rec,
+        migrated: Boolean(login.migrated),
+      };
+    }
+    if (login.reason === "inactive") {
+      return {
+        usersRowFound: true,
+        roleFound: "",
         passwordVerified: false,
         setupIncomplete: false,
         inactive: true,
@@ -63,40 +70,26 @@ export async function probeCompanyLoginSheet(auth, masterSheetId, email, passwor
         migrated: false,
       };
     }
-    if (!passwordVerified) {
-      const recPeek = await readCompanyUsersTabRecord(auth, sheetId, emailNorm, companyUsersDeps);
-      usersRowFound = Boolean(recPeek);
-      setupIncomplete = login.reason === "setup_incomplete" || !usersRowFound;
-      return {
-        usersRowFound,
-        roleFound: recPeek?.role || "",
-        passwordVerified,
-        setupIncomplete,
-        inactive: false,
-        rec: null,
-        migrated: false,
-      };
-    }
-    const rec = login.rec || (await readCompanyUsersTabRecord(auth, sheetId, emailNorm, companyUsersDeps));
-    usersRowFound = Boolean(rec);
-    roleFound = rec?.role || "";
-    if (!usersRowFound) {
-      setupIncomplete = true;
-    }
+    const recPeek = await readCompanyUsersTabRecord(auth, sheetId, emailNorm, companyUsersDeps).catch(
+      () => null,
+    );
+    const usersRowFound = Boolean(recPeek);
+    const setupIncomplete =
+      login.reason === "setup_incomplete" || login.reason === "user_not_found" || !usersRowFound;
     return {
       usersRowFound,
-      roleFound,
-      passwordVerified,
+      roleFound: recPeek?.role || "",
+      passwordVerified: false,
       setupIncomplete,
       inactive: false,
-      rec,
-      migrated: Boolean(login.migrated),
+      rec: null,
+      migrated: false,
     };
   } catch {
     return {
-      usersRowFound,
-      roleFound,
-      passwordVerified,
+      usersRowFound: false,
+      roleFound: "",
+      passwordVerified: false,
       setupIncomplete: false,
       inactive: false,
       rec: null,

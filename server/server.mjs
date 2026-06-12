@@ -110,6 +110,7 @@ import {
   performCompanyLogin,
   probeCompanyLoginSheet as probeCompanyLoginSheetCore,
 } from "./auth-service.mjs";
+import { completeInviteToUserRow } from "./company-user-sheet-flow.mjs";
 import {
   inspectConfiguredWorkspaceRoot,
   listFolderChildren,
@@ -1950,10 +1951,19 @@ async function companyUserUsersRowPresent(auth, masterSheetId, email) {
 async function assessCompanyUserInviteReadiness(auth, masterSheetId, email, inviteRecord = null) {
   const emailNorm = String(email || "").trim().toLowerCase();
   const sheetId = String(masterSheetId || "").trim();
-  const userAuthPresent = await companyUserLoginReady(auth, sheetId, emailNorm);
-  const usersRowPresent = userAuthPresent
-    ? true
-    : await companyUserUsersRowPresent(auth, sheetId, emailNorm);
+  let usersRowPresent = false;
+  let userAuthPresent = false;
+  try {
+    await migrateUsersTabColumns(auth, sheetId, getCompanyUsersDeps());
+    const rec = await readCompanyUsersTabRecord(auth, sheetId, emailNorm, getCompanyUsersDeps());
+    usersRowPresent = Boolean(rec);
+    userAuthPresent = Boolean(
+      rec?.status === "ACTIVE" && rec?.passwordHash && isUserAuthScryptHash(rec.passwordHash),
+    );
+  } catch {
+    usersRowPresent = false;
+    userAuthPresent = false;
+  }
   const tokenConsumed = Boolean(inviteRecord?.consumedAt);
   const provisionSucceeded = inviteRecord?.provisionStatus === "succeeded";
 
@@ -6200,6 +6210,8 @@ async function handleAppInviteComplete(req, res) {
           let usersWriteOk = false;
           let userAuthWriteOk = false;
           let completedMarked = false;
+          const inviteAccessLevel =
+            String(record.accessLevel || "").trim() || inviteAccessLevelForRole(record.role);
           console.log("[invite] company_user completion start", {
             tokenIdPrefix: tokenId.slice(0, 8),
             email: record.email,
@@ -6208,37 +6220,15 @@ async function handleAppInviteComplete(req, res) {
             role: record.role,
           });
           try {
-            const userId = `app-${String(record.email || "")
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/gi, "-")}-${String(record.role || "").toLowerCase()}`;
-            const inviteAccessLevel =
-              String(record.accessLevel || "").trim() || inviteAccessLevelForRole(record.role);
-            const usersResult = await writeCompanyUsers(authed, record.masterSheetId, record.companyFolderId, [
-              {
-                id: userId,
-                email: record.email,
-                role: record.role,
-                name: fullName,
-                password,
-                accessLevel: inviteAccessLevel,
-                companyAreas: String(record.companyAreas || "").trim(),
-                invitedBy: record.invitedBy || APP_BRAND_NAME,
-                senderEmail: "",
-                sentAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                syncStatus: "Synced",
-              },
-            ]);
-            usersWriteOk = Number(usersResult?.written || 0) > 0;
-            const hashResult = await setCompanyUserPasswordHash(
+            const completion = await completeInviteToUserRow(
               authed,
-              record.masterSheetId,
-              record.email,
-              password,
-              getCompanyUsersDeps(),
+              record,
+              { fullName, password },
+              { writeCompanyUsers, getCompanyUsersDeps },
             );
-            userAuthWriteOk = hashResult.ok || (await companyUserLoginReady(authed, record.masterSheetId, record.email));
-            if (!usersWriteOk || !userAuthWriteOk) {
+            usersWriteOk = completion.ok;
+            userAuthWriteOk = completion.ok;
+            if (!completion.ok) {
               throw new Error(
                 "Account setup could not be verified on the company sheet (Users tab PasswordHash).",
               );

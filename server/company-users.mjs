@@ -468,13 +468,7 @@ export async function companyUserLoginReady(auth, spreadsheetId, email, deps) {
     if (!rec || rec.status !== "ACTIVE") {
       return false;
     }
-    if (rec.passwordHash && isPasswordHash(rec.passwordHash)) {
-      return true;
-    }
-    const { getConfig } = deps;
-    const cfg = await getConfig(auth, spreadsheetId);
-    const key = `UserAuth.${safeLower(email)}`;
-    return isPasswordHash(cfg[key]);
+    return Boolean(rec.passwordHash && isPasswordHash(rec.passwordHash));
   } catch {
     return false;
   }

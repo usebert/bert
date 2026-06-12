@@ -14,6 +14,7 @@ import {
 import { readCompanyUsers, resolveUsersTab } from "./users-tab-reader.mjs";
 import { resolveCompanyById } from "./company-registry-service.mjs";
 import { resolveCompanyFromFolder } from "./company-folder-resolver.mjs";
+import { listActiveUsersFromSheet } from "./company-user-sheet-flow.mjs";
 
 const COMPANY_USERS_LOAD_FAILED = "COMPANY_USERS_LOAD_FAILED";
 
@@ -41,14 +42,6 @@ function isDevDiagnosticsEnabled() {
     String(process.env.NODE_ENV || "").trim().toLowerCase() !== "production" ||
     String(process.env.BERT_GODMODE_DIAGNOSTICS || "").trim().toLowerCase() === "true"
   );
-}
-
-function isActiveSessionActor(actor) {
-  if (!actor?.email) {
-    return false;
-  }
-  const status = String(actor.status || "active").trim().toLowerCase();
-  return status === "active" || status === "";
 }
 
 function looksLikeDriveId(value) {
@@ -139,48 +132,6 @@ function classifyReadError(error, payload) {
   };
 }
 
-function canUseSessionFallback(sessionActor, companyFolderId) {
-  if (!sessionActor || !isActiveSessionActor(sessionActor)) {
-    return false;
-  }
-  const email = normalizeEmail(sessionActor.email);
-  const name = String(sessionActor.name || "").trim();
-  const role = String(sessionActor.role || sessionActor.accessLevel || "").trim();
-  const actorCompanyId = String(sessionActor.companyId || sessionActor.companyFolderId || "").trim();
-  if (!email || !name || !role || !actorCompanyId) {
-    return false;
-  }
-  return actorCompanyId === String(companyFolderId || "").trim();
-}
-
-function buildSessionFallbackSuccess(sessionActor, context = {}) {
-  const companyFolderId = String(context.companyFolderId || context.companyId || "").trim();
-  const member = buildSessionActorMember(sessionActor, companyFolderId);
-  if (!member) {
-    return null;
-  }
-  return {
-    ok: true,
-    companyId: companyFolderId,
-    companyFolderId,
-    companyName: context.companyName || undefined,
-    masterSheetId: context.masterSheetId || undefined,
-    users: [member],
-    activeCount: 1,
-    warning:
-      context.warning ||
-      "Showing signed-in user because the company users list could not be loaded.",
-    diagnostics: buildDiagnostics({
-      ...context,
-      companyId: companyFolderId,
-      companyFolderId,
-      signedInEmail: member.email,
-      signedInRole: member.role,
-      dataSource: "session-fallback",
-      durationMs: context.durationMs,
-    }),
-  };
-}
 
 function mapUsersTabRow(row, companyFolderId = "") {
   const companyAreasRaw = pickRowValue(row, "CompanyAreas", "Company Areas", "companyAreas");
@@ -219,24 +170,6 @@ function mapActiveCompanyMember(row, companyFolderId) {
     companyFolderId,
     companyAreas,
     companyAreasRaw: row.companyAreasRaw || String(row.CompanyAreas || ""),
-  };
-}
-
-function buildSessionActorMember(actor, companyFolderId) {
-  const email = normalizeEmail(actor.email);
-  if (!email) {
-    return null;
-  }
-  return {
-    email,
-    name: String(actor.name || email.split("@")[0] || email).trim() || email,
-    role: parseRoleForClient(actor.role || actor.accessLevel || "User"),
-    accessLevel: String(actor.accessLevel || "").trim(),
-    status: "ACTIVE",
-    companyId: companyFolderId,
-    companyFolderId,
-    companyAreas: Array.isArray(actor.companyAreas) ? actor.companyAreas : [],
-    companyAreasRaw: Array.isArray(actor.companyAreas) ? actor.companyAreas.join(", ") : "",
   };
 }
 
@@ -346,21 +279,12 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
   }
 
   if (!companyFolderId) {
-    const failure = buildFailure(
+    return buildFailure(
       "MISSING_COMPANY_CONTEXT",
       "Company workspace is not selected.",
       { ...baseDiagnostics(), failedStep: "select_company" },
       { httpStatus: 404 },
     );
-    const fallback = canUseSessionFallback(sessionActor, companyFolderId)
-      ? buildSessionFallbackSuccess(sessionActor, {
-          companyFolderId,
-          companyName,
-          masterSheetId,
-          durationMs: Date.now() - startedAt,
-        })
-      : null;
-    return fallback || failure;
   }
 
   if (!looksLikeDriveId(companyFolderId)) {
@@ -391,7 +315,7 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
       companyName = folderResolved.companyName || companyName;
     } else {
       const reasonCode = folderResolved.reasonCode || "MISSING_MASTER_SHEET_ID";
-      const failure = buildFailure(
+      return buildFailure(
         reasonCode,
         reasonCode === "COMPANY_NOT_FOUND"
           ? "Company workspace could not be found."
@@ -411,30 +335,22 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
             : undefined,
         },
       );
-      const fallback = canUseSessionFallback(sessionActor, companyFolderId)
-        ? buildSessionFallbackSuccess(sessionActor, {
-            companyFolderId,
-            companyName,
-            masterSheetId,
-            durationMs: Date.now() - startedAt,
-          })
-        : null;
-      return fallback || failure;
     }
   }
 
   const resolvedCompanyId = companyFolderId;
 
-  const loadUsersForSheet = async (sheetId) =>
-    getCompanyUsers(auth, sheetId, deps, {
+  const loadActiveUsersForSheet = async (sheetId) =>
+    listActiveUsersFromSheet(auth, deps, {
+      masterSheetId: sheetId,
       companyFolderId: resolvedCompanyId,
       companyId: resolvedCompanyId,
     });
 
   try {
-    let rawUsers;
+    let members;
     try {
-      rawUsers = await loadUsersForSheet(masterSheetId);
+      members = await loadActiveUsersForSheet(masterSheetId);
     } catch (firstError) {
       if (isStaleMasterSheetError(firstError) && companyFolderId) {
         const folderResolved = await resolveMasterSheetFromFolder(
@@ -449,7 +365,7 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
           if (refreshedSheetId && refreshedSheetId !== masterSheetId) {
             masterSheetId = refreshedSheetId;
             companyName = folderResolved.companyName || companyName;
-            rawUsers = await loadUsersForSheet(masterSheetId);
+            members = await loadActiveUsersForSheet(masterSheetId);
           } else {
             throw firstError;
           }
@@ -458,29 +374,6 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
         }
       } else {
         throw firstError;
-      }
-    }
-
-    const members = [];
-    const seen = new Set();
-    for (const row of rawUsers) {
-      const member = mapActiveCompanyMember(row, resolvedCompanyId);
-      if (!member || seen.has(member.email)) {
-        continue;
-      }
-      seen.add(member.email);
-      members.push(member);
-    }
-
-    if (
-      sessionActor &&
-      isActiveSessionActor(sessionActor) &&
-      (!String(sessionActor.companyId || sessionActor.companyFolderId || "").trim() ||
-        String(sessionActor.companyId || sessionActor.companyFolderId || "").trim() === resolvedCompanyId)
-    ) {
-      const fallbackMember = buildSessionActorMember(sessionActor, resolvedCompanyId);
-      if (fallbackMember && !seen.has(fallbackMember.email)) {
-        members.unshift(fallbackMember);
       }
     }
 
@@ -532,17 +425,11 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
       },
     );
 
-    const fallback = canUseSessionFallback(sessionActor, resolvedCompanyId)
-      ? buildSessionFallbackSuccess(sessionActor, {
-          companyFolderId: resolvedCompanyId,
-          companyName,
-          masterSheetId,
-          durationMs: Date.now() - startedAt,
-        })
-      : null;
-    return fallback || failure;
+    return failure;
   }
 }
+
+export { listActiveUsersFromSheet };
 
 export async function getAssignableUsers(auth, masterSheetId, deps, options = {}) {
   const companyId = String(options.companyId || options.companyFolderId || "").trim();

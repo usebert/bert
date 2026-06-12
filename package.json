@@ -38,6 +38,8 @@
     "verify:setup-next-actions": "node scripts/verify-setup-next-actions.mjs",
     "verify:company-onboarding": "node scripts/verify-company-onboarding.mjs",
     "verify:company-user-invite-flow": "node scripts/verify-company-user-invite-flow.mjs",
+    "verify:invite-to-sheet-user-flow": "node scripts/verify-invite-to-sheet-user-flow.mjs",
+    "verify:users-source-of-truth": "node scripts/verify-users-source-of-truth.mjs",
     "verify:admin-paths": "node scripts/verify-admin-paths.mjs",
     "verify:company-setup-persistence": "node scripts/verify-company-setup-persistence.mjs",
     "verify:invite-target": "node scripts/verify-invite-target.mjs",

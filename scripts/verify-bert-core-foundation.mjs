@@ -52,6 +52,7 @@ function runStaticGuards() {
   const coreRoutes = read("server/core-workflow-routes.mjs");
   const usersPanel = read("src/components/admin/UsersInvitesPilotPanel.tsx");
   const companyUsers = read("server/company-users.mjs");
+  const sheetFlow = read("server/company-user-sheet-flow.mjs");
   const serverMain = read("server/server.mjs");
   const activeUserCard = read("src/components/admin/ActiveUserCard.tsx");
   const inviteDisplay = read("src/utils/inviteStatusDisplay.ts");
@@ -63,7 +64,11 @@ function runStaticGuards() {
   assert(authService.includes("performCompanyLogin"), "static: authService fast login");
   assert(!authService.includes("getCanonicalCompanyRegistryRecord"), "static: login skips registry gate");
   assert(userService.includes("listActiveUsers"), "static: companyUserService listActiveUsers");
+  assert(sheetFlow.includes("listActiveUsersFromSheet"), "static: listActiveUsersFromSheet helper");
+  assert(sheetFlow.includes("completeInviteToUserRow"), "static: completeInviteToUserRow helper");
+  assert(sheetFlow.includes("canLoginCompanyUser"), "static: canLoginCompanyUser helper");
   assert(userService.includes("sanitizeUsersTabRecords"), "static: PasswordHash stripped server-side");
+  assert(serverMain.includes("completeInviteToUserRow"), "static: invite completion uses sheet helper");
   assert(companyUsers.includes("updateCompanyUserRecord"), "static: Users tab writeback on edit");
   assert(companyUsers.includes("validateCompanyUserEditInput"), "static: edit validation trims name/email");
   assert(

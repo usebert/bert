@@ -102,13 +102,14 @@ const pendingInvite = {
   assert(userService.includes("COMPANY_USERS_LOAD_FAILED"), "6c: structured failure code");
 }
 
-/** 7: Signed-in user fallback when workbook read yields no rows or load fails. */
+/** 7: Active members from Users tab only — no session/invite merge. */
 {
   const userService = read("server/company-user-service.mjs");
-  assert(userService.includes("buildSessionActorMember"), "7: session actor fallback member");
-  assert(userService.includes("members.unshift(fallbackMember)"), "7b: signed-in user prepended when missing");
-  assert(userService.includes("buildSessionFallbackSuccess"), "7c: session fallback on load failure");
-  assert(userService.includes('dataSource: "session-fallback"'), "7d: session-fallback dataSource");
+  const sheetFlow = read("server/company-user-sheet-flow.mjs");
+  assert(sheetFlow.includes("listActiveUsersFromSheet"), "7: listActiveUsersFromSheet helper");
+  assert(userService.includes("listActiveUsersFromSheet"), "7b: listActiveCompanyMembers uses sheet helper");
+  assert(!userService.includes("session-fallback"), "7c: no session-fallback in active list");
+  assert(!userService.includes("buildSessionFallbackSuccess"), "7d: session fallback removed");
 }
 
 /** 8: Frontend loads active members from canonical API with cache + safe JSON fetch. */
