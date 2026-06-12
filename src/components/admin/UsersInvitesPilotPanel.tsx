@@ -17,7 +17,6 @@ import {
 import { DangerActionButton } from "../DangerActionButton";
 import { ActiveUserCard } from "./ActiveUserCard";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../dashboard/DashboardPrimitives";
-import type { CompanyMember } from "../../services/companyUserService";
 import { canManageCompanyMembers } from "../../permissions";
 import { InviteStatusLegend } from "../InviteStatusLegend";
 import { WhatHappensNextPanel } from "../WhatHappensNextPanel";

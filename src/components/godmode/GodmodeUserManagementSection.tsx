@@ -1,5 +1,8 @@
 import type { ComponentType } from "react";
 import type { Role } from "../../permissions";
+import { ActiveUserCard } from "../admin/ActiveUserCard";
+import { canManageCompanyMembers } from "../../permissions";
+import type { CompanyMember } from "../../services/companyUserService";
 import { DangerActionButton } from "../DangerActionButton";
 import { EmptyPanel } from "../dashboard/DashboardPrimitives";
 import { InviteStatusLegend } from "../InviteStatusLegend";
@@ -45,6 +48,14 @@ export type GodmodeUserManagementSectionProps = {
   onResendInvite: (invite: UserInvite) => void;
   onDeleteInvite: (invite: UserInvite) => void;
   onRemoveCompanyUser: (invite: UserInvite) => void;
+  onUpdateCompanyMember?: (member: CompanyMember, input: { name: string; role: string }) => void | Promise<void>;
+  onDeactivateCompanyMember?: (member: CompanyMember) => void | Promise<void>;
+  activeCompanyMembers?: CompanyMember[];
+  activeMembersLoading?: boolean;
+  activeMembersLoadError?: string;
+  companyMemberEditing?: boolean;
+  currentUserRole?: Role;
+  currentUserEmail?: string;
   onResyncUsers: () => void;
   onSelectSite: (siteId: string) => void;
   onAddSite: () => void;
@@ -82,6 +93,14 @@ export function GodmodeUserManagementSection({
   onResendInvite,
   onDeleteInvite,
   onRemoveCompanyUser,
+  onUpdateCompanyMember,
+  onDeactivateCompanyMember,
+  activeCompanyMembers = [],
+  activeMembersLoading = false,
+  activeMembersLoadError,
+  companyMemberEditing = false,
+  currentUserRole = "Master",
+  currentUserEmail,
   onResyncUsers,
   onSelectSite,
   onAddSite,
@@ -235,6 +254,48 @@ export function GodmodeUserManagementSection({
               );
             })}
         </div>
+      </div>
+
+      <div className={pilotLightNested}>
+        <p className="text-sm font-semibold text-slate-900">Active users</p>
+        {activeMembersLoadError ? (
+          <p className="mt-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
+            Could not load active users from the company workbook.
+          </p>
+        ) : null}
+        {activeMembersLoading && activeCompanyMembers.length === 0 ? (
+          <EmptyPanel title="Loading active users…" text="Reading the company Users tab." />
+        ) : activeCompanyMembers.length === 0 ? (
+          <EmptyPanel title="No active users yet" text="Active users appear here after invite setup completes." />
+        ) : (
+          <div className="mt-3 space-y-2">
+            {activeCompanyMembers.map((member) => (
+              <ActiveUserCard
+                key={member.email}
+                member={member}
+                currentUserRole={currentUserRole}
+                currentUserEmail={currentUserEmail}
+                editing={companyMemberEditing}
+                slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+                onEdit={(target, input) => onUpdateCompanyMember?.(target, input)}
+                onDeactivate={(target) => onDeactivateCompanyMember?.(target)}
+                onRemove={
+                  canManageCompanyMembers(currentUserRole)
+                    ? (target) =>
+                        onRemoveCompanyUser({
+                          id: `active-${target.email}`,
+                          email: target.email,
+                          role: target.role as Role,
+                          status: "Active",
+                          invitedBy: "Godmode",
+                          sentAt: "",
+                        })
+                    : undefined
+                }
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       <div className={pilotLightNested}>
