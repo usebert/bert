@@ -21,17 +21,18 @@ const userService = read("server/company-user-service.mjs");
 const coreRoutes = read("server/core-workflow-routes.mjs");
 const companyUserServiceTs = read("src/services/companyUserService.ts");
 const panel = read("src/components/admin/UsersInvitesPilotPanel.tsx");
+const diagnosticsPanel = read("src/components/CompanyMembersDiagnosticsPanel.tsx");
 const pkg = JSON.parse(read("package.json"));
 
 const REASON_CODES = [
   "MISSING_COMPANY_CONTEXT",
-  "COMPANY_NOT_FOUND",
+  "MISSING_COMPANY_FOLDER_ID",
   "MISSING_MASTER_SHEET_ID",
+  "WORKBOOK_NOT_FOUND",
   "USERS_TAB_MISSING",
   "USERS_TAB_READ_FAILED",
   "GOOGLE_AUTH_FAILED",
-  "GOOGLE_SHEETS_PERMISSION_DENIED",
-  "PERMISSION_DENIED",
+  "GOOGLE_PERMISSION_DENIED",
   "INVALID_COMPANY_ID",
 ];
 
@@ -40,8 +41,9 @@ const REASON_CODES = [
   assert(coreRoutes.includes('code: "COMPANY_USERS_LOAD_FAILED"'), "1: route returns COMPANY_USERS_LOAD_FAILED");
   assert(coreRoutes.includes("reasonCode: result.reasonCode"), "1b: route forwards reasonCode");
   assert(coreRoutes.includes("diagnostics: result.diagnostics"), "1c: route forwards diagnostics");
-  assert(userService.includes('code: COMPANY_USERS_LOAD_FAILED'), "1d: service uses COMPANY_USERS_LOAD_FAILED");
-  assert(userService.includes("reasonCode"), "1e: service sets reasonCode");
+  assert(coreRoutes.includes("Could not load company users."), "1d: route user-facing message");
+  assert(userService.includes('code: COMPANY_USERS_LOAD_FAILED'), "1e: service uses COMPANY_USERS_LOAD_FAILED");
+  assert(userService.includes("reasonCode"), "1f: service sets reasonCode");
 }
 
 /** 2: All reason codes are implemented in the service. */
@@ -90,8 +92,12 @@ for (const code of REASON_CODES) {
   assert(companyUserServiceTs.includes("buildLoadErrorDetail"), "6b: client builds technical detail");
   assert(companyUserServiceTs.includes("failedStep"), "6c: client detail includes failedStep");
   assert(panel.includes("activeMembersLoadErrorDetail"), "6d: panel receives error detail");
-  assert(panel.includes("isDebugUiAllowed"), "6e: dev diagnostics gate");
-  assert(panel.includes("COMPANY_MEMBERS_USER_MESSAGE"), "6f: normal user message constant");
+  assert(panel.includes("activeMembersLoadDiagnostics"), "6e: panel receives structured diagnostics");
+  assert(panel.includes("CompanyMembersDiagnosticsPanel"), "6f: collapsible diagnostics panel");
+  assert(diagnosticsPanel.includes("useState(false)"), "6g: diagnostics collapsed by default");
+  assert(panel.includes("isDebugUiAllowed"), "6h: dev diagnostics gate");
+  assert(panel.includes("COMPANY_MEMBERS_USER_MESSAGE"), "6i: normal user message constant");
+  assert(panel.includes("canShowTechnicalUi(currentUser.role)"), "6j: godmode gates diagnostics");
 }
 
 /** 7: npm script registered. */

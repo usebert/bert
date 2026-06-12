@@ -31,6 +31,88 @@ export function buildCompanySessionPayload({
   });
 }
 
+/** API session shape for company users — never includes PasswordHash. */
+export function buildCompanySessionApiResponse(input = {}) {
+  const email = String(input.email || "").trim().toLowerCase();
+  const companyFolderId = String(input.companyFolderId || input.companyId || "").trim();
+  const companyId = String(input.companyId || companyFolderId).trim();
+  const companyName = String(input.companyName || "").trim();
+  const masterSheetId = String(input.masterSheetId || "").trim();
+  return {
+    ok: true,
+    user: {
+      email,
+      name: String(input.name || email).trim() || email,
+      role: input.role || "Admin",
+      accessLevel: String(input.accessLevel || "").trim(),
+      companyAreas: Array.isArray(input.companyAreas) ? input.companyAreas : [],
+    },
+    company: {
+      companyId,
+      companyFolderId: companyFolderId || companyId,
+      companyName,
+      masterSheetId,
+      registryStatus: String(input.registryStatus || "").trim() || undefined,
+      status: input.status,
+      live: input.live,
+      needsAttention: input.needsAttention,
+      setupBlockers: input.setupBlockers,
+    },
+    email,
+    name: String(input.name || email).trim() || email,
+    role: input.role || "Admin",
+    accessLevel: String(input.accessLevel || "").trim(),
+    companyId,
+    companyFolderId: companyFolderId || companyId,
+    companyName,
+    masterSheetId,
+    selectedCompanyName: companyName || undefined,
+  };
+}
+
+/** API session shape for Godmode — selected company fields optional. */
+export function buildMasterSessionApiResponse(input = {}) {
+  const email = String(input.email || "").trim().toLowerCase();
+  const name = String(input.name || email).trim() || email;
+  const companyFolderId = String(input.companyFolderId || input.companyId || "").trim();
+  const companyId = String(input.companyId || companyFolderId).trim();
+  const companyName = String(input.companyName || input.selectedCompanyName || "").trim();
+  const masterSheetId = String(input.masterSheetId || "").trim();
+  const selectedCompanyName = String(input.selectedCompanyName || companyName).trim();
+  return {
+    ok: true,
+    operator: { email, name },
+    user: {
+      email,
+      name,
+      role: "Master",
+      accessLevel: "Godmode",
+    },
+    email,
+    name,
+    role: "Master",
+    accessLevel: "Godmode",
+    companyId: companyId || undefined,
+    companyFolderId: companyFolderId || companyId || undefined,
+    companyName: companyName || undefined,
+    masterSheetId: masterSheetId || undefined,
+    selectedCompanyName: selectedCompanyName || undefined,
+  };
+}
+
+export function buildMasterSessionPayload(input = {}) {
+  return JSON.stringify({
+    v: 1,
+    email: String(input.email || "").trim().toLowerCase(),
+    name: String(input.name || input.email || "").trim(),
+    companyId: String(input.companyId || input.companyFolderId || "").trim() || undefined,
+    companyFolderId: String(input.companyFolderId || input.companyId || "").trim() || undefined,
+    companyName: String(input.companyName || input.selectedCompanyName || "").trim() || undefined,
+    masterSheetId: String(input.masterSheetId || "").trim() || undefined,
+    selectedCompanyName: String(input.selectedCompanyName || input.companyName || "").trim() || undefined,
+  });
+}
+
 /**
  * Probe workbook Users tab for login — ACTIVE row + PasswordHash only.
  */

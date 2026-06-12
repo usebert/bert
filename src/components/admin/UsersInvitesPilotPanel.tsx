@@ -6,6 +6,7 @@ import {
 } from "../../services/companyUserService";
 import { isDebugUiAllowed } from "../../utils/debugUiVisibility";
 import { canShowTechnicalUi } from "../../utils/uxDeclutter";
+import { CompanyMembersDiagnosticsPanel } from "../CompanyMembersDiagnosticsPanel";
 import {
   canCreateCompanyInvite,
   canRevokeInvite,
@@ -350,6 +351,8 @@ export type UsersInvitesPilotPanelProps = Pick<
   | "activeMembersLoading"
   | "activeMembersLoadError"
   | "activeMembersLoadErrorDetail"
+  | "activeMembersLoadReasonCode"
+  | "activeMembersLoadDiagnostics"
   | "activeMembersWarning"
   | "sites"
   | "selectedSiteId"
@@ -420,6 +423,8 @@ export function UsersInvitesPilotPanel({
   activeMembersLoading = false,
   activeMembersLoadError,
   activeMembersLoadErrorDetail,
+  activeMembersLoadReasonCode,
+  activeMembersLoadDiagnostics,
   activeMembersWarning,
   sites,
   selectedSiteId,
@@ -657,11 +662,19 @@ export function UsersInvitesPilotPanel({
         {activeMembersLoadError ? (
           <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
             <p className="text-sm font-semibold text-rose-900">Could not load active users</p>
-            <p className="mt-1 text-sm text-rose-800">
-              {canShowTechnicalUi(currentUser.role) || isDebugUiAllowed()
-                ? activeMembersLoadErrorDetail || activeMembersLoadError
-                : COMPANY_MEMBERS_USER_MESSAGE}
-            </p>
+            <p className="mt-1 text-sm text-rose-800">{COMPANY_MEMBERS_USER_MESSAGE}</p>
+            {canShowTechnicalUi(currentUser.role) || isDebugUiAllowed() ? (
+              <>
+                {activeMembersLoadErrorDetail ? (
+                  <p className="mt-2 text-xs text-rose-900">{activeMembersLoadErrorDetail}</p>
+                ) : null}
+                <CompanyMembersDiagnosticsPanel
+                  reasonCode={activeMembersLoadReasonCode}
+                  diagnostics={activeMembersLoadDiagnostics}
+                  detail={activeMembersLoadErrorDetail}
+                />
+              </>
+            ) : null}
           </div>
         ) : null}
         {activeMembersWarning && (canShowTechnicalUi(currentUser.role) || isDebugUiAllowed()) ? (

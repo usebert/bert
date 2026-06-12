@@ -52,6 +52,7 @@
     "verify:api-json-contract": "node scripts/verify-api-json-contract.mjs",
     "verify:company-members": "node scripts/verify-company-members.mjs",
     "verify:company-members-diagnostics": "node scripts/verify-company-members-diagnostics.mjs",
+    "verify:company-context-ui": "node scripts/verify-company-context-ui.mjs",
     "verify:users-tab-reader": "node scripts/verify-users-tab-reader.mjs",
     "verify:godmode-company-members": "node scripts/verify-godmode-company-members.mjs",
     "verify:schedule-assignees": "node scripts/verify-schedule-assignees.mjs",

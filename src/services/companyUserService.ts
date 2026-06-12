@@ -78,6 +78,7 @@ export type FetchCompanyMembersResult = {
   warning?: string;
   loadError?: string;
   loadErrorDetail?: string;
+  reasonCode?: string;
   diagnostics?: CompanyMembersDiagnostics;
 };
 
@@ -155,6 +156,7 @@ export async function fetchCompanyMembers(
       members: [],
       loadError: COMPANY_MEMBERS_USER_MESSAGE,
       loadErrorDetail: transportDetail || COMPANY_MEMBERS_USER_MESSAGE,
+      reasonCode: result.code,
     };
   }
 
@@ -170,6 +172,7 @@ export async function fetchCompanyMembers(
         diagnostics,
         payload.message || payload.error || payload.technicalError,
       ),
+      reasonCode: payload.reasonCode || payload.code,
       diagnostics,
     };
   }

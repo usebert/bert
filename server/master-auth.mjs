@@ -8,6 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { getSessionCookieOptions } from "./session-cookie-options.mjs";
 import { normalizePlatformOwnerEmail } from "../shared/platform-owner.mjs";
+import { buildMasterSessionApiResponse, buildMasterSessionPayload } from "./auth-service.mjs";
 
 const STORE_FILENAME = "master-operators.json";
 const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
@@ -293,18 +294,63 @@ export function installMasterAuthRoutes(app, opts) {
     if (!passwordOk) {
       return res.status(401).json({ ok: false, error: "Sign in failed." });
     }
-    const payload = JSON.stringify({ email: op.email, name: op.name, v: 1 });
+    const payload = buildMasterSessionPayload({ email: op.email, name: op.name });
     res.cookie(MASTER_SESSION_COOKIE, payload, getSessionCookieOptions({ maxAge: MASTER_SESSION_MS }));
-    return res.json({
-      ok: true,
-      operator: { email: op.email, name: op.name },
-    });
+    return res.json(buildMasterSessionApiResponse({ email: op.email, name: op.name }));
   });
 
   app.post("/api/auth/master/logout", (req, res) => {
     console.log("[auth] master logout");
     res.clearCookie(MASTER_SESSION_COOKIE, getSessionCookieOptions());
     return res.json({ ok: true });
+  });
+
+  app.post("/api/auth/master/company-context", (req, res) => {
+    const raw = req.signedCookies?.[MASTER_SESSION_COOKIE];
+    if (!raw || typeof raw !== "string") {
+      return res.status(401).json({ ok: false, error: "No Master session." });
+    }
+    try {
+      const data = JSON.parse(raw);
+      if (!data?.email || data.v !== 1) {
+        return res.status(401).json({ ok: false, error: "Invalid session." });
+      }
+      const found = findOperatorByIdentity(sessionDir, data.email);
+      const op = found?.operator;
+      if (!op) {
+        res.clearCookie(MASTER_SESSION_COOKIE, getSessionCookieOptions());
+        return res.status(401).json({ ok: false, error: "Operator removed." });
+      }
+
+      const companyFolderId = String(req.body?.companyFolderId || req.body?.companyId || "").trim();
+      const companyName = String(req.body?.companyName || req.body?.selectedCompanyName || "").trim();
+      const masterSheetId = String(req.body?.masterSheetId || "").trim();
+      const selectedCompanyName = companyName;
+
+      const nextPayload = buildMasterSessionPayload({
+        email: op.email,
+        name: op.name,
+        companyId: companyFolderId,
+        companyFolderId,
+        companyName,
+        masterSheetId,
+        selectedCompanyName,
+      });
+      res.cookie(MASTER_SESSION_COOKIE, nextPayload, getSessionCookieOptions({ maxAge: MASTER_SESSION_MS }));
+      return res.json(
+        buildMasterSessionApiResponse({
+          email: op.email,
+          name: op.name,
+          companyId: companyFolderId,
+          companyFolderId,
+          companyName,
+          masterSheetId,
+          selectedCompanyName,
+        }),
+      );
+    } catch {
+      return res.status(401).json({ ok: false, error: "Invalid session." });
+    }
   });
 
   app.get("/api/auth/master/session", (req, res) => {
@@ -323,10 +369,17 @@ export function installMasterAuthRoutes(app, opts) {
         res.clearCookie(MASTER_SESSION_COOKIE, getSessionCookieOptions());
         return res.status(401).json({ ok: false, error: "Operator removed." });
       }
-      return res.json({
-        ok: true,
-        operator: { email: op.email, name: op.name },
-      });
+      return res.json(
+        buildMasterSessionApiResponse({
+          email: op.email,
+          name: op.name,
+          companyId: data.companyId,
+          companyFolderId: data.companyFolderId,
+          companyName: data.companyName,
+          masterSheetId: data.masterSheetId,
+          selectedCompanyName: data.selectedCompanyName || data.companyName,
+        }),
+      );
     } catch {
       return res.status(401).json({ ok: false, error: "Invalid session." });
     }

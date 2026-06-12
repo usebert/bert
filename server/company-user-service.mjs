@@ -20,6 +20,7 @@ import {
 } from "./company-user-sheet-flow.mjs";
 
 const COMPANY_USERS_LOAD_FAILED = "COMPANY_USERS_LOAD_FAILED";
+const COMPANY_USERS_USER_MESSAGE = "Could not load company users.";
 
 function pickRowValue(row, ...keys) {
   if (!row || typeof row !== "object") {
@@ -96,8 +97,8 @@ function buildFailure(reasonCode, message, diagnostics = {}, extra = {}) {
     ok: false,
     code: COMPANY_USERS_LOAD_FAILED,
     reasonCode,
-    message,
-    error: message,
+    message: message || COMPANY_USERS_USER_MESSAGE,
+    error: message || COMPANY_USERS_USER_MESSAGE,
     httpStatus: extra.httpStatus || 400,
     diagnostics: buildDiagnostics(diagnostics),
     technicalError: extra.technicalError,
@@ -117,7 +118,7 @@ function classifyReadError(error, payload) {
     lower.includes("permission")
   ) {
     return {
-      reasonCode: "GOOGLE_SHEETS_PERMISSION_DENIED",
+      reasonCode: "GOOGLE_PERMISSION_DENIED",
       failedStep: "read_users_tab",
       upstreamStatus: upstreamStatus || 403,
       upstreamMessage: message,
@@ -142,6 +143,19 @@ function classifyReadError(error, payload) {
       failedStep: "read_users_tab",
       upstreamStatus: upstreamStatus || undefined,
       upstreamMessage: message,
+    };
+  }
+  if (
+    code === "MASTER_SHEET_UNAVAILABLE" ||
+    upstreamStatus === 404 ||
+    lower.includes("not found") ||
+    lower.includes("requested entity was not found")
+  ) {
+    return {
+      reasonCode: "WORKBOOK_NOT_FOUND",
+      failedStep: "read_users_tab",
+      upstreamStatus: upstreamStatus || 404,
+      upstreamMessage: message || String(payload?.error || ""),
     };
   }
   return {
@@ -246,9 +260,9 @@ async function resolveMasterSheetFromFolder(auth, deps, companyFolderId, company
         return { ok: false, reasonCode: "MISSING_MASTER_SHEET_ID", resolved };
       }
       if (reasonCode === "COMPANY_FOLDER_MISSING" || reasonCode === "COMPANY_FOLDER_INVALID") {
-        return { ok: false, reasonCode: "COMPANY_NOT_FOUND", resolved };
+        return { ok: false, reasonCode: "MISSING_COMPANY_FOLDER_ID", resolved };
       }
-      return { ok: false, reasonCode: "COMPANY_NOT_FOUND", resolved };
+      return { ok: false, reasonCode: "WORKBOOK_NOT_FOUND", resolved };
     }
     return {
       ok: true,
@@ -258,7 +272,7 @@ async function resolveMasterSheetFromFolder(auth, deps, companyFolderId, company
   } catch (error) {
     return {
       ok: false,
-      reasonCode: "COMPANY_NOT_FOUND",
+      reasonCode: "WORKBOOK_NOT_FOUND",
       error,
     };
   }
@@ -301,7 +315,7 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
   if (!companyFolderId) {
     return buildFailure(
       "MISSING_COMPANY_CONTEXT",
-      "Company workspace is not selected.",
+      COMPANY_USERS_USER_MESSAGE,
       { ...baseDiagnostics(), failedStep: "select_company" },
       { httpStatus: 404 },
     );
@@ -337,19 +351,23 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
       const reasonCode = folderResolved.reasonCode || "MISSING_MASTER_SHEET_ID";
       return buildFailure(
         reasonCode,
-        reasonCode === "COMPANY_NOT_FOUND"
-          ? "Company workspace could not be found."
-          : "Company master sheet is not configured.",
+        COMPANY_USERS_USER_MESSAGE,
         {
           ...baseDiagnostics(),
           companyName,
-          failedStep: reasonCode === "COMPANY_NOT_FOUND" ? "resolve_company_folder" : "link_master_sheet",
+          failedStep:
+            reasonCode === "MISSING_COMPANY_FOLDER_ID"
+              ? "resolve_company_folder"
+              : reasonCode === "WORKBOOK_NOT_FOUND"
+                ? "resolve_company_folder"
+                : "link_master_sheet",
           upstreamMessage:
             folderResolved.resolved?.userMessage ||
             (folderResolved.error instanceof Error ? folderResolved.error.message : String(folderResolved.error || "")),
         },
         {
-          httpStatus: reasonCode === "COMPANY_NOT_FOUND" ? 404 : 404,
+          httpStatus:
+            reasonCode === "MISSING_COMPANY_FOLDER_ID" || reasonCode === "WORKBOOK_NOT_FOUND" ? 404 : 404,
           technicalError: isDevDiagnosticsEnabled()
             ? folderResolved.resolved?.userMessage || String(folderResolved.error || "")
             : undefined,
@@ -434,7 +452,7 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
     const technicalError = error instanceof Error ? error.message : String(error);
     const failure = buildFailure(
       classified.reasonCode,
-      "Could not load users from the company workbook.",
+      COMPANY_USERS_USER_MESSAGE,
       {
         companyId: resolvedCompanyId,
         companyFolderId: resolvedCompanyId,
@@ -450,6 +468,7 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
       },
       {
         httpStatus:
+          classified.reasonCode === "GOOGLE_PERMISSION_DENIED" ||
           classified.reasonCode === "GOOGLE_SHEETS_PERMISSION_DENIED" ||
           classified.reasonCode === "PERMISSION_DENIED"
             ? 403

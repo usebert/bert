@@ -80,6 +80,7 @@ import { getGreetingFirstName, getTimeBasedGreeting, getUserInitials } from "./s
 import { isDebugUiAllowed } from "./src/utils/debugUiVisibility";
 import { AccountIdentitySummary } from "./src/components/AccountIdentitySummary";
 import { UX_STATUS, canShowTechnicalUi, resolveUserEmail } from "./src/utils/uxDeclutter";
+import { resolveHeaderRoleLabel, resolveHeaderWorkingOn } from "./src/utils/headerCompanyContext";
 import { useTabletKiosk } from "./src/hooks/useTabletKiosk";
 import { isTabletKioskEnabled } from "./src/utils/tabletKioskStorage";
 import { AuditorTaskDashboard } from "./src/components/dashboard/AuditorTaskDashboard";
@@ -127,6 +128,7 @@ import {
   updateCompanyMember,
   writeCompanyMembersCache,
   type CompanyMember,
+  type CompanyMembersDiagnostics,
 } from "./src/services/companyUserService";
 import {
   filterLiveOpenActions,
@@ -148,6 +150,7 @@ import { filterCustomerFacingCompanies } from "./src/utils/systemTemplateCompany
 import {
   clearGodmodeSelectedCompanyFolderId,
   readGodmodeSelectedCompanyFolderId,
+  syncMasterCompanyContextToSession,
   writeGodmodeSelectedCompanyFolderId,
 } from "./src/utils/godmodeCompanyContext";
 import {
@@ -3546,6 +3549,8 @@ function App() {
     members: CompanyMember[];
     loadError?: string;
     loadErrorDetail?: string;
+    loadReasonCode?: string;
+    loadDiagnostics?: CompanyMembersDiagnostics;
     warning?: string;
     loading: boolean;
   }>({ members: [], loading: false });
@@ -4576,6 +4581,26 @@ function App() {
     return workspaceName;
   }, [currentUser, godCompanySetupOnlyShell, masterPlatformHeaderScope, selectedFolder, workspaceName]);
 
+  const headerWorkingOn = useMemo(() => {
+    if (!currentUser || godCompanySetupOnlyShell) {
+      return null;
+    }
+    if (masterPlatformHeaderScope) {
+      return resolveHeaderWorkingOn({ role: "Master", companyName: "", companyFolderId: "" });
+    }
+    return resolveHeaderWorkingOn({
+      role: currentUser.role,
+      companyName: activeCompanyContext.companyName,
+      companyFolderId: activeCompanyContext.companyFolderId,
+    });
+  }, [
+    currentUser,
+    godCompanySetupOnlyShell,
+    masterPlatformHeaderScope,
+    activeCompanyContext.companyName,
+    activeCompanyContext.companyFolderId,
+  ]);
+
   const creatableRoles = useMemo(
     () => (currentUser ? getCreatableRoles(currentUser.role) : []),
     [currentUser],
@@ -5270,7 +5295,19 @@ function App() {
         });
 
         if (!result.ok) {
-          throw new Error(result.loadErrorDetail || result.loadError || COMPANY_MEMBERS_USER_MESSAGE);
+          if (cancelled) {
+            return;
+          }
+          setCompanyUsersTabRows([]);
+          setCompanyMembersState({
+            members: [],
+            loadError: result.loadError || COMPANY_MEMBERS_USER_MESSAGE,
+            loadErrorDetail: result.loadErrorDetail,
+            loadReasonCode: result.reasonCode,
+            loadDiagnostics: result.diagnostics,
+            loading: false,
+          });
+          return;
         }
 
         writeCompanyMembersCache(storageKeys.companyMembersCache, {
@@ -10077,6 +10114,7 @@ function App() {
         clearGodmodeSelectedCompanyFolderId();
         clearCompanyWorkspaceLocalStateForGodmodeSwitch();
         clearActiveCompanyWorkspaceState();
+        void syncMasterCompanyContextToSession({});
         setScreen("godmodeHome");
       }
       setSelectedFolderId("");
@@ -10103,6 +10141,11 @@ function App() {
         clearActiveCompanyWorkspaceState();
       }
       writeGodmodeSelectedCompanyFolderId(folder.id);
+      void syncMasterCompanyContextToSession({
+        companyFolderId: folder.id,
+        companyName: folder.name,
+        masterSheetId: folder.masterSheetId || folder.responseSheetId || "",
+      });
     } else if (trimmedId !== selectedFolderId) {
       clearActiveCompanyWorkspaceState();
     }
@@ -10385,6 +10428,11 @@ function App() {
       }
 
       writeGodmodeSelectedCompanyFolderId(folder.id);
+      void syncMasterCompanyContextToSession({
+        companyFolderId: folder.id,
+        companyName: folder.name,
+        masterSheetId: folder.masterSheetId || folder.responseSheetId || "",
+      });
       setSelectedFolderId(trimmedId);
       setFolderIdInput(trimmedId);
       setMasterSheetInput(knownSheetId);
@@ -12966,12 +13014,18 @@ function App() {
                   </div>
                 ) : masterPlatformHeaderScope ? (
                   <p className={["mt-0.5 text-[11px] font-medium", themeMode === "dark" ? "text-slate-400" : "text-slate-500"].join(" ")}>All workspaces</p>
-                ) : currentUser.role === "Master" && selectedFolder && screen !== "godmodeHome" ? (
+                ) : headerWorkingOn ? (
                   <p className={["mt-0.5 text-[11px] font-medium", themeMode === "dark" ? "text-slate-400" : "text-slate-500"].join(" ")}>
-                    Working on:{" "}
-                    <span className={["font-semibold", themeMode === "dark" ? "text-slate-200" : "text-slate-700"].join(" ")}>
-                      {selectedFolder.name}
-                    </span>
+                    {headerWorkingOn.hasCompany ? (
+                      <>
+                        Working on:{" "}
+                        <span className={["font-semibold", themeMode === "dark" ? "text-slate-200" : "text-slate-700"].join(" ")}>
+                          {headerWorkingOn.companyLabel}
+                        </span>
+                      </>
+                    ) : (
+                      headerWorkingOn.workingOnLine
+                    )}
                   </p>
                 ) : null}
               </div>
@@ -12996,7 +13050,7 @@ function App() {
                     Help
                   </button>
                 ) : null}
-                <div className="hidden min-w-0 text-right sm:block">
+                <div className="min-w-0 text-right">
                   <p className={["truncate text-sm font-semibold", themeMode === "dark" ? "text-white" : "text-slate-900"].join(" ")}>
                     {currentUserAppName || currentUser.name}
                   </p>
@@ -13007,7 +13061,7 @@ function App() {
                   ) : null}
                   {roleTheme ? (
                     <span className={["mt-0.5 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold", roleTheme.badge].join(" ")}>
-                      {currentUser.role === "Master" ? "Godmode" : roleTheme.badgeShort}
+                      {resolveHeaderRoleLabel(currentUser.role)}
                     </span>
                   ) : null}
                 </div>
@@ -13042,10 +13096,10 @@ function App() {
               <div className={["mt-1.5 hidden flex-wrap items-center gap-2 text-[10px] md:flex", themeMode === "dark" ? "text-slate-400" : "text-slate-500"].join(" ")}>
                 {masterPlatformHeaderScope ? (
                   <span className={["font-medium", themeMode === "dark" ? "text-slate-300" : "text-slate-600"].join(" ")}>Platform · All workspaces</span>
-                ) : selectedFolder ? (
-                  <span className={["font-medium", themeMode === "dark" ? "text-slate-300" : "text-slate-600"].join(" ")}>Workspace · {selectedFolder.name}</span>
-                ) : currentUser.role !== "Master" ? (
-                  <span className={["font-medium", themeMode === "dark" ? "text-slate-300" : "text-slate-600"].join(" ")}>{workspaceName}</span>
+                ) : headerWorkingOn ? (
+                  <span className={["font-medium", themeMode === "dark" ? "text-slate-300" : "text-slate-600"].join(" ")}>
+                    {headerWorkingOn.workingOnLine}
+                  </span>
                 ) : null}
                 {showHeaderSiteSelector ? (
                   <select
@@ -13193,8 +13247,12 @@ function App() {
                     username={currentUser.username}
                     email={currentUser.email}
                     role={currentUser.role}
-                    companyName={currentUser.role === "Master" ? undefined : workspaceName}
-                    actingCompanyName={currentUser.role === "Master" ? selectedFolder?.name : undefined}
+                    companyName={currentUser.role === "Master" ? undefined : activeCompanyContext.companyName || workspaceName}
+                    actingCompanyName={
+                      currentUser.role === "Master"
+                        ? activeCompanyContext.companyName || selectedFolder?.name
+                        : undefined
+                    }
                     compact
                     tone="onDark"
                   />
@@ -14045,6 +14103,8 @@ function App() {
                 activeMembersLoading={companyMembersState.loading}
                 activeMembersLoadError={companyMembersState.loadError}
                 activeMembersLoadErrorDetail={companyMembersState.loadErrorDetail}
+                activeMembersLoadReasonCode={companyMembersState.loadReasonCode}
+                activeMembersLoadDiagnostics={companyMembersState.loadDiagnostics}
                 activeMembersWarning={companyMembersState.warning}
                 userSiteAssignments={displayUserSiteAssignments}
                 onToggleUserSiteAssignment={handleToggleUserSiteAssignment}
@@ -14269,8 +14329,14 @@ function App() {
                 accountNameInput={accountNameInput}
                 accountPhotoUrl={accountPhotoUrl}
                 themeMode={themeMode}
-                companyName={workspaceName}
-                actingCompanyName={currentUser.role === "Master" ? selectedFolder?.name : undefined}
+                companyName={
+                  currentUser.role === "Master"
+                    ? activeCompanyContext.companyName || selectedFolder?.name || workspaceName
+                    : activeCompanyContext.companyName || workspaceName
+                }
+                actingCompanyName={
+                  currentUser.role === "Master" ? activeCompanyContext.companyName || selectedFolder?.name : undefined
+                }
                 slatePrimaryCtaInteract={slatePrimaryCtaInteract}
                 onAccountNameChange={setAccountNameInput}
                 onAccountPhotoChange={handleAccountPhotoChange}

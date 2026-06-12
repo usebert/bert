@@ -385,7 +385,7 @@ export function installCoreWorkflowRoutes(app, deps) {
         return res.status(result.httpStatus || 400).json({
           ok: false,
           code: result.code || "COMPANY_USERS_LOAD_FAILED",
-          message: result.message || result.error,
+          message: result.message || "Could not load company users.",
           reasonCode: result.reasonCode,
           diagnostics: result.diagnostics,
           technicalError: result.technicalError,
@@ -408,7 +408,7 @@ export function installCoreWorkflowRoutes(app, deps) {
       return res.status(500).json({
         ok: false,
         code: "COMPANY_USERS_LOAD_FAILED",
-        message: "Could not load users from the company workbook.",
+        message: "Could not load company users.",
         reasonCode: "USERS_TAB_READ_FAILED",
         diagnostics: {
           companyId: companyFolderId || companyId || undefined,

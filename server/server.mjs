@@ -106,6 +106,7 @@ import { installCoreWorkflowRoutes } from "./core-workflow-routes.mjs";
 import { assertCompanyInviteReady } from "./company-invite-readiness.mjs";
 import { enrichCompanyContextFromRegistry as enrichCompanyContextFromRegistryService } from "./company-context-service.mjs";
 import {
+  buildCompanySessionApiResponse,
   buildCompanySessionPayload,
   performCompanyLogin,
   probeCompanyLoginSheet as probeCompanyLoginSheetCore,
@@ -6735,22 +6736,20 @@ app.get("/api/auth/company/session", async (req, res) => {
     const companyIdFromSession = String(data.companyId || "").trim();
     const companyNameFromSession = String(data.companyName || "").trim();
     if (!envConfigured()) {
-      return res.json({
-        ok: true,
-        user: {
+      const companyFolderId = companyIdFromSession;
+      return res.json(
+        buildCompanySessionApiResponse({
           email: data.email,
           role: data.role || "Admin",
           name: data.name || data.email,
           accessLevel: data.accessLevel || "",
           companyAreas: sessionCompanyAreas,
-        },
-        company: {
-          companyId: companyIdFromSession,
+          companyId: companyFolderId,
+          companyFolderId,
           companyName: companyNameFromSession,
           masterSheetId: String(data.masterSheetId || "").trim(),
-          registryStatus: "",
-        },
-      });
+        }),
+      );
     }
     const auth = getAuthedClient();
     if (!auth) {
@@ -6801,17 +6800,16 @@ app.get("/api/auth/company/session", async (req, res) => {
       masterSheetId,
       registryStatus,
     });
-    return res.json({
-      ok: true,
-      user: {
+    const sessionCompanyId = enrichedContext.companyFolderId || enrichedContext.companyId || companyId;
+    return res.json(
+      buildCompanySessionApiResponse({
         email: data.email,
         role: rec.role,
         name: rec.name,
         accessLevel: rec.accessLevel || data.accessLevel || "",
         companyAreas: rec.companyAreas?.length ? rec.companyAreas : sessionCompanyAreas,
-      },
-      company: {
-        companyId: enrichedContext.companyFolderId || enrichedContext.companyId || companyId,
+        companyId: sessionCompanyId,
+        companyFolderId: sessionCompanyId,
         companyName: enrichedContext.companyName || companyNameFromSession,
         masterSheetId,
         registryStatus,
@@ -6819,8 +6817,8 @@ app.get("/api/auth/company/session", async (req, res) => {
         live: isCompanyRegistryLive({ status: registryStatus, registryStatus }),
         needsAttention: readiness.needsAttention,
         setupBlockers: readiness.setupBlockers,
-      },
-    });
+      }),
+    );
   } catch (error) {
     console.error("[company-auth] session read failed:", error);
     return res.status(401).json({ ok: false, error: "Session invalid." });
