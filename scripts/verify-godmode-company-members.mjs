@@ -49,6 +49,13 @@ const pkg = JSON.parse(read("package.json"));
   assert(!panel.includes("Could not load company users. Try again."), "4c: no admin user-message copy in godmode panel");
 }
 
+/** 4d: Godmode active users management cards. */
+{
+  const godmodeUsers = read("src/components/godmode/GodmodeUserManagementSection.tsx");
+  assert(godmodeUsers.includes("ActiveUserCard"), "4d: godmode active user cards");
+  assert(godmodeUsers.includes("onUpdateCompanyMember"), "4e: godmode edit handler");
+}
+
 /** 5: PasswordHash never returned from list path. */
 {
   assert(userService.includes("sanitizeUsersTabRecords"), "5: sanitize on list");
