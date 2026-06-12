@@ -47,6 +47,7 @@ const makeUsable = read("server/godmode-registry-actions.mjs");
 const panel = read("src/components/godmode/GodmodeCompanyWorkspacePanel.tsx");
 const setupState = read("src/utils/companySetupState.ts");
 const serverMain = read("server/server.mjs");
+const appTsx = read("App.tsx");
 const pkg = JSON.parse(read("package.json"));
 
 // ─── CompanyFolderResolver ───────────────────────────────────────────────────
@@ -154,6 +155,8 @@ assert(
   "29g: registry invalidates rows outside Companies root",
 );
 assert(read("server/core-workflow-routes.mjs").includes("rejectCompanyApiIfFolderInvalid"), "29h: company APIs reject invalid folder");
+assert(read("src/utils/companyFolderContext.ts").includes("folderPlacementOk"), "29h2: frontend blocks usable when folder placement invalid");
+assert(appTsx.includes("companyLinkBlockedMessage"), "29h3: App blocks orphan company dashboard");
 assert(panel.includes("Under Live Companies"), "29i: godmode diagnostics show folder placement");
 assert(pkg.scripts["verify:company-folder-source-of-truth"], "30: npm script registered");
 

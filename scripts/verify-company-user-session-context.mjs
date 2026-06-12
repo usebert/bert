@@ -155,5 +155,9 @@ assert(
 assert(authService.includes("validateCompanyFolderPlacement"), "10: login validates company folder under Live Companies");
 assert(authService.includes("folder_not_in_companies_root"), "11: login rejects wrong Drive parent");
 assert(serverMain.includes("folderPlacementOk"), "12: session surfaces folder placement status");
+assert(authService.includes("folderPlacementOk"), "12b: session API exposes folder placement");
+assert(read("src/utils/companyFolderContext.ts").includes("folderPlacementOk"), "12c: frontend usable context requires folder placement");
+assert(appTsx.includes("companyLinkBlockedMessage"), "12d: App blocks dashboard when company link invalid");
+assert(appTsx.includes("FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE"), "12e: App shows folder placement deny message");
 
 console.log(`[verify:company-user-session-context] OK — ${caseCount} cases passed`);

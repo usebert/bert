@@ -5785,7 +5785,11 @@ function App() {
             companyName?: string;
             masterSheetId?: string;
             registryStatus?: string;
+            folderPlacementOk?: boolean;
+            reasonCode?: string;
           };
+          folderPlacementOk?: boolean;
+          reasonCode?: string;
         };
         if (!canRestoreAuthSession()) {
           return;
@@ -5809,32 +5813,54 @@ function App() {
           if (!canRestoreAuthSession()) {
             return;
           }
+          const folderPlacementOk = cp.folderPlacementOk ?? cp.company?.folderPlacementOk;
+          const companyLinkValid = isCompanyFolderLinkValid({ folderPlacementOk });
+          const linkBlockedMessage = companyLinkValid
+            ? ""
+            : FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE;
           setCurrentUser(companyUser);
+          setCompanyLinkBlockedMessage(linkBlockedMessage);
           setCompanyRegistryStatus(
-            getCanonicalCompanyStatus({
-              registryStatus: cp.company?.registryStatus,
-            }),
+            companyLinkValid
+              ? getCanonicalCompanyStatus({
+                  registryStatus: cp.company?.registryStatus,
+                })
+              : "",
           );
-          applyLinkedCompanyContext({
-            email: companyUser.username,
-            company: cp.company,
-            setSelectedFolderId,
-            setFolders: (updater) => setFolders((current) => updater(current)),
-            setFolderIdInput,
-            setFolderNameInput,
-            setMasterSheetInput,
-            setCompanyRegistryStatus,
-          });
-          clearGodmodeSelectedCompanyFolderId();
-          setLinkedCompanyContext({
-            companyId: cp.company?.companyId,
-            companyName: cp.company?.companyName,
-            masterSheetId: cp.company?.masterSheetId,
-            registryStatus: cp.company?.registryStatus,
-            role: cp.user?.role,
-            accessLevel: cp.user?.accessLevel,
-            companyAreas: Array.isArray(cp.user?.companyAreas) ? cp.user.companyAreas : undefined,
-          });
+          if (companyLinkValid && cp.company?.companyId) {
+            applyLinkedCompanyContext({
+              email: companyUser.username,
+              company: {
+                ...cp.company,
+                folderPlacementOk: true,
+              },
+              setSelectedFolderId,
+              setFolders: (updater) => setFolders((current) => updater(current)),
+              setFolderIdInput,
+              setFolderNameInput,
+              setMasterSheetInput,
+              setCompanyRegistryStatus,
+            });
+            clearGodmodeSelectedCompanyFolderId();
+            setLinkedCompanyContext({
+              companyId: cp.company?.companyId,
+              companyName: cp.company?.companyName,
+              masterSheetId: cp.company?.masterSheetId,
+              registryStatus: cp.company?.registryStatus,
+              folderPlacementOk: true,
+              role: cp.user?.role,
+              accessLevel: cp.user?.accessLevel,
+              companyAreas: Array.isArray(cp.user?.companyAreas) ? cp.user.companyAreas : undefined,
+            });
+          } else {
+            clearCompanyLoginHintForEmail(companyUser.email);
+            clearGodmodeSelectedCompanyFolderId();
+            setLinkedCompanyContext(null);
+            setSelectedFolderId("");
+            setFolderIdInput("");
+            setFolderNameInput("");
+            setMasterSheetInput("");
+          }
           setAccountNameInput(companyUser.name);
           setAccountPhotoUrl(getStoredProfilePhoto(companyUser));
           try {
@@ -7596,6 +7622,7 @@ function App() {
             companyName: loggedInCompany?.companyName,
             masterSheetId: resolvedSheetId,
             registryStatus: loggedInCompany?.registryStatus,
+            folderPlacementOk: true,
           },
           setSelectedFolderId,
           setFolders: (updater) => setFolders((current) => updater(current)),
@@ -7605,11 +7632,13 @@ function App() {
           setCompanyRegistryStatus,
         });
         clearGodmodeSelectedCompanyFolderId();
+        setCompanyLinkBlockedMessage("");
         setLinkedCompanyContext({
           companyId: loggedInCompany?.companyId,
           companyName: loggedInCompany?.companyName,
           masterSheetId: resolvedSheetId,
           registryStatus: loggedInCompany?.registryStatus,
+          folderPlacementOk: true,
           role: loggedInUser.role,
           accessLevel: loggedInUser.accessLevel,
           companyAreas: Array.isArray(loggedInUser.companyAreas) ? loggedInUser.companyAreas : undefined,
@@ -7724,6 +7753,10 @@ function App() {
       }
       if (blocker === "inactive") {
         pushToast("Sign in failed", "This account is inactive. Contact your company administrator.", "warning");
+        return;
+      }
+      if (blocker === "folder_not_in_companies_root") {
+        pushToast("Sign in failed", FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE, "warning");
         return;
       }
       pushToast("Sign in failed", companyLoginFailure.message, "warning");
@@ -8944,6 +8977,8 @@ function App() {
     setCurrentUser(null);
     setAccountNameInput("");
     setAccountPhotoUrl("");
+    setCompanyLinkBlockedMessage("");
+    setLinkedCompanyContext(null);
     setScreen("dashboard");
     setActiveAuditId(null);
     setResponses({});
@@ -12857,6 +12892,42 @@ function App() {
           <AndroidPilotBuildBadge className="pointer-events-none fixed bottom-3 left-0 right-0 z-30" />
           <ToastStack toasts={toasts} />
         </div>
+    );
+  }
+
+  if (currentUser && currentUser.role !== "Master" && companyLinkBlockedMessage) {
+    const blockedOuterClass = [
+      shellPreviewClass,
+      "flex min-h-[100dvh] w-full max-w-[100vw] flex-col items-center justify-center overflow-hidden px-4 py-6",
+      themeMode === "dark" ? `${qmsDarkShellGradient} text-slate-100` : `${qmsLightShellGradient} text-slate-900`,
+    ].join(" ");
+
+    return (
+      <div className={blockedOuterClass}>
+        <style>{appMotionStyles}</style>
+        <div
+          className={[
+            "w-full max-w-md rounded-[1.75rem] border p-6 text-center shadow-xl sm:p-8",
+            themeMode === "dark" ? "border-slate-800 bg-slate-950/90" : "border-slate-200 bg-white",
+          ].join(" ")}
+        >
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">No company linked</h1>
+          <p className="mt-3 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+            {companyLinkBlockedMessage}
+          </p>
+          <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
+            Working on: No company linked
+          </p>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className={`mt-6 h-11 w-full rounded-xl bg-gradient-to-r from-orange-400 to-orange-600 text-sm font-semibold text-slate-950 shadow-[0_10px_22px_rgba(249,115,22,0.22)] ${slatePrimaryCtaInteract}`}
+          >
+            Sign out
+          </button>
+        </div>
+        <ToastStack toasts={toasts} />
+      </div>
     );
   }
 
