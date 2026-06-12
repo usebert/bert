@@ -46,6 +46,18 @@ Pick one model per environment and keep **redirect URIs** and **`FRONTEND_URL`**
 6. **Custom domain** — Add **`app.usebert.co.uk`** (or use **`bert-app.onrender.com`** until DNS is ready).
 7. **Post-deploy verify** — Hard refresh `https://<spa-host>/setup/initial` (should load the app, not 404).
 
+### Confirm production picked up the latest commit
+
+When operators report “nothing is changing” after a fix, production is often still serving an older SPA or API build.
+
+1. **Note the target commit** — `git rev-parse HEAD` on the branch you merged (e.g. `cursor/onboarding-branding-polish`).
+2. **Redeploy both services on Render** (or your host):
+   - **Static Site (SPA)** — Manual Deploy → Deploy latest commit (build command `npm ci && npm run build`, publish `dist/`).
+   - **Web Service (API)** — Manual Deploy → Deploy latest commit (start `npm run start:api`).
+3. **Verify SPA build stamp** — Open `https://<spa-host>/build-meta.json` and confirm `gitSha` matches the target commit (first 7+ characters). Missing file means the SPA was not built with `npm run build` after `scripts/write-build-meta.mjs` was added.
+4. **Verify API behaviour** — `curl -sS https://<api-host>/api/health` then exercise the changed route (e.g. company login folder-placement gate or Godmode **Advanced diagnostics → Under Live Companies**).
+5. **Local check before push** — `npm run verify:company-folder-source-of-truth` and `npm run verify:live-core-paths` (when live URLs are configured).
+
 **GoDaddy DNS (app host):**
 
 - **CNAME** — Host **`app`** → Value your Render static site hostname (e.g. **`bert-app.onrender.com`**) or the target Render shows in the dashboard.
