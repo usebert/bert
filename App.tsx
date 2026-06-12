@@ -119,6 +119,10 @@ import {
   mergeLinkedCompanyFolder,
   type LinkedCompanyContextInput,
 } from "./src/utils/applyLinkedCompanyContext";
+import {
+  FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE,
+  isCompanyFolderLinkValid,
+} from "./src/utils/companyFolderContext";
 import { resolveActiveCompanyContext } from "./src/services/companyContextService";
 import {
   COMPANY_MEMBERS_LOAD_TIMEOUT_MS,
@@ -3538,6 +3542,7 @@ function App() {
   const [invitedUsers, setInvitedUsers] = useState<UserInvite[]>(storedWorkspaceState?.invitedUsers || []);
   const [companyUsersTabRows, setCompanyUsersTabRows] = useState<CompanyUsersTabRow[]>([]);
   const [linkedCompanyContext, setLinkedCompanyContext] = useState<LinkedCompanyContextInput | null>(null);
+  const [companyLinkBlockedMessage, setCompanyLinkBlockedMessage] = useState("");
   const [scheduleAssigneesState, setScheduleAssigneesState] = useState<{
     assignees: ScheduleAssigneeOption[];
     diagnostics?: ScheduleAssigneeDiagnostics;
@@ -4165,6 +4170,9 @@ function App() {
     if (!currentUser || currentUser.role === "Master") {
       return;
     }
+    if (companyLinkBlockedMessage) {
+      return;
+    }
     const hint = readCompanyLoginHint();
     if (!hint?.companyFolderId && !hint?.masterSheetId) {
       return;
@@ -4190,7 +4198,7 @@ function App() {
     if (hint.masterSheetId && !extractGoogleResourceId(masterSheetInput)) {
       setMasterSheetInput(hint.masterSheetId);
     }
-  }, [currentUser, selectedFolderId, folderNameInput, masterSheetInput, linkedCompanyContext?.companyId]);
+  }, [currentUser, selectedFolderId, folderNameInput, masterSheetInput, linkedCompanyContext?.companyId, companyLinkBlockedMessage]);
 
   const siteScopedSchedules = useMemo(() => {
     if (!selectedSite) return assignmentFilteredSchedules;
