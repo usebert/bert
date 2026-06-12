@@ -10,6 +10,7 @@ import { getCanonicalCompanyStatus } from "../shared/company-invite-permissions.
 import { resolveCompanyById } from "./company-registry-service.mjs";
 import { resolveCompanyFromFolder } from "./company-service.mjs";
 import { resolveCompanyContextForUser } from "./company-users.mjs";
+import { validateCompanyFolderPlacement } from "./company-folder-placement.mjs";
 import { readCanonicalCompanyWorkspaceRegistryMap } from "./company-workspace-registry.mjs";
 
 function trim(value) {
@@ -205,6 +206,15 @@ export async function enrichCompanyContextFromRegistry(auth, deps, partial = {})
   const companyName = trim(resolved.companyName);
   masterSheetId = trim(resolved.masterSheetId || masterSheetId);
 
+  let folderPlacementOk = partial.folderPlacementOk;
+  let folderPlacement = partial.folderPlacement || null;
+  if (companyFolderId && auth && folderPlacementOk !== true) {
+    folderPlacement = await validateCompanyFolderPlacement(auth, deps, companyFolderId, {
+      companyFolderName: companyName,
+    }).catch(() => ({ ok: false }));
+    folderPlacementOk = Boolean(folderPlacement?.ok);
+  }
+
   const context = {
     companyId: resolvedCompanyId,
     companyFolderId,
@@ -213,6 +223,7 @@ export async function enrichCompanyContextFromRegistry(auth, deps, partial = {})
     status: partial.status,
     archived: partial.archived,
     usable: partial.usable,
+    folderPlacementOk,
   };
 
   return {
@@ -224,6 +235,8 @@ export async function enrichCompanyContextFromRegistry(auth, deps, partial = {})
     status: isCompanyWorkspaceUsable(context) ? COMPANY_CONTEXT_STATUS_USABLE : partial.status,
     usable: isCompanyWorkspaceUsable(context),
     workspaceSetupComplete: isCompanyWorkspaceUsable(context),
+    folderPlacementOk,
+    folderPlacement,
     registryStatus: getCanonicalCompanyStatus(registryRecord || { status: partial.registryStatus }),
     registrySource: trim(registryRecord?.registrySource || partial.registrySource) || undefined,
   };

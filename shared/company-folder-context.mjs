@@ -39,6 +39,9 @@ export function isCompanyWorkspaceUsable(context = {}) {
   if (context.usable === false) {
     return false;
   }
+  if (context.folderPlacementOk === false) {
+    return false;
+  }
   return true;
 }
 

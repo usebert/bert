@@ -12,6 +12,7 @@ import {
   getFallbackRegistryRecord,
   readFallbackRegistryMap,
 } from "./company-registry-fallback.mjs";
+import { validateCompanyFolderPlacement } from "./company-folder-placement.mjs";
 import { findSpreadsheetInWorkspaceRoot } from "./google-workspace-root.mjs";
 
 /**
@@ -463,6 +464,9 @@ export function diagnoseCompanyWorkspaceUnlink(record = {}, context = {}) {
   }
   if (context.companyFoldersMappingMissing) {
     return "companyfolders_mapping_missing";
+  }
+  if (context.folderNotInCompaniesRoot) {
+    return "folder_not_in_companies_root";
   }
   if (record.unlinkReason) {
     return record.unlinkReason;
@@ -1292,6 +1296,9 @@ export function evaluateCompanyWorkspaceReadiness(record = {}, checks = {}) {
     blockers.push("master_sheet_not_linked");
   }
 
+  if (checks.folderPlacementOk === false) {
+    blockers.push("folder_not_in_companies_root");
+  }
   if (checks.folderStructureOk === false) {
     blockers.push("folder_structure_incomplete");
   }
@@ -1331,6 +1338,7 @@ export function evaluateCompanyWorkspaceReadiness(record = {}, checks = {}) {
   }
 
   const explicitChecksPass =
+    checks.folderPlacementOk !== false &&
     checks.folderStructureOk === true &&
     checks.requiredTabsOk === true &&
     checks.companyFoldersMappingOk !== false &&
@@ -1371,7 +1379,7 @@ export async function ensureCompanyLiveIfReady(auth, deps, input = {}) {
   if (!companyId || !auth) {
     return { promoted: false, reason: "missing_company_id", blockers: ["missing_company_id"] };
   }
-  const checks = input.checks || {};
+  let checks = { ...(input.checks || {}) };
   const ensured = await ensureCompanyRegistryRecordForWorkspace(auth, deps, {
     companyId,
     companyFolderId: companyId,
@@ -1383,7 +1391,16 @@ export async function ensureCompanyLiveIfReady(auth, deps, input = {}) {
   if (!existing) {
     return { promoted: false, reason: "not_in_registry", blockers: ["not_in_registry"] };
   }
-  const readiness = evaluateCompanyWorkspaceReadiness(existing, input.checks || {});
+  if (typeof checks.folderPlacementOk !== "boolean") {
+    const rootFolderId = String(checks.rootFolderId || existing.rootFolderId || companyId).trim();
+    if (rootFolderId) {
+      const placement = await validateCompanyFolderPlacement(auth, deps, rootFolderId).catch(() => ({
+        ok: false,
+      }));
+      checks.folderPlacementOk = Boolean(placement.ok);
+    }
+  }
+  const readiness = evaluateCompanyWorkspaceReadiness(existing, checks);
   if (isCompanyRegistryLive(existing)) {
     return {
       promoted: false,
@@ -1418,7 +1435,7 @@ export async function ensureCompanyLiveIfReady(auth, deps, input = {}) {
       masterSheetId: resolvedMasterSheetId,
       lastHealthCheckAt: existing.lastHealthCheckAt || (checks.healthCheckRun ? nowIso() : ""),
       reason: "ensure_ready",
-      checks,
+      checks: { ...checks, folderPlacementOk: checks.folderPlacementOk },
     });
     return {
       promoted: Boolean(result.promoted),

@@ -98,6 +98,7 @@ import {
   recordCompanyWorkspaceHealthCheck,
 } from "./company-workspace-registry.mjs";
 import { installCompanySetupProgressRoutes } from "./company-setup-progress.mjs";
+import { installCompanyFolderPlacementRoutes } from "./company-folder-placement.mjs";
 import { installCompanyFolderResolverRoutes, resolveCompanyFromFolder } from "./company-folder-resolver.mjs";
 import { installGodmodeRegistryActionRoutes, relinkCompanyRegistryForWorkspace } from "./godmode-registry-actions.mjs";
 import { createBackgroundJobsService } from "./background-jobs-service.mjs";
@@ -6724,6 +6725,8 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
       getCompanyContextResolutionDeps,
       getCompanyWorkspaceRegistryDeps,
       getConfig,
+      sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
+      google,
     });
 
     if (!result.ok) {
@@ -6731,6 +6734,8 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
         ok: false,
         blocker: result.blocker,
         error: result.error,
+        reasonCode: result.reasonCode,
+        folderPlacement: result.folderPlacement,
       });
     }
 
@@ -6831,16 +6836,19 @@ app.get("/api/auth/company/session", async (req, res) => {
       ? await getCanonicalCompanyRegistryRecord(auth, getCompanyWorkspaceRegistryDeps(), companyId).catch(() => registryRecord)
       : null;
     const registryStatus = getCanonicalCompanyStatus(freshRecord || registryRecord || {});
-    const readiness = evaluateCompanyWorkspaceReadiness(freshRecord || registryRecord || {}, {
-      rootFolderId: companyId,
-      masterSheetId,
-      skipHealthCheck: true,
-    });
     const enrichedContext = await enrichCompanyContextFromRegistry(auth, {
+      ...getCompanyContextEnrichmentDeps(),
       masterSheetId,
       companyFolderId: companyId,
       companyName: companyNameFromSession || workbookContext?.companyName || "",
       registryStatus,
+    });
+    const folderPlacementOk = enrichedContext.folderPlacementOk !== false;
+    const readiness = evaluateCompanyWorkspaceReadiness(freshRecord || registryRecord || {}, {
+      rootFolderId: companyId,
+      masterSheetId,
+      skipHealthCheck: true,
+      folderPlacementOk,
     });
     const sessionCompanyId = enrichedContext.companyFolderId || enrichedContext.companyId || companyId;
     const resolvedCompanyName = String(enrichedContext.companyName || companyNameFromSession || "").trim();
@@ -6878,9 +6886,14 @@ app.get("/api/auth/company/session", async (req, res) => {
         masterSheetId: resolvedMasterSheetId,
         registryStatus,
         status: registryStatus,
-        live: isCompanyRegistryLive({ status: registryStatus, registryStatus }),
-        needsAttention: readiness.needsAttention,
-        setupBlockers: readiness.setupBlockers,
+        live: isCompanyRegistryLive({ status: registryStatus, registryStatus }) && folderPlacementOk,
+        needsAttention: readiness.needsAttention || !folderPlacementOk,
+        setupBlockers: folderPlacementOk
+          ? readiness.setupBlockers
+          : [...(readiness.setupBlockers || []), "folder_not_in_companies_root"],
+        folderPlacementOk,
+        folderPlacement: enrichedContext.folderPlacement,
+        reasonCode: folderPlacementOk ? undefined : "FOLDER_NOT_IN_COMPANIES_ROOT",
       }),
     );
   } catch (error) {
@@ -7285,10 +7298,20 @@ installCompanyFolderResolverRoutes(app, {
   requireGoogleWorkspaceSession,
   requireMasterOnlyActor,
   google,
+  sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
   queueCompanySetupJobs: backgroundJobs.queueCompanySetupJobs.bind(backgroundJobs),
   queueCompanyHealthCheckIfReady: backgroundJobs.queueCompanyHealthCheckIfReady.bind(backgroundJobs),
   enqueueJob: backgroundJobs.enqueueJob.bind(backgroundJobs),
   ...getCompanyWorkspaceRegistryDeps(),
+});
+
+installCompanyFolderPlacementRoutes(app, {
+  getAuthedClient,
+  envConfigured,
+  requireGoogleWorkspaceSession,
+  requireMasterOnlyActor,
+  google,
+  sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
 });
 
 installCoreWorkflowRoutes(app, {

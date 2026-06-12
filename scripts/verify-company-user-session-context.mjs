@@ -152,4 +152,8 @@ assert(
   assert(matched?.companyFolderId !== companyBFolder, "9e: company A login never resolves company B folder");
 }
 
+assert(authService.includes("validateCompanyFolderPlacement"), "10: login validates company folder under Live Companies");
+assert(authService.includes("folder_not_in_companies_root"), "11: login rejects wrong Drive parent");
+assert(serverMain.includes("folderPlacementOk"), "12: session surfaces folder placement status");
+
 console.log(`[verify:company-user-session-context] OK — ${caseCount} cases passed`);

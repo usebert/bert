@@ -6,6 +6,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  isFolderUnderLiveCompanies,
+  isLiveCompaniesFolderName,
+} from "../shared/company-folder-placement.mjs";
+import {
   cleanCompanyNameFromFolder,
   COMPANY_CONTEXT_STATUS_USABLE,
   COMPANY_READY_INVITE_MESSAGE,
@@ -33,6 +37,8 @@ function read(rel) {
 }
 
 const resolver = read("server/company-folder-resolver.mjs");
+const placement = read("server/company-folder-placement.mjs");
+const placementShared = read("shared/company-folder-placement.mjs");
 const contextShared = read("shared/company-folder-context.mjs");
 const contextService = read("server/company-context-service.mjs");
 const inviteReadiness = read("shared/company-invite-readiness.mjs");
@@ -53,6 +59,11 @@ assert(resolver.includes("installCompanyFolderResolverRoutes"), "5: resolver rou
 assert(resolver.includes("/api/godmode/companies/:companyFolderId/resolve-from-folder"), "6: resolve-from-folder route");
 assert(resolver.includes("queuePostResolveBackgroundJobs"), "7: post-resolve background jobs queued");
 assert(resolver.includes("rebuildRegistryCache"), "8: registry cache rebuild is non-blocking");
+assert(resolver.includes("validateCompanyFolderPlacement"), "8b: resolver validates Live Companies placement");
+assert(placement.includes("export async function validateCompanyFolderPlacement"), "8c: placement validator exported");
+assert(placement.includes("FOLDER_NOT_IN_COMPANIES_ROOT"), "8d: placement reason code present");
+assert(placement.includes("/api/godmode/companies/:companyFolderId/folder-placement"), "8e: godmode placement diagnostic route");
+assert(placementShared.includes("isLiveCompaniesFolderName"), "8f: shared Live Companies name matcher");
 
 // ─── Company context ─────────────────────────────────────────────────────────
 
@@ -70,6 +81,8 @@ assert(
 );
 assert(contextService.includes("resolveCompanyContextFromFolder"), "12: context service exposes folder resolver");
 assert(contextService.includes("COMPANY_CONTEXT_STATUS_USABLE"), "13: context service sets USABLE status");
+assert(contextService.includes("validateCompanyFolderPlacement"), "13b: context service validates folder placement");
+assert(contextShared.includes("folderPlacementOk"), "13c: usable context requires folder placement");
 
 // ─── Invite readiness (no registry Live block) ─────────────────────────────
 
@@ -118,6 +131,21 @@ assert(makeUsable.includes("registry persist failed (non-blocking)"), "28: regis
 // ─── Server wiring + npm script ──────────────────────────────────────────────
 
 assert(serverMain.includes("installCompanyFolderResolverRoutes"), "29: server installs folder resolver routes");
+assert(serverMain.includes("installCompanyFolderPlacementRoutes"), "29b: server installs folder placement routes");
+assert(read("server/auth-service.mjs").includes("validateCompanyFolderPlacement"), "29c: login validates folder placement");
+assert(read("server/auth-service.mjs").includes("folder_not_in_companies_root"), "29d: login blocker for wrong folder parent");
+assert(panel.includes("Under Live Companies"), "29e: godmode diagnostics show folder placement");
 assert(pkg.scripts["verify:company-folder-source-of-truth"], "30: npm script registered");
+
+assert(isLiveCompaniesFolderName("01 Live Companies"), "31: matches numbered Live Companies folder");
+assert(isLiveCompaniesFolderName("Companies"), "32: matches Companies alias");
+assert(
+  isFolderUnderLiveCompanies("company-a", "live-root", ["live-root", "shared-root"]),
+  "33: detects folder under Live Companies",
+);
+assert(
+  !isFolderUnderLiveCompanies("company-a", "live-root", ["shared-root"]),
+  "34: rejects folder outside Live Companies",
+);
 
 console.log(`OK: verify-company-folder-source-of-truth (${caseCount} cases)`);

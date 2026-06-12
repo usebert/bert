@@ -2,6 +2,7 @@
  * Godmode registry actions — make-usable, relink, force-live (fast, registry-first).
  */
 import { COMPANY_READY_INVITE_MESSAGE } from "../shared/company-folder-context.mjs";
+import { FOLDER_NOT_IN_COMPANIES_ROOT, FOLDER_PLACEMENT_USER_MESSAGE } from "../shared/company-folder-placement.mjs";
 import {
   COMPANY_REGISTRY_STATUS_LIVE,
   getCanonicalCompanyStatus,
@@ -40,6 +41,7 @@ export const MAKE_USABLE_REASON_MESSAGES = {
   MASTER_SHEET_MISSING: "Link a master sheet before making the company usable.",
   COMPANY_NAME_MISSING: "Company name is required.",
   SYSTEM_TEMPLATE_COMPANY: "This workspace is a system template and cannot be made usable.",
+  [FOLDER_NOT_IN_COMPANIES_ROOT]: FOLDER_PLACEMENT_USER_MESSAGE,
   REGISTRY_LINK_FAILED: "The company registry record could not be created or updated.",
   REGISTRY_WRITE_FAILED: REGISTRY_PERSIST_ERROR_MESSAGES.REGISTRY_WRITE_FAILED,
   REGISTRY_VERIFY_FAILED: REGISTRY_PERSIST_ERROR_MESSAGES.REGISTRY_VERIFY_FAILED,

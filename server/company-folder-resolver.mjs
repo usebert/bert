@@ -14,6 +14,7 @@ import {
   ensureCompanyMasterSheet,
 } from "./company-folder-structure.mjs";
 import { ensureRequiredTabs, findMissingRequiredTabs } from "./ensure-required-tabs.mjs";
+import { validateCompanyFolderPlacement } from "./company-folder-placement.mjs";
 import { persistCompanyWorkspaceSetup } from "./company-workspace-registry.mjs";
 
 function trim(value) {
@@ -242,6 +243,24 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
     }
   }
 
+  const folderPlacement =
+    options.skipFolderPlacementCheck === true
+      ? { ok: true }
+      : await validateCompanyFolderPlacement(auth, deps, folderId, { companyFolderName: companyName });
+  if (!folderPlacement.ok) {
+    return {
+      ok: false,
+      companyId: folderId,
+      companyName,
+      companyFolderId: folderId,
+      masterSheetId,
+      status: "",
+      userMessage: folderPlacement.userMessage,
+      reasonCode: folderPlacement.reasonCode,
+      folderPlacement,
+    };
+  }
+
   const context = {
     companyId: folderId,
     companyFolderId: folderId,
@@ -249,6 +268,7 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
     masterSheetId,
     workbookFolderId,
     status: COMPANY_CONTEXT_STATUS_USABLE,
+    folderPlacementOk: true,
   };
 
   const registryCache = await rebuildRegistryCache(auth, deps, context);
@@ -289,6 +309,8 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
     registryCache,
     backgroundJobs,
     usable: isCompanyWorkspaceUsable(context),
+    folderPlacementOk: true,
+    folderPlacement,
   };
 }
 

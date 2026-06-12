@@ -255,6 +255,19 @@ export function GodmodeCompanyWorkspacePanel({
   const [registryForceLiveLoading, setRegistryForceLiveLoading] = useState(false);
   const [registryRelinkSucceeded, setRegistryRelinkSucceeded] = useState(false);
   const [registryActionError, setRegistryActionError] = useState("");
+  const [folderPlacement, setFolderPlacement] = useState<{
+    ok?: boolean;
+    companyFolderId?: string;
+    companyFolderName?: string;
+    liveCompaniesFolderId?: string;
+    liveCompaniesFolderName?: string;
+    immediateParentId?: string;
+    immediateParentName?: string;
+    parentPathLabel?: string;
+    userMessage?: string;
+    reasonCode?: string;
+  } | null>(null);
+  const [folderPlacementLoading, setFolderPlacementLoading] = useState(false);
   const healthCheckRun = workspaceValidation != null;
   const workspaceHealthOk = workspaceValidation?.ok ?? false;
   const masterSheetOk = Boolean(companyMasterSheetId || folderInspection?.checks.masterSheet);
@@ -274,10 +287,12 @@ export function GodmodeCompanyWorkspacePanel({
     registryStatus: effectiveRegistryStatus,
   });
   const resolvedMasterSheetId = companyMasterSheetId || folderInspection?.masterSheet?.id || companySheetSync?.sheetId || "";
+  const folderPlacementOk = folderPlacement?.ok !== false;
   const companyUsable = Boolean(
     selectedFolder?.id &&
       resolvedMasterSheetId &&
-      !setupFailed,
+      !setupFailed &&
+      folderPlacementOk,
   );
   const godmodeUsersTabWritable = isCompanyUsersTabWritable({
     companySheetSync: companySheetSync ?? undefined,
@@ -536,6 +551,44 @@ export function GodmodeCompanyWorkspacePanel({
 
   const showForceLiveFromReadyChecks =
     !companyLive && readinessChecksGreen && (registryRelinkSucceeded || !registryLinkMissing);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedFolder?.id || !googleWorkspaceReady || adminOnly) {
+      setFolderPlacement(null);
+      setFolderPlacementLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+    setFolderPlacementLoading(true);
+    void (async () => {
+      try {
+        const params = new URLSearchParams({
+          companyName: selectedFolder.name,
+        });
+        const response = await fetch(
+          apiUrl(`/api/godmode/companies/${encodeURIComponent(selectedFolder.id)}/folder-placement?${params}`),
+          { credentials: "include" },
+        );
+        const payload = (await response.json()) as typeof folderPlacement;
+        if (!cancelled) {
+          setFolderPlacement(response.ok ? payload : { ok: false, userMessage: payload?.userMessage });
+        }
+      } catch {
+        if (!cancelled) {
+          setFolderPlacement({ ok: false, userMessage: "Unable to verify folder placement." });
+        }
+      } finally {
+        if (!cancelled) {
+          setFolderPlacementLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [adminOnly, googleWorkspaceReady, selectedFolder?.id, selectedFolder?.name]);
 
   useEffect(() => {
     let cancelled = false;
@@ -969,7 +1022,10 @@ export function GodmodeCompanyWorkspacePanel({
             ) : null}
             {!companyUsable ? (
               <p className="mt-3 text-xs text-amber-900">
-                Select a company folder with a workbook, or run setup to resolve the master sheet.
+                {folderPlacement?.ok === false
+                  ? folderPlacement.userMessage ||
+                    "This company folder is not under Live Companies in Google Drive. Move it into Live Companies or re-provision the workspace."
+                  : "Select a company folder with a workbook, or run setup to resolve the master sheet."}
               </p>
             ) : (
               <p className="mt-3 text-xs text-emerald-900">{COMPANY_READY_INVITE_MESSAGE}</p>
@@ -1004,6 +1060,27 @@ export function GodmodeCompanyWorkspacePanel({
               <div className="mt-4 space-y-4 border-t border-slate-100 pt-4">
                 <div className="space-y-2">
                   <SetupChecklistRow label="Company folder" ok={Boolean(selectedFolder)} />
+                  <SetupChecklistRow
+                    label="Under Live Companies"
+                    ok={folderPlacementOk && !folderPlacementLoading}
+                    hint={
+                      folderPlacementLoading
+                        ? "Checking Drive parent path…"
+                        : folderPlacement?.parentPathLabel
+                          ? `Path: ${folderPlacement.parentPathLabel}`
+                          : folderPlacement?.liveCompaniesFolderId
+                            ? `Expected parent: ${folderPlacement.liveCompaniesFolderName || "Live Companies"} (${folderPlacement.liveCompaniesFolderId})`
+                            : folderPlacement?.userMessage
+                    }
+                  />
+                  {folderPlacement?.companyFolderId ? (
+                    <p className="font-mono text-xs text-slate-600">
+                      folderId: {folderPlacement.companyFolderId}
+                      {folderPlacement.immediateParentId
+                        ? ` · parent: ${folderPlacement.immediateParentName || folderPlacement.immediateParentId}`
+                        : ""}
+                    </p>
+                  ) : null}
                   <SetupChecklistRow
                     label="Folder structure"
                     ok={folderStructureOk}
