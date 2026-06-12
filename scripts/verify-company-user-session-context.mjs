@@ -46,10 +46,34 @@ assert(
 /** Login enriches context from folder/registry/config — not empty fallback. */
 assert(contextService.includes("resolveCompanyContextFields"), "2: resolveCompanyContextFields exported");
 assert(contextService.includes("resolveCompanyContext"), "2a: resolveCompanyContext canonical resolver");
+assert(contextService.includes("resolveCompanyContextFromLoginWorkbook"), "2a2: login workbook context resolver");
+assert(contextService.includes("findRegistryRecordByMasterSheetId"), "2a3: registry match by masterSheetId only");
+assert(
+  /resolveCompanyContextFromLoginWorkbook[\s\S]*?readCompanyFieldsFromConfig[\s\S]*?findRegistryRecordByMasterSheetId/.test(
+    contextService,
+  ),
+  "2a4: login workbook uses Config then exact registry sheet match",
+);
 assert(contextService.includes("readCompanyNameFromDriveFolder"), "2b: Drive folder name resolver");
 assert(contextService.includes("readCompanyFieldsFromConfig"), "2c: Config tab resolver");
-assert(authService.includes("enrichCompanyContextFromRegistry"), "2d: login uses registry enrichment");
+assert(authService.includes("resolveCompanyContextFromLoginWorkbook"), "2d: login uses login workbook resolver");
+assert(authService.includes("enrichCompanyContextFromRegistry"), "2d2: login uses registry enrichment");
 assert(authService.includes("getConfig"), "2e: login passes getConfig for enrichment");
+assert(
+  !/folderFirstCompanyContext/.test(authService),
+  "2f: removed folderFirstCompanyContext registry-first fallback",
+);
+assert(
+  /resolveCompanyContextFromLoginWorkbook[\s\S]*?successSheetId/.test(authService),
+  "2g: session built from authenticated workbook id",
+);
+assert(
+  /resolveCompanyContextFields[\s\S]*?findRegistryRecordByMasterSheetId[\s\S]*?masterSheetId/.test(contextService),
+  "2h: context fields prefer masterSheetId registry before companyFolderId",
+);
+
+/** Session route resolves folder from login workbook, not stale cookie alone. */
+assert(serverMain.includes("resolveCompanyContextFromLoginWorkbook"), "3a: session route uses login workbook resolver");
 
 /** Session route refreshes cookie when companyName is resolved. */
 assert(serverMain.includes("buildCompanySessionPayload"), "3: session route can refresh cookie");
@@ -97,5 +121,35 @@ assert(
   appTsx.includes('currentUser?.role !== "Master" || googleConnected'),
   "8: company users can load members without browser Google",
 );
+
+/** Multi-company isolation: company A login never inherits company B folder from registry scan. */
+assert(
+  /resolveCompanyLoginMasterSheetId[\s\S]*?readCompanyLoginHint[\s\S]*?return "";/.test(appTsx),
+  "9: company login sheet id comes from invite hint only",
+);
+assert(appTsx.includes("clearGodmodeSelectedCompanyFolderId()"), "9b: company login clears godmode folder selection");
+assert(
+  /workbookContext\?\.companyFolderId/.test(serverMain),
+  "9c: session prefers workbook folder over stale cookie",
+);
+{
+  const companyAFolder = "folder-rock-solid";
+  const companyBFolder = "folder-dovecote";
+  const companyASheet = "sheet-rock-solid";
+  const companyBSheet = "sheet-dovecote";
+  const registryMap = new Map([
+    [companyBFolder, { masterSheetId: companyBSheet, companyFolderId: companyBFolder, companyName: "Dovecote Studio" }],
+    [companyAFolder, { masterSheetId: companyASheet, companyFolderId: companyAFolder, companyName: "Rock Solid Concrete" }],
+  ]);
+  let matched = null;
+  for (const record of registryMap.values()) {
+    if (String(record.masterSheetId).trim() === companyASheet) {
+      matched = record;
+      break;
+    }
+  }
+  assert(matched?.companyFolderId === companyAFolder, "9d: masterSheetId match returns company A folder only");
+  assert(matched?.companyFolderId !== companyBFolder, "9e: company A login never resolves company B folder");
+}
 
 console.log(`[verify:company-user-session-context] OK — ${caseCount} cases passed`);

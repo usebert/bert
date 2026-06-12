@@ -5817,6 +5817,7 @@ function App() {
             setMasterSheetInput,
             setCompanyRegistryStatus,
           });
+          clearGodmodeSelectedCompanyFolderId();
           setLinkedCompanyContext({
             companyId: cp.company?.companyId,
             companyName: cp.company?.companyName,
@@ -7540,12 +7541,7 @@ function App() {
       if (hint?.email === normalized && hint.masterSheetId) {
         return hint.masterSheetId;
       }
-      return (
-        extractGoogleResourceId(masterSheetInput) ||
-        selectedFolder?.responseSheetId ||
-        companySheetSync?.sheetId ||
-        ""
-      ).trim();
+      return "";
     };
 
     let companyLoginFailure: { blocker?: string; message: string } | undefined;
@@ -7600,6 +7596,7 @@ function App() {
           setMasterSheetInput,
           setCompanyRegistryStatus,
         });
+        clearGodmodeSelectedCompanyFolderId();
         setLinkedCompanyContext({
           companyId: loggedInCompany?.companyId,
           companyName: loggedInCompany?.companyName,
