@@ -45,6 +45,7 @@ assert(
 
 /** Login enriches context from folder/registry/config — not empty fallback. */
 assert(contextService.includes("resolveCompanyContextFields"), "2: resolveCompanyContextFields exported");
+assert(contextService.includes("resolveCompanyContext"), "2a: resolveCompanyContext canonical resolver");
 assert(contextService.includes("readCompanyNameFromDriveFolder"), "2b: Drive folder name resolver");
 assert(contextService.includes("readCompanyFieldsFromConfig"), "2c: Config tab resolver");
 assert(authService.includes("enrichCompanyContextFromRegistry"), "2d: login uses registry enrichment");
@@ -71,9 +72,9 @@ assert(coreRoutes.includes("actor?.companyFolderId"), "5b: users route falls bac
 assert(coreRoutes.includes("actor?.masterSheetId"), "5c: users route falls back to session masterSheetId");
 assert(coreRoutes.includes("actor?.companyName"), "5d: users route falls back to session companyName");
 
-/** Active users path resolves companyName from folder when missing. */
-assert(userService.includes("cleanCompanyNameFromFolder"), "6: listActiveCompanyMembers resolves folder name");
-assert(userService.includes("deps.getConfig"), "6b: listActiveCompanyMembers reads Config tab");
+/** Active users path resolves companyName via canonical context resolver. */
+assert(userService.includes("resolveCompanyContextFields"), "6: listActiveCompanyMembers uses context resolver");
+assert(userService.includes("deps.getConfig") || read("server/company-context-service.mjs").includes("readCompanyFieldsFromConfig"), "6b: context resolver reads Config tab");
 
 /** Never expose PasswordHash in session builders. */
 function fnBody(source, fnName) {

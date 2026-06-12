@@ -168,3 +168,28 @@ export async function enrichCompanyContextFromRegistry(auth, deps, partial = {})
 export async function resolveCompanyContextFromFolder(auth, deps, companyFolderId, options = {}) {
   return resolveCompanyFromFolder(auth, deps, companyFolderId, options);
 }
+
+/**
+ * Canonical company identity resolver — companyFolderId is companyId everywhere.
+ * @returns {{ ok: boolean, companyFolderId: string, companyId: string, companyName: string, masterSheetId: string, workbook: { masterSheetId: string } | null, registryRecord?: object }}
+ */
+export async function resolveCompanyContext(auth, deps, companyFolderId, options = {}) {
+  const resolved = await resolveCompanyContextFields(auth, deps, {
+    companyFolderId,
+    companyId: companyFolderId,
+    masterSheetId: options.masterSheetId,
+    companyName: options.companyName,
+  });
+  const folderId = trim(resolved.companyFolderId || companyFolderId);
+  const masterSheetId = trim(resolved.masterSheetId);
+  const companyName = trim(resolved.companyName);
+  return {
+    ok: Boolean(folderId && masterSheetId),
+    companyFolderId: folderId,
+    companyId: folderId,
+    companyName,
+    masterSheetId,
+    workbook: masterSheetId ? { masterSheetId } : null,
+    registryRecord: resolved.registryRecord || null,
+  };
+}

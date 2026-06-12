@@ -1,7 +1,6 @@
 /**
  * Company workbook Users tab reads — never expose PasswordHash to clients.
  */
-import { cleanCompanyNameFromFolder } from "../shared/company-folder-context.mjs";
 import {
   parseRoleForClient,
   buildAvailableScheduleAssigneesFromUsers,
@@ -13,7 +12,7 @@ import {
   normalizeUserStatus,
 } from "./company-users.mjs";
 import { readCompanyUsers, resolveUsersTab } from "./users-tab-reader.mjs";
-import { resolveCompanyById } from "./company-registry-service.mjs";
+import { resolveCompanyContextFields } from "./company-context-service.mjs";
 import { resolveCompanyFromFolder } from "./company-folder-resolver.mjs";
 import {
   listActiveUsersFromSheet,
@@ -331,74 +330,26 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
     );
   }
 
-  let registryRecord = null;
-  if (companyFolderId) {
-    registryRecord = await resolveCompanyById(auth, deps, companyFolderId).catch(() => null);
-  }
-
-  if (registryRecord) {
-    masterSheetId = masterSheetId || String(registryRecord.masterSheetId || "").trim();
-    companyName =
-      companyName ||
-      String(registryRecord.companyName || registryRecord.name || registryRecord.companyFolderName || "").trim();
-  }
-
-  if (!companyName && companyFolderId && deps?.google) {
-    try {
-      const drive = deps.google.drive({ version: "v3", auth });
-      const meta = await drive.files.get({
-        fileId: companyFolderId,
-        supportsAllDrives: true,
-        fields: "name",
-      });
-      companyName = cleanCompanyNameFromFolder(meta.data?.name);
-    } catch {
-      /* non-blocking */
-    }
-  }
-
-  if ((!companyName || !companyFolderId) && masterSheetId && typeof deps.getConfig === "function") {
-    try {
-      const cfg = await deps.getConfig(auth, masterSheetId);
-      companyName = companyName || String(cfg.companyName || "").trim();
-      companyFolderId = companyFolderId || String(cfg.companyId || "").trim();
-    } catch {
-      /* non-blocking */
-    }
-  }
+  const resolvedContext = await resolveCompanyContextFields(auth, deps, {
+    companyFolderId,
+    companyId: companyFolderId,
+    masterSheetId,
+    companyName,
+  });
+  masterSheetId = String(resolvedContext.masterSheetId || "").trim();
+  companyName = String(resolvedContext.companyName || "").trim();
 
   if (!masterSheetId) {
-    const folderResolved = await resolveMasterSheetFromFolder(auth, deps, companyFolderId, companyName, masterSheetId);
-    if (folderResolved.ok) {
-      masterSheetId = folderResolved.masterSheetId;
-      companyName = folderResolved.companyName || companyName;
-    } else {
-      const reasonCode = folderResolved.reasonCode || "MISSING_MASTER_SHEET_ID";
-      return buildFailure(
-        reasonCode,
-        COMPANY_USERS_USER_MESSAGE,
-        {
-          ...baseDiagnostics(),
-          companyName,
-          failedStep:
-            reasonCode === "MISSING_COMPANY_FOLDER_ID"
-              ? "resolve_company_folder"
-              : reasonCode === "WORKBOOK_NOT_FOUND"
-                ? "resolve_company_folder"
-                : "link_master_sheet",
-          upstreamMessage:
-            folderResolved.resolved?.userMessage ||
-            (folderResolved.error instanceof Error ? folderResolved.error.message : String(folderResolved.error || "")),
-        },
-        {
-          httpStatus:
-            reasonCode === "MISSING_COMPANY_FOLDER_ID" || reasonCode === "WORKBOOK_NOT_FOUND" ? 404 : 404,
-          technicalError: isDevDiagnosticsEnabled()
-            ? folderResolved.resolved?.userMessage || String(folderResolved.error || "")
-            : undefined,
-        },
-      );
-    }
+    return buildFailure(
+      "MISSING_MASTER_SHEET_ID",
+      COMPANY_USERS_USER_MESSAGE,
+      {
+        ...baseDiagnostics(),
+        companyName,
+        failedStep: "link_master_sheet",
+      },
+      { httpStatus: 404 },
+    );
   }
 
   const resolvedCompanyId = companyFolderId;

@@ -1,16 +1,11 @@
 /**
- * Schedule builder assignee loading — all active assignable company roles.
+ * Schedule builder assignee loading — Users tab ACTIVE rows only (no session fallback).
  */
-import { parseRoleForClient } from "../shared/schedule-assignees.mjs";
 import { getAssignableUsers } from "./company-user-service.mjs";
-import { resolveCompanyById } from "./company-registry-service.mjs";
+import { resolveCompanyContextFields } from "./company-context-service.mjs";
 
 function normalizeEmail(value) {
   return String(value ?? "").trim().toLowerCase();
-}
-
-function normalizeId(value) {
-  return String(value ?? "").trim();
 }
 
 function isDevDiagnosticsEnabled() {
@@ -18,29 +13,6 @@ function isDevDiagnosticsEnabled() {
     String(process.env.NODE_ENV || "").trim().toLowerCase() !== "production" ||
     String(process.env.BERT_GODMODE_DIAGNOSTICS || "").trim().toLowerCase() === "true"
   );
-}
-
-function isActiveSessionActor(actor) {
-  if (!actor?.email) {
-    return false;
-  }
-  const status = String(actor.status || "active").trim().toLowerCase();
-  return status === "active" || status === "";
-}
-
-function buildSessionActorAssignee(actor, companyId) {
-  const email = normalizeEmail(actor.email);
-  if (!email) {
-    return null;
-  }
-  return {
-    id: email,
-    name: String(actor.name || email.split("@")[0] || email).trim() || email,
-    role: parseRoleForClient(actor.role || actor.accessLevel || "User"),
-    email,
-    companyAreas: Array.isArray(actor.companyAreas) ? actor.companyAreas : [],
-    areaWarning: undefined,
-  };
 }
 
 function buildApiDiagnostics(baseDiagnostics = {}, context = {}) {
@@ -75,12 +47,7 @@ export async function getScheduleAssigneesForCompany(auth, deps, input = {}) {
   const sessionActor = input.sessionActor || null;
   const signedInEmail = normalizeEmail(sessionActor?.email || input.signedInEmail || "");
 
-  let registryRecord = null;
-  if (companyId) {
-    registryRecord = await resolveCompanyById(auth, deps, companyId).catch(() => null);
-  }
-
-  if (!registryRecord && !masterSheetId) {
+  if (!companyFolderId) {
     return {
       ok: false,
       code: "COMPANY_CONTEXT_MISSING",
@@ -90,20 +57,15 @@ export async function getScheduleAssigneesForCompany(auth, deps, input = {}) {
     };
   }
 
-  if (registryRecord) {
-    masterSheetId = masterSheetId || String(registryRecord.masterSheetId || "").trim();
-    companyName =
-      companyName ||
-      String(registryRecord.companyName || registryRecord.name || registryRecord.companyFolderName || "").trim();
-  }
-
-  const resolvedCompanyId = String(
-    companyFolderId ||
-      registryRecord?.companyId ||
-      registryRecord?.rootFolderId ||
-      registryRecord?.companyFolderId ||
-      companyId,
-  ).trim();
+  const resolved = await resolveCompanyContextFields(auth, deps, {
+    companyFolderId,
+    companyId: companyFolderId,
+    masterSheetId,
+    companyName,
+  });
+  masterSheetId = String(resolved.masterSheetId || masterSheetId).trim();
+  companyName = String(resolved.companyName || companyName).trim();
+  const resolvedCompanyId = String(resolved.companyFolderId || companyFolderId).trim();
 
   if (!masterSheetId) {
     return {
@@ -121,26 +83,14 @@ export async function getScheduleAssigneesForCompany(auth, deps, input = {}) {
     const result = await getAssignableUsers(auth, masterSheetId, deps, {
       companyId: resolvedCompanyId,
       companyFolderId: resolvedCompanyId,
+      masterSheetId,
+      companyName,
       selectedArea,
       includeDiagnostics: true,
+      sessionActor,
     });
 
-    let assignees = Array.isArray(result.assignees) ? [...result.assignees] : [];
-    let warning = undefined;
-
-    if (
-      assignees.length === 0 &&
-      sessionActor &&
-      isActiveSessionActor(sessionActor) &&
-      normalizeId(sessionActor.companyId || sessionActor.companyFolderId || "") === normalizeId(resolvedCompanyId)
-    ) {
-      const fallbackAssignee = buildSessionActorAssignee(sessionActor, resolvedCompanyId);
-      if (fallbackAssignee && !assignees.some((item) => item.id === fallbackAssignee.id)) {
-        assignees = [fallbackAssignee];
-        warning = "Using signed-in user because no assignable users matched the current filters.";
-      }
-    }
-
+    const assignees = Array.isArray(result.assignees) ? result.assignees : [];
     const diagnostics = includeDiagnostics
       ? buildApiDiagnostics(result.diagnostics, {
           companyId: resolvedCompanyId,
@@ -160,51 +110,9 @@ export async function getScheduleAssigneesForCompany(auth, deps, input = {}) {
       assignees,
       auditors: assignees,
       diagnostics,
-      warning,
     };
   } catch (error) {
     const technicalError = error instanceof Error ? error.message : String(error);
-
-    if (sessionActor && isActiveSessionActor(sessionActor)) {
-      const fallbackAssignee = buildSessionActorAssignee(sessionActor, resolvedCompanyId);
-      if (fallbackAssignee) {
-        const diagnostics = includeDiagnostics
-          ? buildApiDiagnostics(
-              {
-                totalRows: 0,
-                activeCount: 1,
-                finalCount: 1,
-                excludedByStatus: 0,
-                excludedByCompany: 0,
-                excludedByArea: 0,
-                companyId: resolvedCompanyId,
-                masterSheetId,
-                selectedArea,
-              },
-              {
-                companyId: resolvedCompanyId,
-                companyName,
-                masterSheetId,
-                signedInEmail,
-                assignableUsersReturned: 1,
-                dataSource: "session-fallback",
-              },
-            )
-          : undefined;
-
-        return {
-          ok: true,
-          companyId: resolvedCompanyId,
-          companyName: companyName || undefined,
-          masterSheetId,
-          assignees: [fallbackAssignee],
-          auditors: [fallbackAssignee],
-          diagnostics,
-          warning: "Using signed-in user because Users tab could not be loaded.",
-        };
-      }
-    }
-
     return {
       ok: false,
       code: "USERS_TAB_READ_FAILED",

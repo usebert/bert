@@ -241,6 +241,8 @@ const godmodeOnlyUser = {
   assert(coreRoutes.includes('app.get("/api/companies/:companyId/schedules"'), "13d: company schedules list route exists");
   assert(coreRoutes.includes("USERS_TAB_READ_FAILED") || assigneeService.includes("USERS_TAB_READ_FAILED"), "13d: users tab read failure code");
   assert(coreRoutes.includes("COMPANY_CONTEXT_MISSING") || assigneeService.includes("COMPANY_CONTEXT_MISSING"), "13e: company context missing code");
+  assert(!assigneeService.includes('dataSource: "session-fallback"'), "13f: schedule assignees never use session-fallback");
+  assert(!assigneeService.includes("buildSessionActorAssignee"), "13g: no session actor assignee fallback");
 }
 
 /** 14: Diagnostics show why a user was excluded. */
