@@ -32,6 +32,7 @@ export class LiveHttpClient {
     const url = path.startsWith("http") ? path : `${this.baseUrl}${path}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const started = Date.now();
     try {
       const response = await fetch(url, {
         method,
@@ -54,7 +55,7 @@ export class LiveHttpClient {
       } catch {
         json = null;
       }
-      return { status: response.status, ok: response.ok, json, text, headers: response.headers };
+      return { status: response.status, ok: response.ok, json, text, headers: response.headers, elapsedMs: Date.now() - started };
     } finally {
       clearTimeout(timer);
     }

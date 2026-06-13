@@ -11,8 +11,8 @@ import {
   parseCompanyAreas,
   parseRoleFromUsersSheet,
   normalizeUserStatus,
-  rowEmailCandidates,
 } from "./company-users.mjs";
+import { rowEmailCandidates } from "./users-tab-schema.mjs";
 
 const DEFAULT_STALE_MS = Math.max(
   60_000,

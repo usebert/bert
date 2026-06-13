@@ -27,7 +27,7 @@ export function getAccountRoleDetail(role: Role): string {
 export const UX_STATUS = {
   ready: "Ready",
   needsAttention: "Needs attention",
-  workingInBackground: "BERT is finishing updates in the background.",
+  workingInBackground: "Finishing updates…",
   saved: "Saved",
   inviteLinkCreated: "Invite link created",
   scheduleSaved: "Schedule saved",

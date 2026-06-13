@@ -206,6 +206,11 @@ if (
 
 const companyUsersPath = path.join(root, "server", "company-users.mjs");
 const companyUsersSrc = fs.existsSync(companyUsersPath) ? fs.readFileSync(companyUsersPath, "utf8") : "";
+const usersTabConstantsPath = path.join(root, "server", "users-tab-constants.mjs");
+const usersTabConstantsSrc = fs.existsSync(usersTabConstantsPath)
+  ? fs.readFileSync(usersTabConstantsPath, "utf8")
+  : "";
+const usersTabColumnSource = `${companyUsersSrc}\n${usersTabConstantsSrc}`;
 const requiredUserColumns = [
   "Email",
   "Name",
@@ -222,14 +227,23 @@ const requiredUserColumns = [
 ];
 let usersColumnsOk = true;
 for (const col of requiredUserColumns) {
-  if (!companyUsersSrc.includes(`"${col}"`)) {
-    console.error(`[verify:auth] FAIL: company-users.mjs missing Users tab column ${col}`);
+  if (!usersTabColumnSource.includes(`"${col}"`)) {
+    console.error(`[verify:auth] FAIL: Users tab schema missing column ${col}`);
     failed = true;
     usersColumnsOk = false;
   }
 }
 if (usersColumnsOk) {
-  console.log("[verify:auth] OK: Users tab required columns defined in company-users.mjs");
+  console.log("[verify:auth] OK: Users tab required columns defined in server schema");
+}
+if (
+  companyUsersSrc.includes("USERS_TAB_REQUIRED_COLUMNS") &&
+  usersTabConstantsSrc.includes("USERS_TAB_REQUIRED_COLUMNS")
+) {
+  console.log("[verify:auth] OK: company-users re-exports Users tab required columns from shared constants");
+} else {
+  console.error("[verify:auth] FAIL: company-users.mjs must import USERS_TAB_REQUIRED_COLUMNS");
+  failed = true;
 }
 
 if (companyUsersSrc.includes("sanitizeUserRecordForClient") && companyUsersSrc.includes("PasswordHash")) {

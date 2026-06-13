@@ -7770,12 +7770,11 @@ function App() {
         pushToast("Sign in failed", FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE, "warning");
         return;
       }
+      if (blocker === "invalid_credentials") {
+        pushToast("Sign in failed", "Email or password is incorrect.", "warning");
+        return;
+      }
       pushToast("Sign in failed", companyLoginFailure.message, "warning");
-      return;
-    }
-
-    if (companyLoginFailure?.blocker === "invalid_credentials") {
-      pushToast("Sign in failed", "Email or password is incorrect.", "warning");
       return;
     }
 

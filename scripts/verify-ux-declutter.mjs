@@ -32,7 +32,7 @@ function backgroundJobsBannerForRole(role, activeCount) {
     return activeCount > 0 ? `${activeCount} job(s) in progress` : "No background jobs running";
   }
   if (activeCount > 0) {
-    return "BERT is finishing updates in the background.";
+    return "Finishing updates…";
   }
   return "";
 }
@@ -40,7 +40,7 @@ function backgroundJobsBannerForRole(role, activeCount) {
 const UX_STATUS = {
   ready: "Ready",
   needsAttention: "Needs attention",
-  workingInBackground: "BERT is finishing updates in the background.",
+  workingInBackground: "Finishing updates…",
   saved: "Saved",
   inviteLinkCreated: "Invite link created",
   scheduleSaved: "Schedule saved",

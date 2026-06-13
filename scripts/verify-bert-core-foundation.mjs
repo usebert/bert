@@ -62,6 +62,8 @@ function runStaticGuards() {
   assert(pkg.scripts["verify:bert-core-foundation"], "static: npm script registered");
   assert(companyService.includes("resolveCompanyFromFolder"), "static: companyService resolves folder");
   assert(authService.includes("performCompanyLogin"), "static: authService fast login");
+  assert(authService.includes("auth_index_lookup"), "static: login uses auth index");
+  assert(read("server/auth-index.mjs").includes("lookupByEmail"), "static: auth index module");
   assert(!authService.includes("getCanonicalCompanyRegistryRecord"), "static: login skips registry gate");
   assert(userService.includes("listActiveUsers"), "static: companyUserService listActiveUsers");
   assert(sheetFlow.includes("listActiveUsersFromSheet"), "static: listActiveUsersFromSheet helper");
