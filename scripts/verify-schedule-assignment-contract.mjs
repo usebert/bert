@@ -62,7 +62,10 @@ assert(checkService.includes("submitCompletedCheck"), "2f: check service submits
   ];
   const payload = {
     id: "schedule-1",
+    companyFolderId: "company-1",
     scheduleName: "Daily walk",
+    lifecycle: "Live",
+    audits: [{ auditId: "audit-1", auditName: "Fire walk", frequency: "Daily" }],
     assignedUserEmails: assignedUsers.map((user) => user.email),
     assignedUsers,
   };
