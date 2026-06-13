@@ -37,6 +37,9 @@ const pkg = JSON.parse(read("package.json"));
   assert(resetModule.includes("isPlatformOwnerEmail"), "1: reset skips platform owner");
   assert(sessionRevocation.includes("isPlatformOwnerEmail"), "1b: session revocation skips platform owner");
   assert(!resetModule.includes("writeUsersTabRecord"), "1c: reset does not write Users tab rows");
+  assert(!resetModule.includes("master-operators"), "1d: reset does not touch master-operators.json");
+  assert(authIndex.includes("isPlatformOwnerAuthIndexEmail"), "1e: auth index skips platform owner on rebuild");
+  assert(read("server/master-auth.mjs").includes("performMasterLogin"), "1f: master login uses performMasterLogin");
 }
 
 /** 2: Selected company Users tab is backed up. */
