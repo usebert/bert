@@ -15,7 +15,7 @@ export type SubmitCheckResultInput = {
 };
 
 /** Schedules assigned to signed-in user (assignedUserEmails contract). */
-export async function listAssignedSchedulesForUser(
+export async function listAssignedChecks(
   companyContext: CompanyScheduleContext,
   userEmail: string,
   options?: { signal?: AbortSignal },
@@ -28,6 +28,8 @@ export async function listAssignedSchedulesForUser(
   const schedules = listed.schedules.filter((schedule) => isScheduleAssignedToUser(schedule, email));
   return { ok: true, schedules };
 }
+
+export { listAssignedChecks as listAssignedSchedulesForUser };
 
 export function getAssignedEmailsForSchedule(schedule: ManagedSchedule | Record<string, unknown>): string[] {
   return getScheduleAssignedEmails(schedule);

@@ -13,7 +13,7 @@ function newResultId() {
 }
 
 /** Schedules from workbook where signed-in user is in assignedUserEmails. */
-export async function listSchedulesAssignedToUser(auth, deps, input = {}) {
+export async function listAssignedChecks(auth, deps, input = {}) {
   const userEmail = trim(input.userEmail || input.email);
   const listed = await listCompanySchedules(auth, deps, input);
   if (!listed.ok) {
@@ -28,6 +28,8 @@ export async function listSchedulesAssignedToUser(auth, deps, input = {}) {
     schedules,
   };
 }
+
+export { listAssignedChecks as listSchedulesAssignedToUser };
 
 /** Validate user may open this schedule check (assigned on Schedules tab). */
 export async function openAssignedCheck(auth, deps, input = {}) {

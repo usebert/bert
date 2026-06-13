@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * BERT core foundation — 15 cases: folder → workbook → login → users → invite → schedule → check.
+ * BERT core foundation — 24+ cases: folder → workbook → login → users → invite → schedule → check.
  * Static guards always run; live journey when BERT_LIVE_* creds exist.
  */
 import fs from "node:fs";

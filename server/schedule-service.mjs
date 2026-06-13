@@ -221,3 +221,4 @@ export async function listSchedulesAssignedToUser(auth, deps, input = {}) {
 }
 
 export { saveCompanySchedules };
+export { saveCompanySchedule as saveSchedule, listSchedulesAssignedToUser as listAssignedChecks };

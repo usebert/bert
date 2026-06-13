@@ -256,3 +256,4 @@ export async function saveCompanySchedule(
 }
 
 export { getScheduleAssignedEmails };
+export { saveCompanySchedule as saveSchedule };
