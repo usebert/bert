@@ -2,7 +2,17 @@
  * Company workbook Users tab resolution and reads — legacy tab names, header repair, error surfacing.
  */
 import { classifyGoogleSheetsAccessError } from "./ensure-required-tabs.mjs";
-import { sanitizeUsersTabRecords, USERS_TAB, USERS_TAB_COLUMNS } from "./company-users.mjs";
+import {
+  isShiftedLegacyUsersRow,
+  isValidCompanyUserEmail,
+  normalizeRoleForSheetRepair,
+  normalizeUserStatus,
+  normalizeUsersTabRowObject,
+  remapShiftedLegacyUsersRow,
+  sanitizeUsersTabRecords,
+  USERS_TAB,
+  USERS_TAB_COLUMNS,
+} from "./company-users.mjs";
 
 export const USERS_TAB_CANONICAL = "Users";
 
@@ -37,12 +47,13 @@ function rowsToRecords(values) {
   return rows
     .slice(1)
     .filter((row) => row.some((cell) => String(cell || "").trim()))
-    .map((row) =>
-      headers.reduce((accumulator, header, index) => {
+    .map((row) => {
+      const raw = headers.reduce((accumulator, header, index) => {
         accumulator[header] = String(row[index] || "").trim();
         return accumulator;
-      }, {}),
-    );
+      }, {});
+      return normalizeUsersTabRowObject(raw);
+    });
 }
 
 function extractGoogleError(error) {
@@ -280,11 +291,12 @@ export async function readCompanyUsers(auth, spreadsheetId, deps, options = {}) 
  * Godmode/setup repair — create Users tab if needed, ensure headers, preserve rows, run column migration.
  */
 export async function repairUsersTab(auth, spreadsheetId, deps, options = {}) {
+  const schemaRepair = await repairUsersTabSchema(auth, spreadsheetId, deps, options).catch(() => null);
   const resolved = await resolveUsersTab(auth, spreadsheetId, deps, { createIfMissing: true });
   const enrichedDeps = { ...deps, usersTabTitle: resolved.tabTitle };
 
-  let migration = null;
-  if (typeof deps.migrateUsersTabColumns === "function") {
+  let migration = schemaRepair || null;
+  if (!migration && typeof deps.migrateUsersTabColumns === "function") {
     migration = await deps.migrateUsersTabColumns(auth, spreadsheetId, enrichedDeps);
   }
 
@@ -302,8 +314,109 @@ export async function repairUsersTab(auth, spreadsheetId, deps, options = {}) {
     legacySource: resolved.legacySource,
     addedHeaders: resolved.addedHeaders,
     migration,
+    schemaRepair,
     rowCount: readResult.rowCount,
     users: readResult.records,
+  };
+}
+
+/**
+ * Repair shifted Users tab rows — remap legacy positional data onto canonical headers.
+ */
+export async function repairUsersTabSchema(auth, spreadsheetId, deps, options = {}) {
+  const resolved = await resolveUsersTab(auth, spreadsheetId, deps, { createIfMissing: true });
+  const { google, withSheetsQuotaRetry, ensureColumns, getTabValues } = deps;
+  const tabTitle = resolved.tabTitle || USERS_TAB_CANONICAL;
+  const ensureHeaders = [...new Set([...USERS_TAB_MINIMUM_HEADERS, ...USERS_TAB_COLUMNS])];
+  await ensureColumns(auth, spreadsheetId, tabTitle, ensureHeaders);
+
+  const rows = await getTabValues(auth, spreadsheetId, tabTitle);
+  if (!rows.length) {
+    return {
+      ok: true,
+      rowsScanned: 0,
+      rowsRepaired: 0,
+      usersRecovered: 0,
+      passwordHashesPreserved: 0,
+      addedHeaders: resolved.addedHeaders || [],
+    };
+  }
+
+  const existingHeaders = rows[0].map((cell) => String(cell || "").trim());
+  const canonicalHeaders = [...new Set([...existingHeaders, ...ensureHeaders])];
+  let rowsScanned = 0;
+  let rowsRepaired = 0;
+  let usersRecovered = 0;
+  let passwordHashesPreserved = 0;
+  const nextRows = [canonicalHeaders];
+
+  for (let i = 1; i < rows.length; i += 1) {
+    const row = rows[i];
+    if (!row.some((cell) => String(cell || "").trim())) {
+      continue;
+    }
+    rowsScanned += 1;
+    const rawObj = existingHeaders.reduce((accumulator, header, index) => {
+      accumulator[header] = String(row[index] || "").trim();
+      return accumulator;
+    }, {});
+    const shifted = isShiftedLegacyUsersRow(rawObj);
+    const remapped = shifted ? remapShiftedLegacyUsersRow(rawObj) : { ...rawObj };
+    const email = String(remapped.Email || "").trim().toLowerCase();
+    const passwordHash = String(remapped.PasswordHash || "").trim();
+    const createdAt = String(remapped.CreatedAt || rawObj.CreatedAt || "").trim();
+    const role = normalizeRoleForSheetRepair(remapped.Role || rawObj.Role || "");
+    const repaired = {
+      ...remapped,
+      Email: email,
+      Name: String(remapped.Name || email).trim() || email,
+      Role: role,
+      AccessLevel: String(remapped.AccessLevel || "").trim(),
+      Status: normalizeUserStatus(remapped.Status || "ACTIVE"),
+      CompanyAreas: String(remapped.CompanyAreas || "").trim(),
+      PasswordHash: passwordHash,
+      CreatedAt: createdAt && normalizeUserStatus(createdAt) !== "ACTIVE" ? createdAt : createdAt,
+      UpdatedAt: String(remapped.UpdatedAt || new Date().toISOString()).trim(),
+    };
+    if (shifted) {
+      rowsRepaired += 1;
+    }
+    if (email && isValidCompanyUserEmail(email)) {
+      usersRecovered += 1;
+    }
+    if (passwordHash) {
+      passwordHashesPreserved += 1;
+    }
+    nextRows.push(canonicalHeaders.map((header) => String(repaired[header] ?? remapped[header] ?? rawObj[header] ?? "").trim()));
+  }
+
+  if (rowsRepaired > 0 || canonicalHeaders.length !== existingHeaders.length) {
+    const sheets = google.sheets({ version: "v4", auth });
+    await withSheetsQuotaRetry(() =>
+      sheets.spreadsheets.values.clear({
+        spreadsheetId,
+        range: `${tabTitle}!A:ZZ`,
+      }),
+    );
+    await withSheetsQuotaRetry(() =>
+      sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${tabTitle}!A1`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: nextRows },
+      }),
+    );
+  }
+
+  return {
+    ok: true,
+    rowsScanned,
+    rowsRepaired,
+    usersRecovered,
+    passwordHashesPreserved,
+    tabTitle,
+    headers: canonicalHeaders,
+    addedHeaders: resolved.addedHeaders || [],
   };
 }
 

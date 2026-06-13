@@ -36,10 +36,13 @@ import {
   resolveCompanyUserEmailByHash,
   resolveCompanyContextForUser,
   updateCompanyUserRecord,
+  writeUsersTabRecordByHeaders,
+  isValidCompanyUserEmail,
 } from "./company-users.mjs";
 import {
   readCompanyUsers as workbookReadCompanyUsers,
   repairUsersTab,
+  repairUsersTabSchema,
   resolveUsersTab,
 } from "./users-tab-reader.mjs";
 import { installDocumentDistributionRoutes } from "./document-distribution.mjs";
@@ -3207,6 +3210,7 @@ function getCompanyUsersDeps() {
     readCompanyUsers: workbookReadCompanyUsers,
     migrateUsersTabColumns,
     repairUsersTab,
+    repairUsersTabSchema,
     companyUsersCache: {
       ...companyUsersCacheApi,
       rebuildFromSheet: async (auth, deps, context = {}) =>
@@ -3485,11 +3489,14 @@ async function appendRowObjects(auth, spreadsheetId, tabName, rowObjects) {
     return { ok: true, written: 0, skipped: 0 };
   }
 
-  const headers = TAB_COLUMNS[tabName] || [];
-  await ensureColumns(auth, spreadsheetId, tabName, headers);
+  const expectedHeaders = TAB_COLUMNS[tabName] || [];
+  await ensureColumns(auth, spreadsheetId, tabName, expectedHeaders);
+
+  const existingRows = await getTabValues(auth, spreadsheetId, tabName);
+  const sheetHeaders = (existingRows[0] || expectedHeaders).map((header) => String(header || "").trim());
 
   const idColumn = ID_COLUMNS[tabName];
-  const existingRecords = rowsToRecords(await getTabValues(auth, spreadsheetId, tabName));
+  const existingRecords = rowsToRecords(existingRows);
   const existingIds = new Set(
     idColumn ? existingRecords.map((record) => String(record[idColumn] || "").trim()).filter(Boolean) : [],
   );
@@ -3507,7 +3514,7 @@ async function appendRowObjects(auth, spreadsheetId, tabName, rowObjects) {
       valueInputOption: "USER_ENTERED",
       insertDataOption: "INSERT_ROWS",
       requestBody: {
-        values: uniqueRows.map((row) => mapRowObjectToHeaders(headers, row)),
+        values: uniqueRows.map((row) => mapRowObjectToHeaders(sheetHeaders, row)),
       },
     }),
   );
@@ -3726,10 +3733,12 @@ async function writeCompanySchedules(auth, spreadsheetId, companyFolderId, sched
 
 async function writeCompanyUsers(auth, spreadsheetId, companyFolderId, users) {
   await ensureTabsAndColumns(auth, spreadsheetId, { companyId: companyFolderId });
+  await repairUsersTabSchema(auth, spreadsheetId, getCompanyUsersDeps()).catch(() => null);
   await migrateUsersTabColumns(auth, spreadsheetId, getCompanyUsersDeps());
   const rows = toObjectArray(users);
   const timestamp = new Date().toISOString();
   let written = 0;
+  const userDeps = getCompanyUsersDeps();
 
   for (const user of rows) {
     const email = String(user.email || user.Email || "").trim().toLowerCase();
@@ -3751,7 +3760,8 @@ async function writeCompanyUsers(auth, spreadsheetId, companyFolderId, users) {
     const status = String(user.status || user.Status || "").trim();
     const plainPassword = String(user.password || "").trim();
 
-    const patch = {
+    const record = {
+      "User ID": userId,
       "Company ID": companyFolderId,
       "Full Name": fullName,
       Name: fullName,
@@ -3760,8 +3770,6 @@ async function writeCompanyUsers(auth, spreadsheetId, companyFolderId, users) {
       AccessLevel: accessLevel || inviteAccessLevelForRole(role),
       CompanyAreas: companyAreas,
       Status: status || (plainPassword ? "ACTIVE" : "INVITED"),
-      "Created At": createdAt,
-      "Updated At": updatedAt,
       CreatedAt: createdAt,
       UpdatedAt: updatedAt,
       InvitedAt: String(user.invitedAt || user.InvitedAt || createdAt).trim() || createdAt,
@@ -3775,12 +3783,15 @@ async function writeCompanyUsers(auth, spreadsheetId, companyFolderId, users) {
     };
 
     if (plainPassword) {
-      patch.PasswordHash = hashPassword(plainPassword);
-      patch.PasswordUpdatedAt = timestamp;
-      patch.Status = "ACTIVE";
+      record.PasswordHash = hashPassword(plainPassword);
+      record.PasswordUpdatedAt = timestamp;
+      record.Status = "ACTIVE";
     }
 
-    await updateRowById(auth, spreadsheetId, "Users", "User ID", userId, patch);
+    const writeResult = await writeUsersTabRecordByHeaders(auth, spreadsheetId, record, userDeps);
+    if (!writeResult.ok) {
+      continue;
+    }
     if (plainPassword) {
       const cfg = await getConfig(auth, spreadsheetId);
       const legacyKey = `UserAuth.${email}`;
@@ -3789,6 +3800,10 @@ async function writeCompanyUsers(auth, spreadsheetId, companyFolderId, users) {
         delete next[legacyKey];
         await updateConfig(auth, spreadsheetId, next);
       }
+    }
+    const verified = await workbookFindCompanyUsersTabRow(auth, spreadsheetId, email, userDeps);
+    if (!verified || !isValidCompanyUserEmail(verified.email)) {
+      continue;
     }
     written += 1;
   }
@@ -7167,6 +7182,7 @@ app.post(
         addedHeaders: result.addedHeaders,
         rowCount: result.rowCount,
         migration: result.migration,
+        schemaRepair: result.schemaRepair,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -7174,6 +7190,64 @@ app.post(
       return res.status(500).json({
         ok: false,
         error: "Users tab repair failed.",
+        technicalError: message,
+        reasonCode: error?.reasonCode || error?.code,
+      });
+    }
+  },
+);
+
+app.post(
+  "/api/godmode/companies/:companyId/repair-users-tab-schema",
+  requireGoogleWorkspaceSession,
+  requireMasterOnlyActor,
+  async (req, res) => {
+    try {
+      const companyFolderId = String(req.params?.companyId || req.body?.companyFolderId || "").trim();
+      let masterSheetId = String(req.body?.masterSheetId || req.query?.masterSheetId || "").trim();
+      const auth = getAuthedClient();
+      if (!auth) {
+        return res.status(401).json({ ok: false, error: "Please connect Google before repairing the Users tab." });
+      }
+      if (!masterSheetId && companyFolderId) {
+        const folderResolved = await resolveCompanyFromFolder(
+          auth,
+          { google, ...getCompanyWorkspaceRegistryDeps() },
+          companyFolderId,
+          {
+            companyName: String(req.body?.companyName || "").trim(),
+            ensureStructure: false,
+          },
+        );
+        if (folderResolved?.ok) {
+          masterSheetId = String(folderResolved.masterSheetId || "").trim();
+        }
+      }
+      if (!masterSheetId) {
+        return res.status(400).json({ ok: false, error: "masterSheetId is required to repair the Users tab schema." });
+      }
+      const deps = getCompanyUsersDeps();
+      const schemaRepair = await repairUsersTabSchema(auth, masterSheetId, deps);
+      if (typeof deps.companyUsersCache?.rebuildFromSheet === "function" && companyFolderId) {
+        await deps.companyUsersCache
+          .rebuildFromSheet(auth, deps, { companyFolderId, masterSheetId })
+          .catch(() => null);
+      }
+      const readResult = await workbookReadCompanyUsers(auth, masterSheetId, deps);
+      return res.json({
+        ok: true,
+        companyFolderId: companyFolderId || undefined,
+        masterSheetId,
+        ...schemaRepair,
+        rowCount: readResult.rowCount,
+        users: readResult.records,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[godmode] repair-users-tab-schema failed:", message);
+      return res.status(500).json({
+        ok: false,
+        error: "Users tab schema repair failed.",
         technicalError: message,
         reasonCode: error?.reasonCode || error?.code,
       });
