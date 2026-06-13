@@ -124,9 +124,11 @@ import {
   type LinkedCompanyContextInput,
 } from "./src/utils/applyLinkedCompanyContext";
 import {
+  COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
   FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE,
   isCompanyFolderLinkValid,
 } from "./src/utils/companyFolderContext";
+import { clearStaleCompanyLocalStorage } from "./src/utils/clearStaleCompanyLocalStorage";
 import { resolveActiveCompanyContext } from "./src/services/companyContextService";
 import {
   COMPANY_MEMBERS_LOAD_TIMEOUT_MS,
@@ -4171,40 +4173,6 @@ function App() {
     writeCachedOpenActionsCount(selectedFolderId, currentUser.username, liveOpenActionsCount);
   }, [currentUser, selectedFolderId, liveOpenActionsCount]);
 
-  useEffect(() => {
-    if (!currentUser || currentUser.role === "Master") {
-      return;
-    }
-    if (companyLinkBlockedMessage) {
-      return;
-    }
-    const hint = readCompanyLoginHint();
-    if (!hint?.companyFolderId && !hint?.masterSheetId) {
-      return;
-    }
-    if (!linkedCompanyContext?.companyId) {
-      setLinkedCompanyContext({
-        companyId: hint.companyFolderId,
-        companyName: hint.companyName,
-        masterSheetId: hint.masterSheetId,
-        role: currentUser.role,
-        accessLevel: currentUser.accessLevel,
-        companyAreas: currentUser.companyAreas,
-      });
-    }
-    if (!hint?.companyFolderId || selectedFolderId) {
-      return;
-    }
-    setSelectedFolderId(hint.companyFolderId);
-    setFolderIdInput((current) => current.trim() || hint.companyFolderId || "");
-    if (hint.companyName && !folderNameInput.trim()) {
-      setFolderNameInput(hint.companyName);
-    }
-    if (hint.masterSheetId && !extractGoogleResourceId(masterSheetInput)) {
-      setMasterSheetInput(hint.masterSheetId);
-    }
-  }, [currentUser, selectedFolderId, folderNameInput, masterSheetInput, linkedCompanyContext?.companyId, companyLinkBlockedMessage]);
-
   const siteScopedSchedules = useMemo(() => {
     if (!selectedSite) return assignmentFilteredSchedules;
     const selectedName = normalizeIdentity(selectedSite.name);
@@ -4216,11 +4184,12 @@ function App() {
     return userProfilePhotos[user.username] || userProfilePhotos[user.name.toLowerCase()] || "";
   };
 
-  const workspaceName = useMemo(
-    () =>
-      resolveWorkspaceDisplayName(selectedFolder, companyName, activeCompanyContext.companyName),
-    [selectedFolder, companyName, activeCompanyContext.companyName],
-  );
+  const workspaceName = useMemo(() => {
+    if (currentUser && currentUser.role !== "Master" && !linkedCompanyContext?.companyId) {
+      return resolveWorkspaceDisplayName(null, companyName, "");
+    }
+    return resolveWorkspaceDisplayName(selectedFolder, companyName, activeCompanyContext.companyName);
+  }, [currentUser, selectedFolder, companyName, activeCompanyContext.companyName, linkedCompanyContext?.companyId]);
 
   const platformActiveUsersCount = useMemo(
     () => invitedUsers.filter((invite) => formatInviteStatusLabel(invite.status) === "Active").length,
@@ -5796,13 +5765,34 @@ function App() {
           };
           folderPlacementOk?: boolean;
           reasonCode?: string;
+          companyContextValid?: boolean;
+          code?: string;
+          error?: string;
         };
         if (!canRestoreAuthSession()) {
+          return;
+        }
+        const sessionContextInvalid =
+          cp.code === "COMPANY_CONTEXT_INVALID" ||
+          cp.companyContextValid === false ||
+          (cr.status === 409 && cp.ok === false);
+        if (sessionContextInvalid) {
+          clearStaleCompanyLocalStorage();
+          setCompanyLinkBlockedMessage(cp.error || COMPANY_NO_LONGER_AVAILABLE_MESSAGE);
+          setCurrentUser(null);
+          setLinkedCompanyContext(null);
+          setSelectedFolderId("");
+          setFolders([]);
+          setFolderIdInput("");
+          setFolderNameInput("");
+          setMasterSheetInput("");
+          window.localStorage.removeItem(userStorageKey);
           return;
         }
         if (
           cr.ok &&
           cp.ok &&
+          cp.companyContextValid !== false &&
           cp.user?.email &&
           cp.user?.role &&
           !isPlatformOwnerEmail(cp.user.email, import.meta.env)
@@ -5820,10 +5810,11 @@ function App() {
             return;
           }
           const folderPlacementOk = cp.folderPlacementOk ?? cp.company?.folderPlacementOk;
-          const companyLinkValid = isCompanyFolderLinkValid({ folderPlacementOk });
+          const companyLinkValid =
+            cp.companyContextValid !== false && isCompanyFolderLinkValid({ folderPlacementOk });
           const linkBlockedMessage = companyLinkValid
             ? ""
-            : FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE;
+            : cp.error || FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE;
           setCurrentUser(companyUser);
           setCompanyLinkBlockedMessage(linkBlockedMessage);
           setCompanyRegistryStatus(
@@ -5834,6 +5825,7 @@ function App() {
               : "",
           );
           if (companyLinkValid && cp.company?.companyId) {
+            clearStaleCompanyLocalStorage(companyUser.username);
             applyLinkedCompanyContext({
               email: companyUser.username,
               company: {
@@ -5859,10 +5851,11 @@ function App() {
               companyAreas: Array.isArray(cp.user?.companyAreas) ? cp.user.companyAreas : undefined,
             });
           } else {
-            clearCompanyLoginHintForEmail(companyUser.username);
+            clearStaleCompanyLocalStorage(companyUser.username);
             clearGodmodeSelectedCompanyFolderId();
             setLinkedCompanyContext(null);
             setSelectedFolderId("");
+            setFolders([]);
             setFolderIdInput("");
             setFolderNameInput("");
             setMasterSheetInput("");
@@ -5879,7 +5872,7 @@ function App() {
           return;
         }
       } catch {
-        /* fall through to localStorage */
+        /* fall through — company users must not restore from localStorage without session */
       }
 
       if (!canRestoreAuthSession()) {
@@ -5893,6 +5886,11 @@ function App() {
 
       try {
         const parsed = JSON.parse(storedUser) as User;
+        if (parsed.role !== "Master") {
+          clearStaleCompanyLocalStorage(parsed.username);
+          window.localStorage.removeItem(userStorageKey);
+          return;
+        }
         if (
           isPlatformOwnerEmail(parsed.username, import.meta.env) &&
           parsed.role !== "Master"
@@ -7615,6 +7613,14 @@ function App() {
           return false;
         }
         if (!loginResult.ok || !loginResult.user?.email || !loginResult.user?.role) {
+          if (loginResult.companyContextValid === false || loginResult.code === "COMPANY_CONTEXT_INVALID") {
+            clearStaleCompanyLocalStorage(email);
+            companyLoginFailure = {
+              blocker: "company_context_invalid",
+              message: loginResult.error || COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
+            };
+            return false;
+          }
           companyLoginFailure = {
             blocker: loginResult.blocker,
             message: loginResult.error || "Sign in failed.",
@@ -7623,9 +7629,18 @@ function App() {
         }
         const loggedInUser = loginResult.user;
         const loggedInCompany = loginResult.company;
+        if (loginResult.companyContextValid === false || !loggedInCompany?.companyId) {
+          clearStaleCompanyLocalStorage(email);
+          companyLoginFailure = {
+            blocker: "company_context_invalid",
+            message: loginResult.error || COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
+          };
+          return false;
+        }
         const resolvedSheetId = String(
           loginResult.masterSheetId || loggedInCompany?.masterSheetId || masterSheetId || "",
         ).trim();
+        clearStaleCompanyLocalStorage(email);
         applyLinkedCompanyContext({
           email: String(loggedInUser.email).toLowerCase(),
           company: {
@@ -7764,6 +7779,10 @@ function App() {
       }
       if (blocker === "inactive") {
         pushToast("Sign in failed", "This account is inactive. Contact your company administrator.", "warning");
+        return;
+      }
+      if (blocker === "company_context_invalid") {
+        pushToast("Sign in failed", companyLoginFailure.message || COMPANY_NO_LONGER_AVAILABLE_MESSAGE, "warning");
         return;
       }
       if (blocker === "folder_not_in_companies_root") {
@@ -8963,6 +8982,7 @@ function App() {
     explicitLogoutRef.current = true;
     authBootstrapGenerationRef.current += 1;
     const logoutRole = currentUser?.role;
+    const logoutEmail = currentUser?.username;
     clearCachedOpenActionsCount(
       selectedFolderId || undefined,
       currentUser?.username || undefined,
@@ -8971,6 +8991,7 @@ function App() {
       fetch(apiUrl("/api/auth/master/logout"), { method: "POST", credentials: "include" }).catch(() => undefined);
     } else {
       fetch(apiUrl("/api/auth/company/logout"), { method: "POST", credentials: "include" }).catch(() => undefined);
+      clearStaleCompanyLocalStorage(logoutEmail);
     }
     try {
       window.localStorage.removeItem(userStorageKey);
@@ -8991,6 +9012,11 @@ function App() {
       resetMasterGodmodeCompanyContext();
     } else {
       clearCachedOpenActionsCount();
+      setFolders([]);
+      setSelectedFolderId("");
+      setFolderIdInput("");
+      setFolderNameInput("");
+      setMasterSheetInput("");
     }
     document.title = resolveDocumentTitle({ appDisplayName: companyName, signedIn: false });
     setCurrentUser(null);

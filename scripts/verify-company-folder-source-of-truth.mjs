@@ -141,8 +141,8 @@ assert(makeUsable.includes("registry persist failed (non-blocking)"), "28: regis
 assert(serverMain.includes("installCompanyFolderResolverRoutes"), "29: server installs folder resolver routes");
 assert(serverMain.includes("installCompanyFolderPlacementRoutes"), "29b: server installs folder placement routes");
 assert(
-  read("server/auth-service.mjs").includes("validateCompanyFolderUnderCompaniesRoot"),
-  "29c: login validates folder placement",
+  read("server/auth-service.mjs").includes("validateLiveCompanyContext"),
+  "29c: login validates company via live resolver",
 );
 assert(read("server/auth-service.mjs").includes("FOLDER_NOT_IN_COMPANIES_ROOT"), "29d: login denies with reason code");
 assert(

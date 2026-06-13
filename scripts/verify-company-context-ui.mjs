@@ -114,6 +114,9 @@ assert(
   /resolveDocumentTitle[\s\S]*resolveHeaderWorkingOn/.test(headerUtil),
   "5j: title reuses header working-on resolver",
 );
+assert(appTsx.includes("companyContextValid"), "5l: App gates on companyContextValid");
+assert(appTsx.includes("clearStaleCompanyLocalStorage"), "5m: App clears stale company storage");
+assert(read("src/utils/clearStaleCompanyLocalStorage.ts").includes("bert_company_login_hint_v1"), "5n: stale clearer wipes login hint");
 assert(
   headerUtil.includes("No company selected") && headerUtil.includes("No company linked"),
   "5k: title empty-state copy matches header",

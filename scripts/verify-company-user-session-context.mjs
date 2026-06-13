@@ -163,9 +163,16 @@ assert(
 );
 
 /** Folder placement validated on session refresh, not login request. */
+assert(authService.includes("companyContextValid"), "10b: session API exposes companyContextValid");
+assert(serverMain.includes("validateLiveCompanyContext"), "10c: session route uses live validator");
+assert(serverMain.includes("COMPANY_CONTEXT_INVALID"), "10d: session returns invalid company code");
+assert(serverMain.includes("resolveValidatedCompanyLoginContext"), "10e: login validates company after password");
+assert(read("server/auth-index.mjs").includes("invalidateAuthIndexEntryIfCompanyMissing"), "10f: auth index prunes missing companies");
+assert(appTsx.includes("clearStaleCompanyLocalStorage"), "10g: App clears stale company storage");
+assert(appTsx.includes("COMPANY_NO_LONGER_AVAILABLE_MESSAGE"), "10h: App shows company unavailable message");
 assert(
   !/performCompanyLogin[\s\S]*?validateCompanyFolderUnderCompaniesRoot/.test(authService),
-  "10: login does not validate folder placement synchronously",
+  "10: login performCompanyLogin stays fast — validation in route",
 );
 assert(serverMain.includes("folderPlacementOk"), "12: session surfaces folder placement status");
 assert(authService.includes("folderPlacementOk"), "12b: session API exposes folder placement");

@@ -28,6 +28,8 @@ export type CompanyLoginResult = {
   blocker?: string;
   reasonCode?: string;
   error?: string;
+  companyContextValid?: boolean;
+  code?: string;
 };
 
 export type CompanySessionResult = {
@@ -37,6 +39,8 @@ export type CompanySessionResult = {
   folderPlacementOk?: boolean;
   reasonCode?: string;
   error?: string;
+  companyContextValid?: boolean;
+  code?: string;
 };
 
 /** Fast company login — workbook Users tab only; no registry/setup gates. */
@@ -53,6 +57,8 @@ export async function companyLogin(input: {
     blocker?: string;
     reasonCode?: string;
     error?: string;
+    companyContextValid?: boolean;
+    code?: string;
   }>(apiUrl("/api/auth/company/login"), {
     method: "POST",
     credentials: "include",
@@ -74,6 +80,19 @@ export async function companyLogin(input: {
       ok: false,
       blocker: payload.blocker,
       reasonCode: payload.reasonCode,
+      code: payload.code,
+      companyContextValid: payload.companyContextValid,
+      error: payload.error || "Sign in failed.",
+    };
+  }
+
+  if (payload.companyContextValid === false) {
+    return {
+      ok: false,
+      blocker: payload.blocker || "company_context_invalid",
+      reasonCode: payload.reasonCode,
+      code: payload.code,
+      companyContextValid: false,
       error: payload.error || "Sign in failed.",
     };
   }
@@ -92,6 +111,7 @@ export async function companyLogin(input: {
         }
       : undefined,
     masterSheetId,
+    companyContextValid: payload.companyContextValid !== false,
   };
 }
 
@@ -103,6 +123,8 @@ export async function fetchCompanySession(): Promise<CompanySessionResult> {
     folderPlacementOk?: boolean;
     reasonCode?: string;
     error?: string;
+    companyContextValid?: boolean;
+    code?: string;
   }>(apiUrl("/api/auth/company/session"), { credentials: "include" });
 
   if (!result.ok) {
@@ -111,7 +133,23 @@ export async function fetchCompanySession(): Promise<CompanySessionResult> {
 
   const payload = result.data;
   if (!result.response.ok || payload.ok === false) {
-    return { ok: false, error: payload.error || "No company session." };
+    return {
+      ok: false,
+      error: payload.error || "No company session.",
+      code: payload.code,
+      companyContextValid: payload.companyContextValid,
+      reasonCode: payload.reasonCode,
+    };
+  }
+
+  if (payload.companyContextValid === false) {
+    return {
+      ok: false,
+      error: payload.error || "No company session.",
+      code: payload.code,
+      companyContextValid: false,
+      reasonCode: payload.reasonCode,
+    };
   }
 
   const folderPlacementOk = payload.folderPlacementOk ?? payload.company?.folderPlacementOk;
@@ -123,6 +161,7 @@ export async function fetchCompanySession(): Promise<CompanySessionResult> {
     company: payload.company,
     folderPlacementOk,
     reasonCode,
+    companyContextValid: payload.companyContextValid !== false,
   };
 }
 
