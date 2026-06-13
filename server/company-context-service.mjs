@@ -3,9 +3,12 @@
  */
 import {
   cleanCompanyNameFromFolder,
+  COMPANY_CONTEXT_INVALID,
   COMPANY_CONTEXT_STATUS_USABLE,
+  COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
   isCompanyWorkspaceUsable,
 } from "../shared/company-folder-context.mjs";
+import { FOLDER_NOT_IN_COMPANIES_ROOT } from "../shared/company-folder-placement.mjs";
 import { getCanonicalCompanyStatus } from "../shared/company-invite-permissions.mjs";
 import { resolveCompanyById } from "./company-registry-service.mjs";
 import { resolveCompanyFromFolder } from "./company-service.mjs";
@@ -250,6 +253,92 @@ export async function resolveCompanyContextFromFolder(auth, deps, companyFolderI
  * Canonical company identity resolver — companyFolderId is companyId everywhere.
  * @returns {{ ok: boolean, companyFolderId: string, companyId: string, companyName: string, masterSheetId: string, workbook: { masterSheetId: string } | null, registryRecord?: object }}
  */
+/**
+ * Live resolver — folder exists in Drive, under Live Companies when configured, workbook reachable.
+ * Never trusts stale cookie/index/hint companyName without re-resolving.
+ */
+export async function validateLiveCompanyContext(auth, deps, partial = {}) {
+  const masterSheetId = trim(partial.masterSheetId);
+  if (!auth || !masterSheetId) {
+    return {
+      companyContextValid: false,
+      reasonCode: COMPANY_CONTEXT_INVALID,
+      message: COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
+    };
+  }
+
+  const workbookContext = await resolveCompanyContextFromLoginWorkbook(auth, deps, masterSheetId).catch(() => null);
+  let companyFolderId = trim(workbookContext?.companyFolderId || partial.companyFolderId || partial.companyId);
+  let companyName = trim(workbookContext?.companyName || partial.companyName);
+  const resolvedMasterSheetId = trim(workbookContext?.masterSheetId || masterSheetId);
+
+  if (!companyFolderId) {
+    return {
+      companyContextValid: false,
+      reasonCode: COMPANY_CONTEXT_INVALID,
+      message: COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
+    };
+  }
+
+  const driveFolderName = await readCompanyNameFromDriveFolder(auth, deps, companyFolderId);
+  if (!driveFolderName) {
+    return {
+      companyContextValid: false,
+      reasonCode: COMPANY_CONTEXT_INVALID,
+      message: COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
+    };
+  }
+  if (!companyName) {
+    companyName = driveFolderName;
+  }
+
+  const folderPlacement = await validateCompanyFolderUnderCompaniesRoot(auth, deps, companyFolderId, {
+    companyFolderName: companyName,
+  }).catch(() => ({ ok: false, reasonCode: FOLDER_NOT_IN_COMPANIES_ROOT }));
+  if (!folderPlacement?.ok) {
+    return {
+      companyContextValid: false,
+      reasonCode: trim(folderPlacement?.reasonCode) || FOLDER_NOT_IN_COMPANIES_ROOT,
+      message: trim(folderPlacement?.userMessage) || COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
+      folderPlacementOk: false,
+      folderPlacement,
+    };
+  }
+
+  if (!resolvedMasterSheetId || !deps?.google) {
+    return {
+      companyContextValid: false,
+      reasonCode: COMPANY_CONTEXT_INVALID,
+      message: COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
+    };
+  }
+
+  try {
+    const sheets = deps.google.sheets({ version: "v4", auth });
+    await sheets.spreadsheets.get({
+      spreadsheetId: resolvedMasterSheetId,
+      fields: "spreadsheetId",
+    });
+  } catch {
+    return {
+      companyContextValid: false,
+      reasonCode: COMPANY_CONTEXT_INVALID,
+      message: COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
+    };
+  }
+
+  return {
+    companyContextValid: true,
+    companyId: companyFolderId,
+    companyFolderId,
+    companyName,
+    masterSheetId: resolvedMasterSheetId,
+    folderPlacementOk: true,
+    folderPlacement,
+    registryStatus: trim(workbookContext?.registryStatus) || undefined,
+  };
+}
+
 export async function resolveCompanyContext(auth, deps, companyFolderId, options = {}) {
   const resolved = await resolveCompanyContextFields(auth, deps, {
     companyFolderId,

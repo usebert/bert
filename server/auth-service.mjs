@@ -3,8 +3,13 @@
  * No Sheets/Drive/registry/setup/health/repair during login request.
  */
 import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
+import { COMPANY_CONTEXT_INVALID, COMPANY_NO_LONGER_AVAILABLE_MESSAGE } from "../shared/company-folder-context.mjs";
+import { FOLDER_NOT_IN_COMPANIES_ROOT } from "../shared/company-folder-placement.mjs";
 import { readCompanyUsersTabRecord, touchCompanyUserLastLogin } from "./company-users.mjs";
 import { canLoginCompanyUser } from "./company-user-sheet-flow.mjs";
+import { validateLiveCompanyContext } from "./company-context-service.mjs";
+
+export { COMPANY_CONTEXT_INVALID, COMPANY_NO_LONGER_AVAILABLE_MESSAGE, FOLDER_NOT_IN_COMPANIES_ROOT, validateLiveCompanyContext };
 
 export function buildCompanySessionPayload({
   email,
@@ -40,8 +45,10 @@ export function buildCompanySessionApiResponse(input = {}) {
   const companyName = folderPlacementOk ? String(input.companyName || "").trim() : "";
   const masterSheetId = String(input.masterSheetId || "").trim();
   const reasonCode = folderPlacementOk ? undefined : String(input.reasonCode || "").trim() || undefined;
+  const companyContextValid = input.companyContextValid !== false && folderPlacementOk && Boolean(companyFolderId && masterSheetId);
   return {
     ok: true,
+    companyContextValid,
     user: {
       email,
       name: String(input.name || email).trim() || email,
@@ -75,6 +82,7 @@ export function buildCompanySessionApiResponse(input = {}) {
     folderPlacementOk,
     folderPlacement: input.folderPlacement,
     reasonCode,
+    companyContextValid,
   };
 }
 
@@ -462,3 +470,38 @@ export function queueCompanyLoginBackgroundJobs(deps, jobs = {}) {
 }
 
 export { logSlowServiceCall };
+
+/**
+ * After password verify — resolve company via live Drive/registry/workbook checks.
+ * Returns validated fields or an invalid-context error payload.
+ */
+export async function resolveValidatedCompanyLoginContext(auth, deps, indexEntry = {}) {
+  const masterSheetId = String(indexEntry.masterSheetId || "").trim();
+  const companyFolderId = String(indexEntry.companyFolderId || indexEntry.companyId || "").trim();
+  const validation = await validateLiveCompanyContext(auth, deps, {
+    masterSheetId,
+    companyFolderId,
+    companyName: indexEntry.companyName,
+  });
+  if (!validation.companyContextValid) {
+    return {
+      ok: false,
+      httpStatus: 409,
+      blocker: "company_context_invalid",
+      reasonCode: validation.reasonCode || COMPANY_CONTEXT_INVALID,
+      error: validation.message || COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
+      companyContextValid: false,
+    };
+  }
+  return {
+    ok: true,
+    companyContextValid: true,
+    companyId: validation.companyFolderId,
+    companyFolderId: validation.companyFolderId,
+    companyName: validation.companyName,
+    masterSheetId: validation.masterSheetId,
+    folderPlacementOk: true,
+    folderPlacement: validation.folderPlacement,
+    registryStatus: validation.registryStatus,
+  };
+}

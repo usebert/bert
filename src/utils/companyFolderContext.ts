@@ -7,6 +7,11 @@ export const COMPANY_READY_INVITE_MESSAGE = "Company is ready. You can now invit
 export const FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE =
   "This company is not set up in BERT. Contact your administrator.";
 
+export const COMPANY_CONTEXT_INVALID = "COMPANY_CONTEXT_INVALID";
+
+export const COMPANY_NO_LONGER_AVAILABLE_MESSAGE =
+  "This company workspace is no longer available. Contact your administrator.";
+
 export function cleanCompanyNameFromFolder(folderName = ""): string {
   const raw = String(folderName || "").trim();
   if (!raw) {

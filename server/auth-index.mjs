@@ -4,6 +4,7 @@
  */
 import fs from "node:fs";
 import { verifyPassword } from "./master-auth.mjs";
+import { validateLiveCompanyContext } from "./company-context-service.mjs";
 import {
   defaultAccessLevelForRole,
   isPasswordHash,
@@ -302,6 +303,28 @@ export function createAuthIndexApi(indexPath) {
     return Object.values(store.byEmail || {});
   }
 
+  /**
+   * Drop index rows whose company folder or workbook no longer resolves in Drive.
+   * Never use stale index companyName/folderId as login context when invalid.
+   */
+  async function invalidateAuthIndexEntryIfCompanyMissing(auth, deps, email) {
+    const key = normalizeEmail(email);
+    const entry = lookupByEmail(key);
+    if (!auth || !key || !entry?.masterSheetId) {
+      return { ok: false, removed: false, reason: "missing_context" };
+    }
+    const validation = await validateLiveCompanyContext(auth, deps, {
+      masterSheetId: entry.masterSheetId,
+      companyFolderId: entry.companyFolderId || entry.companyId,
+      companyName: entry.companyName,
+    }).catch(() => ({ companyContextValid: false }));
+    if (validation.companyContextValid) {
+      return { ok: true, removed: false, entry };
+    }
+    removeEntry(key);
+    return { ok: true, removed: true, reason: validation.reasonCode || "company_missing" };
+  }
+
   return {
     lookupByEmail,
     upsertEntry,
@@ -311,6 +334,7 @@ export function createAuthIndexApi(indexPath) {
     entryFromUsersTabRow,
     rebuildCompanyAuthIndexFromSheet,
     verifyAuthIndexEntryFromSheet,
+    invalidateAuthIndexEntryIfCompanyMissing,
     readAllEntries,
     readStore,
     DEFAULT_STALE_MS,

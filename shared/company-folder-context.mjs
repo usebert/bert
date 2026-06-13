@@ -4,6 +4,11 @@
 
 export const COMPANY_CONTEXT_STATUS_USABLE = "USABLE";
 
+export const COMPANY_CONTEXT_INVALID = "COMPANY_CONTEXT_INVALID";
+
+export const COMPANY_NO_LONGER_AVAILABLE_MESSAGE =
+  "This company workspace is no longer available. Contact your administrator.";
+
 export const BERT_FOLDER_STRUCTURE_SUFFIX = " - BERT Folder Structure";
 
 export const COMPANY_READY_INVITE_MESSAGE = "Company is ready. You can now invite users.";

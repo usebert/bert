@@ -111,13 +111,16 @@ import { createBackgroundJobsService } from "./background-jobs-service.mjs";
 import { BACKGROUND_INVITE_CREATED_MESSAGE } from "../shared/background-jobs.mjs";
 import { installCoreWorkflowRoutes } from "./core-workflow-routes.mjs";
 import { assertCompanyInviteReady } from "./company-invite-readiness.mjs";
-import { enrichCompanyContextFromRegistry as enrichCompanyContextFromRegistryService, resolveCompanyContextFromLoginWorkbook } from "./company-context-service.mjs";
+import { enrichCompanyContextFromRegistry as enrichCompanyContextFromRegistryService, resolveCompanyContextFromLoginWorkbook, validateLiveCompanyContext } from "./company-context-service.mjs";
 import {
   buildCompanySessionApiResponse,
   buildCompanySessionPayload,
   performCompanyLogin,
   probeCompanyLoginSheet as probeCompanyLoginSheetCore,
   queueCompanyLoginBackgroundJobs,
+  resolveValidatedCompanyLoginContext,
+  COMPANY_CONTEXT_INVALID,
+  COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
 } from "./auth-service.mjs";
 import { createAuthIndexApi, syncAuthIndexAfterUsersRead } from "./auth-index.mjs";
 import { completeInviteToUserRow } from "./company-user-sheet-flow.mjs";
@@ -6848,7 +6851,63 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
       });
     }
 
-    res.cookie(COMPANY_SESSION_COOKIE, result.sessionPayload, getSessionCookieOptions({ maxAge: COMPANY_SESSION_MS }));
+    let sessionPayload = result.sessionPayload;
+    let loginCompany = result.company || {};
+    let loginMasterSheetId = String(result.masterSheetId || loginCompany.masterSheetId || "").trim();
+
+    if (auth && envConfigured()) {
+      const invalidated = await authIndexApi
+        .invalidateAuthIndexEntryIfCompanyMissing(auth, getCompanyContextEnrichmentDeps(), result.email)
+        .catch(() => ({ removed: false }));
+      if (invalidated.removed) {
+        return res.status(409).json({
+          ok: false,
+          blocker: "company_context_invalid",
+          code: COMPANY_CONTEXT_INVALID,
+          companyContextValid: false,
+          error: COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
+        });
+      }
+
+      const validated = await resolveValidatedCompanyLoginContext(auth, getCompanyContextEnrichmentDeps(), {
+        masterSheetId: loginMasterSheetId,
+        companyFolderId: loginCompany.companyFolderId || loginCompany.companyId,
+        companyName: loginCompany.companyName,
+      });
+      if (!validated.ok) {
+        authIndexApi.removeEntry(result.email);
+        return res.status(validated.httpStatus || 409).json({
+          ok: false,
+          blocker: validated.blocker,
+          code: validated.reasonCode || COMPANY_CONTEXT_INVALID,
+          companyContextValid: false,
+          error: validated.error,
+          reasonCode: validated.reasonCode,
+        });
+      }
+
+      loginCompany = {
+        companyId: validated.companyFolderId,
+        companyFolderId: validated.companyFolderId,
+        companyName: validated.companyName,
+        masterSheetId: validated.masterSheetId,
+        registryStatus: validated.registryStatus,
+        folderPlacementOk: true,
+      };
+      loginMasterSheetId = validated.masterSheetId;
+      sessionPayload = buildCompanySessionPayload({
+        email: result.email,
+        masterSheetId: validated.masterSheetId,
+        companyId: validated.companyFolderId,
+        companyName: validated.companyName,
+        role: result.user.role,
+        name: result.user.name,
+        accessLevel: result.user.accessLevel || "",
+        companyAreas: result.user.companyAreas,
+      });
+    }
+
+    res.cookie(COMPANY_SESSION_COOKIE, sessionPayload, getSessionCookieOptions({ maxAge: COMPANY_SESSION_MS }));
 
     const responseStarted = Date.now();
     res.on("finish", () => {
@@ -6870,9 +6929,10 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
 
     return res.json({
       ok: true,
+      companyContextValid: true,
       user: result.user,
-      masterSheetId: result.masterSheetId,
-      company: result.company,
+      masterSheetId: loginMasterSheetId,
+      company: loginCompany,
       timingMs: result.timing,
     });
   } catch (error) {
@@ -6918,6 +6978,7 @@ app.get("/api/auth/company/session", async (req, res) => {
           companyFolderId,
           companyName: companyNameFromSession,
           masterSheetId: String(data.masterSheetId || "").trim(),
+          companyContextValid: Boolean(companyFolderId && data.masterSheetId),
         }),
       );
     }
@@ -6930,73 +6991,51 @@ app.get("/api/auth/company/session", async (req, res) => {
       res.clearCookie(COMPANY_SESSION_COOKIE, getSessionCookieOptions());
       return res.status(401).json({ ok: false, error: "Session invalid." });
     }
-    let companyId = companyIdFromSession || String(rec.companyId || "").trim();
+
     const masterSheetId = String(data.masterSheetId || "").trim();
-    const workbookContext = await resolveCompanyContextFromLoginWorkbook(
-      auth,
-      getCompanyContextEnrichmentDeps(),
+    const validation = await validateLiveCompanyContext(auth, getCompanyContextEnrichmentDeps(), {
       masterSheetId,
-    ).catch(() => null);
-    if (workbookContext?.companyFolderId) {
-      companyId = String(workbookContext.companyFolderId).trim();
-    } else if (!companyId) {
-      try {
-        const cfg = await getConfig(auth, data.masterSheetId);
-        companyId = String(cfg.companyId || "").trim();
-      } catch {
-        /* best-effort */
-      }
+      companyFolderId: companyIdFromSession,
+      companyName: companyNameFromSession,
+    });
+    if (!validation.companyContextValid) {
+      res.clearCookie(COMPANY_SESSION_COOKIE, getSessionCookieOptions());
+      return res.status(409).json({
+        ok: false,
+        code: COMPANY_CONTEXT_INVALID,
+        companyContextValid: false,
+        error: validation.message || COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
+        reasonCode: validation.reasonCode || COMPANY_CONTEXT_INVALID,
+      });
     }
+
+    const companyId = String(validation.companyFolderId || "").trim();
+    const resolvedCompanyName = String(validation.companyName || "").trim();
+    const resolvedMasterSheetId = String(validation.masterSheetId || masterSheetId).trim();
+    const folderPlacementOk = validation.folderPlacementOk !== false;
     const registryRecord = companyId
       ? await getCanonicalCompanyRegistryRecord(auth, getCompanyWorkspaceRegistryDeps(), companyId).catch(() => null)
-      : workbookContext?.registryRecord || null;
-    if (companyId) {
-      await ensureCompanyLiveIfReady(auth, getCompanyWorkspaceRegistryDeps(), {
-        companyId,
-        companyFolderId: companyId,
-        checks: {
-          rootFolderId: companyId,
-          masterSheetId,
-          skipHealthCheck: true,
-        },
-      }).catch(() => {});
-    }
-    const freshRecord = companyId
-      ? await getCanonicalCompanyRegistryRecord(auth, getCompanyWorkspaceRegistryDeps(), companyId).catch(() => registryRecord)
       : null;
-    const registryStatus = getCanonicalCompanyStatus(freshRecord || registryRecord || {});
-    const enrichedContext = await enrichCompanyContextFromRegistry(auth, {
-      ...getCompanyContextEnrichmentDeps(),
-      masterSheetId,
-      companyFolderId: companyId,
-      companyName: companyNameFromSession || workbookContext?.companyName || "",
-      registryStatus,
-    });
-    const folderPlacementOk = enrichedContext.folderPlacementOk !== false;
-    const readiness = evaluateCompanyWorkspaceReadiness(freshRecord || registryRecord || {}, {
+    const registryStatus = getCanonicalCompanyStatus(registryRecord || { registryStatus: validation.registryStatus });
+    const readiness = evaluateCompanyWorkspaceReadiness(registryRecord || {}, {
       rootFolderId: companyId,
-      masterSheetId,
+      masterSheetId: resolvedMasterSheetId,
       skipHealthCheck: true,
       folderPlacementOk,
     });
-    const sessionCompanyId = enrichedContext.companyFolderId || enrichedContext.companyId || companyId;
-    const resolvedCompanyName = String(enrichedContext.companyName || companyNameFromSession || "").trim();
-    const resolvedMasterSheetId = String(enrichedContext.masterSheetId || masterSheetId).trim();
-    const effectiveCompanyId = folderPlacementOk ? sessionCompanyId : "";
-    const effectiveCompanyName = folderPlacementOk ? resolvedCompanyName : "";
+
     if (
-      !folderPlacementOk ||
-      effectiveCompanyName !== companyNameFromSession ||
-      effectiveCompanyId !== companyIdFromSession ||
-      resolvedMasterSheetId !== String(data.masterSheetId || "").trim()
+      resolvedCompanyName !== companyNameFromSession ||
+      companyId !== companyIdFromSession ||
+      resolvedMasterSheetId !== masterSheetId
     ) {
       res.cookie(
         COMPANY_SESSION_COOKIE,
         buildCompanySessionPayload({
           email: data.email,
           masterSheetId: resolvedMasterSheetId,
-          companyId: effectiveCompanyId,
-          companyName: effectiveCompanyName,
+          companyId,
+          companyName: resolvedCompanyName,
           role: rec.role,
           name: rec.name,
           accessLevel: rec.accessLevel || data.accessLevel || "",
@@ -7012,20 +7051,18 @@ app.get("/api/auth/company/session", async (req, res) => {
         name: rec.name,
         accessLevel: rec.accessLevel || data.accessLevel || "",
         companyAreas: rec.companyAreas?.length ? rec.companyAreas : sessionCompanyAreas,
-        companyId: effectiveCompanyId,
-        companyFolderId: effectiveCompanyId,
-        companyName: effectiveCompanyName,
+        companyId,
+        companyFolderId: companyId,
+        companyName: resolvedCompanyName,
         masterSheetId: resolvedMasterSheetId,
         registryStatus,
         status: registryStatus,
         live: isCompanyRegistryLive({ status: registryStatus, registryStatus }) && folderPlacementOk,
         needsAttention: readiness.needsAttention || !folderPlacementOk,
-        setupBlockers: folderPlacementOk
-          ? readiness.setupBlockers
-          : [...(readiness.setupBlockers || []), "folder_not_in_companies_root"],
+        setupBlockers: readiness.setupBlockers,
         folderPlacementOk,
-        folderPlacement: enrichedContext.folderPlacement,
-        reasonCode: folderPlacementOk ? undefined : "FOLDER_NOT_IN_COMPANIES_ROOT",
+        folderPlacement: validation.folderPlacement,
+        companyContextValid: true,
       }),
     );
   } catch (error) {
