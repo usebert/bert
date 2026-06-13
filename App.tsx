@@ -14288,7 +14288,7 @@ function App() {
                 googleFormCopyOption={googleFormCopyOption}
                 googleFormCopyPlacement={googleFormCopyOption.placement}
                 companyFolderId={activeCompanyContext.companyFolderId || selectedFolderId}
-                companyName={activeCompanyContext.companyName || selectedFolder?.name || ""}
+                companyName={activeCompanyContext.companyName || ""}
                 onTemplateQuestionChange={setTemplateQuestionInput}
                 onTemplateQuestionTypeChange={setTemplateQuestionTypeInput}
                 onAddTemplateQuestion={handleAddTemplateQuestion}
@@ -14425,13 +14425,9 @@ function App() {
                 accountNameInput={accountNameInput}
                 accountPhotoUrl={accountPhotoUrl}
                 themeMode={themeMode}
-                companyName={
-                  currentUser.role === "Master"
-                    ? activeCompanyContext.companyName || selectedFolder?.name || workspaceName
-                    : activeCompanyContext.companyName || workspaceName
-                }
+                companyName={activeCompanyContext.companyName}
                 actingCompanyName={
-                  currentUser.role === "Master" ? activeCompanyContext.companyName || selectedFolder?.name : undefined
+                  currentUser.role === "Master" ? activeCompanyContext.companyName : undefined
                 }
                 slatePrimaryCtaInteract={slatePrimaryCtaInteract}
                 onAccountNameChange={setAccountNameInput}

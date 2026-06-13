@@ -77,4 +77,38 @@ assert(!/PasswordHash/.test(fnBody(authService, "buildMasterSessionApiResponse")
 assert(appTsx.includes("resolveUserEmail(currentUser)"), "4: header shows email");
 assert(!appTsx.includes("hidden min-w-0 text-right sm:block"), "4b: account strip not sm-only hidden");
 
+/** document.title and workspace labels use active company context — not stale localStorage. */
+assert(headerUtil.includes("resolveDocumentTitle"), "5: document title resolver");
+assert(headerUtil.includes("normalizeAppBrandForTitle"), "5b: app brand normalizer for title");
+assert(appTsx.includes("resolveDocumentTitle"), "5c: App sets title via resolver");
+assert(
+  /document\.title\s*=\s*resolveDocumentTitle/.test(appTsx),
+  "5d: document.title assigned from resolver",
+);
+assert(
+  /resolveDocumentTitle\([\s\S]*?activeCompanyContext\.companyName/.test(appTsx),
+  "5e: title uses activeCompanyContext.companyName",
+);
+assert(
+  /resolveDocumentTitle\([\s\S]*?activeCompanyContext\.companyFolderId/.test(appTsx),
+  "5f: title uses activeCompanyContext.companyFolderId",
+);
+assert(!appTsx.includes("document.title = workspaceName"), "5g: title does not use workspaceName");
+assert(
+  !/resolveWorkspaceDisplayName[\s\S]*readCompanyLoginHint/.test(appTsx),
+  "5h: workspaceName does not fall back to login hint localStorage",
+);
+assert(
+  /handleLogout[\s\S]*resolveDocumentTitle[\s\S]*signedIn:\s*false/.test(appTsx),
+  "5i: logout clears document title",
+);
+assert(
+  /resolveDocumentTitle[\s\S]*resolveHeaderWorkingOn/.test(headerUtil),
+  "5j: title reuses header working-on resolver",
+);
+assert(
+  headerUtil.includes("No company selected") && headerUtil.includes("No company linked"),
+  "5k: title empty-state copy matches header",
+);
+
 console.log(`[verify:company-context-ui] OK — ${caseCount} cases passed`);
