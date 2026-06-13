@@ -220,6 +220,99 @@ function headerIndex(headers, ...names) {
   return -1;
 }
 
+/**
+ * Shifted legacy rows: headers are Email-first but row data was appended using
+ * TAB_COLUMNS order (User ID, Company ID, Email, Name, Role, …) without matching columns.
+ */
+export function isShiftedLegacyUsersRow(obj) {
+  if (!obj || typeof obj !== "object") {
+    return false;
+  }
+  const emailHeaderCol = pickField(obj, "Email");
+  if (isValidCompanyUserEmail(emailHeaderCol)) {
+    return false;
+  }
+  const emailInRoleCol = pickField(obj, "Role");
+  if (!isValidCompanyUserEmail(emailInRoleCol)) {
+    return false;
+  }
+  const statusInCreatedAt = normalizeUserStatus(pickField(obj, "CreatedAt"));
+  const hashInUpdatedAt = isPasswordHash(pickField(obj, "UpdatedAt"));
+  return statusInCreatedAt === "ACTIVE" || hashInUpdatedAt;
+}
+
+/** Role labels written to the Users tab during schema repair. */
+export function normalizeRoleForSheetRepair(role) {
+  const r = safeLower(role).replace(/\s+/g, " ");
+  if (r === "admin" || r === "administrator" || r === "owner" || r === "company admin") {
+    return "Company Admin";
+  }
+  if (r === "master") {
+    return "Master";
+  }
+  if (r === "manager") {
+    return "Manager";
+  }
+  if (r === "auditor") {
+    return "Auditor";
+  }
+  if (r === "user") {
+    return "User";
+  }
+  const parsed = parseRoleFromUsersSheet(role);
+  if (parsed === "Admin") {
+    return "Company Admin";
+  }
+  return parsed || String(role || "").trim();
+}
+
+/** Remap a shifted legacy row object onto canonical Users tab field names. */
+export function remapShiftedLegacyUsersRow(obj) {
+  if (!isShiftedLegacyUsersRow(obj)) {
+    return { ...obj };
+  }
+  const passwordHash = isPasswordHash(pickField(obj, "UpdatedAt"))
+    ? pickField(obj, "UpdatedAt")
+    : pickField(obj, "PasswordHash");
+  const createdAtRaw = pickField(obj, "CreatedAt");
+  const createdAt =
+    createdAtRaw && normalizeUserStatus(createdAtRaw) !== "ACTIVE" ? createdAtRaw : pickField(obj, "InvitedAt");
+  return {
+    ...obj,
+    "User ID": pickField(obj, "User ID") || pickField(obj, "Email"),
+    "Company ID": pickField(obj, "Company ID") || pickField(obj, "Name"),
+    Email: pickField(obj, "Role"),
+    Name: pickField(obj, "AccessLevel") || pickField(obj, "Name"),
+    Role: normalizeRoleForSheetRepair(pickField(obj, "Status")),
+    AccessLevel: pickField(obj, "CompanyAreas") || pickField(obj, "AccessLevel"),
+    CompanyAreas: pickField(obj, "PasswordHash") && !isPasswordHash(pickField(obj, "PasswordHash"))
+      ? pickField(obj, "PasswordHash")
+      : pickField(obj, "CompanyAreas"),
+    Status: normalizeUserStatus(pickField(obj, "CreatedAt") || pickField(obj, "Status")),
+    PasswordHash: passwordHash,
+    CreatedAt: createdAt,
+    UpdatedAt: pickField(obj, "UpdatedAt") && !isPasswordHash(pickField(obj, "UpdatedAt"))
+      ? pickField(obj, "UpdatedAt")
+      : obj.UpdatedAt || "",
+  };
+}
+
+export function normalizeUsersTabRowObject(obj) {
+  return remapShiftedLegacyUsersRow(obj);
+}
+
+function rowEmailCandidates(obj) {
+  const remapped = remapShiftedLegacyUsersRow(obj);
+  return [
+    pickField(remapped, "Email"),
+    pickField(obj, "Email"),
+    pickField(obj, "Role"),
+    pickField(obj, "Name"),
+  ]
+    .map((value) => safeLower(value))
+    .filter((value) => isValidCompanyUserEmail(value));
+}
+
 function rowToObject(headers, row) {
   const obj = {};
   headers.forEach((h, idx) => {
@@ -261,18 +354,16 @@ export async function findCompanyUsersTabRow(auth, spreadsheetId, email, deps) {
     return null;
   }
   const headers = rows[0].map((cell) => String(cell || "").trim());
-  const emailIndex = headerIndex(headers, "Email", "email");
-  if (emailIndex === -1) {
-    return null;
-  }
   const target = safeLower(email);
   for (let i = 1; i < rows.length; i += 1) {
     const row = rows[i];
-    const rowEmail = safeLower(row[emailIndex]);
-    if (rowEmail !== target) {
+    const rawObj = rowToObject(headers, row);
+    const obj = normalizeUsersTabRowObject(rawObj);
+    const candidates = rowEmailCandidates(rawObj);
+    if (!candidates.includes(target)) {
       continue;
     }
-    const obj = rowToObject(headers, row);
+    const rowEmail = pickField(obj, "Email") || target;
     const roleRaw = pickField(obj, "Role", "role");
     const fullName =
       pickField(obj, "Name", "name", "Full Name", "Full name") || rowEmail;
@@ -282,11 +373,13 @@ export async function findCompanyUsersTabRow(auth, spreadsheetId, email, deps) {
       pickField(obj, "AccessLevel", "Access Level", "accessLevel") ||
       defaultAccessLevelForRole(parseRoleFromUsersSheet(roleRaw));
     const companyAreasRaw = pickField(obj, "CompanyAreas", "Company Areas", "companyAreas");
-    const passwordHash = pickField(obj, "PasswordHash", "passwordHash");
+    const passwordHash = isPasswordHash(pickField(obj, "UpdatedAt"))
+      ? pickField(obj, "UpdatedAt")
+      : pickField(obj, "PasswordHash", "passwordHash");
     return {
       sheetRowIndex: i,
       headers,
-      email: rowEmail,
+      email: safeLower(rowEmail),
       roleRaw,
       name: fullName,
       companyId,
@@ -300,6 +393,7 @@ export async function findCompanyUsersTabRow(auth, spreadsheetId, email, deps) {
       createdAt: pickField(obj, "CreatedAt", "Created At"),
       updatedAt: pickField(obj, "UpdatedAt", "Updated At"),
       rowObject: obj,
+      shiftedLegacy: isShiftedLegacyUsersRow(rawObj),
     };
   }
   return null;
@@ -330,14 +424,26 @@ export async function readCompanyUsersTabRecord(auth, spreadsheetId, email, deps
   };
 }
 
-async function writeUsersRowPatch(auth, spreadsheetId, match, patch, deps) {
-  const { google, withSheetsQuotaRetry, ensureColumns } = deps;
+function mapRecordToSheetHeaders(headers, record) {
+  return headers.map((header) => String(record?.[header] ?? "").trim());
+}
+
+async function readUsersTabHeaders(auth, spreadsheetId, deps) {
+  const { getTabValues, ensureColumns } = deps;
   const tabTitle = await resolveUsersTabTitle(auth, spreadsheetId, deps, { createIfMissing: true });
   await ensureColumns(auth, spreadsheetId, tabTitle, USERS_TAB_COLUMNS);
-  const headers = match.headers?.length ? match.headers : USERS_TAB_COLUMNS;
-  const current = match.rowObject || {};
+  const rows = await getTabValues(auth, spreadsheetId, tabTitle);
+  const headers = (rows[0] || USERS_TAB_COLUMNS).map((cell) => String(cell || "").trim()).filter(Boolean);
+  return { tabTitle, headers, rows };
+}
+
+async function writeUsersRowPatch(auth, spreadsheetId, match, patch, deps) {
+  const { google, withSheetsQuotaRetry } = deps;
+  const { tabTitle, headers } = await readUsersTabHeaders(auth, spreadsheetId, deps);
+  const sheetHeaders = match.headers?.length ? match.headers : headers;
+  const current = normalizeUsersTabRowObject(match.rowObject || {});
   const nextRecord = { ...current, ...patch };
-  const nextRow = headers.map((header) => String(nextRecord[header] ?? "").trim());
+  const nextRow = mapRecordToSheetHeaders(sheetHeaders, nextRecord);
   const sheets = google.sheets({ version: "v4", auth });
   await withSheetsQuotaRetry(() =>
     sheets.spreadsheets.values.update({
@@ -347,6 +453,59 @@ async function writeUsersRowPatch(auth, spreadsheetId, match, patch, deps) {
       requestBody: { values: [nextRow] },
     }),
   );
+}
+
+/** Write or update a Users tab row using actual sheet header order (never positional TAB_COLUMNS). */
+export async function writeUsersTabRecordByHeaders(auth, spreadsheetId, record, deps, options = {}) {
+  const { google, withSheetsQuotaRetry } = deps;
+  const emailNorm = safeLower(record.Email || record.email);
+  if (!isValidCompanyUserEmail(emailNorm)) {
+    return { ok: false, reason: "invalid_email" };
+  }
+  const { tabTitle, headers, rows } = await readUsersTabHeaders(auth, spreadsheetId, deps);
+  const target = emailNorm;
+  let rowIndex = -1;
+  for (let i = 1; i < rows.length; i += 1) {
+    const rawObj = rowToObject(headers, rows[i]);
+    if (rowEmailCandidates(rawObj).includes(target)) {
+      rowIndex = i;
+      break;
+    }
+  }
+  const existingObj = rowIndex >= 0 ? normalizeUsersTabRowObject(rowToObject(headers, rows[rowIndex])) : {};
+  const nextRecord = { ...existingObj, ...record, Email: emailNorm };
+  const nextRow = mapRecordToSheetHeaders(headers, nextRecord);
+  const sheets = google.sheets({ version: "v4", auth });
+  if (rowIndex === -1) {
+    await withSheetsQuotaRetry(() =>
+      sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: `${tabTitle}!A1`,
+        valueInputOption: "USER_ENTERED",
+        insertDataOption: "INSERT_ROWS",
+        requestBody: { values: [nextRow] },
+      }),
+    );
+  } else {
+    await withSheetsQuotaRetry(() =>
+      sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${tabTitle}!A${rowIndex + 1}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [nextRow] },
+      }),
+    );
+  }
+  if (options.validate !== false) {
+    const verified = await findCompanyUsersTabRow(auth, spreadsheetId, emailNorm, deps);
+    if (!verified || !isValidCompanyUserEmail(verified.email)) {
+      return { ok: false, reason: "write_validation_failed" };
+    }
+    if (record.PasswordHash && verified.passwordHash !== String(record.PasswordHash).trim()) {
+      return { ok: false, reason: "password_hash_mismatch" };
+    }
+  }
+  return { ok: true, email: emailNorm, updated: rowIndex >= 0, appended: rowIndex === -1 };
 }
 
 export async function setCompanyUserPasswordHash(auth, spreadsheetId, email, plainPassword, deps) {
