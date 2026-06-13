@@ -53,9 +53,16 @@ assert(authService.includes("validateLiveCompanyContext"), "2c: auth service re-
 assert(serverMain.includes("validateLiveCompanyContext"), "3: session route validates live context");
 assert(serverMain.includes("COMPANY_CONTEXT_INVALID"), "3b: session returns COMPANY_CONTEXT_INVALID");
 assert(serverMain.includes("resolveValidatedCompanyLoginContext"), "3c: login route validates after password");
-assert(serverMain.includes("invalidateAuthIndexEntryIfCompanyMissing"), "3d: login prunes stale auth index rows");
+assert(serverMain.includes("lookupByEmailValidated"), "3d: login uses validated auth index lookup");
+assert(serverMain.includes("pruneAuthIndexGhostEntries"), "3e: server startup prunes ghost auth index entries");
 
-assert(authIndex.includes("verifyAuthIndexEntryMatchesUsersWorkbook"), "4c: auth index verifies Users tab workbook match");
+assert(authIndex.includes("lookupByEmailValidated"), "4a: auth index validates entries on lookup");
+assert(authIndex.includes("validateLiveCompanyContext"), "4b: auth index uses live validator");
+assert(authIndex.includes("pruneAuthIndexGhostEntries"), "4f: auth index prunes ghost entries on startup");
+assert(
+  /rebuildAuthIndex[\s\S]*?validateLiveCompanyContext/.test(authIndex),
+  "4g: rebuild only indexes folders under Live Companies",
+);
 assert(authIndex.includes("isValidCompanyUserEmail"), "4d: auth index requires Email column for rebuild");
 assert(read("shared/auth-index-trust.mjs").includes("isKnownStaleAuthIndexPairing"), "4e: known stale auth pairings guarded");
 
@@ -123,6 +130,10 @@ assert(serverMain.includes("rebuildAuthIndex"), "9h: godmode rebuild uses full a
 assert(serverMain.includes("verifyAuthIndexEntryMatchesUsersWorkbook"), "9i: session verifies auth index workbook match");
 assert(serverMain.includes("isKnownStaleAuthIndexPairing"), "9j: session rejects known stale pairings");
 assert(clearStale.includes("bert_context_schema_version"), "9k: boot uses bert_context_schema_version");
-assert(clearStale.includes("BERT_CONTEXT_SCHEMA_VERSION"), "9l: schema version constant exported");
+assert(clearStale.includes("BERT_CONTEXT_SCHEMA_VERSION = 3"), "9m: schema version bumped for one-time client wipe");
+assert(
+  read("src/components/admin/UsersInvitesPilotPanel.tsx").includes("companyContextBlocked"),
+  "9n: invite panel blocks when company context invalid",
+);
 
 console.log(`[verify:stale-company-context] OK — ${caseCount} cases passed`);
