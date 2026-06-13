@@ -50,3 +50,45 @@ export function resolveHeaderRoleLabel(role: Role): string {
   }
   return getAccountRoleLabel(role);
 }
+
+export type DocumentTitleInput = {
+  /** Product brand from `VITE_APP_NAME` (defaults to bert.). */
+  appDisplayName: string;
+  signedIn?: boolean;
+  role?: Role;
+  companyName?: string;
+  companyFolderId?: string;
+};
+
+/** Strip trailing period so titles read "bert · Company" not "bert. · Company". */
+export function normalizeAppBrandForTitle(appDisplayName: string): string {
+  const trimmed = String(appDisplayName || "").trim();
+  if (!trimmed) {
+    return "bert";
+  }
+  return trimmed.replace(/\.+$/, "") || "bert";
+}
+
+/** Browser tab title — same company source as header "Working on". Never localStorage hints. */
+export function resolveDocumentTitle(input: DocumentTitleInput): string {
+  const appBrand = normalizeAppBrandForTitle(input.appDisplayName);
+  if (!input.signedIn) {
+    return appBrand;
+  }
+
+  const workingOn = resolveHeaderWorkingOn({
+    role: input.role || "User",
+    companyName: input.companyName,
+    companyFolderId: input.companyFolderId,
+  });
+
+  if (workingOn.hasCompany) {
+    return `${appBrand} · ${workingOn.companyLabel}`;
+  }
+
+  if (input.role === "Master") {
+    return `${appBrand} · No company selected`;
+  }
+
+  return `${appBrand} · No company linked`;
+}

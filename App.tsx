@@ -80,7 +80,11 @@ import { getGreetingFirstName, getTimeBasedGreeting, getUserInitials } from "./s
 import { isDebugUiAllowed } from "./src/utils/debugUiVisibility";
 import { AccountIdentitySummary } from "./src/components/AccountIdentitySummary";
 import { UX_STATUS, canShowTechnicalUi, resolveUserEmail } from "./src/utils/uxDeclutter";
-import { resolveHeaderRoleLabel, resolveHeaderWorkingOn } from "./src/utils/headerCompanyContext";
+import {
+  resolveDocumentTitle,
+  resolveHeaderRoleLabel,
+  resolveHeaderWorkingOn,
+} from "./src/utils/headerCompanyContext";
 import { useTabletKiosk } from "./src/hooks/useTabletKiosk";
 import { isTabletKioskEnabled } from "./src/utils/tabletKioskStorage";
 import { AuditorTaskDashboard } from "./src/components/dashboard/AuditorTaskDashboard";
@@ -4212,8 +4216,9 @@ function App() {
   };
 
   const workspaceName = useMemo(
-    () => resolveWorkspaceDisplayName(selectedFolder, companyName, readCompanyLoginHint()?.companyName),
-    [selectedFolder, companyName],
+    () =>
+      resolveWorkspaceDisplayName(selectedFolder, companyName, activeCompanyContext.companyName),
+    [selectedFolder, companyName, activeCompanyContext.companyName],
   );
 
   const platformActiveUsersCount = useMemo(
@@ -8974,6 +8979,7 @@ function App() {
     } else {
       clearCachedOpenActionsCount();
     }
+    document.title = resolveDocumentTitle({ appDisplayName: companyName, signedIn: false });
     setCurrentUser(null);
     setAccountNameInput("");
     setAccountPhotoUrl("");
@@ -12274,8 +12280,20 @@ function App() {
   }, []);
 
   useEffect(() => {
-    document.title = workspaceName;
-  }, [workspaceName]);
+    document.title = resolveDocumentTitle({
+      appDisplayName: companyName,
+      signedIn: Boolean(currentUser),
+      role: currentUser?.role,
+      companyName: activeCompanyContext.companyName,
+      companyFolderId: activeCompanyContext.companyFolderId,
+    });
+  }, [
+    currentUser,
+    currentUser?.role,
+    activeCompanyContext.companyName,
+    activeCompanyContext.companyFolderId,
+    companyName,
+  ]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -13327,11 +13345,9 @@ function App() {
                     username={currentUser.username}
                     email={currentUser.email}
                     role={currentUser.role}
-                    companyName={currentUser.role === "Master" ? undefined : activeCompanyContext.companyName || workspaceName}
+                    companyName={currentUser.role === "Master" ? undefined : activeCompanyContext.companyName}
                     actingCompanyName={
-                      currentUser.role === "Master"
-                        ? activeCompanyContext.companyName || selectedFolder?.name
-                        : undefined
+                      currentUser.role === "Master" ? activeCompanyContext.companyName : undefined
                     }
                     compact
                     tone="onDark"
