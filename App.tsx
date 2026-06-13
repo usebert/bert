@@ -5810,8 +5810,7 @@ function App() {
             return;
           }
           const folderPlacementOk = cp.folderPlacementOk ?? cp.company?.folderPlacementOk;
-          const companyLinkValid =
-            cp.companyContextValid !== false && isCompanyFolderLinkValid({ folderPlacementOk });
+          const companyLinkValid = isCompanyFolderLinkValid({ folderPlacementOk });
           const linkBlockedMessage = companyLinkValid
             ? ""
             : cp.error || FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE;

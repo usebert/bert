@@ -161,7 +161,7 @@ export async function fetchCompanySession(): Promise<CompanySessionResult> {
     company: payload.company,
     folderPlacementOk,
     reasonCode,
-    companyContextValid: payload.companyContextValid !== false,
+    companyContextValid: payload.companyContextValid ?? true,
   };
 }
 
