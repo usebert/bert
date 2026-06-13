@@ -111,7 +111,7 @@ export async function companyLogin(input: {
         }
       : undefined,
     masterSheetId,
-    companyContextValid: payload.companyContextValid !== false,
+    companyContextValid: payload.companyContextValid ?? true,
   };
 }
 
