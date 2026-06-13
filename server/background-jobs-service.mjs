@@ -310,6 +310,59 @@ export function createBackgroundJobsService(sessionDir, deps = {}) {
     return { userMessage: "Google Workspace connection verified." };
   }
 
+  async function runRebuildAuthIndex(job) {
+    const auth = deps.getAuthedClient?.();
+    if (!auth) {
+      throw Object.assign(new Error("Google Workspace is not connected."), { code: "GOOGLE_NOT_CONNECTED" });
+    }
+    const payload = job.payload && typeof job.payload === "object" ? job.payload : {};
+    const masterSheetId = String(payload.masterSheetId || "").trim();
+    const companyFolderId = String(payload.companyFolderId || job.companyId || "").trim();
+    const companyName = String(payload.companyName || "").trim();
+    if (!deps.authIndex || typeof deps.authIndex.rebuildCompanyAuthIndexFromSheet !== "function") {
+      throw new Error("Auth index is not configured.");
+    }
+    if (!masterSheetId && !companyFolderId) {
+      throw new Error("masterSheetId or companyFolderId is required for auth index rebuild.");
+    }
+    const result = await deps.authIndex.rebuildCompanyAuthIndexFromSheet(auth, deps, {
+      masterSheetId,
+      companyFolderId,
+      companyId: companyFolderId,
+      companyName,
+    });
+    return {
+      userMessage: "Sign-in index rebuilt.",
+      upserted: result.upserted,
+      removed: result.removed,
+    };
+  }
+
+  async function runVerifyAuthIndex(job) {
+    const auth = deps.getAuthedClient?.();
+    if (!auth) {
+      throw Object.assign(new Error("Google Workspace is not connected."), { code: "GOOGLE_NOT_CONNECTED" });
+    }
+    const payload = job.payload && typeof job.payload === "object" ? job.payload : {};
+    const email = String(payload.email || job.requestedBy || "").trim().toLowerCase();
+    if (!email || !deps.authIndex || typeof deps.authIndex.verifyAuthIndexEntryFromSheet !== "function") {
+      throw new Error("Auth index verification requires email and configured index.");
+    }
+    const result = await deps.authIndex.verifyAuthIndexEntryFromSheet(auth, deps, email, {
+      masterSheetId: String(payload.masterSheetId || "").trim(),
+      companyFolderId: String(payload.companyFolderId || job.companyId || "").trim(),
+      companyName: String(payload.companyName || "").trim(),
+    });
+    if (result.expired) {
+      return {
+        userMessage: "Sign-in index verified; inactive account removed from index.",
+        expired: true,
+        reason: result.reason,
+      };
+    }
+    return { userMessage: "Sign-in index verified.", expired: false };
+  }
+
   async function executeJob(job) {
     switch (job.type) {
       case BACKGROUND_JOB_TYPES.COMPLETE_COMPANY_SETUP:
@@ -322,6 +375,10 @@ export function createBackgroundJobsService(sessionDir, deps = {}) {
         return runSyncSchedules(job);
       case BACKGROUND_JOB_TYPES.VERIFY_GOOGLE_CONNECTION:
         return runVerifyGoogleConnection(job);
+      case BACKGROUND_JOB_TYPES.REBUILD_AUTH_INDEX:
+        return runRebuildAuthIndex(job);
+      case BACKGROUND_JOB_TYPES.VERIFY_AUTH_INDEX:
+        return runVerifyAuthIndex(job);
       case BACKGROUND_JOB_TYPES.REPAIR_COMPANY_STRUCTURE:
       case BACKGROUND_JOB_TYPES.SYNC_COMPANY_USERS:
       case BACKGROUND_JOB_TYPES.GENERATE_REPORT:

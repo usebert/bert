@@ -1,19 +1,9 @@
 /**
- * Auth service — fast company login from workbook Users tab.
- * No registry live/health/setup gates on login; registry is cache/diagnostics only.
+ * Auth service — fast company login from auth index (Users tab is source of truth).
+ * No Sheets/Drive/registry/setup/health/repair during login request.
  */
 import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
 import { readCompanyUsersTabRecord, touchCompanyUserLastLogin } from "./company-users.mjs";
-import { resolveCompanyContextForUser } from "./company-users.mjs";
-import {
-  enrichCompanyContextFromRegistry,
-  resolveCompanyContextFromLoginWorkbook,
-} from "./company-context-service.mjs";
-import {
-  FOLDER_NOT_IN_COMPANIES_ROOT,
-  FOLDER_PLACEMENT_LOGIN_MESSAGE,
-} from "../shared/company-folder-placement.mjs";
-import { validateCompanyFolderUnderCompaniesRoot } from "./company-folder-placement.mjs";
 import { canLoginCompanyUser } from "./company-user-sheet-flow.mjs";
 
 export function buildCompanySessionPayload({
@@ -131,8 +121,18 @@ export function buildMasterSessionPayload(input = {}) {
   });
 }
 
+function logLoginPhase(phase, startMs) {
+  const durationMs = Date.now() - startMs;
+  console.log(`[login] ${phase} durationMs=${durationMs}`);
+  return durationMs;
+}
+
+function logSlowServiceCall(serviceName) {
+  console.warn(`[login] SLOW_SERVICE_CALLED service=${serviceName}`);
+}
+
 /**
- * Probe workbook Users tab for login — ACTIVE row + PasswordHash only.
+ * Probe workbook Users tab for onboarding finalize — not used on login path.
  */
 export async function probeCompanyLoginSheet(auth, masterSheetId, email, password, companyUsersDeps) {
   const emailNorm = String(email || "").trim().toLowerCase();
@@ -212,217 +212,253 @@ export async function probeCompanyLoginSheet(auth, masterSheetId, email, passwor
 }
 
 /**
- * Company login — workbook Users tab only; registry enrichment is non-blocking.
+ * Company login — auth index only; background jobs run after response.
  */
 export async function performCompanyLogin(auth, deps, input = {}) {
+  const loginStarted = Date.now();
+  const timing = {};
+  console.log("[login] start");
+
   const {
     email: rawEmail,
     password,
     masterSheetId: requestedSheetId = "",
-    findMasterSheetIdsForCompanyLoginEmail,
-    getCompanyUsersDeps,
-    getCompanyContextResolutionDeps,
-    getCompanyWorkspaceRegistryDeps,
+    authIndex,
+    queueLoginBackgroundJobs,
     isPlatformOwner = isPlatformOwnerEmail,
   } = deps;
 
+  const tNormalize = Date.now();
   const email = String(rawEmail || "").trim().toLowerCase();
   const pwd = String(password || "");
+  timing.normalise_email = logLoginPhase("normalise_email", tNormalize);
+
   if (!email || !pwd) {
+    timing.total = logLoginPhase("total", loginStarted);
     return {
       ok: false,
       httpStatus: 400,
       blocker: "missing_fields",
       error: "Email and password are required.",
+      timing,
     };
   }
   if (!email.includes("@")) {
+    timing.total = logLoginPhase("total", loginStarted);
     return {
       ok: false,
       httpStatus: 400,
       blocker: "invalid_email",
       error: "A valid email address is required.",
+      timing,
     };
   }
 
+  const tPlatform = Date.now();
   if (isPlatformOwner(email, process.env)) {
+    timing.platform_auth_check = logLoginPhase("platform_auth_check", tPlatform);
+    timing.total = logLoginPhase("total", loginStarted);
     return {
       ok: false,
       httpStatus: 401,
       blocker: "invalid_credentials",
       error: "Invalid email or password.",
+      timing,
     };
   }
+  timing.platform_auth_check = logLoginPhase("platform_auth_check", tPlatform);
 
-  const inviteSheetCandidates =
-    typeof findMasterSheetIdsForCompanyLoginEmail === "function"
-      ? findMasterSheetIdsForCompanyLoginEmail(email)
-      : [];
-  const sheetIdsToTry = [];
-  const requested = String(requestedSheetId || "").trim();
-  if (requested) {
-    sheetIdsToTry.push(requested);
-  }
-  for (const candidateId of inviteSheetCandidates) {
-    if (!sheetIdsToTry.includes(candidateId)) {
-      sheetIdsToTry.push(candidateId);
-    }
-  }
-
-  const companyUsersDeps = getCompanyUsersDeps();
-  const contextDeps = getCompanyContextResolutionDeps();
-  const enrichmentDeps = {
-    ...getCompanyWorkspaceRegistryDeps(),
-    getConfig: typeof deps.getConfig === "function" ? deps.getConfig : undefined,
-  };
-
-  const discoveryContext = await resolveCompanyContextForUser(auth, email, contextDeps).catch(() => null);
-  if (discoveryContext?.masterSheetId && !sheetIdsToTry.includes(discoveryContext.masterSheetId)) {
-    sheetIdsToTry.push(discoveryContext.masterSheetId);
-  }
-
-  if (sheetIdsToTry.length === 0) {
+  if (!authIndex || typeof authIndex.lookupByEmail !== "function") {
+    logSlowServiceCall("auth_index_missing");
+    timing.total = logLoginPhase("total", loginStarted);
     return {
       ok: false,
-      httpStatus: 400,
-      blocker: "company_not_identified",
-      error: "Select your company or use your invite link before signing in.",
+      httpStatus: 503,
+      blocker: "auth_index_unavailable",
+      error: "Sign in is temporarily unavailable.",
+      timing,
     };
   }
 
-  let successSheetId = "";
-  let successRec = null;
-  let lastProbe = null;
-  for (const sheetId of sheetIdsToTry) {
-    const probe = await probeCompanyLoginSheet(auth, sheetId, email, pwd, companyUsersDeps);
-    lastProbe = probe;
-    if (probe.passwordVerified && probe.rec) {
-      successSheetId = sheetId;
-      successRec = probe.rec;
-      break;
+  const tLookup = Date.now();
+  const indexEntry = authIndex.lookupByEmail(email);
+  timing.auth_index_lookup = logLoginPhase("auth_index_lookup", tLookup);
+
+  const requested = String(requestedSheetId || "").trim();
+  if (!indexEntry) {
+    if (typeof queueLoginBackgroundJobs === "function") {
+      queueLoginBackgroundJobs({
+        email,
+        reason: "index_missing",
+        requestedMasterSheetId: requested,
+      });
     }
+    timing.total = logLoginPhase("total", loginStarted);
+    return {
+      ok: false,
+      httpStatus: 401,
+      blocker: "invalid_credentials",
+      error: "Invalid email or password.",
+      timing,
+    };
   }
 
-  if (!successSheetId || !successRec) {
-    if (lastProbe?.inactive) {
-      return {
-        ok: false,
-        httpStatus: 403,
-        blocker: "inactive",
-        error: "This account is inactive. Contact your company administrator.",
-      };
-    }
-    if (lastProbe?.cacheOnly) {
-      return {
-        ok: false,
-        httpStatus: 403,
-        blocker: "cache_only",
-        error:
-          "Your account is not active in this company. Ask your administrator to check the Users tab.",
-      };
-    }
-    if (lastProbe?.setupIncomplete) {
-      return {
-        ok: false,
-        httpStatus: 403,
-        blocker: "setup_incomplete",
-        error:
-          "Your account setup is incomplete. Open your invite link again or ask an administrator to resend it.",
-      };
-    }
-    if (!lastProbe?.passwordVerified) {
-      return {
-        ok: false,
-        httpStatus: 401,
-        blocker: "invalid_credentials",
-        error: "Invalid email or password.",
-      };
-    }
+  if (requested && indexEntry.masterSheetId && requested !== indexEntry.masterSheetId) {
+    timing.total = logLoginPhase("total", loginStarted);
+    return {
+      ok: false,
+      httpStatus: 401,
+      blocker: "invalid_credentials",
+      error: "Invalid email or password.",
+      timing,
+    };
+  }
+
+  const tPassword = Date.now();
+  const passwordVerified = authIndex.verifyPasswordForEntry(indexEntry, pwd);
+  timing.password_verify = logLoginPhase("password_verify", tPassword);
+
+  if (!passwordVerified) {
+    timing.total = logLoginPhase("total", loginStarted);
+    return {
+      ok: false,
+      httpStatus: 401,
+      blocker: "invalid_credentials",
+      error: "Invalid email or password.",
+      timing,
+    };
+  }
+
+  if (String(indexEntry.status || "").toUpperCase() !== "ACTIVE") {
+    timing.total = logLoginPhase("total", loginStarted);
     return {
       ok: false,
       httpStatus: 403,
-      blocker: lastProbe?.usersRowFound ? "role_unsupported" : "setup_incomplete",
-      error: lastProbe?.usersRowFound
-        ? "This account role is not supported for sign in."
-        : "Your account setup is incomplete. Open your invite link again or ask an administrator to resend it.",
+      blocker: "inactive",
+      error: "This account is inactive. Contact your company administrator.",
+      timing,
     };
   }
 
-  await touchCompanyUserLastLogin(auth, successSheetId, email, companyUsersDeps);
+  const tContext = Date.now();
+  const masterSheetId = String(indexEntry.masterSheetId || requested || "").trim();
+  const sessionCompanyId = String(indexEntry.companyFolderId || indexEntry.companyId || "").trim();
+  const companyName = String(indexEntry.companyName || "").trim();
+  const companyAreas = Array.isArray(indexEntry.companyAreas) ? indexEntry.companyAreas : [];
+  timing.company_context_load = logLoginPhase("company_context_load", tContext);
 
-  const workbookContext =
-    (await resolveCompanyContextFromLoginWorkbook(auth, enrichmentDeps, successSheetId).catch(() => null)) || {
-      companyFolderId: "",
-      companyName: "",
-      masterSheetId: successSheetId,
-    };
+  const tSession = Date.now();
+  const sessionPayload = buildCompanySessionPayload({
+    email,
+    masterSheetId,
+    companyId: sessionCompanyId,
+    companyName,
+    role: indexEntry.role,
+    name: indexEntry.name,
+    accessLevel: indexEntry.accessLevel || "",
+    companyAreas,
+  });
+  timing.session_create = logLoginPhase("session_create", tSession);
 
-  let sessionCompanyFolderId = String(workbookContext.companyFolderId || "").trim();
-  const usersTabFolderId = String(successRec.companyId || "").trim();
-  if (!sessionCompanyFolderId && usersTabFolderId) {
-    sessionCompanyFolderId = usersTabFolderId;
-  }
+  const tJobs = Date.now();
+  const backgroundJobs = {
+    email,
+    masterSheetId,
+    companyFolderId: sessionCompanyId,
+    companyName,
+    indexStale: authIndex.isEntryStale(indexEntry),
+    touchLastLogin: true,
+  };
+  timing.background_jobs_queued = logLoginPhase("background_jobs_queued", tJobs);
 
-  const enrichedContext = await enrichCompanyContextFromRegistry(auth, enrichmentDeps, {
-    masterSheetId: successSheetId,
-    companyFolderId: sessionCompanyFolderId,
-    companyName: String(workbookContext.companyName || "").trim(),
-    registryStatus: workbookContext.registryStatus,
-    registrySource: workbookContext.registrySource,
-  }).catch(() => workbookContext);
-
-  const sessionCompanyId = String(
-    enrichedContext.companyFolderId || enrichedContext.companyId || sessionCompanyFolderId,
-  ).trim();
-  const companyAreas = Array.isArray(successRec.companyAreas) ? successRec.companyAreas : [];
-
-  if (sessionCompanyId) {
-    const placementDeps = {
-      ...enrichmentDeps,
-      sharedDriveId: String(deps.sharedDriveId || enrichmentDeps.sharedDriveId || "").trim(),
-    };
-    const folderPlacement = await validateCompanyFolderUnderCompaniesRoot(auth, placementDeps, sessionCompanyId, {
-      companyFolderName: String(enrichedContext.companyName || workbookContext.companyName || "").trim(),
-    }).catch(() => ({ ok: false, reasonCode: FOLDER_NOT_IN_COMPANIES_ROOT }));
-    if (!folderPlacement.ok) {
-      return {
-        ok: false,
-        httpStatus: 403,
-        blocker: "folder_not_in_companies_root",
-        error: FOLDER_PLACEMENT_LOGIN_MESSAGE,
-        reasonCode: FOLDER_NOT_IN_COMPANIES_ROOT,
-        folderPlacement,
-      };
-    }
-  }
+  timing.response_sent = 0;
+  timing.total = Date.now() - loginStarted;
+  console.log(`[login] total durationMs=${timing.total}`);
 
   return {
     ok: true,
     email,
-    masterSheetId: successSheetId,
+    masterSheetId,
     user: {
       email,
-      role: successRec.role,
-      name: successRec.name,
-      accessLevel: successRec.accessLevel || "",
+      role: indexEntry.role,
+      name: indexEntry.name,
+      accessLevel: indexEntry.accessLevel || "",
       companyAreas,
     },
     company: {
       companyId: sessionCompanyId,
       companyFolderId: sessionCompanyId,
-      companyName: String(enrichedContext.companyName || workbookContext.companyName || "").trim(),
-      masterSheetId: successSheetId,
-      registryStatus: String(enrichedContext.registryStatus || "").trim() || undefined,
+      companyName,
+      masterSheetId,
     },
-    sessionPayload: buildCompanySessionPayload({
-      email,
-      masterSheetId: successSheetId,
-      companyId: sessionCompanyId,
-      companyName: enrichedContext.companyName || workbookContext.companyName || "",
-      role: successRec.role,
-      name: successRec.name,
-      accessLevel: successRec.accessLevel || "",
-      companyAreas,
-    }),
+    sessionPayload,
+    backgroundJobs,
+    timing,
   };
 }
+
+/** Queue post-login background work — must run after HTTP response. */
+export function queueCompanyLoginBackgroundJobs(deps, jobs = {}) {
+  const {
+    authIndex,
+    getAuthedClient,
+    getCompanyUsersDeps,
+    enqueueBackgroundJob,
+    touchCompanyUserLastLogin: touchLastLoginFn = touchCompanyUserLastLogin,
+  } = deps;
+
+  const email = String(jobs.email || "").trim().toLowerCase();
+  const masterSheetId = String(jobs.masterSheetId || "").trim();
+  const companyFolderId = String(jobs.companyFolderId || "").trim();
+
+  if (jobs.reason === "index_missing" && typeof enqueueBackgroundJob === "function") {
+    enqueueBackgroundJob({
+      type: "REBUILD_AUTH_INDEX",
+      companyId: companyFolderId,
+      requestedBy: email || "login",
+      userMessage: "Rebuilding sign-in index.",
+      payload: { email, masterSheetId: jobs.requestedMasterSheetId || masterSheetId, reason: "index_missing" },
+    }).catch(() => null);
+    return;
+  }
+
+  if (jobs.indexStale && typeof enqueueBackgroundJob === "function") {
+    enqueueBackgroundJob({
+      type: "VERIFY_AUTH_INDEX",
+      companyId: companyFolderId,
+      requestedBy: email,
+      userMessage: "Verifying sign-in index.",
+      payload: { email, masterSheetId, companyFolderId, companyName: jobs.companyName || "" },
+    }).catch(() => null);
+  }
+
+  if (jobs.touchLastLogin && masterSheetId && email) {
+    setImmediate(() => {
+      const auth = typeof getAuthedClient === "function" ? getAuthedClient() : null;
+      if (!auth) {
+        return;
+      }
+      const companyUsersDeps = typeof getCompanyUsersDeps === "function" ? getCompanyUsersDeps() : {};
+      touchLastLoginFn(auth, masterSheetId, email, companyUsersDeps).catch(() => null);
+    });
+  }
+
+  if (jobs.rebuildAfterInvite && authIndex && masterSheetId) {
+    setImmediate(async () => {
+      const auth = typeof getAuthedClient === "function" ? getAuthedClient() : null;
+      if (!auth || typeof authIndex.rebuildCompanyAuthIndexFromSheet !== "function") {
+        return;
+      }
+      await authIndex
+        .rebuildCompanyAuthIndexFromSheet(auth, deps, {
+          masterSheetId,
+          companyFolderId,
+          companyName: jobs.companyName || "",
+        })
+        .catch(() => null);
+    });
+  }
+}
+
+export { logSlowServiceCall };

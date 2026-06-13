@@ -117,7 +117,9 @@ import {
   buildCompanySessionPayload,
   performCompanyLogin,
   probeCompanyLoginSheet as probeCompanyLoginSheetCore,
+  queueCompanyLoginBackgroundJobs,
 } from "./auth-service.mjs";
+import { createAuthIndexApi, syncAuthIndexAfterUsersRead } from "./auth-index.mjs";
 import { completeInviteToUserRow } from "./company-user-sheet-flow.mjs";
 import { createCompanyUsersCacheApi } from "./company-users-cache.mjs";
 import { rebuildUsersFromSheet } from "./company-user-service.mjs";
@@ -207,8 +209,10 @@ const ONBOARDING_INVITE_TTL_MS = Math.max(
 const INVITE_STORE_PATH = path.join(sessionDir, "app-onboarding-invites.json");
 const COMPANY_ONBOARDING_INVITE_STORE_PATH = path.join(sessionDir, "company-onboarding-invites.json");
 const COMPANY_USERS_CACHE_PATH = path.join(sessionDir, "company-users-cache.json");
+const AUTH_INDEX_PATH = path.join(sessionDir, "auth-index.json");
 const companyOnboardingInviteStore = createInviteStoreApi(COMPANY_ONBOARDING_INVITE_STORE_PATH);
 const companyUsersCacheApi = createCompanyUsersCacheApi(COMPANY_USERS_CACHE_PATH);
+const authIndexApi = createAuthIndexApi(AUTH_INDEX_PATH);
 /** Pilot visibility only: `demo` = current client-side password auth. See docs/security-hardening-plan.md */
 const APP_AUTH_MODE = String(process.env.APP_AUTH_MODE || "demo").trim().toLowerCase();
 
@@ -6770,31 +6774,72 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
       email: String(req.body?.email || req.body?.username || "").trim(),
       password: String(req.body?.password || ""),
       masterSheetId: String(req.body?.masterSheetId || "").trim(),
-      findMasterSheetIdsForCompanyLoginEmail,
-      getCompanyUsersDeps,
-      getCompanyContextResolutionDeps,
-      getCompanyWorkspaceRegistryDeps,
-      getConfig,
-      sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
-      google,
+      authIndex: authIndexApi,
+      isPlatformOwner: isPlatformOwnerEmail,
+      queueLoginBackgroundJobs: (jobs) => {
+        if (backgroundJobs?.enqueueJob) {
+          backgroundJobs
+            .enqueueJob({
+              type: "REBUILD_AUTH_INDEX",
+              companyId: String(jobs.companyFolderId || "").trim(),
+              requestedBy: String(jobs.email || "login").trim(),
+              userMessage: "Rebuilding sign-in index.",
+              payload: {
+                email: jobs.email,
+                masterSheetId: jobs.requestedMasterSheetId || "",
+                reason: jobs.reason || "index_missing",
+              },
+            })
+            .catch(() => null);
+        }
+      },
     });
 
     if (!result.ok) {
+      const responseSentAt = Date.now();
+      if (result.timing) {
+        result.timing.response_sent = responseSentAt - (responseSentAt - (result.timing.total || 0));
+        console.log(`[login] response_sent durationMs=${result.timing.response_sent || 0}`);
+      }
       return res.status(result.httpStatus || 400).json({
         ok: false,
         blocker: result.blocker,
         error: result.error,
         reasonCode: result.reasonCode,
         folderPlacement: result.folderPlacement,
+        timingMs: result.timing,
       });
     }
 
     res.cookie(COMPANY_SESSION_COOKIE, result.sessionPayload, getSessionCookieOptions({ maxAge: COMPANY_SESSION_MS }));
+
+    const responseStarted = Date.now();
+    if (result.timing) {
+      result.timing.response_sent = 0;
+    }
+
+    res.on("finish", () => {
+      if (result.timing) {
+        result.timing.response_sent = Date.now() - responseStarted;
+        console.log(`[login] response_sent durationMs=${result.timing.response_sent}`);
+      }
+      queueCompanyLoginBackgroundJobs(
+        {
+          authIndex: authIndexApi,
+          getAuthedClient,
+          getCompanyUsersDeps,
+          enqueueBackgroundJob: (input) => backgroundJobs?.enqueueJob?.(input),
+        },
+        result.backgroundJobs,
+      );
+    });
+
     return res.json({
       ok: true,
       user: result.user,
       masterSheetId: result.masterSheetId,
       company: result.company,
+      timingMs: result.timing,
     });
   } catch (error) {
     console.error("[company-auth] login failed:", error);
