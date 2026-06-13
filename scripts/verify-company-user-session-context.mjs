@@ -133,8 +133,8 @@ assert(
 );
 assert(appTsx.includes("clearGodmodeSelectedCompanyFolderId()"), "9b: company login clears godmode folder selection");
 assert(
-  /workbookContext\?\.companyFolderId/.test(serverMain),
-  "9c: session prefers workbook folder over stale cookie",
+  /validateLiveCompanyContext[\s\S]*?resolveCompanyContextFromLoginWorkbook/.test(contextService),
+  "9c: live validator resolves workbook folder over stale cookie",
 );
 {
   const companyAFolder = "folder-rock-solid";
