@@ -47,13 +47,12 @@ function trimId(value: string | undefined) {
   return String(value || "").trim();
 }
 
-/** Company Admin and Manager: derive workspace from session hint / linked company, not Godmode selection. */
+/** Company Admin and Manager: derive workspace from validated session company context only. */
 function resolveCompanyActorInviteWorkspace(input: ResolveInviteWorkspaceInput): ResolvedInviteWorkspace {
-  const active = input.activeCompany;
   const ctx = input.companyContext || {};
-  const companyFolderId = trimId(active?.id || ctx.companyFolderId);
-  const masterSheetId = trimId(active?.masterSheetId || ctx.masterSheetId);
-  const companyName = trimId(active?.name || ctx.companyName);
+  const companyFolderId = trimId(ctx.companyFolderId);
+  const masterSheetId = trimId(ctx.masterSheetId);
+  const companyName = trimId(ctx.companyName);
 
   if (!companyFolderId || !masterSheetId) {
     return { ok: false, message: ADMIN_INVITE_NO_COMPANY_MESSAGE };

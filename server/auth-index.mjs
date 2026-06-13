@@ -4,6 +4,7 @@
  */
 import fs from "node:fs";
 import { verifyPassword } from "./master-auth.mjs";
+import { isKnownStaleAuthIndexPairing } from "../shared/auth-index-trust.mjs";
 import { validateLiveCompanyContext } from "./company-context-service.mjs";
 import {
   defaultAccessLevelForRole,
@@ -12,8 +13,10 @@ import {
   parseCompanyAreas,
   parseRoleFromUsersSheet,
   normalizeUserStatus,
+  readCompanyUsersTabRecord,
 } from "./company-users.mjs";
-import { rowEmailCandidates } from "./users-tab-schema.mjs";
+import { isValidCompanyUserEmail } from "./users-tab-schema.mjs";
+import { isCompanyRegistryLive } from "../shared/company-invite-permissions.mjs";
 
 const DEFAULT_STALE_MS = Math.max(
   60_000,
@@ -85,7 +88,38 @@ export function createAuthIndexApi(indexPath) {
     if (!entry || typeof entry !== "object") {
       return null;
     }
+    if (isKnownStaleAuthIndexPairing(key, entry.companyName)) {
+      return null;
+    }
     return { ...entry, email: key };
+  }
+
+  /**
+   * Drive-validated lookup — removes index row when folder is missing or not under Live Companies.
+   */
+  async function lookupByEmailValidated(auth, deps, email) {
+    const key = normalizeEmail(email);
+    const entry = lookupByEmail(email);
+    if (!auth || !key || !entry?.masterSheetId) {
+      return entry;
+    }
+    const validation = await validateLiveCompanyContext(auth, deps, {
+      masterSheetId: entry.masterSheetId,
+      companyFolderId: entry.companyFolderId || entry.companyId,
+      companyName: entry.companyName,
+    }).catch(() => ({ companyContextValid: false }));
+    if (!validation.companyContextValid) {
+      removeEntry(key);
+      return null;
+    }
+    return {
+      ...entry,
+      email: key,
+      companyId: validation.companyFolderId || entry.companyId,
+      companyFolderId: validation.companyFolderId || entry.companyFolderId,
+      companyName: validation.companyName || entry.companyName,
+      masterSheetId: validation.masterSheetId || entry.masterSheetId,
+    };
   }
 
   function upsertEntry(entry) {
@@ -182,13 +216,96 @@ export function createAuthIndexApi(indexPath) {
     };
   }
 
+  function entrySortKey(entry, companyLive = false) {
+    const liveScore = companyLive ? 1 : 0;
+    const updatedAt = Date.parse(String(entry?.updatedAt || ""));
+    const indexedAt = Number(entry?.indexedAt || 0);
+    const timeScore = Number.isFinite(updatedAt) ? updatedAt : indexedAt;
+    return { liveScore, timeScore };
+  }
+
+  function shouldPreferIncomingEntry(existing, incoming, existingLive, incomingLive) {
+    const left = entrySortKey(existing, existingLive);
+    const right = entrySortKey(incoming, incomingLive);
+    if (right.liveScore !== left.liveScore) {
+      return right.liveScore > left.liveScore;
+    }
+    return right.timeScore >= left.timeScore;
+  }
+
+  function logAuthIndexConflict(email, kept, dropped) {
+    console.warn(
+      `[auth-index] duplicate email=${email} kept=${kept?.companyName || kept?.masterSheetId || "?"} dropped=${dropped?.companyName || dropped?.masterSheetId || "?"}`,
+    );
+  }
+
+  function upsertAuthIndexEntry(store, email, incoming, incomingLive, conflicts = null) {
+    const key = normalizeEmail(email);
+    const existing = store.byEmail[key];
+    const { companyLive: _incomingLiveFlag, ...storedIncoming } = incoming;
+    if (!existing) {
+      store.byEmail[key] = storedIncoming;
+      return { upserted: true, replaced: false };
+    }
+    const existingSheet = String(existing.masterSheetId || "").trim();
+    const incomingSheet = String(storedIncoming.masterSheetId || "").trim();
+    if (existingSheet === incomingSheet) {
+      store.byEmail[key] = storedIncoming;
+      return { upserted: true, replaced: false };
+    }
+    const existingLive = Boolean(existing.companyLive);
+    if (shouldPreferIncomingEntry(existing, storedIncoming, existingLive, incomingLive)) {
+      if (conflicts) {
+        conflicts.push({
+          email: key,
+          kept: incoming.companyName || incoming.masterSheetId,
+          dropped: existing.companyName || existing.masterSheetId,
+        });
+      }
+      logAuthIndexConflict(key, storedIncoming, existing);
+      store.byEmail[key] = storedIncoming;
+      return { upserted: true, replaced: true };
+    }
+    if (conflicts) {
+      conflicts.push({
+        email: key,
+        kept: existing.companyName || existing.masterSheetId,
+        dropped: storedIncoming.companyName || storedIncoming.masterSheetId,
+      });
+    }
+    logAuthIndexConflict(key, existing, storedIncoming);
+    return { upserted: false, replaced: false };
+  }
+
   async function rebuildCompanyAuthIndexFromSheet(auth, deps, companyContext = {}) {
     const masterSheetId = String(companyContext.masterSheetId || "").trim();
     const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
     const companyName = String(companyContext.companyName || "").trim();
+    const companyLive =
+      companyContext.companyLive === true ||
+      (typeof companyContext.registryStatus === "string" &&
+        isCompanyRegistryLive({ registryStatus: companyContext.registryStatus, status: companyContext.registryStatus }));
     if (!auth || !masterSheetId) {
       return { ok: false, reason: "missing_context", upserted: 0, removed: 0 };
     }
+
+    const liveValidation = await validateLiveCompanyContext(auth, deps, {
+      masterSheetId,
+      companyFolderId,
+      companyName,
+    }).catch(() => ({ companyContextValid: false }));
+    if (!liveValidation.companyContextValid) {
+      const cleared = clearCompanyAuthIndexEntries({ companyFolderId, masterSheetId });
+      return {
+        ok: false,
+        reason: liveValidation.reasonCode || "company_not_live",
+        upserted: 0,
+        removed: cleared.authIndexEntriesRemoved || 0,
+      };
+    }
+    const resolvedFolderId = String(liveValidation.companyFolderId || companyFolderId).trim();
+    const resolvedCompanyName = String(liveValidation.companyName || companyName).trim();
+    const resolvedMasterSheetId = String(liveValidation.masterSheetId || masterSheetId).trim();
 
     const userDeps = typeof deps.getCompanyUsersDeps === "function" ? deps.getCompanyUsersDeps() : deps;
     if (typeof userDeps.migrateUsersTabColumns === "function") {
@@ -210,6 +327,7 @@ export function createAuthIndexApi(indexPath) {
     const headers = rows[0].map((cell) => String(cell || "").trim());
     const store = readStore();
     const seenEmails = new Set();
+    const conflicts = [];
     let upserted = 0;
 
     for (let i = 1; i < rows.length; i += 1) {
@@ -218,14 +336,16 @@ export function createAuthIndexApi(indexPath) {
         rowObj[h] = String(rows[i][idx] || "").trim();
       });
       const obj = normalizeUsersTabRowObject(rowObj);
-      const candidates = rowEmailCandidates(rowObj);
-      const email = normalizeEmail(pickField(obj, "Email", "email") || candidates[0] || "");
-      if (!email) {
+      const email = normalizeEmail(pickField(obj, "Email", "email"));
+      if (!isValidCompanyUserEmail(email)) {
         continue;
       }
       const roleRaw = pickField(obj, "Role", "role");
       const fullName = pickField(obj, "Name", "name", "Full Name", "Full name") || email;
       const status = normalizeUserStatus(pickField(obj, "Status", "status"));
+      if (status !== "ACTIVE") {
+        continue;
+      }
       const accessLevel =
         pickField(obj, "AccessLevel", "Access Level", "accessLevel") ||
         defaultAccessLevelForRole(parseRoleFromUsersSheet(roleRaw));
@@ -248,16 +368,23 @@ export function createAuthIndexApi(indexPath) {
         passwordHash,
         updatedAt: pickField(obj, "UpdatedAt", "Updated At"),
       };
-      const entry = entryFromUsersTabRow(match, { companyFolderId, companyName, masterSheetId });
+      const entry = entryFromUsersTabRow(match, {
+        companyFolderId: resolvedFolderId,
+        companyName: resolvedCompanyName,
+        masterSheetId: resolvedMasterSheetId,
+      });
       if (!entry?.passwordHash) {
         continue;
       }
-      store.byEmail[email] = {
-        ...entry,
-        indexedAt: Date.now(),
-      };
+      if (isKnownStaleAuthIndexPairing(email, entry.companyName)) {
+        continue;
+      }
+      const indexedEntry = { ...entry, indexedAt: Date.now(), companyLive };
+      const outcome = upsertAuthIndexEntry(store, email, indexedEntry, companyLive, conflicts);
+      if (outcome.upserted) {
+        upserted += 1;
+      }
       seenEmails.add(email);
-      upserted += 1;
     }
 
     let removed = 0;
@@ -274,8 +401,95 @@ export function createAuthIndexApi(indexPath) {
     }
 
     store.rebuiltAt = Date.now();
+    if (conflicts.length) {
+      store.lastConflicts = conflicts.slice(-20);
+    }
     writeStore(store);
-    return { ok: true, upserted, removed, masterSheetId, companyFolderId, activeEmails: [...seenEmails] };
+    return { ok: true, upserted, removed, masterSheetId, companyFolderId, activeEmails: [...seenEmails], conflicts };
+  }
+
+  /**
+   * Full rebuild — one truth per email; Live Companies win duplicate conflicts.
+   */
+  async function rebuildAuthIndex(auth, deps, options = {}) {
+    const readRegistry =
+      typeof deps.readCanonicalCompanyWorkspaceRegistryMap === "function"
+        ? deps.readCanonicalCompanyWorkspaceRegistryMap
+        : null;
+    if (!auth || !readRegistry) {
+      return { ok: false, reason: "missing_context", upserted: 0, companies: 0, conflicts: [] };
+    }
+
+    const registryResult = await readRegistry(auth, deps).catch(() => ({ map: new Map() }));
+    const companiesMap = registryResult?.map instanceof Map ? registryResult.map : new Map();
+    const companies = [...companiesMap.values()].filter((record) => String(record?.masterSheetId || "").trim());
+    companies.sort((a, b) => {
+      const aLive = isCompanyRegistryLive(a) ? 1 : 0;
+      const bLive = isCompanyRegistryLive(b) ? 1 : 0;
+      return aLive - bLive;
+    });
+
+    const store = readStore();
+    store.byEmail = {};
+    store.rebuiltAt = Date.now();
+    writeStore(store);
+    const conflicts = [];
+    let upserted = 0;
+    let companiesProcessed = 0;
+
+    for (const record of companies) {
+      const masterSheetId = String(record?.masterSheetId || "").trim();
+      const companyFolderId = String(record?.companyFolderId || record?.companyId || "").trim();
+      const companyName = String(record?.companyName || "").trim();
+      const liveValidation = await validateLiveCompanyContext(auth, deps, {
+        masterSheetId,
+        companyFolderId,
+        companyName,
+      }).catch(() => ({ companyContextValid: false }));
+      if (!liveValidation.companyContextValid) {
+        continue;
+      }
+      const rebuilt = await rebuildCompanyAuthIndexFromSheet(auth, deps, {
+        masterSheetId: String(liveValidation.masterSheetId || masterSheetId).trim(),
+        companyFolderId: String(liveValidation.companyFolderId || companyFolderId).trim(),
+        companyName: String(liveValidation.companyName || companyName).trim(),
+        companyLive: isCompanyRegistryLive(record),
+        registryStatus: record?.registryStatus || record?.status,
+      }).catch(() => null);
+      if (!rebuilt?.ok) {
+        continue;
+      }
+      companiesProcessed += 1;
+      upserted += Number(rebuilt.upserted || 0);
+      if (Array.isArray(rebuilt.conflicts)) {
+        conflicts.push(...rebuilt.conflicts);
+      }
+    }
+
+    const mergedStore = readStore();
+    mergedStore.rebuiltAt = Date.now();
+    if (conflicts.length) {
+      mergedStore.lastConflicts = conflicts.slice(-50);
+    }
+    writeStore(mergedStore);
+
+    const liveMasterSheetIds = new Set(
+      companies.map((record) => String(record?.masterSheetId || "").trim()).filter(Boolean),
+    );
+    const pruned =
+      options.pruneInvalid === false
+        ? { authIndexEntriesRemoved: 0 }
+        : await pruneStaleAuthIndexEntries(auth, deps, { liveMasterSheetIds }).catch(() => ({
+            authIndexEntriesRemoved: 0,
+          }));
+
+    return {
+      ok: true,
+      upserted,
+      companies: companiesProcessed,
+      conflicts,
+      authIndexEntriesRemoved: pruned.authIndexEntriesRemoved || 0,
+    };
   }
 
   async function verifyAuthIndexEntryFromSheet(auth, deps, email, companyContext = {}) {
@@ -336,6 +550,53 @@ export function createAuthIndexApi(indexPath) {
   }
 
   /**
+   * Ensure auth index row matches an ACTIVE Users tab row in its workbook and live Drive context.
+   * Never trust index companyName/folderId when the workbook resolves differently.
+   */
+  async function verifyAuthIndexEntryMatchesUsersWorkbook(auth, deps, email, entry = {}) {
+    const key = normalizeEmail(email);
+    const masterSheetId = String(entry.masterSheetId || "").trim();
+    if (!auth || !key || !masterSheetId) {
+      return { ok: false, reason: "missing_context" };
+    }
+    if (isKnownStaleAuthIndexPairing(key, entry.companyName)) {
+      return { ok: false, reason: "known_stale_pairing", removeEntry: true };
+    }
+
+    const userDeps = typeof deps.getCompanyUsersDeps === "function" ? deps.getCompanyUsersDeps() : deps;
+    const rec = await readCompanyUsersTabRecord(auth, masterSheetId, key, userDeps).catch(() => null);
+    if (!rec || normalizeUserStatus(rec.status) !== "ACTIVE") {
+      return { ok: false, reason: "user_not_in_workbook", removeEntry: true };
+    }
+
+    const validation = await validateLiveCompanyContext(auth, deps, {
+      masterSheetId,
+      companyFolderId: entry.companyFolderId || entry.companyId,
+      companyName: entry.companyName,
+    }).catch(() => ({ companyContextValid: false }));
+
+    if (!validation.companyContextValid) {
+      return {
+        ok: false,
+        reason: validation.reasonCode || "company_invalid",
+        removeEntry: true,
+        validation,
+      };
+    }
+
+    if (isKnownStaleAuthIndexPairing(key, validation.companyName)) {
+      return { ok: false, reason: "known_stale_pairing", removeEntry: true, validation };
+    }
+
+    const indexFolder = String(entry.companyFolderId || entry.companyId || "").trim();
+    if (indexFolder && indexFolder !== validation.companyFolderId) {
+      return { ok: false, reason: "index_folder_mismatch", removeEntry: true, validation };
+    }
+
+    return { ok: true, validation, rec };
+  }
+
+  /**
    * Drop index rows whose company folder or workbook no longer resolves in Drive.
    * Never use stale index companyName/folderId as login context when invalid.
    */
@@ -351,24 +612,76 @@ export function createAuthIndexApi(indexPath) {
       companyName: entry.companyName,
     }).catch(() => ({ companyContextValid: false }));
     if (validation.companyContextValid) {
-      return { ok: true, removed: false, entry };
+      return { ok: true, removed: false, entry, validation };
     }
     removeEntry(key);
-    return { ok: true, removed: true, reason: validation.reasonCode || "company_missing" };
+    return { ok: true, removed: true, reason: validation.reasonCode || "company_missing", validation };
+  }
+
+  /** Startup/rebuild hook — drop ghost rows whose folders are not under Live Companies. */
+  async function pruneAuthIndexGhostEntries(auth, deps, options = {}) {
+    return pruneStaleAuthIndexEntries(auth, deps, options);
+  }
+
+  /** Remove auth-index rows for deleted/non-live companies and stale Drive contexts. */
+  async function pruneStaleAuthIndexEntries(auth, deps, { liveMasterSheetIds = null } = {}) {
+    if (!auth) {
+      return { authIndexEntriesRemoved: 0, removedEmails: [] };
+    }
+    const liveSheetSet = liveMasterSheetIds instanceof Set ? liveMasterSheetIds : null;
+    const store = readStore();
+    const removedEmails = [];
+    for (const [email, entry] of Object.entries(store.byEmail || {})) {
+      if (isKnownStaleAuthIndexPairing(email, entry?.companyName)) {
+        delete store.byEmail[email];
+        removedEmails.push(normalizeEmail(email));
+      }
+    }
+    if (removedEmails.length) {
+      store.rebuiltAt = Date.now();
+      writeStore(store);
+    }
+    const liveSheetSet = liveMasterSheetIds instanceof Set ? liveMasterSheetIds : null;
+    const storeAfterPairing = readStore();
+        const entrySheet = String(entry?.masterSheetId || "").trim();
+        if (entrySheet && !liveSheetSet.has(entrySheet)) {
+          delete store.byEmail[email];
+          removedEmails.push(normalizeEmail(email));
+        }
+      }
+      if (removedEmails.length) {
+        store.rebuiltAt = Date.now();
+        writeStore(store);
+      }
+    }
+    for (const email of Object.keys(readStore().byEmail || {})) {
+      const invalidated = await invalidateAuthIndexEntryIfCompanyMissing(auth, deps, email);
+      if (invalidated.removed) {
+        removedEmails.push(normalizeEmail(email));
+      }
+    }
+    return { authIndexEntriesRemoved: removedEmails.length, removedEmails: [...new Set(removedEmails)] };
   }
 
   return {
     lookupByEmail,
+    lookupByEmailValidated,
     upsertEntry,
     removeEntry,
     isEntryStale,
     verifyPasswordForEntry,
     entryFromUsersTabRow,
     rebuildCompanyAuthIndexFromSheet,
+    rebuildAuthIndex,
     verifyAuthIndexEntryFromSheet,
+    verifyAuthIndexEntryMatchesUsersWorkbook,
     invalidateAuthIndexEntryIfCompanyMissing,
+    invalidateAuthIndexEntry: invalidateAuthIndexEntryIfCompanyMissing,
+    pruneStaleAuthIndexEntries,
+    pruneAuthIndexGhostEntries,
     readAllEntries,
     clearCompanyAuthIndexEntries,
+    removeAuthIndexEntriesForCompany: clearCompanyAuthIndexEntries,
     clearAllCompanyAuthIndexEntries,
     readStore,
     DEFAULT_STALE_MS,

@@ -31,7 +31,7 @@ const pkg = JSON.parse(read("package.json"));
 
 assert(pkg.scripts["verify:stale-company-context"], "PKG: npm script registered");
 
-const rockSolidHits = execSync('rg -l "Rock Solid Concrete Ltd" . --glob "!scripts/verify-stale-company-context.mjs" 2>/dev/null || true', {
+const rockSolidHits = execSync('rg -l "Rock Solid Concrete Ltd" . --glob "!scripts/verify-stale-company-context.mjs" --glob "!scripts/verify-invite-workspace.mjs" 2>/dev/null || true', {
   cwd: root,
   encoding: "utf8",
 }).trim();
@@ -55,15 +55,27 @@ assert(serverMain.includes("COMPANY_CONTEXT_INVALID"), "3b: session returns COMP
 assert(serverMain.includes("resolveValidatedCompanyLoginContext"), "3c: login route validates after password");
 assert(serverMain.includes("invalidateAuthIndexEntryIfCompanyMissing"), "3d: login prunes stale auth index rows");
 
-assert(authIndex.includes("invalidateAuthIndexEntryIfCompanyMissing"), "4: auth index invalidates missing companies");
-assert(authIndex.includes("validateLiveCompanyContext"), "4b: auth index uses live validator");
+assert(authIndex.includes("verifyAuthIndexEntryMatchesUsersWorkbook"), "4c: auth index verifies Users tab workbook match");
+assert(authIndex.includes("isValidCompanyUserEmail"), "4d: auth index requires Email column for rebuild");
+assert(read("shared/auth-index-trust.mjs").includes("isKnownStaleAuthIndexPairing"), "4e: known stale auth pairings guarded");
 
 assert(clearStale.includes("clearStaleCompanyLocalStorage"), "5: stale storage clearer exists");
 assert(clearStale.includes("bert_company_login_hint_v1"), "5b: clears login hint");
+assert(clearStale.includes("runAppContextBootstrap"), "5b2: boot-time context bootstrap");
+assert(clearStale.includes("bert_app_context_version"), "5b3: version key for one-time wipe");
+assert(clearStale.includes("clearStoredFolderLinkCompanyFields"), "5b4: clears folder link company fields");
 assert(clearStale.includes("clearGodmodeSelectedCompanyFolderId"), "5c: clears godmode folder id");
 assert(clearStale.includes("companyMembersCache"), "5d: clears members cache");
 assert(clearStale.includes("companyName"), "5e: clears legacy companyName key");
 
+assert(read("src/main.tsx").includes("runAppContextBootstrap"), "6a: main runs boot bootstrap before render");
+const selectedFolderMemoBlock =
+  appTsx.match(/const selectedFolder = useMemo[\s\S]*?\),\s*\n\s*\);/)?.[0] ?? "";
+assert(selectedFolderMemoBlock.length > 0, "6a2: selectedFolder useMemo present");
+assert(!selectedFolderMemoBlock.includes("readCompanyLoginHint"), "6a2b: selectedFolder never reads login hint");
+const loadGoogleStatusBlock = appTsx.match(/const loadGoogleStatus = async[\s\S]*?\n  };\n/)?.[0] ?? "";
+assert(loadGoogleStatusBlock.length > 0, "6a3: loadGoogleStatus present");
+assert(!loadGoogleStatusBlock.includes("readCompanyLoginHint"), "6a3b: google status never selects company from login hint");
 assert(appTsx.includes("clearStaleCompanyLocalStorage"), "6: App clears stale storage");
 assert(appTsx.includes("COMPANY_NO_LONGER_AVAILABLE_MESSAGE"), "6b: App shows company unavailable copy");
 assert(!appTsx.includes("setLinkedCompanyContext({\n        companyId: hint.companyFolderId"), "6c: App does not trust login hint for linked context");
@@ -88,5 +100,29 @@ assert(
   /resolveDocumentTitle\([\s\S]*?activeCompanyContext\.companyName/.test(appTsx),
   "8b: document.title uses validated activeCompanyContext only",
 );
+assert(
+  /getRoleBannerCopy\(role,\s*workspaceName\)/.test(read("src/components/RoleContextBanner.tsx")),
+  "8c: role banner uses workspaceName prop only",
+);
+const workspaceNameMemoBlock =
+  appTsx.match(/const workspaceName = useMemo[\s\S]*?\),\s*\n\s*\);/)?.[0] ?? "";
+assert(workspaceNameMemoBlock.length > 0, "8d: workspaceName useMemo present");
+assert(
+  !workspaceNameMemoBlock.includes("readCompanyLoginHint"),
+  "8d2: workspaceName memo never reads login hint (Rock Solid localStorage cannot reach banners)",
+);
+assert(authIndex.includes("pruneStaleAuthIndexEntries"), "9: auth index prunes stale entries on rebuild");
+assert(authIndex.includes("rebuildAuthIndex"), "9c: auth index has full rebuild with conflict resolution");
+assert(authIndex.includes("removeAuthIndexEntriesForCompany"), "9d: auth index clears entries on company reset");
+assert(authIndex.includes("invalidateAuthIndexEntry"), "9e: auth index invalidates stale entries");
+assert(authIndex.includes("verifyAuthIndexEntryMatchesUsersWorkbook"), "9f: auth index verifies workbook match");
+assert(read("shared/auth-index-trust.mjs").includes("isKnownStaleAuthIndexPairing"), "9g: known stale pairing guard");
+assert(serverMain.includes("rebuildAuthIndex"), "9b: rebuild-auth-index prunes stale entries");
+assert(appTsx.includes("isKnownStaleAuthIndexPairing"), "9c: App rejects known stale auth pairings");
+assert(serverMain.includes("rebuildAuthIndex"), "9h: godmode rebuild uses full auth index rebuild");
+assert(serverMain.includes("verifyAuthIndexEntryMatchesUsersWorkbook"), "9i: session verifies auth index workbook match");
+assert(serverMain.includes("isKnownStaleAuthIndexPairing"), "9j: session rejects known stale pairings");
+assert(clearStale.includes("bert_context_schema_version"), "9k: boot uses bert_context_schema_version");
+assert(clearStale.includes("BERT_CONTEXT_SCHEMA_VERSION"), "9l: schema version constant exported");
 
 console.log(`[verify:stale-company-context] OK — ${caseCount} cases passed`);

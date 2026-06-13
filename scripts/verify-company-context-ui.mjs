@@ -116,7 +116,13 @@ assert(
 );
 assert(appTsx.includes("companyContextValid"), "5l: App gates on companyContextValid");
 assert(appTsx.includes("clearStaleCompanyLocalStorage"), "5m: App clears stale company storage");
-assert(read("src/utils/clearStaleCompanyLocalStorage.ts").includes("bert_company_login_hint_v1"), "5n: stale clearer wipes login hint");
+assert(read("src/utils/resolveInviteWorkspace.ts").includes("ctx.companyName"), "5o: invite workspace uses validated session companyName");
+assert(read("src/utils/clearStaleCompanyLocalStorage.ts").includes('APP_CONTEXT_VERSION = "3"'), "5p: app context version bumped");
+assert(read("src/main.tsx").includes("runAppContextBootstrap"), "5o: boot bootstrap before React render");
+const selectedFolderMemoBlock =
+  appTsx.match(/const selectedFolder = useMemo[\s\S]*?\),\s*\n\s*\);/)?.[0] ?? "";
+assert(selectedFolderMemoBlock.length > 0, "5p: selectedFolder useMemo present");
+assert(!selectedFolderMemoBlock.includes("readCompanyLoginHint"), "5p2: selectedFolder resolver never reads login hint");
 assert(
   headerUtil.includes("No company selected") && headerUtil.includes("No company linked"),
   "5k: title empty-state copy matches header",

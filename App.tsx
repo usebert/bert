@@ -120,7 +120,6 @@ import {
   applyLinkedCompanyContext,
   buildLinkedCompanyFolder,
   COMPANY_USER_NO_COMPANY_MESSAGE,
-  mergeLinkedCompanyFolder,
   type LinkedCompanyContextInput,
 } from "./src/utils/applyLinkedCompanyContext";
 import {
@@ -129,6 +128,7 @@ import {
   isCompanyFolderLinkValid,
 } from "./src/utils/companyFolderContext";
 import { clearStaleCompanyLocalStorage } from "./src/utils/clearStaleCompanyLocalStorage";
+import { isKnownStaleAuthIndexPairing } from "./src/utils/authIndexTrust";
 import { resolveActiveCompanyContext } from "./src/services/companyContextService";
 import {
   COMPANY_MEMBERS_LOAD_TIMEOUT_MS,
@@ -3648,14 +3648,16 @@ function App() {
     if (!selectedFolderId) {
       return null;
     }
-    const hint = readCompanyLoginHint();
-    return buildLinkedCompanyFolder({
-      companyId: selectedFolderId,
-      companyName: hint?.companyName || folderNameInput,
-      masterSheetId: hint?.masterSheetId || extractGoogleResourceId(masterSheetInput),
-      registryStatus: companyRegistryStatus,
-    });
-  }, [folders, selectedFolderId, folderNameInput, masterSheetInput, companyRegistryStatus]);
+    if (linkedCompanyContext?.companyId === selectedFolderId && linkedCompanyContext.companyName) {
+      return buildLinkedCompanyFolder({
+        companyId: selectedFolderId,
+        companyName: linkedCompanyContext.companyName,
+        masterSheetId: linkedCompanyContext.masterSheetId,
+        registryStatus: linkedCompanyContext.registryStatus || companyRegistryStatus,
+      });
+    }
+    return null;
+  }, [folders, selectedFolderId, linkedCompanyContext, companyRegistryStatus]);
 
   useEffect(() => {
     selectedFolderIdRef.current = selectedFolderId;
@@ -5775,7 +5777,8 @@ function App() {
         const sessionContextInvalid =
           cp.code === "COMPANY_CONTEXT_INVALID" ||
           cp.companyContextValid === false ||
-          (cr.status === 409 && cp.ok === false);
+          (cr.status === 409 && cp.ok === false) ||
+          isKnownStaleAuthIndexPairing(cp.user?.email, cp.company?.companyName);
         if (sessionContextInvalid) {
           clearStaleCompanyLocalStorage();
           setCompanyLinkBlockedMessage(cp.error || COMPANY_NO_LONGER_AVAILABLE_MESSAGE);
@@ -6677,30 +6680,7 @@ function App() {
 
       if (payload.connected && payload.companies && currentUser?.role !== "Master") {
         const visibleCompanies = filterCustomerFacingCompanies(payload.companies);
-        setFolders((current) => {
-          const hint = readCompanyLoginHint();
-          if (!hint?.companyFolderId) {
-            return visibleCompanies;
-          }
-          return mergeLinkedCompanyFolder(visibleCompanies, {
-            companyId: hint.companyFolderId,
-            companyName: hint.companyName,
-            masterSheetId: hint.masterSheetId,
-          });
-        });
-        if (!selectedFolderId) {
-          const hint = readCompanyLoginHint();
-          const hintedCompany = hint?.companyFolderId
-            ? visibleCompanies.find((company) => company.id === hint.companyFolderId)
-            : undefined;
-          if (hintedCompany) {
-            setSelectedFolderId(hintedCompany.id);
-          } else if (hint?.companyFolderId) {
-            setSelectedFolderId(hint.companyFolderId);
-          } else if (visibleCompanies.length === 1) {
-            setSelectedFolderId(visibleCompanies[0].id);
-          }
-        }
+        setFolders(visibleCompanies);
       }
       if (!payload.connected) {
         setGodmodeLiveCompaniesWarning("");
@@ -7628,7 +7608,11 @@ function App() {
         }
         const loggedInUser = loginResult.user;
         const loggedInCompany = loginResult.company;
-        if (loginResult.companyContextValid === false || !loggedInCompany?.companyId) {
+        if (
+          loginResult.companyContextValid === false ||
+          !loggedInCompany?.companyId ||
+          isKnownStaleAuthIndexPairing(loggedInUser.email, loggedInCompany?.companyName)
+        ) {
           clearStaleCompanyLocalStorage(email);
           companyLoginFailure = {
             blocker: "company_context_invalid",

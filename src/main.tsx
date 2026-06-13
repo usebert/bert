@@ -2,9 +2,11 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "../App";
 import { migrateLegacyStorageKeysOnce } from "./config/storageKeys";
+import { runAppContextBootstrap } from "./utils/clearStaleCompanyLocalStorage";
 import "./index.css";
 
 migrateLegacyStorageKeysOnce();
+runAppContextBootstrap();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

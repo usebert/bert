@@ -111,6 +111,7 @@ import { installCompanyFolderResolverRoutes, resolveCompanyFromFolder } from "./
 import { installGodmodeRegistryActionRoutes, relinkCompanyRegistryForWorkspace } from "./godmode-registry-actions.mjs";
 import { createBackgroundJobsService } from "./background-jobs-service.mjs";
 import { BACKGROUND_INVITE_CREATED_MESSAGE } from "../shared/background-jobs.mjs";
+import { isKnownStaleAuthIndexPairing } from "../shared/auth-index-trust.mjs";
 import { installCoreWorkflowRoutes } from "./core-workflow-routes.mjs";
 import { assertCompanyInviteReady } from "./company-invite-readiness.mjs";
 import { enrichCompanyContextFromRegistry as enrichCompanyContextFromRegistryService, resolveCompanyContextFromLoginWorkbook, validateLiveCompanyContext } from "./company-context-service.mjs";
@@ -6861,10 +6862,11 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
     let loginMasterSheetId = String(result.masterSheetId || loginCompany.masterSheetId || "").trim();
 
     if (auth && envConfigured()) {
-      const invalidated = await authIndexApi
-        .invalidateAuthIndexEntryIfCompanyMissing(auth, getCompanyContextEnrichmentDeps(), result.email)
-        .catch(() => ({ removed: false }));
-      if (invalidated.removed) {
+      const validatedEntry = await authIndexApi
+        .lookupByEmailValidated(auth, getCompanyContextEnrichmentDeps(), result.email)
+        .catch(() => null);
+      if (!validatedEntry) {
+        authIndexApi.removeEntry(result.email);
         return res.status(409).json({
           ok: false,
           blocker: "company_context_invalid",
@@ -6874,11 +6876,12 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
         });
       }
 
-      const validated = await resolveValidatedCompanyLoginContext(auth, getCompanyContextEnrichmentDeps(), {
-        masterSheetId: loginMasterSheetId,
-        companyFolderId: loginCompany.companyFolderId || loginCompany.companyId,
-        companyName: loginCompany.companyName,
-      });
+      const validated = await resolveValidatedCompanyLoginContext(
+        auth,
+        getCompanyContextEnrichmentDeps(),
+        validatedEntry,
+        { email: result.email, authIndex: authIndexApi },
+      );
       if (!validated.ok) {
         authIndexApi.removeEntry(result.email);
         return res.status(validated.httpStatus || 409).json({
@@ -6891,25 +6894,26 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
         });
       }
 
-      loginCompany = {
-        companyId: validated.companyFolderId,
-        companyFolderId: validated.companyFolderId,
-        companyName: validated.companyName,
-        masterSheetId: validated.masterSheetId,
-        registryStatus: validated.registryStatus,
-        folderPlacementOk: true,
-      };
-      loginMasterSheetId = validated.masterSheetId;
+      const indexEntry = authIndexApi.lookupByEmail(result.email) || {};
       sessionPayload = buildCompanySessionPayload({
         email: result.email,
-        masterSheetId: validated.masterSheetId,
-        companyId: validated.companyFolderId,
-        companyName: validated.companyName,
+        masterSheetId: String(indexEntry.masterSheetId || validated.masterSheetId || "").trim(),
+        companyId: String(indexEntry.companyFolderId || indexEntry.companyId || validated.companyFolderId || "").trim(),
+        companyName: String(indexEntry.companyName || validated.companyName || "").trim(),
         role: result.user.role,
         name: result.user.name,
         accessLevel: result.user.accessLevel || "",
         companyAreas: result.user.companyAreas,
       });
+      loginCompany = {
+        companyId: String(indexEntry.companyFolderId || indexEntry.companyId || validated.companyFolderId || "").trim(),
+        companyFolderId: String(indexEntry.companyFolderId || indexEntry.companyId || validated.companyFolderId || "").trim(),
+        companyName: String(indexEntry.companyName || validated.companyName || "").trim(),
+        masterSheetId: String(indexEntry.masterSheetId || validated.masterSheetId || "").trim(),
+        registryStatus: validated.registryStatus,
+        folderPlacementOk: true,
+      };
+      loginMasterSheetId = String(indexEntry.masterSheetId || validated.masterSheetId || "").trim();
     }
 
     res.cookie(COMPANY_SESSION_COOKIE, sessionPayload, getSessionCookieOptions({ maxAge: COMPANY_SESSION_MS }));
@@ -6980,6 +6984,17 @@ app.get("/api/auth/company/session", async (req, res) => {
     const sessionCompanyAreas = Array.isArray(data.companyAreas) ? data.companyAreas : [];
     const companyIdFromSession = String(data.companyId || "").trim();
     const companyNameFromSession = String(data.companyName || "").trim();
+    if (isKnownStaleAuthIndexPairing(data.email, companyNameFromSession)) {
+      authIndexApi.removeEntry?.(data.email);
+      res.clearCookie(COMPANY_SESSION_COOKIE, getSessionCookieOptions());
+      return res.status(409).json({
+        ok: false,
+        code: COMPANY_CONTEXT_INVALID,
+        companyContextValid: false,
+        error: COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
+        reasonCode: COMPANY_CONTEXT_INVALID,
+      });
+    }
     if (!envConfigured()) {
       const companyFolderId = companyIdFromSession;
       return res.json(
@@ -7003,31 +7018,54 @@ app.get("/api/auth/company/session", async (req, res) => {
     }
     const rec = await readCompanyUsersTabRecord(auth, data.masterSheetId, data.email);
     if (!rec || rec.status !== "ACTIVE") {
+      authIndexApi.removeEntry?.(data.email);
       res.clearCookie(COMPANY_SESSION_COOKIE, getSessionCookieOptions());
       return res.status(401).json({ ok: false, error: "Session invalid." });
     }
 
     const masterSheetId = String(data.masterSheetId || "").trim();
-    const validation = await validateLiveCompanyContext(auth, getCompanyContextEnrichmentDeps(), {
-      masterSheetId,
-      companyFolderId: companyIdFromSession,
-      companyName: companyNameFromSession,
-    });
-    if (!validation.companyContextValid) {
+    const trusted = await authIndexApi
+      .verifyAuthIndexEntryMatchesUsersWorkbook(auth, getCompanyContextEnrichmentDeps(), data.email, {
+        masterSheetId,
+        companyFolderId: companyIdFromSession,
+        companyName: companyNameFromSession,
+      })
+      .catch(() => ({ ok: false, removeEntry: true }));
+    if (!trusted.ok) {
+      authIndexApi.removeEntry?.(data.email);
       res.clearCookie(COMPANY_SESSION_COOKIE, getSessionCookieOptions());
       return res.status(409).json({
         ok: false,
         code: COMPANY_CONTEXT_INVALID,
         companyContextValid: false,
-        error: validation.message || COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
-        reasonCode: validation.reasonCode || COMPANY_CONTEXT_INVALID,
+        error: COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
+        reasonCode: COMPANY_CONTEXT_INVALID,
       });
     }
+
+    const validation = trusted.validation || {};
 
     const companyId = String(validation.companyFolderId || "").trim();
     const resolvedCompanyName = String(validation.companyName || "").trim();
     const resolvedMasterSheetId = String(validation.masterSheetId || masterSheetId).trim();
     const folderPlacementOk = validation.folderPlacementOk !== false;
+
+    if (
+      companyNameFromSession &&
+      resolvedCompanyName &&
+      companyNameFromSession.trim().toLowerCase() !== resolvedCompanyName.trim().toLowerCase()
+    ) {
+      res.clearCookie(COMPANY_SESSION_COOKIE, getSessionCookieOptions());
+      authIndexApi.removeEntry(data.email);
+      return res.status(409).json({
+        ok: false,
+        code: COMPANY_CONTEXT_INVALID,
+        companyContextValid: false,
+        error: validation.message || COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
+        reasonCode: COMPANY_CONTEXT_INVALID,
+      });
+    }
+
     const registryRecord = companyId
       ? await getCanonicalCompanyRegistryRecord(auth, getCompanyWorkspaceRegistryDeps(), companyId).catch(() => null)
       : null;
@@ -7040,7 +7078,6 @@ app.get("/api/auth/company/session", async (req, res) => {
     });
 
     if (
-      resolvedCompanyName !== companyNameFromSession ||
       companyId !== companyIdFromSession ||
       resolvedMasterSheetId !== masterSheetId
     ) {
@@ -7221,28 +7258,23 @@ app.post(
       const registryMap = await readCanonicalCompanyWorkspaceRegistryMap(auth, getCompanyWorkspaceRegistryDeps()).catch(
         () => ({ map: new Map() }),
       );
-      const companiesMap = registryMap?.map instanceof Map ? registryMap.map : new Map();
-      let upserted = 0;
-      let companies = 0;
-      for (const record of companiesMap.values()) {
-        const masterSheetId = String(record?.masterSheetId || "").trim();
-        const companyFolderId = String(record?.companyFolderId || record?.companyId || "").trim();
-        if (!masterSheetId) {
-          continue;
-        }
-        const rebuilt = await authIndexApi
-          .rebuildCompanyAuthIndexFromSheet(auth, { getCompanyUsersDeps }, {
-            masterSheetId,
-            companyFolderId,
-            companyName: String(record?.companyName || "").trim(),
-          })
-          .catch(() => null);
-        if (rebuilt?.ok) {
-          companies += 1;
-          upserted += Number(rebuilt.upserted || 0);
-        }
+      const rebuilt = await authIndexApi
+        .rebuildAuthIndex(auth, {
+          ...getCompanyContextEnrichmentDeps(),
+          readCanonicalCompanyWorkspaceRegistryMap,
+          getCompanyUsersDeps,
+        })
+        .catch(() => null);
+      if (!rebuilt?.ok) {
+        return res.status(502).json({ ok: false, error: "Rebuild auth index failed." });
       }
-      return res.json({ ok: true, companies, upserted });
+      return res.json({
+        ok: true,
+        companies: rebuilt.companies || 0,
+        upserted: rebuilt.upserted || 0,
+        conflicts: rebuilt.conflicts || [],
+        authIndexEntriesRemoved: rebuilt.authIndexEntriesRemoved || 0,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error("[godmode] rebuild-auth-index failed:", message);

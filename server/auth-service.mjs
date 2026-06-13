@@ -3,6 +3,7 @@
  * No Sheets/Drive/registry/setup/health/repair during login request.
  */
 import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
+import { isKnownStaleAuthIndexPairing } from "../shared/auth-index-trust.mjs";
 import { COMPANY_CONTEXT_INVALID, COMPANY_NO_LONGER_AVAILABLE_MESSAGE } from "../shared/company-folder-context.mjs";
 import { FOLDER_NOT_IN_COMPANIES_ROOT } from "../shared/company-folder-placement.mjs";
 import { readCompanyUsersTabRecord, touchCompanyUserLastLogin } from "./company-users.mjs";
@@ -493,10 +494,73 @@ export function queueCompanyLoginBackgroundJobs(deps, jobs = {}) {
 export { logSlowServiceCall };
 
 /**
- * After password verify — resolve company via live Drive/registry/workbook checks.
+ * After password verify — resolve company via Users tab row + live Drive/workbook checks.
  * Returns validated fields or an invalid-context error payload.
  */
-export async function resolveValidatedCompanyLoginContext(auth, deps, indexEntry = {}) {
+export async function resolveValidatedCompanyLoginContext(auth, deps, indexEntry = {}, options = {}) {
+  const email = String(options.email || indexEntry.email || "").trim().toLowerCase();
+  const authIndex = options.authIndex || deps.authIndex;
+
+  if (isKnownStaleAuthIndexPairing(email, indexEntry.companyName)) {
+    authIndex?.removeEntry?.(email);
+    return {
+      ok: false,
+      httpStatus: 409,
+      blocker: "company_context_invalid",
+      reasonCode: COMPANY_CONTEXT_INVALID,
+      error: COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
+      companyContextValid: false,
+    };
+  }
+
+  if (authIndex && typeof authIndex.verifyAuthIndexEntryMatchesUsersWorkbook === "function" && email) {
+    const trusted = await authIndex
+      .verifyAuthIndexEntryMatchesUsersWorkbook(auth, deps, email, indexEntry)
+      .catch(() => ({ ok: false, reason: "verify_failed", removeEntry: true }));
+    if (!trusted.ok) {
+      if (trusted.removeEntry) {
+        authIndex.removeEntry?.(email);
+      }
+      return {
+        ok: false,
+        httpStatus: 409,
+        blocker: "company_context_invalid",
+        reasonCode: COMPANY_CONTEXT_INVALID,
+        error: COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
+        companyContextValid: false,
+      };
+    }
+    const validation = trusted.validation || {};
+    authIndex.upsertEntry?.({
+      email,
+      name: String(indexEntry.name || trusted.rec?.name || email).trim() || email,
+      role: String(trusted.rec?.role || indexEntry.role || "User").trim() || "User",
+      accessLevel: String(trusted.rec?.accessLevel || indexEntry.accessLevel || "").trim(),
+      companyId: validation.companyFolderId,
+      companyFolderId: validation.companyFolderId,
+      companyName: validation.companyName,
+      masterSheetId: validation.masterSheetId,
+      status: trusted.rec?.status || indexEntry.status || "ACTIVE",
+      passwordHash: String(indexEntry.passwordHash || "").trim(),
+      companyAreas: Array.isArray(trusted.rec?.companyAreas)
+        ? trusted.rec.companyAreas
+        : Array.isArray(indexEntry.companyAreas)
+          ? indexEntry.companyAreas
+          : [],
+    });
+    return {
+      ok: true,
+      companyContextValid: true,
+      companyId: validation.companyFolderId,
+      companyFolderId: validation.companyFolderId,
+      companyName: validation.companyName,
+      masterSheetId: validation.masterSheetId,
+      folderPlacementOk: true,
+      folderPlacement: validation.folderPlacement,
+      registryStatus: validation.registryStatus,
+    };
+  }
+
   const masterSheetId = String(indexEntry.masterSheetId || "").trim();
   const companyFolderId = String(indexEntry.companyFolderId || indexEntry.companyId || "").trim();
   const validation = await validateLiveCompanyContext(auth, deps, {
@@ -511,6 +575,17 @@ export async function resolveValidatedCompanyLoginContext(auth, deps, indexEntry
       blocker: "company_context_invalid",
       reasonCode: validation.reasonCode || COMPANY_CONTEXT_INVALID,
       error: validation.message || COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
+      companyContextValid: false,
+    };
+  }
+  if (isKnownStaleAuthIndexPairing(email, validation.companyName)) {
+    authIndex?.removeEntry?.(email);
+    return {
+      ok: false,
+      httpStatus: 409,
+      blocker: "company_context_invalid",
+      reasonCode: COMPANY_CONTEXT_INVALID,
+      error: COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
       companyContextValid: false,
     };
   }
