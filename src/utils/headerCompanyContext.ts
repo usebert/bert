@@ -76,8 +76,13 @@ export function resolveDocumentTitle(input: DocumentTitleInput): string {
     return appBrand;
   }
 
+  const role = input.role;
+  if (!role) {
+    return appBrand;
+  }
+
   const workingOn = resolveHeaderWorkingOn({
-    role: input.role || "User",
+    role,
     companyName: input.companyName,
     companyFolderId: input.companyFolderId,
   });
@@ -86,7 +91,7 @@ export function resolveDocumentTitle(input: DocumentTitleInput): string {
     return `${appBrand} · ${workingOn.companyLabel}`;
   }
 
-  if (input.role === "Master") {
+  if (role === "Master") {
     return `${appBrand} · No company selected`;
   }
 
