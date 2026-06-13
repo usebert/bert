@@ -4,42 +4,41 @@
  */
 import { hashPassword, verifyPassword } from "./master-auth.mjs";
 import { isUserAuthScryptHash } from "./userauth-password.mjs";
+import {
+  USERS_TAB,
+  USERS_TAB_COLUMNS,
+  USERS_TAB_REQUIRED_COLUMNS,
+} from "./users-tab-constants.mjs";
+import {
+  isPasswordHash as schemaIsPasswordHash,
+  isShiftedLegacyUsersRow,
+  isValidCompanyUserEmail,
+  mapRecordToSheetHeaders,
+  normalizeRoleForSheetRepair,
+  normalizeUserStatus as schemaNormalizeUserStatus,
+  normalizeUsersTabRowObject,
+  parseRoleFromUsersSheet as schemaParseRoleFromUsersSheet,
+  remapShiftedLegacyUsersRow,
+  rowEmailCandidates,
+  sanitizeUserRecordForClient,
+  sanitizeUsersTabRecords,
+} from "./users-tab-schema.mjs";
 
-export const USERS_TAB = "Users";
-
-/** Required workbook columns (legacy columns may remain until backfill completes). */
-export const USERS_TAB_REQUIRED_COLUMNS = [
-  "Email",
-  "Name",
-  "Role",
-  "AccessLevel",
-  "CompanyAreas",
-  "Status",
-  "PasswordHash",
-  "PasswordUpdatedAt",
-  "LastLoginAt",
-  "InvitedAt",
-  "CreatedAt",
-  "UpdatedAt",
-];
-
-/** Full Users tab header set — required + stable ids + legacy sync columns. */
-export const USERS_TAB_COLUMNS = [
-  "User ID",
-  "Company ID",
-  ...USERS_TAB_REQUIRED_COLUMNS,
-  "Full Name",
-  "Created By",
-  "Updated By",
-  "Sync Status",
-  "Sync Attempts",
-  "Last Sync Error",
-  "Remote Row ID",
-  "Schema Version",
-];
+export {
+  USERS_TAB,
+  USERS_TAB_COLUMNS,
+  USERS_TAB_REQUIRED_COLUMNS,
+  isShiftedLegacyUsersRow,
+  isValidCompanyUserEmail,
+  normalizeRoleForSheetRepair,
+  normalizeUsersTabRowObject,
+  remapShiftedLegacyUsersRow,
+  sanitizeUserRecordForClient,
+  sanitizeUsersTabRecords,
+};
 
 export function isPasswordHash(value) {
-  return isUserAuthScryptHash(value);
+  return schemaIsPasswordHash(value);
 }
 
 export function managerInvitesEnabled(env = process.env) {
@@ -66,42 +65,11 @@ export function defaultAccessLevelForRole(role) {
 }
 
 export function normalizeUserStatus(value) {
-  const s = safeLower(value);
-  if (s === "inactive" || s === "disabled") {
-    return "INACTIVE";
-  }
-  if (s === "invited" || s === "pending") {
-    return "INVITED";
-  }
-  if (s === "active" || !s) {
-    return "ACTIVE";
-  }
-  return s.toUpperCase();
+  return schemaNormalizeUserStatus(value);
 }
 
 export function parseRoleFromUsersSheet(raw) {
-  const r = safeLower(raw).replace(/\s+/g, " ");
-  if (r === "master") {
-    return "Master";
-  }
-  if (r === "admin" || r === "administrator" || r === "owner" || r === "company admin") {
-    return "Admin";
-  }
-  if (r === "manager") {
-    return "Manager";
-  }
-  if (r === "auditor") {
-    return "Auditor";
-  }
-  if (r === "user") {
-    return "User";
-  }
-  return "";
-}
-
-export function isValidCompanyUserEmail(email) {
-  const normalized = safeLower(email);
-  return normalized.includes("@") && normalized.length > 3 && !/\s/.test(normalized);
+  return schemaParseRoleFromUsersSheet(raw);
 }
 
 /** Persisted Users tab Role column — never store platform Master as a company role. */
@@ -187,29 +155,6 @@ export async function updateCompanyUserRecord(auth, spreadsheetId, email, update
   return { ok: true, user: rec };
 }
 
-export function sanitizeUserRecordForClient(record) {
-  if (!record || typeof record !== "object") {
-    return record;
-  }
-  const next = { ...record };
-  for (const key of Object.keys(next)) {
-    if (safeLower(key) === "passwordhash" || safeLower(key) === "password") {
-      delete next[key];
-    }
-  }
-  if ("PasswordHash" in next) {
-    next.PasswordHash = "";
-  }
-  if ("passwordHash" in next) {
-    next.passwordHash = "";
-  }
-  return next;
-}
-
-export function sanitizeUsersTabRecords(records) {
-  return (Array.isArray(records) ? records : []).map(sanitizeUserRecordForClient);
-}
-
 function headerIndex(headers, ...names) {
   for (const name of names) {
     const idx = headers.findIndex((h) => safeLower(h) === safeLower(name));
@@ -218,99 +163,6 @@ function headerIndex(headers, ...names) {
     }
   }
   return -1;
-}
-
-/**
- * Shifted legacy rows: headers are Email-first but row data was appended using
- * TAB_COLUMNS order (User ID, Company ID, Email, Name, Role, …) without matching columns.
- */
-export function isShiftedLegacyUsersRow(obj) {
-  if (!obj || typeof obj !== "object") {
-    return false;
-  }
-  const emailHeaderCol = pickField(obj, "Email");
-  if (isValidCompanyUserEmail(emailHeaderCol)) {
-    return false;
-  }
-  const emailInRoleCol = pickField(obj, "Role");
-  if (!isValidCompanyUserEmail(emailInRoleCol)) {
-    return false;
-  }
-  const statusInCreatedAt = normalizeUserStatus(pickField(obj, "CreatedAt"));
-  const hashInUpdatedAt = isPasswordHash(pickField(obj, "UpdatedAt"));
-  return statusInCreatedAt === "ACTIVE" || hashInUpdatedAt;
-}
-
-/** Role labels written to the Users tab during schema repair. */
-export function normalizeRoleForSheetRepair(role) {
-  const r = safeLower(role).replace(/\s+/g, " ");
-  if (r === "admin" || r === "administrator" || r === "owner" || r === "company admin") {
-    return "Company Admin";
-  }
-  if (r === "master") {
-    return "Master";
-  }
-  if (r === "manager") {
-    return "Manager";
-  }
-  if (r === "auditor") {
-    return "Auditor";
-  }
-  if (r === "user") {
-    return "User";
-  }
-  const parsed = parseRoleFromUsersSheet(role);
-  if (parsed === "Admin") {
-    return "Company Admin";
-  }
-  return parsed || String(role || "").trim();
-}
-
-/** Remap a shifted legacy row object onto canonical Users tab field names. */
-export function remapShiftedLegacyUsersRow(obj) {
-  if (!isShiftedLegacyUsersRow(obj)) {
-    return { ...obj };
-  }
-  const passwordHash = isPasswordHash(pickField(obj, "UpdatedAt"))
-    ? pickField(obj, "UpdatedAt")
-    : pickField(obj, "PasswordHash");
-  const createdAtRaw = pickField(obj, "CreatedAt");
-  const createdAt =
-    createdAtRaw && normalizeUserStatus(createdAtRaw) !== "ACTIVE" ? createdAtRaw : pickField(obj, "InvitedAt");
-  return {
-    ...obj,
-    "User ID": pickField(obj, "User ID") || pickField(obj, "Email"),
-    "Company ID": pickField(obj, "Company ID") || pickField(obj, "Name"),
-    Email: pickField(obj, "Role"),
-    Name: pickField(obj, "AccessLevel") || pickField(obj, "Name"),
-    Role: normalizeRoleForSheetRepair(pickField(obj, "Status")),
-    AccessLevel: pickField(obj, "CompanyAreas") || pickField(obj, "AccessLevel"),
-    CompanyAreas: pickField(obj, "PasswordHash") && !isPasswordHash(pickField(obj, "PasswordHash"))
-      ? pickField(obj, "PasswordHash")
-      : pickField(obj, "CompanyAreas"),
-    Status: normalizeUserStatus(pickField(obj, "CreatedAt") || pickField(obj, "Status")),
-    PasswordHash: passwordHash,
-    CreatedAt: createdAt,
-    UpdatedAt: pickField(obj, "UpdatedAt") && !isPasswordHash(pickField(obj, "UpdatedAt"))
-      ? pickField(obj, "UpdatedAt")
-      : obj.UpdatedAt || "",
-  };
-}
-
-export function normalizeUsersTabRowObject(obj) {
-  return remapShiftedLegacyUsersRow(obj);
-}
-
-function rowEmailCandidates(obj) {
-  const remapped = remapShiftedLegacyUsersRow(obj);
-  return [
-    pickField(remapped, "Email"),
-    pickField(obj, "Email"),
-    pickField(obj, "Role"),
-    pickField(obj, "Name"),
-  ]
-    .map((value) => safeLower(value))
-    .filter((value) => isValidCompanyUserEmail(value));
 }
 
 function rowToObject(headers, row) {
@@ -373,9 +225,11 @@ export async function findCompanyUsersTabRow(auth, spreadsheetId, email, deps) {
       pickField(obj, "AccessLevel", "Access Level", "accessLevel") ||
       defaultAccessLevelForRole(parseRoleFromUsersSheet(roleRaw));
     const companyAreasRaw = pickField(obj, "CompanyAreas", "Company Areas", "companyAreas");
-    const passwordHash = isPasswordHash(pickField(obj, "UpdatedAt"))
-      ? pickField(obj, "UpdatedAt")
-      : pickField(obj, "PasswordHash", "passwordHash");
+    const updatedAtVal = pickField(obj, "UpdatedAt");
+    const passwordHash =
+      String(updatedAtVal).startsWith("scrypt$") || isPasswordHash(updatedAtVal)
+        ? updatedAtVal
+        : pickField(obj, "PasswordHash", "passwordHash");
     return {
       sheetRowIndex: i,
       headers,
@@ -422,10 +276,6 @@ export async function readCompanyUsersTabRecord(auth, spreadsheetId, email, deps
     headers: row.headers,
     rowObject: row.rowObject,
   };
-}
-
-function mapRecordToSheetHeaders(headers, record) {
-  return headers.map((header) => String(record?.[header] ?? "").trim());
 }
 
 async function readUsersTabHeaders(auth, spreadsheetId, deps) {
@@ -823,7 +673,8 @@ export async function migrateUsersTabColumns(auth, spreadsheetId, deps) {
     while (row.length < headers.length) {
       row.push("");
     }
-    const obj = rowToObject(headers, row);
+    const rawObj = rowToObject(headers, row);
+    const obj = normalizeUsersTabRowObject(rawObj);
     const email = pickField(obj, "Email");
     const role = pickField(obj, "Role");
     let changed = false;

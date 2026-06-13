@@ -55,6 +55,7 @@
     "verify:company-context-ui": "node scripts/verify-company-context-ui.mjs",
     "verify:company-user-session-context": "node scripts/verify-company-user-session-context.mjs",
     "verify:users-tab-reader": "node scripts/verify-users-tab-reader.mjs",
+    "verify:users-tab-schema-repair": "node scripts/verify-users-tab-schema-repair.mjs",
     "verify:godmode-company-members": "node scripts/verify-godmode-company-members.mjs",
     "verify:schedule-assignees": "node scripts/verify-schedule-assignees.mjs",
     "verify:schedule-save": "node scripts/verify-schedule-save.mjs",

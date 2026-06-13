@@ -2,6 +2,7 @@
  * Company workbook Users tab resolution and reads — legacy tab names, header repair, error surfacing.
  */
 import { classifyGoogleSheetsAccessError } from "./ensure-required-tabs.mjs";
+import { USERS_TAB, USERS_TAB_COLUMNS, USERS_TAB_MINIMUM_HEADERS } from "./users-tab-constants.mjs";
 import {
   isShiftedLegacyUsersRow,
   isValidCompanyUserEmail,
@@ -10,27 +11,14 @@ import {
   normalizeUsersTabRowObject,
   remapShiftedLegacyUsersRow,
   sanitizeUsersTabRecords,
-  USERS_TAB,
-  USERS_TAB_COLUMNS,
-} from "./company-users.mjs";
+} from "./users-tab-schema.mjs";
 
 export const USERS_TAB_CANONICAL = "Users";
 
 /** Legacy workbook tab titles that hold company user rows. */
 export const USERS_TAB_LEGACY_NAMES = ["CompanyUsers", "User", "Login", "Company Login"];
 
-/** Minimum headers required for login and member listing (PasswordHash never exposed to clients). */
-export const USERS_TAB_MINIMUM_HEADERS = [
-  "Email",
-  "Name",
-  "Role",
-  "AccessLevel",
-  "Status",
-  "CompanyAreas",
-  "PasswordHash",
-  "CreatedAt",
-  "UpdatedAt",
-];
+export { USERS_TAB, USERS_TAB_MINIMUM_HEADERS } from "./users-tab-constants.mjs";
 
 const USERS_TAB_ENSURE_HEADERS = [...new Set([...USERS_TAB_MINIMUM_HEADERS, ...USERS_TAB_COLUMNS])];
 
@@ -419,5 +407,3 @@ export async function repairUsersTabSchema(auth, spreadsheetId, deps, options = 
     addedHeaders: resolved.addedHeaders || [],
   };
 }
-
-export { USERS_TAB };
