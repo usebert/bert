@@ -27,6 +27,7 @@ import { InviteStatusLegend } from "../InviteStatusLegend";
 import { WhatHappensNextPanel } from "../WhatHappensNextPanel";
 import { SitesAreasPanel } from "./SitesAreasPanel";
 import type { AdminScreenProps, CompanyUserInviteEmailResult, UserInvite } from "../../types/adminScreenProps";
+import { COMPANY_NO_LONGER_AVAILABLE_MESSAGE } from "../../utils/companyFolderContext";
 import {
   formatInviteStatusLabel,
   formatUserRoleLabel,
@@ -394,6 +395,8 @@ export type UsersInvitesPilotPanelProps = Pick<
   | "onRepairWorkspace"
   | "masterCompanyContextBlocked"
   | "masterCompanyContextMessage"
+  | "companyContextBlocked"
+  | "companyContextBlockedMessage"
   | "inviteWorkspaceBanner"
   | "slatePrimaryCtaInteract"
 > & {
@@ -465,6 +468,8 @@ export function UsersInvitesPilotPanel({
   onToggleUserSiteAssignment,
   masterCompanyContextBlocked = false,
   masterCompanyContextMessage = "",
+  companyContextBlocked = false,
+  companyContextBlockedMessage = "",
   inviteWorkspaceBanner = "",
   CompanyUserInviteEmailResultPanel,
   slatePrimaryCtaInteract,
@@ -491,9 +496,11 @@ export function UsersInvitesPilotPanel({
   const hasInvitePermission =
     isGodmodeInviteSession(invitePermissionSession) ||
     canCreateCompanyInvite(invitePermissionSession, resolvedCompanyId, inviteRoleInput);
-  const showInviteForm = hasInvitePermission && (isMasterActor || isCompanyInviteActorRole);
-  const inviteFormEnabled = hasCompanyContext && hasInvitePermission;
-  const inviteBlockedMessage = !hasCompanyContext
+  const showInviteForm = hasInvitePermission && (isMasterActor || isCompanyInviteActorRole) && !companyContextBlocked;
+  const inviteFormEnabled = hasCompanyContext && hasInvitePermission && !companyContextBlocked;
+  const inviteBlockedMessage = companyContextBlocked
+    ? companyContextBlockedMessage || COMPANY_NO_LONGER_AVAILABLE_MESSAGE
+    : !hasCompanyContext
     ? INVITE_COMPANY_CONTEXT_REQUIRED_MESSAGE
     : INVITE_ROLE_FORBIDDEN_MESSAGE;
   const inviteRecordScope = (invite: UserInvite) => ({
@@ -551,7 +558,9 @@ export function UsersInvitesPilotPanel({
         ) : null}
         {!showInviteForm ? (
           <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-            {INVITE_ROLE_FORBIDDEN_MESSAGE}
+            {companyContextBlocked
+              ? companyContextBlockedMessage || COMPANY_NO_LONGER_AVAILABLE_MESSAGE
+              : INVITE_ROLE_FORBIDDEN_MESSAGE}
           </p>
         ) : (
           <div className={`mt-4 ${pilotLightNested}`}>

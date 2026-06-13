@@ -7791,6 +7791,26 @@ const httpServer = app.listen(port, "0.0.0.0", () => {
     );
   }
   console.log("[smtp] startup", smtpStartupLogPayload());
+  void (async () => {
+    if (!envConfigured()) {
+      return;
+    }
+    const auth = getAuthedClient();
+    if (!auth) {
+      return;
+    }
+    try {
+      const pruned = await authIndexApi.pruneAuthIndexGhostEntries(auth, getCompanyContextEnrichmentDeps());
+      if (pruned?.authIndexEntriesRemoved > 0) {
+        console.log(`[auth-index] startup pruned ${pruned.authIndexEntriesRemoved} ghost entries`);
+      }
+    } catch (error) {
+      console.warn(
+        "[auth-index] startup prune failed:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  })();
   void verifySmtpTransport().then((result) => {
     if (isProductionRuntime()) {
       console.log("[smtp] verify", { ok: result.ok, checkedAt: result.checkedAt });

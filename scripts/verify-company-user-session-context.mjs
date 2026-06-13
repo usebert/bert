@@ -167,7 +167,10 @@ assert(authService.includes("companyContextValid"), "10b: session API exposes co
 assert(serverMain.includes("validateLiveCompanyContext"), "10c: session route uses live validator");
 assert(serverMain.includes("COMPANY_CONTEXT_INVALID"), "10d: session returns invalid company code");
 assert(serverMain.includes("resolveValidatedCompanyLoginContext"), "10e: login validates company after password");
-assert(read("server/auth-index.mjs").includes("invalidateAuthIndexEntryIfCompanyMissing"), "10f: auth index prunes missing companies");
+assert(read("server/auth-index.mjs").includes("lookupByEmailValidated"), "10g2: auth index validates on lookup");
+assert(read("server/auth-index.mjs").includes("pruneAuthIndexGhostEntries"), "10g3: auth index startup ghost prune");
+assert(serverMain.includes("lookupByEmailValidated"), "10g4: login route uses validated auth index lookup");
+assert(read("src/components/admin/UsersInvitesPilotPanel.tsx").includes("companyContextBlocked"), "10i: invite panel gates on company context");
 assert(appTsx.includes("clearStaleCompanyLocalStorage"), "10g: App clears stale company storage");
 assert(appTsx.includes("COMPANY_NO_LONGER_AVAILABLE_MESSAGE"), "10h: App shows company unavailable message");
 assert(
@@ -176,7 +179,10 @@ assert(
 );
 assert(serverMain.includes("folderPlacementOk"), "12: session surfaces folder placement status");
 assert(authService.includes("folderPlacementOk"), "12b: session API exposes folder placement");
-assert(read("src/utils/companyFolderContext.ts").includes("folderPlacementOk"), "12c: frontend usable context requires folder placement");
+assert(read("server/auth-index.mjs").includes("verifyAuthIndexEntryMatchesUsersWorkbook"), "10i: auth index verifies workbook Users row");
+assert(read("shared/auth-index-trust.mjs").includes("isKnownStaleAuthIndexPairing"), "10j: known stale pairings rejected");
+assert(serverMain.includes("verifyAuthIndexEntryMatchesUsersWorkbook"), "10k: session verifies auth index workbook match");
+assert(read("src/utils/clearStaleCompanyLocalStorage.ts").includes('APP_CONTEXT_VERSION = "3"'), "10l: app context version bumped");
 assert(appTsx.includes("companyLinkBlockedMessage"), "12d: App blocks dashboard when company link invalid");
 assert(appTsx.includes("FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE"), "12e: App shows folder placement deny message");
 

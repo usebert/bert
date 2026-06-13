@@ -43,12 +43,10 @@ function isCompanyRegistryLive(company = {}) {
 }
 
 function resolveCompanyActorInviteWorkspace(input) {
-  const active = input.activeCompany;
   const ctx = input.companyContext || {};
-  const companyFolderId = trimId(active?.id || ctx.companyFolderId);
-  const masterSheetId = trimId(active?.masterSheetId || ctx.masterSheetId);
-  const companyName = trimId(active?.name || ctx.companyName);
-  const registryStatus = trimId(ctx.registryStatus);
+  const companyFolderId = trimId(ctx.companyFolderId);
+  const masterSheetId = trimId(ctx.masterSheetId);
+  const companyName = trimId(ctx.companyName);
 
   if (!companyFolderId || !masterSheetId) {
     return { ok: false, message: ADMIN_INVITE_NO_COMPANY_MESSAGE };
@@ -131,6 +129,21 @@ const adminFromHint = resolveInviteWorkspace({
 assert(
   adminFromHint.ok && adminFromHint.companyFolderId === "own-folder",
   "Admin invite uses linked company context with registry Live",
+);
+
+const adminStaleActiveName = resolveInviteWorkspace({
+  currentUser: { role: "Admin" },
+  activeCompany: { id: "own-folder", name: "Rock Solid Concrete Ltd", masterSheetId: "sheet-own" },
+  companyContext: {
+    companyFolderId: "own-folder",
+    masterSheetId: "sheet-own",
+    companyName: "Dovecote Studio",
+    workspaceSetupComplete: true,
+  },
+});
+assert(
+  adminStaleActiveName.ok && adminStaleActiveName.displayCompanyName === "Dovecote Studio",
+  "Admin invite uses validated session companyName only",
 );
 
 const adminNotLive = resolveInviteWorkspace({

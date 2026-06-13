@@ -14238,6 +14238,8 @@ function App() {
                   masterCompanyContextBlocked
                 }
                 masterCompanyContextMessage={GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE}
+                companyContextBlocked={Boolean(companyLinkBlockedMessage)}
+                companyContextBlockedMessage={companyLinkBlockedMessage}
                 inviteWorkspaceBanner={inviteWorkspaceBanner}
                 companyRegistryStatus={companyRegistryStatus || selectedFolder?.registryStatus || ""}
                 companyMasterSheetId={godmodeNewCompanyOnboarding ? "" : activeCompanyMasterSheetId}

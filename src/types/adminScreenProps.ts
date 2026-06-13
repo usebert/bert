@@ -416,6 +416,9 @@ export type AdminScreenProps = {
     masterSheetId?: string;
   }) => void | Promise<void>;
   onClearSetupError?: () => void;
+  /** Company user: block invites when live company context is invalid. */
+  companyContextBlocked?: boolean;
+  companyContextBlockedMessage?: string;
   /** Master Godmode: block company-scoped actions until a live workspace is selected. */
   masterCompanyContextBlocked?: boolean;
   masterCompanyContextMessage?: string;

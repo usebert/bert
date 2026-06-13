@@ -117,7 +117,7 @@ assert(
 assert(appTsx.includes("companyContextValid"), "5l: App gates on companyContextValid");
 assert(appTsx.includes("clearStaleCompanyLocalStorage"), "5m: App clears stale company storage");
 assert(read("src/utils/resolveInviteWorkspace.ts").includes("ctx.companyName"), "5o: invite workspace uses validated session companyName");
-assert(read("src/utils/clearStaleCompanyLocalStorage.ts").includes('APP_CONTEXT_VERSION = "3"'), "5p: app context version bumped");
+assert(read("src/utils/clearStaleCompanyLocalStorage.ts").includes('BERT_CONTEXT_SCHEMA_VERSION = 3'), "5p2: schema version bumped");
 assert(read("src/main.tsx").includes("runAppContextBootstrap"), "5o: boot bootstrap before React render");
 const selectedFolderMemoBlock =
   appTsx.match(/const selectedFolder = useMemo[\s\S]*?\),\s*\n\s*\);/)?.[0] ?? "";

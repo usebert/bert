@@ -413,6 +413,8 @@ export function AdminScreen({
   onClearSetupError,
   masterCompanyContextBlocked = false,
   masterCompanyContextMessage = "",
+  companyContextBlocked = false,
+  companyContextBlockedMessage = "",
   inviteWorkspaceBanner = "",
   companyRegistryStatus = "",
   AppIcon,
@@ -1334,6 +1336,8 @@ export function AdminScreen({
           inviteWorkspaceBanner={inviteWorkspaceBanner}
           masterCompanyContextBlocked={masterCompanyContextBlocked}
           masterCompanyContextMessage={masterCompanyContextMessage}
+          companyContextBlocked={companyContextBlocked}
+          companyContextBlockedMessage={companyContextBlockedMessage}
           googleConnected={googleConnected}
           inviteEmailInput={inviteEmailInput}
           inviteRoleInput={inviteRoleInput}
