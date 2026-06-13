@@ -3367,6 +3367,7 @@ function App() {
   );
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [loginSubmitting, setLoginSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
@@ -7457,6 +7458,11 @@ function App() {
     }).format(new Date());
 
   const handleLogin = async () => {
+    if (loginSubmitting) {
+      return;
+    }
+    setLoginSubmitting(true);
+    try {
     const loginIdentity = username.trim().toLowerCase();
     const pwd = password;
     const platformOwnerLogin =
@@ -7768,6 +7774,11 @@ function App() {
       return;
     }
 
+    if (companyLoginFailure?.blocker === "invalid_credentials") {
+      pushToast("Sign in failed", "Email or password is incorrect.", "warning");
+      return;
+    }
+
     if (masterGuidedFailure === "auth") {
       pushToast("Sign in failed", "Email, username, or password is incorrect.", "warning");
       return;
@@ -7790,7 +7801,10 @@ function App() {
       return;
     }
 
-    pushToast("Sign in failed", "Please check your username and password.", "warning");
+    pushToast("Sign in failed", "Email or password is incorrect.", "warning");
+    } finally {
+      setLoginSubmitting(false);
+    }
   };
 
   const handleForgotPassword = async () => {
@@ -12653,12 +12667,20 @@ function App() {
                             </button>
                           </div>
                         </div>
-                        <button
-                          type="submit"
-                          className={`h-11 w-full rounded-xl bg-gradient-to-r from-orange-400 to-orange-600 text-sm font-semibold text-slate-950 shadow-[0_10px_22px_rgba(249,115,22,0.22)] active:scale-[0.99] sm:h-12 sm:rounded-2xl sm:text-base ${slatePrimaryCtaInteract}`}
-                        >
-                          Sign in for company setup
-                        </button>
+                      <button
+                        type="submit"
+                        disabled={loginSubmitting}
+                        className={`h-11 w-full rounded-xl bg-gradient-to-r from-orange-400 to-orange-600 text-sm font-semibold text-slate-950 shadow-[0_10px_22px_rgba(249,115,22,0.22)] active:scale-[0.99] sm:h-12 sm:rounded-2xl sm:text-base ${slatePrimaryCtaInteract} ${loginSubmitting ? "cursor-wait opacity-80" : ""}`}
+                      >
+                        {loginSubmitting ? (
+                          <span className="inline-flex items-center justify-center gap-2">
+                            <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-950/30 border-t-slate-950" />
+                            Signing in…
+                          </span>
+                        ) : (
+                          "Sign in for company setup"
+                        )}
+                      </button>
                       </form>
                     </div>
                   </div>
@@ -12896,9 +12918,17 @@ function App() {
 
                       <button
                         type="submit"
-                        className={`h-11 w-full rounded-xl bg-gradient-to-r from-orange-400 to-orange-600 text-sm font-semibold text-slate-950 shadow-[0_10px_22px_rgba(249,115,22,0.22)] active:scale-[0.99] sm:h-12 sm:rounded-2xl sm:text-base ${slatePrimaryCtaInteract}`}
+                        disabled={loginSubmitting}
+                        className={`h-11 w-full rounded-xl bg-gradient-to-r from-orange-400 to-orange-600 text-sm font-semibold text-slate-950 shadow-[0_10px_22px_rgba(249,115,22,0.22)] active:scale-[0.99] sm:h-12 sm:rounded-2xl sm:text-base ${slatePrimaryCtaInteract} ${loginSubmitting ? "cursor-wait opacity-80" : ""}`}
                       >
-                        Sign in
+                        {loginSubmitting ? (
+                          <span className="inline-flex items-center justify-center gap-2">
+                            <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-950/30 border-t-slate-950" />
+                            Signing in…
+                          </span>
+                        ) : (
+                          "Sign in"
+                        )}
                       </button>
                     </form>
                     )}

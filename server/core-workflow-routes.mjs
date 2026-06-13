@@ -14,6 +14,7 @@ import {
 import { resolveCompanyInviteReadiness } from "./company-invite-readiness.mjs";
 import { resolveCompanyById } from "./company-registry-service.mjs";
 import { listActiveCompanyMembers } from "./company-user-service.mjs";
+import { syncAuthIndexAfterUsersRead } from "./auth-index.mjs";
 import { getScheduleAssigneesForCompany } from "./schedule-assignee-service.mjs";
 import {
   canListCompanySchedules,
@@ -431,6 +432,13 @@ export function installCoreWorkflowRoutes(app, deps) {
           technicalError: result.technicalError,
         });
       }
+
+      await syncAuthIndexAfterUsersRead(authed, { ...registryDeps, ...getCompanyUsersDeps(), authIndex: deps.authIndex, getCompanyUsersDeps }, {
+        companyId: result.companyFolderId || companyFolderId,
+        companyFolderId: result.companyFolderId || companyFolderId,
+        masterSheetId: result.masterSheetId || masterSheetId,
+        companyName: result.companyName || companyName,
+      }).catch(() => null);
 
       return res.json({
         ok: true,

@@ -4768,6 +4768,37 @@ app.patch(
         fields: Object.keys(updates),
       });
 
+      const fullRec = await readCompanyUsersTabRecord(auth, masterSheetId, email);
+      const patchCompanyName = String(actor?.companyName || req.body?.companyName || "").trim();
+      if (fullRec?.email && fullRec.passwordHash) {
+        authIndexApi.upsertEntry(
+          authIndexApi.entryFromUsersTabRow(
+            {
+              ...fullRec,
+              roleRaw: fullRec.role,
+            },
+            {
+              companyFolderId,
+              companyName: patchCompanyName,
+              masterSheetId,
+            },
+          ) || {
+            email: fullRec.email,
+            name: fullRec.name,
+            role: fullRec.role,
+            accessLevel: fullRec.accessLevel,
+            companyId: companyFolderId,
+            companyFolderId,
+            companyName: patchCompanyName,
+            masterSheetId,
+            status: fullRec.status,
+            passwordHash: fullRec.passwordHash,
+            updatedAt: fullRec.updatedAt,
+            companyAreas: fullRec.companyAreas,
+          },
+        );
+      }
+
       return res.json({ ok: true, user: clientUser });
     } catch (error) {
       console.error("[company-user] patch failed:", error);
@@ -6332,6 +6363,17 @@ async function handleAppInviteComplete(req, res) {
                   companyName: record.companyName || "",
                 },
               ).catch(() => null);
+              await authIndexApi
+                .rebuildCompanyAuthIndexFromSheet(
+                  authed,
+                  { getCompanyUsersDeps },
+                  {
+                    companyFolderId: inviteFolderId,
+                    masterSheetId: record.masterSheetId,
+                    companyName: record.companyName || "",
+                  },
+                )
+                .catch(() => null);
             }
             patchInviteRecord(tokenId, {
               inviteType: "COMPANY_USER",
@@ -6796,11 +6838,6 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
     });
 
     if (!result.ok) {
-      const responseSentAt = Date.now();
-      if (result.timing) {
-        result.timing.response_sent = responseSentAt - (responseSentAt - (result.timing.total || 0));
-        console.log(`[login] response_sent durationMs=${result.timing.response_sent || 0}`);
-      }
       return res.status(result.httpStatus || 400).json({
         ok: false,
         blocker: result.blocker,
@@ -6814,14 +6851,11 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
     res.cookie(COMPANY_SESSION_COOKIE, result.sessionPayload, getSessionCookieOptions({ maxAge: COMPANY_SESSION_MS }));
 
     const responseStarted = Date.now();
-    if (result.timing) {
-      result.timing.response_sent = 0;
-    }
-
     res.on("finish", () => {
+      const responseSentMs = Date.now() - responseStarted;
+      console.log(`[login] response_sent durationMs=${responseSentMs}`);
       if (result.timing) {
-        result.timing.response_sent = Date.now() - responseStarted;
-        console.log(`[login] response_sent durationMs=${result.timing.response_sent}`);
+        result.timing.response_sent = responseSentMs;
       }
       queueCompanyLoginBackgroundJobs(
         {
@@ -7123,6 +7157,49 @@ app.post("/api/tools/migrate-users-tab", requireBertToolSecret, requireGoogleWor
 });
 
 app.post(
+  "/api/godmode/rebuild-auth-index",
+  requireGoogleWorkspaceSession,
+  requireMasterOnlyActor,
+  async (req, res) => {
+    try {
+      const auth = getAuthedClient();
+      if (!auth) {
+        return res.status(401).json({ ok: false, error: "Please connect Google before rebuilding the auth index." });
+      }
+      const registryMap = await readCanonicalCompanyWorkspaceRegistryMap(auth, getCompanyWorkspaceRegistryDeps()).catch(
+        () => ({ map: new Map() }),
+      );
+      const companiesMap = registryMap?.map instanceof Map ? registryMap.map : new Map();
+      let upserted = 0;
+      let companies = 0;
+      for (const record of companiesMap.values()) {
+        const masterSheetId = String(record?.masterSheetId || "").trim();
+        const companyFolderId = String(record?.companyFolderId || record?.companyId || "").trim();
+        if (!masterSheetId) {
+          continue;
+        }
+        const rebuilt = await authIndexApi
+          .rebuildCompanyAuthIndexFromSheet(auth, { getCompanyUsersDeps }, {
+            masterSheetId,
+            companyFolderId,
+            companyName: String(record?.companyName || "").trim(),
+          })
+          .catch(() => null);
+        if (rebuilt?.ok) {
+          companies += 1;
+          upserted += Number(rebuilt.upserted || 0);
+        }
+      }
+      return res.json({ ok: true, companies, upserted });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[godmode] rebuild-auth-index failed:", message);
+      return res.status(500).json({ ok: false, error: "Rebuild auth index failed.", technicalError: message });
+    }
+  },
+);
+
+app.post(
   "/api/godmode/companies/:companyId/rebuild-users-from-sheet",
   requireGoogleWorkspaceSession,
   requireMasterOnlyActor,
@@ -7162,6 +7239,17 @@ app.post(
           diagnostics: result.diagnostics,
         });
       }
+      await authIndexApi
+        .rebuildCompanyAuthIndexFromSheet(
+          auth,
+          { getCompanyUsersDeps },
+          {
+            companyFolderId: result.companyFolderId || companyFolderId,
+            masterSheetId: result.masterSheetId || masterSheetId,
+            companyName: result.companyName || companyName,
+          },
+        )
+        .catch(() => null);
       return res.json({
         ok: true,
         companyFolderId: result.companyFolderId,
@@ -7433,6 +7521,8 @@ backgroundJobs = createBackgroundJobsService(sessionDir, {
   getWorkbook,
   withSheetsQuotaRetry,
   writeLegacyCompanySchedules: writeCompanySchedules,
+  authIndex: authIndexApi,
+  getCompanyUsersDeps,
   ...getCompanyWorkspaceRegistryDeps(),
 });
 backgroundJobs.installRoutes(app, { requireMasterOnlyActor });
@@ -7493,6 +7583,7 @@ installCoreWorkflowRoutes(app, {
   withSheetsQuotaRetry,
   google,
   backgroundJobs,
+  authIndex: authIndexApi,
 });
 
 installCompanyOnboardingRoutes(app, {
