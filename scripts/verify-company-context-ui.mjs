@@ -94,9 +94,17 @@ assert(
   "5f: title uses activeCompanyContext.companyFolderId",
 );
 assert(!appTsx.includes("document.title = workspaceName"), "5g: title does not use workspaceName");
+const workspaceDisplayUtil = read("src/utils/workspaceDisplay.ts");
 assert(
-  !/resolveWorkspaceDisplayName[\s\S]*readCompanyLoginHint/.test(appTsx),
-  "5h: workspaceName does not fall back to login hint localStorage",
+  !workspaceDisplayUtil.includes("readCompanyLoginHint"),
+  "5h: workspace display resolver does not use login hint localStorage",
+);
+const workspaceNameMemoBlock =
+  appTsx.match(/const workspaceName = useMemo[\s\S]*?\),\s*\n\s*\);/)?.[0] ?? "";
+assert(workspaceNameMemoBlock.length > 0, "5h2: workspaceName useMemo present");
+assert(
+  !workspaceNameMemoBlock.includes("readCompanyLoginHint"),
+  "5h3: workspaceName memo does not read login hint localStorage",
 );
 assert(
   /handleLogout[\s\S]*resolveDocumentTitle[\s\S]*signedIn:\s*false/.test(appTsx),
