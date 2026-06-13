@@ -22,6 +22,10 @@ import {
   rowEmailCandidates,
   sanitizeUserRecordForClient,
   sanitizeUsersTabRecords,
+  backfillRowCompanyFields,
+  pickRowCompanyId,
+  pickRowCompanyFolderId,
+  pickRowCompanyName,
 } from "./users-tab-schema.mjs";
 
 export {
@@ -219,7 +223,9 @@ export async function findCompanyUsersTabRow(auth, spreadsheetId, email, deps) {
     const roleRaw = pickField(obj, "Role", "role");
     const fullName =
       pickField(obj, "Name", "name", "Full Name", "Full name") || rowEmail;
-    const companyId = pickField(obj, "Company ID", "companyId");
+    const companyId = pickRowCompanyId(obj) || pickField(obj, "Company ID", "companyId");
+    const companyFolderId = pickRowCompanyFolderId(obj) || companyId;
+    const companyName = pickRowCompanyName(obj);
     const status = normalizeUserStatus(pickField(obj, "Status", "status"));
     const accessLevel =
       pickField(obj, "AccessLevel", "Access Level", "accessLevel") ||
@@ -237,6 +243,8 @@ export async function findCompanyUsersTabRow(auth, spreadsheetId, email, deps) {
       roleRaw,
       name: fullName,
       companyId,
+      companyFolderId,
+      companyName,
       userId: pickField(obj, "User ID", "userId"),
       status,
       accessLevel,
@@ -269,7 +277,9 @@ export async function readCompanyUsersTabRecord(auth, spreadsheetId, email, deps
     status: row.status,
     accessLevel: row.accessLevel,
     companyAreas: row.companyAreas,
-    companyId: row.companyId,
+    companyId: row.companyId || row.companyFolderId,
+    companyFolderId: row.companyFolderId || row.companyId,
+    companyName: row.companyName,
     userId: row.userId,
     passwordHash: row.passwordHash,
     sheetRowIndex: row.sheetRowIndex,
@@ -323,7 +333,31 @@ export async function writeUsersTabRecordByHeaders(auth, spreadsheetId, record, 
     }
   }
   const existingObj = rowIndex >= 0 ? normalizeUsersTabRowObject(rowToObject(headers, rows[rowIndex])) : {};
-  const nextRecord = { ...existingObj, ...record, Email: emailNorm };
+  const companyContext = options.companyContext || {};
+  const withCompany = backfillRowCompanyFields(
+    {
+      ...existingObj,
+      ...record,
+      Email: emailNorm,
+      Company: record.Company || record.companyName || existingObj.Company || companyContext.companyName || "",
+      CompanyId:
+        record.CompanyId ||
+        record.companyId ||
+        existingObj.CompanyId ||
+        companyContext.companyFolderId ||
+        companyContext.companyId ||
+        "",
+      CompanyFolderId:
+        record.CompanyFolderId ||
+        record.companyFolderId ||
+        existingObj.CompanyFolderId ||
+        companyContext.companyFolderId ||
+        companyContext.companyId ||
+        "",
+    },
+    companyContext,
+  );
+  const nextRecord = withCompany;
   const nextRow = mapRecordToSheetHeaders(headers, nextRecord);
   const sheets = google.sheets({ version: "v4", auth });
   if (rowIndex === -1) {
@@ -630,12 +664,14 @@ export async function resolveCompanyContextForUser(auth, email, deps) {
         continue;
       }
       const companyFolderId =
+        pickRowCompanyFolderId(rec) ||
         candidate.companyFolderId ||
         candidate.companyId ||
         String(rec.companyId || "").trim();
+      const companyName = pickRowCompanyName(rec?.rowObject || rec) || candidate.companyName;
       return {
         companyId: candidate.companyId || companyFolderId,
-        companyName: candidate.companyName,
+        companyName,
         companyFolderId,
         masterSheetId: candidate.masterSheetId,
         role: rec.role,
@@ -652,9 +688,69 @@ export async function resolveCompanyContextForUser(auth, email, deps) {
   return null;
 }
 
-export async function migrateUsersTabColumns(auth, spreadsheetId, deps) {
+export async function migrateUsersTabCompanyColumns(auth, spreadsheetId, companyContext, deps) {
+  const { ensureColumns, getTabValues, google, withSheetsQuotaRetry } = deps;
+  const tabTitle = await resolveUsersTabTitle(auth, spreadsheetId, deps, { createIfMissing: true });
+  const companyName = String(companyContext?.companyName || "").trim();
+  const companyFolderId = String(companyContext?.companyFolderId || companyContext?.companyId || "").trim();
+  const { addedColumns } = await ensureColumns(auth, spreadsheetId, tabTitle, USERS_TAB_COLUMNS);
+  const rows = await getTabValues(auth, spreadsheetId, tabTitle);
+  if (rows.length < 2) {
+    return { ok: true, addedColumns, backfilled: 0, companyColumnsAdded: addedColumns.length > 0 };
+  }
+  const headers = rows[0].map((cell) => String(cell || "").trim());
+  let backfilled = 0;
+  const nextRows = [headers];
+  for (let i = 1; i < rows.length; i += 1) {
+    const row = [...rows[i]];
+    while (row.length < headers.length) {
+      row.push("");
+    }
+    const rawObj = rowToObject(headers, row);
+    const obj = normalizeUsersTabRowObject(rawObj);
+    const before = JSON.stringify({
+      Company: pickRowCompanyName(obj),
+      CompanyId: pickRowCompanyId(obj),
+      CompanyFolderId: pickRowCompanyFolderId(obj),
+    });
+    const filled = backfillRowCompanyFields(obj, { companyName, companyFolderId, companyId: companyFolderId });
+    const after = JSON.stringify({
+      Company: pickRowCompanyName(filled),
+      CompanyId: pickRowCompanyId(filled),
+      CompanyFolderId: pickRowCompanyFolderId(filled),
+    });
+    if (before !== after) {
+      backfilled += 1;
+    }
+    nextRows.push(headers.map((header) => String(filled[header] ?? row[headers.indexOf(header)] ?? "").trim()));
+  }
+  if (backfilled > 0) {
+    const sheets = google.sheets({ version: "v4", auth });
+    await withSheetsQuotaRetry(() =>
+      sheets.spreadsheets.values.clear({
+        spreadsheetId,
+        range: `${tabTitle}!A:ZZ`,
+      }),
+    );
+    await withSheetsQuotaRetry(() =>
+      sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${tabTitle}!A1`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: nextRows },
+      }),
+    );
+  }
+  return { ok: true, addedColumns, backfilled, companyColumnsAdded: addedColumns.length > 0 };
+}
+
+export async function migrateUsersTabColumns(auth, spreadsheetId, deps, options = {}) {
   const { ensureColumns, getTabValues, google, withSheetsQuotaRetry, getConfig } = deps;
   const tabTitle = await resolveUsersTabTitle(auth, spreadsheetId, deps, { createIfMissing: true });
+  const companyContext = options.companyContext || {};
+  if (companyContext.companyFolderId || companyContext.companyId || companyContext.companyName) {
+    await migrateUsersTabCompanyColumns(auth, spreadsheetId, companyContext, deps).catch(() => null);
+  }
   const { addedColumns } = await ensureColumns(auth, spreadsheetId, tabTitle, USERS_TAB_COLUMNS);
   const rows = await getTabValues(auth, spreadsheetId, tabTitle);
   if (rows.length < 2) {

@@ -183,3 +183,47 @@ export function sanitizeUserRecordForClient(record) {
 export function sanitizeUsersTabRecords(records) {
   return (Array.isArray(records) ? records : []).map(sanitizeUserRecordForClient);
 }
+
+export function pickRowCompanyId(obj) {
+  return pickField(obj, "CompanyId", "CompanyFolderId", "Company ID", "companyId", "companyFolderId");
+}
+
+export function pickRowCompanyFolderId(obj) {
+  return pickField(obj, "CompanyFolderId", "CompanyId", "Company ID", "companyFolderId", "companyId");
+}
+
+export function pickRowCompanyName(obj) {
+  return pickField(obj, "Company", "company", "companyName");
+}
+
+export function backfillRowCompanyFields(obj, companyContext = {}) {
+  const folderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
+  const companyName = String(companyContext.companyName || "").trim();
+  const next = { ...obj };
+  if (!pickRowCompanyName(obj) && companyName) {
+    next.Company = companyName;
+  }
+  if (!pickRowCompanyId(obj) && folderId) {
+    next.CompanyId = folderId;
+    next.CompanyFolderId = folderId;
+  }
+  return next;
+}
+
+/** Blank company cols belong to current context; exclude rows pointing elsewhere. */
+export function rowMatchesCompanyContext(row, companyContext = {}) {
+  const folderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
+  if (!folderId) {
+    return true;
+  }
+  const rowCompanyId = pickRowCompanyId(row);
+  if (!rowCompanyId) {
+    return true;
+  }
+  const rowFolderId = pickRowCompanyFolderId(row) || rowCompanyId;
+  return rowCompanyId === folderId || rowFolderId === folderId;
+}
+
+export function rowPointsToOtherCompany(row, companyContext = {}) {
+  return !rowMatchesCompanyContext(row, companyContext);
+}

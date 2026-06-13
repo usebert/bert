@@ -58,6 +58,7 @@
     "verify:users-tab-reader": "node scripts/verify-users-tab-reader.mjs",
     "verify:users-tab-schema": "node scripts/verify-users-tab-schema-repair.mjs",
     "verify:users-tab-schema-repair": "node scripts/verify-users-tab-schema-repair.mjs",
+    "verify:users-company-columns": "node scripts/verify-users-company-columns.mjs",
     "verify:user-reset": "node scripts/verify-user-reset.mjs",
     "verify:schedule-assignment-contract": "node scripts/verify-schedule-assignment-contract.mjs",
     "verify:godmode-company-members": "node scripts/verify-godmode-company-members.mjs",

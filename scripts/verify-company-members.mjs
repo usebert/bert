@@ -73,14 +73,16 @@ const pendingInvite = {
   assert(!isActiveUser(pendingInvite), "3c: pending excluded");
 }
 
-/** 4: companyId = companyFolderId — workbook rows always tagged with folder id. */
+/** 4: companyId = companyFolderId — workbook rows use explicit Company columns. */
 {
   const userService = read("server/company-user-service.mjs");
+  const sheetFlow = read("server/company-user-sheet-flow.mjs");
   assert(
-    userService.includes("companyId: companyFolderId || pickRowValue(row, \"Company ID\""),
-    "4: Users tab rows default companyId to companyFolderId",
+    userService.includes("pickRowCompanyId") || sheetFlow.includes("pickRowCompanyId"),
+    "4: Users tab rows read CompanyId from sheet",
   );
-  assert(userService.includes("companyId: companyFolderId"), "4b: active members force companyFolderId");
+  assert(userService.includes("rowMatchesCompanyContext"), "4b: active members filter by company columns");
+  assert(userService.includes("companyId: resolvedFolderId"), "4c: active members use resolved folder id");
 }
 
 /** 5: PasswordHash never returned. */

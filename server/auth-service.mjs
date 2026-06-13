@@ -531,14 +531,18 @@ export async function resolveValidatedCompanyLoginContext(auth, deps, indexEntry
       };
     }
     const validation = trusted.validation || {};
+    const rowCompanyFolderId = String(
+      trusted.rec?.companyFolderId || trusted.rec?.companyId || validation.companyFolderId || "",
+    ).trim();
+    const rowCompanyName = String(trusted.rec?.companyName || validation.companyName || "").trim();
     authIndex.upsertEntry?.({
       email,
       name: String(indexEntry.name || trusted.rec?.name || email).trim() || email,
       role: String(trusted.rec?.role || indexEntry.role || "User").trim() || "User",
       accessLevel: String(trusted.rec?.accessLevel || indexEntry.accessLevel || "").trim(),
-      companyId: validation.companyFolderId,
-      companyFolderId: validation.companyFolderId,
-      companyName: validation.companyName,
+      companyId: rowCompanyFolderId || validation.companyFolderId,
+      companyFolderId: rowCompanyFolderId || validation.companyFolderId,
+      companyName: rowCompanyName || validation.companyName,
       masterSheetId: validation.masterSheetId,
       status: trusted.rec?.status || indexEntry.status || "ACTIVE",
       passwordHash: String(indexEntry.passwordHash || "").trim(),
@@ -551,9 +555,9 @@ export async function resolveValidatedCompanyLoginContext(auth, deps, indexEntry
     return {
       ok: true,
       companyContextValid: true,
-      companyId: validation.companyFolderId,
-      companyFolderId: validation.companyFolderId,
-      companyName: validation.companyName,
+      companyId: rowCompanyFolderId || validation.companyFolderId,
+      companyFolderId: rowCompanyFolderId || validation.companyFolderId,
+      companyName: rowCompanyName || validation.companyName,
       masterSheetId: validation.masterSheetId,
       folderPlacementOk: true,
       folderPlacement: validation.folderPlacement,

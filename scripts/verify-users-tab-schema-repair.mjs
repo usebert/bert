@@ -145,6 +145,16 @@ const shiftedRow = {
 /** 13: npm script registered. */
 assert(pkg.scripts["verify:users-tab-schema-repair"], "13: npm script registered");
 
+/** 14: Company columns in core schema. */
+{
+  const constants = read("server/users-tab-constants.mjs");
+  assert(constants.includes("USERS_TAB_CORE_COLUMNS"), "14: USERS_TAB_CORE_COLUMNS defined");
+  assert(constants.includes('"Company"'), "14b: Company column in schema");
+  assert(constants.includes('"CompanyId"'), "14c: CompanyId column in schema");
+  assert(constants.includes('"CompanyFolderId"'), "14d: CompanyFolderId column in schema");
+  assert(companyUsers.includes("migrateUsersTabCompanyColumns"), "14e: company column migration exported");
+}
+
 /** 14: Second shifted user (andy@qmsprecast.co.uk pattern). */
 {
   const andyShifted = {

@@ -11,6 +11,8 @@ import {
   normalizeUsersTabRowObject,
   remapShiftedLegacyUsersRow,
   sanitizeUsersTabRecords,
+  backfillRowCompanyFields,
+  pickRowCompanyName,
 } from "./users-tab-schema.mjs";
 
 export const USERS_TAB_CANONICAL = "Users";
@@ -365,6 +367,7 @@ export async function repairUsersTabSchema(auth, spreadsheetId, deps, options = 
       PasswordHash: passwordHash,
       CreatedAt: createdAt && normalizeUserStatus(createdAt) !== "ACTIVE" ? createdAt : createdAt,
       UpdatedAt: String(remapped.UpdatedAt || new Date().toISOString()).trim(),
+      ...backfillRowCompanyFields(remapped, options.companyContext || {}),
     };
     if (shifted) {
       rowsRepaired += 1;
@@ -396,6 +399,13 @@ export async function repairUsersTabSchema(auth, spreadsheetId, deps, options = 
     );
   }
 
+  let companyMigration = null;
+  if (typeof deps.migrateUsersTabCompanyColumns === "function" && options.companyContext) {
+    companyMigration = await deps
+      .migrateUsersTabCompanyColumns(auth, spreadsheetId, options.companyContext, deps)
+      .catch(() => null);
+  }
+
   return {
     ok: true,
     rowsScanned,
@@ -405,5 +415,6 @@ export async function repairUsersTabSchema(auth, spreadsheetId, deps, options = 
     tabTitle,
     headers: canonicalHeaders,
     addedHeaders: resolved.addedHeaders || [],
+    companyMigration,
   };
 }

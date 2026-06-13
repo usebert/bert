@@ -26,6 +26,7 @@ import {
   managerInvitesEnabled,
   defaultAccessLevelForRole,
   migrateUsersTabColumns,
+  migrateUsersTabCompanyColumns,
   parseCompanyAreas,
   parseRoleFromUsersSheet,
   readCompanyUsersTabRecord as workbookReadCompanyUsersTabRecord,
@@ -3221,6 +3222,7 @@ function getCompanyUsersDeps() {
     resolveUsersTab,
     readCompanyUsers: workbookReadCompanyUsers,
     migrateUsersTabColumns,
+    migrateUsersTabCompanyColumns,
     repairUsersTab,
     repairUsersTabSchema,
     companyUsersCache: {
@@ -3239,6 +3241,7 @@ function getCompanyContextResolutionDeps() {
     readCanonicalCompanyWorkspaceRegistryMap,
     isCompanyRegistryLive,
     migrateUsersTabColumns,
+    migrateUsersTabCompanyColumns,
     readCompanyUsersTabRecord: workbookReadCompanyUsersTabRecord,
   };
 }
@@ -3743,14 +3746,20 @@ async function writeCompanySchedules(auth, spreadsheetId, companyFolderId, sched
   return { ok: true, written: nextRows.length, existing: existingRecords.length };
 }
 
-async function writeCompanyUsers(auth, spreadsheetId, companyFolderId, users) {
+async function writeCompanyUsers(auth, spreadsheetId, companyFolderId, users, options = {}) {
+  const companyName = String(options.companyName || "").trim();
   await ensureTabsAndColumns(auth, spreadsheetId, { companyId: companyFolderId });
-  await repairUsersTabSchema(auth, spreadsheetId, getCompanyUsersDeps()).catch(() => null);
-  await migrateUsersTabColumns(auth, spreadsheetId, getCompanyUsersDeps());
+  const userDeps = getCompanyUsersDeps();
+  await repairUsersTabSchema(auth, spreadsheetId, userDeps, {
+    companyContext: { companyFolderId, companyId: companyFolderId, companyName },
+  }).catch(() => null);
+  await migrateUsersTabColumns(auth, spreadsheetId, userDeps, {
+    companyContext: { companyFolderId, companyId: companyFolderId, companyName },
+  });
   const rows = toObjectArray(users);
   const timestamp = new Date().toISOString();
   let written = 0;
-  const userDeps = getCompanyUsersDeps();
+  const companyContext = { companyFolderId, companyId: companyFolderId, companyName };
 
   for (const user of rows) {
     const email = String(user.email || user.Email || "").trim().toLowerCase();
@@ -3775,6 +3784,9 @@ async function writeCompanyUsers(auth, spreadsheetId, companyFolderId, users) {
     const record = {
       "User ID": userId,
       "Company ID": companyFolderId,
+      Company: String(user.companyName || user.Company || companyName || "").trim(),
+      CompanyId: companyFolderId,
+      CompanyFolderId: companyFolderId,
       "Full Name": fullName,
       Name: fullName,
       Email: email,
@@ -3800,7 +3812,9 @@ async function writeCompanyUsers(auth, spreadsheetId, companyFolderId, users) {
       record.Status = "ACTIVE";
     }
 
-    const writeResult = await writeUsersTabRecordByHeaders(auth, spreadsheetId, record, userDeps);
+    const writeResult = await writeUsersTabRecordByHeaders(auth, spreadsheetId, record, userDeps, {
+      companyContext,
+    });
     if (!writeResult.ok) {
       continue;
     }
@@ -7443,8 +7457,11 @@ app.post(
       if (!masterSheetId) {
         return res.status(400).json({ ok: false, error: "masterSheetId is required to repair the Users tab schema." });
       }
+      const companyName = String(req.body?.companyName || "").trim();
       const deps = getCompanyUsersDeps();
-      const schemaRepair = await repairUsersTabSchema(auth, masterSheetId, deps);
+      const schemaRepair = await repairUsersTabSchema(auth, masterSheetId, deps, {
+        companyContext: { companyFolderId, companyId: companyFolderId, companyName },
+      });
       if (typeof deps.companyUsersCache?.rebuildFromSheet === "function" && companyFolderId) {
         await deps.companyUsersCache
           .rebuildFromSheet(auth, deps, { companyFolderId, masterSheetId })

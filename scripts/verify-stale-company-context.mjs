@@ -63,7 +63,8 @@ assert(
   /rebuildAuthIndex[\s\S]*?validateLiveCompanyContext/.test(authIndex),
   "4g: rebuild only indexes folders under Live Companies",
 );
-assert(authIndex.includes("isValidCompanyUserEmail"), "4d: auth index requires Email column for rebuild");
+assert(authIndex.includes("rowMatchesCompanyContext"), "4h: auth index filters Users tab by company columns");
+assert(authIndex.includes("pickRowCompanyName"), "4i: auth index session company from row Company column");
 assert(read("shared/auth-index-trust.mjs").includes("isKnownStaleAuthIndexPairing"), "4e: known stale auth pairings guarded");
 
 assert(clearStale.includes("clearStaleCompanyLocalStorage"), "5: stale storage clearer exists");

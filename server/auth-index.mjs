@@ -15,7 +15,13 @@ import {
   normalizeUserStatus,
   readCompanyUsersTabRecord,
 } from "./company-users.mjs";
-import { isValidCompanyUserEmail } from "./users-tab-schema.mjs";
+import {
+  isValidCompanyUserEmail,
+  pickRowCompanyFolderId,
+  pickRowCompanyId,
+  pickRowCompanyName,
+  rowMatchesCompanyContext,
+} from "./users-tab-schema.mjs";
 import { isCompanyRegistryLive } from "../shared/company-invite-permissions.mjs";
 
 const DEFAULT_STALE_MS = Math.max(
@@ -197,7 +203,11 @@ export function createAuthIndexApi(indexPath) {
     if (!email) {
       return null;
     }
-    const companyFolderId = String(meta.companyFolderId || row.companyId || meta.companyId || "").trim();
+    const rowFolderId = pickRowCompanyFolderId(row?.rowObject || row) || pickRowCompanyId(row?.rowObject || row);
+    const companyFolderId = String(
+      rowFolderId || row.companyFolderId || row.companyId || meta.companyFolderId || meta.companyId || "",
+    ).trim();
+    const companyName = String(pickRowCompanyName(row?.rowObject || row) || row.companyName || meta.companyName || "").trim();
     const roleRaw = String(row.roleRaw || row.role || "").trim();
     const role = parseRoleFromUsersSheet(roleRaw) || roleRaw || "User";
     return {
@@ -207,7 +217,7 @@ export function createAuthIndexApi(indexPath) {
       accessLevel: String(row.accessLevel || defaultAccessLevelForRole(role)).trim(),
       companyId: companyFolderId,
       companyFolderId,
-      companyName: String(meta.companyName || "").trim(),
+      companyName,
       masterSheetId: String(meta.masterSheetId || "").trim(),
       status: normalizeUserStatus(row.status || "ACTIVE"),
       passwordHash: String(row.passwordHash || "").trim(),
@@ -309,7 +319,11 @@ export function createAuthIndexApi(indexPath) {
 
     const userDeps = typeof deps.getCompanyUsersDeps === "function" ? deps.getCompanyUsersDeps() : deps;
     if (typeof userDeps.migrateUsersTabColumns === "function") {
-      await userDeps.migrateUsersTabColumns(auth, masterSheetId, userDeps).catch(() => null);
+      await userDeps
+        .migrateUsersTabColumns(auth, masterSheetId, userDeps, {
+          companyContext: { companyFolderId, companyId: companyFolderId, companyName },
+        })
+        .catch(() => null);
     }
 
     const { getTabValues } = userDeps;
@@ -346,6 +360,9 @@ export function createAuthIndexApi(indexPath) {
       if (status !== "ACTIVE") {
         continue;
       }
+      if (!rowMatchesCompanyContext(obj, { companyFolderId: resolvedFolderId, companyId: resolvedFolderId })) {
+        continue;
+      }
       const accessLevel =
         pickField(obj, "AccessLevel", "Access Level", "accessLevel") ||
         defaultAccessLevelForRole(parseRoleFromUsersSheet(roleRaw));
@@ -360,17 +377,20 @@ export function createAuthIndexApi(indexPath) {
         roleRaw,
         role: parseRoleFromUsersSheet(roleRaw) || roleRaw || "User",
         name: fullName,
-        companyId: pickField(obj, "Company ID", "CompanyId", "companyId"),
+        companyId: pickRowCompanyId(obj) || pickField(obj, "Company ID", "CompanyId", "companyId"),
+        companyFolderId: pickRowCompanyFolderId(obj) || resolvedFolderId,
+        companyName: pickRowCompanyName(obj),
         status,
         accessLevel,
         companyAreasRaw,
         companyAreas: parseCompanyAreas(companyAreasRaw),
         passwordHash,
         updatedAt: pickField(obj, "UpdatedAt", "Updated At"),
+        rowObject: obj,
       };
       const entry = entryFromUsersTabRow(match, {
-        companyFolderId: resolvedFolderId,
-        companyName: resolvedCompanyName,
+        companyFolderId: match.companyFolderId || resolvedFolderId,
+        companyName: match.companyName || resolvedCompanyName,
         masterSheetId: resolvedMasterSheetId,
       });
       if (!entry?.passwordHash) {

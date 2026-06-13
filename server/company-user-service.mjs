@@ -11,6 +11,13 @@ import {
   migrateUsersTabColumns,
   normalizeUserStatus,
 } from "./company-users.mjs";
+import {
+  backfillRowCompanyFields,
+  pickRowCompanyFolderId,
+  pickRowCompanyId,
+  pickRowCompanyName,
+  rowMatchesCompanyContext,
+} from "./users-tab-schema.mjs";
 import { readCompanyUsers, resolveUsersTab } from "./users-tab-reader.mjs";
 import { resolveCompanyContextFields } from "./company-context-service.mjs";
 import { resolveCompanyFromFolder } from "./company-folder-resolver.mjs";
@@ -168,22 +175,28 @@ function classifyReadError(error, payload) {
 }
 
 
-function mapUsersTabRow(row, companyFolderId = "") {
-  const companyAreasRaw = pickRowValue(row, "CompanyAreas", "Company Areas", "companyAreas");
+function mapUsersTabRow(row, companyContext = {}) {
+  const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
+  const filled = backfillRowCompanyFields(row, companyContext);
+  const companyAreasRaw = pickRowValue(filled, "CompanyAreas", "Company Areas", "companyAreas");
+  const rowCompanyId = pickRowCompanyId(filled) || companyFolderId;
+  const rowCompanyFolderId = pickRowCompanyFolderId(filled) || rowCompanyId;
   return {
-    email: pickRowValue(row, "Email", "email"),
-    name: pickRowValue(row, "Name", "name", "Full Name"),
-    role: pickRowValue(row, "Role", "role"),
-    accessLevel: pickRowValue(row, "AccessLevel", "Access Level", "accessLevel"),
-    status: pickRowValue(row, "Status", "status"),
-    companyId: companyFolderId || pickRowValue(row, "Company ID", "CompanyId", "companyId"),
-    companyFolderId,
+    email: pickRowValue(filled, "Email", "email"),
+    name: pickRowValue(filled, "Name", "name", "Full Name"),
+    role: pickRowValue(filled, "Role", "role"),
+    accessLevel: pickRowValue(filled, "AccessLevel", "Access Level", "accessLevel"),
+    status: pickRowValue(filled, "Status", "status"),
+    company: pickRowCompanyName(filled),
+    companyId: rowCompanyId,
+    companyFolderId: rowCompanyFolderId,
     companyAreas: parseCompanyAreas(companyAreasRaw),
     companyAreasRaw,
   };
 }
 
-function mapActiveCompanyMember(row, companyFolderId) {
+function mapActiveCompanyMember(row, companyContext = {}) {
+  const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
   const email = normalizeEmail(row.email || row.Email);
   if (!email) {
     return null;
@@ -192,17 +205,22 @@ function mapActiveCompanyMember(row, companyFolderId) {
   if (status !== "ACTIVE") {
     return null;
   }
+  if (!rowMatchesCompanyContext(row, companyContext)) {
+    return null;
+  }
   const companyAreas = Array.isArray(row.companyAreas)
     ? row.companyAreas
     : parseCompanyAreas(row.companyAreasRaw || row.CompanyAreas || row.companyAreas || "");
+  const resolvedFolderId = row.companyFolderId || row.companyId || companyFolderId;
   return {
     email,
     name: String(row.name || row.Name || email.split("@")[0] || email).trim() || email,
     role: parseRoleForClient(row.role || row.Role || row.accessLevel || row.AccessLevel || "User"),
     accessLevel: String(row.accessLevel || row.AccessLevel || "").trim(),
     status: "ACTIVE",
-    companyId: companyFolderId,
-    companyFolderId,
+    company: row.company || row.Company || "",
+    companyId: resolvedFolderId,
+    companyFolderId: resolvedFolderId,
     companyAreas,
     companyAreasRaw: row.companyAreasRaw || String(row.CompanyAreas || ""),
   };
@@ -377,6 +395,7 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
       masterSheetId: sheetId,
       companyFolderId: resolvedCompanyId,
       companyId: resolvedCompanyId,
+      companyName,
     });
 
   try {

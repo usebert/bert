@@ -56,7 +56,8 @@ assert(
 );
 assert(contextService.includes("readCompanyNameFromDriveFolder"), "2b: Drive folder name resolver");
 assert(contextService.includes("readCompanyFieldsFromConfig"), "2c: Config tab resolver");
-assert(read("server/auth-index.mjs").includes("lookupByEmail"), "2d: login uses auth index lookup");
+assert(read("server/auth-index.mjs").includes("pickRowCompanyName"), "2d4: auth index reads Company from Users tab row");
+assert(read("server/auth-index.mjs").includes("rowMatchesCompanyContext"), "2d5: auth index filters by company columns");
 assert(authService.includes("auth_index_lookup"), "2d2: login logs auth index lookup");
 assert(authService.includes("authIndex.lookupByEmail"), "2d3: performCompanyLogin reads auth index");
 assert(
