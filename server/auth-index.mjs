@@ -629,8 +629,9 @@ export function createAuthIndexApi(indexPath) {
       return { authIndexEntriesRemoved: 0, removedEmails: [] };
     }
     const liveSheetSet = liveMasterSheetIds instanceof Set ? liveMasterSheetIds : null;
-    const store = readStore();
     const removedEmails = [];
+
+    let store = readStore();
     for (const [email, entry] of Object.entries(store.byEmail || {})) {
       if (isKnownStaleAuthIndexPairing(email, entry?.companyName)) {
         delete store.byEmail[email];
@@ -641,19 +642,20 @@ export function createAuthIndexApi(indexPath) {
       store.rebuiltAt = Date.now();
       writeStore(store);
     }
-    const liveSheetSet = liveMasterSheetIds instanceof Set ? liveMasterSheetIds : null;
-    const storeAfterPairing = readStore();
+
+    if (liveSheetSet) {
+      store = readStore();
+      for (const [email, entry] of Object.entries(store.byEmail || {})) {
         const entrySheet = String(entry?.masterSheetId || "").trim();
         if (entrySheet && !liveSheetSet.has(entrySheet)) {
           delete store.byEmail[email];
           removedEmails.push(normalizeEmail(email));
         }
       }
-      if (removedEmails.length) {
-        store.rebuiltAt = Date.now();
-        writeStore(store);
-      }
+      store.rebuiltAt = Date.now();
+      writeStore(store);
     }
+
     for (const email of Object.keys(readStore().byEmail || {})) {
       const invalidated = await invalidateAuthIndexEntryIfCompanyMissing(auth, deps, email);
       if (invalidated.removed) {
