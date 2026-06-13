@@ -67,6 +67,8 @@ import {
   repairCompanyInviteTarget,
 } from "./resolve-invite-target.mjs";
 import { installCompanyWorkspaceResetRoutes } from "./company-workspace-reset.mjs";
+import { installCompanyUserResetRoutes } from "./company-user-reset.mjs";
+import { createCompanySessionRevocationApi } from "./company-session-revocation.mjs";
 import { installPasswordResetRoutes } from "./password-reset.mjs";
 import {
   GOOGLE_FORMS_BODY_SCOPE,
@@ -213,8 +215,10 @@ const INVITE_STORE_PATH = path.join(sessionDir, "app-onboarding-invites.json");
 const COMPANY_ONBOARDING_INVITE_STORE_PATH = path.join(sessionDir, "company-onboarding-invites.json");
 const COMPANY_USERS_CACHE_PATH = path.join(sessionDir, "company-users-cache.json");
 const AUTH_INDEX_PATH = path.join(sessionDir, "auth-index.json");
+const COMPANY_SESSION_REVOCATION_PATH = path.join(sessionDir, "company-session-revocation.json");
 const companyOnboardingInviteStore = createInviteStoreApi(COMPANY_ONBOARDING_INVITE_STORE_PATH);
 const companyUsersCacheApi = createCompanyUsersCacheApi(COMPANY_USERS_CACHE_PATH);
+const companySessionRevocationApi = createCompanySessionRevocationApi(COMPANY_SESSION_REVOCATION_PATH);
 const authIndexApi = createAuthIndexApi(AUTH_INDEX_PATH);
 /** Pilot visibility only: `demo` = current client-side password auth. See docs/security-hardening-plan.md */
 const APP_AUTH_MODE = String(process.env.APP_AUTH_MODE || "demo").trim().toLowerCase();
@@ -6820,6 +6824,7 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
       password: String(req.body?.password || ""),
       masterSheetId: String(req.body?.masterSheetId || "").trim(),
       authIndex: authIndexApi,
+      sessionRevocation: companySessionRevocationApi,
       isPlatformOwner: isPlatformOwnerEmail,
       queueLoginBackgroundJobs: (jobs) => {
         if (backgroundJobs?.enqueueJob) {
@@ -6961,6 +6966,16 @@ app.get("/api/auth/company/session", async (req, res) => {
     }
     if (data.v !== 1 || !data.email || !data.masterSheetId) {
       return res.status(401).json({ ok: false, error: "Invalid session." });
+    }
+    if (
+      companySessionRevocationApi.isCompanyUserSessionRevoked(
+        data.email,
+        data.companyId,
+        data.masterSheetId,
+      )
+    ) {
+      res.clearCookie(COMPANY_SESSION_COOKIE, getSessionCookieOptions());
+      return res.status(401).json({ ok: false, error: "Session invalid." });
     }
     const sessionCompanyAreas = Array.isArray(data.companyAreas) ? data.companyAreas : [];
     const companyIdFromSession = String(data.companyId || "").trim();
@@ -7454,6 +7469,23 @@ installCompanyWorkspaceResetRoutes(app, {
   ensureColumns,
   withSheetsQuotaRetry,
   TAB_COLUMNS,
+});
+
+installCompanyUserResetRoutes(app, {
+  google,
+  getAuthedClient,
+  envConfigured,
+  requireGoogleWorkspaceSession,
+  requireMasterOnlyActor,
+  readInviteStore,
+  writeInviteStore,
+  getWorkbook,
+  ensureColumns,
+  withSheetsQuotaRetry,
+  companyUsersCache: companyUsersCacheApi,
+  authIndex: authIndexApi,
+  sessionRevocation: companySessionRevocationApi,
+  registryDeps: getCompanyWorkspaceRegistryDeps(),
 });
 
 installPasswordResetRoutes(app, {

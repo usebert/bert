@@ -101,12 +101,43 @@ export function createCompanyUsersCacheApi(cachePath) {
     };
   }
 
+  function clearCompanyUsersCache(companyFolderId) {
+    const id = String(companyFolderId || "").trim();
+    if (!id) {
+      return { cacheEntriesRemoved: 0 };
+    }
+    const store = readStore();
+    const previous = store[id];
+    const cacheEntriesRemoved = Array.isArray(previous?.users) ? previous.users.length : previous ? 1 : 0;
+    if (previous) {
+      delete store[id];
+      writeStore(store);
+    }
+    return { cacheEntriesRemoved };
+  }
+
+  function clearAllCompanyUsersCache() {
+    const store = readStore();
+    let cacheEntriesRemoved = 0;
+    for (const entry of Object.values(store)) {
+      if (Array.isArray(entry?.users)) {
+        cacheEntriesRemoved += entry.users.length;
+      } else if (entry) {
+        cacheEntriesRemoved += 1;
+      }
+    }
+    writeStore({});
+    return { cacheEntriesRemoved, companiesCleared: Object.keys(store).length };
+  }
+
   return {
     getEntry,
     isUserInCache,
     isUserInCacheByMasterSheet,
     findCompanyFolderIdByMasterSheet,
     rebuildCompanyUsersCache,
+    clearCompanyUsersCache,
+    clearAllCompanyUsersCache,
     readStore,
   };
 }

@@ -8,6 +8,7 @@ import { SitesAreasPanel } from "../admin/SitesAreasPanel";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../dashboard/DashboardPrimitives";
 import { SECTION_INTROS } from "../../config/sectionIntros";
 import { GodmodeBackgroundJobsPanel } from "./GodmodeBackgroundJobsPanel";
+import { CompanyUserResetPanel } from "./CompanyUserResetPanel";
 import { GodmodeCollapsibleSection } from "./GodmodeCollapsibleSection";
 import { GodmodeUserManagementSection, type GodmodeUserManagementSectionProps } from "./GodmodeUserManagementSection";
 import { WorkspaceStatusBadge } from "./WorkspaceStatusBadge";
@@ -143,6 +144,8 @@ export type GodmodeCompanyWorkspacePanelProps = {
   onToggleAreaAudit: (areaId: string, auditId: string, enabled: boolean) => void;
   onCompanyWorkspaceResetSuccess?: (message: string) => void;
   onCompanyWorkspaceResetError?: (message: string) => void;
+  onCompanyUserResetSuccess?: (message: string) => void;
+  onCompanyUserResetError?: (message: string) => void;
   onCompanyRegistryUpdated?: (payload: {
     companyId: string;
     registryStatus: string;
@@ -227,6 +230,8 @@ export function GodmodeCompanyWorkspacePanel({
   onToggleAreaAudit,
   onCompanyWorkspaceResetSuccess,
   onCompanyWorkspaceResetError,
+  onCompanyUserResetSuccess,
+  onCompanyUserResetError,
   onCompanyRegistryUpdated,
   onClearSetupError,
   onFolderIdChange,
@@ -1304,6 +1309,17 @@ export function GodmodeCompanyWorkspacePanel({
                   <p className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
                     {usersCacheRebuildMessage}
                   </p>
+                ) : null}
+                {onCompanyUserResetSuccess ? (
+                  <CompanyUserResetPanel
+                    companyFolderId={selectedFolder.id}
+                    masterSheetId={resolvedMasterSheetId}
+                    companyName={selectedFolder.name}
+                    googleConnected={googleConnected}
+                    disabled={adminOnly || masterCompanyContextBlocked}
+                    onResetComplete={onCompanyUserResetSuccess}
+                    onResetError={(message) => onCompanyUserResetError?.(message)}
+                  />
                 ) : null}
                 {inviteTargetDiagnostic ? (
                   <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">

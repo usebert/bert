@@ -408,6 +408,8 @@ export type AdminScreenProps = {
   companyMasterSheetId?: string;
   onCompanyWorkspaceResetSuccess?: (message: string) => void;
   onCompanyWorkspaceResetError?: (message: string) => void;
+  onCompanyUserResetSuccess?: (message: string) => void;
+  onCompanyUserResetError?: (message: string) => void;
   onCompanyRegistryUpdated?: (payload: {
     companyId: string;
     registryStatus: string;

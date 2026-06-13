@@ -232,6 +232,7 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     password,
     masterSheetId: requestedSheetId = "",
     authIndex,
+    sessionRevocation,
     queueLoginBackgroundJobs,
     isPlatformOwner = isPlatformOwnerEmail,
   } = deps;
@@ -344,6 +345,26 @@ export async function performCompanyLogin(auth, deps, input = {}) {
       httpStatus: 403,
       blocker: "inactive",
       error: "This account is inactive. Contact your company administrator.",
+      timing,
+    };
+  }
+
+  if (
+    sessionRevocation &&
+    typeof sessionRevocation.isCompanyUserSessionRevoked === "function" &&
+    sessionRevocation.isCompanyUserSessionRevoked(
+      email,
+      indexEntry.companyFolderId || indexEntry.companyId,
+      indexEntry.masterSheetId,
+    )
+  ) {
+    authIndex.removeEntry?.(email);
+    timing.total = logLoginPhase("total", loginStarted);
+    return {
+      ok: false,
+      httpStatus: 401,
+      blocker: "invalid_credentials",
+      error: "Invalid email or password.",
       timing,
     };
   }

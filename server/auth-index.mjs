@@ -303,6 +303,38 @@ export function createAuthIndexApi(indexPath) {
     return Object.values(store.byEmail || {});
   }
 
+  function clearCompanyAuthIndexEntries({ companyFolderId = "", masterSheetId = "" } = {}) {
+    const folderId = String(companyFolderId || "").trim();
+    const sheetId = String(masterSheetId || "").trim();
+    if (!folderId && !sheetId) {
+      return { authIndexEntriesRemoved: 0, removedEmails: [] };
+    }
+    const store = readStore();
+    const removedEmails = [];
+    for (const [email, entry] of Object.entries(store.byEmail || {})) {
+      const entrySheet = String(entry?.masterSheetId || "").trim();
+      const entryFolder = String(entry?.companyFolderId || entry?.companyId || "").trim();
+      const sameCompany =
+        (sheetId && entrySheet === sheetId) || (folderId && entryFolder && entryFolder === folderId);
+      if (sameCompany) {
+        delete store.byEmail[email];
+        removedEmails.push(normalizeEmail(email));
+      }
+    }
+    store.rebuiltAt = Date.now();
+    writeStore(store);
+    return { authIndexEntriesRemoved: removedEmails.length, removedEmails };
+  }
+
+  function clearAllCompanyAuthIndexEntries() {
+    const store = readStore();
+    const removedEmails = Object.keys(store.byEmail || {}).map(normalizeEmail).filter(Boolean);
+    store.byEmail = {};
+    store.rebuiltAt = Date.now();
+    writeStore(store);
+    return { authIndexEntriesRemoved: removedEmails.length, removedEmails };
+  }
+
   /**
    * Drop index rows whose company folder or workbook no longer resolves in Drive.
    * Never use stale index companyName/folderId as login context when invalid.
@@ -336,6 +368,8 @@ export function createAuthIndexApi(indexPath) {
     verifyAuthIndexEntryFromSheet,
     invalidateAuthIndexEntryIfCompanyMissing,
     readAllEntries,
+    clearCompanyAuthIndexEntries,
+    clearAllCompanyAuthIndexEntries,
     readStore,
     DEFAULT_STALE_MS,
   };
