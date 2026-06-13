@@ -8743,6 +8743,44 @@ function App() {
     pushToast("Company workspace reset", message, "success");
   };
 
+  const handleCompanyUserResetSuccess = async (message: string) => {
+    const companyFolderId = selectedFolder?.id || extractGoogleResourceId(folderIdInput);
+    const sheetId =
+      extractGoogleResourceId(masterSheetInput) || companySheetSync?.sheetId || activeCompanyMasterSheetId || "";
+    clearStaleCompanyLocalStorage();
+    setInvitedUsers([]);
+    setCompanyMembersState({ members: [], loading: false, loadError: undefined });
+    setCompanyUsersTabRows([]);
+    if (companyFolderId && sheetId) {
+      await loadCompanySheetById(sheetId, companyFolderId, { silent: true });
+      try {
+        const membersResult = await fetchCompanyMembers(apiUrl, {
+          companyId: companyFolderId,
+          masterSheetId: sheetId,
+          companyName: selectedFolder?.name || activeCompanyContext.companyName,
+        });
+        if (membersResult.ok) {
+          setCompanyMembersState({
+            members: membersResult.members,
+            loading: false,
+          });
+          writeCompanyMembersCache(storageKeys.companyMembersCache, {
+            companyId: companyFolderId,
+            members: membersResult.members,
+            cachedAt: Date.now(),
+          });
+        }
+      } catch {
+        /* refetch best-effort */
+      }
+    }
+    pushToast("Company users reset", message, "success");
+  };
+
+  const handleCompanyUserResetError = (message: string) => {
+    pushToast("User reset failed", message, "warning");
+  };
+
   const handleCompanyWorkspaceResetError = (message: string) => {
     pushToast("Reset failed", message, "warning");
   };
@@ -14221,6 +14259,8 @@ function App() {
                 companyMasterSheetId={godmodeNewCompanyOnboarding ? "" : activeCompanyMasterSheetId}
                 onCompanyWorkspaceResetSuccess={(message) => void handleCompanyWorkspaceResetSuccess(message)}
                 onCompanyWorkspaceResetError={handleCompanyWorkspaceResetError}
+                onCompanyUserResetSuccess={(message) => void handleCompanyUserResetSuccess(message)}
+                onCompanyUserResetError={handleCompanyUserResetError}
                 onCompanyRegistryUpdated={(payload) => void handleCompanyRegistryUpdated(payload)}
                 onClearSetupError={clearCompanySetupRunningState}
                 folderNameInput={folderNameInput}

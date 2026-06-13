@@ -252,7 +252,7 @@ export async function resetCompanyUsers(deps, auth, input = {}) {
     companyFolderId,
     companyName,
     masterSheetId,
-    usersBackedUp: backup.usersBackedUp,
+    usersBackedUp: usersRemoved,
     usersRemoved,
     invitesRemoved,
     cacheEntriesRemoved: cacheResult.cacheEntriesRemoved ?? 0,
