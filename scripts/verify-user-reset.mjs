@@ -139,12 +139,12 @@ const pkg = JSON.parse(read("package.json"));
 
 /** Routes and UI wiring. */
 {
-  assert(serverMain.includes("/api/godmode/companies/:companyId/reset-users"), "16: company reset-users route");
-  assert(serverMain.includes("/api/godmode/reset-all-company-users"), "16b: global reset-all route");
+  assert(resetModule.includes("/api/godmode/companies/:companyId/reset-users"), "16: company reset-users route");
+  assert(resetModule.includes("/api/godmode/reset-all-company-users"), "16b: global reset-all route");
   assert(serverMain.includes("installCompanyUserResetRoutes"), "16c: routes installed");
   assert(panel.includes("CompanyUserResetPanel"), "16d: godmode panel wired");
-  assert(resetPanel.includes(RESET_USERS_CONFIRM_PHRASE), "16e: typed confirmation for company reset");
-  assert(resetPanel.includes("RESET ALL COMPANY USERS"), "16f: typed confirmation for global reset");
+  assert(resetPanel.includes("RESET_USERS_CONFIRM_PHRASE"), "16e: typed confirmation for company reset");
+  assert(resetPanel.includes("RESET_ALL_COMPANY_USERS_CONFIRM_PHRASE"), "16f: typed confirmation for global reset");
 }
 
 assert(pkg.scripts["verify:user-reset"], "17: npm script registered");
