@@ -4,6 +4,7 @@
  */
 import fs from "node:fs";
 import { verifyPassword } from "./master-auth.mjs";
+import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
 import { isKnownStaleAuthIndexPairing } from "../shared/auth-index-trust.mjs";
 import { validateLiveCompanyContext } from "./company-context-service.mjs";
 import {
@@ -31,6 +32,10 @@ const DEFAULT_STALE_MS = Math.max(
 
 function normalizeEmail(value) {
   return String(value ?? "").trim().toLowerCase();
+}
+
+function isPlatformOwnerAuthIndexEmail(email) {
+  return isPlatformOwnerEmail(normalizeEmail(email), process.env);
 }
 
 function safeIso(value) {
@@ -86,7 +91,7 @@ export function createAuthIndexApi(indexPath) {
 
   function lookupByEmail(email) {
     const key = normalizeEmail(email);
-    if (!key) {
+    if (!key || isPlatformOwnerAuthIndexEmail(key)) {
       return null;
     }
     const store = readStore();
@@ -130,7 +135,7 @@ export function createAuthIndexApi(indexPath) {
 
   function upsertEntry(entry) {
     const email = normalizeEmail(entry?.email);
-    if (!email || !email.includes("@")) {
+    if (!email || !email.includes("@") || isPlatformOwnerAuthIndexEmail(email)) {
       return null;
     }
     const store = readStore();
@@ -156,7 +161,7 @@ export function createAuthIndexApi(indexPath) {
 
   function removeEntry(email) {
     const key = normalizeEmail(email);
-    if (!key) {
+    if (!key || isPlatformOwnerAuthIndexEmail(key)) {
       return false;
     }
     const store = readStore();
@@ -351,7 +356,7 @@ export function createAuthIndexApi(indexPath) {
       });
       const obj = normalizeUsersTabRowObject(rowObj);
       const email = normalizeEmail(pickField(obj, "Email", "email"));
-      if (!isValidCompanyUserEmail(email)) {
+      if (!isValidCompanyUserEmail(email) || isPlatformOwnerAuthIndexEmail(email)) {
         continue;
       }
       const roleRaw = pickField(obj, "Role", "role");
@@ -546,6 +551,9 @@ export function createAuthIndexApi(indexPath) {
     const store = readStore();
     const removedEmails = [];
     for (const [email, entry] of Object.entries(store.byEmail || {})) {
+      if (isPlatformOwnerAuthIndexEmail(email)) {
+        continue;
+      }
       const entrySheet = String(entry?.masterSheetId || "").trim();
       const entryFolder = String(entry?.companyFolderId || entry?.companyId || "").trim();
       const sameCompany =
@@ -562,8 +570,14 @@ export function createAuthIndexApi(indexPath) {
 
   function clearAllCompanyAuthIndexEntries() {
     const store = readStore();
-    const removedEmails = Object.keys(store.byEmail || {}).map(normalizeEmail).filter(Boolean);
-    store.byEmail = {};
+    const removedEmails = [];
+    for (const email of Object.keys(store.byEmail || {})) {
+      if (isPlatformOwnerAuthIndexEmail(email)) {
+        continue;
+      }
+      delete store.byEmail[email];
+      removedEmails.push(normalizeEmail(email));
+    }
     store.rebuiltAt = Date.now();
     writeStore(store);
     return { authIndexEntriesRemoved: removedEmails.length, removedEmails };

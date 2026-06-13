@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { getSessionCookieOptions } from "./session-cookie-options.mjs";
 import { normalizePlatformOwnerEmail } from "../shared/platform-owner.mjs";
-import { buildMasterSessionApiResponse, buildMasterSessionPayload } from "./auth-service.mjs";
+import { buildMasterSessionApiResponse, buildMasterSessionPayload, performMasterLogin } from "./auth-service.mjs";
 
 const STORE_FILENAME = "master-operators.json";
 const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
@@ -279,62 +279,41 @@ export function installMasterAuthRoutes(app, opts) {
 
   app.post("/api/auth/master/login", (req, res) => {
     const loginStarted = Date.now();
-    const timing = {};
-    console.log("[login] start");
-
-    const tNormalize = Date.now();
-    const identity = String(req.body?.email || req.body?.username || "").trim();
-    const password = String(req.body?.password || "");
-    const identityKind = identity.includes("@") ? "email" : identity ? "username" : "missing";
-    timing.normalise_email = Date.now() - tNormalize;
-    console.log(`[login] normalise_email durationMs=${timing.normalise_email}`);
-
-    if (!identity || !password) {
-      timing.total = Date.now() - loginStarted;
-      console.log(`[login] total durationMs=${timing.total}`);
-      return res.status(400).json({ ok: false, error: "Email or username and password are required." });
-    }
-
-    const tLookup = Date.now();
-    const found = findOperatorByIdentity(sessionDir, identity);
-    const op = found?.operator;
-    timing.auth_index_lookup = Date.now() - tLookup;
-    console.log(`[login] auth_index_lookup durationMs=${timing.auth_index_lookup}`);
-
-    const tPassword = Date.now();
-    const passwordOk = Boolean(op && verifyPassword(password, op.passwordHash));
-    timing.password_verify = Date.now() - tPassword;
-    console.log(`[login] platform_auth_check durationMs=0`);
-    console.log(`[login] password_verify durationMs=${timing.password_verify}`);
-    console.log(`[login] company_context_load durationMs=0`);
-
-    console.log(
-      `[master-auth] login identityKind=${identityKind} matchedBy=${found?.matchedBy || "none"} found=${Boolean(op)} passwordOk=${passwordOk}`,
+    const result = performMasterLogin(
+      {
+        sessionDir,
+        findOperatorByIdentity,
+        verifyPassword,
+        upsertMasterOperator,
+      },
+      {
+        email: req.body?.email,
+        username: req.body?.username,
+        password: req.body?.password,
+      },
     );
-    if (!passwordOk) {
-      timing.total = Date.now() - loginStarted;
-      console.log(`[login] total durationMs=${timing.total}`);
-      return res.status(401).json({ ok: false, error: "Sign in failed." });
+
+    if (!result.ok) {
+      return res.status(result.httpStatus || 400).json({ ok: false, error: result.error, timingMs: result.timing });
     }
 
-    const tSession = Date.now();
-    const payload = buildMasterSessionPayload({ email: op.email, name: op.name });
-    timing.session_create = Date.now() - tSession;
-    console.log(`[login] session_create durationMs=${timing.session_create}`);
-    timing.background_jobs_queued = 0;
-    console.log(`[login] background_jobs_queued durationMs=0`);
-
-    res.cookie(MASTER_SESSION_COOKIE, payload, getSessionCookieOptions({ maxAge: MASTER_SESSION_MS }));
+    res.cookie(MASTER_SESSION_COOKIE, result.sessionPayload, getSessionCookieOptions({ maxAge: MASTER_SESSION_MS }));
 
     const responseStarted = Date.now();
     res.on("finish", () => {
-      timing.response_sent = Date.now() - responseStarted;
-      console.log(`[login] response_sent durationMs=${timing.response_sent}`);
-      timing.total = Date.now() - loginStarted;
-      console.log(`[login] total durationMs=${timing.total}`);
+      const responseSentMs = Date.now() - responseStarted;
+      console.log(`[login] response_sent durationMs=${responseSentMs}`);
+      if (result.timing) {
+        result.timing.response_sent = responseSentMs;
+        result.timing.total = Date.now() - loginStarted;
+        console.log(`[login] total durationMs=${result.timing.total}`);
+      }
     });
 
-    return res.json({ ...buildMasterSessionApiResponse({ email: op.email, name: op.name }), timingMs: timing });
+    return res.json({
+      ...buildMasterSessionApiResponse({ email: result.email, name: result.name }),
+      timingMs: result.timing,
+    });
   });
 
   app.post("/api/auth/master/logout", (req, res) => {
@@ -433,4 +412,4 @@ export function installMasterAuthRoutes(app, opts) {
   });
 }
 
-export { MASTER_SESSION_COOKIE };
+export { MASTER_SESSION_COOKIE, MASTER_SESSION_MS };

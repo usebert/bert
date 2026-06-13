@@ -12,6 +12,11 @@ import {
   hashPassword,
   installMasterAuthRoutes,
   masterOperatorsFilePath,
+  findOperatorByIdentity,
+  verifyPassword,
+  upsertMasterOperator,
+  MASTER_SESSION_COOKIE,
+  MASTER_SESSION_MS,
 } from "./master-auth.mjs";
 import { getSessionCookieOptions } from "./session-cookie-options.mjs";
 import {
@@ -119,7 +124,9 @@ import { enrichCompanyContextFromRegistry as enrichCompanyContextFromRegistrySer
 import {
   buildCompanySessionApiResponse,
   buildCompanySessionPayload,
+  buildMasterSessionApiResponse,
   performCompanyLogin,
+  performMasterLogin,
   probeCompanyLoginSheet as probeCompanyLoginSheetCore,
   queueCompanyLoginBackgroundJobs,
   resolveValidatedCompanyLoginContext,
@@ -6833,10 +6840,38 @@ app.post("/auth/google/logout", (_req, res) => {
 
 app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, res) => {
   try {
+    const loginIdentity = String(req.body?.email || req.body?.username || "").trim();
+    const loginPassword = String(req.body?.password || "");
+
+    if (loginIdentity.includes("@") && isPlatformOwnerEmail(loginIdentity, process.env)) {
+      const masterResult = performMasterLogin(
+        {
+          sessionDir,
+          findOperatorByIdentity,
+          verifyPassword,
+          upsertMasterOperator,
+        },
+        { email: loginIdentity, password: loginPassword },
+      );
+      if (!masterResult.ok) {
+        return res.status(masterResult.httpStatus || 401).json({
+          ok: false,
+          blocker: "invalid_credentials",
+          error: masterResult.error || "Sign in failed.",
+          timingMs: masterResult.timing,
+        });
+      }
+      res.cookie(MASTER_SESSION_COOKIE, masterResult.sessionPayload, getSessionCookieOptions({ maxAge: MASTER_SESSION_MS }));
+      return res.json({
+        ...buildMasterSessionApiResponse({ email: masterResult.email, name: masterResult.name }),
+        timingMs: masterResult.timing,
+      });
+    }
+
     const auth = getAuthedClient();
     const result = await performCompanyLogin(auth, {
-      email: String(req.body?.email || req.body?.username || "").trim(),
-      password: String(req.body?.password || ""),
+      email: loginIdentity,
+      password: loginPassword,
       masterSheetId: String(req.body?.masterSheetId || "").trim(),
       authIndex: authIndexApi,
       sessionRevocation: companySessionRevocationApi,

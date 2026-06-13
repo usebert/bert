@@ -2,7 +2,11 @@
  * Auth service — fast company login from auth index (Users tab is source of truth).
  * No Sheets/Drive/registry/setup/health/repair during login request.
  */
-import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
+import {
+  isPlatformOwnerEmail,
+  normalizePlatformOwnerEmail,
+  resolvePlatformOwnerEmail,
+} from "../shared/platform-owner.mjs";
 import { isKnownStaleAuthIndexPairing } from "../shared/auth-index-trust.mjs";
 import { COMPANY_CONTEXT_INVALID, COMPANY_NO_LONGER_AVAILABLE_MESSAGE } from "../shared/company-folder-context.mjs";
 import { FOLDER_NOT_IN_COMPANIES_ROOT } from "../shared/company-folder-placement.mjs";
@@ -134,6 +138,112 @@ function logLoginPhase(phase, startMs) {
   const durationMs = Date.now() - startMs;
   console.log(`[login] ${phase} durationMs=${durationMs}`);
   return durationMs;
+}
+
+/**
+ * Godmode / platform Master login — master-operators.json only; never auth index or company Users tab.
+ * @param {object} deps
+ * @param {string} deps.sessionDir
+ * @param {(sessionDir: string, identity: string) => { operator: object; matchedBy: string } | null} deps.findOperatorByIdentity
+ * @param {(plain: string, stored: string) => boolean} deps.verifyPassword
+ * @param {(input: { sessionDir: string; email: string; name: string; password: string }) => object} [deps.upsertMasterOperator]
+ * @param {typeof isPlatformOwnerEmail} [deps.isPlatformOwner]
+ * @param {NodeJS.ProcessEnv} [deps.env]
+ */
+export function performMasterLogin(deps = {}, input = {}) {
+  const loginStarted = Date.now();
+  const timing = {};
+  console.log("[login] start");
+
+  const {
+    sessionDir,
+    findOperatorByIdentity,
+    verifyPassword,
+    upsertMasterOperator,
+    isPlatformOwner = isPlatformOwnerEmail,
+    env = process.env,
+  } = deps;
+
+  const tNormalize = Date.now();
+  const identity = String(input.email || input.username || "").trim();
+  const password = String(input.password || "");
+  const identityKind = identity.includes("@") ? "email" : identity ? "username" : "missing";
+  timing.normalise_email = logLoginPhase("normalise_email", tNormalize);
+
+  if (!identity || !password) {
+    timing.total = logLoginPhase("total", loginStarted);
+    return {
+      ok: false,
+      httpStatus: 400,
+      error: "Email or username and password are required.",
+      timing,
+    };
+  }
+
+  const tPlatform = Date.now();
+  const platformOwnerLogin =
+    identity.includes("@") && isPlatformOwner(identity, env);
+  timing.platform_auth_check = logLoginPhase("platform_auth_check", tPlatform);
+
+  const tLookup = Date.now();
+  let found = findOperatorByIdentity(sessionDir, identity);
+  if (!found?.operator && platformOwnerLogin) {
+    const platformEmail = resolvePlatformOwnerEmail(env);
+    if (platformEmail !== normalizePlatformOwnerEmail(identity)) {
+      found = findOperatorByIdentity(sessionDir, platformEmail);
+    }
+  }
+  let op = found?.operator;
+  timing.auth_index_lookup = logLoginPhase("auth_index_lookup", tLookup);
+  console.log(`[login] auth_index_lookup durationMs=${timing.auth_index_lookup} (master-operators only)`);
+
+  const tPassword = Date.now();
+  let passwordOk = Boolean(op && verifyPassword(password, op.passwordHash));
+  if (!passwordOk && platformOwnerLogin && typeof upsertMasterOperator === "function") {
+    const envPassword = String(env.MASTER_PASSWORD || env.BERT_INITIAL_MASTER_PASSWORD || "").trim();
+    if (envPassword && password === envPassword) {
+      const platformEmail = resolvePlatformOwnerEmail(env);
+      const displayName = String(env.BERT_INITIAL_MASTER_USERNAME || "").trim() || platformEmail;
+      upsertMasterOperator({ sessionDir, email: platformEmail, name: displayName, password });
+      found = findOperatorByIdentity(sessionDir, platformEmail);
+      op = found?.operator;
+      passwordOk = Boolean(op && verifyPassword(password, op.passwordHash));
+    }
+  }
+  timing.password_verify = logLoginPhase("password_verify", tPassword);
+  timing.company_context_load = logLoginPhase("company_context_load", Date.now());
+  console.log(`[login] company_context_load durationMs=0 (no company context)`);
+
+  console.log(
+    `[master-auth] login identityKind=${identityKind} platformOwner=${platformOwnerLogin} matchedBy=${found?.matchedBy || "none"} found=${Boolean(op)} passwordOk=${passwordOk}`,
+  );
+
+  if (!passwordOk) {
+    timing.total = logLoginPhase("total", loginStarted);
+    return {
+      ok: false,
+      httpStatus: 401,
+      error: "Sign in failed.",
+      timing,
+    };
+  }
+
+  const tSession = Date.now();
+  const sessionPayload = buildMasterSessionPayload({ email: op.email, name: op.name });
+  timing.session_create = logLoginPhase("session_create", tSession);
+  timing.background_jobs_queued = logLoginPhase("background_jobs_queued", Date.now());
+  console.log(`[login] background_jobs_queued durationMs=0`);
+  timing.response_sent = 0;
+  timing.total = Date.now() - loginStarted;
+  console.log(`[login] total durationMs=${timing.total}`);
+
+  return {
+    ok: true,
+    email: op.email,
+    name: op.name,
+    sessionPayload,
+    timing,
+  };
 }
 
 function logSlowServiceCall(serviceName) {
@@ -271,8 +381,8 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     return {
       ok: false,
       httpStatus: 401,
-      blocker: "invalid_credentials",
-      error: "Invalid email or password.",
+      blocker: "platform_owner_master_only",
+      error: "Platform owner must use master auth.",
       timing,
     };
   }
