@@ -369,7 +369,7 @@ export function canViewAccount(role: Role) {
 }
 
 export function getRoleDisplayName(role: Role) {
-  if (role === "Master") return "Platform Admin";
+  if (role === "Master") return "BERT Platform Owner";
   return role;
 }
 

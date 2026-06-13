@@ -196,7 +196,7 @@ assertPlatformOwner(
 if (
   companyAuthSrc.includes("isPlatformOwnerEmail") &&
   (companyAuthSrc.includes("platform owner must use master auth") ||
-    (authServiceSrc.includes("isPlatformOwner(email") && authServiceSrc.includes('blocker: "invalid_credentials"')))
+    (authServiceSrc.includes("isPlatformOwner(email") && authServiceSrc.includes("platform_owner_master_only")))
 ) {
   console.log("[verify:auth] OK: company login rejects platform owner (master auth only)");
 } else {
@@ -327,6 +327,38 @@ if (appSrc.includes("platformOwnerLogin") && appSrc.includes("tryServerMasterLog
   console.log("[verify:auth] OK: client login uses master-only path for platform owner");
 } else {
   console.error("[verify:auth] FAIL: App.tsx missing platform owner master-only login path");
+  failed = true;
+}
+
+if (authServiceSrc.includes("performMasterLogin") && authServiceSrc.includes("Platform owner must use master auth")) {
+  console.log("[verify:auth] OK: performMasterLogin and company login platform owner guard");
+} else {
+  console.error("[verify:auth] FAIL: auth-service missing performMasterLogin or platform owner guard");
+  failed = true;
+}
+
+const masterAuthPath = path.join(root, "server", "master-auth.mjs");
+const masterAuthSrc = fs.existsSync(masterAuthPath) ? fs.readFileSync(masterAuthPath, "utf8") : "";
+if (masterAuthSrc.includes("performMasterLogin")) {
+  console.log("[verify:auth] OK: master-auth route delegates to performMasterLogin");
+} else {
+  console.error("[verify:auth] FAIL: master-auth.mjs missing performMasterLogin delegation");
+  failed = true;
+}
+
+const authIndexPath = path.join(root, "server", "auth-index.mjs");
+const authIndexSrc = fs.existsSync(authIndexPath) ? fs.readFileSync(authIndexPath, "utf8") : "";
+if (authIndexSrc.includes("isPlatformOwnerAuthIndexEmail")) {
+  console.log("[verify:auth] OK: auth index excludes platform owner emails");
+} else {
+  console.error("[verify:auth] FAIL: auth-index.mjs missing platform owner exclusion");
+  failed = true;
+}
+
+if (serverSrc.includes("isPlatformOwnerEmail(loginIdentity") && serverSrc.includes("performMasterLogin")) {
+  console.log("[verify:auth] OK: company login route branches platform owner to master auth first");
+} else {
+  console.error("[verify:auth] FAIL: server company login missing platform owner master branch");
   failed = true;
 }
 

@@ -211,7 +211,8 @@ export function performMasterLogin(deps = {}, input = {}) {
     }
   }
   timing.password_verify = logLoginPhase("password_verify", tPassword);
-  timing.company_context_load = logLoginPhase("company_context_load", Date.now());
+  const tContext = Date.now();
+  timing.company_context_load = logLoginPhase("company_context_load", tContext);
   console.log(`[login] company_context_load durationMs=0 (no company context)`);
 
   console.log(
@@ -231,7 +232,8 @@ export function performMasterLogin(deps = {}, input = {}) {
   const tSession = Date.now();
   const sessionPayload = buildMasterSessionPayload({ email: op.email, name: op.name });
   timing.session_create = logLoginPhase("session_create", tSession);
-  timing.background_jobs_queued = logLoginPhase("background_jobs_queued", Date.now());
+  const tJobs = Date.now();
+  timing.background_jobs_queued = logLoginPhase("background_jobs_queued", tJobs);
   console.log(`[login] background_jobs_queued durationMs=0`);
   timing.response_sent = 0;
   timing.total = Date.now() - loginStarted;
