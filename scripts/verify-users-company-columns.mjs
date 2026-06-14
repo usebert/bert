@@ -48,6 +48,7 @@ const masterSheetA = "sheet-dovecote-master";
   const idxCompanyId = USERS_TAB_CORE_COLUMNS.indexOf("CompanyId");
   const idxFolder = USERS_TAB_CORE_COLUMNS.indexOf("CompanyFolderId");
   assert(idxCompany >= 0 && idxCompanyId > idxCompany && idxFolder > idxCompanyId, "1b: company cols in order");
+  assert(idxFolder === USERS_TAB_CORE_COLUMNS.length - 1, "1b2: company cols at template tail");
   assert(USERS_TAB_CORE_COLUMNS[0] === "Email" && USERS_TAB_CORE_COLUMNS[1] === "Name", "1c: Email/Name first");
 }
 
@@ -95,14 +96,16 @@ const masterSheetA = "sheet-dovecote-master";
 /** 4: Active user list filters by company columns (non-workbook); workbook scope trusts sheet ownership. */
 {
   const userService = read("server/company-user-service.mjs");
-  assert(sheetFlow.includes("rowPassesCompanyProfileContext"), "4: sheet flow filters by company context");
-  assert(sheetFlow.includes("resolvedProfileCompanyFolderId"), "4a: workbook rows resolve folder id after backfill");
-  assert(sheetFlow.includes("skipUsersTabColumnMigration"), "4a2: migration can be skipped on read retry");
+  const profilesModule = read("server/users-tab-profiles.mjs");
+  assert(profilesModule.includes("listableProfilesFromUsersTabRecords"), "4: profiles module maps Users tab rows");
+  assert(profilesModule.includes("isWorkbookScopedCompanyContext"), "4a: workbook scope skips company-column filter");
+  assert(sheetFlow.includes("listableProfilesFromUsersTabRecords"), "4a2: sheet flow uses canonical profile mapper");
+  assert(sheetFlow.includes("skipUsersTabColumnMigration"), "4a3: migration can be skipped on read retry");
   assert(
-    userService.includes("isWorkbookScopedCompanyContext") && sheetFlow.includes("isWorkbookScopedCompanyContext"),
-    "4a3: workbook rows skip company-column filter",
+    userService.includes("isWorkbookScopedCompanyContext") && profilesModule.includes("isListableUsersTabProfileRow"),
+    "4a4: member list respects workbook-scoped profile gate",
   );
-  assert(sheetFlow.includes("mapCompanyProfileMember(row, companyCtx)") || sheetFlow.includes("mapActiveCompanyMember(row, companyCtx)"), "4b: active member uses company context");
+  assert(sheetFlow.includes("readActiveUsersFromSheetWithStats"), "4b: active member load uses sheet stats helper");
 }
 
 /** 5: Writer sets Company, CompanyId, CompanyFolderId. */

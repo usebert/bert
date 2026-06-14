@@ -54,15 +54,21 @@ const pendingInvite = {
 /** 1: Server exposes listActiveCompanyMembers. */
 {
   const userService = read("server/company-user-service.mjs");
+  const foundation = read("server/company-users-foundation.mjs");
   assert(userService.includes("export async function listActiveCompanyMembers"), "1: listActiveCompanyMembers exported");
-  assert(userService.includes("validateCompanyFolderUnderCompaniesRoot"), "1a: folder placement is soft-checked before sheet read");
+  assert(userService.includes("validateCompanyFolderUnderCompaniesRoot") || foundation.includes("validateCompanyFolderUnderCompaniesRoot"), "1a: folder placement is soft-checked before sheet read");
   assert(!userService.includes("rejectIfCompanyFolderNotUnderCompaniesRoot"), "1a2: users list does not hard-block on folder placement");
   assert(userService.includes("buildCacheOrSessionFallbackSuccess"), "1a3: cache fallback before session-only fallback");
-  assert(userService.includes("skipUsersTabColumnMigration: true"), "1a4: sheet read prefers no-migration path");
-  assert(userService.includes("cache-fallback-rejected"), "1a5: stale cache fallback rejected when sheet has more rows");
-  assert(userService.includes("session-fallback-rejected"), "1a6: session-only fallback rejected when sheet has multiple rows");
+  assert(userService.includes("listCompanyProfilesFromFoundation"), "1a4: listActiveCompanyMembers delegates to foundation");
+  assert(foundation.includes("listableProfilesFromUsersTabRecords"), "1a4b: foundation maps workbook Users tab profiles");
+  assert(foundation.includes("syncCompanyUsersCache"), "1a4c: foundation rebuilds cache from sheet result");
   assert(userService.includes("companyFolderId: resolvedCompanyId"), "1b: members normalize companyFolderId");
-  assert(userService.includes("mapActiveCompanyMember") || userService.includes("mapCompanyProfileMember"), "1c: company profile mapper exists");
+  assert(
+    userService.includes("mapActiveCompanyMember") ||
+      userService.includes("mapCompanyProfileMember") ||
+      read("server/users-tab-profiles.mjs").includes("mapUsersTabProfileMember"),
+    "1c: company profile mapper exists",
+  );
 }
 
 /** 2: GET /api/companies/:companyId/users route exists. */
@@ -89,16 +95,28 @@ const pendingInvite = {
 {
   const userService = read("server/company-user-service.mjs");
   const sheetFlow = read("server/company-user-sheet-flow.mjs");
+  const profilesModule = read("server/users-tab-profiles.mjs");
+  const foundation = read("server/company-users-foundation.mjs");
   assert(
-    userService.includes("pickRowCompanyId") || sheetFlow.includes("pickRowCompanyId"),
+    userService.includes("pickRowCompanyId") || profilesModule.includes("pickRowCompanyId") || sheetFlow.includes("pickRowCompanyId"),
     "4: Users tab rows read CompanyId from sheet",
   );
-  assert(userService.includes("rowPassesCompanyProfileContext"), "4b: active members filter by company columns");
   assert(
-    userService.includes("isWorkbookScopedCompanyContext") || sheetFlow.includes("rowPassesCompanyProfileContext"),
+    userService.includes("rowPassesCompanyProfileContext") ||
+      profilesModule.includes("isWorkbookScopedCompanyContext") ||
+      foundation.includes("isWorkbookScopedCompanyContext"),
+    "4b: active members filter by company columns",
+  );
+  assert(
+    userService.includes("isWorkbookScopedCompanyContext") ||
+      profilesModule.includes("isWorkbookScopedCompanyContext") ||
+      sheetFlow.includes("listableProfilesFromUsersTabRecords"),
     "4c2: workbook rows use permissive company profile filter",
   );
-  assert(userService.includes("companyId: resolvedFolderId"), "4c: active members use resolved folder id");
+  assert(
+    userService.includes("companyId: resolvedFolderId") || profilesModule.includes("companyId: resolvedFolderId"),
+    "4c: active members use resolved folder id",
+  );
 }
 
 /** 5: PasswordHash never returned. */
@@ -113,23 +131,28 @@ const pendingInvite = {
 {
   const userService = read("server/company-user-service.mjs");
   const reader = read("server/users-tab-reader.mjs");
-  assert(userService.includes("USERS_TAB_READ_FAILED"), "6: users tab read failure code");
+  const foundation = read("server/company-users-foundation.mjs");
+  assert(userService.includes("USERS_TAB_READ_FAILED") || foundation.includes("USERS_TAB_READ_FAILED"), "6: users tab read failure code");
   assert(reader.includes("readCompanyUsers"), "6a: dedicated users tab reader");
   assert(reader.includes("buildUsersTabRowObject"), "6a3: users tab reader resolves columns by header name");
-  assert(userService.includes("MISSING_COMPANY_CONTEXT"), "6b: company context missing reasonCode");
-  assert(userService.includes("COMPANY_USERS_LOAD_FAILED"), "6c: structured failure code");
+  assert(userService.includes("MISSING_COMPANY_CONTEXT") || foundation.includes("MISSING_COMPANY_CONTEXT"), "6b: company context missing reasonCode");
+  assert(userService.includes("COMPANY_USERS_LOAD_FAILED") || foundation.includes("COMPANY_USERS_LOAD_FAILED"), "6c: structured failure code");
 }
 
-/** 7: Active members from Users tab; session fallback when sheet read fails. */
+/** 7: Active members from Users tab; structured failure when sheet read fails. */
 {
   const userService = read("server/company-user-service.mjs");
   const sheetFlow = read("server/company-user-sheet-flow.mjs");
+  const foundation = read("server/company-users-foundation.mjs");
   assert(sheetFlow.includes("listActiveUsersFromSheet"), "7: listActiveUsersFromSheet helper");
-  assert(userService.includes("readActiveUsersFromSheetWithStats"), "7b: listActiveCompanyMembers uses sheet helper with stats");
-  assert(userService.includes("buildSessionFallbackSuccess"), "7c: session fallback on sheet read failure");
-  assert(userService.includes("company_context_resolve"), "7d: canonical failedStep for company context");
-  assert(userService.includes("master_sheet_resolve"), "7e: canonical failedStep for master sheet");
-  assert(userService.includes("google_sheets_read"), "7f: canonical failedStep for sheet read");
+  assert(
+    foundation.includes("readUsersTabProfiles") || userService.includes("readActiveUsersFromSheetWithStats"),
+    "7b: company profiles read Users tab with stats",
+  );
+  assert(userService.includes("buildSessionFallbackSuccess"), "7c: session fallback helper retained for legacy paths");
+  assert(foundation.includes("company_context_resolve") || userService.includes("company_context_resolve"), "7d: canonical failedStep for company context");
+  assert(foundation.includes("master_sheet_resolve") || userService.includes("master_sheet_resolve"), "7e: canonical failedStep for master sheet");
+  assert(foundation.includes("google_sheets_read") || userService.includes("google_sheets_read"), "7f: canonical failedStep for sheet read");
 }
 
 /** 8: Frontend loads active members from canonical API with cache + safe JSON fetch. */
@@ -207,161 +230,73 @@ const pendingInvite = {
   assert(panel.includes("onUpdateCompanyMember"), "13f: edit handler wired");
 }
 
-/** 14: Wide legacy Users tab (duplicate Company headers) — all 3 Dovecote ACTIVE users listable. */
+/** 14: Dovecote Users tab fixture (actual xlsx) — all 3 ACTIVE users listable. */
 {
+  const { buildUsersTabRowObject, normalizeUsersTabRowObject } = await import("../server/users-tab-schema.mjs");
+  const { listableProfilesFromUsersTabRecords } = await import("../server/users-tab-profiles.mjs");
   const {
-    buildUsersTabRowObject,
-    normalizeUsersTabRowObject,
-    backfillRowCompanyFields,
-    rowPassesCompanyProfileContext,
-    sanitizeUserRecordForClient,
-  } = await import("../server/users-tab-schema.mjs");
-  const { isExcludedCompanyProfileStatus } = await import("../shared/schedule-assignees.mjs");
-  const { normalizeUserStatus } = await import("../server/users-tab-schema.mjs");
+    DOVECOTE_FOLDER_ID,
+    DOVECOTE_MASTER_SHEET_ID,
+    DOVECOTE_COMPANY_NAME,
+    DOVECOTE_USERS_TAB_HEADERS,
+    DOVECOTE_USERS_TAB_ROWS,
+    DOVECOTE_EXPECTED_EMAILS,
+  } = await import("./fixtures/dovecote-users-tab.fixture.mjs");
 
-  const folderId = "1TVQ-gbpxoOzE6PCkHX581eTDgtMC11c";
-  const masterSheetId = "1PIwknNgtt-4j08matn1w4358YTe5SXFs5Hh0zA_m3o";
   const companyCtx = {
-    companyFolderId: folderId,
-    companyId: folderId,
-    companyName: "Dovecote Studio",
-    masterSheetId,
+    companyFolderId: DOVECOTE_FOLDER_ID,
+    companyId: DOVECOTE_FOLDER_ID,
+    companyName: DOVECOTE_COMPANY_NAME,
+    masterSheetId: DOVECOTE_MASTER_SHEET_ID,
   };
-  const headers = [
-    "Email",
-    "Name",
-    "Role",
-    "AccessLevel",
-    "Status",
-    "CompanyAreas",
-    "PasswordHash",
-    "CreatedAt",
-    "UpdatedAt",
-    "User ID",
-    "Company ID",
-    "PasswordUpdatedAt",
-    "LastLoginAt",
-    "InvitedAt",
-    "Full Name",
-    "Created By",
-    "Updated By",
-    "Sync Status",
-    "Sync Attempts",
-    "Last Sync Error",
-    "Remote Row ID",
-    "Schema Version",
-    "Company",
-    "CompanyId",
-    "CompanyFolderId",
-  ];
-  const sheetRows = [
-    [
-      "dovecotestudio@icloud.com",
-      "Edward Thomas",
-      "Company Admin",
-      "",
-      "ACTIVE",
-      "",
-      "scrypt$edward",
-      "2024-01-01",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "Edward Thomas",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "Dovecote Studio",
-      "",
-      "",
-    ],
-    [
-      "andy@qmsprecast.co.uk",
-      "Andy Hall",
-      "Manager",
-      "",
-      "ACTIVE",
-      "operational",
-      "scrypt$andy",
-      "2024-01-02",
-      "",
-      "",
-      masterSheetId,
-      "",
-      "",
-      "",
-      "Andy Hall",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "Dovecote Studio",
-      folderId,
-      "",
-    ],
-    [
-      "7oakcottages@gmail.com",
-      "sophie Graney",
-      "Manager",
-      "",
-      "ACTIVE",
-      "",
-      "scrypt$sophie",
-      "2024-01-03",
-      "",
-      "",
-      "registry-workspace-id",
-      "",
-      "",
-      "",
-      "sophie Graney",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "Dovecote Studio",
-      folderId,
-      folderId,
-    ],
-  ];
 
-  const profiles = sheetRows
-    .map((row) => normalizeUsersTabRowObject(buildUsersTabRowObject(headers, row)))
-    .map((row) => backfillRowCompanyFields(row, companyCtx))
-    .filter((row) => {
-      const email = String(row.Email || "").trim().toLowerCase();
-      const name = String(row.Name || "").trim();
-      if (!email || !name || isExcludedCompanyProfileStatus(normalizeUserStatus(row.Status))) {
-        return false;
-      }
-      return rowPassesCompanyProfileContext(row, companyCtx);
-    })
-    .map((row) => sanitizeUserRecordForClient(row));
+  const records = DOVECOTE_USERS_TAB_ROWS.map((row) =>
+    normalizeUsersTabRowObject(buildUsersTabRowObject(DOVECOTE_USERS_TAB_HEADERS, row)),
+  );
+  const { members, totalSheetRows, profilesReturned } = listableProfilesFromUsersTabRecords(records, companyCtx);
 
-  assert(profiles.length === 3, "14: all 3 wide-schema ACTIVE users listable");
+  assert(totalSheetRows === 3, "14: fixture has 3 data rows");
+  assert(profilesReturned === 3, "14: all 3 wide-schema ACTIVE users listable");
   assert(
-    profiles.every((row) => !String(row.PasswordHash || row.passwordHash || "").startsWith("scrypt$")),
+    members.every((row) => !String(row.PasswordHash || row.passwordHash || "").startsWith("scrypt$")),
     "14b: PasswordHash never returned from sanitized profiles",
   );
-  const emails = profiles.map((row) => String(row.Email || row.email || "").toLowerCase()).sort();
+  const emails = members.map((row) => String(row.email || "").toLowerCase()).sort();
+  assert(emails.join(",") === DOVECOTE_EXPECTED_EMAILS.join(","), "14c: expected Dovecote user emails");
+}
+
+/** 15: BERT Master Sheet template fixture — exact xlsx headers + 3 Dovecote rows → 3 profiles. */
+{
+  const {
+    BERT_MASTER_SHEET_USERS_HEADERS,
+    DOVECOTE_USERS_TAB_ROWS,
+    DOVECOTE_COMPANY_CONTEXT,
+  } = await import("../server/fixtures/bert-master-sheet-users-template.mjs");
+  const { listProfilesFromUsersTabRows } = await import("../server/users-tab-profiles.mjs");
+  const { USERS_TAB_COLUMNS } = await import("../server/users-tab-constants.mjs");
+
   assert(
-    emails.join(",") ===
+    JSON.stringify(BERT_MASTER_SHEET_USERS_HEADERS) === JSON.stringify(USERS_TAB_COLUMNS),
+    "15: fixture headers match BERT Master Sheet template columns",
+  );
+  assert(DOVECOTE_USERS_TAB_ROWS.length === 3, "15b: fixture has 3 user rows");
+
+  const result = listProfilesFromUsersTabRows(
+    BERT_MASTER_SHEET_USERS_HEADERS,
+    DOVECOTE_USERS_TAB_ROWS,
+    DOVECOTE_COMPANY_CONTEXT,
+  );
+  assert(result.members.length === 3, "15c: fixture lists all 3 Dovecote workbook users");
+  assert(
+    result.members.every((row) => !String(row.passwordHash || row.PasswordHash || "").startsWith("scrypt$")),
+    "15d: PasswordHash never returned from profile mapper",
+  );
+  const fixtureEmails = result.members.map((row) => String(row.email || "").toLowerCase()).sort();
+  assert(
+    fixtureEmails.join(",") ===
       "7oakcottages@gmail.com,andy@qmsprecast.co.uk,dovecotestudio@icloud.com",
-    "14c: expected Dovecote user emails",
+    "15e: expected Dovecote fixture emails",
   );
 }
 
-console.log("[verify:company-members] OK: all 14 company member cases passed");
+console.log("[verify:company-members] OK: all 15 company member cases passed");

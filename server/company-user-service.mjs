@@ -14,6 +14,7 @@ import {
 } from "./company-users.mjs";
 import {
   backfillRowCompanyFields,
+  isWorkbookScopedCompanyContext,
   pickRowCompanyFolderId,
   pickRowCompanyId,
   pickRowCompanyName,
@@ -24,6 +25,10 @@ import { readCompanyUsers, resolveUsersTab } from "./users-tab-reader.mjs";
 import { resolveCompanyContextFields } from "./company-context-service.mjs";
 import { resolveCompanyFromFolder } from "./company-folder-resolver.mjs";
 import { validateCompanyFolderUnderCompaniesRoot } from "./company-folder-placement.mjs";
+import {
+  listCompanyProfiles as listCompanyProfilesFromFoundation,
+  rebuildUsersFromSheet as rebuildUsersFromSheetFoundation,
+} from "./company-users-foundation.mjs";
 import {
   listActiveUsersFromSheet,
   readActiveUsersFromSheetWithStats,
@@ -526,7 +531,7 @@ function mapCompanyProfileMember(row, companyContext = {}) {
   if (isExcludedCompanyProfileStatus(status)) {
     return null;
   }
-  if (!rowPassesCompanyProfileContext(row, companyContext)) {
+  if (!isWorkbookScopedCompanyContext(companyContext) && !rowPassesCompanyProfileContext(row, companyContext)) {
     return null;
   }
   const companyAreas = Array.isArray(row.companyAreas)
@@ -629,276 +634,10 @@ async function resolveMasterSheetFromFolder(auth, deps, companyFolderId, company
 
 /**
  * Canonical company profiles from the Users tab — all roles, companyId = companyFolderId.
+ * Delegates to company-users-foundation listCompanyProfiles (single sheet read path).
  */
 export async function listActiveCompanyMembers(auth, deps, companyContext = {}) {
-  const startedAt = Date.now();
-  const sessionActor = companyContext.sessionActor || null;
-  const signedInEmail = normalizeEmail(sessionActor?.email || "");
-  const signedInRole = String(sessionActor?.role || sessionActor?.accessLevel || "").trim();
-
-  const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
-  let masterSheetId = String(companyContext.masterSheetId || "").trim();
-  let companyName = String(companyContext.companyName || "").trim();
-
-  const baseDiagnostics = () =>
-    buildDiagnostics({
-      companyId: companyFolderId,
-      companyFolderId,
-      companyName,
-      masterSheetId,
-      signedInEmail,
-      signedInRole,
-      dataSource: "users_tab",
-      durationMs: Date.now() - startedAt,
-    });
-
-  if (!auth) {
-    return buildFailure(
-      "GOOGLE_AUTH_FAILED",
-      "Please connect Google before loading company users.",
-      { ...baseDiagnostics(), failedStep: "connect_google", dataSource: "users_tab" },
-      { httpStatus: 401, failedStep: "connect_google" },
-    );
-  }
-
-  if (!companyFolderId) {
-    return buildFailure(
-      "MISSING_COMPANY_CONTEXT",
-      COMPANY_USERS_USER_MESSAGE,
-      { ...baseDiagnostics(), failedStep: "company_context_resolve" },
-      { httpStatus: 404, failedStep: "company_context_resolve" },
-    );
-  }
-
-  if (!looksLikeDriveId(companyFolderId)) {
-    return buildFailure(
-      "INVALID_COMPANY_ID",
-      "Company workspace id is invalid.",
-      { ...baseDiagnostics(), failedStep: "company_context_resolve" },
-      { httpStatus: 400, failedStep: "company_context_resolve" },
-    );
-  }
-
-  const folderPlacement = await validateCompanyFolderUnderCompaniesRoot(auth, deps, companyFolderId, {
-    companyFolderName: companyName,
-  }).catch(() => ({ ok: false, reasonCode: "FOLDER_NOT_IN_COMPANIES_ROOT" }));
-  const folderPlacementWarning =
-    folderPlacement?.ok === false
-      ? String(folderPlacement.userMessage || folderPlacement.reasonCode || "FOLDER_NOT_IN_COMPANIES_ROOT").trim()
-      : "";
-
-  const resolvedContext = await resolveCompanyContextFields(auth, deps, {
-    companyFolderId,
-    companyId: companyFolderId,
-    masterSheetId,
-    companyName,
-  });
-  masterSheetId = String(resolvedContext.masterSheetId || "").trim();
-  companyName = String(resolvedContext.companyName || "").trim();
-
-  if (!masterSheetId) {
-    return buildFailure(
-      "MISSING_MASTER_SHEET_ID",
-      COMPANY_USERS_USER_MESSAGE,
-      {
-        ...baseDiagnostics(),
-        companyName,
-        failedStep: "master_sheet_resolve",
-      },
-      { httpStatus: 404, failedStep: "master_sheet_resolve" },
-    );
-  }
-
-  const resolvedCompanyId = companyFolderId;
-
-  const loadActiveUsersForSheet = async (sheetId, readDeps = deps) =>
-    readActiveUsersFromSheetWithStats(auth, readDeps, {
-      masterSheetId: sheetId,
-      companyFolderId: resolvedCompanyId,
-      companyId: resolvedCompanyId,
-      companyName,
-    });
-
-  let lastSheetAttempt = null;
-
-  try {
-    let sheetResult;
-    try {
-      sheetResult = await loadActiveUsersForSheet(masterSheetId, {
-        ...deps,
-        skipUsersTabColumnMigration: true,
-      });
-      lastSheetAttempt = sheetResult;
-      logCompanyMembersLoad({
-        companyFolderId: resolvedCompanyId,
-        masterSheetId,
-        dataSource: "users_tab",
-        readMode: "no_migration",
-        totalRowsRead: sheetResult?.totalSheetRows ?? 0,
-        profilesReturned: sheetResult?.members?.length ?? 0,
-      });
-      if (!sheetResult.members.length && (sheetResult.totalSheetRows ?? 0) === 0) {
-        sheetResult = await loadActiveUsersForSheet(masterSheetId, deps);
-        lastSheetAttempt = sheetResult;
-        logCompanyMembersLoad({
-          companyFolderId: resolvedCompanyId,
-          masterSheetId,
-          dataSource: "users_tab",
-          readMode: "with_migration",
-          totalRowsRead: sheetResult?.totalSheetRows ?? 0,
-          profilesReturned: sheetResult?.members?.length ?? 0,
-        });
-      }
-    } catch (firstError) {
-      if (isStaleMasterSheetError(firstError) && companyFolderId) {
-        const folderResolved = await resolveMasterSheetFromFolder(
-          auth,
-          deps,
-          companyFolderId,
-          companyName,
-          masterSheetId,
-        );
-        if (folderResolved.ok) {
-          const refreshedSheetId = String(folderResolved.masterSheetId || "").trim();
-          if (refreshedSheetId && refreshedSheetId !== masterSheetId) {
-            masterSheetId = refreshedSheetId;
-            companyName = folderResolved.companyName || companyName;
-            sheetResult = await loadActiveUsersForSheet(masterSheetId, {
-              ...deps,
-              skipUsersTabColumnMigration: true,
-            });
-            lastSheetAttempt = sheetResult;
-          } else {
-            throw firstError;
-          }
-        } else {
-          throw firstError;
-        }
-      } else {
-        throw firstError;
-      }
-    }
-
-    const placementWarning = folderPlacementWarning
-      ? `Company folder placement needs attention (${folderPlacement.reasonCode || "FOLDER_NOT_IN_COMPANIES_ROOT"}).`
-      : "";
-    const success = buildSheetReadSuccessResponse(sheetResult, {
-      resolvedCompanyId,
-      companyName,
-      masterSheetId,
-      signedInEmail,
-      signedInRole,
-      startedAt,
-      placementWarning,
-      deps,
-    });
-    if (
-      (sheetResult?.totalSheetRows ?? 0) > (sheetResult?.members?.length ?? 0) &&
-      (sheetResult?.totalSheetRows ?? 0) >= 2
-    ) {
-      logCompanyMembersLoad({
-        companyFolderId: resolvedCompanyId,
-        masterSheetId,
-        dataSource: "users_tab",
-        readMode: "filtered_rows",
-        totalRowsRead: sheetResult.totalSheetRows,
-        profilesReturned: sheetResult.members?.length ?? 0,
-      });
-    }
-    return success;
-  } catch (error) {
-    const classified = classifyReadError(error);
-    const technicalError = error instanceof Error ? error.message : String(error);
-    const failure = buildFailure(
-      classified.reasonCode,
-      COMPANY_USERS_USER_MESSAGE,
-      {
-        companyId: resolvedCompanyId,
-        companyFolderId: resolvedCompanyId,
-        companyName,
-        masterSheetId,
-        signedInEmail,
-        signedInRole,
-        dataSource: "users_tab",
-        failedStep: classified.failedStep,
-        durationMs: Date.now() - startedAt,
-        upstreamStatus: classified.upstreamStatus,
-        upstreamMessage: classified.upstreamMessage || technicalError,
-        totalRowsRead: Number(error?.totalRowsRead ?? error?.totalSheetRows ?? 0) || undefined,
-        activeRowsFound: Number(error?.activeRowsFound ?? error?.activeSheetUsers ?? 0) || undefined,
-      },
-      {
-        httpStatus:
-          classified.reasonCode === "GOOGLE_PERMISSION_DENIED" ||
-          classified.reasonCode === "GOOGLE_SHEETS_PERMISSION_DENIED" ||
-          classified.reasonCode === "PERMISSION_DENIED"
-            ? 403
-            : 502,
-        technicalError: isDevDiagnosticsEnabled() ? technicalError : undefined,
-        failedStep: classified.failedStep,
-      },
-    );
-
-    try {
-      const retryResult = await readActiveUsersFromSheetWithStats(
-        auth,
-        { ...deps, skipUsersTabColumnMigration: true },
-        {
-          masterSheetId,
-          companyFolderId: resolvedCompanyId,
-          companyId: resolvedCompanyId,
-          companyName,
-        },
-      );
-      lastSheetAttempt = retryResult;
-      const retryMembers = Array.isArray(retryResult?.members) ? retryResult.members : [];
-      if (retryMembers.length > 0) {
-        return buildSheetReadSuccessResponse(retryResult, {
-          resolvedCompanyId,
-          companyName,
-          masterSheetId,
-          signedInEmail,
-          signedInRole,
-          startedAt,
-          deps,
-          warning: `Workbook read recovered without column migration (${classified.reasonCode || classified.failedStep || "read_failed"}).`,
-          reasonCode: classified.reasonCode,
-          failedStep: classified.failedStep,
-          upstreamMessage: classified.upstreamMessage || technicalError,
-        });
-      }
-    } catch {
-      // fall through to cache/session fallback
-    }
-
-    const fallback = buildCacheOrSessionFallbackSuccess(
-      sessionActor,
-      {
-        companyFolderId: resolvedCompanyId,
-        companyId: resolvedCompanyId,
-        companyName,
-        masterSheetId,
-      },
-      failure,
-      startedAt,
-      deps,
-      lastSheetAttempt,
-    );
-    if (fallback) {
-      return fallback;
-    }
-
-    if (folderPlacementWarning && !masterSheetId) {
-      return buildFailure(
-        folderPlacement.reasonCode || "FOLDER_NOT_IN_COMPANIES_ROOT",
-        "This company is not set up in BERT. Contact your administrator.",
-        { ...baseDiagnostics(), failedStep: "company_context_resolve" },
-        { httpStatus: 403, failedStep: "company_context_resolve" },
-      );
-    }
-
-    return failure;
-  }
+  return listCompanyProfilesFromFoundation(auth, deps, companyContext);
 }
 
 export { listActiveUsersFromSheet };
@@ -961,28 +700,5 @@ export async function syncAndListActiveUsers(auth, deps, companyContext = {}) {
  * Godmode — read Users tab ACTIVE rows and replace server cache (remove cache-only users).
  */
 export async function rebuildUsersFromSheet(auth, deps, companyContext = {}) {
-  const listed = await syncAndListActiveUsers(auth, deps, companyContext);
-  if (!listed.ok) {
-    return listed;
-  }
-  const reconciliation = listed.cacheReconciliation || {
-    cacheUsersBefore: listed.diagnostics?.cacheUsersBefore ?? 0,
-    cacheOnlyUsersRemoved: listed.diagnostics?.cacheOnlyUsersRemoved ?? 0,
-    cacheOnlyEmails: [],
-    keptEmails: (listed.users || []).map((row) => row.email),
-  };
-  return {
-    ok: true,
-    companyId: listed.companyId,
-    companyFolderId: listed.companyFolderId,
-    companyName: listed.companyName,
-    masterSheetId: listed.masterSheetId,
-    users: listed.users,
-    activeCount: listed.activeCount,
-    diagnostics: listed.diagnostics,
-    removed: reconciliation.cacheOnlyEmails || [],
-    kept: reconciliation.keptEmails || (listed.users || []).map((row) => row.email),
-    cacheUsersBefore: reconciliation.cacheUsersBefore,
-    cacheOnlyUsersRemoved: reconciliation.cacheOnlyUsersRemoved,
-  };
+  return rebuildUsersFromSheetFoundation(auth, deps, companyContext);
 }

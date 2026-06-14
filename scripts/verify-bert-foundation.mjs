@@ -58,6 +58,7 @@ function runStaticGuards() {
   /* 1: People page — single listCompanyProfiles path */
   assert(foundation.includes("export async function listCompanyProfiles"), "1a: listCompanyProfiles exported");
   assert(foundation.includes("readUsersTabProfiles"), "1b: readUsersTabProfiles exported");
+  assert(foundation.includes("listableProfilesFromUsersTabRecords"), "1b2: foundation uses canonical Users tab profile mapper");
   assert(foundation.includes("syncCompanyUsersCache"), "1c: syncCompanyUsersCache exported");
   assert(
     coreRoutes.includes('from "./company-users-foundation.mjs"') &&

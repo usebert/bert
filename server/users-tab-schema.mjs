@@ -429,14 +429,14 @@ export function sheetLikeRowFromProfile(row) {
   };
 }
 
-/** Backfill company cols, then apply workbook-scoped or folder context filter. */
+/** Backfill company cols, then apply folder context filter. Workbook reads skip all company-column filtering. */
 export function rowPassesCompanyProfileContext(row, companyContext = {}) {
+  if (isWorkbookScopedCompanyContext(companyContext)) {
+    return true;
+  }
   const filled = backfillRowCompanyFields(sheetLikeRowFromProfile(row), companyContext);
   if (rowExplicitlyPointsToOtherCompany(filled, companyContext)) {
     return false;
-  }
-  if (isWorkbookScopedCompanyContext(companyContext)) {
-    return true;
   }
   return rowMatchesCompanyContext(filled, companyContext);
 }

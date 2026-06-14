@@ -121,9 +121,16 @@ const shiftedRow = {
 
 /** 10: Company profiles flow reads normalised sheet rows. */
 {
-  assert(sheetFlow.includes("readCompanyUsers"), "10: company profiles read via readCompanyUsers");
-  assert(sheetFlow.includes("mapCompanyProfileMember") || sheetFlow.includes("mapActiveCompanyMember"), "10b: company profile filter");
-  assert(sheetFlow.includes("isExcludedCompanyProfileStatus"), "10c: deleted/removed rows excluded");
+  const profilesModule = read("server/users-tab-profiles.mjs");
+  assert(sheetFlow.includes("readCompanyUsers") || sheetFlow.includes("readUsersTabRecords"), "10: company profiles read via users tab reader");
+  assert(
+    sheetFlow.includes("listableProfilesFromUsersTabRecords") || profilesModule.includes("mapUsersTabProfileMember"),
+    "10b: company profile filter",
+  );
+  assert(
+    profilesModule.includes("isExcludedCompanyProfileStatus") || sheetFlow.includes("isExcludedCompanyProfileStatus"),
+    "10c: deleted/removed rows excluded",
+  );
 }
 
 /** 11: Invite completion writes correct schema. */

@@ -7,104 +7,64 @@ import {
   findCompanyUsersTabRow,
   migrateUsersTabColumns,
   normalizeUserStatus,
-  parseCompanyAreas,
   readCompanyUsersTabRecord,
   sanitizeUserRecordForClient,
   verifyCompanyUserPassword,
 } from "./company-users.mjs";
 import { readCompanyUsers, resolveUsersTab } from "./users-tab-reader.mjs";
-import {
-  backfillRowCompanyFields,
-  pickRowCompanyFolderId,
-  pickRowCompanyId,
-  pickRowCompanyName,
-  resolvedProfileCompanyFolderId,
-  rowPassesCompanyProfileContext,
-} from "./users-tab-schema.mjs";
-import { inviteAccessLevelForRole, parseRoleForClient, isExcludedCompanyProfileStatus } from "../shared/schedule-assignees.mjs";
+import { listableProfilesFromUsersTabRecords } from "./users-tab-profiles.mjs";
+import { inviteAccessLevelForRole } from "../shared/schedule-assignees.mjs";
 
 function safeLower(value) {
   return String(value || "").trim().toLowerCase();
 }
-
-function pickRowValue(row, ...keys) {
-  if (!row || typeof row !== "object") {
-    return "";
-  }
-  for (const key of keys) {
-    const want = String(key).trim().toLowerCase();
-    for (const [rawKey, rawValue] of Object.entries(row)) {
-      if (String(rawKey).trim().toLowerCase() === want) {
-        return String(rawValue ?? "").trim();
-      }
-    }
-  }
-  return "";
-}
-
-function mapUsersTabRow(row, companyContext = {}) {
-  const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
-  const filled = backfillRowCompanyFields(row, companyContext);
-  const companyAreasRaw = pickRowValue(filled, "CompanyAreas", "Company Areas", "companyAreas");
-  const rowCompanyId = pickRowCompanyId(filled) || companyFolderId;
-  const rowCompanyFolderId = pickRowCompanyFolderId(filled) || rowCompanyId;
-  return {
-    email: pickRowValue(filled, "Email", "email"),
-    name: pickRowValue(filled, "Name", "name", "Full Name"),
-    role: pickRowValue(filled, "Role", "role"),
-    accessLevel: pickRowValue(filled, "AccessLevel", "Access Level", "accessLevel"),
-    status: pickRowValue(filled, "Status", "status"),
-    company: pickRowCompanyName(filled),
-    companyId: rowCompanyId,
-    companyFolderId: rowCompanyFolderId,
-    companyAreas: parseCompanyAreas(companyAreasRaw),
-    companyAreasRaw,
-  };
-}
-
-function mapCompanyProfileMember(row, companyContext = {}) {
-  const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
-  const email = safeLower(row.email || row.Email);
-  if (!email) {
-    return null;
-  }
-  const name = String(row.name || row.Name || "").trim();
-  if (!name) {
-    return null;
-  }
-  const status = normalizeUserStatus(row.status || row.Status);
-  if (isExcludedCompanyProfileStatus(status)) {
-    return null;
-  }
-  if (!rowPassesCompanyProfileContext(row, companyContext)) {
-    return null;
-  }
-  const companyAreas = Array.isArray(row.companyAreas)
-    ? row.companyAreas
-    : parseCompanyAreas(row.companyAreasRaw || row.CompanyAreas || row.companyAreas || "");
-  const resolvedFolderId = resolvedProfileCompanyFolderId(row, companyContext);
-  return {
-    email,
-    name,
-    role: parseRoleForClient(row.role || row.Role || row.accessLevel || row.AccessLevel || "User"),
-    accessLevel: String(row.accessLevel || row.AccessLevel || "").trim(),
-    status,
-    company: row.company || row.Company || "",
-    companyId: resolvedFolderId,
-    companyFolderId: resolvedFolderId,
-    companyAreas,
-    companyAreasRaw: row.companyAreasRaw || String(row.CompanyAreas || ""),
-  };
-}
-
-/** @deprecated Use mapCompanyProfileMember — kept for verify script references. */
-const mapActiveCompanyMember = mapCompanyProfileMember;
 
 function resolveCompanyUsersDeps(deps) {
   if (typeof deps?.getCompanyUsersDeps === "function") {
     return deps.getCompanyUsersDeps();
   }
   return deps || {};
+}
+
+async function readUsersTabRecords(auth, masterSheetId, deps, companyContext = {}) {
+  const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
+  const companyName = String(companyContext.companyName || "").trim();
+  const enrichedDeps = {
+    ...deps,
+    resolveUsersTab: deps.resolveUsersTab || resolveUsersTab,
+    migrateUsersTabColumns: deps.migrateUsersTabColumns || migrateUsersTabColumns,
+  };
+
+  if (
+    !deps.skipUsersTabColumnMigration &&
+    typeof enrichedDeps.migrateUsersTabColumns === "function" &&
+    enrichedDeps.getTabValues
+  ) {
+    await enrichedDeps
+      .migrateUsersTabColumns(auth, masterSheetId, enrichedDeps, {
+        companyContext: {
+          companyFolderId,
+          companyId: companyFolderId,
+          companyName,
+          masterSheetId,
+        },
+      })
+      .catch(() => null);
+  }
+
+  const readResult = await readCompanyUsers(auth, masterSheetId, enrichedDeps, {
+    companyFolderId,
+    companyId: companyFolderId,
+    companyName,
+    masterSheetId,
+  });
+  if (!readResult?.ok || !Array.isArray(readResult.records)) {
+    const error = new Error("Company workbook Users tab is missing or unreadable.");
+    error.code = "USERS_TAB_READ_FAILED";
+    error.failedStep = "users_tab_parse";
+    throw error;
+  }
+  return readResult.records;
 }
 
 /**
@@ -118,53 +78,11 @@ export async function readActiveUsersFromSheetWithStats(auth, deps, companyConte
     return { members: [], totalSheetRows: 0, activeSheetUsers: 0 };
   }
 
-  const enrichedDeps = {
-    ...deps,
-    resolveUsersTab: deps.resolveUsersTab || resolveUsersTab,
-    migrateUsersTabColumns: deps.migrateUsersTabColumns || migrateUsersTabColumns,
-  };
-
-  if (
-    !deps.skipUsersTabColumnMigration &&
-    typeof enrichedDeps.migrateUsersTabColumns === "function" &&
-    enrichedDeps.getTabValues
-  ) {
-    await enrichedDeps
-      .migrateUsersTabColumns(auth, masterSheetId, enrichedDeps, {
-        companyContext: { companyFolderId, companyId: companyFolderId, companyName, masterSheetId },
-      })
-      .catch(() => null);
-  }
-
-  const readResult = await readCompanyUsers(auth, masterSheetId, enrichedDeps, {
-    companyFolderId,
-    companyId: companyFolderId,
-    companyName,
-    masterSheetId,
-  });
-  if (!readResult?.ok || !Array.isArray(readResult.records)) {
-    const error = new Error("Company workbook Users tab is missing or unreadable.");
-    error.code = "USERS_TAB_READ_FAILED";
-    error.failedStep = "users_tab_parse";
-    throw error;
-  }
-
   const companyCtx = { companyFolderId, companyId: companyFolderId, companyName, masterSheetId };
-  const rawUsers = readResult.records.map((row) => mapUsersTabRow(row, companyCtx));
-  const members = [];
-  const seen = new Set();
-  for (const row of rawUsers) {
-    const member = mapCompanyProfileMember(row, companyCtx);
-    if (!member || seen.has(member.email)) {
-      continue;
-    }
-    seen.add(member.email);
-    members.push(member);
-  }
+  const records = await readUsersTabRecords(auth, masterSheetId, deps, companyCtx);
+  const result = listableProfilesFromUsersTabRecords(records, companyCtx);
 
-  const activeOnlyCount = members.filter((member) => normalizeUserStatus(member.status) === "ACTIVE").length;
-
-  if (rawUsers.length >= 2 && members.length < rawUsers.length) {
+  if (result.totalSheetRows >= 2 && result.members.length < result.totalSheetRows) {
     console.info(
       "[company-members]",
       JSON.stringify({
@@ -172,20 +90,14 @@ export async function readActiveUsersFromSheetWithStats(auth, deps, companyConte
         companyFolderId,
         dataSource: "users_tab",
         readMode: "profile_filter",
-        totalRowsRead: rawUsers.length,
-        profilesReturned: members.length,
-        activeOnlyCount,
+        totalRowsRead: result.totalSheetRows,
+        profilesReturned: result.members.length,
+        activeOnlyCount: result.activeOnlyCount,
       }),
     );
   }
 
-  return {
-    members,
-    totalSheetRows: rawUsers.length,
-    profilesReturned: members.length,
-    activeOnlyCount,
-    activeSheetUsers: members.length,
-  };
+  return result;
 }
 
 /**
@@ -193,56 +105,11 @@ export async function readActiveUsersFromSheetWithStats(auth, deps, companyConte
  */
 export async function listActiveUsersFromSheet(auth, deps, companyContext = {}) {
   const masterSheetId = String(companyContext.masterSheetId || "").trim();
-  const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
-  const companyName = String(companyContext.companyName || "").trim();
   if (!auth || !masterSheetId) {
     return [];
   }
-
-  const enrichedDeps = {
-    ...deps,
-    resolveUsersTab: deps.resolveUsersTab || resolveUsersTab,
-    migrateUsersTabColumns: deps.migrateUsersTabColumns || migrateUsersTabColumns,
-  };
-
-  if (
-    !deps.skipUsersTabColumnMigration &&
-    typeof enrichedDeps.migrateUsersTabColumns === "function" &&
-    enrichedDeps.getTabValues
-  ) {
-    await enrichedDeps
-      .migrateUsersTabColumns(auth, masterSheetId, enrichedDeps, {
-        companyContext: { companyFolderId, companyId: companyFolderId, companyName, masterSheetId },
-      })
-      .catch(() => null);
-  }
-
-  const readResult = await readCompanyUsers(auth, masterSheetId, enrichedDeps, {
-    companyFolderId,
-    companyId: companyFolderId,
-    companyName,
-    masterSheetId,
-  });
-  if (!readResult?.ok || !Array.isArray(readResult.records)) {
-    const error = new Error("Company workbook Users tab is missing or unreadable.");
-    error.code = "USERS_TAB_READ_FAILED";
-    error.failedStep = "users_tab_parse";
-    throw error;
-  }
-
-  const companyCtx = { companyFolderId, companyId: companyFolderId, companyName, masterSheetId };
-  const rawUsers = readResult.records.map((row) => mapUsersTabRow(row, companyCtx));
-  const members = [];
-  const seen = new Set();
-  for (const row of rawUsers) {
-    const member = mapCompanyProfileMember(row, companyCtx);
-    if (!member || seen.has(member.email)) {
-      continue;
-    }
-    seen.add(member.email);
-    members.push(member);
-  }
-  return members;
+  const result = await readActiveUsersFromSheetWithStats(auth, deps, companyContext);
+  return result.members;
 }
 
 /**
@@ -374,3 +241,9 @@ export async function completeInviteToUserRow(auth, invite, formData, deps) {
 
   return { ok: true, user: loginCheck.user };
 }
+
+/** @deprecated Use mapUsersTabProfileMember from users-tab-profiles.mjs */
+export { mapUsersTabProfileMember as mapCompanyProfileMember } from "./users-tab-profiles.mjs";
+
+/** @deprecated Use mapUsersTabProfileMember from users-tab-profiles.mjs */
+export { mapUsersTabProfileMember as mapActiveCompanyMember } from "./users-tab-profiles.mjs";
