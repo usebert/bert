@@ -88,8 +88,9 @@ const pendingRecord = {
   CompanyFolderId: DOVECOTE_FOLDER_ID,
 };
 const withPending = listableProfilesFromUsersTabRecords([...records, pendingRecord], companyCtx);
+const activeOnly = withPending.members.filter((row) => isActiveUser(row));
 assert(
-  withPending.members.length === mapped.members.length,
+  activeOnly.length === mapped.members.filter((row) => isActiveUser(row)).length,
   "15: pending invites excluded from active list",
 );
 

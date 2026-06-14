@@ -88,7 +88,8 @@ function runStaticGuards() {
   assert(userService.includes("rebuildUserCacheFromSheet"), "static: userService rebuildUserCacheFromSheet");
   assert(sheetFlow.includes("listActiveUsersFromSheet"), "static: listActiveUsersFromSheet helper");
   assert(
-    sheetFlow.includes("rowMatchesCompanyContext") || sheetFlow.includes("rowPassesCompanyProfileContext"),
+    read("server/users-tab-profiles.mjs").includes("rowPassesCompanyProfileContext") ||
+      read("server/users-tab-schema.mjs").includes("rowMatchesCompanyContext"),
     "static: active users filter by company columns",
   );
   assert(companyUsers.includes("migrateUsersTabCompanyColumns"), "static: company column migration");
