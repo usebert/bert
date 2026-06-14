@@ -130,7 +130,10 @@ export async function readActiveUsersFromSheetWithStats(auth, deps, companyConte
     companyName,
   });
   if (!readResult?.ok || !Array.isArray(readResult.records)) {
-    return { members: [], totalSheetRows: 0, activeSheetUsers: 0 };
+    const error = new Error("Company workbook Users tab is missing or unreadable.");
+    error.code = "USERS_TAB_READ_FAILED";
+    error.failedStep = "users_tab_parse";
+    throw error;
   }
 
   const companyCtx = { companyFolderId, companyId: companyFolderId, companyName };

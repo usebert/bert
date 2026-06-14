@@ -65,6 +65,18 @@ function buildDiagnostics(base = {}) {
   const companyFolderId = String(base.companyFolderId || base.companyId || "").trim();
   const companyId = String(base.companyId || companyFolderId).trim();
   const signedInEmail = normalizeEmail(base.signedInEmail || "");
+  const totalRowsRead =
+    typeof base.totalRowsRead === "number"
+      ? base.totalRowsRead
+      : typeof base.totalSheetRows === "number"
+        ? base.totalSheetRows
+        : undefined;
+  const activeRowsFound =
+    typeof base.activeRowsFound === "number"
+      ? base.activeRowsFound
+      : typeof base.activeSheetUsers === "number"
+        ? base.activeSheetUsers
+        : undefined;
   return {
     companyId: companyId || undefined,
     companyFolderId: companyFolderId || companyId || undefined,
@@ -80,8 +92,10 @@ function buildDiagnostics(base = {}) {
         ? base.upstreamStatus
         : undefined,
     upstreamMessage: String(base.upstreamMessage || "").trim() || undefined,
-    totalSheetRows: typeof base.totalSheetRows === "number" ? base.totalSheetRows : undefined,
-    activeSheetUsers: typeof base.activeSheetUsers === "number" ? base.activeSheetUsers : undefined,
+    totalRowsRead,
+    activeRowsFound,
+    totalSheetRows: totalRowsRead,
+    activeSheetUsers: activeRowsFound,
     cacheUsersBefore: typeof base.cacheUsersBefore === "number" ? base.cacheUsersBefore : undefined,
     cacheOnlyUsersRemoved:
       typeof base.cacheOnlyUsersRemoved === "number" ? base.cacheOnlyUsersRemoved : undefined,
@@ -101,15 +115,75 @@ function reconcileCompanyUsersCache(companyFolderId, members, meta = {}, deps = 
 }
 
 function buildFailure(reasonCode, message, diagnostics = {}, extra = {}) {
+  const builtDiagnostics = buildDiagnostics(diagnostics);
+  const failedStep = String(extra.failedStep || builtDiagnostics.failedStep || "").trim() || undefined;
   return {
     ok: false,
     code: COMPANY_USERS_LOAD_FAILED,
     reasonCode,
+    failedStep,
     message: message || COMPANY_USERS_USER_MESSAGE,
     error: message || COMPANY_USERS_USER_MESSAGE,
     httpStatus: extra.httpStatus || 400,
-    diagnostics: buildDiagnostics(diagnostics),
+    diagnostics: builtDiagnostics,
     technicalError: extra.technicalError,
+  };
+}
+
+function mapSessionActorToMember(sessionActor, companyContext = {}) {
+  const email = normalizeEmail(sessionActor?.email || "");
+  if (!email) {
+    return null;
+  }
+  const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
+  const companyAreas = Array.isArray(sessionActor?.companyAreas) ? sessionActor.companyAreas : [];
+  return {
+    email,
+    name: String(sessionActor?.name || email.split("@")[0] || email).trim() || email,
+    role: parseRoleForClient(sessionActor?.role || sessionActor?.accessLevel || "User"),
+    accessLevel: String(sessionActor?.accessLevel || "").trim(),
+    status: "ACTIVE",
+    company: String(companyContext.companyName || sessionActor?.company || "").trim(),
+    companyId: companyFolderId || String(sessionActor?.companyId || sessionActor?.companyFolderId || "").trim(),
+    companyFolderId: companyFolderId || String(sessionActor?.companyFolderId || sessionActor?.companyId || "").trim(),
+    companyAreas,
+    companyAreasRaw: companyAreas.join(", "),
+  };
+}
+
+function buildSessionFallbackSuccess(sessionActor, companyContext, failure, startedAt) {
+  const member = mapSessionActorToMember(sessionActor, companyContext);
+  if (!member) {
+    return null;
+  }
+  const failedStep = failure.failedStep || failure.diagnostics?.failedStep;
+  const reasonCode = failure.reasonCode;
+  const upstreamMessage = failure.diagnostics?.upstreamMessage || failure.technicalError;
+  return {
+    ok: true,
+    companyId: companyContext.companyFolderId || companyContext.companyId,
+    companyFolderId: companyContext.companyFolderId || companyContext.companyId,
+    companyName: companyContext.companyName || undefined,
+    masterSheetId: companyContext.masterSheetId || undefined,
+    users: [member],
+    activeCount: 1,
+    warning: `Showing signed-in user only; workbook read failed (${reasonCode || failedStep || "unknown"}).`,
+    reasonCode,
+    failedStep,
+    diagnostics: buildDiagnostics({
+      companyId: companyContext.companyFolderId || companyContext.companyId,
+      companyFolderId: companyContext.companyFolderId || companyContext.companyId,
+      companyName: companyContext.companyName,
+      masterSheetId: companyContext.masterSheetId,
+      signedInEmail: sessionActor?.email,
+      signedInRole: sessionActor?.role || sessionActor?.accessLevel,
+      dataSource: "session-fallback",
+      failedStep,
+      durationMs: Date.now() - startedAt,
+      upstreamMessage,
+      totalRowsRead: 0,
+      activeRowsFound: 1,
+    }),
   };
 }
 
@@ -119,6 +193,7 @@ function classifyReadError(error, payload) {
   const code = String(error?.code || payload?.code || "").trim();
   const upstreamStatus = Number(error?.response?.status || error?.status || payload?.status || 0);
 
+  const failedStep = String(error?.failedStep || payload?.failedStep || "").trim();
   if (
     code === "GOOGLE_SHEETS_PERMISSION_DENIED" ||
     code === "GOOGLE_PERMISSION_DENIED" ||
@@ -127,7 +202,7 @@ function classifyReadError(error, payload) {
   ) {
     return {
       reasonCode: "GOOGLE_PERMISSION_DENIED",
-      failedStep: "read_users_tab",
+      failedStep: failedStep || "google_sheets_read",
       upstreamStatus: upstreamStatus || 403,
       upstreamMessage: message,
     };
@@ -140,15 +215,31 @@ function classifyReadError(error, payload) {
   ) {
     return {
       reasonCode: "GOOGLE_AUTH_FAILED",
-      failedStep: "connect_google",
+      failedStep: failedStep || "connect_google",
       upstreamStatus: upstreamStatus || 401,
       upstreamMessage: message,
     };
   }
-  if (lower.includes("users tab is missing") || lower.includes("users tab")) {
+  if (code === "USERS_TAB_MISSING" || lower.includes("users tab is missing")) {
     return {
       reasonCode: "USERS_TAB_MISSING",
-      failedStep: "read_users_tab",
+      failedStep: failedStep || "users_tab_headers",
+      upstreamStatus: upstreamStatus || undefined,
+      upstreamMessage: message,
+    };
+  }
+  if (lower.includes("schema repair") || lower.includes("users_tab_schema_repair")) {
+    return {
+      reasonCode: "USERS_TAB_READ_FAILED",
+      failedStep: failedStep || "users_tab_schema_repair",
+      upstreamStatus: upstreamStatus || undefined,
+      upstreamMessage: message,
+    };
+  }
+  if (lower.includes("parse") || code === "USERS_TAB_PARSE_FAILED") {
+    return {
+      reasonCode: "USERS_TAB_READ_FAILED",
+      failedStep: failedStep || "users_tab_parse",
       upstreamStatus: upstreamStatus || undefined,
       upstreamMessage: message,
     };
@@ -161,14 +252,14 @@ function classifyReadError(error, payload) {
   ) {
     return {
       reasonCode: "WORKBOOK_NOT_FOUND",
-      failedStep: "read_users_tab",
+      failedStep: failedStep || "master_sheet_resolve",
       upstreamStatus: upstreamStatus || 404,
       upstreamMessage: message || String(payload?.error || ""),
     };
   }
   return {
     reasonCode: "USERS_TAB_READ_FAILED",
-    failedStep: "read_users_tab",
+    failedStep: failedStep || "google_sheets_read",
     upstreamStatus: upstreamStatus || undefined,
     upstreamMessage: message || String(payload?.error || ""),
   };
@@ -327,7 +418,7 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
       "GOOGLE_AUTH_FAILED",
       "Please connect Google before loading company users.",
       { ...baseDiagnostics(), failedStep: "connect_google", dataSource: "users_tab" },
-      { httpStatus: 401 },
+      { httpStatus: 401, failedStep: "connect_google" },
     );
   }
 
@@ -335,8 +426,8 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
     return buildFailure(
       "MISSING_COMPANY_CONTEXT",
       COMPANY_USERS_USER_MESSAGE,
-      { ...baseDiagnostics(), failedStep: "select_company" },
-      { httpStatus: 404 },
+      { ...baseDiagnostics(), failedStep: "company_context_resolve" },
+      { httpStatus: 404, failedStep: "company_context_resolve" },
     );
   }
 
@@ -344,8 +435,8 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
     return buildFailure(
       "INVALID_COMPANY_ID",
       "Company workspace id is invalid.",
-      { ...baseDiagnostics(), failedStep: "select_company" },
-      { httpStatus: 400 },
+      { ...baseDiagnostics(), failedStep: "company_context_resolve" },
+      { httpStatus: 400, failedStep: "company_context_resolve" },
     );
   }
 
@@ -354,15 +445,15 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
     denialOverrides: {
       code: "COMPANY_USERS_LOAD_FAILED",
       message: "This company is not set up in BERT. Contact your administrator.",
-      diagnostics: { ...baseDiagnostics(), failedStep: "select_company" },
+      diagnostics: { ...baseDiagnostics(), failedStep: "company_context_resolve" },
     },
   });
   if (folderPlacementDenial) {
     return buildFailure(
       folderPlacementDenial.reasonCode,
       folderPlacementDenial.message,
-      folderPlacementDenial.diagnostics || { ...baseDiagnostics(), failedStep: "select_company" },
-      { httpStatus: 403 },
+      folderPlacementDenial.diagnostics || { ...baseDiagnostics(), failedStep: "company_context_resolve" },
+      { httpStatus: 403, failedStep: "company_context_resolve" },
     );
   }
 
@@ -382,9 +473,9 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
       {
         ...baseDiagnostics(),
         companyName,
-        failedStep: "link_master_sheet",
+        failedStep: "master_sheet_resolve",
       },
-      { httpStatus: 404 },
+      { httpStatus: 404, failedStep: "master_sheet_resolve" },
     );
   }
 
@@ -453,8 +544,8 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
         signedInRole,
         dataSource: "users_tab",
         durationMs: Date.now() - startedAt,
-        totalSheetRows: sheetResult?.totalSheetRows ?? members.length,
-        activeSheetUsers: sheetResult?.activeSheetUsers ?? members.length,
+        totalRowsRead: sheetResult?.totalSheetRows ?? members.length,
+        activeRowsFound: sheetResult?.activeSheetUsers ?? members.length,
         cacheUsersBefore: cacheStats.cacheUsersBefore,
         cacheOnlyUsersRemoved: cacheStats.cacheOnlyUsersRemoved,
       }),
@@ -478,6 +569,8 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
         durationMs: Date.now() - startedAt,
         upstreamStatus: classified.upstreamStatus,
         upstreamMessage: classified.upstreamMessage || technicalError,
+        totalRowsRead: Number(error?.totalRowsRead ?? error?.totalSheetRows ?? 0) || undefined,
+        activeRowsFound: Number(error?.activeRowsFound ?? error?.activeSheetUsers ?? 0) || undefined,
       },
       {
         httpStatus:
@@ -487,8 +580,24 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
             ? 403
             : 502,
         technicalError: isDevDiagnosticsEnabled() ? technicalError : undefined,
+        failedStep: classified.failedStep,
       },
     );
+
+    const fallback = buildSessionFallbackSuccess(
+      sessionActor,
+      {
+        companyFolderId: resolvedCompanyId,
+        companyId: resolvedCompanyId,
+        companyName,
+        masterSheetId,
+      },
+      failure,
+      startedAt,
+    );
+    if (fallback) {
+      return fallback;
+    }
 
     return failure;
   }

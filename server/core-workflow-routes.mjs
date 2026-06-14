@@ -401,6 +401,7 @@ export function installCoreWorkflowRoutes(app, deps) {
         code: "COMPANY_USERS_LOAD_FAILED",
         message: "Please connect Google before loading company users.",
         reasonCode: "GOOGLE_AUTH_FAILED",
+        failedStep: "connect_google",
         diagnostics: {
           companyId: companyFolderId || companyId || undefined,
           companyFolderId: companyFolderId || companyId || undefined,
@@ -428,6 +429,7 @@ export function installCoreWorkflowRoutes(app, deps) {
           code: result.code || "COMPANY_USERS_LOAD_FAILED",
           message: result.message || "Could not load company users.",
           reasonCode: result.reasonCode,
+          failedStep: result.failedStep || result.diagnostics?.failedStep,
           diagnostics: result.diagnostics,
           technicalError: result.technicalError,
         });
@@ -444,6 +446,8 @@ export function installCoreWorkflowRoutes(app, deps) {
         ok: true,
         users: result.users,
         warning: result.warning,
+        reasonCode: result.reasonCode,
+        failedStep: result.failedStep || result.diagnostics?.failedStep,
         diagnostics: result.diagnostics,
         companyId: result.companyId,
         companyFolderId: result.companyFolderId,
@@ -458,6 +462,7 @@ export function installCoreWorkflowRoutes(app, deps) {
         code: "COMPANY_USERS_LOAD_FAILED",
         message: "Could not load company users.",
         reasonCode: "USERS_TAB_READ_FAILED",
+        failedStep: "google_sheets_read",
         diagnostics: {
           companyId: companyFolderId || companyId || undefined,
           companyFolderId: companyFolderId || companyId || undefined,
@@ -465,7 +470,7 @@ export function installCoreWorkflowRoutes(app, deps) {
           signedInEmail: String(actor?.email || "").trim() || undefined,
           signedInRole: String(actor?.role || actor?.accessLevel || "").trim() || undefined,
           dataSource: "users_tab",
-          failedStep: "read_users_tab",
+          failedStep: "google_sheets_read",
           upstreamMessage,
         },
         technicalError: upstreamMessage,
