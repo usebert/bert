@@ -140,7 +140,7 @@ const pendingInvite = {
   assert(panel.includes("Pending invites"), "9: pending invites section");
   assert(panel.includes("activeCompanyMembers"), "9b: active members prop");
   assert(panel.includes("activeMembersLoadError"), "9c: load error UI");
-  assert(panel.includes("canShowTechnicalUi(currentUser.role)"), "9c2: godmode gates error detail");
+  assert(panel.includes("canShowCompanyMembersDiagnostics"), "9c2: godmode gates error detail");
   assert(panel.includes("activeMembersLoadErrorDetail"), "9c2b: technical error detail prop");
   assert(panel.includes("COMPANY_MEMBERS_USER_MESSAGE"), "9c3: normal user load error constant");
   assert(panel.includes("COMPANY_MEMBERS_LOADING_MESSAGE"), "9c3b: loading message constant");

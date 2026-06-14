@@ -7,6 +7,7 @@ type Props = {
   diagnostics?: CompanyMembersDiagnostics;
   detail?: string;
   tone?: "light" | "dark";
+  defaultOpen?: boolean;
 };
 
 function formatDiagnostics(diagnostics: CompanyMembersDiagnostics | undefined, reasonCode?: string, detail?: string, failedStep?: string) {
@@ -33,8 +34,9 @@ export function CompanyMembersDiagnosticsPanel({
   detail,
   failedStep,
   tone = "light",
+  defaultOpen = false,
 }: Props) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const body = formatDiagnostics(diagnostics, reasonCode, detail, failedStep);
   if (!body.trim()) {
     return null;

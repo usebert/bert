@@ -272,6 +272,13 @@ export function GodmodeUserManagementSection({
         {activeMembersLoadError ? (
           <div className="mt-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
             <p className="font-semibold">Could not load active users from the company workbook.</p>
+            {activeMembersLoadReasonCode || activeMembersLoadFailedStep ? (
+              <p className="mt-1 text-xs font-medium text-rose-900">
+                {[activeMembersLoadReasonCode, activeMembersLoadFailedStep && `step: ${activeMembersLoadFailedStep}`]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            ) : null}
             {activeMembersLoadErrorDetail ? (
               <p className="mt-1 text-xs text-rose-900">{activeMembersLoadErrorDetail}</p>
             ) : null}
@@ -280,6 +287,7 @@ export function GodmodeUserManagementSection({
               failedStep={activeMembersLoadFailedStep}
               diagnostics={activeMembersLoadDiagnostics}
               detail={activeMembersLoadErrorDetail}
+              defaultOpen={Boolean(activeMembersLoadReasonCode || activeMembersLoadFailedStep)}
             />
           </div>
         ) : null}

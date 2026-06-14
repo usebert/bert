@@ -98,16 +98,17 @@ for (const code of REASON_CODES) {
 {
   assert(companyUserServiceTs.includes("reasonCode"), "6: client parses reasonCode");
   assert(companyUserServiceTs.includes("buildLoadErrorDetail"), "6b: client builds technical detail");
-  assert(companyUserServiceTs.includes("failedStep"), "6c: client detail includes failedStep");
+  assert(companyUserServiceTs.includes("failedStep: \"client_fetch\""), "6c3: client transport failures include failedStep");
+  assert(read("App.tsx").includes("CLIENT_LOAD_TIMEOUT"), "6c4: client timeout surfaces reasonCode");
   assert(companyUserServiceTs.includes("totalRowsRead"), "6c2: client detail includes totalRowsRead");
   assert(panel.includes("activeMembersLoadErrorDetail"), "6d: panel receives error detail");
   assert(panel.includes("activeMembersLoadDiagnostics"), "6e: panel receives structured diagnostics");
   assert(panel.includes("activeMembersLoadFailedStep"), "6e2: panel receives failedStep");
   assert(panel.includes("CompanyMembersDiagnosticsPanel"), "6f: collapsible diagnostics panel");
-  assert(diagnosticsPanel.includes("useState(false)"), "6g: diagnostics collapsed by default");
-  assert(panel.includes("isDebugUiAllowed"), "6h: dev diagnostics gate");
+  assert(diagnosticsPanel.includes("defaultOpen"), "6g2: diagnostics can open by default on error");
+  assert(panel.includes("canShowCompanyMembersDiagnostics"), "6h: godmode diagnostics gate");
   assert(panel.includes("COMPANY_MEMBERS_USER_MESSAGE"), "6i: normal user message constant");
-  assert(panel.includes("canShowTechnicalUi(currentUser.role)"), "6j: godmode gates diagnostics");
+  assert(panel.includes("defaultOpen={Boolean(activeMembersLoadReasonCode"), "6j: diagnostics open when reason present");
 }
 
 /** 7: npm script registered. */

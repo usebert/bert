@@ -164,6 +164,17 @@ export async function fetchCompanyMembers(
       loadError: COMPANY_MEMBERS_USER_MESSAGE,
       loadErrorDetail: transportDetail || COMPANY_MEMBERS_USER_MESSAGE,
       reasonCode: result.code,
+      failedStep: "client_fetch",
+      diagnostics: {
+        companyId,
+        companyFolderId: companyId,
+        companyName: input.companyName?.trim() || undefined,
+        masterSheetId: input.masterSheetId?.trim() || undefined,
+        failedStep: "client_fetch",
+        upstreamMessage: result.message,
+        upstreamStatus: result.diagnostics?.status,
+        dataSource: "users_tab",
+      },
     };
   }
 

@@ -5339,7 +5339,38 @@ function App() {
         if (cancelled) {
           return;
         }
-        if (error instanceof DOMException && error.name === "AbortError" && !loadTimedOut) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          if (!loadTimedOut) {
+            return;
+          }
+          setCompanyUsersTabRows([]);
+          setCompanyMembersState({
+            members: [],
+            loadError: COMPANY_MEMBERS_USER_MESSAGE,
+            loadErrorDetail: [
+              "CLIENT_LOAD_TIMEOUT",
+              "failedStep=client_fetch",
+              `companyId=${companyId}`,
+              activeCompanyContext.masterSheetId.trim()
+                ? `masterSheetId=${activeCompanyContext.masterSheetId.trim()}`
+                : "",
+              `upstreamMessage=Load timed out after ${COMPANY_MEMBERS_LOAD_TIMEOUT_MS}ms`,
+            ]
+              .filter(Boolean)
+              .join(" — "),
+            loadReasonCode: "CLIENT_LOAD_TIMEOUT",
+            loadFailedStep: "client_fetch",
+            loadDiagnostics: {
+              companyId,
+              companyFolderId: companyId,
+              companyName: activeCompanyContext.companyName.trim() || undefined,
+              masterSheetId: activeCompanyContext.masterSheetId.trim() || undefined,
+              failedStep: "client_fetch",
+              upstreamMessage: `Load timed out after ${COMPANY_MEMBERS_LOAD_TIMEOUT_MS}ms`,
+              dataSource: "users_tab",
+            },
+            loading: false,
+          });
           return;
         }
         setCompanyUsersTabRows([]);
@@ -5347,6 +5378,17 @@ function App() {
           members: [],
           loadError: COMPANY_MEMBERS_USER_MESSAGE,
           loadErrorDetail: error instanceof Error ? error.message : COMPANY_MEMBERS_USER_MESSAGE,
+          loadReasonCode: "CLIENT_FETCH_FAILED",
+          loadFailedStep: "client_fetch",
+          loadDiagnostics: {
+            companyId,
+            companyFolderId: companyId,
+            companyName: activeCompanyContext.companyName.trim() || undefined,
+            masterSheetId: activeCompanyContext.masterSheetId.trim() || undefined,
+            failedStep: "client_fetch",
+            upstreamMessage: error instanceof Error ? error.message : COMPANY_MEMBERS_USER_MESSAGE,
+            dataSource: "users_tab",
+          },
           loading: false,
         });
       } finally {

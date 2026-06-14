@@ -33,3 +33,8 @@ export function isAdminDebugUiAllowed(userRole: string | undefined): boolean {
   }
   return false;
 }
+
+/** Godmode / platform operators — always show company members load diagnostics in production. */
+export function canShowCompanyMembersDiagnostics(userRole: string | undefined): boolean {
+  return userRole === "Master" || isDebugUiAllowed() || isAdminDebugUiAllowed(userRole);
+}

@@ -4,7 +4,7 @@ import {
   COMPANY_MEMBERS_LOADING_MESSAGE,
   COMPANY_MEMBERS_USER_MESSAGE,
 } from "../../services/companyUserService";
-import { isDebugUiAllowed } from "../../utils/debugUiVisibility";
+import { canShowCompanyMembersDiagnostics } from "../../utils/debugUiVisibility";
 import { canShowTechnicalUi } from "../../utils/uxDeclutter";
 import { CompanyMembersDiagnosticsPanel } from "../CompanyMembersDiagnosticsPanel";
 import {
@@ -498,6 +498,7 @@ export function UsersInvitesPilotPanel({
   const hasInvitePermission =
     isGodmodeInviteSession(invitePermissionSession) ||
     canCreateCompanyInvite(invitePermissionSession, resolvedCompanyId, inviteRoleInput);
+  const showMembersDiagnostics = canShowCompanyMembersDiagnostics(currentUser.role);
   const showInviteForm = hasInvitePermission && (isMasterActor || isCompanyInviteActorRole) && !companyContextBlocked;
   const inviteFormEnabled = hasCompanyContext && hasInvitePermission && !companyContextBlocked;
   const inviteBlockedMessage = companyContextBlocked
@@ -673,8 +674,14 @@ export function UsersInvitesPilotPanel({
         {activeMembersLoadError ? (
           <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
             <p className="text-sm font-semibold text-rose-900">Could not load active users</p>
-            <p className="mt-1 text-sm text-rose-800">{COMPANY_MEMBERS_USER_MESSAGE}</p>
-            {canShowTechnicalUi(currentUser.role) || isDebugUiAllowed() ? (
+            <p className="mt-1 text-sm text-rose-800">
+              {showMembersDiagnostics && (activeMembersLoadReasonCode || activeMembersLoadFailedStep)
+                ? [activeMembersLoadReasonCode, activeMembersLoadFailedStep && `step: ${activeMembersLoadFailedStep}`]
+                    .filter(Boolean)
+                    .join(" · ")
+                : COMPANY_MEMBERS_USER_MESSAGE}
+            </p>
+            {showMembersDiagnostics ? (
               <>
                 {activeMembersLoadErrorDetail ? (
                   <p className="mt-2 text-xs text-rose-900">{activeMembersLoadErrorDetail}</p>
@@ -684,12 +691,13 @@ export function UsersInvitesPilotPanel({
                   failedStep={activeMembersLoadFailedStep}
                   diagnostics={activeMembersLoadDiagnostics}
                   detail={activeMembersLoadErrorDetail}
+                  defaultOpen={Boolean(activeMembersLoadReasonCode || activeMembersLoadFailedStep)}
                 />
               </>
             ) : null}
           </div>
         ) : null}
-        {activeMembersWarning && (canShowTechnicalUi(currentUser.role) || isDebugUiAllowed()) ? (
+        {activeMembersWarning && showMembersDiagnostics ? (
           <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
             {activeMembersWarning}
           </p>
@@ -704,7 +712,7 @@ export function UsersInvitesPilotPanel({
               title={activeMembersLoadError ? "Active users unavailable" : "No active users yet"}
               text={
                 activeMembersLoadError
-                  ? canShowTechnicalUi(currentUser.role) || isDebugUiAllowed()
+                  ? showMembersDiagnostics
                     ? "Fix the workbook connection above, then re-sync users."
                     : COMPANY_MEMBERS_USER_MESSAGE
                   : "Active users from the company workbook appear here after setup is complete."
