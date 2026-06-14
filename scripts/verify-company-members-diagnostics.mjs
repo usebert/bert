@@ -68,6 +68,8 @@ for (const code of REASON_CODES) {
     "upstreamStatus",
     "upstreamMessage",
     "totalRowsRead",
+    "profilesReturned",
+    "activeOnlyCount",
     "activeRowsFound",
   ];
   for (const field of fields) {

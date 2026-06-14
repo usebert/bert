@@ -62,16 +62,16 @@ assert(!appTsx.includes("invitedLoginUsers"), "4: App does not merge invites int
 assert(panel.includes("!isActiveCompanyUserInvite(invite)"), "4b: pending invites separate from active list");
 assert(!panel.includes("activeInvites.map"), "4c: active list not driven by invite rows");
 
-/** 5: isActiveUser filter for ACTIVE only. */
+/** 5: isActiveUser still means ACTIVE-only; listable profiles include INVITED. */
 assert(isActiveUser(activeManager), "5: ACTIVE manager included");
-assert(!isActiveUser(pendingInvite), "5b: INVITED row excluded");
+assert(!isActiveUser(pendingInvite), "5b: INVITED row is not active status");
 
 /** 6: PasswordHash never exposed via list path. */
 assert(companyUsers.includes("sanitizeUsersTabRecords"), "6: sanitizeUsersTabRecords exists");
 assert(sheetFlow.includes("readCompanyUsers"), "6b: sheet list reads Users tab");
 
-/** 7: Pending INVITED rows excluded from listActiveUsersFromSheet. */
-assert(sheetFlow.includes('status !== "ACTIVE"'), "7: non-ACTIVE rows filtered out");
+/** 7: Deleted/removed rows excluded from listActiveUsersFromSheet. */
+assert(sheetFlow.includes("isExcludedCompanyProfileStatus"), "7: deleted/removed rows filtered out");
 
 /** 8: canLoginCompanyUser is sheet-only. */
 assert(sheetFlow.includes("findCompanyUsersTabRow"), "8: login requires Users tab row");
@@ -97,7 +97,11 @@ assert(appTsx.includes("fetchCompanyMembers"), "10b: App loads company members A
 assert(serverMain.includes("completeInviteToUserRow"), "11: invite completion uses sheet write helper");
 
 /** 12: Godmode reuses same active member list path. */
-assert(read("server/godmode-service.mjs").includes("listActiveCompanyMembers"), "12: godmode uses listActiveCompanyMembers");
+assert(
+  read("server/godmode-service.mjs").includes("listActiveCompanyMembers") ||
+    read("server/godmode-service.mjs").includes("syncAndListActiveUsers"),
+  "12: godmode uses shared company profile list path",
+);
 
 const pkg = JSON.parse(read("package.json"));
 assert(pkg.scripts["verify:users-source-of-truth"], "npm script registered");

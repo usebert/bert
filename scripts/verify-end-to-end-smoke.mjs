@@ -222,19 +222,22 @@ assert(
 {
   const pendingOnly = buildAvailableScheduleAssigneesFromUsers(
     [
-      { email: "p1@test.com", role: "Auditor", status: "INVITED", companyId: ownCompany },
-      { email: "p2@test.com", role: "Manager", status: "pending", companyId: ownCompany },
+      { email: "p1@test.com", name: "Pending One", role: "Auditor", status: "INVITED", companyId: ownCompany },
+      { email: "p2@test.com", name: "Pending Two", role: "Manager", status: "pending", companyId: ownCompany },
     ],
     { companyId: ownCompany },
   );
-  assert(pendingOnly.assignees.length === 0, "F3: pending invites alone do not populate assignees");
+  assert(pendingOnly.assignees.length === 2, "F3: invited Users tab profiles populate assignees");
 }
 {
   const mixed = buildAvailableScheduleAssigneesFromUsers(
-    [...testRoles, { email: "p@test.com", role: "Auditor", status: "INVITED", companyId: ownCompany }],
+    [
+      ...testRoles,
+      { email: "p@test.com", name: "Pending User", role: "Auditor", status: "INVITED", companyId: ownCompany },
+    ],
     { companyId: ownCompany },
   );
-  assert(mixed.assignees.length === 4, "F4: pending invites do not hide active users");
+  assert(mixed.assignees.length === 5, "F4: invited profiles appear alongside active users");
 }
 assert(coreRoutes.includes("/api/companies/:companyId/schedule-assignees"), "F5: schedule-assignees API route");
 assert(assigneeService.includes("getScheduleAssigneesForCompany"), "F6: schedule assignee service");

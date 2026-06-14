@@ -667,13 +667,13 @@ export function UsersInvitesPilotPanel({
       <section className={pilotLightSurface}>
         <SectionHeader
           icon="user"
-          eyebrow="Active"
-          title="Active users"
-          subtitle="People who can sign in or are recorded as active in the company sheet."
+          eyebrow="Company"
+          title="Company people"
+          subtitle="Everyone with a profile in the company workbook Users tab — invited, active, or inactive."
         />
         {activeMembersLoadError ? (
           <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
-            <p className="text-sm font-semibold text-rose-900">Could not load active users</p>
+            <p className="text-sm font-semibold text-rose-900">Could not load company people</p>
             <p className="mt-1 text-sm text-rose-800">
               {showMembersDiagnostics && (activeMembersLoadReasonCode || activeMembersLoadFailedStep)
                 ? [activeMembersLoadReasonCode, activeMembersLoadFailedStep && `step: ${activeMembersLoadFailedStep}`]
@@ -709,8 +709,8 @@ export function UsersInvitesPilotPanel({
         ) : !activeMembersLoadError && activeMembers.length === 0 ? (
           <div className="mt-3">
             <EmptyPanel
-              title="No active users yet"
-              text="Active users from the company workbook appear here after setup is complete."
+              title="No company people yet"
+              text="Profiles from the company workbook Users tab appear here once someone is invited or added."
             />
           </div>
         ) : activeMembers.length === 0 ? null : (

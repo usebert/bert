@@ -25,6 +25,8 @@ export type CompanyMembersDiagnostics = {
   upstreamStatus?: number;
   upstreamMessage?: string;
   totalRowsRead?: number;
+  profilesReturned?: number;
+  activeOnlyCount?: number;
   activeRowsFound?: number;
   totalSheetRows?: number;
   activeSheetUsers?: number;
@@ -130,7 +132,12 @@ function buildLoadErrorDetail(
     diagnostics?.signedInEmail ? `signedInEmail=${diagnostics.signedInEmail}` : "",
     diagnostics?.dataSource ? `dataSource=${diagnostics.dataSource}` : "",
     typeof diagnostics?.totalRowsRead === "number" ? `totalRowsRead=${diagnostics.totalRowsRead}` : "",
-    typeof diagnostics?.activeRowsFound === "number" ? `activeRowsFound=${diagnostics.activeRowsFound}` : "",
+    typeof diagnostics?.profilesReturned === "number" ? `profilesReturned=${diagnostics.profilesReturned}` : "",
+    typeof diagnostics?.activeOnlyCount === "number"
+      ? `activeOnlyCount=${diagnostics.activeOnlyCount}`
+      : typeof diagnostics?.activeRowsFound === "number"
+        ? `activeOnlyCount=${diagnostics.activeRowsFound}`
+        : "",
     upstreamMessage || diagnostics?.upstreamMessage
       ? `upstreamMessage=${upstreamMessage || diagnostics?.upstreamMessage}`
       : "",

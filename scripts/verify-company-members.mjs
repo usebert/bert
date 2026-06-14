@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { isActiveUser } from "../shared/schedule-assignees.mjs";
+import { isActiveUser, isListableCompanyProfile } from "../shared/schedule-assignees.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -59,7 +59,7 @@ const pendingInvite = {
   assert(!userService.includes("rejectIfCompanyFolderNotUnderCompaniesRoot"), "1a2: users list does not hard-block on folder placement");
   assert(userService.includes("buildCacheOrSessionFallbackSuccess"), "1a3: cache fallback before session-only fallback");
   assert(userService.includes("companyFolderId: resolvedCompanyId"), "1b: members normalize companyFolderId");
-  assert(userService.includes("mapActiveCompanyMember"), "1c: active member mapper exists");
+  assert(userService.includes("mapActiveCompanyMember") || userService.includes("mapCompanyProfileMember"), "1c: company profile mapper exists");
 }
 
 /** 2: GET /api/companies/:companyId/users route exists. */
@@ -72,11 +72,12 @@ const pendingInvite = {
   );
 }
 
-/** 3: ACTIVE users included; pending excluded from active members mapping logic. */
+/** 3: ACTIVE users included; pending profiles listable; deleted/removed excluded. */
 {
   assert(isActiveUser(activeManager), "3: manager ACTIVE");
   assert(isActiveUser(activeAuditorBlankAreas), "3b: mixed-case active");
-  assert(!isActiveUser(pendingInvite), "3c: pending excluded");
+  assert(!isActiveUser(pendingInvite), "3c: pending is not active status");
+  assert(isListableCompanyProfile(pendingInvite), "3d: pending profile is listable");
 }
 
 /** 4: companyId = companyFolderId — workbook rows use explicit Company columns. */

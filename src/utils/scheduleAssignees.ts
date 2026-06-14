@@ -39,6 +39,8 @@ export type ScheduleAssigneeDiagnostics = {
   currentCompanyName?: string;
   signedInEmail?: string;
   totalUsersRead?: number;
+  profilesReturned?: number;
+  activeOnlyCount?: number;
   activeUsersFound?: number;
   assignableUsersReturned?: number;
   dataSource?: string;
@@ -87,6 +89,23 @@ export function normalizeScheduleValue(value: string | undefined | null): string
 
 export function isActiveCompanyUsersTabRow(user: CompanyUsersTabRow): boolean {
   return normalizeScheduleValue(user.status) === "active";
+}
+
+const EXCLUDED_COMPANY_PROFILE_STATUSES = new Set(["deleted", "removed"]);
+
+export function isExcludedCompanyProfileStatus(status: string | undefined | null): boolean {
+  const normalized = normalizeScheduleValue(status);
+  return EXCLUDED_COMPANY_PROFILE_STATUSES.has(normalized);
+}
+
+/** Users tab profile — email + name, not deleted/removed (includes INVITED, ACTIVE, INACTIVE, etc.). */
+export function isListableCompanyProfile(user: CompanyUsersTabRow): boolean {
+  const email = user.email.trim();
+  const name = user.name.trim();
+  if (!email || !name) {
+    return false;
+  }
+  return !isExcludedCompanyProfileStatus(user.status);
 }
 
 export function isActiveCompanyUser(user: CompanyUsersTabRow): boolean {
@@ -196,13 +215,15 @@ export function buildScheduleAssigneeDiagnostics(
       continue;
     }
 
-    if (!isActiveCompanyUsersTabRow(user)) {
+    if (!isListableCompanyProfile(user)) {
       diagnostics.excludedByStatus += 1;
-      snapshot.excludedReason = "inactive_status";
+      snapshot.excludedReason = "excluded_status";
       diagnostics.candidates.push(snapshot);
       continue;
     }
-    diagnostics.activeCount += 1;
+    if (isActiveCompanyUsersTabRow(user)) {
+      diagnostics.activeCount += 1;
+    }
 
     if (!canCompleteAuditUser(user)) {
       diagnostics.excludedNotAssignable += 1;
@@ -271,7 +292,7 @@ export function buildAvailableScheduleAssignees(
     if (!email) {
       continue;
     }
-    if (!isActiveCompanyUser(user) || !canCompleteAuditUser(user) || !belongsToCompanyUsersTabRow(user, companyId)) {
+    if (!isListableCompanyProfile(user) || !canCompleteAuditUser(user) || !belongsToCompanyUsersTabRow(user, companyId)) {
       continue;
     }
 
@@ -492,8 +513,8 @@ export function resolveScheduleAssigneeEmptyMessage(
   if (selectedArea && diagnostics && diagnostics.excludedByArea > 0 && diagnostics.finalCount === 0) {
     return "No users are assigned to this area. Check user area access in Users & Invites.";
   }
-  if (totalUsersRead > 0 && activeUsersFound === 0) {
-    return "No active users found for this company. Add users in Users & Invites.";
+  if (totalUsersRead > 0 && activeUsersFound === 0 && assignees.length === 0) {
+    return "No company profiles found for this company. Add people in People.";
   }
   return "";
 }

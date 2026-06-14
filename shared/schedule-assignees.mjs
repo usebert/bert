@@ -25,9 +25,30 @@ export function isActiveUser(user) {
   return normalize(user.status ?? user.Status) === "active";
 }
 
+/** Deleted/removed rows are excluded from company profile lists and assignees. */
+export function isExcludedCompanyProfileStatus(status) {
+  const normalized = normalize(status);
+  return normalized === "deleted" || normalized === "removed";
+}
+
+/** Users tab profile row — email + name, not deleted/removed (includes INVITED, ACTIVE, INACTIVE, etc.). */
+export function isListableCompanyProfile(user) {
+  const email = String(user.email ?? user.Email ?? "").trim();
+  const name = String(user.name ?? user.Name ?? "").trim();
+  if (!email || !name) {
+    return false;
+  }
+  return !isExcludedCompanyProfileStatus(user.status ?? user.Status);
+}
+
 export function isActiveCompanyUser(user) {
   const email = String(user.email ?? user.Email ?? "").trim();
   return Boolean(email) && isActiveUser(user);
+}
+
+/** @deprecated Use isListableCompanyProfile — assignees share the People page profile list. */
+export function isAssignableCompanyProfile(user) {
+  return isListableCompanyProfile(user);
 }
 
 export function canCompleteAudit(user) {
@@ -146,13 +167,15 @@ export function buildScheduleAssigneeDiagnostics(users, options = {}) {
       excludedReason: null,
     };
 
-    if (!isActiveUser(user)) {
+    if (!isListableCompanyProfile(user)) {
       diagnostics.excludedByStatus += 1;
-      entry.excludedReason = "inactive_status";
+      entry.excludedReason = "excluded_status";
       diagnostics.candidates.push(entry);
       continue;
     }
-    diagnostics.activeCount += 1;
+    if (isActiveUser(user)) {
+      diagnostics.activeCount += 1;
+    }
 
     if (!canCompleteAudit(user)) {
       diagnostics.excludedNotAssignable += 1;
@@ -214,7 +237,7 @@ export function buildAvailableScheduleAssigneesFromUsers(users, options = {}) {
       continue;
     }
 
-    if (!isActiveCompanyUser(user) || !canCompleteAudit(user) || !belongsToCurrentCompany(user, companyId)) {
+    if (!isListableCompanyProfile(user) || !canCompleteAudit(user) || !belongsToCurrentCompany(user, companyId)) {
       continue;
     }
 

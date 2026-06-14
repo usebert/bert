@@ -153,7 +153,7 @@ export function SchedulesScreen({
   filter,
   availableAudits,
   availableAssignees,
-  assigneeEmptyMessage = "No active users found for this company. Add people in People.",
+  assigneeEmptyMessage = "No company profiles found for this company. Add people in People.",
   assigneeDiagnostics,
   showAssigneeDiagnostics = false,
   assigneeWarning = "",
@@ -609,8 +609,12 @@ export function SchedulesScreen({
                         <dd>{assigneeDiagnostics.totalUsersRead ?? assigneeDiagnostics.totalRows ?? 0}</dd>
                       </div>
                       <div>
-                        <dt className="font-semibold text-slate-800">activeUsersFound</dt>
-                        <dd>{assigneeDiagnostics.activeUsersFound ?? assigneeDiagnostics.activeCount ?? 0}</dd>
+                        <dt className="font-semibold text-slate-800">profilesReturned</dt>
+                        <dd>{assigneeDiagnostics.profilesReturned ?? assigneeDiagnostics.totalRows ?? 0}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold text-slate-800">activeOnlyCount</dt>
+                        <dd>{assigneeDiagnostics.activeOnlyCount ?? assigneeDiagnostics.activeUsersFound ?? assigneeDiagnostics.activeCount ?? 0}</dd>
                       </div>
                       <div>
                         <dt className="font-semibold text-slate-800">assignableUsersReturned</dt>

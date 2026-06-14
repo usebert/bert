@@ -4,6 +4,7 @@
 import {
   parseRoleForClient,
   buildAvailableScheduleAssigneesFromUsers,
+  isExcludedCompanyProfileStatus,
 } from "../shared/schedule-assignees.mjs";
 import {
   parseCompanyAreas,
@@ -72,10 +73,18 @@ function buildDiagnostics(base = {}) {
         ? base.totalSheetRows
         : undefined;
   const activeRowsFound =
-    typeof base.activeRowsFound === "number"
-      ? base.activeRowsFound
-      : typeof base.activeSheetUsers === "number"
-        ? base.activeSheetUsers
+    typeof base.activeOnlyCount === "number"
+      ? base.activeOnlyCount
+      : typeof base.activeRowsFound === "number"
+        ? base.activeRowsFound
+        : typeof base.activeSheetUsers === "number"
+          ? base.activeSheetUsers
+          : undefined;
+  const profilesReturned =
+    typeof base.profilesReturned === "number"
+      ? base.profilesReturned
+      : typeof base.profileRowsReturned === "number"
+        ? base.profileRowsReturned
         : undefined;
   return {
     companyId: companyId || undefined,
@@ -93,9 +102,11 @@ function buildDiagnostics(base = {}) {
         : undefined,
     upstreamMessage: String(base.upstreamMessage || "").trim() || undefined,
     totalRowsRead,
+    profilesReturned,
+    activeOnlyCount: activeRowsFound,
     activeRowsFound,
     totalSheetRows: totalRowsRead,
-    activeSheetUsers: activeRowsFound,
+    activeSheetUsers: profilesReturned ?? activeRowsFound,
     cacheUsersBefore: typeof base.cacheUsersBefore === "number" ? base.cacheUsersBefore : undefined,
     cacheOnlyUsersRemoved:
       typeof base.cacheOnlyUsersRemoved === "number" ? base.cacheOnlyUsersRemoved : undefined,
@@ -194,7 +205,7 @@ function buildCacheOrSessionFallbackSuccess(sessionActor, companyContext, failur
     cache && typeof cache.getEntry === "function" && companyFolderId ? cache.getEntry(companyFolderId) : null;
   const cachedMembers = Array.isArray(cacheEntry?.users)
     ? cacheEntry.users
-        .map((row) => mapActiveCompanyMember(row, companyContext))
+        .map((row) => mapCompanyProfileMember(row, companyContext))
         .filter(Boolean)
     : [];
 
@@ -339,14 +350,18 @@ function mapUsersTabRow(row, companyContext = {}) {
   };
 }
 
-function mapActiveCompanyMember(row, companyContext = {}) {
+function mapCompanyProfileMember(row, companyContext = {}) {
   const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
   const email = normalizeEmail(row.email || row.Email);
   if (!email) {
     return null;
   }
+  const name = String(row.name || row.Name || "").trim();
+  if (!name) {
+    return null;
+  }
   const status = normalizeUserStatus(row.status || row.Status);
-  if (status !== "ACTIVE") {
+  if (isExcludedCompanyProfileStatus(status)) {
     return null;
   }
   if (!rowMatchesCompanyContext(row, companyContext)) {
@@ -358,10 +373,10 @@ function mapActiveCompanyMember(row, companyContext = {}) {
   const resolvedFolderId = row.companyFolderId || row.companyId || companyFolderId;
   return {
     email,
-    name: String(row.name || row.Name || email.split("@")[0] || email).trim() || email,
+    name,
     role: parseRoleForClient(row.role || row.Role || row.accessLevel || row.AccessLevel || "User"),
     accessLevel: String(row.accessLevel || row.AccessLevel || "").trim(),
-    status: "ACTIVE",
+    status,
     company: row.company || row.Company || "",
     companyId: resolvedFolderId,
     companyFolderId: resolvedFolderId,
@@ -369,6 +384,9 @@ function mapActiveCompanyMember(row, companyContext = {}) {
     companyAreasRaw: row.companyAreasRaw || String(row.CompanyAreas || ""),
   };
 }
+
+/** @deprecated Use mapCompanyProfileMember — kept for verify script references. */
+const mapActiveCompanyMember = mapCompanyProfileMember;
 
 function isStaleMasterSheetError(error) {
   const code = String(error?.code || "").trim();
@@ -448,7 +466,7 @@ async function resolveMasterSheetFromFolder(auth, deps, companyFolderId, company
 }
 
 /**
- * Canonical active company members from the Users tab — all roles, companyId = companyFolderId.
+ * Canonical company profiles from the Users tab — all roles, companyId = companyFolderId.
  */
 export async function listActiveCompanyMembers(auth, deps, companyContext = {}) {
   const startedAt = Date.now();
@@ -570,6 +588,11 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
     }
 
     const members = Array.isArray(sheetResult?.members) ? sheetResult.members : [];
+    const profilesReturned = members.length;
+    const activeOnlyCount =
+      typeof sheetResult?.activeOnlyCount === "number"
+        ? sheetResult.activeOnlyCount
+        : members.filter((member) => normalizeUserStatus(member.status) === "ACTIVE").length;
     const cacheStats = reconcileCompanyUsersCache(
       resolvedCompanyId,
       members,
@@ -587,7 +610,7 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
       companyName: companyName || undefined,
       masterSheetId,
       users: members,
-      activeCount: members.length,
+      activeCount: profilesReturned,
       warning: placementWarning || undefined,
       diagnostics: buildDiagnostics({
         companyId: resolvedCompanyId,
@@ -599,7 +622,8 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
         dataSource: "users_tab",
         durationMs: Date.now() - startedAt,
         totalRowsRead: sheetResult?.totalSheetRows ?? members.length,
-        activeRowsFound: sheetResult?.activeSheetUsers ?? members.length,
+        profilesReturned,
+        activeOnlyCount,
         cacheUsersBefore: cacheStats.cacheUsersBefore,
         cacheOnlyUsersRemoved: cacheStats.cacheOnlyUsersRemoved,
       }),

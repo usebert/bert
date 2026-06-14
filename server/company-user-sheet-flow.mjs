@@ -20,7 +20,7 @@ import {
   pickRowCompanyName,
   rowMatchesCompanyContext,
 } from "./users-tab-schema.mjs";
-import { inviteAccessLevelForRole, parseRoleForClient } from "../shared/schedule-assignees.mjs";
+import { inviteAccessLevelForRole, parseRoleForClient, isExcludedCompanyProfileStatus } from "../shared/schedule-assignees.mjs";
 
 function safeLower(value) {
   return String(value || "").trim().toLowerCase();
@@ -61,14 +61,18 @@ function mapUsersTabRow(row, companyContext = {}) {
   };
 }
 
-function mapActiveCompanyMember(row, companyContext = {}) {
+function mapCompanyProfileMember(row, companyContext = {}) {
   const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
   const email = safeLower(row.email || row.Email);
   if (!email) {
     return null;
   }
+  const name = String(row.name || row.Name || "").trim();
+  if (!name) {
+    return null;
+  }
   const status = normalizeUserStatus(row.status || row.Status);
-  if (status !== "ACTIVE") {
+  if (isExcludedCompanyProfileStatus(status)) {
     return null;
   }
   if (!rowMatchesCompanyContext(row, companyContext)) {
@@ -80,10 +84,10 @@ function mapActiveCompanyMember(row, companyContext = {}) {
   const resolvedFolderId = row.companyFolderId || row.companyId || companyFolderId;
   return {
     email,
-    name: String(row.name || row.Name || email.split("@")[0] || email).trim() || email,
+    name,
     role: parseRoleForClient(row.role || row.Role || row.accessLevel || row.AccessLevel || "User"),
     accessLevel: String(row.accessLevel || row.AccessLevel || "").trim(),
-    status: "ACTIVE",
+    status,
     company: row.company || row.Company || "",
     companyId: resolvedFolderId,
     companyFolderId: resolvedFolderId,
@@ -91,6 +95,9 @@ function mapActiveCompanyMember(row, companyContext = {}) {
     companyAreasRaw: row.companyAreasRaw || String(row.CompanyAreas || ""),
   };
 }
+
+/** @deprecated Use mapCompanyProfileMember — kept for verify script references. */
+const mapActiveCompanyMember = mapCompanyProfileMember;
 
 function resolveCompanyUsersDeps(deps) {
   if (typeof deps?.getCompanyUsersDeps === "function") {
@@ -100,7 +107,7 @@ function resolveCompanyUsersDeps(deps) {
 }
 
 /**
- * Read Users tab rows and return ACTIVE members plus sheet row counts for diagnostics.
+ * Read Users tab rows and return company profiles plus sheet row counts for diagnostics.
  */
 export async function readActiveUsersFromSheetWithStats(auth, deps, companyContext = {}) {
   const masterSheetId = String(companyContext.masterSheetId || "").trim();
@@ -142,7 +149,7 @@ export async function readActiveUsersFromSheetWithStats(auth, deps, companyConte
   const members = [];
   const seen = new Set();
   for (const row of rawUsers) {
-    const member = mapActiveCompanyMember(row, companyCtx);
+    const member = mapCompanyProfileMember(row, companyCtx);
     if (!member || seen.has(member.email)) {
       continue;
     }
@@ -150,9 +157,13 @@ export async function readActiveUsersFromSheetWithStats(auth, deps, companyConte
     members.push(member);
   }
 
+  const activeOnlyCount = members.filter((member) => normalizeUserStatus(member.status) === "ACTIVE").length;
+
   return {
     members,
     totalSheetRows: rawUsers.length,
+    profilesReturned: members.length,
+    activeOnlyCount,
     activeSheetUsers: members.length,
   };
 }
@@ -200,7 +211,7 @@ export async function listActiveUsersFromSheet(auth, deps, companyContext = {}) 
   const members = [];
   const seen = new Set();
   for (const row of rawUsers) {
-    const member = mapActiveCompanyMember(row, companyCtx);
+    const member = mapCompanyProfileMember(row, companyCtx);
     if (!member || seen.has(member.email)) {
       continue;
     }

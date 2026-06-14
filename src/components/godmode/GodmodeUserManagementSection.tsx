@@ -268,10 +268,10 @@ export function GodmodeUserManagementSection({
       </div>
 
       <div className={pilotLightNested}>
-        <p className="text-sm font-semibold text-slate-900">Active users</p>
+        <p className="text-sm font-semibold text-slate-900">Company people</p>
         {activeMembersLoadError ? (
           <div className="mt-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
-            <p className="font-semibold">Could not load active users from the company workbook.</p>
+            <p className="font-semibold">Could not load company people from the company workbook.</p>
             {activeMembersLoadReasonCode || activeMembersLoadFailedStep ? (
               <p className="mt-1 text-xs font-medium text-rose-900">
                 {[activeMembersLoadReasonCode, activeMembersLoadFailedStep && `step: ${activeMembersLoadFailedStep}`]
@@ -297,9 +297,9 @@ export function GodmodeUserManagementSection({
           </p>
         ) : null}
         {activeMembersLoading && activeCompanyMembers.length === 0 ? (
-          <EmptyPanel title="Loading active users…" text="Reading the company Users tab." />
+          <EmptyPanel title="Loading company people…" text="Reading the company Users tab." />
         ) : !activeMembersLoadError && activeCompanyMembers.length === 0 ? (
-          <EmptyPanel title="No active users yet" text="Active users appear here after invite setup completes." />
+          <EmptyPanel title="No company people yet" text="Profiles appear here once someone is invited or added." />
         ) : activeCompanyMembers.length === 0 ? null : (
           <div className="mt-3 space-y-2">
             {activeCompanyMembers.map((member) => (

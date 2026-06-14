@@ -119,11 +119,11 @@ const shiftedRow = {
   assert(serverMain.includes("repairUsersTabSchema"), "9b: handler calls repairUsersTabSchema");
 }
 
-/** 10: Active users flow reads normalised sheet rows. */
+/** 10: Company profiles flow reads normalised sheet rows. */
 {
-  assert(sheetFlow.includes("readCompanyUsers"), "10: active users read via readCompanyUsers");
-  assert(sheetFlow.includes("mapActiveCompanyMember"), "10b: active member filter");
-  assert(sheetFlow.includes('status !== "ACTIVE"'), "10c: inactive rows excluded");
+  assert(sheetFlow.includes("readCompanyUsers"), "10: company profiles read via readCompanyUsers");
+  assert(sheetFlow.includes("mapCompanyProfileMember") || sheetFlow.includes("mapActiveCompanyMember"), "10b: company profile filter");
+  assert(sheetFlow.includes("isExcludedCompanyProfileStatus"), "10c: deleted/removed rows excluded");
 }
 
 /** 11: Invite completion writes correct schema. */

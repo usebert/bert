@@ -122,6 +122,16 @@ const inactiveUser = {
   name: "Inactive",
   role: "User",
   accessLevel: "operational",
+  status: "DELETED",
+  companyId: ownCompany,
+  companyAreas: [],
+};
+
+const invitedUser = {
+  email: "invited@example.com",
+  name: "Invited User",
+  role: "User",
+  accessLevel: "operational",
   status: "INVITED",
   companyId: ownCompany,
   companyAreas: [],
@@ -204,10 +214,12 @@ const godmodeOnlyUser = {
   assert(!belongsToCurrentCompany(otherCompanyUser, ownCompany), "9b: belongsToCurrentCompany rejects other company");
 }
 
-/** 10: Inactive / pending users do not appear. */
+/** 10: Deleted/removed users do not appear; invited profiles do. */
 {
-  const { assignees } = buildAvailableScheduleAssigneesFromUsers([inactiveUser], { companyId: ownCompany });
-  assert(!assignees.some((item) => item.email === inactiveUser.email), "10: inactive user excluded");
+  const { assignees: deletedOnly } = buildAvailableScheduleAssigneesFromUsers([inactiveUser], { companyId: ownCompany });
+  assert(!deletedOnly.some((item) => item.email === inactiveUser.email), "10: deleted user excluded");
+  const { assignees: invitedOnly } = buildAvailableScheduleAssigneesFromUsers([invitedUser], { companyId: ownCompany });
+  assert(invitedOnly.some((item) => item.email === invitedUser.email), "10b: invited profile included");
 }
 
 /** 11: Godmode-only platform user does not appear. */
@@ -248,17 +260,19 @@ const godmodeOnlyUser = {
 /** 14: Diagnostics show why a user was excluded. */
 {
   const diagnostics = buildScheduleAssigneeDiagnostics(
-    [activeUser, inactiveUser, otherCompanyUser, godmodeOnlyUser],
+    [activeUser, inactiveUser, invitedUser, otherCompanyUser, godmodeOnlyUser],
     { companyId: ownCompany, masterSheetId: "sheet-123", selectedArea: "Bay 9" },
   );
-  assert(diagnostics.totalRows === 4, "14: diagnostics total rows");
-  assert(diagnostics.excludedByStatus >= 1, "14b: inactive user counted in excludedByStatus");
+  assert(diagnostics.totalRows === 5, "14: diagnostics total rows");
+  assert(diagnostics.excludedByStatus >= 1, "14b: deleted user counted in excludedByStatus");
   assert(diagnostics.excludedByCompany >= 1, "14c: other-company user counted in excludedByCompany");
   assert(diagnostics.excludedNotAssignable >= 1, "14d: godmode user counted in excludedNotAssignable");
   const inactiveCandidate = diagnostics.candidates.find((item) => item.email === inactiveUser.email);
+  const invitedCandidate = diagnostics.candidates.find((item) => item.email === invitedUser.email);
   const otherCandidate = diagnostics.candidates.find((item) => item.email === otherCompanyUser.email);
   const godmodeCandidate = diagnostics.candidates.find((item) => item.email === godmodeOnlyUser.email);
-  assert(inactiveCandidate?.excludedReason === "inactive_status", "14e: inactive exclusion reason");
+  assert(inactiveCandidate?.excludedReason === "excluded_status", "14e: deleted exclusion reason");
+  assert(!invitedCandidate?.excludedReason, "14e2: invited profile not excluded by status");
   assert(otherCandidate?.excludedReason === "wrong_company", "14f: company exclusion reason");
   assert(godmodeCandidate?.excludedReason === "not_assignable", "14g: godmode exclusion reason");
 }
@@ -335,10 +349,10 @@ assert(schedulesScreenSrc.includes("companyAreas"), "14n: schedule UI shows comp
     ],
     { companyId: "TESTCO" },
   );
-  assert(pendingOnly.assignees.length === 0, "15j: pending invites alone do not populate assignee list");
+  assert(pendingOnly.assignees.length === 3, "15j: invited Users tab profiles populate assignee list");
   assert(
-    managerScenario.assignees.length > 0 && pendingOnly.assignees.length === 0,
-    "15k: active Users tab wins over pending invites for schedule builder",
+    managerScenario.assignees.length > 0 && pendingOnly.assignees.length > 0,
+    "15k: active and invited Users tab profiles both appear for schedule builder",
   );
 }
 

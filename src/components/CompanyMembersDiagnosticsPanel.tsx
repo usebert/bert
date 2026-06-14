@@ -20,7 +20,12 @@ function formatDiagnostics(diagnostics: CompanyMembersDiagnostics | undefined, r
     diagnostics?.masterSheetId ? `masterSheetId: ${diagnostics.masterSheetId}` : "",
     diagnostics?.signedInEmail ? `signedInEmail: ${diagnostics.signedInEmail}` : "",
     typeof diagnostics?.totalRowsRead === "number" ? `totalRowsRead: ${diagnostics.totalRowsRead}` : "",
-    typeof diagnostics?.activeRowsFound === "number" ? `activeRowsFound: ${diagnostics.activeRowsFound}` : "",
+    typeof diagnostics?.profilesReturned === "number" ? `profilesReturned: ${diagnostics.profilesReturned}` : "",
+    typeof diagnostics?.activeOnlyCount === "number"
+      ? `activeOnlyCount: ${diagnostics.activeOnlyCount}`
+      : typeof diagnostics?.activeRowsFound === "number"
+        ? `activeOnlyCount: ${diagnostics.activeRowsFound}`
+        : "",
     diagnostics?.dataSource ? `dataSource: ${diagnostics.dataSource}` : "",
     diagnostics?.upstreamMessage ? `upstreamMessage: ${diagnostics.upstreamMessage}` : "",
     detail && !diagnostics?.upstreamMessage ? `detail: ${detail}` : "",

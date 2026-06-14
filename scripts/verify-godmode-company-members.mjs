@@ -24,10 +24,13 @@ const serverMain = read("server/server.mjs");
 const panel = read("src/components/godmode/GodmodeCompanyWorkspacePanel.tsx");
 const pkg = JSON.parse(read("package.json"));
 
-/** 1: Godmode lists active users via listActiveCompanyMembers. */
+/** 1: Godmode lists company profiles via shared sync path. */
 {
   assert(godmodeService.includes("listGodmodeCompanyUsers"), "1: listGodmodeCompanyUsers exported");
-  assert(godmodeService.includes("listActiveCompanyMembers"), "1b: same listActiveCompanyMembers path");
+  assert(
+    godmodeService.includes("listActiveCompanyMembers") || godmodeService.includes("syncAndListActiveUsers"),
+    "1b: same shared company profile list path",
+  );
 }
 
 /** 2: Shared readCompanyUsers / resolveUsersTab stack. */
@@ -49,10 +52,11 @@ const pkg = JSON.parse(read("package.json"));
   assert(!panel.includes("Could not load company users. Try again."), "4c: no admin user-message copy in godmode panel");
 }
 
-/** 4d: Godmode active users management cards. */
+/** 4d: Godmode company people management cards. */
 {
   const godmodeUsers = read("src/components/godmode/GodmodeUserManagementSection.tsx");
-  assert(godmodeUsers.includes("ActiveUserCard"), "4d: godmode active user cards");
+  assert(godmodeUsers.includes("ActiveUserCard"), "4d: godmode company people cards");
+  assert(godmodeUsers.includes("Company people"), "4d2: company people section label");
   assert(godmodeUsers.includes("onUpdateCompanyMember"), "4e: godmode edit handler");
 }
 

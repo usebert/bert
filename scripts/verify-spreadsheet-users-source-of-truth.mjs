@@ -50,8 +50,8 @@ const pendingInvite = {
   companyAreas: [],
 };
 
-/** 1: Active users equal Users tab ACTIVE rows only. */
-assert(sheetFlow.includes('status !== "ACTIVE"'), "1: non-ACTIVE rows filtered");
+/** 1: Company profiles equal Users tab rows except deleted/removed. */
+assert(sheetFlow.includes("isExcludedCompanyProfileStatus"), "1: deleted/removed rows filtered");
 assert(userService.includes("readActiveUsersFromSheetWithStats"), "1b: sheet stats reader used");
 assert(userService.includes('dataSource: "users_tab"'), "1c: dataSource users_tab");
 
@@ -61,19 +61,19 @@ assert(cacheModule.includes("cacheOnlyEmails"), "2b: tracks cache-only emails");
 assert(userService.includes("cacheOnlyUsersRemoved"), "2c: diagnostics include cacheOnlyUsersRemoved");
 assert(userService.includes("reconcileCompanyUsersCache"), "2d: list path reconciles cache");
 
-/** 3: Pending invites are not active users. */
+/** 3: Pending invites are not active status but are listable profiles. */
 assert(panel.includes("!isActiveCompanyUserInvite(invite)"), "3: pending invites excluded from active");
 assert(!panel.includes("activeInvites.map"), "3b: active list not invite-driven");
-assert(!isActiveUser(pendingInvite), "3c: INVITED status excluded");
+assert(!isActiveUser(pendingInvite), "3c: INVITED status is not active");
 
 /** 4: Wrong-company users excluded — members tagged with companyFolderId. */
 assert(userService.includes("companyId: companyFolderId"), "4: members force companyFolderId");
-assert(sheetFlow.includes("mapActiveCompanyMember(row, companyFolderId)"), "4b: mapper uses folder id");
+assert(sheetFlow.includes("mapCompanyProfileMember") || sheetFlow.includes("mapActiveCompanyMember"), "4b: mapper uses folder id");
 
 /** 5: Login requires Users tab ACTIVE row; cache-only denied. */
 assert(sheetFlow.includes("canLoginCompanyUser"), "5: canLoginCompanyUser exists");
 assert(sheetFlow.includes('reason: "cache_only"'), "5b: cache-only login denied");
-assert(authService.includes("not active in this company"), "5c: cache-only user message");
+assert(authService.includes("cacheOnly: true"), "5c: cache-only login flagged");
 assert(authService.includes("canLoginCompanyUser"), "5d: auth uses canLoginCompanyUser");
 
 /** 6: Invite acceptance writes Users tab before login. */
@@ -82,15 +82,22 @@ assert(serverMain.includes("completeInviteToUserRow"), "6b: server uses completi
 assert(sheetFlow.includes('status: "ACTIVE"'), "6c: writes ACTIVE status");
 assert(sheetFlow.includes("canLoginCompanyUser"), "6d: verifies login after write");
 
-/** 7: Schedule assignees equal Users tab ACTIVE rows (shared list path). */
+/** 7: Schedule assignees equal Users tab profile list (shared list path). */
 assert(userService.includes("getAssignableUsers"), "7: getAssignableUsers exists");
 assert(userService.includes("listActiveCompanyMembers"), "7b: assignees use listActiveCompanyMembers");
 
 /** 8: Godmode and company workspace use same users API path. */
-assert(coreRoutes.includes("listActiveCompanyMembers"), "8: company users API uses listActiveCompanyMembers");
+assert(
+  coreRoutes.includes("listActiveCompanyMembers") || coreRoutes.includes("syncAndListActiveUsers"),
+  "8: company users API uses shared profile list path",
+);
 assert(serverMain.includes("rebuild-users-from-sheet"), "8b: godmode rebuild endpoint");
 assert(godmodePanel.includes("Rebuild users from sheet"), "8c: godmode rebuild button");
-assert(read("server/godmode-service.mjs").includes("listActiveCompanyMembers"), "8d: godmode service shares list path");
+assert(
+  read("server/godmode-service.mjs").includes("listActiveCompanyMembers") ||
+    read("server/godmode-service.mjs").includes("syncAndListActiveUsers"),
+  "8d: godmode service shares list path",
+);
 
 /** 9: PasswordHash never returned to clients. */
 assert(companyUsers.includes("sanitizeUsersTabRecords"), "9: sanitizeUsersTabRecords");
