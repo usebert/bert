@@ -55,6 +55,9 @@ const pendingInvite = {
 {
   const userService = read("server/company-user-service.mjs");
   assert(userService.includes("export async function listActiveCompanyMembers"), "1: listActiveCompanyMembers exported");
+  assert(userService.includes("validateCompanyFolderUnderCompaniesRoot"), "1a: folder placement is soft-checked before sheet read");
+  assert(!userService.includes("rejectIfCompanyFolderNotUnderCompaniesRoot"), "1a2: users list does not hard-block on folder placement");
+  assert(userService.includes("buildCacheOrSessionFallbackSuccess"), "1a3: cache fallback before session-only fallback");
   assert(userService.includes("companyFolderId: resolvedCompanyId"), "1b: members normalize companyFolderId");
   assert(userService.includes("mapActiveCompanyMember"), "1c: active member mapper exists");
 }

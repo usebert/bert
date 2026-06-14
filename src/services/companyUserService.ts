@@ -32,7 +32,7 @@ export type CompanyMembersDiagnostics = {
   cacheOnlyUsersRemoved?: number;
 };
 
-export const COMPANY_MEMBERS_LOAD_TIMEOUT_MS = 2000;
+export const COMPANY_MEMBERS_LOAD_TIMEOUT_MS = 8000;
 export const COMPANY_MEMBERS_LOADING_MESSAGE = "Loading company users…";
 export const COMPANY_MEMBERS_USER_MESSAGE = "Could not load company users.";
 

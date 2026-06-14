@@ -21,7 +21,7 @@ import {
 import { readCompanyUsers, resolveUsersTab } from "./users-tab-reader.mjs";
 import { resolveCompanyContextFields } from "./company-context-service.mjs";
 import { resolveCompanyFromFolder } from "./company-folder-resolver.mjs";
-import { rejectIfCompanyFolderNotUnderCompaniesRoot } from "./company-folder-placement.mjs";
+import { validateCompanyFolderUnderCompaniesRoot } from "./company-folder-placement.mjs";
 import {
   listActiveUsersFromSheet,
   readActiveUsersFromSheetWithStats,
@@ -185,6 +185,59 @@ function buildSessionFallbackSuccess(sessionActor, companyContext, failure, star
       activeRowsFound: 1,
     }),
   };
+}
+
+function buildCacheOrSessionFallbackSuccess(sessionActor, companyContext, failure, startedAt, deps = {}) {
+  const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
+  const cache = deps.companyUsersCache;
+  const cacheEntry =
+    cache && typeof cache.getEntry === "function" && companyFolderId ? cache.getEntry(companyFolderId) : null;
+  const cachedMembers = Array.isArray(cacheEntry?.users)
+    ? cacheEntry.users
+        .map((row) => mapActiveCompanyMember(row, companyContext))
+        .filter(Boolean)
+    : [];
+
+  if (cachedMembers.length > 0) {
+    const sessionMember = mapSessionActorToMember(sessionActor, companyContext);
+    const seenEmails = new Set(cachedMembers.map((row) => normalizeEmail(row.email)));
+    const members = [...cachedMembers];
+    if (sessionMember && !seenEmails.has(normalizeEmail(sessionMember.email))) {
+      members.unshift(sessionMember);
+    }
+    const failedStep = failure.failedStep || failure.diagnostics?.failedStep;
+    const reasonCode = failure.reasonCode;
+    const upstreamMessage = failure.diagnostics?.upstreamMessage || failure.technicalError;
+    return {
+      ok: true,
+      companyId: companyFolderId,
+      companyFolderId,
+      companyName: companyContext.companyName || undefined,
+      masterSheetId: companyContext.masterSheetId || cacheEntry?.masterSheetId || undefined,
+      users: members,
+      activeCount: members.length,
+      warning: `Showing cached active users; workbook read failed (${reasonCode || failedStep || "unknown"}).`,
+      reasonCode,
+      failedStep,
+      diagnostics: buildDiagnostics({
+        companyId: companyFolderId,
+        companyFolderId,
+        companyName: companyContext.companyName,
+        masterSheetId: companyContext.masterSheetId || cacheEntry?.masterSheetId,
+        signedInEmail: sessionActor?.email,
+        signedInRole: sessionActor?.role || sessionActor?.accessLevel,
+        dataSource: "cache-fallback",
+        failedStep,
+        durationMs: Date.now() - startedAt,
+        upstreamMessage,
+        totalRowsRead: 0,
+        activeRowsFound: members.length,
+        cacheUsersBefore: cachedMembers.length,
+      }),
+    };
+  }
+
+  return buildSessionFallbackSuccess(sessionActor, companyContext, failure, startedAt);
 }
 
 function classifyReadError(error, payload) {
@@ -440,22 +493,13 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
     );
   }
 
-  const folderPlacementDenial = await rejectIfCompanyFolderNotUnderCompaniesRoot(auth, deps, companyFolderId, {
+  const folderPlacement = await validateCompanyFolderUnderCompaniesRoot(auth, deps, companyFolderId, {
     companyFolderName: companyName,
-    denialOverrides: {
-      code: "COMPANY_USERS_LOAD_FAILED",
-      message: "This company is not set up in BERT. Contact your administrator.",
-      diagnostics: { ...baseDiagnostics(), failedStep: "company_context_resolve" },
-    },
-  });
-  if (folderPlacementDenial) {
-    return buildFailure(
-      folderPlacementDenial.reasonCode,
-      folderPlacementDenial.message,
-      folderPlacementDenial.diagnostics || { ...baseDiagnostics(), failedStep: "company_context_resolve" },
-      { httpStatus: 403, failedStep: "company_context_resolve" },
-    );
-  }
+  }).catch(() => ({ ok: false, reasonCode: "FOLDER_NOT_IN_COMPANIES_ROOT" }));
+  const folderPlacementWarning =
+    folderPlacement?.ok === false
+      ? String(folderPlacement.userMessage || folderPlacement.reasonCode || "FOLDER_NOT_IN_COMPANIES_ROOT").trim()
+      : "";
 
   const resolvedContext = await resolveCompanyContextFields(auth, deps, {
     companyFolderId,
@@ -527,6 +571,9 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
       deps,
     );
 
+    const placementWarning = folderPlacementWarning
+      ? `Company folder placement needs attention (${folderPlacement.reasonCode || "FOLDER_NOT_IN_COMPANIES_ROOT"}).`
+      : "";
     return {
       ok: true,
       companyId: resolvedCompanyId,
@@ -535,6 +582,7 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
       masterSheetId,
       users: members,
       activeCount: members.length,
+      warning: placementWarning || undefined,
       diagnostics: buildDiagnostics({
         companyId: resolvedCompanyId,
         companyFolderId: resolvedCompanyId,
@@ -584,7 +632,7 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
       },
     );
 
-    const fallback = buildSessionFallbackSuccess(
+    const fallback = buildCacheOrSessionFallbackSuccess(
       sessionActor,
       {
         companyFolderId: resolvedCompanyId,
@@ -594,9 +642,19 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
       },
       failure,
       startedAt,
+      deps,
     );
     if (fallback) {
       return fallback;
+    }
+
+    if (folderPlacementWarning && !masterSheetId) {
+      return buildFailure(
+        folderPlacement.reasonCode || "FOLDER_NOT_IN_COMPANIES_ROOT",
+        "This company is not set up in BERT. Contact your administrator.",
+        { ...baseDiagnostics(), failedStep: "company_context_resolve" },
+        { httpStatus: 403, failedStep: "company_context_resolve" },
+      );
     }
 
     return failure;

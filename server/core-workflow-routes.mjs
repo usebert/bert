@@ -495,15 +495,6 @@ export function installCoreWorkflowRoutes(app, deps) {
       String(process.env.BERT_GODMODE_DIAGNOSTICS || "").trim().toLowerCase() === "true";
     const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
     const companyFolderId = String(req.query.companyFolderId || actor?.companyFolderId || companyId).trim();
-    const folderDenial = await rejectCompanyApiIfFolderInvalid(
-      authed,
-      { ...registryDeps, ...scheduleDeps },
-      companyFolderId,
-      String(req.query.companyName || actor?.companyName || "").trim(),
-    );
-    if (folderDenial) {
-      return res.status(403).json(folderDenial);
-    }
 
     try {
       const result = await getScheduleAssigneesForCompany(authed, { ...registryDeps, ...scheduleDeps }, {

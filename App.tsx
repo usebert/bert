@@ -8812,7 +8812,7 @@ function App() {
   };
 
   const handleResyncUsers = async () => {
-    if (!googleConnected) {
+    if (currentUser?.role === "Master" && !googleConnected) {
       pushToast("Google not connected", "Connect Google before re-syncing users.", "warning");
       return;
     }
