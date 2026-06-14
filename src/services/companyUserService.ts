@@ -108,7 +108,6 @@ export function buildSignedInMemberFallback(input: {
     role: String(input.role || "User").trim() || "User",
     accessLevel: String(input.accessLevel || "").trim(),
     status: "ACTIVE",
-    company: String(input.companyName || "").trim(),
     companyId: companyFolderId,
     companyFolderId,
     companyAreas,

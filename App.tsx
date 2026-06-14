@@ -124,6 +124,7 @@ import {
 } from "./src/utils/applyLinkedCompanyContext";
 import {
   COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
+  FOLDER_NOT_IN_COMPANIES_ROOT,
   FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE,
   isCompanyFolderLinkValid,
 } from "./src/utils/companyFolderContext";
@@ -5316,7 +5317,7 @@ function App() {
         return false;
       }
       const fallbackMember = buildSignedInMemberFallback({
-        email: currentUser.username || currentUser.email,
+        email: currentUser.username || currentUser.email || "",
         name: currentUser.name,
         role: currentUser.role,
         accessLevel: currentUser.accessLevel,
@@ -5891,12 +5892,15 @@ function App() {
           };
           company?: {
             companyId?: string;
+            companyFolderId?: string;
             companyName?: string;
             masterSheetId?: string;
             registryStatus?: string;
             folderPlacementOk?: boolean;
             reasonCode?: string;
           };
+          companyId?: string;
+          companyFolderId?: string;
           folderPlacementOk?: boolean;
           reasonCode?: string;
           companyContextValid?: boolean;
@@ -5956,7 +5960,9 @@ function App() {
               registryStatus: cp.company?.registryStatus,
             }),
           );
-          const resolvedCompanyId = String(cp.company?.companyId || companyIdFromSession || "").trim();
+          const resolvedCompanyId = String(
+            cp.company?.companyId || cp.company?.companyFolderId || cp.companyFolderId || cp.companyId || "",
+          ).trim();
           const resolvedMasterSheetId = String(cp.company?.masterSheetId || "").trim();
           if (resolvedCompanyId && resolvedMasterSheetId) {
             applyLinkedCompanyContext({
@@ -5964,7 +5970,6 @@ function App() {
               company: {
                 ...cp.company,
                 companyId: resolvedCompanyId,
-                companyFolderId: resolvedCompanyId,
                 masterSheetId: resolvedMasterSheetId,
                 folderPlacementOk: companyLinkValid,
               },
