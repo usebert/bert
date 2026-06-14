@@ -17,6 +17,8 @@ export type CompanyMembersDiagnostics = {
   companyFolderId?: string;
   companyName?: string;
   masterSheetId?: string;
+  masterSheetIdsTried?: string[];
+  masterSheetResolutionSource?: string;
   signedInEmail?: string;
   signedInRole?: string;
   dataSource?: string;

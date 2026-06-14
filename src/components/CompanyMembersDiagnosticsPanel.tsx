@@ -18,6 +18,12 @@ function formatDiagnostics(diagnostics: CompanyMembersDiagnostics | undefined, r
     diagnostics?.companyId ? `companyId: ${diagnostics.companyId}` : "",
     diagnostics?.companyFolderId ? `companyFolderId: ${diagnostics.companyFolderId}` : "",
     diagnostics?.masterSheetId ? `masterSheetId: ${diagnostics.masterSheetId}` : "",
+    Array.isArray(diagnostics?.masterSheetIdsTried) && diagnostics.masterSheetIdsTried.length
+      ? `masterSheetIdsTried: ${diagnostics.masterSheetIdsTried.join(", ")}`
+      : "",
+    diagnostics?.masterSheetResolutionSource
+      ? `masterSheetResolutionSource: ${diagnostics.masterSheetResolutionSource}`
+      : "",
     diagnostics?.signedInEmail ? `signedInEmail: ${diagnostics.signedInEmail}` : "",
     typeof diagnostics?.totalRowsRead === "number" ? `totalRowsRead: ${diagnostics.totalRowsRead}` : "",
     typeof diagnostics?.profilesReturned === "number" ? `profilesReturned: ${diagnostics.profilesReturned}` : "",

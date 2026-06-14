@@ -33,6 +33,7 @@ const REASON_CODES = [
   "USERS_TAB_READ_FAILED",
   "GOOGLE_AUTH_FAILED",
   "GOOGLE_PERMISSION_DENIED",
+  "GOOGLE_SHEET_ACCESS_DENIED",
   "INVALID_COMPANY_ID",
 ];
 
@@ -50,7 +51,11 @@ const REASON_CODES = [
 
 /** 2: All reason codes are implemented in the service. */
 for (const code of REASON_CODES) {
-  assert(userService.includes(`"${code}"`), `2: reasonCode ${code} implemented`);
+  const foundation = read("server/company-users-foundation.mjs");
+  assert(
+    userService.includes(`"${code}"`) || foundation.includes(`"${code}"`),
+    `2: reasonCode ${code} implemented`,
+  );
 }
 
 /** 3: Diagnostics fields are built for failures and successes. */
@@ -81,6 +86,15 @@ for (const code of REASON_CODES) {
 {
   assert(userService.includes("resolveCompanyFromFolder"), "4: folder resolver used");
   assert(userService.includes("resolveMasterSheetFromFolder"), "4b: folder master sheet resolver");
+  assert(
+    read("server/company-users-foundation.mjs").includes("discoverCompanyMasterSheetInFolder") ||
+      read("server/company-folder-structure.mjs").includes("discoverCompanyMasterSheetInFolder"),
+    "4b2: folder discovery searches company root and legacy setup",
+  );
+  assert(
+    read("server/company-users-foundation.mjs").includes("preferFolderResolution"),
+    "4b3: read path prefers folder-resolved masterSheetId",
+  );
   assert(userService.includes("companyId: companyFolderId"), "4c: companyId equals companyFolderId");
   assert(userService.includes("resolveCompanyContextFields"), "4d: folder name resolved via context resolver");
   assert(coreRoutes.includes("actor?.companyFolderId"), "4e: users route uses session companyFolderId");

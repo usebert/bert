@@ -186,14 +186,17 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
   let workbookFolderId = trim(options.workbookFolderId);
   let folderIds = {};
   let legacyRootIds = {};
+  const preferFolderResolution = options.preferFolderResolution === true;
+  const createIfMissing = options.createIfMissing !== false;
+  const readOnlyResolve = preferFolderResolution && createIfMissing === false;
 
-  if (!workbookFolderId || options.ensureStructure !== false) {
+  if (!workbookFolderId || (options.ensureStructure !== false && !readOnlyResolve)) {
     const structure = await ensureCompanyFolderStructure(deps, auth, {
       companyName,
       companyRootFolderId: folderId,
-      masterSheetId: masterSheetHint,
+      masterSheetId: readOnlyResolve ? "" : masterSheetHint,
       syncWorkbookTab: false,
-      placeFiles: Boolean(masterSheetHint),
+      placeFiles: readOnlyResolve ? false : Boolean(masterSheetHint),
     });
     folderIds = structure.folderIds || {};
     legacyRootIds = structure.legacyRootIds || {};
@@ -205,6 +208,9 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
     masterSheetId: masterSheetHint,
     workbookFolderId,
     legacySetupFolderId: legacyRootIds.setupFolderId,
+    companyRootFolderId: folderId,
+    preferFolderResolution,
+    createIfMissing,
   });
   const masterSheetId = trim(masterSheet.masterSheetId);
   if (!masterSheetId) {
@@ -290,6 +296,7 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
     masterSheetLink: masterSheet.masterSheetLink,
     workbookFolderId,
     status: folderPlacementOk ? COMPANY_CONTEXT_STATUS_USABLE : "",
+    source: trim(masterSheet.source) || undefined,
     userMessage: folderPlacementOk
       ? COMPANY_READY_INVITE_MESSAGE
       : folderPlacement.userMessage || "Company folder is not under Live Companies.",

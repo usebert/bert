@@ -397,6 +397,124 @@ async function listSpreadsheetsInFolder(drive, folderId) {
   return response.data.files || [];
 }
 
+async function listFolderChildren(drive, folderId) {
+  if (!folderId) {
+    return [];
+  }
+  const response = await drive.files.list({
+    includeItemsFromAllDrives: true,
+    supportsAllDrives: true,
+    q: `'${folderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+    fields: "files(id,name,mimeType,createdTime)",
+    pageSize: 200,
+    orderBy: "name_natural",
+  });
+  return response.data.files || [];
+}
+
+function scoreMasterSheetCandidate(file, companyName = "") {
+  const name = String(file?.name || "").trim();
+  if (!name) {
+    return 0;
+  }
+  if (matchesCompanyMasterSheetName(name, companyName)) {
+    return 100;
+  }
+  const lower = safeLower(name);
+  if (lower.endsWith(" - bert master sheet")) {
+    return 80;
+  }
+  if (lower.includes("bert master sheet")) {
+    return 60;
+  }
+  return 10;
+}
+
+function pickBestMasterSheetCandidate(candidates = [], companyName = "") {
+  let best = null;
+  let bestScore = 0;
+  for (const candidate of candidates) {
+    const score = scoreMasterSheetCandidate(candidate.file, companyName) + (candidate.priorityBoost || 0);
+    if (score > bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+/**
+ * Read-only discovery — search company root, legacy setup, and Company Workbook folder
+ * for the BERT Master Sheet without creating folders or spreadsheets.
+ */
+export async function discoverCompanyMasterSheetInFolder(drive, input = {}) {
+  const companyRootFolderId = String(input.companyRootFolderId || input.companyFolderId || "").trim();
+  const companyName = String(input.companyName || "").trim();
+  if (!drive || !companyRootFolderId) {
+    return null;
+  }
+
+  const candidates = [];
+  const rootResponse = await drive.files.list({
+    includeItemsFromAllDrives: true,
+    supportsAllDrives: true,
+    q: `'${companyRootFolderId}' in parents and trashed = false`,
+    fields: "files(id,name,mimeType,webViewLink,createdTime)",
+    pageSize: 200,
+  });
+  const rootItems = rootResponse.data.files || [];
+
+  for (const item of rootItems) {
+    if (item.mimeType === "application/vnd.google-apps.spreadsheet") {
+      candidates.push({ file: item, source: "company_root", priorityBoost: 20 });
+    }
+  }
+
+  for (const legacyKey of Object.keys(LEGACY_ISO_ROOT_ALIASES)) {
+    const legacyFolder = findLegacyRootFolder(rootItems, legacyKey);
+    if (!legacyFolder?.id) {
+      continue;
+    }
+    const spreadsheets = await listSpreadsheetsInFolder(drive, legacyFolder.id);
+    for (const file of spreadsheets) {
+      candidates.push({
+        file,
+        source: legacyKey === "setupFolderId" ? "legacy_setup" : legacyKey,
+        priorityBoost: legacyKey === "setupFolderId" ? 40 : 20,
+      });
+    }
+  }
+
+  const bertSystemFolder = rootItems.find(
+    (item) =>
+      item.mimeType === "application/vnd.google-apps.folder" &&
+      normalizeFolderName(item.name) === normalizeFolderName("01 - BERT System Files"),
+  );
+  if (bertSystemFolder?.id) {
+    const bertChildren = await listFolderChildren(drive, bertSystemFolder.id);
+    const companyWorkbookFolder = bertChildren.find(
+      (item) => normalizeFolderName(item.name) === normalizeFolderName("Company Workbook"),
+    );
+    if (companyWorkbookFolder?.id) {
+      const spreadsheets = await listSpreadsheetsInFolder(drive, companyWorkbookFolder.id);
+      for (const file of spreadsheets) {
+        candidates.push({ file, source: "company_workbook", priorityBoost: 50 });
+      }
+    }
+  }
+
+  const best = pickBestMasterSheetCandidate(candidates, companyName);
+  if (!best?.file?.id) {
+    return null;
+  }
+  return {
+    masterSheetId: best.file.id,
+    masterSheetName: best.file.name,
+    masterSheetLink: buildSpreadsheetLink(best.file.id, best.file.webViewLink),
+    source: best.source,
+  };
+}
+
 function buildSpreadsheetLink(spreadsheetId, webViewLink = "") {
   if (webViewLink) {
     return webViewLink;
@@ -417,6 +535,56 @@ async function createCompanySpreadsheet(drive, name, parentId) {
   return created.data;
 }
 
+function buildMasterSheetResult(file, status, created = false) {
+  return {
+    masterSheetId: file.id,
+    masterSheetName: file.name,
+    masterSheetLink: buildSpreadsheetLink(file.id, file.webViewLink),
+    status,
+    created,
+  };
+}
+
+async function findMasterSheetInSearchFolders(drive, searchFolderIds, companyName, workbookFolderId) {
+  for (const folderId of searchFolderIds) {
+    const spreadsheets = await listSpreadsheetsInFolder(drive, folderId);
+    const match =
+      spreadsheets.find((file) => matchesCompanyMasterSheetName(file.name, companyName)) ||
+      spreadsheets.find((file) => safeLower(file.name).endsWith(" - bert master sheet")) ||
+      spreadsheets[0] ||
+      null;
+    if (match?.id) {
+      if (workbookFolderId && folderId !== workbookFolderId) {
+        await moveFileToFolderIfNeeded(drive, match.id, workbookFolderId);
+      }
+      return buildMasterSheetResult(match, "reused");
+    }
+  }
+  return null;
+}
+
+async function linkMasterSheetHint(drive, masterSheetIdHint, workbookFolderId) {
+  if (!masterSheetIdHint) {
+    return null;
+  }
+  try {
+    const meta = await drive.files.get({
+      fileId: masterSheetIdHint,
+      supportsAllDrives: true,
+      fields: "id,name,mimeType,webViewLink",
+    });
+    if (meta.data.mimeType !== "application/vnd.google-apps.spreadsheet") {
+      return null;
+    }
+    if (workbookFolderId) {
+      await moveFileToFolderIfNeeded(drive, masterSheetIdHint, workbookFolderId);
+    }
+    return buildMasterSheetResult(meta.data, "linked");
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Find, reuse, or create the company master spreadsheet in Company Workbook. Idempotent.
  */
@@ -425,47 +593,72 @@ export async function ensureCompanyMasterSheet(drive, input) {
   const masterSheetIdHint = String(input.masterSheetId || "").trim();
   const workbookFolderId = String(input.workbookFolderId || "").trim();
   const legacySetupFolderId = String(input.legacySetupFolderId || "").trim();
+  const companyRootFolderId = String(input.companyRootFolderId || input.companyFolderId || "").trim();
+  const preferFolderResolution = input.preferFolderResolution === true;
+  const createIfMissing = input.createIfMissing !== false;
   const searchFolderIds = Array.from(new Set([workbookFolderId, legacySetupFolderId].filter(Boolean)));
 
-  if (masterSheetIdHint) {
-    try {
-      const meta = await drive.files.get({
-        fileId: masterSheetIdHint,
-        supportsAllDrives: true,
-        fields: "id,name,mimeType,webViewLink",
-      });
-      if (meta.data.mimeType === "application/vnd.google-apps.spreadsheet") {
-        if (workbookFolderId) {
-          await moveFileToFolderIfNeeded(drive, masterSheetIdHint, workbookFolderId);
-        }
-        return {
-          masterSheetId: meta.data.id,
-          masterSheetName: meta.data.name,
-          masterSheetLink: buildSpreadsheetLink(meta.data.id, meta.data.webViewLink),
-          status: "linked",
-          created: false,
-        };
+  if (preferFolderResolution && companyRootFolderId) {
+    const discovered = await discoverCompanyMasterSheetInFolder(drive, {
+      companyRootFolderId,
+      companyName,
+    });
+    if (discovered?.masterSheetId) {
+      if (workbookFolderId) {
+        await moveFileToFolderIfNeeded(drive, discovered.masterSheetId, workbookFolderId).catch(() => null);
       }
-    } catch {
-      // Hint invalid — search or create below.
+      return {
+        masterSheetId: discovered.masterSheetId,
+        masterSheetName: discovered.masterSheetName,
+        masterSheetLink: discovered.masterSheetLink,
+        status: "discovered",
+        created: false,
+        source: discovered.source,
+      };
     }
   }
 
-  for (const folderId of searchFolderIds) {
-    const spreadsheets = await listSpreadsheetsInFolder(drive, folderId);
-    const match = spreadsheets.find((file) => matchesCompanyMasterSheetName(file.name, companyName));
-    if (match?.id) {
-      if (workbookFolderId && folderId !== workbookFolderId) {
-        await moveFileToFolderIfNeeded(drive, match.id, workbookFolderId);
-      }
-      return {
-        masterSheetId: match.id,
-        masterSheetName: match.name,
-        masterSheetLink: buildSpreadsheetLink(match.id, match.webViewLink),
-        status: "reused",
-        created: false,
-      };
+  if (preferFolderResolution) {
+    const folderMatch = await findMasterSheetInSearchFolders(
+      drive,
+      searchFolderIds,
+      companyName,
+      workbookFolderId,
+    );
+    if (folderMatch) {
+      return folderMatch;
     }
+    const linkedHint = await linkMasterSheetHint(drive, masterSheetIdHint, workbookFolderId);
+    if (linkedHint) {
+      return linkedHint;
+    }
+  } else if (masterSheetIdHint) {
+    const linkedHint = await linkMasterSheetHint(drive, masterSheetIdHint, workbookFolderId);
+    if (linkedHint) {
+      return linkedHint;
+    }
+  }
+
+  if (!preferFolderResolution) {
+    const folderMatch = await findMasterSheetInSearchFolders(
+      drive,
+      searchFolderIds,
+      companyName,
+      workbookFolderId,
+    );
+    if (folderMatch) {
+      return folderMatch;
+    }
+  }
+
+  if (!createIfMissing) {
+    return {
+      masterSheetId: "",
+      masterSheetName: "",
+      masterSheetLink: "",
+      status: "missing",
+      created: false,
+    };
   }
 
   const parentId = workbookFolderId || searchFolderIds[0];
@@ -485,6 +678,7 @@ export async function ensureCompanyMasterSheet(drive, input) {
     masterSheetLink: buildSpreadsheetLink(created.id, created.webViewLink),
     status: "created",
     created: true,
+    source: "created",
   };
 }
 

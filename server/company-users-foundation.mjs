@@ -14,9 +14,25 @@ import { buildAvailableScheduleAssigneesFromUsers } from "../shared/schedule-ass
 
 const COMPANY_USERS_LOAD_FAILED = "COMPANY_USERS_LOAD_FAILED";
 const COMPANY_USERS_USER_MESSAGE = "Could not load company users.";
+const GOOGLE_SHEET_ACCESS_DENIED_MESSAGE =
+  "Google cannot read the company workbook. Ask your operator to share the BERT Master Sheet with the BERT service account.";
 
 function trim(value) {
   return String(value ?? "").trim();
+}
+
+function uniqueIds(values = []) {
+  const seen = new Set();
+  const out = [];
+  for (const value of values) {
+    const id = trim(value);
+    if (!id || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
 }
 
 function normalizeEmail(value) {
@@ -55,6 +71,10 @@ function buildDiagnostics(base = {}) {
     cacheUsersBefore: typeof base.cacheUsersBefore === "number" ? base.cacheUsersBefore : undefined,
     cacheOnlyUsersRemoved:
       typeof base.cacheOnlyUsersRemoved === "number" ? base.cacheOnlyUsersRemoved : undefined,
+    masterSheetIdsTried: Array.isArray(base.masterSheetIdsTried)
+      ? uniqueIds(base.masterSheetIdsTried)
+      : undefined,
+    masterSheetResolutionSource: trim(base.masterSheetResolutionSource) || undefined,
   };
 }
 
@@ -83,14 +103,16 @@ function classifyReadError(error) {
   if (
     code === "GOOGLE_SHEETS_PERMISSION_DENIED" ||
     code === "GOOGLE_PERMISSION_DENIED" ||
+    code === "GOOGLE_SHEET_ACCESS_DENIED" ||
     upstreamStatus === 403 ||
     lower.includes("permission")
   ) {
     return {
-      reasonCode: "GOOGLE_PERMISSION_DENIED",
+      reasonCode: "GOOGLE_SHEET_ACCESS_DENIED",
       failedStep: trim(error?.failedStep) || "google_sheets_read",
       upstreamStatus: upstreamStatus || 403,
       upstreamMessage: message,
+      userMessage: GOOGLE_SHEET_ACCESS_DENIED_MESSAGE,
     };
   }
   if (
@@ -149,6 +171,79 @@ function isStaleMasterSheetError(error) {
 
 function logCompanyMembersLoad(payload = {}) {
   console.info("[company-members]", JSON.stringify(payload));
+}
+
+async function resolveMasterSheetFromCompanyFolder(auth, deps, companyFolderId, companyName, options = {}) {
+  const sessionHint = trim(options.masterSheetId);
+  const preferFolderResolution = options.preferFolderResolution !== false;
+  const createIfMissing = options.createIfMissing === true;
+  try {
+    const resolved = await resolveCompanyFromFolder(auth, deps, companyFolderId, {
+      companyName,
+      masterSheetId: preferFolderResolution ? "" : sessionHint,
+      skipFolderPlacementCheck: true,
+      preferFolderResolution,
+      createIfMissing,
+      ensureStructure: createIfMissing,
+    });
+    const folderSheetId = trim(resolved?.masterSheetId);
+    if (resolved?.ok && folderSheetId) {
+      return {
+        ok: true,
+        masterSheetId: folderSheetId,
+        companyName: trim(resolved.companyName) || companyName,
+        source: trim(resolved.source || resolved.masterSheet?.source) || "company_folder",
+      };
+    }
+    const reasonCode = trim(resolved?.reasonCode);
+    if (reasonCode === "GOOGLE_NOT_CONNECTED") {
+      return { ok: false, reasonCode: "GOOGLE_AUTH_FAILED", resolved };
+    }
+    return { ok: false, reasonCode: reasonCode || "WORKBOOK_NOT_FOUND", resolved };
+  } catch (error) {
+    const message = trim(error instanceof Error ? error.message : error).toLowerCase();
+    if (message.includes("permission") || message.includes("forbidden")) {
+      return { ok: false, reasonCode: "GOOGLE_SHEET_ACCESS_DENIED", error };
+    }
+    return { ok: false, reasonCode: "WORKBOOK_NOT_FOUND", error };
+  }
+}
+
+async function readUsersTabProfilesWithRetry(auth, deps, companyCtx, options = {}) {
+  const masterSheetIdsTried = uniqueIds([...(options.masterSheetIdsTried || []), companyCtx.masterSheetId]);
+  try {
+    const sheetResult = await readUsersTabProfiles(auth, deps, companyCtx);
+    return { ok: true, sheetResult, masterSheetIdsTried, companyCtx };
+  } catch (error) {
+    if (!options.allowFolderRetry || !isStaleMasterSheetError(error)) {
+      throw error;
+    }
+    const folderResolved = await resolveMasterSheetFromCompanyFolder(
+      auth,
+      deps,
+      companyCtx.companyFolderId,
+      companyCtx.companyName,
+      { preferFolderResolution: true, createIfMissing: false },
+    );
+    const refreshedSheetId = trim(folderResolved?.masterSheetId);
+    masterSheetIdsTried.push(refreshedSheetId);
+    if (!folderResolved?.ok || !refreshedSheetId || refreshedSheetId === trim(companyCtx.masterSheetId)) {
+      throw error;
+    }
+    const refreshedCtx = {
+      ...companyCtx,
+      masterSheetId: refreshedSheetId,
+      companyName: trim(folderResolved.companyName) || companyCtx.companyName,
+    };
+    const sheetResult = await readUsersTabProfiles(auth, deps, refreshedCtx);
+    return {
+      ok: true,
+      sheetResult,
+      masterSheetIdsTried: uniqueIds(masterSheetIdsTried),
+      companyCtx: refreshedCtx,
+      resolutionSource: folderResolved.source || "company_folder_retry",
+    };
+  }
 }
 
 async function readUsersTabRecordsForCompany(auth, deps, companyContext = {}, options = {}) {
@@ -272,6 +367,9 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
   const companyFolderId = trim(companyContext.companyFolderId || companyContext.companyId);
   let masterSheetId = trim(companyContext.masterSheetId);
   let companyName = trim(companyContext.companyName);
+  const sessionMasterSheetId = masterSheetId;
+  const masterSheetIdsTried = uniqueIds([sessionMasterSheetId]);
+  let masterSheetResolutionSource = sessionMasterSheetId ? "session_hint" : undefined;
 
   const baseDiagnostics = () =>
     buildDiagnostics({
@@ -283,6 +381,8 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
       signedInRole,
       dataSource: "users_tab",
       durationMs: Date.now() - startedAt,
+      masterSheetIdsTried,
+      masterSheetResolutionSource,
     });
 
   if (!auth) {
@@ -329,27 +429,37 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
   masterSheetId = trim(resolvedContext.masterSheetId) || masterSheetId;
   companyName = trim(resolvedContext.companyName) || companyName;
 
-  // Folder → workbook: resolve masterSheetId from Drive folder before sheet read (session hints can be stale).
-  if (companyFolderId) {
-    try {
-      const folderResolved = await resolveCompanyFromFolder(auth, deps, companyFolderId, {
-        companyName,
-        masterSheetId,
-        skipFolderPlacementCheck: true,
-      });
-      const folderSheetId = trim(folderResolved?.masterSheetId);
-      if (folderResolved?.ok && folderSheetId) {
-        masterSheetId = folderSheetId;
-        companyName = trim(folderResolved.companyName) || companyName;
-      }
-    } catch {
-      /* continue with resolved hint */
+  const folderResolved = await resolveMasterSheetFromCompanyFolder(auth, deps, companyFolderId, companyName, {
+    preferFolderResolution: true,
+    createIfMissing: false,
+  });
+  const folderSheetId = trim(folderResolved?.masterSheetId);
+  if (folderResolved?.ok && folderSheetId) {
+    if (!sessionMasterSheetId || folderSheetId !== sessionMasterSheetId) {
+      masterSheetResolutionSource = trim(folderResolved.source) || "company_folder";
     }
+    masterSheetId = folderSheetId;
+    companyName = trim(folderResolved.companyName) || companyName;
+    masterSheetIdsTried.push(folderSheetId);
+  } else if (!masterSheetId && sessionMasterSheetId) {
+    masterSheetId = sessionMasterSheetId;
+    masterSheetIdsTried.push(sessionMasterSheetId);
+  } else if (sessionMasterSheetId) {
+    masterSheetIdsTried.push(sessionMasterSheetId);
   }
 
   if (!masterSheetId) {
+    const folderReason = trim(folderResolved?.reasonCode);
+    if (folderReason === "GOOGLE_SHEET_ACCESS_DENIED") {
+      return buildFailure(
+        "GOOGLE_SHEET_ACCESS_DENIED",
+        GOOGLE_SHEET_ACCESS_DENIED_MESSAGE,
+        { ...baseDiagnostics(), failedStep: "company_folder_list" },
+        { httpStatus: 403, failedStep: "company_folder_list" },
+      );
+    }
     return buildFailure(
-      "MISSING_MASTER_SHEET_ID",
+      folderReason === "WORKBOOK_NOT_FOUND" ? "WORKBOOK_NOT_FOUND" : "MISSING_MASTER_SHEET_ID",
       COMPANY_USERS_USER_MESSAGE,
       { ...baseDiagnostics(), companyName, failedStep: "master_sheet_resolve" },
       { httpStatus: 404, failedStep: "master_sheet_resolve" },
@@ -365,9 +475,20 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
   };
 
   try {
-    const sheetResult = await readUsersTabProfiles(auth, deps, companyCtx);
+    const readAttempt = await readUsersTabProfilesWithRetry(auth, deps, companyCtx, {
+      masterSheetIdsTried,
+      allowFolderRetry: true,
+    });
+    const sheetResult = readAttempt.sheetResult;
+    const resolvedCtx = readAttempt.companyCtx;
+    masterSheetId = trim(resolvedCtx.masterSheetId) || masterSheetId;
+    companyName = trim(resolvedCtx.companyName) || companyName;
+    if (readAttempt.resolutionSource) {
+      masterSheetResolutionSource = readAttempt.resolutionSource;
+    }
+    const triedIds = uniqueIds(readAttempt.masterSheetIdsTried || masterSheetIdsTried);
     const members = sheetResult.members;
-    const cacheStats = syncCompanyUsersCache(deps, companyCtx, members);
+    const cacheStats = syncCompanyUsersCache(deps, resolvedCtx, members);
     const placementWarning = folderPlacementWarning
       ? `Company folder placement needs attention (${folderPlacement.reasonCode || "FOLDER_NOT_IN_COMPANIES_ROOT"}).`
       : "";
@@ -406,63 +527,17 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
         activeOnlyCount: sheetResult.activeOnlyCount,
         cacheUsersBefore: cacheStats.cacheUsersBefore,
         cacheOnlyUsersRemoved: cacheStats.cacheOnlyUsersRemoved,
+        masterSheetIdsTried: triedIds,
+        masterSheetResolutionSource,
       }),
       cacheReconciliation: cacheStats,
     };
   } catch (error) {
-    if (isStaleMasterSheetError(error) && companyFolderId) {
-      try {
-        const folderResolved = await resolveCompanyFromFolder(auth, deps, companyFolderId, {
-          companyName,
-          masterSheetId,
-          skipFolderPlacementCheck: true,
-        });
-        const refreshedSheetId = trim(folderResolved?.masterSheetId);
-        if (folderResolved?.ok && refreshedSheetId && refreshedSheetId !== masterSheetId) {
-          const refreshedCtx = {
-            ...companyCtx,
-            masterSheetId: refreshedSheetId,
-            companyName: trim(folderResolved.companyName) || companyName,
-          };
-          const sheetResult = await readUsersTabProfiles(auth, deps, refreshedCtx);
-          const members = sheetResult.members;
-          const cacheStats = syncCompanyUsersCache(deps, refreshedCtx, members);
-          return {
-            ok: true,
-            companyId: resolvedCompanyId,
-            companyFolderId: resolvedCompanyId,
-            companyName: refreshedCtx.companyName || undefined,
-            masterSheetId: refreshedSheetId,
-            users: members,
-            activeCount: members.length,
-            diagnostics: buildDiagnostics({
-              companyId: resolvedCompanyId,
-              companyFolderId: resolvedCompanyId,
-              companyName: refreshedCtx.companyName,
-              masterSheetId: refreshedSheetId,
-              signedInEmail,
-              signedInRole,
-              dataSource: "users_tab",
-              durationMs: Date.now() - startedAt,
-              totalRowsRead: sheetResult.totalSheetRows,
-              profilesReturned: members.length,
-              activeOnlyCount: sheetResult.activeOnlyCount,
-              cacheUsersBefore: cacheStats.cacheUsersBefore,
-              cacheOnlyUsersRemoved: cacheStats.cacheOnlyUsersRemoved,
-            }),
-            cacheReconciliation: cacheStats,
-          };
-        }
-      } catch {
-        // fall through to structured failure
-      }
-    }
-
     const classified = classifyReadError(error);
     const technicalError = error instanceof Error ? error.message : String(error);
     return buildFailure(
       classified.reasonCode,
-      COMPANY_USERS_USER_MESSAGE,
+      classified.userMessage || COMPANY_USERS_USER_MESSAGE,
       {
         ...baseDiagnostics(),
         companyName,
@@ -470,13 +545,18 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
         failedStep: classified.failedStep,
         upstreamStatus: classified.upstreamStatus,
         upstreamMessage: classified.upstreamMessage || technicalError,
+        masterSheetIdsTried: uniqueIds(masterSheetIdsTried),
+        masterSheetResolutionSource,
       },
       {
         httpStatus:
+          classified.reasonCode === "GOOGLE_SHEET_ACCESS_DENIED" ||
           classified.reasonCode === "GOOGLE_PERMISSION_DENIED" ||
           classified.reasonCode === "GOOGLE_SHEETS_PERMISSION_DENIED"
             ? 403
-            : 502,
+            : classified.reasonCode === "WORKBOOK_NOT_FOUND"
+              ? 404
+              : 502,
         technicalError,
         failedStep: classified.failedStep,
       },
