@@ -12,11 +12,12 @@ import { resolveCompanyFromFolder } from "./company-folder-resolver.mjs";
 import { validateCompanyFolderUnderCompaniesRoot } from "./company-folder-placement.mjs";
 import { validateAccessibleMasterSheet } from "./company-folder-structure.mjs";
 import { buildAvailableScheduleAssigneesFromUsers } from "../shared/schedule-assignees.mjs";
+import { buildCompanyFolderUrl, buildShareCompanyFolderHint } from "../shared/company-folder-links.mjs";
 
 const COMPANY_USERS_LOAD_FAILED = "COMPANY_USERS_LOAD_FAILED";
 const COMPANY_USERS_USER_MESSAGE = "Could not load company users.";
 const GOOGLE_SHEET_ACCESS_DENIED_MESSAGE =
-  "Google cannot read the company workbook. Ask your operator to share the BERT Master Sheet with the BERT Google connection.";
+  "Google cannot read the company workbook. Ask your operator to share the company folder with the BERT Google connection.";
 const WORKBOOK_NOT_FOUND_MESSAGE =
   "No BERT Master Sheet was found in your company Drive folder. Ask your operator to add or move the workbook into 01 - BERT System Files / Company Workbook.";
 const WORKBOOK_NON_NATIVE_MESSAGE =
@@ -57,6 +58,7 @@ function buildDiagnostics(base = {}) {
   return {
     companyId: companyId || undefined,
     companyFolderId: companyFolderId || companyId || undefined,
+    companyFolderUrl: buildCompanyFolderUrl(companyFolderId || companyId) || undefined,
     companyName: trim(base.companyName) || undefined,
     masterSheetId: trim(base.masterSheetId) || undefined,
     signedInEmail: normalizeEmail(base.signedInEmail) || undefined,
@@ -180,7 +182,22 @@ function logCompanyMembersLoad(payload = {}) {
   console.info("[company-members]", JSON.stringify(payload));
 }
 
-function workbookNotFoundUserMessage(input = {}) {
+function resolveGoogleConnectedEmail(deps) {
+  return trim(typeof deps?.getGoogleConnectedEmail === "function" ? deps.getGoogleConnectedEmail() : "");
+}
+
+function appendShareFolderHint(message, companyFolderId, deps) {
+  const hint = buildShareCompanyFolderHint({
+    companyFolderId,
+    googleConnectedEmail: resolveGoogleConnectedEmail(deps),
+  });
+  if (!hint) {
+    return message;
+  }
+  return `${message} ${hint}`;
+}
+
+function workbookNotFoundUserMessage(input = {}, deps) {
   const nonNativeName = trim(input.nonNativeWorkbookName);
   if (nonNativeName) {
     return `${WORKBOOK_NON_NATIVE_MESSAGE} (Found: ${nonNativeName})`;
@@ -188,7 +205,11 @@ function workbookNotFoundUserMessage(input = {}) {
   if (input.staleSessionHint) {
     return WORKBOOK_STALE_HINT_MESSAGE;
   }
-  return WORKBOOK_NOT_FOUND_MESSAGE;
+  return appendShareFolderHint(WORKBOOK_NOT_FOUND_MESSAGE, input.companyFolderId, deps);
+}
+
+function driveAccessUserMessage(companyFolderId, deps) {
+  return appendShareFolderHint(GOOGLE_SHEET_ACCESS_DENIED_MESSAGE, companyFolderId, deps);
 }
 
 async function validateMasterSheetHint(auth, deps, masterSheetId) {
@@ -498,16 +519,20 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
     if (folderReason === "GOOGLE_SHEET_ACCESS_DENIED") {
       return buildFailure(
         "GOOGLE_SHEET_ACCESS_DENIED",
-        GOOGLE_SHEET_ACCESS_DENIED_MESSAGE,
+        driveAccessUserMessage(companyFolderId, deps),
         { ...baseDiagnostics(), failedStep: "company_folder_list" },
         { httpStatus: 403, failedStep: "company_folder_list" },
       );
     }
     const staleSessionHint = Boolean(sessionMasterSheetId && hintCandidates.includes(sessionMasterSheetId));
-    const workbookMessage = workbookNotFoundUserMessage({
-      nonNativeWorkbookName,
-      staleSessionHint: staleSessionHint && hintCandidates.length > 0,
-    });
+    const workbookMessage = workbookNotFoundUserMessage(
+      {
+        companyFolderId,
+        nonNativeWorkbookName,
+        staleSessionHint: staleSessionHint && hintCandidates.length > 0,
+      },
+      deps,
+    );
     return buildFailure(
       folderReason === "WORKBOOK_NOT_FOUND" || staleSessionHint ? "WORKBOOK_NOT_FOUND" : "MISSING_MASTER_SHEET_ID",
       workbookMessage,
@@ -592,8 +617,13 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
     const technicalError = error instanceof Error ? error.message : String(error);
     const failureMessage =
       classified.reasonCode === "WORKBOOK_NOT_FOUND"
-        ? workbookNotFoundUserMessage({ staleSessionHint: Boolean(sessionMasterSheetId) })
-        : classified.userMessage || COMPANY_USERS_USER_MESSAGE;
+        ? workbookNotFoundUserMessage(
+            { companyFolderId, staleSessionHint: Boolean(sessionMasterSheetId) },
+            deps,
+          )
+        : classified.reasonCode === "GOOGLE_SHEET_ACCESS_DENIED"
+          ? driveAccessUserMessage(companyFolderId, deps)
+          : classified.userMessage || COMPANY_USERS_USER_MESSAGE;
     return buildFailure(
       classified.reasonCode,
       failureMessage,

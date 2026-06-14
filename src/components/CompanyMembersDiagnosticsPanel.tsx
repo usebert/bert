@@ -17,6 +17,7 @@ function formatDiagnostics(diagnostics: CompanyMembersDiagnostics | undefined, r
     diagnostics?.companyName ? `companyName: ${diagnostics.companyName}` : "",
     diagnostics?.companyId ? `companyId: ${diagnostics.companyId}` : "",
     diagnostics?.companyFolderId ? `companyFolderId: ${diagnostics.companyFolderId}` : "",
+    diagnostics?.companyFolderUrl ? `companyFolderUrl: ${diagnostics.companyFolderUrl}` : "",
     diagnostics?.masterSheetId ? `masterSheetId: ${diagnostics.masterSheetId}` : "",
     Array.isArray(diagnostics?.masterSheetIdsTried) && diagnostics.masterSheetIdsTried.length
       ? `masterSheetIdsTried: ${diagnostics.masterSheetIdsTried.join(", ")}`

@@ -1040,6 +1040,11 @@ function readStoredSession() {
   return googleOAuthStore.readSession();
 }
 
+function getGoogleConnectedEmail() {
+  const session = readStoredSession();
+  return String(session?.profile?.email || "").trim().toLowerCase();
+}
+
 function writeStoredSession(payload, options = {}) {
   googleOAuthStore.writeSession(payload);
   if (options.log !== false) {
@@ -3227,6 +3232,7 @@ function getCompanyUsersDeps() {
     updateConfig,
     ensureColumns,
     google,
+    getGoogleConnectedEmail,
     withSheetsQuotaRetry,
     resolveUsersTab,
     writeUsersTabRecordByHeaders,
@@ -4325,6 +4331,7 @@ app.get("/api/google/status", async (_req, res) => {
     configured: envConfigured(),
     connected: oauthConnected,
     googleOAuthConnected: oauthConnected,
+    googleConnectedEmail: getGoogleConnectedEmail() || undefined,
     sharedDriveId,
     sharedDriveConfigured: Boolean(sharedDriveId),
     sharedDriveVerified,
@@ -7672,6 +7679,7 @@ installGodmodeRegistryActionRoutes(app, {
 
 installCompanyFolderResolverRoutes(app, {
   getAuthedClient,
+  getGoogleConnectedEmail,
   envConfigured,
   requireGoogleWorkspaceSession,
   requireMasterOnlyActor,

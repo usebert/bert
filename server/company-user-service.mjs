@@ -6,6 +6,7 @@ import {
   buildAvailableScheduleAssigneesFromUsers,
   isExcludedCompanyProfileStatus,
 } from "../shared/schedule-assignees.mjs";
+import { buildCompanyFolderUrl } from "../shared/company-folder-links.mjs";
 import {
   parseCompanyAreas,
   sanitizeUsersTabRecords,
@@ -95,6 +96,7 @@ function buildDiagnostics(base = {}) {
   return {
     companyId: companyId || undefined,
     companyFolderId: companyFolderId || companyId || undefined,
+    companyFolderUrl: buildCompanyFolderUrl(companyFolderId || companyId) || undefined,
     companyName: String(base.companyName || "").trim() || undefined,
     masterSheetId: String(base.masterSheetId || "").trim() || undefined,
     signedInEmail: signedInEmail || undefined,

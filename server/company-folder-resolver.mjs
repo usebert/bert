@@ -12,13 +12,26 @@ import { isSystemTemplateCompany } from "../shared/system-template-company.mjs";
 import {
   ensureCompanyFolderStructure,
   ensureCompanyMasterSheet,
+  discoverCompanyMasterSheetInFolder,
 } from "./company-folder-structure.mjs";
 import { ensureRequiredTabs, findMissingRequiredTabs } from "./ensure-required-tabs.mjs";
 import { validateCompanyFolderUnderCompaniesRoot } from "./company-folder-placement.mjs";
 import { persistCompanyWorkspaceSetup } from "./company-workspace-registry.mjs";
+import { buildCompanyFolderUrl, buildShareCompanyFolderHint } from "../shared/company-folder-links.mjs";
 
 function trim(value) {
   return String(value ?? "").trim();
+}
+
+function resolveGoogleConnectedEmail(deps) {
+  return trim(typeof deps?.getGoogleConnectedEmail === "function" ? deps.getGoogleConnectedEmail() : "");
+}
+
+function folderShareOperatorHint(companyFolderId, deps) {
+  return buildShareCompanyFolderHint({
+    companyFolderId,
+    googleConnectedEmail: resolveGoogleConnectedEmail(deps),
+  });
 }
 
 function normalizeDriveFolderName(value = "") {
@@ -215,28 +228,35 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
   const masterSheetId = trim(masterSheet.masterSheetId);
   if (!masterSheetId) {
     if (masterSheet.source === "non_native_workbook") {
-      return {
-        ok: false,
-        companyId: folderId,
-        companyName,
-        companyFolderId: folderId,
-        masterSheetId: "",
-        status: "",
-        userMessage: "An Excel workbook was found but BERT needs a Google Sheet.",
-        reasonCode: "WORKBOOK_NOT_FOUND",
-        masterSheet,
-      };
-    }
     return {
       ok: false,
       companyId: folderId,
       companyName,
       companyFolderId: folderId,
+      companyFolderUrl: buildCompanyFolderUrl(folderId),
       masterSheetId: "",
       status: "",
-      userMessage: "Could not find or create the company workbook.",
+      userMessage: "An Excel workbook was found but BERT needs a Google Sheet.",
+      reasonCode: "WORKBOOK_NOT_FOUND",
+      masterSheet,
+      operatorHint: folderShareOperatorHint(folderId, deps) || undefined,
+    };
+    }
+    const shareHint = folderShareOperatorHint(folderId, deps);
+    return {
+      ok: false,
+      companyId: folderId,
+      companyName,
+      companyFolderId: folderId,
+      companyFolderUrl: buildCompanyFolderUrl(folderId),
+      masterSheetId: "",
+      status: "",
+      userMessage: shareHint
+        ? `Could not find the company workbook. ${shareHint}`
+        : "Could not find or create the company workbook.",
       reasonCode: "MASTER_SHEET_MISSING",
       masterSheet,
+      operatorHint: shareHint || undefined,
     };
   }
 
@@ -362,10 +382,108 @@ export function installCompanyFolderResolverRoutes(app, deps) {
         return res.status(status).json(result);
       } catch (error) {
         console.error("[company-folder-resolver] resolve-from-folder failed", error);
+        const shareHint = folderShareOperatorHint(companyFolderId, deps);
+        const message = error instanceof Error ? error.message : "Unable to resolve company from folder.";
+        const lower = message.toLowerCase();
+        const accessDenied = lower.includes("permission") || lower.includes("forbidden") || lower.includes("not found");
+        return res.status(accessDenied ? 403 : 500).json({
+          ok: false,
+          companyFolderId,
+          companyFolderUrl: buildCompanyFolderUrl(companyFolderId),
+          reasonCode: accessDenied ? "GOOGLE_SHEET_ACCESS_DENIED" : "FOLDER_RESOLVE_FAILED",
+          error: message,
+          operatorHint: shareHint || undefined,
+          userMessage: shareHint ? `${message} ${shareHint}` : message,
+        });
+      }
+    },
+  );
+
+  app.get(
+    "/api/godmode/companies/:companyFolderId/master-sheet-discovery",
+    requireGoogleWorkspaceSession,
+    requireMasterOnlyActor,
+    async (req, res) => {
+      if (!envConfigured()) {
+        return res.status(503).json({
+          ok: false,
+          error: "Google Workspace is not configured on the server.",
+        });
+      }
+      const authed = getAuthedClient();
+      if (!authed) {
+        return res.status(401).json({
+          ok: false,
+          error: "Connect Google Workspace before probing company folder discovery.",
+        });
+      }
+
+      const companyFolderId = trim(req.params.companyFolderId);
+      const companyName = trim(req.query.companyName);
+      const googleConnectedEmail = resolveGoogleConnectedEmail(deps);
+      const companyFolderUrl = buildCompanyFolderUrl(companyFolderId);
+      const operatorHint = folderShareOperatorHint(companyFolderId, deps);
+
+      try {
+        const drive = deps.google.drive({ version: "v3", auth: authed });
+        let folderReadable = true;
+        let folderName = "";
+        try {
+          const meta = await drive.files.get({
+            fileId: companyFolderId,
+            supportsAllDrives: true,
+            fields: "id,name,mimeType",
+          });
+          folderName = trim(meta.data.name);
+          folderReadable = meta.data.mimeType === "application/vnd.google-apps.folder";
+        } catch (error) {
+          folderReadable = false;
+          const message = error instanceof Error ? error.message : "Unable to read company folder.";
+          return res.status(403).json({
+            ok: false,
+            companyFolderId,
+            companyFolderUrl,
+            googleConnectedEmail: googleConnectedEmail || undefined,
+            folderReadable: false,
+            reasonCode: "GOOGLE_SHEET_ACCESS_DENIED",
+            error: message,
+            operatorHint: operatorHint || undefined,
+            userMessage: operatorHint ? `${message} ${operatorHint}` : message,
+          });
+        }
+
+        const discovered = await discoverCompanyMasterSheetInFolder(drive, {
+          companyRootFolderId: companyFolderId,
+          companyName: companyName || folderName,
+        });
+
+        const workbookFound = Boolean(discovered?.masterSheetId);
+        return res.json({
+          ok: workbookFound,
+          companyFolderId,
+          companyFolderUrl,
+          companyName: companyName || folderName || undefined,
+          googleConnectedEmail: googleConnectedEmail || undefined,
+          folderReadable,
+          reasonCode: workbookFound ? undefined : discovered?.source === "non_native_workbook" ? "WORKBOOK_NOT_FOUND" : "WORKBOOK_NOT_FOUND",
+          discovered,
+          operatorHint: workbookFound ? undefined : operatorHint || undefined,
+          userMessage: workbookFound
+            ? undefined
+            : operatorHint
+              ? `No BERT Master Sheet found. ${operatorHint}`
+              : "No BERT Master Sheet found in the company folder.",
+        });
+      } catch (error) {
+        console.error("[company-folder-resolver] master-sheet-discovery failed", error);
+        const message = error instanceof Error ? error.message : "Unable to probe company folder discovery.";
         return res.status(500).json({
           ok: false,
           companyFolderId,
-          error: error instanceof Error ? error.message : "Unable to resolve company from folder.",
+          companyFolderUrl,
+          googleConnectedEmail: googleConnectedEmail || undefined,
+          error: message,
+          operatorHint: operatorHint || undefined,
         });
       }
     },

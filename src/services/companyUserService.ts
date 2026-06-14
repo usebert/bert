@@ -15,6 +15,7 @@ export type CompanyMembersCacheEntry = {
 export type CompanyMembersDiagnostics = {
   companyId?: string;
   companyFolderId?: string;
+  companyFolderUrl?: string;
   companyName?: string;
   masterSheetId?: string;
   masterSheetIdsTried?: string[];

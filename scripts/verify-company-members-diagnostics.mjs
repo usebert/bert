@@ -63,6 +63,7 @@ for (const code of REASON_CODES) {
   const fields = [
     "companyId",
     "companyFolderId",
+    "companyFolderUrl",
     "companyName",
     "masterSheetId",
     "signedInEmail",
@@ -97,9 +98,13 @@ for (const code of REASON_CODES) {
     "4b2b: stale session masterSheetId is validated before use",
   );
   assert(
-    read("server/company-users-foundation.mjs").includes("WORKBOOK_NOT_FOUND_MESSAGE") ||
-      read("src/services/companyUserService.ts").includes("COMPANY_MEMBERS_WORKBOOK_NOT_FOUND_MESSAGE"),
-    "4b4: WORKBOOK_NOT_FOUND has actionable user message",
+    read("server/company-users-foundation.mjs").includes("buildShareCompanyFolderHint") ||
+      read("shared/company-folder-links.mjs").includes("buildShareCompanyFolderHint"),
+    "4b5: WORKBOOK_NOT_FOUND includes share-folder operator hint",
+  );
+  assert(
+    read("server/company-folder-resolver.mjs").includes("/api/godmode/companies/:companyFolderId/master-sheet-discovery"),
+    "4b6: godmode master-sheet-discovery diagnostic route",
   );
   assert(
     read("server/company-users-foundation.mjs").includes("preferFolderResolution"),
