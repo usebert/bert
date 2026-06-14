@@ -54,6 +54,11 @@ function runStaticGuards() {
 
   assert(pkg.scripts["verify:bert-foundation"], "pkg: verify:bert-foundation registered");
   assert(foundationDoc.includes("company-users-foundation.mjs"), "doc: FOUNDATION.md references foundation module");
+  assert(foundationDoc.includes("companyFolderId"), "doc: FOUNDATION.md documents companyFolderId");
+  assert(foundationDoc.includes("masterSheetId"), "doc: FOUNDATION.md documents masterSheetId");
+  assert(foundationDoc.includes("Live Companies"), "doc: FOUNDATION.md documents Live Companies discovery");
+  assert(foundationDoc.includes("workbook scope") || foundationDoc.includes("workbook-scoped"), "doc: FOUNDATION.md documents workbook-scoped reads");
+  assert(foundationDoc.includes("folder → workbook") || foundationDoc.includes("folder → workbook → Users tab"), "doc: FOUNDATION.md documents folder→workbook chain");
 
   /* 1: People page — single listCompanyProfiles path */
   assert(foundation.includes("export async function listCompanyProfiles"), "1a: listCompanyProfiles exported");

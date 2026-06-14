@@ -398,6 +398,7 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
           companyName,
           masterSheetId,
           ensureStructure: false,
+          skipFolderPlacementCheck: true,
         });
         const refreshedSheetId = trim(folderResolved?.masterSheetId);
         if (folderResolved?.ok && refreshedSheetId && refreshedSheetId !== masterSheetId) {

@@ -171,8 +171,9 @@ export async function resolveCompanyContextFields(auth, deps, partial = {}) {
       const folderResolved = await resolveCompanyFromFolder(auth, deps, companyFolderId, {
         companyName,
         ensureStructure: false,
+        skipFolderPlacementCheck: true,
       });
-      if (folderResolved?.ok) {
+      if (folderResolved?.ok && trim(folderResolved.masterSheetId)) {
         masterSheetId = trim(folderResolved.masterSheetId) || masterSheetId;
         companyName = companyName || trim(folderResolved.companyName);
       }

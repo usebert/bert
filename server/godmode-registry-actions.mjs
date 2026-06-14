@@ -334,6 +334,16 @@ export async function makeCompanyUsable(auth, deps, workspace = {}) {
       technicalError: resolved.userMessage || "",
     });
   }
+  if (resolved.folderPlacementOk === false) {
+    return makeUsableFailure({
+      reasonCode: resolved.reasonCode || "FOLDER_NOT_IN_COMPANIES_ROOT",
+      failedStep: "folder_placement",
+      companyId: workspaceId,
+      companyFolderId,
+      companyName: resolved.companyName || companyName,
+      technicalError: resolved.userMessage || "",
+    });
+  }
 
   companyName = String(resolved.companyName || companyName).trim();
   masterSheetId = String(resolved.masterSheetId || masterSheetId).trim();

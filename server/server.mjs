@@ -3376,7 +3376,7 @@ function parseBertActorFromRequest(req) {
     try {
       const data = JSON.parse(companyRaw);
       if (data.v === 1 && data.email && data.masterSheetId) {
-        const companyFolderId = String(data.companyId || "").trim();
+        const companyFolderId = String(data.companyFolderId || data.companyId || "").trim();
         return {
           kind: "company",
           role: String(data.role || "").trim(),
@@ -7083,6 +7083,7 @@ app.get("/api/auth/company/session", async (req, res) => {
           email: data.email,
           masterSheetId: resolvedMasterSheetId,
           companyId,
+          companyFolderId: companyId,
           companyName: resolvedCompanyName,
           role: rec.role,
           name: rec.name,

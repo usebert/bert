@@ -247,19 +247,7 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
     options.skipFolderPlacementCheck === true
       ? { ok: true }
       : await validateCompanyFolderUnderCompaniesRoot(auth, deps, folderId, { companyFolderName: companyName });
-  if (!folderPlacement.ok) {
-    return {
-      ok: false,
-      companyId: folderId,
-      companyName,
-      companyFolderId: folderId,
-      masterSheetId,
-      status: "",
-      userMessage: folderPlacement.userMessage,
-      reasonCode: folderPlacement.reasonCode,
-      folderPlacement,
-    };
-  }
+  const folderPlacementOk = Boolean(folderPlacement?.ok);
 
   const context = {
     companyId: folderId,
@@ -267,8 +255,8 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
     companyName,
     masterSheetId,
     workbookFolderId,
-    status: COMPANY_CONTEXT_STATUS_USABLE,
-    folderPlacementOk: true,
+    status: folderPlacementOk ? COMPANY_CONTEXT_STATUS_USABLE : "",
+    folderPlacementOk,
   };
 
   const registryCache = await rebuildRegistryCache(auth, deps, context);
@@ -301,15 +289,18 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
     masterSheetId,
     masterSheetLink: masterSheet.masterSheetLink,
     workbookFolderId,
-    status: COMPANY_CONTEXT_STATUS_USABLE,
-    userMessage: COMPANY_READY_INVITE_MESSAGE,
+    status: folderPlacementOk ? COMPANY_CONTEXT_STATUS_USABLE : "",
+    userMessage: folderPlacementOk
+      ? COMPANY_READY_INVITE_MESSAGE
+      : folderPlacement.userMessage || "Company folder is not under Live Companies.",
+    reasonCode: folderPlacementOk ? undefined : folderPlacement.reasonCode,
     tabsQueued,
     missingTabs,
     masterSheetCreated: Boolean(masterSheet.created),
     registryCache,
     backgroundJobs,
     usable: isCompanyWorkspaceUsable(context),
-    folderPlacementOk: true,
+    folderPlacementOk,
     folderPlacement,
   };
 }

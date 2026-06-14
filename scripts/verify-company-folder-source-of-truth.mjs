@@ -55,12 +55,17 @@ const pkg = JSON.parse(read("package.json"));
 assert(resolver.includes("export async function resolveCompanyFromFolder"), "1: resolveCompanyFromFolder exported");
 assert(resolver.includes("ensureCompanyMasterSheet"), "2: resolver finds/creates workbook");
 assert(resolver.includes("ensureCompanyFolderStructure"), "3: resolver ensures folder structure");
-assert(resolver.includes('status: COMPANY_CONTEXT_STATUS_USABLE'), "4: resolver returns USABLE status");
+assert(resolver.includes("COMPANY_CONTEXT_STATUS_USABLE"), "4: resolver returns USABLE status when folder placement ok");
 assert(resolver.includes("installCompanyFolderResolverRoutes"), "5: resolver routes installer");
 assert(resolver.includes("/api/godmode/companies/:companyFolderId/resolve-from-folder"), "6: resolve-from-folder route");
 assert(resolver.includes("queuePostResolveBackgroundJobs"), "7: post-resolve background jobs queued");
 assert(resolver.includes("rebuildRegistryCache"), "8: registry cache rebuild is non-blocking");
 assert(resolver.includes("validateCompanyFolderUnderCompaniesRoot"), "8b: resolver validates Live Companies placement");
+assert(resolver.includes("folderPlacementOk"), "8b2: resolver surfaces folder placement without blocking workbook resolve");
+assert(
+  /folderPlacementOk[\s\S]*?ok:\s*true/.test(resolver),
+  "8b3: resolver returns ok when workbook found even if placement fails",
+);
 assert(
   placement.includes("export async function validateCompanyFolderUnderCompaniesRoot"),
   "8c: placement validator exported",
