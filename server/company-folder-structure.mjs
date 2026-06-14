@@ -382,6 +382,9 @@ function matchesCompanyMasterSheetName(name = "", companyName = "") {
   return false;
 }
 
+const MASTER_SHEET_DISCOVERY_MAX_DEPTH = 5;
+const MASTER_SHEET_DISCOVERY_MAX_FOLDERS = 48;
+
 async function listSpreadsheetsInFolder(drive, folderId) {
   if (!folderId) {
     return [];
@@ -395,6 +398,123 @@ async function listSpreadsheetsInFolder(drive, folderId) {
     orderBy: "createdTime",
   });
   return response.data.files || [];
+}
+
+async function listNonNativeMasterWorkbooksInFolder(drive, folderId) {
+  if (!folderId) {
+    return [];
+  }
+  const response = await drive.files.list({
+    includeItemsFromAllDrives: true,
+    supportsAllDrives: true,
+    q: `'${folderId}' in parents and trashed = false and (mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' or mimeType = 'application/vnd.ms-excel')`,
+    fields: "files(id,name,mimeType,createdTime)",
+    pageSize: 50,
+    orderBy: "createdTime",
+  });
+  return (response.data.files || []).filter((file) => scoreMasterSheetCandidate(file) >= 60);
+}
+
+
+async function collectMasterSheetCandidatesRecursive(drive, rootFolderId, options = {}) {
+  const maxDepth = Number(options.maxDepth) || MASTER_SHEET_DISCOVERY_MAX_DEPTH;
+  const maxFolders = Number(options.maxFolders) || MASTER_SHEET_DISCOVERY_MAX_FOLDERS;
+  const candidates = [];
+  const queue = [{ folderId: rootFolderId, depth: 0, source: "company_tree" }];
+  const visited = new Set();
+  let foldersScanned = 0;
+
+  while (queue.length > 0 && foldersScanned < maxFolders) {
+    const current = queue.shift();
+    const folderId = String(current?.folderId || "").trim();
+    if (!folderId || visited.has(folderId)) {
+      continue;
+    }
+    visited.add(folderId);
+    foldersScanned += 1;
+
+    const spreadsheets = await listSpreadsheetsInFolder(drive, folderId);
+    const priorityBoost = Math.max(8, 42 - (current.depth || 0) * 6);
+    for (const file of spreadsheets) {
+      candidates.push({
+        file,
+        source: current.depth === 0 ? "company_root" : current.source,
+        priorityBoost,
+      });
+    }
+
+    if ((current.depth || 0) >= maxDepth) {
+      continue;
+    }
+    const subfolders = await listFolderChildren(drive, folderId);
+    for (const subfolder of subfolders) {
+      queue.push({
+        folderId: subfolder.id,
+        depth: (current.depth || 0) + 1,
+        source: `${current.source}/${subfolder.name}`,
+      });
+    }
+  }
+
+  return candidates;
+}
+
+async function findNonNativeMasterWorkbookNamesRecursive(drive, rootFolderId, options = {}) {
+  const maxDepth = Number(options.maxDepth) || MASTER_SHEET_DISCOVERY_MAX_DEPTH;
+  const maxFolders = Number(options.maxFolders) || MASTER_SHEET_DISCOVERY_MAX_FOLDERS;
+  const names = [];
+  const queue = [{ folderId: rootFolderId, depth: 0 }];
+  const visited = new Set();
+  let foldersScanned = 0;
+
+  while (queue.length > 0 && foldersScanned < maxFolders) {
+    const current = queue.shift();
+    const folderId = String(current?.folderId || "").trim();
+    if (!folderId || visited.has(folderId)) {
+      continue;
+    }
+    visited.add(folderId);
+    foldersScanned += 1;
+
+    const workbooks = await listNonNativeMasterWorkbooksInFolder(drive, folderId);
+    for (const file of workbooks) {
+      const name = String(file?.name || "").trim();
+      if (name) {
+        names.push(name);
+      }
+    }
+
+    if ((current.depth || 0) >= maxDepth) {
+      continue;
+    }
+    const subfolders = await listFolderChildren(drive, folderId);
+    for (const subfolder of subfolders) {
+      queue.push({ folderId: subfolder.id, depth: (current.depth || 0) + 1 });
+    }
+  }
+
+  return Array.from(new Set(names));
+}
+
+/** Returns spreadsheet metadata when Drive can read the id; otherwise null. */
+export async function validateAccessibleMasterSheet(drive, masterSheetId) {
+  const sheetId = String(masterSheetId || "").trim();
+  if (!drive || !sheetId) {
+    return null;
+  }
+  try {
+    const meta = await drive.files.get({
+      fileId: sheetId,
+      supportsAllDrives: true,
+      fields: "id,name,mimeType,webViewLink",
+    });
+    if (meta.data.mimeType !== "application/vnd.google-apps.spreadsheet") {
+      return null;
+    }
+    return meta.data;
+  } catch {
+    return null;
+  }
 }
 
 async function listFolderChildren(drive, folderId) {
@@ -503,8 +623,47 @@ export async function discoverCompanyMasterSheetInFolder(drive, input = {}) {
     }
   }
 
+  const adminFolder = rootItems.find(
+    (item) =>
+      item.mimeType === "application/vnd.google-apps.folder" &&
+      normalizeFolderName(item.name) === normalizeFolderName("00 - Admin"),
+  );
+  if (adminFolder?.id) {
+    const adminChildren = await listFolderChildren(drive, adminFolder.id);
+    for (const child of adminChildren) {
+      if (child.mimeType !== "application/vnd.google-apps.folder") {
+        continue;
+      }
+      const normalizedChild = normalizeFolderName(child.name);
+      if (
+        normalizedChild === normalizeFolderName("Company Setup") ||
+        normalizedChild === normalizeFolderName("Company Workbook")
+      ) {
+        const spreadsheets = await listSpreadsheetsInFolder(drive, child.id);
+        for (const file of spreadsheets) {
+          candidates.push({ file, source: "admin_setup", priorityBoost: 45 });
+        }
+      }
+    }
+  }
+
+  candidates.push(...(await collectMasterSheetCandidatesRecursive(drive, companyRootFolderId)));
+
   const best = pickBestMasterSheetCandidate(candidates, companyName);
   if (!best?.file?.id) {
+    const nonNativeWorkbookNames = await findNonNativeMasterWorkbookNamesRecursive(
+      drive,
+      companyRootFolderId,
+    );
+    if (nonNativeWorkbookNames.length) {
+      return {
+        masterSheetId: "",
+        masterSheetName: nonNativeWorkbookNames[0],
+        masterSheetLink: "",
+        source: "non_native_workbook",
+        nonNativeWorkbookNames,
+      };
+    }
     return null;
   }
   return {
@@ -614,6 +773,17 @@ export async function ensureCompanyMasterSheet(drive, input) {
         status: "discovered",
         created: false,
         source: discovered.source,
+      };
+    }
+    if (discovered?.source === "non_native_workbook") {
+      return {
+        masterSheetId: "",
+        masterSheetName: discovered.masterSheetName,
+        masterSheetLink: "",
+        status: "non_native_workbook",
+        created: false,
+        source: discovered.source,
+        nonNativeWorkbookNames: discovered.nonNativeWorkbookNames || [],
       };
     }
   }

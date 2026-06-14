@@ -40,11 +40,22 @@ export const COMPANY_MEMBERS_LOAD_TIMEOUT_MS = 8000;
 export const COMPANY_MEMBERS_LOADING_MESSAGE = "Loading company users…";
 export const COMPANY_MEMBERS_USER_MESSAGE = "Could not load company users.";
 const COMPANY_MEMBERS_DRIVE_ACCESS_MESSAGE =
-  "Google cannot read the company workbook. Ask your operator to share the BERT Master Sheet with the BERT service account.";
+  "Google cannot read the company workbook. Ask your operator to share the BERT Master Sheet with the BERT Google connection.";
+const COMPANY_MEMBERS_WORKBOOK_NOT_FOUND_MESSAGE =
+  "No BERT Master Sheet was found in your company Drive folder. Ask your operator to add or move the workbook into 01 - BERT System Files / Company Workbook.";
+const COMPANY_MEMBERS_WORKBOOK_STALE_MESSAGE =
+  "The linked company workbook is missing or was moved. Sign out and back in after your operator repairs the company folder.";
 
 function userFacingMembersLoadError(reasonCode: string | undefined, serverMessage?: string): string {
+  const trimmedServerMessage = serverMessage?.trim();
   if (reasonCode === "GOOGLE_SHEET_ACCESS_DENIED") {
-    return serverMessage?.trim() || COMPANY_MEMBERS_DRIVE_ACCESS_MESSAGE;
+    return trimmedServerMessage || COMPANY_MEMBERS_DRIVE_ACCESS_MESSAGE;
+  }
+  if (reasonCode === "WORKBOOK_NOT_FOUND" || reasonCode === "MISSING_MASTER_SHEET_ID") {
+    return trimmedServerMessage || COMPANY_MEMBERS_WORKBOOK_NOT_FOUND_MESSAGE;
+  }
+  if (reasonCode === "WORKBOOK_STALE") {
+    return trimmedServerMessage || COMPANY_MEMBERS_WORKBOOK_STALE_MESSAGE;
   }
   return COMPANY_MEMBERS_USER_MESSAGE;
 }

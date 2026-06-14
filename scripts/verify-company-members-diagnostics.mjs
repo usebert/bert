@@ -87,9 +87,19 @@ for (const code of REASON_CODES) {
   assert(userService.includes("resolveCompanyFromFolder"), "4: folder resolver used");
   assert(userService.includes("resolveMasterSheetFromFolder"), "4b: folder master sheet resolver");
   assert(
-    read("server/company-users-foundation.mjs").includes("discoverCompanyMasterSheetInFolder") ||
-      read("server/company-folder-structure.mjs").includes("discoverCompanyMasterSheetInFolder"),
-    "4b2: folder discovery searches company root and legacy setup",
+    read("server/company-users-foundation.mjs").includes("collectMasterSheetCandidatesRecursive") ||
+      read("server/company-folder-structure.mjs").includes("collectMasterSheetCandidatesRecursive"),
+    "4b2a: folder discovery walks nested company folders",
+  );
+  assert(
+    read("server/company-users-foundation.mjs").includes("validateMasterSheetHint") ||
+      read("server/company-users-foundation.mjs").includes("validateAccessibleMasterSheet"),
+    "4b2b: stale session masterSheetId is validated before use",
+  );
+  assert(
+    read("server/company-users-foundation.mjs").includes("WORKBOOK_NOT_FOUND_MESSAGE") ||
+      read("src/services/companyUserService.ts").includes("COMPANY_MEMBERS_WORKBOOK_NOT_FOUND_MESSAGE"),
+    "4b4: WORKBOOK_NOT_FOUND has actionable user message",
   );
   assert(
     read("server/company-users-foundation.mjs").includes("preferFolderResolution"),
@@ -123,7 +133,8 @@ for (const code of REASON_CODES) {
   assert(panel.includes("CompanyMembersDiagnosticsPanel"), "6f: collapsible diagnostics panel");
   assert(diagnosticsPanel.includes("defaultOpen"), "6g2: diagnostics can open by default on error");
   assert(panel.includes("canShowCompanyMembersDiagnostics"), "6h: godmode diagnostics gate");
-  assert(panel.includes("COMPANY_MEMBERS_USER_MESSAGE"), "6i: normal user message constant");
+  assert(companyUserServiceTs.includes("COMPANY_MEMBERS_WORKBOOK_NOT_FOUND_MESSAGE"), "6i2: workbook-not-found user message");
+  assert(panel.includes("activeMembersLoadError || COMPANY_MEMBERS_USER_MESSAGE"), "6i3: panel shows actionable load error to admins");
   assert(panel.includes("defaultOpen={Boolean(activeMembersLoadReasonCode"), "6j: diagnostics open when reason present");
 }
 

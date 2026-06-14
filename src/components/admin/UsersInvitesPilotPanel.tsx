@@ -675,12 +675,15 @@ export function UsersInvitesPilotPanel({
           <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
             <p className="text-sm font-semibold text-rose-900">Could not load company people</p>
             <p className="mt-1 text-sm text-rose-800">
-              {showMembersDiagnostics && (activeMembersLoadReasonCode || activeMembersLoadFailedStep)
-                ? [activeMembersLoadReasonCode, activeMembersLoadFailedStep && `step: ${activeMembersLoadFailedStep}`]
-                    .filter(Boolean)
-                    .join(" · ")
-                : activeMembersLoadError || COMPANY_MEMBERS_USER_MESSAGE}
+              {activeMembersLoadError || COMPANY_MEMBERS_USER_MESSAGE}
             </p>
+            {showMembersDiagnostics && (activeMembersLoadReasonCode || activeMembersLoadFailedStep) ? (
+              <p className="mt-1 text-xs text-rose-700">
+                {[activeMembersLoadReasonCode, activeMembersLoadFailedStep && `step: ${activeMembersLoadFailedStep}`]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            ) : null}
             {showMembersDiagnostics ? (
               <>
                 {activeMembersLoadErrorDetail ? (

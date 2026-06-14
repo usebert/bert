@@ -214,6 +214,19 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
   });
   const masterSheetId = trim(masterSheet.masterSheetId);
   if (!masterSheetId) {
+    if (masterSheet.source === "non_native_workbook") {
+      return {
+        ok: false,
+        companyId: folderId,
+        companyName,
+        companyFolderId: folderId,
+        masterSheetId: "",
+        status: "",
+        userMessage: "An Excel workbook was found but BERT needs a Google Sheet.",
+        reasonCode: "WORKBOOK_NOT_FOUND",
+        masterSheet,
+      };
+    }
     return {
       ok: false,
       companyId: folderId,
@@ -223,6 +236,7 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
       status: "",
       userMessage: "Could not find or create the company workbook.",
       reasonCode: "MASTER_SHEET_MISSING",
+      masterSheet,
     };
   }
 

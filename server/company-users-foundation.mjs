@@ -10,12 +10,19 @@ import { readCompanyUsers, resolveUsersTab } from "./users-tab-reader.mjs";
 import { listableProfilesFromUsersTabRecords } from "./users-tab-profiles.mjs";
 import { resolveCompanyFromFolder } from "./company-folder-resolver.mjs";
 import { validateCompanyFolderUnderCompaniesRoot } from "./company-folder-placement.mjs";
+import { validateAccessibleMasterSheet } from "./company-folder-structure.mjs";
 import { buildAvailableScheduleAssigneesFromUsers } from "../shared/schedule-assignees.mjs";
 
 const COMPANY_USERS_LOAD_FAILED = "COMPANY_USERS_LOAD_FAILED";
 const COMPANY_USERS_USER_MESSAGE = "Could not load company users.";
 const GOOGLE_SHEET_ACCESS_DENIED_MESSAGE =
-  "Google cannot read the company workbook. Ask your operator to share the BERT Master Sheet with the BERT service account.";
+  "Google cannot read the company workbook. Ask your operator to share the BERT Master Sheet with the BERT Google connection.";
+const WORKBOOK_NOT_FOUND_MESSAGE =
+  "No BERT Master Sheet was found in your company Drive folder. Ask your operator to add or move the workbook into 01 - BERT System Files / Company Workbook.";
+const WORKBOOK_NON_NATIVE_MESSAGE =
+  "An Excel workbook was found but BERT needs a Google Sheet. Ask your operator to open the file in Google Drive and choose File → Save as Google Sheets.";
+const WORKBOOK_STALE_HINT_MESSAGE =
+  "The linked company workbook is missing or was moved. Sign out and back in after your operator repairs the company folder, or ask them to re-link the BERT Master Sheet.";
 
 function trim(value) {
   return String(value ?? "").trim();
@@ -173,6 +180,27 @@ function logCompanyMembersLoad(payload = {}) {
   console.info("[company-members]", JSON.stringify(payload));
 }
 
+function workbookNotFoundUserMessage(input = {}) {
+  const nonNativeName = trim(input.nonNativeWorkbookName);
+  if (nonNativeName) {
+    return `${WORKBOOK_NON_NATIVE_MESSAGE} (Found: ${nonNativeName})`;
+  }
+  if (input.staleSessionHint) {
+    return WORKBOOK_STALE_HINT_MESSAGE;
+  }
+  return WORKBOOK_NOT_FOUND_MESSAGE;
+}
+
+async function validateMasterSheetHint(auth, deps, masterSheetId) {
+  const sheetId = trim(masterSheetId);
+  if (!auth || !sheetId || !deps?.google) {
+    return "";
+  }
+  const drive = deps.google.drive({ version: "v3", auth });
+  const meta = await validateAccessibleMasterSheet(drive, sheetId);
+  return trim(meta?.id);
+}
+
 async function resolveMasterSheetFromCompanyFolder(auth, deps, companyFolderId, companyName, options = {}) {
   const sessionHint = trim(options.masterSheetId);
   const preferFolderResolution = options.preferFolderResolution !== false;
@@ -197,9 +225,13 @@ async function resolveMasterSheetFromCompanyFolder(auth, deps, companyFolderId, 
     }
     const reasonCode = trim(resolved?.reasonCode);
     if (reasonCode === "GOOGLE_NOT_CONNECTED") {
-      return { ok: false, reasonCode: "GOOGLE_AUTH_FAILED", resolved };
+      return { ok: false, reasonCode: "GOOGLE_AUTH_FAILED", resolved, masterSheet: resolved?.masterSheet };
     }
-    return { ok: false, reasonCode: reasonCode || "WORKBOOK_NOT_FOUND", resolved };
+    const mappedReason =
+      reasonCode === "MASTER_SHEET_MISSING" || reasonCode === "WORKBOOK_NOT_FOUND"
+        ? "WORKBOOK_NOT_FOUND"
+        : reasonCode || "WORKBOOK_NOT_FOUND";
+    return { ok: false, reasonCode: mappedReason, resolved, masterSheet: resolved?.masterSheet };
   } catch (error) {
     const message = trim(error instanceof Error ? error.message : error).toLowerCase();
     if (message.includes("permission") || message.includes("forbidden")) {
@@ -423,17 +455,24 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
   const resolvedContext = await resolveCompanyContextFields(auth, deps, {
     companyFolderId,
     companyId: companyFolderId,
-    masterSheetId,
+    masterSheetId: "",
     companyName,
   });
-  masterSheetId = trim(resolvedContext.masterSheetId) || masterSheetId;
   companyName = trim(resolvedContext.companyName) || companyName;
+  const registryMasterSheetId = trim(resolvedContext.masterSheetId);
+  const hintCandidates = uniqueIds([sessionMasterSheetId, registryMasterSheetId]);
 
   const folderResolved = await resolveMasterSheetFromCompanyFolder(auth, deps, companyFolderId, companyName, {
     preferFolderResolution: true,
     createIfMissing: false,
   });
   const folderSheetId = trim(folderResolved?.masterSheetId);
+  const resolvedMasterSheet = folderResolved?.resolved?.masterSheet || folderResolved?.masterSheet;
+  const nonNativeWorkbookName =
+    trim(resolvedMasterSheet?.source) === "non_native_workbook"
+      ? trim(resolvedMasterSheet?.masterSheetName)
+      : "";
+
   if (folderResolved?.ok && folderSheetId) {
     if (!sessionMasterSheetId || folderSheetId !== sessionMasterSheetId) {
       masterSheetResolutionSource = trim(folderResolved.source) || "company_folder";
@@ -441,11 +480,17 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
     masterSheetId = folderSheetId;
     companyName = trim(folderResolved.companyName) || companyName;
     masterSheetIdsTried.push(folderSheetId);
-  } else if (!masterSheetId && sessionMasterSheetId) {
-    masterSheetId = sessionMasterSheetId;
-    masterSheetIdsTried.push(sessionMasterSheetId);
-  } else if (sessionMasterSheetId) {
-    masterSheetIdsTried.push(sessionMasterSheetId);
+  } else {
+    masterSheetId = "";
+    for (const hint of hintCandidates) {
+      masterSheetIdsTried.push(hint);
+      const validatedHint = await validateMasterSheetHint(auth, deps, hint);
+      if (validatedHint) {
+        masterSheetId = validatedHint;
+        masterSheetResolutionSource = hint === sessionMasterSheetId ? "validated_session_hint" : "validated_registry_hint";
+        break;
+      }
+    }
   }
 
   if (!masterSheetId) {
@@ -458,10 +503,20 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
         { httpStatus: 403, failedStep: "company_folder_list" },
       );
     }
+    const staleSessionHint = Boolean(sessionMasterSheetId && hintCandidates.includes(sessionMasterSheetId));
+    const workbookMessage = workbookNotFoundUserMessage({
+      nonNativeWorkbookName,
+      staleSessionHint: staleSessionHint && hintCandidates.length > 0,
+    });
     return buildFailure(
-      folderReason === "WORKBOOK_NOT_FOUND" ? "WORKBOOK_NOT_FOUND" : "MISSING_MASTER_SHEET_ID",
-      COMPANY_USERS_USER_MESSAGE,
-      { ...baseDiagnostics(), companyName, failedStep: "master_sheet_resolve" },
+      folderReason === "WORKBOOK_NOT_FOUND" || staleSessionHint ? "WORKBOOK_NOT_FOUND" : "MISSING_MASTER_SHEET_ID",
+      workbookMessage,
+      {
+        ...baseDiagnostics(),
+        companyName,
+        failedStep: "master_sheet_resolve",
+        masterSheetIdsTried: uniqueIds(masterSheetIdsTried),
+      },
       { httpStatus: 404, failedStep: "master_sheet_resolve" },
     );
   }
@@ -535,9 +590,13 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
   } catch (error) {
     const classified = classifyReadError(error);
     const technicalError = error instanceof Error ? error.message : String(error);
+    const failureMessage =
+      classified.reasonCode === "WORKBOOK_NOT_FOUND"
+        ? workbookNotFoundUserMessage({ staleSessionHint: Boolean(sessionMasterSheetId) })
+        : classified.userMessage || COMPANY_USERS_USER_MESSAGE;
     return buildFailure(
       classified.reasonCode,
-      classified.userMessage || COMPANY_USERS_USER_MESSAGE,
+      failureMessage,
       {
         ...baseDiagnostics(),
         companyName,
