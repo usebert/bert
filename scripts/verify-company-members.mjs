@@ -58,6 +58,9 @@ const pendingInvite = {
   assert(userService.includes("validateCompanyFolderUnderCompaniesRoot"), "1a: folder placement is soft-checked before sheet read");
   assert(!userService.includes("rejectIfCompanyFolderNotUnderCompaniesRoot"), "1a2: users list does not hard-block on folder placement");
   assert(userService.includes("buildCacheOrSessionFallbackSuccess"), "1a3: cache fallback before session-only fallback");
+  assert(userService.includes("skipUsersTabColumnMigration: true"), "1a4: sheet read prefers no-migration path");
+  assert(userService.includes("cache-fallback-rejected"), "1a5: stale cache fallback rejected when sheet has more rows");
+  assert(userService.includes("session-fallback-rejected"), "1a6: session-only fallback rejected when sheet has multiple rows");
   assert(userService.includes("companyFolderId: resolvedCompanyId"), "1b: members normalize companyFolderId");
   assert(userService.includes("mapActiveCompanyMember") || userService.includes("mapCompanyProfileMember"), "1c: company profile mapper exists");
 }
@@ -89,6 +92,10 @@ const pendingInvite = {
     "4: Users tab rows read CompanyId from sheet",
   );
   assert(userService.includes("rowPassesCompanyProfileContext"), "4b: active members filter by company columns");
+  assert(
+    userService.includes("isWorkbookScopedCompanyContext") && sheetFlow.includes("isWorkbookScopedCompanyContext"),
+    "4c2: workbook rows skip company-column filter",
+  );
   assert(userService.includes("companyId: resolvedFolderId"), "4c: active members use resolved folder id");
 }
 

@@ -15,6 +15,7 @@ import {
 import { readCompanyUsers, resolveUsersTab } from "./users-tab-reader.mjs";
 import {
   backfillRowCompanyFields,
+  isWorkbookScopedCompanyContext,
   pickRowCompanyFolderId,
   pickRowCompanyId,
   pickRowCompanyName,
@@ -76,7 +77,7 @@ function mapCompanyProfileMember(row, companyContext = {}) {
   if (isExcludedCompanyProfileStatus(status)) {
     return null;
   }
-  if (!rowPassesCompanyProfileContext(row, companyContext)) {
+  if (!isWorkbookScopedCompanyContext(companyContext) && !rowPassesCompanyProfileContext(row, companyContext)) {
     return null;
   }
   const companyAreas = Array.isArray(row.companyAreas)
@@ -163,6 +164,21 @@ export async function readActiveUsersFromSheetWithStats(auth, deps, companyConte
   }
 
   const activeOnlyCount = members.filter((member) => normalizeUserStatus(member.status) === "ACTIVE").length;
+
+  if (rawUsers.length >= 2 && members.length < rawUsers.length) {
+    console.info(
+      "[company-members]",
+      JSON.stringify({
+        masterSheetId,
+        companyFolderId,
+        dataSource: "users_tab",
+        readMode: "profile_filter",
+        totalRowsRead: rawUsers.length,
+        profilesReturned: members.length,
+        activeOnlyCount,
+      }),
+    );
+  }
 
   return {
     members,

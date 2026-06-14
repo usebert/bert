@@ -97,6 +97,10 @@ const masterSheetA = "sheet-dovecote-master";
   assert(sheetFlow.includes("rowPassesCompanyProfileContext"), "4: sheet flow filters by company context");
   assert(sheetFlow.includes("resolvedProfileCompanyFolderId"), "4a: workbook rows resolve folder id after backfill");
   assert(sheetFlow.includes("skipUsersTabColumnMigration"), "4a2: migration can be skipped on read retry");
+  assert(
+    userService.includes("isWorkbookScopedCompanyContext") && sheetFlow.includes("isWorkbookScopedCompanyContext"),
+    "4a3: workbook rows skip company-column filter",
+  );
   assert(sheetFlow.includes("mapCompanyProfileMember(row, companyCtx)") || sheetFlow.includes("mapActiveCompanyMember(row, companyCtx)"), "4b: active member uses company context");
 }
 

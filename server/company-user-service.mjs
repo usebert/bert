@@ -14,6 +14,7 @@ import {
 } from "./company-users.mjs";
 import {
   backfillRowCompanyFields,
+  isWorkbookScopedCompanyContext,
   pickRowCompanyFolderId,
   pickRowCompanyId,
   pickRowCompanyName,
@@ -114,6 +115,33 @@ function buildDiagnostics(base = {}) {
   };
 }
 
+function logCompanyMembersLoad(payload = {}) {
+  console.info("[company-members]", JSON.stringify(payload));
+}
+
+function sheetAttemptStats(sheetResult = null) {
+  const members = Array.isArray(sheetResult?.members) ? sheetResult.members : [];
+  const totalSheetRows =
+    typeof sheetResult?.totalSheetRows === "number" ? sheetResult.totalSheetRows : members.length;
+  return {
+    members,
+    memberCount: members.length,
+    totalSheetRows,
+    profilesReturned:
+      typeof sheetResult?.profilesReturned === "number" ? sheetResult.profilesReturned : members.length,
+  };
+}
+
+function sheetReadShowsMultipleUsers(sheetResult = null) {
+  const stats = sheetAttemptStats(sheetResult);
+  return stats.memberCount >= 2 || stats.totalSheetRows >= 2;
+}
+
+function cacheIsStaleVersusSheet(cacheCount, sheetResult = null) {
+  const stats = sheetAttemptStats(sheetResult);
+  return stats.totalSheetRows > 0 && cacheCount > 0 && cacheCount < stats.totalSheetRows;
+}
+
 function reconcileCompanyUsersCache(companyFolderId, members, meta = {}, deps = {}) {
   const cache = deps.companyUsersCache;
   if (!cache || typeof cache.rebuildCompanyUsersCache !== "function" || !companyFolderId) {
@@ -163,7 +191,106 @@ function mapSessionActorToMember(sessionActor, companyContext = {}) {
   };
 }
 
-function buildSessionFallbackSuccess(sessionActor, companyContext, failure, startedAt) {
+function buildSheetReadSuccessResponse(
+  sheetResult,
+  {
+    resolvedCompanyId,
+    companyName,
+    masterSheetId,
+    signedInEmail,
+    signedInRole,
+    startedAt,
+    placementWarning,
+    deps,
+    dataSource = "users_tab",
+    warning,
+    reasonCode,
+    failedStep,
+    upstreamMessage,
+  },
+) {
+  const members = Array.isArray(sheetResult?.members) ? sheetResult.members : [];
+  const profilesReturned = members.length;
+  const activeOnlyCount =
+    typeof sheetResult?.activeOnlyCount === "number"
+      ? sheetResult.activeOnlyCount
+      : members.filter((member) => normalizeUserStatus(member.status) === "ACTIVE").length;
+  const cacheStats = reconcileCompanyUsersCache(resolvedCompanyId, members, { masterSheetId }, deps);
+  const totalRowsRead = sheetResult?.totalSheetRows ?? members.length;
+  logCompanyMembersLoad({
+    companyFolderId: resolvedCompanyId,
+    masterSheetId,
+    dataSource,
+    totalRowsRead,
+    profilesReturned,
+    activeOnlyCount,
+    cacheUsersBefore: cacheStats.cacheUsersBefore,
+    cacheOnlyUsersRemoved: cacheStats.cacheOnlyUsersRemoved,
+    warning: warning || placementWarning || undefined,
+    reasonCode,
+    failedStep,
+  });
+  return {
+    ok: true,
+    companyId: resolvedCompanyId,
+    companyFolderId: resolvedCompanyId,
+    companyName: companyName || undefined,
+    masterSheetId,
+    users: members,
+    activeCount: profilesReturned,
+    warning: warning || placementWarning || undefined,
+    reasonCode,
+    failedStep,
+    diagnostics: buildDiagnostics({
+      companyId: resolvedCompanyId,
+      companyFolderId: resolvedCompanyId,
+      companyName,
+      masterSheetId,
+      signedInEmail,
+      signedInRole,
+      dataSource,
+      durationMs: Date.now() - startedAt,
+      totalRowsRead,
+      profilesReturned,
+      activeOnlyCount,
+      cacheUsersBefore: cacheStats.cacheUsersBefore,
+      cacheOnlyUsersRemoved: cacheStats.cacheOnlyUsersRemoved,
+      upstreamMessage,
+    }),
+    cacheReconciliation: cacheStats,
+  };
+}
+
+function buildSessionFallbackSuccess(sessionActor, companyContext, failure, startedAt, sheetAttempt = null) {
+  if (sheetReadShowsMultipleUsers(sheetAttempt)) {
+    const stats = sheetAttemptStats(sheetAttempt);
+    if (stats.memberCount > 0) {
+      return buildSheetReadSuccessResponse(sheetAttempt, {
+        resolvedCompanyId: companyContext.companyFolderId || companyContext.companyId,
+        companyName: companyContext.companyName,
+        masterSheetId: companyContext.masterSheetId,
+        signedInEmail: sessionActor?.email,
+        signedInRole: sessionActor?.role || sessionActor?.accessLevel,
+        startedAt,
+        deps: {},
+        dataSource: "users_tab",
+        warning: "Workbook read returned multiple users; refusing session-only fallback.",
+        reasonCode: failure.reasonCode,
+        failedStep: failure.failedStep || failure.diagnostics?.failedStep,
+        upstreamMessage: failure.diagnostics?.upstreamMessage || failure.technicalError,
+      });
+    }
+    logCompanyMembersLoad({
+      companyFolderId: companyContext.companyFolderId || companyContext.companyId,
+      masterSheetId: companyContext.masterSheetId,
+      dataSource: "session-fallback-rejected",
+      totalRowsRead: stats.totalSheetRows,
+      profilesReturned: stats.memberCount,
+      reasonCode: failure.reasonCode,
+      failedStep: failure.failedStep || failure.diagnostics?.failedStep,
+    });
+    return null;
+  }
   const member = mapSessionActorToMember(sessionActor, companyContext);
   if (!member) {
     return null;
@@ -199,8 +326,32 @@ function buildSessionFallbackSuccess(sessionActor, companyContext, failure, star
   };
 }
 
-function buildCacheOrSessionFallbackSuccess(sessionActor, companyContext, failure, startedAt, deps = {}) {
+function buildCacheOrSessionFallbackSuccess(
+  sessionActor,
+  companyContext,
+  failure,
+  startedAt,
+  deps = {},
+  sheetAttempt = null,
+) {
   const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
+  const sheetStats = sheetAttemptStats(sheetAttempt);
+  if (sheetStats.memberCount > 0) {
+    return buildSheetReadSuccessResponse(sheetAttempt, {
+      resolvedCompanyId: companyFolderId,
+      companyName: companyContext.companyName,
+      masterSheetId: companyContext.masterSheetId,
+      signedInEmail: sessionActor?.email,
+      signedInRole: sessionActor?.role || sessionActor?.accessLevel,
+      startedAt,
+      deps,
+      dataSource: "users_tab",
+      warning: `Workbook read returned ${sheetStats.memberCount} profile(s); refusing cache/session fallback.`,
+      reasonCode: failure.reasonCode,
+      failedStep: failure.failedStep || failure.diagnostics?.failedStep,
+      upstreamMessage: failure.diagnostics?.upstreamMessage || failure.technicalError,
+    });
+  }
   const cache = deps.companyUsersCache;
   const cacheEntry =
     cache && typeof cache.getEntry === "function" && companyFolderId ? cache.getEntry(companyFolderId) : null;
@@ -210,7 +361,18 @@ function buildCacheOrSessionFallbackSuccess(sessionActor, companyContext, failur
         .filter(Boolean)
     : [];
 
-  if (cachedMembers.length > 0) {
+  if (cachedMembers.length > 0 && cacheIsStaleVersusSheet(cachedMembers.length, sheetAttempt)) {
+    logCompanyMembersLoad({
+      companyFolderId,
+      masterSheetId: companyContext.masterSheetId,
+      dataSource: "cache-fallback-rejected",
+      cacheUsersBefore: cachedMembers.length,
+      totalRowsRead: sheetStats.totalSheetRows,
+      profilesReturned: sheetStats.memberCount,
+      reasonCode: failure.reasonCode,
+      failedStep: failure.failedStep || failure.diagnostics?.failedStep,
+    });
+  } else if (cachedMembers.length > 0) {
     const sessionMember = mapSessionActorToMember(sessionActor, companyContext);
     const seenEmails = new Set(cachedMembers.map((row) => normalizeEmail(row.email)));
     const members = [...cachedMembers];
@@ -249,7 +411,7 @@ function buildCacheOrSessionFallbackSuccess(sessionActor, companyContext, failur
     };
   }
 
-  return buildSessionFallbackSuccess(sessionActor, companyContext, failure, startedAt);
+  return buildSessionFallbackSuccess(sessionActor, companyContext, failure, startedAt, sheetAttempt);
 }
 
 function classifyReadError(error, payload) {
@@ -365,7 +527,7 @@ function mapCompanyProfileMember(row, companyContext = {}) {
   if (isExcludedCompanyProfileStatus(status)) {
     return null;
   }
-  if (!rowPassesCompanyProfileContext(row, companyContext)) {
+  if (!isWorkbookScopedCompanyContext(companyContext) && !rowPassesCompanyProfileContext(row, companyContext)) {
     return null;
   }
   const companyAreas = Array.isArray(row.companyAreas)
@@ -550,18 +712,44 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
 
   const resolvedCompanyId = companyFolderId;
 
-  const loadActiveUsersForSheet = async (sheetId) =>
-    readActiveUsersFromSheetWithStats(auth, deps, {
+  const loadActiveUsersForSheet = async (sheetId, readDeps = deps) =>
+    readActiveUsersFromSheetWithStats(auth, readDeps, {
       masterSheetId: sheetId,
       companyFolderId: resolvedCompanyId,
       companyId: resolvedCompanyId,
       companyName,
     });
 
+  let lastSheetAttempt = null;
+
   try {
     let sheetResult;
     try {
-      sheetResult = await loadActiveUsersForSheet(masterSheetId);
+      sheetResult = await loadActiveUsersForSheet(masterSheetId, {
+        ...deps,
+        skipUsersTabColumnMigration: true,
+      });
+      lastSheetAttempt = sheetResult;
+      logCompanyMembersLoad({
+        companyFolderId: resolvedCompanyId,
+        masterSheetId,
+        dataSource: "users_tab",
+        readMode: "no_migration",
+        totalRowsRead: sheetResult?.totalSheetRows ?? 0,
+        profilesReturned: sheetResult?.members?.length ?? 0,
+      });
+      if (!sheetResult.members.length && (sheetResult.totalSheetRows ?? 0) === 0) {
+        sheetResult = await loadActiveUsersForSheet(masterSheetId, deps);
+        lastSheetAttempt = sheetResult;
+        logCompanyMembersLoad({
+          companyFolderId: resolvedCompanyId,
+          masterSheetId,
+          dataSource: "users_tab",
+          readMode: "with_migration",
+          totalRowsRead: sheetResult?.totalSheetRows ?? 0,
+          profilesReturned: sheetResult?.members?.length ?? 0,
+        });
+      }
     } catch (firstError) {
       if (isStaleMasterSheetError(firstError) && companyFolderId) {
         const folderResolved = await resolveMasterSheetFromFolder(
@@ -576,7 +764,11 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
           if (refreshedSheetId && refreshedSheetId !== masterSheetId) {
             masterSheetId = refreshedSheetId;
             companyName = folderResolved.companyName || companyName;
-            sheetResult = await loadActiveUsersForSheet(masterSheetId);
+            sheetResult = await loadActiveUsersForSheet(masterSheetId, {
+              ...deps,
+              skipUsersTabColumnMigration: true,
+            });
+            lastSheetAttempt = sheetResult;
           } else {
             throw firstError;
           }
@@ -588,48 +780,33 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
       }
     }
 
-    const members = Array.isArray(sheetResult?.members) ? sheetResult.members : [];
-    const profilesReturned = members.length;
-    const activeOnlyCount =
-      typeof sheetResult?.activeOnlyCount === "number"
-        ? sheetResult.activeOnlyCount
-        : members.filter((member) => normalizeUserStatus(member.status) === "ACTIVE").length;
-    const cacheStats = reconcileCompanyUsersCache(
-      resolvedCompanyId,
-      members,
-      { masterSheetId },
-      deps,
-    );
-
     const placementWarning = folderPlacementWarning
       ? `Company folder placement needs attention (${folderPlacement.reasonCode || "FOLDER_NOT_IN_COMPANIES_ROOT"}).`
       : "";
-    return {
-      ok: true,
-      companyId: resolvedCompanyId,
-      companyFolderId: resolvedCompanyId,
-      companyName: companyName || undefined,
+    const success = buildSheetReadSuccessResponse(sheetResult, {
+      resolvedCompanyId,
+      companyName,
       masterSheetId,
-      users: members,
-      activeCount: profilesReturned,
-      warning: placementWarning || undefined,
-      diagnostics: buildDiagnostics({
-        companyId: resolvedCompanyId,
+      signedInEmail,
+      signedInRole,
+      startedAt,
+      placementWarning,
+      deps,
+    });
+    if (
+      (sheetResult?.totalSheetRows ?? 0) > (sheetResult?.members?.length ?? 0) &&
+      (sheetResult?.totalSheetRows ?? 0) >= 2
+    ) {
+      logCompanyMembersLoad({
         companyFolderId: resolvedCompanyId,
-        companyName,
         masterSheetId,
-        signedInEmail,
-        signedInRole,
         dataSource: "users_tab",
-        durationMs: Date.now() - startedAt,
-        totalRowsRead: sheetResult?.totalSheetRows ?? members.length,
-        profilesReturned,
-        activeOnlyCount,
-        cacheUsersBefore: cacheStats.cacheUsersBefore,
-        cacheOnlyUsersRemoved: cacheStats.cacheOnlyUsersRemoved,
-      }),
-      cacheReconciliation: cacheStats,
-    };
+        readMode: "filtered_rows",
+        totalRowsRead: sheetResult.totalSheetRows,
+        profilesReturned: sheetResult.members?.length ?? 0,
+      });
+    }
+    return success;
   } catch (error) {
     const classified = classifyReadError(error);
     const technicalError = error instanceof Error ? error.message : String(error);
@@ -674,43 +851,22 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
           companyName,
         },
       );
+      lastSheetAttempt = retryResult;
       const retryMembers = Array.isArray(retryResult?.members) ? retryResult.members : [];
       if (retryMembers.length > 0) {
-        const profilesReturned = retryMembers.length;
-        const activeOnlyCount =
-          typeof retryResult?.activeOnlyCount === "number"
-            ? retryResult.activeOnlyCount
-            : retryMembers.filter((member) => normalizeUserStatus(member.status) === "ACTIVE").length;
-        const cacheStats = reconcileCompanyUsersCache(resolvedCompanyId, retryMembers, { masterSheetId }, deps);
-        return {
-          ok: true,
-          companyId: resolvedCompanyId,
-          companyFolderId: resolvedCompanyId,
-          companyName: companyName || undefined,
+        return buildSheetReadSuccessResponse(retryResult, {
+          resolvedCompanyId,
+          companyName,
           masterSheetId,
-          users: retryMembers,
-          activeCount: profilesReturned,
+          signedInEmail,
+          signedInRole,
+          startedAt,
+          deps,
           warning: `Workbook read recovered without column migration (${classified.reasonCode || classified.failedStep || "read_failed"}).`,
           reasonCode: classified.reasonCode,
           failedStep: classified.failedStep,
-          diagnostics: buildDiagnostics({
-            companyId: resolvedCompanyId,
-            companyFolderId: resolvedCompanyId,
-            companyName,
-            masterSheetId,
-            signedInEmail,
-            signedInRole,
-            dataSource: "users_tab",
-            durationMs: Date.now() - startedAt,
-            totalRowsRead: retryResult?.totalSheetRows ?? retryMembers.length,
-            profilesReturned,
-            activeOnlyCount,
-            cacheUsersBefore: cacheStats.cacheUsersBefore,
-            cacheOnlyUsersRemoved: cacheStats.cacheOnlyUsersRemoved,
-            upstreamMessage: classified.upstreamMessage || technicalError,
-          }),
-          cacheReconciliation: cacheStats,
-        };
+          upstreamMessage: classified.upstreamMessage || technicalError,
+        });
       }
     } catch {
       // fall through to cache/session fallback
@@ -727,6 +883,7 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
       failure,
       startedAt,
       deps,
+      lastSheetAttempt,
     );
     if (fallback) {
       return fallback;
