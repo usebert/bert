@@ -1,7 +1,7 @@
 /**
  * Schedule builder assignee loading — Users tab ACTIVE rows only (no session fallback).
  */
-import { getAssignableUsers } from "./company-user-service.mjs";
+import { getAssignableUsers } from "./company-users-foundation.mjs";
 import { resolveCompanyContextFields } from "./company-context-service.mjs";
 
 function normalizeEmail(value) {

@@ -69,7 +69,10 @@ function runStaticGuards() {
   assert(!authService.includes("getCanonicalCompanyRegistryRecord"), "static: login skips registry gate");
   assert(userService.includes("listActiveUsers"), "static: companyUserService listActiveUsers");
   assert(sheetFlow.includes("listActiveUsersFromSheet"), "static: listActiveUsersFromSheet helper");
-  assert(sheetFlow.includes("rowMatchesCompanyContext"), "static: active users filter by company columns");
+  assert(
+    sheetFlow.includes("rowMatchesCompanyContext") || sheetFlow.includes("rowPassesCompanyProfileContext"),
+    "static: active users filter by company columns",
+  );
   assert(companyUsers.includes("migrateUsersTabCompanyColumns"), "static: company column migration");
   assert(sheetFlow.includes("completeInviteToUserRow"), "static: completeInviteToUserRow helper");
   assert(sheetFlow.includes("canLoginCompanyUser"), "static: canLoginCompanyUser helper");

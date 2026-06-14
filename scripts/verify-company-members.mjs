@@ -70,8 +70,10 @@ const pendingInvite = {
   const coreRoutes = read("server/core-workflow-routes.mjs");
   assert(coreRoutes.includes('app.get("/api/companies/:companyId/users"'), "2: company users list route");
   assert(
-    coreRoutes.includes("syncAndListActiveUsers") || coreRoutes.includes("listActiveCompanyMembers"),
-    "2b: route uses syncAndListActiveUsers",
+    (coreRoutes.includes("company-users-foundation") && coreRoutes.includes("listCompanyProfiles")) ||
+      coreRoutes.includes("syncAndListActiveUsers") ||
+      coreRoutes.includes("listActiveCompanyMembers"),
+    "2b: route uses foundation listCompanyProfiles",
   );
 }
 

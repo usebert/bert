@@ -192,7 +192,7 @@ assert(authService.includes("folderPlacementOk"), "12b: session API exposes fold
 assert(read("server/auth-index.mjs").includes("verifyAuthIndexEntryMatchesUsersWorkbook"), "10i: auth index verifies workbook Users row");
 assert(read("shared/auth-index-trust.mjs").includes("isKnownStaleAuthIndexPairing"), "10j: known stale pairings rejected");
 assert(serverMain.includes("verifyAuthIndexEntryMatchesUsersWorkbook"), "10k: session verifies auth index workbook match");
-assert(read("src/utils/clearStaleCompanyLocalStorage.ts").includes('APP_CONTEXT_VERSION = "4"'), "10l: app context version bumped");
+assert(read("src/utils/clearStaleCompanyLocalStorage.ts").includes('APP_CONTEXT_VERSION = "5"'), "10l: app context version bumped");
 assert(appTsx.includes("companyLinkBlockedMessage"), "12d: App blocks dashboard when company link invalid");
 assert(appTsx.includes("FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE"), "12e: App shows folder placement deny message");
 

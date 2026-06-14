@@ -88,13 +88,16 @@ assert(userService.includes("listActiveCompanyMembers"), "7b: assignees use list
 
 /** 8: Godmode and company workspace use same users API path. */
 assert(
-  coreRoutes.includes("listActiveCompanyMembers") || coreRoutes.includes("syncAndListActiveUsers"),
+  (coreRoutes.includes("company-users-foundation") && coreRoutes.includes("listCompanyProfiles")) ||
+    coreRoutes.includes("listActiveCompanyMembers") ||
+    coreRoutes.includes("syncAndListActiveUsers"),
   "8: company users API uses shared profile list path",
 );
 assert(serverMain.includes("rebuild-users-from-sheet"), "8b: godmode rebuild endpoint");
 assert(godmodePanel.includes("Rebuild users from sheet"), "8c: godmode rebuild button");
 assert(
-  read("server/godmode-service.mjs").includes("listActiveCompanyMembers") ||
+  read("server/godmode-service.mjs").includes("listCompanyProfiles") ||
+    read("server/godmode-service.mjs").includes("listActiveCompanyMembers") ||
     read("server/godmode-service.mjs").includes("syncAndListActiveUsers"),
   "8d: godmode service shares list path",
 );

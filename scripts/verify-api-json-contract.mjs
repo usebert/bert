@@ -36,7 +36,11 @@ assert(!serverMain.includes("err.stack"), "2c: no stack traces sent to clients")
 
 /** 3: Company users route returns JSON contract with diagnostics. */
 assert(coreRoutes.includes('app.get("/api/companies/:companyId/users"'), "3: company users route");
-assert(coreRoutes.includes("listActiveCompanyMembers"), "3b: route uses listActiveCompanyMembers");
+assert(
+  (coreRoutes.includes("company-users-foundation") && coreRoutes.includes("listCompanyProfiles")) ||
+    coreRoutes.includes("listActiveCompanyMembers"),
+  "3b: route uses foundation listCompanyProfiles",
+);
 assert(coreRoutes.includes("diagnostics: result.diagnostics"), "3c: success includes diagnostics");
 assert(userService.includes("diagnostics:"), "3d: service builds diagnostics");
 

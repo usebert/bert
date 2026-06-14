@@ -138,7 +138,7 @@ import { debugVerifyUserPassword } from "./user-auth-service.mjs";
 import { createAuthIndexApi, syncAuthIndexAfterUsersRead } from "./auth-index.mjs";
 import { completeInviteToUserRow } from "./company-user-sheet-flow.mjs";
 import { createCompanyUsersCacheApi } from "./company-users-cache.mjs";
-import { rebuildUsersFromSheet } from "./company-user-service.mjs";
+import { rebuildUsersFromSheet } from "./company-users-foundation.mjs";
 import {
   inspectConfiguredWorkspaceRoot,
   listFolderChildren,

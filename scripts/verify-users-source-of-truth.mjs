@@ -98,7 +98,8 @@ assert(serverMain.includes("completeInviteToUserRow"), "11: invite completion us
 
 /** 12: Godmode reuses same active member list path. */
 assert(
-  read("server/godmode-service.mjs").includes("listActiveCompanyMembers") ||
+  read("server/godmode-service.mjs").includes("listCompanyProfiles") ||
+    read("server/godmode-service.mjs").includes("listActiveCompanyMembers") ||
     read("server/godmode-service.mjs").includes("syncAndListActiveUsers"),
   "12: godmode uses shared company profile list path",
 );

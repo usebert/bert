@@ -130,7 +130,7 @@ assert(serverMain.includes("rebuildAuthIndex"), "9h: godmode rebuild uses full a
 assert(serverMain.includes("verifyAuthIndexEntryMatchesUsersWorkbook"), "9i: session verifies auth index workbook match");
 assert(serverMain.includes("isKnownStaleAuthIndexPairing"), "9j: session rejects known stale pairings");
 assert(clearStale.includes("bert_context_schema_version"), "9k: boot uses bert_context_schema_version");
-assert(clearStale.includes("BERT_CONTEXT_SCHEMA_VERSION = 4"), "9m: schema version bumped for one-time client wipe");
+assert(clearStale.includes("BERT_CONTEXT_SCHEMA_VERSION = 5"), "9m: schema version bumped for one-time client wipe");
 assert(
   read("src/components/admin/UsersInvitesPilotPanel.tsx").includes("companyContextBlocked"),
   "9n: invite panel blocks when company context invalid",

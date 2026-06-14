@@ -35,7 +35,11 @@ assert(userService.includes("sanitizeUsersTabRecords"), "1d: never returns Passw
 
 /** 2: GET /api/companies/:companyId/users calls syncAndListActiveUsers. */
 assert(coreRoutes.includes('app.get("/api/companies/:companyId/users"'), "2: users list route");
-assert(coreRoutes.includes("syncAndListActiveUsers"), "2b: route uses syncAndListActiveUsers");
+assert(
+  (coreRoutes.includes("company-users-foundation") && coreRoutes.includes("listCompanyProfiles")) ||
+    coreRoutes.includes("syncAndListActiveUsers"),
+  "2b: route uses foundation listCompanyProfiles",
+);
 
 /** 3: Client syncAndListActiveUsers alias hits same endpoint. */
 assert(clientService.includes("export { fetchCompanyMembers as syncAndListActiveUsers }"), "3: client syncAndListActiveUsers alias");
@@ -79,7 +83,11 @@ assert(godmodePanel.includes("!activeMembersLoadError && activeCompanyMembers.le
 assert(panel.includes("activeMembersLoadError"), "6c: load error surfaced in panel");
 
 /** 7: Godmode People uses same server helper. */
-assert(godmodeService.includes("syncAndListActiveUsers"), "7: godmode service uses syncAndListActiveUsers");
+assert(
+  godmodeService.includes("listCompanyProfiles") ||
+    godmodeService.includes("syncAndListActiveUsers"),
+  "7: godmode service uses foundation listCompanyProfiles",
+);
 
 /** 8: Schedule assignees reuse list path via getAssignableUsers. */
 assert(userService.includes("getAssignableUsers"), "8: schedule assignees path exists");

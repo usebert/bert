@@ -28,7 +28,9 @@ const pkg = JSON.parse(read("package.json"));
 {
   assert(godmodeService.includes("listGodmodeCompanyUsers"), "1: listGodmodeCompanyUsers exported");
   assert(
-    godmodeService.includes("listActiveCompanyMembers") || godmodeService.includes("syncAndListActiveUsers"),
+    godmodeService.includes("listCompanyProfiles") ||
+    godmodeService.includes("listActiveCompanyMembers") ||
+    godmodeService.includes("syncAndListActiveUsers"),
     "1b: same shared company profile list path",
   );
 }
