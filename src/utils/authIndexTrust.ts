@@ -5,8 +5,10 @@ export function isKnownStaleAuthIndexPairing(email?: string, companyName?: strin
   if (!normalizedEmail || !normalizedName) {
     return false;
   }
-  if (normalizedEmail === "dovecotestudio@icloud.com" && normalizedName.includes("rock solid")) {
-    return true;
+  if (normalizedName.includes("rock solid")) {
+    if (normalizedEmail === "dovecotestudio@icloud.com" || normalizedEmail === "7oakcottages@gmail.com") {
+      return true;
+    }
   }
   return false;
 }

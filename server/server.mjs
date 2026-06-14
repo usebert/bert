@@ -132,6 +132,7 @@ import {
   resolveValidatedCompanyLoginContext,
   COMPANY_CONTEXT_INVALID,
   COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
+  LOGIN_CONTEXT_FAILED,
 } from "./auth-service.mjs";
 import { createAuthIndexApi, syncAuthIndexAfterUsersRead } from "./auth-index.mjs";
 import { completeInviteToUserRow } from "./company-user-sheet-flow.mjs";
@@ -6866,6 +6867,7 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
       password: loginPassword,
       masterSheetId: String(req.body?.masterSheetId || "").trim(),
       authIndex: authIndexApi,
+      getCompanyUsersDeps,
       sessionRevocation: companySessionRevocationApi,
       isPlatformOwner: isPlatformOwnerEmail,
       queueLoginBackgroundJobs: (jobs) => {
@@ -6890,74 +6892,18 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
     if (!result.ok) {
       return res.status(result.httpStatus || 400).json({
         ok: false,
+        code: result.code,
+        message: result.message || result.error,
         blocker: result.blocker,
         error: result.error,
-        reasonCode: result.reasonCode,
-        folderPlacement: result.folderPlacement,
+        reasonCode: result.diagnostics?.reasonCode || result.reasonCode,
+        diagnostics: result.diagnostics,
+        companyContextValid: result.companyContextValid ?? false,
         timingMs: result.timing,
       });
     }
 
-    let sessionPayload = result.sessionPayload;
-    let loginCompany = result.company || {};
-    let loginMasterSheetId = String(result.masterSheetId || loginCompany.masterSheetId || "").trim();
-
-    if (auth && envConfigured()) {
-      const validatedEntry = await authIndexApi
-        .lookupByEmailValidated(auth, getCompanyContextEnrichmentDeps(), result.email)
-        .catch(() => null);
-      if (!validatedEntry) {
-        authIndexApi.removeEntry(result.email);
-        return res.status(409).json({
-          ok: false,
-          blocker: "company_context_invalid",
-          code: COMPANY_CONTEXT_INVALID,
-          companyContextValid: false,
-          error: COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
-        });
-      }
-
-      const validated = await resolveValidatedCompanyLoginContext(
-        auth,
-        getCompanyContextEnrichmentDeps(),
-        validatedEntry,
-        { email: result.email, authIndex: authIndexApi },
-      );
-      if (!validated.ok) {
-        authIndexApi.removeEntry(result.email);
-        return res.status(validated.httpStatus || 409).json({
-          ok: false,
-          blocker: validated.blocker,
-          code: validated.reasonCode || COMPANY_CONTEXT_INVALID,
-          companyContextValid: false,
-          error: validated.error,
-          reasonCode: validated.reasonCode,
-        });
-      }
-
-      const indexEntry = authIndexApi.lookupByEmail(result.email) || {};
-      sessionPayload = buildCompanySessionPayload({
-        email: result.email,
-        masterSheetId: String(indexEntry.masterSheetId || validated.masterSheetId || "").trim(),
-        companyId: String(indexEntry.companyFolderId || indexEntry.companyId || validated.companyFolderId || "").trim(),
-        companyName: String(indexEntry.companyName || validated.companyName || "").trim(),
-        role: result.user.role,
-        name: result.user.name,
-        accessLevel: result.user.accessLevel || "",
-        companyAreas: result.user.companyAreas,
-      });
-      loginCompany = {
-        companyId: String(indexEntry.companyFolderId || indexEntry.companyId || validated.companyFolderId || "").trim(),
-        companyFolderId: String(indexEntry.companyFolderId || indexEntry.companyId || validated.companyFolderId || "").trim(),
-        companyName: String(indexEntry.companyName || validated.companyName || "").trim(),
-        masterSheetId: String(indexEntry.masterSheetId || validated.masterSheetId || "").trim(),
-        registryStatus: validated.registryStatus,
-        folderPlacementOk: true,
-      };
-      loginMasterSheetId = String(indexEntry.masterSheetId || validated.masterSheetId || "").trim();
-    }
-
-    res.cookie(COMPANY_SESSION_COOKIE, sessionPayload, getSessionCookieOptions({ maxAge: COMPANY_SESSION_MS }));
+    res.cookie(COMPANY_SESSION_COOKIE, result.sessionPayload, getSessionCookieOptions({ maxAge: COMPANY_SESSION_MS }));
 
     const responseStarted = Date.now();
     res.on("finish", () => {
@@ -6979,15 +6925,32 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
 
     return res.json({
       ok: true,
+      clearClientHints: result.clearClientHints === true,
       companyContextValid: true,
       user: result.user,
-      masterSheetId: loginMasterSheetId,
-      company: loginCompany,
+      masterSheetId: result.masterSheetId,
+      company: result.company,
       timingMs: result.timing,
     });
   } catch (error) {
     console.error("[company-auth] login failed:", error);
-    return res.status(500).json({ ok: false, error: "Unable to complete sign in." });
+    const email = String(req.body?.email || req.body?.username || "").trim().toLowerCase();
+    return res.status(500).json({
+      ok: false,
+      code: LOGIN_CONTEXT_FAILED,
+      message: "Unable to complete sign in.",
+      error: "Unable to complete sign in.",
+      companyContextValid: false,
+      diagnostics: {
+        email,
+        failedStep: "session_create",
+        companyName: "",
+        companyId: "",
+        companyFolderId: "",
+        masterSheetId: String(req.body?.masterSheetId || "").trim(),
+        reasonCode: "unexpected_error",
+      },
+    });
   }
 });
 

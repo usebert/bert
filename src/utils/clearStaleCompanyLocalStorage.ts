@@ -4,8 +4,8 @@ import { clearGodmodeSelectedCompanyFolderId } from "./godmodeCompanyContext";
 import { clearedCompanyWorkspaceOperationalFields } from "./clearCompanyWorkspaceLocalState";
 
 /** Bump to force a one-time wipe of stale company identity keys after deploy. */
-export const APP_CONTEXT_VERSION = "3";
-export const BERT_CONTEXT_SCHEMA_VERSION = 3;
+export const APP_CONTEXT_VERSION = "4";
+export const BERT_CONTEXT_SCHEMA_VERSION = 4;
 const APP_CONTEXT_VERSION_KEY = "bert_app_context_version";
 const BERT_CONTEXT_SCHEMA_VERSION_KEY = "bert_context_schema_version";
 

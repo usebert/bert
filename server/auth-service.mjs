@@ -332,8 +332,68 @@ export async function probeCompanyLoginSheet(auth, masterSheetId, email, passwor
   }
 }
 
+export const INVALID_CREDENTIALS = "INVALID_CREDENTIALS";
+export const LOGIN_CONTEXT_FAILED = "LOGIN_CONTEXT_FAILED";
+
+function buildInvalidCredentialsFailure(timing, loginStarted) {
+  timing.total = logLoginPhase("total", loginStarted);
+  return {
+    ok: false,
+    httpStatus: 401,
+    code: INVALID_CREDENTIALS,
+    blocker: "invalid_credentials",
+    error: "Email or password is incorrect.",
+    message: "Email or password is incorrect.",
+    timing,
+  };
+}
+
+function buildLoginContextFailure({
+  timing,
+  loginStarted,
+  email,
+  failedStep,
+  reasonCode,
+  indexEntry = {},
+  usersTabRec = null,
+}) {
+  const rowCols =
+    usersTabRec && typeof usersTabRec === "object"
+      ? {
+          companyName: String(usersTabRec.companyName || "").trim(),
+          companyId: String(usersTabRec.companyId || "").trim(),
+          companyFolderId: String(usersTabRec.companyFolderId || usersTabRec.companyId || "").trim(),
+        }
+      : {
+          companyName: String(indexEntry.companyName || "").trim(),
+          companyId: String(indexEntry.companyId || "").trim(),
+          companyFolderId: String(indexEntry.companyFolderId || indexEntry.companyId || "").trim(),
+        };
+  timing.total = logLoginPhase("total", loginStarted);
+  return {
+    ok: false,
+    httpStatus: 409,
+    code: LOGIN_CONTEXT_FAILED,
+    blocker: "login_context_failed",
+    error: "Unable to complete sign in.",
+    message: "Unable to complete sign in.",
+    reasonCode: String(reasonCode || failedStep || "company_context_invalid").trim(),
+    companyContextValid: false,
+    diagnostics: {
+      email: String(email || "").trim().toLowerCase(),
+      failedStep: String(failedStep || "company_context_resolve").trim(),
+      companyName: rowCols.companyName,
+      companyId: rowCols.companyId,
+      companyFolderId: rowCols.companyFolderId,
+      masterSheetId: String(indexEntry.masterSheetId || "").trim(),
+      reasonCode: String(reasonCode || failedStep || "company_context_invalid").trim(),
+    },
+    timing,
+  };
+}
+
 /**
- * Company login — auth index only; background jobs run after response.
+ * Company login — auth index + Users tab row company columns; live Drive validation runs after response.
  */
 export async function performCompanyLogin(auth, deps, input = {}) {
   const loginStarted = Date.now();
@@ -347,12 +407,13 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     authIndex,
     sessionRevocation,
     queueLoginBackgroundJobs,
+    getCompanyUsersDeps,
     isPlatformOwner = isPlatformOwnerEmail,
   } = deps;
 
   const tNormalize = Date.now();
-  const email = String(rawEmail || "").trim().toLowerCase();
-  const pwd = String(password || "");
+  const email = String(rawEmail || input.email || "").trim().toLowerCase();
+  const pwd = String(password || input.password || "");
   timing.normalise_email = logLoginPhase("normalise_email", tNormalize);
 
   if (!email || !pwd) {
@@ -360,8 +421,10 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     return {
       ok: false,
       httpStatus: 400,
+      code: "MISSING_FIELDS",
       blocker: "missing_fields",
       error: "Email and password are required.",
+      message: "Email and password are required.",
       timing,
     };
   }
@@ -370,8 +433,10 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     return {
       ok: false,
       httpStatus: 400,
+      code: "INVALID_EMAIL",
       blocker: "invalid_email",
       error: "A valid email address is required.",
+      message: "A valid email address is required.",
       timing,
     };
   }
@@ -385,6 +450,7 @@ export async function performCompanyLogin(auth, deps, input = {}) {
       httpStatus: 401,
       blocker: "platform_owner_master_only",
       error: "Platform owner must use master auth.",
+      message: "Platform owner must use master auth.",
       timing,
     };
   }
@@ -398,12 +464,13 @@ export async function performCompanyLogin(auth, deps, input = {}) {
       httpStatus: 503,
       blocker: "auth_index_unavailable",
       error: "Sign in is temporarily unavailable.",
+      message: "Sign in is temporarily unavailable.",
       timing,
     };
   }
 
   const tLookup = Date.now();
-  const indexEntry = authIndex.lookupByEmail(email);
+  let indexEntry = authIndex.lookupByEmail(email);
   timing.auth_index_lookup = logLoginPhase("auth_index_lookup", tLookup);
 
   const requested = String(requestedSheetId || "").trim();
@@ -415,49 +482,91 @@ export async function performCompanyLogin(auth, deps, input = {}) {
         requestedMasterSheetId: requested,
       });
     }
-    timing.total = logLoginPhase("total", loginStarted);
-    return {
-      ok: false,
-      httpStatus: 401,
-      blocker: "invalid_credentials",
-      error: "Invalid email or password.",
-      timing,
-    };
+    return buildInvalidCredentialsFailure(timing, loginStarted);
   }
 
   if (requested && indexEntry.masterSheetId && requested !== indexEntry.masterSheetId) {
-    timing.total = logLoginPhase("total", loginStarted);
-    return {
-      ok: false,
-      httpStatus: 401,
-      blocker: "invalid_credentials",
-      error: "Invalid email or password.",
-      timing,
+    return buildInvalidCredentialsFailure(timing, loginStarted);
+  }
+
+  let usersTabRec = null;
+  let sessionCompanyName = String(indexEntry.companyName || "").trim();
+  let sessionCompanyId = String(indexEntry.companyFolderId || indexEntry.companyId || "").trim();
+  let masterSheetId = String(indexEntry.masterSheetId || requested || "").trim();
+
+  const tUsersTab = Date.now();
+  if (
+    auth &&
+    masterSheetId &&
+    typeof authIndex.reconcileLoginEntryFromUsersTab === "function"
+  ) {
+    const reconcileDeps = {
+      ...deps,
+      getCompanyUsersDeps: getCompanyUsersDeps || deps.getCompanyUsersDeps,
     };
+    const reconciled = await authIndex
+      .reconcileLoginEntryFromUsersTab(auth, reconcileDeps, email, indexEntry)
+      .catch(() => ({ ok: false, failedStep: "user_lookup", reason: "reconcile_failed" }));
+    timing.users_tab_reconcile = logLoginPhase("users_tab_reconcile", tUsersTab);
+
+    if (!reconciled.ok) {
+      if (reconciled.failedStep === "user_lookup" && reconciled.reason === "inactive") {
+        timing.total = logLoginPhase("total", loginStarted);
+        return {
+          ok: false,
+          httpStatus: 403,
+          blocker: "inactive",
+          error: "This account is inactive. Contact your company administrator.",
+          message: "This account is inactive. Contact your company administrator.",
+          timing,
+        };
+      }
+      return buildLoginContextFailure({
+        timing,
+        loginStarted,
+        email,
+        failedStep: reconciled.failedStep || "user_lookup",
+        reasonCode: reconciled.reason || "user_not_in_workbook",
+        indexEntry,
+        usersTabRec: reconciled.rec,
+      });
+    }
+
+    indexEntry = reconciled.entry || indexEntry;
+    usersTabRec = reconciled.rec || null;
+    const rowCols = reconciled.rowCols || {};
+    sessionCompanyName = String(rowCols.companyName || indexEntry.companyName || "").trim();
+    sessionCompanyId = String(
+      rowCols.companyFolderId || rowCols.companyId || indexEntry.companyFolderId || indexEntry.companyId || "",
+    ).trim();
+    masterSheetId = String(indexEntry.masterSheetId || requested || "").trim();
+    if (reconciled.reconciled) {
+      timing.auth_index_update = logLoginPhase("auth_index_update", tUsersTab);
+    }
+  } else {
+    timing.users_tab_reconcile = logLoginPhase("users_tab_reconcile", tUsersTab);
   }
 
   const tPassword = Date.now();
-  const passwordVerified = authIndex.verifyPasswordForEntry(indexEntry, pwd);
+  const passwordEntry = {
+    ...indexEntry,
+    passwordHash: String(usersTabRec?.passwordHash || indexEntry.passwordHash || "").trim(),
+  };
+  const passwordVerified = authIndex.verifyPasswordForEntry(passwordEntry, pwd);
   timing.password_verify = logLoginPhase("password_verify", tPassword);
 
   if (!passwordVerified) {
-    timing.total = logLoginPhase("total", loginStarted);
-    return {
-      ok: false,
-      httpStatus: 401,
-      blocker: "invalid_credentials",
-      error: "Invalid email or password.",
-      timing,
-    };
+    return buildInvalidCredentialsFailure(timing, loginStarted);
   }
 
-  if (String(indexEntry.status || "").toUpperCase() !== "ACTIVE") {
+  if (String(indexEntry.status || usersTabRec?.status || "").toUpperCase() !== "ACTIVE") {
     timing.total = logLoginPhase("total", loginStarted);
     return {
       ok: false,
       httpStatus: 403,
       blocker: "inactive",
       error: "This account is inactive. Contact your company administrator.",
+      message: "This account is inactive. Contact your company administrator.",
       timing,
     };
   }
@@ -465,28 +574,65 @@ export async function performCompanyLogin(auth, deps, input = {}) {
   if (
     sessionRevocation &&
     typeof sessionRevocation.isCompanyUserSessionRevoked === "function" &&
-    sessionRevocation.isCompanyUserSessionRevoked(
-      email,
-      indexEntry.companyFolderId || indexEntry.companyId,
-      indexEntry.masterSheetId,
-    )
+    sessionRevocation.isCompanyUserSessionRevoked(email, sessionCompanyId, masterSheetId)
   ) {
     authIndex.removeEntry?.(email);
-    timing.total = logLoginPhase("total", loginStarted);
-    return {
-      ok: false,
-      httpStatus: 401,
-      blocker: "invalid_credentials",
-      error: "Invalid email or password.",
+    return buildInvalidCredentialsFailure(timing, loginStarted);
+  }
+
+  if (isKnownStaleAuthIndexPairing(email, sessionCompanyName)) {
+    authIndex.removeEntry?.(email);
+    return buildLoginContextFailure({
       timing,
-    };
+      loginStarted,
+      email,
+      failedStep: "stale_company_context_detected",
+      reasonCode: COMPANY_CONTEXT_INVALID,
+      indexEntry,
+      usersTabRec,
+    });
+  }
+
+  if (!masterSheetId) {
+    return buildLoginContextFailure({
+      timing,
+      loginStarted,
+      email,
+      failedStep: "master_sheet_resolve",
+      reasonCode: "MASTER_SHEET_MISSING",
+      indexEntry,
+      usersTabRec,
+    });
+  }
+  if (!sessionCompanyId) {
+    return buildLoginContextFailure({
+      timing,
+      loginStarted,
+      email,
+      failedStep: "company_folder_resolve",
+      reasonCode: "COMPANY_FOLDER_MISSING",
+      indexEntry,
+      usersTabRec,
+    });
+  }
+  if (!sessionCompanyName) {
+    return buildLoginContextFailure({
+      timing,
+      loginStarted,
+      email,
+      failedStep: "company_context_resolve",
+      reasonCode: "COMPANY_NAME_MISSING",
+      indexEntry,
+      usersTabRec,
+    });
   }
 
   const tContext = Date.now();
-  const masterSheetId = String(indexEntry.masterSheetId || requested || "").trim();
-  const sessionCompanyId = String(indexEntry.companyFolderId || indexEntry.companyId || "").trim();
-  const companyName = String(indexEntry.companyName || "").trim();
-  const companyAreas = Array.isArray(indexEntry.companyAreas) ? indexEntry.companyAreas : [];
+  const companyAreas = Array.isArray(usersTabRec?.companyAreas)
+    ? usersTabRec.companyAreas
+    : Array.isArray(indexEntry.companyAreas)
+      ? indexEntry.companyAreas
+      : [];
   timing.company_context_load = logLoginPhase("company_context_load", tContext);
 
   const tSession = Date.now();
@@ -494,7 +640,7 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     email,
     masterSheetId,
     companyId: sessionCompanyId,
-    companyName,
+    companyName: sessionCompanyName,
     role: indexEntry.role,
     name: indexEntry.name,
     accessLevel: indexEntry.accessLevel || "",
@@ -507,8 +653,9 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     email,
     masterSheetId,
     companyFolderId: sessionCompanyId,
-    companyName,
+    companyName: sessionCompanyName,
     indexStale: authIndex.isEntryStale(indexEntry),
+    validateLiveCompany: Boolean(auth),
     touchLastLogin: true,
   };
   timing.background_jobs_queued = logLoginPhase("background_jobs_queued", tJobs);
@@ -531,11 +678,12 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     company: {
       companyId: sessionCompanyId,
       companyFolderId: sessionCompanyId,
-      companyName,
+      companyName: sessionCompanyName,
       masterSheetId,
     },
     sessionPayload,
     backgroundJobs,
+    clearClientHints: true,
     timing,
   };
 }
@@ -572,6 +720,22 @@ export function queueCompanyLoginBackgroundJobs(deps, jobs = {}) {
       requestedBy: email,
       userMessage: "Verifying sign-in index.",
       payload: { email, masterSheetId, companyFolderId, companyName: jobs.companyName || "" },
+    }).catch(() => null);
+  }
+
+  if (jobs.validateLiveCompany && typeof enqueueBackgroundJob === "function") {
+    enqueueBackgroundJob({
+      type: "VERIFY_AUTH_INDEX",
+      companyId: companyFolderId,
+      requestedBy: email,
+      userMessage: "Verifying company workspace.",
+      payload: {
+        email,
+        masterSheetId,
+        companyFolderId,
+        companyName: jobs.companyName || "",
+        reason: "post_login_validate",
+      },
     }).catch(() => null);
   }
 

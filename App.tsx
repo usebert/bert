@@ -299,7 +299,7 @@ import {
   scheduleSheetRecordsPreferSchedulesTab,
   type ScheduleAssignedUser,
 } from "./src/utils/scheduleSave";
-import { companyLogin } from "./src/services/authService";
+import { companyLogin, type LoginContextDiagnostics } from "./src/services/authService";
 import { listCompanySchedules, saveCompanySchedule } from "./src/services/scheduleService";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
 import { getNextBestAction } from "./src/utils/nextBestAction";
@@ -4086,6 +4086,19 @@ function App() {
   const actionsCountReady = masterCompanyWorkspaceDataMatchesSelection;
   const liveOpenActionsCount = actionsCountReady ? liveOpenActions.length : null;
 
+  useEffect(() => {
+    if (currentUser) {
+      return;
+    }
+    clearStaleCompanyLocalStorage();
+    setLinkedCompanyContext(null);
+    setSelectedFolderId("");
+    setFolders([]);
+    setFolderIdInput("");
+    setFolderNameInput("");
+    setMasterSheetInput("");
+  }, [currentUser]);
+
   const activeCompanyContext = useMemo(
     () =>
       resolveActiveCompanyContext({
@@ -5827,7 +5840,16 @@ function App() {
               : "",
           );
           if (companyLinkValid && cp.company?.companyId) {
-            clearStaleCompanyLocalStorage(companyUser.username);
+            const loginHint = readCompanyLoginHint();
+            if (
+              loginHint?.companyName &&
+              cp.company?.companyName &&
+              loginHint.companyName.trim().toLowerCase() !== cp.company.companyName.trim().toLowerCase()
+            ) {
+              clearStaleCompanyLocalStorage(companyUser.username);
+            } else {
+              clearStaleCompanyLocalStorage(companyUser.username);
+            }
             applyLinkedCompanyContext({
               email: companyUser.username,
               company: {
@@ -7566,7 +7588,9 @@ function App() {
       return "";
     };
 
-    let companyLoginFailure: { blocker?: string; message: string } | undefined;
+    let companyLoginFailure:
+      | { blocker?: string; message: string; code?: string; diagnostics?: LoginContextDiagnostics }
+      | undefined;
 
     const tryServerCompanyLogin = async (): Promise<boolean> => {
       if (!pwd || !loginIdentity.includes("@")) {
@@ -7591,32 +7615,52 @@ function App() {
           };
           return false;
         }
+        if (
+          loginResult.code === "LOGIN_CONTEXT_FAILED" ||
+          loginResult.companyContextValid === false ||
+          loginResult.code === "COMPANY_CONTEXT_INVALID"
+        ) {
+          clearStaleCompanyLocalStorage(email);
+          companyLoginFailure = {
+            blocker: "login_context_failed",
+            code: loginResult.code,
+            message: loginResult.message || loginResult.error || "Unable to complete sign in.",
+            diagnostics: loginResult.diagnostics,
+          };
+          return false;
+        }
+        if (
+          loginResult.code === "INVALID_CREDENTIALS" ||
+          loginResult.blocker === "invalid_credentials"
+        ) {
+          companyLoginFailure = {
+            blocker: "invalid_credentials",
+            code: loginResult.code,
+            message: "Email or password is incorrect.",
+          };
+          return false;
+        }
         if (!loginResult.ok || !loginResult.user?.email || !loginResult.user?.role) {
-          if (loginResult.companyContextValid === false || loginResult.code === "COMPANY_CONTEXT_INVALID") {
-            clearStaleCompanyLocalStorage(email);
-            companyLoginFailure = {
-              blocker: "company_context_invalid",
-              message: loginResult.error || COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
-            };
-            return false;
-          }
           companyLoginFailure = {
             blocker: loginResult.blocker,
-            message: loginResult.error || "Sign in failed.",
+            code: loginResult.code,
+            message: loginResult.message || loginResult.error || "Sign in failed.",
+            diagnostics: loginResult.diagnostics,
           };
           return false;
         }
         const loggedInUser = loginResult.user;
         const loggedInCompany = loginResult.company;
         if (
-          loginResult.companyContextValid === false ||
           !loggedInCompany?.companyId ||
           isKnownStaleAuthIndexPairing(loggedInUser.email, loggedInCompany?.companyName)
         ) {
           clearStaleCompanyLocalStorage(email);
           companyLoginFailure = {
-            blocker: "company_context_invalid",
-            message: loginResult.error || COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
+            blocker: "login_context_failed",
+            code: "LOGIN_CONTEXT_FAILED",
+            message: loginResult.message || loginResult.error || "Unable to complete sign in.",
+            diagnostics: loginResult.diagnostics,
           };
           return false;
         }
@@ -7764,8 +7808,24 @@ function App() {
         pushToast("Sign in failed", "This account is inactive. Contact your company administrator.", "warning");
         return;
       }
-      if (blocker === "company_context_invalid") {
-        pushToast("Sign in failed", companyLoginFailure.message || COMPANY_NO_LONGER_AVAILABLE_MESSAGE, "warning");
+      if (blocker === "company_context_invalid" || blocker === "login_context_failed") {
+        const diagnostics = companyLoginFailure.diagnostics;
+        const debugSuffix =
+          isDebugUiAllowed() && diagnostics
+            ? ` (${[
+                diagnostics.failedStep ? `failedStep=${diagnostics.failedStep}` : "",
+                diagnostics.reasonCode ? `reason=${diagnostics.reasonCode}` : "",
+                diagnostics.companyName ? `company=${diagnostics.companyName}` : "",
+                diagnostics.companyFolderId ? `folder=${diagnostics.companyFolderId}` : "",
+              ]
+                .filter(Boolean)
+                .join(", ")})`
+            : "";
+        pushToast(
+          "Sign in failed",
+          (companyLoginFailure.message || "Unable to complete sign in.") + debugSuffix,
+          "warning",
+        );
         return;
       }
       if (blocker === "folder_not_in_companies_root") {

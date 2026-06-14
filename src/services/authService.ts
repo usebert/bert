@@ -20,6 +20,16 @@ export type CompanyLoginCompany = {
   reasonCode?: string;
 };
 
+export type LoginContextDiagnostics = {
+  email?: string;
+  failedStep?: string;
+  companyName?: string;
+  companyId?: string;
+  companyFolderId?: string;
+  masterSheetId?: string;
+  reasonCode?: string;
+};
+
 export type CompanyLoginResult = {
   ok: boolean;
   user?: CompanyLoginUser;
@@ -30,6 +40,9 @@ export type CompanyLoginResult = {
   error?: string;
   companyContextValid?: boolean;
   code?: string;
+  message?: string;
+  diagnostics?: LoginContextDiagnostics;
+  clearClientHints?: boolean;
 };
 
 export type CompanySessionResult = {
@@ -43,7 +56,7 @@ export type CompanySessionResult = {
   code?: string;
 };
 
-/** Fast company login — workbook Users tab only; no registry/setup gates. */
+/** Fast company login — workbook Users tab company columns; live Drive validation runs after response. */
 export async function companyLogin(input: {
   email: string;
   password: string;
@@ -57,8 +70,11 @@ export async function companyLogin(input: {
     blocker?: string;
     reasonCode?: string;
     error?: string;
+    message?: string;
     companyContextValid?: boolean;
     code?: string;
+    diagnostics?: LoginContextDiagnostics;
+    clearClientHints?: boolean;
   }>(apiUrl("/api/auth/company/login"), {
     method: "POST",
     credentials: "include",
@@ -79,10 +95,12 @@ export async function companyLogin(input: {
     return {
       ok: false,
       blocker: payload.blocker,
-      reasonCode: payload.reasonCode,
+      reasonCode: payload.reasonCode || payload.diagnostics?.reasonCode,
       code: payload.code,
       companyContextValid: payload.companyContextValid,
-      error: payload.error || "Sign in failed.",
+      diagnostics: payload.diagnostics,
+      error: payload.message || payload.error || "Sign in failed.",
+      message: payload.message || payload.error,
     };
   }
 
@@ -90,10 +108,12 @@ export async function companyLogin(input: {
     return {
       ok: false,
       blocker: payload.blocker || "company_context_invalid",
-      reasonCode: payload.reasonCode,
+      reasonCode: payload.reasonCode || payload.diagnostics?.reasonCode,
       code: payload.code,
       companyContextValid: false,
-      error: payload.error || "Sign in failed.",
+      diagnostics: payload.diagnostics,
+      error: payload.message || payload.error || "Sign in failed.",
+      message: payload.message || payload.error,
     };
   }
 
@@ -112,6 +132,7 @@ export async function companyLogin(input: {
       : undefined,
     masterSheetId,
     companyContextValid: payload.companyContextValid ?? true,
+    clearClientHints: payload.clearClientHints === true,
   };
 }
 

@@ -31,6 +31,14 @@ const pkg = JSON.parse(read("package.json"));
 
 assert(pkg.scripts["verify:company-user-session-context"], "PKG: npm script registered");
 
+function performCompanyLoginBody(source) {
+  const start = source.indexOf("export async function performCompanyLogin");
+  const end = source.indexOf("export function queueCompanyLoginBackgroundJobs", start);
+  return source.slice(start, end > start ? end : undefined);
+}
+
+const loginFn = performCompanyLoginBody(authService);
+
 /** Session builder includes all required company fields. */
 assert(authService.includes("buildCompanySessionApiResponse"), "1: company session API builder");
 assert(
@@ -68,9 +76,12 @@ assert(
   !/performCompanyLogin[\s\S]*?enrichCompanyContextFromRegistry/.test(authService),
   "2f: login does not enrich registry synchronously",
 );
+assert(authService.includes("reconcileLoginEntryFromUsersTab"), "2d6: login reconciles auth index from Users tab");
+assert(authService.includes("INVALID_CREDENTIALS"), "2d7: login returns INVALID_CREDENTIALS code");
+assert(authService.includes("LOGIN_CONTEXT_FAILED"), "2d8: login returns LOGIN_CONTEXT_FAILED code");
 assert(
-  /performCompanyLogin[\s\S]*?indexEntry\.masterSheetId/.test(authService),
-  "2g: session built from auth index masterSheetId",
+  /performCompanyLogin[\s\S]*?sessionCompanyName/.test(authService),
+  "2g: session built from Users tab company columns",
 );
 assert(
   /resolveCompanyContextFields[\s\S]*?findRegistryRecordByMasterSheetId[\s\S]*?masterSheetId/.test(contextService),
@@ -167,23 +178,21 @@ assert(
 assert(authService.includes("companyContextValid"), "10b: session API exposes companyContextValid");
 assert(serverMain.includes("validateLiveCompanyContext"), "10c: session route uses live validator");
 assert(serverMain.includes("COMPANY_CONTEXT_INVALID"), "10d: session returns invalid company code");
-assert(serverMain.includes("resolveValidatedCompanyLoginContext"), "10e: login validates company after password");
+assert(serverMain.includes("resolveValidatedCompanyLoginContext"), "10e: session validates company after password");
 assert(read("server/auth-index.mjs").includes("lookupByEmailValidated"), "10g2: auth index validates on lookup");
+assert(read("server/auth-index.mjs").includes("reconcileLoginEntryFromUsersTab"), "10g2b: auth index reconciles login from Users tab");
 assert(read("server/auth-index.mjs").includes("pruneAuthIndexGhostEntries"), "10g3: auth index startup ghost prune");
-assert(serverMain.includes("lookupByEmailValidated"), "10g4: login route uses validated auth index lookup");
+assert(!serverMain.includes("lookupByEmailValidated(auth, getCompanyContextEnrichmentDeps(), result.email)"), "10g4: login route does not block on validated lookup");
 assert(read("src/components/admin/UsersInvitesPilotPanel.tsx").includes("companyContextBlocked"), "10i: invite panel gates on company context");
 assert(appTsx.includes("clearStaleCompanyLocalStorage"), "10g: App clears stale company storage");
 assert(appTsx.includes("COMPANY_NO_LONGER_AVAILABLE_MESSAGE"), "10h: App shows company unavailable message");
-assert(
-  !/performCompanyLogin[\s\S]*?validateCompanyFolderUnderCompaniesRoot/.test(authService),
-  "10: login performCompanyLogin stays fast — validation in route",
-);
+assert(!loginFn.includes("validateLiveCompanyContext"), "10: login performCompanyLogin stays fast — live validation in background");
 assert(serverMain.includes("folderPlacementOk"), "12: session surfaces folder placement status");
 assert(authService.includes("folderPlacementOk"), "12b: session API exposes folder placement");
 assert(read("server/auth-index.mjs").includes("verifyAuthIndexEntryMatchesUsersWorkbook"), "10i: auth index verifies workbook Users row");
 assert(read("shared/auth-index-trust.mjs").includes("isKnownStaleAuthIndexPairing"), "10j: known stale pairings rejected");
 assert(serverMain.includes("verifyAuthIndexEntryMatchesUsersWorkbook"), "10k: session verifies auth index workbook match");
-assert(read("src/utils/clearStaleCompanyLocalStorage.ts").includes('APP_CONTEXT_VERSION = "3"'), "10l: app context version bumped");
+assert(read("src/utils/clearStaleCompanyLocalStorage.ts").includes('APP_CONTEXT_VERSION = "4"'), "10l: app context version bumped");
 assert(appTsx.includes("companyLinkBlockedMessage"), "12d: App blocks dashboard when company link invalid");
 assert(appTsx.includes("FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE"), "12e: App shows folder placement deny message");
 

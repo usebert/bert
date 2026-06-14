@@ -60,15 +60,17 @@ assert(companyLoginBlock.includes("authIndex: authIndexApi"), "company login rou
 assert(!companyLoginBlock.includes("probeCompanyLoginSheet"), "company login route does not probe Users tab");
 
 assert(loginFn.includes("auth_index_lookup"), "performCompanyLogin uses auth index lookup");
-assert(loginFn.includes("authIndex.lookupByEmail"), "performCompanyLogin reads auth index only");
+assert(loginFn.includes("authIndex.lookupByEmail"), "performCompanyLogin uses auth index lookup");
+assert(loginFn.includes("reconcileLoginEntryFromUsersTab"), "performCompanyLogin reconciles stale index from Users tab");
 assert(!loginFn.includes("probeCompanyLoginSheet"), "performCompanyLogin does not probe sheet");
 assert(!loginFn.includes("resolveCompanyContextForUser"), "performCompanyLogin does not scan companies");
 assert(!loginFn.includes("resolveCompanyContextFromLoginWorkbook"), "performCompanyLogin does not resolve workbook");
 assert(!loginFn.includes("enrichCompanyContextFromRegistry"), "performCompanyLogin does not enrich registry");
 assert(!loginFn.includes("validateCompanyFolderUnderCompaniesRoot"), "performCompanyLogin does not validate folder placement");
+assert(!loginFn.includes("validateLiveCompanyContext"), "performCompanyLogin does not await live Drive validation");
 assert(!loginFn.includes("touchCompanyUserLastLogin"), "performCompanyLogin does not touch Users tab synchronously");
-assert(!loginFn.includes("getTabValues"), "performCompanyLogin does not read Sheets");
-assert(!loginFn.includes("readCompanyUsersTabRecord"), "performCompanyLogin does not read Users tab");
+assert(!loginFn.includes("getTabValues"), "performCompanyLogin does not scan full Users tab");
+assert(!loginFn.includes("readCompanyUsersTabRecord"), "performCompanyLogin reads Users tab via auth index reconcile only");
 assert(loginFn.includes("[login] start"), "performCompanyLogin logs start");
 assert(loginFn.includes("background_jobs_queued"), "performCompanyLogin queues background jobs marker");
 

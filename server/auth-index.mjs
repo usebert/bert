@@ -64,6 +64,58 @@ function pickField(obj, ...keys) {
   return "";
 }
 
+function normalizeCompanyField(value) {
+  return String(value || "").trim();
+}
+
+function pickEntryCompanyColumns(entry) {
+  const rowObj = entry?.rowObject;
+  if (rowObj && typeof rowObj === "object") {
+    return {
+      companyName: normalizeCompanyField(pickRowCompanyName(rowObj) || entry.companyName),
+      companyId: normalizeCompanyField(pickRowCompanyId(rowObj) || entry.companyId),
+      companyFolderId: normalizeCompanyField(
+        pickRowCompanyFolderId(rowObj) || entry.companyFolderId || entry.companyId,
+      ),
+    };
+  }
+  return {
+    companyName: normalizeCompanyField(entry?.companyName),
+    companyId: normalizeCompanyField(entry?.companyId),
+    companyFolderId: normalizeCompanyField(entry?.companyFolderId || entry?.companyId),
+  };
+}
+
+function pickUsersTabCompanyColumns(rec) {
+  const rowObj = rec?.rowObject || rec;
+  return {
+    companyName: normalizeCompanyField(rec?.companyName || pickRowCompanyName(rowObj)),
+    companyId: normalizeCompanyField(rec?.companyId || pickRowCompanyId(rowObj)),
+    companyFolderId: normalizeCompanyField(
+      rec?.companyFolderId || pickRowCompanyFolderId(rowObj) || rec?.companyId,
+    ),
+  };
+}
+
+function isIndexEntryStaleVsUsersTab(indexEntry, usersTabRec) {
+  if (!indexEntry || !usersTabRec) {
+    return false;
+  }
+  const indexCols = pickEntryCompanyColumns(indexEntry);
+  const rowCols = pickUsersTabCompanyColumns(usersTabRec);
+  const normName = (value) => normalizeCompanyField(value).toLowerCase();
+  if (rowCols.companyName && indexCols.companyName && normName(rowCols.companyName) !== normName(indexCols.companyName)) {
+    return true;
+  }
+  if (rowCols.companyFolderId && indexCols.companyFolderId && rowCols.companyFolderId !== indexCols.companyFolderId) {
+    return true;
+  }
+  if (rowCols.companyId && indexCols.companyId && rowCols.companyId !== indexCols.companyId) {
+    return true;
+  }
+  return false;
+}
+
 export function createAuthIndexApi(indexPath) {
   function readStore() {
     try {
@@ -587,6 +639,71 @@ export function createAuthIndexApi(indexPath) {
    * Ensure auth index row matches an ACTIVE Users tab row in its workbook and live Drive context.
    * Never trust index companyName/folderId when the workbook resolves differently.
    */
+  /**
+   * Login reconciliation — Users tab row wins over auth index company columns.
+   * Reads a single Users tab row; upserts index when stale or mismatched.
+   */
+  async function reconcileLoginEntryFromUsersTab(auth, deps, email, indexEntry = {}) {
+    const key = normalizeEmail(email);
+    const masterSheetId = String(indexEntry.masterSheetId || "").trim();
+    if (!auth || !key || !masterSheetId) {
+      return { ok: false, reason: "missing_context", failedStep: "company_context_resolve", entry: indexEntry };
+    }
+    if (isKnownStaleAuthIndexPairing(key, indexEntry.companyName)) {
+      removeEntry(key);
+      indexEntry = lookupByEmail(key) || { ...indexEntry, companyName: "", companyFolderId: "", companyId: "" };
+    }
+    const userDeps = typeof deps.getCompanyUsersDeps === "function" ? deps.getCompanyUsersDeps() : deps;
+    const rec = await readCompanyUsersTabRecord(auth, masterSheetId, key, userDeps).catch(() => null);
+    if (!rec) {
+      return { ok: false, reason: "user_not_in_workbook", failedStep: "user_lookup", entry: indexEntry, rec: null };
+    }
+    if (normalizeUserStatus(rec.status) !== "ACTIVE") {
+      return { ok: false, reason: "inactive", failedStep: "user_lookup", entry: indexEntry, rec };
+    }
+
+    const staleVsTab =
+      isEntryStale(indexEntry) ||
+      isIndexEntryStaleVsUsersTab(indexEntry, rec) ||
+      isKnownStaleAuthIndexPairing(key, indexEntry.companyName);
+
+    const rowCols = pickUsersTabCompanyColumns(rec);
+    let entry = indexEntry;
+    let reconciled = false;
+
+    if (staleVsTab) {
+      const refreshed = entryFromUsersTabRow(
+        {
+          ...rec,
+          email: key,
+          roleRaw: rec.role,
+          passwordHash: String(rec.passwordHash || indexEntry.passwordHash || "").trim(),
+          rowObject: rec.rowObject,
+        },
+        {
+          masterSheetId,
+          companyFolderId: rowCols.companyFolderId,
+          companyId: rowCols.companyId,
+          companyName: rowCols.companyName,
+        },
+      );
+      if (!refreshed) {
+        return {
+          ok: false,
+          reason: "entry_build_failed",
+          failedStep: "company_context_resolve",
+          entry: indexEntry,
+          rec,
+        };
+      }
+      upsertEntry(refreshed);
+      entry = { ...refreshed, email: key };
+      reconciled = true;
+    }
+
+    return { ok: true, reconciled, entry, rec, rowCols: pickUsersTabCompanyColumns(rec) };
+  }
+
   async function verifyAuthIndexEntryMatchesUsersWorkbook(auth, deps, email, entry = {}) {
     const key = normalizeEmail(email);
     const masterSheetId = String(entry.masterSheetId || "").trim();
@@ -710,6 +827,8 @@ export function createAuthIndexApi(indexPath) {
     rebuildCompanyAuthIndexFromSheet,
     rebuildAuthIndex,
     verifyAuthIndexEntryFromSheet,
+    reconcileLoginEntryFromUsersTab,
+    isIndexEntryStaleVsUsersTab,
     verifyAuthIndexEntryMatchesUsersWorkbook,
     invalidateAuthIndexEntryIfCompanyMissing,
     invalidateAuthIndexEntry: invalidateAuthIndexEntryIfCompanyMissing,

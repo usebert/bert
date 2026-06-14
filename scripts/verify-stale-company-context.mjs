@@ -52,8 +52,8 @@ assert(authService.includes("validateLiveCompanyContext"), "2c: auth service re-
 
 assert(serverMain.includes("validateLiveCompanyContext"), "3: session route validates live context");
 assert(serverMain.includes("COMPANY_CONTEXT_INVALID"), "3b: session returns COMPANY_CONTEXT_INVALID");
-assert(serverMain.includes("resolveValidatedCompanyLoginContext"), "3c: login route validates after password");
-assert(serverMain.includes("lookupByEmailValidated"), "3d: login uses validated auth index lookup");
+assert(serverMain.includes("resolveValidatedCompanyLoginContext"), "3c: session route validates after password");
+assert(!serverMain.includes("lookupByEmailValidated(auth, getCompanyContextEnrichmentDeps(), result.email)"), "3d: login route does not block on validated lookup");
 assert(serverMain.includes("pruneAuthIndexGhostEntries"), "3e: server startup prunes ghost auth index entries");
 
 assert(authIndex.includes("lookupByEmailValidated"), "4a: auth index validates entries on lookup");
@@ -131,7 +131,7 @@ assert(serverMain.includes("rebuildAuthIndex"), "9h: godmode rebuild uses full a
 assert(serverMain.includes("verifyAuthIndexEntryMatchesUsersWorkbook"), "9i: session verifies auth index workbook match");
 assert(serverMain.includes("isKnownStaleAuthIndexPairing"), "9j: session rejects known stale pairings");
 assert(clearStale.includes("bert_context_schema_version"), "9k: boot uses bert_context_schema_version");
-assert(clearStale.includes("BERT_CONTEXT_SCHEMA_VERSION = 3"), "9m: schema version bumped for one-time client wipe");
+assert(clearStale.includes("BERT_CONTEXT_SCHEMA_VERSION = 4"), "9m: schema version bumped for one-time client wipe");
 assert(
   read("src/components/admin/UsersInvitesPilotPanel.tsx").includes("companyContextBlocked"),
   "9n: invite panel blocks when company context invalid",
