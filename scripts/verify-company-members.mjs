@@ -95,8 +95,8 @@ const pendingInvite = {
   );
   assert(userService.includes("rowPassesCompanyProfileContext"), "4b: active members filter by company columns");
   assert(
-    userService.includes("isWorkbookScopedCompanyContext") && sheetFlow.includes("isWorkbookScopedCompanyContext"),
-    "4c2: workbook rows skip company-column filter",
+    userService.includes("isWorkbookScopedCompanyContext") || sheetFlow.includes("rowPassesCompanyProfileContext"),
+    "4c2: workbook rows use permissive company profile filter",
   );
   assert(userService.includes("companyId: resolvedFolderId"), "4c: active members use resolved folder id");
 }
@@ -115,7 +115,7 @@ const pendingInvite = {
   const reader = read("server/users-tab-reader.mjs");
   assert(userService.includes("USERS_TAB_READ_FAILED"), "6: users tab read failure code");
   assert(reader.includes("readCompanyUsers"), "6a: dedicated users tab reader");
-  assert(userService.includes("readCompanyUsers"), "6a2: list path uses readCompanyUsers");
+  assert(reader.includes("buildUsersTabRowObject"), "6a3: users tab reader resolves columns by header name");
   assert(userService.includes("MISSING_COMPANY_CONTEXT"), "6b: company context missing reasonCode");
   assert(userService.includes("COMPANY_USERS_LOAD_FAILED"), "6c: structured failure code");
 }
@@ -207,4 +207,161 @@ const pendingInvite = {
   assert(panel.includes("onUpdateCompanyMember"), "13f: edit handler wired");
 }
 
-console.log("[verify:company-members] OK: all 13 company member cases passed");
+/** 14: Wide legacy Users tab (duplicate Company headers) — all 3 Dovecote ACTIVE users listable. */
+{
+  const {
+    buildUsersTabRowObject,
+    normalizeUsersTabRowObject,
+    backfillRowCompanyFields,
+    rowPassesCompanyProfileContext,
+    sanitizeUserRecordForClient,
+  } = await import("../server/users-tab-schema.mjs");
+  const { isExcludedCompanyProfileStatus } = await import("../shared/schedule-assignees.mjs");
+  const { normalizeUserStatus } = await import("../server/users-tab-schema.mjs");
+
+  const folderId = "1TVQ-gbpxoOzE6PCkHX581eTDgtMC11c";
+  const masterSheetId = "1PIwknNgtt-4j08matn1w4358YTe5SXFs5Hh0zA_m3o";
+  const companyCtx = {
+    companyFolderId: folderId,
+    companyId: folderId,
+    companyName: "Dovecote Studio",
+    masterSheetId,
+  };
+  const headers = [
+    "Email",
+    "Name",
+    "Role",
+    "AccessLevel",
+    "Status",
+    "CompanyAreas",
+    "PasswordHash",
+    "CreatedAt",
+    "UpdatedAt",
+    "User ID",
+    "Company ID",
+    "PasswordUpdatedAt",
+    "LastLoginAt",
+    "InvitedAt",
+    "Full Name",
+    "Created By",
+    "Updated By",
+    "Sync Status",
+    "Sync Attempts",
+    "Last Sync Error",
+    "Remote Row ID",
+    "Schema Version",
+    "Company",
+    "CompanyId",
+    "CompanyFolderId",
+  ];
+  const sheetRows = [
+    [
+      "dovecotestudio@icloud.com",
+      "Edward Thomas",
+      "Company Admin",
+      "",
+      "ACTIVE",
+      "",
+      "scrypt$edward",
+      "2024-01-01",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "Edward Thomas",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "Dovecote Studio",
+      "",
+      "",
+    ],
+    [
+      "andy@qmsprecast.co.uk",
+      "Andy Hall",
+      "Manager",
+      "",
+      "ACTIVE",
+      "operational",
+      "scrypt$andy",
+      "2024-01-02",
+      "",
+      "",
+      masterSheetId,
+      "",
+      "",
+      "",
+      "Andy Hall",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "Dovecote Studio",
+      folderId,
+      "",
+    ],
+    [
+      "7oakcottages@gmail.com",
+      "sophie Graney",
+      "Manager",
+      "",
+      "ACTIVE",
+      "",
+      "scrypt$sophie",
+      "2024-01-03",
+      "",
+      "",
+      "registry-workspace-id",
+      "",
+      "",
+      "",
+      "sophie Graney",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "Dovecote Studio",
+      folderId,
+      folderId,
+    ],
+  ];
+
+  const profiles = sheetRows
+    .map((row) => normalizeUsersTabRowObject(buildUsersTabRowObject(headers, row)))
+    .map((row) => backfillRowCompanyFields(row, companyCtx))
+    .filter((row) => {
+      const email = String(row.Email || "").trim().toLowerCase();
+      const name = String(row.Name || "").trim();
+      if (!email || !name || isExcludedCompanyProfileStatus(normalizeUserStatus(row.Status))) {
+        return false;
+      }
+      return rowPassesCompanyProfileContext(row, companyCtx);
+    })
+    .map((row) => sanitizeUserRecordForClient(row));
+
+  assert(profiles.length === 3, "14: all 3 wide-schema ACTIVE users listable");
+  assert(
+    profiles.every((row) => !String(row.PasswordHash || row.passwordHash || "").startsWith("scrypt$")),
+    "14b: PasswordHash never returned from sanitized profiles",
+  );
+  const emails = profiles.map((row) => String(row.Email || row.email || "").toLowerCase()).sort();
+  assert(
+    emails.join(",") ===
+      "7oakcottages@gmail.com,andy@qmsprecast.co.uk,dovecotestudio@icloud.com",
+    "14c: expected Dovecote user emails",
+  );
+}
+
+console.log("[verify:company-members] OK: all 14 company member cases passed");

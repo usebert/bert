@@ -14,7 +14,6 @@ import {
 } from "./company-users.mjs";
 import {
   backfillRowCompanyFields,
-  isWorkbookScopedCompanyContext,
   pickRowCompanyFolderId,
   pickRowCompanyId,
   pickRowCompanyName,
@@ -527,7 +526,7 @@ function mapCompanyProfileMember(row, companyContext = {}) {
   if (isExcludedCompanyProfileStatus(status)) {
     return null;
   }
-  if (!isWorkbookScopedCompanyContext(companyContext) && !rowPassesCompanyProfileContext(row, companyContext)) {
+  if (!rowPassesCompanyProfileContext(row, companyContext)) {
     return null;
   }
   const companyAreas = Array.isArray(row.companyAreas)

@@ -13,6 +13,7 @@ import {
   sanitizeUsersTabRecords,
   backfillRowCompanyFields,
   pickRowCompanyName,
+  buildUsersTabRowObject,
 } from "./users-tab-schema.mjs";
 
 export const USERS_TAB_CANONICAL = "Users";
@@ -37,13 +38,7 @@ function rowsToRecords(values) {
   return rows
     .slice(1)
     .filter((row) => row.some((cell) => String(cell || "").trim()))
-    .map((row) => {
-      const raw = headers.reduce((accumulator, header, index) => {
-        accumulator[header] = String(row[index] || "").trim();
-        return accumulator;
-      }, {});
-      return normalizeUsersTabRowObject(raw);
-    });
+    .map((row) => normalizeUsersTabRowObject(buildUsersTabRowObject(headers, row)));
 }
 
 function extractGoogleError(error) {

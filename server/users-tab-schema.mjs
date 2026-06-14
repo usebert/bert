@@ -25,6 +25,107 @@ function pickField(obj, ...keys) {
   return "";
 }
 
+function headerMatchesAlias(header, alias) {
+  return safeLower(header) === safeLower(alias);
+}
+
+/** First matching column index (left-to-right) for canonical reads like Email/Name. */
+function firstHeaderIndex(headers, ...aliases) {
+  const list = Array.isArray(headers) ? headers : [];
+  for (let index = 0; index < list.length; index += 1) {
+    const header = String(list[index] || "").trim();
+    if (!header) {
+      continue;
+    }
+    if (aliases.some((alias) => headerMatchesAlias(header, alias))) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+/** Last matching column index (right-to-left) — appended CompanyId/CompanyFolderId win on wide sheets. */
+function lastHeaderIndex(headers, ...aliases) {
+  const list = Array.isArray(headers) ? headers : [];
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    const header = String(list[index] || "").trim();
+    if (!header) {
+      continue;
+    }
+    if (aliases.some((alias) => headerMatchesAlias(header, alias))) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function cellAt(headers, row, index) {
+  if (index < 0) {
+    return "";
+  }
+  return String((Array.isArray(row) ? row[index] : undefined) ?? "").trim();
+}
+
+function pickFirstByHeaders(headers, row, ...aliases) {
+  return cellAt(headers, row, firstHeaderIndex(headers, ...aliases));
+}
+
+function pickLastByHeaders(headers, row, ...aliases) {
+  for (const alias of aliases) {
+    const value = cellAt(headers, row, lastHeaderIndex(headers, alias));
+    if (value) {
+      return value;
+    }
+  }
+  return "";
+}
+
+function companyNamesMatch(left, right) {
+  const a = safeLower(left);
+  const b = safeLower(right);
+  return Boolean(a && b && a === b);
+}
+
+/**
+ * Build a Users tab row object by header name — first canonical match for identity cols,
+ * last non-empty match for duplicate CompanyId / CompanyFolderId / legacy Company ID cols.
+ */
+export function buildUsersTabRowObject(headers, row) {
+  const headerRow = (Array.isArray(headers) ? headers : []).map((value, index) =>
+    String(value || `Column ${index + 1}`).trim(),
+  );
+  const dataRow = Array.isArray(row) ? row : [];
+  const raw = headerRow.reduce((accumulator, header, index) => {
+    accumulator[header] = cellAt(headerRow, dataRow, index);
+    return accumulator;
+  }, {});
+
+  const companyFolderId = pickLastByHeaders(headerRow, dataRow, "CompanyFolderId", "companyFolderId");
+  const companyId =
+    pickLastByHeaders(headerRow, dataRow, "CompanyId", "companyId") ||
+    pickLastByHeaders(headerRow, dataRow, "Company ID", "companyId");
+  const company = pickLastByHeaders(headerRow, dataRow, "Company", "company", "companyName");
+
+  return {
+    ...raw,
+    Email: pickFirstByHeaders(headerRow, dataRow, "Email", "email"),
+    Name:
+      pickFirstByHeaders(headerRow, dataRow, "Name", "name") ||
+      pickFirstByHeaders(headerRow, dataRow, "Full Name", "Full name"),
+    Role: pickFirstByHeaders(headerRow, dataRow, "Role", "role"),
+    AccessLevel: pickFirstByHeaders(headerRow, dataRow, "AccessLevel", "Access Level", "accessLevel"),
+    Status: pickFirstByHeaders(headerRow, dataRow, "Status", "status"),
+    CompanyAreas: pickFirstByHeaders(headerRow, dataRow, "CompanyAreas", "Company Areas", "companyAreas"),
+    PasswordHash: pickFirstByHeaders(headerRow, dataRow, "PasswordHash", "passwordHash"),
+    CreatedAt: pickFirstByHeaders(headerRow, dataRow, "CreatedAt", "Created At", "createdAt"),
+    UpdatedAt: pickFirstByHeaders(headerRow, dataRow, "UpdatedAt", "Updated At", "updatedAt"),
+    Company: company,
+    CompanyId: companyId,
+    CompanyFolderId: companyFolderId || companyId,
+    "Company ID": pickLastByHeaders(headerRow, dataRow, "Company ID"),
+  };
+}
+
 export function isPasswordHash(value) {
   return isUserAuthScryptHash(value);
 }
@@ -185,11 +286,19 @@ export function sanitizeUsersTabRecords(records) {
 }
 
 export function pickRowCompanyId(obj) {
-  return pickField(obj, "CompanyId", "CompanyFolderId", "Company ID", "companyId", "companyFolderId");
+  return (
+    pickField(obj, "CompanyFolderId", "companyFolderId") ||
+    pickField(obj, "CompanyId", "companyId") ||
+    pickField(obj, "Company ID", "companyId")
+  );
 }
 
 export function pickRowCompanyFolderId(obj) {
-  return pickField(obj, "CompanyFolderId", "CompanyId", "Company ID", "companyFolderId", "companyId");
+  return (
+    pickField(obj, "CompanyFolderId", "companyFolderId") ||
+    pickField(obj, "CompanyId", "companyId") ||
+    pickField(obj, "Company ID", "companyId")
+  );
 }
 
 export function pickRowCompanyName(obj) {
@@ -212,6 +321,8 @@ export function backfillRowCompanyFields(obj, companyContext = {}) {
   }
   const rowCompanyId = pickRowCompanyId(next);
   const rowFolderId = pickRowCompanyFolderId(next) || rowCompanyId;
+  const rowCompanyName = pickRowCompanyName(next);
+  const nameMatchesContext = companyNamesMatch(rowCompanyName, companyName);
   const legacyWorkbookId =
     folderId &&
     masterSheetId &&
@@ -219,10 +330,16 @@ export function backfillRowCompanyFields(obj, companyContext = {}) {
     rowCompanyId !== folderId &&
     rowFolderId !== folderId &&
     (rowCompanyId === masterSheetId || rowFolderId === masterSheetId);
+  const staleNonFolderId =
+    folderId &&
+    rowCompanyId &&
+    rowCompanyId !== folderId &&
+    rowFolderId !== folderId &&
+    (nameMatchesContext || workbookScoped);
   if (!rowCompanyId && folderId) {
     next.CompanyId = folderId;
     next.CompanyFolderId = folderId;
-  } else if (legacyWorkbookId) {
+  } else if (legacyWorkbookId || staleNonFolderId) {
     next.CompanyId = folderId;
     next.CompanyFolderId = folderId;
   } else if (workbookScoped && folderId && (rowCompanyId !== folderId || rowFolderId !== folderId)) {
@@ -254,6 +371,10 @@ export function rowExplicitlyPointsToOtherCompany(row, companyContext = {}) {
   if (masterSheetId && (rowCompanyId === masterSheetId || rowFolderId === masterSheetId)) {
     return false;
   }
+  const companyName = String(companyContext.companyName || "").trim();
+  if (companyNamesMatch(pickRowCompanyName(row), companyName)) {
+    return false;
+  }
   return rowCompanyId === rowFolderId;
 }
 
@@ -273,6 +394,13 @@ export function rowMatchesCompanyContext(row, companyContext = {}) {
   }
   const masterSheetId = String(companyContext.masterSheetId || "").trim();
   if (masterSheetId && (rowCompanyId === masterSheetId || rowFolderId === masterSheetId)) {
+    return true;
+  }
+  const companyName = String(companyContext.companyName || "").trim();
+  if (companyNamesMatch(pickRowCompanyName(row), companyName)) {
+    return true;
+  }
+  if (isWorkbookScopedCompanyContext(companyContext)) {
     return true;
   }
   return false;
@@ -304,9 +432,11 @@ export function sheetLikeRowFromProfile(row) {
 /** Backfill company cols, then apply workbook-scoped or folder context filter. */
 export function rowPassesCompanyProfileContext(row, companyContext = {}) {
   const filled = backfillRowCompanyFields(sheetLikeRowFromProfile(row), companyContext);
-  const workbookScoped = isWorkbookScopedCompanyContext(companyContext);
-  if (workbookScoped) {
-    return !rowExplicitlyPointsToOtherCompany(filled, companyContext);
+  if (rowExplicitlyPointsToOtherCompany(filled, companyContext)) {
+    return false;
+  }
+  if (isWorkbookScopedCompanyContext(companyContext)) {
+    return true;
   }
   return rowMatchesCompanyContext(filled, companyContext);
 }
