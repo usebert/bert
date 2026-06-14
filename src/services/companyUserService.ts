@@ -40,6 +40,8 @@ export type CompanyMembersDiagnostics = {
 export const COMPANY_MEMBERS_LOAD_TIMEOUT_MS = 90_000;
 export const COMPANY_MEMBERS_LOADING_MESSAGE = "Loading company people…";
 export const COMPANY_MEMBERS_USER_MESSAGE = "Could not load company users.";
+export const COMPANY_MEMBERS_LOAD_TIMEOUT_MESSAGE =
+  "Loading company people timed out before the server finished reading your company workbook. Try Re-sync — if it keeps failing, ask your operator to check the BERT Master Sheet.";
 const COMPANY_MEMBERS_DRIVE_ACCESS_MESSAGE =
   "Google cannot read the company workbook. Ask your operator to share the BERT Master Sheet with the BERT Google connection.";
 const COMPANY_MEMBERS_WORKBOOK_NOT_FOUND_MESSAGE =
@@ -49,6 +51,9 @@ const COMPANY_MEMBERS_WORKBOOK_STALE_MESSAGE =
 
 function userFacingMembersLoadError(reasonCode: string | undefined, serverMessage?: string): string {
   const trimmedServerMessage = serverMessage?.trim();
+  if (reasonCode === "CLIENT_LOAD_TIMEOUT") {
+    return trimmedServerMessage || COMPANY_MEMBERS_LOAD_TIMEOUT_MESSAGE;
+  }
   if (reasonCode === "GOOGLE_SHEET_ACCESS_DENIED") {
     return trimmedServerMessage || COMPANY_MEMBERS_DRIVE_ACCESS_MESSAGE;
   }

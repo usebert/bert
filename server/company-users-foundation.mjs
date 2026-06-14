@@ -484,13 +484,9 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
     );
   }
 
-  const folderPlacement = await validateCompanyFolderUnderCompaniesRoot(auth, deps, companyFolderId, {
+  const folderPlacementPromise = validateCompanyFolderUnderCompaniesRoot(auth, deps, companyFolderId, {
     companyFolderName: companyName,
   }).catch(() => ({ ok: false, reasonCode: "FOLDER_NOT_IN_COMPANIES_ROOT" }));
-  const folderPlacementWarning =
-    folderPlacement?.ok === false
-      ? trim(folderPlacement.userMessage || folderPlacement.reasonCode || "FOLDER_NOT_IN_COMPANIES_ROOT")
-      : "";
 
   const resolvedContext = await resolveCompanyContextFields(auth, deps, {
     companyFolderId,
@@ -612,6 +608,11 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
     const triedIds = uniqueIds(readAttempt.masterSheetIdsTried || masterSheetIdsTried);
     const members = sheetResult.members;
     const cacheStats = syncCompanyUsersCache(deps, resolvedCtx, members);
+    const folderPlacement = await folderPlacementPromise;
+    const folderPlacementWarning =
+      folderPlacement?.ok === false
+        ? trim(folderPlacement.userMessage || folderPlacement.reasonCode || "FOLDER_NOT_IN_COMPANIES_ROOT")
+        : "";
     const placementWarning = folderPlacementWarning
       ? `Company folder placement needs attention (${folderPlacement.reasonCode || "FOLDER_NOT_IN_COMPANIES_ROOT"}).`
       : "";

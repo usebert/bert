@@ -130,7 +130,8 @@ for (const code of REASON_CODES) {
   assert(companyUserServiceTs.includes("reasonCode"), "6: client parses reasonCode");
   assert(companyUserServiceTs.includes("buildLoadErrorDetail"), "6b: client builds technical detail");
   assert(companyUserServiceTs.includes("failedStep: \"client_fetch\""), "6c3: client transport failures include failedStep");
-  assert(read("App.tsx").includes("CLIENT_LOAD_TIMEOUT"), "6c4: client timeout surfaces reasonCode");
+  assert(companyUserServiceTs.includes("CLIENT_LOAD_TIMEOUT"), "6c4: client timeout reasonCode handled");
+  assert(companyUserServiceTs.includes("COMPANY_MEMBERS_LOAD_TIMEOUT_MESSAGE"), "6c4b: timeout user message");
   assert(companyUserServiceTs.includes("totalRowsRead"), "6c2: client detail includes totalRowsRead");
   assert(panel.includes("activeMembersLoadErrorDetail"), "6d: panel receives error detail");
   assert(panel.includes("activeMembersLoadDiagnostics"), "6e: panel receives structured diagnostics");

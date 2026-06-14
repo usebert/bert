@@ -64,7 +64,7 @@ assert(resolver.includes("discoverCompanyMasterSheetInFolder"), "16: resolver us
 assert(resolver.includes("preferFolderResolution"), "17: folder discovery wins over stale hints");
 assert(foundation.includes("preferFolderResolution: true"), "18: users foundation prefers folder resolution");
 
-assert(DOVECOTE_FOLDER_ID === "1TVQ-gbpxoOzE6PCkHX581eTDgtMC11c", "19: Dovecote folder id fixture");
+assert(DOVECOTE_FOLDER_ID === "1TVQ-gbpxoOzE6PCkHX581eTDgtMC11lc", "19: Dovecote folder id fixture");
 assert(
   DOVECOTE_MASTER_SHEET_ID === "1PlwknNgtt-4j08matn1w4358YTe5SXFs5Hh0zA_m3So",
   "20: Dovecote masterSheetId fixture (not stale 1PIwkn)",
