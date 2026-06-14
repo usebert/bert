@@ -119,7 +119,7 @@ export async function readActiveUsersFromSheetWithStats(auth, deps, companyConte
   if (typeof enrichedDeps.migrateUsersTabColumns === "function" && enrichedDeps.getTabValues) {
     await enrichedDeps
       .migrateUsersTabColumns(auth, masterSheetId, enrichedDeps, {
-        companyContext: { companyFolderId, companyId: companyFolderId, companyName },
+        companyContext: { companyFolderId, companyId: companyFolderId, companyName, masterSheetId },
       })
       .catch(() => null);
   }
@@ -128,6 +128,7 @@ export async function readActiveUsersFromSheetWithStats(auth, deps, companyConte
     companyFolderId,
     companyId: companyFolderId,
     companyName,
+    masterSheetId,
   });
   if (!readResult?.ok || !Array.isArray(readResult.records)) {
     const error = new Error("Company workbook Users tab is missing or unreadable.");
@@ -136,7 +137,7 @@ export async function readActiveUsersFromSheetWithStats(auth, deps, companyConte
     throw error;
   }
 
-  const companyCtx = { companyFolderId, companyId: companyFolderId, companyName };
+  const companyCtx = { companyFolderId, companyId: companyFolderId, companyName, masterSheetId };
   const rawUsers = readResult.records.map((row) => mapUsersTabRow(row, companyCtx));
   const members = [];
   const seen = new Set();
@@ -176,7 +177,7 @@ export async function listActiveUsersFromSheet(auth, deps, companyContext = {}) 
   if (typeof enrichedDeps.migrateUsersTabColumns === "function" && enrichedDeps.getTabValues) {
     await enrichedDeps
       .migrateUsersTabColumns(auth, masterSheetId, enrichedDeps, {
-        companyContext: { companyFolderId, companyId: companyFolderId, companyName },
+        companyContext: { companyFolderId, companyId: companyFolderId, companyName, masterSheetId },
       })
       .catch(() => null);
   }
@@ -185,6 +186,7 @@ export async function listActiveUsersFromSheet(auth, deps, companyContext = {}) 
     companyFolderId,
     companyId: companyFolderId,
     companyName,
+    masterSheetId,
   });
   if (!readResult?.ok || !Array.isArray(readResult.records)) {
     const error = new Error("Company workbook Users tab is missing or unreadable.");
@@ -193,7 +195,7 @@ export async function listActiveUsersFromSheet(auth, deps, companyContext = {}) 
     throw error;
   }
 
-  const companyCtx = { companyFolderId, companyId: companyFolderId, companyName };
+  const companyCtx = { companyFolderId, companyId: companyFolderId, companyName, masterSheetId };
   const rawUsers = readResult.records.map((row) => mapUsersTabRow(row, companyCtx));
   const members = [];
   const seen = new Set();

@@ -693,6 +693,13 @@ export async function migrateUsersTabCompanyColumns(auth, spreadsheetId, company
   const tabTitle = await resolveUsersTabTitle(auth, spreadsheetId, deps, { createIfMissing: true });
   const companyName = String(companyContext?.companyName || "").trim();
   const companyFolderId = String(companyContext?.companyFolderId || companyContext?.companyId || "").trim();
+  const masterSheetId = String(companyContext?.masterSheetId || spreadsheetId || "").trim();
+  const migrationContext = {
+    companyName,
+    companyFolderId,
+    companyId: companyFolderId,
+    masterSheetId,
+  };
   const { addedColumns } = await ensureColumns(auth, spreadsheetId, tabTitle, USERS_TAB_COLUMNS);
   const rows = await getTabValues(auth, spreadsheetId, tabTitle);
   if (rows.length < 2) {
@@ -713,7 +720,7 @@ export async function migrateUsersTabCompanyColumns(auth, spreadsheetId, company
       CompanyId: pickRowCompanyId(obj),
       CompanyFolderId: pickRowCompanyFolderId(obj),
     });
-    const filled = backfillRowCompanyFields(obj, { companyName, companyFolderId, companyId: companyFolderId });
+    const filled = backfillRowCompanyFields(obj, migrationContext);
     const after = JSON.stringify({
       Company: pickRowCompanyName(filled),
       CompanyId: pickRowCompanyId(filled),

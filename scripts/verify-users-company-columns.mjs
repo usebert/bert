@@ -34,6 +34,7 @@ const pkg = JSON.parse(read("package.json"));
 const folderA = "folder-dovecote";
 const folderB = "folder-other";
 const companyName = "Dovecote Studio";
+const masterSheetA = "sheet-dovecote-master";
 
 /** 1: Core column order includes Company, CompanyId, CompanyFolderId. */
 {
@@ -64,6 +65,17 @@ const companyName = "Dovecote Studio";
   const otherRow = { Email: "other@example.com", Status: "ACTIVE", CompanyId: folderB };
   assert(rowPointsToOtherCompany(otherRow, { companyFolderId: folderA }), "3d: other company excluded");
   assert(!rowMatchesCompanyContext(otherRow, { companyFolderId: folderA }), "3e: other company does not match");
+  const legacyMasterSheetRow = { Email: "legacy@example.com", Status: "ACTIVE", CompanyId: masterSheetA };
+  assert(
+    rowMatchesCompanyContext(legacyMasterSheetRow, { companyFolderId: folderA, masterSheetId: masterSheetA }),
+    "3f: legacy CompanyId=masterSheetId still matches",
+  );
+  const repairedLegacy = backfillRowCompanyFields(legacyMasterSheetRow, {
+    companyFolderId: folderA,
+    masterSheetId: masterSheetA,
+    companyName,
+  });
+  assert(repairedLegacy.CompanyId === folderA && repairedLegacy.CompanyFolderId === folderA, "3g: legacy ids repaired on backfill");
 }
 
 /** 4: Active user list filters by company columns. */

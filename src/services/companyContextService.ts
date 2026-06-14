@@ -152,9 +152,10 @@ export function resolveCompanyMembersLoadContext(input: {
   companyName: string;
 } {
   const companyId =
+    input.activeCompanyContext.companyFolderId.trim() ||
     input.selectedFolderId?.trim() ||
     extractGoogleResourceId(input.folderIdInput || "") ||
-    input.activeCompanyContext.companyFolderId.trim();
+    "";
   const masterSheetId =
     input.activeCompanyContext.masterSheetId.trim() ||
     extractGoogleResourceId(input.masterSheetInput || "") ||

@@ -43,6 +43,12 @@ assert(clientService.includes("/api/companies/"), "3b: client hits canonical use
 
 /** 4: Page load and Re-sync share resolveCompanyMembersLoadContext. */
 assert(contextService.includes("resolveCompanyMembersLoadContext"), "4: shared load context resolver");
+assert(
+  /resolveCompanyMembersLoadContext[\s\S]*?activeCompanyContext\.companyFolderId[\s\S]*?selectedFolderId/.test(
+    contextService,
+  ),
+  "4a: linked session folder preferred over stale picker selection",
+);
 assert(appSrc.includes("resolveCompanyMembersLoadContext"), "4b: App uses shared resolver");
 assert(
   /useEffect\([\s\S]{0,2500}resolveCompanyMembersLoadContext[\s\S]{0,2500}fetchCompanyMembers/.test(appSrc),

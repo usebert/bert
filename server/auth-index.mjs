@@ -422,7 +422,7 @@ export function createAuthIndexApi(indexPath) {
       if (status !== "ACTIVE") {
         continue;
       }
-      if (!rowMatchesCompanyContext(obj, { companyFolderId: resolvedFolderId, companyId: resolvedFolderId })) {
+      if (!rowMatchesCompanyContext(obj, { companyFolderId: resolvedFolderId, companyId: resolvedFolderId, masterSheetId: resolvedMasterSheetId })) {
         continue;
       }
       const accessLevel =
