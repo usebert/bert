@@ -55,6 +55,7 @@
     "verify:schedule-auditors": "node scripts/verify-schedule-auditors.mjs",
     "verify:api-json-contract": "node scripts/verify-api-json-contract.mjs",
     "verify:company-members": "node scripts/verify-company-members.mjs",
+    "verify:active-users-load-path": "node scripts/verify-active-users-load-path.mjs",
     "verify:company-members-diagnostics": "node scripts/verify-company-members-diagnostics.mjs",
     "verify:company-context-ui": "node scripts/verify-company-context-ui.mjs",
     "verify:company-user-session-context": "node scripts/verify-company-user-session-context.mjs",

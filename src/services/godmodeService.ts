@@ -1,6 +1,6 @@
 import { apiUrl } from "../config/apiBase";
 import { fetchJson } from "../utils/fetchJson";
-import { fetchCompanyMembers, type CompanyMember } from "./companyUserService";
+import { syncAndListActiveUsers, type CompanyMember } from "./companyUserService";
 import { listCompanySchedules, type CompanyScheduleContext } from "./scheduleService";
 import type { ManagedSchedule } from "../types/reportsScreenProps";
 import { resolveCompanyFromFolder, type ResolvedCompanyFromFolder } from "./companyService";
@@ -47,7 +47,7 @@ export async function listGodmodeCompanyUsers(input: {
   companyName?: string;
   signal?: AbortSignal;
 }): Promise<{ ok: boolean; members: CompanyMember[]; loadError?: string }> {
-  const result = await fetchCompanyMembers(apiUrl, {
+  const result = await syncAndListActiveUsers(apiUrl, {
     companyId: input.companyId.trim(),
     masterSheetId: input.masterSheetId,
     companyName: input.companyName,

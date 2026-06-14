@@ -706,20 +706,14 @@ export function UsersInvitesPilotPanel({
           <div className="mt-3">
             <EmptyPanel title={COMPANY_MEMBERS_LOADING_MESSAGE} text="Reading the company workbook Users tab." />
           </div>
-        ) : activeMembers.length === 0 ? (
+        ) : !activeMembersLoadError && activeMembers.length === 0 ? (
           <div className="mt-3">
             <EmptyPanel
-              title={activeMembersLoadError ? "Active users unavailable" : "No active users yet"}
-              text={
-                activeMembersLoadError
-                  ? showMembersDiagnostics
-                    ? "Fix the workbook connection above, then re-sync users."
-                    : COMPANY_MEMBERS_USER_MESSAGE
-                  : "Active users from the company workbook appear here after setup is complete."
-              }
+              title="No active users yet"
+              text="Active users from the company workbook appear here after setup is complete."
             />
           </div>
-        ) : (
+        ) : activeMembers.length === 0 ? null : (
           <div className="mt-3 space-y-2">
             {activeMembers.map((member) => (
               <ActiveUserCard

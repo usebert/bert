@@ -13,7 +13,7 @@ import {
 } from "./invite-service.mjs";
 import { resolveCompanyInviteReadiness } from "./company-invite-readiness.mjs";
 import { resolveCompanyById } from "./company-registry-service.mjs";
-import { listActiveCompanyMembers } from "./company-user-service.mjs";
+import { syncAndListActiveUsers } from "./company-user-service.mjs";
 import { syncAuthIndexAfterUsersRead } from "./auth-index.mjs";
 import { getScheduleAssigneesForCompany } from "./schedule-assignee-service.mjs";
 import {
@@ -415,7 +415,7 @@ export function installCoreWorkflowRoutes(app, deps) {
     }
 
     try {
-      const result = await listActiveCompanyMembers(authed, { ...registryDeps, ...getCompanyUsersDeps(), getConfig: deps.getConfig }, {
+      const result = await syncAndListActiveUsers(authed, { ...registryDeps, ...getCompanyUsersDeps(), getConfig: deps.getConfig }, {
         companyId: companyFolderId,
         companyFolderId,
         masterSheetId,

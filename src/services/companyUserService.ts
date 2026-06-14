@@ -210,6 +210,9 @@ export async function fetchCompanyMembers(
 /** Alias — listActiveUsers reads Users tab; never returns PasswordHash. */
 export { fetchCompanyMembers as listActiveUsers };
 
+/** Canonical client entry — same GET /api/companies/:companyId/users as page load and Re-sync. */
+export { fetchCompanyMembers as syncAndListActiveUsers };
+
 export type UpdateCompanyMemberInput = {
   companyId: string;
   email: string;

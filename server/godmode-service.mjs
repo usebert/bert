@@ -2,7 +2,7 @@
  * Godmode service — selected company context; same Users/Schedules tabs as company users.
  */
 import { resolveCompanyFromFolder } from "./company-service.mjs";
-import { listActiveCompanyMembers } from "./company-user-service.mjs";
+import { syncAndListActiveUsers } from "./company-user-service.mjs";
 import { listCompanySchedules } from "./schedule-service.mjs";
 import { listAuditResults } from "./check-service.mjs";
 
@@ -22,7 +22,7 @@ export async function resolveGodmodeCompanyContext(auth, deps, companyFolderId, 
 export async function listGodmodeCompanyUsers(auth, deps, context = {}) {
   const companyFolderId = trim(context.companyFolderId || context.companyId);
   const masterSheetId = trim(context.masterSheetId);
-  return listActiveCompanyMembers(auth, deps, {
+  return syncAndListActiveUsers(auth, deps, {
     companyId: companyFolderId,
     companyFolderId,
     masterSheetId,

@@ -298,9 +298,9 @@ export function GodmodeUserManagementSection({
         ) : null}
         {activeMembersLoading && activeCompanyMembers.length === 0 ? (
           <EmptyPanel title="Loading active users…" text="Reading the company Users tab." />
-        ) : activeCompanyMembers.length === 0 ? (
+        ) : !activeMembersLoadError && activeCompanyMembers.length === 0 ? (
           <EmptyPanel title="No active users yet" text="Active users appear here after invite setup completes." />
-        ) : (
+        ) : activeCompanyMembers.length === 0 ? null : (
           <div className="mt-3 space-y-2">
             {activeCompanyMembers.map((member) => (
               <ActiveUserCard

@@ -610,7 +610,7 @@ export async function getAssignableUsers(auth, masterSheetId, deps, options = {}
   const selectedArea = String(options.selectedArea || "").trim();
   const includeDiagnostics = options.includeDiagnostics === true;
 
-  const listed = await listActiveCompanyMembers(auth, deps, {
+  const listed = await syncAndListActiveUsers(auth, deps, {
     companyId,
     companyFolderId: String(options.companyFolderId || companyId).trim(),
     masterSheetId,
@@ -652,10 +652,18 @@ export async function getAssignableUsers(auth, masterSheetId, deps, options = {}
 export { listActiveCompanyMembers as listActiveUsers };
 
 /**
+ * Canonical active-users sync — resolve folder/workbook, read Users tab, rebuild cache.
+ * Used by GET /users, schedule assignees, company members, and Godmode People.
+ */
+export async function syncAndListActiveUsers(auth, deps, companyContext = {}) {
+  return listActiveCompanyMembers(auth, deps, companyContext);
+}
+
+/**
  * Godmode — read Users tab ACTIVE rows and replace server cache (remove cache-only users).
  */
 export async function rebuildUsersFromSheet(auth, deps, companyContext = {}) {
-  const listed = await listActiveCompanyMembers(auth, deps, companyContext);
+  const listed = await syncAndListActiveUsers(auth, deps, companyContext);
   if (!listed.ok) {
     return listed;
   }

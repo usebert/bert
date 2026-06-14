@@ -109,3 +109,60 @@ export function toLinkedCompanyContextInput(context: ResolvedCompanyContext): Li
     registryStatus: context.registryStatus,
   };
 }
+
+function extractGoogleResourceId(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const directIdMatch = trimmed.match(/^[A-Za-z0-9_-]{20,}$/);
+  if (directIdMatch) {
+    return directIdMatch[0];
+  }
+
+  const pathMatch = trimmed.match(/\/d\/([A-Za-z0-9_-]+)/);
+  if (pathMatch?.[1]) {
+    return pathMatch[1];
+  }
+
+  const folderMatch = trimmed.match(/\/folders\/([A-Za-z0-9_-]+)/);
+  if (folderMatch?.[1]) {
+    return folderMatch[1];
+  }
+
+  const queryMatch = trimmed.match(/[?&]id=([A-Za-z0-9_-]+)/);
+  if (queryMatch?.[1]) {
+    return queryMatch[1];
+  }
+
+  return trimmed;
+}
+
+/** Same company folder + master sheet resolution as Re-sync users and refreshActiveCompanyMembers. */
+export function resolveCompanyMembersLoadContext(input: {
+  activeCompanyContext: ResolvedCompanyContext;
+  selectedFolderId?: string;
+  folderIdInput?: string;
+  masterSheetInput?: string;
+  companySheetSyncSheetId?: string;
+}): {
+  companyId: string;
+  masterSheetId: string;
+  companyName: string;
+} {
+  const companyId =
+    input.selectedFolderId?.trim() ||
+    extractGoogleResourceId(input.folderIdInput || "") ||
+    input.activeCompanyContext.companyFolderId.trim();
+  const masterSheetId =
+    input.activeCompanyContext.masterSheetId.trim() ||
+    extractGoogleResourceId(input.masterSheetInput || "") ||
+    input.companySheetSyncSheetId?.trim() ||
+    "";
+  return {
+    companyId,
+    masterSheetId,
+    companyName: input.activeCompanyContext.companyName,
+  };
+}

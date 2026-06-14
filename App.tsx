@@ -129,7 +129,7 @@ import {
 } from "./src/utils/companyFolderContext";
 import { clearStaleCompanyLocalStorage } from "./src/utils/clearStaleCompanyLocalStorage";
 import { isKnownStaleAuthIndexPairing } from "./src/utils/authIndexTrust";
-import { resolveActiveCompanyContext } from "./src/services/companyContextService";
+import { resolveActiveCompanyContext, resolveCompanyMembersLoadContext } from "./src/services/companyContextService";
 import {
   COMPANY_MEMBERS_LOAD_TIMEOUT_MS,
   COMPANY_MEMBERS_USER_MESSAGE,
@@ -5270,10 +5270,24 @@ function App() {
   ]);
 
   useEffect(() => {
-    const companyId = activeCompanyContext.companyFolderId.trim();
+    const { companyId, masterSheetId, companyName } = resolveCompanyMembersLoadContext({
+      activeCompanyContext,
+      selectedFolderId: selectedFolder?.id,
+      folderIdInput,
+      masterSheetInput,
+      companySheetSyncSheetId: companySheetSync?.sheetId,
+    });
     const canLoadCompanyApi = Boolean(companyId) && (currentUser?.role !== "Master" || googleConnected);
-    if (!canLoadCompanyApi || !masterCompanyWorkspaceDataMatchesSelection) {
+    if (!canLoadCompanyApi) {
       setCompanyMembersState({ members: [], loading: false });
+      return;
+    }
+    if (!masterCompanyWorkspaceDataMatchesSelection) {
+      setCompanyMembersState({
+        members: [],
+        loading: true,
+        loadError: undefined,
+      });
       return;
     }
 
@@ -5296,8 +5310,8 @@ function App() {
       try {
         const result = await fetchCompanyMembers(apiUrl, {
           companyId,
-          masterSheetId: activeCompanyContext.masterSheetId,
-          companyName: activeCompanyContext.companyName,
+          masterSheetId,
+          companyName,
           signal: controller.signal,
         });
 
@@ -5351,9 +5365,7 @@ function App() {
               "CLIENT_LOAD_TIMEOUT",
               "failedStep=client_fetch",
               `companyId=${companyId}`,
-              activeCompanyContext.masterSheetId.trim()
-                ? `masterSheetId=${activeCompanyContext.masterSheetId.trim()}`
-                : "",
+              masterSheetId ? `masterSheetId=${masterSheetId}` : "",
               `upstreamMessage=Load timed out after ${COMPANY_MEMBERS_LOAD_TIMEOUT_MS}ms`,
             ]
               .filter(Boolean)
@@ -5364,7 +5376,7 @@ function App() {
               companyId,
               companyFolderId: companyId,
               companyName: activeCompanyContext.companyName.trim() || undefined,
-              masterSheetId: activeCompanyContext.masterSheetId.trim() || undefined,
+              masterSheetId: masterSheetId || undefined,
               failedStep: "client_fetch",
               upstreamMessage: `Load timed out after ${COMPANY_MEMBERS_LOAD_TIMEOUT_MS}ms`,
               dataSource: "users_tab",
@@ -5383,8 +5395,8 @@ function App() {
           loadDiagnostics: {
             companyId,
             companyFolderId: companyId,
-            companyName: activeCompanyContext.companyName.trim() || undefined,
-            masterSheetId: activeCompanyContext.masterSheetId.trim() || undefined,
+            companyName: companyName.trim() || undefined,
+            masterSheetId: masterSheetId || undefined,
             failedStep: "client_fetch",
             upstreamMessage: error instanceof Error ? error.message : COMPANY_MEMBERS_USER_MESSAGE,
             dataSource: "users_tab",
@@ -5408,6 +5420,10 @@ function App() {
     activeCompanyContext.companyFolderId,
     activeCompanyContext.companyName,
     activeCompanyContext.masterSheetId,
+    selectedFolder?.id,
+    folderIdInput,
+    masterSheetInput,
+    companySheetSync?.sheetId,
   ]);
 
   const applyListedCompanySchedules = useCallback((companyId: string, schedules: ManagedSchedule[]) => {
@@ -8550,20 +8566,23 @@ function App() {
     }
   };
 
-  const refreshActiveCompanyMembers = async () => {
-    const companyFolderId = selectedFolder?.id || extractGoogleResourceId(folderIdInput);
+  const refreshActiveCompanyMembers = async (options?: { signal?: AbortSignal }) => {
+    const { companyId: companyFolderId, masterSheetId: manualMasterSheetId, companyName } =
+      resolveCompanyMembersLoadContext({
+        activeCompanyContext,
+        selectedFolderId: selectedFolder?.id,
+        folderIdInput,
+        masterSheetInput,
+        companySheetSyncSheetId: companySheetSync?.sheetId,
+      });
     if (!companyFolderId) {
       return;
     }
-    const manualMasterSheetId =
-      activeCompanyContext.masterSheetId.trim() ||
-      extractGoogleResourceId(masterSheetInput) ||
-      companySheetSync?.sheetId ||
-      "";
     const membersResult = await fetchCompanyMembers(apiUrl, {
       companyId: companyFolderId,
       masterSheetId: manualMasterSheetId,
-      companyName: activeCompanyContext.companyName,
+      companyName,
+      signal: options?.signal,
     });
     if (!membersResult.ok) {
       throw new Error(membersResult.loadErrorDetail || membersResult.loadError || COMPANY_MEMBERS_USER_MESSAGE);
@@ -8575,6 +8594,9 @@ function App() {
       loading: false,
       loadError: undefined,
       loadErrorDetail: undefined,
+      loadReasonCode: membersResult.reasonCode,
+      loadFailedStep: membersResult.failedStep,
+      loadDiagnostics: membersResult.diagnostics,
     });
     writeCompanyMembersCache(storageKeys.companyMembersCache, {
       companyId: companyFolderId,
@@ -8582,6 +8604,7 @@ function App() {
       cachedAt: Date.now(),
       warning: membersResult.warning,
     });
+    return membersResult;
   };
 
   const handleUpdateCompanyMember = async (member: CompanyMember, input: { name: string; role: string }) => {
@@ -8794,42 +8817,26 @@ function App() {
       return;
     }
 
-    const companyFolderId = selectedFolder?.id || extractGoogleResourceId(folderIdInput);
+    const { companyId: companyFolderId, masterSheetId: manualMasterSheetId } = resolveCompanyMembersLoadContext({
+      activeCompanyContext,
+      selectedFolderId: selectedFolder?.id,
+      folderIdInput,
+      masterSheetInput,
+      companySheetSyncSheetId: companySheetSync?.sheetId,
+    });
     if (!companyFolderId) {
       pushToast("Company folder required", "Select a company folder before re-syncing users.", "warning");
       return;
     }
 
     try {
-      const manualMasterSheetId =
-        activeCompanyContext.masterSheetId.trim() ||
-        extractGoogleResourceId(masterSheetInput) ||
-        companySheetSync?.sheetId ||
-        "";
-      const membersResult = await fetchCompanyMembers(apiUrl, {
-        companyId: companyFolderId,
-        masterSheetId: manualMasterSheetId,
-        companyName: activeCompanyContext.companyName,
-      });
-      if (!membersResult.ok) {
-        throw new Error(membersResult.loadErrorDetail || membersResult.loadError || COMPANY_MEMBERS_USER_MESSAGE);
+      const membersResult = await refreshActiveCompanyMembers();
+      if (!membersResult) {
+        throw new Error(COMPANY_MEMBERS_USER_MESSAGE);
       }
-      setCompanyUsersTabRows(membersResult.members);
-      setCompanyMembersState({
-        members: membersResult.members,
-        warning: membersResult.warning,
-        loading: false,
-      });
-      writeCompanyMembersCache(storageKeys.companyMembersCache, {
-        companyId: companyFolderId,
-        members: membersResult.members,
-        cachedAt: Date.now(),
-        warning: membersResult.warning,
-      });
 
-      const manualMasterSheetIdForSheet = manualMasterSheetId;
-      const payload = manualMasterSheetIdForSheet
-        ? await loadCompanySheetById(manualMasterSheetIdForSheet, companyFolderId, { silent: true })
+      const payload = manualMasterSheetId
+        ? await loadCompanySheetById(manualMasterSheetId, companyFolderId, { silent: true })
         : await loadCompanySheet(companyFolderId, { silent: true });
 
       if (!payload) {
