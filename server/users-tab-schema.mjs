@@ -199,11 +199,24 @@ export function pickRowCompanyName(obj) {
 export function backfillRowCompanyFields(obj, companyContext = {}) {
   const folderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
   const companyName = String(companyContext.companyName || "").trim();
+  const masterSheetId = String(companyContext.masterSheetId || "").trim();
   const next = { ...obj };
   if (!pickRowCompanyName(obj) && companyName) {
     next.Company = companyName;
   }
-  if (!pickRowCompanyId(obj) && folderId) {
+  const rowCompanyId = pickRowCompanyId(next);
+  const rowFolderId = pickRowCompanyFolderId(next) || rowCompanyId;
+  const legacyWorkbookId =
+    folderId &&
+    masterSheetId &&
+    rowCompanyId &&
+    rowCompanyId !== folderId &&
+    rowFolderId !== folderId &&
+    (rowCompanyId === masterSheetId || rowFolderId === masterSheetId);
+  if (!rowCompanyId && folderId) {
+    next.CompanyId = folderId;
+    next.CompanyFolderId = folderId;
+  } else if (legacyWorkbookId) {
     next.CompanyId = folderId;
     next.CompanyFolderId = folderId;
   }
@@ -221,7 +234,14 @@ export function rowMatchesCompanyContext(row, companyContext = {}) {
     return true;
   }
   const rowFolderId = pickRowCompanyFolderId(row) || rowCompanyId;
-  return rowCompanyId === folderId || rowFolderId === folderId;
+  if (rowCompanyId === folderId || rowFolderId === folderId) {
+    return true;
+  }
+  const masterSheetId = String(companyContext.masterSheetId || "").trim();
+  if (masterSheetId && (rowCompanyId === masterSheetId || rowFolderId === masterSheetId)) {
+    return true;
+  }
+  return false;
 }
 
 export function rowPointsToOtherCompany(row, companyContext = {}) {
