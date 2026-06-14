@@ -256,6 +256,9 @@ export function AdminScreen({
   activeMembersLoading = false,
   activeMembersLoadError,
   activeMembersLoadErrorDetail,
+  activeMembersLoadReasonCode,
+  activeMembersLoadFailedStep,
+  activeMembersLoadDiagnostics,
   activeMembersWarning,
   userSiteAssignments,
   onToggleUserSiteAssignment,
@@ -708,6 +711,11 @@ export function AdminScreen({
             activeCompanyMembers,
             activeMembersLoading,
             activeMembersLoadError,
+            activeMembersLoadErrorDetail,
+            activeMembersLoadReasonCode,
+            activeMembersLoadFailedStep,
+            activeMembersLoadDiagnostics,
+            activeMembersWarning,
             companyMemberEditing,
             onResyncUsers,
             onSelectSite,
@@ -1347,6 +1355,9 @@ export function AdminScreen({
           activeMembersLoading={activeMembersLoading}
           activeMembersLoadError={activeMembersLoadError}
           activeMembersLoadErrorDetail={activeMembersLoadErrorDetail}
+          activeMembersLoadReasonCode={activeMembersLoadReasonCode}
+          activeMembersLoadFailedStep={activeMembersLoadFailedStep}
+          activeMembersLoadDiagnostics={activeMembersLoadDiagnostics}
           activeMembersWarning={activeMembersWarning}
           sites={sites}
           selectedSiteId={selectedSiteId}

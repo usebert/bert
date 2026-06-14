@@ -36,14 +36,16 @@ const REASON_CODES = [
   "INVALID_COMPANY_ID",
 ];
 
-/** 1: API failure envelope uses COMPANY_USERS_LOAD_FAILED + reasonCode. */
+/** 1: API failure envelope uses COMPANY_USERS_LOAD_FAILED + reasonCode + failedStep. */
 {
   assert(coreRoutes.includes('code: "COMPANY_USERS_LOAD_FAILED"'), "1: route returns COMPANY_USERS_LOAD_FAILED");
   assert(coreRoutes.includes("reasonCode: result.reasonCode"), "1b: route forwards reasonCode");
+  assert(coreRoutes.includes("failedStep: result.failedStep"), "1b2: route forwards top-level failedStep");
   assert(coreRoutes.includes("diagnostics: result.diagnostics"), "1c: route forwards diagnostics");
   assert(coreRoutes.includes("Could not load company users."), "1d: route user-facing message");
   assert(userService.includes('code: COMPANY_USERS_LOAD_FAILED'), "1e: service uses COMPANY_USERS_LOAD_FAILED");
   assert(userService.includes("reasonCode"), "1f: service sets reasonCode");
+  assert(userService.includes("failedStep"), "1g: service sets failedStep");
 }
 
 /** 2: All reason codes are implemented in the service. */
@@ -65,6 +67,8 @@ for (const code of REASON_CODES) {
     "durationMs",
     "upstreamStatus",
     "upstreamMessage",
+    "totalRowsRead",
+    "activeRowsFound",
   ];
   for (const field of fields) {
     assert(userService.includes(field), `3: diagnostics field ${field}`);
@@ -81,12 +85,13 @@ for (const code of REASON_CODES) {
   assert(coreRoutes.includes("actor?.masterSheetId"), "4f: users route uses session masterSheetId");
 }
 
-/** 5: No session fallback in active users list; cache reconciliation diagnostics instead. */
+/** 5: Session fallback when workbook read fails but signed-in user is in session. */
 {
-  assert(!userService.includes("buildSessionFallbackSuccess"), "5: session fallback removed from active list");
-  assert(!userService.includes('dataSource: "session-fallback"'), "5b: no session-fallback dataSource");
-  assert(userService.includes("cacheOnlyUsersRemoved"), "5c: cache reconciliation diagnostics");
-  assert(userService.includes("totalSheetRows"), "5d: totalSheetRows diagnostics");
+  assert(userService.includes("buildSessionFallbackSuccess"), "5: session fallback helper");
+  assert(userService.includes('dataSource: "session-fallback"'), "5b: session-fallback dataSource");
+  assert(userService.includes("mapSessionActorToMember"), "5c: session actor mapped to member");
+  assert(userService.includes("cacheOnlyUsersRemoved"), "5d: cache reconciliation diagnostics");
+  assert(userService.includes("totalRowsRead"), "5e: totalRowsRead diagnostics");
 }
 
 /** 6: Frontend surfaces friendly message for normal users; diagnostics for godmode/dev. */
@@ -94,8 +99,10 @@ for (const code of REASON_CODES) {
   assert(companyUserServiceTs.includes("reasonCode"), "6: client parses reasonCode");
   assert(companyUserServiceTs.includes("buildLoadErrorDetail"), "6b: client builds technical detail");
   assert(companyUserServiceTs.includes("failedStep"), "6c: client detail includes failedStep");
+  assert(companyUserServiceTs.includes("totalRowsRead"), "6c2: client detail includes totalRowsRead");
   assert(panel.includes("activeMembersLoadErrorDetail"), "6d: panel receives error detail");
   assert(panel.includes("activeMembersLoadDiagnostics"), "6e: panel receives structured diagnostics");
+  assert(panel.includes("activeMembersLoadFailedStep"), "6e2: panel receives failedStep");
   assert(panel.includes("CompanyMembersDiagnosticsPanel"), "6f: collapsible diagnostics panel");
   assert(diagnosticsPanel.includes("useState(false)"), "6g: diagnostics collapsed by default");
   assert(panel.includes("isDebugUiAllowed"), "6h: dev diagnostics gate");

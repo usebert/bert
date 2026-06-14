@@ -50,12 +50,12 @@ const pendingInvite = {
 assert(sheetFlow.includes("export async function listActiveUsersFromSheet"), "1: listActiveUsersFromSheet exported");
 
 /** 2: listActiveCompanyMembers uses sheet-only helper. */
-assert(userService.includes("listActiveUsersFromSheet"), "2: listActiveCompanyMembers uses listActiveUsersFromSheet");
+assert(userService.includes("readActiveUsersFromSheetWithStats"), "2: listActiveCompanyMembers uses readActiveUsersFromSheetWithStats");
 
-/** 3: No session fallback merged into active members. */
-assert(!userService.includes("session-fallback"), "3: no session-fallback dataSource in user service");
-assert(!userService.includes("buildSessionFallbackSuccess"), "3b: session fallback removed");
-assert(!userService.includes("buildSessionActorMember"), "3c: session actor not merged into members");
+/** 3: Session fallback when workbook read fails but signed-in user is in session. */
+assert(userService.includes("session-fallback"), "3: session-fallback dataSource in user service");
+assert(userService.includes("buildSessionFallbackSuccess"), "3b: session fallback helper");
+assert(userService.includes("mapSessionActorToMember"), "3c: session actor mapped to fallback member");
 
 /** 4: No invite merge into active list or demo login users. */
 assert(!appTsx.includes("invitedLoginUsers"), "4: App does not merge invites into loginUsers");

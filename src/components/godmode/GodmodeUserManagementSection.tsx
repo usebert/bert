@@ -2,7 +2,8 @@ import type { ComponentType } from "react";
 import type { Role } from "../../permissions";
 import { ActiveUserCard } from "../admin/ActiveUserCard";
 import { canManageCompanyMembers } from "../../permissions";
-import type { CompanyMember } from "../../services/companyUserService";
+import type { CompanyMember, CompanyMembersDiagnostics } from "../../services/companyUserService";
+import { CompanyMembersDiagnosticsPanel } from "../CompanyMembersDiagnosticsPanel";
 import { DangerActionButton } from "../DangerActionButton";
 import { EmptyPanel } from "../dashboard/DashboardPrimitives";
 import { InviteStatusLegend } from "../InviteStatusLegend";
@@ -53,6 +54,11 @@ export type GodmodeUserManagementSectionProps = {
   activeCompanyMembers?: CompanyMember[];
   activeMembersLoading?: boolean;
   activeMembersLoadError?: string;
+  activeMembersLoadErrorDetail?: string;
+  activeMembersLoadReasonCode?: string;
+  activeMembersLoadFailedStep?: string;
+  activeMembersLoadDiagnostics?: CompanyMembersDiagnostics;
+  activeMembersWarning?: string;
   companyMemberEditing?: boolean;
   currentUserRole?: Role;
   currentUserEmail?: string;
@@ -98,6 +104,11 @@ export function GodmodeUserManagementSection({
   activeCompanyMembers = [],
   activeMembersLoading = false,
   activeMembersLoadError,
+  activeMembersLoadErrorDetail,
+  activeMembersLoadReasonCode,
+  activeMembersLoadFailedStep,
+  activeMembersLoadDiagnostics,
+  activeMembersWarning,
   companyMemberEditing = false,
   currentUserRole = "Master",
   currentUserEmail,
@@ -259,8 +270,22 @@ export function GodmodeUserManagementSection({
       <div className={pilotLightNested}>
         <p className="text-sm font-semibold text-slate-900">Active users</p>
         {activeMembersLoadError ? (
-          <p className="mt-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
-            Could not load active users from the company workbook.
+          <div className="mt-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
+            <p className="font-semibold">Could not load active users from the company workbook.</p>
+            {activeMembersLoadErrorDetail ? (
+              <p className="mt-1 text-xs text-rose-900">{activeMembersLoadErrorDetail}</p>
+            ) : null}
+            <CompanyMembersDiagnosticsPanel
+              reasonCode={activeMembersLoadReasonCode}
+              failedStep={activeMembersLoadFailedStep}
+              diagnostics={activeMembersLoadDiagnostics}
+              detail={activeMembersLoadErrorDetail}
+            />
+          </div>
+        ) : null}
+        {activeMembersWarning ? (
+          <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+            {activeMembersWarning}
           </p>
         ) : null}
         {activeMembersLoading && activeCompanyMembers.length === 0 ? (

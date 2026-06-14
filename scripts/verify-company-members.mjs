@@ -104,14 +104,16 @@ const pendingInvite = {
   assert(userService.includes("COMPANY_USERS_LOAD_FAILED"), "6c: structured failure code");
 }
 
-/** 7: Active members from Users tab only — no session/invite merge. */
+/** 7: Active members from Users tab; session fallback when sheet read fails. */
 {
   const userService = read("server/company-user-service.mjs");
   const sheetFlow = read("server/company-user-sheet-flow.mjs");
   assert(sheetFlow.includes("listActiveUsersFromSheet"), "7: listActiveUsersFromSheet helper");
-  assert(userService.includes("listActiveUsersFromSheet"), "7b: listActiveCompanyMembers uses sheet helper");
-  assert(!userService.includes("session-fallback"), "7c: no session-fallback in active list");
-  assert(!userService.includes("buildSessionFallbackSuccess"), "7d: session fallback removed");
+  assert(userService.includes("readActiveUsersFromSheetWithStats"), "7b: listActiveCompanyMembers uses sheet helper with stats");
+  assert(userService.includes("buildSessionFallbackSuccess"), "7c: session fallback on sheet read failure");
+  assert(userService.includes("company_context_resolve"), "7d: canonical failedStep for company context");
+  assert(userService.includes("master_sheet_resolve"), "7e: canonical failedStep for master sheet");
+  assert(userService.includes("google_sheets_read"), "7f: canonical failedStep for sheet read");
 }
 
 /** 8: Frontend loads active members from canonical API with cache + safe JSON fetch. */
