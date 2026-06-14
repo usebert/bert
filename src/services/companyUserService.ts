@@ -39,6 +39,15 @@ export type CompanyMembersDiagnostics = {
 export const COMPANY_MEMBERS_LOAD_TIMEOUT_MS = 8000;
 export const COMPANY_MEMBERS_LOADING_MESSAGE = "Loading company users…";
 export const COMPANY_MEMBERS_USER_MESSAGE = "Could not load company users.";
+const COMPANY_MEMBERS_DRIVE_ACCESS_MESSAGE =
+  "Google cannot read the company workbook. Ask your operator to share the BERT Master Sheet with the BERT service account.";
+
+function userFacingMembersLoadError(reasonCode: string | undefined, serverMessage?: string): string {
+  if (reasonCode === "GOOGLE_SHEET_ACCESS_DENIED") {
+    return serverMessage?.trim() || COMPANY_MEMBERS_DRIVE_ACCESS_MESSAGE;
+  }
+  return COMPANY_MEMBERS_USER_MESSAGE;
+}
 
 function companyMembersCacheKey(companyId: string): string {
   return companyId.trim();
@@ -131,6 +140,12 @@ function buildLoadErrorDetail(
     diagnostics?.companyId ? `companyId=${diagnostics.companyId}` : "",
     diagnostics?.companyFolderId ? `companyFolderId=${diagnostics.companyFolderId}` : "",
     diagnostics?.masterSheetId ? `masterSheetId=${diagnostics.masterSheetId}` : "",
+    Array.isArray(diagnostics?.masterSheetIdsTried) && diagnostics.masterSheetIdsTried.length
+      ? `masterSheetIdsTried=${diagnostics.masterSheetIdsTried.join(",")}`
+      : "",
+    diagnostics?.masterSheetResolutionSource
+      ? `masterSheetResolutionSource=${diagnostics.masterSheetResolutionSource}`
+      : "",
     diagnostics?.signedInEmail ? `signedInEmail=${diagnostics.signedInEmail}` : "",
     diagnostics?.dataSource ? `dataSource=${diagnostics.dataSource}` : "",
     typeof diagnostics?.totalRowsRead === "number" ? `totalRowsRead=${diagnostics.totalRowsRead}` : "",
@@ -220,17 +235,19 @@ export async function fetchCompanyMembers(
   const { data: payload, response } = result;
   if (!response.ok || payload.ok === false) {
     const diagnostics = payload.diagnostics;
+    const reasonCode = payload.reasonCode || payload.code;
+    const serverMessage = payload.message || payload.error || payload.technicalError;
     return {
       ok: false,
       members: [],
-      loadError: COMPANY_MEMBERS_USER_MESSAGE,
+      loadError: userFacingMembersLoadError(reasonCode, serverMessage),
       loadErrorDetail: buildLoadErrorDetail(
-        payload.reasonCode || payload.code,
+        reasonCode,
         diagnostics,
-        payload.message || payload.error || payload.technicalError,
+        serverMessage,
         payload.failedStep,
       ),
-      reasonCode: payload.reasonCode || payload.code,
+      reasonCode,
       failedStep: payload.failedStep || diagnostics?.failedStep,
       diagnostics,
     };

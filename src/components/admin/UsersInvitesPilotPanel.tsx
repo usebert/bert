@@ -679,7 +679,7 @@ export function UsersInvitesPilotPanel({
                 ? [activeMembersLoadReasonCode, activeMembersLoadFailedStep && `step: ${activeMembersLoadFailedStep}`]
                     .filter(Boolean)
                     .join(" · ")
-                : COMPANY_MEMBERS_USER_MESSAGE}
+                : activeMembersLoadError || COMPANY_MEMBERS_USER_MESSAGE}
             </p>
             {showMembersDiagnostics ? (
               <>
