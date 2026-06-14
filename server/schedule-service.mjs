@@ -12,6 +12,7 @@ import {
 } from "../shared/schedule-list.mjs";
 import { saveCompanySchedules } from "./schedule-save-service.mjs";
 import { isScheduleAssignedToUser } from "../shared/schedule-assignment.mjs";
+import { getScheduleAssigneesForCompany } from "./schedule-assignee-service.mjs";
 
 function isDevDiagnosticsEnabled() {
   return (
@@ -221,4 +222,13 @@ export async function listSchedulesAssignedToUser(auth, deps, input = {}) {
 }
 
 export { saveCompanySchedules };
-export { saveCompanySchedule as saveSchedule, listSchedulesAssignedToUser as listAssignedChecks };
+export {
+  listCompanySchedules as listSchedules,
+  saveCompanySchedule as saveSchedule,
+  listSchedulesAssignedToUser as listAssignedChecks,
+};
+
+/** scheduleService API — same ACTIVE Users tab rows as People page. */
+export async function listScheduleAssignees(auth, deps, input = {}) {
+  return getScheduleAssigneesForCompany(auth, deps, input);
+}

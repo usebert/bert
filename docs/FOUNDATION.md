@@ -1,136 +1,136 @@
-# BERT Users & Auth Foundation
+# BERT Foundation Architecture
 
-This document maps the **current** architecture to the **target** foundation rebuilt in this branch. All company-user reads and auth flows must go through the canonical modules listed here — not ad-hoc sheet reads, cache paths, or localStorage identity.
+This document is the canonical map for the BERT company-user foundation rebuilt on branch `cursor/onboarding-branding-polish`. All company identity, users, auth, invites, schedules, and check completion must flow through the shared services below — not ad-hoc sheet reads, cache-only paths, or stale localStorage.
 
-## Drive layout — folder → workbook → Users tab
-
-Every company in BERT follows the same Google Drive structure used by Live Companies discovery:
+## Core model
 
 ```
 Live Companies/
-  └── {companyFolderId}/          ← company = this folder (companyId = companyFolderId)
-        └── BERT Master Sheet       ← masterSheetId = spreadsheet file inside the folder
-              └── Users tab         ← all people for this company
+  └── {companyFolderId}/                    ← company anchor (companyId = companyFolderId)
+        └── 01 - BERT System Files/
+              └── Company Workbook/
+                    └── {Company Name} - BERT Master Sheet   ← masterSheetId
+                          └── Users tab                      ← source of truth for people
 ```
 
-| Concept | Meaning | Never confuse with |
-|---------|---------|-------------------|
-| `companyFolderId` | Google Drive folder id under Live Companies | Registry workspace id, masterSheetId, folder name |
-| `companyId` | Always equals `companyFolderId` | masterSheetId, stale cookie companyName |
-| `masterSheetId` | The **workbook file** inside the company folder | The company folder itself |
-| Users tab | All Email+Name rows in that workbook (not DELETED/REMOVED) | Auth index alone, server cache alone |
+| Field | Meaning | Never confuse with |
+|-------|---------|-------------------|
+| `companyFolderId` | Google Drive folder id under Live Companies | Registry workspace id, masterSheetId, folder display name |
+| `companyId` | Always equals `companyFolderId` | masterSheetId, stale cookie/localStorage companyName |
+| `masterSheetId` | Spreadsheet file **inside** the company folder | The company folder itself |
+| `companyName` | From Drive folder name or Config tab at login/resolve | Stale localStorage, login hints, registry guesses |
 
-**Hard rules**
+**Session context shape:** `{ companyId, companyName, companyFolderId, masterSheetId }`
 
-1. **Company discovery** — a folder under Live Companies is a company; `companyId` = `companyFolderId`.
-2. **Workbook resolution** — `masterSheetId` is the BERT Master Sheet spreadsheet **inside** that folder (same template every company gets).
-3. **Users tab reads** — call `readCompanyUsers(auth, masterSheetId, …)` directly; workbook scope means **no company-column filter**. Every row with Email + Name (excluding DELETED/REMOVED) is a company profile.
-4. **Folder placement** — validated for diagnostics, invites, and Godmode setup; **never blocks** reading `masterSheetId` or loading People/assignees when the workbook id is known. Placement failures surface as `folderPlacementOk: false` warnings only.
-5. **Session at login** — cookie stores both `companyFolderId` and `masterSheetId` resolved from folder/workbook (via auth index + Users tab row columns + live validation on refresh).
-6. **End-to-end chain** — People, schedule assignees, login, and invite all resolve: `companyFolderId` → `masterSheetId` → Users tab.
+### Hard rules
 
-Schema reference: Dovecote Studio BERT Master Sheet (Users tab headers include Email, Name, Role, AccessLevel, Status, CompanyAreas, PasswordHash, Company, CompanyId, CompanyFolderId, plus legacy/wide columns).
+1. **Company folder = anchor** — discovery starts at `companyFolderId`; folder resolution wins over stale workbook ids.
+2. **Workbook naming** — discovery matches both `*BERT Master Sheet*` and `*BERT Workbook*` (e.g. `Dovecote Studio - BERT Master Sheet`).
+3. **Users tab = truth** — People, schedule assignees, and login all read the company workbook Users tab.
+4. **Auth index = cache only** — rebuilt from Users tab; never the sole source for active user lists.
+5. **ACTIVE filter** — `Status=ACTIVE` **and** `CompanyFolderId` matches current folder (missing columns backfilled on read).
+6. **No cache-only users** — server cache rebuilt after every successful sheet read; no session fallback as active users; pending invites excluded from active list.
 
-## Source of truth
+### Dovecote Studio reference ids
 
-| Domain | Source of truth | Never trust for identity |
-|--------|-----------------|--------------------------|
-| Company users (People, assignees, login) | Company workbook **Users** tab (`PasswordHash`, header-name reads) | Auth index alone, server cache alone, localStorage, registry name guesses |
-| Company identity | Google Drive **company folder id** = `companyId` = `companyFolderId` | Stale cookie companyName, login hints, legacy localStorage keys |
-| Workbook id | Spreadsheet file inside company folder = `masterSheetId` | Treating folder id as sheet id |
-| Godmode / platform admin | `master-operators.json` via `performMasterLogin` | Company Users tab, auth index |
-| Folder placement | Under Live Companies when configured | Hard block on reads when `masterSheetId` is known — placement is a **warning** only |
+| Key | Value |
+|-----|-------|
+| `companyFolderId` | `1TVQ-gbpxoOzE6PCkHX581eTDgtMC11c` |
+| `masterSheetId` | `1PlwknNgtt-4j08matn1w4358YTe5SXFs5Hh0zA_m3So` |
+| Workbook path | `01 - BERT System Files / Company Workbook / Dovecote Studio - BERT Master Sheet` |
 
-## Module map
+## Shared services
 
-### Server — `server/company-users-foundation.mjs` (canonical)
-
-| Function | Purpose | Used by |
-|----------|---------|---------|
-| `resolveCompanyContextFromSession(auth, deps, session)` | Resolve `companyFolderId`, `masterSheetId`, `companyName` from session/API actor | Routes, list path |
-| `readUsersTabProfiles(auth, deps, companyContext)` | Read Users tab rows (header names, old+new schema, workbook-scoped) | Internal to list path |
-| `syncCompanyUsersCache(deps, companyContext, profiles)` | Rebuild server `company-users-cache.json` after sheet read | Internal to list path |
-| `listCompanyProfiles(auth, deps, companyContext)` | **Single entry** — resolve context, read sheet, sync cache, return sanitized profiles | GET `/users`, assignees, Godmode People, re-sync |
-| `syncAndListActiveUsers` | Alias of `listCompanyProfiles` (backward compat) | Existing callers |
-| `rebuildUsersFromSheet` | Re-sync alias with cache reconciliation metadata | POST re-sync, background jobs |
-
-Supporting modules (implementation detail — do not call directly from routes):
-
-- `server/company-folder-resolver.mjs` — folder → workbook resolution (`resolveCompanyFromFolder`)
-- `server/company-user-sheet-flow.mjs` — sheet row reads, invite completion, login row lookup
-- `server/users-tab-reader.mjs` — Users tab resolution and raw row reads from `masterSheetId`
-- `server/users-tab-profiles.mjs` — workbook-scoped profile mapping (`listableProfilesFromUsersTabRecords`)
-- `server/company-users.mjs` — Users tab writes, password hash, row updates
-- `server/company-context-service.mjs` — folder/workbook/registry field resolution
-- `server/auth-service.mjs` — `performCompanyLogin`, `performMasterLogin` (separate paths)
-- `server/user-auth-service.mjs` — Users tab password verify, auth index rebuild after invite
-
-### Client — `src/services/companyUserService.ts`
+### `companyService` — `server/company-service.mjs`
 
 | Function | Purpose |
 |----------|---------|
-| `resolveCompanyMembersLoadContext` (in `companyContextService.ts`) | `companyFolderId` + `masterSheetId` from session-linked context |
-| `syncAndListActiveUsers` / `fetchCompanyMembers` | GET `/api/companies/:id/users` — same path for page load and Re-sync |
-| Boot (`runAppContextBootstrap`) | Session wins over localStorage; purge stale `companyName` and caches |
+| `resolveCompanyFromFolder(auth, deps, companyFolderId, options)` | Resolve folder → workbook → tabs; registry is cache |
+| `findCompanyWorkbook(drive, input)` | Read-only discovery in folder + subfolders (both naming patterns) |
+| `ensureCompanyWorkbook(drive, input)` | Find, reuse, or create workbook in Company Workbook folder |
+| `ensureRequiredTabs(auth, deps, masterSheetId)` | Ensure Users, Schedules, AuditResults, etc. |
 
-## Auth foundation
+Implementation: `company-folder-resolver.mjs`, `company-folder-structure.mjs`, `ensure-required-tabs.mjs`.
 
-### Company login (`performCompanyLogin`)
+### `userService` — `server/company-user-service.mjs`
 
-1. Auth index lookup (fast, no Drive/Sheets in request path)
-2. Users tab fallback when index miss or password hash stale
-3. Password via shared `hashPassword` / `verifyPassword` helpers
-4. Structured errors (`reasonCode`, `failedStep`) — no thrown background jobs blocking response
-5. Session cookie stores `companyFolderId` + `masterSheetId` + `companyName`
-6. Live Drive validation queued **after** HTTP response
+| Function | Purpose |
+|----------|---------|
+| `readUsersTab(auth, deps, companyContext)` | Read Users tab rows (sanitized, no PasswordHash in API) |
+| `listActiveUsers(auth, deps, companyContext)` | ACTIVE + CompanyFolderId filter; canonical People/assignee list |
+| `repairUsersTabSchema(auth, spreadsheetId, deps, options)` | Backfill headers, company columns, shifted rows |
+| `writeUserRow(auth, spreadsheetId, email, updates, deps)` | Patch a Users tab row |
+| `rebuildUserCacheFromSheet(auth, deps, companyContext)` | Re-sync server cache from sheet; remove cache-only users |
 
-### Godmode login (`performMasterLogin`)
+Canonical list path: `company-users-foundation.mjs` → `listCompanyProfiles`.
 
-- `admin@usebert.co.uk` (platform owner) — **master-operators.json only**
-- Rejected from company login path with `platform_owner_master_only`
-- Selected company context is workspace selection, not company-user session
+### `authService` — `server/auth-service.mjs`
 
-### Invite complete
+| Function | Purpose |
+|----------|---------|
+| `platformLogin(deps, input)` | Godmode / master-operators.json only |
+| `companyLogin(auth, deps, input)` | Fast auth-index lookup; Users tab fallback for hash verify |
+| `rebuildAuthIndexFromUsersTab(...)` | Rebuild sign-in cache from Users tab |
+| `verifyPassword(...)` | Shared scrypt verify |
 
-1. Write row to Users tab (`completeInviteToUserRow`)
-2. Verify hash written
-3. Rebuild auth index (`rebuildAuthIndexFromUsersTab` / `rebuildCompanyAuthIndexFromSheet`)
-4. User can log in on next attempt via index or Users tab fallback
+### `inviteService` — `server/invite-service.mjs`
+
+| Function | Purpose |
+|----------|---------|
+| `createInvite(deps, input)` | Token-only create (no Users tab write) |
+| `completeInvite(auth, invite, formData, deps)` | Write Users tab row **before** success response |
+
+### `scheduleService` — `server/schedule-service.mjs`
+
+| Function | Purpose |
+|----------|---------|
+| `listSchedules(auth, deps, input)` | Read Schedules tab from company workbook |
+| `listScheduleAssignees(auth, deps, input)` | Same ACTIVE users as People (`listActiveUsers` path) |
+| `saveSchedule(auth, deps, input)` | Save with `AssignedUserEmails` on Schedules tab |
+
+### `completionService` — `server/completion-service.mjs`
+
+| Function | Purpose |
+|----------|---------|
+| `completeCheck(auth, deps, input)` | Append completed check to AuditResults tab |
+| `listResults(auth, deps, input)` | Read AuditResults tab |
 
 ## Route contract
 
-All of these must call `listCompanyProfiles` (via foundation):
+All routes must pass `companyFolderId` + `masterSheetId` (workbook file id). Session values used when query/body omits them.
 
-- `GET /api/companies/:companyId/users`
-- `GET /api/companies/:companyId/schedule-assignees`
-- Godmode People (`listGodmodeCompanyUsers`)
-- `POST` re-sync / rebuild users from sheet
+| Route area | Service entry |
+|------------|---------------|
+| `GET /api/companies/:id/users` | `listActiveUsers` / `listCompanyProfiles` |
+| `GET /api/companies/:id/schedule-assignees` | `listScheduleAssignees` |
+| `GET/POST /api/companies/:id/schedules` | `listSchedules` / `saveSchedule` |
+| `POST /api/auth/company/login` | `companyLogin` |
+| `POST /api/auth/master/login` | `platformLogin` |
+| Invite complete | `completeInvite` → auth index rebuild |
+| Check submit | `completeCheck` |
 
-Query/body must pass `masterSheetId` (workbook file id). Routes fall back to session `companyFolderId` + `masterSheetId` when omitted.
+## Frontend
 
-## Failure areas addressed
-
-| # | Failure | Foundation fix |
-|---|---------|----------------|
-| 1 | People page users don't load | Single `listCompanyProfiles` path; workbook-scoped Users tab read; cache/session fallback only when sheet truly empty |
-| 2 | Assignees ≠ People | `getAssignableUsers` → `listCompanyProfiles` → same Users tab rows |
-| 3 | Login slow/broken | Fast auth-index login; Users tab reconcile only when needed; bg jobs after response |
-| 4 | Stale company names (Rock Solid) | Boot purge + session `companyContextValid`; live name from Drive on validate |
-| 5 | Godmode/company sessions mixed | Separate login paths; Godmode UI uses Master role gate; clear godmode folder on company login |
-| 6 | Invite → Users tab but login fails | Invite complete writes hash + rebuilds index; login verifies from Users tab fallback |
+- **Session wins over localStorage on boot** — `runAppContextBootstrap` + `APP_CONTEXT_VERSION` purge.
+- **Clear stale company on login/logout/switch** — `clearStaleCompanyLocalStorage`.
+- **Header/title/account** — always from session `companyName`, never stale localStorage.
 
 ## Verification
 
 ```bash
-npm run verify:bert-foundation    # holistic — all 6 failure areas
-npm run verify:company-members    # includes Dovecote xlsx fixture (3 users)
+npm run verify:drive-folder-map
+npm run verify:users-from-company-workbook
+npm run verify:invite-to-users-tab
+npm run verify:schedule-contract
+npm run verify:bert-core-foundation    # holistic + extends all of the above
+npm run verify:bert-foundation
+npm run verify:company-members         # Dovecote xlsx fixture (3 users)
 npm run verify:schedule-assignees
 npm run verify:auth
-npm run verify:bert-core-foundation
-npm run verify:company-user-session-context
 npm run verify:company-folder-source-of-truth
+npm run verify:company-user-session-context
 ```
 
 ## Deploy notes
 
-After merge, deploy **both** API (`server/`) and frontend (`dist/`). The foundation is server-side; frontend must use the rebuilt bundle with `APP_CONTEXT_VERSION` bump to purge stale localStorage company identity on first load.
+After merge, deploy **both** API (`server/`) and frontend (`dist/`). Bump `APP_CONTEXT_VERSION` in `clearStaleCompanyLocalStorage.ts` when company identity semantics change so clients purge stale keys on first load.

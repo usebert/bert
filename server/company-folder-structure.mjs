@@ -367,6 +367,27 @@ export function buildCompanyMasterSheetName(companyName = "") {
   return `${safe} - BERT Master Sheet`;
 }
 
+/** Alternate workbook naming — "[Company Name] - BERT Workbook". */
+export function buildCompanyWorkbookName(companyName = "") {
+  const safe = String(companyName || "").trim() || "Company";
+  return `${safe} - BERT Workbook`;
+}
+
+function matchesCompanyWorkbookName(name = "", companyName = "") {
+  const lower = safeLower(name);
+  const expected = safeLower(buildCompanyWorkbookName(companyName));
+  if (lower === expected) {
+    return true;
+  }
+  if (lower.endsWith(" - bert workbook")) {
+    return true;
+  }
+  if (lower.includes("bert workbook")) {
+    return true;
+  }
+  return false;
+}
+
 function matchesCompanyMasterSheetName(name = "", companyName = "") {
   const lower = safeLower(name);
   const expected = safeLower(buildCompanyMasterSheetName(companyName));
@@ -377,6 +398,9 @@ function matchesCompanyMasterSheetName(name = "", companyName = "") {
     return true;
   }
   if (lower.endsWith(" - bert master sheet")) {
+    return true;
+  }
+  if (matchesCompanyWorkbookName(name, companyName)) {
     return true;
   }
   return false;
@@ -541,10 +565,10 @@ function scoreMasterSheetCandidate(file, companyName = "") {
     return 100;
   }
   const lower = safeLower(name);
-  if (lower.endsWith(" - bert master sheet")) {
+  if (lower.endsWith(" - bert master sheet") || lower.endsWith(" - bert workbook")) {
     return 80;
   }
-  if (lower.includes("bert master sheet")) {
+  if (lower.includes("bert master sheet") || lower.includes("bert workbook")) {
     return 60;
   }
   return 10;
@@ -567,6 +591,11 @@ function pickBestMasterSheetCandidate(candidates = [], companyName = "") {
  * Read-only discovery — search company root, legacy setup, and Company Workbook folder
  * for the BERT Master Sheet without creating folders or spreadsheets.
  */
+/** Read-only folder discovery — matches *BERT Master Sheet* and *BERT Workbook* names. */
+export async function findCompanyWorkbook(drive, input = {}) {
+  return discoverCompanyMasterSheetInFolder(drive, input);
+}
+
 export async function discoverCompanyMasterSheetInFolder(drive, input = {}) {
   const companyRootFolderId = String(input.companyRootFolderId || input.companyFolderId || "").trim();
   const companyName = String(input.companyName || "").trim();
@@ -709,7 +738,10 @@ async function findMasterSheetInSearchFolders(drive, searchFolderIds, companyNam
     const spreadsheets = await listSpreadsheetsInFolder(drive, folderId);
     const match =
       spreadsheets.find((file) => matchesCompanyMasterSheetName(file.name, companyName)) ||
-      spreadsheets.find((file) => safeLower(file.name).endsWith(" - bert master sheet")) ||
+      spreadsheets.find((file) => {
+        const lower = safeLower(file.name);
+        return lower.endsWith(" - bert master sheet") || lower.endsWith(" - bert workbook");
+      }) ||
       spreadsheets[0] ||
       null;
     if (match?.id) {
@@ -747,6 +779,11 @@ async function linkMasterSheetHint(drive, masterSheetIdHint, workbookFolderId) {
 /**
  * Find, reuse, or create the company master spreadsheet in Company Workbook. Idempotent.
  */
+/** Find, reuse, or create company workbook spreadsheet in Company Workbook folder. */
+export async function ensureCompanyWorkbook(drive, input) {
+  return ensureCompanyMasterSheet(drive, input);
+}
+
 export async function ensureCompanyMasterSheet(drive, input) {
   const companyName = String(input.companyName || "").trim();
   const masterSheetIdHint = String(input.masterSheetId || "").trim();

@@ -48,6 +48,8 @@ function runStaticGuards() {
   const inviteService = read("server/invite-service.mjs");
   const scheduleService = read("server/schedule-service.mjs");
   const checkService = read("server/check-service.mjs");
+  const completionService = read("server/completion-service.mjs");
+  const folderStructure = read("server/company-folder-structure.mjs");
   const godmodeService = read("server/godmode-service.mjs");
   const coreRoutes = read("server/core-workflow-routes.mjs");
   const usersPanel = read("src/components/admin/UsersInvitesPilotPanel.tsx");
@@ -60,14 +62,30 @@ function runStaticGuards() {
   const uxDeclutter = read("src/utils/uxDeclutter.ts");
 
   assert(pkg.scripts["verify:bert-core-foundation"], "static: npm script registered");
+  assert(pkg.scripts["verify:drive-folder-map"], "static: drive-folder-map script");
+  assert(pkg.scripts["verify:users-from-company-workbook"], "static: users-from-workbook script");
+  assert(pkg.scripts["verify:invite-to-users-tab"], "static: invite-to-users-tab script");
+  assert(pkg.scripts["verify:schedule-contract"], "static: schedule-contract script");
+  assert(companyService.includes("findCompanyWorkbook"), "static: companyService.findCompanyWorkbook");
+  assert(companyService.includes("ensureCompanyWorkbook"), "static: companyService.ensureCompanyWorkbook");
+  assert(companyService.includes("ensureRequiredTabs"), "static: companyService.ensureRequiredTabs");
+  assert(folderStructure.includes("buildCompanyWorkbookName"), "static: BERT Workbook naming");
   assert(companyService.includes("resolveCompanyFromFolder"), "static: companyService resolves folder");
+  assert(authService.includes("platformLogin"), "static: authService platformLogin alias");
+  assert(authService.includes("companyLogin"), "static: authService companyLogin alias");
   assert(authService.includes("performCompanyLogin"), "static: authService fast login");
   assert(authService.includes("performMasterLogin"), "static: authService Godmode login");
+  assert(authService.includes("rebuildAuthIndexFromUsersTab"), "static: authService rebuildAuthIndexFromUsersTab");
+  assert(authService.includes("verifyPassword"), "static: authService verifyPassword");
   assert(authService.includes("auth_index_lookup"), "static: login uses auth index");
   assert(read("server/auth-index.mjs").includes("lookupByEmail"), "static: auth index module");
   assert(read("server/auth-index.mjs").includes("isPlatformOwnerAuthIndexEmail"), "static: auth index excludes platform owner");
   assert(!authService.includes("getCanonicalCompanyRegistryRecord"), "static: login skips registry gate");
   assert(userService.includes("listActiveUsers"), "static: companyUserService listActiveUsers");
+  assert(userService.includes("readUsersTab"), "static: userService readUsersTab");
+  assert(userService.includes("writeUserRow"), "static: userService writeUserRow");
+  assert(userService.includes("repairUsersTabSchema"), "static: userService repairUsersTabSchema");
+  assert(userService.includes("rebuildUserCacheFromSheet"), "static: userService rebuildUserCacheFromSheet");
   assert(sheetFlow.includes("listActiveUsersFromSheet"), "static: listActiveUsersFromSheet helper");
   assert(
     sheetFlow.includes("rowMatchesCompanyContext") || sheetFlow.includes("rowPassesCompanyProfileContext"),
@@ -89,10 +107,17 @@ function runStaticGuards() {
   assert(usersPanel.includes("ActiveUserCard"), "static: users panel renders active user cards");
   assert(inviteDisplay.includes("Company Admin"), "static: role display Company Admin label");
   assert(!companyUsers.includes("abusive") && !companyUsers.includes("profan"), "static: no abusive name filtering");
+  assert(inviteService.includes("createInvite"), "static: inviteService createInvite");
+  assert(inviteService.includes("completeInvite"), "static: inviteService completeInvite");
   assert(inviteService.includes("isCompanyUserInviteActiveForResend"), "static: invite resend helper");
+  assert(scheduleService.includes("listSchedules"), "static: scheduleService listSchedules alias");
+  assert(scheduleService.includes("listScheduleAssignees"), "static: scheduleService listScheduleAssignees");
+  assert(scheduleService.includes("saveSchedule"), "static: scheduleService saveSchedule alias");
   assert(scheduleService.includes("listSchedulesAssignedToUser"), "static: schedule assigned-user list");
   assert(scheduleService.includes("companyFolderId && masterSheetId"), "static: folder-first schedule context");
   assert(checkService.includes("submitCompletedCheck"), "static: checkService submits AuditResults");
+  assert(completionService.includes("completeCheck"), "static: completionService completeCheck");
+  assert(completionService.includes("listResults"), "static: completionService listResults");
   assert(godmodeService.includes("listGodmodeCompanyUsers"), "static: godmode reads same Users tab");
   assert(godmodeService.includes("listGodmodeCompanySchedules"), "static: godmode reads same Schedules tab");
   assert(read("src/services/authService.ts").includes("companyLogin"), "static: client authService");

@@ -12,6 +12,7 @@ import {
   sanitizeUsersTabRecords,
   migrateUsersTabColumns,
   normalizeUserStatus,
+  updateCompanyUserRecord,
 } from "./company-users.mjs";
 import {
   backfillRowCompanyFields,
@@ -22,12 +23,13 @@ import {
   resolvedProfileCompanyFolderId,
   rowPassesCompanyProfileContext,
 } from "./users-tab-schema.mjs";
-import { readCompanyUsers, resolveUsersTab } from "./users-tab-reader.mjs";
+import { readCompanyUsers, resolveUsersTab, repairUsersTabSchema } from "./users-tab-reader.mjs";
 import { resolveCompanyContextFields } from "./company-context-service.mjs";
 import { resolveCompanyFromFolder } from "./company-folder-resolver.mjs";
 import { validateCompanyFolderUnderCompaniesRoot } from "./company-folder-placement.mjs";
 import {
   listCompanyProfiles as listCompanyProfilesFromFoundation,
+  readUsersTabProfiles,
   rebuildUsersFromSheet as rebuildUsersFromSheetFoundation,
 } from "./company-users-foundation.mjs";
 import {
@@ -704,3 +706,34 @@ export async function syncAndListActiveUsers(auth, deps, companyContext = {}) {
 export async function rebuildUsersFromSheet(auth, deps, companyContext = {}) {
   return rebuildUsersFromSheetFoundation(auth, deps, companyContext);
 }
+
+/** userService API — read raw Users tab rows (sanitized, no PasswordHash in API responses). */
+export async function readUsersTab(auth, deps, companyContext = {}) {
+  const masterSheetId = String(companyContext.masterSheetId || "").trim();
+  const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
+  const readResult = await readCompanyUsers(auth, masterSheetId, deps, {
+    companyFolderId,
+    companyId: companyFolderId,
+    companyName: String(companyContext.companyName || "").trim(),
+    masterSheetId,
+  });
+  if (!readResult?.ok) {
+    return readResult;
+  }
+  return {
+    ok: true,
+    records: sanitizeUsersTabRecords(readResult.records || []),
+    rowCount: readResult.rowCount ?? readResult.records?.length ?? 0,
+    masterSheetId,
+    companyFolderId,
+  };
+}
+
+/** userService API — write/update a Users tab row by email. */
+export { updateCompanyUserRecord as writeUserRow };
+
+/** userService API — repair shifted Users tab schema and backfill company columns. */
+export { repairUsersTabSchema };
+
+/** userService API — rebuild server cache from sheet after successful read. */
+export { rebuildUsersFromSheet as rebuildUserCacheFromSheet };

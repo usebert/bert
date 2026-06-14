@@ -1,5 +1,6 @@
 /**
  * Company-user invite create/complete helpers — token before email, permissions at route layer.
+ * Users tab write happens only on completeInvite (before success response).
  */
 import {
   canCreateCompanyInvite,
@@ -13,6 +14,7 @@ import {
 import { assertCompanyInviteReady } from "./company-invite-readiness.mjs";
 import { resolveCompanyById } from "./company-registry-service.mjs";
 import { resolveCompanyUserInviteTokenAccess } from "./invite-routes.mjs";
+import { completeInviteToUserRow } from "./company-user-sheet-flow.mjs";
 
 export {
   canCreateCompanyInvite,
@@ -62,3 +64,34 @@ export function buildAuditorInviteBody(companyId, body = {}, registryRecord = nu
     companyName: String(body.companyName || registryRecord?.companyName || "").trim(),
   };
 }
+
+/** inviteService API — build token payload for createInvite (no Users tab write on create). */
+export function buildCompanyUserInvitePayload(input = {}) {
+  const companyFolderId = String(input.companyFolderId || input.companyId || "").trim();
+  return {
+    kind: "company_user",
+    inviteType: "COMPANY_USER",
+    status: "PENDING",
+    email: String(input.email || "").trim().toLowerCase(),
+    role: String(input.role || "Auditor").trim() || "Auditor",
+    accessLevel: String(input.accessLevel || "").trim(),
+    companyAreas: String(input.companyAreas || "").trim(),
+    invitedBy: String(input.invitedBy || "").trim(),
+    companyId: companyFolderId,
+    companyFolderId,
+    masterSheetId: String(input.masterSheetId || "").trim(),
+    companyName: String(input.companyName || "").trim(),
+  };
+}
+
+/** inviteService API — createInvite stores token only; routes pass deps.createInviteRecord. */
+export function createInvite(deps, input = {}) {
+  if (typeof deps?.createInviteRecord !== "function") {
+    throw new Error("createInviteRecord dependency is required.");
+  }
+  const payload = buildCompanyUserInvitePayload(input);
+  return deps.createInviteRecord(payload);
+}
+
+/** inviteService API — write Users tab row before marking invite consumed. */
+export { completeInviteToUserRow as completeInvite };

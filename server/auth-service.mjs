@@ -977,3 +977,7 @@ export async function resolveValidatedCompanyLoginContext(auth, deps, indexEntry
     registryStatus: validation.registryStatus,
   };
 }
+
+/** authService API aliases — platform (Godmode) vs company login paths. */
+export { performMasterLogin as platformLogin, performCompanyLogin as companyLogin };
+export { rebuildAuthIndexFromUsersTab, verifyPassword } from "./user-auth-service.mjs";
