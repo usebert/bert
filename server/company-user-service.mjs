@@ -14,12 +14,11 @@ import {
 } from "./company-users.mjs";
 import {
   backfillRowCompanyFields,
-  isWorkbookScopedCompanyContext,
   pickRowCompanyFolderId,
   pickRowCompanyId,
   pickRowCompanyName,
-  rowExplicitlyPointsToOtherCompany,
-  rowMatchesCompanyContext,
+  resolvedProfileCompanyFolderId,
+  rowPassesCompanyProfileContext,
 } from "./users-tab-schema.mjs";
 import { readCompanyUsers, resolveUsersTab } from "./users-tab-reader.mjs";
 import { resolveCompanyContextFields } from "./company-context-service.mjs";
@@ -366,18 +365,13 @@ function mapCompanyProfileMember(row, companyContext = {}) {
   if (isExcludedCompanyProfileStatus(status)) {
     return null;
   }
-  const workbookScoped = isWorkbookScopedCompanyContext(companyContext);
-  if (workbookScoped) {
-    if (rowExplicitlyPointsToOtherCompany(row, companyContext)) {
-      return null;
-    }
-  } else if (!rowMatchesCompanyContext(row, companyContext)) {
+  if (!rowPassesCompanyProfileContext(row, companyContext)) {
     return null;
   }
   const companyAreas = Array.isArray(row.companyAreas)
     ? row.companyAreas
     : parseCompanyAreas(row.companyAreasRaw || row.CompanyAreas || row.companyAreas || "");
-  const resolvedFolderId = row.companyFolderId || row.companyId || companyFolderId;
+  const resolvedFolderId = resolvedProfileCompanyFolderId(row, companyContext);
   return {
     email,
     name,
@@ -668,6 +662,59 @@ export async function listActiveCompanyMembers(auth, deps, companyContext = {}) 
         failedStep: classified.failedStep,
       },
     );
+
+    try {
+      const retryResult = await readActiveUsersFromSheetWithStats(
+        auth,
+        { ...deps, skipUsersTabColumnMigration: true },
+        {
+          masterSheetId,
+          companyFolderId: resolvedCompanyId,
+          companyId: resolvedCompanyId,
+          companyName,
+        },
+      );
+      const retryMembers = Array.isArray(retryResult?.members) ? retryResult.members : [];
+      if (retryMembers.length > 0) {
+        const profilesReturned = retryMembers.length;
+        const activeOnlyCount =
+          typeof retryResult?.activeOnlyCount === "number"
+            ? retryResult.activeOnlyCount
+            : retryMembers.filter((member) => normalizeUserStatus(member.status) === "ACTIVE").length;
+        const cacheStats = reconcileCompanyUsersCache(resolvedCompanyId, retryMembers, { masterSheetId }, deps);
+        return {
+          ok: true,
+          companyId: resolvedCompanyId,
+          companyFolderId: resolvedCompanyId,
+          companyName: companyName || undefined,
+          masterSheetId,
+          users: retryMembers,
+          activeCount: profilesReturned,
+          warning: `Workbook read recovered without column migration (${classified.reasonCode || classified.failedStep || "read_failed"}).`,
+          reasonCode: classified.reasonCode,
+          failedStep: classified.failedStep,
+          diagnostics: buildDiagnostics({
+            companyId: resolvedCompanyId,
+            companyFolderId: resolvedCompanyId,
+            companyName,
+            masterSheetId,
+            signedInEmail,
+            signedInRole,
+            dataSource: "users_tab",
+            durationMs: Date.now() - startedAt,
+            totalRowsRead: retryResult?.totalSheetRows ?? retryMembers.length,
+            profilesReturned,
+            activeOnlyCount,
+            cacheUsersBefore: cacheStats.cacheUsersBefore,
+            cacheOnlyUsersRemoved: cacheStats.cacheOnlyUsersRemoved,
+            upstreamMessage: classified.upstreamMessage || technicalError,
+          }),
+          cacheReconciliation: cacheStats,
+        };
+      }
+    } catch {
+      // fall through to cache/session fallback
+    }
 
     const fallback = buildCacheOrSessionFallbackSuccess(
       sessionActor,

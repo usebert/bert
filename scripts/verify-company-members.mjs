@@ -88,7 +88,7 @@ const pendingInvite = {
     userService.includes("pickRowCompanyId") || sheetFlow.includes("pickRowCompanyId"),
     "4: Users tab rows read CompanyId from sheet",
   );
-  assert(userService.includes("rowMatchesCompanyContext"), "4b: active members filter by company columns");
+  assert(userService.includes("rowPassesCompanyProfileContext"), "4b: active members filter by company columns");
   assert(userService.includes("companyId: resolvedFolderId"), "4c: active members use resolved folder id");
 }
 

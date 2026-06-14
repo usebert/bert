@@ -15,12 +15,11 @@ import {
 import { readCompanyUsers, resolveUsersTab } from "./users-tab-reader.mjs";
 import {
   backfillRowCompanyFields,
-  isWorkbookScopedCompanyContext,
   pickRowCompanyFolderId,
   pickRowCompanyId,
   pickRowCompanyName,
-  rowExplicitlyPointsToOtherCompany,
-  rowMatchesCompanyContext,
+  resolvedProfileCompanyFolderId,
+  rowPassesCompanyProfileContext,
 } from "./users-tab-schema.mjs";
 import { inviteAccessLevelForRole, parseRoleForClient, isExcludedCompanyProfileStatus } from "../shared/schedule-assignees.mjs";
 
@@ -77,18 +76,13 @@ function mapCompanyProfileMember(row, companyContext = {}) {
   if (isExcludedCompanyProfileStatus(status)) {
     return null;
   }
-  const workbookScoped = isWorkbookScopedCompanyContext(companyContext);
-  if (workbookScoped) {
-    if (rowExplicitlyPointsToOtherCompany(row, companyContext)) {
-      return null;
-    }
-  } else if (!rowMatchesCompanyContext(row, companyContext)) {
+  if (!rowPassesCompanyProfileContext(row, companyContext)) {
     return null;
   }
   const companyAreas = Array.isArray(row.companyAreas)
     ? row.companyAreas
     : parseCompanyAreas(row.companyAreasRaw || row.CompanyAreas || row.companyAreas || "");
-  const resolvedFolderId = row.companyFolderId || row.companyId || companyFolderId;
+  const resolvedFolderId = resolvedProfileCompanyFolderId(row, companyContext);
   return {
     email,
     name,
@@ -130,7 +124,11 @@ export async function readActiveUsersFromSheetWithStats(auth, deps, companyConte
     migrateUsersTabColumns: deps.migrateUsersTabColumns || migrateUsersTabColumns,
   };
 
-  if (typeof enrichedDeps.migrateUsersTabColumns === "function" && enrichedDeps.getTabValues) {
+  if (
+    !deps.skipUsersTabColumnMigration &&
+    typeof enrichedDeps.migrateUsersTabColumns === "function" &&
+    enrichedDeps.getTabValues
+  ) {
     await enrichedDeps
       .migrateUsersTabColumns(auth, masterSheetId, enrichedDeps, {
         companyContext: { companyFolderId, companyId: companyFolderId, companyName, masterSheetId },
@@ -192,7 +190,11 @@ export async function listActiveUsersFromSheet(auth, deps, companyContext = {}) 
     migrateUsersTabColumns: deps.migrateUsersTabColumns || migrateUsersTabColumns,
   };
 
-  if (typeof enrichedDeps.migrateUsersTabColumns === "function" && enrichedDeps.getTabValues) {
+  if (
+    !deps.skipUsersTabColumnMigration &&
+    typeof enrichedDeps.migrateUsersTabColumns === "function" &&
+    enrichedDeps.getTabValues
+  ) {
     await enrichedDeps
       .migrateUsersTabColumns(auth, masterSheetId, enrichedDeps, {
         companyContext: { companyFolderId, companyId: companyFolderId, companyName, masterSheetId },

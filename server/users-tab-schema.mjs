@@ -281,3 +281,38 @@ export function rowMatchesCompanyContext(row, companyContext = {}) {
 export function rowPointsToOtherCompany(row, companyContext = {}) {
   return !rowMatchesCompanyContext(row, companyContext);
 }
+
+/** Normalize a mapped profile or raw Users tab row for company backfill/filter helpers. */
+export function sheetLikeRowFromProfile(row) {
+  if (!row || typeof row !== "object") {
+    return {};
+  }
+  return {
+    ...row,
+    Email: pickField(row, "Email", "email"),
+    Name: pickField(row, "Name", "name", "Full Name"),
+    Role: pickField(row, "Role", "role"),
+    AccessLevel: pickField(row, "AccessLevel", "Access Level", "accessLevel"),
+    Status: pickField(row, "Status", "status"),
+    Company: pickField(row, "Company", "company", "companyName"),
+    CompanyId: pickField(row, "CompanyId", "Company ID", "companyId"),
+    CompanyFolderId: pickField(row, "CompanyFolderId", "Company ID", "companyFolderId"),
+    CompanyAreas: pickField(row, "CompanyAreas", "Company Areas", "companyAreas", "companyAreasRaw"),
+  };
+}
+
+/** Backfill company cols, then apply workbook-scoped or folder context filter. */
+export function rowPassesCompanyProfileContext(row, companyContext = {}) {
+  const filled = backfillRowCompanyFields(sheetLikeRowFromProfile(row), companyContext);
+  const workbookScoped = isWorkbookScopedCompanyContext(companyContext);
+  if (workbookScoped) {
+    return !rowExplicitlyPointsToOtherCompany(filled, companyContext);
+  }
+  return rowMatchesCompanyContext(filled, companyContext);
+}
+
+export function resolvedProfileCompanyFolderId(row, companyContext = {}) {
+  const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
+  const filled = backfillRowCompanyFields(sheetLikeRowFromProfile(row), companyContext);
+  return pickRowCompanyFolderId(filled) || pickRowCompanyId(filled) || companyFolderId;
+}

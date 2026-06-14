@@ -17,11 +17,12 @@ import {
   normalizeUserStatus,
 } from "./company-users.mjs";
 import {
+  backfillRowCompanyFields,
   isValidCompanyUserEmail,
   pickRowCompanyFolderId,
   pickRowCompanyId,
   pickRowCompanyName,
-  rowMatchesCompanyContext,
+  rowPassesCompanyProfileContext,
 } from "./users-tab-schema.mjs";
 import { isCompanyRegistryLive } from "../shared/company-invite-permissions.mjs";
 
@@ -422,9 +423,16 @@ export function createAuthIndexApi(indexPath) {
       if (status !== "ACTIVE") {
         continue;
       }
-      if (!rowMatchesCompanyContext(obj, { companyFolderId: resolvedFolderId, companyId: resolvedFolderId, masterSheetId: resolvedMasterSheetId })) {
+      const companyFilterContext = {
+        companyFolderId: resolvedFolderId,
+        companyId: resolvedFolderId,
+        companyName: resolvedCompanyName,
+        masterSheetId: resolvedMasterSheetId,
+      };
+      if (!rowPassesCompanyProfileContext(obj, companyFilterContext)) {
         continue;
       }
+      const filled = backfillRowCompanyFields(obj, companyFilterContext);
       const accessLevel =
         pickField(obj, "AccessLevel", "Access Level", "accessLevel") ||
         defaultAccessLevelForRole(parseRoleFromUsersSheet(roleRaw));
@@ -439,9 +447,9 @@ export function createAuthIndexApi(indexPath) {
         roleRaw,
         role: parseRoleFromUsersSheet(roleRaw) || roleRaw || "User",
         name: fullName,
-        companyId: pickRowCompanyId(obj) || pickField(obj, "Company ID", "CompanyId", "companyId"),
-        companyFolderId: pickRowCompanyFolderId(obj) || resolvedFolderId,
-        companyName: pickRowCompanyName(obj),
+        companyId: pickRowCompanyId(filled) || pickField(obj, "Company ID", "CompanyId", "companyId"),
+        companyFolderId: pickRowCompanyFolderId(filled) || resolvedFolderId,
+        companyName: pickRowCompanyName(filled) || pickRowCompanyName(obj),
         status,
         accessLevel,
         companyAreasRaw,

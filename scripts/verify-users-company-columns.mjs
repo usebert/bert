@@ -7,10 +7,13 @@ import { USERS_TAB_CORE_COLUMNS } from "../server/users-tab-constants.mjs";
 import {
   backfillRowCompanyFields,
   isWorkbookScopedCompanyContext,
+  normalizeUserStatus,
   rowExplicitlyPointsToOtherCompany,
   rowMatchesCompanyContext,
+  rowPassesCompanyProfileContext,
   rowPointsToOtherCompany,
 } from "../server/users-tab-schema.mjs";
+import { isExcludedCompanyProfileStatus } from "../shared/schedule-assignees.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -91,9 +94,9 @@ const masterSheetA = "sheet-dovecote-master";
 
 /** 4: Active user list filters by company columns (non-workbook); workbook scope trusts sheet ownership. */
 {
-  assert(sheetFlow.includes("rowMatchesCompanyContext"), "4: sheet flow filters by company context");
-  assert(sheetFlow.includes("isWorkbookScopedCompanyContext"), "4a: workbook-scoped company context");
-  assert(sheetFlow.includes("rowExplicitlyPointsToOtherCompany"), "4a2: explicit other-company guard");
+  assert(sheetFlow.includes("rowPassesCompanyProfileContext"), "4: sheet flow filters by company context");
+  assert(sheetFlow.includes("resolvedProfileCompanyFolderId"), "4a: workbook rows resolve folder id after backfill");
+  assert(sheetFlow.includes("skipUsersTabColumnMigration"), "4a2: migration can be skipped on read retry");
   assert(sheetFlow.includes("mapCompanyProfileMember(row, companyCtx)") || sheetFlow.includes("mapActiveCompanyMember(row, companyCtx)"), "4b: active member uses company context");
 }
 
@@ -107,7 +110,7 @@ const masterSheetA = "sheet-dovecote-master";
 /** 6: Auth index rebuild uses row company columns and filters. */
 {
   assert(authIndex.includes("pickRowCompanyName"), "6: auth index reads Company from row");
-  assert(authIndex.includes("rowMatchesCompanyContext"), "6b: auth index filters by company cols");
+  assert(authIndex.includes("rowPassesCompanyProfileContext"), "6b: auth index filters by company cols");
   assert(authIndex.includes("entryFromUsersTabRow"), "6c: entry built from Users tab row");
 }
 
@@ -119,5 +122,64 @@ const masterSheetA = "sheet-dovecote-master";
 
 /** 8: npm script registered. */
 assert(pkg.scripts["verify:users-company-columns"], "8: npm script registered");
+
+/** 9: Old schema (no Company cols) — all 3 ACTIVE Dovecote-style users list from workbook. */
+{
+  const companyCtx = {
+    companyFolderId: folderA,
+    companyId: folderA,
+    companyName,
+    masterSheetId: masterSheetA,
+  };
+  const oldSchemaRows = [
+    {
+      Email: "dovecotestudio@icloud.com",
+      Name: "Edward Thomas",
+      Role: "Company Admin",
+      AccessLevel: "",
+      Status: "ACTIVE",
+      CompanyAreas: "",
+      PasswordHash: "scrypt$test1",
+      CreatedAt: "2024-01-01",
+    },
+    {
+      Email: "andy@qmsprecast.co.uk",
+      Name: "Andy Hall",
+      Role: "Manager",
+      AccessLevel: "",
+      Status: "ACTIVE",
+      CompanyAreas: "operational",
+      PasswordHash: "scrypt$test2",
+      CreatedAt: "2024-01-02",
+    },
+    {
+      Email: "7oakcottages@gmail.com",
+      Name: "sophie Graney",
+      Role: "Manager",
+      AccessLevel: "",
+      Status: "ACTIVE",
+      CompanyAreas: "",
+      PasswordHash: "scrypt$test3",
+      CreatedAt: "2024-01-03",
+    },
+  ];
+  const listed = oldSchemaRows.filter((row) => {
+    const email = String(row.Email || "").trim().toLowerCase();
+    const name = String(row.Name || "").trim();
+    if (!email || !name || isExcludedCompanyProfileStatus(normalizeUserStatus(row.Status))) {
+      return false;
+    }
+    return rowPassesCompanyProfileContext(row, companyCtx);
+  });
+  assert(listed.length === 3, "9: all 3 old-schema ACTIVE users listable");
+  const staleMapped = {
+    email: "7oakcottages@gmail.com",
+    name: "sophie Graney",
+    status: "ACTIVE",
+    companyId: "registry-workspace-id",
+    companyFolderId: "registry-workspace-id",
+  };
+  assert(rowPassesCompanyProfileContext(staleMapped, companyCtx), "9b: stale mapped cache row passes after backfill");
+}
 
 console.log("[verify:users-company-columns] OK: all company column cases passed");
