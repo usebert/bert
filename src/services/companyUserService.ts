@@ -37,8 +37,8 @@ export type CompanyMembersDiagnostics = {
   cacheOnlyUsersRemoved?: number;
 };
 
-export const COMPANY_MEMBERS_LOAD_TIMEOUT_MS = 8000;
-export const COMPANY_MEMBERS_LOADING_MESSAGE = "Loading company users…";
+export const COMPANY_MEMBERS_LOAD_TIMEOUT_MS = 90_000;
+export const COMPANY_MEMBERS_LOADING_MESSAGE = "Loading company people…";
 export const COMPANY_MEMBERS_USER_MESSAGE = "Could not load company users.";
 const COMPANY_MEMBERS_DRIVE_ACCESS_MESSAGE =
   "Google cannot read the company workbook. Ask your operator to share the BERT Master Sheet with the BERT Google connection.";

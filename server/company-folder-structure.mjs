@@ -676,22 +676,26 @@ export async function discoverCompanyMasterSheetInFolder(drive, input = {}) {
     }
   }
 
-  candidates.push(...(await collectMasterSheetCandidatesRecursive(drive, companyRootFolderId)));
+  if (input.skipRecursiveDiscovery !== true) {
+    candidates.push(...(await collectMasterSheetCandidatesRecursive(drive, companyRootFolderId, input)));
+  }
 
   const best = pickBestMasterSheetCandidate(candidates, companyName);
   if (!best?.file?.id) {
-    const nonNativeWorkbookNames = await findNonNativeMasterWorkbookNamesRecursive(
-      drive,
-      companyRootFolderId,
-    );
-    if (nonNativeWorkbookNames.length) {
-      return {
-        masterSheetId: "",
-        masterSheetName: nonNativeWorkbookNames[0],
-        masterSheetLink: "",
-        source: "non_native_workbook",
-        nonNativeWorkbookNames,
-      };
+    if (input.skipRecursiveDiscovery !== true) {
+      const nonNativeWorkbookNames = await findNonNativeMasterWorkbookNamesRecursive(
+        drive,
+        companyRootFolderId,
+      );
+      if (nonNativeWorkbookNames.length) {
+        return {
+          masterSheetId: "",
+          masterSheetName: nonNativeWorkbookNames[0],
+          masterSheetLink: "",
+          source: "non_native_workbook",
+          nonNativeWorkbookNames,
+        };
+      }
     }
     return null;
   }
@@ -798,6 +802,7 @@ export async function ensureCompanyMasterSheet(drive, input) {
     const discovered = await discoverCompanyMasterSheetInFolder(drive, {
       companyRootFolderId,
       companyName,
+      skipRecursiveDiscovery: input.skipRecursiveDiscovery === true,
     });
     if (discovered?.masterSheetId) {
       if (workbookFolderId) {

@@ -671,7 +671,7 @@ export function UsersInvitesPilotPanel({
           title="Company people"
           subtitle="Everyone with a profile in the company workbook Users tab — invited, active, or inactive."
         />
-        {activeMembersLoadError ? (
+        {activeMembersLoadError && !activeMembersLoading ? (
           <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
             <p className="text-sm font-semibold text-rose-900">Could not load company people</p>
             <p className="mt-1 text-sm text-rose-800">
@@ -707,7 +707,7 @@ export function UsersInvitesPilotPanel({
         ) : null}
         {activeMembersLoading && activeMembers.length === 0 ? (
           <div className="mt-3">
-            <EmptyPanel title={COMPANY_MEMBERS_LOADING_MESSAGE} text="Reading the company workbook Users tab." />
+            <EmptyPanel title={COMPANY_MEMBERS_LOADING_MESSAGE} text="Reading the company workbook Users tab. This may take up to a minute on first load." />
           </div>
         ) : !activeMembersLoadError && activeMembers.length === 0 ? (
           <div className="mt-3">

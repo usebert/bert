@@ -224,6 +224,7 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
     companyRootFolderId: folderId,
     preferFolderResolution,
     createIfMissing,
+    skipRecursiveDiscovery: options.skipRecursiveDiscovery === true,
   });
   const masterSheetId = trim(masterSheet.masterSheetId);
   if (!masterSheetId) {

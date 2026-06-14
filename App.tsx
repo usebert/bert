@@ -132,7 +132,6 @@ import { clearStaleCompanyLocalStorage } from "./src/utils/clearStaleCompanyLoca
 import { isKnownStaleAuthIndexPairing } from "./src/utils/authIndexTrust";
 import { resolveActiveCompanyContext, resolveCompanyMembersLoadContext } from "./src/services/companyContextService";
 import {
-  COMPANY_MEMBERS_LOAD_TIMEOUT_MS,
   COMPANY_MEMBERS_USER_MESSAGE,
   fetchCompanyMembers,
   readCompanyMembersCache,
@@ -5293,7 +5292,6 @@ function App() {
     }
 
     const controller = new AbortController();
-    let loadTimedOut = false;
     let cancelled = false;
     const cachedEntry = readCompanyMembersCache(storageKeys.companyMembersCache, companyId);
     setCompanyMembersState({
@@ -5301,11 +5299,6 @@ function App() {
       loading: true,
       loadError: undefined,
     });
-
-    const timeoutId = window.setTimeout(() => {
-      loadTimedOut = true;
-      controller.abort();
-    }, COMPANY_MEMBERS_LOAD_TIMEOUT_MS);
 
     void (async () => {
       try {
@@ -5361,36 +5354,6 @@ function App() {
           return;
         }
         if (error instanceof DOMException && error.name === "AbortError") {
-          if (!loadTimedOut) {
-            return;
-          }
-          const timeoutDiagnostics: CompanyMembersDiagnostics = {
-            companyId,
-            companyFolderId: companyId,
-            companyName: activeCompanyContext.companyName.trim() || undefined,
-            masterSheetId: masterSheetId || undefined,
-            failedStep: "client_fetch",
-            upstreamMessage: `Load timed out after ${COMPANY_MEMBERS_LOAD_TIMEOUT_MS}ms`,
-            dataSource: "users_tab",
-          };
-          setCompanyUsersTabRows([]);
-          setCompanyMembersState({
-            members: [],
-            loadError: COMPANY_MEMBERS_USER_MESSAGE,
-            loadErrorDetail: [
-              "CLIENT_LOAD_TIMEOUT",
-              "failedStep=client_fetch",
-              `companyId=${companyId}`,
-              masterSheetId ? `masterSheetId=${masterSheetId}` : "",
-              `upstreamMessage=Load timed out after ${COMPANY_MEMBERS_LOAD_TIMEOUT_MS}ms`,
-            ]
-              .filter(Boolean)
-              .join(" — "),
-            loadReasonCode: "CLIENT_LOAD_TIMEOUT",
-            loadFailedStep: "client_fetch",
-            loadDiagnostics: timeoutDiagnostics,
-            loading: false,
-          });
           return;
         }
         const fetchDiagnostics: CompanyMembersDiagnostics = {
@@ -5412,14 +5375,11 @@ function App() {
           loadDiagnostics: fetchDiagnostics,
           loading: false,
         });
-      } finally {
-        window.clearTimeout(timeoutId);
       }
     })();
 
     return () => {
       cancelled = true;
-      window.clearTimeout(timeoutId);
       controller.abort();
     };
   }, [
@@ -7764,7 +7724,7 @@ function App() {
         applyLinkedCompanyContext({
           email: String(loggedInUser.email).toLowerCase(),
           company: {
-            companyId: loggedInCompany?.companyId,
+            companyId: loggedInCompany?.companyFolderId || loggedInCompany?.companyId,
             companyName: loggedInCompany?.companyName,
             masterSheetId: resolvedSheetId,
             registryStatus: loggedInCompany?.registryStatus,
@@ -7779,7 +7739,7 @@ function App() {
         });
         clearGodmodeSelectedCompanyFolderId();
         setLinkedCompanyContext({
-          companyId: loggedInCompany?.companyId,
+          companyId: loggedInCompany?.companyFolderId || loggedInCompany?.companyId,
           companyName: loggedInCompany?.companyName,
           masterSheetId: resolvedSheetId,
           registryStatus: loggedInCompany?.registryStatus,

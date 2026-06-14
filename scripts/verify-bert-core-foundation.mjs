@@ -128,7 +128,8 @@ function runStaticGuards() {
   assert(!usersPanel.includes("COMPANY_NOT_LIVE_INVITE_MESSAGE"), "static: no not-live banner in Users panel");
   assert(!coreRoutes.includes("assertCompanyLiveForInvite"), "static: invite API has no live gate");
   assert(appTsx.includes("companyLogin"), "static: App uses authService login");
-  assert(appTsx.includes("COMPANY_MEMBERS_LOAD_TIMEOUT_MS"), "static: members load timeout prevents stuck loading");
+  assert(read("src/services/companyUserService.ts").includes("COMPANY_MEMBERS_LOAD_TIMEOUT_MS"), "static: members load timeout constant exists");
+  assert(read("src/services/companyUserService.ts").includes("90_000"), "static: members load timeout is 90s");
   assert(uxDeclutter.includes('role === "Master"'), "static: clutter gated to Master");
   assert(
     isCompanyWorkspaceUsable({ companyId: "f1", companyFolderId: "f1", masterSheetId: "s1" }),
@@ -321,6 +322,7 @@ async function runLiveJourney(config) {
   }
 
   assert(read("src/services/companyUserService.ts").includes("COMPANY_MEMBERS_LOAD_TIMEOUT_MS"), "14: load timeout constant exists");
+  assert(read("src/services/companyUserService.ts").includes("90_000"), "14b: load timeout is 90s");
 
   log(`OK — ${caseCount} total cases passed (static + live)`);
 }

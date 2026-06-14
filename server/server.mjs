@@ -138,6 +138,7 @@ import { debugVerifyUserPassword } from "./user-auth-service.mjs";
 import { createAuthIndexApi, syncAuthIndexAfterUsersRead } from "./auth-index.mjs";
 import { completeInviteToUserRow } from "./company-user-sheet-flow.mjs";
 import { createCompanyUsersCacheApi } from "./company-users-cache.mjs";
+import { createMasterSheetCacheApi } from "./master-sheet-cache.mjs";
 import { rebuildUsersFromSheet } from "./company-users-foundation.mjs";
 import {
   inspectConfiguredWorkspaceRoot,
@@ -225,10 +226,12 @@ const ONBOARDING_INVITE_TTL_MS = Math.max(
 const INVITE_STORE_PATH = path.join(sessionDir, "app-onboarding-invites.json");
 const COMPANY_ONBOARDING_INVITE_STORE_PATH = path.join(sessionDir, "company-onboarding-invites.json");
 const COMPANY_USERS_CACHE_PATH = path.join(sessionDir, "company-users-cache.json");
+const MASTER_SHEET_CACHE_PATH = path.join(sessionDir, "master-sheet-cache.json");
 const AUTH_INDEX_PATH = path.join(sessionDir, "auth-index.json");
 const COMPANY_SESSION_REVOCATION_PATH = path.join(sessionDir, "company-session-revocation.json");
 const companyOnboardingInviteStore = createInviteStoreApi(COMPANY_ONBOARDING_INVITE_STORE_PATH);
 const companyUsersCacheApi = createCompanyUsersCacheApi(COMPANY_USERS_CACHE_PATH);
+const masterSheetCacheApi = createMasterSheetCacheApi(MASTER_SHEET_CACHE_PATH);
 const companySessionRevocationApi = createCompanySessionRevocationApi(COMPANY_SESSION_REVOCATION_PATH);
 const authIndexApi = createAuthIndexApi(AUTH_INDEX_PATH);
 /** Pilot visibility only: `demo` = current client-side password auth. See docs/security-hardening-plan.md */
@@ -3246,6 +3249,7 @@ function getCompanyUsersDeps() {
       rebuildFromSheet: async (auth, deps, context = {}) =>
         rebuildUsersFromSheet(auth, { ...deps, companyUsersCache: companyUsersCacheApi }, context),
     },
+    masterSheetCache: masterSheetCacheApi,
   };
 }
 
@@ -6882,6 +6886,7 @@ app.post("/api/auth/company/login", async (req, res) => {
       findMasterSheetIdsForCompanyLoginEmail,
       sessionRevocation: companySessionRevocationApi,
       isPlatformOwner: isPlatformOwnerEmail,
+      masterSheetCache: masterSheetCacheApi,
     });
 
     if (!result.ok) {

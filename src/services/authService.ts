@@ -136,7 +136,9 @@ export async function companyLogin(input: {
   }
 
   const masterSheetId = String(payload.masterSheetId || payload.company?.masterSheetId || "").trim();
-  const companyId = String(payload.company?.companyId || "").trim();
+  const companyId = String(
+    payload.company?.companyFolderId || payload.company?.companyId || "",
+  ).trim();
   return {
     ok: true,
     user: payload.user,

@@ -222,18 +222,37 @@ async function validateMasterSheetHint(auth, deps, masterSheetId) {
   return trim(meta?.id);
 }
 
+async function readCachedMasterSheetId(deps, companyFolderId) {
+  const cache = deps?.masterSheetCache;
+  if (!cache || typeof cache.getEntry !== "function") {
+    return "";
+  }
+  const entry = cache.getEntry(companyFolderId);
+  return trim(entry?.masterSheetId);
+}
+
+function writeCachedMasterSheetId(deps, companyFolderId, masterSheetId, meta = {}) {
+  const cache = deps?.masterSheetCache;
+  if (!cache || typeof cache.setEntry !== "function") {
+    return;
+  }
+  cache.setEntry(companyFolderId, masterSheetId, meta);
+}
+
 async function resolveMasterSheetFromCompanyFolder(auth, deps, companyFolderId, companyName, options = {}) {
   const sessionHint = trim(options.masterSheetId);
   const preferFolderResolution = options.preferFolderResolution !== false;
   const createIfMissing = options.createIfMissing === true;
+  const skipRecursiveDiscovery = options.skipRecursiveDiscovery === true;
   try {
     const resolved = await resolveCompanyFromFolder(auth, deps, companyFolderId, {
       companyName,
-      masterSheetId: preferFolderResolution ? "" : sessionHint,
+      masterSheetId: sessionHint,
       skipFolderPlacementCheck: true,
       preferFolderResolution,
       createIfMissing,
       ensureStructure: createIfMissing,
+      skipRecursiveDiscovery,
     });
     const folderSheetId = trim(resolved?.masterSheetId);
     if (resolved?.ok && folderSheetId) {
@@ -476,41 +495,65 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
   const resolvedContext = await resolveCompanyContextFields(auth, deps, {
     companyFolderId,
     companyId: companyFolderId,
-    masterSheetId: "",
+    masterSheetId: sessionMasterSheetId,
     companyName,
   });
   companyName = trim(resolvedContext.companyName) || companyName;
   const registryMasterSheetId = trim(resolvedContext.masterSheetId);
-  const hintCandidates = uniqueIds([sessionMasterSheetId, registryMasterSheetId]);
+  const cachedMasterSheetId = await readCachedMasterSheetId(deps, companyFolderId);
+  const hintCandidates = uniqueIds([sessionMasterSheetId, cachedMasterSheetId, registryMasterSheetId]);
 
-  const folderResolved = await resolveMasterSheetFromCompanyFolder(auth, deps, companyFolderId, companyName, {
-    preferFolderResolution: true,
-    createIfMissing: false,
-  });
-  const folderSheetId = trim(folderResolved?.masterSheetId);
-  const resolvedMasterSheet = folderResolved?.resolved?.masterSheet || folderResolved?.masterSheet;
-  const nonNativeWorkbookName =
-    trim(resolvedMasterSheet?.source) === "non_native_workbook"
-      ? trim(resolvedMasterSheet?.masterSheetName)
-      : "";
+  let folderResolved = null;
+  let resolvedMasterSheet = null;
+  let nonNativeWorkbookName = "";
 
-  if (folderResolved?.ok && folderSheetId) {
-    if (!sessionMasterSheetId || folderSheetId !== sessionMasterSheetId) {
-      masterSheetResolutionSource = trim(folderResolved.source) || "company_folder";
+  masterSheetId = "";
+  for (const hint of hintCandidates) {
+    if (!hint) {
+      continue;
     }
-    masterSheetId = folderSheetId;
-    companyName = trim(folderResolved.companyName) || companyName;
-    masterSheetIdsTried.push(folderSheetId);
-  } else {
-    masterSheetId = "";
-    for (const hint of hintCandidates) {
-      masterSheetIdsTried.push(hint);
-      const validatedHint = await validateMasterSheetHint(auth, deps, hint);
-      if (validatedHint) {
-        masterSheetId = validatedHint;
-        masterSheetResolutionSource = hint === sessionMasterSheetId ? "validated_session_hint" : "validated_registry_hint";
-        break;
+    masterSheetIdsTried.push(hint);
+    const validatedHint = await validateMasterSheetHint(auth, deps, hint);
+    if (validatedHint) {
+      masterSheetId = validatedHint;
+      if (hint === sessionMasterSheetId) {
+        masterSheetResolutionSource = "session_hint";
+      } else if (hint === cachedMasterSheetId) {
+        masterSheetResolutionSource = "cache";
+      } else {
+        masterSheetResolutionSource = hint === registryMasterSheetId ? "validated_registry_hint" : "validated_hint";
       }
+      writeCachedMasterSheetId(deps, companyFolderId, masterSheetId, {
+        companyName,
+        source: masterSheetResolutionSource,
+      });
+      break;
+    }
+  }
+
+  if (!masterSheetId) {
+    folderResolved = await resolveMasterSheetFromCompanyFolder(auth, deps, companyFolderId, companyName, {
+      masterSheetId: sessionMasterSheetId || cachedMasterSheetId || registryMasterSheetId,
+      preferFolderResolution: true,
+      createIfMissing: false,
+      skipRecursiveDiscovery: false,
+    });
+    const folderSheetId = trim(folderResolved?.masterSheetId);
+    resolvedMasterSheet = folderResolved?.resolved?.masterSheet || folderResolved?.masterSheet;
+    nonNativeWorkbookName =
+      trim(resolvedMasterSheet?.source) === "non_native_workbook"
+        ? trim(resolvedMasterSheet?.masterSheetName)
+        : "";
+
+    if (folderResolved?.ok && folderSheetId) {
+      masterSheetResolutionSource = trim(folderResolved.source) || "company_folder";
+      masterSheetId = folderSheetId;
+      companyName = trim(folderResolved.companyName) || companyName;
+      masterSheetIdsTried.push(folderSheetId);
+      writeCachedMasterSheetId(deps, companyFolderId, masterSheetId, {
+        companyName,
+        source: masterSheetResolutionSource,
+      });
     }
   }
 

@@ -755,6 +755,13 @@ export async function performCompanyLogin(auth, deps, input = {}) {
   timing.total = Date.now() - loginStarted;
   console.log(`[login] total durationMs=${timing.total}`);
 
+  if (deps.masterSheetCache && typeof deps.masterSheetCache.setEntry === "function" && sessionCompanyId && masterSheetId) {
+    deps.masterSheetCache.setEntry(sessionCompanyId, masterSheetId, {
+      companyName: sessionCompanyName,
+      source: "login_session",
+    });
+  }
+
   return {
     ok: true,
     email,
