@@ -134,7 +134,6 @@ import { resolveActiveCompanyContext, resolveCompanyMembersLoadContext } from ".
 import {
   COMPANY_MEMBERS_LOAD_TIMEOUT_MS,
   COMPANY_MEMBERS_USER_MESSAGE,
-  buildSignedInMemberFallback,
   fetchCompanyMembers,
   readCompanyMembersCache,
   updateCompanyMember,
@@ -5298,7 +5297,7 @@ function App() {
     let cancelled = false;
     const cachedEntry = readCompanyMembersCache(storageKeys.companyMembersCache, companyId);
     setCompanyMembersState({
-      members: cachedEntry?.members ?? [],
+      members: [],
       loading: true,
       loadError: undefined,
     });
@@ -5307,38 +5306,6 @@ function App() {
       loadTimedOut = true;
       controller.abort();
     }, COMPANY_MEMBERS_LOAD_TIMEOUT_MS);
-
-    const applySignedInMemberFallback = (
-      reasonCode?: string,
-      failedStep?: string,
-      loadDiagnostics?: CompanyMembersDiagnostics,
-    ): boolean => {
-      if (!currentUser || currentUser.role === "Master") {
-        return false;
-      }
-      const fallbackMember = buildSignedInMemberFallback({
-        email: currentUser.username || currentUser.email || "",
-        name: currentUser.name,
-        role: currentUser.role,
-        accessLevel: currentUser.accessLevel,
-        companyAreas: currentUser.companyAreas,
-        companyId,
-        companyFolderId: companyId,
-        companyName: companyName || activeCompanyContext.companyName,
-      });
-      if (!fallbackMember) {
-        return false;
-      }
-      setCompanyUsersTabRows([fallbackMember]);
-      setCompanyMembersState({
-        members: [fallbackMember],
-        warning: `Showing signed-in user only; workbook read failed (${reasonCode || failedStep || "unknown"}).`,
-        loadFailedStep: failedStep,
-        loadDiagnostics,
-        loading: false,
-      });
-      return true;
-    };
 
     void (async () => {
       try {
@@ -5351,15 +5318,6 @@ function App() {
 
         if (!result.ok) {
           if (cancelled) {
-            return;
-          }
-          if (
-            applySignedInMemberFallback(
-              result.reasonCode,
-              result.failedStep,
-              result.diagnostics,
-            )
-          ) {
             return;
           }
           setCompanyUsersTabRows([]);
@@ -5375,12 +5333,18 @@ function App() {
           return;
         }
 
-        writeCompanyMembersCache(storageKeys.companyMembersCache, {
-          companyId,
-          members: result.members,
-          cachedAt: Date.now(),
-          warning: result.warning,
-        });
+        const cacheShouldUpdate =
+          !cachedEntry ||
+          result.members.length > cachedEntry.members.length ||
+          result.members.length !== cachedEntry.members.length;
+        if (cacheShouldUpdate) {
+          writeCompanyMembersCache(storageKeys.companyMembersCache, {
+            companyId,
+            members: result.members,
+            cachedAt: Date.now(),
+            warning: result.warning,
+          });
+        }
         if (cancelled) {
           return;
         }
@@ -5409,9 +5373,6 @@ function App() {
             upstreamMessage: `Load timed out after ${COMPANY_MEMBERS_LOAD_TIMEOUT_MS}ms`,
             dataSource: "users_tab",
           };
-          if (applySignedInMemberFallback("CLIENT_LOAD_TIMEOUT", "client_fetch", timeoutDiagnostics)) {
-            return;
-          }
           setCompanyUsersTabRows([]);
           setCompanyMembersState({
             members: [],
@@ -5441,9 +5402,6 @@ function App() {
           upstreamMessage: error instanceof Error ? error.message : COMPANY_MEMBERS_USER_MESSAGE,
           dataSource: "users_tab",
         };
-        if (applySignedInMemberFallback("CLIENT_FETCH_FAILED", "client_fetch", fetchDiagnostics)) {
-          return;
-        }
         setCompanyUsersTabRows([]);
         setCompanyMembersState({
           members: [],

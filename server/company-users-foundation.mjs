@@ -326,8 +326,26 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
     masterSheetId,
     companyName,
   });
-  masterSheetId = trim(resolvedContext.masterSheetId);
-  companyName = trim(resolvedContext.companyName);
+  masterSheetId = trim(resolvedContext.masterSheetId) || masterSheetId;
+  companyName = trim(resolvedContext.companyName) || companyName;
+
+  // Folder → workbook: resolve masterSheetId from Drive folder before sheet read (session hints can be stale).
+  if (companyFolderId) {
+    try {
+      const folderResolved = await resolveCompanyFromFolder(auth, deps, companyFolderId, {
+        companyName,
+        masterSheetId,
+        skipFolderPlacementCheck: true,
+      });
+      const folderSheetId = trim(folderResolved?.masterSheetId);
+      if (folderResolved?.ok && folderSheetId) {
+        masterSheetId = folderSheetId;
+        companyName = trim(folderResolved.companyName) || companyName;
+      }
+    } catch {
+      /* continue with resolved hint */
+    }
+  }
 
   if (!masterSheetId) {
     return buildFailure(
@@ -397,7 +415,6 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
         const folderResolved = await resolveCompanyFromFolder(auth, deps, companyFolderId, {
           companyName,
           masterSheetId,
-          ensureStructure: false,
           skipFolderPlacementCheck: true,
         });
         const refreshedSheetId = trim(folderResolved?.masterSheetId);

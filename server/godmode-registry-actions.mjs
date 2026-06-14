@@ -9,6 +9,7 @@ import {
   isCompanyRegistryLive,
 } from "../shared/company-invite-permissions.mjs";
 import { resolveCompanyFromFolder } from "./company-folder-resolver.mjs";
+import { listCompanyProfiles } from "./company-users-foundation.mjs";
 import { isSystemTemplateCompany } from "../shared/system-template-company.mjs";
 import {
   buildFallbackRegistryDiagnostic,
@@ -698,6 +699,82 @@ export function installGodmodeRegistryActionRoutes(app, deps) {
         return res.status(status).json({
           ok: false,
           error: error instanceof Error ? error.message : "Unable to mark company live.",
+        });
+      }
+    },
+  );
+
+  app.post(
+    "/api/godmode/debug/list-company-profiles",
+    requireGoogleWorkspaceSession,
+    requireMasterOnlyActor,
+    async (req, res) => {
+      const authed = getAuthedClient();
+      if (!envConfigured() || !authed) {
+        return res.status(401).json({
+          ok: false,
+          code: "GOOGLE_NOT_CONNECTED",
+          error: "Connect Google Workspace before debugging company profiles.",
+        });
+      }
+      const companyFolderId = String(
+        req.body?.companyFolderId || req.body?.companyId || req.params?.companyId || "",
+      ).trim();
+      const masterSheetId = String(req.body?.masterSheetId || req.query?.masterSheetId || "").trim();
+      const companyName = String(req.body?.companyName || "").trim();
+      if (!companyFolderId) {
+        return res.status(400).json({ ok: false, error: "companyFolderId is required." });
+      }
+      try {
+        const result = await listCompanyProfiles(authed, deps, {
+          companyFolderId,
+          companyId: companyFolderId,
+          masterSheetId,
+          companyName,
+        });
+        const emails = (result.users || []).map((row) => String(row.email || "").trim().toLowerCase()).filter(Boolean);
+        const diagnostics = {
+          ...(result.diagnostics || {}),
+          masterSheetId: result.masterSheetId || masterSheetId || undefined,
+          totalRowsRead: result.diagnostics?.totalRowsRead,
+          profilesReturned: result.users?.length ?? result.diagnostics?.profilesReturned,
+          emails,
+        };
+        if (!result.ok) {
+          return res.status(result.httpStatus || 502).json({
+            ok: false,
+            code: result.code || "COMPANY_USERS_LOAD_FAILED",
+            reasonCode: result.reasonCode,
+            failedStep: result.failedStep || result.diagnostics?.failedStep,
+            message: result.message || result.error,
+            technicalError: result.technicalError,
+            masterSheetId: masterSheetId || result.masterSheetId,
+            companyFolderId,
+            totalRowsRead: diagnostics.totalRowsRead,
+            profilesReturned: 0,
+            emails: [],
+            diagnostics,
+          });
+        }
+        return res.json({
+          ok: true,
+          companyFolderId: result.companyFolderId || companyFolderId,
+          companyName: result.companyName || companyName,
+          masterSheetId: result.masterSheetId,
+          totalRowsRead: diagnostics.totalRowsRead,
+          profilesReturned: result.users?.length ?? 0,
+          emails,
+          diagnostics,
+          users: result.users,
+          warning: result.warning,
+        });
+      } catch (error) {
+        return res.status(500).json({
+          ok: false,
+          error: error instanceof Error ? error.message : "Debug list company profiles failed.",
+          companyFolderId,
+          masterSheetId,
+          emails: [],
         });
       }
     },

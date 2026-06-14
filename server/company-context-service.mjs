@@ -115,7 +115,8 @@ export async function resolveCompanyContextFromLoginWorkbook(auth, deps, masterS
 
 /** Resolve companyFolderId, companyName, and masterSheetId from folder, registry, and Config tab. */
 export async function resolveCompanyContextFields(auth, deps, partial = {}) {
-  let companyFolderId = trim(partial.companyFolderId || partial.companyId);
+  const requestedFolderId = trim(partial.companyFolderId || partial.companyId);
+  let companyFolderId = requestedFolderId;
   let masterSheetId = trim(partial.masterSheetId);
   let companyName = trim(partial.companyName);
 
@@ -123,8 +124,12 @@ export async function resolveCompanyContextFields(auth, deps, partial = {}) {
   if (masterSheetId) {
     registryRecord = await findRegistryRecordByMasterSheetId(auth, deps, masterSheetId);
     const fromConfig = await readCompanyFieldsFromConfig(auth, masterSheetId, deps.getConfig);
-    if (fromConfig.companyFolderId) {
-      companyFolderId = fromConfig.companyFolderId;
+    const configFolderId = trim(fromConfig.companyFolderId);
+    // Never replace an explicit session/API folder id with Config — legacy sheets store spreadsheet id as companyId.
+    if (configFolderId && configFolderId !== masterSheetId) {
+      if (!requestedFolderId || configFolderId === requestedFolderId) {
+        companyFolderId = configFolderId;
+      }
     }
     companyName = companyName || fromConfig.companyName;
   }
@@ -166,11 +171,12 @@ export async function resolveCompanyContextFields(auth, deps, partial = {}) {
     companyFolderId = companyFolderId || fromConfig.companyFolderId;
   }
 
-  if (!masterSheetId && companyFolderId) {
+  const folderIdForWorkbookResolve = requestedFolderId || companyFolderId;
+  if (!masterSheetId && folderIdForWorkbookResolve) {
     try {
-      const folderResolved = await resolveCompanyFromFolder(auth, deps, companyFolderId, {
+      const folderResolved = await resolveCompanyFromFolder(auth, deps, folderIdForWorkbookResolve, {
         companyName,
-        ensureStructure: false,
+        masterSheetId,
         skipFolderPlacementCheck: true,
       });
       if (folderResolved?.ok && trim(folderResolved.masterSheetId)) {
@@ -182,7 +188,7 @@ export async function resolveCompanyContextFields(auth, deps, partial = {}) {
     }
   }
 
-  const resolvedCompanyId = companyFolderId;
+  const resolvedCompanyId = requestedFolderId || companyFolderId;
   return {
     companyId: resolvedCompanyId,
     companyFolderId: resolvedCompanyId,

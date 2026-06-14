@@ -54,7 +54,8 @@ assert(
   "4a: linked session folder preferred over stale picker selection",
 );
 assert(appSrc.includes("resolveCompanyMembersLoadContext"), "4b: App uses shared resolver");
-assert(appSrc.includes("buildSignedInMemberFallback"), "4c: App falls back to signed-in user on load failure");
+assert(appSrc.includes("readCompanyMembersCache"), "4c: App uses members cache with fresh API result");
+assert(!appSrc.includes("applySignedInMemberFallback"), "4d: App does not silently fall back to signed-in user only");
 assert(
   /!activeCompanyContext\.masterSheetId\.trim\(\)/.test(appSrc),
   "4d: full-screen block only when workbook context missing",

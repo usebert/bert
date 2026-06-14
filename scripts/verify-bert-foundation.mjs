@@ -120,6 +120,10 @@ function runStaticGuards() {
       godmodeService.includes("listCompanyProfiles"),
     "5b: godmode People uses foundation listCompanyProfiles",
   );
+  assert(
+    godmodeService.includes("/api/godmode/debug/list-company-profiles"),
+    "5b2: godmode debug list-company-profiles endpoint",
+  );
   assert(clearStale.includes("clearGodmodeSelectedCompanyFolderId"), "5c: godmode folder cleared on company boot");
   assert(
     /parsed\.role !== "Master"[\s\S]*?clearStaleCompanyLocalStorage/.test(appTsx),
