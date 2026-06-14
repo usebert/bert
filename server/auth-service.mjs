@@ -13,6 +13,11 @@ import { FOLDER_NOT_IN_COMPANIES_ROOT } from "../shared/company-folder-placement
 import { readCompanyUsersTabRecord, touchCompanyUserLastLogin } from "./company-users.mjs";
 import { canLoginCompanyUser } from "./company-user-sheet-flow.mjs";
 import { validateLiveCompanyContext } from "./company-context-service.mjs";
+import {
+  attemptUsersTabPasswordLogin,
+  rebuildAuthIndexFromUsersTab,
+  verifyUserPasswordFromUsersTab,
+} from "./user-auth-service.mjs";
 
 export { COMPANY_CONTEXT_INVALID, COMPANY_NO_LONGER_AVAILABLE_MESSAGE, FOLDER_NOT_IN_COMPANIES_ROOT, validateLiveCompanyContext };
 
@@ -433,6 +438,7 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     authIndex,
     sessionRevocation,
     getCompanyUsersDeps,
+    findMasterSheetIdsForCompanyLoginEmail,
     isPlatformOwner = isPlatformOwnerEmail,
   } = deps;
 
@@ -499,26 +505,54 @@ export async function performCompanyLogin(auth, deps, input = {}) {
   timing.auth_index_lookup = logLoginPhase("auth_index_lookup", tLookup);
 
   const requested = String(requestedSheetId || "").trim();
-  if (!indexEntry) {
-    if (requested) {
-      console.warn("[login] index_missing — skip REBUILD_AUTH_INDEX (missing companyFolderId)", { email });
-    }
-    return buildInvalidCredentialsFailure(timing, loginStarted);
-  }
-
-  if (requested && indexEntry.masterSheetId && requested !== indexEntry.masterSheetId) {
-    return buildInvalidCredentialsFailure(timing, loginStarted);
-  }
-
   let usersTabRec = null;
-  let sessionCompanyName = String(indexEntry.companyName || "").trim();
-  let sessionCompanyId = String(indexEntry.companyFolderId || indexEntry.companyId || "").trim();
-  let masterSheetId = String(indexEntry.masterSheetId || requested || "").trim();
+  let sessionCompanyName = "";
+  let sessionCompanyId = "";
+  let masterSheetId = requested;
+
+  if (!indexEntry) {
+    const tUsersFallback = Date.now();
+    if (auth) {
+      const fallback = await attemptUsersTabPasswordLogin(
+        auth,
+        { ...deps, authIndex, getCompanyUsersDeps, findMasterSheetIdsForCompanyLoginEmail },
+        { email, password: pwd, requestedSheetId: requested },
+      ).catch(() => ({ ok: false }));
+      timing.users_tab_fallback = logLoginPhase("users_tab_fallback", tUsersFallback);
+      if (fallback.ok) {
+        indexEntry = fallback.entry;
+        usersTabRec = fallback.row;
+        sessionCompanyName = String(fallback.companyContext?.companyName || indexEntry?.companyName || "").trim();
+        sessionCompanyId = String(
+          fallback.companyContext?.companyFolderId ||
+            fallback.companyContext?.companyId ||
+            indexEntry?.companyFolderId ||
+            indexEntry?.companyId ||
+            "",
+        ).trim();
+        masterSheetId = String(fallback.companyContext?.masterSheetId || indexEntry?.masterSheetId || requested).trim();
+        timing.auth_index_update = logLoginPhase("auth_index_update", tUsersFallback);
+      } else {
+        return buildInvalidCredentialsFailure(timing, loginStarted);
+      }
+    } else {
+      return buildInvalidCredentialsFailure(timing, loginStarted);
+    }
+  } else {
+    if (requested && indexEntry.masterSheetId && requested !== indexEntry.masterSheetId) {
+      return buildInvalidCredentialsFailure(timing, loginStarted);
+    }
+    sessionCompanyName = String(indexEntry.companyName || "").trim();
+    sessionCompanyId = String(indexEntry.companyFolderId || indexEntry.companyId || "").trim();
+    masterSheetId = String(indexEntry.masterSheetId || requested || "").trim();
+  }
 
   const tUsersTab = Date.now();
   if (
     auth &&
     masterSheetId &&
+    indexEntry &&
+    !usersTabRec &&
     typeof authIndex.reconcileLoginEntryFromUsersTab === "function"
   ) {
     const reconcileDeps = {
@@ -577,7 +611,40 @@ export async function performCompanyLogin(auth, deps, input = {}) {
   timing.password_verify = logLoginPhase("password_verify", tPassword);
 
   if (!passwordVerified) {
-    return buildInvalidCredentialsFailure(timing, loginStarted);
+    const tUsersPasswordFallback = Date.now();
+    const userDeps = typeof getCompanyUsersDeps === "function" ? getCompanyUsersDeps() : deps;
+    const usersTabVerify = auth
+      ? await verifyUserPasswordFromUsersTab(
+          auth,
+          { masterSheetId, companyFolderId: sessionCompanyId, companyName: sessionCompanyName },
+          email,
+          pwd,
+          userDeps,
+        ).catch(() => ({ ok: false }))
+      : { ok: false };
+    timing.users_tab_password_fallback = logLoginPhase("users_tab_password_fallback", tUsersPasswordFallback);
+    if (usersTabVerify.ok && usersTabVerify.row) {
+      usersTabRec = usersTabVerify.row;
+      sessionCompanyName = String(usersTabRec.companyName || sessionCompanyName).trim();
+      sessionCompanyId = String(usersTabRec.companyFolderId || usersTabRec.companyId || sessionCompanyId).trim();
+      await rebuildAuthIndexFromUsersTab(
+        auth,
+        { ...deps, getCompanyUsersDeps },
+        { masterSheetId, companyFolderId: sessionCompanyId, companyName: sessionCompanyName },
+        authIndex,
+        email,
+      ).catch(() => null);
+      indexEntry = authIndex.lookupByEmail(email) || {
+        ...indexEntry,
+        passwordHash: usersTabRec.passwordHash,
+        companyName: sessionCompanyName,
+        companyFolderId: sessionCompanyId,
+        companyId: sessionCompanyId,
+      };
+      timing.auth_index_update = logLoginPhase("auth_index_update", tUsersPasswordFallback);
+    } else {
+      return buildInvalidCredentialsFailure(timing, loginStarted);
+    }
   }
 
   if (String(indexEntry.status || usersTabRec?.status || "").toUpperCase() !== "ACTIVE") {

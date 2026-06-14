@@ -51,6 +51,8 @@ assert(
 assert(loginFn.includes("authIndex.lookupByEmail"), "2a: auth index lookup first");
 assert(loginFn.includes("reconcileLoginEntryFromUsersTab"), "2b: Users tab reconcile when auth available");
 assert(loginFn.includes("verifyPasswordForEntry"), "2c: password verify after reconcile");
+assert(loginFn.includes("attemptUsersTabPasswordLogin"), "2c2: Users tab fallback when index missing");
+assert(loginFn.includes("verifyUserPasswordFromUsersTab"), "2c3: Users tab password fallback before invalid credentials");
 assert(loginFn.includes("sessionCompanyName"), "2d: session built from row company columns");
 assert(loginFn.includes("validateLiveCompany"), "2e: live validation queued for background");
 assert(!loginFn.includes("validateLiveCompanyContext"), "2f: login does not await live Drive validation");

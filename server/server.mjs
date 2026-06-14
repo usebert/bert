@@ -134,6 +134,7 @@ import {
   COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
   LOGIN_CONTEXT_FAILED,
 } from "./auth-service.mjs";
+import { debugVerifyUserPassword } from "./user-auth-service.mjs";
 import { createAuthIndexApi, syncAuthIndexAfterUsersRead } from "./auth-index.mjs";
 import { completeInviteToUserRow } from "./company-user-sheet-flow.mjs";
 import { createCompanyUsersCacheApi } from "./company-users-cache.mjs";
@@ -3228,6 +3229,7 @@ function getCompanyUsersDeps() {
     google,
     withSheetsQuotaRetry,
     resolveUsersTab,
+    writeUsersTabRecordByHeaders,
     readCompanyUsers: workbookReadCompanyUsers,
     migrateUsersTabColumns,
     migrateUsersTabCompanyColumns,
@@ -6870,6 +6872,7 @@ app.post("/api/auth/company/login", async (req, res) => {
       masterSheetId: String(req.body?.masterSheetId || "").trim(),
       authIndex: authIndexApi,
       getCompanyUsersDeps,
+      findMasterSheetIdsForCompanyLoginEmail,
       sessionRevocation: companySessionRevocationApi,
       isPlatformOwner: isPlatformOwnerEmail,
     });
@@ -7277,6 +7280,36 @@ app.post(
 );
 
 app.post(
+  "/api/godmode/debug/verify-user-password",
+  requireGoogleWorkspaceSession,
+  requireMasterOnlyActor,
+  async (req, res) => {
+    try {
+      const auth = getAuthedClient();
+      if (!auth) {
+        return res.status(401).json({ ok: false, error: "Please connect Google before running password diagnostics." });
+      }
+      const companyId = String(req.body?.companyId || req.body?.masterSheetId || "").trim();
+      const email = String(req.body?.email || "").trim().toLowerCase();
+      const testPassword = String(req.body?.testPassword || req.body?.password || "");
+      if (!companyId || !email || !testPassword) {
+        return res.status(400).json({ ok: false, error: "companyId, email, and testPassword are required." });
+      }
+      const result = await debugVerifyUserPassword(
+        auth,
+        { getCompanyUsersDeps },
+        { companyId, masterSheetId: companyId, email, testPassword },
+      );
+      return res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[godmode] verify-user-password failed:", message);
+      return res.status(500).json({ ok: false, error: "Password diagnostic failed.", technicalError: message });
+    }
+  },
+);
+
+app.post(
   "/api/godmode/companies/:companyId/rebuild-users-from-sheet",
   requireGoogleWorkspaceSession,
   requireMasterOnlyActor,
@@ -7535,7 +7568,7 @@ installPasswordResetRoutes(app, {
   envConfigured,
   companyUserLoginReady,
   getCompanyUsersDeps,
-  setCompanyUserPasswordHash,
+  authIndex: authIndexApi,
   resolveCompanyUserEmailByHash,
   isProdRuntime,
 });

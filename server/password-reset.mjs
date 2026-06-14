@@ -10,6 +10,7 @@ import {
   readMasterStore,
   writeMasterStore,
 } from "./master-auth.mjs";
+import { completeCompanyPasswordReset } from "./user-auth-service.mjs";
 import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
 
 const STORE_FILENAME = "password-reset-tokens.json";
@@ -225,7 +226,7 @@ export function installPasswordResetRoutes(app, deps) {
     envConfigured,
     companyUserLoginReady,
     getCompanyUsersDeps,
-    setCompanyUserPasswordHash,
+    authIndex,
     isProdRuntime = () => process.env.NODE_ENV === "production",
   } = deps;
 
@@ -395,7 +396,7 @@ export function installPasswordResetRoutes(app, deps) {
         if (!masterSheetId) {
           return res.status(400).json({ ok: false, error: "This reset link is invalid or has already been used." });
         }
-        if (typeof setCompanyUserPasswordHash !== "function" || typeof getCompanyUsersDeps !== "function") {
+        if (typeof getCompanyUsersDeps !== "function") {
           return res.status(503).json({ ok: false, error: "Password reset is not available right now. Try again later." });
         }
         const resetEmail = await deps.resolveCompanyUserEmailByHash?.(
@@ -408,14 +409,19 @@ export function installPasswordResetRoutes(app, deps) {
         if (!resetEmail) {
           return res.status(400).json({ ok: false, error: "This reset link is invalid or has already been used." });
         }
-        const hashResult = await setCompanyUserPasswordHash(
+        const resetResult = await completeCompanyPasswordReset(
           auth,
-          masterSheetId,
-          resetEmail,
-          password,
-          getCompanyUsersDeps(),
+          { getCompanyUsersDeps, authIndex },
+          {
+            email: resetEmail,
+            newPassword: password,
+            companyContext: { masterSheetId },
+          },
         );
-        if (!hashResult.ok) {
+        if (!resetResult.ok) {
+          console.warn(
+            `[password-reset] Users tab write/verify failed email=${resetEmail.slice(0, 3)}*** reason=${resetResult.reason || "unknown"}`,
+          );
           return res.status(400).json({ ok: false, error: "This reset link is invalid or has already been used." });
         }
       } else if (record.userScope === "master") {

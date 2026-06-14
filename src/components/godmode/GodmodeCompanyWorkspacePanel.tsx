@@ -256,6 +256,10 @@ export function GodmodeCompanyWorkspacePanel({
   const [usersTabRepairMessage, setUsersTabRepairMessage] = useState("");
   const [usersCacheRebuilding, setUsersCacheRebuilding] = useState(false);
   const [usersCacheRebuildMessage, setUsersCacheRebuildMessage] = useState("");
+  const [passwordVerifyEmail, setPasswordVerifyEmail] = useState("");
+  const [passwordVerifyValue, setPasswordVerifyValue] = useState("");
+  const [passwordVerifyLoading, setPasswordVerifyLoading] = useState(false);
+  const [passwordVerifyResult, setPasswordVerifyResult] = useState("");
   const [registryRelinking, setRegistryRelinking] = useState(false);
   const [registryForceLiveLoading, setRegistryForceLiveLoading] = useState(false);
   const [registryRelinkSucceeded, setRegistryRelinkSucceeded] = useState(false);
@@ -709,6 +713,54 @@ export function GodmodeCompanyWorkspacePanel({
     }
   };
 
+  const verifyUserPasswordDiagnostic = async () => {
+    if (!selectedFolder?.id || passwordVerifyLoading) {
+      return;
+    }
+    const masterSheetId = companyMasterSheetId || folderInspection?.masterSheet?.id || "";
+    const email = passwordVerifyEmail.trim().toLowerCase();
+    if (!masterSheetId || !email || !passwordVerifyValue) {
+      setPasswordVerifyResult("Enter an email and test password, and link a company master sheet first.");
+      return;
+    }
+    setPasswordVerifyLoading(true);
+    setPasswordVerifyResult("");
+    try {
+      const response = await fetch(apiUrl("/api/godmode/debug/verify-user-password"), {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyId: masterSheetId,
+          email,
+          testPassword: passwordVerifyValue,
+        }),
+      });
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        rowFound?: boolean;
+        verifyOk?: boolean;
+        passwordHashPresent?: boolean;
+        passwordHashPrefix?: string;
+        passwordHashLength?: number;
+        source?: string;
+        status?: string;
+        role?: string;
+      };
+      if (!response.ok) {
+        throw new Error(payload.error || "Password diagnostic failed.");
+      }
+      setPasswordVerifyResult(
+        `verifyOk=${payload.verifyOk === true ? "yes" : "no"}, rowFound=${payload.rowFound === true ? "yes" : "no"}, hashPresent=${payload.passwordHashPresent === true ? "yes" : "no"}, prefix=${payload.passwordHashPrefix || "—"}, length=${payload.passwordHashLength ?? 0}, source=${payload.source || "users_tab"}`,
+      );
+    } catch (error) {
+      setPasswordVerifyResult(error instanceof Error ? error.message : "Password diagnostic failed.");
+    } finally {
+      setPasswordVerifyLoading(false);
+    }
+  };
+
   const repairUsersTab = async () => {
     if (!selectedFolder?.id || usersTabRepairing) {
       return;
@@ -1139,6 +1191,39 @@ export function GodmodeCompanyWorkspacePanel({
                   companyId={selectedFolder?.id || folderIdInput.trim()}
                   surfaceClass={pilotLightNested}
                 />
+                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                  <p className="text-sm font-semibold text-slate-900">Verify user password (Users tab)</p>
+                  <p className="mt-1 text-xs text-slate-600">
+                    Checks PasswordHash on the company workbook Users tab only — never returns the full hash.
+                  </p>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <input
+                      type="email"
+                      value={passwordVerifyEmail}
+                      onChange={(event) => setPasswordVerifyEmail(event.target.value)}
+                      placeholder="user@company.com"
+                      className="h-10 rounded-xl border border-slate-300 px-3 text-sm"
+                    />
+                    <input
+                      type="password"
+                      value={passwordVerifyValue}
+                      onChange={(event) => setPasswordVerifyValue(event.target.value)}
+                      placeholder="Test password"
+                      className="h-10 rounded-xl border border-slate-300 px-3 text-sm"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void verifyUserPasswordDiagnostic()}
+                    disabled={adminOnly || !googleWorkspaceReady || passwordVerifyLoading}
+                    className="mt-3 inline-flex h-10 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {passwordVerifyLoading ? "Checking…" : "Run password verify"}
+                  </button>
+                  {passwordVerifyResult ? (
+                    <p className="mt-2 font-mono text-xs text-slate-700">{passwordVerifyResult}</p>
+                  ) : null}
+                </div>
                 {visibleSetupError || companySetupResult?.registryLocation ? (
                   <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-950">
                     {visibleSetupError?.failedStep ? (

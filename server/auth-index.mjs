@@ -7,6 +7,7 @@ import { verifyPassword } from "./master-auth.mjs";
 import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
 import { isKnownStaleAuthIndexPairing } from "../shared/auth-index-trust.mjs";
 import { validateLiveCompanyContext } from "./company-context-service.mjs";
+import { readUserAuthRowByEmail } from "./user-auth-service.mjs";
 import {
   defaultAccessLevelForRole,
   isPasswordHash,
@@ -14,7 +15,6 @@ import {
   parseCompanyAreas,
   parseRoleFromUsersSheet,
   normalizeUserStatus,
-  readCompanyUsersTabRecord,
 } from "./company-users.mjs";
 import {
   isValidCompanyUserEmail,
@@ -111,6 +111,11 @@ function isIndexEntryStaleVsUsersTab(indexEntry, usersTabRec) {
     return true;
   }
   if (rowCols.companyId && indexCols.companyId && rowCols.companyId !== indexCols.companyId) {
+    return true;
+  }
+  const indexHash = String(indexEntry.passwordHash || "").trim();
+  const rowHash = String(usersTabRec.passwordHash || "").trim();
+  if (indexHash && rowHash && indexHash !== rowHash) {
     return true;
   }
   return false;
@@ -654,7 +659,7 @@ export function createAuthIndexApi(indexPath) {
       indexEntry = lookupByEmail(key) || { ...indexEntry, companyName: "", companyFolderId: "", companyId: "" };
     }
     const userDeps = typeof deps.getCompanyUsersDeps === "function" ? deps.getCompanyUsersDeps() : deps;
-    const rec = await readCompanyUsersTabRecord(auth, masterSheetId, key, userDeps).catch(() => null);
+    const rec = await readUserAuthRowByEmail(auth, { masterSheetId }, key, userDeps).catch(() => null);
     if (!rec) {
       return { ok: false, reason: "user_not_in_workbook", failedStep: "user_lookup", entry: indexEntry, rec: null };
     }
@@ -715,7 +720,7 @@ export function createAuthIndexApi(indexPath) {
     }
 
     const userDeps = typeof deps.getCompanyUsersDeps === "function" ? deps.getCompanyUsersDeps() : deps;
-    const rec = await readCompanyUsersTabRecord(auth, masterSheetId, key, userDeps).catch(() => null);
+    const rec = await readUserAuthRowByEmail(auth, { masterSheetId }, key, userDeps).catch(() => null);
     if (!rec || normalizeUserStatus(rec.status) !== "ACTIVE") {
       return { ok: false, reason: "user_not_in_workbook", removeEntry: true };
     }
