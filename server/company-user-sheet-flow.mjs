@@ -15,9 +15,11 @@ import {
 import { readCompanyUsers, resolveUsersTab } from "./users-tab-reader.mjs";
 import {
   backfillRowCompanyFields,
+  isWorkbookScopedCompanyContext,
   pickRowCompanyFolderId,
   pickRowCompanyId,
   pickRowCompanyName,
+  rowExplicitlyPointsToOtherCompany,
   rowMatchesCompanyContext,
 } from "./users-tab-schema.mjs";
 import { inviteAccessLevelForRole, parseRoleForClient, isExcludedCompanyProfileStatus } from "../shared/schedule-assignees.mjs";
@@ -75,7 +77,12 @@ function mapCompanyProfileMember(row, companyContext = {}) {
   if (isExcludedCompanyProfileStatus(status)) {
     return null;
   }
-  if (!rowMatchesCompanyContext(row, companyContext)) {
+  const workbookScoped = isWorkbookScopedCompanyContext(companyContext);
+  if (workbookScoped) {
+    if (rowExplicitlyPointsToOtherCompany(row, companyContext)) {
+      return null;
+    }
+  } else if (!rowMatchesCompanyContext(row, companyContext)) {
     return null;
   }
   const companyAreas = Array.isArray(row.companyAreas)

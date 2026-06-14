@@ -196,10 +196,16 @@ export function pickRowCompanyName(obj) {
   return pickField(obj, "Company", "company", "companyName");
 }
 
+/** True when reading rows from a specific company workbook Users tab. */
+export function isWorkbookScopedCompanyContext(companyContext = {}) {
+  return Boolean(String(companyContext.masterSheetId || "").trim());
+}
+
 export function backfillRowCompanyFields(obj, companyContext = {}) {
   const folderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
   const companyName = String(companyContext.companyName || "").trim();
   const masterSheetId = String(companyContext.masterSheetId || "").trim();
+  const workbookScoped = isWorkbookScopedCompanyContext(companyContext);
   const next = { ...obj };
   if (!pickRowCompanyName(obj) && companyName) {
     next.Company = companyName;
@@ -219,8 +225,36 @@ export function backfillRowCompanyFields(obj, companyContext = {}) {
   } else if (legacyWorkbookId) {
     next.CompanyId = folderId;
     next.CompanyFolderId = folderId;
+  } else if (workbookScoped && folderId && (rowCompanyId !== folderId || rowFolderId !== folderId)) {
+    // Rows in this workbook belong to this company — repair stale registry/legacy ids.
+    next.CompanyId = folderId;
+    next.CompanyFolderId = folderId;
   }
   return next;
+}
+
+/**
+ * Row explicitly belongs to a different company folder (both id cols agree on another folder).
+ * Used only for non-workbook-scoped reads; workbook rows are owned by the sheet's company.
+ */
+export function rowExplicitlyPointsToOtherCompany(row, companyContext = {}) {
+  const folderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
+  if (!folderId) {
+    return false;
+  }
+  const rowCompanyId = pickRowCompanyId(row);
+  if (!rowCompanyId) {
+    return false;
+  }
+  const rowFolderId = pickRowCompanyFolderId(row) || rowCompanyId;
+  if (rowCompanyId === folderId || rowFolderId === folderId) {
+    return false;
+  }
+  const masterSheetId = String(companyContext.masterSheetId || "").trim();
+  if (masterSheetId && (rowCompanyId === masterSheetId || rowFolderId === masterSheetId)) {
+    return false;
+  }
+  return rowCompanyId === rowFolderId;
 }
 
 /** Blank company cols belong to current context; exclude rows pointing elsewhere. */

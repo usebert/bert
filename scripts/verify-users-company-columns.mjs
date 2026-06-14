@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import { USERS_TAB_CORE_COLUMNS } from "../server/users-tab-constants.mjs";
 import {
   backfillRowCompanyFields,
+  isWorkbookScopedCompanyContext,
+  rowExplicitlyPointsToOtherCompany,
   rowMatchesCompanyContext,
   rowPointsToOtherCompany,
 } from "../server/users-tab-schema.mjs";
@@ -76,12 +78,23 @@ const masterSheetA = "sheet-dovecote-master";
     companyName,
   });
   assert(repairedLegacy.CompanyId === folderA && repairedLegacy.CompanyFolderId === folderA, "3g: legacy ids repaired on backfill");
+  const staleRegistryRow = { Email: "sophie@example.com", Name: "Sophie", Status: "ACTIVE", CompanyId: "registry-workspace-id" };
+  const repairedStale = backfillRowCompanyFields(staleRegistryRow, {
+    companyFolderId: folderA,
+    masterSheetId: masterSheetA,
+    companyName,
+  });
+  assert(repairedStale.CompanyId === folderA && repairedStale.CompanyFolderId === folderA, "3h: stale registry id repaired in workbook");
+  assert(isWorkbookScopedCompanyContext({ masterSheetId: masterSheetA }), "3i: workbook scope detected");
+  assert(!rowExplicitlyPointsToOtherCompany(repairedStale, { companyFolderId: folderA, masterSheetId: masterSheetA }), "3j: repaired row not other-company");
 }
 
-/** 4: Active user list filters by company columns. */
+/** 4: Active user list filters by company columns (non-workbook); workbook scope trusts sheet ownership. */
 {
   assert(sheetFlow.includes("rowMatchesCompanyContext"), "4: sheet flow filters by company context");
-  assert(sheetFlow.includes("mapActiveCompanyMember(row, companyCtx)"), "4b: active member uses company context");
+  assert(sheetFlow.includes("isWorkbookScopedCompanyContext"), "4a: workbook-scoped company context");
+  assert(sheetFlow.includes("rowExplicitlyPointsToOtherCompany"), "4a2: explicit other-company guard");
+  assert(sheetFlow.includes("mapCompanyProfileMember(row, companyCtx)") || sheetFlow.includes("mapActiveCompanyMember(row, companyCtx)"), "4b: active member uses company context");
 }
 
 /** 5: Writer sets Company, CompanyId, CompanyFolderId. */
