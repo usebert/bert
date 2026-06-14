@@ -11,6 +11,8 @@ export type FetchJsonDiagnostics = {
   status?: number;
   url?: string;
   rawSnippet?: string;
+  fetchErrorName?: string;
+  fetchErrorMessage?: string;
 };
 
 export type FetchJsonSuccess<T> = {
@@ -56,11 +58,14 @@ export async function fetchJson<T = Record<string, unknown>>(
     if (error instanceof DOMException && error.name === "AbortError") {
       throw error;
     }
+    const fetchErrorName =
+      error instanceof DOMException ? error.name : error instanceof Error ? error.name : "Error";
+    const fetchErrorMessage = error instanceof Error ? error.message : String(error);
     return {
       ok: false,
       code: "NETWORK_UNREACHABLE",
-      message: error instanceof Error ? error.message : "Network error.",
-      diagnostics: { url },
+      message: fetchErrorMessage,
+      diagnostics: { url, fetchErrorName, fetchErrorMessage },
     };
   }
 

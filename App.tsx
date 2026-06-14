@@ -67,7 +67,7 @@ import { MORE_MENU_NAV_IDS, PILOT_PRIMARY_NAV_IDS, PRIMARY_NAV_IDS } from "./src
 import { RoleContextBanner } from "./src/components/RoleContextBanner";
 import { getRoleTheme } from "./src/config/roleTheme";
 import { storageKeys } from "./src/config/storageKeys";
-import { apiUrl } from "./src/config/apiBase";
+import { API_BASE_URL, apiUrl } from "./src/config/apiBase";
 import { isPlatformOwnerEmail } from "./src/config/platformOwner";
 import { slatePrimaryCtaInteract } from "./src/styles/interactions";
 import { OfflineSyncBanner } from "./src/components/animation/OfflineSyncBanner";
@@ -300,6 +300,11 @@ import {
   type ScheduleAssignedUser,
 } from "./src/utils/scheduleSave";
 import { companyLogin, type LoginContextDiagnostics } from "./src/services/authService";
+import {
+  companyLoginNetworkError,
+  formatLoginNetworkDebugSuffix,
+  type LoginFetchDiagnostics,
+} from "./src/utils/loginNetworkMessages";
 import { listCompanySchedules, saveCompanySchedule } from "./src/services/scheduleService";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
 import { getNextBestAction } from "./src/utils/nextBestAction";
@@ -7589,7 +7594,13 @@ function App() {
     };
 
     let companyLoginFailure:
-      | { blocker?: string; message: string; code?: string; diagnostics?: LoginContextDiagnostics }
+      | {
+          blocker?: string;
+          message: string;
+          code?: string;
+          diagnostics?: LoginContextDiagnostics;
+          networkDiagnostics?: LoginFetchDiagnostics;
+        }
       | undefined;
 
     const tryServerCompanyLogin = async (): Promise<boolean> => {
@@ -7604,6 +7615,18 @@ function App() {
           password: pwd,
           masterSheetId: masterSheetId || undefined,
         });
+        if (
+          loginResult.code === "NETWORK_UNREACHABLE" ||
+          loginResult.blocker === "network_unreachable"
+        ) {
+          companyLoginFailure = {
+            blocker: "network_unreachable",
+            code: "NETWORK_UNREACHABLE",
+            message: loginResult.message || companyLoginNetworkError(),
+            networkDiagnostics: loginResult.networkDiagnostics,
+          };
+          return false;
+        }
         if (
           loginResult.blocker === "google_required" ||
           String(loginResult.error || "").toLowerCase().includes("google connection")
@@ -7712,9 +7735,18 @@ function App() {
         );
         applySignedInUser(match);
         return true;
-      } catch {
+      } catch (error) {
         companyLoginFailure = {
-          message: "BERT cannot reach the sign-in server. Check your connection and try again.",
+          blocker: "network_unreachable",
+          code: "NETWORK_UNREACHABLE",
+          message: companyLoginNetworkError(),
+          networkDiagnostics: {
+            url: apiUrl("/api/auth/company/login"),
+            fetchErrorName: error instanceof Error ? error.name : "Error",
+            fetchErrorMessage: error instanceof Error ? error.message : String(error),
+            apiBaseUrl: API_BASE_URL || "(relative — same origin)",
+            online: typeof navigator !== "undefined" ? navigator.onLine : undefined,
+          },
         };
         return false;
       }
@@ -7834,6 +7866,18 @@ function App() {
       }
       if (blocker === "invalid_credentials") {
         pushToast("Sign in failed", "Email or password is incorrect.", "warning");
+        return;
+      }
+      if (blocker === "network_unreachable" || companyLoginFailure.code === "NETWORK_UNREACHABLE") {
+        const debugSuffix =
+          isDebugUiAllowed() && companyLoginFailure.networkDiagnostics
+            ? formatLoginNetworkDebugSuffix(companyLoginFailure.networkDiagnostics)
+            : "";
+        pushToast(
+          "Sign in failed",
+          (companyLoginFailure.message || companyLoginNetworkError()) + debugSuffix,
+          "warning",
+        );
         return;
       }
       pushToast("Sign in failed", companyLoginFailure.message, "warning");

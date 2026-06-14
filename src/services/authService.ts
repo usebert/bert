@@ -1,6 +1,11 @@
 import type { Role } from "../permissions";
 import { apiUrl } from "../config/apiBase";
 import { fetchJson } from "../utils/fetchJson";
+import {
+  buildLoginFetchDiagnostics,
+  companyLoginNetworkError,
+  type LoginFetchDiagnostics,
+} from "../utils/loginNetworkMessages";
 
 export type CompanyLoginUser = {
   email: string;
@@ -42,6 +47,7 @@ export type CompanyLoginResult = {
   code?: string;
   message?: string;
   diagnostics?: LoginContextDiagnostics;
+  networkDiagnostics?: LoginFetchDiagnostics;
   clearClientHints?: boolean;
 };
 
@@ -87,7 +93,19 @@ export async function companyLogin(input: {
   });
 
   if (!result.ok) {
-    return { ok: false, error: result.message, blocker: result.code };
+    if (result.code === "NETWORK_UNREACHABLE") {
+      const networkDiagnostics = buildLoginFetchDiagnostics(result.diagnostics);
+      const message = companyLoginNetworkError();
+      return {
+        ok: false,
+        code: "NETWORK_UNREACHABLE",
+        blocker: "network_unreachable",
+        error: message,
+        message,
+        networkDiagnostics,
+      };
+    }
+    return { ok: false, error: result.message, blocker: result.code, code: result.code };
   }
 
   const payload = result.data;
