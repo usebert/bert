@@ -109,7 +109,7 @@ assert(appSrc.includes("isScheduleAssignedToAnyEmail"), "4d: App filters by assi
 assert(complianceSrc.includes("getScheduleAssignedEmails"), "4e: compliance schedule uses helper");
 assert(scheduleSaveSrc.includes("getScheduleAssignedEmails"), "4f: schedule save uses helper");
 assert(read("src/permissions.ts").includes("canCompleteAssignedCheck"), "4g: completion permission helper exists");
-assert(read("src/utils/scheduleAssignees.ts").includes("SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS"), "4h: assignee load timeout constant");
+assert(read("src/utils/scheduleAssignees.ts").includes("deriveScheduleAssigneesFromCompanyMembers"), "4h: assignees derived from company members");
 assert(appSrc.includes("readScheduleAssigneesCache"), "4i: App uses assignee cache on load");
 assert(appSrc.includes("readCompanyMembersCache"), "4i2: App uses company members cache on load");
 assert(read("server/company-user-service.mjs").includes("listActiveCompanyMembers"), "4i3: shared listActiveCompanyMembers service");

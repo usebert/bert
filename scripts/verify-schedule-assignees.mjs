@@ -248,6 +248,7 @@ const godmodeOnlyUser = {
   assert(companyUserService.includes("listActiveCompanyMembers"), "13a: listActiveCompanyMembers exists");
   assert(companyUserService.includes("readCompanyUsers"), "13a2: assignees share readCompanyUsers path");
   assert(assigneeService.includes("getScheduleAssigneesForCompany"), "13b: schedule assignee service exists");
+  assert(assigneeService.includes("getAssignableUsers(auth, deps,"), "13b3: assignees use foundation getAssignableUsers signature");
   assert(coreRoutes.includes("/api/companies/:companyId/users"), "13b2: company users list route exists");
   assert(coreRoutes.includes("/api/companies/:companyId/schedule-assignees"), "13c: company schedule-assignees route exists");
   assert(coreRoutes.includes('app.get("/api/companies/:companyId/schedules"'), "13d: company schedules list route exists");
@@ -282,8 +283,8 @@ const appSrc = read("App.tsx");
 const schedulesScreenSrc = read("src/screens/SchedulesScreen.tsx");
 assert(scheduleAssigneesSrc.includes("CompanyUsersTabRow"), "14h: scheduleAssignees defines CompanyUsersTabRow");
 assert(scheduleAssigneesSrc.includes("canCompleteAuditUser"), "14i: canCompleteAuditUser helper exists");
-assert(appSrc.includes("/api/companies/"), "14j: App loads schedule assignees from company API");
-assert(appSrc.includes("schedule-assignees"), "14k: App calls schedule-assignees endpoint");
+assert(appSrc.includes("/api/companies/"), "14j: App loads company members from company API");
+assert(appSrc.includes("deriveScheduleAssigneesFromCompanyMembers"), "14k: App derives assignees from company members");
 assert(schedulesScreenSrc.includes("Advanced diagnostics"), "14l: schedule UI exposes advanced diagnostics for godmode");
 assert(schedulesScreenSrc.includes("Assign users to this schedule"), "14m: schedule UI uses assignee wording");
 assert(schedulesScreenSrc.includes("companyAreas"), "14n: schedule UI shows company areas");
@@ -295,13 +296,13 @@ assert(schedulesScreenSrc.includes("companyAreas"), "14n: schedule UI shows comp
   assert(!appSrc.includes("findPendingAssigneeInvites"), "15c: App does not merge pending invites into assignees");
   assert(!appSrc.includes("invitedLoginUsers"), "15c2: App does not merge invites into login users");
   assert(!appSrc.includes("pendingAssigneeInvites"), "15d: schedule UI does not use pending invite assignee list");
-  assert(!appSrc.includes("buildAvailableScheduleAssignees("), "15e: App does not filter assignees locally");
+  assert(!/buildAvailableScheduleAssignees\(/.test(appSrc), "15e: App does not filter assignees locally");
   assert(!/buildAssignedUsersForSave\([^)]*companyUsersTabRows/.test(appSrc), "15f: schedule save uses API assignees only");
   assert(
     scheduleAssigneesSrc.includes("activeUsersFound") && scheduleAssigneesSrc.includes("loadError"),
     "15g: empty message distinguishes read failure from zero active users",
   );
-  assert(appSrc.includes("schedule-assignees"), "15h: schedule assignees loaded from canonical API");
+  assert(appSrc.includes("deriveScheduleAssigneesFromCompanyMembers"), "15h: schedule assignees reuse company members load");
   const managerScenario = buildAvailableScheduleAssigneesFromUsers(
     [
       {

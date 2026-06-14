@@ -80,7 +80,7 @@ export async function getScheduleAssigneesForCompany(auth, deps, input = {}) {
   const dataSource = `company-workbook-users:${masterSheetId}`;
 
   try {
-    const result = await getAssignableUsers(auth, masterSheetId, deps, {
+    const result = await getAssignableUsers(auth, deps, {
       companyId: resolvedCompanyId,
       companyFolderId: resolvedCompanyId,
       masterSheetId,

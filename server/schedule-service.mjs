@@ -41,11 +41,24 @@ export function canListCompanySchedules(actor, companyFolderId, alternateIds = [
   return targets.has(sessionCompanyId(actor));
 }
 
+function readCachedMasterSheetId(deps, companyFolderId) {
+  const cache = deps?.masterSheetCache;
+  if (!cache || typeof cache.getEntry !== "function") {
+    return "";
+  }
+  const entry = cache.getEntry(companyFolderId);
+  return String(entry?.masterSheetId || "").trim();
+}
+
 export async function resolveCompanyScheduleContext(auth, deps, input = {}) {
   const companyId = String(input.companyId || input.companyFolderId || "").trim();
   let masterSheetId = String(input.masterSheetId || "").trim();
   const companyFolderId = String(input.companyFolderId || companyId).trim();
   let companyName = String(input.companyName || "").trim();
+
+  if (!masterSheetId && companyFolderId) {
+    masterSheetId = readCachedMasterSheetId(deps, companyFolderId);
+  }
 
   // Folder-first: workbook + folder id are sufficient — registry is cache only.
   if (companyFolderId && masterSheetId) {

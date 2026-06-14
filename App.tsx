@@ -283,11 +283,9 @@ import {
 } from "./src/utils/auditAccess";
 import {
   normalizeScheduleAssigneeIds,
-  readScheduleAssigneesCache,
+  deriveScheduleAssigneesFromCompanyMembers,
   resolveScheduleAssigneeLabels,
   resolveScheduleAssigneeEmptyMessage,
-  SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS,
-  writeScheduleAssigneesCache,
   type CompanyUsersTabRow,
   type ScheduleAssigneeDiagnostics,
   type ScheduleAssigneeOption,
@@ -3555,13 +3553,6 @@ function App() {
   const [companyUsersTabRows, setCompanyUsersTabRows] = useState<CompanyUsersTabRow[]>([]);
   const [linkedCompanyContext, setLinkedCompanyContext] = useState<LinkedCompanyContextInput | null>(null);
   const [companyLinkBlockedMessage, setCompanyLinkBlockedMessage] = useState("");
-  const [scheduleAssigneesState, setScheduleAssigneesState] = useState<{
-    assignees: ScheduleAssigneeOption[];
-    diagnostics?: ScheduleAssigneeDiagnostics;
-    loadError?: string;
-    warning?: string;
-    loading: boolean;
-  }>({ assignees: [], loading: false });
   const [companyMembersState, setCompanyMembersState] = useState<{
     members: CompanyMember[];
     loadError?: string;
@@ -5107,167 +5098,60 @@ function App() {
     return "";
   }, [audits, scheduleDraftSelectedAuditIds]);
 
-  const availableScheduleAssigneesResult = scheduleAssigneesState;
-  const availableScheduleAssignees = scheduleAssigneesState.assignees;
+  const scheduleAssigneesDerived = useMemo(
+    () =>
+      deriveScheduleAssigneesFromCompanyMembers(
+        companyMembersState.members,
+        {
+          companyId: activeCompanyContext.companyFolderId.trim(),
+          masterSheetId: activeCompanyContext.masterSheetId.trim(),
+          selectedArea: scheduleBuilderAreaFilter.trim(),
+          includeDiagnostics: isDebugUiAllowed() || (currentUser ? canShowTechnicalUi(currentUser.role) : false),
+        },
+        {
+          loading: companyMembersState.loading,
+          loadError: companyMembersState.loadError,
+          warning: companyMembersState.warning,
+          loadDiagnostics: companyMembersState.loadDiagnostics as ScheduleAssigneeDiagnostics | undefined,
+        },
+      ),
+    [
+      companyMembersState.members,
+      companyMembersState.loading,
+      companyMembersState.loadError,
+      companyMembersState.warning,
+      companyMembersState.loadDiagnostics,
+      activeCompanyContext.companyFolderId,
+      activeCompanyContext.masterSheetId,
+      scheduleBuilderAreaFilter,
+      currentUser?.role,
+    ],
+  );
+  const availableScheduleAssignees = scheduleAssigneesDerived.assignees;
   const scheduleAssigneeEmptyMessage = useMemo(
     () =>
       resolveScheduleAssigneeEmptyMessage(availableScheduleAssignees, {
         selectedArea: scheduleBuilderAreaFilter,
-        diagnostics: scheduleAssigneesState.diagnostics,
-        loadError: scheduleAssigneesState.loadError,
-        loading: scheduleAssigneesState.loading,
-        warning: scheduleAssigneesState.warning,
+        diagnostics: scheduleAssigneesDerived.diagnostics,
+        loadError: scheduleAssigneesDerived.loadError,
+        loading: scheduleAssigneesDerived.loading,
+        warning: scheduleAssigneesDerived.warning,
       }),
     [
       availableScheduleAssignees,
-      scheduleAssigneesState.diagnostics,
-      scheduleAssigneesState.loadError,
-      scheduleAssigneesState.loading,
-      scheduleAssigneesState.warning,
+      scheduleAssigneesDerived.diagnostics,
+      scheduleAssigneesDerived.loadError,
+      scheduleAssigneesDerived.loading,
+      scheduleAssigneesDerived.warning,
       scheduleBuilderAreaFilter,
     ],
   );
   useEffect(() => {
-    if (!isDebugUiAllowed() || !availableScheduleAssigneesResult.diagnostics) {
+    if (!isDebugUiAllowed() || !scheduleAssigneesDerived.diagnostics) {
       return;
     }
-    console.info("[schedule-assignees]", availableScheduleAssigneesResult.diagnostics);
-  }, [availableScheduleAssigneesResult.diagnostics]);
-
-  useEffect(() => {
-    const companyId = activeCompanyContext.companyFolderId.trim();
-    const canLoadCompanyApi = Boolean(companyId) && (currentUser?.role !== "Master" || googleConnected);
-    if (!canLoadCompanyApi) {
-      setScheduleAssigneesState({ assignees: [], loading: false });
-      return;
-    }
-
-    const controller = new AbortController();
-    let loadTimedOut = false;
-    let cancelled = false;
-    const params = new URLSearchParams();
-    if (activeCompanyContext.masterSheetId.trim()) {
-      params.set("masterSheetId", activeCompanyContext.masterSheetId.trim());
-    }
-    if (activeCompanyContext.companyName.trim()) {
-      params.set("companyName", activeCompanyContext.companyName.trim());
-    }
-    if (scheduleBuilderAreaFilter.trim()) {
-      params.set("area", scheduleBuilderAreaFilter.trim());
-    }
-    if (isDebugUiAllowed()) {
-      params.set("diagnostics", "1");
-    }
-
-    const areaFilter = scheduleBuilderAreaFilter.trim();
-    const cachedEntry = readScheduleAssigneesCache(storageKeys.scheduleAssigneesCache, companyId, areaFilter);
-    setScheduleAssigneesState((previous) => ({
-      assignees: cachedEntry?.assignees ?? previous.assignees,
-      diagnostics: cachedEntry?.diagnostics ?? previous.diagnostics,
-      warning: cachedEntry?.warning,
-      loading: true,
-      loadError: undefined,
-    }));
-
-    const timeoutId = window.setTimeout(() => {
-      loadTimedOut = true;
-      controller.abort();
-    }, SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS);
-
-    void (async () => {
-      try {
-        const response = await fetch(
-          apiUrl(`/api/companies/${encodeURIComponent(companyId)}/schedule-assignees?${params.toString()}`),
-          { credentials: "include", signal: controller.signal },
-        );
-        const payload = (await response.json()) as {
-          ok?: boolean;
-          assignees?: ScheduleAssigneeOption[];
-          diagnostics?: ScheduleAssigneeDiagnostics;
-          warning?: string;
-          message?: string;
-          error?: string;
-        };
-
-        if (!response.ok || payload.ok === false) {
-          throw new Error(payload.message || payload.error || "Unable to load schedule assignees.");
-        }
-
-        const assignees = Array.isArray(payload.assignees) ? payload.assignees : [];
-        writeScheduleAssigneesCache(storageKeys.scheduleAssigneesCache, {
-          companyId,
-          area: areaFilter,
-          assignees,
-          diagnostics: payload.diagnostics,
-          warning: payload.warning,
-          cachedAt: Date.now(),
-        });
-        if (cancelled) {
-          return;
-        }
-        setScheduleAssigneesState({
-          assignees,
-          diagnostics: payload.diagnostics,
-          warning: payload.warning,
-          loading: false,
-        });
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-        if (error instanceof DOMException && error.name === "AbortError") {
-          if (!loadTimedOut) {
-            return;
-          }
-          if (cachedEntry) {
-            setScheduleAssigneesState({
-              assignees: cachedEntry.assignees,
-              diagnostics: cachedEntry.diagnostics,
-              warning: cachedEntry.warning || "Showing recently loaded users while the list refreshes.",
-              loading: false,
-            });
-          } else {
-            setScheduleAssigneesState({
-              assignees: [],
-              loadError: "Assignable users are taking longer than usual. Try again in a moment.",
-              loading: false,
-            });
-          }
-          return;
-        }
-        if (cachedEntry) {
-          setScheduleAssigneesState({
-            assignees: cachedEntry.assignees,
-            diagnostics: cachedEntry.diagnostics,
-            warning: cachedEntry.warning || "Showing recently loaded users because the list could not be refreshed.",
-            loading: false,
-          });
-          return;
-        }
-        setScheduleAssigneesState({
-          assignees: [],
-          loadError: error instanceof Error ? error.message : "Unable to load schedule assignees.",
-          loading: false,
-        });
-      } finally {
-        window.clearTimeout(timeoutId);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
-      controller.abort();
-    };
-  }, [
-    googleConnected,
-    currentUser?.role,
-    activeCompanyContext.companyFolderId,
-    activeCompanyContext.companyName,
-    activeCompanyContext.masterSheetId,
-    scheduleBuilderAreaFilter,
-    screen,
-  ]);
+    console.info("[schedule-assignees]", scheduleAssigneesDerived.diagnostics);
+  }, [scheduleAssigneesDerived.diagnostics]);
 
   useEffect(() => {
     const { companyId, masterSheetId, companyName } = resolveCompanyMembersLoadContext({
@@ -5415,9 +5299,19 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const companyId = activeCompanyContext.companyFolderId.trim();
-    const masterSheetId = activeCompanyContext.masterSheetId.trim();
-    if (!companyId || !masterSheetId || !googleConnected) {
+    const { companyId, masterSheetId, companyName } = resolveCompanyMembersLoadContext({
+      activeCompanyContext,
+      selectedFolderId: selectedFolder?.id,
+      folderIdInput,
+      masterSheetInput,
+      companySheetSyncSheetId: companySheetSync?.sheetId,
+    });
+    const canLoadCompanyApi =
+      Boolean(companyId) &&
+      googleConnected &&
+      masterCompanyWorkspaceDataMatchesSelection &&
+      (currentUser?.role !== "Master" || googleConnected);
+    if (!canLoadCompanyApi) {
       setCompanySchedulesState({ loading: false });
       return;
     }
@@ -5428,7 +5322,15 @@ function App() {
 
     void (async () => {
       try {
-        const result = await listCompanySchedules(activeCompanyContext, { signal: controller.signal });
+        const result = await listCompanySchedules(
+          {
+            companyId,
+            companyFolderId: companyId,
+            masterSheetId,
+            companyName,
+          },
+          { signal: controller.signal },
+        );
         if (cancelled) {
           return;
         }
@@ -5459,10 +5361,15 @@ function App() {
     };
   }, [
     googleConnected,
+    currentUser?.role,
+    masterCompanyWorkspaceDataMatchesSelection,
     activeCompanyContext.companyFolderId,
     activeCompanyContext.companyName,
     activeCompanyContext.masterSheetId,
-    screen,
+    selectedFolder?.id,
+    folderIdInput,
+    masterSheetInput,
+    companySheetSync?.sheetId,
     applyListedCompanySchedules,
   ]);
 
@@ -14259,9 +14166,9 @@ function App() {
                 availableAudits={availableScheduleAudits}
                 availableAssignees={availableScheduleAssignees}
                 assigneeEmptyMessage={scheduleAssigneeEmptyMessage}
-                assigneeDiagnostics={scheduleAssigneesState.diagnostics}
+                assigneeDiagnostics={scheduleAssigneesDerived.diagnostics}
                 showAssigneeDiagnostics={canShowTechnicalUi(currentUser.role)}
-                assigneeWarning={scheduleAssigneesState.warning}
+                assigneeWarning={scheduleAssigneesDerived.warning}
                 signedInEmail={
                   currentUser?.username.includes("@")
                     ? currentUser.username.toLowerCase()

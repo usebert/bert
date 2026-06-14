@@ -114,7 +114,7 @@ assert(userService.includes("sanitizeUsersTabRecords"), "22d: user service sanit
 /** 23–26: UX wording — no auditor-only empty, no BERT reach error, diagnostics collapsed */
 assert(!schedulesScreen.includes("No available auditors"), "23: no 'No available auditors' in schedules UI");
 assert(!assigneesUtil.includes("No available auditors"), "23b: no auditor-only empty message in assignees util");
-assert(appTsx.includes("/api/companies/") && appTsx.includes("schedule-assignees"), "23c: App uses schedule-assignees API");
+assert(appTsx.includes("/api/companies/") && appTsx.includes("deriveScheduleAssigneesFromCompanyMembers"), "23c: App derives schedule assignees from company members");
 assert(!appTsx.includes("buildAvailableScheduleAssignees("), "23d: App no longer filters assignees locally");
 assert(appTsx.includes("resolveActiveCompanyContext"), "23e: App uses unified company context resolver");
 assert(!appTsx.includes("findPendingAssigneeInvites"), "23f: pending invites do not feed schedule assignees");

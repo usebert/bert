@@ -412,7 +412,39 @@ export function resolveScheduleAuditorLabels(
   return resolveScheduleAssigneeLabels(auditorIds, options);
 }
 
-export const SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS = 2000;
+export function deriveScheduleAssigneesFromCompanyMembers(
+  members: CompanyUsersTabRow[],
+  context: {
+    companyId: string;
+    masterSheetId?: string;
+    selectedArea?: string;
+    includeDiagnostics?: boolean;
+  },
+  membersLoad: {
+    loading: boolean;
+    loadError?: string;
+    warning?: string;
+    loadDiagnostics?: ScheduleAssigneeDiagnostics;
+  },
+): {
+  assignees: ScheduleAssigneeOption[];
+  diagnostics?: ScheduleAssigneeDiagnostics;
+  warning?: string;
+  loading: boolean;
+  loadError?: string;
+} {
+  const { assignees, diagnostics } = buildAvailableScheduleAssignees(members, context);
+  return {
+    assignees,
+    diagnostics: membersLoad.loadDiagnostics ?? diagnostics,
+    warning: membersLoad.warning,
+    loading: membersLoad.loading,
+    loadError: membersLoad.loadError,
+  };
+}
+
+/** @deprecated Schedule assignees reuse companyMembersState — no separate client timeout. */
+export const SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS = 90_000;
 
 export type ScheduleAssigneesCacheEntry = {
   companyId: string;

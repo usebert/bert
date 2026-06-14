@@ -165,7 +165,7 @@ assert(
 );
 assert(getScheduleAssignedEmails({ assignedUserEmails: "a@test.com, b@test.com" }).length === 2, "assignedUserEmails canonical");
 
-assert(appTsx.includes("readScheduleAssigneesCache") && appTsx.includes("SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS"), "assignees cache-first with timeout");
+assert(appTsx.includes("deriveScheduleAssigneesFromCompanyMembers"), "assignees derived from company members load");
 assert(appTsx.includes("readCompanyMembersCache") && appTsx.includes("fetchCompanyMembers"), "company members cache-first API");
 assert(pkg.scripts["verify:company-members"], "verify:company-members npm script registered");
 assert(appTsx.includes("canShowTechnicalUi"), "technical UI gated in App");
