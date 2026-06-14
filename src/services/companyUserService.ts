@@ -24,6 +24,8 @@ export type CompanyMembersDiagnostics = {
   durationMs?: number;
   upstreamStatus?: number;
   upstreamMessage?: string;
+  totalRowsRead?: number;
+  activeRowsFound?: number;
   totalSheetRows?: number;
   activeSheetUsers?: number;
   cacheUsersBefore?: number;
@@ -79,6 +81,7 @@ export type FetchCompanyMembersResult = {
   loadError?: string;
   loadErrorDetail?: string;
   reasonCode?: string;
+  failedStep?: string;
   diagnostics?: CompanyMembersDiagnostics;
 };
 
@@ -86,15 +89,18 @@ function buildLoadErrorDetail(
   reasonCode: string | undefined,
   diagnostics?: CompanyMembersDiagnostics,
   upstreamMessage?: string,
+  failedStep?: string,
 ): string {
   const parts = [
     reasonCode,
+    failedStep || diagnostics?.failedStep ? `failedStep=${failedStep || diagnostics?.failedStep}` : "",
     diagnostics?.companyId ? `companyId=${diagnostics.companyId}` : "",
     diagnostics?.companyFolderId ? `companyFolderId=${diagnostics.companyFolderId}` : "",
     diagnostics?.masterSheetId ? `masterSheetId=${diagnostics.masterSheetId}` : "",
-    diagnostics?.failedStep ? `failedStep=${diagnostics.failedStep}` : "",
     diagnostics?.signedInEmail ? `signedInEmail=${diagnostics.signedInEmail}` : "",
     diagnostics?.dataSource ? `dataSource=${diagnostics.dataSource}` : "",
+    typeof diagnostics?.totalRowsRead === "number" ? `totalRowsRead=${diagnostics.totalRowsRead}` : "",
+    typeof diagnostics?.activeRowsFound === "number" ? `activeRowsFound=${diagnostics.activeRowsFound}` : "",
     upstreamMessage || diagnostics?.upstreamMessage
       ? `upstreamMessage=${upstreamMessage || diagnostics?.upstreamMessage}`
       : "",
@@ -137,6 +143,7 @@ export async function fetchCompanyMembers(
     error?: string;
     code?: string;
     reasonCode?: string;
+    failedStep?: string;
     warning?: string;
     technicalError?: string;
     diagnostics?: CompanyMembersDiagnostics;
@@ -171,8 +178,10 @@ export async function fetchCompanyMembers(
         payload.reasonCode || payload.code,
         diagnostics,
         payload.message || payload.error || payload.technicalError,
+        payload.failedStep,
       ),
       reasonCode: payload.reasonCode || payload.code,
+      failedStep: payload.failedStep || diagnostics?.failedStep,
       diagnostics,
     };
   }
@@ -181,6 +190,8 @@ export async function fetchCompanyMembers(
     ok: true,
     members: Array.isArray(payload.users) ? payload.users : [],
     warning: payload.warning,
+    reasonCode: payload.reasonCode,
+    failedStep: payload.failedStep || payload.diagnostics?.failedStep,
     diagnostics: payload.diagnostics,
   };
 }

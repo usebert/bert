@@ -3,20 +3,24 @@ import type { CompanyMembersDiagnostics } from "../services/companyUserService";
 
 type Props = {
   reasonCode?: string;
+  failedStep?: string;
   diagnostics?: CompanyMembersDiagnostics;
   detail?: string;
   tone?: "light" | "dark";
 };
 
-function formatDiagnostics(diagnostics: CompanyMembersDiagnostics | undefined, reasonCode?: string, detail?: string) {
+function formatDiagnostics(diagnostics: CompanyMembersDiagnostics | undefined, reasonCode?: string, detail?: string, failedStep?: string) {
   const lines = [
     reasonCode ? `reasonCode: ${reasonCode}` : "",
+    failedStep || diagnostics?.failedStep ? `failedStep: ${failedStep || diagnostics?.failedStep}` : "",
     diagnostics?.companyName ? `companyName: ${diagnostics.companyName}` : "",
     diagnostics?.companyId ? `companyId: ${diagnostics.companyId}` : "",
     diagnostics?.companyFolderId ? `companyFolderId: ${diagnostics.companyFolderId}` : "",
     diagnostics?.masterSheetId ? `masterSheetId: ${diagnostics.masterSheetId}` : "",
     diagnostics?.signedInEmail ? `signedInEmail: ${diagnostics.signedInEmail}` : "",
-    diagnostics?.failedStep ? `failedStep: ${diagnostics.failedStep}` : "",
+    typeof diagnostics?.totalRowsRead === "number" ? `totalRowsRead: ${diagnostics.totalRowsRead}` : "",
+    typeof diagnostics?.activeRowsFound === "number" ? `activeRowsFound: ${diagnostics.activeRowsFound}` : "",
+    diagnostics?.dataSource ? `dataSource: ${diagnostics.dataSource}` : "",
     diagnostics?.upstreamMessage ? `upstreamMessage: ${diagnostics.upstreamMessage}` : "",
     detail && !diagnostics?.upstreamMessage ? `detail: ${detail}` : "",
   ].filter(Boolean);
@@ -27,10 +31,11 @@ export function CompanyMembersDiagnosticsPanel({
   reasonCode,
   diagnostics,
   detail,
+  failedStep,
   tone = "light",
 }: Props) {
   const [open, setOpen] = useState(false);
-  const body = formatDiagnostics(diagnostics, reasonCode, detail);
+  const body = formatDiagnostics(diagnostics, reasonCode, detail, failedStep);
   if (!body.trim()) {
     return null;
   }

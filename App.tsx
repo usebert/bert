@@ -3567,6 +3567,7 @@ function App() {
     loadError?: string;
     loadErrorDetail?: string;
     loadReasonCode?: string;
+    loadFailedStep?: string;
     loadDiagnostics?: CompanyMembersDiagnostics;
     warning?: string;
     loading: boolean;
@@ -5310,6 +5311,7 @@ function App() {
             loadError: result.loadError || COMPANY_MEMBERS_USER_MESSAGE,
             loadErrorDetail: result.loadErrorDetail,
             loadReasonCode: result.reasonCode,
+            loadFailedStep: result.failedStep,
             loadDiagnostics: result.diagnostics,
             loading: false,
           });
@@ -5320,6 +5322,7 @@ function App() {
           companyId,
           members: result.members,
           cachedAt: Date.now(),
+          warning: result.warning,
         });
         if (cancelled) {
           return;
@@ -5327,6 +5330,9 @@ function App() {
         setCompanyUsersTabRows(result.members);
         setCompanyMembersState({
           members: result.members,
+          warning: result.warning,
+          loadFailedStep: result.failedStep,
+          loadDiagnostics: result.diagnostics,
           loading: false,
         });
       } catch (error) {
@@ -14384,6 +14390,7 @@ function App() {
                 activeMembersLoadError={companyMembersState.loadError}
                 activeMembersLoadErrorDetail={companyMembersState.loadErrorDetail}
                 activeMembersLoadReasonCode={companyMembersState.loadReasonCode}
+                activeMembersLoadFailedStep={companyMembersState.loadFailedStep}
                 activeMembersLoadDiagnostics={companyMembersState.loadDiagnostics}
                 activeMembersWarning={companyMembersState.warning}
                 userSiteAssignments={displayUserSiteAssignments}

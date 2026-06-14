@@ -207,6 +207,7 @@ export type AdminScreenProps = {
   activeMembersLoadError?: string;
   activeMembersLoadErrorDetail?: string;
   activeMembersLoadReasonCode?: string;
+  activeMembersLoadFailedStep?: string;
   activeMembersLoadDiagnostics?: import("../services/companyUserService").CompanyMembersDiagnostics;
   activeMembersWarning?: string;
   userSiteAssignments: UserSiteAssignments;

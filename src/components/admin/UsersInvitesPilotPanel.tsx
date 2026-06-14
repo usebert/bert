@@ -353,6 +353,7 @@ export type UsersInvitesPilotPanelProps = Pick<
   | "activeMembersLoadError"
   | "activeMembersLoadErrorDetail"
   | "activeMembersLoadReasonCode"
+  | "activeMembersLoadFailedStep"
   | "activeMembersLoadDiagnostics"
   | "activeMembersWarning"
   | "sites"
@@ -427,6 +428,7 @@ export function UsersInvitesPilotPanel({
   activeMembersLoadError,
   activeMembersLoadErrorDetail,
   activeMembersLoadReasonCode,
+  activeMembersLoadFailedStep,
   activeMembersLoadDiagnostics,
   activeMembersWarning,
   sites,
@@ -679,6 +681,7 @@ export function UsersInvitesPilotPanel({
                 ) : null}
                 <CompanyMembersDiagnosticsPanel
                   reasonCode={activeMembersLoadReasonCode}
+                  failedStep={activeMembersLoadFailedStep}
                   diagnostics={activeMembersLoadDiagnostics}
                   detail={activeMembersLoadErrorDetail}
                 />
