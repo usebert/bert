@@ -85,6 +85,37 @@ export type FetchCompanyMembersResult = {
   diagnostics?: CompanyMembersDiagnostics;
 };
 
+/** Minimum viable assignee list when the Users tab API fails — signed-in user only. */
+export function buildSignedInMemberFallback(input: {
+  email: string;
+  name?: string;
+  role?: string;
+  accessLevel?: string;
+  companyAreas?: string[];
+  companyId?: string;
+  companyFolderId?: string;
+  companyName?: string;
+}): CompanyMember | null {
+  const email = String(input.email || "").trim().toLowerCase();
+  if (!email) {
+    return null;
+  }
+  const companyFolderId = String(input.companyFolderId || input.companyId || "").trim();
+  const companyAreas = Array.isArray(input.companyAreas) ? input.companyAreas : [];
+  return {
+    email,
+    name: String(input.name || email.split("@")[0] || email).trim() || email,
+    role: String(input.role || "User").trim() || "User",
+    accessLevel: String(input.accessLevel || "").trim(),
+    status: "ACTIVE",
+    company: String(input.companyName || "").trim(),
+    companyId: companyFolderId,
+    companyFolderId,
+    companyAreas,
+    companyAreasRaw: companyAreas.join(", "),
+  };
+}
+
 function buildLoadErrorDetail(
   reasonCode: string | undefined,
   diagnostics?: CompanyMembersDiagnostics,

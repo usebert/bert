@@ -50,6 +50,11 @@ assert(
   "4a: linked session folder preferred over stale picker selection",
 );
 assert(appSrc.includes("resolveCompanyMembersLoadContext"), "4b: App uses shared resolver");
+assert(appSrc.includes("buildSignedInMemberFallback"), "4c: App falls back to signed-in user on load failure");
+assert(
+  /!activeCompanyContext\.masterSheetId\.trim\(\)/.test(appSrc),
+  "4d: full-screen block only when workbook context missing",
+);
 assert(
   /useEffect\([\s\S]{0,2500}resolveCompanyMembersLoadContext[\s\S]{0,2500}fetchCompanyMembers/.test(appSrc),
   "4c: page load effect uses shared resolver + fetchCompanyMembers",

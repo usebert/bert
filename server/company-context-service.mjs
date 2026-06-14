@@ -292,19 +292,6 @@ export async function validateLiveCompanyContext(auth, deps, partial = {}) {
     companyName = driveFolderName;
   }
 
-  const folderPlacement = await validateCompanyFolderUnderCompaniesRoot(auth, deps, companyFolderId, {
-    companyFolderName: companyName,
-  }).catch(() => ({ ok: false, reasonCode: FOLDER_NOT_IN_COMPANIES_ROOT }));
-  if (!folderPlacement?.ok) {
-    return {
-      companyContextValid: false,
-      reasonCode: trim(folderPlacement?.reasonCode) || FOLDER_NOT_IN_COMPANIES_ROOT,
-      message: trim(folderPlacement?.userMessage) || COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
-      folderPlacementOk: false,
-      folderPlacement,
-    };
-  }
-
   if (!resolvedMasterSheetId || !deps?.google) {
     return {
       companyContextValid: false,
@@ -327,14 +314,21 @@ export async function validateLiveCompanyContext(auth, deps, partial = {}) {
     };
   }
 
+  const folderPlacement = await validateCompanyFolderUnderCompaniesRoot(auth, deps, companyFolderId, {
+    companyFolderName: companyName,
+  }).catch(() => ({ ok: false, reasonCode: FOLDER_NOT_IN_COMPANIES_ROOT }));
+  const folderPlacementOk = Boolean(folderPlacement?.ok);
+
   return {
     companyContextValid: true,
     companyId: companyFolderId,
     companyFolderId,
     companyName,
     masterSheetId: resolvedMasterSheetId,
-    folderPlacementOk: true,
+    folderPlacementOk,
     folderPlacement,
+    reasonCode: folderPlacementOk ? undefined : trim(folderPlacement?.reasonCode) || FOLDER_NOT_IN_COMPANIES_ROOT,
+    message: folderPlacementOk ? undefined : trim(folderPlacement?.userMessage) || undefined,
     registryStatus: trim(workbookContext?.registryStatus) || undefined,
   };
 }

@@ -133,6 +133,7 @@ import { resolveActiveCompanyContext, resolveCompanyMembersLoadContext } from ".
 import {
   COMPANY_MEMBERS_LOAD_TIMEOUT_MS,
   COMPANY_MEMBERS_USER_MESSAGE,
+  buildSignedInMemberFallback,
   fetchCompanyMembers,
   readCompanyMembersCache,
   updateCompanyMember,
@@ -5306,6 +5307,38 @@ function App() {
       controller.abort();
     }, COMPANY_MEMBERS_LOAD_TIMEOUT_MS);
 
+    const applySignedInMemberFallback = (
+      reasonCode?: string,
+      failedStep?: string,
+      loadDiagnostics?: CompanyMembersDiagnostics,
+    ): boolean => {
+      if (!currentUser || currentUser.role === "Master") {
+        return false;
+      }
+      const fallbackMember = buildSignedInMemberFallback({
+        email: currentUser.username || currentUser.email,
+        name: currentUser.name,
+        role: currentUser.role,
+        accessLevel: currentUser.accessLevel,
+        companyAreas: currentUser.companyAreas,
+        companyId,
+        companyFolderId: companyId,
+        companyName: companyName || activeCompanyContext.companyName,
+      });
+      if (!fallbackMember) {
+        return false;
+      }
+      setCompanyUsersTabRows([fallbackMember]);
+      setCompanyMembersState({
+        members: [fallbackMember],
+        warning: `Showing signed-in user only; workbook read failed (${reasonCode || failedStep || "unknown"}).`,
+        loadFailedStep: failedStep,
+        loadDiagnostics,
+        loading: false,
+      });
+      return true;
+    };
+
     void (async () => {
       try {
         const result = await fetchCompanyMembers(apiUrl, {
@@ -5317,6 +5350,15 @@ function App() {
 
         if (!result.ok) {
           if (cancelled) {
+            return;
+          }
+          if (
+            applySignedInMemberFallback(
+              result.reasonCode,
+              result.failedStep,
+              result.diagnostics,
+            )
+          ) {
             return;
           }
           setCompanyUsersTabRows([]);
@@ -5357,6 +5399,18 @@ function App() {
           if (!loadTimedOut) {
             return;
           }
+          const timeoutDiagnostics: CompanyMembersDiagnostics = {
+            companyId,
+            companyFolderId: companyId,
+            companyName: activeCompanyContext.companyName.trim() || undefined,
+            masterSheetId: masterSheetId || undefined,
+            failedStep: "client_fetch",
+            upstreamMessage: `Load timed out after ${COMPANY_MEMBERS_LOAD_TIMEOUT_MS}ms`,
+            dataSource: "users_tab",
+          };
+          if (applySignedInMemberFallback("CLIENT_LOAD_TIMEOUT", "client_fetch", timeoutDiagnostics)) {
+            return;
+          }
           setCompanyUsersTabRows([]);
           setCompanyMembersState({
             members: [],
@@ -5372,17 +5426,21 @@ function App() {
               .join(" — "),
             loadReasonCode: "CLIENT_LOAD_TIMEOUT",
             loadFailedStep: "client_fetch",
-            loadDiagnostics: {
-              companyId,
-              companyFolderId: companyId,
-              companyName: activeCompanyContext.companyName.trim() || undefined,
-              masterSheetId: masterSheetId || undefined,
-              failedStep: "client_fetch",
-              upstreamMessage: `Load timed out after ${COMPANY_MEMBERS_LOAD_TIMEOUT_MS}ms`,
-              dataSource: "users_tab",
-            },
+            loadDiagnostics: timeoutDiagnostics,
             loading: false,
           });
+          return;
+        }
+        const fetchDiagnostics: CompanyMembersDiagnostics = {
+          companyId,
+          companyFolderId: companyId,
+          companyName: companyName.trim() || undefined,
+          masterSheetId: masterSheetId || undefined,
+          failedStep: "client_fetch",
+          upstreamMessage: error instanceof Error ? error.message : COMPANY_MEMBERS_USER_MESSAGE,
+          dataSource: "users_tab",
+        };
+        if (applySignedInMemberFallback("CLIENT_FETCH_FAILED", "client_fetch", fetchDiagnostics)) {
           return;
         }
         setCompanyUsersTabRows([]);
@@ -5392,15 +5450,7 @@ function App() {
           loadErrorDetail: error instanceof Error ? error.message : COMPANY_MEMBERS_USER_MESSAGE,
           loadReasonCode: "CLIENT_FETCH_FAILED",
           loadFailedStep: "client_fetch",
-          loadDiagnostics: {
-            companyId,
-            companyFolderId: companyId,
-            companyName: companyName.trim() || undefined,
-            masterSheetId: masterSheetId || undefined,
-            failedStep: "client_fetch",
-            upstreamMessage: error instanceof Error ? error.message : COMPANY_MEMBERS_USER_MESSAGE,
-            dataSource: "users_tab",
-          },
+          loadDiagnostics: fetchDiagnostics,
           loading: false,
         });
       } finally {
@@ -5902,28 +5952,21 @@ function App() {
           setCurrentUser(companyUser);
           setCompanyLinkBlockedMessage(linkBlockedMessage);
           setCompanyRegistryStatus(
-            companyLinkValid
-              ? getCanonicalCompanyStatus({
-                  registryStatus: cp.company?.registryStatus,
-                })
-              : "",
+            getCanonicalCompanyStatus({
+              registryStatus: cp.company?.registryStatus,
+            }),
           );
-          if (companyLinkValid && cp.company?.companyId) {
-            const loginHint = readCompanyLoginHint();
-            if (
-              loginHint?.companyName &&
-              cp.company?.companyName &&
-              loginHint.companyName.trim().toLowerCase() !== cp.company.companyName.trim().toLowerCase()
-            ) {
-              clearStaleCompanyLocalStorage(companyUser.username);
-            } else {
-              clearStaleCompanyLocalStorage(companyUser.username);
-            }
+          const resolvedCompanyId = String(cp.company?.companyId || companyIdFromSession || "").trim();
+          const resolvedMasterSheetId = String(cp.company?.masterSheetId || "").trim();
+          if (resolvedCompanyId && resolvedMasterSheetId) {
             applyLinkedCompanyContext({
               email: companyUser.username,
               company: {
                 ...cp.company,
-                folderPlacementOk: true,
+                companyId: resolvedCompanyId,
+                companyFolderId: resolvedCompanyId,
+                masterSheetId: resolvedMasterSheetId,
+                folderPlacementOk: companyLinkValid,
               },
               setSelectedFolderId,
               setFolders: (updater) => setFolders((current) => updater(current)),
@@ -5934,11 +5977,11 @@ function App() {
             });
             clearGodmodeSelectedCompanyFolderId();
             setLinkedCompanyContext({
-              companyId: cp.company?.companyId,
+              companyId: resolvedCompanyId,
               companyName: cp.company?.companyName,
-              masterSheetId: cp.company?.masterSheetId,
+              masterSheetId: resolvedMasterSheetId,
               registryStatus: cp.company?.registryStatus,
-              folderPlacementOk: true,
+              folderPlacementOk: companyLinkValid,
               role: cp.user?.role,
               accessLevel: cp.user?.accessLevel,
               companyAreas: Array.isArray(cp.user?.companyAreas) ? cp.user.companyAreas : undefined,
@@ -7762,7 +7805,7 @@ function App() {
             companyName: loggedInCompany?.companyName,
             masterSheetId: resolvedSheetId,
             registryStatus: loggedInCompany?.registryStatus,
-            folderPlacementOk: true,
+            folderPlacementOk: loggedInCompany?.folderPlacementOk !== false,
           },
           setSelectedFolderId,
           setFolders: (updater) => setFolders((current) => updater(current)),
@@ -7772,17 +7815,25 @@ function App() {
           setCompanyRegistryStatus,
         });
         clearGodmodeSelectedCompanyFolderId();
-        setCompanyLinkBlockedMessage("");
         setLinkedCompanyContext({
           companyId: loggedInCompany?.companyId,
           companyName: loggedInCompany?.companyName,
           masterSheetId: resolvedSheetId,
           registryStatus: loggedInCompany?.registryStatus,
-          folderPlacementOk: true,
+          folderPlacementOk: loggedInCompany?.folderPlacementOk !== false,
           role: loggedInUser.role,
           accessLevel: loggedInUser.accessLevel,
           companyAreas: Array.isArray(loggedInUser.companyAreas) ? loggedInUser.companyAreas : undefined,
         });
+        if (loggedInCompany?.folderPlacementOk === false) {
+          setCompanyLinkBlockedMessage(
+            loggedInCompany?.reasonCode === FOLDER_NOT_IN_COMPANIES_ROOT
+              ? FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE
+              : FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE,
+          );
+        } else {
+          setCompanyLinkBlockedMessage("");
+        }
         const match: User = {
           username: String(loggedInUser.email).toLowerCase(),
           email: String(loggedInUser.email).toLowerCase(),
@@ -13148,7 +13199,7 @@ function App() {
     );
   }
 
-  if (currentUser && currentUser.role !== "Master" && companyLinkBlockedMessage) {
+  if (currentUser && currentUser.role !== "Master" && !activeCompanyContext.masterSheetId.trim()) {
     const blockedOuterClass = [
       shellPreviewClass,
       "flex min-h-[100dvh] w-full max-w-[100vw] flex-col items-center justify-center overflow-hidden px-4 py-6",

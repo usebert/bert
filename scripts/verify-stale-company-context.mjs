@@ -38,11 +38,10 @@ const rockSolidHits = execSync('rg -l "Rock Solid Concrete Ltd" . --glob "!scrip
 assert(!rockSolidHits, "AUDIT: Rock Solid Concrete Ltd not in repo");
 
 assert(contextService.includes("validateLiveCompanyContext"), "1: live company context validator");
+assert(contextService.includes("validateCompanyFolderUnderCompaniesRoot"), "1b: validator checks Drive folder, placement, workbook");
 assert(
-  /validateLiveCompanyContext[\s\S]*?readCompanyNameFromDriveFolder[\s\S]*?validateCompanyFolderUnderCompaniesRoot/.test(
-    contextService,
-  ),
-  "1b: validator checks Drive folder, placement, workbook",
+  /folderPlacementOk[\s\S]*?companyContextValid:\s*true/.test(contextService),
+  "1b2: invalid folder placement still returns valid workbook context",
 );
 assert(contextService.includes("COMPANY_CONTEXT_INVALID"), "1c: validator uses COMPANY_CONTEXT_INVALID");
 

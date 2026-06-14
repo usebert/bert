@@ -48,27 +48,15 @@ export function resolveActiveCompanyContext(input: ResolveActiveCompanyContextIn
   const selectedCompanyName = String(selected?.name || "").trim();
 
   const linkedPlacementOk = isCompanyFolderLinkValid(linked);
-  const companyFolderId = linkedPlacementOk
-    ? isMasterActor
-      ? selectedCompanyId || linkedCompanyId
-      : linkedCompanyId || selectedCompanyId
-    : isMasterActor
-      ? selectedCompanyId
-      : "";
-  const masterSheetId = linkedPlacementOk
-    ? isMasterActor
-      ? selectedMasterSheetId || linkedMasterSheetId
-      : linkedMasterSheetId || selectedMasterSheetId
-    : isMasterActor
-      ? selectedMasterSheetId
-      : linkedMasterSheetId;
-  const companyName = linkedPlacementOk
-    ? isMasterActor
-      ? selectedCompanyName || linkedCompanyName
-      : linkedCompanyName || selectedCompanyName
-    : isMasterActor
-      ? selectedCompanyName
-      : "";
+  const companyFolderId = isMasterActor
+    ? selectedCompanyId || linkedCompanyId
+    : linkedCompanyId || selectedCompanyId;
+  const masterSheetId = isMasterActor
+    ? selectedMasterSheetId || linkedMasterSheetId
+    : linkedMasterSheetId || selectedMasterSheetId;
+  const companyName = isMasterActor
+    ? selectedCompanyName || linkedCompanyName
+    : linkedCompanyName || selectedCompanyName;
 
   const registryStatus = getCanonicalCompanyStatus({
     status: isMasterActor

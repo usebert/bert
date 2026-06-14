@@ -48,14 +48,13 @@ export function buildCompanySessionPayload({
 export function buildCompanySessionApiResponse(input = {}) {
   const email = String(input.email || "").trim().toLowerCase();
   const folderPlacementOk = input.folderPlacementOk !== false;
-  const companyFolderId = folderPlacementOk
-    ? String(input.companyFolderId || input.companyId || "").trim()
-    : "";
-  const companyId = folderPlacementOk ? String(input.companyId || companyFolderId).trim() : "";
-  const companyName = folderPlacementOk ? String(input.companyName || "").trim() : "";
+  const companyFolderId = String(input.companyFolderId || input.companyId || "").trim();
+  const companyId = String(input.companyId || companyFolderId).trim();
+  const companyName = String(input.companyName || "").trim();
   const masterSheetId = String(input.masterSheetId || "").trim();
   const reasonCode = folderPlacementOk ? undefined : String(input.reasonCode || "").trim() || undefined;
-  const companyContextValid = input.companyContextValid !== false && folderPlacementOk && Boolean(companyFolderId && masterSheetId);
+  const companyContextValid =
+    input.companyContextValid !== false && Boolean(companyFolderId && masterSheetId);
   return {
     ok: true,
     companyContextValid,
@@ -928,7 +927,7 @@ export async function resolveValidatedCompanyLoginContext(auth, deps, indexEntry
       companyFolderId: rowCompanyFolderId || validation.companyFolderId,
       companyName: rowCompanyName || validation.companyName,
       masterSheetId: validation.masterSheetId,
-      folderPlacementOk: true,
+      folderPlacementOk: validation.folderPlacementOk !== false,
       folderPlacement: validation.folderPlacement,
       registryStatus: validation.registryStatus,
     };

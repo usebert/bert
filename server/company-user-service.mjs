@@ -407,7 +407,13 @@ export async function getCompanyUsers(auth, masterSheetId, deps, options = {}) {
   }
 
   const companyFolderId = String(options.companyFolderId || options.companyId || "").trim();
-  return sanitizeUsersTabRecords(readResult.records.map((row) => mapUsersTabRow(row, companyFolderId)));
+  const companyContext = {
+    companyFolderId,
+    companyId: companyFolderId,
+    companyName: String(options.companyName || "").trim(),
+    masterSheetId: sheetId,
+  };
+  return sanitizeUsersTabRecords(readResult.records.map((row) => mapUsersTabRow(row, companyContext)));
 }
 
 async function resolveMasterSheetFromFolder(auth, deps, companyFolderId, companyName, masterSheetHint = "") {
