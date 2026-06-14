@@ -94,6 +94,7 @@ const masterSheetA = "sheet-dovecote-master";
 
 /** 4: Active user list filters by company columns (non-workbook); workbook scope trusts sheet ownership. */
 {
+  const userService = read("server/company-user-service.mjs");
   assert(sheetFlow.includes("rowPassesCompanyProfileContext"), "4: sheet flow filters by company context");
   assert(sheetFlow.includes("resolvedProfileCompanyFolderId"), "4a: workbook rows resolve folder id after backfill");
   assert(sheetFlow.includes("skipUsersTabColumnMigration"), "4a2: migration can be skipped on read retry");
