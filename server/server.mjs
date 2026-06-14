@@ -6381,29 +6381,7 @@ async function handleAppInviteComplete(req, res) {
               );
             }
             const inviteFolderId = String(record.companyFolderId || record.companyId || "").trim();
-            if (inviteFolderId) {
-              await rebuildUsersFromSheet(
-                authed,
-                { ...getCompanyWorkspaceRegistryDeps(), ...getCompanyUsersDeps() },
-                {
-                  companyFolderId: inviteFolderId,
-                  companyId: inviteFolderId,
-                  masterSheetId: record.masterSheetId,
-                  companyName: record.companyName || "",
-                },
-              ).catch(() => null);
-              await authIndexApi
-                .rebuildCompanyAuthIndexFromSheet(
-                  authed,
-                  { getCompanyUsersDeps },
-                  {
-                    companyFolderId: inviteFolderId,
-                    masterSheetId: record.masterSheetId,
-                    companyName: record.companyName || "",
-                  },
-                )
-                .catch(() => null);
-            }
+            const inviteCompanyName = String(record.companyName || "").trim();
             patchInviteRecord(tokenId, {
               inviteType: "COMPANY_USER",
               status: "USED",
@@ -6413,61 +6391,75 @@ async function handleAppInviteComplete(req, res) {
               consumedAt: Date.now(),
             });
             completedMarked = true;
-            const sessionCompanyAreas = parseCompanyAreas(record.companyAreas || "");
-            const workbookContext = await resolveCompanyContextFromLoginWorkbook(
-              authed,
-              getCompanyContextEnrichmentDeps(),
-              record.masterSheetId,
-            ).catch(() => null);
-            const inviteCompanyContext = workbookContext
-              ? await enrichCompanyContextFromRegistry(authed, {
-                  companyFolderId: workbookContext.companyFolderId || record.companyFolderId || record.companyId || "",
-                  companyId: workbookContext.companyFolderId || record.companyFolderId || record.companyId || "",
-                  companyName: workbookContext.companyName || record.companyName || "",
-                  masterSheetId: record.masterSheetId,
-                  registryStatus: workbookContext.registryStatus,
-                })
-              : await enrichCompanyContextFromRegistry(authed, {
-                  companyId: record.companyId || record.companyFolderId || "",
-                  companyFolderId: record.companyFolderId || record.companyId || "",
-                  companyName: record.companyName || "",
-                  masterSheetId: record.masterSheetId,
-                });
-            const sessionCompanyId =
-              inviteCompanyContext.companyFolderId ||
-              inviteCompanyContext.companyId ||
-              record.companyFolderId ||
-              record.companyId ||
-              "";
-            const sessionPayload = buildCompanySessionPayload({
+
+            if (inviteFolderId) {
+              const bgContext = {
+                companyFolderId: inviteFolderId,
+                companyId: inviteFolderId,
+                masterSheetId: record.masterSheetId,
+                companyName: inviteCompanyName,
+                email: record.email,
+              };
+              setImmediate(() => {
+                const bgAuth = getAuthedClient();
+                if (!bgAuth) {
+                  return;
+                }
+                const bgDeps = { ...getCompanyWorkspaceRegistryDeps(), ...getCompanyUsersDeps() };
+                rebuildUsersFromSheet(bgAuth, bgDeps, bgContext).catch(() => null);
+                authIndexApi
+                  .rebuildCompanyAuthIndexFromSheet(bgAuth, { getCompanyUsersDeps }, bgContext)
+                  .catch(() => null);
+              });
+              if (backgroundJobs?.enqueueJob) {
+                backgroundJobs
+                  .enqueueJob({
+                    type: "REBUILD_AUTH_INDEX",
+                    companyId: inviteFolderId,
+                    requestedBy: record.email,
+                    userMessage: "Rebuilding sign-in index after invite acceptance.",
+                    payload: {
+                      email: record.email,
+                      masterSheetId: record.masterSheetId,
+                      companyFolderId: inviteFolderId,
+                      companyName: inviteCompanyName,
+                      reason: "invite_acceptance",
+                    },
+                  })
+                  .catch(() => null);
+              }
+            }
+
+            const responseUser = {
               email: record.email,
-              masterSheetId: inviteCompanyContext.masterSheetId || record.masterSheetId,
-              companyId: sessionCompanyId,
-              companyName: inviteCompanyContext.companyName || record.companyName || "",
-              role: record.role,
               name: fullName,
+              role: record.role,
               accessLevel: inviteAccessLevel,
-              companyAreas: sessionCompanyAreas,
-            });
-            res.cookie(COMPANY_SESSION_COOKIE, sessionPayload, getSessionCookieOptions({ maxAge: COMPANY_SESSION_MS }));
+              status: "ACTIVE",
+              companyId: inviteFolderId,
+              companyName: inviteCompanyName,
+            };
             console.log("[invite] company_user completion ok", {
               tokenIdPrefix: tokenId.slice(0, 8),
               email: record.email,
               masterSheetId: record.masterSheetId,
-              companyFolderId: record.companyFolderId,
+              companyFolderId: inviteFolderId,
               usersWriteOk,
               userAuthWriteOk,
               completedMarked,
             });
             res.json({
               ok: true,
+              accountCreated: true,
+              user: responseUser,
+              nextAction: "SIGN_IN",
               outcome: "company_user",
               loginReady: true,
               status: "active",
               email: record.email,
-              masterSheetId: inviteCompanyContext.masterSheetId || record.masterSheetId,
-              companyFolderId: sessionCompanyId,
-              companyName: inviteCompanyContext.companyName || record.companyName || "",
+              masterSheetId: record.masterSheetId,
+              companyFolderId: inviteFolderId,
+              companyName: inviteCompanyName,
             });
             return;
           } catch (completionErr) {

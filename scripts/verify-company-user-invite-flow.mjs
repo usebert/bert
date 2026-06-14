@@ -46,10 +46,10 @@ assert(
 
 assert(serverMain.includes('status: "active"') || serverMain.includes('status: "ACTIVE"'), "4: invite completion creates ACTIVE user");
 assert(
-  serverMain.includes("buildCompanySessionPayload") &&
-    serverMain.includes("enrichCompanyContextFromRegistry") &&
-    inviteCompletion.includes("masterSheetId"),
-  "5: company-user completion returns company context",
+  serverMain.includes("accountCreated: true") &&
+    serverMain.includes('nextAction: "SIGN_IN"') &&
+    inviteCompletion.includes("Account created. You can now sign in."),
+  "5: company-user completion returns fast SIGN_IN payload",
 );
 
 assert(inviteMessages.includes("mapCompanyUserInviteError"), "6: company-user error mapper exists");

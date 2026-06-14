@@ -5,7 +5,6 @@ import type { Role } from "../permissions";
 import {
   INVITE_COMPLETION_PAGE_TITLE,
   inviteCompletionNetworkError,
-  inviteCompletionTimeoutMessage,
   mapCompanyUserInviteError,
   mapInviteCompletionLoadError,
 } from "../utils/inviteCompletionMessages";
@@ -23,6 +22,8 @@ type CompanyUserInviteDetails = {
 
 type CompanyUserCompletePayload = {
   ok?: boolean;
+  accountCreated?: boolean;
+  nextAction?: string;
   code?: string;
   error?: string;
   message?: string;
@@ -32,6 +33,15 @@ type CompanyUserCompletePayload = {
   companyFolderId?: string;
   companyName?: string;
   loginReady?: boolean;
+  user?: {
+    email?: string;
+    name?: string;
+    role?: string;
+    accessLevel?: string;
+    status?: string;
+    companyId?: string;
+    companyName?: string;
+  };
 };
 
 type AppHostedOnboardingCompletionProps = {
@@ -46,6 +56,7 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
   const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [submitSuccess, setSubmitSuccess] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -96,7 +107,8 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
       return;
     }
     setSubmitting(true);
-    const completeTimeoutMs = 120_000;
+    setSubmitSuccess("");
+    const completeTimeoutMs = 5_000;
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), completeTimeoutMs);
     try {
@@ -135,21 +147,31 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
       }
 
       const payload = result.data;
-      const email = String(payload.email || details?.email || "").trim().toLowerCase();
+      const email = String(payload.user?.email || payload.email || details?.email || "")
+        .trim()
+        .toLowerCase();
       const masterSheetId = String(payload.masterSheetId || "").trim();
-      const companyFolderId = String(payload.companyFolderId || "").trim();
+      const companyFolderId = String(payload.user?.companyId || payload.companyFolderId || "").trim();
+      const companyName =
+        String(payload.user?.companyName || payload.companyName || details?.companyName || "").trim() ||
+        details?.companyName;
       if (email && masterSheetId) {
         saveCompanyLoginHint({
           email,
           masterSheetId,
           companyFolderId: companyFolderId || undefined,
-          companyName: String(payload.companyName || details?.companyName || "").trim() || details?.companyName,
+          companyName,
         });
       }
-      window.location.assign("/");
+      setSubmitSuccess("Account created. You can now sign in.");
+      window.setTimeout(() => {
+        window.location.assign("/");
+      }, 1200);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
-        setSubmitError(inviteCompletionTimeoutMessage(Math.round(completeTimeoutMs / 60_000)));
+        setSubmitError(
+          "Account setup is taking longer than expected. If your account was created, try signing in — otherwise try again.",
+        );
       } else {
         setSubmitError(inviteCompletionNetworkError());
       }
@@ -229,12 +251,13 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
               />
             </div>
             {submitError && <p className="text-sm text-rose-300">{submitError}</p>}
+            {submitSuccess && <p className="text-sm text-emerald-300">{submitSuccess}</p>}
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || Boolean(submitSuccess)}
               className="h-12 w-full rounded-2xl bg-orange-400 text-sm font-semibold text-slate-950 disabled:opacity-50"
             >
-              {submitting ? "Creating account…" : "Create account"}
+              {submitSuccess ? "Redirecting to sign in…" : submitting ? "Creating account…" : "Create account"}
             </button>
           </form>
         )}

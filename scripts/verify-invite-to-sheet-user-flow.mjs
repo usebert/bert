@@ -83,22 +83,25 @@ assert(serverMain.includes("consumedAt: null"), "11b: failure clears consumedAt"
 /** 12: canLoginCompanyUser requires ACTIVE status. */
 assert(sheetFlow.includes('rec.status !== "ACTIVE"'), "12: inactive Users tab row blocks login");
 
-/** 13: Invite completion session uses login workbook resolver. */
-assert(serverMain.includes("resolveCompanyContextFromLoginWorkbook"), "13: invite completion uses login workbook resolver");
+/** 13: Invite completion queues workbook/cache work in background. */
+assert(serverMain.includes("setImmediate("), "13: invite completion uses background queue");
 {
   const completionBlock = serverMain.slice(
-    serverMain.indexOf('if (record.kind === "company_user")'),
+    serverMain.indexOf("let usersWriteOk = false;"),
     serverMain.indexOf("} catch (completionErr)"),
   );
   assert(
     completionBlock.includes("completeInviteToUserRow") &&
-      completionBlock.includes("resolveCompanyContextFromLoginWorkbook"),
-    "13b: company_user completion block resolves workbook context after sheet write",
+      completionBlock.includes("accountCreated: true") &&
+      completionBlock.includes('nextAction: "SIGN_IN"'),
+    "13b: company_user completion returns fast SIGN_IN payload after sheet write",
   );
+  const resJsonIdx = completionBlock.indexOf("res.json({");
+  const beforeResponse = completionBlock.slice(0, resJsonIdx);
   assert(
-    completionBlock.indexOf("completeInviteToUserRow") <
-      completionBlock.indexOf("resolveCompanyContextFromLoginWorkbook"),
-    "13c: sheet write precedes workbook context in completion block",
+    !beforeResponse.includes("await rebuildUsersFromSheet") &&
+      !beforeResponse.includes("await resolveCompanyContextFromLoginWorkbook"),
+    "13c: cache/workbook rebuild not awaited before HTTP response",
   );
 }
 

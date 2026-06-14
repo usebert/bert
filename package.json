@@ -40,6 +40,7 @@
     "verify:company-onboarding": "node scripts/verify-company-onboarding.mjs",
     "verify:company-user-invite-flow": "node scripts/verify-company-user-invite-flow.mjs",
     "verify:invite-to-sheet-user-flow": "node scripts/verify-invite-to-sheet-user-flow.mjs",
+    "verify:invite-acceptance-fast": "node scripts/verify-invite-acceptance-fast.mjs",
     "verify:users-source-of-truth": "node scripts/verify-users-source-of-truth.mjs",
     "verify:spreadsheet-users-source-of-truth": "node scripts/verify-spreadsheet-users-source-of-truth.mjs",
     "verify:admin-paths": "node scripts/verify-admin-paths.mjs",
