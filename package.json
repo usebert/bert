@@ -77,6 +77,7 @@
     "verify:login-performance": "node scripts/verify-login-performance.mjs",
     "verify:login-timing-trace": "node scripts/verify-login-timing-trace.mjs",
     "verify:login-context-trace": "node scripts/verify-login-context-trace.mjs",
+    "verify:login-background-jobs": "node scripts/verify-login-background-jobs.mjs",
     "verify:app-paths": "node scripts/verify-app-paths.mjs",
     "verify:end-to-end-smoke": "node scripts/verify-end-to-end-smoke.mjs",
     "verify:shared-drive-workspace": "node scripts/verify-shared-drive-workspace.mjs",

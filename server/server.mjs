@@ -6413,8 +6413,8 @@ async function handleAppInviteComplete(req, res) {
                   .catch(() => null);
               });
               if (backgroundJobs?.enqueueJob) {
-                backgroundJobs
-                  .enqueueJob({
+                try {
+                  backgroundJobs.enqueueJob({
                     type: "REBUILD_AUTH_INDEX",
                     companyId: inviteFolderId,
                     requestedBy: record.email,
@@ -6426,8 +6426,10 @@ async function handleAppInviteComplete(req, res) {
                       companyName: inviteCompanyName,
                       reason: "invite_acceptance",
                     },
-                  })
-                  .catch(() => null);
+                  });
+                } catch (error) {
+                  console.warn("[invite] background job queue failed", error);
+                }
               }
             }
 
@@ -6831,7 +6833,7 @@ app.post("/auth/google/logout", (_req, res) => {
   });
 });
 
-app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, res) => {
+app.post("/api/auth/company/login", async (req, res) => {
   try {
     const loginIdentity = String(req.body?.email || req.body?.username || "").trim();
     const loginPassword = String(req.body?.password || "");
@@ -6870,23 +6872,6 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
       getCompanyUsersDeps,
       sessionRevocation: companySessionRevocationApi,
       isPlatformOwner: isPlatformOwnerEmail,
-      queueLoginBackgroundJobs: (jobs) => {
-        if (backgroundJobs?.enqueueJob) {
-          backgroundJobs
-            .enqueueJob({
-              type: "REBUILD_AUTH_INDEX",
-              companyId: String(jobs.companyFolderId || "").trim(),
-              requestedBy: String(jobs.email || "login").trim(),
-              userMessage: "Rebuilding sign-in index.",
-              payload: {
-                email: jobs.email,
-                masterSheetId: jobs.requestedMasterSheetId || "",
-                reason: jobs.reason || "index_missing",
-              },
-            })
-            .catch(() => null);
-        }
-      },
     });
 
     if (!result.ok) {
@@ -6912,15 +6897,19 @@ app.post("/api/auth/company/login", requireGoogleWorkspaceSession, async (req, r
       if (result.timing) {
         result.timing.response_sent = responseSentMs;
       }
-      queueCompanyLoginBackgroundJobs(
-        {
-          authIndex: authIndexApi,
-          getAuthedClient,
-          getCompanyUsersDeps,
-          enqueueBackgroundJob: (input) => backgroundJobs?.enqueueJob?.(input),
-        },
-        result.backgroundJobs,
-      );
+      try {
+        queueCompanyLoginBackgroundJobs(
+          {
+            authIndex: authIndexApi,
+            getAuthedClient,
+            getCompanyUsersDeps,
+            enqueueBackgroundJob: (input) => backgroundJobs?.enqueueJob?.(input),
+          },
+          result.backgroundJobs,
+        );
+      } catch (error) {
+        console.warn("[login] post-response background job queue failed", error);
+      }
     });
 
     return res.json({

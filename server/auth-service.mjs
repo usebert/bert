@@ -335,6 +335,32 @@ export async function probeCompanyLoginSheet(auth, masterSheetId, email, passwor
 export const INVALID_CREDENTIALS = "INVALID_CREDENTIALS";
 export const LOGIN_CONTEXT_FAILED = "LOGIN_CONTEXT_FAILED";
 
+/** Queue a background job without failing login — enqueueJob is synchronous and does not return a Promise. */
+export function safeEnqueueBackgroundJob(enqueueBackgroundJob, input = {}) {
+  if (typeof enqueueBackgroundJob !== "function") {
+    return;
+  }
+  const type = String(input.type || "").trim();
+  if (type === "REBUILD_AUTH_INDEX") {
+    const payload = input.payload && typeof input.payload === "object" ? input.payload : {};
+    const masterSheetId = String(payload.masterSheetId || "").trim();
+    const companyFolderId = String(payload.companyFolderId || input.companyId || "").trim();
+    if (!masterSheetId || !companyFolderId) {
+      console.warn("[login] skip REBUILD_AUTH_INDEX — missing companyFolderId or masterSheetId", {
+        masterSheetId: masterSheetId || "(missing)",
+        companyFolderId: companyFolderId || "(missing)",
+        reason: payload.reason || type,
+      });
+      return;
+    }
+  }
+  try {
+    enqueueBackgroundJob(input);
+  } catch (error) {
+    console.warn("[login] background job queue failed", error);
+  }
+}
+
 function buildInvalidCredentialsFailure(timing, loginStarted) {
   timing.total = logLoginPhase("total", loginStarted);
   return {
@@ -406,7 +432,6 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     masterSheetId: requestedSheetId = "",
     authIndex,
     sessionRevocation,
-    queueLoginBackgroundJobs,
     getCompanyUsersDeps,
     isPlatformOwner = isPlatformOwnerEmail,
   } = deps;
@@ -475,12 +500,8 @@ export async function performCompanyLogin(auth, deps, input = {}) {
 
   const requested = String(requestedSheetId || "").trim();
   if (!indexEntry) {
-    if (typeof queueLoginBackgroundJobs === "function") {
-      queueLoginBackgroundJobs({
-        email,
-        reason: "index_missing",
-        requestedMasterSheetId: requested,
-      });
+    if (requested) {
+      console.warn("[login] index_missing — skip REBUILD_AUTH_INDEX (missing companyFolderId)", { email });
     }
     return buildInvalidCredentialsFailure(timing, loginStarted);
   }
@@ -702,29 +723,34 @@ export function queueCompanyLoginBackgroundJobs(deps, jobs = {}) {
   const masterSheetId = String(jobs.masterSheetId || "").trim();
   const companyFolderId = String(jobs.companyFolderId || "").trim();
 
-  if (jobs.reason === "index_missing" && typeof enqueueBackgroundJob === "function") {
-    enqueueBackgroundJob({
+  if (jobs.reason === "index_missing") {
+    safeEnqueueBackgroundJob(enqueueBackgroundJob, {
       type: "REBUILD_AUTH_INDEX",
       companyId: companyFolderId,
       requestedBy: email || "login",
       userMessage: "Rebuilding sign-in index.",
-      payload: { email, masterSheetId: jobs.requestedMasterSheetId || masterSheetId, reason: "index_missing" },
-    }).catch(() => null);
+      payload: {
+        email,
+        masterSheetId: jobs.requestedMasterSheetId || masterSheetId,
+        companyFolderId,
+        reason: "index_missing",
+      },
+    });
     return;
   }
 
-  if (jobs.indexStale && typeof enqueueBackgroundJob === "function") {
-    enqueueBackgroundJob({
+  if (jobs.indexStale) {
+    safeEnqueueBackgroundJob(enqueueBackgroundJob, {
       type: "VERIFY_AUTH_INDEX",
       companyId: companyFolderId,
       requestedBy: email,
       userMessage: "Verifying sign-in index.",
       payload: { email, masterSheetId, companyFolderId, companyName: jobs.companyName || "" },
-    }).catch(() => null);
+    });
   }
 
-  if (jobs.validateLiveCompany && typeof enqueueBackgroundJob === "function") {
-    enqueueBackgroundJob({
+  if (jobs.validateLiveCompany) {
+    safeEnqueueBackgroundJob(enqueueBackgroundJob, {
       type: "VERIFY_AUTH_INDEX",
       companyId: companyFolderId,
       requestedBy: email,
@@ -736,7 +762,7 @@ export function queueCompanyLoginBackgroundJobs(deps, jobs = {}) {
         companyName: jobs.companyName || "",
         reason: "post_login_validate",
       },
-    }).catch(() => null);
+    });
   }
 
   if (jobs.touchLastLogin && masterSheetId && email) {

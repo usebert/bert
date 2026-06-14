@@ -109,7 +109,7 @@ async function runDirectTimingTrace() {
     console.log(`[login] total durationMs=${timing.total}`);
     printTiming("Godmode login (direct)", { ok: passwordOk, timingMs: timing, _status: passwordOk ? 200 : 401 }, Date.now() - godmodeStarted);
 
-    const companyDeps = { authIndex, queueLoginBackgroundJobs: () => {} };
+    const companyDeps = { authIndex };
     const validStarted = Date.now();
     const valid = await performCompanyLogin(null, {
       ...companyDeps,
