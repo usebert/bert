@@ -90,8 +90,18 @@ assert(coreRoutes.includes("listCompanySchedules"), "8: routes wire schedule lis
   const appSrc = read("App.tsx");
   assert(appSrc.includes("resolveScheduleSaveValidationMessage"), "16: App uses schedule validation helper");
   assert(appSrc.includes("syncCompanyAuditMappingFromServer({ silent: true })"), "17: schedules screen reloads audit templates");
+  assert(
+    appSrc.includes("resolveCompanyMembersLoadContext") &&
+      /resolveWorkspaceMasterSheetId[\s\S]*?resolveCompanyMembersLoadContext/.test(appSrc),
+    "17b: audit template sync resolves masterSheetId from company context",
+  );
   const schedulesScreen = read("src/screens/SchedulesScreen.tsx");
   assert(schedulesScreen.includes("No audit templates yet"), "18: schedules UI empty audit picker state");
+  assert(
+    /setMappingSyncLoading\(true\)[\s\S]*?syncCompanyAuditMappingFromServer/.test(appSrc) &&
+      !/if \(!options\?\.silent\) \{\s*setMappingSyncLoading\(true\)/.test(appSrc),
+    "19: audit mapping load always drives schedule picker loading state",
+  );
 }
 
 console.log(`[verify:schedule-contract] OK — ${caseCount} cases passed`);

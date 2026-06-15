@@ -10425,11 +10425,16 @@ function App() {
     }
   };
 
-  const resolveWorkspaceMasterSheetId = () =>
-    companySheetSync?.sheetId ||
-    extractGoogleResourceId(masterSheetInput) ||
-    folderInspection?.masterSheet?.id ||
-    "";
+  const resolveWorkspaceMasterSheetId = () => {
+    const { masterSheetId } = resolveCompanyMembersLoadContext({
+      activeCompanyContext,
+      selectedFolderId,
+      folderIdInput,
+      masterSheetInput,
+      companySheetSyncSheetId: companySheetSync?.sheetId,
+    });
+    return masterSheetId || folderInspection?.masterSheet?.id || "";
+  };
 
   const googleFormCopyOption = useMemo(
     () =>
@@ -10528,9 +10533,7 @@ function App() {
       if (!googleConnected || !masterSheetId) {
         return;
       }
-      if (!options?.silent) {
-        setMappingSyncLoading(true);
-      }
+      setMappingSyncLoading(true);
       setMappingSyncError(null);
       try {
         const payload = await fetchCompanyAuditMapping(masterSheetId);
@@ -10568,12 +10571,19 @@ function App() {
           pushToast("Audit mapping not synced", message, "warning");
         }
       } finally {
-        if (!options?.silent) {
-          setMappingSyncLoading(false);
-        }
+        setMappingSyncLoading(false);
       }
     },
-    [googleConnected, companySheetSync?.sheetId, masterSheetInput, folderInspection?.masterSheet?.id],
+    [
+      googleConnected,
+      activeCompanyContext.masterSheetId,
+      activeCompanyContext.companyFolderId,
+      selectedFolderId,
+      folderIdInput,
+      companySheetSync?.sheetId,
+      masterSheetInput,
+      folderInspection?.masterSheet?.id,
+    ],
   );
 
   const syncCompanyAreasFromServer = useCallback(
