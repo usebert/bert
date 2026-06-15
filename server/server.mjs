@@ -2727,11 +2727,15 @@ async function listCompanyFolders(auth, options = {}) {
             file.name?.toLowerCase().includes("onboarding"),
         ) || null;
 
-      const auditForms = auditFolderContents.filter(
-        (file) =>
-          file.mimeType === "application/vnd.google-apps.form" &&
-          !file.name?.toLowerCase().includes("onboarding"),
-      );
+      const auditForms = auditFormsFolder
+        ? (await listGoogleFormsInFolderTree(auth, auditFormsFolder.id)).filter(
+            (file) => !file.name?.toLowerCase().includes("onboarding"),
+          )
+        : auditFolderContents.filter(
+            (file) =>
+              file.mimeType === "application/vnd.google-apps.form" &&
+              !file.name?.toLowerCase().includes("onboarding"),
+          );
 
       const masterSheet =
         companyWorkbookContents.find((file) => file.mimeType === "application/vnd.google-apps.spreadsheet") ||
@@ -2843,27 +2847,58 @@ async function getDriveFile(auth, fileId) {
   return response.data;
 }
 
-async function listFormsInFolder(auth, folderId) {
+async function listGoogleFormsInFolderTree(auth, folderId, options = {}) {
+  const maxDepth = Number(options.maxDepth) > 0 ? Number(options.maxDepth) : 4;
   const drive = google.drive({ version: "v3", auth });
+  const forms = [];
+  const seenFormIds = new Set();
+
+  async function walk(currentFolderId, depth, folderPath) {
+    if (depth > maxDepth) {
+      return;
+    }
+    const response = await drive.files.list({
+      includeItemsFromAllDrives: true,
+      supportsAllDrives: true,
+      q: `'${currentFolderId}' in parents and trashed = false`,
+      fields: "files(id,name,mimeType)",
+      pageSize: 200,
+    });
+    for (const file of response.data.files || []) {
+      if (file.mimeType === "application/vnd.google-apps.form") {
+        if (seenFormIds.has(file.id)) {
+          continue;
+        }
+        seenFormIds.add(file.id);
+        forms.push({
+          ...file,
+          folderPath: folderPath || "",
+        });
+        continue;
+      }
+      if (file.mimeType === "application/vnd.google-apps.folder") {
+        const nextPath = folderPath ? `${folderPath}/${file.name}` : String(file.name || "");
+        await walk(file.id, depth + 1, nextPath);
+      }
+    }
+  }
+
+  await walk(folderId, 0, "");
+  return forms;
+}
+
+async function listFormsInFolder(auth, folderId) {
   const folder = await getDriveFile(auth, folderId);
 
   if (folder.mimeType !== "application/vnd.google-apps.folder") {
     throw new Error("The provided Google Drive ID is not a folder.");
   }
 
-  const response = await drive.files.list({
-    includeItemsFromAllDrives: true,
-    supportsAllDrives: true,
-    q: `'${folderId}' in parents and trashed = false`,
-    fields: "files(id,name,mimeType)",
-    pageSize: 200,
-  });
+  const forms = await listGoogleFormsInFolderTree(auth, folderId);
 
   return {
     folder,
-    forms: (response.data.files || []).filter(
-      (file) => file.mimeType === "application/vnd.google-apps.form",
-    ),
+    forms,
   };
 }
 
@@ -2919,9 +2954,9 @@ async function inspectCompanyFolder(auth, folderId) {
     }
   }
 
-  const auditForms = auditFolderContents.filter(
-    (file) => file.mimeType === "application/vnd.google-apps.form",
-  );
+  const auditForms = auditFormsFolder
+    ? await listGoogleFormsInFolderTree(auth, auditFormsFolder.id)
+    : auditFolderContents.filter((file) => file.mimeType === "application/vnd.google-apps.form");
 
   const masterSheet =
     companyWorkbookContents.find(

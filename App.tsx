@@ -11046,11 +11046,32 @@ function App() {
       active: true,
       questions: buildDefaultQuestions(form.name),
       source: "Google Drive" as const,
+      googleForm: {
+        formId: form.id,
+        syncStatus: "Imported from Drive",
+      },
     }));
-    setTemplates((current) => {
-      const remaining = current.filter((item) => !item.id.startsWith(`template-${selectedFolder.id}-`));
+    const masterSheetIdForSync =
+      manualMasterSheetId ||
+      folderInspection.masterSheet?.id ||
+      selectedFolder.masterSheetId ||
+      resolveWorkspaceMasterSheetId();
+    const mergedTemplates = (() => {
+      const remaining = templates.filter((item) => !item.id.startsWith(`template-${selectedFolder.id}-`));
       return [...remaining, ...nextTemplates];
-    });
+    })();
+    setTemplates(mergedTemplates);
+    if (googleConnected && masterSheetIdForSync && mergedTemplates.some((template) => template.active)) {
+      try {
+        await syncAuditTemplatesToSheet(masterSheetIdForSync, mergedTemplates);
+      } catch {
+        pushToast(
+          "Templates loaded locally",
+          "Could not write imported audit templates to the AuditTemplates workbook tab yet.",
+          "warning",
+        );
+      }
+    }
     setAudits(
       nextTemplates.filter((template) => template.active).map((template, index) => ({
         id: `audit-${selectedFolder.id}-${template.id}`,
