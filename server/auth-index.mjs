@@ -25,6 +25,7 @@ import {
   rowPassesCompanyProfileContext,
 } from "./users-tab-schema.mjs";
 import { isCompanyRegistryLive } from "../shared/company-invite-permissions.mjs";
+import { sanitizeCompanyFolderId, sanitizeGoogleSpreadsheetId } from "../shared/google-drive-id.mjs";
 
 const DEFAULT_STALE_MS = Math.max(
   60_000,
@@ -267,12 +268,14 @@ export function createAuthIndexApi(indexPath) {
       return null;
     }
     const rowFolderId = pickRowCompanyFolderId(row?.rowObject || row) || pickRowCompanyId(row?.rowObject || row);
-    const companyFolderId = String(
-      rowFolderId || row.companyFolderId || row.companyId || meta.companyFolderId || meta.companyId || "",
-    ).trim();
+    const companyFolderId =
+      sanitizeCompanyFolderId(
+        rowFolderId || row.companyFolderId || row.companyId || meta.companyFolderId || meta.companyId || "",
+      ) || "";
     const companyName = String(pickRowCompanyName(row?.rowObject || row) || row.companyName || meta.companyName || "").trim();
     const roleRaw = String(row.roleRaw || row.role || "").trim();
     const role = parseRoleFromUsersSheet(roleRaw) || roleRaw || "User";
+    const masterSheetId = sanitizeGoogleSpreadsheetId(meta.masterSheetId || "") || "";
     return {
       email,
       name: String(row.name || email).trim() || email,
@@ -281,7 +284,7 @@ export function createAuthIndexApi(indexPath) {
       companyId: companyFolderId,
       companyFolderId,
       companyName,
-      masterSheetId: String(meta.masterSheetId || "").trim(),
+      masterSheetId,
       status: normalizeUserStatus(row.status || "ACTIVE"),
       passwordHash: String(row.passwordHash || "").trim(),
       updatedAt: safeIso(row.updatedAt || row.updatedAtVal),

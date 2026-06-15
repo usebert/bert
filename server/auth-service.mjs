@@ -24,6 +24,11 @@ import {
   sanitizeCompanyFolderId,
   sanitizeGoogleSpreadsheetId,
 } from "../shared/google-drive-id.mjs";
+import {
+  pickRowCompanyFolderId,
+  pickRowCompanyId,
+  pickRowCompanyName,
+} from "./users-tab-schema.mjs";
 
 export { COMPANY_CONTEXT_INVALID, COMPANY_NO_LONGER_AVAILABLE_MESSAGE, FOLDER_NOT_IN_COMPANIES_ROOT, validateLiveCompanyContext };
 
@@ -387,6 +392,81 @@ function buildInvalidCredentialsFailure(timing, loginStarted) {
   };
 }
 
+function collectLoginMasterSheetCandidates(email, deps, requested = "", indexEntry = {}) {
+  const seen = new Set();
+  const ordered = [];
+  const push = (raw) => {
+    const id = sanitizeGoogleSpreadsheetId(raw);
+    if (!id || seen.has(id)) {
+      return;
+    }
+    seen.add(id);
+    ordered.push(id);
+  };
+  push(requested);
+  push(indexEntry?.masterSheetId);
+  if (typeof deps.findMasterSheetIdsForCompanyLoginEmail === "function") {
+    for (const sheetId of deps.findMasterSheetIdsForCompanyLoginEmail(email) || []) {
+      push(sheetId);
+    }
+  }
+  return ordered;
+}
+
+function mergeSessionCompanyContextFromUsersTab(usersTabRec, indexEntry = {}, session = {}) {
+  if (!usersTabRec) {
+    return session;
+  }
+  const rowObj = usersTabRec.rowObject || usersTabRec;
+  const companyName = String(
+    usersTabRec.companyName || pickRowCompanyName(rowObj) || session.sessionCompanyName || indexEntry.companyName || "",
+  ).trim();
+  const folderRaw = String(
+    usersTabRec.companyFolderId ||
+      pickRowCompanyFolderId(rowObj) ||
+      usersTabRec.companyId ||
+      pickRowCompanyId(rowObj) ||
+      session.sessionCompanyId ||
+      indexEntry.companyFolderId ||
+      indexEntry.companyId ||
+      "",
+  ).trim();
+  const sessionCompanyId = sanitizeCompanyFolderId(folderRaw) || session.sessionCompanyId || "";
+  return {
+    ...session,
+    sessionCompanyName: companyName || session.sessionCompanyName || "",
+    sessionCompanyId,
+  };
+}
+
+function persistLoginAuthIndexEntry(authIndex, email, indexEntry = {}, session = {}) {
+  if (!authIndex || typeof authIndex.upsertEntry !== "function") {
+    return;
+  }
+  const key = String(email || "").trim().toLowerCase();
+  const masterSheetId = sanitizeGoogleSpreadsheetId(session.masterSheetId || indexEntry.masterSheetId || "");
+  const companyFolderId = sanitizeCompanyFolderId(
+    session.sessionCompanyId || indexEntry.companyFolderId || indexEntry.companyId || "",
+  );
+  if (!key || !masterSheetId || !companyFolderId) {
+    return;
+  }
+  authIndex.upsertEntry({
+    ...indexEntry,
+    email: key,
+    name: String(indexEntry.name || key).trim() || key,
+    role: String(indexEntry.role || "User").trim() || "User",
+    accessLevel: String(indexEntry.accessLevel || "").trim(),
+    companyId: companyFolderId,
+    companyFolderId,
+    companyName: String(session.sessionCompanyName || indexEntry.companyName || "").trim(),
+    masterSheetId,
+    status: indexEntry.status || "ACTIVE",
+    passwordHash: String(indexEntry.passwordHash || "").trim(),
+    companyAreas: Array.isArray(indexEntry.companyAreas) ? indexEntry.companyAreas : [],
+  });
+}
+
 function buildLoginContextFailure({
   timing,
   loginStarted,
@@ -555,23 +635,41 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     sessionCompanyName = String(indexEntry.companyName || "").trim();
     sessionCompanyId = sanitizeCompanyFolderId(indexEntry.companyFolderId || indexEntry.companyId || "");
     masterSheetId = sanitizeGoogleSpreadsheetId(indexEntry.masterSheetId || requested || "");
+    if (!masterSheetId) {
+      const [firstCandidate] = collectLoginMasterSheetCandidates(email, deps, requested, indexEntry);
+      masterSheetId = firstCandidate || "";
+    }
   }
 
   const tUsersTab = Date.now();
-  if (
-    auth &&
-    masterSheetId &&
-    indexEntry &&
-    !usersTabRec &&
-    typeof authIndex.reconcileLoginEntryFromUsersTab === "function"
-  ) {
+  if (auth && indexEntry && !usersTabRec && typeof authIndex.reconcileLoginEntryFromUsersTab === "function") {
     const reconcileDeps = {
       ...deps,
       getCompanyUsersDeps: getCompanyUsersDeps || deps.getCompanyUsersDeps,
     };
-    const reconciled = await authIndex
-      .reconcileLoginEntryFromUsersTab(auth, reconcileDeps, email, indexEntry)
-      .catch(() => ({ ok: false, failedStep: "user_lookup", reason: "reconcile_failed" }));
+    const sheetCandidates = collectLoginMasterSheetCandidates(email, deps, requested, indexEntry);
+    if (!masterSheetId && sheetCandidates.length) {
+      masterSheetId = sheetCandidates[0];
+    }
+    let reconciled = { ok: false, failedStep: "user_lookup", reason: "user_not_in_workbook" };
+    for (const candidateSheetId of sheetCandidates.length ? sheetCandidates : [masterSheetId]) {
+      if (!candidateSheetId) {
+        continue;
+      }
+      reconciled = await authIndex
+        .reconcileLoginEntryFromUsersTab(auth, reconcileDeps, email, {
+          ...indexEntry,
+          masterSheetId: candidateSheetId,
+        })
+        .catch(() => ({ ok: false, failedStep: "user_lookup", reason: "reconcile_failed" }));
+      if (reconciled.ok) {
+        masterSheetId = candidateSheetId;
+        break;
+      }
+      if (reconciled.reason !== "user_not_in_workbook" && reconciled.reason !== "missing_context") {
+        break;
+      }
+    }
     timing.users_tab_reconcile = logLoginPhase("users_tab_reconcile", tUsersTab);
 
     if (!reconciled.ok) {
@@ -623,20 +721,42 @@ export async function performCompanyLogin(auth, deps, input = {}) {
   if (!passwordVerified) {
     const tUsersPasswordFallback = Date.now();
     const userDeps = typeof getCompanyUsersDeps === "function" ? getCompanyUsersDeps() : deps;
-    const usersTabVerify = auth
-      ? await verifyUserPasswordFromUsersTab(
+    let usersTabVerify = { ok: false };
+    if (auth) {
+      const sheetCandidates = collectLoginMasterSheetCandidates(email, deps, requested, indexEntry);
+      for (const candidateSheetId of sheetCandidates.length ? sheetCandidates : [masterSheetId]) {
+        if (!candidateSheetId) {
+          continue;
+        }
+        usersTabVerify = await verifyUserPasswordFromUsersTab(
           auth,
-          { masterSheetId, companyFolderId: sessionCompanyId, companyName: sessionCompanyName },
+          { masterSheetId: candidateSheetId, companyFolderId: sessionCompanyId, companyName: sessionCompanyName },
           email,
           pwd,
           userDeps,
-        ).catch(() => ({ ok: false }))
-      : { ok: false };
+        ).catch(() => ({ ok: false }));
+        if (usersTabVerify.ok && usersTabVerify.row) {
+          masterSheetId = candidateSheetId;
+          break;
+        }
+      }
+    }
     timing.users_tab_password_fallback = logLoginPhase("users_tab_password_fallback", tUsersPasswordFallback);
     if (usersTabVerify.ok && usersTabVerify.row) {
       usersTabRec = usersTabVerify.row;
-      sessionCompanyName = String(usersTabRec.companyName || sessionCompanyName).trim();
-      sessionCompanyId = String(usersTabRec.companyFolderId || usersTabRec.companyId || sessionCompanyId).trim();
+      ({
+        sessionCompanyName,
+        sessionCompanyId,
+      } = mergeSessionCompanyContextFromUsersTab(usersTabRec, indexEntry, {
+        sessionCompanyName,
+        sessionCompanyId,
+      }));
+      if (!masterSheetId) {
+        masterSheetId =
+          sanitizeGoogleSpreadsheetId(usersTabRec.masterSheetId || "") ||
+          collectLoginMasterSheetCandidates(email, deps, requested, indexEntry)[0] ||
+          "";
+      }
       await rebuildAuthIndexFromUsersTab(
         auth,
         { ...deps, getCompanyUsersDeps },
@@ -676,6 +796,18 @@ export async function performCompanyLogin(auth, deps, input = {}) {
   ) {
     authIndex.removeEntry?.(email);
     return buildInvalidCredentialsFailure(timing, loginStarted);
+  }
+
+  ({
+    sessionCompanyName,
+    sessionCompanyId,
+  } = mergeSessionCompanyContextFromUsersTab(usersTabRec, indexEntry, {
+    sessionCompanyName,
+    sessionCompanyId,
+  }));
+  if (!isValidGoogleSpreadsheetId(masterSheetId)) {
+    const [firstCandidate] = collectLoginMasterSheetCandidates(email, deps, requested, indexEntry);
+    masterSheetId = firstCandidate || masterSheetId;
   }
 
   if (isKnownStaleAuthIndexPairing(email, sessionCompanyName)) {
@@ -746,6 +878,13 @@ export async function performCompanyLogin(auth, deps, input = {}) {
       usersTabRec,
     });
   }
+
+  persistLoginAuthIndexEntry(authIndex, email, indexEntry, {
+    sessionCompanyId,
+    sessionCompanyName,
+    masterSheetId,
+  });
+  indexEntry = authIndex.lookupByEmail(email) || indexEntry;
 
   const tContext = Date.now();
   const companyAreas = Array.isArray(usersTabRec?.companyAreas)

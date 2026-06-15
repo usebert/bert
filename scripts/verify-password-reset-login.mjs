@@ -122,8 +122,8 @@ const sessionDir = fs.mkdtempSync(path.join(os.tmpdir(), "bert-pw-reset-login-")
 try {
   const authIndexPath = path.join(sessionDir, "auth-index.json");
   const authIndexApi = createAuthIndexApi(authIndexPath);
-  const masterSheetId = "sheet-seven-oaks";
-  const companyFolderId = "folder-seven-oaks";
+  const masterSheetId = "1PlwknNgtt-4j08matn1w4358YTe5SXFs5Hh0zA_m3So";
+  const companyFolderId = "1TVQ-gbpxoOzE6PCkHX581eTDgtMC11lc";
   const auditEmail = "7oakcottages@gmail.com";
   const oldPassword = "OldRockSolid-99";
   const newPassword = "NewSevenOaks-2026!";
@@ -252,6 +252,32 @@ try {
     },
   );
   assert(wrongPassword.ok === false && wrongPassword.code === "INVALID_CREDENTIALS", "14: wrong password fails");
+
+  authIndexApi.upsertEntry({
+    email: auditEmail,
+    name: "Sophie",
+    role: "Admin",
+    companyId: companyFolderId,
+    companyFolderId,
+    companyName: "Seven Oaks Cottages",
+    masterSheetId: "1WrongSheetId0000000000000000000000000000000",
+    status: "ACTIVE",
+    passwordHash: hashPassword(newPassword),
+    updatedAt: new Date().toISOString(),
+  });
+
+  const wrongSheetLogin = await performCompanyLogin(
+    {},
+    {
+      authIndex: authIndexApi,
+      getCompanyUsersDeps: () => userDeps,
+      findMasterSheetIdsForCompanyLoginEmail: (email) =>
+        String(email).trim().toLowerCase() === auditEmail ? [masterSheetId] : [],
+      email: auditEmail,
+      password: newPassword,
+    },
+  );
+  assert(wrongSheetLogin.ok === true, "14b: stale index masterSheetId repaired via invite hint reconcile");
 
   const wrongCompany = await verifyUserPasswordFromUsersTab(
     {},

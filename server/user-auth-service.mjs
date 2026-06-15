@@ -12,6 +12,7 @@ import {
   readCompanyUsersTabRecord,
 } from "./company-users.mjs";
 import { pickRowCompanyFolderId, pickRowCompanyId, pickRowCompanyName } from "./users-tab-schema.mjs";
+import { sanitizeCompanyFolderId } from "../shared/google-drive-id.mjs";
 
 function resolveUsersTabReaders(deps = {}) {
   return {
@@ -237,9 +238,11 @@ export async function attemptUsersTabPasswordLogin(auth, deps, input = {}) {
     const row = verifyResult.row;
     const companyContext = {
       masterSheetId,
-      companyFolderId: row.companyFolderId || row.companyId || "",
-      companyId: row.companyId || row.companyFolderId || "",
-      companyName: row.companyName || "",
+      companyFolderId:
+        sanitizeCompanyFolderId(row.companyFolderId || row.companyId || "") || "",
+      companyId:
+        sanitizeCompanyFolderId(row.companyId || row.companyFolderId || "") || "",
+      companyName: String(row.companyName || pickRowCompanyName(row.rowObject || row) || "").trim(),
     };
     await rebuildAuthIndexFromUsersTab(auth, deps, companyContext, authIndex, email).catch(() => null);
     const entry =

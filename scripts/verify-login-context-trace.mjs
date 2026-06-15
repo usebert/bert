@@ -49,6 +49,8 @@ assert(
 );
 
 assert(loginFn.includes("authIndex.lookupByEmail"), "2a: auth index lookup first");
+assert(loginFn.includes("collectLoginMasterSheetCandidates"), "2b3: login retries reconcile across invite sheet hints");
+assert(loginFn.includes("findMasterSheetIdsForCompanyLoginEmail"), "2b4: login uses invite sheet hints for reconcile");
 assert(loginFn.includes("reconcileLoginEntryFromUsersTab"), "2b: Users tab reconcile when auth available");
 assert(loginFn.includes("verifyPasswordForEntry"), "2c: password verify after reconcile");
 assert(loginFn.includes("attemptUsersTabPasswordLogin"), "2c2: Users tab fallback when index missing");
