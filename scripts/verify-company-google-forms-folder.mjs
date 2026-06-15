@@ -290,7 +290,7 @@ assertContains("server/company-forms-service.mjs", [
   "resolveCompanyGoogleFormsFolder",
   "listCompanyGoogleForms",
   "COMPANY_GOOGLE_FORMS_SYNC_COLUMNS",
-  "GoogleFormTemplates",
+  "GOOGLE_FORM_TEMPLATES_TAB",
   "/api/company/:companyFolderId/google-forms",
 ]);
 

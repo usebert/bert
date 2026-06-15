@@ -814,6 +814,7 @@ type FolderInspection = {
   checks: {
     setupFolder: boolean;
     auditFormsFolder: boolean;
+    googleFormsFolder?: boolean;
     recordsFolder: boolean;
     masterSheet: boolean;
     evidenceFolder: boolean;
@@ -821,6 +822,18 @@ type FolderInspection = {
     managementNotesFolder: boolean;
   };
   auditFormsFolder: { id: string; name: string } | null;
+  googleFormsFolder?: { id: string; name: string } | null;
+  googleFormsStatus?: string;
+  googleFormsDiagnostics?: {
+    companyFolderId: string;
+    googleFormsFolderId: string;
+    driveQuery: string;
+    formsFound: number;
+    permissionError?: string;
+    resolvedVia?: string;
+  } | null;
+  googleFormsPermissionError?: string;
+  companyGoogleForms?: CompanyGoogleForm[];
   setupFolder: { id: string; name: string } | null;
   recordsFolder: { id: string; name: string } | null;
   masterSheet: { id: string; name: string; tabs: string[] } | null;
