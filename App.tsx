@@ -130,7 +130,7 @@ import {
 } from "./src/utils/companyFolderContext";
 import { clearStaleCompanyLocalStorage } from "./src/utils/clearStaleCompanyLocalStorage";
 import { isKnownStaleAuthIndexPairing } from "./src/utils/authIndexTrust";
-import { resolveActiveCompanyContext, resolveCompanyMembersLoadContext } from "./src/services/companyContextService";
+import { resolveActiveCompanyContext, resolveCompanyMembersLoadContext, sanitizeResolvedCompanyContext } from "./src/services/companyContextService";
 import {
   COMPANY_MEMBERS_USER_MESSAGE,
   fetchCompanyMembers,
@@ -273,6 +273,7 @@ import {
   TrendBar,
 } from "./src/components/dashboard/DashboardPrimitives";
 import { clearCompanyLoginHintForEmail, readCompanyLoginHint, saveCompanyLoginHint } from "./src/lib/companyLoginHint";
+import { validateCompanyDriveIds } from "./src/utils/googleDriveId";
 import { pickNextAuditorAudit } from "./src/utils/auditorDashboard";
 import { mergeTextIntoNotes, syncTextResponsesToAnswers } from "./src/utils/checkCompletionHelpers";
 import {
@@ -298,7 +299,7 @@ import {
   scheduleSheetRecordsPreferSchedulesTab,
   type ScheduleAssignedUser,
 } from "./src/utils/scheduleSave";
-import { companyLogin, type LoginContextDiagnostics } from "./src/services/authService";
+import { companyLogin, fetchCompanySession, type LoginContextDiagnostics } from "./src/services/authService";
 import {
   companyLoginNetworkError,
   formatLoginNetworkDebugSuffix,
@@ -4099,12 +4100,14 @@ function App() {
 
   const activeCompanyContext = useMemo(
     () =>
-      resolveActiveCompanyContext({
-        currentUser,
-        linkedCompany: linkedCompanyContext,
-        selectedFolder,
-        companyRegistryStatus,
-      }),
+      sanitizeResolvedCompanyContext(
+        resolveActiveCompanyContext({
+          currentUser,
+          linkedCompany: linkedCompanyContext,
+          selectedFolder,
+          companyRegistryStatus,
+        }),
+      ),
     [currentUser, linkedCompanyContext, selectedFolder, companyRegistryStatus],
   );
 
@@ -5786,17 +5789,18 @@ function App() {
               registryStatus: cp.company?.registryStatus,
             }),
           );
-          const resolvedCompanyId = String(
-            cp.company?.companyId || cp.company?.companyFolderId || cp.companyFolderId || cp.companyId || "",
-          ).trim();
-          const resolvedMasterSheetId = String(cp.company?.masterSheetId || "").trim();
-          if (resolvedCompanyId && resolvedMasterSheetId) {
+          const resolvedCompanyIds = validateCompanyDriveIds({
+            companyFolderId:
+              cp.company?.companyId || cp.company?.companyFolderId || cp.companyFolderId || cp.companyId,
+            masterSheetId: cp.company?.masterSheetId,
+          });
+          if (resolvedCompanyIds) {
             applyLinkedCompanyContext({
               email: companyUser.username,
               company: {
                 ...cp.company,
-                companyId: resolvedCompanyId,
-                masterSheetId: resolvedMasterSheetId,
+                companyId: resolvedCompanyIds.companyFolderId,
+                masterSheetId: resolvedCompanyIds.masterSheetId,
                 folderPlacementOk: companyLinkValid,
               },
               setSelectedFolderId,
@@ -5808,9 +5812,9 @@ function App() {
             });
             clearGodmodeSelectedCompanyFolderId();
             setLinkedCompanyContext({
-              companyId: resolvedCompanyId,
+              companyId: resolvedCompanyIds.companyFolderId,
               companyName: cp.company?.companyName,
-              masterSheetId: resolvedMasterSheetId,
+              masterSheetId: resolvedCompanyIds.masterSheetId,
               registryStatus: cp.company?.registryStatus,
               folderPlacementOk: companyLinkValid,
               role: cp.user?.role,
@@ -7625,16 +7629,27 @@ function App() {
           };
           return false;
         }
-        const resolvedSheetId = String(
-          loginResult.masterSheetId || loggedInCompany?.masterSheetId || masterSheetId || "",
-        ).trim();
+        const resolvedSheetIds = validateCompanyDriveIds({
+          companyFolderId: loggedInCompany?.companyFolderId || loggedInCompany?.companyId,
+          masterSheetId: loginResult.masterSheetId || loggedInCompany?.masterSheetId,
+        });
+        if (!resolvedSheetIds) {
+          clearStaleCompanyLocalStorage(email);
+          companyLoginFailure = {
+            blocker: "login_context_failed",
+            code: "COMPANY_CONTEXT_INVALID",
+            message: loginResult.message || loginResult.error || "Unable to complete sign in.",
+            diagnostics: loginResult.diagnostics,
+          };
+          return false;
+        }
         clearStaleCompanyLocalStorage(email);
         applyLinkedCompanyContext({
           email: String(loggedInUser.email).toLowerCase(),
           company: {
-            companyId: loggedInCompany?.companyFolderId || loggedInCompany?.companyId,
+            companyId: resolvedSheetIds.companyFolderId,
             companyName: loggedInCompany?.companyName,
-            masterSheetId: resolvedSheetId,
+            masterSheetId: resolvedSheetIds.masterSheetId,
             registryStatus: loggedInCompany?.registryStatus,
             folderPlacementOk: loggedInCompany?.folderPlacementOk !== false,
           },
@@ -7647,9 +7662,9 @@ function App() {
         });
         clearGodmodeSelectedCompanyFolderId();
         setLinkedCompanyContext({
-          companyId: loggedInCompany?.companyFolderId || loggedInCompany?.companyId,
+          companyId: resolvedSheetIds.companyFolderId,
           companyName: loggedInCompany?.companyName,
-          masterSheetId: resolvedSheetId,
+          masterSheetId: resolvedSheetIds.masterSheetId,
           registryStatus: loggedInCompany?.registryStatus,
           folderPlacementOk: loggedInCompany?.folderPlacementOk !== false,
           role: loggedInUser.role,

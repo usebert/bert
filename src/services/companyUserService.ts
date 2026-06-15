@@ -1,5 +1,6 @@
 import type { CompanyUsersTabRow } from "../utils/scheduleAssignees";
 import { fetchJson } from "../utils/fetchJson";
+import { sanitizeCompanyFolderId, sanitizeGoogleSpreadsheetId } from "../utils/googleDriveId";
 
 export type CompanyMember = CompanyUsersTabRow & {
   companyFolderId?: string;
@@ -188,19 +189,47 @@ export async function fetchCompanyMembers(
     signal?: AbortSignal;
   },
 ): Promise<FetchCompanyMembersResult> {
-  const companyId = input.companyId.trim();
+  const companyId = sanitizeCompanyFolderId(input.companyId);
   if (!companyId) {
     return {
       ok: false,
       members: [],
       loadError: COMPANY_MEMBERS_USER_MESSAGE,
-      loadErrorDetail: "No company linked.",
+      loadErrorDetail: "Company workspace id is invalid.",
+      reasonCode: "INVALID_COMPANY_ID",
+      failedStep: "company_context_resolve",
+      diagnostics: {
+        companyId: String(input.companyId || "").trim() || undefined,
+        companyFolderId: String(input.companyId || "").trim() || undefined,
+        masterSheetId: String(input.masterSheetId || "").trim() || undefined,
+        failedStep: "company_context_resolve",
+        dataSource: "users_tab",
+      },
+    };
+  }
+  const masterSheetId = sanitizeGoogleSpreadsheetId(input.masterSheetId);
+  if (input.masterSheetId?.trim() && !masterSheetId) {
+    return {
+      ok: false,
+      members: [],
+      loadError: COMPANY_MEMBERS_USER_MESSAGE,
+      loadErrorDetail: "Company workbook id is invalid.",
+      reasonCode: "INVALID_MASTER_SHEET_ID",
+      failedStep: "company_context_resolve",
+      diagnostics: {
+        companyId,
+        companyFolderId: companyId,
+        companyName: input.companyName?.trim() || undefined,
+        masterSheetId: String(input.masterSheetId || "").trim() || undefined,
+        failedStep: "company_context_resolve",
+        dataSource: "users_tab",
+      },
     };
   }
 
   const params = new URLSearchParams();
-  if (input.masterSheetId?.trim()) {
-    params.set("masterSheetId", input.masterSheetId.trim());
+  if (masterSheetId) {
+    params.set("masterSheetId", masterSheetId);
   }
   if (input.companyName?.trim()) {
     params.set("companyName", input.companyName.trim());

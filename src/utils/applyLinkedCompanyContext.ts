@@ -1,5 +1,6 @@
 import { saveCompanyLoginHint } from "../lib/companyLoginHint";
 import { getCanonicalCompanyStatus } from "./companyWorkspaceInvite";
+import { validateCompanyDriveIds } from "./googleDriveId";
 
 export const COMPANY_USER_NO_COMPANY_MESSAGE = "No company is linked to your account.";
 
@@ -97,19 +98,24 @@ export function applyLinkedCompanyContext(input: {
   }
   const companyId = String(input.company?.companyId || "").trim();
   const masterSheetId = String(input.company?.masterSheetId || "").trim();
-  if (!companyId) {
+  const validatedIds = validateCompanyDriveIds({ companyFolderId: companyId, masterSheetId });
+  if (!companyId || !validatedIds) {
     return false;
   }
 
-  input.setSelectedFolderId(companyId);
-  input.setFolderIdInput?.((current) => current.trim() || companyId);
+  input.setSelectedFolderId(validatedIds.companyFolderId);
+  input.setFolderIdInput?.((current) => current.trim() || validatedIds.companyFolderId);
   if (input.company?.companyName) {
     input.setFolderNameInput?.((current) => current.trim() || input.company?.companyName || "");
   }
-  if (masterSheetId) {
-    input.setMasterSheetInput?.((current) => current.trim() || masterSheetId);
-  }
-  input.setFolders((current) => mergeLinkedCompanyFolder(current, input.company || {}));
+  input.setMasterSheetInput?.((current) => current.trim() || validatedIds.masterSheetId);
+  input.setFolders((current) =>
+    mergeLinkedCompanyFolder(current, {
+      ...(input.company || {}),
+      companyId: validatedIds.companyFolderId,
+      masterSheetId: validatedIds.masterSheetId,
+    }),
+  );
   if (input.company?.registryStatus) {
     input.setCompanyRegistryStatus?.(
       getCanonicalCompanyStatus({
@@ -120,11 +126,11 @@ export function applyLinkedCompanyContext(input: {
   }
 
   const email = String(input.email || "").trim().toLowerCase();
-  if (email && masterSheetId) {
+  if (email && validatedIds.masterSheetId) {
     saveCompanyLoginHint({
       email,
-      masterSheetId,
-      companyFolderId: companyId,
+      masterSheetId: validatedIds.masterSheetId,
+      companyFolderId: validatedIds.companyFolderId,
       companyName: input.company?.companyName,
     });
   }

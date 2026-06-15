@@ -2,6 +2,12 @@ import type { Role } from "../permissions";
 import { getCanonicalCompanyStatus } from "../utils/companyWorkspaceInvite";
 import type { LinkedCompanyContextInput } from "../utils/applyLinkedCompanyContext";
 import { isCompanyFolderLinkValid, isCompanyWorkspaceUsable } from "../utils/companyFolderContext";
+import {
+  extractGoogleDriveResourceId,
+  sanitizeCompanyFolderId,
+  sanitizeGoogleSpreadsheetId,
+  validateCompanyDriveIds,
+} from "../utils/googleDriveId";
 
 export type ResolvedCompanyContext = {
   companyId: string;
@@ -98,33 +104,40 @@ export function toLinkedCompanyContextInput(context: ResolvedCompanyContext): Li
   };
 }
 
+function sanitizeLinkedCompanyIds(input: {
+  companyId?: string;
+  companyFolderId?: string;
+  masterSheetId?: string;
+}): { companyFolderId: string; masterSheetId: string } | null {
+  return validateCompanyDriveIds({
+    companyFolderId: input.companyFolderId || input.companyId,
+    masterSheetId: input.masterSheetId,
+  });
+}
+
+/** Reject linked/selected ids that fail Drive format checks (common after OCR or stale localStorage). */
+export function sanitizeResolvedCompanyContext(context: ResolvedCompanyContext): ResolvedCompanyContext {
+  const validated = sanitizeLinkedCompanyIds(context);
+  if (!validated) {
+    return {
+      ...context,
+      companyId: "",
+      companyFolderId: "",
+      masterSheetId: "",
+      usable: false,
+      workspaceSetupComplete: false,
+    };
+  }
+  return {
+    ...context,
+    companyId: validated.companyFolderId,
+    companyFolderId: validated.companyFolderId,
+    masterSheetId: validated.masterSheetId,
+  };
+}
+
 function extractGoogleResourceId(input: string): string {
-  const trimmed = input.trim();
-  if (!trimmed) {
-    return "";
-  }
-
-  const directIdMatch = trimmed.match(/^[A-Za-z0-9_-]{20,}$/);
-  if (directIdMatch) {
-    return directIdMatch[0];
-  }
-
-  const pathMatch = trimmed.match(/\/d\/([A-Za-z0-9_-]+)/);
-  if (pathMatch?.[1]) {
-    return pathMatch[1];
-  }
-
-  const folderMatch = trimmed.match(/\/folders\/([A-Za-z0-9_-]+)/);
-  if (folderMatch?.[1]) {
-    return folderMatch[1];
-  }
-
-  const queryMatch = trimmed.match(/[?&]id=([A-Za-z0-9_-]+)/);
-  if (queryMatch?.[1]) {
-    return queryMatch[1];
-  }
-
-  return trimmed;
+  return extractGoogleDriveResourceId(input);
 }
 
 /** Same company folder + master sheet resolution as Re-sync users and refreshActiveCompanyMembers. */
@@ -140,14 +153,14 @@ export function resolveCompanyMembersLoadContext(input: {
   companyName: string;
 } {
   const companyId =
-    input.activeCompanyContext.companyFolderId.trim() ||
-    input.selectedFolderId?.trim() ||
-    extractGoogleResourceId(input.folderIdInput || "") ||
+    sanitizeCompanyFolderId(input.activeCompanyContext.companyFolderId) ||
+    sanitizeCompanyFolderId(input.selectedFolderId) ||
+    sanitizeCompanyFolderId(extractGoogleResourceId(input.folderIdInput || "")) ||
     "";
   const masterSheetId =
-    input.activeCompanyContext.masterSheetId.trim() ||
-    extractGoogleResourceId(input.masterSheetInput || "") ||
-    input.companySheetSyncSheetId?.trim() ||
+    sanitizeGoogleSpreadsheetId(input.activeCompanyContext.masterSheetId) ||
+    sanitizeGoogleSpreadsheetId(extractGoogleResourceId(input.masterSheetInput || "")) ||
+    sanitizeGoogleSpreadsheetId(input.companySheetSyncSheetId) ||
     "";
   return {
     companyId,

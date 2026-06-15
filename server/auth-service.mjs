@@ -18,6 +18,12 @@ import {
   rebuildAuthIndexFromUsersTab,
   verifyUserPasswordFromUsersTab,
 } from "./user-auth-service.mjs";
+import {
+  isValidCompanyFolderId,
+  isValidGoogleSpreadsheetId,
+  sanitizeCompanyFolderId,
+  sanitizeGoogleSpreadsheetId,
+} from "../shared/google-drive-id.mjs";
 
 export { COMPANY_CONTEXT_INVALID, COMPANY_NO_LONGER_AVAILABLE_MESSAGE, FOLDER_NOT_IN_COMPANIES_ROOT, validateLiveCompanyContext };
 
@@ -506,7 +512,7 @@ export async function performCompanyLogin(auth, deps, input = {}) {
   let indexEntry = authIndex.lookupByEmail(email);
   timing.auth_index_lookup = logLoginPhase("auth_index_lookup", tLookup);
 
-  const requested = String(requestedSheetId || "").trim();
+  const requested = sanitizeGoogleSpreadsheetId(requestedSheetId);
   let usersTabRec = null;
   let sessionCompanyName = "";
   let sessionCompanyId = "";
@@ -525,14 +531,16 @@ export async function performCompanyLogin(auth, deps, input = {}) {
         indexEntry = fallback.entry;
         usersTabRec = fallback.row;
         sessionCompanyName = String(fallback.companyContext?.companyName || indexEntry?.companyName || "").trim();
-        sessionCompanyId = String(
+        sessionCompanyId = sanitizeCompanyFolderId(
           fallback.companyContext?.companyFolderId ||
             fallback.companyContext?.companyId ||
             indexEntry?.companyFolderId ||
             indexEntry?.companyId ||
             "",
-        ).trim();
-        masterSheetId = String(fallback.companyContext?.masterSheetId || indexEntry?.masterSheetId || requested).trim();
+        );
+        masterSheetId = sanitizeGoogleSpreadsheetId(
+          fallback.companyContext?.masterSheetId || indexEntry?.masterSheetId || requested,
+        );
         timing.auth_index_update = logLoginPhase("auth_index_update", tUsersFallback);
       } else {
         return buildInvalidCredentialsFailure(timing, loginStarted);
@@ -545,8 +553,8 @@ export async function performCompanyLogin(auth, deps, input = {}) {
       return buildInvalidCredentialsFailure(timing, loginStarted);
     }
     sessionCompanyName = String(indexEntry.companyName || "").trim();
-    sessionCompanyId = String(indexEntry.companyFolderId || indexEntry.companyId || "").trim();
-    masterSheetId = String(indexEntry.masterSheetId || requested || "").trim();
+    sessionCompanyId = sanitizeCompanyFolderId(indexEntry.companyFolderId || indexEntry.companyId || "");
+    masterSheetId = sanitizeGoogleSpreadsheetId(indexEntry.masterSheetId || requested || "");
   }
 
   const tUsersTab = Date.now();
@@ -593,10 +601,10 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     usersTabRec = reconciled.rec || null;
     const rowCols = reconciled.rowCols || {};
     sessionCompanyName = String(rowCols.companyName || indexEntry.companyName || "").trim();
-    sessionCompanyId = String(
+    sessionCompanyId = sanitizeCompanyFolderId(
       rowCols.companyFolderId || rowCols.companyId || indexEntry.companyFolderId || indexEntry.companyId || "",
-    ).trim();
-    masterSheetId = String(indexEntry.masterSheetId || requested || "").trim();
+    );
+    masterSheetId = sanitizeGoogleSpreadsheetId(indexEntry.masterSheetId || requested || "");
     if (reconciled.reconciled) {
       timing.auth_index_update = logLoginPhase("auth_index_update", tUsersTab);
     }
@@ -683,6 +691,28 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     });
   }
 
+  if (!isValidGoogleSpreadsheetId(masterSheetId)) {
+    return buildLoginContextFailure({
+      timing,
+      loginStarted,
+      email,
+      failedStep: "master_sheet_resolve",
+      reasonCode: "MASTER_SHEET_MISSING",
+      indexEntry,
+      usersTabRec,
+    });
+  }
+  if (!isValidCompanyFolderId(sessionCompanyId)) {
+    return buildLoginContextFailure({
+      timing,
+      loginStarted,
+      email,
+      failedStep: "company_folder_resolve",
+      reasonCode: "COMPANY_FOLDER_MISSING",
+      indexEntry,
+      usersTabRec,
+    });
+  }
   if (!masterSheetId) {
     return buildLoginContextFailure({
       timing,

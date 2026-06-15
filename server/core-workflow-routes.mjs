@@ -15,6 +15,10 @@ import { resolveCompanyInviteReadiness } from "./company-invite-readiness.mjs";
 import { resolveCompanyById } from "./company-registry-service.mjs";
 import { listCompanyProfiles } from "./company-users-foundation.mjs";
 import { syncAuthIndexAfterUsersRead } from "./auth-index.mjs";
+import {
+  sanitizeCompanyFolderId,
+  sanitizeGoogleSpreadsheetId,
+} from "../shared/google-drive-id.mjs";
 import { getScheduleAssigneesForCompany } from "./schedule-assignee-service.mjs";
 import {
   canListCompanySchedules,
@@ -373,14 +377,15 @@ export function installCoreWorkflowRoutes(app, deps) {
 
   app.get("/api/companies/:companyId/users", async (req, res) => {
     const authed = getAuthedClient();
-    const companyId = String(req.params?.companyId || "").trim();
+    const companyId = sanitizeCompanyFolderId(String(req.params?.companyId || "").trim());
     const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
-    const companyFolderId = String(
-      req.query.companyFolderId || actor?.companyFolderId || actor?.companyId || companyId,
-    ).trim();
-    const masterSheetId = String(
+    const companyFolderId =
+      sanitizeCompanyFolderId(
+        req.query.companyFolderId || actor?.companyFolderId || actor?.companyId || companyId,
+      ) || companyId;
+    const masterSheetId = sanitizeGoogleSpreadsheetId(
       req.query.masterSheetId || req.query.sheetId || actor?.masterSheetId || "",
-    ).trim();
+    );
     const companyName = String(req.query.companyName || actor?.companyName || "").trim();
     const sessionActor = actor
       ? {

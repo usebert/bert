@@ -13,6 +13,12 @@ import { validateCompanyFolderUnderCompaniesRoot } from "./company-folder-placem
 import { validateAccessibleMasterSheet } from "./company-folder-structure.mjs";
 import { buildAvailableScheduleAssigneesFromUsers } from "../shared/schedule-assignees.mjs";
 import { buildCompanyFolderUrl, buildShareCompanyFolderHint } from "../shared/company-folder-links.mjs";
+import {
+  isValidCompanyFolderId,
+  isValidGoogleSpreadsheetId,
+  sanitizeCompanyFolderId,
+  sanitizeGoogleSpreadsheetId,
+} from "../shared/google-drive-id.mjs";
 
 const COMPANY_USERS_LOAD_FAILED = "COMPANY_USERS_LOAD_FAILED";
 const COMPANY_USERS_USER_MESSAGE = "Could not load company users.";
@@ -48,8 +54,7 @@ function normalizeEmail(value) {
 }
 
 function looksLikeDriveId(value) {
-  const id = trim(value);
-  return id.length >= 10 && /^[a-zA-Z0-9_-]+$/.test(id);
+  return isValidCompanyFolderId(value);
 }
 
 function buildDiagnostics(base = {}) {

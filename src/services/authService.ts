@@ -1,6 +1,7 @@
 import type { Role } from "../permissions";
 import { apiUrl } from "../config/apiBase";
 import { fetchJson } from "../utils/fetchJson";
+import { validateCompanyDriveIds } from "../utils/googleDriveId";
 import {
   buildLoginFetchDiagnostics,
   companyLoginNetworkError,
@@ -135,10 +136,23 @@ export async function companyLogin(input: {
     };
   }
 
-  const masterSheetId = String(payload.masterSheetId || payload.company?.masterSheetId || "").trim();
-  const companyId = String(
-    payload.company?.companyFolderId || payload.company?.companyId || "",
-  ).trim();
+  const validatedIds = validateCompanyDriveIds({
+    companyFolderId: payload.company?.companyFolderId || payload.company?.companyId,
+    masterSheetId: payload.masterSheetId || payload.company?.masterSheetId,
+  });
+  if (!validatedIds) {
+    return {
+      ok: false,
+      blocker: "login_context_failed",
+      code: "COMPANY_CONTEXT_INVALID",
+      companyContextValid: false,
+      error: payload.message || payload.error || "Sign in failed.",
+      message: payload.message || payload.error || "Sign in failed.",
+      diagnostics: payload.diagnostics,
+    };
+  }
+  const masterSheetId = validatedIds.masterSheetId;
+  const companyId = validatedIds.companyFolderId;
   return {
     ok: true,
     user: payload.user,
@@ -195,11 +209,31 @@ export async function fetchCompanySession(): Promise<CompanySessionResult> {
 
   const folderPlacementOk = payload.folderPlacementOk ?? payload.company?.folderPlacementOk;
   const reasonCode = payload.reasonCode || payload.company?.reasonCode;
+  const validatedIds = validateCompanyDriveIds({
+    companyFolderId: payload.company?.companyFolderId || payload.company?.companyId,
+    masterSheetId: payload.company?.masterSheetId,
+  });
+  if (!validatedIds) {
+    return {
+      ok: false,
+      error: payload.error || "No company session.",
+      code: payload.code || "COMPANY_CONTEXT_INVALID",
+      companyContextValid: false,
+      reasonCode: reasonCode || "COMPANY_CONTEXT_INVALID",
+    };
+  }
 
   return {
     ok: true,
     user: payload.user,
-    company: payload.company,
+    company: payload.company
+      ? {
+          ...payload.company,
+          companyId: validatedIds.companyFolderId,
+          companyFolderId: validatedIds.companyFolderId,
+          masterSheetId: validatedIds.masterSheetId,
+        }
+      : undefined,
     folderPlacementOk,
     reasonCode,
     companyContextValid: payload.companyContextValid ?? true,
