@@ -132,6 +132,7 @@ import {
   resolveValidatedCompanyLoginContext,
   COMPANY_CONTEXT_INVALID,
   COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
+  INVALID_CREDENTIALS,
   LOGIN_CONTEXT_FAILED,
 } from "./auth-service.mjs";
 import { debugVerifyUserPassword } from "./user-auth-service.mjs";
@@ -6890,6 +6891,8 @@ app.post("/api/auth/company/login", async (req, res) => {
     });
 
     if (!result.ok) {
+      const invalidCredentials =
+        result.code === INVALID_CREDENTIALS || result.blocker === "invalid_credentials";
       return res.status(result.httpStatus || 400).json({
         ok: false,
         code: result.code,
@@ -6898,7 +6901,9 @@ app.post("/api/auth/company/login", async (req, res) => {
         error: result.error,
         reasonCode: result.diagnostics?.reasonCode || result.reasonCode,
         diagnostics: result.diagnostics,
-        companyContextValid: result.companyContextValid ?? false,
+        ...(invalidCredentials
+          ? {}
+          : { companyContextValid: result.companyContextValid ?? false }),
         timingMs: result.timing,
       });
     }
