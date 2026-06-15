@@ -81,6 +81,11 @@ import {
   installGoogleFormTemplateRoutes,
 } from "./google-form-templates.mjs";
 import {
+  installCompanyFormsRoutes,
+  listCompanyGoogleForms,
+  listGoogleFormsInFolderTree,
+} from "./company-forms-service.mjs";
+import {
   COMPANY_FOLDERS_TAB,
   COMPANY_FOLDERS_COLUMNS,
   ensureCompanyFolderStructure,
@@ -1238,6 +1243,21 @@ installGoogleFormTemplateRoutes(app, {
     withSheetsQuotaRetry,
     safeLower,
   }),
+});
+
+installCompanyFormsRoutes(app, {
+  google,
+  getAuthedClient,
+  envConfigured,
+  requireGoogleWorkspaceSession,
+  rejectIfCompanyFolderNotUnderCompaniesRoot,
+  sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
+  getWorkbook,
+  ensureTabExists,
+  ensureColumns,
+  getTabValues,
+  withSheetsQuotaRetry,
+  safeLower,
 });
 
 function safeLower(value) {
@@ -2681,6 +2701,7 @@ async function provisionNewCompanyWorkspace(
 
 async function listCompanyFolders(auth, options = {}) {
   const parentFolderId = String(options.parentFolderId || "").trim();
+  const drive = google.drive({ version: "v3", auth });
   let folders = (
     await listFolderChildrenInSharedDrive(auth, parentFolderId || requiredEnv.GOOGLE_SHARED_DRIVE_ID, 250)
   ).filter((item) => item.mimeType === "application/vnd.google-apps.folder");
@@ -2727,15 +2748,14 @@ async function listCompanyFolders(auth, options = {}) {
             file.name?.toLowerCase().includes("onboarding"),
         ) || null;
 
-      const auditForms = auditFormsFolder
-        ? (await listGoogleFormsInFolderTree(auth, auditFormsFolder.id)).filter(
-            (file) => !file.name?.toLowerCase().includes("onboarding"),
-          )
-        : auditFolderContents.filter(
-            (file) =>
-              file.mimeType === "application/vnd.google-apps.form" &&
-              !file.name?.toLowerCase().includes("onboarding"),
-          );
+      const companyFormsResult = await listCompanyGoogleForms(drive, {
+        companyFolderId: folder.id,
+        companyId: folder.id,
+        createIfMissing: false,
+      });
+      const auditForms = companyFormsResult.forms.filter(
+        (file) => !file.name?.toLowerCase().includes("onboarding"),
+      );
 
       const masterSheet =
         companyWorkbookContents.find((file) => file.mimeType === "application/vnd.google-apps.spreadsheet") ||
@@ -2762,7 +2782,7 @@ async function listCompanyFolders(auth, options = {}) {
         onboardingFormId: onboardingForm?.id || "",
         onboardingVerified: Boolean(onboardingForm),
         auditFormCount: auditForms.length,
-        auditFormIds: auditForms.map((file) => file.id),
+        auditFormIds: auditForms.map((file) => file.driveFileId || file.formId),
         auditFormsVerified: auditForms.length > 0,
         responseSheetName: masterSheet?.name || responseSheet?.name || "Company Master Sheet",
         responseSheetId: masterSheetId,
@@ -2847,46 +2867,6 @@ async function getDriveFile(auth, fileId) {
   return response.data;
 }
 
-async function listGoogleFormsInFolderTree(auth, folderId, options = {}) {
-  const maxDepth = Number(options.maxDepth) > 0 ? Number(options.maxDepth) : 4;
-  const drive = google.drive({ version: "v3", auth });
-  const forms = [];
-  const seenFormIds = new Set();
-
-  async function walk(currentFolderId, depth, folderPath) {
-    if (depth > maxDepth) {
-      return;
-    }
-    const response = await drive.files.list({
-      includeItemsFromAllDrives: true,
-      supportsAllDrives: true,
-      q: `'${currentFolderId}' in parents and trashed = false`,
-      fields: "files(id,name,mimeType)",
-      pageSize: 200,
-    });
-    for (const file of response.data.files || []) {
-      if (file.mimeType === "application/vnd.google-apps.form") {
-        if (seenFormIds.has(file.id)) {
-          continue;
-        }
-        seenFormIds.add(file.id);
-        forms.push({
-          ...file,
-          folderPath: folderPath || "",
-        });
-        continue;
-      }
-      if (file.mimeType === "application/vnd.google-apps.folder") {
-        const nextPath = folderPath ? `${folderPath}/${file.name}` : String(file.name || "");
-        await walk(file.id, depth + 1, nextPath);
-      }
-    }
-  }
-
-  await walk(folderId, 0, "");
-  return forms;
-}
-
 async function listFormsInFolder(auth, folderId) {
   const folder = await getDriveFile(auth, folderId);
 
@@ -2894,7 +2874,8 @@ async function listFormsInFolder(auth, folderId) {
     throw new Error("The provided Google Drive ID is not a folder.");
   }
 
-  const forms = await listGoogleFormsInFolderTree(auth, folderId);
+  const drive = google.drive({ version: "v3", auth });
+  const forms = await listGoogleFormsInFolderTree(drive, folderId);
 
   return {
     folder,
@@ -2954,10 +2935,6 @@ async function inspectCompanyFolder(auth, folderId) {
     }
   }
 
-  const auditForms = auditFormsFolder
-    ? await listGoogleFormsInFolderTree(auth, auditFormsFolder.id)
-    : auditFolderContents.filter((file) => file.mimeType === "application/vnd.google-apps.form");
-
   const masterSheet =
     companyWorkbookContents.find(
       (file) => file.mimeType === "application/vnd.google-apps.spreadsheet",
@@ -2983,6 +2960,18 @@ async function inspectCompanyFolder(auth, folderId) {
       workbook.data.sheets?.map((sheet) => sheet.properties?.title).filter(Boolean) || [];
   }
 
+  const companyFormsResult = await listCompanyGoogleForms(drive, {
+    companyFolderId: folderId,
+    companyId: folderId,
+    masterSheetId: masterSheet?.id || "",
+    createIfMissing: false,
+  });
+
+  const auditForms = companyFormsResult.forms.map((form) => ({
+    id: form.driveFileId || form.formId,
+    name: form.name,
+  }));
+
   return {
     ok: true,
     folder: {
@@ -2992,7 +2981,8 @@ async function inspectCompanyFolder(auth, folderId) {
     },
     checks: {
       setupFolder: Boolean(setupFolder),
-      auditFormsFolder: Boolean(auditFormsFolder),
+      auditFormsFolder: Boolean(auditFormsFolder) || Boolean(companyFormsResult.googleFormsFolderId),
+      googleFormsFolder: Boolean(companyFormsResult.googleFormsFolderId),
       recordsFolder: Boolean(recordsFolder),
       masterSheet: Boolean(masterSheet),
       evidenceFolder: Boolean(evidenceFolder),
@@ -3002,6 +2992,14 @@ async function inspectCompanyFolder(auth, folderId) {
     auditFormsFolder: auditFormsFolder
       ? { id: auditFormsFolder.id, name: auditFormsFolder.name }
       : null,
+    googleFormsFolder: companyFormsResult.googleFormsFolder || null,
+    googleFormsStatus: companyFormsResult.ok
+      ? companyFormsResult.formsFound > 0
+        ? "found"
+        : "empty"
+      : companyFormsResult.status,
+    googleFormsDiagnostics: companyFormsResult.diagnostics || null,
+    googleFormsPermissionError: companyFormsResult.permissionError || "",
     setupFolder: setupFolder
       ? { id: setupFolder.id, name: setupFolder.name }
       : null,
@@ -3015,10 +3013,8 @@ async function inspectCompanyFolder(auth, folderId) {
           tabs: masterSheetTabs,
         }
       : null,
-    auditForms: auditForms.map((file) => ({
-      id: file.id,
-      name: file.name,
-    })),
+    auditForms,
+    companyGoogleForms: companyFormsResult.forms || [],
     blockingItems: [...(!masterSheet ? ["Company Master Sheet"] : [])],
     recommendedItems: [
       ...(!setupFolder ? ["01 Company Setup folder"] : []),
