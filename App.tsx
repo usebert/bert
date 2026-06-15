@@ -7641,6 +7641,17 @@ function App() {
           return false;
         }
         if (
+          loginResult.code === "INVALID_CREDENTIALS" ||
+          loginResult.blocker === "invalid_credentials"
+        ) {
+          companyLoginFailure = {
+            blocker: "invalid_credentials",
+            code: loginResult.code,
+            message: "Email or password is incorrect.",
+          };
+          return false;
+        }
+        if (
           loginResult.code === "LOGIN_CONTEXT_FAILED" ||
           loginResult.companyContextValid === false ||
           loginResult.code === "COMPANY_CONTEXT_INVALID"
@@ -7651,17 +7662,6 @@ function App() {
             code: loginResult.code,
             message: loginResult.message || loginResult.error || "Unable to complete sign in.",
             diagnostics: loginResult.diagnostics,
-          };
-          return false;
-        }
-        if (
-          loginResult.code === "INVALID_CREDENTIALS" ||
-          loginResult.blocker === "invalid_credentials"
-        ) {
-          companyLoginFailure = {
-            blocker: "invalid_credentials",
-            code: loginResult.code,
-            message: "Email or password is incorrect.",
           };
           return false;
         }
