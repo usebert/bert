@@ -136,3 +136,46 @@ export function formatScheduleSaveError(payload: {
   }
   return base;
 }
+
+export type ScheduleSaveValidationInput = {
+  scheduleName: string;
+  startDate: string;
+  selectedAuditorsCount: number;
+  scheduleAudits: Array<{
+    days: string[];
+    frequency: string;
+    liveTime: string;
+    completionHours: number;
+  }>;
+  availableAuditsCount: number;
+};
+
+/** Returns a user-facing message when schedule editor validation fails, or null when save can proceed. */
+export function resolveScheduleSaveValidationMessage(input: ScheduleSaveValidationInput): string | null {
+  if (!input.scheduleName.trim()) {
+    return "Enter a schedule name before saving.";
+  }
+  if (!input.startDate.trim()) {
+    return "Choose a start date before saving.";
+  }
+  if (input.selectedAuditorsCount === 0) {
+    return "Select at least one user for this schedule.";
+  }
+  if (input.availableAuditsCount === 0) {
+    return "No audit templates are available yet. Add templates in Audit Builder or the AuditTemplates workbook tab, then try again.";
+  }
+  if (input.scheduleAudits.length === 0) {
+    return "Select at least one audit for this schedule.";
+  }
+  const incompleteAudit = input.scheduleAudits.find(
+    (audit) =>
+      audit.days.length === 0 || !audit.frequency || !audit.liveTime || !audit.completionHours,
+  );
+  if (incompleteAudit) {
+    if (incompleteAudit.days.length === 0) {
+      return "Select at least one day for each audit in this schedule.";
+    }
+    return "Complete timing settings for each selected audit.";
+  }
+  return null;
+}

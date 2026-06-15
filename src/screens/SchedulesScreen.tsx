@@ -152,6 +152,8 @@ export function SchedulesScreen({
   schedules,
   filter,
   availableAudits,
+  auditTemplatesLoading = false,
+  auditTemplatesLoadError = "",
   availableAssignees,
   assigneeEmptyMessage = "No company profiles found for this company. Add people in People.",
   assigneeDiagnostics,
@@ -197,6 +199,8 @@ export function SchedulesScreen({
   schedules: ManagedSchedule[];
   filter: ScheduleListFilter;
   availableAudits: { id: string; name: string }[];
+  auditTemplatesLoading?: boolean;
+  auditTemplatesLoadError?: string;
   availableAssignees: ScheduleAssigneeOption[];
   assigneeEmptyMessage?: string;
   assigneeDiagnostics?: ScheduleAssigneeDiagnostics;
@@ -383,7 +387,18 @@ export function SchedulesScreen({
             <div className={["rounded-[1.5rem] border p-4", auditsError ? "border-rose-300 bg-rose-50/50" : "border-slate-200 bg-slate-50"].join(" ")}>
               <p className="text-sm font-semibold text-slate-900">Select audits for this schedule</p>
               <div className="mt-3 space-y-2">
-                {availableAudits.map((audit) => {
+                {availableAudits.length === 0 ? (
+                  <EmptyPanel
+                    title={auditTemplatesLoading ? "Loading audit templates…" : "No audit templates yet"}
+                    text={
+                      auditTemplatesLoading
+                        ? "Reading audit templates from your company workbook…"
+                        : auditTemplatesLoadError ||
+                          "Add audit templates in Audit Builder or the AuditTemplates workbook tab before creating a schedule."
+                    }
+                  />
+                ) : (
+                  availableAudits.map((audit) => {
                   const selected = selectedAuditIds.includes(audit.id);
                   return (
                     <label
@@ -409,8 +424,12 @@ export function SchedulesScreen({
                       </span>
                     </label>
                   );
-                })}
+                  })
+                )}
               </div>
+              {auditsError && availableAudits.length > 0 && (
+                <p className="mt-2 text-xs font-semibold text-rose-600">Select at least one audit for this schedule.</p>
+              )}
             </div>
 
             {scheduleAudits.map((audit) => {

@@ -76,4 +76,22 @@ assert(coreRoutes.includes("listCompanySchedules"), "8: routes wire schedule lis
   assert(isScheduleAssignedToUser(schedule, "auditor@testco.test"), "12: isScheduleAssignedToUser");
 }
 
+{
+  const scheduleSaveUtil = read("src/utils/scheduleSave.ts");
+  assert(scheduleSaveUtil.includes("resolveScheduleSaveValidationMessage"), "13: schedule save validation helper");
+  assert(
+    scheduleSaveUtil.includes("No audit templates are available yet"),
+    "14: empty picker validation message",
+  );
+  assert(
+    scheduleSaveUtil.includes("Select at least one audit for this schedule"),
+    "15: audit selection validation message",
+  );
+  const appSrc = read("App.tsx");
+  assert(appSrc.includes("resolveScheduleSaveValidationMessage"), "16: App uses schedule validation helper");
+  assert(appSrc.includes("syncCompanyAuditMappingFromServer({ silent: true })"), "17: schedules screen reloads audit templates");
+  const schedulesScreen = read("src/screens/SchedulesScreen.tsx");
+  assert(schedulesScreen.includes("No audit templates yet"), "18: schedules UI empty audit picker state");
+}
+
 console.log(`[verify:schedule-contract] OK — ${caseCount} cases passed`);

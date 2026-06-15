@@ -294,6 +294,7 @@ import {
   buildAssignedUsersForSave,
   formatScheduleSaveError,
   parseDueWindowFromSheet,
+  resolveScheduleSaveValidationMessage,
   scheduleSheetRecordsPreferSchedulesTab,
   type ScheduleAssignedUser,
 } from "./src/utils/scheduleSave";
@@ -10645,6 +10646,24 @@ function App() {
     void syncCompanyAreasFromServer({ silent: true });
   }, [googleConnected, companySheetSync?.sheetId, masterSheetInput, folderInspection?.masterSheet?.id, syncCompanyAreasFromServer]);
 
+  useEffect(() => {
+    if (!googleConnected || screen !== "schedules") {
+      return;
+    }
+    const masterSheetId = resolveWorkspaceMasterSheetId();
+    if (!masterSheetId) {
+      return;
+    }
+    void syncCompanyAuditMappingFromServer({ silent: true });
+  }, [
+    googleConnected,
+    screen,
+    companySheetSync?.sheetId,
+    masterSheetInput,
+    folderInspection?.masterSheet?.id,
+    syncCompanyAuditMappingFromServer,
+  ]);
+
   const persistAreaToSheet = async (
     action: "create" | "update",
     payload: { areaId?: string; name?: string; status?: "active" | "archived" },
@@ -12132,29 +12151,19 @@ function App() {
 
     setScheduleValidationAttempted(true);
 
-    const trimmedName = scheduleDraftName.trim();
-    const invalidAuditConfig = scheduleDraftAudits.some(
-      (audit) =>
-        audit.days.length === 0 ||
-        !audit.frequency ||
-        !audit.liveTime ||
-        !audit.completionHours,
-    );
-
-    if (
-      !trimmedName ||
-      scheduleDraftAudits.length === 0 ||
-      !scheduleDraftStartDate ||
-      scheduleDraftAuditors.length === 0 ||
-      invalidAuditConfig
-    ) {
-      const message =
-        scheduleDraftAuditors.length === 0
-          ? "Please select at least one user for this schedule."
-          : "Complete all required schedule fields before saving.";
-      pushToast("Schedule details missing", message, "warning");
+    const validationMessage = resolveScheduleSaveValidationMessage({
+      scheduleName: scheduleDraftName,
+      startDate: scheduleDraftStartDate,
+      selectedAuditorsCount: scheduleDraftAuditors.length,
+      scheduleAudits: scheduleDraftAudits,
+      availableAuditsCount: availableScheduleAudits.length,
+    });
+    if (validationMessage) {
+      pushToast("Schedule details missing", validationMessage, "warning");
       return;
     }
+
+    const trimmedName = scheduleDraftName.trim();
 
     const assignedUsers = buildAssignedUsersForSave(scheduleDraftAuditors, availableScheduleAssignees);
     const resolvedAuditors = assignedUsers.map((user) => user.email);
@@ -14164,6 +14173,8 @@ function App() {
                 schedulesLoadError={companySchedulesState.loadError}
                 filter={scheduleListFilter}
                 availableAudits={availableScheduleAudits}
+                auditTemplatesLoading={mappingSyncLoading}
+                auditTemplatesLoadError={mappingSyncError || undefined}
                 availableAssignees={availableScheduleAssignees}
                 assigneeEmptyMessage={scheduleAssigneeEmptyMessage}
                 assigneeDiagnostics={scheduleAssigneesDerived.diagnostics}

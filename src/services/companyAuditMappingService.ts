@@ -1,6 +1,11 @@
 import { apiUrl } from "../config/apiBase";
+import { fetchJson } from "../utils/fetchJson";
 import type { AreaAuditMapping } from "../utils/areaAuditMapping";
 import type { AuditAccessLevel } from "../types/auditsScreenProps";
+
+export const COMPANY_AUDIT_MAPPING_LOAD_TIMEOUT_MS = 90_000;
+export const COMPANY_AUDIT_MAPPING_LOAD_TIMEOUT_MESSAGE =
+  "Loading audit templates timed out before the server finished reading your company workbook. Try again — if it keeps failing, check the AuditTemplates tab in your BERT Master Sheet.";
 
 export type AuditTemplateRow = {
   id: string;
@@ -44,11 +49,40 @@ async function parseMappingResponse(response: Response): Promise<CompanyAuditMap
   return data;
 }
 
-export async function fetchCompanyAuditMapping(masterSheetId: string) {
-  const response = await fetch(apiUrl(`/api/company-audit-mapping/${encodeURIComponent(masterSheetId)}`), {
-    credentials: "include",
-  });
-  return parseMappingResponse(response);
+export async function fetchCompanyAuditMapping(masterSheetId: string, options?: { signal?: AbortSignal }) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), COMPANY_AUDIT_MAPPING_LOAD_TIMEOUT_MS);
+  if (options?.signal) {
+    if (options.signal.aborted) {
+      controller.abort();
+    } else {
+      options.signal.addEventListener("abort", () => controller.abort(), { once: true });
+    }
+  }
+
+  try {
+    const result = await fetchJson<CompanyAuditMappingPayload>(
+      `/api/company-audit-mapping/${encodeURIComponent(masterSheetId)}`,
+      { signal: controller.signal },
+    );
+    if (!result.ok) {
+      if (controller.signal.aborted) {
+        throw new Error(COMPANY_AUDIT_MAPPING_LOAD_TIMEOUT_MESSAGE);
+      }
+      throw new Error(result.message || "Company audit mapping request failed.");
+    }
+    if (!result.response.ok || result.data.ok === false) {
+      throw new Error(result.data.error || "Company audit mapping request failed.");
+    }
+    return result.data;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(COMPANY_AUDIT_MAPPING_LOAD_TIMEOUT_MESSAGE);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 export async function saveAreaAuditsForArea(masterSheetId: string, areaId: string, enabledAuditIds: string[]) {
