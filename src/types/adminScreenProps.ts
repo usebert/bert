@@ -97,6 +97,7 @@ export type FolderInspection = {
   checks: {
     setupFolder: boolean;
     auditFormsFolder: boolean;
+    googleFormsFolder?: boolean;
     recordsFolder: boolean;
     masterSheet: boolean;
     evidenceFolder: boolean;
@@ -104,6 +105,28 @@ export type FolderInspection = {
     managementNotesFolder: boolean;
   };
   auditFormsFolder: { id: string; name: string } | null;
+  googleFormsFolder?: { id: string; name: string } | null;
+  googleFormsStatus?: string;
+  googleFormsDiagnostics?: {
+    companyFolderId: string;
+    googleFormsFolderId: string;
+    driveQuery: string;
+    formsFound: number;
+    permissionError?: string;
+    resolvedVia?: string;
+  } | null;
+  googleFormsPermissionError?: string;
+  companyGoogleForms?: {
+    formId: string;
+    driveFileId: string;
+    name: string;
+    webViewLink: string;
+    createdTime: string;
+    modifiedTime: string;
+    owners: string[];
+    folderId: string;
+    folderPath?: string;
+  }[];
   setupFolder: { id: string; name: string } | null;
   recordsFolder: { id: string; name: string } | null;
   masterSheet: { id: string; name: string; tabs: string[] } | null;

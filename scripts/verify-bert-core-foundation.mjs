@@ -70,6 +70,9 @@ function runStaticGuards() {
   assert(companyService.includes("ensureCompanyWorkbook"), "static: companyService.ensureCompanyWorkbook");
   assert(companyService.includes("ensureRequiredTabs"), "static: companyService.ensureRequiredTabs");
   assert(folderStructure.includes("buildCompanyWorkbookName"), "static: BERT Workbook naming");
+  assert(read("server/company-forms-service.mjs").includes("resolveCompanyGoogleFormsFolder"), "static: company Google Forms folder resolve");
+  assert(read("server/company-forms-service.mjs").includes("listCompanyGoogleForms"), "static: company Google Forms list");
+  assert(pkg.scripts["verify:company-google-forms-folder"], "static: company-google-forms-folder verify script");
   assert(companyService.includes("resolveCompanyFromFolder"), "static: companyService resolves folder");
   assert(authService.includes("platformLogin"), "static: authService platformLogin alias");
   assert(authService.includes("companyLogin"), "static: authService companyLogin alias");

@@ -84,6 +84,12 @@ assertContains("server/google-form-templates.mjs", [
   "ensureConfiguredCategorySubfolders",
 ]);
 
+assertContains("server/company-forms-service.mjs", [
+  "resolveCompanyGoogleFormsFolder",
+  "listCompanyGoogleForms",
+  "COMPANY_GOOGLE_FORMS_SYNC_COLUMNS",
+]);
+
 assertContains(".env.example", ["BERT_GOOGLE_FORM_TEMPLATES_FOLDER_ID"]);
 
 assertContains("App.tsx", [
@@ -129,6 +135,9 @@ assertContains("src/components/forms/FormsChecksTemplatesPanel.tsx", [
   "08 - Audits / Google Forms",
   "BERT remains the live",
   "operational system",
+  "No Google Forms found in this company folder.",
+  "Google Forms folder could not be found.",
+  "BERT cannot access the Google Forms folder.",
 ]);
 assertContains("src/screens/SchedulesScreen.tsx", []);
 assert(!fs.readFileSync(path.join(root, "src/screens/SchedulesScreen.tsx"), "utf8").includes("CreateGoogleFormCopyOption"));

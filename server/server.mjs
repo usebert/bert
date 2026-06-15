@@ -3018,6 +3018,7 @@ async function inspectCompanyFolder(auth, folderId) {
     blockingItems: [...(!masterSheet ? ["Company Master Sheet"] : [])],
     recommendedItems: [
       ...(!setupFolder ? ["01 Company Setup folder"] : []),
+      ...(!auditFormsFolder && !companyFormsResult.googleFormsFolderId ? ["Google Forms folder"] : []),
       ...(!auditFormsFolder ? ["02 Audit Forms folder"] : []),
       ...(!recordsFolder ? ["03 Company Records folder"] : []),
       ...(!evidenceFolder ? ["04 Evidence folder"] : []),
@@ -3027,6 +3028,7 @@ async function inspectCompanyFolder(auth, folderId) {
     missingItems: [
       ...(!masterSheet ? ["Company Master Sheet"] : []),
       ...(!setupFolder ? ["01 Company Setup folder"] : []),
+      ...(!auditFormsFolder && !companyFormsResult.googleFormsFolderId ? ["Google Forms folder"] : []),
       ...(!auditFormsFolder ? ["02 Audit Forms folder"] : []),
       ...(!recordsFolder ? ["03 Company Records folder"] : []),
       ...(!evidenceFolder ? ["04 Evidence folder"] : []),

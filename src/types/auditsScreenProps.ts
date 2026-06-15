@@ -1,6 +1,11 @@
 import type { Role } from "../permissions";
 import type { Audit, AuditStatus, AuditTemplate, ScheduleDay, ScheduleFrequency } from "./reportsScreenProps";
 import type { AuditDraft, User } from "./dashboardScreenProps";
+import type {
+  CompanyGoogleForm,
+  CompanyGoogleFormsDiagnostics,
+  CompanyGoogleFormsStatus,
+} from "../services/companyFormsService";
 
 export type AuditAccessLevel = "Full access" | "Oversight" | "Can complete" | "Complete" | "No access";
 
@@ -51,6 +56,10 @@ export type AuditsScreenProps = {
   syncState?: string;
   googleConnected?: boolean;
   companyFolderId?: string;
+  companyGoogleForms?: CompanyGoogleForm[];
+  companyGoogleFormsStatus?: CompanyGoogleFormsStatus;
+  companyGoogleFormsDiagnostics?: CompanyGoogleFormsDiagnostics | null;
+  showGoogleFormsDiagnostics?: boolean;
   canCreateTemplates?: boolean;
   onToggleTemplate?: (templateId: string) => void;
   onEditTemplate?: (templateId: string) => void;

@@ -457,6 +457,10 @@ export function AuditsScreen({
   syncState = "Not synced",
   googleConnected = false,
   companyFolderId,
+  companyGoogleForms = [],
+  companyGoogleFormsStatus = "idle",
+  companyGoogleFormsDiagnostics = null,
+  showGoogleFormsDiagnostics = false,
   canCreateTemplates = false,
   onToggleTemplate,
   onEditTemplate,
@@ -576,6 +580,10 @@ export function AuditsScreen({
         syncState={syncState}
         googleConnected={googleConnected}
         companyFolderId={companyFolderId}
+        companyGoogleForms={companyGoogleForms}
+        companyGoogleFormsStatus={companyGoogleFormsStatus}
+        companyGoogleFormsDiagnostics={companyGoogleFormsDiagnostics}
+        showGoogleFormsDiagnostics={showGoogleFormsDiagnostics}
         canCreateTemplates={canCreateTemplates}
         onToggleTemplate={onToggleTemplate}
         onEditTemplate={onEditTemplate}

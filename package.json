@@ -39,6 +39,7 @@
     "verify:pilot-readiness": "node scripts/verify-pilot-readiness.mjs",
     "verify:godmode-company-context": "node scripts/verify-godmode-company-context.mjs",
     "verify:google-form-templates": "node scripts/verify-google-form-templates.mjs",
+    "verify:company-google-forms-folder": "node scripts/verify-company-google-forms-folder.mjs",
     "verify:template-languages": "node scripts/verify-template-languages.mjs",
     "verify:company-folder-structure": "node scripts/verify-company-folder-structure.mjs",
     "verify:company-folder-source-of-truth": "node scripts/verify-company-folder-source-of-truth.mjs",

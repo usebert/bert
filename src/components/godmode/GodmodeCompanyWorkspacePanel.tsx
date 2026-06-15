@@ -1161,7 +1161,31 @@ export function GodmodeCompanyWorkspacePanel({
                     ok={companyLive}
                     hint={companyLive ? "Registry status: Live" : registryStatus || "Not Live"}
                   />
+                  <SetupChecklistRow
+                    label="Google Forms folder"
+                    ok={Boolean(folderInspection?.checks.googleFormsFolder)}
+                    hint={
+                      folderInspection?.googleFormsFolder?.name ||
+                      (folderInspection?.googleFormsStatus === "permission_denied"
+                        ? "Permission error"
+                        : folderInspection?.googleFormsStatus === "folder_not_found"
+                          ? "Not found"
+                          : undefined)
+                    }
+                  />
                 </div>
+                {folderInspection?.googleFormsDiagnostics ? (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-[11px] text-slate-700">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Google Forms diagnostics</p>
+                    <p>companyFolderId: {folderInspection.googleFormsDiagnostics.companyFolderId || "—"}</p>
+                    <p>googleFormsFolderId: {folderInspection.googleFormsDiagnostics.googleFormsFolderId || "—"}</p>
+                    <p>driveQuery: {folderInspection.googleFormsDiagnostics.driveQuery || "—"}</p>
+                    <p>formsFound: {folderInspection.googleFormsDiagnostics.formsFound ?? 0}</p>
+                    {folderInspection.googleFormsDiagnostics.permissionError ? (
+                      <p>permissionError: {folderInspection.googleFormsDiagnostics.permissionError}</p>
+                    ) : null}
+                  </div>
+                ) : null}
                 {setupBlockers.length ? (
                   <ul className="list-disc space-y-1 pl-5 text-sm text-amber-950">
                     {setupBlockers.map((blocker) => (

@@ -190,6 +190,12 @@ import {
   syncAuditTemplatesToSheet,
 } from "./src/services/companyAuditMappingService";
 import { mergeAuditTemplatesFromSheet } from "./src/utils/mergeAuditTemplatesFromSheet";
+import {
+  companyFormsService,
+  companyGoogleFormsStatusFromInspection,
+  type CompanyGoogleForm,
+  type CompanyGoogleFormsDiagnostics,
+} from "./src/services/companyFormsService";
 import type { AreaAuditMapping } from "./src/utils/areaAuditMapping";
 import {
   SINGLE_WORKSPACE_AREA_ID,
@@ -3973,6 +3979,40 @@ function App() {
     folderInspection?.folder.id === selectedFolderId
       ? folderInspection
       : null;
+
+  const displayCompanyGoogleForms = useMemo((): CompanyGoogleForm[] => {
+    if (!displayFolderInspection) {
+      return [];
+    }
+    if (displayFolderInspection.companyGoogleForms?.length) {
+      return displayFolderInspection.companyGoogleForms;
+    }
+    return (displayFolderInspection.auditForms || []).map((form) => ({
+      formId: form.id,
+      driveFileId: form.id,
+      name: form.name,
+      webViewLink: `https://docs.google.com/forms/d/${form.id}/edit`,
+      createdTime: "",
+      modifiedTime: "",
+      owners: [],
+      folderId: displayFolderInspection.googleFormsFolder?.id || "",
+      companyId: displayFolderInspection.folder.id,
+      companyFolderId: displayFolderInspection.folder.id,
+      googleFormsFolderId: displayFolderInspection.googleFormsFolder?.id || "",
+    }));
+  }, [displayFolderInspection]);
+
+  const displayCompanyGoogleFormsStatus = useMemo(
+    () => companyGoogleFormsStatusFromInspection(displayFolderInspection),
+    [displayFolderInspection],
+  );
+
+  const displayCompanyGoogleFormsDiagnostics = useMemo((): CompanyGoogleFormsDiagnostics | null => {
+    if (!displayFolderInspection?.googleFormsDiagnostics) {
+      return null;
+    }
+    return displayFolderInspection.googleFormsDiagnostics;
+  }, [displayFolderInspection]);
 
   const selectedSite = useMemo(
     () => sites.find((site) => site.id === selectedSiteId) ?? null,
@@ -11072,6 +11112,16 @@ function App() {
         );
       }
     }
+    if (googleConnected && masterSheetIdForSync && selectedFolder.id) {
+      try {
+        await companyFormsService.listCompanyGoogleForms(selectedFolder.id, {
+          masterSheetId: masterSheetIdForSync,
+          sync: true,
+        });
+      } catch {
+        /* GoogleFormTemplates sync is best-effort during populate */
+      }
+    }
     setAudits(
       nextTemplates.filter((template) => template.active).map((template, index) => ({
         id: `audit-${selectedFolder.id}-${template.id}`,
@@ -14028,6 +14078,10 @@ function App() {
                 syncState={syncState}
                 googleConnected={googleConnected}
                 companyFolderId={selectedFolderId || undefined}
+                companyGoogleForms={displayCompanyGoogleForms}
+                companyGoogleFormsStatus={displayCompanyGoogleFormsStatus}
+                companyGoogleFormsDiagnostics={displayCompanyGoogleFormsDiagnostics}
+                showGoogleFormsDiagnostics={canShowTechnicalUi(currentUser.role)}
                 canCreateTemplates={canAccessWorkspaceNav(currentUser.role)}
                 onToggleTemplate={handleToggleTemplate}
                 onEditTemplate={canManageTemplates(currentUser.role) ? handleEditTemplate : undefined}
