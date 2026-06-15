@@ -60,8 +60,8 @@ assert(completionBlock.includes("setImmediate("), "3f: background work via setIm
 assert(sheetFlow.includes("canLoginCompanyUser"), "4: read-back via canLoginCompanyUser");
 assert(sheetFlow.includes("verifyCompanyUserPassword"), "4b: PasswordHash verified on sheet");
 
-/** 5: Frontend waits at most 5 seconds. */
-assert(inviteCompletion.includes("5_000"), "5: frontend timeout is 5 seconds");
+/** 5: Frontend allows enough time for Sheets write + read-back under load. */
+assert(inviteCompletion.includes("30_000"), "5: frontend timeout is 30 seconds");
 assert(!inviteCompletion.includes("120_000"), "5b: no 2-minute frontend wait");
 assert(inviteCompletion.includes("Account created. You can now sign in."), "5c: success message shown");
 

@@ -108,7 +108,8 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
     }
     setSubmitting(true);
     setSubmitSuccess("");
-    const completeTimeoutMs = 5_000;
+    // Google Sheets write + read-back can exceed a few seconds under load; keep below typical proxy limits.
+    const completeTimeoutMs = 30_000;
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), completeTimeoutMs);
     try {
@@ -169,6 +170,16 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
       }, 1200);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
+        const statusResult = await fetchInviteApi<CompanyUserInviteDetails & { ok?: boolean; code?: string }>(
+          `/api/invites/${encodeURIComponent(inviteToken)}?expectedType=COMPANY_USER`,
+        );
+        if (!statusResult.ok && statusResult.code === "INVITE_ALREADY_USED") {
+          setSubmitSuccess("Account created. You can now sign in.");
+          window.setTimeout(() => {
+            window.location.assign("/");
+          }, 1200);
+          return;
+        }
         setSubmitError(
           "Account setup is taking longer than expected. If your account was created, try signing in — otherwise try again.",
         );
