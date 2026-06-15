@@ -17,6 +17,7 @@
     "verify:bert-core-live": "node scripts/verify-bert-core-live.mjs",
     "verify:bert-core-foundation": "node scripts/verify-bert-core-foundation.mjs",
     "verify:drive-folder-map": "node scripts/verify-drive-folder-map.mjs",
+    "verify:google-drive-id": "node scripts/verify-google-drive-id.mjs",
     "verify:users-from-company-workbook": "node scripts/verify-users-from-company-workbook.mjs",
     "verify:invite-to-users-tab": "node scripts/verify-invite-to-users-tab.mjs",
     "verify:schedule-contract": "node scripts/verify-schedule-contract.mjs",

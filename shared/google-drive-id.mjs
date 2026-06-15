@@ -72,3 +72,12 @@ export function sanitizeGoogleSpreadsheetId(input) {
   const extracted = extractGoogleDriveResourceId(input);
   return isValidGoogleSpreadsheetId(extracted) ? extracted : "";
 }
+
+export function validateCompanyDriveIds(input = {}) {
+  const companyFolderId = sanitizeCompanyFolderId(input.companyFolderId);
+  const masterSheetId = sanitizeGoogleSpreadsheetId(input.masterSheetId);
+  if (!companyFolderId || !masterSheetId) {
+    return null;
+  }
+  return { companyFolderId, masterSheetId };
+}

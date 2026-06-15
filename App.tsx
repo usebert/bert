@@ -4111,6 +4111,66 @@ function App() {
     [currentUser, linkedCompanyContext, selectedFolder, companyRegistryStatus],
   );
 
+  useEffect(() => {
+    if (!currentUser?.email || currentUser.role === "Master") {
+      return;
+    }
+    if (activeCompanyContext.companyFolderId && activeCompanyContext.masterSheetId) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const session = await fetchCompanySession();
+      if (cancelled || !session.ok || !session.company) {
+        return;
+      }
+      const validated = validateCompanyDriveIds({
+        companyFolderId: session.company.companyFolderId || session.company.companyId,
+        masterSheetId: session.company.masterSheetId,
+      });
+      if (!validated) {
+        return;
+      }
+      applyLinkedCompanyContext({
+        email: currentUser.email || currentUser.username,
+        company: {
+          companyId: validated.companyFolderId,
+          companyName: session.company.companyName,
+          masterSheetId: validated.masterSheetId,
+          registryStatus: session.company.registryStatus,
+          folderPlacementOk: session.company.folderPlacementOk !== false,
+        },
+        setSelectedFolderId,
+        setFolders: (updater) => setFolders((current) => updater(current)),
+        setFolderIdInput,
+        setFolderNameInput,
+        setMasterSheetInput,
+        setCompanyRegistryStatus,
+      });
+      if (cancelled) {
+        return;
+      }
+      setLinkedCompanyContext({
+        companyId: validated.companyFolderId,
+        companyName: session.company.companyName,
+        masterSheetId: validated.masterSheetId,
+        registryStatus: session.company.registryStatus,
+        folderPlacementOk: session.company.folderPlacementOk !== false,
+        role: currentUser.role,
+        accessLevel: currentUser.accessLevel,
+        companyAreas: currentUser.companyAreas,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentUser,
+    activeCompanyContext.companyFolderId,
+    activeCompanyContext.masterSheetId,
+    setCompanyRegistryStatus,
+  ]);
+
   const invitePermissionSession = useMemo(() => {
     if (!currentUser) {
       return {};

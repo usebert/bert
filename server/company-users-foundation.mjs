@@ -16,8 +16,6 @@ import { buildCompanyFolderUrl, buildShareCompanyFolderHint } from "../shared/co
 import {
   isValidCompanyFolderId,
   isValidGoogleSpreadsheetId,
-  sanitizeCompanyFolderId,
-  sanitizeGoogleSpreadsheetId,
 } from "../shared/google-drive-id.mjs";
 
 const COMPANY_USERS_LOAD_FAILED = "COMPANY_USERS_LOAD_FAILED";
