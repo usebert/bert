@@ -29,12 +29,13 @@ assert(sheetFlow.includes("export async function completeInviteToUserRow"), "1: 
 /** 2: Invite completion route uses completeInviteToUserRow. */
 assert(serverMain.includes("completeInviteToUserRow"), "2: server wires completeInviteToUserRow");
 assert(
-  serverMain.includes("completeInviteToUserRow(") && serverMain.includes("writeCompanyUsers"),
-  "2b: completion passes writeCompanyUsers dep",
+  serverMain.includes("completeInviteToUserRow(") &&
+    serverMain.includes("getCompanyUsersDeps"),
+  "2b: completion passes Users tab deps",
 );
 
 /** 3: Invite create is token-only — no Users tab write on create. */
-assert(serverMain.includes("createInviteRecord({"), "3: invite create uses token store");
+assert(inviteService.includes("createInvite"), "3: invite create uses inviteService createInvite");
 assert(
   !serverMain.includes("writeCompanyUsers(authed, resolvedMasterSheetId") &&
     !serverMain.includes("writeCompanyUsers(auth, resolvedMasterSheetId"),
@@ -42,12 +43,12 @@ assert(
 );
 
 /** 4: completeInviteToUserRow sets ACTIVE + password. */
-assert(sheetFlow.includes('status: "ACTIVE"'), "4: completion writes ACTIVE status");
-assert(sheetFlow.includes("password"), "4b: completion accepts password for PasswordHash");
+assert(inviteService.includes('Status: "ACTIVE"'), "4: completion writes ACTIVE status");
+assert(inviteService.includes("hashPassword"), "4b: completion hashes password for PasswordHash");
 
 /** 5: CreatedAt preserved on existing row. */
-assert(sheetFlow.includes("existing?.createdAt"), "5: preserves CreatedAt from existing Users row");
-assert(sheetFlow.includes("CreatedAt: createdAt"), "5b: passes CreatedAt into sheet write");
+assert(inviteService.includes("existing?.createdAt"), "5: preserves CreatedAt from existing Users row");
+assert(inviteService.includes("CreatedAt: createdAt"), "5b: passes CreatedAt into sheet write");
 
 /** 6: Invite marked used only after sheet write succeeds. */
 assert(
@@ -74,7 +75,7 @@ assert(!sheetFlow.includes("createInviteRecord"), "9c: sheet flow does not creat
 
 /** 10: PasswordHash never returned to clients. */
 assert(companyUsers.includes("sanitizeUserRecordForClient"), "10: sanitize strips PasswordHash");
-assert(sheetFlow.includes("sanitizeUserRecordForClient"), "10b: completion returns sanitized user");
+assert(inviteService.includes("sanitizeUserRecordForClient"), "10b: completion returns sanitized user");
 
 /** 11: Failed completion keeps invite pending. */
 assert(serverMain.includes("USER_ACCOUNT_CREATE_FAILED"), "11: USER_ACCOUNT_CREATE_FAILED code");
@@ -83,8 +84,7 @@ assert(serverMain.includes("consumedAt: null"), "11b: failure clears consumedAt"
 /** 12: canLoginCompanyUser requires ACTIVE status. */
 assert(sheetFlow.includes('rec.status !== "ACTIVE"'), "12: inactive Users tab row blocks login");
 
-/** 13: Invite completion queues workbook/cache work in background. */
-assert(serverMain.includes("setImmediate("), "13: invite completion uses background queue");
+/** 13: Invite completion returns fast SIGN_IN payload; auth index rebuilt inline. */
 {
   const completionBlock = serverMain.slice(
     serverMain.indexOf("let usersWriteOk = false;"),
@@ -94,15 +94,17 @@ assert(serverMain.includes("setImmediate("), "13: invite completion uses backgro
     completionBlock.includes("completeInviteToUserRow") &&
       completionBlock.includes("accountCreated: true") &&
       completionBlock.includes('nextAction: "SIGN_IN"'),
-    "13b: company_user completion returns fast SIGN_IN payload after sheet write",
+    "13: company_user completion returns fast SIGN_IN payload after sheet write",
   );
   const resJsonIdx = completionBlock.indexOf("res.json({");
   const beforeResponse = completionBlock.slice(0, resJsonIdx);
   assert(
     !beforeResponse.includes("await rebuildUsersFromSheet") &&
-      !beforeResponse.includes("await resolveCompanyContextFromLoginWorkbook"),
-    "13c: cache/workbook rebuild not awaited before HTTP response",
+      !beforeResponse.includes("await validatePreparedCompanyUserInviteTarget") &&
+      !beforeResponse.includes("setImmediate("),
+    "13b: no setup/cache rebuild before HTTP response",
   );
+  assert(inviteService.includes("rebuildAuthIndexFromUsersTab"), "13c: auth index rebuilt after Users tab write");
 }
 
 const pkg = JSON.parse(read("package.json"));

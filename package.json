@@ -34,6 +34,7 @@
     "verify:password-reset": "node scripts/verify-password-reset.mjs",
     "verify:password-reset-login": "node scripts/verify-password-reset-login.mjs",
     "verify:company-auth-foundation": "node scripts/verify-company-auth-foundation.mjs",
+    "verify:company-invite-foundation": "node scripts/verify-company-invite-foundation.mjs",
     "verify:password-auth-flow": "node scripts/verify-password-auth-flow.mjs",
     "verify:offline-shell": "node scripts/verify-offline-shell.mjs",
     "verify:offline-tablet": "node scripts/verify-offline-tablet.mjs",

@@ -38,14 +38,14 @@ assert(
   serverMain.indexOf("completeInviteToUserRow") < serverMain.indexOf('status: "USED"'),
   "7: Users tab write before invite marked USED",
 );
-assert(sheetFlow.includes('status: "ACTIVE"'), "8: completion writes ACTIVE status");
-assert(sheetFlow.includes("password"), "9: completion accepts password for PasswordHash");
+assert(inviteService.includes('Status: "ACTIVE"'), "8: completion writes ACTIVE status");
+assert(inviteService.includes("hashPassword"), "9: completion hashes password for PasswordHash");
+assert(inviteService.includes("resolveInviteCompanyContext"), "10: folder-first context on accept");
 assert(
   !serverMain.includes("writeCompanyUsers(authed, resolvedMasterSheetId") &&
     !serverMain.includes("writeCompanyUsers(auth, resolvedMasterSheetId"),
-  "10: invite create does not write Users tab",
+  "11: invite create does not write Users tab",
 );
-assert(userAuth.includes("rebuildAuthIndexFromUsersTab"), "11: auth index rebuild after invite");
-assert(authService.includes("rebuildAuthIndexFromUsersTab"), "12: authService re-exports index rebuild");
+assert(inviteService.includes("rebuildAuthIndexFromUsersTab"), "12: auth index rebuild after invite");
 
 console.log(`[verify:invite-to-users-tab] OK — ${caseCount} cases passed`);

@@ -149,6 +149,11 @@ import {
 import { debugVerifyUserPassword } from "./user-auth-service.mjs";
 import { createAuthIndexApi, syncAuthIndexAfterUsersRead } from "./auth-index.mjs";
 import { completeInviteToUserRow } from "./company-user-sheet-flow.mjs";
+import {
+  createInvite,
+  resolveInviteCompanyContext,
+  sanitizeCompanyUserInviteForClient,
+} from "./invite-service.mjs";
 import { createCompanyUsersCacheApi } from "./company-users-cache.mjs";
 import { createMasterSheetCacheApi } from "./master-sheet-cache.mjs";
 import { rebuildUsersFromSheet } from "./company-users-foundation.mjs";
@@ -2115,6 +2120,13 @@ async function validatePreparedCompanyUserInviteTarget(auth, record, tokenId = "
     patchInviteRecord: tokenId ? (partial) => patchInviteRecord(tokenId, partial) : null,
     tokenId,
   });
+}
+
+async function resolvePreparedCompanyUserInviteContext(auth, record = {}) {
+  return resolveInviteCompanyContext(auth, {
+    getCompanyResolverDeps: () => ({ google, ...getCompanyWorkspaceRegistryDeps() }),
+    resolveCompanyFromFolder,
+  }, record);
 }
 
 function markInviteConsumed(id) {
@@ -5649,30 +5661,25 @@ async function processCompanyUserInvite(req, res) {
     let resolvedCompanyId = companyFolderId;
 
     if (auth) {
-      const targetCheck = await validatePreparedCompanyUserInviteTarget(
-        auth,
-        {
-          companyFolderId,
-          masterSheetId,
-          companyName,
-        },
-      );
-      if (!targetCheck.ok) {
-        res.status(targetCheck.httpStatus).json({
+      const contextResult = await resolvePreparedCompanyUserInviteContext(auth, {
+        companyFolderId,
+        masterSheetId,
+        companyName,
+      });
+      if (!contextResult.ok) {
+        res.status(contextResult.httpStatus || 409).json({
           ok: false,
-          code: targetCheck.code,
-          error: targetCheck.message,
-          blocker: targetCheck.code,
-          diagnostics: targetCheck.diagnostics,
+          code: contextResult.code || contextResult.reason,
+          error: contextResult.message,
+          blocker: contextResult.code || contextResult.reason,
         });
         return;
       }
 
-      resolvedCompanyName =
-        targetCheck.resolved?.companyName || companyName || targetCheck.companyLabel || "";
-      resolvedCompanyFolderId = targetCheck.resolved?.companyFolderId || companyFolderId;
-      resolvedMasterSheetId = targetCheck.resolved?.masterSheetId || masterSheetId;
-      resolvedCompanyId = targetCheck.resolved?.companyId || companyFolderId;
+      resolvedCompanyName = contextResult.companyContext?.companyName || companyName || "";
+      resolvedCompanyFolderId = contextResult.companyContext?.companyFolderId || companyFolderId;
+      resolvedMasterSheetId = contextResult.companyContext?.masterSheetId || masterSheetId;
+      resolvedCompanyId = contextResult.companyContext?.companyId || companyFolderId;
 
       const isMasterInviter = inviteActor?.kind === "master" && inviteActor?.role === "Master";
       if (
@@ -5738,37 +5745,33 @@ async function processCompanyUserInvite(req, res) {
           if (resendTokenId) {
             revokeInviteRecord(resendTokenId);
           }
-          ({ id } = createInviteRecord({
-            kind: "company_user",
-            inviteType: "COMPANY_USER",
-            status: "PENDING",
-            email: toEmail,
-            role: inviteRole,
-            accessLevel: inviteAccessLevelForRole(inviteRole),
-            companyAreas: "",
-            invitedBy,
-            companyId: resolvedCompanyId || resolvedCompanyFolderId,
-            companyFolderId: resolvedCompanyFolderId,
-            masterSheetId: resolvedMasterSheetId,
-            companyName: resolvedCompanyName || companyName,
-          }));
+          ({ id } = createInvite(
+            { createInviteRecord },
+            {
+              email: toEmail,
+              role: inviteRole,
+              accessLevel: inviteAccessLevelForRole(inviteRole),
+              invitedBy,
+              companyFolderId: resolvedCompanyFolderId,
+              masterSheetId: resolvedMasterSheetId,
+              companyName: resolvedCompanyName || companyName,
+            },
+          ));
           console.log(`[invite] company_user replace token=${id.slice(0, 8)} recipient=${toEmail}`);
         }
       } else {
-        ({ id } = createInviteRecord({
-          kind: "company_user",
-          inviteType: "COMPANY_USER",
-          status: "PENDING",
-          email: toEmail,
-          role: inviteRole,
-          accessLevel: inviteAccessLevelForRole(inviteRole),
-          companyAreas: "",
-          invitedBy,
-          companyId: resolvedCompanyId || resolvedCompanyFolderId,
-          companyFolderId: resolvedCompanyFolderId,
-          masterSheetId: resolvedMasterSheetId,
-          companyName: resolvedCompanyName || companyName,
-        }));
+        ({ id } = createInvite(
+          { createInviteRecord },
+          {
+            email: toEmail,
+            role: inviteRole,
+            accessLevel: inviteAccessLevelForRole(inviteRole),
+            invitedBy,
+            companyFolderId: resolvedCompanyFolderId,
+            masterSheetId: resolvedMasterSheetId,
+            companyName: resolvedCompanyName || companyName,
+          },
+        ));
         console.log(`[invite] company_user created token=${id.slice(0, 8)} recipient=${toEmail}`);
       }
 
@@ -5922,7 +5925,7 @@ app.get("/api/onboarding/app-invites", requireGoogleWorkspaceEnv, (req, res) => 
         type: COMPANY_USER_INVITE_TYPE,
       }),
     )
-    .map((entry) => publicCompanyUserInviteListItem({ id: entry.id, record: entry }));
+    .map((entry) => sanitizeCompanyUserInviteForClient({ id: entry.id, record: entry }));
   res.json({ ok: true, invites });
 });
 
@@ -6185,32 +6188,31 @@ async function handleAppInviteComplete(req, res) {
               });
               return;
             }
-            const retryTargetCheck = await validatePreparedCompanyUserInviteTarget(authed, record, tokenId);
-            if (!retryTargetCheck.ok) {
+            const retryContext = await resolvePreparedCompanyUserInviteContext(authed, record);
+            if (!retryContext.ok) {
               logInviteCompleteFailure({
-                code: retryTargetCheck.code,
+                code: retryContext.code,
                 email: record.email,
                 tokenId,
-                company: retryTargetCheck.companyLabel || record.companyName,
-                masterSheetIdPresent: retryTargetCheck.masterSheetIdPresent,
-                diagnostics: retryTargetCheck.diagnostics,
+                company: record.companyName || record.companyFolderId,
+                masterSheetIdPresent: Boolean(record.masterSheetId),
               });
-              res.status(retryTargetCheck.httpStatus).json({
+              res.status(retryContext.httpStatus || 409).json({
                 ok: false,
-                code: retryTargetCheck.code,
-                message: retryTargetCheck.message,
-                error: retryTargetCheck.message,
+                code: retryContext.code,
+                message: retryContext.message,
+                error: retryContext.message,
                 setupIncomplete: true,
                 canRetrySetup: false,
-                diagnostics: retryTargetCheck.diagnostics,
               });
               return;
             }
             record = {
               ...record,
-              companyId: retryTargetCheck.resolved?.companyId || record.companyId || record.companyFolderId,
-              companyFolderId: retryTargetCheck.resolved?.companyFolderId || record.companyFolderId,
-              masterSheetId: retryTargetCheck.resolved?.masterSheetId || record.masterSheetId,
+              companyId: retryContext.companyContext?.companyId || record.companyId || record.companyFolderId,
+              companyFolderId: retryContext.companyContext?.companyFolderId || record.companyFolderId,
+              masterSheetId: retryContext.companyContext?.masterSheetId || record.masterSheetId,
+              companyName: retryContext.companyContext?.companyName || record.companyName,
             };
             console.warn("[invite] company_user retry incomplete setup", {
               tokenIdPrefix: tokenId.slice(0, 8),
@@ -6249,32 +6251,31 @@ async function handleAppInviteComplete(req, res) {
       }
 
       if (record.kind === "company_user") {
-        const targetCheck = await validatePreparedCompanyUserInviteTarget(authed, record, tokenId);
-        if (!targetCheck.ok) {
+        const contextResult = await resolvePreparedCompanyUserInviteContext(authed, record);
+        if (!contextResult.ok) {
           logInviteCompleteFailure({
-            code: targetCheck.code,
+            code: contextResult.code,
             email: record.email,
             tokenId,
-            company: targetCheck.companyLabel || record.companyName,
-            masterSheetIdPresent: targetCheck.masterSheetIdPresent,
-            diagnostics: targetCheck.diagnostics,
+            company: record.companyName || record.companyFolderId,
+            masterSheetIdPresent: Boolean(record.masterSheetId),
           });
-          res.status(targetCheck.httpStatus).json({
+          res.status(contextResult.httpStatus || 409).json({
             ok: false,
-            code: targetCheck.code,
-            message: targetCheck.message,
-            error: targetCheck.message,
-            setupIncomplete: targetCheck.code === "INVITE_COMPANY_LINK_MISSING",
+            code: contextResult.code,
+            message: contextResult.message,
+            error: contextResult.message,
+            setupIncomplete: contextResult.code === "INVITE_COMPANY_LINK_MISSING",
             canRetrySetup: false,
-            diagnostics: targetCheck.diagnostics,
           });
           return;
         }
         record = {
           ...record,
-          companyId: targetCheck.resolved?.companyId || record.companyId || record.companyFolderId,
-          companyFolderId: targetCheck.resolved?.companyFolderId || record.companyFolderId,
-          masterSheetId: targetCheck.resolved?.masterSheetId || record.masterSheetId,
+          companyId: contextResult.companyContext?.companyId || record.companyId || record.companyFolderId,
+          companyFolderId: contextResult.companyContext?.companyFolderId || record.companyFolderId,
+          masterSheetId: contextResult.companyContext?.masterSheetId || record.masterSheetId,
+          companyName: contextResult.companyContext?.companyName || record.companyName,
         };
       }
 
@@ -6380,8 +6381,13 @@ async function handleAppInviteComplete(req, res) {
             const completion = await completeInviteToUserRow(
               authed,
               record,
-              { fullName, password },
-              { writeCompanyUsers, getCompanyUsersDeps },
+              { fullName, password, confirmPassword },
+              {
+                getCompanyUsersDeps,
+                getCompanyResolverDeps: () => ({ google, ...getCompanyWorkspaceRegistryDeps() }),
+                resolveCompanyFromFolder,
+                authIndex: authIndexApi,
+              },
             );
             usersWriteOk = completion.ok;
             userAuthWriteOk = completion.ok;
@@ -6401,46 +6407,6 @@ async function handleAppInviteComplete(req, res) {
               consumedAt: Date.now(),
             });
             completedMarked = true;
-
-            if (inviteFolderId) {
-              const bgContext = {
-                companyFolderId: inviteFolderId,
-                companyId: inviteFolderId,
-                masterSheetId: record.masterSheetId,
-                companyName: inviteCompanyName,
-                email: record.email,
-              };
-              setImmediate(() => {
-                const bgAuth = getAuthedClient();
-                if (!bgAuth) {
-                  return;
-                }
-                const bgDeps = { ...getCompanyWorkspaceRegistryDeps(), ...getCompanyUsersDeps() };
-                rebuildUsersFromSheet(bgAuth, bgDeps, bgContext).catch(() => null);
-                authIndexApi
-                  .rebuildCompanyAuthIndexFromSheet(bgAuth, { getCompanyUsersDeps }, bgContext)
-                  .catch(() => null);
-              });
-              if (backgroundJobs?.enqueueJob) {
-                try {
-                  backgroundJobs.enqueueJob({
-                    type: "REBUILD_AUTH_INDEX",
-                    companyId: inviteFolderId,
-                    requestedBy: record.email,
-                    userMessage: "Rebuilding sign-in index after invite acceptance.",
-                    payload: {
-                      email: record.email,
-                      masterSheetId: record.masterSheetId,
-                      companyFolderId: inviteFolderId,
-                      companyName: inviteCompanyName,
-                      reason: "invite_acceptance",
-                    },
-                  });
-                } catch (error) {
-                  console.warn("[invite] background job queue failed", error);
-                }
-              }
-            }
 
             const responseUser = {
               email: record.email,

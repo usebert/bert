@@ -20,7 +20,7 @@ function read(rel) {
 
 const serverMain = read("server/server.mjs");
 const inviteCompletion = read("src/screens/AppHostedOnboardingCompletion.tsx");
-const sheetFlow = read("server/company-user-sheet-flow.mjs");
+const inviteService = read("server/invite-service.mjs");
 
 function extractCompanyUserCompletionBlock(source) {
   const start = source.indexOf("let usersWriteOk = false;");
@@ -54,11 +54,12 @@ assert(
   "3d: no blocking login workbook resolver",
 );
 assert(!beforeResponse.includes("await enrichCompanyContextFromRegistry"), "3e: no blocking registry enrich");
-assert(completionBlock.includes("setImmediate("), "3f: background work via setImmediate");
+assert(!beforeResponse.includes("await validatePreparedCompanyUserInviteTarget"), "3g: no heavy invite target prepare on accept");
+assert(inviteService.includes("rebuildAuthIndexFromUsersTab"), "3f: auth index rebuilt after Users tab write");
 
 /** 4: Read-back verification stays on blocking path. */
-assert(sheetFlow.includes("canLoginCompanyUser"), "4: read-back via canLoginCompanyUser");
-assert(sheetFlow.includes("verifyCompanyUserPassword"), "4b: PasswordHash verified on sheet");
+assert(inviteService.includes("verifyUserPasswordFromUsersTab"), "4: read-back via Users tab password verify");
+assert(inviteService.includes("hashPassword"), "4b: PasswordHash hashed with shared helper");
 
 /** 5: Frontend allows enough time for Sheets write + read-back under load. */
 assert(inviteCompletion.includes("30_000"), "5: frontend timeout is 30 seconds");

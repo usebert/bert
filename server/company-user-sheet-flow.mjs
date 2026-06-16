@@ -161,73 +161,15 @@ export async function canLoginCompanyUser(auth, email, password, companyContext 
 }
 
 /**
- * Invite acceptance — write ACTIVE Users tab row (preserve CreatedAt), then verify login-ready.
+ * Invite acceptance — delegates to inviteService folder-first Users tab write.
  */
 export async function completeInviteToUserRow(auth, invite, formData, deps) {
-  const { writeCompanyUsers } = deps;
-  if (typeof writeCompanyUsers !== "function") {
-    return { ok: false, reason: "write_unavailable" };
+  const { completeCompanyUserInviteAcceptance } = await import("./invite-service.mjs");
+  const result = await completeCompanyUserInviteAcceptance(auth, invite, formData, deps);
+  if (!result.ok) {
+    return { ok: false, reason: result.reason || "write_failed", code: result.code, message: result.message };
   }
-
-  const email = safeLower(invite?.email);
-  const masterSheetId = String(invite?.masterSheetId || "").trim();
-  const companyFolderId = String(invite?.companyFolderId || invite?.companyId || "").trim();
-  const fullName = String(formData?.fullName || formData?.name || "").trim();
-  const password = String(formData?.password || "");
-  const role = String(invite?.role || "").trim();
-  if (!email || !masterSheetId || !companyFolderId || !fullName || password.length < 8 || !role) {
-    return { ok: false, reason: "missing_fields" };
-  }
-
-  const userDeps = resolveCompanyUsersDeps(deps);
-  const existing = await findCompanyUsersTabRow(auth, masterSheetId, email, userDeps).catch(() => null);
-  const createdAt =
-    String(existing?.createdAt || invite?.createdAt || invite?.sentAt || "").trim() ||
-    new Date().toISOString();
-  const userId =
-    String(existing?.userId || "").trim() ||
-    `app-${email.replace(/[^a-z0-9]+/gi, "-")}-${role.toLowerCase()}`;
-  const accessLevel =
-    String(invite?.accessLevel || "").trim() ||
-    defaultAccessLevelForRole(role) ||
-    inviteAccessLevelForRole(role);
-
-  const usersResult = await writeCompanyUsers(auth, masterSheetId, companyFolderId, [
-    {
-      id: userId,
-      email,
-      role,
-      name: fullName,
-      password,
-      accessLevel,
-      companyAreas: String(invite?.companyAreas || "").trim(),
-      companyName: String(invite?.companyName || "").trim(),
-      invitedBy: invite?.invitedBy || "",
-      senderEmail: "",
-      sentAt: createdAt,
-      CreatedAt: createdAt,
-      updatedAt: new Date().toISOString(),
-      status: "ACTIVE",
-      syncStatus: "Synced",
-    },
-  ]);
-
-  if (!Number(usersResult?.written || 0)) {
-    return { ok: false, reason: "write_failed" };
-  }
-
-  const login = await verifyCompanyUserPassword(auth, masterSheetId, email, password, userDeps);
-  if (!login.ok) {
-    return { ok: false, reason: login.reason || "login_not_ready" };
-  }
-  const rec =
-    login.rec ||
-    (await readCompanyUsersTabRecord(auth, masterSheetId, email, userDeps).catch(() => null));
-  if (!rec || normalizeUserStatus(rec.status) !== "ACTIVE") {
-    return { ok: false, reason: "inactive", status: rec?.status };
-  }
-
-  return { ok: true, user: sanitizeUserRecordForClient(rec), migrated: Boolean(login.migrated) };
+  return { ok: true, user: result.user, companyContext: result.companyContext, accessLevel: result.accessLevel };
 }
 
 /** @deprecated Use mapUsersTabProfileMember from users-tab-profiles.mjs */
