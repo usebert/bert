@@ -10,7 +10,8 @@ import {
   readMasterStore,
   writeMasterStore,
 } from "./master-auth.mjs";
-import { completeCompanyPasswordReset } from "./user-auth-service.mjs";
+import { completeCompanyPasswordReset, readUserAuthRowByEmail } from "./user-auth-service.mjs";
+import { resolveCompanyFromFolder } from "./company-service.mjs";
 import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
 
 const STORE_FILENAME = "password-reset-tokens.json";
@@ -177,18 +178,46 @@ async function companyUserAuthExists(auth, masterSheetId, email, deps) {
     return false;
   }
   try {
-    const { companyUserLoginReady, getCompanyUsersDeps } = deps;
-    if (typeof companyUserLoginReady === "function") {
-      const userDeps = typeof getCompanyUsersDeps === "function" ? getCompanyUsersDeps() : deps;
-      return companyUserLoginReady(auth, masterSheetId, email, userDeps);
-    }
-    const { getConfig } = deps;
-    const cfg = await getConfig(auth, masterSheetId);
-    const key = `UserAuth.${normalizeEmail(email)}`;
-    return Boolean(cfg[key] && String(cfg[key]).trim());
+    const userDeps = typeof deps.getCompanyUsersDeps === "function" ? deps.getCompanyUsersDeps() : deps;
+    const row = await readUserAuthRowByEmail(auth, { masterSheetId }, email, userDeps);
+    return Boolean(row && String(row.status || "").toUpperCase() === "ACTIVE");
   } catch {
     return false;
   }
+}
+
+async function resolveResetCompanyContext(auth, deps, masterSheetId, resetEmail) {
+  const userDeps = typeof deps.getCompanyUsersDeps === "function" ? deps.getCompanyUsersDeps() : deps;
+  const row = await readUserAuthRowByEmail(auth, { masterSheetId }, resetEmail, userDeps).catch(() => null);
+  const companyFolderId = String(row?.companyFolderId || row?.companyId || "").trim();
+  if (!companyFolderId) {
+    return { masterSheetId, companyFolderId: "", companyId: "", companyName: String(row?.companyName || "").trim() };
+  }
+  const resolveFn =
+    typeof deps.resolveCompanyFromFolder === "function" ? deps.resolveCompanyFromFolder : resolveCompanyFromFolder;
+  const resolverDeps =
+    typeof deps.getCompanyResolverDeps === "function" ? deps.getCompanyResolverDeps() : deps;
+  const resolved = await resolveFn(auth, resolverDeps, companyFolderId, {
+    ensureTabsSync: false,
+    ensureStructure: false,
+    createIfMissing: false,
+    skipFolderPlacementCheck: true,
+    preferFolderResolution: true,
+  });
+  if (!resolved?.ok || !resolved.masterSheetId) {
+    return {
+      masterSheetId,
+      companyFolderId,
+      companyId: companyFolderId,
+      companyName: String(row?.companyName || resolved?.companyName || "").trim(),
+    };
+  }
+  return {
+    masterSheetId: resolved.masterSheetId,
+    companyFolderId: resolved.companyFolderId,
+    companyId: resolved.companyId || resolved.companyFolderId,
+    companyName: resolved.companyName,
+  };
 }
 
 function invalidatePendingForEmail(store, emailHash, exceptTokenId = "") {
@@ -224,8 +253,9 @@ export function installPasswordResetRoutes(app, deps) {
     getConfig,
     updateConfig,
     envConfigured,
-    companyUserLoginReady,
     getCompanyUsersDeps,
+    getCompanyResolverDeps,
+    resolveCompanyFromFolder,
     authIndex,
     isProdRuntime = () => process.env.NODE_ENV === "production",
   } = deps;
@@ -411,11 +441,11 @@ export function installPasswordResetRoutes(app, deps) {
         }
         const resetResult = await completeCompanyPasswordReset(
           auth,
-          { getCompanyUsersDeps, authIndex },
+          { getCompanyUsersDeps, authIndex, getCompanyResolverDeps: deps.getCompanyResolverDeps },
           {
             email: resetEmail,
             newPassword: password,
-            companyContext: { masterSheetId },
+            companyContext: await resolveResetCompanyContext(auth, deps, masterSheetId, resetEmail),
           },
         );
         if (!resetResult.ok) {

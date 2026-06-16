@@ -12,7 +12,19 @@ import {
   readCompanyUsersTabRecord,
 } from "./company-users.mjs";
 import { pickRowCompanyFolderId, pickRowCompanyId, pickRowCompanyName } from "./users-tab-schema.mjs";
-import { sanitizeCompanyFolderId } from "../shared/google-drive-id.mjs";
+import {
+  sanitizeCompanyFolderId,
+  sanitizeGoogleSpreadsheetId,
+} from "../shared/google-drive-id.mjs";
+import { resolveCompanyFromFolder } from "./company-service.mjs";
+
+const LIGHT_RESOLVE_OPTS = {
+  ensureTabsSync: false,
+  ensureStructure: false,
+  createIfMissing: false,
+  skipFolderPlacementCheck: true,
+  preferFolderResolution: true,
+};
 
 function resolveUsersTabReaders(deps = {}) {
   return {
@@ -168,12 +180,22 @@ export async function rebuildAuthIndexFromUsersTab(auth, deps, companyContext, a
 }
 
 export async function verifyUserPasswordFromUsersTab(auth, companyContext, email, plainPassword, deps) {
-  const row = await readUserAuthRowByEmail(auth, companyContext, email, deps);
+  const ctx = resolveUserAuthCompanyContext(companyContext);
+  const row = await readUserAuthRowByEmail(auth, ctx, email, deps);
   if (!row) {
     return { ok: false, reason: "user_not_found", rowFound: false };
   }
   if (String(row.status || "").toUpperCase() !== "ACTIVE") {
     return { ok: false, reason: "inactive", rowFound: true, status: row.status };
+  }
+  const ctxFolderId = sanitizeCompanyFolderId(ctx.companyFolderId || ctx.companyId);
+  if (ctxFolderId) {
+    const rowFolderId = sanitizeCompanyFolderId(
+      row.companyFolderId || pickRowCompanyFolderId(row.rowObject || row) || row.companyId || "",
+    );
+    if (rowFolderId && rowFolderId !== ctxFolderId) {
+      return { ok: false, reason: "wrong_company", rowFound: true, status: row.status };
+    }
   }
   if (!row.passwordHash) {
     return { ok: false, reason: "no_password_hash", rowFound: true, status: row.status };
@@ -192,6 +214,214 @@ export async function verifyUserPasswordFromUsersTab(auth, companyContext, email
     row,
     source: "users_tab",
     masterSheetId: row.masterSheetId,
+  };
+}
+
+function resolverDeps(deps = {}) {
+  if (typeof deps.getCompanyResolverDeps === "function") {
+    return deps.getCompanyResolverDeps();
+  }
+  return deps;
+}
+
+function resolveFolderContextFn(deps = {}) {
+  return typeof deps.resolveCompanyFromFolder === "function"
+    ? deps.resolveCompanyFromFolder
+    : resolveCompanyFromFolder;
+}
+
+async function resolveFolderFirstContext(auth, deps, companyFolderId) {
+  const resolveFn = resolveFolderContextFn(deps);
+  return resolveFn(auth, resolverDeps(deps), companyFolderId, LIGHT_RESOLVE_OPTS);
+}
+
+function dedupeLoginAttempts(attempts = []) {
+  const seen = new Set();
+  const out = [];
+  for (const attempt of attempts) {
+    const key =
+      attempt.type === "folder"
+        ? `f:${attempt.companyFolderId}`
+        : `s:${attempt.masterSheetId}`;
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push(attempt);
+  }
+  return out;
+}
+
+function collectLoginResolutionAttempts(input = {}, deps = {}) {
+  const attempts = [];
+  const pushFolder = (raw) => {
+    const folderId = sanitizeCompanyFolderId(raw);
+    if (folderId) {
+      attempts.push({ type: "folder", companyFolderId: folderId });
+    }
+  };
+  const pushSheet = (raw) => {
+    const sheetId = sanitizeGoogleSpreadsheetId(raw);
+    if (sheetId) {
+      attempts.push({ type: "sheet_hint", masterSheetId: sheetId });
+    }
+  };
+
+  pushFolder(input.companyFolderId);
+  pushSheet(input.masterSheetId || input.requestedSheetId);
+
+  const email = normalizeUserAuthEmail(input.email);
+  const indexEntry =
+    typeof deps.authIndex?.lookupByEmail === "function" ? deps.authIndex.lookupByEmail(email) : null;
+  if (indexEntry) {
+    pushFolder(indexEntry.companyFolderId || indexEntry.companyId);
+    pushSheet(indexEntry.masterSheetId);
+  }
+  if (typeof deps.findMasterSheetIdsForCompanyLoginEmail === "function") {
+    for (const sheetId of deps.findMasterSheetIdsForCompanyLoginEmail(email) || []) {
+      pushSheet(sheetId);
+    }
+  }
+  return dedupeLoginAttempts(attempts);
+}
+
+async function companyContextFromSheetHint(auth, deps, masterSheetId, email, userDeps) {
+  const row = await readUserAuthRowByEmail(auth, { masterSheetId }, email, userDeps);
+  if (!row) {
+    return { ok: false, reason: "user_not_found" };
+  }
+  const rowFolderId = sanitizeCompanyFolderId(
+    row.companyFolderId || pickRowCompanyFolderId(row.rowObject || row) || row.companyId || "",
+  );
+  if (!rowFolderId) {
+    return { ok: false, reason: "company_folder_missing", row };
+  }
+  const resolved = await resolveFolderFirstContext(auth, deps, rowFolderId);
+  if (!resolved?.ok || !resolved.masterSheetId) {
+    return { ok: false, reason: "company_context_failed", row, resolved };
+  }
+  return {
+    ok: true,
+    companyContext: {
+      masterSheetId: resolved.masterSheetId,
+      companyFolderId: resolved.companyFolderId,
+      companyId: resolved.companyId || resolved.companyFolderId,
+      companyName: resolved.companyName,
+    },
+    row,
+  };
+}
+
+/**
+ * Company user login — Users tab PasswordHash is verified after folder-first company resolve.
+ * Auth index and invite hints only narrow which workbook/folder to read; never authenticate alone.
+ */
+export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) {
+  const email = normalizeUserAuthEmail(input.email);
+  const password = String(input.password || "");
+  if (!auth || !email || !password) {
+    return { ok: false, reason: "missing_context", httpStatus: 400, code: "MISSING_FIELDS" };
+  }
+
+  const userDeps = typeof deps.getCompanyUsersDeps === "function" ? deps.getCompanyUsersDeps() : deps;
+  const attempts = collectLoginResolutionAttempts(input, deps);
+  if (!attempts.length) {
+    return {
+      ok: false,
+      reason: "invalid_credentials",
+      httpStatus: 401,
+      code: "INVALID_CREDENTIALS",
+      blocker: "invalid_credentials",
+      error: "Email or password is incorrect.",
+      message: "Email or password is incorrect.",
+    };
+  }
+
+  let inactiveHit = false;
+  for (const attempt of attempts) {
+    let companyContext = {};
+    if (attempt.type === "folder") {
+      const resolved = await resolveFolderFirstContext(auth, deps, attempt.companyFolderId);
+      if (!resolved?.ok || !resolved.masterSheetId) {
+        continue;
+      }
+      companyContext = {
+        masterSheetId: resolved.masterSheetId,
+        companyFolderId: resolved.companyFolderId,
+        companyId: resolved.companyId || resolved.companyFolderId,
+        companyName: resolved.companyName,
+      };
+    } else {
+      const hinted = await companyContextFromSheetHint(auth, deps, attempt.masterSheetId, email, userDeps);
+      if (!hinted.ok) {
+        if (hinted.reason === "inactive") {
+          inactiveHit = true;
+        }
+        continue;
+      }
+      companyContext = hinted.companyContext;
+    }
+
+    const verifyResult = await verifyUserPasswordFromUsersTab(auth, companyContext, email, password, userDeps);
+    if (!verifyResult.ok) {
+      if (verifyResult.reason === "inactive") {
+        inactiveHit = true;
+      }
+      continue;
+    }
+
+    const row = verifyResult.row;
+    const entry = {
+      email,
+      name: String(row?.name || email).trim() || email,
+      role: row?.role || "User",
+      accessLevel: row?.accessLevel || "",
+      companyId: companyContext.companyFolderId,
+      companyFolderId: companyContext.companyFolderId,
+      companyName:
+        companyContext.companyName || String(pickRowCompanyName(row?.rowObject || row) || "").trim(),
+      masterSheetId: companyContext.masterSheetId,
+      status: "ACTIVE",
+      companyAreas: Array.isArray(row?.companyAreas) ? row.companyAreas : [],
+    };
+
+    if (deps.authIndex) {
+      await rebuildAuthIndexFromUsersTab(auth, deps, companyContext, deps.authIndex, email).catch(() => null);
+      const indexed = deps.authIndex.lookupByEmail?.(email);
+      if (indexed) {
+        entry.name = indexed.name || entry.name;
+        entry.role = indexed.role || entry.role;
+        entry.accessLevel = indexed.accessLevel || entry.accessLevel;
+        entry.companyAreas = indexed.companyAreas?.length ? indexed.companyAreas : entry.companyAreas;
+        entry.companyName = indexed.companyName || entry.companyName;
+        entry.masterSheetId = indexed.masterSheetId || entry.masterSheetId;
+        entry.companyFolderId = indexed.companyFolderId || entry.companyFolderId;
+        entry.companyId = indexed.companyId || entry.companyId;
+      }
+    }
+
+    return { ok: true, email, row, companyContext, entry };
+  }
+
+  if (inactiveHit) {
+    return {
+      ok: false,
+      reason: "inactive",
+      httpStatus: 403,
+      blocker: "inactive",
+      error: "This account is inactive. Contact your company administrator.",
+      message: "This account is inactive. Contact your company administrator.",
+    };
+  }
+
+  return {
+    ok: false,
+    reason: "invalid_credentials",
+    httpStatus: 401,
+    code: "INVALID_CREDENTIALS",
+    blocker: "invalid_credentials",
+    error: "Email or password is incorrect.",
+    message: "Email or password is incorrect.",
   };
 }
 
@@ -225,25 +455,17 @@ export async function attemptUsersTabPasswordLogin(auth, deps, input = {}) {
   }
 
   for (const masterSheetId of sheetIds) {
-    const verifyResult = await verifyUserPasswordFromUsersTab(
-      auth,
-      { masterSheetId },
-      email,
-      password,
-      deps.getCompanyUsersDeps?.() || deps,
-    );
+    const userDeps = deps.getCompanyUsersDeps?.() || deps;
+    const hinted = await companyContextFromSheetHint(auth, deps, masterSheetId, email, userDeps);
+    if (!hinted.ok) {
+      continue;
+    }
+    const companyContext = hinted.companyContext;
+    const verifyResult = await verifyUserPasswordFromUsersTab(auth, companyContext, email, password, userDeps);
     if (!verifyResult.ok) {
       continue;
     }
-    const row = verifyResult.row;
-    const companyContext = {
-      masterSheetId,
-      companyFolderId:
-        sanitizeCompanyFolderId(row.companyFolderId || row.companyId || "") || "",
-      companyId:
-        sanitizeCompanyFolderId(row.companyId || row.companyFolderId || "") || "",
-      companyName: String(row.companyName || pickRowCompanyName(row.rowObject || row) || "").trim(),
-    };
+    const row = verifyResult.row || hinted.row;
     await rebuildAuthIndexFromUsersTab(auth, deps, companyContext, authIndex, email).catch(() => null);
     const entry =
       typeof authIndex?.lookupByEmail === "function"

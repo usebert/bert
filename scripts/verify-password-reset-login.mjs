@@ -60,10 +60,10 @@ assert(userAuth.includes("PasswordHash"), "2g: writes PasswordHash by header nam
 assert(resetModule.includes("completeCompanyPasswordReset"), "3a: reset uses completeCompanyPasswordReset");
 assert(!resetModule.includes("setCompanyUserPasswordHash("), "3b: reset no longer calls setCompanyUserPasswordHash directly");
 
-assert(loginFn.includes("attemptUsersTabPasswordLogin"), "4a: login Users tab fallback when index missing");
-assert(loginFn.includes("verifyUserPasswordFromUsersTab"), "4b: login Users tab fallback before INVALID_CREDENTIALS");
-assert(loginFn.includes("rebuildAuthIndexFromUsersTab"), "4c: login rebuilds auth index from Users tab");
-assert(!loginFn.includes("setCompanyUserPasswordHash"), "4d: login does not write passwords directly");
+assert(loginFn.includes("authenticateCompanyUserLogin"), "4a: login uses authenticateCompanyUserLogin");
+assert(loginFn.includes("users_tab_auth"), "4b: login authenticates via Users tab path");
+assert(!loginFn.includes("verifyPasswordForEntry(passwordEntry"), "4c: login does not verify auth-index password first");
+assert(userAuth.includes("rebuildAuthIndexFromUsersTab"), "4d: auth index rebuilt from Users tab after login");
 
 assert(authIndex.includes("indexHash !== rowHash"), "5: auth index detects stale password hash");
 
@@ -99,10 +99,13 @@ function createMockUsersTabStore(initial = {}) {
         return { ok: true, email };
       },
     },
-    async findRow(_auth, _sheetId, email) {
+    async findRow(_auth, sheetId, email) {
       const key = String(email || "").trim().toLowerCase();
       const row = store.get(key);
       if (!row) return null;
+      if (row.masterSheetId && sheetId && row.masterSheetId !== sheetId) {
+        return null;
+      }
       return {
         email: key,
         roleRaw: row.role,
@@ -133,6 +136,9 @@ try {
       status: "ACTIVE",
       role: "Admin",
       name: "Sophie",
+      companyFolderId,
+      companyName: "Seven Oaks Cottages",
+      masterSheetId,
     },
   });
 
@@ -182,16 +188,25 @@ try {
   const staleIndexEntry = authIndexApi.lookupByEmail(auditEmail);
   assert(staleIndexEntry?.passwordHash && verifyPassword(newPassword, staleIndexEntry.passwordHash), "10: auth index updated after reset");
 
+  const resolveCompanyFromFolder = async (_auth, _deps, folderId) => ({
+    ok: true,
+    companyFolderId: folderId,
+    companyId: folderId,
+    companyName: folderId === companyFolderId ? "Seven Oaks Cottages" : "Rock Solid Scaffolding",
+    masterSheetId,
+  });
+
+  const loginDepsBase = {
+    authIndex: authIndexApi,
+    getCompanyUsersDeps: () => userDeps,
+    resolveCompanyFromFolder,
+    findMasterSheetIdsForCompanyLoginEmail: (addr) =>
+      String(addr).trim().toLowerCase() === auditEmail ? [masterSheetId] : [],
+  };
+
   const staleLogin = await performCompanyLogin(
     {},
-    {
-      authIndex: authIndexApi,
-      getCompanyUsersDeps: () => userDeps,
-      findMasterSheetIdsForCompanyLoginEmail: (email) =>
-        String(email).trim().toLowerCase() === auditEmail ? [masterSheetId] : [],
-      email: auditEmail,
-      password: newPassword,
-    },
+    { ...loginDepsBase, email: auditEmail, password: newPassword },
   );
   assert(staleLogin.ok === true, "11: login succeeds with new password");
 
@@ -216,40 +231,20 @@ try {
 
   const repairedLogin = await performCompanyLogin(
     {},
-    {
-      authIndex: authIndexApi,
-      getCompanyUsersDeps: () => userDeps,
-      findMasterSheetIdsForCompanyLoginEmail: (email) =>
-        String(email).trim().toLowerCase() === auditEmail ? [masterSheetId] : [],
-      email: auditEmail,
-      password: newPassword,
-    },
+    { ...loginDepsBase, email: auditEmail, password: newPassword },
   );
   assert(repairedLogin.ok === true, "12: stale index password repaired by Users tab fallback");
 
   authIndexApi.removeEntry(auditEmail);
   const missingIndexLogin = await performCompanyLogin(
     {},
-    {
-      authIndex: authIndexApi,
-      getCompanyUsersDeps: () => userDeps,
-      findMasterSheetIdsForCompanyLoginEmail: (email) =>
-        String(email).trim().toLowerCase() === auditEmail ? [masterSheetId] : [],
-      email: auditEmail,
-      password: newPassword,
-    },
+    { ...loginDepsBase, email: auditEmail, password: newPassword },
   );
   assert(missingIndexLogin.ok === true, "13: missing index login via Users tab fallback");
 
   const wrongPassword = await performCompanyLogin(
     {},
-    {
-      authIndex: authIndexApi,
-      getCompanyUsersDeps: () => userDeps,
-      findMasterSheetIdsForCompanyLoginEmail: () => [masterSheetId],
-      email: auditEmail,
-      password: "TotallyWrong-999",
-    },
+    { ...loginDepsBase, email: auditEmail, password: "TotallyWrong-999" },
   );
   assert(wrongPassword.ok === false && wrongPassword.code === "INVALID_CREDENTIALS", "14: wrong password fails");
 
@@ -268,16 +263,9 @@ try {
 
   const wrongSheetLogin = await performCompanyLogin(
     {},
-    {
-      authIndex: authIndexApi,
-      getCompanyUsersDeps: () => userDeps,
-      findMasterSheetIdsForCompanyLoginEmail: (email) =>
-        String(email).trim().toLowerCase() === auditEmail ? [masterSheetId] : [],
-      email: auditEmail,
-      password: newPassword,
-    },
+    { ...loginDepsBase, email: auditEmail, password: newPassword },
   );
-  assert(wrongSheetLogin.ok === true, "14b: stale index masterSheetId repaired via invite hint reconcile");
+  assert(wrongSheetLogin.ok === true, "14b: stale index masterSheetId repaired via invite hint + Users tab");
 
   const wrongCompany = await verifyUserPasswordFromUsersTab(
     {},

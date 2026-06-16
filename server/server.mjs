@@ -6874,15 +6874,17 @@ app.post("/api/auth/company/login", async (req, res) => {
 
     const auth = getAuthedClient();
     const result = await performCompanyLogin(auth, {
-      email: loginIdentity,
-      password: loginPassword,
-      masterSheetId: String(req.body?.masterSheetId || "").trim(),
       authIndex: authIndexApi,
       getCompanyUsersDeps,
+      getCompanyResolverDeps: () => ({ google, ...getCompanyWorkspaceRegistryDeps() }),
+      resolveCompanyFromFolder,
       findMasterSheetIdsForCompanyLoginEmail,
       sessionRevocation: companySessionRevocationApi,
       isPlatformOwner: isPlatformOwnerEmail,
       masterSheetCache: masterSheetCacheApi,
+      email: loginIdentity,
+      password: loginPassword,
+      masterSheetId: String(req.body?.masterSheetId || "").trim(),
     });
 
     if (!result.ok) {
@@ -7579,8 +7581,9 @@ installPasswordResetRoutes(app, {
   updateConfig,
   getTabValues,
   envConfigured,
-  companyUserLoginReady,
   getCompanyUsersDeps,
+  getCompanyResolverDeps: () => ({ google, ...getCompanyWorkspaceRegistryDeps() }),
+  resolveCompanyFromFolder,
   authIndex: authIndexApi,
   resolveCompanyUserEmailByHash,
   isProdRuntime,

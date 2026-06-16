@@ -130,37 +130,20 @@ export async function canLoginCompanyUser(auth, email, password, companyContext 
   }
 
   const userDeps = resolveCompanyUsersDeps(deps);
-  const companyUsersCache = userDeps.companyUsersCache;
   if (typeof userDeps.migrateUsersTabColumns === "function") {
     await userDeps.migrateUsersTabColumns(auth, masterSheetId, userDeps).catch(() => null);
   }
 
   const row = await findCompanyUsersTabRow(auth, masterSheetId, emailNorm, userDeps).catch(() => null);
   if (!row) {
-    const cacheHit =
-      companyUsersCache &&
-      ((companyFolderId &&
-        typeof companyUsersCache.isUserInCache === "function" &&
-        companyUsersCache.isUserInCache(companyFolderId, emailNorm)) ||
-        (typeof companyUsersCache.isUserInCacheByMasterSheet === "function" &&
-          companyUsersCache.isUserInCacheByMasterSheet(masterSheetId, emailNorm)));
-    if (cacheHit) {
-      const resolvedFolderId =
-        companyFolderId ||
-        (typeof companyUsersCache.findCompanyFolderIdByMasterSheet === "function"
-          ? companyUsersCache.findCompanyFolderIdByMasterSheet(masterSheetId)
-          : "");
-      if (typeof companyUsersCache.rebuildFromSheet === "function") {
-        await companyUsersCache
-          .rebuildFromSheet(auth, deps, {
-            companyFolderId: resolvedFolderId,
-            masterSheetId,
-          })
-          .catch(() => null);
-      }
-      return { ok: false, reason: "cache_only" };
-    }
     return { ok: false, reason: "user_not_found" };
+  }
+
+  if (companyFolderId) {
+    const rowFolderId = String(row.companyFolderId || row.companyId || "").trim();
+    if (rowFolderId && rowFolderId !== companyFolderId) {
+      return { ok: false, reason: "wrong_company" };
+    }
   }
 
   const login = await verifyCompanyUserPassword(auth, masterSheetId, emailNorm, pwd, userDeps);

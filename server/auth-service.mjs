@@ -14,9 +14,8 @@ import { readCompanyUsersTabRecord, touchCompanyUserLastLogin } from "./company-
 import { canLoginCompanyUser } from "./company-user-sheet-flow.mjs";
 import { validateLiveCompanyContext } from "./company-context-service.mjs";
 import {
-  attemptUsersTabPasswordLogin,
+  authenticateCompanyUserLogin,
   rebuildAuthIndexFromUsersTab,
-  verifyUserPasswordFromUsersTab,
 } from "./user-auth-service.mjs";
 import {
   isValidCompanyFolderId,
@@ -538,7 +537,8 @@ function buildLoginContextFailure({
 }
 
 /**
- * Company login — auth index + Users tab row company columns; live Drive validation runs after response.
+ * Company login — Users tab PasswordHash verified after folder-first company resolve.
+ * Auth index is a hint/cache only; live Drive validation runs after response.
  */
 export async function performCompanyLogin(auth, deps, input = {}) {
   const loginStarted = Date.now();
@@ -601,252 +601,81 @@ export async function performCompanyLogin(auth, deps, input = {}) {
   }
   timing.platform_auth_check = logLoginPhase("platform_auth_check", tPlatform);
 
-  if (!authIndex || typeof authIndex.lookupByEmail !== "function") {
-    logSlowServiceCall("auth_index_missing");
+  const requested = sanitizeGoogleSpreadsheetId(requestedSheetId);
+
+  if (!auth) {
     timing.total = logLoginPhase("total", loginStarted);
     return {
       ok: false,
       httpStatus: 503,
-      blocker: "auth_index_unavailable",
-      error: "Sign in is temporarily unavailable.",
-      message: "Sign in is temporarily unavailable.",
+      blocker: "google_not_connected",
+      error: "Connect Google Workspace before signing in.",
+      message: "Connect Google Workspace before signing in.",
       timing,
     };
   }
 
-  const tLookup = Date.now();
-  let indexEntry = authIndex.lookupByEmail(email);
-  timing.auth_index_lookup = logLoginPhase("auth_index_lookup", tLookup);
-
-  const requested = sanitizeGoogleSpreadsheetId(requestedSheetId);
-  let usersTabRec = null;
-  let sessionCompanyName = "";
-  let sessionCompanyId = "";
-  let masterSheetId = requested;
-
-  if (!indexEntry) {
-    const tUsersFallback = Date.now();
-    if (auth) {
-      const fallback = await attemptUsersTabPasswordLogin(
-        auth,
-        { ...deps, authIndex, getCompanyUsersDeps, findMasterSheetIdsForCompanyLoginEmail },
-        { email, password: pwd, requestedSheetId: requested },
-      ).catch(() => ({ ok: false }));
-      timing.users_tab_fallback = logLoginPhase("users_tab_fallback", tUsersFallback);
-      if (fallback.ok) {
-        indexEntry = fallback.entry;
-        usersTabRec = fallback.row;
-        sessionCompanyName = String(fallback.companyContext?.companyName || indexEntry?.companyName || "").trim();
-        sessionCompanyId = sanitizeCompanyFolderId(
-          fallback.companyContext?.companyFolderId ||
-            fallback.companyContext?.companyId ||
-            indexEntry?.companyFolderId ||
-            indexEntry?.companyId ||
-            "",
-        );
-        masterSheetId = sanitizeGoogleSpreadsheetId(
-          fallback.companyContext?.masterSheetId || indexEntry?.masterSheetId || requested,
-        );
-        timing.auth_index_update = logLoginPhase("auth_index_update", tUsersFallback);
-      } else {
-        return buildInvalidCredentialsFailure(timing, loginStarted);
-      }
-    } else {
-      return buildInvalidCredentialsFailure(timing, loginStarted);
-    }
-  } else {
-    if (requested && indexEntry.masterSheetId && requested !== indexEntry.masterSheetId) {
-      return buildInvalidCredentialsFailure(timing, loginStarted);
-    }
-    sessionCompanyName = String(indexEntry.companyName || "").trim();
-    sessionCompanyId = sanitizeCompanyFolderId(indexEntry.companyFolderId || indexEntry.companyId || "");
-    masterSheetId = sanitizeGoogleSpreadsheetId(indexEntry.masterSheetId || requested || "");
-    if (!masterSheetId) {
-      const [firstCandidate] = collectLoginMasterSheetCandidates(email, deps, requested, indexEntry);
-      masterSheetId = firstCandidate || "";
-    }
-  }
-
-  const tUsersTab = Date.now();
-  if (auth && indexEntry && !usersTabRec && typeof authIndex.reconcileLoginEntryFromUsersTab === "function") {
-    const reconcileDeps = {
+  const tAuth = Date.now();
+  const authResult = await authenticateCompanyUserLogin(
+    auth,
+    {
       ...deps,
-      getCompanyUsersDeps: getCompanyUsersDeps || deps.getCompanyUsersDeps,
-    };
-    const sheetCandidates = collectLoginMasterSheetCandidates(email, deps, requested, indexEntry);
-    if (!masterSheetId && sheetCandidates.length) {
-      masterSheetId = sheetCandidates[0];
-    }
-    let reconciled = { ok: false, failedStep: "user_lookup", reason: "user_not_in_workbook" };
-    for (const candidateSheetId of sheetCandidates.length ? sheetCandidates : [masterSheetId]) {
-      if (!candidateSheetId) {
-        continue;
-      }
-      reconciled = await authIndex
-        .reconcileLoginEntryFromUsersTab(auth, reconcileDeps, email, {
-          ...indexEntry,
-          masterSheetId: candidateSheetId,
-        })
-        .catch(() => ({ ok: false, failedStep: "user_lookup", reason: "reconcile_failed" }));
-      if (reconciled.ok) {
-        masterSheetId = candidateSheetId;
-        break;
-      }
-      if (reconciled.reason !== "user_not_in_workbook" && reconciled.reason !== "missing_context") {
-        break;
-      }
-    }
-    timing.users_tab_reconcile = logLoginPhase("users_tab_reconcile", tUsersTab);
+      authIndex,
+      getCompanyUsersDeps,
+      findMasterSheetIdsForCompanyLoginEmail,
+    },
+    {
+      email,
+      password: pwd,
+      masterSheetId: requested,
+      companyFolderId: sanitizeCompanyFolderId(input.companyFolderId || ""),
+    },
+  );
+  timing.users_tab_auth = logLoginPhase("users_tab_auth", tAuth);
 
-    if (!reconciled.ok) {
-      if (reconciled.failedStep === "user_lookup" && reconciled.reason === "inactive") {
-        timing.total = logLoginPhase("total", loginStarted);
-        return {
-          ok: false,
-          httpStatus: 403,
-          blocker: "inactive",
-          error: "This account is inactive. Contact your company administrator.",
-          message: "This account is inactive. Contact your company administrator.",
-          timing,
-        };
-      }
-      return buildLoginContextFailure({
-        timing,
-        loginStarted,
-        email,
-        failedStep: reconciled.failedStep || "user_lookup",
-        reasonCode: reconciled.reason || "user_not_in_workbook",
-        indexEntry,
-        usersTabRec: reconciled.rec,
-      });
-    }
-
-    indexEntry = reconciled.entry || indexEntry;
-    usersTabRec = reconciled.rec || null;
-    const rowCols = reconciled.rowCols || {};
-    sessionCompanyName = String(rowCols.companyName || indexEntry.companyName || "").trim();
-    sessionCompanyId = sanitizeCompanyFolderId(
-      rowCols.companyFolderId || rowCols.companyId || indexEntry.companyFolderId || indexEntry.companyId || "",
-    );
-    masterSheetId = sanitizeGoogleSpreadsheetId(indexEntry.masterSheetId || requested || "");
-    if (reconciled.reconciled) {
-      timing.auth_index_update = logLoginPhase("auth_index_update", tUsersTab);
-    }
-  } else {
-    timing.users_tab_reconcile = logLoginPhase("users_tab_reconcile", tUsersTab);
-  }
-
-  const tPassword = Date.now();
-  const passwordEntry = {
-    ...indexEntry,
-    passwordHash: String(usersTabRec?.passwordHash || indexEntry.passwordHash || "").trim(),
-  };
-  const passwordVerified = authIndex.verifyPasswordForEntry(passwordEntry, pwd);
-  timing.password_verify = logLoginPhase("password_verify", tPassword);
-
-  if (!passwordVerified) {
-    const tUsersPasswordFallback = Date.now();
-    const userDeps = typeof getCompanyUsersDeps === "function" ? getCompanyUsersDeps() : deps;
-    let usersTabVerify = { ok: false };
-    if (auth) {
-      const sheetCandidates = collectLoginMasterSheetCandidates(email, deps, requested, indexEntry);
-      for (const candidateSheetId of sheetCandidates.length ? sheetCandidates : [masterSheetId]) {
-        if (!candidateSheetId) {
-          continue;
-        }
-        usersTabVerify = await verifyUserPasswordFromUsersTab(
-          auth,
-          { masterSheetId: candidateSheetId, companyFolderId: sessionCompanyId, companyName: sessionCompanyName },
-          email,
-          pwd,
-          userDeps,
-        ).catch(() => ({ ok: false }));
-        if (usersTabVerify.ok && usersTabVerify.row) {
-          masterSheetId = candidateSheetId;
-          break;
-        }
-      }
-    }
-    timing.users_tab_password_fallback = logLoginPhase("users_tab_password_fallback", tUsersPasswordFallback);
-    if (usersTabVerify.ok && usersTabVerify.row) {
-      usersTabRec = usersTabVerify.row;
-      ({
-        sessionCompanyName,
-        sessionCompanyId,
-      } = mergeSessionCompanyContextFromUsersTab(usersTabRec, indexEntry, {
-        sessionCompanyName,
-        sessionCompanyId,
-      }));
-      if (!masterSheetId) {
-        masterSheetId =
-          sanitizeGoogleSpreadsheetId(usersTabRec.masterSheetId || "") ||
-          collectLoginMasterSheetCandidates(email, deps, requested, indexEntry)[0] ||
-          "";
-      }
-      await rebuildAuthIndexFromUsersTab(
-        auth,
-        { ...deps, getCompanyUsersDeps },
-        { masterSheetId, companyFolderId: sessionCompanyId, companyName: sessionCompanyName },
-        authIndex,
-        email,
-      ).catch(() => null);
-      indexEntry = authIndex.lookupByEmail(email) || {
-        ...indexEntry,
-        passwordHash: usersTabRec.passwordHash,
-        companyName: sessionCompanyName,
-        companyFolderId: sessionCompanyId,
-        companyId: sessionCompanyId,
-      };
-      timing.auth_index_update = logLoginPhase("auth_index_update", tUsersPasswordFallback);
-    } else {
-      return buildInvalidCredentialsFailure(timing, loginStarted);
-    }
-  }
-
-  if (String(indexEntry.status || usersTabRec?.status || "").toUpperCase() !== "ACTIVE") {
+  if (!authResult.ok) {
     timing.total = logLoginPhase("total", loginStarted);
+    if (authResult.blocker === "inactive" || authResult.reason === "inactive") {
+      return {
+        ok: false,
+        httpStatus: 403,
+        blocker: "inactive",
+        error:
+          authResult.error ||
+          "This account is inactive. Contact your company administrator.",
+        message:
+          authResult.message ||
+          "This account is inactive. Contact your company administrator.",
+        timing,
+      };
+    }
     return {
       ok: false,
-      httpStatus: 403,
-      blocker: "inactive",
-      error: "This account is inactive. Contact your company administrator.",
-      message: "This account is inactive. Contact your company administrator.",
+      httpStatus: authResult.httpStatus || 401,
+      code: authResult.code,
+      blocker: authResult.blocker || authResult.reason,
+      error: authResult.error || authResult.message,
+      message: authResult.message || authResult.error,
       timing,
     };
   }
+
+  const { row: usersTabRec, companyContext, entry: indexEntry } = authResult;
+  const sessionCompanyId = sanitizeCompanyFolderId(
+    companyContext.companyFolderId || companyContext.companyId || indexEntry.companyFolderId || "",
+  );
+  const masterSheetId = sanitizeGoogleSpreadsheetId(companyContext.masterSheetId || indexEntry.masterSheetId || "");
+  let sessionCompanyName = String(
+    companyContext.companyName || indexEntry.companyName || pickRowCompanyName(usersTabRec?.rowObject || usersTabRec) || "",
+  ).trim();
 
   if (
     sessionRevocation &&
     typeof sessionRevocation.isCompanyUserSessionRevoked === "function" &&
     sessionRevocation.isCompanyUserSessionRevoked(email, sessionCompanyId, masterSheetId)
   ) {
-    authIndex.removeEntry?.(email);
+    authIndex?.removeEntry?.(email);
     return buildInvalidCredentialsFailure(timing, loginStarted);
-  }
-
-  ({
-    sessionCompanyName,
-    sessionCompanyId,
-  } = mergeSessionCompanyContextFromUsersTab(usersTabRec, indexEntry, {
-    sessionCompanyName,
-    sessionCompanyId,
-  }));
-  if (!isValidGoogleSpreadsheetId(masterSheetId)) {
-    const [firstCandidate] = collectLoginMasterSheetCandidates(email, deps, requested, indexEntry);
-    masterSheetId = firstCandidate || masterSheetId;
-  }
-
-  if (isKnownStaleAuthIndexPairing(email, sessionCompanyName)) {
-    authIndex.removeEntry?.(email);
-    return buildLoginContextFailure({
-      timing,
-      loginStarted,
-      email,
-      failedStep: "stale_company_context_detected",
-      reasonCode: COMPANY_CONTEXT_INVALID,
-      indexEntry,
-      usersTabRec,
-    });
   }
 
   if (!isValidGoogleSpreadsheetId(masterSheetId)) {
@@ -871,37 +700,14 @@ export async function performCompanyLogin(auth, deps, input = {}) {
       usersTabRec,
     });
   }
-  if (!masterSheetId) {
-    return buildLoginContextFailure({
-      timing,
-      loginStarted,
-      email,
-      failedStep: "master_sheet_resolve",
-      reasonCode: "MASTER_SHEET_MISSING",
-      indexEntry,
-      usersTabRec,
-    });
-  }
-  if (!sessionCompanyId) {
-    return buildLoginContextFailure({
-      timing,
-      loginStarted,
-      email,
-      failedStep: "company_folder_resolve",
-      reasonCode: "COMPANY_FOLDER_MISSING",
-      indexEntry,
-      usersTabRec,
-    });
-  }
+
   sessionCompanyName = resolveLoginCompanyName(
     deps,
     { sessionCompanyName, sessionCompanyId },
     usersTabRec,
     indexEntry,
   );
-  if (!sessionCompanyName && sessionCompanyId && masterSheetId) {
-    timing.company_name_deferred = logLoginPhase("company_name_deferred", Date.now());
-  } else if (!sessionCompanyName) {
+  if (!sessionCompanyName) {
     return buildLoginContextFailure({
       timing,
       loginStarted,
@@ -913,12 +719,13 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     });
   }
 
-  persistLoginAuthIndexEntry(authIndex, email, indexEntry, {
-    sessionCompanyId,
-    sessionCompanyName,
-    masterSheetId,
-  });
-  indexEntry = authIndex.lookupByEmail(email) || indexEntry;
+  if (authIndex && typeof authIndex.upsertEntry === "function") {
+    persistLoginAuthIndexEntry(authIndex, email, indexEntry, {
+      sessionCompanyId,
+      sessionCompanyName,
+      masterSheetId,
+    });
+  }
 
   const tContext = Date.now();
   const companyAreas = Array.isArray(usersTabRec?.companyAreas)
@@ -948,7 +755,7 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     masterSheetId,
     companyFolderId: sessionCompanyId,
     companyName: sessionCompanyName,
-    indexStale: authIndex.isEntryStale(indexEntry),
+    indexStale: authIndex?.isEntryStale?.(indexEntry) === true,
     validateLiveCompany: Boolean(auth),
     touchLastLogin: true,
   };
@@ -1190,4 +997,8 @@ export async function resolveValidatedCompanyLoginContext(auth, deps, indexEntry
 
 /** authService API aliases — platform (Godmode) vs company login paths. */
 export { performMasterLogin as platformLogin, performCompanyLogin as companyLogin };
-export { rebuildAuthIndexFromUsersTab, verifyPassword } from "./user-auth-service.mjs";
+export {
+  authenticateCompanyUserLogin,
+  rebuildAuthIndexFromUsersTab,
+  verifyPassword,
+} from "./user-auth-service.mjs";
