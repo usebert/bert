@@ -86,7 +86,10 @@ function runStaticGuards() {
   assert(folderStructure.includes("buildCompanyWorkbookName(companyName)"), "static: create workbook uses BERT Workbook name");
   assert(folderStructure.includes("buildCompanyWorkbookName"), "static: BERT Workbook naming");
   assert(read("server/google-forms-service.mjs").includes("resolveCompanyGoogleFormsFolder"), "static: googleFormsService folder resolve");
-  assert(read("server/company-forms-service.mjs").includes("listCompanyGoogleForms"), "static: company Google Forms list");
+  assert(read("server/google-forms-service.mjs").includes("listCompanyGoogleForms"), "static: googleFormsService listCompanyGoogleForms");
+  assert(read("server/google-forms-service.mjs").includes("syncGoogleFormTemplatesToTab"), "static: googleFormsService tab sync");
+  assert(pkg.scripts["verify:google-forms-service-foundation"], "static: google-forms-service-foundation script");
+  assert(read("server/company-forms-service.mjs").includes("listCompanyGoogleForms"), "static: company Google Forms list re-export");
   assert(pkg.scripts["verify:google-forms-folder"], "static: google-forms-folder verify script");
   assert(companyService.includes("resolveCompanyFromFolder"), "static: companyService resolves folder");
   assert(authService.includes("platformLogin"), "static: authService platformLogin alias");

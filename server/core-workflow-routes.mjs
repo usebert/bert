@@ -35,6 +35,7 @@ import {
   listAuditResults,
   submitCompletedCheck,
 } from "./completion-service.mjs";
+import { listCompanyGoogleForms } from "./google-forms-service.mjs";
 
 async function rejectCompanyApiIfFolderInvalid(authed, deps, companyFolderId, companyName = "") {
   if (!authed || !companyFolderId) {
@@ -941,6 +942,63 @@ export function installCoreWorkflowRoutes(app, deps) {
         error: "Could not submit completed check.",
         message: "Could not submit completed check.",
         technicalError: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.get("/api/companies/:companyId/google-forms", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({
+        ok: false,
+        error: "Please connect Google before loading company Google Forms.",
+      });
+    }
+
+    const companyId = String(req.params?.companyId || "").trim();
+    const masterSheetId = String(req.query.masterSheetId || req.query.sheetId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const companyFolderId = String(
+      req.query.companyFolderId || actor?.companyFolderId || actor?.companyId || companyId,
+    ).trim();
+    const syncToWorkbook = String(req.query.sync || "").trim() === "1";
+    const createIfMissing = String(req.query.createIfMissing || "").trim() !== "0";
+
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      companyFolderId,
+      String(req.query.companyName || actor?.companyName || "").trim(),
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
+
+    try {
+      const payload = await listCompanyGoogleForms(
+        authed,
+        scheduleDeps,
+        {
+          companyFolderId,
+          companyId: companyFolderId,
+          masterSheetId,
+          createIfMissing,
+        },
+        { syncToWorkbook },
+      );
+
+      const httpStatus = payload.ok
+        ? 200
+        : payload.status === "permission_denied"
+          ? 403
+          : payload.status === "folder_lookup_failed"
+            ? 404
+            : 500;
+      return res.status(httpStatus).json(payload);
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Unable to load company Google Forms.",
       });
     }
   });

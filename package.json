@@ -24,6 +24,7 @@
     "verify:schedule-contract": "node scripts/verify-schedule-contract.mjs",
     "verify:schedule-service-foundation": "node scripts/verify-schedule-service-foundation.mjs",
     "verify:completion-service-foundation": "node scripts/verify-completion-service-foundation.mjs",
+    "verify:google-forms-service-foundation": "node scripts/verify-google-forms-service-foundation.mjs",
     "verify:bert-foundation": "node scripts/verify-bert-foundation.mjs",
     "verify:invite-resend": "node scripts/verify-invite-resend.mjs",
     "verify:live-core-paths": "node scripts/verify-live-core-paths.mjs",

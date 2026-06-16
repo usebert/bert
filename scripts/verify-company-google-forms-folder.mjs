@@ -9,6 +9,7 @@ import {
   isCompanyFormsPermissionError,
   isExactGoogleFormsFolderName,
   listCompanyGoogleForms,
+  listCompanyGoogleFormsFromDrive,
   listGoogleFormsInFolderTree,
   resolveCompanyGoogleFormsFolder,
 } from "../server/company-forms-service.mjs";
@@ -42,6 +43,7 @@ assert(COMPANY_GOOGLE_FORMS_SYNC_COLUMNS.includes("FormId"));
 assert(COMPANY_GOOGLE_FORMS_SYNC_COLUMNS.includes("GoogleFormsFolderId"));
 assert(COMPANY_GOOGLE_FORMS_SYNC_COLUMNS.includes("LastSyncedAt"));
 assert(typeof resolveCompanyGoogleFormsFolder === "function");
+assert(typeof listCompanyGoogleFormsFromDrive === "function");
 assert(typeof listCompanyGoogleForms === "function");
 assert(typeof listGoogleFormsInFolderTree === "function");
 assert(typeof installCompanyFormsRoutes === "function");
@@ -145,7 +147,7 @@ async function testExactGoogleFormsAtRoot() {
   assert(resolved.googleFormsFolderId === formsFolderId, "exact Google Forms folder resolved");
   assert(resolved.resolvedVia === "exact_google_forms", "prefers exact Google Forms");
 
-  const listed = await listCompanyGoogleForms(drive, { companyFolderId: companyId, companyId });
+  const listed = await listCompanyGoogleFormsFromDrive(drive, { companyFolderId: companyId, companyId });
   assert(listed.ok === true, "listCompanyGoogleForms ok");
   assert(listed.formsFound === 1, "lists one form");
   assert(listed.forms[0].driveFileId === "form-1", "returns drive file id");
@@ -198,7 +200,7 @@ async function testNestedUnderAudits() {
 
   const resolved = await resolveCompanyGoogleFormsFolder(drive, { companyFolderId: companyId });
   assert(resolved.googleFormsFolderId === formsFolderId, "nested Google Forms folder resolved");
-  const listed = await listCompanyGoogleForms(drive, { companyFolderId: companyId });
+  const listed = await listCompanyGoogleFormsFromDrive(drive, { companyFolderId: companyId });
   assert(listed.formsFound === 1, "nested folder lists forms");
 }
 
@@ -231,7 +233,7 @@ async function testPermissionError() {
       },
     },
   };
-  const listed = await listCompanyGoogleForms(drive, { companyFolderId: "denied" });
+  const listed = await listCompanyGoogleFormsFromDrive(drive, { companyFolderId: "denied" });
   assert(listed.ok === false, "permission failure is not ok");
   assert(listed.status === "permission_denied", "structured permission error");
   assert(listed.formsFound === 0, "no false empty list on permission failure");
@@ -270,9 +272,9 @@ async function testOtherCompanyIsolation() {
     },
   });
 
-  const listedB = await listCompanyGoogleForms(drive, { companyFolderId: companyB, createIfMissing: false });
-  assert(listedB.status === "folder_not_found", "other company folder does not see A forms");
-  const listedA = await listCompanyGoogleForms(drive, { companyFolderId: companyA });
+  const listedB = await listCompanyGoogleFormsFromDrive(drive, { companyFolderId: companyB, createIfMissing: false });
+  assert(listedB.status === "folder_lookup_failed", "other company folder does not see A forms");
+  const listedA = await listCompanyGoogleFormsFromDrive(drive, { companyFolderId: companyA });
   assert(listedA.formsFound === 1, "company A sees its own forms");
 }
 
@@ -284,14 +286,22 @@ assertContains("server/server.mjs", [
   "supportsAllDrives: true",
 ]);
 
-assertContains("server/company-forms-service.mjs", [
+assertContains("server/google-forms-service.mjs", [
   "includeItemsFromAllDrives: true",
   "supportsAllDrives: true",
   "resolveCompanyGoogleFormsFolder",
   "listCompanyGoogleForms",
-  "COMPANY_GOOGLE_FORMS_SYNC_COLUMNS",
+  "syncGoogleFormTemplatesToTab",
   "GOOGLE_FORM_TEMPLATES_TAB",
+  "readTabRecords",
+  "writeTabRecords",
   "/api/company/:companyFolderId/google-forms",
+]);
+
+assertContains("server/company-forms-service.mjs", [
+  "resolveCompanyGoogleFormsFolder",
+  "listCompanyGoogleForms",
+  "COMPANY_GOOGLE_FORMS_SYNC_COLUMNS",
 ]);
 
 assertContains("src/services/companyFormsService.ts", [

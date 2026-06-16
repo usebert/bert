@@ -84,9 +84,10 @@ assertContains("server/google-form-templates.mjs", [
   "ensureConfiguredCategorySubfolders",
 ]);
 
-assertContains("server/company-forms-service.mjs", [
+assertContains("server/google-forms-service.mjs", [
   "resolveCompanyGoogleFormsFolder",
   "listCompanyGoogleForms",
+  "syncGoogleFormTemplatesToTab",
   "COMPANY_GOOGLE_FORMS_SYNC_COLUMNS",
 ]);
 

@@ -82,7 +82,7 @@ import {
 } from "./google-form-templates.mjs";
 import {
   installCompanyFormsRoutes,
-  listCompanyGoogleForms,
+  listCompanyGoogleFormsFromDrive,
   listGoogleFormsInFolderTree,
 } from "./company-forms-service.mjs";
 import {
@@ -2773,7 +2773,7 @@ async function listCompanyFolders(auth, options = {}) {
             file.name?.toLowerCase().includes("onboarding"),
         ) || null;
 
-      const companyFormsResult = await listCompanyGoogleForms(drive, {
+      const companyFormsResult = await listCompanyGoogleFormsFromDrive(drive, {
         companyFolderId: folder.id,
         companyId: folder.id,
         createIfMissing: false,
@@ -3027,7 +3027,7 @@ async function inspectCompanyFolder(auth, folderId) {
       workbook.data.sheets?.map((sheet) => sheet.properties?.title).filter(Boolean) || [];
   }
 
-  const companyFormsResult = await listCompanyGoogleForms(drive, {
+  const companyFormsResult = await listCompanyGoogleFormsFromDrive(drive, {
     companyFolderId: folderId,
     companyId: folderId,
     masterSheetId: masterSheet?.id || "",
