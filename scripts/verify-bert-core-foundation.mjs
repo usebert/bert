@@ -132,8 +132,11 @@ function runStaticGuards() {
   assert(inviteService.includes("isCompanyUserInviteActiveForResend"), "static: invite resend helper");
   assert(scheduleService.includes("listSchedules"), "static: scheduleService listSchedules alias");
   assert(scheduleService.includes("listScheduleAssignees"), "static: scheduleService listScheduleAssignees");
+  assert(scheduleService.includes("listSchedulerAssignees"), "static: scheduleService listSchedulerAssignees");
   assert(scheduleService.includes("saveSchedule"), "static: scheduleService saveSchedule alias");
-  assert(scheduleService.includes("listSchedulesAssignedToUser"), "static: schedule assigned-user list");
+  assert(scheduleService.includes("listMyChecks"), "static: scheduleService listMyChecks");
+  assert(scheduleService.includes("readSchedulesFromTab"), "static: scheduleService readSchedulesFromTab");
+  assert(scheduleService.includes("writeScheduleToTab"), "static: scheduleService writeScheduleToTab");
   assert(scheduleService.includes("companyFolderId && masterSheetId"), "static: folder-first schedule context");
   assert(checkService.includes("submitCompletedCheck"), "static: checkService submits AuditResults");
   assert(completionService.includes("completeCheck"), "static: completionService completeCheck");

@@ -36,9 +36,9 @@ assert(userService.includes("listActiveUsers"), "2: userService exports listActi
 assert(companyUserService.includes("listActiveUsers"), "3: company-user-service listActiveUsers");
 assert(foundation.includes("export async function listCompanyProfiles"), "4: foundation listCompanyProfiles");
 assert(foundation.includes("export async function getAssignableUsers"), "5: foundation getAssignableUsers");
-assert(assigneeService.includes('from "./company-users-foundation.mjs"'), "6: assignees import foundation");
-assert(assigneeService.includes("getAssignableUsers(auth, deps"), "7: assignees call foundation getAssignableUsers");
-assert(scheduleService.includes("listScheduleAssignees"), "8: scheduleService listScheduleAssignees");
+assert(assigneeService.includes("listSchedulerAssignees"), "6: assignees delegate to scheduleService");
+assert(scheduleService.includes("listSchedulerAssignees"), "7: scheduleService listSchedulerAssignees");
+assert(scheduleService.includes("listActiveUsersFromUserService") || scheduleService.includes("resolveListActiveUsers"), "8: assignees use userService listActiveUsers");
 assert(godmodeService.includes("listCompanyProfiles"), "9: godmode People uses listCompanyProfiles");
 assert(
   coreRoutes.includes("listCompanyProfiles") && coreRoutes.includes("/api/companies/:companyId/users"),

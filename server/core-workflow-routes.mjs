@@ -19,11 +19,11 @@ import {
   sanitizeCompanyFolderId,
   sanitizeGoogleSpreadsheetId,
 } from "../shared/google-drive-id.mjs";
-import { getScheduleAssigneesForCompany } from "./schedule-assignee-service.mjs";
 import {
   canListCompanySchedules,
   getCompanySchedule,
   listCompanySchedules,
+  listSchedulerAssignees,
   resolveCompanyScheduleContext,
   saveCompanySchedules,
 } from "./schedule-service.mjs";
@@ -502,7 +502,7 @@ export function installCoreWorkflowRoutes(app, deps) {
     const companyFolderId = String(req.query.companyFolderId || actor?.companyFolderId || companyId).trim();
 
     try {
-      const result = await getScheduleAssigneesForCompany(authed, { ...registryDeps, ...scheduleDeps }, {
+      const result = await listSchedulerAssignees(authed, { ...registryDeps, ...scheduleDeps }, {
         companyId,
         companyFolderId,
         masterSheetId,
@@ -546,7 +546,9 @@ export function installCoreWorkflowRoutes(app, deps) {
     } catch (error) {
       return res.status(500).json({
         ok: false,
+        code: "USERS_TAB_READ_FAILED",
         error: error instanceof Error ? error.message : "Unable to load schedule assignees.",
+        message: error instanceof Error ? error.message : "Unable to load schedule assignees.",
       });
     }
   });

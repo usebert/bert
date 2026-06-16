@@ -38,10 +38,11 @@ const coreRoutes = read("server/core-workflow-routes.mjs");
 assert(pkg.scripts["verify:schedule-contract"], "1: npm script registered");
 assert(scheduleService.includes("listSchedules"), "2: scheduleService.listSchedules alias");
 assert(scheduleService.includes("listScheduleAssignees"), "3: scheduleService.listScheduleAssignees");
-assert(scheduleService.includes("saveSchedule"), "4: scheduleService.saveSchedule alias");
-assert(assigneeService.includes("getAssignableUsers"), "5: assignees use same Users tab path");
+assert(scheduleService.includes("listSchedulerAssignees"), "3b: scheduleService.listSchedulerAssignees");
+assert(scheduleService.includes("resolveListActiveUsers") || scheduleService.includes("listActiveUsersFromUserService"), "5: assignees use listActiveUsers path");
+assert(!assigneeService.includes("getAssignableUsers"), "5b: assignee service delegates to scheduleService");
 assert(foundation.includes("getAssignableUsers"), "6: foundation getAssignableUsers for assignees");
-assert(coreRoutes.includes("getScheduleAssigneesForCompany"), "7: routes wire schedule assignees");
+assert(coreRoutes.includes("listSchedulerAssignees"), "7: routes wire listSchedulerAssignees");
 assert(coreRoutes.includes("listCompanySchedules"), "8: routes wire schedule list");
 
 {

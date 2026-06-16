@@ -83,13 +83,13 @@ function runStaticGuards() {
 
   /* 2: Schedule assignees === People users */
   assert(
-    assigneeService.includes("getAssignableUsers") &&
-      foundation.includes("getAssignableUsers"),
-    "2a: assignees flow through foundation getAssignableUsers",
+    read("server/schedule-service.mjs").includes("listSchedulerAssignees") &&
+      read("server/schedule-service.mjs").includes("listActiveUsers"),
+    "2a: assignees flow through scheduleService listActiveUsers",
   );
   assert(
     read("server/company-user-service.mjs").includes("syncAndListActiveUsers"),
-    "2b: getAssignableUsers calls syncAndListActiveUsers internally",
+    "2b: listActiveUsers calls syncAndListActiveUsers internally",
   );
 
   /* 3: Login fast path + Users tab fallback */

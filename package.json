@@ -22,6 +22,7 @@
     "verify:people-scheduler-consistency": "node scripts/verify-people-scheduler-consistency.mjs",
     "verify:invite-to-users-tab": "node scripts/verify-invite-to-users-tab.mjs",
     "verify:schedule-contract": "node scripts/verify-schedule-contract.mjs",
+    "verify:schedule-service-foundation": "node scripts/verify-schedule-service-foundation.mjs",
     "verify:bert-foundation": "node scripts/verify-bert-foundation.mjs",
     "verify:invite-resend": "node scripts/verify-invite-resend.mjs",
     "verify:live-core-paths": "node scripts/verify-live-core-paths.mjs",

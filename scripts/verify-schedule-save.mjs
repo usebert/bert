@@ -154,7 +154,7 @@ const sampleSchedule = {
   assert(SCHEDULE_SAVE_FAILED_MESSAGE.includes("BERT could not save"), "9b: failure message");
   const saveService = read("server/schedule-save-service.mjs");
   const coreRoutes = read("server/core-workflow-routes.mjs");
-  assert(saveService.includes("SCHEDULE_SAVE_FAILED"), "9c: service returns failure code");
+  assert(saveService.includes("writeScheduleToTab"), "9c: service delegates to writeScheduleToTab");
   assert(coreRoutes.includes("/api/companies/:companyId/schedules"), "9d: company schedules save route");
   assert(coreRoutes.includes('app.get("/api/companies/:companyId/schedules"'), "9e: company schedules list route");
   assert(read("server/schedule-service.mjs").includes("listCompanySchedules"), "9f: shared schedule service lists by company");

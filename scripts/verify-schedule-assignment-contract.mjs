@@ -47,11 +47,12 @@ assert(
   "2c: saveSchedule alias exported",
 );
 assert(
-  scheduleService.includes("listSchedulesAssignedToUser as listAssignedChecks") ||
+  scheduleService.includes("listMyChecks as listAssignedChecks") ||
     scheduleService.includes("export async function listAssignedChecks"),
   "2d: listAssignedChecks alias exported",
 );
-assert(checkService.includes("isScheduleAssignedToUser"), "2e: check service uses isScheduleAssignedToUser");
+assert(scheduleService.includes("listMyChecks"), "2d2: listMyChecks exported");
+assert(checkService.includes("listMyChecks"), "2e: check service uses listMyChecks");
 assert(checkService.includes("submitCompletedCheck"), "2f: check service submits AuditResults");
 
 /** 3: assignedUserEmails written on save payload and sheet rows. */

@@ -2,7 +2,7 @@
  * Check service — open assigned checks and submit results to AuditResults tab.
  */
 import { isScheduleAssignedToUser } from "../shared/schedule-assignment.mjs";
-import { listCompanySchedules } from "./schedule-service.mjs";
+import { listCompanySchedules, listMyChecks } from "./schedule-service.mjs";
 
 function trim(value) {
   return String(value ?? "").trim();
@@ -12,21 +12,9 @@ function newResultId() {
   return `result-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-/** Schedules from workbook where signed-in user is in assignedUserEmails. */
+/** Schedules from workbook where signed-in user is in assignedUserEmails (active + company scoped). */
 export async function listAssignedChecks(auth, deps, input = {}) {
-  const userEmail = trim(input.userEmail || input.email);
-  const listed = await listCompanySchedules(auth, deps, input);
-  if (!listed.ok) {
-    return listed;
-  }
-  const schedules = (listed.schedules || []).filter((schedule) => isScheduleAssignedToUser(schedule, userEmail));
-  return {
-    ok: true,
-    companyId: listed.companyId,
-    companyFolderId: listed.companyFolderId,
-    masterSheetId: listed.masterSheetId,
-    schedules,
-  };
+  return listMyChecks(auth, deps, input);
 }
 
 export { listAssignedChecks as listSchedulesAssignedToUser };
@@ -35,17 +23,39 @@ export { listAssignedChecks as listSchedulesAssignedToUser };
 export async function openAssignedCheck(auth, deps, input = {}) {
   const scheduleId = trim(input.scheduleId);
   const userEmail = trim(input.userEmail || input.email);
-  const got = await listCompanySchedules(auth, deps, input);
+  const got = await listMyChecks(auth, deps, input);
   if (!got.ok) {
     return got;
   }
   const schedule = (got.schedules || []).find((row) => trim(row.id) === scheduleId);
   if (!schedule) {
+    const listed = await listCompanySchedules(auth, deps, input);
+    if (!listed.ok) {
+      return listed;
+    }
+    const fallback = (listed.schedules || []).find((row) => trim(row.id) === scheduleId);
+    if (!fallback) {
+      return {
+        ok: false,
+        code: "SCHEDULE_NOT_FOUND",
+        error: "Schedule not found for this company.",
+        httpStatus: 404,
+      };
+    }
+    if (userEmail && !isScheduleAssignedToUser(fallback, userEmail)) {
+      return {
+        ok: false,
+        code: "CHECK_NOT_ASSIGNED",
+        error: "This check is not assigned to your account.",
+        httpStatus: 403,
+      };
+    }
     return {
-      ok: false,
-      code: "SCHEDULE_NOT_FOUND",
-      error: "Schedule not found for this company.",
-      httpStatus: 404,
+      ok: true,
+      schedule: fallback,
+      companyId: listed.companyId,
+      companyFolderId: listed.companyFolderId,
+      masterSheetId: listed.masterSheetId,
     };
   }
   if (userEmail && !isScheduleAssignedToUser(schedule, userEmail)) {

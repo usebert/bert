@@ -247,8 +247,9 @@ const godmodeOnlyUser = {
   assert(companyUsersSrc.includes("sanitizeUsersTabRecords"), "13: sanitizeUsersTabRecords exists");
   assert(companyUserService.includes("listActiveCompanyMembers"), "13a: listActiveCompanyMembers exists");
   assert(companyUserService.includes("readCompanyUsers"), "13a2: assignees share readCompanyUsers path");
-  assert(assigneeService.includes("getScheduleAssigneesForCompany"), "13b: schedule assignee service exists");
-  assert(assigneeService.includes("getAssignableUsers(auth, deps,"), "13b3: assignees use foundation getAssignableUsers signature");
+  assert(assigneeService.includes("listSchedulerAssignees"), "13b: schedule assignee service delegates to scheduleService");
+  assert(assigneeService.includes("getScheduleAssigneesForCompany"), "13b1: schedule assignee service entry point");
+  assert(!assigneeService.includes("getAssignableUsers(auth, deps,"), "13b3: assignees no longer call foundation getAssignableUsers directly");
   assert(coreRoutes.includes("/api/companies/:companyId/users"), "13b2: company users list route exists");
   assert(coreRoutes.includes("/api/companies/:companyId/schedule-assignees"), "13c: company schedule-assignees route exists");
   assert(coreRoutes.includes('app.get("/api/companies/:companyId/schedules"'), "13d: company schedules list route exists");

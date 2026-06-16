@@ -154,6 +154,7 @@ import {
   resolveInviteCompanyContext,
   sanitizeCompanyUserInviteForClient,
 } from "./invite-service.mjs";
+import { listSchedulerAssignees } from "./schedule-service.mjs";
 import { createCompanyUsersCacheApi } from "./company-users-cache.mjs";
 import { createMasterSheetCacheApi } from "./master-sheet-cache.mjs";
 import { rebuildUsersFromSheet } from "./company-users-foundation.mjs";
@@ -4604,39 +4605,46 @@ async function handleScheduleAssigneesRequest(req, res) {
     String(req.query.diagnostics || "").trim() === "1" ||
     String(process.env.BERT_GODMODE_DIAGNOSTICS || "").trim().toLowerCase() === "true";
 
-  if (!masterSheetId) {
+  if (!companyFolderId && !masterSheetId) {
     return res.status(400).json({
       ok: false,
-      error: "masterSheetId is required to load schedule assignees.",
+      code: "COMPANY_CONTEXT_MISSING",
+      error: "companyFolderId or masterSheetId is required to load schedule assignees.",
+      message: "companyFolderId or masterSheetId is required to load schedule assignees.",
     });
   }
 
   try {
-    const payload = await readCompanySheetById(authed, masterSheetId);
-    const users = Array.isArray(payload.data?.Users) ? payload.data.Users : [];
-    const mappedUsers = users.map((row) => ({
-      email: String(row.Email || row.email || "").trim(),
-      name: String(row.Name || row.name || row["Full Name"] || "").trim(),
-      role: String(row.Role || row.role || "").trim(),
-      accessLevel: String(row.AccessLevel || row.accessLevel || "").trim(),
-      status: String(row.Status || row.status || "").trim(),
-      companyId: String(row["Company ID"] || row.companyId || companyFolderId || "").trim(),
-      companyAreas: parseCompanyAreas(String(row.CompanyAreas || row.companyAreas || "")),
-      companyAreasRaw: String(row.CompanyAreas || row.companyAreas || "").trim(),
-    }));
+    const result = await listSchedulerAssignees(
+      authed,
+      { ...getCompanyWorkspaceRegistryDeps(), ...getCompanyUsersDeps() },
+      {
+        companyFolderId,
+        companyId: companyFolderId,
+        masterSheetId,
+        companyName: String(req.query.companyName || "").trim(),
+        selectedArea,
+        includeDiagnostics,
+      },
+    );
 
-    const result = buildAvailableScheduleAssigneesFromUsers(mappedUsers, {
-      companyId: companyFolderId,
-      masterSheetId,
-      selectedArea,
-      includeDiagnostics,
-    });
+    if (!result.ok) {
+      return res.status(result.httpStatus || 400).json({
+        ok: false,
+        code: result.code,
+        error: result.error || result.message,
+        message: result.message || result.error,
+        diagnostics: result.diagnostics,
+        technicalError: result.technicalError,
+      });
+    }
 
     return res.json({
       ok: true,
-      companyId: companyFolderId,
-      companyName: String(req.query.companyName || "").trim() || undefined,
-      masterSheetId,
+      companyId: result.companyId,
+      companyFolderId: result.companyFolderId,
+      companyName: result.companyName,
+      masterSheetId: result.masterSheetId,
       assignees: result.assignees,
       auditors: result.auditors,
       diagnostics: result.diagnostics,
@@ -4644,7 +4652,9 @@ async function handleScheduleAssigneesRequest(req, res) {
   } catch (error) {
     return res.status(500).json({
       ok: false,
+      code: "USERS_TAB_READ_FAILED",
       error: error instanceof Error ? error.message : "Unable to load schedule assignees.",
+      message: error instanceof Error ? error.message : "Unable to load schedule assignees.",
     });
   }
 }
