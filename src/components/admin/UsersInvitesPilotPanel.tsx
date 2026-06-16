@@ -686,6 +686,9 @@ export function UsersInvitesPilotPanel({
             ) : null}
             {showMembersDiagnostics ? (
               <>
+                <p className="mt-2 text-xs text-rose-900">
+                  Fix the workbook connection above, then re-sync users.
+                </p>
                 {activeMembersLoadErrorDetail ? (
                   <p className="mt-2 text-xs text-rose-900">{activeMembersLoadErrorDetail}</p>
                 ) : null}

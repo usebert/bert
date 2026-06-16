@@ -41,6 +41,7 @@ function runStaticGuards() {
   const coreRoutes = read("server/core-workflow-routes.mjs");
   const assigneeService = read("server/schedule-assignee-service.mjs");
   const godmodeService = read("server/godmode-service.mjs");
+  const godmodeRegistry = read("server/godmode-registry-actions.mjs");
   const authService = read("server/auth-service.mjs");
   const userAuth = read("server/user-auth-service.mjs");
   const sheetFlow = read("server/company-user-sheet-flow.mjs");
@@ -57,7 +58,8 @@ function runStaticGuards() {
   assert(foundationDoc.includes("companyFolderId"), "doc: FOUNDATION.md documents companyFolderId");
   assert(foundationDoc.includes("masterSheetId"), "doc: FOUNDATION.md documents masterSheetId");
   assert(foundationDoc.includes("Live Companies"), "doc: FOUNDATION.md documents Live Companies discovery");
-  assert(foundationDoc.includes("workbook scope") || foundationDoc.includes("workbook-scoped"), "doc: FOUNDATION.md documents workbook-scoped reads");
+  assert(pkg.scripts["verify:people-scheduler-consistency"], "pkg: verify:people-scheduler-consistency registered");
+  assert(foundationDoc.includes("workbook-scoped") || foundationDoc.includes("workbook-scoped reads"), "doc: FOUNDATION.md documents workbook-scoped reads");
   assert(foundationDoc.includes("folder → workbook") || foundationDoc.includes("folder → workbook → Users tab"), "doc: FOUNDATION.md documents folder→workbook chain");
 
   /* 1: People page — single listCompanyProfiles path */
@@ -121,7 +123,7 @@ function runStaticGuards() {
     "5b: godmode People uses foundation listCompanyProfiles",
   );
   assert(
-    godmodeService.includes("/api/godmode/debug/list-company-profiles"),
+    godmodeRegistry.includes("/api/godmode/debug/list-company-profiles"),
     "5b2: godmode debug list-company-profiles endpoint",
   );
   assert(clearStale.includes("clearGodmodeSelectedCompanyFolderId"), "5c: godmode folder cleared on company boot");

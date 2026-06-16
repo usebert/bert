@@ -413,6 +413,32 @@ function collectLoginMasterSheetCandidates(email, deps, requested = "", indexEnt
   return ordered;
 }
 
+function resolveLoginCompanyName(deps, session = {}, usersTabRec = null, indexEntry = {}) {
+  let companyName = String(session.sessionCompanyName || "").trim();
+  if (companyName) {
+    return companyName;
+  }
+  const companyFolderId = String(session.sessionCompanyId || indexEntry.companyFolderId || indexEntry.companyId || "").trim();
+  const masterSheetId = String(indexEntry.masterSheetId || "").trim();
+  const cache = deps?.masterSheetCache;
+  if (cache && typeof cache.getEntry === "function" && companyFolderId) {
+    companyName = String(cache.getEntry(companyFolderId)?.companyName || "").trim();
+    if (companyName) {
+      return companyName;
+    }
+  }
+  if (usersTabRec) {
+    const rowObj = usersTabRec.rowObject || usersTabRec;
+    companyName = String(
+      usersTabRec.companyName || pickRowCompanyName(rowObj) || usersTabRec.company || "",
+    ).trim();
+    if (companyName) {
+      return companyName;
+    }
+  }
+  return String(indexEntry.companyName || "").trim();
+}
+
 function mergeSessionCompanyContextFromUsersTab(usersTabRec, indexEntry = {}, session = {}) {
   if (!usersTabRec) {
     return session;
@@ -867,7 +893,15 @@ export async function performCompanyLogin(auth, deps, input = {}) {
       usersTabRec,
     });
   }
-  if (!sessionCompanyName) {
+  sessionCompanyName = resolveLoginCompanyName(
+    deps,
+    { sessionCompanyName, sessionCompanyId },
+    usersTabRec,
+    indexEntry,
+  );
+  if (!sessionCompanyName && sessionCompanyId && masterSheetId) {
+    timing.company_name_deferred = logLoginPhase("company_name_deferred", Date.now());
+  } else if (!sessionCompanyName) {
     return buildLoginContextFailure({
       timing,
       loginStarted,

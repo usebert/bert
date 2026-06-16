@@ -228,18 +228,18 @@ export async function completeInviteToUserRow(auth, invite, formData, deps) {
     return { ok: false, reason: "write_failed" };
   }
 
-  const loginCheck = await canLoginCompanyUser(
-    auth,
-    email,
-    password,
-    { masterSheetId, companyFolderId },
-    deps,
-  );
-  if (!loginCheck.ok) {
-    return { ok: false, reason: loginCheck.reason || "login_not_ready" };
+  const login = await verifyCompanyUserPassword(auth, masterSheetId, email, password, userDeps);
+  if (!login.ok) {
+    return { ok: false, reason: login.reason || "login_not_ready" };
+  }
+  const rec =
+    login.rec ||
+    (await readCompanyUsersTabRecord(auth, masterSheetId, email, userDeps).catch(() => null));
+  if (!rec || normalizeUserStatus(rec.status) !== "ACTIVE") {
+    return { ok: false, reason: "inactive", status: rec?.status };
   }
 
-  return { ok: true, user: loginCheck.user };
+  return { ok: true, user: sanitizeUserRecordForClient(rec), migrated: Boolean(login.migrated) };
 }
 
 /** @deprecated Use mapUsersTabProfileMember from users-tab-profiles.mjs */

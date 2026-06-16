@@ -26,7 +26,8 @@ Live Companies/
 
 1. **Company folder = anchor** — discovery starts at `companyFolderId`; folder resolution wins over stale workbook ids.
 2. **Workbook naming** — discovery matches both `*BERT Master Sheet*` and `*BERT Workbook*` (e.g. `Dovecote Studio - BERT Master Sheet`).
-3. **Users tab = truth** — People, schedule assignees, and login all read the company workbook Users tab.
+3. **Folder → workbook → Users tab** — resolve folder, then workbook file id, then read Users tab (workbook-scoped reads; never treat registry id as company id).
+4. **Users tab = truth** — People, schedule assignees, and login all read the company workbook Users tab.
 4. **Auth index = cache only** — rebuilt from Users tab; never the sole source for active user lists.
 5. **ACTIVE filter** — `Status=ACTIVE` **and** `CompanyFolderId` matches current folder (missing columns backfilled on read).
 6. **No cache-only users** — server cache rebuilt after every successful sheet read; no session fallback as active users; pending invites excluded from active list.
@@ -35,7 +36,7 @@ Live Companies/
 
 | Key | Value |
 |-----|-------|
-| `companyFolderId` | `1TVQ-gbpxoOzE6PCkHX581eTDgtMC11c` |
+| `companyFolderId` | `1TVQ-gbpxoOzE6PCkHX581eTDgtMC11lc` |
 | `masterSheetId` | `1PlwknNgtt-4j08matn1w4358YTe5SXFs5Hh0zA_m3So` |
 | Workbook path | `01 - BERT System Files / Company Workbook / Dovecote Studio - BERT Master Sheet` |
 
@@ -52,7 +53,7 @@ Live Companies/
 
 Implementation: `company-folder-resolver.mjs`, `company-folder-structure.mjs`, `ensure-required-tabs.mjs`.
 
-### `userService` — `server/company-user-service.mjs`
+### `userService` — `server/user-service.mjs` (alias: `server/company-user-service.mjs`)
 
 | Function | Purpose |
 |----------|---------|
@@ -95,6 +96,14 @@ Canonical list path: `company-users-foundation.mjs` → `listCompanyProfiles`.
 | `completeCheck(auth, deps, input)` | Append completed check to AuditResults tab |
 | `listResults(auth, deps, input)` | Read AuditResults tab |
 
+### `googleFormsService` — `server/google-forms-service.mjs` (alias: `server/company-forms-service.mjs`)
+
+| Function | Purpose |
+|----------|---------|
+| `resolveCompanyGoogleFormsFolder(...)` | Locate company Google Forms folder under company tree |
+| `listCompanyGoogleForms(...)` | List forms via company folder MIME type query |
+| `buildGoogleFormsFolderQuery(folderId)` | Drive query: `'folderId' in parents and mimeType = form` |
+
 ## Route contract
 
 All routes must pass `companyFolderId` + `masterSheetId` (workbook file id). Session values used when query/body omits them.
@@ -120,8 +129,12 @@ All routes must pass `companyFolderId` + `masterSheetId` (workbook file id). Ses
 ```bash
 npm run verify:drive-folder-map
 npm run verify:users-from-company-workbook
+npm run verify:people-scheduler-consistency
 npm run verify:invite-to-users-tab
+npm run verify:password-reset-login
 npm run verify:schedule-contract
+npm run verify:google-forms-folder
+npm run verify:api-json-contract
 npm run verify:bert-core-foundation    # holistic + extends all of the above
 npm run verify:bert-foundation
 npm run verify:company-members         # Dovecote xlsx fixture (3 users)
