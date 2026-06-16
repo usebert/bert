@@ -266,21 +266,32 @@ export async function patchTabRowByHeader(
     throw new Error("masterSheetId, tabName, matchHeader, and matchValue are required.");
   }
 
+  const readResult = await readTabRecords(auth, deps, sheetId, tab);
+  const lower = deps.safeLower || safeLower;
+  const records = readResult.records || [];
+  const hasMatch = records.some((record) => {
+    const cell = trim(
+      Object.entries(record).find(([key]) => lower(key) === lower(matchKey))?.[1] ?? "",
+    ).toLowerCase();
+    return cell === want;
+  });
+  if (!hasMatch) {
+    throw new Error(`No row found where ${matchKey}=${matchValue}.`);
+  }
+
   const values = await getTabValues(auth, deps, sheetId, tab);
   if (!values.length) {
     throw new Error(`Tab "${tab}" is empty or missing.`);
   }
 
   const headers = values[0].map((value, index) => String(value || `Column ${index + 1}`).trim());
-  const lower = deps.safeLower || safeLower;
-  const matchIndex = headers.findIndex((header) => lower(header) === lower(matchKey));
-  if (matchIndex < 0) {
+  let rowIndex = -1;
+  const matchColIndex = headers.findIndex((header) => lower(header) === lower(matchKey));
+  if (matchColIndex < 0) {
     throw new Error(`Match header "${matchKey}" not found on tab "${tab}".`);
   }
-
-  let rowIndex = -1;
   for (let i = 1; i < values.length; i += 1) {
-    const cell = String(values[i][matchIndex] || "").trim().toLowerCase();
+    const cell = String(values[i][matchColIndex] || "").trim().toLowerCase();
     if (cell === want) {
       rowIndex = i;
       break;

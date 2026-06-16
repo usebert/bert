@@ -65,6 +65,8 @@ assert(!foundation.includes("readCachedMasterSheetId"), "3d: foundation does not
 /** 3e: workbookService is canonical tab read layer. */
 assert(workbookService.includes("export async function readTabRecords"), "3e: workbookService.readTabRecords exported");
 assert(usersTabReader.includes("readTabRecords"), "3f: users-tab-reader uses readTabRecords");
+assert(workbookService.includes("readTabRecords(auth, deps, sheetId, tab)"), "3f2: patchTabRowByHeader reads via readTabRecords");
+assert(companyUsers.includes("patchTabRowByHeader"), "3f3: Users row writes use workbookService patch");
 assert(foundation.includes("COMPANY_CONTEXT_FAILED"), "3g: structured COMPANY_CONTEXT_FAILED errors");
 assert(foundation.includes("USERS_TAB_READ_FAILED"), "3h: structured USERS_TAB_READ_FAILED errors");
 assert(foundation.includes("USERS_TAB_SCHEMA_FAILED"), "3i: structured USERS_TAB_SCHEMA_FAILED errors");

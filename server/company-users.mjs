@@ -3,6 +3,7 @@
  * Never expose PasswordHash to API clients; migrate legacy Config UserAuth.* on login.
  */
 import { hashPassword, verifyPassword } from "./master-auth.mjs";
+import { patchTabRowByHeader } from "./workbook-service.mjs";
 import { isUserAuthScryptHash } from "./userauth-password.mjs";
 import {
   USERS_TAB,
@@ -298,21 +299,13 @@ async function readUsersTabHeaders(auth, spreadsheetId, deps) {
 }
 
 async function writeUsersRowPatch(auth, spreadsheetId, match, patch, deps) {
-  const { google, withSheetsQuotaRetry } = deps;
-  const { tabTitle, headers } = await readUsersTabHeaders(auth, spreadsheetId, deps);
-  const sheetHeaders = match.headers?.length ? match.headers : headers;
+  const { tabTitle } = await readUsersTabHeaders(auth, spreadsheetId, deps);
   const current = normalizeUsersTabRowObject(match.rowObject || {});
-  const nextRecord = { ...current, ...patch };
-  const nextRow = mapRecordToSheetHeaders(sheetHeaders, nextRecord);
-  const sheets = google.sheets({ version: "v4", auth });
-  await withSheetsQuotaRetry(() =>
-    sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `${tabTitle}!A${match.sheetRowIndex + 1}`,
-      valueInputOption: "USER_ENTERED",
-      requestBody: { values: [nextRow] },
-    }),
-  );
+  const email = safeLower(current.Email || current.email || "");
+  if (!email) {
+    throw new Error("Users row patch requires Email header.");
+  }
+  await patchTabRowByHeader(auth, deps, spreadsheetId, tabTitle, "Email", email, patch);
 }
 
 /** Write or update a Users tab row using actual sheet header order (never positional TAB_COLUMNS). */

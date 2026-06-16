@@ -362,8 +362,17 @@ export async function readUsersTabProfiles(auth, deps, companyContext = {}) {
   const companyFolderId = trim(companyContext.companyFolderId || companyContext.companyId);
   const masterSheetId = trim(companyContext.masterSheetId);
   const companyName = trim(companyContext.companyName);
-  if (!auth || !masterSheetId) {
-    return { members: [], totalSheetRows: 0, profilesReturned: 0, activeOnlyCount: 0, activeSheetUsers: 0 };
+  if (!auth) {
+    const error = new Error("Google auth is required to read company users.");
+    error.code = "USERS_TAB_READ_FAILED";
+    error.reasonCode = "USERS_TAB_READ_FAILED";
+    throw error;
+  }
+  if (!companyFolderId || !masterSheetId) {
+    const error = new Error("companyFolderId and masterSheetId are required to read company users.");
+    error.code = "COMPANY_CONTEXT_FAILED";
+    error.reasonCode = "COMPANY_CONTEXT_FAILED";
+    throw error;
   }
 
   const companyCtx = {
@@ -408,9 +417,9 @@ export function syncCompanyUsersCache(deps, companyContext = {}, profiles = []) 
 }
 
 /**
- * Canonical company profile list — resolve context, read Users tab, sync cache.
- * Single path: read sheet → map all listable rows → rebuild cache → return.
- * Never falls back to cache/session when the sheet has more rows than the fallback would return.
+ * Canonical ACTIVE company users — resolve folder/workbook, read Users tab, sync cache.
+ * Single path: folder resolve → sheet read → ACTIVE + CompanyFolderId filter → rebuild cache.
+ * Never falls back to cache/session/auth index as active-user truth.
  */
 export async function listCompanyProfiles(auth, deps, companyContext = {}) {
   const startedAt = Date.now();
@@ -604,7 +613,7 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
     const classified = classifyReadError(error);
     const technicalError = error instanceof Error ? error.message : String(error);
     const failureMessage =
-      classified.reasonCode === "WORKBOOK_NOT_FOUND"
+      classified.reasonCode === "COMPANY_CONTEXT_FAILED"
         ? workbookNotFoundUserMessage(
             { companyFolderId, staleSessionHint: Boolean(sessionMasterSheetId) },
             deps,
@@ -631,9 +640,11 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
           classified.reasonCode === "GOOGLE_PERMISSION_DENIED" ||
           classified.reasonCode === "GOOGLE_SHEETS_PERMISSION_DENIED"
             ? 403
-            : classified.reasonCode === "WORKBOOK_NOT_FOUND"
+            : classified.reasonCode === "COMPANY_CONTEXT_FAILED"
               ? 404
-              : 502,
+              : classified.reasonCode === "USERS_TAB_SCHEMA_FAILED"
+                ? 502
+                : 502,
         technicalError,
         failedStep: classified.failedStep,
       },
