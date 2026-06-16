@@ -20,6 +20,9 @@ function read(rel) {
 
 const sheetFlow = read("server/company-user-sheet-flow.mjs");
 const userService = read("server/company-user-service.mjs");
+const foundation = read("server/company-users-foundation.mjs");
+const workbookService = read("server/workbook-service.mjs");
+const usersTabReader = read("server/users-tab-reader.mjs");
 const companyUsers = read("server/company-users.mjs");
 const authService = read("server/auth-service.mjs");
 const panel = read("src/components/admin/UsersInvitesPilotPanel.tsx");
@@ -49,13 +52,22 @@ const pendingInvite = {
 /** 1: listActiveUsersFromSheet exported. */
 assert(sheetFlow.includes("export async function listActiveUsersFromSheet"), "1: listActiveUsersFromSheet exported");
 
-/** 2: listActiveCompanyMembers uses sheet-only helper. */
-assert(userService.includes("readActiveUsersFromSheetWithStats"), "2: listActiveCompanyMembers uses readActiveUsersFromSheetWithStats");
+/** 2: listActiveCompanyMembers delegates to folder-first foundation path. */
+assert(userService.includes("listCompanyProfilesFromFoundation"), "2: listActiveCompanyMembers uses foundation list path");
+assert(foundation.includes("activeProfilesFromUsersTabRecords"), "2b: foundation filters ACTIVE + CompanyFolderId");
 
-/** 3: Session fallback when workbook read fails but signed-in user is in session. */
-assert(userService.includes("session-fallback"), "3: session-fallback dataSource in user service");
-assert(userService.includes("buildSessionFallbackSuccess"), "3b: session fallback helper");
-assert(userService.includes("mapSessionActorToMember"), "3c: session actor mapped to fallback member");
+/** 3: No session/cache fallback as active-user truth. */
+assert(!userService.includes("session-fallback"), "3: user service has no session-fallback");
+assert(!userService.includes("cache-fallback"), "3b: user service has no cache-fallback");
+assert(!userService.includes("buildSessionFallbackSuccess"), "3c: session fallback helper removed");
+assert(!foundation.includes("readCachedMasterSheetId"), "3d: foundation does not read masterSheet cache");
+
+/** 3e: workbookService is canonical tab read layer. */
+assert(workbookService.includes("export async function readTabRecords"), "3e: workbookService.readTabRecords exported");
+assert(usersTabReader.includes("readTabRecords"), "3f: users-tab-reader uses readTabRecords");
+assert(foundation.includes("COMPANY_CONTEXT_FAILED"), "3g: structured COMPANY_CONTEXT_FAILED errors");
+assert(foundation.includes("USERS_TAB_READ_FAILED"), "3h: structured USERS_TAB_READ_FAILED errors");
+assert(foundation.includes("USERS_TAB_SCHEMA_FAILED"), "3i: structured USERS_TAB_SCHEMA_FAILED errors");
 
 /** 4: No invite merge into active list or demo login users. */
 assert(!appTsx.includes("invitedLoginUsers"), "4: App does not merge invites into loginUsers");
@@ -70,8 +82,12 @@ assert(!isActiveUser(pendingInvite), "5b: INVITED row is not active status");
 assert(companyUsers.includes("sanitizeUsersTabRecords"), "6: sanitizeUsersTabRecords exists");
 assert(sheetFlow.includes("readCompanyUsers"), "6b: sheet list reads Users tab");
 
-/** 7: Deleted/removed rows excluded from listActiveUsersFromSheet. */
-assert(sheetFlow.includes("isExcludedCompanyProfileStatus"), "7: deleted/removed rows filtered out");
+/** 7: Deleted/removed rows excluded from active user list. */
+assert(
+  read("server/users-tab-profiles.mjs").includes("isExcludedCompanyProfileStatus") ||
+    read("server/users-tab-profiles.mjs").includes("activeProfilesFromUsersTabRecords"),
+  "7: deleted/removed rows filtered out",
+);
 
 /** 8: canLoginCompanyUser is sheet-only. */
 assert(sheetFlow.includes("findCompanyUsersTabRow"), "8: login requires Users tab row");
@@ -107,4 +123,4 @@ assert(
 const pkg = JSON.parse(read("package.json"));
 assert(pkg.scripts["verify:users-source-of-truth"], "npm script registered");
 
-console.log("[verify:users-source-of-truth] OK: all 12 users source-of-truth cases passed");
+console.log("[verify:users-source-of-truth] OK: all users source-of-truth cases passed");

@@ -5,9 +5,9 @@
  * Never expose PasswordHash to API clients.
  */
 import { migrateUsersTabColumns } from "./company-users.mjs";
-import { resolveCompanyContextFields } from "./company-context-service.mjs";
+import { readCompanyNameFromDriveFolder } from "./company-context-service.mjs";
 import { readCompanyUsers, resolveUsersTab } from "./users-tab-reader.mjs";
-import { listableProfilesFromUsersTabRecords } from "./users-tab-profiles.mjs";
+import { listableProfilesFromUsersTabRecords, activeProfilesFromUsersTabRecords } from "./users-tab-profiles.mjs";
 import { resolveCompanyFromFolder } from "./company-service.mjs";
 import { validateCompanyFolderUnderCompaniesRoot } from "./company-folder-placement.mjs";
 import { buildAvailableScheduleAssigneesFromUsers } from "../shared/schedule-assignees.mjs";
@@ -139,9 +139,17 @@ function classifyReadError(error) {
       upstreamMessage: message,
     };
   }
+  if (code === "USERS_TAB_SCHEMA_FAILED" || lower.includes("schema repair") || lower.includes("users_tab_schema")) {
+    return {
+      reasonCode: "USERS_TAB_SCHEMA_FAILED",
+      failedStep: trim(error?.failedStep) || "users_tab_schema_repair",
+      upstreamStatus: upstreamStatus || undefined,
+      upstreamMessage: message,
+    };
+  }
   if (code === "USERS_TAB_MISSING" || lower.includes("users tab is missing")) {
     return {
-      reasonCode: "USERS_TAB_MISSING",
+      reasonCode: "USERS_TAB_READ_FAILED",
       failedStep: trim(error?.failedStep) || "users_tab_headers",
       upstreamMessage: message,
     };
@@ -153,7 +161,7 @@ function classifyReadError(error) {
     lower.includes("requested entity was not found")
   ) {
     return {
-      reasonCode: "WORKBOOK_NOT_FOUND",
+      reasonCode: "COMPANY_CONTEXT_FAILED",
       failedStep: trim(error?.failedStep) || "master_sheet_resolve",
       upstreamStatus: upstreamStatus || 404,
       upstreamMessage: message,
@@ -369,13 +377,13 @@ export async function readUsersTabProfiles(auth, deps, companyContext = {}) {
   let records = await readUsersTabRecordsForCompany(auth, deps, companyCtx, {
     skipUsersTabColumnMigration: true,
   });
-  let result = listableProfilesFromUsersTabRecords(records, companyCtx);
+  let result = activeProfilesFromUsersTabRecords(records, companyCtx);
 
   if (result.members.length === 0 && result.totalSheetRows === 0) {
     records = await readUsersTabRecordsForCompany(auth, deps, companyCtx, {
       skipUsersTabColumnMigration: false,
     });
-    result = listableProfilesFromUsersTabRecords(records, companyCtx);
+    result = activeProfilesFromUsersTabRecords(records, companyCtx);
   }
 
   return result;
@@ -442,7 +450,7 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
 
   if (!companyFolderId) {
     return buildFailure(
-      "MISSING_COMPANY_CONTEXT",
+      "COMPANY_CONTEXT_FAILED",
       COMPANY_USERS_USER_MESSAGE,
       { ...baseDiagnostics(), failedStep: "company_context_resolve" },
       { httpStatus: 404, failedStep: "company_context_resolve" },
@@ -451,29 +459,23 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
 
   if (!looksLikeDriveId(companyFolderId)) {
     return buildFailure(
-      "INVALID_COMPANY_ID",
+      "COMPANY_CONTEXT_FAILED",
       "Company workspace id is invalid.",
       { ...baseDiagnostics(), failedStep: "company_context_resolve" },
       { httpStatus: 400, failedStep: "company_context_resolve" },
     );
   }
 
-  const folderPlacementPromise = validateCompanyFolderUnderCompaniesRoot(auth, deps, companyFolderId, {
-    companyFolderName: companyName,
-  }).catch(() => ({ ok: false, reasonCode: "FOLDER_NOT_IN_COMPANIES_ROOT" }));
-
-  const resolvedContext = await resolveCompanyContextFields(auth, deps, {
-    companyFolderId,
-    companyId: companyFolderId,
-    masterSheetId: "",
-    companyName: "",
-  });
-  companyName = trim(resolvedContext.companyName) || companyName;
+  companyName = (await readCompanyNameFromDriveFolder(auth, deps, companyFolderId)) || companyName;
 
   let folderResolved = null;
   let resolvedMasterSheet = null;
   let nonNativeWorkbookName = "";
   masterSheetResolutionSource = "company_folder";
+
+  const folderPlacementPromise = validateCompanyFolderUnderCompaniesRoot(auth, deps, companyFolderId, {
+    companyFolderName: companyName,
+  }).catch(() => ({ ok: false, reasonCode: "FOLDER_NOT_IN_COMPANIES_ROOT" }));
 
   folderResolved = await resolveMasterSheetFromCompanyFolder(auth, deps, companyFolderId, companyName, {
     preferFolderResolution: true,
@@ -515,7 +517,7 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
       deps,
     );
     return buildFailure(
-      folderReason === "WORKBOOK_NOT_FOUND" || staleSessionHint ? "WORKBOOK_NOT_FOUND" : "MISSING_MASTER_SHEET_ID",
+      folderReason === "WORKBOOK_NOT_FOUND" || staleSessionHint ? "COMPANY_CONTEXT_FAILED" : "COMPANY_CONTEXT_FAILED",
       workbookMessage,
       {
         ...baseDiagnostics(),

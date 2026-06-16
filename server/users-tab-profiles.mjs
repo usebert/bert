@@ -130,6 +130,30 @@ export function listableProfilesFromUsersTabRecords(records, companyContext = {}
   };
 }
 
+/**
+ * ACTIVE company members only — Status=ACTIVE and CompanyFolderId matches current folder.
+ */
+export function activeProfilesFromUsersTabRecords(records, companyContext = {}) {
+  const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
+  const result = listableProfilesFromUsersTabRecords(records, companyContext);
+  const activeMembers = result.members.filter((member) => {
+    if (normalizeUserStatus(member.status) !== "ACTIVE") {
+      return false;
+    }
+    if (companyFolderId && member.companyFolderId && member.companyFolderId !== companyFolderId) {
+      return false;
+    }
+    return true;
+  });
+  return {
+    ...result,
+    members: activeMembers,
+    profilesReturned: activeMembers.length,
+    activeOnlyCount: activeMembers.length,
+    activeSheetUsers: activeMembers.length,
+  };
+}
+
 /** Parse raw header + row arrays (fixture/live sheet values) into listable company profiles. */
 export function listProfilesFromUsersTabRows(headers, dataRows, companyContext = {}) {
   const headerRow = Array.isArray(headers) ? headers : [];

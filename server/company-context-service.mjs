@@ -20,7 +20,7 @@ function trim(value) {
   return String(value ?? "").trim();
 }
 
-async function readCompanyNameFromDriveFolder(auth, deps, companyFolderId) {
+export async function readCompanyNameFromDriveFolder(auth, deps, companyFolderId) {
   const folderId = trim(companyFolderId);
   if (!auth || !folderId || !deps?.google) {
     return "";

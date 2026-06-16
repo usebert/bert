@@ -2,7 +2,7 @@
  * Company workbook Users tab resolution and reads — legacy tab names, header repair, error surfacing.
  */
 import { classifyGoogleSheetsAccessError } from "./ensure-required-tabs.mjs";
-import { ensureTabColumns, getTabValues, rowsToRecords } from "./workbook-service.mjs";
+import { ensureTabColumns, readTabRecords, writeTabRecords } from "./workbook-service.mjs";
 import { USERS_TAB, USERS_TAB_COLUMNS, USERS_TAB_MINIMUM_HEADERS } from "./users-tab-constants.mjs";
 import {
   isShiftedLegacyUsersRow,
@@ -14,7 +14,6 @@ import {
   sanitizeUsersTabRecords,
   backfillRowCompanyFields,
   pickRowCompanyName,
-  buildUsersTabRowObject,
 } from "./users-tab-schema.mjs";
 
 export const USERS_TAB_CANONICAL = "Users";
@@ -28,10 +27,6 @@ const USERS_TAB_ENSURE_HEADERS = [...new Set([...USERS_TAB_MINIMUM_HEADERS, ...U
 
 function safeLower(value) {
   return String(value || "").trim().toLowerCase();
-}
-
-function rowsToRecordsLocal(values) {
-  return rowsToRecords(values);
 }
 
 function extractGoogleError(error) {
@@ -92,7 +87,7 @@ export function classifyUsersTabReadError(error) {
   if (code === "USERS_TAB_MISSING" || lower.includes("users tab is missing")) {
     const missing = new Error(message || "Users tab is missing from the company workbook.");
     missing.code = "USERS_TAB_MISSING";
-    missing.reasonCode = "USERS_TAB_MISSING";
+    missing.reasonCode = "USERS_TAB_READ_FAILED";
     missing.upstreamStatus = upstreamStatus || undefined;
     missing.upstreamMessage = message;
     missing.googleError = googleError;
@@ -205,7 +200,10 @@ export async function resolveUsersTab(auth, spreadsheetId, deps, options = {}) {
       message: error?.message,
       googleError: extractGoogleError(error),
     });
-    throw classifyUsersTabReadError(error);
+    const schemaError = classifyUsersTabReadError(error);
+    schemaError.code = "USERS_TAB_SCHEMA_FAILED";
+    schemaError.reasonCode = "USERS_TAB_SCHEMA_FAILED";
+    throw schemaError;
   }
 
   return {
@@ -237,9 +235,11 @@ export async function readCompanyUsers(auth, spreadsheetId, deps, options = {}) 
   const tabTitle = resolved.tabTitle || USERS_TAB;
 
   try {
-    const rawValues = await getTabValues(auth, deps, resolved.spreadsheetId || spreadsheetId, tabTitle);
+    const readResult = await readTabRecords(auth, deps, resolved.spreadsheetId || spreadsheetId, tabTitle, {
+      expectedHeaders: USERS_TAB_ENSURE_HEADERS,
+    });
     const records = sanitizeUsersTabRecords(
-      rowsToRecordsLocal(rawValues).map((row) => normalizeUsersTabRowObject(row)),
+      (readResult.records || []).map((row) => normalizeUsersTabRowObject(row)),
     );
     return {
       ok: true,
@@ -302,9 +302,22 @@ export async function repairUsersTabSchema(auth, spreadsheetId, deps, options = 
   const { google, withSheetsQuotaRetry } = deps;
   const tabTitle = resolved.tabTitle || USERS_TAB_CANONICAL;
   const ensureHeaders = [...new Set([...USERS_TAB_MINIMUM_HEADERS, ...USERS_TAB_COLUMNS])];
-  await ensureTabColumns(auth, deps, spreadsheetId, tabTitle, ensureHeaders);
+  try {
+    await ensureTabColumns(auth, deps, spreadsheetId, tabTitle, ensureHeaders);
+  } catch (error) {
+    const schemaError = classifyUsersTabReadError(error);
+    schemaError.code = "USERS_TAB_SCHEMA_FAILED";
+    schemaError.reasonCode = "USERS_TAB_SCHEMA_FAILED";
+    throw schemaError;
+  }
 
-  const rows = await getTabValues(auth, deps, spreadsheetId, tabTitle);
+  const readResult = await readTabRecords(auth, deps, spreadsheetId, tabTitle, {
+    expectedHeaders: ensureHeaders,
+  });
+  const rows = [
+    ensureHeaders,
+    ...(readResult.records || []).map((record) => ensureHeaders.map((header) => String(record[header] ?? "").trim())),
+  ];
   if (!rows.length) {
     return {
       ok: true,
@@ -366,21 +379,13 @@ export async function repairUsersTabSchema(auth, spreadsheetId, deps, options = 
   }
 
   if (rowsRepaired > 0 || canonicalHeaders.length !== existingHeaders.length) {
-    const sheets = google.sheets({ version: "v4", auth });
-    await withSheetsQuotaRetry(() =>
-      sheets.spreadsheets.values.clear({
-        spreadsheetId,
-        range: `${tabTitle}!A:ZZ`,
-      }),
+    const dataRows = nextRows.slice(1).map((row) =>
+      canonicalHeaders.reduce((accumulator, header, index) => {
+        accumulator[header] = String(row[index] ?? "").trim();
+        return accumulator;
+      }, {}),
     );
-    await withSheetsQuotaRetry(() =>
-      sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: `${tabTitle}!A1`,
-        valueInputOption: "USER_ENTERED",
-        requestBody: { values: nextRows },
-      }),
-    );
+    await writeTabRecords(auth, deps, spreadsheetId, tabTitle, canonicalHeaders, dataRows);
   }
 
   let companyMigration = null;

@@ -37,6 +37,8 @@ function read(rel) {
 }
 
 const resolver = read("server/company-folder-resolver.mjs");
+const workbookService = read("server/workbook-service.mjs");
+const companyService = read("server/company-service.mjs");
 const placement = read("server/company-folder-placement.mjs");
 const placementShared = read("shared/company-folder-placement.mjs");
 const contextShared = read("shared/company-folder-context.mjs");
@@ -58,8 +60,12 @@ assert(resolver.includes("ensureCompanyFolderStructure"), "3: resolver ensures f
 assert(resolver.includes("COMPANY_CONTEXT_STATUS_USABLE"), "4: resolver returns USABLE status when folder placement ok");
 assert(resolver.includes("installCompanyFolderResolverRoutes"), "5: resolver routes installer");
 assert(resolver.includes("/api/godmode/companies/:companyFolderId/resolve-from-folder"), "6: resolve-from-folder route");
-assert(resolver.includes("queuePostResolveBackgroundJobs"), "7: post-resolve background jobs queued");
-assert(resolver.includes("rebuildRegistryCache"), "8: registry cache rebuild is non-blocking");
+assert(!resolver.includes("rebuildRegistryCache"), "7: resolver does not rebuild registry cache");
+assert(!resolver.includes("queueCompanyHealthCheckIfReady"), "7b: resolver does not queue health checks");
+assert(resolver.includes("ensureRequiredTabs"), "7c: resolver ensures required tabs via workbookService");
+assert(workbookService.includes("readTabRecords"), "7d: workbookService canonical tab reads");
+assert(companyService.includes("workbook-service.mjs"), "7e: companyService re-exports workbookService tabs");
+assert(resolver.includes("cleanCompanyNameFromFolder(trim(folderMeta.name))"), "7f: companyName from Drive folder only");
 assert(resolver.includes("validateCompanyFolderUnderCompaniesRoot"), "8b: resolver validates Live Companies placement");
 assert(resolver.includes("folderPlacementOk"), "8b2: resolver surfaces folder placement without blocking workbook resolve");
 assert(

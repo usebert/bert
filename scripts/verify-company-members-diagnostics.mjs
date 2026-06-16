@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Company members diagnostics — structured reasonCode + session fallback contract. */
+/** Company members diagnostics — structured reasonCode + fail-closed workbook contract. */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,6 +18,7 @@ function read(rel) {
 }
 
 const userService = read("server/company-user-service.mjs");
+const foundation = read("server/company-users-foundation.mjs");
 const coreRoutes = read("server/core-workflow-routes.mjs");
 const companyUserServiceTs = read("src/services/companyUserService.ts");
 const panel = read("src/components/admin/UsersInvitesPilotPanel.tsx");
@@ -25,16 +26,12 @@ const diagnosticsPanel = read("src/components/CompanyMembersDiagnosticsPanel.tsx
 const pkg = JSON.parse(read("package.json"));
 
 const REASON_CODES = [
-  "MISSING_COMPANY_CONTEXT",
-  "MISSING_COMPANY_FOLDER_ID",
-  "MISSING_MASTER_SHEET_ID",
-  "WORKBOOK_NOT_FOUND",
-  "USERS_TAB_MISSING",
+  "COMPANY_CONTEXT_FAILED",
   "USERS_TAB_READ_FAILED",
+  "USERS_TAB_SCHEMA_FAILED",
   "GOOGLE_AUTH_FAILED",
   "GOOGLE_PERMISSION_DENIED",
   "GOOGLE_SHEET_ACCESS_DENIED",
-  "INVALID_COMPANY_ID",
 ];
 
 /** 1: API failure envelope uses COMPANY_USERS_LOAD_FAILED + reasonCode + failedStep. */
@@ -44,17 +41,16 @@ const REASON_CODES = [
   assert(coreRoutes.includes("failedStep: result.failedStep"), "1b2: route forwards top-level failedStep");
   assert(coreRoutes.includes("diagnostics: result.diagnostics"), "1c: route forwards diagnostics");
   assert(coreRoutes.includes("Could not load company users."), "1d: route user-facing message");
-  assert(userService.includes('code: COMPANY_USERS_LOAD_FAILED'), "1e: service uses COMPANY_USERS_LOAD_FAILED");
-  assert(userService.includes("reasonCode"), "1f: service sets reasonCode");
-  assert(userService.includes("failedStep"), "1g: service sets failedStep");
+  assert(read("server/company-users-foundation.mjs").includes('code: COMPANY_USERS_LOAD_FAILED'), "1e: foundation uses COMPANY_USERS_LOAD_FAILED");
+  assert(foundation.includes("reasonCode"), "1f: foundation sets reasonCode");
+  assert(foundation.includes("failedStep"), "1g: foundation sets failedStep");
 }
 
 /** 2: All reason codes are implemented in the service. */
 for (const code of REASON_CODES) {
-  const foundation = read("server/company-users-foundation.mjs");
   assert(
-    userService.includes(`"${code}"`) || foundation.includes(`"${code}"`),
-    `2: reasonCode ${code} implemented`,
+    foundation.includes(`"${code}"`),
+    `2: reasonCode ${code} implemented in foundation`,
   );
 }
 
@@ -93,9 +89,9 @@ for (const code of REASON_CODES) {
     "4b2a: folder discovery walks nested company folders",
   );
   assert(
-    read("server/company-users-foundation.mjs").includes("validateMasterSheetHint") ||
-      read("server/company-users-foundation.mjs").includes("validateAccessibleMasterSheet"),
-    "4b2b: stale session masterSheetId is validated before use",
+    !read("server/company-users-foundation.mjs").includes("validateMasterSheetHint") &&
+      !read("server/company-users-foundation.mjs").includes("readCachedMasterSheetId"),
+    "4b2b: stale session/cache masterSheetId hints are not used",
   );
   assert(
     read("server/company-users-foundation.mjs").includes("buildShareCompanyFolderHint") ||
@@ -111,18 +107,18 @@ for (const code of REASON_CODES) {
     "4b3: read path prefers folder-resolved masterSheetId",
   );
   assert(userService.includes("companyId: companyFolderId"), "4c: companyId equals companyFolderId");
-  assert(userService.includes("resolveCompanyContextFields"), "4d: folder name resolved via context resolver");
+  assert(foundation.includes("readCompanyNameFromDriveFolder"), "4d: companyName from Drive folder metadata");
   assert(coreRoutes.includes("actor?.companyFolderId"), "4e: users route uses session companyFolderId");
   assert(coreRoutes.includes("actor?.masterSheetId"), "4f: users route uses session masterSheetId");
 }
 
-/** 5: Session fallback when workbook read fails but signed-in user is in session. */
+/** 5: No session/cache fallback — fail closed from workbook only. */
 {
-  assert(userService.includes("buildSessionFallbackSuccess"), "5: session fallback helper");
-  assert(userService.includes('dataSource: "session-fallback"'), "5b: session-fallback dataSource");
-  assert(userService.includes("mapSessionActorToMember"), "5c: session actor mapped to member");
-  assert(userService.includes("cacheOnlyUsersRemoved"), "5d: cache reconciliation diagnostics");
-  assert(userService.includes("totalRowsRead"), "5e: totalRowsRead diagnostics");
+  assert(!userService.includes("buildSessionFallbackSuccess"), "5: session fallback helper removed");
+  assert(!userService.includes('dataSource: "session-fallback"'), "5b: no session-fallback dataSource");
+  assert(foundation.includes("activeProfilesFromUsersTabRecords"), "5c: ACTIVE users filtered in foundation");
+  assert(foundation.includes("COMPANY_CONTEXT_FAILED"), "5d: structured context failure codes");
+  assert(foundation.includes("totalRowsRead"), "5e: totalRowsRead diagnostics");
 }
 
 /** 6: Frontend surfaces friendly message for normal users; diagnostics for godmode/dev. */

@@ -35,11 +35,15 @@ const companyService = read("server/company-service.mjs");
 const folderStructure = read("server/company-folder-structure.mjs");
 const resolver = read("server/company-folder-resolver.mjs");
 const foundation = read("server/company-users-foundation.mjs");
+const workbookService = read("server/workbook-service.mjs");
 
 assert(pkg.scripts["verify:drive-folder-map"], "1: npm script registered");
 assert(companyService.includes("findCompanyWorkbook"), "2: companyService.findCompanyWorkbook exported");
 assert(companyService.includes("ensureCompanyWorkbook"), "3: companyService.ensureCompanyWorkbook exported");
 assert(companyService.includes("ensureRequiredTabs"), "4: companyService.ensureRequiredTabs exported");
+assert(workbookService.includes("export async function readTabRecords"), "4b: workbookService.readTabRecords exported");
+assert(workbookService.includes("export async function ensureTabColumns"), "4c: workbookService.ensureTabColumns exported");
+assert(folderStructure.includes("buildCompanyWorkbookName(companyName)"), "4d: new workbook uses BERT Workbook name");
 assert(companyService.includes("resolveCompanyFromFolder"), "5: companyService.resolveCompanyFromFolder exported");
 
 assert(folderStructure.includes("export async function findCompanyWorkbook"), "6: findCompanyWorkbook in folder structure");
@@ -63,6 +67,8 @@ assert(folderStructure.includes('lower.includes("bert workbook")'), "15: scores 
 assert(resolver.includes("discoverCompanyMasterSheetInFolder"), "16: resolver uses folder discovery");
 assert(resolver.includes("preferFolderResolution"), "17: folder discovery wins over stale hints");
 assert(foundation.includes("preferFolderResolution: true"), "18: users foundation prefers folder resolution");
+assert(!foundation.includes("readCachedMasterSheetId"), "18b: foundation does not use masterSheet cache");
+assert(!resolver.includes("rebuildRegistryCache"), "18c: resolver does not read registry on resolve");
 
 assert(DOVECOTE_FOLDER_ID === "1TVQ-gbpxoOzE6PCkHX581eTDgtMC11lc", "19: Dovecote folder id fixture");
 assert(

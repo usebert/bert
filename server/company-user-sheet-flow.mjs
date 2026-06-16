@@ -12,7 +12,7 @@ import {
   verifyCompanyUserPassword,
 } from "./company-users.mjs";
 import { readCompanyUsers, resolveUsersTab } from "./users-tab-reader.mjs";
-import { listableProfilesFromUsersTabRecords } from "./users-tab-profiles.mjs";
+import { listableProfilesFromUsersTabRecords, activeProfilesFromUsersTabRecords } from "./users-tab-profiles.mjs";
 import { inviteAccessLevelForRole } from "../shared/schedule-assignees.mjs";
 
 function safeLower(value) {
@@ -68,19 +68,28 @@ async function readUsersTabRecords(auth, masterSheetId, deps, companyContext = {
 }
 
 /**
- * Read Users tab rows and return company profiles plus sheet row counts for diagnostics.
+ * Read Users tab rows and return ACTIVE company profiles plus sheet row counts for diagnostics.
  */
 export async function readActiveUsersFromSheetWithStats(auth, deps, companyContext = {}) {
   const masterSheetId = String(companyContext.masterSheetId || "").trim();
   const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
   const companyName = String(companyContext.companyName || "").trim();
-  if (!auth || !masterSheetId) {
-    return { members: [], totalSheetRows: 0, activeSheetUsers: 0 };
+  if (!auth) {
+    const error = new Error("Google auth is required to read company users.");
+    error.code = "USERS_TAB_READ_FAILED";
+    error.reasonCode = "USERS_TAB_READ_FAILED";
+    throw error;
+  }
+  if (!companyFolderId || !masterSheetId) {
+    const error = new Error("companyFolderId and masterSheetId are required to read company users.");
+    error.code = "COMPANY_CONTEXT_FAILED";
+    error.reasonCode = "COMPANY_CONTEXT_FAILED";
+    throw error;
   }
 
   const companyCtx = { companyFolderId, companyId: companyFolderId, companyName, masterSheetId };
   const records = await readUsersTabRecords(auth, masterSheetId, deps, companyCtx);
-  const result = listableProfilesFromUsersTabRecords(records, companyCtx);
+  const result = activeProfilesFromUsersTabRecords(records, companyCtx);
 
   if (result.totalSheetRows >= 2 && result.members.length < result.totalSheetRows) {
     console.info(
@@ -104,10 +113,6 @@ export async function readActiveUsersFromSheetWithStats(auth, deps, companyConte
  * ACTIVE users only from the company workbook Users tab — no invites, cache, or session merge.
  */
 export async function listActiveUsersFromSheet(auth, deps, companyContext = {}) {
-  const masterSheetId = String(companyContext.masterSheetId || "").trim();
-  if (!auth || !masterSheetId) {
-    return [];
-  }
   const result = await readActiveUsersFromSheetWithStats(auth, deps, companyContext);
   return result.members;
 }

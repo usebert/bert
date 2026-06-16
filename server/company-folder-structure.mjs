@@ -877,7 +877,7 @@ export async function ensureCompanyMasterSheet(drive, input) {
   if (!parentId) {
     throw new Error("Company Workbook folder not found. Run folder structure repair first.");
   }
-  const sheetName = buildCompanyMasterSheetName(companyName);
+  const sheetName = buildCompanyWorkbookName(companyName);
   const created = await createCompanySpreadsheet(drive, sheetName, parentId);
   console.log("[provision] company_master_sheet created", {
     spreadsheetId: created.id,

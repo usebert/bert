@@ -43,6 +43,7 @@ function read(rel) {
 function runStaticGuards() {
   const pkg = JSON.parse(read("package.json"));
   const companyService = read("server/company-service.mjs");
+  const workbookService = read("server/workbook-service.mjs");
   const authService = read("server/auth-service.mjs");
   const userService = read("server/company-user-service.mjs");
   const inviteService = read("server/invite-service.mjs");
@@ -50,6 +51,8 @@ function runStaticGuards() {
   const checkService = read("server/check-service.mjs");
   const completionService = read("server/completion-service.mjs");
   const folderStructure = read("server/company-folder-structure.mjs");
+  const folderResolver = read("server/company-folder-resolver.mjs");
+  const usersFoundation = read("server/company-users-foundation.mjs");
   const godmodeService = read("server/godmode-service.mjs");
   const coreRoutes = read("server/core-workflow-routes.mjs");
   const usersPanel = read("src/components/admin/UsersInvitesPilotPanel.tsx");
@@ -72,6 +75,15 @@ function runStaticGuards() {
   assert(companyService.includes("findCompanyWorkbook"), "static: companyService.findCompanyWorkbook");
   assert(companyService.includes("ensureCompanyWorkbook"), "static: companyService.ensureCompanyWorkbook");
   assert(companyService.includes("ensureRequiredTabs"), "static: companyService.ensureRequiredTabs");
+  assert(workbookService.includes("export async function readTabRecords"), "static: workbookService.readTabRecords");
+  assert(workbookService.includes("export async function ensureTabColumns"), "static: workbookService.ensureTabColumns");
+  assert(workbookService.includes("patchTabRowByHeader"), "static: workbookService.patchTabRowByHeader");
+  assert(read("server/users-tab-reader.mjs").includes("readTabRecords"), "static: users tab reads via workbookService");
+  assert(!folderResolver.includes("rebuildRegistryCache"), "static: company resolve skips registry cache");
+  assert(!usersFoundation.includes("readCachedMasterSheetId"), "static: users foundation skips masterSheet cache");
+  assert(usersFoundation.includes("activeProfilesFromUsersTabRecords"), "static: ACTIVE + CompanyFolderId filter");
+  assert(usersFoundation.includes("COMPANY_CONTEXT_FAILED"), "static: COMPANY_CONTEXT_FAILED error code");
+  assert(folderStructure.includes("buildCompanyWorkbookName(companyName)"), "static: create workbook uses BERT Workbook name");
   assert(folderStructure.includes("buildCompanyWorkbookName"), "static: BERT Workbook naming");
   assert(read("server/google-forms-service.mjs").includes("resolveCompanyGoogleFormsFolder"), "static: googleFormsService folder resolve");
   assert(read("server/company-forms-service.mjs").includes("listCompanyGoogleForms"), "static: company Google Forms list");
