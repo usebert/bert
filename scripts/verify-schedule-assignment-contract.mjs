@@ -54,6 +54,7 @@ assert(
 assert(scheduleService.includes("listMyChecks"), "2d2: listMyChecks exported");
 assert(checkService.includes("listMyChecks"), "2e: check service uses listMyChecks");
 assert(checkService.includes("submitCompletedCheck"), "2f: check service submits AuditResults");
+assert(read("server/completion-service.mjs").includes("verifyScheduleCompletionEligibility"), "2g: completion service eligibility");
 
 /** 3: assignedUserEmails written on save payload and sheet rows. */
 {

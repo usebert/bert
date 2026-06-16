@@ -333,3 +333,58 @@ export async function patchTabRowByHeader(
 
   return { ok: true, rowIndex: sheetRow, tabName: tab, masterSheetId: sheetId };
 }
+
+function mapRowObjectToHeaders(headers, rowObject) {
+  const lower = safeLower;
+  return headers.map((header) => {
+    const direct = rowObject?.[header];
+    if (direct !== undefined && direct !== null && String(direct).trim() !== "") {
+      return String(direct).trim();
+    }
+    const match = Object.entries(rowObject || {}).find(([key]) => lower(key) === lower(header));
+    return String(match?.[1] ?? "").trim();
+  });
+}
+
+/** Append rows to a tab — ensures columns, uses header-based row mapping. */
+export async function appendTabRows(auth, deps, masterSheetId, tabName, expectedHeaders, rowObjects = []) {
+  const sheetId = trim(masterSheetId);
+  const tab = trim(tabName);
+  const rows = Array.isArray(rowObjects) ? rowObjects.filter((row) => row && typeof row === "object") : [];
+  if (!sheetId || !tab || rows.length === 0) {
+    return { ok: true, written: 0, skipped: 0 };
+  }
+
+  const columns = Array.isArray(expectedHeaders) && expectedHeaders.length > 0 ? expectedHeaders : [];
+  if (columns.length > 0) {
+    await ensureTabColumns(auth, deps, sheetId, tab, columns);
+  }
+
+  const values = await getTabValues(auth, deps, sheetId, tab);
+  const sheetHeaders = (values[0] || columns).map((header) => String(header || "").trim()).filter(Boolean);
+  const headers = sheetHeaders.length > 0 ? sheetHeaders : columns;
+  if (headers.length === 0) {
+    throw new Error(`Tab "${tab}" has no headers.`);
+  }
+
+  const { google, withSheetsQuotaRetry } = deps;
+  const sheets = google.sheets({ version: "v4", auth });
+  const request = () =>
+    sheets.spreadsheets.values.append({
+      spreadsheetId: sheetId,
+      range: `${tab}!A1`,
+      valueInputOption: "USER_ENTERED",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: {
+        values: rows.map((row) => mapRowObjectToHeaders(headers, row)),
+      },
+    });
+
+  if (withSheetsQuotaRetry) {
+    await withSheetsQuotaRetry(request);
+  } else {
+    await request();
+  }
+
+  return { ok: true, written: rows.length, skipped: 0, tabName: tab, masterSheetId: sheetId };
+}

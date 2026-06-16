@@ -30,6 +30,11 @@ import {
 import { getReportsDashboard } from "./reports-dashboard-service.mjs";
 import { BACKGROUND_SCHEDULE_SAVED_MESSAGE } from "../shared/background-jobs.mjs";
 import { rejectIfCompanyFolderNotUnderCompaniesRoot } from "./company-folder-placement.mjs";
+import {
+  canListCompanyAuditResults,
+  listAuditResults,
+  submitCompletedCheck,
+} from "./completion-service.mjs";
 
 async function rejectCompanyApiIfFolderInvalid(authed, deps, companyFolderId, companyName = "") {
   if (!authed || !companyFolderId) {
@@ -738,6 +743,203 @@ export function installCoreWorkflowRoutes(app, deps) {
         code: "SCHEDULE_SAVE_FAILED",
         error: "BERT could not save this schedule. Try again.",
         message: "BERT could not save this schedule. Try again.",
+        technicalError: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.get("/api/companies/:companyId/audit-results", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({
+        ok: false,
+        error: "Please connect Google before loading audit results.",
+        message: "Could not load audit results for this company.",
+      });
+    }
+
+    const companyId = String(req.params?.companyId || "").trim();
+    const masterSheetId = String(req.query.masterSheetId || req.query.sheetId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const companyFolderId = String(
+      req.query.companyFolderId || actor?.companyFolderId || actor?.companyId || companyId,
+    ).trim();
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      companyFolderId,
+      String(req.query.companyName || actor?.companyName || "").trim(),
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
+
+    try {
+      const resolved = await resolveCompanyScheduleContext(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        {
+          companyId,
+          companyFolderId,
+          masterSheetId,
+          companyName: String(req.query.companyName || "").trim(),
+        },
+      );
+      if (!resolved.ok) {
+        return res.status(resolved.httpStatus || 400).json({
+          ok: false,
+          code: resolved.code,
+          error: resolved.error,
+          message: resolved.message || resolved.error,
+          technicalError: resolved.technicalError,
+        });
+      }
+
+      if (
+        !canListCompanyAuditResults(actor, resolved.companyFolderId, [
+          companyId,
+          resolved.companyId,
+          ...resolved.alternateIds,
+        ])
+      ) {
+        return res.status(403).json({
+          ok: false,
+          code: "AUDIT_RESULTS_FORBIDDEN",
+          error: "You do not have permission to view audit results for this company.",
+          message: "You do not have permission to view audit results for this company.",
+        });
+      }
+
+      const listed = await listAuditResults(authed, { ...registryDeps, ...scheduleDeps }, {
+        companyId: resolved.companyFolderId,
+        companyFolderId: resolved.companyFolderId,
+        masterSheetId: resolved.masterSheetId,
+      });
+      if (!listed.ok) {
+        return res.status(listed.httpStatus || 400).json({
+          ok: false,
+          code: listed.code,
+          error: listed.error,
+          message: listed.message || listed.error,
+          technicalError: listed.technicalError,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        companyId: listed.companyId,
+        companyFolderId: listed.companyFolderId,
+        masterSheetId: listed.masterSheetId,
+        results: listed.results,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "AUDIT_RESULTS_LOAD_FAILED",
+        error: "Could not load audit results for this company.",
+        message: "Could not load audit results for this company.",
+        technicalError: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.post("/api/companies/:companyId/checks/:scheduleId/complete", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({
+        ok: false,
+        error: "Please connect Google before submitting a completed check.",
+        message: "Could not submit completed check.",
+      });
+    }
+
+    const companyId = String(req.params?.companyId || "").trim();
+    const scheduleId = String(req.params?.scheduleId || "").trim();
+    const masterSheetId = String(req.body?.masterSheetId || req.query?.masterSheetId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const companyFolderId = String(
+      req.body?.companyFolderId || actor?.companyFolderId || actor?.companyId || companyId,
+    ).trim();
+    const email = String(actor?.email || req.body?.email || req.body?.completedByEmail || "").trim();
+
+    if (!scheduleId) {
+      return res.status(400).json({
+        ok: false,
+        code: "SCHEDULE_ID_REQUIRED",
+        error: "Schedule ID is required.",
+      });
+    }
+    if (!email) {
+      return res.status(401).json({
+        ok: false,
+        code: "AUTH_REQUIRED",
+        error: "Signed-in user email is required to complete a check.",
+      });
+    }
+
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      companyFolderId,
+      String(req.body?.companyName || actor?.companyName || "").trim(),
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
+
+    try {
+      const result = await submitCompletedCheck(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        {
+          scheduleId,
+          email,
+          userEmail: email,
+          completedByName: String(actor?.name || req.body?.completedByName || req.body?.name || "").trim(),
+          companyId: companyFolderId,
+          companyFolderId,
+          masterSheetId,
+          auditId: req.body?.auditId,
+          auditName: req.body?.auditName,
+          areaId: req.body?.areaId,
+          status: req.body?.status,
+          answers: req.body?.answers,
+          answersJson: req.body?.answersJson,
+          findings: req.body?.findings,
+          findingsJson: req.body?.findingsJson,
+          evidence: req.body?.evidence,
+          evidenceRefs: req.body?.evidenceRefs,
+          localSubmissionId: req.body?.localSubmissionId,
+          resultId: req.body?.resultId,
+          completedAt: req.body?.completedAt,
+        },
+      );
+
+      if (!result.ok) {
+        return res.status(result.httpStatus || 400).json({
+          ok: false,
+          code: result.code,
+          error: result.error,
+          message: result.message || result.error,
+          technicalError: result.technicalError,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        resultId: result.resultId,
+        scheduleId: result.scheduleId,
+        companyId: result.companyId,
+        companyFolderId: result.companyFolderId,
+        masterSheetId: result.masterSheetId,
+        written: result.written,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "CHECK_SUBMIT_FAILED",
+        error: "Could not submit completed check.",
+        message: "Could not submit completed check.",
         technicalError: error instanceof Error ? error.message : String(error),
       });
     }

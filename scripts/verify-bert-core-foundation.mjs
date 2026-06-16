@@ -138,7 +138,10 @@ function runStaticGuards() {
   assert(scheduleService.includes("readSchedulesFromTab"), "static: scheduleService readSchedulesFromTab");
   assert(scheduleService.includes("writeScheduleToTab"), "static: scheduleService writeScheduleToTab");
   assert(scheduleService.includes("companyFolderId && masterSheetId"), "static: folder-first schedule context");
-  assert(checkService.includes("submitCompletedCheck"), "static: checkService submits AuditResults");
+  assert(completionService.includes("verifyScheduleCompletionEligibility"), "static: completionService eligibility");
+  assert(completionService.includes("submitCompletedCheck"), "static: completionService submitCompletedCheck");
+  assert(completionService.includes("listAuditResults"), "static: completionService listAuditResults");
+  assert(completionService.includes("buildAuditResultRow"), "static: completionService buildAuditResultRow");
   assert(completionService.includes("completeCheck"), "static: completionService completeCheck");
   assert(completionService.includes("listResults"), "static: completionService listResults");
   assert(godmodeService.includes("listGodmodeCompanyUsers"), "static: godmode reads same Users tab");

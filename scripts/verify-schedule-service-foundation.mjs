@@ -51,6 +51,7 @@ assert(scheduleService.includes("readTabRecords"), "8: Schedules tab uses workbo
 assert(saveService.includes("writeScheduleToTab"), "9: save service delegates to writeScheduleToTab");
 assert(assigneeService.includes("listSchedulerAssignees"), "10: assignee service delegates to scheduleService");
 assert(checkService.includes("listMyChecks"), "11: check service uses listMyChecks");
+assert(read("server/completion-service.mjs").includes("submitCompletedCheck"), "11b: completion service submits AuditResults");
 assert(coreRoutes.includes("listSchedulerAssignees"), "12: routes wire listSchedulerAssignees");
 assert(serverMain.includes("listSchedulerAssignees"), "13: legacy assignee routes use scheduleService");
 assert(!assigneeService.includes("session-fallback"), "14: no session-fallback assignee path");

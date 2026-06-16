@@ -4,7 +4,7 @@
 import { resolveCompanyFromFolder } from "./company-service.mjs";
 import { listCompanyProfiles } from "./company-users-foundation.mjs";
 import { listCompanySchedules } from "./schedule-service.mjs";
-import { listAuditResults } from "./check-service.mjs";
+import { listAuditResults } from "./completion-service.mjs";
 
 function trim(value) {
   return String(value ?? "").trim();
