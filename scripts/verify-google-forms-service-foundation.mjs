@@ -55,6 +55,9 @@ assert(!googleFormsService.includes("q: `name ="), "11: no random Drive name sea
 assert(googleFormsService.includes(GOOGLE_FORMS_FOLDER_LOOKUP_FAILED), "12: folder lookup failed code");
 assert(companyFormsService.includes('from "./google-forms-service.mjs"'), "13: company-forms-service re-exports googleFormsService");
 assert(coreRoutes.includes("/api/companies/:companyId/google-forms"), "14: core route wired");
+assert(coreRoutes.includes("/api/companies/:companyId/google-forms/sync"), "14b: canonical sync route wired");
+assert(googleFormsService.includes("handleCompanyGoogleFormsGet"), "14c: shared google-forms GET handler");
+assert(googleFormsService.includes("handleCompanyGoogleFormsSyncPost"), "14d: shared google-forms sync handler");
 assert(
   read("server/ensure-required-tabs.mjs").includes("GOOGLE_FORM_TEMPLATES_TAB"),
   "15: GoogleFormTemplates in required tabs",

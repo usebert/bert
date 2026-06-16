@@ -2,6 +2,7 @@
  * Company schedule service — folder-first Schedules tab I/O, assignees, My Checks.
  */
 import { resolveCompanyById } from "./company-registry-service.mjs";
+import { resolveCompanyFromFolder } from "./company-service.mjs";
 import {
   isCompanyInviteActor,
   isGodmodeInviteSession,
@@ -92,79 +93,94 @@ function readCachedMasterSheetId(deps, companyFolderId) {
   return String(entry?.masterSheetId || "").trim();
 }
 
+function hasUsableGoogleAuth(auth) {
+  if (!auth) {
+    return false;
+  }
+  if (typeof auth.getAccessToken === "function") {
+    return true;
+  }
+  const credentials = auth.credentials;
+  return Boolean(credentials?.access_token || credentials?.refresh_token);
+}
+
+const FOLDER_RESOLVE_OPTS = {
+  ensureTabsSync: false,
+  ensureStructure: false,
+  createIfMissing: false,
+  skipFolderPlacementCheck: true,
+  preferFolderResolution: true,
+};
+
+function resolveFolderContextFn(deps) {
+  return typeof deps?.resolveCompanyFromFolder === "function"
+    ? deps.resolveCompanyFromFolder
+    : resolveCompanyFromFolder;
+}
+
 export async function resolveCompanyScheduleContext(auth, deps, input = {}) {
-  const companyId = String(input.companyId || input.companyFolderId || "").trim();
-  let masterSheetId = String(input.masterSheetId || "").trim();
-  const companyFolderId = String(input.companyFolderId || companyId).trim();
+  const companyIdHint = String(input.companyId || "").trim();
+  const companyFolderIdHint = String(input.companyFolderId || companyIdHint).trim();
   let companyName = String(input.companyName || "").trim();
 
-  if (!masterSheetId && companyFolderId) {
-    masterSheetId = readCachedMasterSheetId(deps, companyFolderId);
-  }
-
-  if (companyFolderId && masterSheetId) {
-    const alternateIds = [companyFolderId, companyId]
-      .map((entry) => String(entry || "").trim())
-      .filter(Boolean)
-      .filter((entry, index, all) => all.indexOf(entry) === index);
-    return {
-      ok: true,
-      companyId: companyFolderId,
-      companyFolderId,
-      companyName,
-      masterSheetId,
-      alternateIds,
-      registryRecord: null,
-    };
-  }
-
+  let resolvedCompanyFolderId = companyFolderIdHint;
+  let masterSheetId = "";
   let registryRecord = null;
-  if (companyId) {
-    registryRecord = await resolveCompanyById(auth, deps, companyId).catch(() => null);
+
+  if (hasUsableGoogleAuth(auth) && companyFolderIdHint) {
+    const folderResolved = await resolveFolderContextFn(deps)(
+      auth,
+      deps,
+      companyFolderIdHint,
+      FOLDER_RESOLVE_OPTS,
+    );
+    if (folderResolved?.ok && folderResolved.masterSheetId) {
+      resolvedCompanyFolderId = String(
+        folderResolved.companyFolderId || folderResolved.companyId || companyFolderIdHint,
+      ).trim();
+      masterSheetId = String(folderResolved.masterSheetId).trim();
+      companyName = companyName || String(folderResolved.companyName || "").trim();
+    }
   }
 
-  if (!registryRecord && !masterSheetId) {
-    return {
-      ok: false,
-      code: "COMPANY_CONTEXT_MISSING",
-      error: "Company workspace could not be resolved.",
-      message: "Company workspace could not be resolved.",
-      httpStatus: 404,
-    };
+  if (!masterSheetId && companyFolderIdHint) {
+    masterSheetId = readCachedMasterSheetId(deps, companyFolderIdHint);
   }
 
-  if (registryRecord) {
-    masterSheetId = masterSheetId || String(registryRecord.masterSheetId || "").trim();
-    companyName =
-      companyName ||
-      String(registryRecord.companyName || registryRecord.name || registryRecord.companyFolderName || "").trim();
+  if (!masterSheetId && (companyIdHint || companyFolderIdHint)) {
+    registryRecord = await resolveCompanyById(auth, deps, companyIdHint || companyFolderIdHint).catch(() => null);
+    if (registryRecord) {
+      masterSheetId = String(registryRecord.masterSheetId || "").trim();
+      companyName =
+        companyName ||
+        String(registryRecord.companyName || registryRecord.name || registryRecord.companyFolderName || "").trim();
+      resolvedCompanyFolderId = String(
+        registryRecord.rootFolderId ||
+          registryRecord.companyFolderId ||
+          registryRecord.companyId ||
+          resolvedCompanyFolderId,
+      ).trim();
+    }
   }
-
-  const resolvedCompanyFolderId = String(
-    registryRecord?.rootFolderId ||
-      companyFolderId ||
-      registryRecord?.companyFolderId ||
-      registryRecord?.companyId ||
-      companyId,
-  ).trim();
 
   const alternateIds = [
     registryRecord?.companyId,
     registryRecord?.rootFolderId,
     registryRecord?.companyFolderId,
-    companyFolderId,
-    companyId,
+    resolvedCompanyFolderId,
+    companyFolderIdHint,
+    companyIdHint,
   ]
     .map((entry) => String(entry || "").trim())
     .filter(Boolean)
     .filter((entry, index, all) => all.indexOf(entry) === index);
 
-  if (!masterSheetId) {
+  if (!resolvedCompanyFolderId || !masterSheetId) {
     return {
       ok: false,
       code: "COMPANY_CONTEXT_MISSING",
-      error: "Company master sheet is not configured.",
-      message: "Company master sheet is not configured.",
+      error: "Company workspace could not be resolved.",
+      message: "Company workspace could not be resolved.",
       httpStatus: 404,
     };
   }

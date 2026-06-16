@@ -18,5 +18,7 @@ export {
   listCompanyGoogleForms,
   readGoogleFormTemplatesFromTab,
   syncGoogleFormTemplatesToTab,
+  handleCompanyGoogleFormsGet,
+  handleCompanyGoogleFormsSyncPost,
   installCompanyFormsRoutes,
 } from "./google-forms-service.mjs";

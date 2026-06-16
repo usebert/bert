@@ -16,6 +16,7 @@
     "build": "node scripts/write-build-meta.mjs && tsc -b && vite build && cp public/build-meta.json dist/build-meta.json",
     "verify:bert-core-live": "node scripts/verify-bert-core-live.mjs",
     "verify:bert-core-foundation": "node scripts/verify-bert-core-foundation.mjs",
+    "verify:foundation-p0-hardening": "node scripts/verify-foundation-p0-hardening.mjs",
     "verify:drive-folder-map": "node scripts/verify-drive-folder-map.mjs",
     "verify:google-drive-id": "node scripts/verify-google-drive-id.mjs",
     "verify:users-from-company-workbook": "node scripts/verify-users-from-company-workbook.mjs",

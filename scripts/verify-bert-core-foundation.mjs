@@ -140,7 +140,7 @@ function runStaticGuards() {
   assert(scheduleService.includes("listMyChecks"), "static: scheduleService listMyChecks");
   assert(scheduleService.includes("readSchedulesFromTab"), "static: scheduleService readSchedulesFromTab");
   assert(scheduleService.includes("writeScheduleToTab"), "static: scheduleService writeScheduleToTab");
-  assert(scheduleService.includes("companyFolderId && masterSheetId"), "static: folder-first schedule context");
+  assert(scheduleService.includes("resolveCompanyFromFolder"), "static: folder-first schedule context via resolveCompanyFromFolder");
   assert(completionService.includes("verifyScheduleCompletionEligibility"), "static: completionService eligibility");
   assert(completionService.includes("submitCompletedCheck"), "static: completionService submitCompletedCheck");
   assert(completionService.includes("listAuditResults"), "static: completionService listAuditResults");

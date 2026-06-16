@@ -154,8 +154,13 @@ async function mockReadTabRecords(_auth, _deps, _sheetId, tabName) {
 }
 
 const myChecks = await listMyChecks(
-  {},
-  { readTabRecords: mockReadTabRecords },
+  null,
+  {
+    readTabRecords: mockReadTabRecords,
+    masterSheetCache: {
+      getEntry: (id) => (id === companyFolderId ? { masterSheetId: "sheet-123" } : null),
+    },
+  },
   {
     email: "manager@testco.test",
     companyFolderId,

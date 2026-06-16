@@ -3,6 +3,7 @@
  * Scoped to company folder only; never searches all of Drive.
  */
 import { GOOGLE_FORM_TEMPLATES_TAB } from "./google-form-templates.mjs";
+import { resolveCompanyFromFolder } from "./company-service.mjs";
 import {
   readTabRecords as workbookReadTabRecords,
   writeTabRecords as workbookWriteTabRecords,
@@ -590,19 +591,23 @@ export async function listCompanyGoogleForms(auth, deps, companyContext = {}, op
   });
 }
 
-export function installCompanyFormsRoutes(app, deps) {
-  const {
-    getAuthedClient,
-    envConfigured,
-    requireGoogleWorkspaceSession,
-    rejectIfCompanyFolderNotUnderCompaniesRoot,
-    google,
-    sharedDriveId,
-    withSheetsQuotaRetry,
-    safeLower,
-  } = deps;
+const FOLDER_RESOLVE_OPTS = {
+  ensureTabsSync: false,
+  ensureStructure: false,
+  createIfMissing: false,
+  skipFolderPlacementCheck: true,
+  preferFolderResolution: true,
+};
 
-  const workbookDeps = {
+function resolveFolderContextFn(deps) {
+  return typeof deps?.resolveCompanyFromFolder === "function"
+    ? deps.resolveCompanyFromFolder
+    : resolveCompanyFromFolder;
+}
+
+function buildWorkbookDeps(deps) {
+  const { google, withSheetsQuotaRetry, safeLower } = deps;
+  return {
     google,
     withSheetsQuotaRetry,
     safeLower,
@@ -614,62 +619,128 @@ export function installCompanyFormsRoutes(app, deps) {
     ensureTabExists: deps.ensureTabExists,
     ensureColumns: deps.ensureColumns,
   };
+}
+
+function googleFormsHttpStatus(payload = {}) {
+  if (payload.ok) {
+    return 200;
+  }
+  if (payload.status === "permission_denied") {
+    return 403;
+  }
+  if (payload.status === "folder_lookup_failed") {
+    return 404;
+  }
+  return 500;
+}
+
+async function resolveCompanyGoogleFormsRouteContext(auth, deps, req, routeContext = {}) {
+  const companyId = String(
+    routeContext.companyId || req.params?.companyId || req.params?.companyFolderId || "",
+  ).trim();
+  const actor =
+    typeof deps.parseBertActorFromRequest === "function" ? deps.parseBertActorFromRequest(req) : null;
+  const companyFolderId = String(
+    routeContext.companyFolderId ||
+      req.query?.companyFolderId ||
+      actor?.companyFolderId ||
+      actor?.companyId ||
+      companyId,
+  ).trim();
+  const createIfMissing =
+    routeContext.createIfMissing !== undefined
+      ? routeContext.createIfMissing
+      : String(req.query?.createIfMissing || "").trim() !== "0";
+
+  let masterSheetId = "";
+  if (auth && companyFolderId) {
+    const folderResolved = await resolveFolderContextFn(deps)(
+      auth,
+      deps,
+      companyFolderId,
+      FOLDER_RESOLVE_OPTS,
+    );
+    if (folderResolved?.ok && folderResolved.masterSheetId) {
+      masterSheetId = String(folderResolved.masterSheetId).trim();
+    }
+  }
+
+  return {
+    companyId,
+    companyFolderId,
+    masterSheetId,
+    createIfMissing,
+    actor,
+  };
+}
+
+/** Canonical GET handler — shared by /api/companies/:companyId/google-forms and legacy alias. */
+export async function handleCompanyGoogleFormsGet(req, res, deps, routeContext = {}) {
+  const { getAuthedClient, envConfigured, rejectIfCompanyFolderNotUnderCompaniesRoot, google, sharedDriveId } =
+    deps;
+
+  if (!envConfigured()) {
+    return res.status(503).json({
+      ok: false,
+      error: "Google Workspace is not configured on the server.",
+    });
+  }
+
+  const auth = getAuthedClient();
+  if (!auth) {
+    return res.status(401).json({
+      ok: false,
+      error: "Please connect Google before loading company Google Forms.",
+    });
+  }
+
+  const syncToWorkbook =
+    routeContext.syncToWorkbook === true || String(req.query?.sync || "").trim() === "1";
+
+  try {
+    const context = await resolveCompanyGoogleFormsRouteContext(auth, deps, req, routeContext);
+    const folderDenial = await rejectIfCompanyFolderNotUnderCompaniesRoot(
+      auth,
+      { google, sharedDriveId },
+      context.companyFolderId,
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
+
+    const payload = await listCompanyGoogleForms(
+      auth,
+      buildWorkbookDeps(deps),
+      {
+        companyFolderId: context.companyFolderId,
+        companyId: context.companyFolderId,
+        masterSheetId: context.masterSheetId,
+        createIfMissing: context.createIfMissing,
+      },
+      { syncToWorkbook },
+    );
+
+    return res.status(googleFormsHttpStatus(payload)).json(payload);
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error instanceof Error ? error.message : "Unable to load company Google Forms.",
+    });
+  }
+}
+
+/** Canonical POST sync handler — lists Drive forms and writes GoogleFormTemplates tab. */
+export async function handleCompanyGoogleFormsSyncPost(req, res, deps, routeContext = {}) {
+  return handleCompanyGoogleFormsGet(req, res, deps, { ...routeContext, syncToWorkbook: true });
+}
+
+export function installCompanyFormsRoutes(app, deps) {
+  const { requireGoogleWorkspaceSession } = deps;
 
   app.get("/api/company/:companyFolderId/google-forms", requireGoogleWorkspaceSession, async (req, res) => {
-    if (!envConfigured()) {
-      return res.status(503).json({
-        ok: false,
-        error: "Google Workspace is not configured on the server.",
-      });
-    }
-    const auth = getAuthedClient();
-    if (!auth) {
-      return res.status(401).json({
-        ok: false,
-        error: "Please connect Google before loading company Google Forms.",
-      });
-    }
-
-    const companyFolderId = String(req.params.companyFolderId || "").trim();
-    const masterSheetId = String(req.query.masterSheetId || req.query.sheetId || "").trim();
-    const syncToWorkbook = String(req.query.sync || "").trim() === "1";
-    const createIfMissing = String(req.query.createIfMissing || "").trim() !== "0";
-
-    try {
-      const folderDenial = await rejectIfCompanyFolderNotUnderCompaniesRoot(
-        auth,
-        { google, sharedDriveId },
-        companyFolderId,
-      );
-      if (folderDenial) {
-        return res.status(403).json(folderDenial);
-      }
-
-      const payload = await listCompanyGoogleForms(
-        auth,
-        workbookDeps,
-        {
-          companyFolderId,
-          companyId: companyFolderId,
-          masterSheetId,
-          createIfMissing,
-        },
-        { syncToWorkbook },
-      );
-
-      const httpStatus = payload.ok
-        ? 200
-        : payload.status === "permission_denied"
-          ? 403
-          : payload.status === "folder_lookup_failed"
-            ? 404
-            : 500;
-      return res.status(httpStatus).json(payload);
-    } catch (error) {
-      return res.status(500).json({
-        ok: false,
-        error: error instanceof Error ? error.message : "Unable to load company Google Forms.",
-      });
-    }
+    return handleCompanyGoogleFormsGet(req, res, deps, {
+      companyId: String(req.params.companyFolderId || "").trim(),
+      companyFolderId: String(req.params.companyFolderId || "").trim(),
+    });
   });
 }

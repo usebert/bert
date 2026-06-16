@@ -1269,6 +1269,7 @@ installCompanyFormsRoutes(app, {
   envConfigured,
   requireGoogleWorkspaceSession,
   rejectIfCompanyFolderNotUnderCompaniesRoot,
+  parseBertActorFromRequest,
   sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
   getWorkbook,
   ensureTabExists,
@@ -4668,6 +4669,16 @@ async function handleScheduleAssigneesRequest(req, res) {
 app.get("/api/schedules/assignees", handleScheduleAssigneesRequest);
 app.get("/api/schedules/auditors", handleScheduleAssigneesRequest);
 
+function respondLegacySheetByIdWriteRetired(res, tab = "") {
+  return res.status(410).json({
+    ok: false,
+    code: "LEGACY_SHEET_WRITE_RETIRED",
+    error:
+      "Sheet-by-id write routes are retired on the rebuild branch. Use folder-first company API routes instead.",
+    tab: tab || undefined,
+  });
+}
+
 app.get("/api/google-sheet-by-id/:sheetId", async (req, res) => {
   const authed = getAuthedClient();
 
@@ -4689,42 +4700,8 @@ app.get("/api/google-sheet-by-id/:sheetId", async (req, res) => {
   }
 });
 
-app.post("/api/google-sheet-by-id/:sheetId/schedules", async (req, res) => {
-  const authed = getAuthedClient();
-
-  if (!envConfigured() || !authed) {
-    return res.status(401).json({
-      ok: false,
-      error: "Please connect Google before saving schedules.",
-    });
-  }
-
-  const companyFolderId = String(req.body?.companyFolderId || "").trim();
-  const schedules = Array.isArray(req.body?.schedules) ? req.body.schedules : [];
-
-  if (!companyFolderId) {
-    return res.status(400).json({
-      ok: false,
-      error: "Company folder ID is required before saving schedules.",
-    });
-  }
-
-  try {
-    const payload = await writeCompanySchedules(authed, req.params.sheetId, companyFolderId, schedules);
-    return res.json(payload);
-  } catch (error) {
-    const technicalError = error instanceof Error ? error.message : String(error);
-    const devDiagnostics =
-      String(process.env.NODE_ENV || "").trim().toLowerCase() !== "production" ||
-      String(process.env.BERT_GODMODE_DIAGNOSTICS || "").trim().toLowerCase() === "true";
-    return res.status(502).json({
-      ok: false,
-      code: "SCHEDULE_SAVE_FAILED",
-      error: "BERT could not save this schedule. Try again.",
-      message: "BERT could not save this schedule. Try again.",
-      technicalError: devDiagnostics ? technicalError : undefined,
-    });
-  }
+app.post("/api/google-sheet-by-id/:sheetId/schedules", async (_req, res) => {
+  return respondLegacySheetByIdWriteRetired(res, "Schedules");
 });
 
 app.patch(
@@ -4968,370 +4945,48 @@ app.delete(
   },
 );
 
-app.post("/api/google-sheet-by-id/:sheetId/users", async (req, res) => {
-  const authed = getAuthedClient();
-
-  if (!envConfigured() || !authed) {
-    return res.status(401).json({
-      ok: false,
-      error: "Please connect Google before saving users.",
-    });
-  }
-
-  const companyFolderId = String(req.body?.companyFolderId || "").trim();
-  const users = toObjectArray(req.body?.users);
-
-  if (!companyFolderId) {
-    return res.status(400).json({
-      ok: false,
-      error: "Company folder ID is required before saving users.",
-    });
-  }
-
-  try {
-    const payload = await writeCompanyUsers(authed, req.params.sheetId, companyFolderId, users);
-    return res.json(payload);
-  } catch (error) {
-    return res.status(500).json({
-      ok: false,
-      error: error instanceof Error ? error.message : "Unable to save users to the company master sheet.",
-    });
-  }
+app.post("/api/google-sheet-by-id/:sheetId/users", async (_req, res) => {
+  return respondLegacySheetByIdWriteRetired(res, "Users");
 });
 
-app.post("/api/google-sheet-by-id/:sheetId/actions", async (req, res) => {
-  const authed = getAuthedClient();
-
-  if (!envConfigured() || !authed) {
-    return res.status(401).json({
-      ok: false,
-      error: "Please connect Google before saving actions.",
-    });
-  }
-
-  const companyFolderId = String(req.body?.companyFolderId || "").trim();
-  const actions = Array.isArray(req.body?.actions) ? req.body.actions : [];
-
-  if (!companyFolderId) {
-    return res.status(400).json({
-      ok: false,
-      error: "Company folder ID is required before saving actions.",
-    });
-  }
-
-  try {
-    const payload = await writeCompanyActions(authed, req.params.sheetId, companyFolderId, actions);
-    return res.json(payload);
-  } catch (error) {
-    return res.status(500).json({
-      ok: false,
-      error: error instanceof Error ? error.message : "Unable to save actions to the company master sheet.",
-    });
-  }
+app.post("/api/google-sheet-by-id/:sheetId/actions", async (_req, res) => {
+  return respondLegacySheetByIdWriteRetired(res, "Actions");
 });
 
-app.post("/api/google-sheet-by-id/:sheetId/action-comments", async (req, res) => {
-  const authed = getAuthedClient();
-
-  if (!envConfigured() || !authed) {
-    return res.status(401).json({
-      ok: false,
-      error: "Please connect Google before saving action history.",
-    });
-  }
-
-  const companyFolderId = String(req.body?.companyFolderId || "").trim();
-  const comments = toObjectArray(req.body?.comments);
-
-  if (!companyFolderId) {
-    return res.status(400).json({
-      ok: false,
-      error: "Company folder ID is required before saving action history.",
-    });
-  }
-
-  try {
-    const payload = await appendRowObjects(authed, req.params.sheetId, "ActionComments", comments);
-    return res.json(payload);
-  } catch (error) {
-    return res.status(500).json({
-      ok: false,
-      error: error instanceof Error ? error.message : "Unable to save action history to the company master sheet.",
-    });
-  }
+app.post("/api/google-sheet-by-id/:sheetId/action-comments", async (_req, res) => {
+  return respondLegacySheetByIdWriteRetired(res, "ActionComments");
 });
 
-app.post("/api/google-sheet-by-id/:sheetId/audit-results", async (req, res) => {
-  const authed = getAuthedClient();
-
-  if (!envConfigured() || !authed) {
-    return res.status(401).json({
-      ok: false,
-      error: "Please connect Google before saving audit results.",
-    });
-  }
-
-  const companyFolderId = String(req.body?.companyFolderId || "").trim();
-  const results = toObjectArray(req.body?.results);
-
-  if (!companyFolderId) {
-    return res.status(400).json({
-      ok: false,
-      error: "Company folder ID is required before saving audit results.",
-    });
-  }
-
-  try {
-    const payload = await appendRowObjects(authed, req.params.sheetId, "AuditResults", results);
-    return res.json(payload);
-  } catch (error) {
-    return res.status(500).json({
-      ok: false,
-      error: error instanceof Error ? error.message : "Unable to save audit results to the company master sheet.",
-    });
-  }
+app.post("/api/google-sheet-by-id/:sheetId/audit-results", async (_req, res) => {
+  return respondLegacySheetByIdWriteRetired(res, "AuditResults");
 });
 
-app.post("/api/google-sheet-by-id/:sheetId/audit-findings", async (req, res) => {
-  const authed = getAuthedClient();
-
-  if (!envConfigured() || !authed) {
-    return res.status(401).json({
-      ok: false,
-      error: "Please connect Google before saving audit findings.",
-    });
-  }
-
-  const companyFolderId = String(req.body?.companyFolderId || "").trim();
-  const findings = toObjectArray(req.body?.findings);
-
-  if (!companyFolderId) {
-    return res.status(400).json({
-      ok: false,
-      error: "Company folder ID is required before saving audit findings.",
-    });
-  }
-
-  try {
-    const payload = await appendRowObjects(authed, req.params.sheetId, "AuditFindings", findings);
-    return res.json(payload);
-  } catch (error) {
-    return res.status(500).json({
-      ok: false,
-      error: error instanceof Error ? error.message : "Unable to save audit findings to the company master sheet.",
-    });
-  }
+app.post("/api/google-sheet-by-id/:sheetId/audit-findings", async (_req, res) => {
+  return respondLegacySheetByIdWriteRetired(res, "AuditFindings");
 });
 
-app.post("/api/google-sheet-by-id/:sheetId/evidence", async (req, res) => {
-  const authed = getAuthedClient();
-
-  if (!envConfigured() || !authed) {
-    return res.status(401).json({
-      ok: false,
-      error: "Please connect Google before saving evidence.",
-    });
-  }
-
-  const companyFolderId = String(req.body?.companyFolderId || "").trim();
-  const evidence = toObjectArray(req.body?.evidence);
-
-  if (!companyFolderId) {
-    return res.status(400).json({
-      ok: false,
-      error: "Company folder ID is required before saving evidence.",
-    });
-  }
-
-  try {
-    const config = await getConfig(authed, req.params.sheetId);
-    const evidenceFolderId = await resolveCompanyEvidenceFolderIdForUpload(authed, {
-      companyFolderId,
-      sheetId: req.params.sheetId,
-      clientEvidenceFolderId: String(req.body?.evidenceFolderId || config.evidenceFolderId || "").trim(),
-      evidenceKind: String(req.body?.evidenceKind || req.body?.uploadKind || "photo").trim(),
-    });
-    const payload = await appendEvidenceRecords(authed, req.params.sheetId, companyFolderId, evidence, evidenceFolderId);
-    return res.json(payload);
-  } catch (error) {
-    return res.status(500).json({
-      ok: false,
-      error: error instanceof Error ? error.message : "Unable to save evidence to the company workspace.",
-    });
-  }
+app.post("/api/google-sheet-by-id/:sheetId/evidence", async (_req, res) => {
+  return respondLegacySheetByIdWriteRetired(res, "Evidence");
 });
 
-app.post("/api/google-sheet-by-id/:sheetId/incidents", async (req, res) => {
-  const authed = getAuthedClient();
-
-  if (!envConfigured() || !authed) {
-    return res.status(401).json({
-      ok: false,
-      error: "Please connect Google before saving incidents.",
-    });
-  }
-
-  const companyFolderId = String(req.body?.companyFolderId || "").trim();
-  const incidents = toObjectArray(req.body?.incidents);
-
-  if (!companyFolderId) {
-    return res.status(400).json({
-      ok: false,
-      error: "Company folder ID is required before saving incidents.",
-    });
-  }
-
-  try {
-    const payload = await appendRowObjects(authed, req.params.sheetId, "Incidents", incidents);
-    return res.json(payload);
-  } catch (error) {
-    return res.status(500).json({
-      ok: false,
-      error: error instanceof Error ? error.message : "Unable to save incidents to the company master sheet.",
-    });
-  }
+app.post("/api/google-sheet-by-id/:sheetId/incidents", async (_req, res) => {
+  return respondLegacySheetByIdWriteRetired(res, "Incidents");
 });
 
-app.post("/api/google-sheet-by-id/:sheetId/incident-actions", async (req, res) => {
-  const authed = getAuthedClient();
-
-  if (!envConfigured() || !authed) {
-    return res.status(401).json({
-      ok: false,
-      error: "Please connect Google before saving incident actions.",
-    });
-  }
-
-  const companyFolderId = String(req.body?.companyFolderId || "").trim();
-  const incidentActions = toObjectArray(req.body?.incidentActions);
-
-  if (!companyFolderId) {
-    return res.status(400).json({
-      ok: false,
-      error: "Company folder ID is required before saving incident actions.",
-    });
-  }
-
-  try {
-    const payload = await appendRowObjects(authed, req.params.sheetId, "IncidentActions", incidentActions);
-    return res.json(payload);
-  } catch (error) {
-    return res.status(500).json({
-      ok: false,
-      error: error instanceof Error ? error.message : "Unable to save incident actions to the company master sheet.",
-    });
-  }
+app.post("/api/google-sheet-by-id/:sheetId/incident-actions", async (_req, res) => {
+  return respondLegacySheetByIdWriteRetired(res, "IncidentActions");
 });
 
-app.post("/api/google-sheet-by-id/:sheetId/sync-log", async (req, res) => {
-  const authed = getAuthedClient();
-
-  if (!envConfigured() || !authed) {
-    return res.status(401).json({
-      ok: false,
-      error: "Please connect Google before saving sync history.",
-    });
-  }
-
-  const companyFolderId = String(req.body?.companyFolderId || "").trim();
-  const entries = toObjectArray(req.body?.entries);
-
-  if (!companyFolderId) {
-    return res.status(400).json({
-      ok: false,
-      error: "Company folder ID is required before saving sync history.",
-    });
-  }
-
-  try {
-    const payload = await appendRowObjects(authed, req.params.sheetId, "SyncLog", entries);
-    return res.json(payload);
-  } catch (error) {
-    return res.status(500).json({
-      ok: false,
-      error: error instanceof Error ? error.message : "Unable to save sync history to the company master sheet.",
-    });
-  }
+app.post("/api/google-sheet-by-id/:sheetId/sync-log", async (_req, res) => {
+  return respondLegacySheetByIdWriteRetired(res, "SyncLog");
 });
 
-app.post("/api/google-sheet-by-id/:sheetId/audit-bundle", async (req, res) => {
-  const authed = getAuthedClient();
-
-  if (!envConfigured() || !authed) {
-    return res.status(401).json({
-      ok: false,
-      error: "Please connect Google before syncing audits.",
-    });
-  }
-
-  const companyFolderId = String(req.body?.companyFolderId || "").trim();
-  const localSubmissionId = String(req.body?.localSubmissionId || "").trim();
-
-  if (!companyFolderId) {
-    return res.status(400).json({
-      ok: false,
-      error: "Company folder ID is required before syncing audits.",
-    });
-  }
-
-  try {
-    if (localSubmissionId) {
-      const existing = rowsToRecords(await getTabValues(authed, req.params.sheetId, "AuditResults"));
-      const duplicate = existing.some((row) => String(row["Local Submission ID"] || "").trim() === localSubmissionId);
-      if (duplicate) {
-        return res.json({ ok: true, deduped: true, localSubmissionId, results: { ok: true, written: 0, skipped: 1 } });
-      }
-    }
-    const config = await getConfig(authed, req.params.sheetId);
-    const evidenceFolderId = await resolveCompanyEvidenceFolderIdForUpload(authed, {
-      companyFolderId,
-      sheetId: req.params.sheetId,
-      clientEvidenceFolderId: String(req.body?.evidenceFolderId || config.evidenceFolderId || "").trim(),
-      evidenceKind: String(req.body?.evidenceKind || req.body?.uploadKind || "photo").trim(),
-    });
-    const results = await appendRowObjects(authed, req.params.sheetId, "AuditResults", toObjectArray(req.body?.results));
-    const findings = await appendRowObjects(authed, req.params.sheetId, "AuditFindings", toObjectArray(req.body?.findings));
-    const evidence = await appendEvidenceRecords(authed, req.params.sheetId, companyFolderId, toObjectArray(req.body?.evidence), evidenceFolderId);
-    const actionComments = await appendRowObjects(authed, req.params.sheetId, "ActionComments", toObjectArray(req.body?.actionComments));
-    const syncLogs = await appendRowObjects(authed, req.params.sheetId, "SyncLog", toObjectArray(req.body?.syncLogs));
-    return res.json({ ok: true, results, findings, evidence, actionComments, syncLogs });
-  } catch (error) {
-    return res.status(500).json({
-      ok: false,
-      error: error instanceof Error ? error.message : "Unable to sync the audit bundle to Google.",
-    });
-  }
+app.post("/api/google-sheet-by-id/:sheetId/audit-bundle", async (_req, res) => {
+  return respondLegacySheetByIdWriteRetired(res, "AuditResults");
 });
 
-app.post("/api/google-sheet-by-id/:sheetId/reports", async (req, res) => {
-  const authed = getAuthedClient();
-
-  if (!envConfigured() || !authed) {
-    return res.status(401).json({
-      ok: false,
-      error: "Please connect Google before saving reports.",
-    });
-  }
-
-  const companyFolderId = String(req.body?.companyFolderId || "").trim();
-  const reports = toObjectArray(req.body?.reports);
-
-  if (!companyFolderId) {
-    return res.status(400).json({
-      ok: false,
-      error: "Company folder ID is required before saving reports.",
-    });
-  }
-
-  try {
-    const payload = await appendRowObjects(authed, req.params.sheetId, "Reports", reports);
-    return res.json(payload);
-  } catch (error) {
-    return res.status(500).json({
-      ok: false,
-      error: error instanceof Error ? error.message : "Unable to save reports to the company master sheet.",
-    });
-  }
+app.post("/api/google-sheet-by-id/:sheetId/reports", async (_req, res) => {
+  return respondLegacySheetByIdWriteRetired(res, "Reports");
 });
 
 app.post("/api/google-sheet-by-id/:sheetId/validate", async (req, res) => {
@@ -5387,98 +5042,8 @@ app.post("/api/google-sheet-by-id/:sheetId/validate", async (req, res) => {
   }
 });
 
-app.post("/api/google-sheet-by-id/:sheetId/repair", async (req, res) => {
-  const authed = getAuthedClient();
-
-  if (!envConfigured() || !authed) {
-    return res.status(401).json({
-      ok: false,
-      error: "Please connect Google before fixing the workspace.",
-    });
-  }
-
-  try {
-    const companyFolderId = String(req.body?.companyFolderId || "").trim();
-    if (!companyFolderId) {
-      return res.status(400).json({
-        ok: false,
-        error: "Company folder ID is required before fixing the workspace.",
-      });
-    }
-    const companyFolderStructureDeps = {
-      google,
-      ensureTabExists,
-      ensureColumns,
-      getWorkbook,
-      getTabValues,
-      withSheetsQuotaRetry,
-      safeLower,
-    };
-    const structure = await ensureCompanyFolderStructure(companyFolderStructureDeps, authed, {
-      companyName: String(req.body?.companyName || "").trim(),
-      companyRootFolderId: companyFolderId,
-      masterSheetId: req.params.sheetId,
-      syncWorkbookTab: true,
-      placeFiles: true,
-    });
-    const legacyIsoFolders = await ensureIsoReadinessFolders(authed, companyFolderId);
-    const isoFolders = {
-      ...legacyIsoFolders,
-      ...structure.legacyFolderConfig,
-    };
-    const repair = await ensureTabsAndColumns(authed, req.params.sheetId, {
-      createBackup: true,
-      companyId: companyFolderId,
-      companyName: String(req.body?.companyName || "").trim(),
-    });
-    await updateConfig(authed, req.params.sheetId, {
-      ...(await getConfig(authed, req.params.sheetId)),
-      ...isoFolders,
-      companyFolderStructureVersion: "1",
-      companyFolderStructureCheckedAt: new Date().toISOString(),
-    });
-    await ensureCompanyMappingTabs(
-      {
-        ensureColumns,
-        ensureTabExists,
-        getWorkbook,
-        google,
-      },
-      authed,
-      req.params.sheetId,
-    );
-    await ensureColumns(authed, req.params.sheetId, AREAS_TAB, AREAS_COLUMNS);
-    const validation = await validateWorkspace(authed, {
-      companyFolderId,
-      sheetId: req.params.sheetId,
-      setupFolderId: isoFolders.setupFolderId,
-      auditFormsFolderId: isoFolders.auditFormsFolderId,
-      recordsFolderId: isoFolders.recordsFolderId,
-      evidenceFolderId: isoFolders.evidenceFolderId,
-      exportsFolderId: isoFolders.exportsFolderId,
-      managementNotesFolderId: isoFolders.managementNotesFolderId,
-    });
-    const workbookFolderId = String(structure.folderIds?.BERT_COMPANY_WORKBOOK || "").trim();
-    await persistCompanyWorkspaceSetup(authed, getCompanyWorkspaceRegistryDeps(), {
-      companyId: companyFolderId,
-      companyFolderId,
-      rootFolderId: companyFolderId,
-      masterSheetId: req.params.sheetId,
-      companyName: String(req.body?.companyName || "").trim(),
-      workbookFolderId,
-      companyFoldersMappingStatus: validation.folders?.companyFolder ? "mapped" : "repaired",
-      status: validation.ok ? "Live" : "Needs attention",
-      markSetupComplete: validation.ok,
-      markLive: validation.ok,
-      unlinkReason: validation.ok ? "" : "repair_completed_with_issues",
-    }).catch(() => {});
-    return res.json({ ok: true, repair, validation, isoFolders });
-  } catch (error) {
-    return res.status(500).json({
-      ok: false,
-      error: error instanceof Error ? error.message : "Unable to fix the workspace.",
-    });
-  }
+app.post("/api/google-sheet-by-id/:sheetId/repair", async (_req, res) => {
+  return respondLegacySheetByIdWriteRetired(res, "WorkspaceRepair");
 });
 
 /**
@@ -5586,12 +5151,15 @@ async function processCompanyUserInvite(req, res) {
       res.status(400).json({ ok: false, error: "Role must be Admin, Manager, or Auditor." });
       return;
     }
-    if (!companyFolderId || !masterSheetId) {
+    if (!companyFolderId) {
+      companyFolderId = String(req.body?.companyId || "").trim();
+    }
+    if (!companyFolderId) {
       res.status(400).json({
         ok: false,
-        code: "stale_invite_target",
-        error: "Select a live company workspace before inviting users.",
-        blocker: "stale_invite_target",
+        code: "company_folder_missing",
+        error: "Company folder ID is required before inviting users.",
+        blocker: "company_folder_missing",
       });
       return;
     }
@@ -5655,16 +5223,6 @@ async function processCompanyUserInvite(req, res) {
       return;
     }
 
-    if (isArchiveOrNonLiveWorkspaceName(companyName)) {
-      res.status(409).json({
-        ok: false,
-        code: "stale_invite_target",
-        error: "Select a live company workspace before inviting users.",
-        blocker: "stale_invite_target",
-      });
-      return;
-    }
-
     const permissionSession = buildInvitePermissionSession(inviteActor);
     const isGodmodeActor = isGodmodeInviteSession(permissionSession);
     const isCompanyActor = isCompanyInviteActor(permissionSession);
@@ -5711,26 +5269,6 @@ async function processCompanyUserInvite(req, res) {
           blocker: "system_template_company",
         });
         return;
-      }
-      if (!isMasterInviter) {
-        const liveGate = await assertCompanyWorkspaceAcceptsUserInvite(
-          { getConfig, getTabValues, registryDeps: getCompanyWorkspaceRegistryDeps() },
-          auth,
-          {
-            masterSheetId: resolvedMasterSheetId,
-            inviteRole,
-            companyFolderId: resolvedCompanyFolderId,
-          },
-        );
-        if (!liveGate.ok) {
-          res.status(liveGate.httpStatus).json({
-            ok: false,
-            code: liveGate.code,
-            error: liveGate.message,
-            blocker: liveGate.code,
-          });
-          return;
-        }
       }
     } else if (isCompanyActor) {
       warnings.push("platform_google_unavailable");

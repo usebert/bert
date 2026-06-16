@@ -111,7 +111,7 @@ assert(frontendCheck.includes("isScheduleAssignedToUser"), "6e: frontend filters
 
 /** 7: App wires folder-first schedule context (no registry gate). */
 assert(appSrc.includes("listCompanySchedules(activeCompanyContext"), "7: App lists schedules via company context");
-assert(scheduleService.includes("companyFolderId && masterSheetId"), "7b: folder-first schedule context on server");
+assert(scheduleService.includes("resolveCompanyFromFolder"), "7b: folder-first schedule context on server");
 assert(!scheduleService.includes("assertCompanyLiveForInvite"), "7c: no live gate on schedule list");
 
 console.log("[verify:schedule-assignment-contract] OK: schedule assignment contract verified");

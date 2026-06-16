@@ -296,6 +296,7 @@ assertContains("server/google-forms-service.mjs", [
   "readTabRecords",
   "writeTabRecords",
   "/api/company/:companyFolderId/google-forms",
+  "handleCompanyGoogleFormsGet",
 ]);
 
 assertContains("server/company-forms-service.mjs", [
@@ -322,7 +323,7 @@ assertContains("src/components/forms/FormsChecksTemplatesPanel.tsx", [
 
 assertContains("App.tsx", ["companyFormsService", "displayCompanyGoogleForms"]);
 assertContains("src/components/godmode/GodmodeCompanyWorkspacePanel.tsx", ["Google Forms diagnostics"]);
-assertContains("package.json", ["verify:company-google-forms-folder"]);
+assertContains("package.json", ["verify:company-google-forms-folder", "verify:foundation-p0-hardening"]);
 
 assert(DOVECOTE_COMPANY_FOLDER_ID.length > 10, "Dovecote companyFolderId fixture present");
 assert(DOVECOTE_MASTER_SHEET_ID.length > 10, "Dovecote masterSheetId fixture present");
