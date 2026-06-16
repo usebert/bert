@@ -6486,7 +6486,12 @@ app.post("/api/auth/company/logout", (req, res) => {
   return res.json({ ok: true });
 });
 
-app.get("/api/auth/company/session", async (req, res) => {
+async function respondCompanyUserSession(req, res, options = {}) {
+  const sendCompanySessionResult = (status, body) => {
+    const payload =
+      options.includeSessionKind && body?.ok === true ? { sessionKind: "company", ...body } : body;
+    return res.status(status).json(payload);
+  };
   try {
     const raw = req.signedCookies?.[COMPANY_SESSION_COOKIE];
     if (!raw || typeof raw !== "string") {
@@ -6527,7 +6532,8 @@ app.get("/api/auth/company/session", async (req, res) => {
     }
     if (!envConfigured()) {
       const companyFolderId = companyIdFromSession;
-      return res.json(
+      return sendCompanySessionResult(
+        200,
         buildCompanySessionApiResponse({
           email: data.email,
           role: data.role || "Admin",
@@ -6627,7 +6633,8 @@ app.get("/api/auth/company/session", async (req, res) => {
         getSessionCookieOptions({ maxAge: COMPANY_SESSION_MS }),
       );
     }
-    return res.json(
+    return sendCompanySessionResult(
+      200,
       buildCompanySessionApiResponse({
         email: data.email,
         role: rec.role,
@@ -6652,6 +6659,53 @@ app.get("/api/auth/company/session", async (req, res) => {
     console.error("[company-auth] session read failed:", error);
     return res.status(401).json({ ok: false, error: "Session invalid." });
   }
+}
+
+app.get("/api/auth/company/session", respondCompanyUserSession);
+
+function respondMasterUserSession(req, res) {
+  const raw = req.signedCookies?.[MASTER_SESSION_COOKIE];
+  if (!raw || typeof raw !== "string") {
+    return null;
+  }
+  try {
+    const data = JSON.parse(raw);
+    if (!data?.email || data.v !== 1) {
+      return null;
+    }
+    const found = findOperatorByIdentity(sessionDir, data.email);
+    const op = found?.operator;
+    if (!op) {
+      res.clearCookie(MASTER_SESSION_COOKIE, getSessionCookieOptions());
+      return null;
+    }
+    return {
+      sessionKind: "master",
+      ...buildMasterSessionApiResponse({
+        email: op.email,
+        name: op.name,
+        companyId: data.companyId,
+        companyFolderId: data.companyFolderId,
+        companyName: data.companyName,
+        masterSheetId: data.masterSheetId,
+        selectedCompanyName: data.selectedCompanyName || data.companyName,
+      }),
+    };
+  } catch {
+    return null;
+  }
+}
+
+app.get("/api/session", async (req, res) => {
+  const masterSession = respondMasterUserSession(req, res);
+  if (masterSession) {
+    return res.json(masterSession);
+  }
+  const companyRaw = req.signedCookies?.[COMPANY_SESSION_COOKIE];
+  if (!companyRaw || typeof companyRaw !== "string") {
+    return res.status(401).json({ ok: false, error: "No session." });
+  }
+  return respondCompanyUserSession(req, res, { includeSessionKind: true });
 });
 
 app.get("/api/company/registry-status", async (req, res) => {

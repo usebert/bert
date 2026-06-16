@@ -75,7 +75,8 @@ assert(loginFn.includes("[login] start"), "performCompanyLogin logs start");
 assert(loginFn.includes("background_jobs_queued"), "performCompanyLogin queues background jobs marker");
 
 assert(appTsx.includes("tryServerMasterLogin") && appTsx.includes("tryServerCompanyLogin"), "client uses direct auth endpoints");
-assert(appTsx.includes("/api/auth/master/session") && appTsx.includes("/api/auth/company/session"), "session restore uses auth session endpoints only");
+assert(appTsx.includes("fetchAppSession"), "client bootstrap uses unified fetchAppSession");
+assert(appTsx.includes("/api/session"), "session restore uses GET /api/session");
 assert(!/auth-session-bootstrap[\s\S]{0,1200}\/api\/health/.test(appTsx), "session bootstrap does not call /api/health");
 
 function fnBody(source, fnName) {

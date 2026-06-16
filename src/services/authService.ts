@@ -63,6 +63,21 @@ export type CompanySessionResult = {
   code?: string;
 };
 
+export type AppSessionKind = "master" | "company";
+
+export type AppSessionResult = {
+  ok: boolean;
+  sessionKind?: AppSessionKind;
+  user?: CompanyLoginUser;
+  company?: CompanyLoginCompany;
+  operator?: { email: string; name: string };
+  folderPlacementOk?: boolean;
+  reasonCode?: string;
+  error?: string;
+  companyContextValid?: boolean;
+  code?: string;
+};
+
 /** Fast company login — workbook Users tab company columns; live Drive validation runs after response. */
 export async function companyLogin(input: {
   email: string;
@@ -167,6 +182,139 @@ export async function companyLogin(input: {
     masterSheetId,
     companyContextValid: payload.companyContextValid ?? true,
     clearClientHints: payload.clearClientHints === true,
+  };
+}
+
+function normalizeMasterSessionCompany(payload: {
+  company?: CompanyLoginCompany;
+  companyId?: string;
+  companyFolderId?: string;
+  companyName?: string;
+  selectedCompanyName?: string;
+  masterSheetId?: string;
+}): CompanyLoginCompany | undefined {
+  if (payload.company?.companyName || payload.company?.companyId) {
+    return payload.company;
+  }
+  const companyFolderId = String(payload.companyFolderId || payload.companyId || "").trim();
+  const companyName = String(payload.companyName || payload.selectedCompanyName || "").trim();
+  const masterSheetId = String(payload.masterSheetId || "").trim();
+  if (!companyFolderId && !companyName && !masterSheetId) {
+    return undefined;
+  }
+  return {
+    companyId: companyFolderId,
+    companyFolderId,
+    companyName,
+    masterSheetId,
+  };
+}
+
+export async function fetchAppSession(): Promise<AppSessionResult> {
+  const result = await fetchJson<{
+    ok?: boolean;
+    sessionKind?: AppSessionKind;
+    operator?: { email: string; name: string };
+    user?: CompanyLoginUser;
+    company?: CompanyLoginCompany;
+    companyId?: string;
+    companyFolderId?: string;
+    companyName?: string;
+    selectedCompanyName?: string;
+    masterSheetId?: string;
+    folderPlacementOk?: boolean;
+    reasonCode?: string;
+    error?: string;
+    companyContextValid?: boolean;
+    code?: string;
+  }>(apiUrl("/api/session"), { credentials: "include" });
+
+  if (!result.ok) {
+    return { ok: false, error: result.message };
+  }
+
+  const payload = result.data;
+  if (!result.response.ok || payload.ok === false) {
+    return {
+      ok: false,
+      error: payload.error || "No session.",
+      code: payload.code,
+      companyContextValid: payload.companyContextValid,
+      reasonCode: payload.reasonCode,
+    };
+  }
+
+  if (payload.sessionKind === "master" && payload.operator?.email) {
+    const masterCompany = normalizeMasterSessionCompany(payload);
+    const validatedIds = masterCompany
+      ? validateCompanyDriveIds({
+          companyFolderId: masterCompany.companyFolderId || masterCompany.companyId,
+          masterSheetId: masterCompany.masterSheetId,
+        })
+      : null;
+    return {
+      ok: true,
+      sessionKind: "master",
+      operator: payload.operator,
+      user: payload.user || {
+        email: payload.operator.email,
+        name: payload.operator.name || payload.operator.email,
+        role: "Master",
+      },
+      company:
+        masterCompany && validatedIds
+          ? {
+              ...masterCompany,
+              companyId: validatedIds.companyFolderId,
+              companyFolderId: validatedIds.companyFolderId,
+              masterSheetId: validatedIds.masterSheetId,
+            }
+          : masterCompany,
+    };
+  }
+
+  if (payload.companyContextValid === false) {
+    return {
+      ok: false,
+      error: payload.error || "No session.",
+      code: payload.code,
+      companyContextValid: false,
+      reasonCode: payload.reasonCode,
+    };
+  }
+
+  const folderPlacementOk = payload.folderPlacementOk ?? payload.company?.folderPlacementOk;
+  const reasonCode = payload.reasonCode || payload.company?.reasonCode;
+  const validatedIds = validateCompanyDriveIds({
+    companyFolderId: payload.company?.companyFolderId || payload.company?.companyId,
+    masterSheetId: payload.company?.masterSheetId,
+  });
+  if (payload.sessionKind === "company" && payload.user?.email && !validatedIds) {
+    return {
+      ok: false,
+      error: payload.error || "No session.",
+      code: payload.code || "COMPANY_CONTEXT_INVALID",
+      companyContextValid: false,
+      reasonCode: reasonCode || "COMPANY_CONTEXT_INVALID",
+    };
+  }
+
+  return {
+    ok: true,
+    sessionKind: payload.sessionKind,
+    user: payload.user,
+    company: payload.company && validatedIds
+      ? {
+          ...payload.company,
+          companyId: validatedIds.companyFolderId,
+          companyFolderId: validatedIds.companyFolderId,
+          masterSheetId: validatedIds.masterSheetId,
+        }
+      : payload.company,
+    operator: payload.operator,
+    folderPlacementOk,
+    reasonCode,
+    companyContextValid: payload.companyContextValid ?? true,
   };
 }
 

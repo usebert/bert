@@ -87,8 +87,8 @@ assert(appTsx.includes("clearStaleCompanyLocalStorage"), "6: App clears stale st
 assert(appTsx.includes("COMPANY_NO_LONGER_AVAILABLE_MESSAGE"), "6b: App shows company unavailable copy");
 assert(!appTsx.includes("setLinkedCompanyContext({\n        companyId: hint.companyFolderId"), "6c: App does not trust login hint for linked context");
 assert(
-  /parsed\.role !== "Master"[\s\S]*?clearStaleCompanyLocalStorage[\s\S]*?removeItem\(userStorageKey\)/.test(appTsx),
-  "6d: company users never restore from localStorage without session",
+  !/storedUser[\s\S]*?setCurrentUser/.test(appTsx),
+  "6d: signed-in users never restore from localStorage without backend session",
 );
 assert(appTsx.includes("companyContextValid"), "6e: App checks companyContextValid from session");
 assert(appTsx.includes("companyLinkBlockedMessage"), "6f: App blocks dashboard when company invalid");
@@ -130,7 +130,7 @@ assert(serverMain.includes("rebuildAuthIndex"), "9h: godmode rebuild uses full a
 assert(serverMain.includes("verifyAuthIndexEntryMatchesUsersWorkbook"), "9i: session verifies auth index workbook match");
 assert(serverMain.includes("isKnownStaleAuthIndexPairing"), "9j: session rejects known stale pairings");
 assert(clearStale.includes("bert_context_schema_version"), "9k: boot uses bert_context_schema_version");
-assert(clearStale.includes("BERT_CONTEXT_SCHEMA_VERSION = 5"), "9m: schema version bumped for one-time client wipe");
+assert(clearStale.includes("BERT_CONTEXT_SCHEMA_VERSION = 7"), "9m: schema version bumped for one-time client wipe");
 assert(
   read("src/components/admin/UsersInvitesPilotPanel.tsx").includes("companyContextBlocked"),
   "9n: invite panel blocks when company context invalid",

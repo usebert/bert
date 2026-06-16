@@ -305,7 +305,7 @@ import {
   scheduleSheetRecordsPreferSchedulesTab,
   type ScheduleAssignedUser,
 } from "./src/utils/scheduleSave";
-import { companyLogin, fetchCompanySession, type LoginContextDiagnostics } from "./src/services/authService";
+import { companyLogin, fetchAppSession, fetchCompanySession, type LoginContextDiagnostics } from "./src/services/authService";
 import {
   companyLoginNetworkError,
   formatLoginNetworkDebugSuffix,
@@ -3362,13 +3362,7 @@ function App() {
       return false;
     }
   });
-  const [godCompanySetupSession, setGodCompanySetupSession] = useState(() => {
-    try {
-      return window.localStorage.getItem(masterCompanySetupSessionKey) === "1";
-    } catch {
-      return false;
-    }
-  });
+  const [godCompanySetupSession, setGodCompanySetupSession] = useState(false);
   const workspaceBootstrapRef = useRef<ReturnType<typeof getWorkspaceBootstrap> | null>(null);
   if (!workspaceBootstrapRef.current) {
     workspaceBootstrapRef.current = getWorkspaceBootstrap();
@@ -3394,6 +3388,7 @@ function App() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loginSubmitting, setLoginSubmitting] = useState(false);
+  const [authSessionHydrating, setAuthSessionHydrating] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
@@ -5773,30 +5768,75 @@ function App() {
 
     (async () => {
       try {
-        const mr = await fetch(apiUrl("/api/auth/master/session"), { credentials: "include" });
-        const mp = (await parseJsonApiResponse(mr)) as {
-          ok?: boolean;
-          operator?: { email: string; name: string };
-        };
+        const session = await fetchAppSession();
         if (!canRestoreAuthSession()) {
           return;
         }
-        if (mr.ok && mp.ok && mp.operator) {
+
+        if (!session.ok) {
+          const sessionContextInvalid =
+            session.code === "COMPANY_CONTEXT_INVALID" ||
+            session.companyContextValid === false;
+          if (sessionContextInvalid) {
+            clearStaleCompanyLocalStorage();
+            setCompanyLinkBlockedMessage(session.error || COMPANY_NO_LONGER_AVAILABLE_MESSAGE);
+            setCurrentUser(null);
+            setLinkedCompanyContext(null);
+            setSelectedFolderId("");
+            setFolders([]);
+            setFolderIdInput("");
+            setFolderNameInput("");
+            setMasterSheetInput("");
+            window.localStorage.removeItem(userStorageKey);
+          }
+          return;
+        }
+
+        if (session.sessionKind === "master" && session.operator?.email) {
           const masterUser: User = {
-            username: String(mp.operator.email).toLowerCase(),
-            email: String(mp.operator.email).toLowerCase(),
+            username: String(session.operator.email).toLowerCase(),
+            email: String(session.operator.email).toLowerCase(),
             password: "",
             role: "Master",
-            name: mp.operator.name || mp.operator.email,
+            name: session.operator.name || session.operator.email,
           };
-          if (!canRestoreAuthSession()) {
-            return;
-          }
           setCurrentUser(masterUser);
           setAccountNameInput(masterUser.name);
           setAccountPhotoUrl(getStoredProfilePhoto(masterUser));
           if (!authSessionBootstrapHandledRef.current) {
             resetMasterGodmodeCompanyContext();
+            const resolvedMasterCompanyIds = validateCompanyDriveIds({
+              companyFolderId:
+                session.company?.companyFolderId || session.company?.companyId,
+              masterSheetId: session.company?.masterSheetId,
+            });
+            if (resolvedMasterCompanyIds && session.company?.companyName) {
+              applyLinkedCompanyContext({
+                email: masterUser.username,
+                company: {
+                  companyId: resolvedMasterCompanyIds.companyFolderId,
+                  companyName: session.company.companyName,
+                  masterSheetId: resolvedMasterCompanyIds.masterSheetId,
+                  registryStatus: session.company.registryStatus,
+                  folderPlacementOk: session.company.folderPlacementOk !== false,
+                },
+                setSelectedFolderId,
+                setFolders: (updater) => setFolders((current) => updater(current)),
+                setFolderIdInput,
+                setFolderNameInput,
+                setMasterSheetInput,
+                setCompanyRegistryStatus,
+              });
+              setLinkedCompanyContext({
+                companyId: resolvedMasterCompanyIds.companyFolderId,
+                companyName: session.company.companyName,
+                masterSheetId: resolvedMasterCompanyIds.masterSheetId,
+                registryStatus: session.company.registryStatus,
+                folderPlacementOk: session.company.folderPlacementOk !== false,
+                role: "Master",
+                accessLevel: "Godmode",
+              });
+            }
             if (!isSetupInitialPath() && !isSetupPath()) {
               setScreen(getHomeScreenForRole("Master"), {
                 reason: "master-session-bootstrap",
@@ -5817,101 +5857,55 @@ function App() {
           window.localStorage.setItem(userStorageKey, JSON.stringify(masterUser));
           return;
         }
-      } catch {
-        /* fall through to company session */
-      }
 
-      try {
-        const cr = await fetch(apiUrl("/api/auth/company/session"), { credentials: "include" });
-        const cp = (await parseJsonApiResponse(cr)) as {
-          ok?: boolean;
-          user?: {
-            email: string;
-            role: Role;
-            name: string;
-            accessLevel?: string;
-            companyAreas?: string[];
-          };
-          company?: {
-            companyId?: string;
-            companyFolderId?: string;
-            companyName?: string;
-            masterSheetId?: string;
-            registryStatus?: string;
-            folderPlacementOk?: boolean;
-            reasonCode?: string;
-          };
-          companyId?: string;
-          companyFolderId?: string;
-          folderPlacementOk?: boolean;
-          reasonCode?: string;
-          companyContextValid?: boolean;
-          code?: string;
-          error?: string;
-        };
-        if (!canRestoreAuthSession()) {
-          return;
-        }
-        const sessionContextInvalid =
-          cp.code === "COMPANY_CONTEXT_INVALID" ||
-          cp.companyContextValid === false ||
-          (cr.status === 409 && cp.ok === false) ||
-          isKnownStaleAuthIndexPairing(cp.user?.email, cp.company?.companyName);
-        if (sessionContextInvalid) {
-          clearStaleCompanyLocalStorage();
-          setCompanyLinkBlockedMessage(cp.error || COMPANY_NO_LONGER_AVAILABLE_MESSAGE);
-          setCurrentUser(null);
-          setLinkedCompanyContext(null);
-          setSelectedFolderId("");
-          setFolders([]);
-          setFolderIdInput("");
-          setFolderNameInput("");
-          setMasterSheetInput("");
-          window.localStorage.removeItem(userStorageKey);
-          return;
-        }
         if (
-          cr.ok &&
-          cp.ok &&
-          cp.companyContextValid !== false &&
-          cp.user?.email &&
-          cp.user?.role &&
-          !isPlatformOwnerEmail(cp.user.email, import.meta.env)
+          session.sessionKind === "company" &&
+          session.companyContextValid !== false &&
+          session.user?.email &&
+          session.user?.role &&
+          !isPlatformOwnerEmail(session.user.email, import.meta.env)
         ) {
           const companyUser: User = {
-            username: String(cp.user.email).toLowerCase(),
-            email: String(cp.user.email).toLowerCase(),
+            username: String(session.user.email).toLowerCase(),
+            email: String(session.user.email).toLowerCase(),
             password: "",
-            role: cp.user.role,
-            name: cp.user.name || cp.user.email,
-            accessLevel: cp.user.accessLevel,
-            companyAreas: Array.isArray(cp.user.companyAreas) ? cp.user.companyAreas : undefined,
+            role: session.user.role,
+            name: session.user.name || session.user.email,
+            accessLevel: session.user.accessLevel,
+            companyAreas: Array.isArray(session.user.companyAreas) ? session.user.companyAreas : undefined,
           };
-          if (!canRestoreAuthSession()) {
+          if (
+            isKnownStaleAuthIndexPairing(companyUser.email, session.company?.companyName)
+          ) {
+            clearStaleCompanyLocalStorage(companyUser.username);
+            setCompanyLinkBlockedMessage(COMPANY_NO_LONGER_AVAILABLE_MESSAGE);
+            setCurrentUser(null);
+            setLinkedCompanyContext(null);
+            window.localStorage.removeItem(userStorageKey);
             return;
           }
-          const folderPlacementOk = cp.folderPlacementOk ?? cp.company?.folderPlacementOk;
+          const folderPlacementOk = session.folderPlacementOk ?? session.company?.folderPlacementOk;
           const companyLinkValid = isCompanyFolderLinkValid({ folderPlacementOk });
           const linkBlockedMessage = companyLinkValid
             ? ""
-            : cp.error || FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE;
+            : session.error || FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE;
           setCurrentUser(companyUser);
           setCompanyLinkBlockedMessage(linkBlockedMessage);
           setCompanyRegistryStatus(
             getCanonicalCompanyStatus({
-              registryStatus: cp.company?.registryStatus,
+              registryStatus: session.company?.registryStatus,
             }),
           );
           const resolvedCompanyIds = validateCompanyDriveIds({
             companyFolderId:
-              cp.company?.companyId || cp.company?.companyFolderId || cp.companyFolderId || cp.companyId,
-            masterSheetId: cp.company?.masterSheetId,
+              session.company?.companyId || session.company?.companyFolderId,
+            masterSheetId: session.company?.masterSheetId,
           });
           if (resolvedCompanyIds) {
             applyLinkedCompanyContext({
               email: companyUser.username,
               company: {
-                ...cp.company,
+                ...session.company,
                 companyId: resolvedCompanyIds.companyFolderId,
                 masterSheetId: resolvedCompanyIds.masterSheetId,
                 folderPlacementOk: companyLinkValid,
@@ -5926,13 +5920,13 @@ function App() {
             clearGodmodeSelectedCompanyFolderId();
             setLinkedCompanyContext({
               companyId: resolvedCompanyIds.companyFolderId,
-              companyName: cp.company?.companyName,
+              companyName: session.company?.companyName,
               masterSheetId: resolvedCompanyIds.masterSheetId,
-              registryStatus: cp.company?.registryStatus,
+              registryStatus: session.company?.registryStatus,
               folderPlacementOk: companyLinkValid,
-              role: cp.user?.role,
-              accessLevel: cp.user?.accessLevel,
-              companyAreas: Array.isArray(cp.user?.companyAreas) ? cp.user.companyAreas : undefined,
+              role: session.user?.role,
+              accessLevel: session.user?.accessLevel,
+              companyAreas: Array.isArray(session.user?.companyAreas) ? session.user.companyAreas : undefined,
             });
           } else {
             clearStaleCompanyLocalStorage(companyUser.username);
@@ -5953,84 +5947,19 @@ function App() {
             setGodCompanySetupSession(false);
           }
           window.localStorage.setItem(userStorageKey, JSON.stringify(companyUser));
-          return;
         }
       } catch {
-        /* fall through — company users must not restore from localStorage without session */
-      }
-
-      if (!canRestoreAuthSession()) {
-        return;
-      }
-
-      const storedUser = window.localStorage.getItem(userStorageKey);
-      if (!storedUser) {
-        return;
-      }
-
-      try {
-        const parsed = JSON.parse(storedUser) as User;
-        if (parsed.role !== "Master") {
-          clearStaleCompanyLocalStorage(parsed.username);
-          window.localStorage.removeItem(userStorageKey);
-          return;
+        /* no backend session — remain signed out */
+      } finally {
+        if (!cancelled) {
+          setAuthSessionHydrating(false);
         }
-        if (
-          isPlatformOwnerEmail(parsed.username, import.meta.env) &&
-          parsed.role !== "Master"
-        ) {
-          window.localStorage.removeItem(userStorageKey);
-          return;
-        }
-        const matchedUser = loginUsers.find(
-          (user) =>
-            user.username === parsed.username &&
-            user.role === parsed.role &&
-            user.name === parsed.name,
-        );
-
-        if (matchedUser) {
-          if (!canRestoreAuthSession()) {
-            return;
-          }
-          setCurrentUser(matchedUser);
-          setAccountNameInput(matchedUser.name);
-          setAccountPhotoUrl(getStoredProfilePhoto(matchedUser));
-          if (matchedUser.role === "Master" && !authSessionBootstrapHandledRef.current) {
-            resetMasterGodmodeCompanyContext();
-            if (!isSetupInitialPath() && !isSetupPath()) {
-              setScreen(getHomeScreenForRole("Master"), {
-                reason: "master-local-session-bootstrap",
-                guardOrEffectId: "auth-session-bootstrap",
-              });
-            }
-            authSessionBootstrapHandledRef.current = true;
-          }
-          try {
-            if (matchedUser.role === "Master" && window.localStorage.getItem(masterCompanySetupSessionKey) === "1") {
-              setGodCompanySetupSession(true);
-            } else {
-              if (matchedUser.role !== "Master") {
-                window.localStorage.removeItem(masterCompanySetupSessionKey);
-              }
-              setGodCompanySetupSession(false);
-            }
-          } catch {
-            setGodCompanySetupSession(false);
-          }
-        } else if (parsed.role === "Master" && parsed.password === "") {
-          window.localStorage.removeItem(userStorageKey);
-        } else {
-          window.localStorage.removeItem(userStorageKey);
-        }
-      } catch {
-        window.localStorage.removeItem(userStorageKey);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [loginUsers, resetMasterGodmodeCompanyContext]);
+  }, [resetMasterGodmodeCompanyContext]);
 
   useEffect(() => {
     const syncSetupPortalFromUrl = () => {
@@ -7527,7 +7456,16 @@ function App() {
     const platformOwnerLogin =
       loginIdentity.includes("@") && isPlatformOwnerEmail(loginIdentity, import.meta.env);
 
-    const applySignedInUser = (match: User, options?: { workspaceSetupOnly?: boolean }) => {
+    clearStaleCompanyLocalStorage(loginIdentity.includes("@") ? loginIdentity : undefined);
+    setLinkedCompanyContext(null);
+    setSelectedFolderId("");
+    setFolders([]);
+    setFolderIdInput("");
+    setFolderNameInput("");
+    setMasterSheetInput("");
+    setCompanyLinkBlockedMessage("");
+
+    const applySignedInUser = (match: User, options?: { workspaceSetupOnly?: boolean; companyName?: string }) => {
       isLoggingOutRef.current = false;
       explicitLogoutRef.current = false;
       if (companySetupLoginPortal && match.role !== "Master") {
@@ -7575,7 +7513,15 @@ function App() {
       } catch {
         window.history.replaceState({}, "", window.location.pathname);
       }
-      pushToast("Welcome back", `Signed in as ${getRoleDisplayName(match.role)}.`, "success");
+      pushToast(
+        "Welcome back",
+        match.role === "Master"
+          ? `Signed in as ${getRoleDisplayName(match.role)}.`
+          : options?.companyName
+            ? `Signed in as ${getRoleDisplayName(match.role)} · ${options.companyName}.`
+            : `Signed in as ${getRoleDisplayName(match.role)}.`,
+        "success",
+      );
     };
 
     const persistedMasterSheetId = companySheetSync?.sheetId || extractGoogleResourceId(masterSheetInput) || "";
@@ -7807,7 +7753,9 @@ function App() {
             registryStatus: loggedInCompany?.registryStatus,
           }),
         );
-        applySignedInUser(match);
+        applySignedInUser(match, {
+          companyName: loggedInCompany?.companyName,
+        });
         return true;
       } catch (error) {
         companyLoginFailure = {
@@ -9181,8 +9129,8 @@ function App() {
       fetch(apiUrl("/api/auth/master/logout"), { method: "POST", credentials: "include" }).catch(() => undefined);
     } else {
       fetch(apiUrl("/api/auth/company/logout"), { method: "POST", credentials: "include" }).catch(() => undefined);
-      clearStaleCompanyLocalStorage(logoutEmail);
     }
+    clearStaleCompanyLocalStorage(logoutEmail);
     try {
       window.localStorage.removeItem(userStorageKey);
       window.localStorage.removeItem(masterCompanySetupSessionKey);
@@ -12785,6 +12733,24 @@ function App() {
         <div className="max-w-md rounded-3xl border border-rose-500/40 bg-rose-950/40 p-6 text-center text-sm leading-6 text-rose-100">
           <p className="font-semibold text-white">Invite link not recognised</p>
           <p className="mt-3">{INVITE_NO_LONGER_VALID_MESSAGE}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser && authSessionHydrating) {
+    const hydrateOuterClass = [
+      shellPreviewClass,
+      "flex min-h-[100dvh] w-full max-w-[100vw] flex-col items-center justify-center overflow-hidden px-4 py-6",
+      themeMode === "dark" ? `${qmsDarkShellGradient} text-slate-100` : `${qmsLightShellGradient} text-slate-900`,
+    ].join(" ");
+
+    return (
+      <div className={hydrateOuterClass}>
+        <style>{appMotionStyles}</style>
+        <div className="flex flex-col items-center gap-3 text-sm text-slate-500 dark:text-slate-400">
+          <span className="h-8 w-8 animate-spin rounded-full border-2 border-orange-400/30 border-t-orange-500" />
+          <span>Loading your session…</span>
         </div>
       </div>
     );
