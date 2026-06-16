@@ -2810,9 +2810,51 @@ async function listGodmodeLiveCompanies(auth) {
     map: new Map(),
   }));
 
-  const companies = (await listCompanyFolders(auth, { parentFolderId: liveCompaniesFolder.id })).filter(
+  const driveCompanies = (await listCompanyFolders(auth, { parentFolderId: liveCompaniesFolder.id })).filter(
     (company) => isSelectableGodmodeCompanyFolder(company),
   );
+  const companiesById = new Map();
+  for (const company of driveCompanies) {
+    companiesById.set(String(company.id || "").trim(), company);
+  }
+  // Keep registry-live workspaces visible in the picker even if folder placement drifted,
+  // so operators can select the company and run repair flows instead of seeing an empty list.
+  for (const record of registryMap.values()) {
+    const status = getCanonicalCompanyStatus(record || {});
+    if (!isCompanyRegistryLive({ status, registryStatus: status })) {
+      continue;
+    }
+    const companyId = String(record?.companyId || record?.rootFolderId || "").trim();
+    if (!companyId || companiesById.has(companyId)) {
+      continue;
+    }
+    const companyName = String(record?.companyName || "").trim();
+    const fallbackCompany = {
+      id: companyId,
+      name: companyName || companyId,
+      linkedAt: String(record?.updatedAt || record?.lastSetupAt || record?.liveAt || "").trim(),
+      onboardingFormName: "Onboarding Form",
+      onboardingFormId: "",
+      onboardingVerified: false,
+      auditFormCount: 0,
+      auditFormIds: [],
+      auditFormsVerified: false,
+      responseSheetName: "Company Master Sheet",
+      responseSheetId: String(record?.masterSheetId || "").trim(),
+      responseSheetVerified: Boolean(String(record?.masterSheetId || "").trim()),
+      masterSheetId: String(record?.masterSheetId || "").trim(),
+      registryStatus: status,
+      registryLinkMissing: false,
+      registryUnlinkReason: String(record?.unlinkReason || "").trim(),
+      setupStatus: String(record?.masterSheetId || "").trim() ? "ready" : "incomplete",
+      setupStatusLabel: status === "Live" ? "Ready" : status || "Setup in progress",
+    };
+    if (!isSelectableGodmodeCompanyFolder(fallbackCompany)) {
+      continue;
+    }
+    companiesById.set(companyId, fallbackCompany);
+  }
+  const companies = Array.from(companiesById.values());
   return {
     liveCompaniesFolderId: liveCompaniesFolder.id,
     liveCompaniesMissing: false,
