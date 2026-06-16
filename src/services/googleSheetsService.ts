@@ -1,3 +1,5 @@
+import { apiUrl } from "../config/apiBase";
+
 type JsonResponse = Record<string, unknown> & { ok?: boolean; error?: string };
 
 async function parseResponse<T extends JsonResponse>(response: Response): Promise<T> {
@@ -8,10 +10,11 @@ async function parseResponse<T extends JsonResponse>(response: Response): Promis
   return payload;
 }
 
-async function postJson<T extends JsonResponse>(url: string, body: Record<string, unknown>) {
+async function postJson<T extends JsonResponse>(path: string, body: Record<string, unknown>) {
   return parseResponse<T>(
-    await fetch(url, {
+    await fetch(apiUrl(path), {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
@@ -55,10 +58,16 @@ export const googleSheetsService = {
       findings,
     });
   },
-  appendEvidence<T extends JsonResponse>(sheetId: string, companyFolderId: string, evidence: unknown[]) {
+  appendEvidence<T extends JsonResponse>(
+    sheetId: string,
+    companyFolderId: string,
+    evidence: unknown[],
+    evidenceFolderId = "",
+  ) {
     return postJson<T>(`/api/google-sheet-by-id/${encodeURIComponent(sheetId)}/evidence`, {
       companyFolderId,
       evidence,
+      evidenceFolderId,
     });
   },
   appendSyncLog<T extends JsonResponse>(sheetId: string, companyFolderId: string, entries: unknown[]) {
@@ -67,10 +76,18 @@ export const googleSheetsService = {
       entries,
     });
   },
+  appendReports<T extends JsonResponse>(sheetId: string, companyFolderId: string, reports: unknown[]) {
+    return postJson<T>(`/api/google-sheet-by-id/${encodeURIComponent(sheetId)}/reports`, {
+      companyFolderId,
+      reports,
+    });
+  },
   syncAuditBundle<T extends JsonResponse>(
     sheetId: string,
     body: {
       companyFolderId: string;
+      evidenceFolderId?: string;
+      localSubmissionId?: string;
       results: unknown[];
       findings: unknown[];
       evidence: unknown[];

@@ -1,7 +1,15 @@
 node_modules/
 dist/
+.DS_Store
+**/.DS_Store
 .env
+.env.local
+scripts/live-path-secrets.local.json
+public/build-meta.json
 .sessions/
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
+android/keystore.properties
+android/*.jks
+android/*.keystore

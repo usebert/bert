@@ -1,5 +1,5 @@
-const CACHE_NAME = "qms-precast-v2";
-const APP_SHELL = ["/", "/manifest.webmanifest", "/qms-icon.svg", "/qms-maskable-icon.svg"];
+const CACHE_NAME = "bert-v1";
+const APP_SHELL = ["/", "/manifest.webmanifest", "/bert-icon.svg", "/bert-maskable-icon.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
@@ -23,10 +23,24 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        // Avoid caching opaque/error bodies; never treat a failed chunk as a cache hit later.
+        if (response && response.ok) {
+          const copy = response.clone();
+          void caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        }
         return response;
       })
-      .catch(() => caches.match(event.request).then((cached) => cached || caches.match("/"))),
+      .catch(() =>
+        caches.match(event.request).then((cached) => {
+          if (cached) {
+            return cached;
+          }
+          // Never serve the HTML shell for script/style/font/etc. — that MIME mismatch breaks the app (blank screen).
+          if (event.request.mode === "navigate") {
+            return caches.match("/");
+          }
+          return Response.error();
+        }),
+      ),
   );
 });

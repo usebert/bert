@@ -1,22 +1,22 @@
 {
-  "name": "QMS Precast",
-  "short_name": "QMS",
-  "description": "Health and safety audit system for live company audit workflows.",
+  "name": "bert. — Business. Evaluate. Report. Tool.",
+  "short_name": "bert.",
+  "description": "Business. Evaluate. Report. Tool. — audits, actions, evidence, and schedules for your company.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#f8fafc",
-  "theme_color": "#0f172a",
+  "theme_color": "#1d4ed8",
   "icons": [
     {
-      "src": "/qms-icon.svg",
+      "src": "/bert-icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
     },
     {
-      "src": "/qms-maskable-icon.svg",
+      "src": "/bert-maskable-icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "maskable"

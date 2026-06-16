@@ -13,6 +13,7 @@ export const REQUIRED_TABS = [
   "Reports",
   "SyncLog",
   "Notes",
+  "CompanyFolders",
 ] as const;
 
 export type RequiredTab = (typeof REQUIRED_TABS)[number];
@@ -36,9 +37,19 @@ export const REQUIRED_COLUMNS: Record<RequiredTab, string[]> = {
   Users: [
     "User ID",
     "Company ID",
-    "Full Name",
     "Email",
+    "Name",
     "Role",
+    "AccessLevel",
+    "CompanyAreas",
+    "Status",
+    "PasswordHash",
+    "PasswordUpdatedAt",
+    "LastLoginAt",
+    "InvitedAt",
+    "CreatedAt",
+    "UpdatedAt",
+    "Full Name",
     "Created At",
     "Updated At",
     "Created By",
@@ -57,6 +68,7 @@ export const REQUIRED_COLUMNS: Record<RequiredTab, string[]> = {
     "Lifecycle",
     "Company Folder ID",
     "Schedule Name",
+    "Area ID",
     "Audit ID",
     "Audit Name",
     "Days",
@@ -64,6 +76,10 @@ export const REQUIRED_COLUMNS: Record<RequiredTab, string[]> = {
     "Live Time",
     "Completion Hours",
     "Auditors",
+    "Assigned Role",
+    "Assigned User",
+    "Status",
+    "Created At",
     "Start Date",
     "End Date",
     "Updated At",
@@ -114,6 +130,7 @@ export const REQUIRED_COLUMNS: Record<RequiredTab, string[]> = {
     "Preventive Action",
     "Risk Category",
     "Requires Manager Review",
+    "Suggestion JSON",
     "Sync Status",
     "Sync Attempts",
     "Last Sync Error",
@@ -147,6 +164,7 @@ export const REQUIRED_COLUMNS: Record<RequiredTab, string[]> = {
   AuditResults: [
     "Result ID",
     "Audit ID",
+    "Area ID",
     "Company ID",
     "Audit Name",
     "Completed By",
@@ -156,6 +174,7 @@ export const REQUIRED_COLUMNS: Record<RequiredTab, string[]> = {
     "Highest Risk Level",
     "Critical Findings Count",
     "High Findings Count",
+    "Answers JSON",
     "Signature Ref",
     "Created At",
     "Updated At",
@@ -175,6 +194,7 @@ export const REQUIRED_COLUMNS: Record<RequiredTab, string[]> = {
     "Finding ID",
     "Result ID",
     "Audit ID",
+    "Area ID",
     "Company ID",
     "Question ID",
     "Question Text",
@@ -264,6 +284,16 @@ export const REQUIRED_COLUMNS: Record<RequiredTab, string[]> = {
     "Remote Row ID",
     "Schema Version",
   ],
+  CompanyFolders: [
+    "Folder Key",
+    "Folder Name",
+    "Folder ID",
+    "Parent Folder ID",
+    "Path",
+    "Created At",
+    "Last Checked At",
+    "Status",
+  ],
 };
 
 export const CONFIG_KEYS = [
@@ -274,6 +304,7 @@ export const CONFIG_KEYS = [
   "lastValidatedAt",
   "lastRepairedAt",
   "appVersion",
+  "defaultFormLanguage",
 ] as const;
 
 export type ConfigKey = (typeof CONFIG_KEYS)[number];

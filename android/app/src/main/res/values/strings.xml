@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">QMS Precast</string>
-    <string name="title_activity_main">QMS Precast</string>
-    <string name="package_name">com.qmsprecast.app</string>
-    <string name="custom_url_scheme">com.qmsprecast.app</string>
+    <string name="app_name">bert.</string>
+    <string name="title_activity_main">bert.</string>
+    <string name="package_name">co.usebert.app</string>
+    <string name="custom_url_scheme">co.usebert.app</string>
 </resources>

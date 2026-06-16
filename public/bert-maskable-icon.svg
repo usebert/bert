@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="bert.">
+  <rect width="512" height="512" rx="120" fill="#f8fafc" />
+  <svg x="56" y="196" width="400" height="128" viewBox="0 0 200 64">
+    <text
+      x="4"
+      y="48"
+      font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif"
+      font-size="44"
+      font-weight="700"
+      fill="#0f172a"
+      letter-spacing="-0.02em"
+    >
+      bert
+    </text>
+    <circle cx="182" cy="36" r="10" fill="#f97316" />
+  </svg>
+</svg>

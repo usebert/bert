@@ -1,13 +1,110 @@
 @import "tailwindcss";
 
+/* App theme (data-qms-theme), not OS prefers-color-scheme — avoids white-on-white in light UI. */
+@custom-variant dark (&:where([data-qms-theme="dark"] &));
+
+/* BERT — Ink / Cobalt / Signal Orange (central brand tokens) */
 :root {
   font-family: "Inter", "Segoe UI", sans-serif;
   color: #0f172a;
-  background: #eef3f5;
+  background: #f8fafc;
+  --bert-ink: #020617;
+  --bert-graphite: #18181b;
+  --bert-cobalt: #1d4ed8;
+  --bert-cobalt-dark: #1e40af;
+  --bert-cobalt-light: #dbeafe;
+  --bert-signal-orange: #f97316;
+  --bert-orange-dark: #c2410c;
+  --bert-stone: #f8fafc;
+  --bert-white: #ffffff;
+  /* Readable text tokens (light surfaces + dark chrome) */
+  --bert-text-main: #0f172a;
+  --bert-text-muted: #475569;
+  --bert-text-on-dark: #f1f5f9;
+  --bert-card-text: #0f172a;
+  --bert-border: rgba(148, 163, 184, 0.35);
+  /* Readable cobalt-tinted text/icons on dark chrome (sidebar labels, etc.) */
+  --bert-chrome-accent: #93c5fd;
+
+  /* Legacy names kept so existing `var(--qms-*)` across the app map to the new scheme */
+  --qms-navy-950: var(--bert-ink);
+  --qms-navy-900: var(--bert-graphite);
+  --qms-navy-850: #27272a;
+  --qms-navy-800: #3f3f46;
+  --qms-slate-100: #f1f5f9;
+  --qms-slate-200: #e2e8f0;
+  /* Primary CTA / focus / filled controls (was teal) */
+  --qms-teal-500: var(--bert-signal-orange);
+  /* Brand cool accent on dark chrome & links (was mint teal) */
+  --qms-teal-400: var(--bert-chrome-accent);
+
+  --qms-shell-dark-radial: rgba(29, 78, 216, 0.14);
+  --qms-shell-dark-start: #020617;
+  --qms-shell-dark-mid: #0f172a;
+  --qms-shell-dark-end: #1e1b4b;
+  --qms-shell-light-radial: rgba(29, 78, 216, 0.07);
+  --qms-shell-light-start: #f8fafc;
+  --qms-shell-light-mid: #ffffff;
+  --qms-shell-light-end: #dbeafe;
+  --qms-hover-overlay-light: rgb(15 23 42 / 0.12);
+  --qms-hover-overlay-dark: rgb(255 255 255 / 0.12);
+  --qms-active-overlay-light: rgb(15 23 42 / 0.18);
+  --qms-active-overlay-dark: rgb(255 255 255 / 0.18);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+.bert-text-main {
+  color: var(--bert-text-main);
+}
+
+.bert-text-muted {
+  color: var(--bert-text-muted);
+}
+
+.bert-text-on-dark {
+  color: var(--bert-text-on-dark);
+}
+
+.bert-card-text {
+  color: var(--bert-card-text);
+}
+
+/* Light cards stay white with dark copy even inside a dark app shell. */
+.bert-light-surface {
+  color: var(--bert-card-text);
+  border-color: var(--bert-border);
+}
+
+[data-qms-theme="dark"] .qms-screen-stage .bert-light-surface {
+  background-color: var(--bert-white);
+  color: var(--bert-text-main);
+  border-color: var(--bert-border);
+}
+
+[data-qms-theme="dark"] .qms-screen-stage .bert-light-surface .text-slate-950,
+[data-qms-theme="dark"] .qms-screen-stage .bert-light-surface .text-slate-900,
+[data-qms-theme="dark"] .qms-screen-stage .bert-light-surface .text-slate-800 {
+  color: var(--bert-text-main);
+}
+
+[data-qms-theme="dark"] .qms-screen-stage .bert-light-surface .text-slate-700,
+[data-qms-theme="dark"] .qms-screen-stage .bert-light-surface .text-slate-600 {
+  color: var(--bert-text-muted);
+}
+
+[data-qms-theme="dark"] .qms-screen-stage .bert-light-surface .text-slate-500 {
+  color: #64748b;
+}
+
+[data-qms-theme="dark"] .qms-screen-stage .bert-light-surface input,
+[data-qms-theme="dark"] .qms-screen-stage .bert-light-surface select,
+[data-qms-theme="dark"] .qms-screen-stage .bert-light-surface textarea {
+  border-color: var(--bert-border);
+  background-color: var(--bert-white);
+  color: var(--bert-text-main);
 }
 
 * {
@@ -18,12 +115,12 @@ html,
 body,
 #root {
   margin: 0;
-  min-height: 100%;
+  min-height: 100dvh;
   width: 100%;
 }
 
 body {
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 button,
@@ -31,4 +128,224 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+/* —— Interaction motion (logged-in app) —— */
+:root {
+  --bert-motion-duration: 280ms;
+  --bert-motion-card-duration: 300ms;
+  --bert-motion-panel-duration: 280ms;
+  --bert-motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes bert-fade-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bert-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes bert-card-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bert-guidance-panel-open {
+  from {
+    opacity: 0;
+    max-height: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    max-height: 28rem;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bert-panel-expand {
+  from {
+    opacity: 0;
+    max-height: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    max-height: 20rem;
+    transform: scale(1);
+  }
+}
+
+@keyframes bert-thumbnail-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes bert-submit-success {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes bert-status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.92);
+  }
+}
+
+@keyframes bert-sync-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes bert-success-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.65);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.bert-screen-enter {
+  animation: bert-fade-slide-up var(--bert-motion-duration) var(--bert-motion-ease) both;
+}
+
+.bert-card-enter {
+  animation: bert-card-reveal var(--bert-motion-card-duration) var(--bert-motion-ease) both;
+}
+
+.bert-fade-in {
+  animation: bert-fade-in var(--bert-motion-duration) var(--bert-motion-ease) both;
+}
+
+.bert-evidence-panel-enter {
+  animation: bert-fade-slide-up var(--bert-motion-panel-duration) var(--bert-motion-ease) both;
+}
+
+.bert-guidance-panel-enter {
+  animation: bert-guidance-panel-open var(--bert-motion-panel-duration) var(--bert-motion-ease) both;
+  overflow: hidden;
+}
+
+.bert-panel-expand {
+  animation: bert-panel-expand var(--bert-motion-panel-duration) var(--bert-motion-ease) both;
+  overflow: hidden;
+}
+
+.bert-thumbnail-slide-in {
+  animation: bert-thumbnail-slide-in var(--bert-motion-duration) var(--bert-motion-ease) both;
+}
+
+.bert-submit-success {
+  animation: bert-submit-success var(--bert-motion-duration) var(--bert-motion-ease) both;
+}
+
+.bert-field-complete {
+  animation: bert-success-pop 220ms var(--bert-motion-ease) both;
+}
+
+.bert-pressable:not(:disabled) {
+  transition:
+    transform 140ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 180ms ease-out,
+    background-color 180ms ease-out,
+    border-color 180ms ease-out,
+    opacity 180ms ease-out;
+}
+
+.bert-pressable:not(:disabled):hover {
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.14);
+}
+
+.bert-pressable:not(:disabled):active {
+  transform: scale(0.97);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
+  transition-duration: 80ms;
+}
+
+.bert-arrow-nudge:hover .bert-arrow-icon {
+  transform: translateX(5px);
+}
+
+.bert-status-pulse {
+  animation: bert-status-pulse 1.6s ease-in-out infinite;
+}
+
+.bert-sync-spinner .bert-sync-spinner-stroke {
+  animation: bert-sync-spin 0.9s linear infinite;
+}
+
+.bert-success-tick {
+  animation: bert-success-pop 280ms var(--bert-motion-ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bert-screen-enter,
+  .bert-card-enter,
+  .bert-fade-in,
+  .bert-evidence-panel-enter,
+  .bert-guidance-panel-enter,
+  .bert-panel-expand,
+  .bert-thumbnail-slide-in,
+  .bert-submit-success,
+  .bert-field-complete,
+  .bert-success-tick,
+  .bert-status-pulse,
+  .bert-sync-spinner .bert-sync-spinner-stroke {
+    animation: none !important;
+  }
+
+  .bert-pressable:not(:disabled):hover,
+  .bert-pressable:not(:disabled):active {
+    transform: none;
+    box-shadow: none;
+  }
+
+  .bert-arrow-nudge:hover .bert-arrow-icon {
+    transform: none;
+  }
 }

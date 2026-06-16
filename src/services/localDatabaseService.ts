@@ -1,3 +1,4 @@
+import { storageKeys, migrateLegacyStorageKeysOnce } from "../config/storageKeys";
 import { CURRENT_SCHEMA_VERSION } from "../schema/companySchema";
 
 export type LocalSyncLifecycle = "Pending" | "Syncing" | "Synced" | "Failed" | "Conflict";
@@ -41,16 +42,6 @@ type LocalDatabaseShape = {
   collections: LocalDatabaseCollections;
 };
 
-const ROOT_STORAGE_KEY = "qms-precast-local-db-v1";
-const LEGACY_KEYS = {
-  user: "qms-precast-current-user",
-  offlineQueue: "qms-precast-offline-submissions",
-  theme: "qms-precast-theme",
-  previewOrientation: "qms-precast-preview-orientation",
-  folderLinks: "qms-precast-folder-links",
-  workspaceState: "qms-precast-workspace-state",
-} as const;
-
 const EMPTY_DB: LocalDatabaseShape = {
   version: CURRENT_SCHEMA_VERSION,
   collections: {
@@ -69,6 +60,15 @@ const EMPTY_DB: LocalDatabaseShape = {
     previewOrientation: "portrait",
   },
 };
+
+export const localDbKeys = {
+  user: storageKeys.currentUser,
+  offlineQueue: storageKeys.offlineSubmissions,
+  theme: storageKeys.theme,
+  previewOrientation: storageKeys.previewOrientation,
+  folderLinks: storageKeys.folderLinks,
+  workspaceState: storageKeys.workspaceState,
+} as const;
 
 function canUseStorage() {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
@@ -90,28 +90,30 @@ function safeParse<T>(value: string | null, fallback: T): T {
 }
 
 function readLegacySeed() {
+  migrateLegacyStorageKeysOnce();
   if (!canUseStorage()) {
     return cloneEmptyDb();
   }
 
   const db = cloneEmptyDb();
-  db.collections.user = safeParse(window.localStorage.getItem(LEGACY_KEYS.user), null);
-  db.collections.offlineQueue = safeParse(window.localStorage.getItem(LEGACY_KEYS.offlineQueue), []);
-  db.collections.theme = window.localStorage.getItem(LEGACY_KEYS.theme) || "light";
-  db.collections.previewOrientation = window.localStorage.getItem(LEGACY_KEYS.previewOrientation) || "portrait";
-  db.collections.folderLinks = safeParse(window.localStorage.getItem(LEGACY_KEYS.folderLinks), {});
-  const workspaceState = safeParse<Record<string, unknown>>(window.localStorage.getItem(LEGACY_KEYS.workspaceState), {});
+  db.collections.user = safeParse(window.localStorage.getItem(localDbKeys.user), null);
+  db.collections.offlineQueue = safeParse(window.localStorage.getItem(localDbKeys.offlineQueue), []);
+  db.collections.theme = window.localStorage.getItem(localDbKeys.theme) || "light";
+  db.collections.previewOrientation = window.localStorage.getItem(localDbKeys.previewOrientation) || "portrait";
+  db.collections.folderLinks = safeParse(window.localStorage.getItem(localDbKeys.folderLinks), {});
+  const workspaceState = safeParse<Record<string, unknown>>(window.localStorage.getItem(localDbKeys.workspaceState), {});
   db.collections.workspaceState = workspaceState;
   db.collections.syncQueue = Array.isArray(workspaceState.syncQueue) ? (workspaceState.syncQueue as unknown[]) : [];
   return db;
 }
 
 function readDb(): LocalDatabaseShape {
+  migrateLegacyStorageKeysOnce();
   if (!canUseStorage()) {
     return cloneEmptyDb();
   }
 
-  const existing = safeParse<LocalDatabaseShape | null>(window.localStorage.getItem(ROOT_STORAGE_KEY), null);
+  const existing = safeParse<LocalDatabaseShape | null>(window.localStorage.getItem(storageKeys.localDatabaseRoot), null);
   if (existing?.collections) {
     return {
       version: existing.version || CURRENT_SCHEMA_VERSION,
@@ -133,7 +135,7 @@ function writeDb(db: LocalDatabaseShape) {
   }
 
   window.localStorage.setItem(
-    ROOT_STORAGE_KEY,
+    storageKeys.localDatabaseRoot,
     JSON.stringify({
       version: CURRENT_SCHEMA_VERSION,
       collections: db.collections,
@@ -147,8 +149,6 @@ function updateDb(mutator: (db: LocalDatabaseShape) => LocalDatabaseShape) {
   writeDb(next);
   return next;
 }
-
-export const localDbKeys = LEGACY_KEYS;
 
 export const localDatabaseService = {
   loadWorkspaceState<T extends Record<string, unknown>>() {

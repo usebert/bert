@@ -1,0 +1,23 @@
+import type { NavItemId } from "../types/navigation";
+
+export const navItems = [
+  { id: "dashboard", label: "Dashboard", icon: "dashboard" },
+  { id: "setup", label: "Platform Setup", icon: "spark" },
+  { id: "companies", label: "Companies", icon: "clipboard" },
+  { id: "users", label: "Users", icon: "user" },
+  { id: "invites", label: "Invites", icon: "note" },
+  { id: "settings", label: "Settings", icon: "shield" },
+  { id: "audits", label: "Audits", icon: "clipboard" },
+  { id: "actions", label: "Actions", icon: "warningTriangle" },
+  { id: "nonConformance", label: "NCRs", icon: "checklist" },
+  { id: "incidents", label: "Incidents", icon: "warningTriangle" },
+  { id: "schedules", label: "Schedules", icon: "clock" },
+  { id: "reports", label: "Reports", icon: "chart" },
+  { id: "documentTraining", label: "Upload & training", icon: "note" },
+  { id: "qmsReadiness", label: "Quality & Safety Hub", icon: "warningTriangle" },
+  { id: "sync", label: "Sync Centre", icon: "sync" },
+  { id: "admin", label: "Admin tools", icon: "shield" },
+  { id: "onboarding", label: "Onboarding", icon: "spark" },
+  { id: "emailReminders", label: "Reminders", icon: "clock" },
+  { id: "account", label: "Account", icon: "user" },
+] as const satisfies ReadonlyArray<{ id: NavItemId; label: string; icon: string }>;

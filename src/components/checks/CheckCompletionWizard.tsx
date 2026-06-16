@@ -1,0 +1,185 @@
+import { useMemo, useState } from "react";
+import { AnimatedButton } from "../animation/AnimatedButton";
+import { AnimatedScreen } from "../animation/AnimatedScreen";
+import { StatusBadge } from "../dashboard/DashboardPrimitives";
+import { bertScreenEnter } from "../animation/animationClasses";
+import { usePrefersReducedMotion } from "../animation/usePrefersReducedMotion";
+import type { CheckCompletionPhase, CheckCompletionWizardProps } from "../../types/checkCompletion";
+import { getAuditTrafficStatus, getDueWarning } from "../../utils/dashboardHealth";
+import { getPlainEnglishSyncStatus } from "../../utils/plainEnglishSync";
+import { canSubmitCheck, getCompletionStats } from "../../utils/checkCompletionHelpers";
+import { darkPanelDescription, darkPanelEyebrow, darkPanelShell, darkPanelTitleLg } from "../../styles/darkPanel";
+import { bertSecondaryButtonInteract } from "../../styles/interactions";
+import { CheckQuestionControls } from "./CheckQuestionControls";
+import { CheckCompletionReview } from "./CheckCompletionReview";
+
+export function CheckCompletionWizard({
+  audit,
+  responses,
+  textResponses,
+  notes,
+  evidence,
+  questionIndex,
+  offlineMode,
+  pendingSyncCount,
+  failedSyncCount,
+  savedAt,
+  slatePrimaryCtaInteract,
+  onQuestionIndexChange,
+  onAnswerChange,
+  onTextResponseChange,
+  onNoteChange,
+  onAddEvidence,
+  onRemoveEvidence,
+  onSaveAndExit,
+  onSubmit,
+}: CheckCompletionWizardProps) {
+  const reducedMotion = usePrefersReducedMotion();
+  const [phase, setPhase] = useState<CheckCompletionPhase>("questions");
+  const safeIndex = Math.max(0, Math.min(questionIndex, Math.max(audit.questions.length - 1, 0)));
+  const currentQuestion = audit.questions[safeIndex];
+  const draftSlice = useMemo(
+    () => ({ responses, textResponses, notes, evidence }),
+    [responses, textResponses, notes, evidence],
+  );
+  const stats = getCompletionStats(audit, draftSlice);
+  const syncPlain = getPlainEnglishSyncStatus({ offlineQueueCount: 0, pendingSyncCount, failedSyncCount });
+  const syncBadgeClass =
+    syncPlain.tone === "problem"
+      ? "bg-rose-100 text-rose-800"
+      : syncPlain.tone === "waiting"
+        ? "bg-amber-100 text-amber-800"
+        : "bg-emerald-50 text-emerald-900";
+
+  if (audit.questions.length === 0) {
+    return (
+      <div className="space-y-4">
+        <section className={darkPanelShell}>
+          <p className={darkPanelEyebrow}>Check completion</p>
+          <h2 className={darkPanelTitleLg}>{audit.name}</h2>
+          <p className={["mt-1", darkPanelDescription].join(" ")}>No questions are available for this check.</p>
+        </section>
+        <AnimatedButton type="button" onClick={onSaveAndExit} className={`h-11 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 ${bertSecondaryButtonInteract}`}>
+          Save &amp; exit
+        </AnimatedButton>
+      </div>
+    );
+  }
+
+  if (phase === "review") {
+    return (
+      <AnimatedScreen screenKey={`check-review-${audit.id}`}>
+        <CheckCompletionReview
+          audit={audit}
+          responses={responses}
+          textResponses={textResponses}
+          notes={notes}
+          evidence={evidence}
+          canSubmit={canSubmitCheck(audit, draftSlice)}
+          offlineMode={offlineMode}
+          onJumpToQuestion={(index) => {
+            onQuestionIndexChange(index);
+            setPhase("questions");
+          }}
+          onBack={() => {
+            onQuestionIndexChange(audit.questions.length - 1);
+            setPhase("questions");
+          }}
+          onSubmit={onSubmit}
+        />
+      </AnimatedScreen>
+    );
+  }
+
+  return (
+    <AnimatedScreen screenKey={`check-wizard-${audit.id}-q${safeIndex}`}>
+      <div className={reducedMotion ? "space-y-4 pb-28" : ["space-y-4 pb-28", bertScreenEnter].join(" ")}>
+        <section className={darkPanelShell}>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className={darkPanelEyebrow}>Check completion</p>
+              <h2 className={darkPanelTitleLg}>{audit.name}</h2>
+              <p className={["mt-1", darkPanelDescription].join(" ")}>{getDueWarning(audit.dueHours)}</p>
+            </div>
+            <StatusBadge status={getAuditTrafficStatus(audit.dueHours)} dark />
+          </div>
+          <div className="mt-4 rounded-2xl bg-white/10 px-4 py-3">
+            <p className="text-sm font-semibold">
+              Question {safeIndex + 1} of {audit.questions.length}
+            </p>
+            <div className="mt-2 h-2 rounded-full bg-white/15">
+              <div
+                className="h-2 rounded-full bg-white transition-all duration-200"
+                style={{ width: `${(stats.answeredCount / audit.questions.length) * 100}%` }}
+              />
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-300">
+              <span>{stats.answeredCount} answered</span>
+              {savedAt ? <span>• Saved {savedAt}</span> : null}
+              <span className={`rounded-full px-2 py-0.5 font-semibold ${syncBadgeClass}`}>{syncPlain.summary}</span>
+            </div>
+            {offlineMode ? (
+              <p className="mt-2 text-xs font-semibold text-amber-300">
+                Saved on this tablet. It will sync when online.
+              </p>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-sm">
+          <CheckQuestionControls
+            question={currentQuestion}
+            questionNumber={safeIndex + 1}
+            responses={responses}
+            textResponses={textResponses}
+            notes={notes}
+            evidence={evidence}
+            slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+            onAnswerChange={onAnswerChange}
+            onTextResponseChange={onTextResponseChange}
+            onNoteChange={onNoteChange}
+            onAddEvidence={onAddEvidence}
+            onRemoveEvidence={onRemoveEvidence}
+          />
+        </section>
+
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
+          <div className="mx-auto flex max-w-3xl gap-3">
+            <AnimatedButton
+              type="button"
+              onClick={() => onQuestionIndexChange(Math.max(0, safeIndex - 1))}
+              disabled={safeIndex === 0}
+              className={`min-h-[56px] flex-1 rounded-2xl border border-slate-300 bg-white text-base font-semibold text-slate-700 disabled:opacity-40 ${bertSecondaryButtonInteract}`}
+            >
+              Back
+            </AnimatedButton>
+            {safeIndex === audit.questions.length - 1 ? (
+              <AnimatedButton
+                type="button"
+                showArrow
+                onClick={() => setPhase("review")}
+                className={`min-h-[56px] flex-[1.4] rounded-2xl bg-slate-900 text-base font-semibold text-white ${slatePrimaryCtaInteract}`}
+              >
+                Review
+              </AnimatedButton>
+            ) : (
+              <AnimatedButton
+                type="button"
+                showArrow
+                onClick={() => onQuestionIndexChange(Math.min(audit.questions.length - 1, safeIndex + 1))}
+                className={`min-h-[56px] flex-[1.4] rounded-2xl bg-slate-900 text-base font-semibold text-white ${slatePrimaryCtaInteract}`}
+              >
+                Next
+              </AnimatedButton>
+            )}
+          </div>
+          <div className="mx-auto mt-2 flex max-w-3xl justify-between gap-3">
+            <button type="button" onClick={onSaveAndExit} className="text-sm font-semibold text-slate-600 underline">
+              Save &amp; exit
+            </button>
+          </div>
+        </div>
+      </div>
+    </AnimatedScreen>
+  );
+}
