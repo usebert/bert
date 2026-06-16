@@ -108,6 +108,9 @@ const mockDeps = {
   readTabRecords: mockReadTabRecords,
   appendTabRows: mockAppendTabRows,
   ensureTabColumns: mockEnsureTabColumns,
+  masterSheetCache: {
+    getEntry: (id) => (id === companyFolderId ? { masterSheetId } : null),
+  },
 };
 
 const row = buildAuditResultRow({
