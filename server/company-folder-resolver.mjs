@@ -1,6 +1,6 @@
 /**
  * CompanyFolderResolver — Google Drive company folder is the source of truth.
- * Resolves folder metadata, workbook, and required tabs; registry/health run in background.
+ * Resolves folder metadata, in-folder workbook, and required tabs.
  */
 import {
   cleanCompanyNameFromFolder,
@@ -14,9 +14,8 @@ import {
   ensureCompanyMasterSheet,
   discoverCompanyMasterSheetInFolder,
 } from "./company-folder-structure.mjs";
-import { ensureRequiredTabs, findMissingRequiredTabs } from "./ensure-required-tabs.mjs";
+import { ensureRequiredTabs } from "./workbook-service.mjs";
 import { validateCompanyFolderUnderCompaniesRoot } from "./company-folder-placement.mjs";
-import { persistCompanyWorkspaceSetup } from "./company-workspace-registry.mjs";
 import { buildCompanyFolderUrl, buildShareCompanyFolderHint } from "../shared/company-folder-links.mjs";
 
 function trim(value) {
@@ -32,14 +31,6 @@ function folderShareOperatorHint(companyFolderId, deps) {
     companyFolderId,
     googleConnectedEmail: resolveGoogleConnectedEmail(deps),
   });
-}
-
-function normalizeDriveFolderName(value = "") {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/^\d+\s*/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
 }
 
 async function readCompanyFolderMetadata(drive, companyFolderId) {
@@ -60,93 +51,8 @@ function findWorkbookFolderId(folderIds = {}, legacyRootIds = {}) {
   return trim(folderIds.BERT_COMPANY_WORKBOOK || legacyRootIds.setupFolderId);
 }
 
-function queuePostResolveBackgroundJobs(deps, context = {}) {
-  const companyId = trim(context.companyId || context.companyFolderId);
-  if (!companyId) {
-    return { queued: [] };
-  }
-  const queued = [];
-  const requestedBy = trim(context.requestedBy || "folder_resolver");
-
-  if (typeof deps.queueCompanySetupJobs === "function") {
-    const jobs = deps.queueCompanySetupJobs({
-      companyId,
-      companyFolderId: context.companyFolderId,
-      masterSheetId: context.masterSheetId,
-      companyName: context.companyName,
-      requestedBy,
-      checks: context.checks || {},
-    });
-    if (Array.isArray(jobs)) {
-      queued.push(...jobs.filter(Boolean).map((job) => job?.type || "background"));
-    }
-  } else if (typeof deps.queueCompanyHealthCheckIfReady === "function") {
-    const healthJob = deps.queueCompanyHealthCheckIfReady({
-      autoQueue: true,
-      companyId,
-      requestedBy,
-      payload: {
-        masterSheetId: context.masterSheetId,
-        companyFolderId: context.companyFolderId,
-        companyName: context.companyName,
-      },
-    });
-    if (healthJob) {
-      queued.push(healthJob.type || "verify_company_health");
-    }
-  }
-
-  return { queued };
-}
-
-async function rebuildRegistryCache(auth, deps, context = {}) {
-  const companyId = trim(context.companyId);
-  const masterSheetId = trim(context.masterSheetId);
-  if (!auth || !companyId || !masterSheetId) {
-    return { synced: false, warning: "registry_cache_skipped" };
-  }
-  try {
-    const result = await persistCompanyWorkspaceSetup(auth, deps, {
-      companyId,
-      companyFolderId: context.companyFolderId || companyId,
-      rootFolderId: context.companyFolderId || companyId,
-      masterSheetId,
-      companyName: context.companyName,
-      workbookFolderId: context.workbookFolderId,
-      status: "Setup in progress",
-      markLive: false,
-      markSetupComplete: false,
-      touchSetup: true,
-    });
-    return { synced: Boolean(result?.synced), record: result?.record || null };
-  } catch (error) {
-    console.warn("[company-folder-resolver] registry cache rebuild failed (non-blocking)", {
-      companyId,
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return {
-      synced: false,
-      warning: "registry_cache_failed",
-      technicalError: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
-
 /**
  * Resolve company context from a Drive folder id.
- * @returns {Promise<{
- *   ok: boolean;
- *   companyId: string;
- *   companyName: string;
- *   companyFolderId: string;
- *   masterSheetId: string;
- *   status: string;
- *   userMessage?: string;
- *   tabsQueued?: boolean;
- *   missingTabs?: string[];
- *   backgroundJobs?: string[];
- *   registryCache?: object;
- * }>}
  */
 export async function resolveCompanyFromFolder(auth, deps, companyFolderId, options = {}) {
   const folderId = trim(companyFolderId || options.companyFolderId);
@@ -178,9 +84,7 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
   const { google } = deps;
   const drive = google.drive({ version: "v3", auth });
   const folderMeta = await readCompanyFolderMetadata(drive, folderId);
-  const companyName = cleanCompanyNameFromFolder(
-    trim(options.companyName) || trim(folderMeta.name),
-  );
+  const companyName = cleanCompanyNameFromFolder(trim(folderMeta.name));
 
   if (isSystemTemplateCompany({ companyName, name: companyName, companyId: folderId })) {
     return {
@@ -195,11 +99,10 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
     };
   }
 
-  const masterSheetHint = trim(options.masterSheetId);
   let workbookFolderId = trim(options.workbookFolderId);
   let folderIds = {};
   let legacyRootIds = {};
-  const preferFolderResolution = options.preferFolderResolution === true;
+  const preferFolderResolution = options.preferFolderResolution !== false;
   const createIfMissing = options.createIfMissing !== false;
   const readOnlyResolve = preferFolderResolution && createIfMissing === false;
 
@@ -207,9 +110,9 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
     const structure = await ensureCompanyFolderStructure(deps, auth, {
       companyName,
       companyRootFolderId: folderId,
-      masterSheetId: readOnlyResolve ? "" : masterSheetHint,
+      masterSheetId: "",
       syncWorkbookTab: false,
-      placeFiles: readOnlyResolve ? false : Boolean(masterSheetHint),
+      placeFiles: readOnlyResolve ? false : true,
     });
     folderIds = structure.folderIds || {};
     legacyRootIds = structure.legacyRootIds || {};
@@ -218,30 +121,30 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
 
   const masterSheet = await ensureCompanyMasterSheet(drive, {
     companyName,
-    masterSheetId: masterSheetHint,
+    masterSheetId: "",
     workbookFolderId,
     legacySetupFolderId: legacyRootIds.setupFolderId,
     companyRootFolderId: folderId,
-    preferFolderResolution,
+    preferFolderResolution: true,
     createIfMissing,
     skipRecursiveDiscovery: options.skipRecursiveDiscovery === true,
   });
   const masterSheetId = trim(masterSheet.masterSheetId);
   if (!masterSheetId) {
     if (masterSheet.source === "non_native_workbook") {
-    return {
-      ok: false,
-      companyId: folderId,
-      companyName,
-      companyFolderId: folderId,
-      companyFolderUrl: buildCompanyFolderUrl(folderId),
-      masterSheetId: "",
-      status: "",
-      userMessage: "An Excel workbook was found but BERT needs a Google Sheet.",
-      reasonCode: "WORKBOOK_NOT_FOUND",
-      masterSheet,
-      operatorHint: folderShareOperatorHint(folderId, deps) || undefined,
-    };
+      return {
+        ok: false,
+        companyId: folderId,
+        companyName,
+        companyFolderId: folderId,
+        companyFolderUrl: buildCompanyFolderUrl(folderId),
+        masterSheetId: "",
+        status: "",
+        userMessage: "An Excel workbook was found but BERT needs a Google Sheet.",
+        reasonCode: "WORKBOOK_NOT_FOUND",
+        masterSheet,
+        operatorHint: folderShareOperatorHint(folderId, deps) || undefined,
+      };
     }
     const shareHint = folderShareOperatorHint(folderId, deps);
     return {
@@ -261,27 +164,14 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
     };
   }
 
-  let tabsQueued = false;
+  let tabsEnsured = false;
   let missingTabs = [];
-  const ensureTabsSync = options.ensureTabsSync === true;
+  const ensureTabsSync = options.ensureTabsSync !== false;
 
   if (ensureTabsSync) {
-    await ensureRequiredTabs(auth, deps, masterSheetId);
-  } else {
-    try {
-      const sheets = google.sheets({ version: "v4", auth });
-      const meta = await sheets.spreadsheets.get({
-        spreadsheetId: masterSheetId,
-        includeGridData: false,
-        fields: "sheets.properties.title",
-      });
-      const titles =
-        meta.data.sheets?.map((sheet) => trim(sheet.properties?.title)).filter(Boolean) || [];
-      missingTabs = findMissingRequiredTabs(titles);
-      tabsQueued = missingTabs.length > 0;
-    } catch {
-      tabsQueued = true;
-    }
+    const tabResult = await ensureRequiredTabs(auth, deps, masterSheetId);
+    tabsEnsured = true;
+    missingTabs = tabResult.missing || [];
   }
 
   const folderPlacement =
@@ -300,28 +190,6 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
     folderPlacementOk,
   };
 
-  const registryCache = await rebuildRegistryCache(auth, deps, context);
-  const { queued: backgroundJobs } = queuePostResolveBackgroundJobs(deps, {
-    ...context,
-    requestedBy: options.requestedBy,
-  });
-
-  if (tabsQueued && typeof deps.enqueueJob === "function") {
-    deps.enqueueJob({
-      type: "complete_company_setup",
-      companyId: folderId,
-      requestedBy: trim(options.requestedBy || "folder_resolver"),
-      payload: {
-        workspaceId: folderId,
-        companyFolderId: folderId,
-        masterSheetId,
-        companyName,
-        ensureRequiredTabs: true,
-      },
-    });
-    backgroundJobs.push("complete_company_setup");
-  }
-
   return {
     ok: true,
     companyId: folderId,
@@ -336,11 +204,9 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
       ? COMPANY_READY_INVITE_MESSAGE
       : folderPlacement.userMessage || "Company folder is not under Live Companies.",
     reasonCode: folderPlacementOk ? undefined : folderPlacement.reasonCode,
-    tabsQueued,
+    tabsEnsured,
     missingTabs,
     masterSheetCreated: Boolean(masterSheet.created),
-    registryCache,
-    backgroundJobs,
     usable: isCompanyWorkspaceUsable(context),
     folderPlacementOk,
     folderPlacement,
@@ -374,9 +240,7 @@ export function installCompanyFolderResolverRoutes(app, deps) {
       );
       try {
         const result = await resolveCompanyFromFolder(authed, deps, companyFolderId, {
-          companyName: trim(req.body?.companyName),
-          masterSheetId: trim(req.body?.masterSheetId),
-          ensureTabsSync: req.body?.ensureTabsSync === true,
+          ensureTabsSync: req.body?.ensureTabsSync !== false,
           requestedBy: trim(req.body?.requestedBy || "godmode"),
         });
         const status = result.ok ? 200 : result.reasonCode === "GOOGLE_NOT_CONNECTED" ? 401 : 400;
@@ -420,7 +284,6 @@ export function installCompanyFolderResolverRoutes(app, deps) {
       }
 
       const companyFolderId = trim(req.params.companyFolderId);
-      const companyName = trim(req.query.companyName);
       const googleConnectedEmail = resolveGoogleConnectedEmail(deps);
       const companyFolderUrl = buildCompanyFolderUrl(companyFolderId);
       const operatorHint = folderShareOperatorHint(companyFolderId, deps);
@@ -455,7 +318,7 @@ export function installCompanyFolderResolverRoutes(app, deps) {
 
         const discovered = await discoverCompanyMasterSheetInFolder(drive, {
           companyRootFolderId: companyFolderId,
-          companyName: companyName || folderName,
+          companyName: cleanCompanyNameFromFolder(folderName),
         });
 
         const workbookFound = Boolean(discovered?.masterSheetId);
@@ -463,10 +326,10 @@ export function installCompanyFolderResolverRoutes(app, deps) {
           ok: workbookFound,
           companyFolderId,
           companyFolderUrl,
-          companyName: companyName || folderName || undefined,
+          companyName: cleanCompanyNameFromFolder(folderName) || undefined,
           googleConnectedEmail: googleConnectedEmail || undefined,
           folderReadable,
-          reasonCode: workbookFound ? undefined : discovered?.source === "non_native_workbook" ? "WORKBOOK_NOT_FOUND" : "WORKBOOK_NOT_FOUND",
+          reasonCode: workbookFound ? undefined : "WORKBOOK_NOT_FOUND",
           discovered,
           operatorHint: workbookFound ? undefined : operatorHint || undefined,
           userMessage: workbookFound

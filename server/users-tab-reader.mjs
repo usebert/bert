@@ -2,6 +2,7 @@
  * Company workbook Users tab resolution and reads — legacy tab names, header repair, error surfacing.
  */
 import { classifyGoogleSheetsAccessError } from "./ensure-required-tabs.mjs";
+import { ensureTabColumns, getTabValues, rowsToRecords } from "./workbook-service.mjs";
 import { USERS_TAB, USERS_TAB_COLUMNS, USERS_TAB_MINIMUM_HEADERS } from "./users-tab-constants.mjs";
 import {
   isShiftedLegacyUsersRow,
@@ -29,16 +30,8 @@ function safeLower(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-function rowsToRecords(values) {
-  const rows = Array.isArray(values) ? values : [];
-  if (rows.length === 0) {
-    return [];
-  }
-  const headers = rows[0].map((value, index) => String(value || `Column ${index + 1}`).trim());
-  return rows
-    .slice(1)
-    .filter((row) => row.some((cell) => String(cell || "").trim()))
-    .map((row) => normalizeUsersTabRowObject(buildUsersTabRowObject(headers, row)));
+function rowsToRecordsLocal(values) {
+  return rowsToRecords(values);
 }
 
 function extractGoogleError(error) {
@@ -143,8 +136,8 @@ export async function resolveUsersTab(auth, spreadsheetId, deps, options = {}) {
     throw error;
   }
 
-  const { google, withSheetsQuotaRetry, ensureColumns } = deps;
-  if (!google?.sheets || typeof ensureColumns !== "function") {
+  const { google, withSheetsQuotaRetry } = deps;
+  if (!google?.sheets) {
     const error = new Error("Users tab reader dependencies are not configured.");
     error.code = "USERS_TAB_READ_FAILED";
     throw error;
@@ -200,7 +193,7 @@ export async function resolveUsersTab(auth, spreadsheetId, deps, options = {}) {
   let headers = USERS_TAB_ENSURE_HEADERS;
 
   try {
-    const columnResult = await ensureColumns(auth, sheetId, tabTitle, USERS_TAB_ENSURE_HEADERS);
+    const columnResult = await ensureTabColumns(auth, deps, sheetId, tabTitle, USERS_TAB_ENSURE_HEADERS);
     addedHeaders = columnResult.addedColumns || [];
     headers = columnResult.headers || USERS_TAB_ENSURE_HEADERS;
   } catch (error) {
@@ -244,14 +237,10 @@ export async function readCompanyUsers(auth, spreadsheetId, deps, options = {}) 
   const tabTitle = resolved.tabTitle || USERS_TAB;
 
   try {
-    const response = await withSheetsQuotaRetry(() =>
-      sheets.spreadsheets.values.get({
-        spreadsheetId: resolved.spreadsheetId || spreadsheetId,
-        range: `${tabTitle}!A1:ZZ5000`,
-      }),
+    const rawValues = await getTabValues(auth, deps, resolved.spreadsheetId || spreadsheetId, tabTitle);
+    const records = sanitizeUsersTabRecords(
+      rowsToRecordsLocal(rawValues).map((row) => normalizeUsersTabRowObject(row)),
     );
-    const rawValues = response.data.values || [];
-    const records = sanitizeUsersTabRecords(rowsToRecords(rawValues));
     return {
       ok: true,
       records,
@@ -310,12 +299,12 @@ export async function repairUsersTab(auth, spreadsheetId, deps, options = {}) {
  */
 export async function repairUsersTabSchema(auth, spreadsheetId, deps, options = {}) {
   const resolved = await resolveUsersTab(auth, spreadsheetId, deps, { createIfMissing: true });
-  const { google, withSheetsQuotaRetry, ensureColumns, getTabValues } = deps;
+  const { google, withSheetsQuotaRetry } = deps;
   const tabTitle = resolved.tabTitle || USERS_TAB_CANONICAL;
   const ensureHeaders = [...new Set([...USERS_TAB_MINIMUM_HEADERS, ...USERS_TAB_COLUMNS])];
-  await ensureColumns(auth, spreadsheetId, tabTitle, ensureHeaders);
+  await ensureTabColumns(auth, deps, spreadsheetId, tabTitle, ensureHeaders);
 
-  const rows = await getTabValues(auth, spreadsheetId, tabTitle);
+  const rows = await getTabValues(auth, deps, spreadsheetId, tabTitle);
   if (!rows.length) {
     return {
       ok: true,

@@ -118,7 +118,13 @@ import {
   installCompanyFolderPlacementRoutes,
   rejectIfCompanyFolderNotUnderCompaniesRoot,
 } from "./company-folder-placement.mjs";
-import { installCompanyFolderResolverRoutes, resolveCompanyFromFolder } from "./company-folder-resolver.mjs";
+import { installCompanyFolderResolverRoutes, resolveCompanyFromFolder } from "./company-service.mjs";
+import {
+  rowsToRecords as workbookRowsToRecords,
+  getTabValues as workbookGetTabValues,
+  ensureTabExists as workbookEnsureTabExists,
+  ensureTabColumns as workbookEnsureTabColumns,
+} from "./workbook-service.mjs";
 import { installGodmodeRegistryActionRoutes, relinkCompanyRegistryForWorkspace } from "./godmode-registry-actions.mjs";
 import { createBackgroundJobsService } from "./background-jobs-service.mjs";
 import { BACKGROUND_INVITE_CREATED_MESSAGE } from "../shared/background-jobs.mjs";
@@ -3083,22 +3089,12 @@ async function inspectCompanyFolder(auth, folderId) {
   };
 }
 
-function rowsToRecords(values) {
-  const rows = values || [];
-  if (rows.length === 0) {
-    return [];
-  }
+function getWorkbookServiceDeps() {
+  return { google, withSheetsQuotaRetry, safeLower, getWorkbook };
+}
 
-  const headers = rows[0].map((value, index) => String(value || `Column ${index + 1}`).trim());
-  return rows
-    .slice(1)
-    .filter((row) => row.some((cell) => String(cell || "").trim()))
-    .map((row) =>
-      headers.reduce((accumulator, header, index) => {
-        accumulator[header] = String(row[index] || "").trim();
-        return accumulator;
-      }, {}),
-    );
+function rowsToRecords(values) {
+  return workbookRowsToRecords(values);
 }
 
 function ensureSheetTab(workbook, tabName) {
@@ -3137,18 +3133,7 @@ async function getWorkbook(auth, spreadsheetId) {
 }
 
 async function getTabValues(auth, spreadsheetId, tabName, range = "A1:ZZ5000") {
-  const sheets = google.sheets({ version: "v4", auth });
-  try {
-    const response = await withSheetsQuotaRetry(() =>
-      sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: `${tabName}!${range}`,
-      }),
-    );
-    return response.data.values || [];
-  } catch {
-    return [];
-  }
+  return workbookGetTabValues(auth, getWorkbookServiceDeps(), spreadsheetId, tabName, range);
 }
 
 async function createBackupSheets(auth, spreadsheetId, tabNames) {
@@ -3180,76 +3165,11 @@ async function createBackupSheets(auth, spreadsheetId, tabNames) {
 
 /** When `existingWorkbook` is set, skips an extra spreadsheets.get for that tab check. */
 async function ensureTabExists(auth, spreadsheetId, tabName, existingWorkbook = null) {
-  let workbook = existingWorkbook ?? (await getWorkbook(auth, spreadsheetId));
-  if (ensureSheetTab(workbook, tabName)) {
-    return { added: false, workbook };
-  }
-
-  const sheets = google.sheets({ version: "v4", auth });
-  await withSheetsQuotaRetry(() =>
-    sheets.spreadsheets.batchUpdate({
-      spreadsheetId,
-      requestBody: {
-        requests: [{ addSheet: { properties: { title: tabName } } }],
-      },
-    }),
-  );
-
-  workbook = await getWorkbook(auth, spreadsheetId);
-  return { added: true, workbook };
+  return workbookEnsureTabExists(auth, getWorkbookServiceDeps(), spreadsheetId, tabName, existingWorkbook);
 }
 
 async function ensureColumns(auth, spreadsheetId, tabName, expectedHeaders) {
-  await ensureTabExists(auth, spreadsheetId, tabName, null);
-
-  const sheets = google.sheets({ version: "v4", auth });
-  const rows = await getTabValues(auth, spreadsheetId, tabName);
-  const existingHeaders = rows[0] || [];
-  const missing = expectedHeaders.filter(
-    (header) => !existingHeaders.some((existing) => safeLower(existing) === safeLower(header)),
-  );
-
-  if (rows.length === 0) {
-    await withSheetsQuotaRetry(() =>
-      sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: `${tabName}!A1`,
-        valueInputOption: "USER_ENTERED",
-        requestBody: { values: [expectedHeaders] },
-      }),
-    );
-    return { addedColumns: [...expectedHeaders], headers: expectedHeaders };
-  }
-
-  if (missing.length === 0) {
-    return { addedColumns: [], headers: existingHeaders };
-  }
-
-  const nextHeaders = [...existingHeaders, ...missing];
-  const remainingRows = rows.slice(1).map((row) => {
-    const padded = [...row];
-    while (padded.length < nextHeaders.length) {
-      padded.push("");
-    }
-    return padded;
-  });
-
-  await withSheetsQuotaRetry(() =>
-    sheets.spreadsheets.values.clear({
-      spreadsheetId,
-      range: `${tabName}!A:ZZ`,
-    }),
-  );
-  await withSheetsQuotaRetry(() =>
-    sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `${tabName}!A1`,
-      valueInputOption: "USER_ENTERED",
-      requestBody: { values: [nextHeaders, ...remainingRows] },
-    }),
-  );
-
-  return { addedColumns: missing, headers: nextHeaders };
+  return workbookEnsureTabColumns(auth, getWorkbookServiceDeps(), spreadsheetId, tabName, expectedHeaders);
 }
 
 async function getConfig(auth, spreadsheetId) {
@@ -7769,11 +7689,9 @@ installCompanyFolderResolverRoutes(app, {
   requireGoogleWorkspaceSession,
   requireMasterOnlyActor,
   google,
+  withSheetsQuotaRetry,
   sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
-  queueCompanySetupJobs: backgroundJobs.queueCompanySetupJobs.bind(backgroundJobs),
-  queueCompanyHealthCheckIfReady: backgroundJobs.queueCompanyHealthCheckIfReady.bind(backgroundJobs),
-  enqueueJob: backgroundJobs.enqueueJob.bind(backgroundJobs),
-  ...getCompanyWorkspaceRegistryDeps(),
+  ...getWorkbookServiceDeps(),
 });
 
 installCompanyFolderPlacementRoutes(app, {
