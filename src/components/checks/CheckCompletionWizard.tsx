@@ -33,6 +33,8 @@ export function CheckCompletionWizard({
   onRemoveEvidence,
   onSaveAndExit,
   onSubmit,
+  submitting = false,
+  submitError,
 }: CheckCompletionWizardProps) {
   const reducedMotion = usePrefersReducedMotion();
   const [phase, setPhase] = useState<CheckCompletionPhase>("questions");
@@ -77,6 +79,8 @@ export function CheckCompletionWizard({
           evidence={evidence}
           canSubmit={canSubmitCheck(audit, draftSlice)}
           offlineMode={offlineMode}
+          submitting={submitting}
+          submitError={submitError}
           onJumpToQuestion={(index) => {
             onQuestionIndexChange(index);
             setPhase("questions");

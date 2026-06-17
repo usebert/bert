@@ -17,6 +17,8 @@ export function CheckCompletionReview({
   evidence,
   canSubmit,
   offlineMode,
+  submitting = false,
+  submitError,
   onJumpToQuestion,
   onBack,
   onSubmit,
@@ -38,6 +40,14 @@ export function CheckCompletionReview({
           <p className="mt-3 text-sm font-medium text-amber-700">
             You are offline. Submit check will queue on this tablet until internet returns.
           </p>
+        ) : null}
+        {submitError ? (
+          <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">
+            {submitError}
+          </p>
+        ) : null}
+        {submitting ? (
+          <p className="mt-3 text-sm font-medium text-slate-600">Submitting your check…</p>
         ) : null}
       </section>
 
@@ -118,13 +128,13 @@ export function CheckCompletionReview({
           <AnimatedButton
             type="button"
             onClick={onSubmit}
-            disabled={!canSubmit}
+            disabled={!canSubmit || submitting}
             className={[
               "min-h-[56px] flex-[1.4] rounded-2xl text-base font-semibold text-white",
-              canSubmit ? "bg-slate-900" : "bg-slate-300",
+              canSubmit && !submitting ? "bg-slate-900" : "bg-slate-300",
             ].join(" ")}
           >
-            Submit check
+            {submitting ? "Submitting…" : "Submit check"}
           </AnimatedButton>
         </div>
       </div>

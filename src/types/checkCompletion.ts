@@ -23,6 +23,8 @@ export type CheckCompletionWizardProps = {
   onRemoveEvidence: (questionId: string, evidenceId: string) => void;
   onSaveAndExit: () => void;
   onSubmit: () => void;
+  submitting?: boolean;
+  submitError?: string;
 };
 
 export type CheckQuestionControlsProps = {
@@ -51,4 +53,6 @@ export type CheckCompletionReviewProps = {
   onJumpToQuestion: (index: number) => void;
   onBack: () => void;
   onSubmit: () => void;
+  submitting?: boolean;
+  submitError?: string;
 };

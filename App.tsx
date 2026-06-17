@@ -331,6 +331,10 @@ import {
   ASSIGNED_CHECKS_LOAD_TIMEOUT_MESSAGE,
   ASSIGNED_CHECKS_LOAD_TIMEOUT_MS,
   ASSIGNED_CHECKS_USER_MESSAGE,
+  CHECK_COMPLETION_TIMEOUT_MESSAGE,
+  CHECK_COMPLETION_TIMEOUT_MS,
+  CHECK_COMPLETION_USER_MESSAGE,
+  completeCheck,
   fetchAssignedChecks,
 } from "./src/services/checkService";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
@@ -1108,6 +1112,13 @@ type AuditCompletionSummaryState = {
   photosCaptured: number;
   syncTone: "green" | "amber" | "red";
   syncLabel: string;
+  resultId?: string;
+};
+
+type ActiveAssignedCheckContext = {
+  scheduleId: string;
+  auditId: string;
+  companyFolderId: string;
 };
 
 const DEFAULT_APP_DISPLAY_NAME = "bert.";
@@ -3545,7 +3556,13 @@ function App() {
     schedules: ManagedSchedule[];
     loading: boolean;
     loadError?: string;
+    companyFolderId?: string;
+    masterSheetId?: string;
   }>({ schedules: [], loading: false });
+  const [activeAssignedCheck, setActiveAssignedCheck] = useState<ActiveAssignedCheckContext | null>(null);
+  const [checkSubmitState, setCheckSubmitState] = useState<{ submitting: boolean; error?: string }>({
+    submitting: false,
+  });
   const [scheduleAssigneesState, setScheduleAssigneesState] = useState<{
     assignees: ScheduleAssigneeOption[];
     loading: boolean;
@@ -5143,6 +5160,36 @@ function App() {
     activeCompanyContext.companyFolderId,
   ]);
 
+  const assignedCheckByAuditId = useMemo(() => {
+    const map = new Map<string, ActiveAssignedCheckContext>();
+    const sessionCompanyFolderId = String(
+      assignedChecksState.companyFolderId || activeCompanyContext.companyFolderId || "",
+    ).trim();
+    assignedChecksState.schedules.forEach((schedule) => {
+      const scheduleId = String(schedule.id || "").trim();
+      if (!scheduleId) {
+        return;
+      }
+      const scheduleCompanyFolderId = String(schedule.companyFolderId || sessionCompanyFolderId).trim();
+      schedule.audits.forEach((scheduleAudit) => {
+        const auditId = String(scheduleAudit.auditId || "").trim();
+        if (!auditId) {
+          return;
+        }
+        map.set(auditId, {
+          scheduleId,
+          auditId,
+          companyFolderId: scheduleCompanyFolderId || sessionCompanyFolderId,
+        });
+      });
+    });
+    return map;
+  }, [
+    assignedChecksState.schedules,
+    assignedChecksState.companyFolderId,
+    activeCompanyContext.companyFolderId,
+  ]);
+
   const dashboardNextActionInput = useMemo((): DashboardSummaryForNextAction | null => {
     if (!currentUser) return null;
     const actions = visibleActions;
@@ -5417,6 +5464,8 @@ function App() {
         setAssignedChecksState({
           schedules: result.schedules as ManagedSchedule[],
           loading: false,
+          companyFolderId: result.companyFolderId || result.companyId,
+          masterSheetId: result.masterSheetId,
         });
       } catch (error) {
         if (cancelled) {
@@ -9475,8 +9524,11 @@ function App() {
   };
 
   const startAudit = (auditId: string) => {
-    let audit = audits.find((item) => item.id === auditId);
-    if (!audit) {
+    const auditorCompleting = Boolean(currentUser && canCompleteAuditAsAuditor(currentUser.role));
+    let audit = auditorCompleting
+      ? assignedAudits.find((item) => item.id === auditId)
+      : audits.find((item) => item.id === auditId);
+    if (!audit && !auditorCompleting) {
       const template = templates.find((item) => item.id === auditId && item.active);
       if (template) {
         const siteArea = selectedSite?.name || sites.find((site) => site.active)?.name || "Main site";
@@ -9490,7 +9542,19 @@ function App() {
       }
     }
     if (!audit) {
+      if (auditorCompleting) {
+        pushToast("Check not available", "This check is not assigned to you from My Checks.", "warning");
+      }
       return;
+    }
+    if (auditorCompleting) {
+      const assigned = assignedCheckByAuditId.get(auditId);
+      if (!assigned) {
+        pushToast("Check not available", "This check is not assigned to you from My Checks.", "warning");
+        return;
+      }
+      setActiveAssignedCheck(assigned);
+      setCheckSubmitState({ submitting: false });
     }
     if (isAuditCompleted(audit) && !drafts[auditId]) {
       pushToast("Audit already completed", `${audit.name} has already been submitted and moved to history.`, "warning");
@@ -10021,13 +10085,43 @@ function App() {
   };
 
   const completeAuditModeFlow = () => {
-    if (!activeAudit || !currentUser) return;
+    if (!activeAudit || !currentUser || checkSubmitState.submitting) return;
     const syncedResponses = syncTextResponsesToAnswers(activeAudit, responses, textResponses, evidence);
     const mergedNotes = mergeTextIntoNotes(activeAudit, syncedResponses, textResponses, notes);
     const stamp = formatStamp();
     const issuesFound = activeAudit.questions.filter((question) => syncedResponses[question.id] === "fail" || syncedResponses[question.id] === "nc").length;
     const photosCaptured = Object.values(evidence).reduce((count, items) => count + items.length, 0);
+    const assignedContext = activeAssignedCheck?.auditId === activeAudit.id ? activeAssignedCheck : assignedCheckByAuditId.get(activeAudit.id);
     let actionsCreated = 0;
+
+    const finishCompletionSummary = (input: {
+      issues: number;
+      syncTone: AuditCompletionSummaryState["syncTone"];
+      syncLabel: string;
+      resultId?: string;
+    }) => {
+      setDrafts((current) => {
+        const nextDrafts = { ...current };
+        delete nextDrafts[activeAudit.id];
+        return nextDrafts;
+      });
+      setAuditCompletionSummary({
+        auditId: activeAudit.id,
+        auditName: activeAudit.name,
+        questionsAnswered: Object.keys(syncedResponses).length,
+        issuesFound: input.issues,
+        actionsCreated,
+        photosCaptured,
+        syncTone: input.syncTone,
+        syncLabel: input.syncLabel,
+        resultId: input.resultId,
+      });
+      notifySelectedManagersForNonCompliance(activeAudit, currentUser.name, input.issues, input.syncTone !== "green");
+      setActiveAuditId(null);
+      setActiveAssignedCheck(null);
+      setCheckSubmitState({ submitting: false });
+      setTextResponses({});
+    };
 
     if (offlineMode) {
       const localSubmissionId = `offline-${activeAudit.id}-${Date.now()}`;
@@ -10046,9 +10140,9 @@ function App() {
         localSubmissionId,
         deviceId: readOrCreateTabletDeviceId(),
         userId: currentUser.username,
-        companyFolderId: selectedFolderId || undefined,
-        masterSheetId: companySheetSync?.sheetId || undefined,
-        scheduleId: undefined,
+        companyFolderId: assignedContext?.companyFolderId || selectedFolderId || undefined,
+        masterSheetId: assignedChecksState.masterSheetId || companySheetSync?.sheetId || undefined,
+        scheduleId: assignedContext?.scheduleId,
         checkId: activeAudit.id,
         templateId: activeAudit.templateVersion || undefined,
         areaId: activeAudit.siteArea || undefined,
@@ -10067,70 +10161,108 @@ function App() {
       };
       setOfflineQueue((current) => [queuedSubmission, ...current]);
       void tabletOfflineService.upsertSubmission(queuedSubmission).catch(() => undefined);
-      setDrafts((current) => {
-        const nextDrafts = { ...current };
-        delete nextDrafts[activeAudit.id];
-        return nextDrafts;
-      });
-      setAuditCompletionSummary({
-        auditId: activeAudit.id,
-        auditName: activeAudit.name,
-        questionsAnswered: Object.keys(syncedResponses).length,
-        issuesFound,
-        actionsCreated,
-        photosCaptured,
+      finishCompletionSummary({
+        issues: issuesFound,
         syncTone: "amber",
         syncLabel: "Audit complete / not synced",
       });
-      notifySelectedManagersForNonCompliance(activeAudit, currentUser.name, issuesFound, true);
-      setActiveAuditId(null);
-      setTextResponses({});
       return;
     }
 
-    const applied = applyAuditSubmission({
-      audit: activeAudit,
-      responseMap: syncedResponses,
-      noteMap: mergedNotes,
-      evidenceMap: evidence,
-      submittedBy: currentUser.name,
-      submittedByUser: currentUser,
-      completedAt: stamp,
-    });
-    actionsCreated = applied.createdActions.length;
-    queueSyncItem({
-      itemType: "auditSubmission",
-      localId: activeAudit.id,
-      status: "Pending Sync",
-      createdAt: stamp,
-      retryCount: 0,
-      lastError: "",
-      payload: {
-        auditId: activeAudit.id,
-        auditName: activeAudit.name,
-        companyFolderId: selectedFolderId,
-        syncBundle: applied.syncBundle,
-        createdActions: applied.createdActions,
-      },
-    });
-    setDrafts((current) => {
-      const nextDrafts = { ...current };
-      delete nextDrafts[activeAudit.id];
-      return nextDrafts;
-    });
-    setAuditCompletionSummary({
-      auditId: activeAudit.id,
-      auditName: activeAudit.name,
-      questionsAnswered: Object.keys(syncedResponses).length,
-      issuesFound: applied.findingsCount,
-      actionsCreated,
-      photosCaptured,
-      syncTone: googleConnected && !offlineMode ? "green" : "amber",
-      syncLabel: googleConnected && !offlineMode ? "Check saved successfully." : "Saved on this device",
-    });
-    notifySelectedManagersForNonCompliance(activeAudit, currentUser.name, issuesFound, false);
-    setActiveAuditId(null);
-    setTextResponses({});
+    if (!assignedContext) {
+      setCheckSubmitState({
+        submitting: false,
+        error: "This check is not assigned to you from My Checks.",
+      });
+      pushToast("Check not available", "This check is not assigned to you from My Checks.", "warning");
+      return;
+    }
+
+    const findings = activeAudit.questions
+      .filter((question) => syncedResponses[question.id] === "fail" || syncedResponses[question.id] === "nc")
+      .map((question) => ({
+        questionId: question.id,
+        questionText: question.text,
+        answer: syncedResponses[question.id],
+        note: mergedNotes[question.id] || "",
+      }));
+    const evidenceRefs = Object.entries(evidence).flatMap(([questionId, items]) =>
+      items.map((item) => ({
+        questionId,
+        evidenceId: item.id,
+        name: item.name,
+        mimeType: item.mimeType || "application/octet-stream",
+      })),
+    );
+
+    setCheckSubmitState({ submitting: true, error: undefined });
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      controller.abort(new DOMException("Check completion timed out", "TimeoutError"));
+    }, CHECK_COMPLETION_TIMEOUT_MS);
+
+    void (async () => {
+      try {
+        const result = await completeCheck(
+          {
+            companyContext: {
+              companyId: assignedContext.companyFolderId,
+              companyFolderId: assignedContext.companyFolderId,
+              companyName: activeCompanyContext.companyName,
+              masterSheetId: assignedChecksState.masterSheetId || activeCompanyContext.masterSheetId,
+            },
+            scheduleId: assignedContext.scheduleId,
+            auditId: activeAudit.id,
+            auditName: activeAudit.name,
+            completedBy: currentUser.name,
+            status: "completed",
+            answers: syncedResponses,
+            findings,
+            evidenceRefs,
+            localSubmissionId: `check-${activeAudit.id}-${Date.now()}`,
+          },
+          { signal: controller.signal },
+        );
+
+        if (!result.ok) {
+          const message = result.error || CHECK_COMPLETION_USER_MESSAGE;
+          setCheckSubmitState({ submitting: false, error: message });
+          pushToast("Could not submit check", message, "warning");
+          return;
+        }
+
+        finishCompletionSummary({
+          issues: issuesFound,
+          syncTone: "green",
+          syncLabel: result.resultId
+            ? `Check saved to AuditResults (${result.resultId}).`
+            : "Check saved to AuditResults.",
+          resultId: result.resultId,
+        });
+        pushToast(
+          "Check submitted",
+          issuesFound > 0
+            ? `${activeAudit.name} is recorded. ${issuesFound} issue${issuesFound === 1 ? "" : "s"} flagged.`
+            : `${activeAudit.name} is recorded with no issues found.`,
+          issuesFound > 0 ? "warning" : "success",
+        );
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          const timedOut = error.message.includes("timed out") || error.message === "TimeoutError";
+          const message = timedOut ? CHECK_COMPLETION_TIMEOUT_MESSAGE : CHECK_COMPLETION_USER_MESSAGE;
+          setCheckSubmitState({ submitting: false, error: message });
+          if (timedOut) {
+            pushToast("Submit timed out", message, "warning");
+          }
+          return;
+        }
+        const message = error instanceof Error ? error.message : CHECK_COMPLETION_USER_MESSAGE;
+        setCheckSubmitState({ submitting: false, error: message });
+        pushToast("Could not submit check", message, "warning");
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    })();
   };
 
   const handleAuditModeAnswer = (question: AuditQuestion, answer: Answer) => {
@@ -15123,6 +15255,8 @@ function App() {
                 }
                 onSaveAndExit={handleAuditModeSaveAndExit}
                 onSubmit={completeAuditModeFlow}
+                submitting={checkSubmitState.submitting}
+                submitError={checkSubmitState.error}
               />
             )}
 
