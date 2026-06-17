@@ -47,7 +47,7 @@ assert(authService.includes("authenticateCompanyUserLogin"), "static: performCom
 assert(!authService.includes("verifyPasswordForEntry(passwordEntry"), "static: login no auth-index password verify");
 assert(resetModule.includes("readUserAuthRowByEmail"), "static: reset reads Users tab");
 assert(resetModule.includes("resolveCompanyFromFolder"), "static: reset folder-first resolve");
-assert(!sheetFlow.includes("cache_only"), "static: canLoginCompanyUser no cache_only fallback");
+assert(sheetFlow.includes('reason: "cache_only"'), "static: cache-only login denied");
 
 function createMockUsersTabStore(initial = {}) {
   const store = new Map(Object.entries(initial));

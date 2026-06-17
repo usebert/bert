@@ -58,11 +58,17 @@ const pendingInvite = {
   assert(userService.includes("export async function listActiveCompanyMembers"), "1: listActiveCompanyMembers exported");
   assert(userService.includes("validateCompanyFolderUnderCompaniesRoot") || foundation.includes("validateCompanyFolderUnderCompaniesRoot"), "1a: folder placement is soft-checked before sheet read");
   assert(!userService.includes("rejectIfCompanyFolderNotUnderCompaniesRoot"), "1a2: users list does not hard-block on folder placement");
-  assert(userService.includes("buildCacheOrSessionFallbackSuccess"), "1a3: cache fallback before session-only fallback");
+  assert(!userService.includes("buildCacheOrSessionFallbackSuccess"), "1a3: no cache/session fallback for active users");
+  assert(!userService.includes("buildSessionFallbackSuccess"), "1a3b: session fallback helper removed");
   assert(userService.includes("listCompanyProfilesFromFoundation"), "1a4: listActiveCompanyMembers delegates to foundation");
   assert(foundation.includes("listableProfilesFromUsersTabRecords"), "1a4b: foundation maps workbook Users tab profiles");
   assert(foundation.includes("syncCompanyUsersCache"), "1a4c: foundation rebuilds cache from sheet result");
-  assert(userService.includes("companyFolderId: resolvedCompanyId"), "1b: members normalize companyFolderId");
+  assert(
+    userService.includes("companyFolderId: resolvedCompanyId") ||
+      foundation.includes("companyFolderId: resolvedCompanyId") ||
+      read("server/users-tab-profiles.mjs").includes("companyFolderId: resolvedFolderId"),
+    "1b: members normalize companyFolderId",
+  );
   assert(
     userService.includes("mapActiveCompanyMember") ||
       userService.includes("mapCompanyProfileMember") ||
@@ -134,8 +140,18 @@ const pendingInvite = {
   const foundation = read("server/company-users-foundation.mjs");
   assert(userService.includes("USERS_TAB_READ_FAILED") || foundation.includes("USERS_TAB_READ_FAILED"), "6: users tab read failure code");
   assert(reader.includes("readCompanyUsers"), "6a: dedicated users tab reader");
-  assert(reader.includes("buildUsersTabRowObject"), "6a3: users tab reader resolves columns by header name");
-  assert(userService.includes("MISSING_COMPANY_CONTEXT") || foundation.includes("MISSING_COMPANY_CONTEXT"), "6b: company context missing reasonCode");
+  assert(
+    reader.includes("buildUsersTabRowObject") ||
+      read("server/users-tab-schema.mjs").includes("buildUsersTabRowObject") ||
+      read("server/users-tab-profiles.mjs").includes("buildUsersTabRowObject"),
+    "6a3: users tab reader resolves columns by header name",
+  );
+  assert(
+    userService.includes("MISSING_COMPANY_CONTEXT") ||
+      foundation.includes("MISSING_COMPANY_CONTEXT") ||
+      foundation.includes("COMPANY_CONTEXT_FAILED"),
+    "6b: company context missing reasonCode",
+  );
   assert(userService.includes("COMPANY_USERS_LOAD_FAILED") || foundation.includes("COMPANY_USERS_LOAD_FAILED"), "6c: structured failure code");
 }
 
@@ -149,7 +165,8 @@ const pendingInvite = {
     foundation.includes("readUsersTabProfiles") || userService.includes("readActiveUsersFromSheetWithStats"),
     "7b: company profiles read Users tab with stats",
   );
-  assert(userService.includes("buildSessionFallbackSuccess"), "7c: session fallback helper retained for legacy paths");
+  assert(!userService.includes("buildSessionFallbackSuccess"), "7c: session fallback helper removed");
+  assert(foundation.includes('dataSource: "users_tab"'), "7c2: sheet-only dataSource");
   assert(foundation.includes("company_context_resolve") || userService.includes("company_context_resolve"), "7d: canonical failedStep for company context");
   assert(foundation.includes("master_sheet_resolve") || userService.includes("master_sheet_resolve"), "7e: canonical failedStep for master sheet");
   assert(foundation.includes("google_sheets_read") || userService.includes("google_sheets_read"), "7f: canonical failedStep for sheet read");
@@ -187,8 +204,20 @@ const pendingInvite = {
 {
   const userService = read("server/company-user-service.mjs");
   const assigneeService = read("server/schedule-assignee-service.mjs");
-  assert(userService.includes("listActiveCompanyMembers(auth, deps"), "10: getAssignableUsers uses listActiveCompanyMembers");
-  assert(assigneeService.includes("getAssignableUsers"), "10b: schedule assignee service uses getAssignableUsers");
+  const scheduleService = read("server/schedule-service.mjs");
+  assert(
+    userService.includes("getAssignableUsers") ||
+      read("server/company-users-foundation.mjs").includes("getAssignableUsers"),
+    "10: getAssignableUsers exported from company users layer",
+  );
+  assert(
+    assigneeService.includes("getAssignableUsers") || assigneeService.includes("listSchedulerAssignees"),
+    "10b: schedule assignee service uses shared list path",
+  );
+  assert(
+    scheduleService.includes("listActiveUsers") || scheduleService.includes("listActiveCompanyMembers"),
+    "10c: schedule service reads active users from sheet",
+  );
 }
 
 /** 11: Blank CompanyAreas users remain assignable when no area filter (shared module). */

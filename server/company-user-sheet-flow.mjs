@@ -26,6 +26,23 @@ function resolveCompanyUsersDeps(deps) {
   return deps || {};
 }
 
+function isCacheOnlyCompanyUser(deps, email, companyContext = {}) {
+  const cache = deps?.companyUsersCache;
+  if (!cache) {
+    return false;
+  }
+  const emailNorm = safeLower(email);
+  const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
+  const masterSheetId = String(companyContext.masterSheetId || "").trim();
+  if (companyFolderId && typeof cache.isUserInCache === "function") {
+    return cache.isUserInCache(companyFolderId, emailNorm);
+  }
+  if (masterSheetId && typeof cache.isUserInCacheByMasterSheet === "function") {
+    return cache.isUserInCacheByMasterSheet(masterSheetId, emailNorm);
+  }
+  return false;
+}
+
 async function readUsersTabRecords(auth, masterSheetId, deps, companyContext = {}) {
   const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
   const companyName = String(companyContext.companyName || "").trim();
@@ -136,6 +153,9 @@ export async function canLoginCompanyUser(auth, email, password, companyContext 
 
   const row = await findCompanyUsersTabRow(auth, masterSheetId, emailNorm, userDeps).catch(() => null);
   if (!row) {
+    if (isCacheOnlyCompanyUser(userDeps, emailNorm, { companyFolderId, masterSheetId })) {
+      return { ok: false, reason: "cache_only" };
+    }
     return { ok: false, reason: "user_not_found" };
   }
 
