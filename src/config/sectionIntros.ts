@@ -18,6 +18,7 @@ export const SECTION_INTROS = {
   auditorSubmit: "Report a problem or near miss from the field.",
   auditorHistory: "Checks and reports you have already sent.",
   results: "Completed checks saved from your company workbook.",
+  googleForms: "Live Google Forms stored in your company's Google Forms folder.",
   qmsReadiness: "Quality and safety records in one place.",
 } as const;
 

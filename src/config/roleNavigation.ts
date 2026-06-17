@@ -34,6 +34,7 @@ const MASTER_NAV: PresentedNavItem[] = [
   { id: "onboarding", label: "Company Onboarding", icon: "spark", adminPilotFocus: "companies" },
   { id: "users", label: "People", icon: "user", adminPilotFocus: "users" },
   { id: "schedules", label: "Templates", icon: "clock" },
+  { id: "googleForms", label: "Google Forms", icon: "note" },
   { id: "results", label: "Results", icon: "checklist" },
   { id: "reports", label: "Reports / Diagnostics", icon: "chart" },
   { id: "account", label: "Account", icon: "user" },
@@ -45,6 +46,7 @@ const COMPANY_ADMIN_NAV: PresentedNavItem[] = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
   { id: "users", label: "People", icon: "user", adminPilotFocus: "users" },
   { id: "schedules", label: "Schedules", icon: "clock" },
+  { id: "googleForms", label: "Google Forms", icon: "note" },
   { id: "audits", label: "Complete Work", icon: "clipboard" },
   { id: "results", label: "Results", icon: "checklist" },
   { id: "actions", label: "Actions", icon: "warningTriangle" },
@@ -198,6 +200,7 @@ const MASTER_COMPANY_SCOPED_SCREENS: NavItemId[] = [
   "invites",
   "admin",
   "schedules",
+  "googleForms",
   "results",
   "qmsReadiness",
 ];

@@ -18,6 +18,7 @@ export type RoutedScreen =
   | "setupInitial"
   | "audits"
   | "results"
+  | "googleForms"
   | "actions"
   | "nonConformance"
   | "incidents"

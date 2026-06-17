@@ -157,6 +157,10 @@ export function canAccessResults(role: Role) {
   return role === "Master" || role === "Admin" || role === "Manager";
 }
 
+export function canAccessGoogleForms(role: Role) {
+  return role === "Master" || role === "Admin";
+}
+
 export function canAccessReports(role: Role) {
   return role !== "Auditor";
 }
@@ -210,6 +214,7 @@ export function canRoleAccessNavItem(role: Role, itemId: NavItemId) {
   if (itemId === "qmsReadiness") return canAccessQmsReadinessNav(role);
   if (itemId === "reports") return canAccessReports(role) || canAccessPlatformDiagnosticsNav(role);
   if (itemId === "results") return canAccessResults(role);
+  if (itemId === "googleForms") return canAccessGoogleForms(role);
   if (itemId === "incidents") return canSubmitIncidents(role);
   if (itemId === "actions" || itemId === "nonConformance") return canAccessActions(role);
   if (itemId === "audits") return canAccessAuditsCentre(role) || canAccessFormsChecksNav(role) || role === "Auditor";

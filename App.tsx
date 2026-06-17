@@ -25,6 +25,7 @@ import {
   usesPilotOperatorNav,
   canAccessReports,
   canAccessResults,
+  canAccessGoogleForms,
   canAccessSchedulesScreen,
   canAccessQmsReadinessFull,
   canAccessQmsReadinessNav,
@@ -201,10 +202,16 @@ import {
 } from "./src/services/companyAuditMappingService";
 import { mergeAuditTemplatesFromSheet } from "./src/utils/mergeAuditTemplatesFromSheet";
 import {
-  companyFormsService,
   companyGoogleFormsStatusFromInspection,
+  COMPANY_GOOGLE_FORMS_LOAD_TIMEOUT_MESSAGE,
+  COMPANY_GOOGLE_FORMS_LOAD_TIMEOUT_MS,
+  COMPANY_GOOGLE_FORMS_SYNC_TIMEOUT_MESSAGE,
+  COMPANY_GOOGLE_FORMS_USER_MESSAGE,
+  fetchCompanyGoogleForms,
+  syncCompanyGoogleForms,
   type CompanyGoogleForm,
   type CompanyGoogleFormsDiagnostics,
+  type CompanyGoogleFormsLoadStatus,
 } from "./src/services/companyFormsService";
 import type { AreaAuditMapping } from "./src/utils/areaAuditMapping";
 import {
@@ -256,6 +263,7 @@ import { IncidentReportingScreen } from "./src/screens/IncidentReportingScreen";
 import { NonConformanceScreen } from "./src/screens/NonConformanceScreen";
 import { ReportsScreen } from "./src/screens/ReportsScreen";
 import { ResultsScreen } from "./src/screens/ResultsScreen";
+import { GoogleFormsScreen } from "./src/screens/GoogleFormsScreen";
 import { SchedulesScreen } from "./src/screens/SchedulesScreen";
 import { DocumentTrainingScreen } from "./src/screens/DocumentTrainingScreen";
 import { QmsReadinessScreen } from "./src/screens/QmsReadinessScreen";
@@ -3585,6 +3593,16 @@ function App() {
     loading: boolean;
     loadError?: string;
   }>({ resultId: null, result: null, loading: false });
+  const [companyGoogleFormsState, setCompanyGoogleFormsState] = useState<{
+    forms: CompanyGoogleForm[];
+    loading: boolean;
+    loadError?: string;
+    status: CompanyGoogleFormsLoadStatus;
+    companyFolderId?: string;
+    syncing: boolean;
+    syncError?: string;
+    syncMessage?: string;
+  }>({ forms: [], loading: false, status: "idle", syncing: false });
   const [activeAssignedCheck, setActiveAssignedCheck] = useState<ActiveAssignedCheckContext | null>(null);
   const [checkSubmitState, setCheckSubmitState] = useState<{ submitting: boolean; error?: string }>({
     submitting: false,
