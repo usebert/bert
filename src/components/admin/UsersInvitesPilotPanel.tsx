@@ -1,6 +1,10 @@
 import { useMemo, useState, type ComponentType } from "react";
 import type { Role } from "../../permissions";
 import {
+  COMPANY_INVITES_LOADING_MESSAGE,
+  COMPANY_INVITES_USER_MESSAGE,
+} from "../../services/companyInviteListService";
+import {
   COMPANY_MEMBERS_LOADING_MESSAGE,
   COMPANY_MEMBERS_USER_MESSAGE,
 } from "../../services/companyUserService";
@@ -347,6 +351,8 @@ export type UsersInvitesPilotPanelProps = Pick<
   | "inviteEmailInput"
   | "inviteRoleInput"
   | "invitedUsers"
+  | "pendingInvitesLoading"
+  | "pendingInvitesLoadError"
   | "reportUsers"
   | "activeCompanyMembers"
   | "activeMembersLoading"
@@ -422,6 +428,8 @@ export function UsersInvitesPilotPanel({
   inviteEmailInput,
   inviteRoleInput,
   invitedUsers,
+  pendingInvitesLoading = false,
+  pendingInvitesLoadError,
   reportUsers,
   activeCompanyMembers = [],
   activeMembersLoading = false,
@@ -643,11 +651,21 @@ export function UsersInvitesPilotPanel({
           title="Pending invites"
           subtitle="People who have been invited but have not finished setup yet."
         />
-        {pendingInvites.length === 0 ? (
+        {pendingInvitesLoadError && !pendingInvitesLoading ? (
+          <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
+            <p className="text-sm font-semibold text-rose-900">Could not load pending invites</p>
+            <p className="mt-1 text-sm text-rose-800">{pendingInvitesLoadError || COMPANY_INVITES_USER_MESSAGE}</p>
+          </div>
+        ) : null}
+        {pendingInvitesLoading && pendingInvites.length === 0 ? (
+          <div className="mt-3">
+            <EmptyPanel title={COMPANY_INVITES_LOADING_MESSAGE} text="Checking for invites that have not finished setup yet." />
+          </div>
+        ) : !pendingInvitesLoadError && pendingInvites.length === 0 ? (
           <div className="mt-3">
             <EmptyPanel title="No pending invites" text="New invites appear here after you send them." />
           </div>
-        ) : (
+        ) : pendingInvites.length === 0 ? null : (
           <div className="mt-3 space-y-2">
             {pendingInvites.map((invite) => (
               <UserInviteListRow
@@ -669,7 +687,7 @@ export function UsersInvitesPilotPanel({
           icon="user"
           eyebrow="Company"
           title="Company people"
-          subtitle="Everyone with a profile in the company workbook Users tab — invited, active, or inactive."
+          subtitle="Everyone with a profile in this company — active or inactive."
         />
         {activeMembersLoadError && !activeMembersLoading ? (
           <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
@@ -710,13 +728,13 @@ export function UsersInvitesPilotPanel({
         ) : null}
         {activeMembersLoading && activeMembers.length === 0 ? (
           <div className="mt-3">
-            <EmptyPanel title={COMPANY_MEMBERS_LOADING_MESSAGE} text="Reading the company workbook Users tab. This may take up to a minute on first load." />
+            <EmptyPanel title={COMPANY_MEMBERS_LOADING_MESSAGE} text="Loading company people from your workspace." />
           </div>
         ) : !activeMembersLoadError && activeMembers.length === 0 ? (
           <div className="mt-3">
             <EmptyPanel
               title="No company people yet"
-              text="Profiles from the company workbook Users tab appear here once someone is invited or added."
+              text="Company profiles appear here once someone is invited or added."
             />
           </div>
         ) : activeMembers.length === 0 ? null : (
@@ -754,7 +772,7 @@ export function UsersInvitesPilotPanel({
             onClick={onResyncUsers}
             className="mt-3 h-11 w-full rounded-2xl border border-slate-300 bg-white text-sm font-semibold text-slate-700"
           >
-            Re-sync users from company sheet
+            Re-sync company people
           </button>
         ) : null}
       </section>

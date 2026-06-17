@@ -240,6 +240,8 @@ export function AdminScreen({
   inviteEmailInput,
   inviteRoleInput,
   invitedUsers,
+  pendingInvitesLoading = false,
+  pendingInvitesLoadError,
   sites,
   selectedSiteId,
   areaRestrictionsEnabled,
@@ -1350,6 +1352,8 @@ export function AdminScreen({
           inviteEmailInput={inviteEmailInput}
           inviteRoleInput={inviteRoleInput}
           invitedUsers={invitedUsers}
+          pendingInvitesLoading={pendingInvitesLoading}
+          pendingInvitesLoadError={pendingInvitesLoadError}
           reportUsers={reportUsers}
           activeCompanyMembers={activeCompanyMembers}
           activeMembersLoading={activeMembersLoading}

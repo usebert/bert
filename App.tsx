@@ -136,9 +136,7 @@ import {
   COMPANY_MEMBERS_LOAD_TIMEOUT_MESSAGE,
   COMPANY_MEMBERS_USER_MESSAGE,
   fetchCompanyMembers,
-  readCompanyMembersCache,
   updateCompanyMember,
-  writeCompanyMembersCache,
   type CompanyMember,
   type CompanyMembersDiagnostics,
 } from "./src/services/companyUserService";
@@ -304,7 +302,6 @@ import {
   deriveScheduleAssigneesFromCompanyMembers,
   resolveScheduleAssigneeLabels,
   resolveScheduleAssigneeEmptyMessage,
-  type CompanyUsersTabRow,
   type ScheduleAssigneeDiagnostics,
   type ScheduleAssigneeOption,
 } from "./src/utils/scheduleAssignees";
@@ -2540,72 +2537,6 @@ function parseCompanyAreasFromSheet(value: string): string[] {
     .filter(Boolean);
 }
 
-function mapUsersTabStatusToInviteStatus(statusRaw: string): UserInvite["status"] {
-  const status = statusRaw.trim().toLowerCase();
-  if (status === "active") {
-    return "Active";
-  }
-  if (status === "invited" || status === "pending") {
-    return "Awaiting setup";
-  }
-  return "Invite created";
-}
-
-function parseCompanyUsersTabRows(
-  records: Record<string, string>[],
-  companyFolderId: string,
-): CompanyUsersTabRow[] {
-  return records
-    .map((record) => {
-      const email = extractByKeys(record, ["email"]);
-      if (!email) {
-        return null;
-      }
-      const role = extractByKeys(record, ["role"]);
-      const accessLevel = extractByKeys(record, ["accesslevel", "access level"]);
-      const status = extractByKeys(record, ["status"]) || "ACTIVE";
-      const name = extractByKeys(record, ["name", "full name"]) || email.split("@")[0] || email;
-      const companyId = extractByKeys(record, ["company id", "companyid"]) || companyFolderId;
-      const companyAreasRaw = extractByKeys(record, ["companyareas", "company areas"]);
-      return {
-        email,
-        name,
-        role,
-        accessLevel,
-        status,
-        companyId,
-        companyAreas: parseCompanyAreasFromSheet(companyAreasRaw),
-        companyAreasRaw,
-      };
-    })
-    .filter(Boolean) as CompanyUsersTabRow[];
-}
-
-function parseCompanySheetUsers(records: Record<string, string>[], companyFolderId = "") {
-  return records
-    .map((record, index) => {
-      const role = parseRole(extractByKeys(record, ["role"]));
-      const email = extractByKeys(record, ["email"]);
-      if (!role || !email) {
-        return null;
-      }
-      const statusRaw = extractByKeys(record, ["status"]);
-      const companyId = extractByKeys(record, ["company id", "companyid"]) || companyFolderId;
-
-      return {
-        id: `sheet-user-${index + 1}`,
-        email,
-        role,
-        invitedBy: extractByKeys(record, ["owner", "created by", "invited by"]) || "Company sheet",
-        sentAt: extractByKeys(record, ["created", "submitted", "updated"]) || "Imported",
-        status: mapUsersTabStatusToInviteStatus(statusRaw),
-        companyFolderId: companyId || undefined,
-        loginReady: statusRaw.trim().toLowerCase() === "active",
-      };
-    })
-    .filter(Boolean) as UserInvite[];
-}
-
 function parseCompanySheetSchedules(records: Record<string, string>[], companyFolderId: string) {
   return records
     .map((record, index) => {
@@ -3581,7 +3512,6 @@ function App() {
     loading: boolean;
     loadError?: string;
   }>({ loading: false });
-  const [companyUsersTabRows, setCompanyUsersTabRows] = useState<CompanyUsersTabRow[]>([]);
   const [linkedCompanyContext, setLinkedCompanyContext] = useState<LinkedCompanyContextInput | null>(null);
   const [companyLinkBlockedMessage, setCompanyLinkBlockedMessage] = useState("");
   const [companyMembersState, setCompanyMembersState] = useState<{
@@ -3925,7 +3855,8 @@ function App() {
     clearCachedOpenActionsCount(selectedFolderId || undefined, currentUser?.username || undefined);
     setHydratedCompanyFolderId("");
     setInvitedUsers([]);
-    setCompanyUsersTabRows([]);
+    setCompanyInvitesState({ loading: false });
+    setCompanyMembersState({ members: [], loading: false });
     setSites([]);
     setSelectedSiteId("");
     setUserSiteAssignments({});
@@ -5296,7 +5227,7 @@ function App() {
     if (!masterCompanyWorkspaceDataMatchesSelection) {
       setCompanyMembersState({
         members: [],
-        loading: true,
+        loading: false,
         loadError: undefined,
       });
       return;
@@ -5304,7 +5235,6 @@ function App() {
 
     const controller = new AbortController();
     let cancelled = false;
-    const cachedEntry = readCompanyMembersCache(storageKeys.companyMembersCache, companyId);
     const timeoutId = window.setTimeout(() => {
       controller.abort(new DOMException("Company members load timed out", "TimeoutError"));
     }, COMPANY_MEMBERS_LOAD_TIMEOUT_MS);
@@ -5327,7 +5257,6 @@ function App() {
           if (cancelled) {
             return;
           }
-          setCompanyUsersTabRows([]);
           setCompanyMembersState({
             members: [],
             loadError: result.loadError || COMPANY_MEMBERS_USER_MESSAGE,
@@ -5340,22 +5269,9 @@ function App() {
           return;
         }
 
-        const cacheShouldUpdate =
-          !cachedEntry ||
-          result.members.length > cachedEntry.members.length ||
-          result.members.length !== cachedEntry.members.length;
-        if (cacheShouldUpdate) {
-          writeCompanyMembersCache(storageKeys.companyMembersCache, {
-            companyId,
-            members: result.members,
-            cachedAt: Date.now(),
-            warning: result.warning,
-          });
-        }
         if (cancelled) {
           return;
         }
-        setCompanyUsersTabRows(result.members);
         setCompanyMembersState({
           members: result.members,
           warning: result.warning,
@@ -5370,7 +5286,6 @@ function App() {
         if (error instanceof DOMException && error.name === "AbortError") {
           const timedOut = error.message.includes("timed out") || error.message === "TimeoutError";
           if (timedOut) {
-            setCompanyUsersTabRows([]);
             setCompanyMembersState({
               members: [],
               loadError: COMPANY_MEMBERS_LOAD_TIMEOUT_MESSAGE,
@@ -5391,7 +5306,6 @@ function App() {
           upstreamMessage: error instanceof Error ? error.message : COMPANY_MEMBERS_USER_MESSAGE,
           dataSource: "users_tab",
         };
-        setCompanyUsersTabRows([]);
         setCompanyMembersState({
           members: [],
           loadError: COMPANY_MEMBERS_USER_MESSAGE,
@@ -5455,6 +5369,16 @@ function App() {
         setCompanyInvitesState({ loading: false });
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") {
+          const timedOut = error.message.includes("timed out") || error.message === "TimeoutError";
+          if (timedOut) {
+            setInvitedUsers([]);
+            setCompanyInvitesState({
+              loading: false,
+              loadError: COMPANY_INVITES_LOAD_TIMEOUT_MESSAGE,
+            });
+          } else {
+            setCompanyInvitesState({ loading: false });
+          }
           return;
         }
         setInvitedUsers([]);
@@ -5489,24 +5413,7 @@ function App() {
       controller.abort(new DOMException("Pending invites load timed out", "TimeoutError"));
     }, COMPANY_INVITES_LOAD_TIMEOUT_MS);
 
-    void (async () => {
-      try {
-        await refreshPendingCompanyInvites({ signal: controller.signal });
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") {
-          const timedOut = error.message.includes("timed out") || error.message === "TimeoutError";
-          if (timedOut) {
-            setInvitedUsers([]);
-            setCompanyInvitesState({
-              loading: false,
-              loadError: COMPANY_INVITES_LOAD_TIMEOUT_MESSAGE,
-            });
-          }
-        }
-      } finally {
-        window.clearTimeout(timeoutId);
-      }
-    })();
+    void refreshPendingCompanyInvites({ signal: controller.signal });
 
     return () => {
       window.clearTimeout(timeoutId);
@@ -8328,20 +8235,6 @@ function App() {
       };
       setCompanyUserInviteEmailResult(result);
 
-      const createdInvite: UserInvite = {
-        id: payload.tokenId || `invite-${Date.now()}`,
-        tokenId: payload.tokenId,
-        email: trimmedEmail,
-        role: inviteRole,
-        invitedBy: currentUser.name,
-        senderEmail: result.senderEmail,
-        sentAt: formatStamp(),
-        status: mapCompanyUserInviteStatus(payload),
-        loginReady,
-        mailtoUrl: result.mailtoUrl,
-        appOnboardingUrl: inviteUrl || undefined,
-        companyFolderId: workspace.companyFolderId,
-      };
       if (result.setupIncomplete) {
         pushToast(
           "Stale invite",
@@ -8349,7 +8242,7 @@ function App() {
           "warning",
         );
       }
-      setInvitedUsers([createdInvite, ...invitedUsers]);
+      await refreshPendingCompanyInvites();
       setInviteEmailInput("");
       if (emailSent) {
         pushToast("User invite sent", userMessage, "success");
@@ -8479,25 +8372,7 @@ function App() {
       };
       setCompanyUserInviteEmailResult(result);
 
-      const resentAt = formatStamp();
-      setInvitedUsers(
-        invitedUsers.map((item) =>
-          item.id === invite.id
-            ? {
-                ...item,
-                id: payload.tokenId || item.id,
-                tokenId: payload.tokenId || getInviteServerTokenId(item) || undefined,
-                sentAt: resentAt,
-                invitedBy: currentUser.name,
-                senderEmail: result.senderEmail,
-                status: mapCompanyUserInviteStatus(payload),
-                loginReady,
-                mailtoUrl: result.mailtoUrl,
-                appOnboardingUrl: inviteUrl || undefined,
-              }
-            : item,
-        ),
-      );
+      await refreshPendingCompanyInvites();
       if (emailSent) {
         pushToast("User invite resent", userMessage, "success");
       } else if (emailPending) {
@@ -8579,7 +8454,8 @@ function App() {
         throw new Error(payload.error || "Unable to remove user from the company sheet.");
       }
 
-      setInvitedUsers((current) => removeInviteFromList(current, invite));
+      await refreshActiveCompanyMembers();
+      await refreshPendingCompanyInvites();
       setCompanyUserInviteEmailResult((current) => (current?.email === invite.email ? null : current));
       clearCompanyLoginHintForEmail(invite.email);
       pushToast("User removed", `${invite.email} was removed and can no longer sign in.`, "success");
@@ -8613,7 +8489,6 @@ function App() {
     if (!membersResult.ok) {
       throw new Error(membersResult.loadErrorDetail || membersResult.loadError || COMPANY_MEMBERS_USER_MESSAGE);
     }
-    setCompanyUsersTabRows(membersResult.members);
     setCompanyMembersState({
       members: membersResult.members,
       warning: membersResult.warning,
@@ -8623,12 +8498,6 @@ function App() {
       loadReasonCode: membersResult.reasonCode,
       loadFailedStep: membersResult.failedStep,
       loadDiagnostics: membersResult.diagnostics,
-    });
-    writeCompanyMembersCache(storageKeys.companyMembersCache, {
-      companyId: companyFolderId,
-      members: membersResult.members,
-      cachedAt: Date.now(),
-      warning: membersResult.warning,
     });
     return membersResult;
   };
@@ -8755,7 +8624,7 @@ function App() {
         role: invite.role,
         status: invite.status,
       });
-      setInvitedUsers((current) => removeInviteFromList(current, invite));
+      await refreshPendingCompanyInvites();
       setCompanyUserInviteEmailResult((current) => (current?.email === invite.email ? null : current));
       pushToast(
         "Legacy invite removed",
@@ -8782,7 +8651,7 @@ function App() {
 
       if (response.status === 404) {
         console.warn("[invite] revoke 404 — token already gone", { endpoint: revokePath, tokenId });
-        setInvitedUsers((current) => removeInviteFromList(current, invite));
+        await refreshPendingCompanyInvites();
         setCompanyUserInviteEmailResult((current) => (current?.email === invite.email ? null : current));
         pushToast(
           "Invite removed",
@@ -8812,7 +8681,7 @@ function App() {
       }
 
       if (payload.wasSetupIncomplete) {
-        setInvitedUsers((current) => removeInviteFromList(current, invite));
+        await refreshPendingCompanyInvites();
         setCompanyUserInviteEmailResult((current) => (current?.email === invite.email ? null : current));
         pushToast(
           "Incomplete invite removed",
@@ -8832,7 +8701,7 @@ function App() {
       return;
     }
 
-    setInvitedUsers((current) => removeInviteFromList(current, invite));
+    await refreshPendingCompanyInvites();
     setCompanyUserInviteEmailResult((current) => (current?.email === invite.email ? null : current));
     pushToast("Invite revoked", `${invite.email} was removed and the invite link is no longer valid.`, "success");
   };
@@ -8843,7 +8712,7 @@ function App() {
       return;
     }
 
-    const { companyId: companyFolderId, masterSheetId: manualMasterSheetId } = resolveCompanyMembersLoadContext({
+    const { companyId: companyFolderId } = resolveCompanyMembersLoadContext({
       activeCompanyContext,
       selectedFolderId: selectedFolder?.id,
       folderIdInput,
@@ -8860,25 +8729,18 @@ function App() {
       if (!membersResult) {
         throw new Error(COMPANY_MEMBERS_USER_MESSAGE);
       }
-
-      const payload = manualMasterSheetId
-        ? await loadCompanySheetById(manualMasterSheetId, companyFolderId, { silent: true })
-        : await loadCompanySheet(companyFolderId, { silent: true });
-
-      if (!payload) {
-        throw new Error("Unable to load the company sheet.");
-      }
+      await refreshPendingCompanyInvites();
 
       const syncedUsers = membersResult.members.length;
       pushToast(
         "Users re-synced",
-        `${syncedUsers} active user${syncedUsers === 1 ? "" : "s"} loaded from the company workbook.`,
+        `${syncedUsers} company user${syncedUsers === 1 ? "" : "s"} loaded.`,
         "success",
       );
     } catch (error) {
       pushToast(
         "Resync failed",
-        error instanceof Error ? error.message : "Unable to re-sync users from the company sheet.",
+        error instanceof Error ? error.message : "Unable to re-sync company people.",
         "warning",
       );
     }
@@ -8918,10 +8780,9 @@ function App() {
       extractGoogleResourceId(masterSheetInput) || companySheetSync?.sheetId || activeCompanyMasterSheetId || "";
     clearStaleCompanyLocalStorage();
     setInvitedUsers([]);
+    setCompanyInvitesState({ loading: false });
     setCompanyMembersState({ members: [], loading: false, loadError: undefined });
-    setCompanyUsersTabRows([]);
     if (companyFolderId && sheetId) {
-      await loadCompanySheetById(sheetId, companyFolderId, { silent: true });
       try {
         const membersResult = await fetchCompanyMembers(apiUrl, {
           companyId: companyFolderId,
@@ -8933,12 +8794,8 @@ function App() {
             members: membersResult.members,
             loading: false,
           });
-          writeCompanyMembersCache(storageKeys.companyMembersCache, {
-            companyId: companyFolderId,
-            members: membersResult.members,
-            cachedAt: Date.now(),
-          });
         }
+        await refreshPendingCompanyInvites();
       } catch {
         /* refetch best-effort */
       }
@@ -14628,6 +14485,8 @@ function App() {
                 inviteEmailInput={inviteEmailInput}
                 inviteRoleInput={inviteRoleInput}
                 invitedUsers={displayInvitedUsers}
+                pendingInvitesLoading={companyInvitesState.loading}
+                pendingInvitesLoadError={companyInvitesState.loadError}
                 sites={displaySites}
                 selectedSiteId={selectedSiteId}
                 reportUsers={companyReportUsers}

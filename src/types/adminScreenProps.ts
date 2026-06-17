@@ -205,6 +205,8 @@ export type AdminScreenProps = {
   inviteEmailInput: string;
   inviteRoleInput: Role;
   invitedUsers: UserInvite[];
+  pendingInvitesLoading?: boolean;
+  pendingInvitesLoadError?: string;
   sites: Site[];
   selectedSiteId: string;
   areaRestrictionsEnabled: boolean;

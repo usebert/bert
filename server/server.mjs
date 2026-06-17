@@ -5479,7 +5479,10 @@ app.get("/api/onboarding/app-invites", requireGoogleWorkspaceEnv, (req, res) => 
         type: COMPANY_USER_INVITE_TYPE,
       }),
     )
-    .map((entry) => sanitizeCompanyUserInviteForClient({ id: entry.id, record: entry }));
+    .map((entry) => ({
+      ...sanitizeCompanyUserInviteForClient({ id: entry.id, record: entry }),
+      inviteUrl: buildAppOnboardingUrl(entry.id),
+    }));
   res.json({ ok: true, invites });
 });
 
