@@ -155,22 +155,18 @@ const pendingInvite = {
   assert(foundation.includes("google_sheets_read") || userService.includes("google_sheets_read"), "7f: canonical failedStep for sheet read");
 }
 
-/** 8: Frontend loads active members from canonical API with cache + safe JSON fetch. */
+/** 8: Frontend loads active members from canonical API without localStorage cache. */
 {
   const appSrc = read("App.tsx");
   const service = read("src/services/companyUserService.ts");
   const fetchJson = read("src/utils/fetchJson.ts");
   assert(service.includes("fetchCompanyMembers"), "8: frontend fetchCompanyMembers");
-  assert(service.includes("readCompanyMembersCache"), "8b: cache read");
   assert(service.includes("COMPANY_MEMBERS_LOAD_TIMEOUT_MS"), "8c: load timeout");
   assert(service.includes("fetchJson"), "8c2: safe fetchJson used");
   assert(fetchJson.includes("NON_JSON_RESPONSE"), "8c3: NON_JSON_RESPONSE handled");
   assert(appSrc.includes("/api/companies/") && appSrc.includes("fetchCompanyMembers"), "8d: App uses company users API");
-  assert(appSrc.includes("readCompanyMembersCache"), "8e: App uses members cache for loading optimisation");
-  assert(
-    !/fetchCompanyMembers[\s\S]{0,4000}Showing recently loaded users/.test(appSrc),
-    "8f: company members path has no stale-cache banner",
-  );
+  assert(!appSrc.includes("readCompanyMembersCache"), "8e: App does not read members localStorage cache");
+  assert(!appSrc.includes("writeCompanyMembersCache"), "8f: App does not write members localStorage cache");
 }
 
 /** 9: Users panel — active from /users, pending invites separate, godmode-only workbook hint. */

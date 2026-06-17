@@ -27,11 +27,16 @@ const godmodePanel = read("src/components/godmode/GodmodeUserManagementSection.t
 const godmodeService = read("server/godmode-service.mjs");
 const pkg = JSON.parse(read("package.json"));
 
+const foundation = read("server/company-users-foundation.mjs");
+
 /** 1: Server canonical helper exported. */
 assert(userService.includes("export async function syncAndListActiveUsers"), "1: syncAndListActiveUsers exported");
 assert(userService.includes("readActiveUsersFromSheetWithStats"), "1b: reads Users tab with stats");
-assert(userService.includes("reconcileCompanyUsersCache"), "1c: rebuilds cache from sheet");
-assert(userService.includes("sanitizeUsersTabRecords"), "1d: never returns PasswordHash");
+assert(
+  foundation.includes("syncCompanyUsersCache") || userService.includes("reconcileCompanyUsersCache"),
+  "1c: server rebuilds users cache from sheet read",
+);
+assert(foundation.includes("sanitizeUsersTabRecords") || userService.includes("sanitizeUsersTabRecords"), "1d: never returns PasswordHash");
 
 /** 2: GET /api/companies/:companyId/users calls syncAndListActiveUsers. */
 assert(coreRoutes.includes('app.get("/api/companies/:companyId/users"'), "2: users list route");
@@ -54,7 +59,7 @@ assert(
   "4a: linked session folder preferred over stale picker selection",
 );
 assert(appSrc.includes("resolveCompanyMembersLoadContext"), "4b: App uses shared resolver");
-assert(appSrc.includes("readCompanyMembersCache"), "4c: App uses members cache with fresh API result");
+assert(!appSrc.includes("readCompanyMembersCache"), "4c: App does not read members localStorage cache");
 assert(!appSrc.includes("applySignedInMemberFallback"), "4d: App does not silently fall back to signed-in user only");
 assert(
   /!activeCompanyContext\.masterSheetId\.trim\(\)/.test(appSrc),
@@ -70,13 +75,13 @@ assert(
   "4e: Re-sync delegates to refreshActiveCompanyMembers",
 );
 
-/** 5: Both paths update companyMembersState + companyUsersTabRows. */
-assert(appSrc.includes("setCompanyUsersTabRows(result.members)"), "5: page load updates companyUsersTabRows");
-assert(appSrc.includes("setCompanyMembersState"), "5b: page load updates companyMembersState");
+/** 5: Both paths update companyMembersState from API. */
+assert(appSrc.includes("setCompanyMembersState"), "5: page load updates companyMembersState");
 assert(
-  /refreshActiveCompanyMembers[\s\S]{0,1200}setCompanyUsersTabRows/.test(appSrc),
-  "5c: refresh updates companyUsersTabRows",
+  /refreshActiveCompanyMembers[\s\S]{0,1200}setCompanyMembersState/.test(appSrc),
+  "5b: refresh updates companyMembersState",
 );
+assert(!appSrc.includes("companyUsersTabRows"), "5c: App does not keep parallel sheet users tab rows");
 
 /** 6: Empty state only when sheet read succeeded with zero ACTIVE rows. */
 assert(panel.includes("!activeMembersLoadError && activeMembers.length === 0"), "6: panel empty only without load error");
