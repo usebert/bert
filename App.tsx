@@ -5787,6 +5787,190 @@ function App() {
       masterSheetInput,
       companySheetSyncSheetId: companySheetSync?.sheetId,
     });
+    const canLoadCompanyApi = Boolean(companyId) && (currentUser?.role !== "Master" || googleConnected);
+    if (!canLoadCompanyApi) {
+      setCompanyGoogleFormsState({ forms: [], loading: false, status: "idle", syncing: false });
+      return;
+    }
+    if (!masterCompanyWorkspaceDataMatchesSelection) {
+      setCompanyGoogleFormsState({ forms: [], loading: false, status: "idle", syncing: false });
+      return;
+    }
+
+    const controller = new AbortController();
+    let cancelled = false;
+    const timeoutId = window.setTimeout(() => {
+      controller.abort(new DOMException("Company Google Forms load timed out", "TimeoutError"));
+    }, COMPANY_GOOGLE_FORMS_LOAD_TIMEOUT_MS);
+    setCompanyGoogleFormsState({
+      forms: [],
+      loading: true,
+      loadError: undefined,
+      status: "idle",
+      syncing: false,
+      syncError: undefined,
+      syncMessage: undefined,
+    });
+
+    void (async () => {
+      try {
+        const result = await fetchCompanyGoogleForms(companyId, { signal: controller.signal });
+        if (!result.ok) {
+          if (cancelled) {
+            return;
+          }
+          setCompanyGoogleFormsState({
+            forms: [],
+            loading: false,
+            loadError: result.loadError || COMPANY_GOOGLE_FORMS_USER_MESSAGE,
+            status: result.status,
+            companyFolderId: companyId,
+            syncing: false,
+          });
+          return;
+        }
+        if (cancelled) {
+          return;
+        }
+        setCompanyGoogleFormsState({
+          forms: result.forms,
+          loading: false,
+          status: result.status,
+          companyFolderId: result.companyFolderId || companyId,
+          syncing: false,
+        });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        if (error instanceof DOMException && error.name === "AbortError") {
+          const timedOut = error.message.includes("timed out") || error.message === "TimeoutError";
+          if (timedOut) {
+            setCompanyGoogleFormsState({
+              forms: [],
+              loading: false,
+              loadError: COMPANY_GOOGLE_FORMS_LOAD_TIMEOUT_MESSAGE,
+              status: "error",
+              syncing: false,
+            });
+          }
+          return;
+        }
+        setCompanyGoogleFormsState({
+          forms: [],
+          loading: false,
+          loadError: COMPANY_GOOGLE_FORMS_USER_MESSAGE,
+          status: "error",
+          syncing: false,
+        });
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [
+    googleConnected,
+    currentUser?.role,
+    masterCompanyWorkspaceDataMatchesSelection,
+    activeCompanyContext.companyFolderId,
+    activeCompanyContext.companyName,
+    activeCompanyContext.masterSheetId,
+    selectedFolder?.id,
+    folderIdInput,
+    masterSheetInput,
+    companySheetSync?.sheetId,
+  ]);
+
+  const handleSyncCompanyGoogleForms = useCallback(async () => {
+    const { companyId } = resolveCompanyMembersLoadContext({
+      activeCompanyContext,
+      selectedFolderId: selectedFolder?.id,
+      folderIdInput,
+      masterSheetInput,
+      companySheetSyncSheetId: companySheetSync?.sheetId,
+    });
+    if (!companyId || !googleConnected || !canAccessGoogleForms(currentUser?.role || "Auditor")) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      controller.abort(new DOMException("Company Google Forms sync timed out", "TimeoutError"));
+    }, COMPANY_GOOGLE_FORMS_LOAD_TIMEOUT_MS);
+    setCompanyGoogleFormsState((current) => ({
+      ...current,
+      syncing: true,
+      syncError: undefined,
+      syncMessage: undefined,
+    }));
+
+    try {
+      const result = await syncCompanyGoogleForms(companyId, { signal: controller.signal });
+      if (!result.ok) {
+        setCompanyGoogleFormsState((current) => ({
+          ...current,
+          syncing: false,
+          syncError: result.loadError || COMPANY_GOOGLE_FORMS_SYNC_TIMEOUT_MESSAGE,
+          status: result.status,
+        }));
+        return;
+      }
+      const syncMessage =
+        result.forms.length > 0
+          ? `Synced ${result.forms.length} Google Form${result.forms.length === 1 ? "" : "s"} to your company workbook.`
+          : "No Google Forms to sync — your Google Forms folder is empty.";
+      setCompanyGoogleFormsState({
+        forms: result.forms,
+        loading: false,
+        status: result.status,
+        companyFolderId: result.companyFolderId || companyId,
+        syncing: false,
+        syncMessage,
+      });
+      pushToast("Google Forms synced", syncMessage, "success");
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        const timedOut = error.message.includes("timed out") || error.message === "TimeoutError";
+        if (timedOut) {
+          setCompanyGoogleFormsState((current) => ({
+            ...current,
+            syncing: false,
+            syncError: COMPANY_GOOGLE_FORMS_SYNC_TIMEOUT_MESSAGE,
+          }));
+        }
+        return;
+      }
+      setCompanyGoogleFormsState((current) => ({
+        ...current,
+        syncing: false,
+        syncError: COMPANY_GOOGLE_FORMS_SYNC_TIMEOUT_MESSAGE,
+      }));
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  }, [
+    activeCompanyContext,
+    companySheetSync?.sheetId,
+    currentUser?.role,
+    folderIdInput,
+    googleConnected,
+    masterSheetInput,
+    selectedFolder?.id,
+  ]);
+
+  useEffect(() => {
+    const { companyId } = resolveCompanyMembersLoadContext({
+      activeCompanyContext,
+      selectedFolderId: selectedFolder?.id,
+      folderIdInput,
+      masterSheetInput,
+      companySheetSyncSheetId: companySheetSync?.sheetId,
+    });
     const resultId = selectedResultState.resultId;
     if (!companyId || !resultId || !masterCompanyWorkspaceDataMatchesSelection) {
       return;
@@ -11766,12 +11950,9 @@ function App() {
         );
       }
     }
-    if (googleConnected && masterSheetIdForSync && selectedFolder.id) {
+    if (googleConnected && selectedFolder.id) {
       try {
-        await companyFormsService.listCompanyGoogleForms(selectedFolder.id, {
-          masterSheetId: masterSheetIdForSync,
-          sync: true,
-        });
+        await syncCompanyGoogleForms(selectedFolder.id);
       } catch {
         /* GoogleFormTemplates sync is best-effort during populate */
       }
@@ -13308,6 +13489,9 @@ function App() {
     if (currentUser && !canAccessResults(currentUser.role) && screen === "results") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
+    if (currentUser && !canAccessGoogleForms(currentUser.role) && screen === "googleForms") {
+      setScreen(getHomeScreenForRole(currentUser.role));
+    }
     if (currentUser && !canAccessActions(currentUser.role) && screen === "actions") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
@@ -14781,6 +14965,21 @@ function App() {
                 onClearSelectedResult={() =>
                   setSelectedResultState({ resultId: null, result: null, loading: false, loadError: undefined })
                 }
+              />
+            )}
+
+            {screen === "googleForms" && canAccessGoogleForms(currentUser.role) && (
+              <GoogleFormsScreen
+                forms={companyGoogleFormsState.forms}
+                loading={companyGoogleFormsState.loading}
+                loadError={companyGoogleFormsState.loadError}
+                status={companyGoogleFormsState.status}
+                syncing={companyGoogleFormsState.syncing}
+                syncError={companyGoogleFormsState.syncError}
+                syncMessage={companyGoogleFormsState.syncMessage}
+                googleConnected={googleConnected}
+                canSync={canAccessGoogleForms(currentUser.role)}
+                onSync={() => void handleSyncCompanyGoogleForms()}
               />
             )}
 

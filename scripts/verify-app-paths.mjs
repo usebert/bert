@@ -166,7 +166,7 @@ assert(
 assert(getScheduleAssignedEmails({ assignedUserEmails: "a@test.com, b@test.com" }).length === 2, "assignedUserEmails canonical");
 
 assert(appTsx.includes("companyFormsService") && appTsx.includes("displayCompanyGoogleForms"), "App wires company Google Forms list");
-assert(read("src/services/companyFormsService.ts").includes("/api/company/"), "company forms API client");
+assert(read("src/services/companyFormsService.ts").includes("/api/companies/"), "company forms API client");
 assert(pkg.scripts["verify:company-google-forms-folder"], "verify:company-google-forms-folder npm script registered");
 assert(appTsx.includes("readCompanyMembersCache") && appTsx.includes("fetchCompanyMembers"), "company members cache-first API");
 assert(pkg.scripts["verify:company-members"], "verify:company-members npm script registered");

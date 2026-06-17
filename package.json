@@ -99,6 +99,7 @@
     "verify:my-checks-page-wiring": "node scripts/verify-my-checks-page-wiring.mjs",
     "verify:complete-check-wiring": "node scripts/verify-complete-check-wiring.mjs",
     "verify:results-page-wiring": "node scripts/verify-results-page-wiring.mjs",
+    "verify:google-forms-page-wiring": "node scripts/verify-google-forms-page-wiring.mjs",
     "verify:login-performance": "node scripts/verify-login-performance.mjs",
     "verify:login-timing-trace": "node scripts/verify-login-timing-trace.mjs",
     "verify:login-context-trace": "node scripts/verify-login-context-trace.mjs",
