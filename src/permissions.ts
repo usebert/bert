@@ -153,6 +153,10 @@ export function canAccessOnboardingNav(role: Role) {
   return role === "Admin" || role === "Master";
 }
 
+export function canAccessResults(role: Role) {
+  return role === "Master" || role === "Admin" || role === "Manager";
+}
+
 export function canAccessReports(role: Role) {
   return role !== "Auditor";
 }
@@ -205,6 +209,7 @@ export function canRoleAccessNavItem(role: Role, itemId: NavItemId) {
   if (itemId === "documentTraining") return canAccessDocumentTraining(role);
   if (itemId === "qmsReadiness") return canAccessQmsReadinessNav(role);
   if (itemId === "reports") return canAccessReports(role) || canAccessPlatformDiagnosticsNav(role);
+  if (itemId === "results") return canAccessResults(role);
   if (itemId === "incidents") return canSubmitIncidents(role);
   if (itemId === "actions" || itemId === "nonConformance") return canAccessActions(role);
   if (itemId === "audits") return canAccessAuditsCentre(role) || canAccessFormsChecksNav(role) || role === "Auditor";

@@ -17,6 +17,7 @@ export type RoutedScreen =
   | "settings"
   | "setupInitial"
   | "audits"
+  | "results"
   | "actions"
   | "nonConformance"
   | "incidents"

@@ -8,6 +8,7 @@ export const navItems = [
   { id: "invites", label: "Invites", icon: "note" },
   { id: "settings", label: "Settings", icon: "shield" },
   { id: "audits", label: "Audits", icon: "clipboard" },
+  { id: "results", label: "Results", icon: "checklist" },
   { id: "actions", label: "Actions", icon: "warningTriangle" },
   { id: "nonConformance", label: "NCRs", icon: "checklist" },
   { id: "incidents", label: "Incidents", icon: "warningTriangle" },

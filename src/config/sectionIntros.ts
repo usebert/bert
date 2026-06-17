@@ -17,6 +17,7 @@ export const SECTION_INTROS = {
   auditorChecks: "All checks assigned to you.",
   auditorSubmit: "Report a problem or near miss from the field.",
   auditorHistory: "Checks and reports you have already sent.",
+  results: "Completed checks saved from your company workbook.",
   qmsReadiness: "Quality and safety records in one place.",
 } as const;
 

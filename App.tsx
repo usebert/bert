@@ -24,6 +24,7 @@ import {
   canAccessTeamNav,
   usesPilotOperatorNav,
   canAccessReports,
+  canAccessResults,
   canAccessSchedulesScreen,
   canAccessQmsReadinessFull,
   canAccessQmsReadinessNav,
@@ -254,6 +255,7 @@ import { CompleteAuditScreen } from "./src/screens/CompleteAuditScreen";
 import { IncidentReportingScreen } from "./src/screens/IncidentReportingScreen";
 import { NonConformanceScreen } from "./src/screens/NonConformanceScreen";
 import { ReportsScreen } from "./src/screens/ReportsScreen";
+import { ResultsScreen } from "./src/screens/ResultsScreen";
 import { SchedulesScreen } from "./src/screens/SchedulesScreen";
 import { DocumentTrainingScreen } from "./src/screens/DocumentTrainingScreen";
 import { QmsReadinessScreen } from "./src/screens/QmsReadinessScreen";
@@ -337,6 +339,17 @@ import {
   completeCheck,
   fetchAssignedChecks,
 } from "./src/services/checkService";
+import {
+  COMPANY_RESULTS_LOAD_TIMEOUT_MESSAGE,
+  COMPANY_RESULTS_LOAD_TIMEOUT_MS,
+  COMPANY_RESULTS_USER_MESSAGE,
+  COMPANY_RESULT_DETAIL_LOAD_TIMEOUT_MESSAGE,
+  COMPANY_RESULT_DETAIL_LOAD_TIMEOUT_MS,
+  COMPANY_RESULT_DETAIL_USER_MESSAGE,
+  fetchCompanyResultDetail,
+  fetchCompanyResults,
+} from "./src/services/resultsService";
+import type { AuditResultDetail, AuditResultSummary } from "./src/types/resultsScreenProps";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
 import { getNextBestAction } from "./src/utils/nextBestAction";
 import type { DashboardSummaryForNextAction, NextBestActionIntent } from "./src/utils/nextBestAction";
@@ -3559,6 +3572,19 @@ function App() {
     companyFolderId?: string;
     masterSheetId?: string;
   }>({ schedules: [], loading: false });
+  const [companyResultsState, setCompanyResultsState] = useState<{
+    results: AuditResultSummary[];
+    loading: boolean;
+    loadError?: string;
+    companyFolderId?: string;
+    masterSheetId?: string;
+  }>({ results: [], loading: false });
+  const [selectedResultState, setSelectedResultState] = useState<{
+    resultId: string | null;
+    result: AuditResultDetail | null;
+    loading: boolean;
+    loadError?: string;
+  }>({ resultId: null, result: null, loading: false });
   const [activeAssignedCheck, setActiveAssignedCheck] = useState<ActiveAssignedCheckContext | null>(null);
   const [checkSubmitState, setCheckSubmitState] = useState<{ submitting: boolean; error?: string }>({
     submitting: false,
@@ -5630,6 +5656,192 @@ function App() {
     masterCompanyWorkspaceDataMatchesSelection,
     activeCompanyContext.companyFolderId,
     activeCompanyContext.companyName,
+    activeCompanyContext.masterSheetId,
+    selectedFolder?.id,
+    folderIdInput,
+    masterSheetInput,
+    companySheetSync?.sheetId,
+  ]);
+
+  useEffect(() => {
+    const { companyId } = resolveCompanyMembersLoadContext({
+      activeCompanyContext,
+      selectedFolderId: selectedFolder?.id,
+      folderIdInput,
+      masterSheetInput,
+      companySheetSyncSheetId: companySheetSync?.sheetId,
+    });
+    const canLoadCompanyApi = Boolean(companyId) && (currentUser?.role !== "Master" || googleConnected);
+    if (!canLoadCompanyApi) {
+      setCompanyResultsState({ results: [], loading: false });
+      setSelectedResultState({ resultId: null, result: null, loading: false });
+      return;
+    }
+    if (!masterCompanyWorkspaceDataMatchesSelection) {
+      setCompanyResultsState({ results: [], loading: false });
+      setSelectedResultState({ resultId: null, result: null, loading: false });
+      return;
+    }
+
+    const controller = new AbortController();
+    let cancelled = false;
+    const timeoutId = window.setTimeout(() => {
+      controller.abort(new DOMException("Company results load timed out", "TimeoutError"));
+    }, COMPANY_RESULTS_LOAD_TIMEOUT_MS);
+    setCompanyResultsState({
+      results: [],
+      loading: true,
+      loadError: undefined,
+    });
+    setSelectedResultState({ resultId: null, result: null, loading: false });
+
+    void (async () => {
+      try {
+        const result = await fetchCompanyResults(companyId, { signal: controller.signal });
+        if (!result.ok) {
+          if (cancelled) {
+            return;
+          }
+          setCompanyResultsState({
+            results: [],
+            loading: false,
+            loadError: result.loadError || COMPANY_RESULTS_USER_MESSAGE,
+          });
+          return;
+        }
+        if (cancelled) {
+          return;
+        }
+        setCompanyResultsState({
+          results: result.results,
+          loading: false,
+          companyFolderId: result.companyFolderId || companyId,
+          masterSheetId: result.masterSheetId,
+        });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        if (error instanceof DOMException && error.name === "AbortError") {
+          const timedOut = error.message.includes("timed out") || error.message === "TimeoutError";
+          if (timedOut) {
+            setCompanyResultsState({
+              results: [],
+              loading: false,
+              loadError: COMPANY_RESULTS_LOAD_TIMEOUT_MESSAGE,
+            });
+          }
+          return;
+        }
+        setCompanyResultsState({
+          results: [],
+          loading: false,
+          loadError: COMPANY_RESULTS_USER_MESSAGE,
+        });
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [
+    googleConnected,
+    currentUser?.role,
+    masterCompanyWorkspaceDataMatchesSelection,
+    activeCompanyContext.companyFolderId,
+    activeCompanyContext.companyName,
+    activeCompanyContext.masterSheetId,
+    selectedFolder?.id,
+    folderIdInput,
+    masterSheetInput,
+    companySheetSync?.sheetId,
+  ]);
+
+  useEffect(() => {
+    const { companyId } = resolveCompanyMembersLoadContext({
+      activeCompanyContext,
+      selectedFolderId: selectedFolder?.id,
+      folderIdInput,
+      masterSheetInput,
+      companySheetSyncSheetId: companySheetSync?.sheetId,
+    });
+    const resultId = selectedResultState.resultId;
+    if (!companyId || !resultId || !masterCompanyWorkspaceDataMatchesSelection) {
+      return;
+    }
+
+    const controller = new AbortController();
+    let cancelled = false;
+    const timeoutId = window.setTimeout(() => {
+      controller.abort(new DOMException("Company result detail load timed out", "TimeoutError"));
+    }, COMPANY_RESULT_DETAIL_LOAD_TIMEOUT_MS);
+    setSelectedResultState((current) => ({
+      ...current,
+      loading: true,
+      loadError: undefined,
+      result: null,
+    }));
+
+    void (async () => {
+      try {
+        const result = await fetchCompanyResultDetail(companyId, resultId, { signal: controller.signal });
+        if (cancelled) {
+          return;
+        }
+        if (!result.ok || !result.result) {
+          setSelectedResultState({
+            resultId,
+            result: null,
+            loading: false,
+            loadError: result.loadError || COMPANY_RESULT_DETAIL_USER_MESSAGE,
+          });
+          return;
+        }
+        setSelectedResultState({
+          resultId,
+          result: result.result,
+          loading: false,
+        });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        if (error instanceof DOMException && error.name === "AbortError") {
+          const timedOut = error.message.includes("timed out") || error.message === "TimeoutError";
+          if (timedOut) {
+            setSelectedResultState({
+              resultId,
+              result: null,
+              loading: false,
+              loadError: COMPANY_RESULT_DETAIL_LOAD_TIMEOUT_MESSAGE,
+            });
+          }
+          return;
+        }
+        setSelectedResultState({
+          resultId,
+          result: null,
+          loading: false,
+          loadError: COMPANY_RESULT_DETAIL_USER_MESSAGE,
+        });
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [
+    selectedResultState.resultId,
+    masterCompanyWorkspaceDataMatchesSelection,
+    activeCompanyContext.companyFolderId,
     activeCompanyContext.masterSheetId,
     selectedFolder?.id,
     folderIdInput,
@@ -13075,6 +13287,9 @@ function App() {
     if (currentUser && !canAccessReports(currentUser.role) && screen === "reports") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
+    if (currentUser && !canAccessResults(currentUser.role) && screen === "results") {
+      setScreen(getHomeScreenForRole(currentUser.role));
+    }
     if (currentUser && !canAccessActions(currentUser.role) && screen === "actions") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
@@ -14530,6 +14745,24 @@ function App() {
                 assignedChecksLoading={assignedChecksState.loading}
                 assignedChecksLoadError={assignedChecksState.loadError}
                 onGoogleFormUpdated={handleGoogleFormTemplateUpdated}
+              />
+            )}
+
+            {screen === "results" && canAccessResults(currentUser.role) && (
+              <ResultsScreen
+                results={companyResultsState.results}
+                resultsLoading={companyResultsState.loading}
+                resultsLoadError={companyResultsState.loadError}
+                selectedResultId={selectedResultState.resultId}
+                selectedResult={selectedResultState.result}
+                selectedResultLoading={selectedResultState.loading}
+                selectedResultLoadError={selectedResultState.loadError}
+                onSelectResult={(resultId) =>
+                  setSelectedResultState({ resultId, result: null, loading: true, loadError: undefined })
+                }
+                onClearSelectedResult={() =>
+                  setSelectedResultState({ resultId: null, result: null, loading: false, loadError: undefined })
+                }
               />
             )}
 

@@ -34,6 +34,7 @@ const MASTER_NAV: PresentedNavItem[] = [
   { id: "onboarding", label: "Company Onboarding", icon: "spark", adminPilotFocus: "companies" },
   { id: "users", label: "People", icon: "user", adminPilotFocus: "users" },
   { id: "schedules", label: "Templates", icon: "clock" },
+  { id: "results", label: "Results", icon: "checklist" },
   { id: "reports", label: "Reports / Diagnostics", icon: "chart" },
   { id: "account", label: "Account", icon: "user" },
   { id: "setupInitial", label: "Tablet / Kiosk", icon: "shield" },
@@ -45,6 +46,7 @@ const COMPANY_ADMIN_NAV: PresentedNavItem[] = [
   { id: "users", label: "People", icon: "user", adminPilotFocus: "users" },
   { id: "schedules", label: "Schedules", icon: "clock" },
   { id: "audits", label: "Complete Work", icon: "clipboard" },
+  { id: "results", label: "Results", icon: "checklist" },
   { id: "actions", label: "Actions", icon: "warningTriangle" },
   { id: "nonConformance", label: "NCRs", icon: "checklist" },
   { id: "reports", label: "Reports", icon: "chart" },
@@ -56,6 +58,7 @@ const MANAGER_NAV: PresentedNavItem[] = [
   { id: "invites", label: "People", icon: "user", adminPilotFocus: "invites" },
   { id: "schedules", label: "Schedules", icon: "clock" },
   { id: "audits", label: "Complete Work", icon: "clipboard" },
+  { id: "results", label: "Results", icon: "checklist" },
   { id: "actions", label: "Actions", icon: "warningTriangle" },
   { id: "nonConformance", label: "NCRs", icon: "checklist" },
   { id: "reports", label: "Reports", icon: "chart" },
@@ -195,6 +198,7 @@ const MASTER_COMPANY_SCOPED_SCREENS: NavItemId[] = [
   "invites",
   "admin",
   "schedules",
+  "results",
   "qmsReadiness",
 ];
 
