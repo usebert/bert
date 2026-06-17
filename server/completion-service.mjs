@@ -361,4 +361,43 @@ export async function listAuditResults(auth, deps, companyContext = {}) {
   }
 }
 
+/** Read one AuditResults row by Result ID — folder-filtered, wrong-company excluded. */
+export async function getAuditResult(auth, deps, companyContext = {}, resultId = "") {
+  const targetId = trim(resultId);
+  if (!targetId) {
+    return {
+      ok: false,
+      code: "RESULT_ID_REQUIRED",
+      error: "Result ID is required.",
+      httpStatus: 400,
+    };
+  }
+
+  const listed = await listAuditResults(auth, deps, companyContext);
+  if (!listed.ok) {
+    return listed;
+  }
+
+  const match = (listed.results || []).find(
+    (record) => pickRecordField(record, "Result ID", "ResultId") === targetId,
+  );
+  if (!match) {
+    return {
+      ok: false,
+      code: "AUDIT_RESULT_NOT_FOUND",
+      error: "This completed check was not found for your company workspace.",
+      message: "This completed check was not found for your company workspace.",
+      httpStatus: 404,
+    };
+  }
+
+  return {
+    ok: true,
+    companyId: listed.companyFolderId,
+    companyFolderId: listed.companyFolderId,
+    masterSheetId: listed.masterSheetId,
+    result: match,
+  };
+}
+
 export { submitCompletedCheck as completeCheck, listAuditResults as listResults };

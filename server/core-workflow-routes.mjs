@@ -32,6 +32,7 @@ import { BACKGROUND_SCHEDULE_SAVED_MESSAGE } from "../shared/background-jobs.mjs
 import { rejectIfCompanyFolderNotUnderCompaniesRoot } from "./company-folder-placement.mjs";
 import {
   canListCompanyAuditResults,
+  getAuditResult,
   listAuditResults,
   submitCompletedCheck,
 } from "./completion-service.mjs";
@@ -841,7 +842,8 @@ export function installCoreWorkflowRoutes(app, deps) {
     }
   });
 
-  app.get("/api/companies/:companyId/audit-results", async (req, res) => {
+  async function respondWithCompanyAuditResults(req, res, options = {}) {
+    const trustClientSheetHints = options.trustClientSheetHints === true;
     const authed = getAuthedClient();
     if (!envConfigured() || !authed) {
       return res.status(401).json({
@@ -852,11 +854,26 @@ export function installCoreWorkflowRoutes(app, deps) {
     }
 
     const companyId = String(req.params?.companyId || "").trim();
-    const masterSheetId = String(req.query.masterSheetId || req.query.sheetId || "").trim();
+    const masterSheetId = trustClientSheetHints
+      ? String(req.query.masterSheetId || req.query.sheetId || "").trim()
+      : "";
     const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
-    const companyFolderId = String(
-      req.query.companyFolderId || actor?.companyFolderId || actor?.companyId || companyId,
-    ).trim();
+    const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || "").trim();
+    const companyFolderId = trustClientSheetHints
+      ? String(req.query.companyFolderId || sessionCompanyFolderId || companyId).trim()
+      : sessionCompanyFolderId || companyId;
+
+    if (!trustClientSheetHints && sessionCompanyFolderId && companyId && sessionCompanyFolderId !== companyId) {
+      if (!isGodmodeInviteSession({ kind: actor?.kind, role: actor?.role })) {
+        return res.status(403).json({
+          ok: false,
+          code: "SESSION_COMPANY_MISMATCH",
+          error: "Results are scoped to your signed-in company workspace.",
+          message: "You do not have permission to view audit results for this company.",
+        });
+      }
+    }
+
     const folderDenial = await rejectCompanyApiIfFolderInvalid(
       authed,
       { ...registryDeps, ...scheduleDeps },
@@ -873,9 +890,9 @@ export function installCoreWorkflowRoutes(app, deps) {
         { ...registryDeps, ...scheduleDeps },
         {
           companyId,
-          companyFolderId,
+          companyFolderId: companyId,
           masterSheetId,
-          companyName: String(req.query.companyName || "").trim(),
+          companyName: String(req.query.companyName || actor?.companyName || "").trim(),
         },
       );
       if (!resolved.ok) {
@@ -934,6 +951,124 @@ export function installCoreWorkflowRoutes(app, deps) {
         technicalError: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  async function respondWithCompanyAuditResultDetail(req, res) {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({
+        ok: false,
+        error: "Please connect Google before loading this completed check.",
+        message: "Could not load this completed check.",
+      });
+    }
+
+    const companyId = String(req.params?.companyId || "").trim();
+    const resultId = String(req.params?.resultId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || "").trim();
+    const companyFolderId = sessionCompanyFolderId || companyId;
+
+    if (sessionCompanyFolderId && companyId && sessionCompanyFolderId !== companyId) {
+      if (!isGodmodeInviteSession({ kind: actor?.kind, role: actor?.role })) {
+        return res.status(403).json({
+          ok: false,
+          code: "SESSION_COMPANY_MISMATCH",
+          error: "Results are scoped to your signed-in company workspace.",
+          message: "You do not have permission to view this completed check.",
+        });
+      }
+    }
+
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      companyFolderId,
+      String(actor?.companyName || "").trim(),
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
+
+    try {
+      const resolved = await resolveCompanyScheduleContext(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        {
+          companyId,
+          companyFolderId: companyId,
+          masterSheetId: "",
+          companyName: String(actor?.companyName || "").trim(),
+        },
+      );
+      if (!resolved.ok) {
+        return res.status(resolved.httpStatus || 400).json({
+          ok: false,
+          code: resolved.code,
+          error: resolved.error,
+          message: resolved.message || resolved.error,
+          technicalError: resolved.technicalError,
+        });
+      }
+
+      if (
+        !canListCompanyAuditResults(actor, resolved.companyFolderId, [
+          companyId,
+          resolved.companyId,
+          ...resolved.alternateIds,
+        ])
+      ) {
+        return res.status(403).json({
+          ok: false,
+          code: "AUDIT_RESULTS_FORBIDDEN",
+          error: "You do not have permission to view audit results for this company.",
+          message: "You do not have permission to view this completed check.",
+        });
+      }
+
+      const detail = await getAuditResult(authed, { ...registryDeps, ...scheduleDeps }, {
+        companyId: resolved.companyFolderId,
+        companyFolderId: resolved.companyFolderId,
+        masterSheetId: resolved.masterSheetId,
+      }, resultId);
+      if (!detail.ok) {
+        return res.status(detail.httpStatus || 400).json({
+          ok: false,
+          code: detail.code,
+          error: detail.error,
+          message: detail.message || detail.error,
+          technicalError: detail.technicalError,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        companyId: detail.companyFolderId,
+        companyFolderId: detail.companyFolderId,
+        masterSheetId: detail.masterSheetId,
+        result: detail.result,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "AUDIT_RESULT_LOAD_FAILED",
+        error: "Could not load this completed check.",
+        message: "Could not load this completed check.",
+        technicalError: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  app.get("/api/companies/:companyId/results", async (req, res) => {
+    return respondWithCompanyAuditResults(req, res, { trustClientSheetHints: false });
+  });
+
+  app.get("/api/companies/:companyId/results/:resultId", async (req, res) => {
+    return respondWithCompanyAuditResultDetail(req, res);
+  });
+
+  app.get("/api/companies/:companyId/audit-results", async (req, res) => {
+    return respondWithCompanyAuditResults(req, res, { trustClientSheetHints: true });
   });
 
   app.post("/api/companies/:companyId/checks/:scheduleId/complete", async (req, res) => {
