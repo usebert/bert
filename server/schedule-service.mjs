@@ -568,10 +568,9 @@ export async function listMyChecks(auth, deps, input = {}) {
   const email = normalizeEmail(input.email || input.userEmail);
   const companyFolderId = String(input.companyFolderId || input.companyId || "").trim();
   const listed = await readSchedulesFromTab(auth, deps, {
-    ...(input.companyContext || {}),
-    ...input,
     companyFolderId,
     companyId: companyFolderId,
+    companyName: String(input.companyName || "").trim(),
   });
   if (!listed.ok) {
     return listed;
