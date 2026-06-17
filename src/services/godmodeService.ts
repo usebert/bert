@@ -11,7 +11,35 @@ export type GodmodeLiveCompany = {
   folderId?: string;
   masterSheetId?: string;
   sheetId?: string;
+  registryStatus?: string;
+  setupStatus?: "ready" | "incomplete";
+  setupStatusLabel?: string;
 };
+
+/** Map live-companies API rows into App workspace folder shape. */
+export function mapGodmodeLiveCompanyToWorkspaceFolder(company: GodmodeLiveCompany) {
+  const id = String(company.id || company.folderId || "").trim();
+  const masterSheetId = String(company.masterSheetId || company.sheetId || "").trim();
+  const setupStatusLabel =
+    company.setupStatusLabel ||
+    (masterSheetId ? "Ready" : "Setup in progress");
+  return {
+    id,
+    name: String(company.name || "").trim(),
+    onboardingFormName: "",
+    auditFormCount: 0,
+    responseSheetName: "",
+    responseSheetId: masterSheetId || undefined,
+    linkedAt: new Date().toISOString(),
+    onboardingVerified: Boolean(masterSheetId),
+    auditFormsVerified: false,
+    responseSheetVerified: Boolean(masterSheetId),
+    setupStatus: company.setupStatus || (masterSheetId ? ("ready" as const) : ("incomplete" as const)),
+    setupStatusLabel,
+    masterSheetId: masterSheetId || undefined,
+    registryStatus: company.registryStatus,
+  };
+}
 
 export async function listGodmodeLiveCompanies(): Promise<{
   ok: boolean;

@@ -93,6 +93,7 @@
     "verify:account-ui": "node scripts/verify-account-ui.mjs",
     "verify:declutter-ui": "node scripts/verify-declutter-ui.mjs",
     "verify:frontend-session-wiring": "node scripts/verify-frontend-session-wiring.mjs",
+    "verify:godmode-company-wiring": "node scripts/verify-godmode-company-wiring.mjs",
     "verify:login-performance": "node scripts/verify-login-performance.mjs",
     "verify:login-timing-trace": "node scripts/verify-login-timing-trace.mjs",
     "verify:login-context-trace": "node scripts/verify-login-context-trace.mjs",

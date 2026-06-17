@@ -86,6 +86,8 @@ export function mergeLinkedCompanyFolder<T extends LinkedCompanyFolder>(
 export function applyLinkedCompanyContext(input: {
   email: string;
   company?: LinkedCompanyContextInput | null;
+  /** Godmode selection persists via backend session — never write company login hints. */
+  skipLoginHint?: boolean;
   setSelectedFolderId: (value: string) => void;
   setFolders: (updater: (current: LinkedCompanyFolder[]) => LinkedCompanyFolder[]) => void;
   setFolderIdInput?: (updater: (current: string) => string) => void;
@@ -126,7 +128,7 @@ export function applyLinkedCompanyContext(input: {
   }
 
   const email = String(input.email || "").trim().toLowerCase();
-  if (email && validatedIds.masterSheetId) {
+  if (!input.skipLoginHint && email && validatedIds.masterSheetId) {
     saveCompanyLoginHint({
       email,
       masterSheetId: validatedIds.masterSheetId,

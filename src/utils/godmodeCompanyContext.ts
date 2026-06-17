@@ -1,5 +1,24 @@
 import { storageKeys } from "../config/storageKeys";
 import { apiUrl } from "../config/apiBase";
+import { resolveGodmodeCompanyFromFolder } from "../services/godmodeService";
+import type { ResolvedCompanyFromFolder } from "../services/companyService";
+
+export async function resolveAndSyncMasterCompanySelection(input: {
+  companyFolderId: string;
+  companyName?: string;
+  masterSheetId?: string;
+}): Promise<ResolvedCompanyFromFolder> {
+  const resolved = await resolveGodmodeCompanyFromFolder(input);
+  if (!resolved.ok) {
+    return resolved;
+  }
+  await syncMasterCompanyContextToSession({
+    companyFolderId: resolved.companyFolderId,
+    companyName: resolved.companyName,
+    masterSheetId: resolved.masterSheetId,
+  });
+  return resolved;
+}
 
 export async function syncMasterCompanyContextToSession(input: {
   companyFolderId?: string;

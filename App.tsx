@@ -159,10 +159,13 @@ import {
 import { filterCustomerFacingCompanies } from "./src/utils/systemTemplateCompany";
 import {
   clearGodmodeSelectedCompanyFolderId,
-  readGodmodeSelectedCompanyFolderId,
+  resolveAndSyncMasterCompanySelection,
   syncMasterCompanyContextToSession,
-  writeGodmodeSelectedCompanyFolderId,
 } from "./src/utils/godmodeCompanyContext";
+import {
+  listGodmodeLiveCompanies,
+  mapGodmodeLiveCompanyToWorkspaceFolder,
+} from "./src/services/godmodeService";
 import {
   migrateStoredFolderLinks,
   type IsoFolderConfigIds,
@@ -5813,6 +5816,7 @@ function App() {
             if (resolvedMasterCompanyIds && session.company?.companyName) {
               applyLinkedCompanyContext({
                 email: masterUser.username,
+                skipLoginHint: true,
                 company: {
                   companyId: resolvedMasterCompanyIds.companyFolderId,
                   companyName: session.company.companyName,
@@ -5836,6 +5840,7 @@ function App() {
                 role: "Master",
                 accessLevel: "Godmode",
               });
+              setHydratedCompanyFolderId(resolvedMasterCompanyIds.companyFolderId);
             }
             if (!isSetupInitialPath() && !isSetupPath()) {
               setScreen(getHomeScreenForRole("Master"), {
@@ -6553,18 +6558,6 @@ function App() {
   }, [actions, selectedFolderId, syncState, googleConnected, offlineMode]);
 
   useEffect(() => {
-    if (currentUser?.role !== "Master") {
-      return;
-    }
-    const storedId = readGodmodeSelectedCompanyFolderId();
-    const allowedIds = new Set(selectableGodmodeFolders.map((folder) => folder.id));
-
-    if (storedId && !allowedIds.has(storedId)) {
-      clearGodmodeSelectedCompanyFolderId();
-    }
-  }, [currentUser?.role, selectableGodmodeFolders]);
-
-  useEffect(() => {
     if (!googleConnected || offlineMode) {
       return;
     }
@@ -6849,20 +6842,25 @@ function App() {
       return;
     }
     try {
-      const payload = await googleWorkspaceService.getGodmodeLiveCompanies<GodmodeLiveCompaniesPayload>();
-      const companies = filterCustomerFacingCompanies(payload.companies || []);
+      const payload = await listGodmodeLiveCompanies();
+      if (!payload.ok) {
+        throw new Error(payload.error || "Unable to load Live Companies folders.");
+      }
+      const companies = filterCustomerFacingCompanies(
+        payload.companies.map((company) => mapGodmodeLiveCompanyToWorkspaceFolder(company)),
+      );
       setFolders(companies);
-      const restoreId = readGodmodeSelectedCompanyFolderId() || selectedFolderIdRef.current;
-      if (restoreId) {
-        const restored = companies.find((company) => company.id === restoreId);
+      const activeFolderId = selectedFolderIdRef.current;
+      if (activeFolderId) {
+        const restored = companies.find((company) => company.id === activeFolderId);
         const registrySheetId = String(restored?.masterSheetId || restored?.responseSheetId || "").trim();
-        if (registrySheetId && restoreId === selectedFolderIdRef.current) {
+        if (registrySheetId && activeFolderId === selectedFolderIdRef.current) {
           setMasterSheetInput((current) => current.trim() || registrySheetId);
         }
       }
       setGodmodeLiveCompaniesWarning(
-        payload.liveCompaniesMissing
-          ? payload.warning || "Live Companies folder not found. Check platform setup."
+        companies.length === 0 && payload.error
+          ? payload.error
           : "",
       );
     } catch (error) {
@@ -10341,10 +10339,12 @@ function App() {
         clearGodmodeSelectedCompanyFolderId();
         clearCompanyWorkspaceLocalStateForGodmodeSwitch();
         clearActiveCompanyWorkspaceState();
+        setLinkedCompanyContext(null);
         void syncMasterCompanyContextToSession({});
         setScreen("godmodeHome");
       }
       setSelectedFolderId("");
+      setHydratedCompanyFolderId("");
       setSyncState("Not synced");
       return;
     }
@@ -10358,6 +10358,10 @@ function App() {
       return;
     }
 
+    let resolvedCompanyName = folder.name;
+    let resolvedMasterSheetId = folder.masterSheetId || folder.responseSheetId || "";
+    let activeFolderId = trimmedId;
+
     if (currentUser?.role === "Master") {
       if (!selectableGodmodeFolders.some((item) => item.id === folder.id)) {
         pushToast("Company workspace required", GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE, "warning");
@@ -10366,51 +10370,103 @@ function App() {
       if (trimmedId !== selectedFolderId) {
         clearCompanyWorkspaceLocalStateForGodmodeSwitch();
         clearActiveCompanyWorkspaceState();
+        setLinkedCompanyContext(null);
       }
-      writeGodmodeSelectedCompanyFolderId(folder.id);
-      void syncMasterCompanyContextToSession({
+
+      const resolved = await resolveAndSyncMasterCompanySelection({
         companyFolderId: folder.id,
         companyName: folder.name,
         masterSheetId: folder.masterSheetId || folder.responseSheetId || "",
+      });
+      if (selectedFolderIdRef.current && selectedFolderIdRef.current !== trimmedId) {
+        return;
+      }
+      if (!resolved.ok) {
+        pushToast(
+          "Company workspace unavailable",
+          resolved.userMessage || "Unable to resolve this company workspace from Drive.",
+          "warning",
+        );
+        return;
+      }
+
+      const validatedIds = validateCompanyDriveIds({
+        companyFolderId: resolved.companyFolderId,
+        masterSheetId: resolved.masterSheetId,
+      });
+      if (!validatedIds) {
+        pushToast("Company workspace unavailable", "Company folder or master sheet id is invalid.", "warning");
+        return;
+      }
+
+      activeFolderId = validatedIds.companyFolderId;
+      resolvedCompanyName = resolved.companyName;
+      resolvedMasterSheetId = validatedIds.masterSheetId;
+
+      applyLinkedCompanyContext({
+        email: currentUser.username,
+        skipLoginHint: true,
+        company: {
+          companyId: validatedIds.companyFolderId,
+          companyName: resolved.companyName,
+          masterSheetId: validatedIds.masterSheetId,
+          registryStatus: resolved.status,
+        },
+        setSelectedFolderId,
+        setFolders: (updater) => setFolders((current) => updater(current)),
+        setFolderIdInput,
+        setFolderNameInput,
+        setMasterSheetInput,
+        setCompanyRegistryStatus,
+      });
+      setLinkedCompanyContext({
+        companyId: validatedIds.companyFolderId,
+        companyName: resolved.companyName,
+        masterSheetId: validatedIds.masterSheetId,
+        registryStatus: resolved.status,
+        role: "Master",
+        accessLevel: "Godmode",
       });
     } else if (trimmedId !== selectedFolderId) {
       clearActiveCompanyWorkspaceState();
     }
 
-    setSelectedFolderId(trimmedId);
-    setFolderIdInput(trimmedId);
-    const knownSheetId = folder.masterSheetId || folder.responseSheetId || "";
-    if (knownSheetId) {
-      setMasterSheetInput(knownSheetId);
+    setSelectedFolderId(activeFolderId);
+    setFolderIdInput(activeFolderId);
+    if (resolvedMasterSheetId) {
+      setMasterSheetInput(resolvedMasterSheetId);
+    }
+    if (currentUser?.role === "Master" && resolvedCompanyName) {
+      setFolderNameInput(resolvedCompanyName);
     }
     setSyncState("Linked");
+
     try {
-      const inspection = await inspectFolderById(trimmedId, { silent: true });
-      if (trimmedId !== selectedFolderIdRef.current) {
+      const inspection = await inspectFolderById(activeFolderId, { silent: true });
+      if (activeFolderId !== selectedFolderIdRef.current) {
         return;
       }
-      const registrySheetId = knownSheetId ? "" : await applyRegistryMasterSheetToFolder(trimmedId);
+      const registrySheetId = resolvedMasterSheetId ? "" : await applyRegistryMasterSheetToFolder(activeFolderId);
       const sheetId =
-        folder.masterSheetId ||
-        folder.responseSheetId ||
+        resolvedMasterSheetId ||
         registrySheetId ||
         inspection?.masterSheet?.id ||
         extractGoogleResourceId(masterSheetInput) ||
         "";
       if (sheetId) {
-        await loadCompanySheetById(sheetId, trimmedId, { silent: true });
-        if (trimmedId !== selectedFolderIdRef.current) {
+        await loadCompanySheetById(sheetId, activeFolderId, { silent: true });
+        if (activeFolderId !== selectedFolderIdRef.current) {
           return;
         }
         await syncCompanyAreasFromServer({ silent: true });
-        if (trimmedId !== selectedFolderIdRef.current) {
+        if (activeFolderId !== selectedFolderIdRef.current) {
           return;
         }
       } else {
         throw new Error("Company Master Sheet is missing for this workspace.");
       }
-      setHydratedCompanyFolderId(trimmedId);
-      pushToast("Folder selected", `${folder.name} is now the active company source.`, "success");
+      setHydratedCompanyFolderId(activeFolderId);
+      pushToast("Folder selected", `${resolvedCompanyName} is now the active company source.`, "success");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to load company workspace.";
       const looksLikeMissingMaster = /master sheet/i.test(message);
@@ -10662,44 +10718,84 @@ function App() {
       if (trimmedId !== selectedFolderId) {
         clearCompanyWorkspaceLocalStateForGodmodeSwitch();
         clearActiveCompanyWorkspaceState();
+        setLinkedCompanyContext(null);
       }
 
-      writeGodmodeSelectedCompanyFolderId(folder.id);
-      void syncMasterCompanyContextToSession({
+      const resolved = await resolveAndSyncMasterCompanySelection({
         companyFolderId: folder.id,
         companyName: folder.name,
-        masterSheetId: folder.masterSheetId || folder.responseSheetId || "",
+        masterSheetId: knownSheetId,
       });
-      setSelectedFolderId(trimmedId);
-      setFolderIdInput(trimmedId);
-      setMasterSheetInput(knownSheetId);
+      if (selectedFolderIdRef.current && selectedFolderIdRef.current !== trimmedId) {
+        return;
+      }
+
+      let activeFolderId = trimmedId;
+      let resolvedCompanyName = folder.name;
+      let resolvedMasterSheetId = knownSheetId;
+      if (resolved.ok) {
+        const validatedIds = validateCompanyDriveIds({
+          companyFolderId: resolved.companyFolderId,
+          masterSheetId: resolved.masterSheetId,
+        });
+        if (validatedIds) {
+          activeFolderId = validatedIds.companyFolderId;
+          resolvedCompanyName = resolved.companyName;
+          resolvedMasterSheetId = validatedIds.masterSheetId;
+          applyLinkedCompanyContext({
+            email: currentUser?.username || "",
+            skipLoginHint: true,
+            company: {
+              companyId: validatedIds.companyFolderId,
+              companyName: resolved.companyName,
+              masterSheetId: validatedIds.masterSheetId,
+              registryStatus: resolved.status,
+            },
+            setSelectedFolderId,
+            setFolders: (updater) => setFolders((current) => updater(current)),
+            setFolderIdInput,
+            setFolderNameInput,
+            setMasterSheetInput,
+            setCompanyRegistryStatus,
+          });
+          setLinkedCompanyContext({
+            companyId: validatedIds.companyFolderId,
+            companyName: resolved.companyName,
+            masterSheetId: validatedIds.masterSheetId,
+            registryStatus: resolved.status,
+            role: "Master",
+            accessLevel: "Godmode",
+          });
+        }
+      }
+
+      setSelectedFolderId(activeFolderId);
+      setFolderIdInput(activeFolderId);
+      setFolderNameInput(resolvedCompanyName);
+      setMasterSheetInput(resolvedMasterSheetId);
       setFolderInspection(null);
       setWorkspaceValidation(null);
-      setSyncState(knownSheetId ? "Linked" : "Not synced");
-      setHydratedCompanyFolderId(trimmedId);
+      setSyncState(resolvedMasterSheetId ? "Linked" : "Not synced");
+      setHydratedCompanyFolderId(activeFolderId);
       setScreen("onboarding");
 
       try {
-        const inspection = await inspectFolderById(trimmedId, { silent: true });
-        if (trimmedId !== selectedFolderIdRef.current) {
+        const inspection = await inspectFolderById(activeFolderId, { silent: true });
+        if (activeFolderId !== selectedFolderIdRef.current) {
           return;
         }
-        const sheetId =
-          folder.masterSheetId ||
-          folder.responseSheetId ||
-          inspection?.masterSheet?.id ||
-          "";
+        const sheetId = resolvedMasterSheetId || inspection?.masterSheet?.id || "";
         if (sheetId) {
           setMasterSheetInput(sheetId);
-          await loadCompanySheetById(sheetId, trimmedId, { silent: true });
-          if (trimmedId !== selectedFolderIdRef.current) {
+          await loadCompanySheetById(sheetId, activeFolderId, { silent: true });
+          if (activeFolderId !== selectedFolderIdRef.current) {
             return;
           }
           await syncCompanyAreasFromServer({ silent: true });
-          if (trimmedId !== selectedFolderIdRef.current) {
+          if (activeFolderId !== selectedFolderIdRef.current) {
             return;
           }
-          setHydratedCompanyFolderId(trimmedId);
+          setHydratedCompanyFolderId(activeFolderId);
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unable to inspect the company folder.";
