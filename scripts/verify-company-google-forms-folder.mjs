@@ -310,6 +310,8 @@ assertContains("server/google-forms-service.mjs", [
   "writeTabRecords",
   "handleCompanyGoogleFormsGet",
   "handleCompanyGoogleFormsSyncPost",
+  'app.get("/api/company/:companyFolderId/google-forms"',
+  "return handleCompanyGoogleFormsGet",
 ]);
 
 assertContains("server/core-workflow-routes.mjs", [
@@ -330,6 +332,7 @@ assertContains("src/services/companyFormsService.ts", [
   "fetchCompanyGoogleForms",
   "syncCompanyGoogleForms",
   "/api/companies/",
+  "/google-forms",
   "/google-forms/sync",
   'method: "POST"',
   "folder_lookup_failed",
@@ -340,6 +343,10 @@ assertContains("src/services/companyFormsService.ts", [
 assertNotContains("src/services/companyFormsService.ts", [
   'params.set("masterSheetId"',
   "/api/company/",
+  "localStorage",
+  "storageKeys.companyName",
+  "storageKeys.masterSheetId",
+  "storageKeys.formsFolderId",
 ]);
 
 assertContains("src/components/forms/FormsChecksTemplatesPanel.tsx", [
@@ -368,7 +375,11 @@ assert(
 );
 assertNotContains("App.tsx", ['localStorage.getItem(storageKeys.companyName)']);
 assertContains("src/components/godmode/GodmodeCompanyWorkspacePanel.tsx", ["Google Forms diagnostics"]);
-assertContains("package.json", ["verify:company-google-forms-folder", "verify:foundation-p0-hardening"]);
+assertContains("package.json", [
+  "verify:company-google-forms-folder",
+  "verify:google-forms-folder",
+  "verify:foundation-p0-hardening",
+]);
 
 assert(DOVECOTE_COMPANY_FOLDER_ID.length > 10, "Dovecote companyFolderId fixture present");
 assert(DOVECOTE_MASTER_SHEET_ID.length > 10, "Dovecote masterSheetId fixture present");
