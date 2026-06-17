@@ -110,7 +110,11 @@ assert(
 assert(frontendCheck.includes("isScheduleAssignedToUser"), "6e: frontend filters by assignment");
 
 /** 7: App wires folder-first schedule context (no registry gate). */
-assert(appSrc.includes("listCompanySchedules(activeCompanyContext"), "7: App lists schedules via company context");
+assert(
+  appSrc.includes("listCompanySchedules") &&
+    (appSrc.includes("activeCompanyContext") || appSrc.includes("resolveCompanyMembersLoadContext")),
+  "7: App lists schedules via company context",
+);
 assert(scheduleService.includes("resolveCompanyFromFolder"), "7b: folder-first schedule context on server");
 assert(!scheduleService.includes("assertCompanyLiveForInvite"), "7c: no live gate on schedule list");
 

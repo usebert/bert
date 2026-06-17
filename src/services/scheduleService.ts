@@ -5,6 +5,12 @@ import { formatScheduleSaveError } from "../utils/scheduleSave";
 import { BACKGROUND_SCHEDULE_SAVED_MESSAGE } from "./backgroundJobsService";
 import { getScheduleAssignedEmails } from "../utils/scheduleAssignment";
 import type { ScheduleAssignedUser } from "../utils/scheduleSave";
+import { fetchJson } from "../utils/fetchJson";
+import type { Role } from "../permissions";
+import type {
+  ScheduleAssigneeDiagnostics,
+  ScheduleAssigneeOption,
+} from "../utils/scheduleAssignees";
 
 export type CompanyScheduleContext = Pick<
   ResolvedCompanyContext,
@@ -23,6 +29,22 @@ export type SaveCompanyScheduleResult = {
   ok: boolean;
   userMessage?: string;
   error?: string;
+};
+
+export const COMPANY_SCHEDULES_LOAD_TIMEOUT_MS = 90_000;
+export const SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS = 90_000;
+export const SCHEDULE_ASSIGNEES_LOADING_MESSAGE = "Loading assignable users…";
+export const SCHEDULE_ASSIGNEES_USER_MESSAGE = "Could not load assignable users.";
+export const SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MESSAGE =
+  "Loading assignable users timed out before the server finished reading your company workbook. Try again — if it keeps failing, ask your operator to check the BERT Master Sheet.";
+
+export type FetchScheduleAssigneesResult = {
+  ok: boolean;
+  assignees: ScheduleAssigneeOption[];
+  loadError?: string;
+  loadErrorDetail?: string;
+  warning?: string;
+  diagnostics?: ScheduleAssigneeDiagnostics;
 };
 
 function companyContextQuery(context: CompanyScheduleContext): URLSearchParams {
@@ -89,6 +111,89 @@ function mapListedSchedule(schedule: Record<string, unknown>): ManagedSchedule {
     healthState: schedule.healthState as ManagedSchedule["healthState"],
     createdBy: String(schedule.createdBy || schedule.createdByEmail || ""),
     createdAt: String(schedule.createdAt || ""),
+  };
+}
+
+function mapScheduleAssigneeOption(raw: Record<string, unknown>): ScheduleAssigneeOption {
+  const email = String(raw.email || "").trim().toLowerCase();
+  const role = String(raw.role || "User").trim() as Role | "User";
+  return {
+    id: String(raw.id || email).trim().toLowerCase(),
+    name: String(raw.name || email.split("@")[0] || email).trim() || email,
+    role,
+    email,
+    companyAreas: Array.isArray(raw.companyAreas)
+      ? (raw.companyAreas as string[]).map((entry) => String(entry).trim()).filter(Boolean)
+      : [],
+    areaWarning: raw.areaWarning ? String(raw.areaWarning) : undefined,
+  };
+}
+
+export async function fetchScheduleAssignees(
+  companyContext: CompanyScheduleContext,
+  options?: { selectedArea?: string; includeDiagnostics?: boolean; signal?: AbortSignal },
+): Promise<FetchScheduleAssigneesResult> {
+  const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
+  if (!companyFolderId) {
+    return {
+      ok: false,
+      assignees: [],
+      loadError: SCHEDULE_ASSIGNEES_USER_MESSAGE,
+      loadErrorDetail: "Company workspace id is required before loading assignees.",
+    };
+  }
+
+  const params = companyContextQuery(companyContext);
+  const selectedArea = String(options?.selectedArea || "").trim();
+  if (selectedArea) {
+    params.set("area", selectedArea);
+  }
+  if (options?.includeDiagnostics) {
+    params.set("diagnostics", "1");
+  }
+
+  const path = `/api/companies/${encodeURIComponent(companyFolderId)}/schedule-assignees?${params.toString()}`;
+  const result = await fetchJson<{
+    ok?: boolean;
+    assignees?: Record<string, unknown>[];
+    auditors?: Record<string, unknown>[];
+    message?: string;
+    error?: string;
+    code?: string;
+    warning?: string;
+    diagnostics?: ScheduleAssigneeDiagnostics;
+  }>(apiUrl(path), { signal: options?.signal });
+
+  if (!result.ok) {
+    return {
+      ok: false,
+      assignees: [],
+      loadError: SCHEDULE_ASSIGNEES_USER_MESSAGE,
+      loadErrorDetail: result.message,
+    };
+  }
+
+  const { data: payload, response } = result;
+  if (!response.ok || payload.ok === false) {
+    return {
+      ok: false,
+      assignees: [],
+      loadError: payload.message || payload.error || SCHEDULE_ASSIGNEES_USER_MESSAGE,
+      loadErrorDetail: payload.message || payload.error,
+    };
+  }
+
+  const rawAssignees = Array.isArray(payload.assignees)
+    ? payload.assignees
+    : Array.isArray(payload.auditors)
+      ? payload.auditors
+      : [];
+
+  return {
+    ok: true,
+    assignees: rawAssignees.map((row) => mapScheduleAssigneeOption(row)),
+    warning: payload.warning,
+    diagnostics: payload.diagnostics,
   };
 }
 

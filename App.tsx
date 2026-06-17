@@ -299,7 +299,6 @@ import {
 } from "./src/utils/auditAccess";
 import {
   normalizeScheduleAssigneeIds,
-  deriveScheduleAssigneesFromCompanyMembers,
   resolveScheduleAssigneeLabels,
   resolveScheduleAssigneeEmptyMessage,
   type ScheduleAssigneeDiagnostics,
@@ -319,7 +318,15 @@ import {
   formatLoginNetworkDebugSuffix,
   type LoginFetchDiagnostics,
 } from "./src/utils/loginNetworkMessages";
-import { listCompanySchedules, saveCompanySchedule } from "./src/services/scheduleService";
+import {
+  COMPANY_SCHEDULES_LOAD_TIMEOUT_MS,
+  fetchScheduleAssignees,
+  listCompanySchedules,
+  saveCompanySchedule,
+  SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MESSAGE,
+  SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS,
+  SCHEDULE_ASSIGNEES_USER_MESSAGE,
+} from "./src/services/scheduleService";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
 import { getNextBestAction } from "./src/utils/nextBestAction";
 import type { DashboardSummaryForNextAction, NextBestActionIntent } from "./src/utils/nextBestAction";
@@ -3528,6 +3535,14 @@ function App() {
     loading: boolean;
     loadError?: string;
   }>({ loading: false });
+  const [scheduleAssigneesState, setScheduleAssigneesState] = useState<{
+    assignees: ScheduleAssigneeOption[];
+    loading: boolean;
+    loadError?: string;
+    loadErrorDetail?: string;
+    warning?: string;
+    diagnostics?: ScheduleAssigneeDiagnostics;
+  }>({ assignees: [], loading: false });
   const [companyOnboardingInviteResult, setCompanyOnboardingInviteResult] =
     useState<CompanyOnboardingInviteResult | null>(null);
   const [companyOnboardingInviteSending, setCompanyOnboardingInviteSending] = useState(false);
@@ -5156,60 +5171,139 @@ function App() {
     return "";
   }, [audits, scheduleDraftSelectedAuditIds]);
 
-  const scheduleAssigneesDerived = useMemo(
-    () =>
-      deriveScheduleAssigneesFromCompanyMembers(
-        companyMembersState.members,
-        {
-          companyId: activeCompanyContext.companyFolderId.trim(),
-          masterSheetId: activeCompanyContext.masterSheetId.trim(),
-          selectedArea: scheduleBuilderAreaFilter.trim(),
-          includeDiagnostics: isDebugUiAllowed() || (currentUser ? canShowTechnicalUi(currentUser.role) : false),
-        },
-        {
-          loading: companyMembersState.loading,
-          loadError: companyMembersState.loadError,
-          warning: companyMembersState.warning,
-          loadDiagnostics: companyMembersState.loadDiagnostics as ScheduleAssigneeDiagnostics | undefined,
-        },
-      ),
-    [
-      companyMembersState.members,
-      companyMembersState.loading,
-      companyMembersState.loadError,
-      companyMembersState.warning,
-      companyMembersState.loadDiagnostics,
-      activeCompanyContext.companyFolderId,
-      activeCompanyContext.masterSheetId,
-      scheduleBuilderAreaFilter,
-      currentUser?.role,
-    ],
-  );
-  const availableScheduleAssignees = scheduleAssigneesDerived.assignees;
+  const availableScheduleAssignees = scheduleAssigneesState.assignees;
   const scheduleAssigneeEmptyMessage = useMemo(
     () =>
       resolveScheduleAssigneeEmptyMessage(availableScheduleAssignees, {
         selectedArea: scheduleBuilderAreaFilter,
-        diagnostics: scheduleAssigneesDerived.diagnostics,
-        loadError: scheduleAssigneesDerived.loadError,
-        loading: scheduleAssigneesDerived.loading,
-        warning: scheduleAssigneesDerived.warning,
+        diagnostics: scheduleAssigneesState.diagnostics,
+        loadError: scheduleAssigneesState.loadError,
+        loading: scheduleAssigneesState.loading,
+        warning: scheduleAssigneesState.warning,
       }),
     [
       availableScheduleAssignees,
-      scheduleAssigneesDerived.diagnostics,
-      scheduleAssigneesDerived.loadError,
-      scheduleAssigneesDerived.loading,
-      scheduleAssigneesDerived.warning,
+      scheduleAssigneesState.diagnostics,
+      scheduleAssigneesState.loadError,
+      scheduleAssigneesState.loading,
+      scheduleAssigneesState.warning,
       scheduleBuilderAreaFilter,
     ],
   );
   useEffect(() => {
-    if (!isDebugUiAllowed() || !scheduleAssigneesDerived.diagnostics) {
+    if (!isDebugUiAllowed() || !scheduleAssigneesState.diagnostics) {
       return;
     }
-    console.info("[schedule-assignees]", scheduleAssigneesDerived.diagnostics);
-  }, [scheduleAssigneesDerived.diagnostics]);
+    console.info("[schedule-assignees]", scheduleAssigneesState.diagnostics);
+  }, [scheduleAssigneesState.diagnostics]);
+
+  useEffect(() => {
+    const { companyId, masterSheetId, companyName } = resolveCompanyMembersLoadContext({
+      activeCompanyContext,
+      selectedFolderId: selectedFolder?.id,
+      folderIdInput,
+      masterSheetInput,
+      companySheetSyncSheetId: companySheetSync?.sheetId,
+    });
+    const canLoadCompanyApi = Boolean(companyId) && (currentUser?.role !== "Master" || googleConnected);
+    if (!canLoadCompanyApi || !masterCompanyWorkspaceDataMatchesSelection) {
+      setScheduleAssigneesState({ assignees: [], loading: false });
+      return;
+    }
+
+    const controller = new AbortController();
+    let cancelled = false;
+    const timeoutId = window.setTimeout(() => {
+      controller.abort(new DOMException("Schedule assignees load timed out", "TimeoutError"));
+    }, SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS);
+    setScheduleAssigneesState({
+      assignees: [],
+      loading: true,
+      loadError: undefined,
+    });
+
+    void (async () => {
+      try {
+        const includeDiagnostics =
+          isDebugUiAllowed() || (currentUser ? canShowTechnicalUi(currentUser.role) : false);
+        const result = await fetchScheduleAssignees(
+          {
+            companyId,
+            companyFolderId: companyId,
+            masterSheetId,
+            companyName,
+          },
+          {
+            selectedArea: scheduleBuilderAreaFilter.trim(),
+            includeDiagnostics,
+            signal: controller.signal,
+          },
+        );
+
+        if (cancelled) {
+          return;
+        }
+        if (!result.ok) {
+          setScheduleAssigneesState({
+            assignees: [],
+            loadError: result.loadError || SCHEDULE_ASSIGNEES_USER_MESSAGE,
+            loadErrorDetail: result.loadErrorDetail,
+            loading: false,
+          });
+          return;
+        }
+
+        setScheduleAssigneesState({
+          assignees: result.assignees,
+          warning: result.warning,
+          diagnostics: result.diagnostics,
+          loading: false,
+        });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        if (error instanceof DOMException && error.name === "AbortError") {
+          const timedOut = error.message.includes("timed out") || error.message === "TimeoutError";
+          if (timedOut) {
+            setScheduleAssigneesState({
+              assignees: [],
+              loadError: SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MESSAGE,
+              loadErrorDetail: SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MESSAGE,
+              loading: false,
+            });
+          }
+          return;
+        }
+        setScheduleAssigneesState({
+          assignees: [],
+          loadError: SCHEDULE_ASSIGNEES_USER_MESSAGE,
+          loadErrorDetail: error instanceof Error ? error.message : SCHEDULE_ASSIGNEES_USER_MESSAGE,
+          loading: false,
+        });
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [
+    googleConnected,
+    currentUser?.role,
+    masterCompanyWorkspaceDataMatchesSelection,
+    activeCompanyContext.companyFolderId,
+    activeCompanyContext.companyName,
+    activeCompanyContext.masterSheetId,
+    selectedFolder?.id,
+    folderIdInput,
+    masterSheetInput,
+    companySheetSync?.sheetId,
+    scheduleBuilderAreaFilter,
+  ]);
 
   useEffect(() => {
     const { companyId, masterSheetId, companyName } = resolveCompanyMembersLoadContext({
@@ -5466,6 +5560,9 @@ function App() {
 
     const controller = new AbortController();
     let cancelled = false;
+    const timeoutId = window.setTimeout(() => {
+      controller.abort(new DOMException("Company schedules load timed out", "TimeoutError"));
+    }, COMPANY_SCHEDULES_LOAD_TIMEOUT_MS);
     setCompanySchedulesState({ loading: true, loadError: undefined });
 
     void (async () => {
@@ -5492,7 +5589,18 @@ function App() {
         setCompanySchedulesState({ loading: false });
         applyListedCompanySchedules(companyId, result.schedules as ManagedSchedule[]);
       } catch (error) {
-        if (cancelled || (error instanceof DOMException && error.name === "AbortError")) {
+        if (cancelled) {
+          return;
+        }
+        if (error instanceof DOMException && error.name === "AbortError") {
+          const timedOut = error.message.includes("timed out") || error.message === "TimeoutError";
+          if (timedOut) {
+            setCompanySchedulesState({
+              loading: false,
+              loadError:
+                "Loading schedules timed out before the server finished reading your company workbook. Try again.",
+            });
+          }
           return;
         }
         setCompanySchedulesState({
@@ -5500,11 +5608,14 @@ function App() {
           loadError:
             error instanceof Error ? error.message : "Could not load schedules for this company.",
         });
+      } finally {
+        window.clearTimeout(timeoutId);
       }
     })();
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timeoutId);
       controller.abort();
     };
   }, [
@@ -8468,6 +8579,46 @@ function App() {
     }
   };
 
+  const refreshScheduleAssignees = async (options?: { signal?: AbortSignal; selectedArea?: string }) => {
+    const { companyId: companyFolderId, masterSheetId, companyName } = resolveCompanyMembersLoadContext({
+      activeCompanyContext,
+      selectedFolderId: selectedFolder?.id,
+      folderIdInput,
+      masterSheetInput,
+      companySheetSyncSheetId: companySheetSync?.sheetId,
+    });
+    if (!companyFolderId) {
+      return;
+    }
+    const includeDiagnostics =
+      isDebugUiAllowed() || (currentUser ? canShowTechnicalUi(currentUser.role) : false);
+    const result = await fetchScheduleAssignees(
+      {
+        companyId: companyFolderId,
+        companyFolderId,
+        masterSheetId,
+        companyName,
+      },
+      {
+        selectedArea: options?.selectedArea ?? scheduleBuilderAreaFilter.trim(),
+        includeDiagnostics,
+        signal: options?.signal,
+      },
+    );
+    if (!result.ok) {
+      throw new Error(result.loadErrorDetail || result.loadError || SCHEDULE_ASSIGNEES_USER_MESSAGE);
+    }
+    setScheduleAssigneesState({
+      assignees: result.assignees,
+      warning: result.warning,
+      diagnostics: result.diagnostics,
+      loading: false,
+      loadError: undefined,
+      loadErrorDetail: undefined,
+    });
+    return result;
+  };
+
   const refreshActiveCompanyMembers = async (options?: { signal?: AbortSignal }) => {
     const { companyId: companyFolderId, masterSheetId: manualMasterSheetId, companyName } =
       resolveCompanyMembersLoadContext({
@@ -8730,6 +8881,7 @@ function App() {
         throw new Error(COMPANY_MEMBERS_USER_MESSAGE);
       }
       await refreshPendingCompanyInvites();
+      await refreshScheduleAssignees();
 
       const syncedUsers = membersResult.members.length;
       pushToast(
@@ -14339,9 +14491,9 @@ function App() {
                 auditTemplatesLoadError={mappingSyncError || undefined}
                 availableAssignees={availableScheduleAssignees}
                 assigneeEmptyMessage={scheduleAssigneeEmptyMessage}
-                assigneeDiagnostics={scheduleAssigneesDerived.diagnostics}
+                assigneeDiagnostics={scheduleAssigneesState.diagnostics}
                 showAssigneeDiagnostics={canShowTechnicalUi(currentUser.role)}
-                assigneeWarning={scheduleAssigneesDerived.warning}
+                assigneeWarning={scheduleAssigneesState.warning}
                 signedInEmail={
                   currentUser?.username.includes("@")
                     ? currentUser.username.toLowerCase()

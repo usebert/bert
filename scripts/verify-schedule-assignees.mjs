@@ -285,7 +285,7 @@ const schedulesScreenSrc = read("src/screens/SchedulesScreen.tsx");
 assert(scheduleAssigneesSrc.includes("CompanyUsersTabRow"), "14h: scheduleAssignees defines CompanyUsersTabRow");
 assert(scheduleAssigneesSrc.includes("canCompleteAuditUser"), "14i: canCompleteAuditUser helper exists");
 assert(appSrc.includes("/api/companies/"), "14j: App loads company members from company API");
-assert(appSrc.includes("deriveScheduleAssigneesFromCompanyMembers"), "14k: App derives assignees from company members");
+assert(appSrc.includes("fetchScheduleAssignees"), "14k: App loads assignees from schedule-assignees API");
 assert(schedulesScreenSrc.includes("Advanced diagnostics"), "14l: schedule UI exposes advanced diagnostics for godmode");
 assert(schedulesScreenSrc.includes("Assign users to this schedule"), "14m: schedule UI uses assignee wording");
 assert(schedulesScreenSrc.includes("companyAreas"), "14n: schedule UI shows company areas");
@@ -303,7 +303,7 @@ assert(schedulesScreenSrc.includes("companyAreas"), "14n: schedule UI shows comp
     scheduleAssigneesSrc.includes("activeUsersFound") && scheduleAssigneesSrc.includes("loadError"),
     "15g: empty message distinguishes read failure from zero active users",
   );
-  assert(appSrc.includes("deriveScheduleAssigneesFromCompanyMembers"), "15h: schedule assignees reuse company members load");
+  assert(appSrc.includes("fetchScheduleAssignees"), "15h: schedule assignees load via schedule-assignees API");
   const managerScenario = buildAvailableScheduleAssigneesFromUsers(
     [
       {
