@@ -327,6 +327,12 @@ import {
   SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS,
   SCHEDULE_ASSIGNEES_USER_MESSAGE,
 } from "./src/services/scheduleService";
+import {
+  ASSIGNED_CHECKS_LOAD_TIMEOUT_MESSAGE,
+  ASSIGNED_CHECKS_LOAD_TIMEOUT_MS,
+  ASSIGNED_CHECKS_USER_MESSAGE,
+  fetchAssignedChecks,
+} from "./src/services/checkService";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
 import { getNextBestAction } from "./src/utils/nextBestAction";
 import type { DashboardSummaryForNextAction, NextBestActionIntent } from "./src/utils/nextBestAction";
@@ -3535,6 +3541,11 @@ function App() {
     loading: boolean;
     loadError?: string;
   }>({ loading: false });
+  const [assignedChecksState, setAssignedChecksState] = useState<{
+    schedules: ManagedSchedule[];
+    loading: boolean;
+    loadError?: string;
+  }>({ schedules: [], loading: false });
   const [scheduleAssigneesState, setScheduleAssigneesState] = useState<{
     assignees: ScheduleAssigneeOption[];
     loading: boolean;
@@ -4942,6 +4953,60 @@ function App() {
     if (!currentUser) {
       return siteScopedAudits.filter((audit) => !isAuditCompleted(audit));
     }
+
+    if (canCompleteAuditAsAuditor(currentUser.role)) {
+      const siteArea = resolveAccessibleAuditSiteArea();
+      const areaId =
+        resolveAuditAreaId({ siteArea }, sites, areaRestrictionsEnabled) || SINGLE_WORKSPACE_AREA_ID;
+      const selectedCompanyId = String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim();
+      const apiCompliance = complianceSchedulesFromManaged(assignedChecksState.schedules);
+      const built: Audit[] = [];
+      const seen = new Set<string>();
+
+      assignedChecksState.schedules.forEach((schedule) => {
+        schedule.audits.forEach((scheduleAudit) => {
+          const auditId = scheduleAudit.auditId;
+          const auditName = scheduleAudit.auditName;
+          const key = auditId || auditName.trim().toLowerCase();
+          if (!key || seen.has(key)) {
+            return;
+          }
+          const template = templates.find(
+            (item) => item.active && (item.id === auditId || item.name === auditName),
+          );
+          if (!template) {
+            return;
+          }
+          if (!isAuditActiveForArea(areaAudits, areaId, auditId, { areaRestrictionsEnabled, sites })) {
+            return;
+          }
+          const nextDue = nearestNextDueDate(auditId, auditName, areaId, apiCompliance, selectedCompanyId);
+          const dueHours = nextDue ? computeDueHoursFromSchedule(nextDue) : 24;
+          const dueLabel =
+            !nextDue.trim()
+              ? "Available"
+              : dueHours < 0
+                ? "Overdue"
+                : dueHours <= 24
+                  ? "Due today"
+                  : "Upcoming";
+          seen.add(key);
+          built.push({
+            ...buildAvailableAuditFromTemplate(
+              template,
+              siteArea,
+              currentUser.name,
+              dueLabel === "Available" ? "Available" : dueLabel,
+            ),
+            dueHours,
+            dueLabel,
+          });
+        });
+      });
+
+      return built;
+    }
+
     const userEmails = resolveCurrentUserReportEmails(currentUser, companyReportUsers);
     const liveManagedSchedules = managedSchedules.filter(
       (schedule) =>
@@ -5074,6 +5139,8 @@ function App() {
     selectedFolderId,
     companyReportUsers,
     managedSchedules,
+    assignedChecksState.schedules,
+    activeCompanyContext.companyFolderId,
   ]);
 
   const dashboardNextActionInput = useMemo((): DashboardSummaryForNextAction | null => {
@@ -5303,6 +5370,95 @@ function App() {
     masterSheetInput,
     companySheetSync?.sheetId,
     scheduleBuilderAreaFilter,
+  ]);
+
+  useEffect(() => {
+    const { companyId } = resolveCompanyMembersLoadContext({
+      activeCompanyContext,
+      selectedFolderId: selectedFolder?.id,
+      folderIdInput,
+      masterSheetInput,
+      companySheetSyncSheetId: companySheetSync?.sheetId,
+    });
+    if (!currentUser || !canCompleteAuditAsAuditor(currentUser.role)) {
+      setAssignedChecksState({ schedules: [], loading: false });
+      return;
+    }
+    const canLoadAssignedChecks =
+      Boolean(companyId) && googleConnected && masterCompanyWorkspaceDataMatchesSelection;
+    if (!canLoadAssignedChecks) {
+      setAssignedChecksState({ schedules: [], loading: false });
+      return;
+    }
+
+    const controller = new AbortController();
+    let cancelled = false;
+    const timeoutId = window.setTimeout(() => {
+      controller.abort(new DOMException("Assigned checks load timed out", "TimeoutError"));
+    }, ASSIGNED_CHECKS_LOAD_TIMEOUT_MS);
+    setAssignedChecksState({ schedules: [], loading: true, loadError: undefined });
+
+    void (async () => {
+      try {
+        const result = await fetchAssignedChecks({ signal: controller.signal });
+
+        if (cancelled) {
+          return;
+        }
+        if (!result.ok) {
+          setAssignedChecksState({
+            schedules: [],
+            loading: false,
+            loadError: result.loadError || ASSIGNED_CHECKS_USER_MESSAGE,
+          });
+          return;
+        }
+
+        setAssignedChecksState({
+          schedules: result.schedules as ManagedSchedule[],
+          loading: false,
+        });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        if (error instanceof DOMException && error.name === "AbortError") {
+          const timedOut = error.message.includes("timed out") || error.message === "TimeoutError";
+          if (timedOut) {
+            setAssignedChecksState({
+              schedules: [],
+              loading: false,
+              loadError: ASSIGNED_CHECKS_LOAD_TIMEOUT_MESSAGE,
+            });
+          }
+          return;
+        }
+        setAssignedChecksState({
+          schedules: [],
+          loading: false,
+          loadError: ASSIGNED_CHECKS_USER_MESSAGE,
+        });
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [
+    googleConnected,
+    currentUser,
+    masterCompanyWorkspaceDataMatchesSelection,
+    activeCompanyContext.companyFolderId,
+    activeCompanyContext.companyName,
+    activeCompanyContext.masterSheetId,
+    selectedFolder?.id,
+    folderIdInput,
+    masterSheetInput,
+    companySheetSync?.sheetId,
   ]);
 
   useEffect(() => {
@@ -14239,6 +14395,8 @@ function App() {
                 canCreateTemplates={canAccessWorkspaceNav(currentUser.role)}
                 onToggleTemplate={handleToggleTemplate}
                 onEditTemplate={canManageTemplates(currentUser.role) ? handleEditTemplate : undefined}
+                assignedChecksLoading={assignedChecksState.loading}
+                assignedChecksLoadError={assignedChecksState.loadError}
                 onGoogleFormUpdated={handleGoogleFormTemplateUpdated}
               />
             )}

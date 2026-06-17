@@ -64,7 +64,7 @@ function companyContextQuery(context: CompanyScheduleContext): URLSearchParams {
   return params;
 }
 
-function mapListedSchedule(schedule: Record<string, unknown>): ManagedSchedule {
+export function mapListedSchedule(schedule: Record<string, unknown>): ManagedSchedule {
   const assignedUserEmails = getScheduleAssignedEmails(schedule);
   const assignedUsers = Array.isArray(schedule.assignedUsers)
     ? (schedule.assignedUsers as Array<Record<string, unknown>>).map((user) => ({

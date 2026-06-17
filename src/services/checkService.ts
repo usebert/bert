@@ -1,7 +1,7 @@
 import { apiUrl } from "../config/apiBase";
+import { mapListedSchedule } from "./scheduleService";
 import type { CompanyScheduleContext } from "./scheduleService";
-import { listCompanySchedules } from "./scheduleService";
-import { getScheduleAssignedEmails, isScheduleAssignedToUser } from "../utils/scheduleAssignment";
+import { getScheduleAssignedEmails } from "../utils/scheduleAssignment";
 import type { ManagedSchedule } from "../types/reportsScreenProps";
 
 export type SubmitCheckResultInput = {
@@ -14,22 +14,73 @@ export type SubmitCheckResultInput = {
   answers?: Record<string, unknown>;
 };
 
-/** Schedules assigned to signed-in user (assignedUserEmails contract). */
-export async function listAssignedChecks(
-  companyContext: CompanyScheduleContext,
-  userEmail: string,
+export type FetchAssignedChecksResult = {
+  ok: boolean;
+  schedules: ManagedSchedule[];
+  loadError?: string;
+  companyId?: string;
+  companyFolderId?: string;
+  masterSheetId?: string;
+};
+
+export const ASSIGNED_CHECKS_LOAD_TIMEOUT_MS = 90_000;
+export const ASSIGNED_CHECKS_LOADING_MESSAGE = "Loading your checks…";
+export const ASSIGNED_CHECKS_USER_MESSAGE = "Could not load your assigned checks.";
+export const ASSIGNED_CHECKS_LOAD_TIMEOUT_MESSAGE =
+  "Loading your checks timed out before the server finished reading your company workbook. Try again — if it keeps failing, ask your operator to check the BERT Master Sheet.";
+
+/** Assigned schedules for signed-in user — company + identity from session only. */
+export async function fetchAssignedChecks(
   options?: { signal?: AbortSignal },
-): Promise<{ ok: boolean; schedules: ManagedSchedule[]; loadError?: string }> {
-  const listed = await listCompanySchedules(companyContext, options);
-  if (!listed.ok) {
-    return { ok: false, schedules: [], loadError: listed.loadError };
+): Promise<FetchAssignedChecksResult> {
+  try {
+    const response = await fetch(apiUrl("/api/me/assigned-checks"), {
+      credentials: "include",
+      signal: options?.signal,
+    });
+    const payload = (await response.json()) as {
+      ok?: boolean;
+      schedules?: Record<string, unknown>[];
+      message?: string;
+      error?: string;
+      companyId?: string;
+      companyFolderId?: string;
+      masterSheetId?: string;
+    };
+
+    if (!response.ok || payload.ok === false) {
+      return {
+        ok: false,
+        schedules: [],
+        loadError: payload.message || payload.error || ASSIGNED_CHECKS_USER_MESSAGE,
+      };
+    }
+
+    const schedules = Array.isArray(payload.schedules)
+      ? payload.schedules.map((schedule) => mapListedSchedule(schedule))
+      : [];
+
+    return {
+      ok: true,
+      schedules,
+      companyId: payload.companyId,
+      companyFolderId: payload.companyFolderId,
+      masterSheetId: payload.masterSheetId,
+    };
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw error;
+    }
+    return {
+      ok: false,
+      schedules: [],
+      loadError: error instanceof Error ? error.message : ASSIGNED_CHECKS_USER_MESSAGE,
+    };
   }
-  const email = userEmail.trim().toLowerCase();
-  const schedules = listed.schedules.filter((schedule) => isScheduleAssignedToUser(schedule, email));
-  return { ok: true, schedules };
 }
 
-export { listAssignedChecks as listAssignedSchedulesForUser };
+export { fetchAssignedChecks as listAssignedChecks };
+export { fetchAssignedChecks as listAssignedSchedulesForUser };
 
 export function getAssignedEmailsForSchedule(schedule: ManagedSchedule | Record<string, unknown>): string[] {
   return getScheduleAssignedEmails(schedule);

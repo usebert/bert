@@ -5,6 +5,7 @@ import { SECTION_INTROS } from "../config/sectionIntros";
 import { SectionIntro } from "../components/SectionIntro";
 import { EmptyPanel, SectionHeader, StatusBadge } from "../components/dashboard/DashboardPrimitives";
 import { FormsChecksTemplatesPanel } from "../components/forms/FormsChecksTemplatesPanel";
+import { ASSIGNED_CHECKS_LOADING_MESSAGE } from "../services/checkService";
 import { amberThresholdHours, getAuditTrafficStatus, getDueWarning, statusStyles } from "../utils/dashboardHealth";
 import type {
   AuditAccessLevel,
@@ -464,6 +465,8 @@ export function AuditsScreen({
   canCreateTemplates = false,
   onToggleTemplate,
   onEditTemplate,
+  assignedChecksLoading = false,
+  assignedChecksLoadError,
   onGoogleFormUpdated,
 }: AuditsScreenProps) {
   if (canCompleteAuditAsAuditor(currentUser.role)) {
@@ -487,13 +490,24 @@ export function AuditsScreen({
             </button>
           ) : null}
         </section>
-        <AuditorChecksList
-          audits={audits}
-          drafts={drafts}
-          onOpenAudit={onOpenAudit}
-          onNavigateToToday={onNavigateToToday}
-          onNavigateToSubmit={onNavigateToSubmit}
-        />
+        {assignedChecksLoading ? (
+          <div className="rounded-2xl border border-violet-200/80 bg-white px-5 py-6 text-sm text-slate-600">
+            {ASSIGNED_CHECKS_LOADING_MESSAGE}
+          </div>
+        ) : assignedChecksLoadError ? (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-6">
+            <p className="text-sm font-semibold text-rose-900">Could not load your checks</p>
+            <p className="mt-2 text-sm text-rose-800">{assignedChecksLoadError}</p>
+          </div>
+        ) : (
+          <AuditorChecksList
+            audits={audits}
+            drafts={drafts}
+            onOpenAudit={onOpenAudit}
+            onNavigateToToday={onNavigateToToday}
+            onNavigateToSubmit={onNavigateToSubmit}
+          />
+        )}
       </div>
     );
   }

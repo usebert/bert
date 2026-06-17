@@ -39,6 +39,7 @@ import {
   handleCompanyGoogleFormsGet,
   handleCompanyGoogleFormsSyncPost,
 } from "./google-forms-service.mjs";
+import { listAssignedChecks } from "./check-service.mjs";
 
 async function rejectCompanyApiIfFolderInvalid(authed, deps, companyFolderId, companyName = "") {
   if (!authed || !companyFolderId) {
@@ -558,6 +559,94 @@ export function installCoreWorkflowRoutes(app, deps) {
         code: "USERS_TAB_READ_FAILED",
         error: error instanceof Error ? error.message : "Unable to load schedule assignees.",
         message: error instanceof Error ? error.message : "Unable to load schedule assignees.",
+      });
+    }
+  });
+
+  app.get("/api/me/assigned-checks", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({
+        ok: false,
+        error: "Please connect Google before loading your checks.",
+        message: "Could not load your assigned checks.",
+      });
+    }
+
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const signedInEmail = String(actor?.email || "").trim().toLowerCase();
+    if (!signedInEmail) {
+      return res.status(401).json({
+        ok: false,
+        code: "SESSION_REQUIRED",
+        error: "Sign in is required before loading assigned checks.",
+        message: "Could not load your assigned checks.",
+      });
+    }
+
+    const queryEmail = String(req.query.email || req.query.userEmail || "").trim().toLowerCase();
+    if (queryEmail && queryEmail !== signedInEmail) {
+      return res.status(403).json({
+        ok: false,
+        code: "ASSIGNED_CHECKS_IDENTITY_MISMATCH",
+        error: "Assigned checks are scoped to your signed-in account.",
+        message: "Could not load assigned checks for a different user.",
+      });
+    }
+
+    const companyFolderId = String(actor?.companyFolderId || actor?.companyId || "").trim();
+    if (!companyFolderId) {
+      return res.status(401).json({
+        ok: false,
+        code: "SESSION_COMPANY_REQUIRED",
+        error: "Your signed-in session must include a company workspace before loading assigned checks.",
+        message: "Could not load your assigned checks.",
+      });
+    }
+
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      companyFolderId,
+      String(actor?.companyName || "").trim(),
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
+
+    try {
+      const result = await listAssignedChecks(authed, { ...registryDeps, ...scheduleDeps }, {
+        email: signedInEmail,
+        companyFolderId,
+        companyId: companyFolderId,
+        companyName: String(actor?.companyName || "").trim(),
+      });
+
+      if (!result.ok) {
+        return res.status(result.httpStatus || 400).json({
+          ok: false,
+          code: result.code,
+          error: result.error,
+          message: result.message || result.error,
+          technicalError: result.technicalError,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        companyId: result.companyId,
+        companyFolderId: result.companyFolderId,
+        companyName: result.companyName,
+        masterSheetId: result.masterSheetId,
+        schedules: result.schedules,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "ASSIGNED_CHECKS_LOAD_FAILED",
+        error: "Could not load your assigned checks.",
+        message: "Could not load your assigned checks.",
+        technicalError: error instanceof Error ? error.message : String(error),
       });
     }
   });

@@ -63,6 +63,8 @@ export type AuditsScreenProps = {
   canCreateTemplates?: boolean;
   onToggleTemplate?: (templateId: string) => void;
   onEditTemplate?: (templateId: string) => void;
+  assignedChecksLoading?: boolean;
+  assignedChecksLoadError?: string;
   onGoogleFormUpdated?: (
     templateId: string,
     record: {

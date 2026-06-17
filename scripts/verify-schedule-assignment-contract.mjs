@@ -103,11 +103,12 @@ assert(
 );
 assert(frontendSchedule.includes("assignedUserEmails"), "6c: frontend persists assignedUserEmails");
 assert(
-  frontendCheck.includes("listAssignedSchedulesForUser as listAssignedChecks") ||
-    frontendCheck.includes("listAssignedSchedulesForUser"),
+  frontendCheck.includes("fetchAssignedChecks as listAssignedChecks") ||
+    frontendCheck.includes("fetchAssignedChecks as listAssignedSchedulesForUser") ||
+    frontendCheck.includes("fetchAssignedChecks"),
   "6d: frontend listAssignedChecks path",
 );
-assert(frontendCheck.includes("isScheduleAssignedToUser"), "6e: frontend filters by assignment");
+assert(frontendCheck.includes("/api/me/assigned-checks"), "6e: frontend uses assigned-checks API");
 
 /** 7: App wires folder-first schedule context (no registry gate). */
 assert(

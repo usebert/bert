@@ -142,4 +142,28 @@ assert(read("src/screens/SchedulesScreen.tsx").includes("schedulesLoadError"), "
   assert(!complianceSrc.includes("assignedRole && schedule.assignedRole"), "7: no assignedRole gate on schedule match");
 }
 
+/** 8: My Checks uses GET /api/me/assigned-checks — session identity, no client email filter. */
+const checkService = read("src/services/checkService.ts");
+const coreRoutes = read("server/core-workflow-routes.mjs");
+assert(checkService.includes("/api/me/assigned-checks"), "8: frontend assigned-checks API path");
+assert(!checkService.includes('params.set("companyFolderId"'), "8a: client does not send companyFolderId query param");
+assert(!checkService.includes('params.set("masterSheetId"'), "8a2: client does not send masterSheetId query param");
+assert(!checkService.includes("URLSearchParams"), "8a3: client does not build assigned-checks query string");
+assert(coreRoutes.includes('app.get("/api/me/assigned-checks"'), "8b: server assigned-checks route");
+assert(coreRoutes.includes("SESSION_COMPANY_REQUIRED"), "8b2: route requires session company folder");
+assert(
+  /assigned-checks[\s\S]{0,2200}actor\?\.companyFolderId \|\| actor\?\.companyId/.test(coreRoutes),
+  "8b3: company folder derived from session actor only",
+);
+assert(
+  !/assigned-checks[\s\S]{0,2200}req\.query\.companyFolderId/.test(coreRoutes),
+  "8b4: route does not trust companyFolderId query param",
+);
+assert(
+  !/assigned-checks[\s\S]{0,2200}req\.query\.masterSheetId/.test(coreRoutes),
+  "8b5: route does not trust masterSheetId query param",
+);
+assert(!checkService.includes("isScheduleAssignedToUser"), "8c: frontend does not client-filter by email");
+assert(appSrc.includes("fetchAssignedChecks"), "8d: App loads assigned checks from API");
+
 console.log("[verify:assigned-checks] OK: assigned-check contract verified");
