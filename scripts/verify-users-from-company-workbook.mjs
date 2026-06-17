@@ -55,7 +55,12 @@ assert(userService.includes("writeUserRow"), "5: userService.writeUserRow");
 assert(userService.includes("rebuildUserCacheFromSheet"), "6: userService.rebuildUserCacheFromSheet");
 assert(foundation.includes("listCompanyProfiles"), "7: foundation listCompanyProfiles canonical path");
 assert(foundation.includes("masterSheetCache") || read("server/server.mjs").includes("masterSheetCache"), "7b: master sheet cache wired");
-assert(foundation.includes("session_hint") || foundation.includes('"cache"'), "7c: session/cache master sheet resolution");
+assert(
+  foundation.includes("sessionMasterSheetId") &&
+    foundation.includes("resolveMasterSheetFromCompanyFolder") &&
+    foundation.includes("masterSheetResolutionSource"),
+  "7c: session/cache master sheet resolution",
+);
 assert(!foundation.includes("cacheOnlyUsers") || foundation.includes("cacheOnlyUsersRemoved"), "8: cache-only users removed on sync");
 assert(sheetFlow.includes("listActiveUsersFromSheet"), "9: listActiveUsersFromSheet helper");
 assert(coreRoutes.includes("listCompanyProfiles"), "10: routes use foundation listCompanyProfiles path");
