@@ -132,6 +132,8 @@ import { clearStaleCompanyLocalStorage } from "./src/utils/clearStaleCompanyLoca
 import { isKnownStaleAuthIndexPairing } from "./src/utils/authIndexTrust";
 import { resolveActiveCompanyContext, resolveCompanyMembersLoadContext, sanitizeResolvedCompanyContext } from "./src/services/companyContextService";
 import {
+  COMPANY_MEMBERS_LOAD_TIMEOUT_MS,
+  COMPANY_MEMBERS_LOAD_TIMEOUT_MESSAGE,
   COMPANY_MEMBERS_USER_MESSAGE,
   fetchCompanyMembers,
   readCompanyMembersCache,
@@ -140,6 +142,12 @@ import {
   type CompanyMember,
   type CompanyMembersDiagnostics,
 } from "./src/services/companyUserService";
+import {
+  COMPANY_INVITES_LOAD_TIMEOUT_MS,
+  COMPANY_INVITES_LOAD_TIMEOUT_MESSAGE,
+  COMPANY_INVITES_USER_MESSAGE,
+  fetchPendingCompanyInvites,
+} from "./src/services/companyInviteListService";
 import {
   filterLiveOpenActions,
   isDemoAction,
@@ -3112,7 +3120,7 @@ function getWorkspaceBootstrap() {
     folders: stored?.folders ?? [],
     selectedFolderId: masterBlankStart ? "" : (stored?.selectedFolderId ?? ""),
     syncState: masterBlankStart ? "Not synced" : (stored?.syncState ?? "Not synced"),
-    invitedUsers: masterBlankStart ? [] : (stored?.invitedUsers ?? []),
+    invitedUsers: [] as UserInvite[],
     sites: masterBlankStart
       ? []
       : (stored?.sites ??
@@ -3568,7 +3576,11 @@ function App() {
   const [companyRegistryStatus, setCompanyRegistryStatus] = useState("");
   const [inviteEmailInput, setInviteEmailInput] = useState("");
   const [inviteRoleInput, setInviteRoleInput] = useState<Role>("Manager");
-  const [invitedUsers, setInvitedUsers] = useState<UserInvite[]>(storedWorkspaceState?.invitedUsers || []);
+  const [invitedUsers, setInvitedUsers] = useState<UserInvite[]>([]);
+  const [companyInvitesState, setCompanyInvitesState] = useState<{
+    loading: boolean;
+    loadError?: string;
+  }>({ loading: false });
   const [companyUsersTabRows, setCompanyUsersTabRows] = useState<CompanyUsersTabRow[]>([]);
   const [linkedCompanyContext, setLinkedCompanyContext] = useState<LinkedCompanyContextInput | null>(null);
   const [companyLinkBlockedMessage, setCompanyLinkBlockedMessage] = useState("");
@@ -5293,6 +5305,9 @@ function App() {
     const controller = new AbortController();
     let cancelled = false;
     const cachedEntry = readCompanyMembersCache(storageKeys.companyMembersCache, companyId);
+    const timeoutId = window.setTimeout(() => {
+      controller.abort(new DOMException("Company members load timed out", "TimeoutError"));
+    }, COMPANY_MEMBERS_LOAD_TIMEOUT_MS);
     setCompanyMembersState({
       members: [],
       loading: true,
@@ -5353,6 +5368,18 @@ function App() {
           return;
         }
         if (error instanceof DOMException && error.name === "AbortError") {
+          const timedOut = error.message.includes("timed out") || error.message === "TimeoutError";
+          if (timedOut) {
+            setCompanyUsersTabRows([]);
+            setCompanyMembersState({
+              members: [],
+              loadError: COMPANY_MEMBERS_LOAD_TIMEOUT_MESSAGE,
+              loadErrorDetail: COMPANY_MEMBERS_LOAD_TIMEOUT_MESSAGE,
+              loadReasonCode: "CLIENT_LOAD_TIMEOUT",
+              loadFailedStep: "client_fetch",
+              loading: false,
+            });
+          }
           return;
         }
         const fetchDiagnostics: CompanyMembersDiagnostics = {
@@ -5374,11 +5401,14 @@ function App() {
           loadDiagnostics: fetchDiagnostics,
           loading: false,
         });
+      } finally {
+        window.clearTimeout(timeoutId);
       }
     })();
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timeoutId);
       controller.abort();
     };
   }, [
@@ -5392,6 +5422,102 @@ function App() {
     folderIdInput,
     masterSheetInput,
     companySheetSync?.sheetId,
+  ]);
+
+  const refreshPendingCompanyInvites = useCallback(
+    async (options?: { signal?: AbortSignal }) => {
+      const companyFolderId = activeCompanyContext.companyFolderId.trim();
+      if (!companyFolderId || !masterCompanyWorkspaceDataMatchesSelection) {
+        setInvitedUsers([]);
+        setCompanyInvitesState({ loading: false });
+        return;
+      }
+      if (currentUser?.role === "Master" && !googleConnected) {
+        setInvitedUsers([]);
+        setCompanyInvitesState({ loading: false });
+        return;
+      }
+      setCompanyInvitesState({ loading: true, loadError: undefined });
+      try {
+        const result = await fetchPendingCompanyInvites(apiUrl, {
+          signal: options?.signal,
+          companyFolderId,
+        });
+        if (!result.ok) {
+          setInvitedUsers([]);
+          setCompanyInvitesState({
+            loading: false,
+            loadError: result.loadError || COMPANY_INVITES_USER_MESSAGE,
+          });
+          return;
+        }
+        setInvitedUsers(result.invites);
+        setCompanyInvitesState({ loading: false });
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+        setInvitedUsers([]);
+        setCompanyInvitesState({
+          loading: false,
+          loadError: error instanceof Error ? error.message : COMPANY_INVITES_USER_MESSAGE,
+        });
+      }
+    },
+    [
+      activeCompanyContext.companyFolderId,
+      currentUser?.role,
+      googleConnected,
+      masterCompanyWorkspaceDataMatchesSelection,
+    ],
+  );
+
+  useEffect(() => {
+    const companyFolderId = activeCompanyContext.companyFolderId.trim();
+    const canLoadInvites =
+      Boolean(companyFolderId) &&
+      masterCompanyWorkspaceDataMatchesSelection &&
+      (currentUser?.role !== "Master" || googleConnected);
+    if (!canLoadInvites) {
+      setInvitedUsers([]);
+      setCompanyInvitesState({ loading: false });
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      controller.abort(new DOMException("Pending invites load timed out", "TimeoutError"));
+    }, COMPANY_INVITES_LOAD_TIMEOUT_MS);
+
+    void (async () => {
+      try {
+        await refreshPendingCompanyInvites({ signal: controller.signal });
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          const timedOut = error.message.includes("timed out") || error.message === "TimeoutError";
+          if (timedOut) {
+            setInvitedUsers([]);
+            setCompanyInvitesState({
+              loading: false,
+              loadError: COMPANY_INVITES_LOAD_TIMEOUT_MESSAGE,
+            });
+          }
+        }
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    })();
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [
+    activeCompanyContext.companyFolderId,
+    currentUser?.role,
+    googleConnected,
+    masterCompanyWorkspaceDataMatchesSelection,
+    refreshPendingCompanyInvites,
   ]);
 
   const applyListedCompanySchedules = useCallback((companyId: string, schedules: ManagedSchedule[]) => {
@@ -6125,7 +6251,6 @@ function App() {
         selectedSiteId,
         selectedFolderId,
         syncState,
-        invitedUsers,
         companySheetSync,
         reportInbox,
         syncQueue,
@@ -6166,7 +6291,6 @@ function App() {
     selectedSiteId,
     selectedFolderId,
     syncState,
-    invitedUsers,
     companySheetSync,
     reportInbox,
     syncQueue,
@@ -6916,8 +7040,6 @@ function App() {
         throw new Error(payload.error || "Unable to load the company master sheet.");
       }
 
-      const nextUsersTabRows = parseCompanyUsersTabRows(payload.data.Users ?? [], folderId);
-      const nextInvites = parseCompanySheetUsers(payload.data.Users ?? [], folderId);
       const managedScheduleRecords = scheduleSheetRecordsPreferSchedulesTab(
         payload.data.Schedule ?? [],
         payload.data.Schedules ?? [],
@@ -6937,31 +7059,6 @@ function App() {
         reportsCount: payload.data.Reports?.length ?? 0,
         configCount: payload.data.Config?.length ?? 0,
         lastSyncedAt: formatStamp(),
-      });
-
-      setCompanyUsersTabRows(nextUsersTabRows);
-      setInvitedUsers((current) => {
-        const sheetByEmail = new Map(nextInvites.map((invite) => [invite.email.toLowerCase(), invite]));
-        const merged = current.map((invite) => {
-          const sheetInvite = sheetByEmail.get(invite.email.toLowerCase());
-          if (!sheetInvite) {
-            return invite;
-          }
-          return {
-            ...invite,
-            role: sheetInvite.role,
-            status: sheetInvite.status,
-            loginReady: sheetInvite.loginReady,
-            companyFolderId: sheetInvite.companyFolderId || invite.companyFolderId,
-          };
-        });
-        const existingEmails = new Set(merged.map((item) => item.email.toLowerCase()));
-        nextInvites.forEach((invite) => {
-          if (!existingEmails.has(invite.email.toLowerCase())) {
-            merged.push(invite);
-          }
-        });
-        return merged;
       });
 
       setSchedules((current) => {
@@ -7020,8 +7117,6 @@ function App() {
         throw new Error(payload.error || "Unable to load the company master sheet.");
       }
 
-      const nextUsersTabRows = parseCompanyUsersTabRows(payload.data.Users ?? [], companyFolderId);
-      const nextInvites = parseCompanySheetUsers(payload.data.Users ?? [], companyFolderId);
       const managedScheduleRecords = scheduleSheetRecordsPreferSchedulesTab(
         payload.data.Schedule ?? [],
         payload.data.Schedules ?? [],
@@ -7041,31 +7136,6 @@ function App() {
         reportsCount: payload.data.Reports?.length ?? 0,
         configCount: payload.data.Config?.length ?? 0,
         lastSyncedAt: formatStamp(),
-      });
-
-      setCompanyUsersTabRows(nextUsersTabRows);
-      setInvitedUsers((current) => {
-        const sheetByEmail = new Map(nextInvites.map((invite) => [invite.email.toLowerCase(), invite]));
-        const merged = current.map((invite) => {
-          const sheetInvite = sheetByEmail.get(invite.email.toLowerCase());
-          if (!sheetInvite) {
-            return invite;
-          }
-          return {
-            ...invite,
-            role: sheetInvite.role,
-            status: sheetInvite.status,
-            loginReady: sheetInvite.loginReady,
-            companyFolderId: sheetInvite.companyFolderId || invite.companyFolderId,
-          };
-        });
-        const existingEmails = new Set(merged.map((item) => item.email.toLowerCase()));
-        nextInvites.forEach((invite) => {
-          if (!existingEmails.has(invite.email.toLowerCase())) {
-            merged.push(invite);
-          }
-        });
-        return merged;
       });
 
       setSchedules((current) => {

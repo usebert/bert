@@ -6,6 +6,21 @@ export type CompanyMember = CompanyUsersTabRow & {
   companyFolderId?: string;
 };
 
+const PASSWORD_HASH_FIELD_NAMES = ["PasswordHash", "passwordHash"] as const;
+
+/** Never keep password hash fields in client state or UI. */
+export function sanitizeCompanyMemberForClient(member: CompanyMember): CompanyMember {
+  const sanitized = { ...member } as CompanyMember & Record<string, unknown>;
+  for (const key of PASSWORD_HASH_FIELD_NAMES) {
+    delete sanitized[key];
+  }
+  return sanitized;
+}
+
+export function sanitizeCompanyMembersForClient(members: CompanyMember[]): CompanyMember[] {
+  return members.map(sanitizeCompanyMemberForClient);
+}
+
 export type CompanyMembersCacheEntry = {
   companyId: string;
   members: CompanyMember[];
@@ -301,7 +316,7 @@ export async function fetchCompanyMembers(
 
   return {
     ok: true,
-    members: Array.isArray(payload.users) ? payload.users : [],
+    members: sanitizeCompanyMembersForClient(Array.isArray(payload.users) ? payload.users : []),
     warning: payload.warning,
     reasonCode: payload.reasonCode,
     failedStep: payload.failedStep || payload.diagnostics?.failedStep,
