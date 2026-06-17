@@ -252,7 +252,7 @@ assert(ensureTabsModule.includes("batch_create_missing_tabs"), "19b: batch creat
 assert(ensureTabsModule.includes("MASTER_SHEET_ID_INVALID"), "19c: invalid id error code");
 assert(ensureTabsModule.includes("GOOGLE_PERMISSION_DENIED"), "19d: permission denied error code");
 assert(ensureTabsModule.includes("MASTER_SHEET_UNAVAILABLE"), "19e: unavailable error code");
-assert(SETUP_REQUIRED_TABS.length === 16, "19f: sixteen setup required tabs");
+assert(SETUP_REQUIRED_TABS.length === 20, "19f: twenty setup required tabs");
 assert(SETUP_REQUIRED_TABS.includes("GoogleFormTemplates"), "19g: GoogleFormTemplates in required tabs");
 
 const allPresent = SETUP_REQUIRED_TABS;

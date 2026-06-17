@@ -403,6 +403,14 @@ export type AdminScreenProps = {
   standaloneOnboarding?: boolean;
   /** Master Godmode: onboarding with no prior company context selected. */
   godmodeNewCompanyOnboarding?: boolean;
+  /** Called after folder-first connect succeeds. */
+  onCompanyFolderConnected?: (payload: {
+    companyId: string;
+    companyFolderId: string;
+    companyName: string;
+    masterSheetId: string;
+    workbookId: string;
+  }) => void;
   /** Master Godmode: resume setup for a selected company without a linked master sheet. */
   godmodeIncompleteCompanySetup?: boolean;
   /** Paid-pilot nav: focus Companies / Users / Invites content. */

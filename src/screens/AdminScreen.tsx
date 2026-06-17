@@ -13,6 +13,7 @@ import {
   type FormLanguageCode,
 } from "../config/templateLanguages";
 import { CompanyOnboardingInvitePanel } from "../components/admin/CompanyOnboardingInvitePanel";
+import { GodmodeConnectCompanyFolderPanel } from "../components/godmode/GodmodeConnectCompanyFolderPanel";
 import { SitesAreasPanel } from "../components/admin/SitesAreasPanel";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../components/dashboard/DashboardPrimitives";
 import {
@@ -398,6 +399,7 @@ export function AdminScreen({
   onArchiveSite,
   standaloneOnboarding = false,
   godmodeNewCompanyOnboarding = false,
+  onCompanyFolderConnected,
   godmodeIncompleteCompanySetup = false,
   pilotFocus = undefined,
   pilotShellScreen = undefined,
@@ -875,7 +877,22 @@ export function AdminScreen({
         </section>
       )}
 
-      {showCompanyInviteCard && (
+      {godmodeNewCompanyOnboarding ? (
+        <GodmodeConnectCompanyFolderPanel
+          googleConnected={googleConnected}
+          onConnected={(company) =>
+            onCompanyFolderConnected?.({
+              companyId: company.companyId,
+              companyFolderId: company.companyFolderId,
+              companyName: company.companyName,
+              masterSheetId: company.masterSheetId,
+              workbookId: company.workbookId,
+            })
+          }
+        />
+      ) : null}
+
+      {showCompanyInviteCard && !godmodeNewCompanyOnboarding ? (
         <div className="space-y-3">
           <GoogleWorkspaceSetupNotice
             backendConfigured={backendConfigured}
@@ -893,7 +910,7 @@ export function AdminScreen({
             parseJsonApiResponse={parseJsonApiResponse}
           />
         </div>
-      )}
+      ) : null}
 
       {isOnboardingScreen && !isDebugUiAllowed() ? (
         <section className={pilotLightSurface}>

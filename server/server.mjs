@@ -118,7 +118,11 @@ import {
   installCompanyFolderPlacementRoutes,
   rejectIfCompanyFolderNotUnderCompaniesRoot,
 } from "./company-folder-placement.mjs";
-import { installCompanyFolderResolverRoutes, resolveCompanyFromFolder } from "./company-service.mjs";
+import {
+  installCompanyFolderResolverRoutes,
+  installCompanyFolderConnectRoutes,
+  resolveCompanyFromFolder,
+} from "./company-service.mjs";
 import {
   rowsToRecords as workbookRowsToRecords,
   getTabValues as workbookGetTabValues,
@@ -7271,6 +7275,23 @@ installCompanyFolderResolverRoutes(app, {
   google,
   withSheetsQuotaRetry,
   sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
+  ...getWorkbookServiceDeps(),
+});
+
+installCompanyFolderConnectRoutes(app, {
+  getAuthedClient,
+  getGoogleConnectedEmail,
+  envConfigured,
+  requireGoogleWorkspaceSession,
+  requireMasterOnlyActor,
+  google,
+  withSheetsQuotaRetry,
+  sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
+  getCompanyUsersDeps,
+  getConfig,
+  updateConfig,
+  ensureTabsAndColumns,
+  currentSchemaVersion: CURRENT_SCHEMA_VERSION,
   ...getWorkbookServiceDeps(),
 });
 

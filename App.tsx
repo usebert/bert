@@ -169,6 +169,7 @@ import {
   clearGodmodeSelectedCompanyFolderId,
   resolveAndSyncMasterCompanySelection,
   syncMasterCompanyContextToSession,
+  writeGodmodeSelectedCompanyFolderId,
 } from "./src/utils/godmodeCompanyContext";
 import {
   listGodmodeLiveCompanies,
@@ -9522,12 +9523,63 @@ function App() {
     resetMasterGodmodeCompanyContext();
     setCompanyOnboardingInviteResult(null);
     pushToast(
-      "New company onboarding",
-      "Start with a clean company workspace. No previous company data will be used.",
+      "Connect company folder",
+      "Paste a Google Drive company folder to bootstrap a clean BERT workspace.",
       "neutral",
     );
     setScreen("onboarding");
   }, [resetMasterGodmodeCompanyContext, logGodmodeNav]);
+
+  const handleGodmodeCompanyFolderConnected = useCallback(
+    async (payload: {
+      companyId: string;
+      companyFolderId: string;
+      companyName: string;
+      masterSheetId: string;
+      workbookId: string;
+    }) => {
+      const companyFolderId = String(payload.companyFolderId || payload.companyId || "").trim();
+      const masterSheetId = String(payload.masterSheetId || payload.workbookId || "").trim();
+      const companyName = String(payload.companyName || "").trim() || companyFolderId;
+      if (!companyFolderId || !masterSheetId) {
+        pushToast("Connect incomplete", "Company folder connected without a workbook id.", "warning");
+        return;
+      }
+
+      const nextFolder: CompanyFolder = {
+        id: companyFolderId,
+        name: companyName,
+        onboardingFormName: "",
+        auditFormCount: 0,
+        responseSheetName: "Company Workbook",
+        responseSheetId: masterSheetId,
+        linkedAt: formatStamp(),
+        onboardingVerified: true,
+        auditFormsVerified: false,
+        responseSheetVerified: true,
+        masterSheetId,
+        setupStatus: "ready",
+        setupStatusLabel: "Usable",
+      };
+
+      setFolders((current) => [nextFolder, ...current.filter((folder) => folder.id !== companyFolderId)]);
+      setSelectedFolderId(companyFolderId);
+      setFolderIdInput(companyFolderId);
+      setFolderNameInput(companyName);
+      setMasterSheetInput(masterSheetId);
+      setSyncState("Synced");
+      writeGodmodeSelectedCompanyFolderId(companyFolderId);
+      await syncMasterCompanyContextToSession({
+        companyFolderId,
+        companyName,
+        masterSheetId,
+      });
+      await loadCompanySheetById(masterSheetId, companyFolderId, { silent: true }).catch(() => null);
+      pushToast("Company usable", `${companyName} is ready from folder-first bootstrap.`, "success");
+      setScreen("godmodeHome");
+    },
+    [loadCompanySheetById, pushToast],
+  );
 
   const handleCompanyWorkspaceResetSuccess = async (message: string) => {
     const companyFolderId = selectedFolder?.id || extractGoogleResourceId(folderIdInput);
@@ -15330,6 +15382,7 @@ function App() {
                 initialScrollTarget={screen === "admin" ? adminScrollTarget : null}
                 standaloneOnboarding={screen === "onboarding"}
                 godmodeNewCompanyOnboarding={godmodeNewCompanyOnboarding}
+                onCompanyFolderConnected={(payload) => void handleGodmodeCompanyFolderConnected(payload)}
                 godmodeIncompleteCompanySetup={godmodeIncompleteCompanySetup}
                 pilotShellScreen={
                   screen === "companies" || screen === "onboarding" ? screen : undefined

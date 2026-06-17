@@ -37,18 +37,22 @@ export function loadLivePathConfig() {
   const pick = (envKey, secretKey, fallback = "") =>
     String(process.env[envKey] || secrets[secretKey] || fallback).trim();
 
+  const testAdminEmail = pick("BERT_LIVE_TEST_ADMIN_EMAIL", "testAdminEmail");
+  const testAdminPassword = pick("BERT_LIVE_TEST_ADMIN_PASSWORD", "testAdminPassword");
+  const legacyAdminEmail = pick("BERT_LIVE_ADMIN_EMAIL", "adminEmail");
+  const legacyAdminPassword = pick("BERT_LIVE_ADMIN_PASSWORD", "adminPassword");
+
   return {
     root,
     apiBase,
     frontendUrl,
     origin: frontendUrl,
-    companyNameHint: pick("BERT_LIVE_COMPANY_NAME", "companyName", "TESTCO"),
+    companyFolderId: pick("BERT_LIVE_COMPANY_FOLDER_ID", "companyFolderId"),
+    companyNameHint: pick("BERT_LIVE_COMPANY_NAME", "companyName", ""),
     masterEmail: pick("BERT_LIVE_MASTER_EMAIL", "masterEmail", "admin@usebert.co.uk"),
     masterPassword: pick("BERT_LIVE_MASTER_PASSWORD", "masterPassword"),
-    adminEmail: pick("BERT_LIVE_ADMIN_EMAIL", "adminEmail"),
-    adminPassword: pick("BERT_LIVE_ADMIN_PASSWORD", "adminPassword"),
-    managerEmail: pick("BERT_LIVE_MANAGER_EMAIL", "managerEmail", "andy.hall@usebert.co.uk"),
-    managerPassword: pick("BERT_LIVE_MANAGER_PASSWORD", "managerPassword"),
+    testAdminEmail: testAdminEmail || legacyAdminEmail,
+    testAdminPassword: testAdminPassword || legacyAdminPassword,
     secretsFile,
     requireShaMatch: String(process.env.BERT_LIVE_REQUIRE_SHA_MATCH || "").trim() === "1",
     localGitSha: (() => {
@@ -64,8 +68,6 @@ export function loadLivePathConfig() {
 export function missingLiveCredentials(config) {
   const missing = [];
   if (!config.masterPassword) missing.push("BERT_LIVE_MASTER_PASSWORD");
-  if (!config.adminEmail) missing.push("BERT_LIVE_ADMIN_EMAIL");
-  if (!config.adminPassword) missing.push("BERT_LIVE_ADMIN_PASSWORD");
-  if (!config.managerPassword) missing.push("BERT_LIVE_MANAGER_PASSWORD");
+  if (!config.companyFolderId) missing.push("BERT_LIVE_COMPANY_FOLDER_ID");
   return missing;
 }

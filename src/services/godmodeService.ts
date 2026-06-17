@@ -41,6 +41,58 @@ export function mapGodmodeLiveCompanyToWorkspaceFolder(company: GodmodeLiveCompa
   };
 }
 
+export type ConnectedCompanyFolder = {
+  companyId: string;
+  companyFolderId: string;
+  companyName: string;
+  masterSheetId: string;
+  workbookId: string;
+  status: string;
+};
+
+export async function connectGodmodeCompanyFolder(input: {
+  companyFolderId: string;
+  companyName?: string;
+  admin: { email: string; name?: string; password: string };
+}): Promise<{
+  ok: boolean;
+  company?: ConnectedCompanyFolder;
+  error?: string;
+  missingTabs?: string[];
+}> {
+  const result = await fetchJson<{
+    ok?: boolean;
+    company?: ConnectedCompanyFolder;
+    error?: string;
+    missingTabs?: string[];
+  }>(apiUrl("/api/godmode/companies/connect-folder"), {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      companyFolderId: input.companyFolderId.trim(),
+      companyName: input.companyName?.trim() || undefined,
+      admin: {
+        email: input.admin.email.trim(),
+        name: input.admin.name?.trim() || input.admin.email.trim(),
+        password: input.admin.password,
+      },
+    }),
+  });
+  if (!result.ok) {
+    return { ok: false, error: result.message };
+  }
+  const payload = result.data;
+  if (!result.response.ok || payload.ok === false) {
+    return { ok: false, error: payload.error || "Could not connect company folder." };
+  }
+  return {
+    ok: true,
+    company: payload.company,
+    missingTabs: payload.missingTabs,
+  };
+}
+
 export async function listGodmodeLiveCompanies(): Promise<{
   ok: boolean;
   companies: GodmodeLiveCompany[];

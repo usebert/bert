@@ -22,6 +22,10 @@ export const SETUP_REQUIRED_TABS = [
   COMPANY_FOLDERS_TAB,
   GOOGLE_FORM_TEMPLATES_TAB,
   "SyncLog",
+  "Documents",
+  "DocumentAcknowledgements",
+  "NCRs",
+  "Invites",
 ];
 
 export const DEFAULT_GOOGLE_OPERATION_TIMEOUT_MS = 90_000;

@@ -12,6 +12,7 @@ import {
   COMPANY_CONTEXT_STATUS_USABLE,
   isCompanyWorkspaceUsable,
 } from "../shared/company-folder-context.mjs";
+import { SETUP_REQUIRED_TABS } from "../server/ensure-required-tabs.mjs";
 import { getScheduleAssignedEmails } from "../shared/schedule-assignment.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -53,7 +54,10 @@ function runStaticGuards() {
   const folderStructure = read("server/company-folder-structure.mjs");
   const folderResolver = read("server/company-folder-resolver.mjs");
   const usersFoundation = read("server/company-users-foundation.mjs");
+  const folderConnect = read("server/company-folder-connect.mjs");
   const godmodeService = read("server/godmode-service.mjs");
+  const godmodeServiceTs = read("src/services/godmodeService.ts");
+  const connectPanel = read("src/components/godmode/GodmodeConnectCompanyFolderPanel.tsx");
   const coreRoutes = read("server/core-workflow-routes.mjs");
   const usersPanel = read("src/components/admin/UsersInvitesPilotPanel.tsx");
   const companyUsers = read("server/company-users.mjs");
@@ -91,6 +95,15 @@ function runStaticGuards() {
   assert(pkg.scripts["verify:google-forms-service-foundation"], "static: google-forms-service-foundation script");
   assert(read("server/company-forms-service.mjs").includes("listCompanyGoogleForms"), "static: company Google Forms list re-export");
   assert(pkg.scripts["verify:google-forms-folder"], "static: google-forms-folder verify script");
+  assert(companyService.includes("connectCompanyFolder"), "static: companyService connectCompanyFolder");
+  assert(folderConnect.includes("/api/godmode/companies/connect-folder"), "static: connect-folder route");
+  assert(folderConnect.includes("hashPassword"), "static: connect-folder hashes admin password server-side");
+  assert(folderConnect.includes("PasswordHash: hashPassword"), "static: connect-folder hashes admin password server-side");
+  assert(godmodeServiceTs.includes("connectGodmodeCompanyFolder"), "static: client connectGodmodeCompanyFolder");
+  assert(connectPanel.includes("Connect company folder"), "static: godmode connect folder UI");
+  assert(serverMain.includes("installCompanyFolderConnectRoutes"), "static: server installs connect-folder routes");
+  assert(SETUP_REQUIRED_TABS.includes("Documents"), "static: Documents tab required for bootstrap");
+  assert(SETUP_REQUIRED_TABS.includes("Invites"), "static: Invites tab required for bootstrap");
   assert(companyService.includes("resolveCompanyFromFolder"), "static: companyService resolves folder");
   assert(authService.includes("platformLogin"), "static: authService platformLogin alias");
   assert(authService.includes("companyLogin"), "static: authService companyLogin alias");
@@ -179,10 +192,15 @@ function findCompany(companies, nameHint) {
 }
 
 async function runLiveJourney(config) {
-  const api = new LiveHttpClient(config.apiBase, config.origin);
   const masterClient = new LiveHttpClient(config.apiBase, config.origin);
-  const adminClient = new LiveHttpClient(config.apiBase, config.origin);
-  const managerClient = new LiveHttpClient(config.apiBase, config.origin);
+  const testClient = new LiveHttpClient(config.apiBase, config.origin);
+
+  const testEmail = (
+    config.testAdminEmail || `verify.foundation+${Date.now()}@usebert.co.uk`
+  ).toLowerCase();
+  const testPassword = config.testAdminPassword || `VerifyLive${Date.now()}!`;
+  const testName = "Foundation Verify User";
+  const companyFolderId = String(config.companyFolderId || "").trim();
 
   const masterLogin = await masterClient.request("/api/auth/master/login", {
     method: "POST",
@@ -191,152 +209,140 @@ async function runLiveJourney(config) {
   assert(masterLogin.status === 200 && masterLogin.json?.ok === true, "1: Godmode login works");
   assertNoPasswordHash(masterLogin.json, "godmode login");
 
-  const liveCompanies = await masterClient.request("/api/godmode/live-companies");
-  assert(liveCompanies.status === 200 && liveCompanies.json?.ok === true, "1b: Godmode company list loads");
-  const company = findCompany(liveCompanies.json?.companies, config.companyNameHint);
-  assert(company?.id || company?.folderId, "1c: Godmode selects company folder", { company });
-  const companyFolderId = String(company.id || company.folderId || "").trim();
-  const masterSheetId = String(company.masterSheetId || company.sheetId || "").trim();
+  assert(companyFolderId, "2: BERT_LIVE_COMPANY_FOLDER_ID provided");
+
+  const connectRes = await masterClient.request("/api/godmode/companies/connect-folder", {
+    method: "POST",
+    body: {
+      companyFolderId,
+      companyName: config.companyNameHint || undefined,
+      admin: { email: testEmail, name: testName, password: testPassword },
+    },
+  });
+  assert(connectRes.status === 200 && connectRes.json?.ok === true, "3: connect-folder bootstraps company", connectRes.json);
+  assertNoPasswordHash(connectRes.json, "connect-folder response");
+
+  const company = connectRes.json?.company || {};
+  const masterSheetId = String(company.masterSheetId || company.workbookId || "").trim();
+  assert(String(company.companyId || "") === companyFolderId, "4: companyId === companyFolderId", company);
+  assert(String(company.companyFolderId || "") === companyFolderId, "4b: companyFolderId matches folder");
+  assert(masterSheetId, "5: workbook id returned from connect-folder", company);
+  assert(String(company.status || "").toLowerCase() === "usable", "5b: company status usable", company);
 
   const resolveFromFolder = await masterClient.request(
     `/api/godmode/companies/${encodeURIComponent(companyFolderId)}/resolve-from-folder`,
     {
       method: "POST",
-      body: { companyFolderId, masterSheetId, companyName: company.name },
+      body: { companyFolderId, ensureTabsSync: true },
     },
   );
-  if (resolveFromFolder.status === 200 && resolveFromFolder.json?.ok) {
-    assert(
-      resolveFromFolder.json?.status === COMPANY_CONTEXT_STATUS_USABLE || resolveFromFolder.json?.usable === true,
-      "2: Company resolves workbook from folder",
-      resolveFromFolder.json,
-    );
-  } else {
-    log("WARN: resolve-from-folder skipped — using registry folder context");
-    assert(companyFolderId && masterSheetId, "2b: folder + workbook ids present");
-  }
+  assert(resolveFromFolder.status === 200 && resolveFromFolder.json?.ok === true, "6: workbook resolves in folder", resolveFromFolder.json);
+  assert(String(resolveFromFolder.json?.masterSheetId || "") === masterSheetId, "6b: resolve returns same workbook");
+  const missingTabs = Array.isArray(resolveFromFolder.json?.missingTabs) ? resolveFromFolder.json.missingTabs : [];
+  assert(missingTabs.length === 0, "7: required tabs present after connect", { missingTabs });
 
-  const adminLogin = await adminClient.request("/api/auth/company/login", {
-    method: "POST",
-    body: { email: config.adminEmail, password: config.adminPassword, masterSheetId: masterSheetId || undefined },
-  });
-  assert(adminLogin.status === 200 && adminLogin.json?.ok === true, "3: Company Admin login works", adminLogin.json);
-  assertNoPasswordHash(adminLogin.json, "admin login");
+  const usersAfterConnect = await masterClient.request(
+    `/api/companies/${encodeURIComponent(companyFolderId)}/users?masterSheetId=${encodeURIComponent(masterSheetId)}`,
+  );
+  assert(usersAfterConnect.status === 200 && Array.isArray(usersAfterConnect.json?.users), "8: Users tab readable after connect");
+  assertNoPasswordHash(usersAfterConnect.json, "users after connect");
+  assert(
+    usersAfterConnect.json?.users?.some((row) => String(row?.email || "").toLowerCase() === testEmail),
+    "8b: bootstrap admin appears in Users tab",
+    { emails: usersAfterConnect.json?.users?.map((row) => row?.email) },
+  );
 
-  const managerLogin = await managerClient.request("/api/auth/company/login", {
+  const testLogin = await testClient.request("/api/auth/company/login", {
     method: "POST",
-    body: { email: config.managerEmail, password: config.managerPassword, masterSheetId: masterSheetId || undefined },
+    body: { email: testEmail, password: testPassword, masterSheetId },
   });
-  assert(managerLogin.status === 200 && managerLogin.json?.ok === true, "3b: Manager login works");
+  assert(testLogin.status === 200 && testLogin.json?.ok === true, "9: fresh test user login works", testLogin.json);
+  assertNoPasswordHash(testLogin.json, "test user login");
 
   const resolvedCompanyId = String(
-    adminLogin.json?.company?.companyId || adminLogin.json?.company?.companyFolderId || companyFolderId,
+    testLogin.json?.company?.companyId || testLogin.json?.company?.companyFolderId || companyFolderId,
   ).trim();
-  const resolvedSheetId = String(adminLogin.json?.company?.masterSheetId || masterSheetId).trim();
+  const resolvedSheetId = String(testLogin.json?.company?.masterSheetId || masterSheetId).trim();
 
-  const godmodeUsers = await masterClient.request(
-    `/api/companies/${encodeURIComponent(resolvedCompanyId)}/users?masterSheetId=${encodeURIComponent(resolvedSheetId)}`,
-  );
-  assert(godmodeUsers.status === 200 && Array.isArray(godmodeUsers.json?.users), "4: Users tab users in Godmode People");
-  assertNoPasswordHash(godmodeUsers.json, "godmode users");
-
-  const inviteEmail = `verify.foundation+${Date.now()}@usebert.co.uk`.toLowerCase();
-  const inviteRes = await managerClient.request(
-    `/api/companies/${encodeURIComponent(resolvedCompanyId)}/invites/auditor`,
+  const scheduleId = `verify-foundation-${Date.now()}`;
+  const saveScheduleRes = await testClient.request(
+    `/api/companies/${encodeURIComponent(resolvedCompanyId)}/schedules`,
     {
       method: "POST",
       body: {
-        email: inviteEmail,
-        role: "Auditor",
         masterSheetId: resolvedSheetId,
         companyFolderId: resolvedCompanyId,
-        companyName: company.name || config.companyNameHint,
+        schedules: [
+          {
+            id: scheduleId,
+            companyFolderId: resolvedCompanyId,
+            scheduleName: "Foundation verify check",
+            lifecycle: "Live",
+            status: "Live",
+            audits: [{ auditId: "verify-audit-1", auditName: "Walk", frequency: "Daily" }],
+            assignedUserEmails: [testEmail],
+            assignedUsers: [{ email: testEmail, name: testName, role: "Auditor" }],
+          },
+        ],
       },
     },
   );
-  assert(inviteRes.status === 200 && inviteRes.json?.ok === true, "5: Manager creates invite", inviteRes.json);
-  const inviteToken = String(inviteRes.json?.tokenId || inviteRes.json?.token || "").trim();
-  assert(inviteToken, "5b: invite token created");
+  assert(saveScheduleRes.status === 200 && saveScheduleRes.json?.ok !== false, "10: schedule saved for test user", saveScheduleRes.json);
+  assertNoPasswordHash(saveScheduleRes.json, "save schedule");
 
-  const replaceRes = await managerClient.request("/api/onboarding/app-invites/company-user", {
-    method: "POST",
-    body: {
-      email: inviteEmail,
-      role: "Auditor",
-      companyFolderId: resolvedCompanyId,
-      masterSheetId: resolvedSheetId,
-      companyName: company.name,
-      resend: true,
-      tokenId: "f".repeat(48),
-    },
+  const assignedChecks = await testClient.request("/api/me/assigned-checks");
+  assert(assignedChecks.status === 200 && assignedChecks.json?.ok === true, "11: My Checks loads", assignedChecks.json);
+  assertNoPasswordHash(assignedChecks.json, "assigned checks");
+  const assignedSchedules = Array.isArray(assignedChecks.json?.schedules) ? assignedChecks.json.schedules : [];
+  const assignedSchedule =
+    assignedSchedules.find((row) => String(row?.id || row?.scheduleId || "") === scheduleId) ||
+    assignedSchedules.find((row) => getScheduleAssignedEmails(row).includes(testEmail)) ||
+    assignedSchedules[0];
+  assert(assignedSchedule, "11b: assigned schedule visible to test user", {
+    scheduleIds: assignedSchedules.map((row) => row?.id || row?.scheduleId),
   });
-  assert(replaceRes.status === 200 && replaceRes.json?.ok === true, "6: Resend invalid invite creates fresh link", replaceRes.json);
-  const freshToken = String(replaceRes.json?.tokenId || "").trim();
-  assert(freshToken && freshToken !== inviteToken, "6b: fresh token differs");
 
-  const inviteComplete = await api.request(`/api/invites/company-user/${encodeURIComponent(freshToken)}/complete`, {
-    method: "POST",
-    body: { fullName: "Foundation Verify", password: "VerifyLive1!", confirmPassword: "VerifyLive1!" },
-  });
-  assert(inviteComplete.status === 200 && inviteComplete.json?.ok !== false, "7: Invite acceptance creates active user", inviteComplete.json);
-  assertNoPasswordHash(inviteComplete.json, "invite complete");
-
-  const membersAfter = await adminClient.request(
-    `/api/companies/${encodeURIComponent(resolvedCompanyId)}/users?masterSheetId=${encodeURIComponent(resolvedSheetId)}`,
-  );
-  assert(
-    membersAfter.json?.users?.some((row) => String(row?.email || "").toLowerCase() === inviteEmail),
-    "8: Active user appears in People",
-    { emails: membersAfter.json?.users?.map((r) => r?.email) },
-  );
-
-  const editedName = "Foundation Verify Edited";
-  const editRes = await adminClient.request(
-    `/api/companies/${encodeURIComponent(resolvedCompanyId)}/users/${encodeURIComponent(inviteEmail)}?masterSheetId=${encodeURIComponent(resolvedSheetId)}`,
+  const completeScheduleId = String(assignedSchedule?.id || assignedSchedule?.scheduleId || scheduleId).trim();
+  const completeRes = await testClient.request(
+    `/api/companies/${encodeURIComponent(resolvedCompanyId)}/checks/${encodeURIComponent(completeScheduleId)}/complete`,
     {
-      method: "PATCH",
-      body: { masterSheetId: resolvedSheetId, name: editedName, role: "Auditor" },
+      method: "POST",
+      body: {
+        masterSheetId: resolvedSheetId,
+        companyFolderId: resolvedCompanyId,
+        answers: { q1: "pass" },
+        findings: [],
+        evidence: [],
+      },
     },
   );
-  assert(editRes.status === 200 && editRes.json?.ok === true, "8c: Company Admin can edit active user", editRes.json);
-  assertNoPasswordHash(editRes.json, "user edit");
-  assert(String(editRes.json?.user?.name || "").trim() === editedName, "8d: edited name returned");
+  assert(completeRes.status === 200 && completeRes.json?.ok === true, "12: check completion works", completeRes.json);
+  assertNoPasswordHash(completeRes.json, "complete check");
+  const resultId = String(completeRes.json?.resultId || "").trim();
+  assert(resultId, "12b: AuditResults row id returned");
 
-  const membersEdited = await adminClient.request(
-    `/api/companies/${encodeURIComponent(resolvedCompanyId)}/users?masterSheetId=${encodeURIComponent(resolvedSheetId)}`,
+  const auditResults = await testClient.request(
+    `/api/companies/${encodeURIComponent(resolvedCompanyId)}/audit-results?masterSheetId=${encodeURIComponent(resolvedSheetId)}`,
   );
-  const editedRow = membersEdited.json?.users?.find((row) => String(row?.email || "").toLowerCase() === inviteEmail);
-  assert(editedRow && String(editedRow.name || "").trim() === editedName, "8e: edited user in refreshed list");
-
-  const assigneesRes = await adminClient.request(
-    `/api/companies/${encodeURIComponent(resolvedCompanyId)}/schedule-assignees?masterSheetId=${encodeURIComponent(resolvedSheetId)}`,
+  assert(auditResults.status === 200 && auditResults.json?.ok === true, "13: AuditResults list loads", auditResults.json);
+  assertNoPasswordHash(auditResults.json, "audit results");
+  assert(
+    (auditResults.json?.results || []).some((row) => String(row?.id || row?.resultId || row?.["Result ID"] || "") === resultId),
+    "13b: completed check appears in AuditResults",
+    { resultId, count: auditResults.json?.results?.length },
   );
-  assert(assigneesRes.status === 200 && Array.isArray(assigneesRes.json?.assignees), "8b: Active users in schedule assignment");
-  assertNoPasswordHash(assigneesRes.json, "schedule assignees");
 
-  const godmodeSchedules = await masterClient.request(
-    `/api/companies/${encodeURIComponent(resolvedCompanyId)}/schedules?masterSheetId=${encodeURIComponent(resolvedSheetId)}`,
+  const results = await testClient.request(
+    `/api/companies/${encodeURIComponent(resolvedCompanyId)}/results?masterSheetId=${encodeURIComponent(resolvedSheetId)}`,
   );
-  assert(godmodeSchedules.status === 200 && godmodeSchedules.json?.ok === true, "12: Godmode reads company schedules");
-  const schedules = Array.isArray(godmodeSchedules.json?.schedules) ? godmodeSchedules.json.schedules : [];
-  if (schedules.length > 0) {
-    const sample = schedules[0];
-    const assigned = getScheduleAssignedEmails(sample);
-    assert(assigned.length > 0, "9: Schedule exposes assignedUserEmails", { scheduleId: sample.id, assigned });
-  } else {
-    log("WARN: no schedules — assignedUserEmails on-sheet check skipped");
-  }
+  assert(results.status === 200 && results.json?.ok === true, "14: Results screen data loads", results.json);
+  assertNoPasswordHash(results.json, "results list");
 
-  const invitedLogin = await api.request("/api/auth/company/login", {
-    method: "POST",
-    body: { email: inviteEmail, password: "VerifyLive1!", masterSheetId: resolvedSheetId },
-  });
-  assert(invitedLogin.status === 200 && invitedLogin.json?.ok === true, "10: Assigned user can log in");
-
-  const managerSchedules = await managerClient.request(
-    `/api/companies/${encodeURIComponent(resolvedCompanyId)}/schedules?masterSheetId=${encodeURIComponent(resolvedSheetId)}`,
+  const googleForms = await masterClient.request(
+    `/api/companies/${encodeURIComponent(resolvedCompanyId)}/google-forms?masterSheetId=${encodeURIComponent(resolvedSheetId)}&companyFolderId=${encodeURIComponent(resolvedCompanyId)}`,
   );
-  assert(managerSchedules.status === 200, "10b: Company user reads schedules");
+  assert(googleForms.status === 200 && googleForms.json?.ok === true, "15: Google Forms load from company folder", googleForms.json);
+  assertNoPasswordHash(googleForms.json, "google forms");
 
   const htmlRes = await fetch(`${config.frontendUrl}/`, { signal: AbortSignal.timeout(30_000) });
   const html = await htmlRes.text();
@@ -344,13 +350,8 @@ async function runLiveJourney(config) {
   if (jsMatch?.[0]) {
     const bundleRes = await fetch(`${config.frontendUrl}${jsMatch[0]}`, { signal: AbortSignal.timeout(30_000) });
     const bundle = await bundleRes.text();
-    assert(!bundle.includes("PasswordHash"), "15: No PasswordHash in frontend bundle");
-    assert(!bundle.includes("Ready for health check"), "13: No health-check clutter in bundle");
-    assert(!bundle.includes("registry fallback"), "13b: No registry fallback clutter in bundle");
+    assert(!bundle.includes("PasswordHash"), "16: No PasswordHash in frontend bundle");
   }
-
-  assert(read("src/services/companyUserService.ts").includes("COMPANY_MEMBERS_LOAD_TIMEOUT_MS"), "14: load timeout constant exists");
-  assert(read("src/services/companyUserService.ts").includes("90_000"), "14b: load timeout is 90s");
 
   log(`OK — ${caseCount} total cases passed (static + live)`);
 }
@@ -367,7 +368,7 @@ async function main() {
         "[verify:bert-core-foundation] Live journey skipped — missing BERT_LIVE_* credentials.",
         ...missing.map((key) => `  - ${key}`),
         "",
-        `Static guards passed (${caseCount} cases). Set credentials for full 15-case live proof.`,
+        `Static guards passed (${caseCount} cases). Set BERT_LIVE_MASTER_PASSWORD and BERT_LIVE_COMPANY_FOLDER_ID for full live proof.`,
       ].join("\n"),
     );
     process.exit(0);

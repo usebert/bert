@@ -301,9 +301,9 @@ export function GodmodeStartScreen({
     },
     {
       id: "new",
-      title: "Create new company",
-      description: "Start clean. No old users, checks, invites, or company data carried over.",
-      actionLabel: "Create company +",
+      title: "Connect company folder",
+      description: "Bootstrap a clean company from a Google Drive folder. No registry or old user data required.",
+      actionLabel: "Connect folder +",
       iconTone: "blue",
       onAction: () => {
         logNavTrace("create-company", "onboarding", { view: "landing" });
