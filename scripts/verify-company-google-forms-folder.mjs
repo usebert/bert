@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/** Company Google Forms folder — Drive resolve/list + Phase 8 canonical /api/companies routes. */
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -24,12 +25,24 @@ function assert(condition, message) {
   }
 }
 
+function readFile(filePath) {
+  return fs.readFileSync(path.join(root, filePath), "utf8");
+}
+
 function assertContains(filePath, snippets) {
-  const fullPath = path.join(root, filePath);
-  const content = fs.readFileSync(fullPath, "utf8");
+  const content = readFile(filePath);
   for (const snippet of snippets) {
     if (!content.includes(snippet)) {
       throw new Error(`Missing "${snippet}" in ${filePath}`);
+    }
+  }
+}
+
+function assertNotContains(filePath, snippets) {
+  const content = readFile(filePath);
+  for (const snippet of snippets) {
+    if (content.includes(snippet)) {
+      throw new Error(`Unexpected "${snippet}" in ${filePath}`);
     }
   }
 }
@@ -295,8 +308,15 @@ assertContains("server/google-forms-service.mjs", [
   "GOOGLE_FORM_TEMPLATES_TAB",
   "readTabRecords",
   "writeTabRecords",
-  "/api/company/:companyFolderId/google-forms",
   "handleCompanyGoogleFormsGet",
+  "handleCompanyGoogleFormsSyncPost",
+]);
+
+assertContains("server/core-workflow-routes.mjs", [
+  'app.get("/api/companies/:companyId/google-forms"',
+  'app.post("/api/companies/:companyId/google-forms/sync"',
+  "handleCompanyGoogleFormsGet",
+  "handleCompanyGoogleFormsSyncPost",
 ]);
 
 assertContains("server/company-forms-service.mjs", [
@@ -305,9 +325,20 @@ assertContains("server/company-forms-service.mjs", [
   "COMPANY_GOOGLE_FORMS_SYNC_COLUMNS",
 ]);
 
+/** Phase 8 client — canonical list/sync APIs, session company id on path only. */
 assertContains("src/services/companyFormsService.ts", [
-  "companyFormsService",
-  "listCompanyGoogleForms",
+  "fetchCompanyGoogleForms",
+  "syncCompanyGoogleForms",
+  "/api/companies/",
+  "/google-forms/sync",
+  'method: "POST"',
+  "folder_lookup_failed",
+  "payload.googleFormsFolder?.id",
+  "COMPANY_GOOGLE_FORMS_PERMISSION_MESSAGE",
+  "COMPANY_GOOGLE_FORMS_FOLDER_NOT_FOUND_MESSAGE",
+]);
+assertNotContains("src/services/companyFormsService.ts", [
+  'params.set("masterSheetId"',
   "/api/company/",
 ]);
 
@@ -321,7 +352,21 @@ assertContains("src/components/forms/FormsChecksTemplatesPanel.tsx", [
   "formsFound:",
 ]);
 
-assertContains("App.tsx", ["companyFormsService", "displayCompanyGoogleForms"]);
+assertContains("App.tsx", [
+  "fetchCompanyGoogleForms",
+  "syncCompanyGoogleForms",
+  "displayCompanyGoogleForms",
+  "resolveCompanyMembersLoadContext",
+  "activeCompanyContext",
+  "companyGoogleFormsState",
+]);
+assert(
+  /useEffect\([\s\S]{0,8000}resolveCompanyMembersLoadContext[\s\S]{0,8000}fetchCompanyGoogleForms/.test(
+    readFile("App.tsx"),
+  ),
+  "App loads Google Forms via session company context + fetchCompanyGoogleForms",
+);
+assertNotContains("App.tsx", ['localStorage.getItem(storageKeys.companyName)']);
 assertContains("src/components/godmode/GodmodeCompanyWorkspacePanel.tsx", ["Google Forms diagnostics"]);
 assertContains("package.json", ["verify:company-google-forms-folder", "verify:foundation-p0-hardening"]);
 
