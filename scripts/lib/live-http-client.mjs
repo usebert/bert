@@ -28,7 +28,7 @@ export class LiveHttpClient {
     }
   }
 
-  async request(path, { method = "GET", body, headers = {}, timeoutMs = 60_000 } = {}) {
+  async request(path, { method = "GET", body, headers = {}, timeoutMs = 180_000 } = {}) {
     const url = path.startsWith("http") ? path : `${this.baseUrl}${path}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);

@@ -290,15 +290,28 @@ async function runLiveJourney(config) {
   assert(saveScheduleRes.status === 200 && saveScheduleRes.json?.ok !== false, "10: schedule saved for test user", saveScheduleRes.json);
   assertNoPasswordHash(saveScheduleRes.json, "save schedule");
 
-  const assignedChecks = await testClient.request("/api/me/assigned-checks");
-  assert(assignedChecks.status === 200 && assignedChecks.json?.ok === true, "11: My Checks loads", assignedChecks.json);
-  assertNoPasswordHash(assignedChecks.json, "assigned checks");
-  const assignedSchedules = Array.isArray(assignedChecks.json?.schedules) ? assignedChecks.json.schedules : [];
-  const assignedSchedule =
-    assignedSchedules.find((row) => String(row?.id || row?.scheduleId || "") === scheduleId) ||
-    assignedSchedules.find((row) => getScheduleAssignedEmails(row).includes(testEmail)) ||
-    assignedSchedules[0];
+  let assignedChecks = null;
+  let assignedSchedules = [];
+  let assignedSchedule = null;
+
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    assignedChecks = await testClient.request("/api/me/assigned-checks", { timeoutMs: 180_000 });
+    assert(assignedChecks.status === 200 && assignedChecks.json?.ok === true, "11: My Checks loads", assignedChecks.json);
+    assertNoPasswordHash(assignedChecks.json, "assigned checks");
+
+    assignedSchedules = Array.isArray(assignedChecks.json?.schedules) ? assignedChecks.json.schedules : [];
+    assignedSchedule =
+      assignedSchedules.find((row) => String(row?.id || row?.scheduleId || "") === scheduleId) ||
+      assignedSchedules.find((row) => getScheduleAssignedEmails(row).includes(testEmail)) ||
+      null;
+
+    if (assignedSchedule) break;
+    await new Promise((resolve) => setTimeout(resolve, 10_000));
+  }
+
   assert(assignedSchedule, "11b: assigned schedule visible to test user", {
+    scheduleId,
+    testEmail,
     scheduleIds: assignedSchedules.map((row) => row?.id || row?.scheduleId),
   });
 

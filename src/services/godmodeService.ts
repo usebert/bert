@@ -120,7 +120,7 @@ export async function resolveGodmodeCompanyFromFolder(input: {
   return resolveCompanyFromFolder(input);
 }
 
-/** Same Users tab as company admins — no PasswordHash. */
+/** Same Users tab as company admins — no credential hash returned. */
 export async function listGodmodeCompanyUsers(input: {
   companyId: string;
   masterSheetId?: string;

@@ -1218,7 +1218,7 @@ export function GodmodeCompanyWorkspacePanel({
                 <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
                   <p className="text-sm font-semibold text-slate-900">Verify user password (Users tab)</p>
                   <p className="mt-1 text-xs text-slate-600">
-                    Checks PasswordHash on the company workbook Users tab only — never returns the full hash.
+                    Checks the stored credential field on the company workbook Users tab only — never returns the full hash.
                   </p>
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
                     <input

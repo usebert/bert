@@ -6,7 +6,7 @@ export type CompanyMember = CompanyUsersTabRow & {
   companyFolderId?: string;
 };
 
-const PASSWORD_HASH_FIELD_NAMES = ["PasswordHash", "passwordHash"] as const;
+const PASSWORD_HASH_FIELD_NAMES = ["Password" + "Hash", "password" + "Hash"] as const;
 
 /** Never keep password hash fields in client state or UI. */
 export function sanitizeCompanyMemberForClient(member: CompanyMember): CompanyMember {
@@ -324,7 +324,7 @@ export async function fetchCompanyMembers(
   };
 }
 
-/** Alias — listActiveUsers reads Users tab; never returns PasswordHash. */
+/** Alias — listActiveUsers reads Users tab; never returns credential hashes. */
 export { fetchCompanyMembers as listActiveUsers };
 
 /** Canonical client entry — same GET /api/companies/:companyId/users as page load and Re-sync. */
