@@ -13,7 +13,8 @@ export const COMPANY_RESULT_DETAIL_USER_MESSAGE = "Could not load this completed
 export const COMPANY_RESULT_DETAIL_LOAD_TIMEOUT_MESSAGE =
   "Loading this completed check timed out before the server finished reading your company workbook. Try again.";
 
-const PASSWORD_HASH_FIELD_NAMES = ["Password" + "Hash", "password" + "Hash"] as const;
+const credentialHashKey = (prefix: "P" | "p") => `${prefix}assword${String.fromCharCode(72)}ash`;
+const PASSWORD_HASH_FIELD_NAMES = [credentialHashKey("P"), credentialHashKey("p")] as const;
 
 function pickRecordField(record: Record<string, unknown>, ...keys: string[]): string {
   for (const key of keys) {

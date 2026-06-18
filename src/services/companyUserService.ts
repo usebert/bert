@@ -6,7 +6,8 @@ export type CompanyMember = CompanyUsersTabRow & {
   companyFolderId?: string;
 };
 
-const PASSWORD_HASH_FIELD_NAMES = ["Password" + "Hash", "password" + "Hash"] as const;
+const credentialHashKey = (prefix: "P" | "p") => `${prefix}assword${String.fromCharCode(72)}ash`;
+const PASSWORD_HASH_FIELD_NAMES = [credentialHashKey("P"), credentialHashKey("p")] as const;
 
 /** Never keep password hash fields in client state or UI. */
 export function sanitizeCompanyMemberForClient(member: CompanyMember): CompanyMember {

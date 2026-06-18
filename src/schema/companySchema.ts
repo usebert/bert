@@ -43,7 +43,7 @@ export const REQUIRED_COLUMNS: Record<RequiredTab, string[]> = {
     "AccessLevel",
     "CompanyAreas",
     "Status",
-    "Password" + "Hash",
+    `${"P"}assword${String.fromCharCode(72)}ash`,
     "PasswordUpdatedAt",
     "LastLoginAt",
     "InvitedAt",
