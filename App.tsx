@@ -169,11 +169,12 @@ import {
   clearGodmodeSelectedCompanyFolderId,
   resolveAndSyncMasterCompanySelection,
   syncMasterCompanyContextToSession,
-  writeGodmodeSelectedCompanyFolderId,
 } from "./src/utils/godmodeCompanyContext";
 import {
   listGodmodeLiveCompanies,
   mapGodmodeLiveCompanyToWorkspaceFolder,
+  mergeGodmodeLiveCompanyFolders,
+  resolveGodmodeCompanySetupStatus,
 } from "./src/services/godmodeService";
 import {
   migrateStoredFolderLinks,
@@ -3802,18 +3803,17 @@ function App() {
           folder.id === selectedFolderId
             ? activeCompanyMasterSheetId || folder.masterSheetId || folder.responseSheetId || ""
             : folder.masterSheetId || folder.responseSheetId || "";
-        const setupStatusLabel = folder.setupStatusLabel
-          ? folder.setupStatusLabel
-          : folder.onboardingVerified && folder.responseSheetVerified
-            ? "Ready"
-            : "Setup in progress";
-        const setupStatus: "ready" | "incomplete" = masterSheetId ? "ready" : "incomplete";
+        const setup = resolveGodmodeCompanySetupStatus({
+          setupStatus: folder.setupStatus,
+          setupStatusLabel: folder.setupStatusLabel,
+          masterSheetId,
+        });
         return {
           id: folder.id,
           name: folder.name,
           masterSheetId,
-          setupStatusLabel,
-          setupStatus,
+          setupStatusLabel: setup.setupStatusLabel,
+          setupStatus: setup.setupStatus,
         };
       }),
     [selectableGodmodeFolders, selectedFolderId, activeCompanyMasterSheetId],
@@ -7608,20 +7608,24 @@ function App() {
       if (!payload.ok) {
         throw new Error(payload.error || "Unable to load Live Companies folders.");
       }
-      const companies = filterCustomerFacingCompanies(
+      const liveCompanies = filterCustomerFacingCompanies(
         payload.companies.map((company) => mapGodmodeLiveCompanyToWorkspaceFolder(company)),
       );
-      setFolders(companies);
+      let mergedCompanies: CompanyFolder[] = [];
+      setFolders((current) => {
+        mergedCompanies = mergeGodmodeLiveCompanyFolders(current, liveCompanies);
+        return mergedCompanies;
+      });
       const activeFolderId = selectedFolderIdRef.current;
       if (activeFolderId) {
-        const restored = companies.find((company) => company.id === activeFolderId);
+        const restored = mergedCompanies.find((company) => company.id === activeFolderId);
         const registrySheetId = String(restored?.masterSheetId || restored?.responseSheetId || "").trim();
         if (registrySheetId && activeFolderId === selectedFolderIdRef.current) {
           setMasterSheetInput((current) => current.trim() || registrySheetId);
         }
       }
       setGodmodeLiveCompaniesWarning(
-        companies.length === 0 && payload.error
+        mergedCompanies.length === 0 && payload.error
           ? payload.error
           : "",
       );
@@ -9559,7 +9563,7 @@ function App() {
         responseSheetVerified: true,
         masterSheetId,
         setupStatus: "ready",
-        setupStatusLabel: "Usable",
+        setupStatusLabel: "Ready",
       };
 
       setFolders((current) => [nextFolder, ...current.filter((folder) => folder.id !== companyFolderId)]);
@@ -9568,7 +9572,6 @@ function App() {
       setFolderNameInput(companyName);
       setMasterSheetInput(masterSheetId);
       setSyncState("Synced");
-      writeGodmodeSelectedCompanyFolderId(companyFolderId);
       await syncMasterCompanyContextToSession({
         companyFolderId,
         companyName,

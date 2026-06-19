@@ -7292,6 +7292,8 @@ installCompanyFolderConnectRoutes(app, {
   updateConfig,
   ensureTabsAndColumns,
   currentSchemaVersion: CURRENT_SCHEMA_VERSION,
+  authIndex: authIndexApi,
+  getCompanyWorkspaceRegistryDeps,
   ...getWorkbookServiceDeps(),
 });
 

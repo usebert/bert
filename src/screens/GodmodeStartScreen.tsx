@@ -9,6 +9,7 @@ import { DashboardLandingCard, PageHeader } from "../components/dashboard/RoleDa
 import { bertLightMuted, bertLightTechnical, bertLightTitle, BERT_LIGHT_SURFACE } from "../styles/bertText";
 import { bertSecondaryButtonInteract } from "../styles/interactions";
 import { GODMODE_COMPANY_CONTEXT_REQUIRED_MESSAGE } from "../utils/companyWorkspaceInvite";
+import { isGodmodeCompanyPickerReady } from "../services/godmodeService";
 
 export type GodmodeCompanyPickerRow = {
   id: string;
@@ -128,7 +129,11 @@ function CompanyPickerRow({
   onContinueSetup?: () => void;
   onRepairSetup?: () => void;
 }) {
-  const ready = company.setupStatusLabel === "Ready";
+  const ready = isGodmodeCompanyPickerReady({
+    setupStatus: company.setupStatus,
+    setupStatusLabel: company.setupStatusLabel,
+    masterSheetId: company.masterSheetId,
+  });
   const helperCopy = ready
     ? "This company is ready to open."
     : "This company needs setup finishing before it can be used.";

@@ -7,11 +7,12 @@ import { buildCompanyFolderUrl } from "../shared/company-folder-links.mjs";
 import { inviteAccessLevelForRole } from "../shared/schedule-assignees.mjs";
 import { resolveCompanyFromFolder } from "./company-folder-resolver.mjs";
 import { ensureRequiredTabs, listTabTitles } from "./workbook-service.mjs";
-import { hashPassword } from "./user-auth-service.mjs";
+import { hashPassword, rebuildAuthIndexFromUsersTab } from "./user-auth-service.mjs";
 import { writeUsersTabRecordByHeaders } from "./company-users.mjs";
 import { migrateUsersTabColumns } from "./company-users.mjs";
 import { repairUsersTabSchema } from "./users-tab-reader.mjs";
 import { findMissingRequiredTabs, SETUP_REQUIRED_TABS } from "./ensure-required-tabs.mjs";
+import { ensureCompanyRegistryRecordForWorkspace } from "./company-workspace-registry.mjs";
 
 function trim(value) {
   return String(value ?? "").trim();
@@ -202,6 +203,38 @@ export async function connectCompanyFolder(auth, deps, input = {}) {
         masterSheetId,
       };
     }
+    if (adminResult.ok && deps.authIndex) {
+      const companyContext = {
+        companyFolderId,
+        companyId: companyFolderId,
+        companyName,
+        masterSheetId,
+      };
+      await rebuildAuthIndexFromUsersTab(auth, deps, companyContext, deps.authIndex, admin.email).catch((error) => {
+        console.warn("[company-folder-connect] auth index rebuild failed (non-blocking)", {
+          companyFolderId,
+          email: admin.email,
+          error: error instanceof Error ? error.message : error,
+        });
+      });
+    }
+  }
+
+  try {
+    const registryDeps =
+      typeof deps.getCompanyWorkspaceRegistryDeps === "function" ? deps.getCompanyWorkspaceRegistryDeps() : deps;
+    await ensureCompanyRegistryRecordForWorkspace(auth, { ...deps, ...registryDeps }, {
+      companyId: companyFolderId,
+      companyFolderId,
+      rootFolderId: companyFolderId,
+      masterSheetId,
+      companyName,
+    });
+  } catch (error) {
+    console.warn("[company-folder-connect] registry persist failed (non-blocking)", {
+      companyFolderId,
+      error: error instanceof Error ? error.message : error,
+    });
   }
 
   return {

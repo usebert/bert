@@ -14,15 +14,74 @@ export type GodmodeLiveCompany = {
   registryStatus?: string;
   setupStatus?: "ready" | "incomplete";
   setupStatusLabel?: string;
+  status?: string;
 };
+
+export type GodmodeWorkspaceFolder = ReturnType<typeof mapGodmodeLiveCompanyToWorkspaceFolder>;
+
+type MergeableGodmodeFolder = {
+  id: string;
+  masterSheetId?: string;
+  responseSheetId?: string;
+  setupStatus?: "ready" | "incomplete";
+  setupStatusLabel?: string;
+  linkedAt?: string;
+  onboardingVerified?: boolean;
+  responseSheetVerified?: boolean;
+  registryStatus?: string;
+};
+
+const GODMODE_PICKER_READY_LABELS = new Set(["ready", "usable", "live"]);
+
+/** Folder-first connect-folder status and setup labels both mean picker-ready. */
+export function isGodmodeCompanyPickerReady(input: {
+  setupStatus?: "ready" | "incomplete";
+  setupStatusLabel?: string;
+  status?: string;
+  masterSheetId?: string;
+}): boolean {
+  if (input.setupStatus === "ready") {
+    return true;
+  }
+  const status = String(input.status || "").trim().toLowerCase();
+  if (status === "usable") {
+    return true;
+  }
+  const label = String(input.setupStatusLabel || "").trim().toLowerCase();
+  if (GODMODE_PICKER_READY_LABELS.has(label)) {
+    return Boolean(String(input.masterSheetId || "").trim());
+  }
+  return Boolean(String(input.masterSheetId || "").trim()) && input.setupStatus !== "incomplete";
+}
+
+export function resolveGodmodeCompanySetupStatus(input: {
+  setupStatus?: "ready" | "incomplete";
+  setupStatusLabel?: string;
+  status?: string;
+  masterSheetId?: string;
+}): { setupStatus: "ready" | "incomplete"; setupStatusLabel: string } {
+  const masterSheetId = String(input.masterSheetId || "").trim();
+  const ready = isGodmodeCompanyPickerReady({ ...input, masterSheetId });
+  if (ready && masterSheetId) {
+    return { setupStatus: "ready", setupStatusLabel: "Ready" };
+  }
+  const rawLabel = String(input.setupStatusLabel || "").trim();
+  return {
+    setupStatus: masterSheetId ? "incomplete" : "incomplete",
+    setupStatusLabel: rawLabel || (masterSheetId ? "Setup in progress" : "Setup in progress"),
+  };
+}
 
 /** Map live-companies API rows into App workspace folder shape. */
 export function mapGodmodeLiveCompanyToWorkspaceFolder(company: GodmodeLiveCompany) {
   const id = String(company.id || company.folderId || "").trim();
   const masterSheetId = String(company.masterSheetId || company.sheetId || "").trim();
-  const setupStatusLabel =
-    company.setupStatusLabel ||
-    (masterSheetId ? "Ready" : "Setup in progress");
+  const setup = resolveGodmodeCompanySetupStatus({
+    setupStatus: company.setupStatus,
+    setupStatusLabel: company.setupStatusLabel,
+    status: company.status,
+    masterSheetId,
+  });
   return {
     id,
     name: String(company.name || "").trim(),
@@ -34,11 +93,82 @@ export function mapGodmodeLiveCompanyToWorkspaceFolder(company: GodmodeLiveCompa
     onboardingVerified: Boolean(masterSheetId),
     auditFormsVerified: false,
     responseSheetVerified: Boolean(masterSheetId),
-    setupStatus: company.setupStatus || (masterSheetId ? ("ready" as const) : ("incomplete" as const)),
-    setupStatusLabel,
+    setupStatus: setup.setupStatus,
+    setupStatusLabel: setup.setupStatusLabel,
     masterSheetId: masterSheetId || undefined,
     registryStatus: company.registryStatus,
   };
+}
+
+function mergeGodmodeLiveCompanyFolder<T extends MergeableGodmodeFolder>(
+  existing: T,
+  live: GodmodeWorkspaceFolder,
+): T {
+  const masterSheetId =
+    live.masterSheetId ||
+    live.responseSheetId ||
+    existing.masterSheetId ||
+    existing.responseSheetId ||
+    "";
+  const setup = resolveGodmodeCompanySetupStatus({
+    setupStatus: existing.setupStatus === "ready" || live.setupStatus === "ready" ? "ready" : live.setupStatus || existing.setupStatus,
+    setupStatusLabel: live.setupStatusLabel || existing.setupStatusLabel,
+    masterSheetId,
+  });
+  return {
+    ...existing,
+    ...live,
+    masterSheetId: masterSheetId || undefined,
+    responseSheetId: masterSheetId || existing.responseSheetId,
+    linkedAt: existing.linkedAt || live.linkedAt,
+    onboardingVerified: existing.onboardingVerified || live.onboardingVerified || Boolean(masterSheetId),
+    responseSheetVerified: existing.responseSheetVerified || live.responseSheetVerified || Boolean(masterSheetId),
+    setupStatus: setup.setupStatus,
+    setupStatusLabel: setup.setupStatusLabel,
+    registryStatus: live.registryStatus || existing.registryStatus,
+  };
+}
+
+/** Merge Live Companies API rows with session/local folders — never drop connected folder-first workspaces. */
+export function mergeGodmodeLiveCompanyFolders<T extends MergeableGodmodeFolder>(
+  existingFolders: T[],
+  liveFolders: GodmodeWorkspaceFolder[],
+): T[] {
+  const liveById = new Map(liveFolders.map((folder) => [folder.id, folder]));
+  const mergedById = new Map<string, T>();
+
+  for (const folder of existingFolders) {
+    const id = String(folder.id || "").trim();
+    if (!id) {
+      continue;
+    }
+    const live = liveById.get(id);
+    mergedById.set(id, live ? mergeGodmodeLiveCompanyFolder(folder, live) : folder);
+  }
+
+  for (const folder of liveFolders) {
+    const id = String(folder.id || "").trim();
+    if (!id || mergedById.has(id)) {
+      continue;
+    }
+    mergedById.set(id, folder as unknown as T);
+  }
+
+  const orderedIds: string[] = [];
+  for (const folder of existingFolders) {
+    const id = String(folder.id || "").trim();
+    if (id && mergedById.has(id) && !orderedIds.includes(id)) {
+      orderedIds.push(id);
+    }
+  }
+  for (const folder of liveFolders) {
+    const id = String(folder.id || "").trim();
+    if (id && !orderedIds.includes(id)) {
+      orderedIds.push(id);
+    }
+  }
+
+  return orderedIds.map((id) => mergedById.get(id)!).filter(Boolean);
 }
 
 export type ConnectedCompanyFolder = {
