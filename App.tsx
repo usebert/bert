@@ -173,6 +173,7 @@ import {
 import {
   listGodmodeLiveCompanies,
   mapGodmodeLiveCompanyToWorkspaceFolder,
+  isGodmodeCompanyPickerReady,
   mergeGodmodeLiveCompanyFolders,
   resolveGodmodeCompanySetupStatus,
 } from "./src/services/godmodeService";
@@ -3722,25 +3723,6 @@ function App() {
   }, [currentUser?.role, selectedFolder?.registryStatus]);
 
   useEffect(() => {
-    if (currentUser?.role !== "Master") {
-      return;
-    }
-    const canonicalStatus = getCanonicalCompanyStatus({
-      status: companyRegistryStatus || selectedFolder?.registryStatus,
-      registryStatus: companyRegistryStatus || selectedFolder?.registryStatus,
-    });
-    if (isCompanyRegistryLive({ status: canonicalStatus, registryStatus: canonicalStatus })) {
-      clearCompanySetupRunningState();
-    }
-  }, [
-    currentUser?.role,
-    selectedFolder?.id,
-    selectedFolder?.registryStatus,
-    companyRegistryStatus,
-    clearCompanySetupRunningState,
-  ]);
-
-  useEffect(() => {
     const onInviteScreen = screen === "users" || screen === "invites";
     if (!onInviteScreen || currentUser?.role !== "Master" || !selectedFolderId || !googleConnected) {
       return;
@@ -3795,6 +3777,35 @@ function App() {
       "",
     [companySheetSync?.sheetId, masterSheetInput, folderInspection?.masterSheet?.id],
   );
+
+  useEffect(() => {
+    if (currentUser?.role !== "Master") {
+      return;
+    }
+    const masterSheetId =
+      activeCompanyMasterSheetId ||
+      selectedFolder?.masterSheetId ||
+      selectedFolder?.responseSheetId ||
+      "";
+    if (
+      isGodmodeCompanyPickerReady({
+        setupStatus: selectedFolder?.setupStatus,
+        setupStatusLabel: selectedFolder?.setupStatusLabel,
+        masterSheetId,
+      })
+    ) {
+      clearCompanySetupRunningState();
+    }
+  }, [
+    currentUser?.role,
+    selectedFolder?.id,
+    selectedFolder?.setupStatus,
+    selectedFolder?.setupStatusLabel,
+    selectedFolder?.masterSheetId,
+    selectedFolder?.responseSheetId,
+    activeCompanyMasterSheetId,
+    clearCompanySetupRunningState,
+  ]);
 
   const godmodeCompanyPickerRows = useMemo(
     () =>
@@ -7515,25 +7526,31 @@ function App() {
       if (!masterSheetId) {
         return "";
       }
+      const canonicalStatus = getCanonicalCompanyStatus(payload.company);
       setFolders((current) =>
-        current.map((folder) =>
-          folder.id === folderId
-            ? {
-                ...folder,
-                masterSheetId,
-                responseSheetId: masterSheetId,
-                responseSheetVerified: true,
-                setupStatus: "ready",
-                setupStatusLabel: isCompanyRegistryLive(payload.company)
-                  ? "Ready"
-                  : payload.company.status === "Needs attention"
-                    ? "Needs attention"
-                    : "Ready",
-                registryStatus: getCanonicalCompanyStatus(payload.company),
-                registryLinkMissing: false,
-              }
-            : folder,
-        ),
+        current.map((folder) => {
+          if (folder.id !== folderId) {
+            return folder;
+          }
+          const setup =
+            canonicalStatus === "Needs attention"
+              ? { setupStatus: "incomplete" as const, setupStatusLabel: "Needs attention" }
+              : resolveGodmodeCompanySetupStatus({
+                  setupStatus: folder.setupStatus,
+                  setupStatusLabel: folder.setupStatusLabel,
+                  masterSheetId,
+                });
+          return {
+            ...folder,
+            masterSheetId,
+            responseSheetId: masterSheetId,
+            responseSheetVerified: true,
+            setupStatus: setup.setupStatus,
+            setupStatusLabel: setup.setupStatusLabel,
+            registryStatus: canonicalStatus,
+            registryLinkMissing: false,
+          };
+        }),
       );
       if (folderId === selectedFolderIdRef.current) {
         setMasterSheetInput((current) => current.trim() || masterSheetId);
@@ -7565,31 +7582,51 @@ function App() {
       registryStatus: canonicalStatus,
     });
     setFolders((current) =>
-      current.map((folder) =>
-        folder.id === companyFolderId
-          ? {
-              ...folder,
-              masterSheetId: registryMasterSheetId || folder.masterSheetId,
-              responseSheetId: registryMasterSheetId || folder.responseSheetId,
-              responseSheetVerified: Boolean(registryMasterSheetId) || folder.responseSheetVerified,
-              registryStatus: canonicalStatus,
-              registryLinkMissing:
-                payload.registryLinkMissing !== undefined ? payload.registryLinkMissing : !resultIsLive,
-              setupStatusLabel: resultIsLive
-                ? "Ready"
-                : canonicalStatus === "Needs attention"
-                  ? "Needs attention"
-                  : folder.setupStatusLabel,
-            }
-          : folder,
-      ),
+      current.map((folder) => {
+        if (folder.id !== companyFolderId) {
+          return folder;
+        }
+        const effectiveMasterSheetId =
+          registryMasterSheetId || folder.masterSheetId || folder.responseSheetId || "";
+        const setup =
+          canonicalStatus === "Needs attention"
+            ? { setupStatus: "incomplete" as const, setupStatusLabel: "Needs attention" }
+            : resolveGodmodeCompanySetupStatus({
+                setupStatus: folder.setupStatus,
+                setupStatusLabel: folder.setupStatusLabel,
+                masterSheetId: effectiveMasterSheetId,
+              });
+        return {
+          ...folder,
+          masterSheetId: effectiveMasterSheetId || folder.masterSheetId,
+          responseSheetId: effectiveMasterSheetId || folder.responseSheetId,
+          responseSheetVerified: Boolean(effectiveMasterSheetId) || folder.responseSheetVerified,
+          registryStatus: canonicalStatus,
+          registryLinkMissing:
+            payload.registryLinkMissing !== undefined ? payload.registryLinkMissing : !resultIsLive,
+          setupStatus: setup.setupStatus,
+          setupStatusLabel: setup.setupStatusLabel,
+        };
+      }),
     );
     if (companyFolderId === selectedFolderIdRef.current) {
       setCompanyRegistryStatus(canonicalStatus);
       if (registryMasterSheetId) {
         setMasterSheetInput((current) => current.trim() || registryMasterSheetId);
       }
-      if (resultIsLive) {
+      const effectiveMasterSheetId =
+        registryMasterSheetId ||
+        selectedFolder?.masterSheetId ||
+        selectedFolder?.responseSheetId ||
+        activeCompanyMasterSheetId ||
+        "";
+      if (
+        isGodmodeCompanyPickerReady({
+          setupStatus: selectedFolder?.setupStatus,
+          setupStatusLabel: selectedFolder?.setupStatusLabel,
+          masterSheetId: effectiveMasterSheetId,
+        })
+      ) {
         clearCompanySetupRunningState();
       }
     }
@@ -9577,11 +9614,12 @@ function App() {
         companyName,
         masterSheetId,
       });
+      await loadGodmodeLiveCompanies({ silent: true });
       await loadCompanySheetById(masterSheetId, companyFolderId, { silent: true }).catch(() => null);
       pushToast("Company usable", `${companyName} is ready from folder-first bootstrap.`, "success");
       setScreen("godmodeHome");
     },
-    [loadCompanySheetById, pushToast],
+    [loadCompanySheetById, loadGodmodeLiveCompanies, pushToast],
   );
 
   const handleCompanyWorkspaceResetSuccess = async (message: string) => {
@@ -12191,16 +12229,20 @@ function App() {
       });
       setCompanySetupResult(result);
 
-      const resultIsLive =
-        result.ok ||
-        result.status === "LIVE" ||
-        isCompanyRegistryLive({ status: result.registryStatus, registryStatus: result.registryStatus });
+      const resolvedMasterSheetId = String(result.masterSheetId || masterSheetId).trim();
+      const resultIsReady =
+        Boolean(result.ok) ||
+        isGodmodeCompanyPickerReady({
+          setupStatus: result.ok ? "ready" : selectedFolder?.setupStatus,
+          setupStatusLabel: result.registryStatus || selectedFolder?.setupStatusLabel,
+          status: result.status,
+          masterSheetId: resolvedMasterSheetId,
+        });
 
-      if (!resultIsLive && result.failedStep) {
+      if (!resultIsReady && result.failedStep) {
         setCompanySetupCurrentStep(result.failedStep);
       }
 
-      const resolvedMasterSheetId = String(result.masterSheetId || masterSheetId).trim();
       if (resolvedMasterSheetId) {
         setMasterSheetInput(resolvedMasterSheetId);
       }
@@ -12211,23 +12253,30 @@ function App() {
           const canonicalStatus = getCanonicalCompanyStatus(registryPayload.company);
           const registryMasterSheetId = String(registryPayload.company.masterSheetId || "").trim();
           setFolders((current) =>
-            current.map((folder) =>
-              folder.id === companyFolderId
-                ? {
-                    ...folder,
-                    masterSheetId: registryMasterSheetId || folder.masterSheetId,
-                    responseSheetId: registryMasterSheetId || folder.responseSheetId,
-                    responseSheetVerified: Boolean(registryMasterSheetId) || folder.responseSheetVerified,
-                    registryStatus: canonicalStatus,
-                    registryLinkMissing: false,
-                    setupStatusLabel: isCompanyRegistryLive({ status: canonicalStatus, registryStatus: canonicalStatus })
-                      ? "Ready"
-                      : canonicalStatus === "Needs attention"
-                        ? "Needs attention"
-                        : folder.setupStatusLabel,
-                  }
-                : folder,
-            ),
+            current.map((folder) => {
+              if (folder.id !== companyFolderId) {
+                return folder;
+              }
+              const effectiveMasterSheetId = registryMasterSheetId || folder.masterSheetId || folder.responseSheetId || "";
+              const setup =
+                canonicalStatus === "Needs attention"
+                  ? { setupStatus: "incomplete" as const, setupStatusLabel: "Needs attention" }
+                  : resolveGodmodeCompanySetupStatus({
+                      setupStatus: folder.setupStatus,
+                      setupStatusLabel: folder.setupStatusLabel,
+                      masterSheetId: effectiveMasterSheetId,
+                    });
+              return {
+                ...folder,
+                masterSheetId: effectiveMasterSheetId || folder.masterSheetId,
+                responseSheetId: effectiveMasterSheetId || folder.responseSheetId,
+                responseSheetVerified: Boolean(effectiveMasterSheetId) || folder.responseSheetVerified,
+                registryStatus: canonicalStatus,
+                registryLinkMissing: false,
+                setupStatus: setup.setupStatus,
+                setupStatusLabel: setup.setupStatusLabel,
+              };
+            }),
           );
           if (companyFolderId === selectedFolderIdRef.current) {
             setCompanyRegistryStatus(canonicalStatus);
@@ -12237,14 +12286,24 @@ function App() {
           }
         } catch {
           if (result.registryStatus) {
+            const registryIsLive = isCompanyRegistryLive({
+              status: result.registryStatus,
+              registryStatus: result.registryStatus,
+            });
+            const fallbackSetup = resolveGodmodeCompanySetupStatus({
+              setupStatusLabel: result.registryStatus,
+              masterSheetId: resolvedMasterSheetId,
+              status: result.status,
+            });
             setFolders((current) =>
               current.map((folder) =>
                 folder.id === companyFolderId
                   ? {
                       ...folder,
                       registryStatus: result.registryStatus,
-                      registryLinkMissing: !resultIsLive,
-                      setupStatusLabel: resultIsLive ? "Ready" : folder.setupStatusLabel,
+                      registryLinkMissing: !registryIsLive,
+                      setupStatus: fallbackSetup.setupStatus,
+                      setupStatusLabel: fallbackSetup.setupStatusLabel,
                     }
                   : folder,
               ),
@@ -12260,7 +12319,7 @@ function App() {
         await handleSyncForms();
       }
 
-      if (resultIsLive) {
+      if (resultIsReady) {
         clearCompanySetupRunningState();
         setCompanySetupWarnings(result.warnings || []);
       } else if (!result.ok) {
@@ -12299,11 +12358,11 @@ function App() {
       setCompanySetupError(null);
       await loadGodmodeLiveCompanies({ silent: true });
       pushToast(
-        resultIsLive ? "Company is ready" : "Setup finished",
-        resultIsLive
+        resultIsReady ? "Company is ready" : "Setup finished",
+        resultIsReady
           ? result.userMessage || BACKGROUND_SETUP_USER_MESSAGE
           : result.reasonDetail || result.userMessage || "Some checks still need attention.",
-        resultIsLive ? "success" : "warning",
+        resultIsReady ? "success" : "warning",
       );
     } catch (error) {
       setCompanySetupError({

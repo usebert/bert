@@ -153,13 +153,13 @@ assert(
   "9c: live validator resolves workbook folder over stale cookie",
 );
 {
-  const companyAFolder = "folder-rock-solid";
+  const companyAFolder = "folder-northline";
   const companyBFolder = "folder-dovecote";
-  const companyASheet = "sheet-rock-solid";
+  const companyASheet = "sheet-northline";
   const companyBSheet = "sheet-dovecote";
   const registryMap = new Map([
     [companyBFolder, { masterSheetId: companyBSheet, companyFolderId: companyBFolder, companyName: "Dovecote Studio" }],
-    [companyAFolder, { masterSheetId: companyASheet, companyFolderId: companyAFolder, companyName: "Rock Solid Concrete" }],
+    [companyAFolder, { masterSheetId: companyASheet, companyFolderId: companyAFolder, companyName: "Northline Precast" }],
   ]);
   let matched = null;
   for (const record of registryMap.values()) {

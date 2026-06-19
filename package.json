@@ -73,6 +73,7 @@
     "verify:active-users-load-path": "node scripts/verify-active-users-load-path.mjs",
     "verify:company-members-diagnostics": "node scripts/verify-company-members-diagnostics.mjs",
     "verify:company-context-ui": "node scripts/verify-company-context-ui.mjs",
+    "verify:company-context-resolution": "node scripts/verify-company-context-resolution.mjs",
     "verify:company-user-session-context": "node scripts/verify-company-user-session-context.mjs",
     "verify:stale-company-context": "node scripts/verify-stale-company-context.mjs",
     "verify:users-tab-reader": "node scripts/verify-users-tab-reader.mjs",

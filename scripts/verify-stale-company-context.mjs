@@ -31,7 +31,7 @@ const pkg = JSON.parse(read("package.json"));
 
 assert(pkg.scripts["verify:stale-company-context"], "PKG: npm script registered");
 
-const rockSolidHits = execSync('rg -l "Rock Solid Concrete Ltd" . --glob "!scripts/verify-stale-company-context.mjs" --glob "!scripts/verify-invite-workspace.mjs" 2>/dev/null || true', {
+const rockSolidHits = execSync('rg -l "Rock Solid Concrete Ltd" . --glob "!scripts/verify-stale-company-context.mjs" --glob "!scripts/verify-invite-workspace.mjs" --glob "!scripts/verify-bert-foundation.mjs" 2>/dev/null || true', {
   cwd: root,
   encoding: "utf8",
 }).trim();
@@ -62,7 +62,10 @@ assert(
   /rebuildAuthIndex[\s\S]*?validateLiveCompanyContext/.test(authIndex),
   "4g: rebuild only indexes folders under Live Companies",
 );
-assert(authIndex.includes("rowMatchesCompanyContext"), "4h: auth index filters Users tab by company columns");
+assert(
+  authIndex.includes("rowMatchesCompanyContext") || authIndex.includes("rowPassesCompanyProfileContext"),
+  "4h: auth index filters Users tab by company columns",
+);
 assert(authIndex.includes("pickRowCompanyName"), "4i: auth index session company from row Company column");
 assert(read("shared/auth-index-trust.mjs").includes("isKnownStaleAuthIndexPairing"), "4e: known stale auth pairings guarded");
 

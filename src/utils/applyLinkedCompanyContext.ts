@@ -1,4 +1,5 @@
 import { saveCompanyLoginHint } from "../lib/companyLoginHint";
+import { resolveGodmodeCompanySetupStatus } from "../services/godmodeService";
 import { getCanonicalCompanyStatus } from "./companyWorkspaceInvite";
 import { validateCompanyDriveIds } from "./googleDriveId";
 
@@ -28,6 +29,8 @@ export type LinkedCompanyFolder = {
   auditFormsVerified: boolean;
   responseSheetVerified: boolean;
   masterSheetId?: string;
+  setupStatus?: "ready" | "incomplete";
+  setupStatusLabel?: string;
   registryStatus?: string;
 };
 
@@ -41,6 +44,10 @@ export function buildLinkedCompanyFolder(input: LinkedCompanyContextInput): Link
     status: input.registryStatus,
     registryStatus: input.registryStatus,
   });
+  const setup = resolveGodmodeCompanySetupStatus({
+    setupStatusLabel: masterSheetId ? "Ready" : undefined,
+    masterSheetId,
+  });
   return {
     id: companyId,
     name: String(input.companyName || "").trim(),
@@ -49,10 +56,12 @@ export function buildLinkedCompanyFolder(input: LinkedCompanyContextInput): Link
     responseSheetName: "",
     responseSheetId: masterSheetId || undefined,
     linkedAt: new Date().toISOString(),
-    onboardingVerified: false,
+    onboardingVerified: Boolean(masterSheetId),
     auditFormsVerified: false,
     responseSheetVerified: Boolean(masterSheetId),
     masterSheetId: masterSheetId || undefined,
+    setupStatus: setup.setupStatus,
+    setupStatusLabel: setup.setupStatusLabel,
     registryStatus: registryStatus || undefined,
   };
 }
@@ -77,6 +86,9 @@ export function mergeLinkedCompanyFolder<T extends LinkedCompanyFolder>(
           masterSheetId: nextFolder.masterSheetId || folder.masterSheetId,
           responseSheetId: nextFolder.responseSheetId || folder.responseSheetId,
           responseSheetVerified: Boolean(nextFolder.responseSheetId) || folder.responseSheetVerified,
+          setupStatus: nextFolder.setupStatus || folder.setupStatus,
+          setupStatusLabel: nextFolder.setupStatusLabel || folder.setupStatusLabel,
+          onboardingVerified: nextFolder.onboardingVerified || folder.onboardingVerified,
           registryStatus: nextFolder.registryStatus || folder.registryStatus,
         }
       : folder,

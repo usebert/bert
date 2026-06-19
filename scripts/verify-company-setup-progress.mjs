@@ -321,8 +321,8 @@ assert(panel.includes("Make the company usable first"), "38c: panel prompts make
 /** 39–43: LIVE clears stale Godmode setup running state */
 assert(appTsx.includes("clearCompanySetupRunningState"), "39: App clears setup running state helper");
 assert(
-  appTsx.includes("isCompanyRegistryLive({ status: canonicalStatus, registryStatus: canonicalStatus })"),
-  "39b: App clears running state when registry is LIVE",
+  appTsx.includes("isGodmodeCompanyPickerReady") && appTsx.includes("clearCompanySetupRunningState"),
+  "39b: App clears running state when folder-first picker is ready",
 );
 assert(panel.includes("setupRunning && !companyUsable"), "40: panel derives provisioning from setupRunning && !companyUsable");
 assert(

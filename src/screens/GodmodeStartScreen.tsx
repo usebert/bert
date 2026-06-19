@@ -500,12 +500,20 @@ export function GodmodeStartScreen({
                 onDark={onDark}
                 onOpen={() => handlePickCompany(company.id)}
                 onContinueSetup={
-                  company.setupStatusLabel !== "Ready" && onContinueCompanySetup
+                  !isGodmodeCompanyPickerReady({
+                    setupStatus: company.setupStatus,
+                    setupStatusLabel: company.setupStatusLabel,
+                    masterSheetId: company.masterSheetId,
+                  }) && onContinueCompanySetup
                     ? () => onContinueCompanySetup(company.id)
                     : undefined
                 }
                 onRepairSetup={
-                  company.setupStatusLabel !== "Ready" && onRepairCompany
+                  !isGodmodeCompanyPickerReady({
+                    setupStatus: company.setupStatus,
+                    setupStatusLabel: company.setupStatusLabel,
+                    masterSheetId: company.masterSheetId,
+                  }) && onRepairCompany
                     ? () => onRepairCompany(company.id)
                     : undefined
                 }
