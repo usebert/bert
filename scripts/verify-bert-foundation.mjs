@@ -95,8 +95,15 @@ function runStaticGuards() {
   /* 3: Login fast path + Users tab fallback */
   assert(authService.includes("performCompanyLogin"), "3a: performCompanyLogin exists");
   assert(authService.includes("performMasterLogin"), "3b: performMasterLogin exists");
-  assert(authService.includes("auth_index_lookup"), "3c: login uses auth index first");
-  assert(authService.includes("attemptUsersTabPasswordLogin"), "3d: Users tab fallback on index miss");
+  assert(
+    authService.includes("authenticateCompanyUserLogin") &&
+      userAuth.includes("export async function authenticateCompanyUserLogin"),
+    "3c: login delegates to authenticateCompanyUserLogin",
+  );
+  assert(
+    userAuth.includes("verifyUserPasswordFromUsersTab") && userAuth.includes("attemptUsersTabPasswordLogin"),
+    "3d: Users tab password verify + fallback on index miss",
+  );
   assert(authService.includes("background_jobs_queued"), "3e: background jobs after response");
   assert(!authService.includes("getCanonicalCompanyRegistryRecord"), "3f: login skips registry gate");
   assert(userAuth.includes("rebuildAuthIndexFromUsersTab"), "3g: auth index rebuild helper");
@@ -128,14 +135,15 @@ function runStaticGuards() {
   );
   assert(clearStale.includes("clearGodmodeSelectedCompanyFolderId"), "5c: godmode folder cleared on company boot");
   assert(
-    /parsed\.role !== "Master"[\s\S]*?clearStaleCompanyLocalStorage/.test(appTsx),
-    "5d: company users do not restore Master/godmode localStorage",
+    /handleLogin[\s\S]*?clearStaleCompanyLocalStorage/.test(appTsx) &&
+      appTsx.includes("resetMasterGodmodeCompanyContext"),
+    "5d: login clears stale storage before role-specific bootstrap",
   );
 
   /* 6: Invite → Users tab → login */
   assert(sheetFlow.includes("completeInviteToUserRow"), "6a: invite writes Users tab row");
   assert(serverMain.includes("completeInviteToUserRow"), "6b: invite complete route uses sheet helper");
-  assert(authService.includes("verifyUserPasswordFromUsersTab"), "6c: login verifies Users tab hash");
+  assert(userAuth.includes("verifyUserPasswordFromUsersTab"), "6c: login verifies Users tab hash");
   assert(sheetFlow.includes("canLoginCompanyUser"), "6d: canLoginCompanyUser sheet-only gate");
   assert(
     serverMain.includes("rebuildCompanyAuthIndexFromSheet") || serverMain.includes("rebuildAuthIndexFromUsersTab"),
