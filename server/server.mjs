@@ -107,6 +107,8 @@ import {
   getCompanyWorkspaceRegistryRecord,
   installCompanyWorkspaceRegistryRoutes,
   mergeDriveCompanyWithRegistry,
+  buildGodmodeRegistryFallbackCompany,
+  isGodmodeListableRegistryRecord,
   persistCompanyLive,
   persistCompanyWorkspaceSetup,
   readCanonicalCompanyWorkspaceRegistryMap,
@@ -2847,38 +2849,17 @@ async function listGodmodeLiveCompanies(auth) {
   for (const company of driveCompanies) {
     companiesById.set(String(company.id || "").trim(), company);
   }
-  // Keep registry-live workspaces visible in the picker even if folder placement drifted,
-  // so operators can select the company and run repair flows instead of seeing an empty list.
+  // Keep linked registry workspaces visible in the picker even if folder placement drifted,
+  // so operators can select folder-first companies without requiring registry LIVE.
   for (const record of registryMap.values()) {
-    const status = getCanonicalCompanyStatus(record || {});
-    if (!isCompanyRegistryLive({ status, registryStatus: status })) {
+    if (!isGodmodeListableRegistryRecord(record)) {
       continue;
     }
-    const companyId = String(record?.companyId || record?.rootFolderId || "").trim();
+    const companyId = String(record?.companyId || record?.rootFolderId || record?.companyFolderId || "").trim();
     if (!companyId || companiesById.has(companyId)) {
       continue;
     }
-    const companyName = String(record?.companyName || "").trim();
-    const fallbackCompany = {
-      id: companyId,
-      name: companyName || companyId,
-      linkedAt: String(record?.updatedAt || record?.lastSetupAt || record?.liveAt || "").trim(),
-      onboardingFormName: "Onboarding Form",
-      onboardingFormId: "",
-      onboardingVerified: false,
-      auditFormCount: 0,
-      auditFormIds: [],
-      auditFormsVerified: false,
-      responseSheetName: "Company Master Sheet",
-      responseSheetId: String(record?.masterSheetId || "").trim(),
-      responseSheetVerified: Boolean(String(record?.masterSheetId || "").trim()),
-      masterSheetId: String(record?.masterSheetId || "").trim(),
-      registryStatus: status,
-      registryLinkMissing: false,
-      registryUnlinkReason: String(record?.unlinkReason || "").trim(),
-      setupStatus: String(record?.masterSheetId || "").trim() ? "ready" : "incomplete",
-      setupStatusLabel: status === "Live" ? "Ready" : status || "Setup in progress",
-    };
+    const fallbackCompany = buildGodmodeRegistryFallbackCompany(record);
     if (!isSelectableGodmodeCompanyFolder(fallbackCompany)) {
       continue;
     }

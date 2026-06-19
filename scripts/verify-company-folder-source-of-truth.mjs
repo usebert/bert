@@ -20,6 +20,12 @@ import {
   INVITE_READINESS_SOURCE,
 } from "../shared/company-invite-readiness.mjs";
 import { resolveCompanySetupPhase, COMPANY_SETUP_PHASE } from "../shared/company-setup-state.mjs";
+import {
+  buildGodmodeRegistryFallbackCompany,
+  isGodmodeListableRegistryRecord,
+  mergeDriveCompanyWithRegistry,
+} from "../server/company-workspace-registry.mjs";
+import { COMPANY_REGISTRY_STATUS_LIVE } from "../shared/company-invite-permissions.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 let caseCount = 0;
@@ -180,6 +186,91 @@ assert(
 assert(
   !isFolderUnderLiveCompanies("company-a", "live-root", ["shared-root"]),
   "34: rejects folder outside Live Companies",
+);
+
+assert(serverMain.includes("isGodmodeListableRegistryRecord"), "35: Godmode list uses folder-first registry listability");
+assert(serverMain.includes("buildGodmodeRegistryFallbackCompany"), "35b: Godmode list builds folder-first fallback rows");
+const listGodmodeBlock = serverMain.slice(
+  serverMain.indexOf("async function listGodmodeLiveCompanies"),
+  serverMain.indexOf("function getCompanyWorkspaceRegistryDeps"),
+);
+assert(
+  listGodmodeBlock.includes("isGodmodeListableRegistryRecord") &&
+    !listGodmodeBlock.includes("isCompanyRegistryLive"),
+  "35c: listGodmodeLiveCompanies does not gate registry backfill on registry LIVE",
+);
+
+const setupInProgressRecord = {
+  companyId: "folder-setup-1",
+  rootFolderId: "folder-setup-1",
+  companyName: "Northline Precast",
+  masterSheetId: "sheet-setup-1",
+  status: "Setup in progress",
+};
+assert(isGodmodeListableRegistryRecord(setupInProgressRecord), "36: Setup in progress registry row is listable");
+const setupFallback = buildGodmodeRegistryFallbackCompany(setupInProgressRecord);
+assert(
+  setupFallback.setupStatus === "ready" && setupFallback.setupStatusLabel === "Ready",
+  "36b: Setup in progress registry row lists as Ready",
+);
+assert(setupFallback.registryStatus === "Setup in progress", "36c: registry status preserved as diagnostic");
+
+assert(
+  !isGodmodeListableRegistryRecord({
+    companyId: "folder-missing-sheet",
+    rootFolderId: "folder-missing-sheet",
+    companyName: "No Workbook Co",
+    status: "Setup in progress",
+  }),
+  "37: registry row without masterSheetId is not listable",
+);
+
+assert(
+  !isGodmodeListableRegistryRecord({
+    companyId: "folder-archived",
+    rootFolderId: "folder-archived",
+    companyName: "Archived Co",
+    masterSheetId: "sheet-archived",
+    status: "Archived",
+  }),
+  "38: archived registry row is not listable",
+);
+assert(
+  !isGodmodeListableRegistryRecord({
+    companyId: "folder-disconnected",
+    rootFolderId: "folder-disconnected",
+    companyName: "Disconnected Co",
+    masterSheetId: "sheet-disconnected",
+    status: "Disconnected",
+  }),
+  "38b: disconnected registry row is not listable",
+);
+assert(
+  !isGodmodeListableRegistryRecord({
+    companyId: "blank-1",
+    rootFolderId: "blank-1",
+    companyName: "BLANK COMPANY - BERT Folder Structure",
+    masterSheetId: "sheet-blank",
+    status: "TEMPLATE",
+  }),
+  "38c: system template registry row is not listable",
+);
+
+const liveRecord = {
+  companyId: "folder-live-1",
+  rootFolderId: "folder-live-1",
+  companyName: "Live Registry Co",
+  masterSheetId: "sheet-live-1",
+  status: COMPANY_REGISTRY_STATUS_LIVE,
+};
+assert(isGodmodeListableRegistryRecord(liveRecord), "39: registry LIVE row remains listable");
+const liveMerged = mergeDriveCompanyWithRegistry(
+  { id: "folder-live-1", name: "Live Registry Co", setupStatus: "incomplete", setupStatusLabel: "Setup in progress" },
+  liveRecord,
+);
+assert(
+  liveMerged.setupStatus === "ready" && liveMerged.setupStatusLabel === "Ready",
+  "39b: registry LIVE row still merges as Ready",
 );
 
 console.log(`OK: verify-company-folder-source-of-truth (${caseCount} cases)`);

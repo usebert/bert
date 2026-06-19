@@ -1530,6 +1530,61 @@ export async function ensureCompanyLiveIfReady(auth, deps, input = {}) {
   }
 }
 
+const GODMODE_REGISTRY_EXCLUDED_LIST_STATUSES = new Set(["Archived", "Disconnected", "TEMPLATE"]);
+
+export function isGodmodeExcludedRegistryListStatus(status = "") {
+  const canonical = getCanonicalCompanyStatus({ status, registryStatus: status });
+  return GODMODE_REGISTRY_EXCLUDED_LIST_STATUSES.has(canonical);
+}
+
+export function getGodmodeRegistryListIds(record = {}) {
+  const companyId = String(record?.companyId || record?.rootFolderId || record?.companyFolderId || "").trim();
+  const masterSheetId = String(record?.masterSheetId || "").trim();
+  const companyName = String(record?.companyName || record?.name || "").trim();
+  return { companyId, masterSheetId, companyName };
+}
+
+/** Folder-first linked registry rows list in Godmode without requiring registry LIVE. */
+export function isGodmodeListableRegistryRecord(record = {}) {
+  if (!record || isSystemTemplateCompany(record)) {
+    return false;
+  }
+  const { companyId, masterSheetId } = getGodmodeRegistryListIds(record);
+  if (!companyId || !masterSheetId) {
+    return false;
+  }
+  const status = getCanonicalCompanyStatus(record);
+  if (isGodmodeExcludedRegistryListStatus(status)) {
+    return false;
+  }
+  return true;
+}
+
+export function buildGodmodeRegistryFallbackCompany(record = {}) {
+  const { companyId, masterSheetId, companyName } = getGodmodeRegistryListIds(record);
+  const status = getCanonicalCompanyStatus(record || {});
+  return {
+    id: companyId,
+    name: companyName || companyId,
+    linkedAt: String(record?.updatedAt || record?.lastSetupAt || record?.liveAt || "").trim(),
+    onboardingFormName: "Onboarding Form",
+    onboardingFormId: "",
+    onboardingVerified: Boolean(masterSheetId),
+    auditFormCount: 0,
+    auditFormIds: [],
+    auditFormsVerified: false,
+    responseSheetName: "Company Master Sheet",
+    responseSheetId: masterSheetId,
+    responseSheetVerified: Boolean(masterSheetId),
+    masterSheetId,
+    registryStatus: status,
+    registryLinkMissing: false,
+    registryUnlinkReason: String(record?.unlinkReason || "").trim(),
+    setupStatus: "ready",
+    setupStatusLabel: "Ready",
+  };
+}
+
 export function mergeDriveCompanyWithRegistry(driveCompany, registryRecord) {
   if (!registryRecord) {
     return driveCompany;
@@ -1540,13 +1595,15 @@ export function mergeDriveCompanyWithRegistry(driveCompany, registryRecord) {
   const canonicalStatus = getCanonicalCompanyStatus(registryRecord);
   const derivedStatus = deriveCompanyWorkspaceStatus(registryRecord);
   const setupStatusLabel =
-    canonicalStatus === COMPANY_REGISTRY_STATUS_LIVE
-      ? "Ready"
-      : canonicalStatus === "Needs attention"
-        ? "Needs attention"
-        : canonicalStatus ||
-          (derivedStatus === "Live" ? "Setup in progress" : derivedStatus) ||
-          driveCompany.setupStatusLabel;
+    canonicalStatus === "Needs attention"
+      ? "Needs attention"
+      : canonicalStatus === "Archived" || canonicalStatus === "Disconnected"
+        ? canonicalStatus
+        : masterSheetId
+          ? "Ready"
+          : canonicalStatus ||
+            (derivedStatus === "Live" ? "Setup in progress" : derivedStatus) ||
+            driveCompany.setupStatusLabel;
   return {
     ...driveCompany,
     masterSheetId,
