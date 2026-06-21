@@ -44,6 +44,127 @@ type CompanyUserCompletePayload = {
   };
 };
 
+type InviteAcceptancePayload = CompanyUserCompletePayload & {
+  type?: "COMPANY_USER";
+  email?: string;
+  role?: Role;
+  invitedBy?: string;
+  companyName?: string;
+  setupIncomplete?: boolean;
+  consumedAt?: number | string | null;
+  provisionStatus?: string;
+  status?: string;
+  companyId?: string;
+};
+
+type InviteApiPollResult = Awaited<
+  ReturnType<typeof fetchInviteApi<InviteAcceptancePayload>>
+>;
+
+const INVITE_COMPLETE_TIMEOUT_MS = 180_000;
+const INVITE_ABORT_POLL_INTERVAL_MS = 3_000;
+const INVITE_ABORT_POLL_MAX_MS = 90_000;
+const INVITE_SUCCESS_REDIRECT_MS = 1_200;
+
+function inviteStatusValue(raw: unknown): string {
+  return String(raw || "").trim();
+}
+
+function isInviteAcceptanceComplete(statusResult: InviteApiPollResult): boolean {
+  if (!statusResult.ok && statusResult.code === "INVITE_ALREADY_USED") {
+    return true;
+  }
+
+  const payload = statusResult.data;
+  if (!payload) {
+    return false;
+  }
+
+  if (payload.accountCreated === true) {
+    return true;
+  }
+  if (payload.loginReady === true) {
+    return true;
+  }
+  if (payload.outcome === "company_user") {
+    return true;
+  }
+
+  const status = inviteStatusValue(payload.status).toLowerCase();
+  if (status === "active" || status === "used") {
+    return true;
+  }
+
+  const provisionStatus = inviteStatusValue(payload.provisionStatus).toLowerCase();
+  if (provisionStatus === "succeeded") {
+    return true;
+  }
+
+  if (payload.consumedAt != null && payload.consumedAt !== "" && payload.consumedAt !== 0) {
+    return true;
+  }
+
+  if (payload.setupIncomplete === false && (status === "used" || provisionStatus === "succeeded")) {
+    return true;
+  }
+
+  return statusResult.ok === true && payload.setupIncomplete === false && provisionStatus === "succeeded";
+}
+
+function resolveInviteAcceptanceContext(
+  payload: InviteAcceptancePayload | undefined,
+  fallbackDetails: CompanyUserInviteDetails | null,
+) {
+  const email = inviteStatusValue(payload?.user?.email || payload?.email || fallbackDetails?.email).toLowerCase();
+  const masterSheetId = inviteStatusValue(payload?.masterSheetId);
+  const companyFolderId = inviteStatusValue(
+    payload?.user?.companyId || payload?.companyFolderId || payload?.companyId,
+  );
+  const companyName =
+    inviteStatusValue(payload?.user?.companyName || payload?.companyName || fallbackDetails?.companyName) ||
+    fallbackDetails?.companyName;
+  return { email, masterSheetId, companyFolderId, companyName };
+}
+
+function applyInviteAcceptanceSuccess(
+  payload: InviteAcceptancePayload | undefined,
+  fallbackDetails: CompanyUserInviteDetails | null,
+  setSubmitSuccess: (message: string) => void,
+) {
+  const { email, masterSheetId, companyFolderId, companyName } = resolveInviteAcceptanceContext(
+    payload,
+    fallbackDetails,
+  );
+  if (email && masterSheetId) {
+    saveCompanyLoginHint({
+      email,
+      masterSheetId,
+      companyFolderId: companyFolderId || undefined,
+      companyName,
+    });
+  }
+  setSubmitSuccess("Account created. You can now sign in.");
+  window.setTimeout(() => {
+    window.location.assign("/");
+  }, INVITE_SUCCESS_REDIRECT_MS);
+}
+
+async function pollInviteAcceptanceAfterAbort(
+  inviteToken: string,
+): Promise<InviteAcceptancePayload | null> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < INVITE_ABORT_POLL_MAX_MS) {
+    const statusResult = await fetchInviteApi<InviteAcceptancePayload>(
+      `/api/invites/${encodeURIComponent(inviteToken)}?expectedType=COMPANY_USER`,
+    );
+    if (isInviteAcceptanceComplete(statusResult)) {
+      return statusResult.ok ? statusResult.data : statusResult.data ?? {};
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, INVITE_ABORT_POLL_INTERVAL_MS));
+  }
+  return null;
+}
+
 type AppHostedOnboardingCompletionProps = {
   inviteToken: string;
 };
@@ -108,8 +229,8 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
     }
     setSubmitting(true);
     setSubmitSuccess("");
-    // Google Sheets write + read-back can exceed a few seconds under load; keep below typical proxy limits.
-    const completeTimeoutMs = 30_000;
+    // Folder-first Sheets write + read-back can exceed the prior 30_000 ms abort window under load.
+    const completeTimeoutMs = INVITE_COMPLETE_TIMEOUT_MS;
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), completeTimeoutMs);
     try {
@@ -148,65 +269,13 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
       }
 
       const payload = result.data;
-      const email = String(payload.user?.email || payload.email || details?.email || "")
-        .trim()
-        .toLowerCase();
-      const masterSheetId = String(payload.masterSheetId || "").trim();
-      const companyFolderId = String(payload.user?.companyId || payload.companyFolderId || "").trim();
-      const companyName =
-        String(payload.user?.companyName || payload.companyName || details?.companyName || "").trim() ||
-        details?.companyName;
-      if (email && masterSheetId) {
-        saveCompanyLoginHint({
-          email,
-          masterSheetId,
-          companyFolderId: companyFolderId || undefined,
-          companyName,
-        });
-      }
-      setSubmitSuccess("Account created. You can now sign in.");
-      window.setTimeout(() => {
-        window.location.assign("/");
-      }, 1200);
+      applyInviteAcceptanceSuccess(payload, details, setSubmitSuccess);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
-        for (let attempt = 0; attempt < 10; attempt += 1) {
-          const statusResult = await fetchInviteApi<
-            CompanyUserInviteDetails & {
-              ok?: boolean;
-              code?: string;
-              masterSheetId?: string;
-              companyFolderId?: string;
-              companyId?: string;
-            }
-          >(
-            `/api/invites/${encodeURIComponent(inviteToken)}?expectedType=COMPANY_USER`,
-          );
-          if (!statusResult.ok && statusResult.code === "INVITE_ALREADY_USED") {
-            const statusPayload = statusResult.data;
-            const email = String(statusPayload?.email || details?.email || "").trim().toLowerCase();
-            const masterSheetId = String(statusPayload?.masterSheetId || "").trim();
-            const companyFolderId = String(statusPayload?.companyFolderId || statusPayload?.companyId || "").trim();
-            const companyName =
-              String(statusPayload?.companyName || details?.companyName || "").trim() || details?.companyName;
-
-            if (email && masterSheetId) {
-              saveCompanyLoginHint({
-                email,
-                masterSheetId,
-                companyFolderId: companyFolderId || undefined,
-                companyName,
-              });
-            }
-
-            setSubmitSuccess("Account created. You can now sign in.");
-            window.setTimeout(() => {
-              window.location.assign("/");
-            }, 1200);
-            return;
-          }
-
-          await new Promise((resolve) => window.setTimeout(resolve, 2000));
+        const recoveredPayload = await pollInviteAcceptanceAfterAbort(inviteToken);
+        if (recoveredPayload) {
+          applyInviteAcceptanceSuccess(recoveredPayload, details, setSubmitSuccess);
+          return;
         }
 
         setSubmitError(
