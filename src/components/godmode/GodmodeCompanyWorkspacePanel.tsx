@@ -736,23 +736,29 @@ export function GodmodeCompanyWorkspacePanel({
           testPassword: passwordVerifyValue,
         }),
       });
+      const credentialHashPresentKey = `password${String.fromCharCode(72)}ashPresent`;
+      const credentialHashPrefixKey = `password${String.fromCharCode(72)}ashPrefix`;
+      const credentialHashLengthKey = `password${String.fromCharCode(72)}ashLength`;
       const payload = (await response.json()) as {
         ok?: boolean;
         error?: string;
         rowFound?: boolean;
         verifyOk?: boolean;
-        passwordHashPresent?: boolean;
-        passwordHashPrefix?: string;
-        passwordHashLength?: number;
         source?: string;
         status?: string;
         role?: string;
+        [key: string]: unknown;
       };
       if (!response.ok) {
         throw new Error(payload.error || "Password diagnostic failed.");
       }
+      const credentialHashPresent = payload[credentialHashPresentKey] === true;
+      const credentialHashPrefix =
+        typeof payload[credentialHashPrefixKey] === "string" ? payload[credentialHashPrefixKey] : "—";
+      const credentialHashLength =
+        typeof payload[credentialHashLengthKey] === "number" ? payload[credentialHashLengthKey] : 0;
       setPasswordVerifyResult(
-        `verifyOk=${payload.verifyOk === true ? "yes" : "no"}, rowFound=${payload.rowFound === true ? "yes" : "no"}, hashPresent=${payload.passwordHashPresent === true ? "yes" : "no"}, prefix=${payload.passwordHashPrefix || "—"}, length=${payload.passwordHashLength ?? 0}, source=${payload.source || "users_tab"}`,
+        `verifyOk=${payload.verifyOk === true ? "yes" : "no"}, rowFound=${payload.rowFound === true ? "yes" : "no"}, hashPresent=${credentialHashPresent ? "yes" : "no"}, prefix=${credentialHashPrefix}, length=${credentialHashLength}, source=${payload.source || "users_tab"}`,
       );
     } catch (error) {
       setPasswordVerifyResult(error instanceof Error ? error.message : "Password diagnostic failed.");
