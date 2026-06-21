@@ -139,4 +139,23 @@ assert(
   "9n: invite panel blocks when company context invalid",
 );
 
+const companySessionBootstrapBlock =
+  appTsx.match(/const folderPlacementOk = session\.folderPlacementOk[\s\S]*?setLinkedCompanyContext\(\{/)?.[0] ?? "";
+assert(companySessionBootstrapBlock.length > 0, "10: company session bootstrap block present");
+assert(
+  !companySessionBootstrapBlock.includes("folderPlacementOk: companyLinkValid"),
+  "10b: session bootstrap does not pass folderPlacementOk into applyLinkedCompanyContext",
+);
+assert(
+  companySessionBootstrapBlock.includes("setCompanyLinkBlockedMessage"),
+  "10c: session bootstrap keeps placement warning UX",
+);
+const companyLoginApplyBlock =
+  appTsx.match(/clearStaleCompanyLocalStorage\(email\);\s*applyLinkedCompanyContext\(\{[\s\S]*?\}\);/)?.[0] ?? "";
+assert(companyLoginApplyBlock.length > 0, "10d: company login applyLinkedCompanyContext block present");
+assert(
+  !companyLoginApplyBlock.includes("folderPlacementOk"),
+  "10e: fresh login does not pass folderPlacementOk into applyLinkedCompanyContext",
+);
+
 console.log(`[verify:stale-company-context] OK — ${caseCount} cases passed`);

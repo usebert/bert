@@ -83,6 +83,7 @@ export async function companyLogin(input: {
   email: string;
   password: string;
   masterSheetId?: string;
+  companyFolderId?: string;
 }): Promise<CompanyLoginResult> {
   const result = await fetchJson<{
     ok?: boolean;
@@ -105,6 +106,7 @@ export async function companyLogin(input: {
       email: input.email.trim().toLowerCase(),
       password: input.password,
       ...(input.masterSheetId?.trim() ? { masterSheetId: input.masterSheetId.trim() } : {}),
+      ...(input.companyFolderId?.trim() ? { companyFolderId: input.companyFolderId.trim() } : {}),
     }),
   });
 

@@ -6393,6 +6393,7 @@ app.post("/api/auth/company/login", async (req, res) => {
       email: loginIdentity,
       password: loginPassword,
       masterSheetId: String(req.body?.masterSheetId || "").trim(),
+      companyFolderId: String(req.body?.companyFolderId || "").trim(),
     });
 
     if (!result.ok) {

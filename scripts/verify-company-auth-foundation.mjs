@@ -48,6 +48,9 @@ assert(!authService.includes("verifyPasswordForEntry(passwordEntry"), "static: l
 assert(resetModule.includes("readUserAuthRowByEmail"), "static: reset reads Users tab");
 assert(resetModule.includes("resolveCompanyFromFolder"), "static: reset folder-first resolve");
 assert(sheetFlow.includes('reason: "cache_only"'), "static: cache-only login denied");
+assert(userAuth.includes("buildCompanyContextFromHintedSheet"), "static: hinted sheet fallback builder");
+assert(userAuth.includes("pushFolder(indexFolderId, indexSheetId)"), "static: auth-index pairs folder with sheet");
+assert(userAuth.includes("skipFolderPlacementCheck: true"), "static: login resolve skips folder placement gate");
 
 function createMockUsersTabStore(initial = {}) {
   const store = new Map(Object.entries(initial));
@@ -296,6 +299,67 @@ try {
     userDeps,
   );
   assert(wrongFolderVerify.reason === "wrong_company", "runtime: verifyUserPasswordFromUsersTab enforces CompanyFolderId");
+
+  const failingResolver = async () => ({ ok: false, masterSheetId: "" });
+
+  const hintOnlyLogin = await authenticateCompanyUserLogin(
+    {},
+    {
+      getCompanyUsersDeps: () => userDeps,
+      resolveCompanyFromFolder: failingResolver,
+      findMasterSheetIdsForCompanyLoginEmail: () => [],
+    },
+    { email, password: newPassword, masterSheetId },
+  );
+  assert(
+    hintOnlyLogin.ok === true,
+    "runtime: login succeeds when folder resolve fails but masterSheetId hint + Users row exist",
+  );
+
+  const noHintsLogin = await authenticateCompanyUserLogin(
+    {},
+    {
+      authIndex: { lookupByEmail: () => null },
+      getCompanyUsersDeps: () => userDeps,
+      resolveCompanyFromFolder: failingResolver,
+      findMasterSheetIdsForCompanyLoginEmail: () => [],
+    },
+    { email, password: newPassword },
+  );
+  assert(
+    noHintsLogin.ok === false && noHintsLogin.blocker === "invalid_credentials",
+    "runtime: missing hints still blocks login",
+  );
+
+  const pairedIndexPath = path.join(sessionDir, "auth-index-paired.json");
+  const pairedIndexApi = createAuthIndexApi(pairedIndexPath);
+  pairedIndexApi.upsertEntry({
+    email,
+    name: "Active User",
+    role: "Admin",
+    companyId: companyFolderId,
+    companyFolderId,
+    companyName: "Seven Oaks Cottages",
+    masterSheetId,
+    status: "ACTIVE",
+    passwordHash: hashPassword(newPassword),
+    updatedAt: new Date().toISOString(),
+  });
+
+  const indexPairedLogin = await authenticateCompanyUserLogin(
+    {},
+    {
+      authIndex: pairedIndexApi,
+      getCompanyUsersDeps: () => userDeps,
+      resolveCompanyFromFolder: failingResolver,
+      findMasterSheetIdsForCompanyLoginEmail: () => [],
+    },
+    { email, password: newPassword },
+  );
+  assert(
+    indexPairedLogin.ok === true,
+    "runtime: auth-index folder+sheet login via sheet hint when folder resolve fails",
+  );
 } finally {
   fs.rmSync(sessionDir, { recursive: true, force: true });
 }

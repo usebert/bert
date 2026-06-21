@@ -144,8 +144,8 @@ assert(
 
 /** Multi-company isolation: company A login never inherits company B folder from registry scan. */
 assert(
-  /resolveCompanyLoginMasterSheetId[\s\S]*?readCompanyLoginHint[\s\S]*?return "";/.test(appTsx),
-  "9: company login sheet id comes from invite hint only",
+  /resolveCompanyLoginClientHints[\s\S]*?readCompanyLoginHint[\s\S]*?return \{ masterSheetId: "", companyFolderId: "" \};/.test(appTsx),
+  "9: company login hints come from invite hint only",
 );
 assert(appTsx.includes("clearGodmodeSelectedCompanyFolderId()"), "9b: company login clears godmode folder selection");
 assert(

@@ -230,9 +230,33 @@ function resolveFolderContextFn(deps = {}) {
     : resolveCompanyFromFolder;
 }
 
-async function resolveFolderFirstContext(auth, deps, companyFolderId) {
+async function resolveFolderFirstContext(auth, deps, companyFolderId, masterSheetId = "") {
   const resolveFn = resolveFolderContextFn(deps);
-  return resolveFn(auth, resolverDeps(deps), companyFolderId, LIGHT_RESOLVE_OPTS);
+  const sheetHint = sanitizeGoogleSpreadsheetId(masterSheetId);
+  return resolveFn(auth, resolverDeps(deps), companyFolderId, {
+    ...LIGHT_RESOLVE_OPTS,
+    masterSheetId: sheetHint,
+    ...(sheetHint ? { createIfMissing: false } : {}),
+  });
+}
+
+function buildCompanyContextFromHintedSheet(row, masterSheetId, resolved = null) {
+  const hintedSheetId = sanitizeGoogleSpreadsheetId(masterSheetId);
+  const rowFolderId = sanitizeCompanyFolderId(
+    row?.companyFolderId || pickRowCompanyFolderId(row?.rowObject || row) || row?.companyId || "",
+  );
+  if (!hintedSheetId || !rowFolderId) {
+    return null;
+  }
+  const companyName = String(
+    row?.companyName || pickRowCompanyName(row?.rowObject || row) || resolved?.companyName || "",
+  ).trim();
+  return {
+    masterSheetId: sanitizeGoogleSpreadsheetId(resolved?.masterSheetId) || hintedSheetId,
+    companyFolderId: sanitizeCompanyFolderId(resolved?.companyFolderId) || rowFolderId,
+    companyId: sanitizeCompanyFolderId(resolved?.companyId || resolved?.companyFolderId) || rowFolderId,
+    companyName,
+  };
 }
 
 function dedupeLoginAttempts(attempts = []) {
@@ -241,7 +265,7 @@ function dedupeLoginAttempts(attempts = []) {
   for (const attempt of attempts) {
     const key =
       attempt.type === "folder"
-        ? `f:${attempt.companyFolderId}`
+        ? `f:${attempt.companyFolderId}:${attempt.masterSheetId || ""}`
         : `s:${attempt.masterSheetId}`;
     if (!key || seen.has(key)) {
       continue;
@@ -254,10 +278,15 @@ function dedupeLoginAttempts(attempts = []) {
 
 function collectLoginResolutionAttempts(input = {}, deps = {}) {
   const attempts = [];
-  const pushFolder = (raw) => {
+  const pushFolder = (raw, pairedMasterSheetId = "") => {
     const folderId = sanitizeCompanyFolderId(raw);
+    const sheetId = sanitizeGoogleSpreadsheetId(pairedMasterSheetId);
     if (folderId) {
-      attempts.push({ type: "folder", companyFolderId: folderId });
+      attempts.push({
+        type: "folder",
+        companyFolderId: folderId,
+        ...(sheetId ? { masterSheetId: sheetId } : {}),
+      });
     }
   };
   const pushSheet = (raw) => {
@@ -267,15 +296,23 @@ function collectLoginResolutionAttempts(input = {}, deps = {}) {
     }
   };
 
-  pushFolder(input.companyFolderId);
-  pushSheet(input.masterSheetId || input.requestedSheetId);
+  const hintedSheetId = sanitizeGoogleSpreadsheetId(input.masterSheetId || input.requestedSheetId);
+  const hintedFolderId = sanitizeCompanyFolderId(input.companyFolderId);
+  pushSheet(hintedSheetId);
+  pushFolder(hintedFolderId, hintedSheetId);
 
   const email = normalizeUserAuthEmail(input.email);
   const indexEntry =
     typeof deps.authIndex?.lookupByEmail === "function" ? deps.authIndex.lookupByEmail(email) : null;
   if (indexEntry) {
-    pushFolder(indexEntry.companyFolderId || indexEntry.companyId);
-    pushSheet(indexEntry.masterSheetId);
+    const indexSheetId = sanitizeGoogleSpreadsheetId(indexEntry.masterSheetId);
+    const indexFolderId = sanitizeCompanyFolderId(indexEntry.companyFolderId || indexEntry.companyId);
+    if (indexSheetId) {
+      pushSheet(indexSheetId);
+    }
+    if (indexFolderId) {
+      pushFolder(indexFolderId, indexSheetId);
+    }
   }
   if (typeof deps.findMasterSheetIdsForCompanyLoginEmail === "function") {
     for (const sheetId of deps.findMasterSheetIdsForCompanyLoginEmail(email) || []) {
@@ -286,7 +323,11 @@ function collectLoginResolutionAttempts(input = {}, deps = {}) {
 }
 
 async function companyContextFromSheetHint(auth, deps, masterSheetId, email, userDeps) {
-  const row = await readUserAuthRowByEmail(auth, { masterSheetId }, email, userDeps);
+  const hintedSheetId = sanitizeGoogleSpreadsheetId(masterSheetId);
+  if (!hintedSheetId) {
+    return { ok: false, reason: "missing_context" };
+  }
+  const row = await readUserAuthRowByEmail(auth, { masterSheetId: hintedSheetId }, email, userDeps);
   if (!row) {
     return { ok: false, reason: "user_not_found" };
   }
@@ -296,18 +337,14 @@ async function companyContextFromSheetHint(auth, deps, masterSheetId, email, use
   if (!rowFolderId) {
     return { ok: false, reason: "company_folder_missing", row };
   }
-  const resolved = await resolveFolderFirstContext(auth, deps, rowFolderId);
-  if (!resolved?.ok || !resolved.masterSheetId) {
+  const resolved = await resolveFolderFirstContext(auth, deps, rowFolderId, hintedSheetId);
+  const companyContext = buildCompanyContextFromHintedSheet(row, hintedSheetId, resolved);
+  if (!companyContext) {
     return { ok: false, reason: "company_context_failed", row, resolved };
   }
   return {
     ok: true,
-    companyContext: {
-      masterSheetId: resolved.masterSheetId,
-      companyFolderId: resolved.companyFolderId,
-      companyId: resolved.companyId || resolved.companyFolderId,
-      companyName: resolved.companyName,
-    },
+    companyContext,
     row,
   };
 }
@@ -341,16 +378,25 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
   for (const attempt of attempts) {
     let companyContext = {};
     if (attempt.type === "folder") {
-      const resolved = await resolveFolderFirstContext(auth, deps, attempt.companyFolderId);
-      if (!resolved?.ok || !resolved.masterSheetId) {
+      const pairedSheetId = sanitizeGoogleSpreadsheetId(attempt.masterSheetId);
+      const resolved = await resolveFolderFirstContext(auth, deps, attempt.companyFolderId, pairedSheetId);
+      if (resolved?.ok && resolved.masterSheetId) {
+        companyContext = {
+          masterSheetId: resolved.masterSheetId,
+          companyFolderId: resolved.companyFolderId,
+          companyId: resolved.companyId || resolved.companyFolderId,
+          companyName: resolved.companyName,
+        };
+      } else if (pairedSheetId) {
+        const row = await readUserAuthRowByEmail(auth, { masterSheetId: pairedSheetId }, email, userDeps);
+        const fallback = row ? buildCompanyContextFromHintedSheet(row, pairedSheetId, resolved) : null;
+        if (!fallback) {
+          continue;
+        }
+        companyContext = fallback;
+      } else {
         continue;
       }
-      companyContext = {
-        masterSheetId: resolved.masterSheetId,
-        companyFolderId: resolved.companyFolderId,
-        companyId: resolved.companyId || resolved.companyFolderId,
-        companyName: resolved.companyName,
-      };
     } else {
       const hinted = await companyContextFromSheetHint(auth, deps, attempt.masterSheetId, email, userDeps);
       if (!hinted.ok) {

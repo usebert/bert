@@ -6698,7 +6698,6 @@ function App() {
                 ...session.company,
                 companyId: resolvedCompanyIds.companyFolderId,
                 masterSheetId: resolvedCompanyIds.masterSheetId,
-                folderPlacementOk: companyLinkValid,
               },
               setSelectedFolderId,
               setFolders: (updater) => setFolders((current) => updater(current)),
@@ -8342,13 +8341,16 @@ function App() {
       return true;
     };
 
-    const resolveCompanyLoginMasterSheetId = (email: string): string => {
+    const resolveCompanyLoginClientHints = (email: string): { masterSheetId: string; companyFolderId: string } => {
       const normalized = email.trim().toLowerCase();
       const hint = readCompanyLoginHint();
-      if (hint?.email === normalized && hint.masterSheetId) {
-        return hint.masterSheetId;
+      if (hint?.email !== normalized) {
+        return { masterSheetId: "", companyFolderId: "" };
       }
-      return "";
+      return {
+        masterSheetId: hint.masterSheetId || "",
+        companyFolderId: hint.companyFolderId || "",
+      };
     };
 
     let companyLoginFailure:
@@ -8366,12 +8368,13 @@ function App() {
         return false;
       }
       const email = loginIdentity.trim().toLowerCase();
-      const masterSheetId = resolveCompanyLoginMasterSheetId(email);
+      const loginHints = resolveCompanyLoginClientHints(email);
       try {
         const loginResult = await companyLogin({
           email,
           password: pwd,
-          masterSheetId: masterSheetId || undefined,
+          masterSheetId: loginHints.masterSheetId || undefined,
+          companyFolderId: loginHints.companyFolderId || undefined,
         });
         if (
           loginResult.code === "NETWORK_UNREACHABLE" ||
@@ -8467,7 +8470,6 @@ function App() {
             companyName: loggedInCompany?.companyName,
             masterSheetId: resolvedSheetIds.masterSheetId,
             registryStatus: loggedInCompany?.registryStatus,
-            folderPlacementOk: loggedInCompany?.folderPlacementOk !== false,
           },
           setSelectedFolderId,
           setFolders: (updater) => setFolders((current) => updater(current)),
