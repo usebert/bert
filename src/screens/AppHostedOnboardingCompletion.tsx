@@ -278,9 +278,7 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
           return;
         }
 
-        setSubmitError(
-          "Account setup is taking longer than expected. If your account was created, try signing in — otherwise try again.",
-        );
+        applyInviteAcceptanceSuccess(undefined, details, setSubmitSuccess);
       } else {
         setSubmitError(inviteCompletionNetworkError());
       }
