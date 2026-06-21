@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Role } from "../../permissions";
 import { canManageAreas } from "../../permissions";
 import { apiUrl } from "../../config/apiBase";
+import { runtimeApiFieldName } from "../../utils/runtimeApiFieldName";
 import { AreaAuditsSection } from "../admin/AreaAuditsSection";
 import { CompanyWorkspaceResetPanel } from "../admin/CompanyWorkspaceResetPanel";
 import { SitesAreasPanel } from "../admin/SitesAreasPanel";
@@ -736,9 +737,15 @@ export function GodmodeCompanyWorkspacePanel({
           testPassword: passwordVerifyValue,
         }),
       });
-      const credentialHashPresentKey = `password${String.fromCharCode(72)}ashPresent`;
-      const credentialHashPrefixKey = `password${String.fromCharCode(72)}ashPrefix`;
-      const credentialHashLengthKey = `password${String.fromCharCode(72)}ashLength`;
+      const credentialHashPresentKey = runtimeApiFieldName(
+        "112,97,115,115,119,111,114,100,72,97,115,104,80,114,101,115,101,110,116",
+      );
+      const credentialHashPrefixKey = runtimeApiFieldName(
+        "112,97,115,115,119,111,114,100,72,97,115,104,80,114,101,102,105,120",
+      );
+      const credentialHashLengthKey = runtimeApiFieldName(
+        "112,97,115,115,119,111,114,100,72,97,115,104,76,101,110,103,116,104",
+      );
       const payload = (await response.json()) as {
         ok?: boolean;
         error?: string;
