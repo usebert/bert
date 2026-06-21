@@ -170,16 +170,45 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
       }, 1200);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
-        const statusResult = await fetchInviteApi<CompanyUserInviteDetails & { ok?: boolean; code?: string }>(
-          `/api/invites/${encodeURIComponent(inviteToken)}?expectedType=COMPANY_USER`,
-        );
-        if (!statusResult.ok && statusResult.code === "INVITE_ALREADY_USED") {
-          setSubmitSuccess("Account created. You can now sign in.");
-          window.setTimeout(() => {
-            window.location.assign("/");
-          }, 1200);
-          return;
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+          const statusResult = await fetchInviteApi<
+            CompanyUserInviteDetails & {
+              ok?: boolean;
+              code?: string;
+              masterSheetId?: string;
+              companyFolderId?: string;
+              companyId?: string;
+            }
+          >(
+            `/api/invites/${encodeURIComponent(inviteToken)}?expectedType=COMPANY_USER`,
+          );
+          if (!statusResult.ok && statusResult.code === "INVITE_ALREADY_USED") {
+            const statusPayload = statusResult.data;
+            const email = String(statusPayload?.email || details?.email || "").trim().toLowerCase();
+            const masterSheetId = String(statusPayload?.masterSheetId || "").trim();
+            const companyFolderId = String(statusPayload?.companyFolderId || statusPayload?.companyId || "").trim();
+            const companyName =
+              String(statusPayload?.companyName || details?.companyName || "").trim() || details?.companyName;
+
+            if (email && masterSheetId) {
+              saveCompanyLoginHint({
+                email,
+                masterSheetId,
+                companyFolderId: companyFolderId || undefined,
+                companyName,
+              });
+            }
+
+            setSubmitSuccess("Account created. You can now sign in.");
+            window.setTimeout(() => {
+              window.location.assign("/");
+            }, 1200);
+            return;
+          }
+
+          await new Promise((resolve) => window.setTimeout(resolve, 2000));
         }
+
         setSubmitError(
           "Account setup is taking longer than expected. If your account was created, try signing in — otherwise try again.",
         );

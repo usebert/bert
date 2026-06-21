@@ -339,7 +339,9 @@ export async function completeCompanyUserInviteAcceptance(auth, invite, formData
   }
 
   if (deps.authIndex) {
-    await rebuildAuthIndexFromUsersTab(auth, deps, companyContext, deps.authIndex, email).catch(() => null);
+    void rebuildAuthIndexFromUsersTab(auth, deps, companyContext, deps.authIndex, email).catch((error) => {
+      console.warn("[invite] deferred auth index rebuild failed", error);
+    });
   }
 
   return {
