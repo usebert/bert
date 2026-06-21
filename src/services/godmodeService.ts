@@ -54,6 +54,52 @@ export function isGodmodeCompanyPickerReady(input: {
   return Boolean(String(input.masterSheetId || "").trim()) && input.setupStatus !== "incomplete";
 }
 
+/** Listed live-companies row master sheet id when picker-ready (folder-first). */
+export function resolveListedGodmodeMasterSheetId(folder: {
+  masterSheetId?: string;
+  responseSheetId?: string;
+  setupStatus?: "ready" | "incomplete";
+  setupStatusLabel?: string;
+  status?: string;
+}): string {
+  const masterSheetId = String(folder.masterSheetId || folder.responseSheetId || "").trim();
+  if (!masterSheetId) {
+    return "";
+  }
+  if (
+    !isGodmodeCompanyPickerReady({
+      setupStatus: folder.setupStatus,
+      setupStatusLabel: folder.setupStatusLabel,
+      status: folder.status,
+      masterSheetId,
+    })
+  ) {
+    return "";
+  }
+  return masterSheetId;
+}
+
+/** Godmode readiness accepts listed folder-first masterSheetId before sheet hydration. */
+export function resolveMasterGodmodeCompanyMasterSheetId(input: {
+  activeCompanyMasterSheetId?: string;
+  selectedFolder?: {
+    masterSheetId?: string;
+    responseSheetId?: string;
+    setupStatus?: "ready" | "incomplete";
+    setupStatusLabel?: string;
+    status?: string;
+  } | null;
+}): string {
+  const hydrated = String(input.activeCompanyMasterSheetId || "").trim();
+  if (hydrated) {
+    return hydrated;
+  }
+  if (!input.selectedFolder) {
+    return "";
+  }
+  return resolveListedGodmodeMasterSheetId(input.selectedFolder);
+}
+
 export function resolveGodmodeCompanySetupStatus(input: {
   setupStatus?: "ready" | "incomplete";
   setupStatusLabel?: string;

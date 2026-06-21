@@ -344,7 +344,8 @@ export function installMasterAuthRoutes(app, opts) {
       const masterSheetId = String(req.body?.masterSheetId || "").trim();
       const selectedCompanyName = companyName;
 
-      if (companyFolderId && typeof rejectInvalidCompanyFolder === "function") {
+      // Folder-first Godmode picks carry masterSheetId — placement is advisory, not a session blocker.
+      if (companyFolderId && !masterSheetId && typeof rejectInvalidCompanyFolder === "function") {
         const denial = await rejectInvalidCompanyFolder(companyFolderId, {
           companyFolderName: companyName,
         });

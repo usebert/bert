@@ -27,6 +27,7 @@ const companyService = read("src/services/companyService.ts");
 const applyLinked = read("src/utils/applyLinkedCompanyContext.ts");
 const authClient = read("src/services/authService.ts");
 const masterAuth = read("server/master-auth.mjs");
+const folderResolver = read("server/company-folder-resolver.mjs");
 const pkg = JSON.parse(read("package.json"));
 
 assert(pkg.scripts["verify:godmode-company-wiring"], "PKG: npm script registered");
@@ -75,6 +76,18 @@ assert(
   /handleGodmodeCompanyFolderConnected[\s\S]*?loadGodmodeLiveCompanies/.test(appTsx),
   "5d: connect-folder triggers live-companies merge reload",
 );
+assert(
+  /handlePickCompany[\s\S]*?await onSelectCompany\(folderId\)[\s\S]*?openHub\(\)/.test(godmodeStart),
+  "5e: Godmode picker awaits company selection before opening hub",
+);
+assert(appTsx.includes("resolveListedGodmodeMasterSheetId"), "5f: App applies listed folder-first masterSheetId on pick");
+assert(appTsx.includes("resolveMasterGodmodeCompanyMasterSheetId"), "5g: App readiness accepts listed masterSheetId before hydration");
+assert(
+  /rejectInvalidCompanyFolder[\s\S]*?!masterSheetId/.test(masterAuth),
+  "5h: master session sync skips placement rejection when masterSheetId is present",
+);
+assert(folderResolver.includes("masterSheetId: masterSheetIdHint"), "5i: resolve-from-folder forwards listed masterSheetId hint");
+assert(folderResolver.includes("skipFolderPlacementCheck: true"), "5j: resolve-from-folder skips placement gate for Godmode pick");
 
 /** Mirrors src/services/godmodeService.ts — keep picker helpers in sync. */
 const GODMODE_PICKER_READY_LABELS = new Set(["ready", "usable", "live"]);
@@ -105,6 +118,35 @@ function resolveGodmodeCompanySetupStatus(input = {}) {
     setupStatus: masterSheetId ? "incomplete" : "incomplete",
     setupStatusLabel: rawLabel || (masterSheetId ? "Setup in progress" : "Setup in progress"),
   };
+}
+
+function resolveListedGodmodeMasterSheetId(folder = {}) {
+  const masterSheetId = String(folder.masterSheetId || folder.responseSheetId || "").trim();
+  if (!masterSheetId) {
+    return "";
+  }
+  if (
+    !isGodmodeCompanyPickerReady({
+      setupStatus: folder.setupStatus,
+      setupStatusLabel: folder.setupStatusLabel,
+      status: folder.status,
+      masterSheetId,
+    })
+  ) {
+    return "";
+  }
+  return masterSheetId;
+}
+
+function resolveMasterGodmodeCompanyMasterSheetId(input = {}) {
+  const hydrated = String(input.activeCompanyMasterSheetId || "").trim();
+  if (hydrated) {
+    return hydrated;
+  }
+  if (!input.selectedFolder) {
+    return "";
+  }
+  return resolveListedGodmodeMasterSheetId(input.selectedFolder);
 }
 
 function mapGodmodeLiveCompanyToWorkspaceFolder(company) {
@@ -246,6 +288,50 @@ const normalizedReady = resolveGodmodeCompanySetupStatus({
 assert(
   normalizedReady.setupStatus === "ready" && normalizedReady.setupStatusLabel === "Ready",
   "8: resolveGodmodeCompanySetupStatus normalizes folder-first ready labels",
+);
+
+const listedFolderFirstRow = {
+  id: "folder-first-open-1",
+  name: "Folder First Open Co",
+  masterSheetId: "sheet-listed-1",
+  setupStatus: "ready",
+  setupStatusLabel: "Ready",
+};
+assert(
+  resolveListedGodmodeMasterSheetId(listedFolderFirstRow) === "sheet-listed-1",
+  "9: listed folder-first row exposes picker-ready masterSheetId",
+);
+assert(
+  resolveListedGodmodeMasterSheetId({ ...listedFolderFirstRow, masterSheetId: "" }) === "",
+  "9b: missing masterSheetId blocks listed open path",
+);
+assert(
+  resolveMasterGodmodeCompanyMasterSheetId({
+    activeCompanyMasterSheetId: "",
+    selectedFolder: listedFolderFirstRow,
+  }) === "sheet-listed-1",
+  "9c: readiness guard accepts listed masterSheetId before hydration",
+);
+assert(
+  resolveMasterGodmodeCompanyMasterSheetId({
+    activeCompanyMasterSheetId: "sheet-hydrated-1",
+    selectedFolder: listedFolderFirstRow,
+  }) === "sheet-hydrated-1",
+  "9d: hydrated masterSheetId still wins when present",
+);
+assert(
+  resolveListedGodmodeMasterSheetId({
+    ...listedFolderFirstRow,
+    setupStatus: "incomplete",
+    setupStatusLabel: "Setup in progress",
+    masterSheetId: "",
+  }) === "",
+  "9e: incomplete listed row without masterSheetId stays blocked",
+);
+assert(
+  !applyLinked.includes('folderPlacementOk === false') ||
+    /skipLoginHint[\s\S]*folderPlacementOk/.test(applyLinked),
+  "9f: linked context only blocks when folderPlacementOk is explicitly false",
 );
 
 console.log(`[verify:godmode-company-wiring] OK — ${caseCount} cases passed`);

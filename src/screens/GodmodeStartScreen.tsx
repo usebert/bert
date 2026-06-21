@@ -57,7 +57,7 @@ type Props = {
   selectedFolderId: string;
   selectedFolderName: string;
   companyContextReady: boolean;
-  onSelectCompany: (folderId: string) => void;
+  onSelectCompany: (folderId: string) => void | Promise<void>;
   onClearCompany: () => void;
   onNavigate: (screen: NavItemId) => void;
   onOpenSelectCompany?: () => void;
@@ -279,7 +279,7 @@ export function GodmodeStartScreen({
     });
   };
 
-  const handlePickCompany = (folderId: string) => {
+  const handlePickCompany = async (folderId: string) => {
     const company = companies.find((item) => item.id === folderId);
     logNavTrace("pick-company", "godmodeHome.company-hub", {
       selectedFolderId: folderId,
@@ -287,7 +287,7 @@ export function GodmodeStartScreen({
       incomplete: !Boolean(company?.masterSheetId),
       view,
     });
-    onSelectCompany(folderId);
+    await onSelectCompany(folderId);
     openHub();
   };
 

@@ -176,6 +176,8 @@ import {
   isGodmodeCompanyPickerReady,
   mergeGodmodeLiveCompanyFolders,
   resolveGodmodeCompanySetupStatus,
+  resolveListedGodmodeMasterSheetId,
+  resolveMasterGodmodeCompanyMasterSheetId,
 } from "./src/services/godmodeService";
 import {
   migrateStoredFolderLinks,
@@ -3834,16 +3836,24 @@ function App() {
     if (currentUser?.role !== "Master") {
       return true;
     }
+    const masterSheetId = resolveMasterGodmodeCompanyMasterSheetId({
+      activeCompanyMasterSheetId,
+      selectedFolder,
+    });
     return assertGodmodeLiveCompanyWorkspace({
       companyFolderId: selectedFolderId,
       companyName: selectedFolder?.name,
-      masterSheetId: activeCompanyMasterSheetId,
+      masterSheetId,
       selectableFolderIds: selectableGodmodeFolders.map((folder) => folder.id),
     }).ok;
   }, [
     currentUser?.role,
     selectedFolderId,
     selectedFolder?.name,
+    selectedFolder?.masterSheetId,
+    selectedFolder?.responseSheetId,
+    selectedFolder?.setupStatus,
+    selectedFolder?.setupStatusLabel,
     activeCompanyMasterSheetId,
     selectableGodmodeFolders,
   ]);
@@ -11247,6 +11257,58 @@ function App() {
         setLinkedCompanyContext(null);
       }
 
+      const listedMasterSheetId = resolveListedGodmodeMasterSheetId(folder);
+      const listedValidatedIds =
+        listedMasterSheetId
+          ? validateCompanyDriveIds({ companyFolderId: folder.id, masterSheetId: listedMasterSheetId })
+          : null;
+
+      const applyMasterListedSelection = (
+        ids: { companyFolderId: string; masterSheetId: string },
+        companyName: string,
+        registryStatus = "",
+      ) => {
+        applyLinkedCompanyContext({
+          email: currentUser.username,
+          skipLoginHint: true,
+          company: {
+            companyId: ids.companyFolderId,
+            companyName,
+            masterSheetId: ids.masterSheetId,
+            registryStatus,
+          },
+          setSelectedFolderId,
+          setFolders: (updater) => setFolders((current) => updater(current)),
+          setFolderIdInput,
+          setFolderNameInput,
+          setMasterSheetInput,
+          setCompanyRegistryStatus,
+        });
+        setLinkedCompanyContext({
+          companyId: ids.companyFolderId,
+          companyName,
+          masterSheetId: ids.masterSheetId,
+          registryStatus,
+          role: "Master",
+          accessLevel: "Godmode",
+        });
+        activeFolderId = ids.companyFolderId;
+        resolvedCompanyName = companyName;
+        resolvedMasterSheetId = ids.masterSheetId;
+      };
+
+      if (listedValidatedIds) {
+        setSelectedFolderId(listedValidatedIds.companyFolderId);
+        setFolderIdInput(listedValidatedIds.companyFolderId);
+        setMasterSheetInput(listedValidatedIds.masterSheetId);
+        setFolderNameInput(folder.name);
+        applyMasterListedSelection(
+          listedValidatedIds,
+          folder.name,
+          String((folder as CompanyFolder & { registryStatus?: string }).registryStatus || "").trim(),
+        );
+      }
+
       const resolved = await resolveAndSyncMasterCompanySelection({
         companyFolderId: folder.id,
         companyName: folder.name,
@@ -11255,7 +11317,26 @@ function App() {
       if (selectedFolderIdRef.current && selectedFolderIdRef.current !== trimmedId) {
         return;
       }
-      if (!resolved.ok) {
+      if (resolved.ok) {
+        const validatedIds = validateCompanyDriveIds({
+          companyFolderId: resolved.companyFolderId,
+          masterSheetId: resolved.masterSheetId,
+        });
+        if (!validatedIds) {
+          if (!listedValidatedIds) {
+            pushToast("Company workspace unavailable", "Company folder or master sheet id is invalid.", "warning");
+            return;
+          }
+        } else {
+          applyMasterListedSelection(validatedIds, resolved.companyName, resolved.status || "");
+        }
+      } else if (listedValidatedIds) {
+        await syncMasterCompanyContextToSession({
+          companyFolderId: listedValidatedIds.companyFolderId,
+          companyName: folder.name,
+          masterSheetId: listedValidatedIds.masterSheetId,
+        });
+      } else {
         pushToast(
           "Company workspace unavailable",
           resolved.userMessage || "Unable to resolve this company workspace from Drive.",
@@ -11263,44 +11344,6 @@ function App() {
         );
         return;
       }
-
-      const validatedIds = validateCompanyDriveIds({
-        companyFolderId: resolved.companyFolderId,
-        masterSheetId: resolved.masterSheetId,
-      });
-      if (!validatedIds) {
-        pushToast("Company workspace unavailable", "Company folder or master sheet id is invalid.", "warning");
-        return;
-      }
-
-      activeFolderId = validatedIds.companyFolderId;
-      resolvedCompanyName = resolved.companyName;
-      resolvedMasterSheetId = validatedIds.masterSheetId;
-
-      applyLinkedCompanyContext({
-        email: currentUser.username,
-        skipLoginHint: true,
-        company: {
-          companyId: validatedIds.companyFolderId,
-          companyName: resolved.companyName,
-          masterSheetId: validatedIds.masterSheetId,
-          registryStatus: resolved.status,
-        },
-        setSelectedFolderId,
-        setFolders: (updater) => setFolders((current) => updater(current)),
-        setFolderIdInput,
-        setFolderNameInput,
-        setMasterSheetInput,
-        setCompanyRegistryStatus,
-      });
-      setLinkedCompanyContext({
-        companyId: validatedIds.companyFolderId,
-        companyName: resolved.companyName,
-        masterSheetId: validatedIds.masterSheetId,
-        registryStatus: resolved.status,
-        role: "Master",
-        accessLevel: "Godmode",
-      });
     } else if (trimmedId !== selectedFolderId) {
       clearActiveCompanyWorkspaceState();
     }
@@ -14708,7 +14751,7 @@ function App() {
                 currentScreen={screen}
                 onSelectCompany={(folderId) => {
                   logGodmodeNav("select-company", "godmodeHome", { selectedFolderId: folderId, activeView: "picker" });
-                  void handleSelectFolder(folderId);
+                  return handleSelectFolder(folderId);
                 }}
                 onClearCompany={() => void handleSelectFolder("")}
                 onNavigate={(nextScreen) => {

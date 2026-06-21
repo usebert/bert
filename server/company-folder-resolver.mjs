@@ -102,6 +102,7 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
   let workbookFolderId = trim(options.workbookFolderId);
   let folderIds = {};
   let legacyRootIds = {};
+  const masterSheetIdHint = trim(options.masterSheetId);
   const preferFolderResolution = options.preferFolderResolution !== false;
   const createIfMissing = options.createIfMissing !== false;
   const readOnlyResolve = preferFolderResolution && createIfMissing === false;
@@ -110,7 +111,7 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
     const structure = await ensureCompanyFolderStructure(deps, auth, {
       companyName,
       companyRootFolderId: folderId,
-      masterSheetId: "",
+      masterSheetId: masterSheetIdHint,
       syncWorkbookTab: false,
       placeFiles: readOnlyResolve ? false : true,
     });
@@ -121,7 +122,7 @@ export async function resolveCompanyFromFolder(auth, deps, companyFolderId, opti
 
   const masterSheet = await ensureCompanyMasterSheet(drive, {
     companyName,
-    masterSheetId: "",
+    masterSheetId: masterSheetIdHint,
     workbookFolderId,
     legacySetupFolderId: legacyRootIds.setupFolderId,
     companyRootFolderId: folderId,
@@ -239,9 +240,13 @@ export function installCompanyFolderResolverRoutes(app, deps) {
         req.params.companyFolderId || req.body?.companyFolderId || req.body?.workspaceId,
       );
       try {
+        const masterSheetIdHint = trim(req.body?.masterSheetId);
         const result = await resolveCompanyFromFolder(authed, deps, companyFolderId, {
           ensureTabsSync: req.body?.ensureTabsSync !== false,
           requestedBy: trim(req.body?.requestedBy || "godmode"),
+          masterSheetId: masterSheetIdHint,
+          skipFolderPlacementCheck: true,
+          createIfMissing: masterSheetIdHint ? false : undefined,
         });
         const status = result.ok ? 200 : result.reasonCode === "GOOGLE_NOT_CONNECTED" ? 401 : 400;
         return res.status(status).json(result);
