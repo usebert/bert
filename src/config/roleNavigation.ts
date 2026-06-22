@@ -11,6 +11,7 @@ import {
   canAccessTeamNav,
   canAccessUsersInvitesNav,
   canAccessWorkspaceNav,
+  canCompleteAssignedCheck,
   canRoleAccessNavItem,
 } from "../permissions";
 import type { NavItemId } from "../types/navigation";
@@ -123,7 +124,7 @@ function canPresentNavItem(role: Role, item: PresentedNavItem): boolean {
       item.label === "Forms & Checks" ||
       item.label === "My Checks")
   ) {
-    return canAccessFormsChecksNav(role) || role === "Auditor";
+    return canAccessFormsChecksNav(role) || canCompleteAssignedCheck(role);
   }
   return canRoleAccessNavItem(role, item.id);
 }

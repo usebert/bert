@@ -63,6 +63,8 @@ assert(review.includes("Submitting…"), "3c: review UI shows submitting state")
 assert(review.includes("submitError"), "3d: review UI shows submit error");
 assert(appTsx.includes("checkSubmitState"), "3e: App tracks check submit state");
 assert(appTsx.includes("setAuditCompletionSummary"), "3f: success summary after completion");
+assert(appTsx.includes("canCompleteAssignedCheck"), "3g: non-admin assignees may open completion flow");
+assert(read("src/permissions.ts").includes('role === "User"'), "3h: User role may complete assigned checks");
 
 /** 4: Session-scoped company folder on submit body (no authoritative client query params). */
 assert(!checkService.includes('params.set("companyFolderId"'), "4: client does not send company query params for complete");

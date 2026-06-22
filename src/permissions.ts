@@ -5,7 +5,7 @@
 
 import type { NavItemId, RoutedScreen } from "./types/navigation";
 
-export type Role = "Master" | "Admin" | "Manager" | "Auditor";
+export type Role = "Master" | "Admin" | "Manager" | "Auditor" | "User";
 
 export type { NavItemId, RoutedScreen };
 
@@ -217,7 +217,9 @@ export function canRoleAccessNavItem(role: Role, itemId: NavItemId) {
   if (itemId === "googleForms") return canAccessGoogleForms(role);
   if (itemId === "incidents") return canSubmitIncidents(role);
   if (itemId === "actions" || itemId === "nonConformance") return canAccessActions(role);
-  if (itemId === "audits") return canAccessAuditsCentre(role) || canAccessFormsChecksNav(role) || role === "Auditor";
+  if (itemId === "audits") {
+    return canAccessAuditsCentre(role) || canAccessFormsChecksNav(role) || canCompleteAssignedCheck(role);
+  }
   if (itemId === "sync") {
     return role === "Master" || role === "Admin" || role === "Manager" || role === "Auditor";
   }

@@ -13,7 +13,8 @@
 import { ReactNode, useMemo, useState } from "react";
 import {
   canAccessAdmin,
-  canCompleteAuditAsAuditor,
+  canAccessAuditsCentre,
+  canCompleteAssignedCheck,
 } from "../permissions";
 import type {
   ActionItem,
@@ -238,7 +239,7 @@ export function DashboardScreen({
     return <>{renderMasterDashboard()}</>;
   }
 
-  if (canCompleteAuditAsAuditor(currentUser.role)) {
+  if (canCompleteAssignedCheck(currentUser.role) && !canAccessAuditsCentre(currentUser.role)) {
     return <>{renderAuditorDashboard()}</>;
   }
 

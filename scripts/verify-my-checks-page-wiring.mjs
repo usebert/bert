@@ -53,16 +53,21 @@ assert(auditsScreen.includes("assignedChecksLoadError"), "3c: error UI in My Che
 assert(appTsx.includes("assignedChecksState"), "3d: App tracks assigned checks load state");
 assert(appTsx.includes("assignedChecksLoading={assignedChecksState.loading}"), "3e: loading wired to AuditsScreen");
 
-/** 4: No legacy auditor-only / client email filtering for auditor My Checks. */
+/** 4: Assigned audits built from API schedules for all assignable completion roles. */
 assert(
-  /canCompleteAuditAsAuditor\(currentUser\.role\)[\s\S]{0,1200}assignedChecksState\.schedules/.test(appTsx),
-  "4: auditor assigned audits built from API schedules",
+  /canCompleteAssignedCheck\(currentUser\.role\)[\s\S]{0,1200}assignedChecksState\.schedules/.test(appTsx),
+  "4: assigned audits built from API schedules",
 );
+assert(appTsx.includes("buildAuditsFromAssignedSchedules"), "4a: schedules mapped to actionable audit cards");
+assert(read("src/utils/assignedScheduleChecks.ts").includes("buildPlaceholderAuditFromScheduleAudit"), "4b: placeholder audits for missing templates");
+assert(read("src/screens/AuditsScreen.tsx").includes("canCompleteAssignedCheck"), "4c: My Checks UI uses assigned-check completion permission");
+assert(auditsScreen.includes("Start"), "4d: My Checks shows start action");
+assert(auditsScreen.includes("Continue"), "4e: My Checks shows continue action");
 {
   const fetchAssignedChecksCall =
     appTsx.match(/await fetchAssignedChecks\([\s\S]{0,500}\);/)?.[0] ?? "";
-  assert(fetchAssignedChecksCall.length > 0, "4b: fetchAssignedChecks call present");
-  assert(!fetchAssignedChecksCall.includes("userEmail"), "4c: App does not pass userEmail to fetchAssignedChecks");
+  assert(fetchAssignedChecksCall.length > 0, "4f: fetchAssignedChecks call present");
+  assert(!fetchAssignedChecksCall.includes("userEmail"), "4g: App does not pass userEmail to fetchAssignedChecks");
 }
 
 /** 5: Backend uses session email + company folder; rejects query email override. */

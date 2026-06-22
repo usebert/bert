@@ -35,6 +35,12 @@ function RoleBannerIcon({ role }: { role: Role }) {
         <path d="M9 8h6M9 12h6M9 16h4" />
       </svg>
     ),
+    User: (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+        <circle cx="12" cy="8" r="3.5" />
+        <path d="M5 20a7 7 0 0 1 14 0" />
+      </svg>
+    ),
   };
   return (
     <div

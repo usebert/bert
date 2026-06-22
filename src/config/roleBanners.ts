@@ -26,6 +26,12 @@ export function getRoleBannerCopy(role: Role, workspaceName: string): RoleBanner
       detail: "You can manage day-to-day work, forms, and reports.",
     };
   }
+  if (role === "User") {
+    return {
+      headline: `Signed in for ${workspace}.`,
+      detail: "You can complete assigned checks and submit records.",
+    };
+  }
   return {
     headline: `Signed in as Auditor for ${workspace}.`,
     detail: "You can complete assigned checks and submit records.",

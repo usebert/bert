@@ -116,6 +116,11 @@ assert(!appSrc.includes("readCompanyMembersCache"), "4i2: App does not read comp
 assert(appSrc.includes("fetchScheduleAssignees"), "4i3: App loads schedule assignees from schedule-assignees API");
 assert(appSrc.includes("listCompanySchedules"), "4j: App loads company schedules via shared list service");
 assert(read("src/screens/SchedulesScreen.tsx").includes("schedulesLoadError"), "4k: schedules UI surfaces list read failures");
+assert(appSrc.includes("buildAuditsFromAssignedSchedules"), "4l: assigned schedules map to My Checks audit cards");
+assert(appSrc.includes("assignedCheckByAuditId"), "4m: audit open resolves scheduleId from assigned checks");
+assert(appSrc.includes("canCompleteAssignedCheck"), "4n: App gates assigned-check completion by assignee roles");
+assert(read("src/screens/AuditsScreen.tsx").includes("canCompleteAssignedCheck"), "4o: My Checks screen uses assigned-check permission");
+assert(read("server/completion-service.mjs").includes("isScheduleAssignedToUser"), "4p: completion blocks unassigned users");
 
 /** 5: assigned users see schedule; non-selected users do not. */
 {

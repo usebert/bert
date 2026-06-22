@@ -29,7 +29,6 @@ import {
   canAccessSchedulesScreen,
   canAccessQmsReadinessFull,
   canAccessQmsReadinessNav,
-  canCompleteAuditAsAuditor,
   canCompleteAssignedCheck,
   canEditLegalName,
   canRoleAccessNavItem,
@@ -2528,7 +2527,7 @@ function normalizeFolderName(value: string) {
 }
 
 function buildDefaultRoleNavVisibilityMatrix(): RoleNavVisibilityMatrix {
-  const roles: Role[] = ["Master", "Admin", "Manager", "Auditor"];
+  const roles: Role[] = ["Master", "Admin", "Manager", "Auditor", "User"];
   return roles.reduce((matrix, role) => {
     const visibility = navItems.reduce(
       (entry, item) => ({ ...entry, [item.id]: canRoleAccessNavItem(role, item.id) }),
@@ -2544,6 +2543,7 @@ function buildDefaultRoleSiteSelectorVisibility(): RoleSiteSelectorVisibility {
     Admin: true,
     Manager: true,
     Auditor: true,
+    User: true,
   };
 }
 
@@ -5131,7 +5131,7 @@ function App() {
       return false;
     });
 
-    if (!canCompleteAuditAsAuditor(currentUser.role)) {
+    if (!canCompleteAssignedCheck(currentUser.role)) {
       return applyScheduleDue(base);
     }
 
@@ -5205,14 +5205,20 @@ function App() {
       const scheduleCompanyFolderId = String(schedule.companyFolderId || sessionCompanyFolderId).trim();
       schedule.audits.forEach((scheduleAudit) => {
         const auditId = String(scheduleAudit.auditId || "").trim();
-        if (!auditId) {
+        const auditName = String(scheduleAudit.auditName || "").trim();
+        const resolvedAuditId = auditId || auditName;
+        if (!resolvedAuditId) {
           return;
         }
-        map.set(auditId, {
+        const context: ActiveAssignedCheckContext = {
           scheduleId,
-          auditId,
+          auditId: resolvedAuditId,
           companyFolderId: scheduleCompanyFolderId || sessionCompanyFolderId,
-        });
+        };
+        map.set(resolvedAuditId, context);
+        if (auditName) {
+          map.set(auditName.trim().toLowerCase(), context);
+        }
       });
     });
     return map;
@@ -13732,7 +13738,7 @@ function App() {
     if (
       currentUser &&
       screen === "sync" &&
-      !canCompleteAuditAsAuditor(currentUser.role) &&
+      !canCompleteAssignedCheck(currentUser.role) &&
       !canViewSyncCentre(currentUser.role)
     ) {
       setScreen(getHomeScreenForRole(currentUser.role));
@@ -13741,7 +13747,7 @@ function App() {
       currentUser &&
       screen === "complete" &&
       !activeAudit &&
-      !(canCompleteAuditAsAuditor(currentUser.role) && auditCompletionSummary)
+      !(canCompleteAssignedCheck(currentUser.role) && auditCompletionSummary)
     ) {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
@@ -14861,7 +14867,7 @@ function App() {
             currentUser.role !== "Master" &&
             currentUser.role !== "Admin" &&
             currentUser.role !== "Manager" &&
-            !canCompleteAuditAsAuditor(currentUser.role) ? (
+            !canCompleteAssignedCheck(currentUser.role) ? (
               <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 flex-1">
                   <h1 className={["text-xl font-semibold tracking-tight md:text-2xl", themeMode === "dark" ? "text-slate-100" : "text-slate-900"].join(" ")}>
@@ -15383,7 +15389,7 @@ function App() {
               />
             )}
 
-            {screen === "sync" && !canCompleteAuditAsAuditor(currentUser.role) && canViewSyncCentre(currentUser.role) && (
+            {screen === "sync" && !canCompleteAssignedCheck(currentUser.role) && canViewSyncCentre(currentUser.role) && (
               <SyncCentreScreen
                 currentUser={currentUser}
                 syncQueue={syncQueue}
