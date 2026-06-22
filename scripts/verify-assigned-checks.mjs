@@ -114,6 +114,7 @@ assert(appSrc.includes("usesAssignedChecksCompletionFlow"), "4g2: App uses assig
 assert(read("src/utils/auditAccess.ts").includes("buildAuditFromAssignedSchedule"), "4g3: audit builder for assigned schedules");
 assert(read("src/utils/auditAccess.ts").includes("resolveAssignedCheckAuditId"), "4g4: stable audit id for assigned schedules");
 assert(read("src/screens/AuditsScreen.tsx").includes("My assigned checks"), "4g5: Admin/Manager assigned checks UI");
+assert(read("server/bert-cors.mjs").includes("PUT"), "9: CORS preflight allows PUT for audit-templates");
 assert(read("src/utils/scheduleAssignees.ts").includes("deriveScheduleAssigneesFromCompanyMembers"), "4h: assignees helper retained for diagnostics");
 assert(appSrc.includes("readScheduleAssigneesCache"), "4i: App reads assignee localStorage cache while loading");
 assert(appSrc.includes("writeScheduleAssigneesCache"), "4i1: App writes assignee localStorage cache after load");
@@ -171,5 +172,8 @@ assert(
 );
 assert(!checkService.includes("isScheduleAssignedToUser"), "8c: frontend does not client-filter by email");
 assert(appSrc.includes("fetchAssignedChecks"), "8d: App loads assigned checks from API");
+assert(checkService.includes("fetchJson"), "8e: assigned checks uses fetchJson diagnostics");
+assert(checkService.includes("loadErrorDetail"), "8f: assigned checks exposes load error detail");
+assert(!checkService.includes("error.message : ASSIGNED_CHECKS_USER_MESSAGE"), "8g: assigned checks does not surface raw NetworkError as primary message");
 
 console.log("[verify:assigned-checks] OK: assigned-check contract verified");

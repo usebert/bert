@@ -3,6 +3,7 @@ import { mapListedSchedule } from "./scheduleService";
 import type { CompanyScheduleContext } from "./scheduleService";
 import { getScheduleAssignedEmails } from "../utils/scheduleAssignment";
 import type { ManagedSchedule } from "../types/reportsScreenProps";
+import { fetchJson, type FetchJsonDiagnostics } from "../utils/fetchJson";
 
 export type SubmitCheckResultInput = {
   companyContext: CompanyScheduleContext;
@@ -30,10 +31,31 @@ export type FetchAssignedChecksResult = {
   ok: boolean;
   schedules: ManagedSchedule[];
   loadError?: string;
+  loadErrorDetail?: string;
   companyId?: string;
   companyFolderId?: string;
   masterSheetId?: string;
 };
+
+function formatAssignedChecksLoadErrorDetail(input: {
+  message: string;
+  diagnostics?: FetchJsonDiagnostics;
+}): string {
+  const url = String(input.diagnostics?.url || apiUrl("/api/me/assigned-checks")).trim();
+  const status = input.diagnostics?.status;
+  if (typeof status === "number") {
+    return `GET ${url} → HTTP ${status}: ${input.message}`;
+  }
+  const fetchErrorName = String(input.diagnostics?.fetchErrorName || "").trim();
+  const fetchErrorMessage = String(input.diagnostics?.fetchErrorMessage || input.message).trim();
+  if (fetchErrorName === "AbortError") {
+    return `GET ${url} → request aborted: ${fetchErrorMessage}`;
+  }
+  if (fetchErrorMessage.toLowerCase().includes("networkerror")) {
+    return `GET ${url} → network blocked (check sign-in, API reachability, and CORS for ${url})`;
+  }
+  return `GET ${url} → ${fetchErrorName || "error"}: ${fetchErrorMessage}`;
+}
 
 export const ASSIGNED_CHECKS_LOAD_TIMEOUT_MS = 90_000;
 export const ASSIGNED_CHECKS_LOADING_MESSAGE = "Loading your checks…";
@@ -68,50 +90,65 @@ function completionErrorMessage(payload: { code?: string; message?: string; erro
 export async function fetchAssignedChecks(
   options?: { signal?: AbortSignal },
 ): Promise<FetchAssignedChecksResult> {
-  try {
-    const response = await fetch(apiUrl("/api/me/assigned-checks"), {
-      credentials: "include",
-      signal: options?.signal,
-    });
-    const payload = (await response.json()) as {
-      ok?: boolean;
-      schedules?: Record<string, unknown>[];
-      message?: string;
-      error?: string;
-      companyId?: string;
-      companyFolderId?: string;
-      masterSheetId?: string;
-    };
+  const path = "/api/me/assigned-checks";
+  const result = await fetchJson<{
+    ok?: boolean;
+    schedules?: Record<string, unknown>[];
+    message?: string;
+    error?: string;
+    companyId?: string;
+    companyFolderId?: string;
+    masterSheetId?: string;
+  }>(path, { signal: options?.signal });
 
-    if (!response.ok || payload.ok === false) {
+  if (!result.ok) {
+    if (result.code === "NETWORK_UNREACHABLE") {
       return {
         ok: false,
         schedules: [],
-        loadError: payload.message || payload.error || ASSIGNED_CHECKS_USER_MESSAGE,
+        loadError: ASSIGNED_CHECKS_USER_MESSAGE,
+        loadErrorDetail: formatAssignedChecksLoadErrorDetail({
+          message: result.message,
+          diagnostics: result.diagnostics,
+        }),
       };
-    }
-
-    const schedules = Array.isArray(payload.schedules)
-      ? payload.schedules.map((schedule) => mapListedSchedule(schedule))
-      : [];
-
-    return {
-      ok: true,
-      schedules,
-      companyId: payload.companyId,
-      companyFolderId: payload.companyFolderId,
-      masterSheetId: payload.masterSheetId,
-    };
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      throw error;
     }
     return {
       ok: false,
       schedules: [],
-      loadError: error instanceof Error ? error.message : ASSIGNED_CHECKS_USER_MESSAGE,
+      loadError: ASSIGNED_CHECKS_USER_MESSAGE,
+      loadErrorDetail: formatAssignedChecksLoadErrorDetail({
+        message: result.message,
+        diagnostics: result.diagnostics,
+      }),
     };
   }
+
+  const { data: payload, response } = result;
+  if (!response.ok || payload.ok === false) {
+    const apiMessage = payload.message || payload.error || ASSIGNED_CHECKS_USER_MESSAGE;
+    return {
+      ok: false,
+      schedules: [],
+      loadError: ASSIGNED_CHECKS_USER_MESSAGE,
+      loadErrorDetail: formatAssignedChecksLoadErrorDetail({
+        message: apiMessage,
+        diagnostics: { url: apiUrl(path), status: response.status },
+      }),
+    };
+  }
+
+  const schedules = Array.isArray(payload.schedules)
+    ? payload.schedules.map((schedule) => mapListedSchedule(schedule))
+    : [];
+
+  return {
+    ok: true,
+    schedules,
+    companyId: payload.companyId,
+    companyFolderId: payload.companyFolderId,
+    masterSheetId: payload.masterSheetId,
+  };
 }
 
 export { fetchAssignedChecks as listAssignedChecks };

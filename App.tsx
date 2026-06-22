@@ -3589,6 +3589,7 @@ function App() {
     schedules: ManagedSchedule[];
     loading: boolean;
     loadError?: string;
+    loadErrorDetail?: string;
     companyFolderId?: string;
     masterSheetId?: string;
   }>({ schedules: [], loading: false });
@@ -5518,8 +5519,7 @@ function App() {
       setAssignedChecksState({ schedules: [], loading: false });
       return;
     }
-    const canLoadAssignedChecks =
-      Boolean(companyId) && googleConnected && masterCompanyWorkspaceDataMatchesSelection;
+    const canLoadAssignedChecks = Boolean(companyId) && masterCompanyWorkspaceDataMatchesSelection;
     if (!canLoadAssignedChecks) {
       setAssignedChecksState({ schedules: [], loading: false });
       return;
@@ -5530,7 +5530,7 @@ function App() {
     const timeoutId = window.setTimeout(() => {
       controller.abort(new DOMException("Assigned checks load timed out", "TimeoutError"));
     }, ASSIGNED_CHECKS_LOAD_TIMEOUT_MS);
-    setAssignedChecksState({ schedules: [], loading: true, loadError: undefined });
+    setAssignedChecksState({ schedules: [], loading: true, loadError: undefined, loadErrorDetail: undefined });
 
     void (async () => {
       try {
@@ -5544,6 +5544,7 @@ function App() {
             schedules: [],
             loading: false,
             loadError: result.loadError || ASSIGNED_CHECKS_USER_MESSAGE,
+            loadErrorDetail: result.loadErrorDetail,
           });
           return;
         }
@@ -5553,6 +5554,8 @@ function App() {
           loading: false,
           companyFolderId: result.companyFolderId || result.companyId,
           masterSheetId: result.masterSheetId,
+          loadError: undefined,
+          loadErrorDetail: undefined,
         });
       } catch (error) {
         if (cancelled) {
@@ -5565,6 +5568,7 @@ function App() {
               schedules: [],
               loading: false,
               loadError: ASSIGNED_CHECKS_LOAD_TIMEOUT_MESSAGE,
+              loadErrorDetail: `GET ${apiUrl("/api/me/assigned-checks")} → request timed out`,
             });
           }
           return;
@@ -5573,6 +5577,7 @@ function App() {
           schedules: [],
           loading: false,
           loadError: ASSIGNED_CHECKS_USER_MESSAGE,
+          loadErrorDetail: error instanceof Error ? error.message : undefined,
         });
       } finally {
         window.clearTimeout(timeoutId);
@@ -15204,6 +15209,7 @@ function App() {
                 onEditTemplate={canManageTemplates(currentUser.role) ? handleEditTemplate : undefined}
                 assignedChecksLoading={assignedChecksState.loading}
                 assignedChecksLoadError={assignedChecksState.loadError}
+                assignedChecksLoadErrorDetail={assignedChecksState.loadErrorDetail}
                 onGoogleFormUpdated={handleGoogleFormTemplateUpdated}
               />
             )}

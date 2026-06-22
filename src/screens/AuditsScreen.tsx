@@ -20,6 +20,24 @@ import type {
 import type { Audit, AuditStatus } from "../types/reportsScreenProps";
 import type { AuditDraft } from "../types/dashboardScreenProps";
 
+function AssignedChecksLoadError({
+  loadError,
+  loadErrorDetail,
+}: {
+  loadError: string;
+  loadErrorDetail?: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-6">
+      <p className="text-sm font-semibold text-rose-900">Could not load your checks</p>
+      <p className="mt-2 text-sm text-rose-800">{loadError}</p>
+      {loadErrorDetail ? (
+        <p className="mt-2 break-all font-mono text-xs text-rose-700">{loadErrorDetail}</p>
+      ) : null}
+    </div>
+  );
+}
+
 function AuditsScreenIcon({ className = "h-5 w-5" }: { className?: string }) {
   return (
     <svg
@@ -472,6 +490,7 @@ export function AuditsScreen({
   onEditTemplate,
   assignedChecksLoading = false,
   assignedChecksLoadError,
+  assignedChecksLoadErrorDetail,
   onGoogleFormUpdated,
 }: AuditsScreenProps) {
   if (canCompleteAuditAsAuditor(currentUser.role)) {
@@ -500,10 +519,7 @@ export function AuditsScreen({
             {ASSIGNED_CHECKS_LOADING_MESSAGE}
           </div>
         ) : assignedChecksLoadError ? (
-          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-6">
-            <p className="text-sm font-semibold text-rose-900">Could not load your checks</p>
-            <p className="mt-2 text-sm text-rose-800">{assignedChecksLoadError}</p>
-          </div>
+          <AssignedChecksLoadError loadError={assignedChecksLoadError} loadErrorDetail={assignedChecksLoadErrorDetail} />
         ) : (
           <AuditorChecksList
             audits={audits}
@@ -606,10 +622,7 @@ export function AuditsScreen({
                 {ASSIGNED_CHECKS_LOADING_MESSAGE}
               </div>
             ) : assignedChecksLoadError ? (
-              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-6">
-                <p className="text-sm font-semibold text-rose-900">Could not load your checks</p>
-                <p className="mt-2 text-sm text-rose-800">{assignedChecksLoadError}</p>
-              </div>
+              <AssignedChecksLoadError loadError={assignedChecksLoadError} loadErrorDetail={assignedChecksLoadErrorDetail} />
             ) : (
               <AuditorChecksList audits={myAssignedChecks} drafts={drafts} onOpenAudit={onOpenAudit} />
             )}

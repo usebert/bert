@@ -39,6 +39,7 @@ assert(coreRoutes.includes('app.post("/api/companies/:companyId/checks/:schedule
 assert(completionService.includes("verifyScheduleCompletionEligibility"), "1e: server verifies assignee eligibility");
 assert(appTsx.includes("usesAssignedChecksCompletionFlow"), "1f: completion wizard for all assigned-check roles");
 assert(!/canCompleteAuditAsAuditor\(currentUser\.role\)[\s\S]{0,400}CheckCompletionWizard/.test(appTsx), "1g: wizard not auditor-only");
+assert(read("server/bert-cors.mjs").includes("PUT"), "1h: CORS allows PUT preflight for template sync");
 
 /** 2: Open check from assigned-checks API only — no localStorage schedule truth. */
 assert(appTsx.includes("assignedCheckByAuditId"), "2: App maps auditId to assigned schedule from API");

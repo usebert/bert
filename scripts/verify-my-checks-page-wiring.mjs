@@ -52,6 +52,9 @@ assert(auditsScreen.includes("ASSIGNED_CHECKS_LOADING_MESSAGE"), "3b: loading me
 assert(auditsScreen.includes("assignedChecksLoadError"), "3c: error UI in My Checks screen");
 assert(appTsx.includes("assignedChecksState"), "3d: App tracks assigned checks load state");
 assert(appTsx.includes("assignedChecksLoading={assignedChecksState.loading}"), "3e: loading wired to AuditsScreen");
+assert(auditsScreen.includes("assignedChecksLoadErrorDetail"), "3f: error detail wired in My Checks UI");
+assert(appTsx.includes("assignedChecksLoadErrorDetail"), "3g: App passes assigned checks error detail");
+assert(appTsx.includes("usesAssignedChecksCompletionFlow(currentUser.role)"), "3h: assigned checks load gated to completable roles");
 
 /** 4: No legacy auditor-only / client email filtering for auditor My Checks. */
 assert(
