@@ -10837,7 +10837,7 @@ function App() {
   };
 
   useEffect(() => {
-    if (!activeAudit || screen !== "complete" || !currentUser || !canCompleteAuditAsAuditor(currentUser.role)) {
+    if (!activeAudit || screen !== "complete" || !currentUser || !canCompleteAssignedCheck(currentUser.role)) {
       return;
     }
     const timer = window.setTimeout(() => {
@@ -15122,10 +15122,10 @@ function App() {
             )}
 
             {screen === "audits" &&
-              (canAccessAuditsCentre(currentUser.role) || canCompleteAuditAsAuditor(currentUser.role)) && (
+              (canAccessAuditsCentre(currentUser.role) || canCompleteAssignedCheck(currentUser.role)) && (
               <AuditsScreen
                 currentUser={currentUser}
-                audits={canCompleteAuditAsAuditor(currentUser.role) ? assignedAudits : siteScopedAudits}
+                audits={canCompleteAssignedCheck(currentUser.role) ? assignedAudits : siteScopedAudits}
                 groupedAudits={groupedAudits}
                 drafts={drafts}
                 unsyncedAuditIds={unsyncedSubmittedAuditIds}
@@ -15136,13 +15136,13 @@ function App() {
                 auditScheduleMatrix={auditScheduleMatrix}
                 onToggleAuditAccess={handleToggleAuditAccess}
                 onNavigateToToday={
-                  canCompleteAuditAsAuditor(currentUser.role) ? () => setScreen("dashboard") : undefined
+                  canCompleteAssignedCheck(currentUser.role) ? () => setScreen("dashboard") : undefined
                 }
                 onNavigateToSubmit={
-                  canCompleteAuditAsAuditor(currentUser.role) ? () => setScreen("incidents") : undefined
+                  canCompleteAssignedCheck(currentUser.role) ? () => setScreen("incidents") : undefined
                 }
                 onNavigateToSchedules={
-                  !canCompleteAuditAsAuditor(currentUser.role) ? () => setScreen("schedules") : undefined
+                  canSubmitAuditForReview(currentUser.role) ? () => setScreen("schedules") : undefined
                 }
                 onNavigateToAuditBuilder={
                   canAccessWorkspaceNav(currentUser.role) ? () => setScreen("auditBuilder") : undefined
@@ -15372,7 +15372,7 @@ function App() {
               />
             )}
 
-            {screen === "sync" && canCompleteAuditAsAuditor(currentUser.role) && (
+            {screen === "sync" && canCompleteAssignedCheck(currentUser.role) && (
               <AuditorHistoryScreen
                 currentUserName={currentUser.name}
                 history={assignmentFilteredHistory}
@@ -15857,7 +15857,7 @@ function App() {
               />
             )}
 
-            {screen === "complete" && canCompleteAuditAsAuditor(currentUser.role) && auditCompletionSummary && (
+            {screen === "complete" && canCompleteAssignedCheck(currentUser.role) && auditCompletionSummary && (
               <AnimatedScreen screenKey={`audit-summary-${auditCompletionSummary.auditId}`}>
               <AuditCompletionSummary
                 offlineQueueCount={offlineQueue.length}
@@ -15892,7 +15892,7 @@ function App() {
               </AnimatedScreen>
             )}
 
-            {screen === "complete" && activeAudit && canCompleteAuditAsAuditor(currentUser.role) && !auditCompletionSummary && (
+            {screen === "complete" && activeAudit && canCompleteAssignedCheck(currentUser.role) && !auditCompletionSummary && (
               <CheckCompletionWizard
                 audit={activeAudit}
                 responses={responses}
