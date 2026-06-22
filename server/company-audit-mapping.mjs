@@ -195,7 +195,7 @@ async function readAreaAudits(deps, auth, spreadsheetId) {
   return readTabRecords(deps, auth, spreadsheetId, AREA_AUDITS_TAB, AREA_AUDITS_COLUMNS, rowToAreaAudit);
 }
 
-async function readAuditTemplates(deps, auth, spreadsheetId) {
+export async function readAuditTemplates(deps, auth, spreadsheetId) {
   return readTabRecords(
     deps,
     auth,

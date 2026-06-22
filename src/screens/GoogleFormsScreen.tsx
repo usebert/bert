@@ -50,8 +50,13 @@ export function GoogleFormsScreen({
   googleConnected,
   canSync,
   onSync,
+  canCreateBertCheck = false,
+  creatingBertCheckFormId = null,
+  bertCheckCreatedFormIds = [],
+  onCreateBertCheck,
 }: GoogleFormsScreenProps) {
   const sortedForms = [...forms].sort((a, b) => a.name.localeCompare(b.name));
+  const createdFormIds = new Set(bertCheckCreatedFormIds);
 
   return (
     <div className="space-y-6">
@@ -79,7 +84,7 @@ export function GoogleFormsScreen({
         )}
       </div>
 
-      <SectionIntro text="Forms are read from your company Google Forms folder. Sync writes them to the GoogleFormTemplates tab in your company workbook." />
+      <SectionIntro text="Forms are read from your company Google Forms folder. Sync writes them to the GoogleFormTemplates tab. Use Create BERT check to import a synced form as a schedulable check template." />
 
       {!googleConnected ? (
         <EmptyPanel
@@ -102,9 +107,14 @@ export function GoogleFormsScreen({
           <p className="text-sm text-slate-600">
             {sortedForms.length} form{sortedForms.length === 1 ? "" : "s"} in this company workspace.
           </p>
-          {sortedForms.map((form) => (
+          {sortedForms.map((form) => {
+            const formKey = form.driveFileId || form.formId;
+            const creating = creatingBertCheckFormId === formKey;
+            const created = createdFormIds.has(formKey);
+
+            return (
             <div
-              key={form.driveFileId || form.formId}
+              key={formKey}
               className="flex flex-wrap items-center justify-between gap-3 rounded-[1.35rem] border border-slate-200/80 bg-white px-4 py-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)]"
             >
               <div className="min-w-0">
@@ -112,19 +122,35 @@ export function GoogleFormsScreen({
                 <p className="mt-1 text-xs text-slate-500">
                   {form.modifiedTime ? `Updated ${formatModifiedTime(form.modifiedTime)}` : "Google Form"}
                 </p>
+                {created ? (
+                  <p className="mt-1 text-xs font-medium text-emerald-700">BERT check created</p>
+                ) : null}
               </div>
-              {form.webViewLink ? (
-                <a
-                  href={form.webViewLink}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="shrink-0 rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-200"
-                >
-                  Open form
-                </a>
-              ) : null}
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                {canCreateBertCheck && onCreateBertCheck ? (
+                  <button
+                    type="button"
+                    onClick={() => void onCreateBertCheck(form)}
+                    disabled={loading || syncing || creating || created}
+                    className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  >
+                    {creating ? "Creating…" : created ? "BERT check created" : "Create BERT check"}
+                  </button>
+                ) : null}
+                {form.webViewLink ? (
+                  <a
+                    href={form.webViewLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-200"
+                  >
+                    Open form
+                  </a>
+                ) : null}
+              </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

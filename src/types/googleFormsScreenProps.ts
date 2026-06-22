@@ -11,4 +11,8 @@ export type GoogleFormsScreenProps = {
   googleConnected: boolean;
   canSync: boolean;
   onSync: () => void;
+  canCreateBertCheck?: boolean;
+  creatingBertCheckFormId?: string | null;
+  bertCheckCreatedFormIds?: string[];
+  onCreateBertCheck?: (form: CompanyGoogleForm) => void | Promise<void>;
 };

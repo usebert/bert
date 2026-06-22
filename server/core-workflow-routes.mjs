@@ -39,6 +39,7 @@ import {
 import {
   handleCompanyGoogleFormsGet,
   handleCompanyGoogleFormsSyncPost,
+  handleCreateBertCheckFromGoogleFormPost,
 } from "./google-forms-service.mjs";
 import { listAssignedChecks } from "./check-service.mjs";
 
@@ -86,6 +87,8 @@ export function installCoreWorkflowRoutes(app, deps) {
     withSheetsQuotaRetry,
     google,
     backgroundJobs,
+    sessionDir,
+    rowsToRecords,
   } = deps;
 
   const scheduleDeps = {
@@ -1193,6 +1196,20 @@ export function installCoreWorkflowRoutes(app, deps) {
       parseBertActorFromRequest,
       google,
       sharedDriveId: registryDeps?.sharedDriveId,
+      ...scheduleDeps,
+    });
+  });
+
+  app.post("/api/companies/:companyId/google-forms/:formId/create-bert-check", async (req, res) => {
+    return handleCreateBertCheckFromGoogleFormPost(req, res, {
+      getAuthedClient,
+      envConfigured,
+      rejectIfCompanyFolderNotUnderCompaniesRoot,
+      parseBertActorFromRequest,
+      google,
+      sharedDriveId: registryDeps?.sharedDriveId,
+      sessionDir,
+      rowsToRecords,
       ...scheduleDeps,
     });
   });

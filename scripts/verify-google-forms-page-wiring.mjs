@@ -91,6 +91,11 @@ assert(googleFormsScreen.includes("onSync"), "6: screen accepts onSync");
 assert(googleFormsScreen.includes("Sync to workbook"), "6b: sync button label");
 assert(appTsx.includes("handleSyncCompanyGoogleForms"), "6c: App defines sync handler");
 
+/** 6d: Google Form → BERT check import action. */
+assert(googleFormsScreen.includes("Create BERT check"), "6d: screen exposes Create BERT check");
+assert(companyFormsService.includes("createBertCheckFromGoogleForm"), "6e: client import API helper");
+assert(coreRoutes.includes("/google-forms/:formId/create-bert-check"), "6f: server import route registered");
+
 /** 7: No technical diagnostics in normal UI. */
 assert(!googleFormsScreen.includes("driveQuery"), "7: screen omits drive diagnostics");
 assert(!googleFormsScreen.includes("masterSheetId"), "7b: screen omits masterSheetId");

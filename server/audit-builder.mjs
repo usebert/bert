@@ -272,8 +272,8 @@ async function writeAuditTemplateMetadata(deps, auth, spreadsheetId, templateRec
     sheetStatusForTemplate(templateRecord),
     "",
     templateRecord.created_at,
-    "",
-    "Audit Builder",
+    String(templateRecord.googleFormId || "").trim(),
+    String(templateRecord.googleFormTemplateStatus || "Audit Builder").trim(),
     DEFAULT_FORM_LANGUAGE,
     DEFAULT_FORM_LANGUAGE,
     defaultTranslationStatusForLanguage(DEFAULT_FORM_LANGUAGE),
@@ -353,8 +353,10 @@ async function loadTemplatesFromSheets(deps, auth, spreadsheetId, sessionDir) {
   const { bucket, store, key } = getWorkspaceStore(sessionDir, spreadsheetId);
 
   for (const row of sheetTemplates) {
-    const isAuditBuilder = String(row.googleFormTemplateStatus || "").trim() === "Audit Builder";
-    if (!isAuditBuilder && !bucket.templates[row.id]) {
+    const templateStatus = String(row.googleFormTemplateStatus || "").trim();
+    const isAuditBuilder = templateStatus === "Audit Builder";
+    const isGoogleFormImport = templateStatus === GOOGLE_FORM_IMPORT_STATUS;
+    if (!isAuditBuilder && !isGoogleFormImport && !bucket.templates[row.id]) {
       continue;
     }
     const translation = translationById.get(row.id);
@@ -399,6 +401,133 @@ function evaluateCompletion(instance, answers, actions) {
     return { result: "Pass", reason: "All answers are Compliant or Not applicable with no open actions." };
   }
   return { result: "Fail", reason: "Audit answers are incomplete." };
+}
+
+export const GOOGLE_FORM_IMPORT_STATUS = "Google Form Import";
+
+export function buildGoogleFormImportTemplatePayload(googleForm = {}) {
+  const templateName = String(googleForm.name || "Google Form check").trim() || "Google Form check";
+  const webViewLink = String(googleForm.webViewLink || "").trim();
+  const description = webViewLink
+    ? `Imported from Google Form. Complete the linked form: ${webViewLink}`
+    : "Imported from Google Form.";
+  const questionText = webViewLink
+    ? `Complete linked Google Form (${webViewLink})`
+    : "Complete linked Google Form";
+
+  return {
+    template_name: templateName,
+    description,
+    category: "Google Forms",
+    sections: [
+      {
+        name: "Google Form",
+        questions: [
+          {
+            question_text: questionText,
+            answer_type: "compliance",
+            options: ["Compliant", "Non-compliant", "Not applicable"],
+            requires_comment_on_failure: true,
+            requires_action_on_failure: true,
+            allows_photo_evidence: true,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+export function mapImportedBertCheckForClient(templateRecord, googleForm = {}) {
+  const webViewLink = String(googleForm.webViewLink || "").trim();
+  const formId = String(googleForm.formId || googleForm.driveFileId || templateRecord.googleFormId || "").trim();
+  const driveFileId = String(googleForm.driveFileId || formId).trim();
+  const payload = buildGoogleFormImportTemplatePayload({ ...googleForm, name: templateRecord.template_name });
+  const questions = flattenTemplateQuestions(payload.sections).map((question, index) => ({
+    id: `${templateRecord.id}-q${index + 1}`,
+    text: question.question_text,
+    riskLevel: "Medium",
+    riskCategory: "Quality",
+    autoActionRequired: question.requires_action_on_failure !== false,
+    requiresPhotoEvidence: question.allows_photo_evidence !== false,
+    requiresManagerReview: false,
+  }));
+
+  return {
+    id: templateRecord.id,
+    name: templateRecord.template_name,
+    active: normalizeTemplateStatus(templateRecord.status) === "active",
+    source: "Google Drive",
+    category: templateRecord.category || "Google Forms",
+    language: DEFAULT_FORM_LANGUAGE,
+    defaultLanguage: DEFAULT_FORM_LANGUAGE,
+    translationStatus: defaultTranslationStatusForLanguage(DEFAULT_FORM_LANGUAGE),
+    questions,
+    googleForm: formId
+      ? {
+          formId,
+          driveFileId,
+          responderUrl: webViewLink,
+          syncStatus: GOOGLE_FORM_IMPORT_STATUS,
+          notes: payload.description,
+        }
+      : undefined,
+  };
+}
+
+export async function createBertCheckFromSyncedGoogleForm({
+  sessionDir,
+  sheetDeps,
+  authed,
+  masterSheetId,
+  actorEmail,
+  googleForm,
+}) {
+  const sheetId = String(masterSheetId || "").trim();
+  if (!sheetId) {
+    throw new Error("masterSheetId is required to create a BERT check template.");
+  }
+  const formId = String(googleForm?.formId || googleForm?.driveFileId || "").trim();
+  if (!formId) {
+    throw new Error("Google Form ID is required.");
+  }
+
+  const { readAuditTemplates } = await import("./company-audit-mapping.mjs");
+  const existingTemplates = await readAuditTemplates(sheetDeps, authed, sheetId);
+  const duplicate = existingTemplates.find((row) => String(row.googleFormId || "").trim() === formId);
+  if (duplicate) {
+    const { bucket } = getWorkspaceStore(sessionDir, sheetId);
+    const existingRecord = bucket.templates[duplicate.id] || {
+      id: duplicate.id,
+      template_name: duplicate.name,
+      category: duplicate.category || "Google Forms",
+      status: duplicate.status || "active",
+      googleFormId: duplicate.googleFormId,
+      googleFormTemplateStatus: duplicate.googleFormTemplateStatus || GOOGLE_FORM_IMPORT_STATUS,
+    };
+    return {
+      ok: true,
+      alreadyExists: true,
+      template: mapImportedBertCheckForClient(existingRecord, googleForm),
+    };
+  }
+
+  const payload = buildGoogleFormImportTemplatePayload(googleForm);
+  const templateId = newId("gf-check");
+  const { store, bucket, key } = getWorkspaceStore(sessionDir, sheetId);
+  const record = templateToApiRecord(templateId, payload, actorEmail, { status: "active" });
+  record.googleFormId = formId;
+  record.googleFormTemplateStatus = GOOGLE_FORM_IMPORT_STATUS;
+  bucket.templates[templateId] = record;
+  persistWorkspace(sessionDir, store, key, bucket);
+
+  await writeAuditTemplateMetadata(sheetDeps, authed, sheetId, record);
+  await writeAuditTemplateTranslations(sheetDeps, authed, sheetId, templateId, payload, actorEmail);
+
+  return {
+    ok: true,
+    alreadyExists: false,
+    template: mapImportedBertCheckForClient(record, googleForm),
+  };
 }
 
 export function installAuditBuilderRoutes(app, deps) {

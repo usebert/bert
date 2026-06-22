@@ -734,6 +734,149 @@ export async function handleCompanyGoogleFormsSyncPost(req, res, deps, routeCont
   return handleCompanyGoogleFormsGet(req, res, deps, { ...routeContext, syncToWorkbook: true });
 }
 
+function canCreateBertCheckFromGoogleForm(actor) {
+  const role = actor?.role === "Master" ? "Master" : String(actor?.role || "").trim();
+  return ["Master", "Admin", "Manager"].includes(role);
+}
+
+export function resolveSyncedGoogleFormRecord(records = [], formId = "") {
+  const needle = String(formId || "").trim();
+  if (!needle) {
+    return null;
+  }
+  for (const record of records) {
+    const recordFormId = pickRecordField(record, "FormId");
+    const driveFileId = pickRecordField(record, "DriveFileId");
+    if (needle === recordFormId || needle === driveFileId) {
+      return {
+        formId: recordFormId || driveFileId,
+        driveFileId: driveFileId || recordFormId,
+        name: pickRecordField(record, "Name"),
+        webViewLink: pickRecordField(record, "WebViewLink"),
+      };
+    }
+  }
+  return null;
+}
+
+async function resolveGoogleFormForBertImport(auth, deps, context, formId) {
+  const workbookDeps = buildWorkbookDeps(deps);
+  const tabResult = await readGoogleFormTemplatesFromTab(auth, workbookDeps, context.masterSheetId, context.companyFolderId);
+  const fromTab = resolveSyncedGoogleFormRecord(tabResult.records || [], formId);
+  if (fromTab) {
+    return fromTab;
+  }
+
+  const listed = await listCompanyGoogleForms(auth, workbookDeps, {
+    companyFolderId: context.companyFolderId,
+    companyId: context.companyFolderId,
+    masterSheetId: context.masterSheetId,
+    createIfMissing: false,
+  });
+  if (!listed.ok) {
+    return null;
+  }
+  const match = (listed.forms || []).find(
+    (form) => form.formId === formId || form.driveFileId === formId,
+  );
+  if (!match) {
+    return null;
+  }
+  return {
+    formId: match.formId || match.driveFileId,
+    driveFileId: match.driveFileId || match.formId,
+    name: match.name,
+    webViewLink: match.webViewLink,
+  };
+}
+
+/** POST /api/companies/:companyId/google-forms/:formId/create-bert-check */
+export async function handleCreateBertCheckFromGoogleFormPost(req, res, deps, routeContext = {}) {
+  const { getAuthedClient, envConfigured, rejectIfCompanyFolderNotUnderCompaniesRoot, google, sharedDriveId, sessionDir } =
+    deps;
+
+  if (!envConfigured()) {
+    return res.status(503).json({
+      ok: false,
+      error: "Google Workspace is not configured on the server.",
+    });
+  }
+
+  const auth = getAuthedClient();
+  if (!auth) {
+    return res.status(401).json({
+      ok: false,
+      error: "Please connect Google before creating a BERT check from a Google Form.",
+    });
+  }
+
+  const actor =
+    typeof deps.parseBertActorFromRequest === "function" ? deps.parseBertActorFromRequest(req) : null;
+  if (!canCreateBertCheckFromGoogleForm(actor)) {
+    return res.status(403).json({
+      ok: false,
+      error: "Only Admin or Manager roles can create BERT checks from Google Forms.",
+    });
+  }
+
+  const formId = String(routeContext.formId || req.params?.formId || "").trim();
+  if (!formId) {
+    return res.status(400).json({ ok: false, error: "formId is required." });
+  }
+
+  try {
+    const context = await resolveCompanyGoogleFormsRouteContext(auth, deps, req, routeContext);
+    if (!context.masterSheetId) {
+      return res.status(400).json({
+        ok: false,
+        error: "Link your company folder and master workbook before importing Google Forms as BERT checks.",
+      });
+    }
+
+    const folderDenial = await rejectIfCompanyFolderNotUnderCompaniesRoot(
+      auth,
+      { google, sharedDriveId },
+      context.companyFolderId,
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
+
+    const googleForm = await resolveGoogleFormForBertImport(auth, deps, context, formId);
+    if (!googleForm) {
+      return res.status(404).json({
+        ok: false,
+        error: "Synced Google Form not found for this company. Sync Google Forms to your workbook first.",
+      });
+    }
+
+    const { createBertCheckFromSyncedGoogleForm } = await import("./audit-builder.mjs");
+    const sheetDeps = {
+      google,
+      ensureColumns: deps.ensureColumns,
+      getTabValues: deps.getTabValues,
+      rowsToRecords: deps.rowsToRecords,
+      withSheetsQuotaRetry: deps.withSheetsQuotaRetry,
+    };
+    const actorEmail = String(actor?.email || "BERT").trim().toLowerCase() || "bert@import";
+    const result = await createBertCheckFromSyncedGoogleForm({
+      sessionDir,
+      sheetDeps,
+      authed: auth,
+      masterSheetId: context.masterSheetId,
+      actorEmail,
+      googleForm,
+    });
+
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error instanceof Error ? error.message : "Unable to create BERT check from Google Form.",
+    });
+  }
+}
+
 export function installCompanyFormsRoutes(app, deps) {
   const { requireGoogleWorkspaceSession } = deps;
 

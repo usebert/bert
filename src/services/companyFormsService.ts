@@ -182,6 +182,80 @@ export async function fetchCompanyGoogleForms(
   }
 }
 
+export type CreateBertCheckFromGoogleFormResult = {
+  ok: boolean;
+  alreadyExists?: boolean;
+  template?: {
+    id: string;
+    name: string;
+    active: boolean;
+    source: "Google Drive" | "Built in app";
+    category?: string;
+    language?: string;
+    defaultLanguage?: string;
+    translationStatus?: string;
+    questions: Array<{
+      id: string;
+      text: string;
+      riskLevel: string;
+      riskCategory: string;
+      autoActionRequired: boolean;
+      requiresPhotoEvidence: boolean;
+      requiresManagerReview: boolean;
+    }>;
+    googleForm?: {
+      formId: string;
+      driveFileId?: string;
+      responderUrl?: string;
+      syncStatus?: string;
+      notes?: string;
+    };
+  };
+  error?: string;
+};
+
+/** Creates a native BERT check template from a synced company Google Form. */
+export async function createBertCheckFromGoogleForm(
+  companyId: string,
+  formId: string,
+  options?: { signal?: AbortSignal },
+): Promise<CreateBertCheckFromGoogleFormResult> {
+  const companyFolderId = String(companyId || "").trim();
+  const normalizedFormId = String(formId || "").trim();
+  if (!companyFolderId || !normalizedFormId) {
+    return { ok: false, error: "Company and form id are required." };
+  }
+
+  try {
+    const response = await fetch(
+      apiUrl(
+        `/api/companies/${encodeURIComponent(companyFolderId)}/google-forms/${encodeURIComponent(normalizedFormId)}/create-bert-check`,
+      ),
+      {
+        method: "POST",
+        credentials: "include",
+        signal: options?.signal,
+      },
+    );
+    const payload = (await parseJsonResponse(response)) as CreateBertCheckFromGoogleFormResult;
+    if (!response.ok || payload.ok === false) {
+      return {
+        ok: false,
+        error: payload.error || "Could not create BERT check from Google Form.",
+      };
+    }
+    return payload;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw error;
+    }
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Could not create BERT check from Google Form.",
+    };
+  }
+}
+
 /** Lists Drive forms and writes GoogleFormTemplates tab for the session company. */
 export async function syncCompanyGoogleForms(
   companyId: string,

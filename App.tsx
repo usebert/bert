@@ -214,6 +214,7 @@ import {
   COMPANY_GOOGLE_FORMS_USER_MESSAGE,
   fetchCompanyGoogleForms,
   syncCompanyGoogleForms,
+  createBertCheckFromGoogleForm,
   type CompanyGoogleForm,
   type CompanyGoogleFormsDiagnostics,
   type CompanyGoogleFormsLoadStatus,
@@ -3608,6 +3609,8 @@ function App() {
     syncError?: string;
     syncMessage?: string;
   }>({ forms: [], loading: false, status: "idle", syncing: false });
+  const [creatingBertCheckFormId, setCreatingBertCheckFormId] = useState<string | null>(null);
+  const [bertCheckCreatedFormIds, setBertCheckCreatedFormIds] = useState<string[]>([]);
   const [activeAssignedCheck, setActiveAssignedCheck] = useState<ActiveAssignedCheckContext | null>(null);
   const [checkSubmitState, setCheckSubmitState] = useState<{ submitting: boolean; error?: string }>({
     submitting: false,
@@ -11562,6 +11565,83 @@ function App() {
     ],
   );
 
+  const handleCreateBertCheckFromGoogleForm = useCallback(
+    async (form: CompanyGoogleForm) => {
+      const { companyId } = resolveCompanyMembersLoadContext({
+        activeCompanyContext,
+        selectedFolderId: selectedFolder?.id,
+        folderIdInput,
+        masterSheetInput,
+        companySheetSyncSheetId: companySheetSync?.sheetId,
+      });
+      const formKey = form.driveFileId || form.formId;
+      if (!companyId || !formKey || !googleConnected || !canAccessGoogleForms(currentUser?.role || "Auditor")) {
+        return;
+      }
+
+      setCreatingBertCheckFormId(formKey);
+      try {
+        const result = await createBertCheckFromGoogleForm(companyId, formKey);
+        if (!result.ok || !result.template) {
+          pushToast(
+            "Could not create BERT check",
+            result.error || "Unable to import this Google Form as a BERT check template.",
+            "warning",
+          );
+          return;
+        }
+
+        setTemplates((current) => {
+          const imported = result.template!;
+          const existingIndex = current.findIndex((template) => template.id === imported.id);
+          const nextTemplate: AuditTemplate = {
+            id: imported.id,
+            name: imported.name,
+            active: imported.active !== false,
+            questions: imported.questions as AuditQuestion[],
+            source: imported.source === "Google Drive" ? "Google Drive" : "Built in app",
+            category: imported.category,
+            language: imported.language,
+            defaultLanguage: imported.defaultLanguage,
+            translationStatus: imported.translationStatus,
+            googleForm: imported.googleForm,
+          };
+          if (existingIndex >= 0) {
+            return current.map((template, index) => (index === existingIndex ? { ...template, ...nextTemplate } : template));
+          }
+          return [...current, nextTemplate];
+        });
+        setBertCheckCreatedFormIds((current) => (current.includes(formKey) ? current : [...current, formKey]));
+        void syncCompanyAuditMappingFromServer({ silent: true });
+        pushToast(
+          result.alreadyExists ? "BERT check already exists" : "BERT check created",
+          result.alreadyExists
+            ? `${result.template.name} is already available for scheduling.`
+            : `${result.template.name} is now available in Templates and schedule builder.`,
+          "success",
+        );
+      } catch (error) {
+        pushToast(
+          "Could not create BERT check",
+          error instanceof Error ? error.message : "Unable to import this Google Form as a BERT check template.",
+          "warning",
+        );
+      } finally {
+        setCreatingBertCheckFormId(null);
+      }
+    },
+    [
+      activeCompanyContext,
+      companySheetSync?.sheetId,
+      currentUser?.role,
+      folderIdInput,
+      googleConnected,
+      masterSheetInput,
+      selectedFolder?.id,
+      syncCompanyAuditMappingFromServer,
+    ],
+  );
+
   const syncCompanyAreasFromServer = useCallback(
     async (options?: { silent?: boolean }) => {
       const masterSheetId = resolveWorkspaceMasterSheetId();
@@ -15139,6 +15219,10 @@ function App() {
                 googleConnected={googleConnected}
                 canSync={canAccessGoogleForms(currentUser.role)}
                 onSync={() => void handleSyncCompanyGoogleForms()}
+                canCreateBertCheck={canAccessGoogleForms(currentUser.role)}
+                creatingBertCheckFormId={creatingBertCheckFormId}
+                bertCheckCreatedFormIds={bertCheckCreatedFormIds}
+                onCreateBertCheck={handleCreateBertCheckFromGoogleForm}
               />
             )}
 

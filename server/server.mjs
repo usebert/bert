@@ -7311,6 +7311,8 @@ installCoreWorkflowRoutes(app, {
   google,
   backgroundJobs,
   authIndex: authIndexApi,
+  sessionDir,
+  rowsToRecords,
 });
 
 installCompanyOnboardingRoutes(app, {
