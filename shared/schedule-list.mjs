@@ -95,7 +95,10 @@ export function parseCompanyScheduleListFromRecords(records = [], companyFolderI
     const existing = grouped.get(scheduleId);
     const auditId = extractField(record, ["audit id"]) || `audit-row-${index + 1}`;
     const auditName =
-      extractField(record, ["template name", "audit name", "audit", "template"]) || "Unnamed audit";
+      extractField(record, ["template name"]) ||
+      extractField(record, ["audit name"]) ||
+      extractField(record, ["template"]) ||
+      "Unnamed audit";
     const dueWindow = parseDueWindow(extractField(record, ["due window"]));
 
     const audit = {
