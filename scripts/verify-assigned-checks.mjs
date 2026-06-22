@@ -109,6 +109,11 @@ assert(appSrc.includes("isScheduleAssignedToAnyEmail"), "4d: App filters by assi
 assert(complianceSrc.includes("getScheduleAssignedEmails"), "4e: compliance schedule uses helper");
 assert(scheduleSaveSrc.includes("getScheduleAssignedEmails"), "4f: schedule save uses helper");
 assert(read("src/permissions.ts").includes("canCompleteAssignedCheck"), "4g: completion permission helper exists");
+assert(read("src/permissions.ts").includes("usesAssignedChecksCompletionFlow"), "4g1: assigned-check completion flow helper exists");
+assert(appSrc.includes("usesAssignedChecksCompletionFlow"), "4g2: App uses assigned-check completion flow");
+assert(read("src/utils/auditAccess.ts").includes("buildAuditFromAssignedSchedule"), "4g3: audit builder for assigned schedules");
+assert(read("src/utils/auditAccess.ts").includes("resolveAssignedCheckAuditId"), "4g4: stable audit id for assigned schedules");
+assert(read("src/screens/AuditsScreen.tsx").includes("My assigned checks"), "4g5: Admin/Manager assigned checks UI");
 assert(read("src/utils/scheduleAssignees.ts").includes("deriveScheduleAssigneesFromCompanyMembers"), "4h: assignees helper retained for diagnostics");
 assert(appSrc.includes("readScheduleAssigneesCache"), "4i: App reads assignee localStorage cache while loading");
 assert(appSrc.includes("writeScheduleAssigneesCache"), "4i1: App writes assignee localStorage cache after load");
@@ -116,11 +121,6 @@ assert(!appSrc.includes("readCompanyMembersCache"), "4i2: App does not read comp
 assert(appSrc.includes("fetchScheduleAssignees"), "4i3: App loads schedule assignees from schedule-assignees API");
 assert(appSrc.includes("listCompanySchedules"), "4j: App loads company schedules via shared list service");
 assert(read("src/screens/SchedulesScreen.tsx").includes("schedulesLoadError"), "4k: schedules UI surfaces list read failures");
-assert(appSrc.includes("buildAuditsFromAssignedSchedules"), "4l: assigned schedules map to My Checks audit cards");
-assert(appSrc.includes("assignedCheckByAuditId"), "4m: audit open resolves scheduleId from assigned checks");
-assert(appSrc.includes("canCompleteAssignedCheck"), "4n: App gates assigned-check completion by assignee roles");
-assert(read("src/screens/AuditsScreen.tsx").includes("canCompleteAssignedCheck"), "4o: My Checks screen uses assigned-check permission");
-assert(read("server/completion-service.mjs").includes("isScheduleAssignedToUser"), "4p: completion blocks unassigned users");
 
 /** 5: assigned users see schedule; non-selected users do not. */
 {

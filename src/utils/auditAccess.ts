@@ -114,9 +114,9 @@ function questionsForAssignedScheduleTemplate(template: AuditTemplate): AuditQue
   }
   const isGoogleFormImport =
     String(template.translationStatus || "").trim() === GOOGLE_FORM_IMPORT_STATUS ||
-    Boolean(template.googleForm?.formId || template.googleForm?.webViewLink);
+    Boolean(template.googleForm?.formId || template.googleForm?.responderUrl);
   if (isGoogleFormImport) {
-    return buildGoogleFormImportQuestions(template.name, template.googleForm?.webViewLink);
+    return buildGoogleFormImportQuestions(template.name, template.googleForm?.responderUrl);
   }
   return [
     {

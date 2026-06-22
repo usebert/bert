@@ -37,6 +37,8 @@ assert(
 assert(!checkService.includes("/api/google-sheet-by-id/"), "1c: client does not use legacy sheet sync for completion");
 assert(coreRoutes.includes('app.post("/api/companies/:companyId/checks/:scheduleId/complete"'), "1d: server route registered");
 assert(completionService.includes("verifyScheduleCompletionEligibility"), "1e: server verifies assignee eligibility");
+assert(appTsx.includes("usesAssignedChecksCompletionFlow"), "1f: completion wizard for all assigned-check roles");
+assert(!/canCompleteAuditAsAuditor\(currentUser\.role\)[\s\S]{0,400}CheckCompletionWizard/.test(appTsx), "1g: wizard not auditor-only");
 
 /** 2: Open check from assigned-checks API only — no localStorage schedule truth. */
 assert(appTsx.includes("assignedCheckByAuditId"), "2: App maps auditId to assigned schedule from API");
@@ -63,8 +65,6 @@ assert(review.includes("Submitting…"), "3c: review UI shows submitting state")
 assert(review.includes("submitError"), "3d: review UI shows submit error");
 assert(appTsx.includes("checkSubmitState"), "3e: App tracks check submit state");
 assert(appTsx.includes("setAuditCompletionSummary"), "3f: success summary after completion");
-assert(appTsx.includes("canCompleteAssignedCheck"), "3g: non-admin assignees may open completion flow");
-assert(read("src/permissions.ts").includes('role === "User"'), "3h: User role may complete assigned checks");
 
 /** 4: Session-scoped company folder on submit body (no authoritative client query params). */
 assert(!checkService.includes('params.set("companyFolderId"'), "4: client does not send company query params for complete");
