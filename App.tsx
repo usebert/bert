@@ -30,6 +30,7 @@ import {
   canAccessQmsReadinessFull,
   canAccessQmsReadinessNav,
   canCompleteAuditAsAuditor,
+  canCompleteAssignedCheck,
   canEditLegalName,
   canRoleAccessNavItem,
   canSubmitAuditForReview,
@@ -313,6 +314,7 @@ import {
   normalizeAuditAccessLevel,
   resolveCurrentUserReportEmails,
 } from "./src/utils/auditAccess";
+import { buildAuditsFromAssignedSchedules } from "./src/utils/assignedScheduleChecks";
 import {
   normalizeScheduleAssigneeIds,
   resolveScheduleAssigneeLabels,
@@ -5042,57 +5044,16 @@ function App() {
       return siteScopedAudits.filter((audit) => !isAuditCompleted(audit));
     }
 
-    if (canCompleteAuditAsAuditor(currentUser.role)) {
+    if (canCompleteAssignedCheck(currentUser.role)) {
       const siteArea = resolveAccessibleAuditSiteArea();
-      const areaId =
-        resolveAuditAreaId({ siteArea }, sites, areaRestrictionsEnabled) || SINGLE_WORKSPACE_AREA_ID;
       const selectedCompanyId = String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim();
-      const apiCompliance = complianceSchedulesFromManaged(assignedChecksState.schedules);
-      const built: Audit[] = [];
-      const seen = new Set<string>();
-
-      assignedChecksState.schedules.forEach((schedule) => {
-        schedule.audits.forEach((scheduleAudit) => {
-          const auditId = scheduleAudit.auditId;
-          const auditName = scheduleAudit.auditName;
-          const key = auditId || auditName.trim().toLowerCase();
-          if (!key || seen.has(key)) {
-            return;
-          }
-          const template = templates.find(
-            (item) => item.active && (item.id === auditId || item.name === auditName),
-          );
-          if (!template) {
-            return;
-          }
-          if (!isAuditActiveForArea(areaAudits, areaId, auditId, { areaRestrictionsEnabled, sites })) {
-            return;
-          }
-          const nextDue = nearestNextDueDate(auditId, auditName, areaId, apiCompliance, selectedCompanyId);
-          const dueHours = nextDue ? computeDueHoursFromSchedule(nextDue) : 24;
-          const dueLabel =
-            !nextDue.trim()
-              ? "Available"
-              : dueHours < 0
-                ? "Overdue"
-                : dueHours <= 24
-                  ? "Due today"
-                  : "Upcoming";
-          seen.add(key);
-          built.push({
-            ...buildAvailableAuditFromTemplate(
-              template,
-              siteArea,
-              currentUser.name,
-              dueLabel === "Available" ? "Available" : dueLabel,
-            ),
-            dueHours,
-            dueLabel,
-          });
-        });
+      return buildAuditsFromAssignedSchedules({
+        schedules: assignedChecksState.schedules,
+        templates,
+        siteArea,
+        owner: currentUser.name,
+        companyFolderId: selectedCompanyId,
       });
-
-      return built;
     }
 
     const userEmails = resolveCurrentUserReportEmails(currentUser, companyReportUsers);
@@ -5521,7 +5482,7 @@ function App() {
       masterSheetInput,
       companySheetSyncSheetId: companySheetSync?.sheetId,
     });
-    if (!currentUser || !canCompleteAuditAsAuditor(currentUser.role)) {
+    if (!currentUser || !canCompleteAssignedCheck(currentUser.role)) {
       setAssignedChecksState({ schedules: [], loading: false });
       return;
     }
@@ -10071,11 +10032,11 @@ function App() {
   };
 
   const startAudit = (auditId: string) => {
-    const auditorCompleting = Boolean(currentUser && canCompleteAuditAsAuditor(currentUser.role));
-    let audit = auditorCompleting
+    const completingAssignedCheck = Boolean(currentUser && canCompleteAssignedCheck(currentUser.role));
+    let audit = completingAssignedCheck
       ? assignedAudits.find((item) => item.id === auditId)
       : audits.find((item) => item.id === auditId);
-    if (!audit && !auditorCompleting) {
+    if (!audit && !completingAssignedCheck) {
       const template = templates.find((item) => item.id === auditId && item.active);
       if (template) {
         const siteArea = selectedSite?.name || sites.find((site) => site.active)?.name || "Main site";
@@ -10089,12 +10050,12 @@ function App() {
       }
     }
     if (!audit) {
-      if (auditorCompleting) {
+      if (completingAssignedCheck) {
         pushToast("Check not available", "This check is not assigned to you from My Checks.", "warning");
       }
       return;
     }
-    if (auditorCompleting) {
+    if (completingAssignedCheck) {
       const assigned = assignedCheckByAuditId.get(auditId);
       if (!assigned) {
         pushToast("Check not available", "This check is not assigned to you from My Checks.", "warning");
