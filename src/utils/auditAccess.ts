@@ -1,6 +1,8 @@
 import type { AuditAccessLevel } from "../types/auditsScreenProps";
-import type { Audit, AuditTemplate } from "../types/reportsScreenProps";
+import type { Audit, AuditQuestion, AuditTemplate } from "../types/reportsScreenProps";
 import type { User } from "../types/dashboardScreenProps";
+import { GOOGLE_FORM_IMPORT_STATUS } from "./googleFormImportQuestions";
+import { buildGoogleFormImportQuestions } from "./googleFormImportQuestions";
 
 export type CompanyReportUserLike = {
   name: string;
@@ -87,4 +89,102 @@ export function buildAvailableAuditFromTemplate(
 
 function normalizeIdentity(value: string | null | undefined) {
   return (value || "").trim().toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function findTemplateForAssignedSchedule(
+  templates: AuditTemplate[],
+  auditId: string,
+  auditName: string,
+): AuditTemplate | undefined {
+  const normalizedName = normalizeIdentity(auditName);
+  return templates.find((item) => {
+    if (item.id === auditId) {
+      return true;
+    }
+    if (normalizeIdentity(item.name) === normalizedName) {
+      return true;
+    }
+    return item.name === auditName;
+  });
+}
+
+function questionsForAssignedScheduleTemplate(template: AuditTemplate): AuditQuestion[] {
+  if (Array.isArray(template.questions) && template.questions.length > 0) {
+    return template.questions;
+  }
+  const isGoogleFormImport =
+    String(template.translationStatus || "").trim() === GOOGLE_FORM_IMPORT_STATUS ||
+    Boolean(template.googleForm?.formId || template.googleForm?.webViewLink);
+  if (isGoogleFormImport) {
+    return buildGoogleFormImportQuestions(template.name, template.googleForm?.webViewLink);
+  }
+  return [
+    {
+      id: `${template.id || template.name}-check`,
+      text: `Complete check: ${template.name}`,
+      riskLevel: "Medium",
+      riskCategory: "Quality",
+      autoActionRequired: false,
+      requiresPhotoEvidence: false,
+      requiresManagerReview: false,
+    },
+  ];
+}
+
+/** Stable audit id for assigned-check UI + completion when schedule row omits auditId. */
+export function resolveAssignedCheckAuditId(auditId: string, auditName: string): string {
+  const trimmedId = String(auditId || "").trim();
+  if (trimmedId) {
+    return trimmedId;
+  }
+  const name = String(auditName || "").trim();
+  if (!name) {
+    return "scheduled-check";
+  }
+  return normalizeIdentity(name).replace(/\s+/g, "-") || "scheduled-check";
+}
+
+/** Build an actionable audit for My Checks from a schedule row + optional template match. */
+export function buildAuditFromAssignedSchedule(input: {
+  auditId: string;
+  auditName: string;
+  scheduleName?: string;
+  templates: AuditTemplate[];
+  siteArea: string;
+  owner: string;
+  dueLabel?: string;
+  dueHours?: number;
+}): Audit {
+  const auditId = String(input.auditId || "").trim();
+  const auditName = String(input.auditName || input.scheduleName || "Scheduled check").trim() || "Scheduled check";
+  const resolvedAuditId = resolveAssignedCheckAuditId(auditId, auditName);
+  const template = findTemplateForAssignedSchedule(input.templates, auditId, auditName);
+  const dueLabel = input.dueLabel || "Available";
+  const dueHours = typeof input.dueHours === "number" ? input.dueHours : 24;
+
+  if (template) {
+    return {
+      ...buildAvailableAuditFromTemplate(template, input.siteArea, input.owner, dueLabel),
+      id: resolvedAuditId || template.id,
+      name: auditName || template.name,
+      questions: questionsForAssignedScheduleTemplate(template),
+      dueHours,
+      dueLabel,
+    };
+  }
+
+  return {
+    id: resolvedAuditId,
+    name: auditName,
+    category: "Scheduled check",
+    siteArea: input.siteArea,
+    dueLabel,
+    dueHours,
+    priority: "Medium",
+    owner: input.owner,
+    templateVersion: "Scheduled check",
+    status: "green",
+    lastCompletedAt: "Not yet completed",
+    questions: buildGoogleFormImportQuestions(auditName),
+  };
 }

@@ -5,7 +5,7 @@
 
 import type { NavItemId, RoutedScreen } from "./types/navigation";
 
-export type Role = "Master" | "Admin" | "Manager" | "Auditor" | "User";
+export type Role = "Master" | "Admin" | "Manager" | "Auditor";
 
 export type { NavItemId, RoutedScreen };
 
@@ -217,9 +217,7 @@ export function canRoleAccessNavItem(role: Role, itemId: NavItemId) {
   if (itemId === "googleForms") return canAccessGoogleForms(role);
   if (itemId === "incidents") return canSubmitIncidents(role);
   if (itemId === "actions" || itemId === "nonConformance") return canAccessActions(role);
-  if (itemId === "audits") {
-    return canAccessAuditsCentre(role) || canAccessFormsChecksNav(role) || canCompleteAssignedCheck(role);
-  }
+  if (itemId === "audits") return canAccessAuditsCentre(role) || canAccessFormsChecksNav(role) || role === "Auditor";
   if (itemId === "sync") {
     return role === "Master" || role === "Admin" || role === "Manager" || role === "Auditor";
   }
@@ -266,7 +264,12 @@ export function canCompleteAuditAsAuditor(role: Role) {
 
 /** Any assignable company role may complete a check they are scheduled on. */
 export function canCompleteAssignedCheck(role: Role) {
-  return role === "Auditor" || role === "Admin" || role === "Manager" || role === "User";
+  return role === "Auditor" || role === "Admin" || role === "Manager";
+}
+
+/** Assigned-check completion UI (My Checks list + wizard) for schedulable roles. */
+export function usesAssignedChecksCompletionFlow(role: Role) {
+  return canCompleteAssignedCheck(role);
 }
 
 /** Manager/Admin completion & sign-off path — non-Auditor roles only. */

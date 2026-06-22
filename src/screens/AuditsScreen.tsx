@@ -1,4 +1,8 @@
-import { canCompleteAssignedCheck, canSubmitAuditForReview } from "../permissions";
+import {
+  canCompleteAuditAsAuditor,
+  canSubmitAuditForReview,
+  usesAssignedChecksCompletionFlow,
+} from "../permissions";
 import { getRoleTheme } from "../config/roleTheme";
 import { rankAuditorAudit } from "../utils/auditorDashboard";
 import { SECTION_INTROS } from "../config/sectionIntros";
@@ -439,6 +443,7 @@ function AuditorChecksList({
 export function AuditsScreen({
   currentUser,
   audits,
+  myAssignedChecks = [],
   groupedAudits,
   drafts,
   unsyncedAuditIds,
@@ -469,10 +474,7 @@ export function AuditsScreen({
   assignedChecksLoadError,
   onGoogleFormUpdated,
 }: AuditsScreenProps) {
-  const showMyChecksExperience = canCompleteAssignedCheck(currentUser.role);
-  const showFormsAndChecksAdmin = canSubmitAuditForReview(currentUser.role);
-
-  if (showMyChecksExperience) {
+  if (canCompleteAuditAsAuditor(currentUser.role)) {
     const theme = getRoleTheme("Auditor");
     return (
       <div className="space-y-4">
@@ -511,81 +513,6 @@ export function AuditsScreen({
             onNavigateToSubmit={onNavigateToSubmit}
           />
         )}
-        {showFormsAndChecksAdmin ? (
-          (() => {
-            const adminTheme = getRoleTheme(currentUser.role);
-            return (
-          <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
-            <div className="flex items-start gap-3">
-              <div className={["flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl", "bg-blue-50 text-blue-600 ring-1 ring-blue-100"].join(" ")}>
-                <AuditsScreenIcon className="h-5 w-5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Forms & checks</h2>
-                <SectionIntro
-                  text="Build and manage form/check templates here. Schedules control when checks run."
-                  className="mt-2"
-                  role={currentUser.role}
-                />
-                <div className="mt-4 flex flex-wrap gap-3">
-                  {onNavigateToAuditBuilder ? (
-                    <button
-                      type="button"
-                      onClick={onNavigateToAuditBuilder}
-                      className={[
-                        "inline-flex h-12 items-center rounded-xl px-5 text-sm font-semibold text-white",
-                        adminTheme.primaryButton,
-                        adminTheme.primaryButtonHover,
-                      ].join(" ")}
-                    >
-                      Create Audit Template
-                    </button>
-                  ) : null}
-                  {onNavigateToTemplateBuilder ? (
-                    <button
-                      type="button"
-                      onClick={onNavigateToTemplateBuilder}
-                      className={[
-                        "inline-flex h-12 items-center rounded-xl border px-5 text-sm font-semibold",
-                        adminTheme.outlineButton,
-                      ].join(" ")}
-                    >
-                      Advanced template builder
-                    </button>
-                  ) : null}
-                  {onNavigateToSchedules ? (
-                    <button
-                      type="button"
-                      onClick={onNavigateToSchedules}
-                      className={[
-                        "inline-flex h-12 items-center rounded-xl border px-5 text-sm font-semibold",
-                        adminTheme.outlineButton,
-                      ].join(" ")}
-                    >
-                      Manage schedules
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-            <FormsChecksTemplatesPanel
-              templates={templates}
-              syncState={syncState}
-              googleConnected={googleConnected}
-              companyFolderId={companyFolderId}
-              companyGoogleForms={companyGoogleForms}
-              companyGoogleFormsStatus={companyGoogleFormsStatus}
-              companyGoogleFormsDiagnostics={companyGoogleFormsDiagnostics}
-              showGoogleFormsDiagnostics={showGoogleFormsDiagnostics}
-              canCreateTemplates={canCreateTemplates}
-              onToggleTemplate={onToggleTemplate}
-              onEditTemplate={onEditTemplate}
-              onGoogleFormUpdated={onGoogleFormUpdated}
-            />
-          </section>
-            );
-          })()
-        ) : null}
       </div>
     );
   }
@@ -666,6 +593,29 @@ export function AuditsScreen({
           </div>
         </div>
       </section>
+
+      {usesAssignedChecksCompletionFlow(currentUser.role) && !canCompleteAuditAsAuditor(currentUser.role) ? (
+        <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
+          <h3 className="text-xl font-semibold tracking-tight text-slate-900">My assigned checks</h3>
+          <p className="mt-2 text-sm text-slate-600">
+            Checks scheduled for you. Start or continue when you are ready — submissions save to AuditResults.
+          </p>
+          <div className="mt-4">
+            {assignedChecksLoading ? (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-6 text-sm text-slate-600">
+                {ASSIGNED_CHECKS_LOADING_MESSAGE}
+              </div>
+            ) : assignedChecksLoadError ? (
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-6">
+                <p className="text-sm font-semibold text-rose-900">Could not load your checks</p>
+                <p className="mt-2 text-sm text-rose-800">{assignedChecksLoadError}</p>
+              </div>
+            ) : (
+              <AuditorChecksList audits={myAssignedChecks} drafts={drafts} onOpenAudit={onOpenAudit} />
+            )}
+          </div>
+        </section>
+      ) : null}
 
       <FormsChecksTemplatesPanel
         templates={templates}

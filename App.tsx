@@ -29,7 +29,9 @@ import {
   canAccessSchedulesScreen,
   canAccessQmsReadinessFull,
   canAccessQmsReadinessNav,
+  canCompleteAuditAsAuditor,
   canCompleteAssignedCheck,
+  usesAssignedChecksCompletionFlow,
   canEditLegalName,
   canRoleAccessNavItem,
   canSubmitAuditForReview,
@@ -309,11 +311,12 @@ import { pickNextAuditorAudit } from "./src/utils/auditorDashboard";
 import { mergeTextIntoNotes, syncTextResponsesToAnswers } from "./src/utils/checkCompletionHelpers";
 import {
   buildAvailableAuditFromTemplate,
+  buildAuditFromAssignedSchedule,
+  resolveAssignedCheckAuditId,
   isAuditorCompletableAccess,
   normalizeAuditAccessLevel,
   resolveCurrentUserReportEmails,
 } from "./src/utils/auditAccess";
-import { buildAuditsFromAssignedSchedules } from "./src/utils/assignedScheduleChecks";
 import {
   normalizeScheduleAssigneeIds,
   resolveScheduleAssigneeLabels,
@@ -2527,7 +2530,7 @@ function normalizeFolderName(value: string) {
 }
 
 function buildDefaultRoleNavVisibilityMatrix(): RoleNavVisibilityMatrix {
-  const roles: Role[] = ["Master", "Admin", "Manager", "Auditor", "User"];
+  const roles: Role[] = ["Master", "Admin", "Manager", "Auditor"];
   return roles.reduce((matrix, role) => {
     const visibility = navItems.reduce(
       (entry, item) => ({ ...entry, [item.id]: canRoleAccessNavItem(role, item.id) }),
@@ -2543,7 +2546,6 @@ function buildDefaultRoleSiteSelectorVisibility(): RoleSiteSelectorVisibility {
     Admin: true,
     Manager: true,
     Auditor: true,
-    User: true,
   };
 }
 
@@ -5044,16 +5046,49 @@ function App() {
       return siteScopedAudits.filter((audit) => !isAuditCompleted(audit));
     }
 
-    if (canCompleteAssignedCheck(currentUser.role)) {
+    if (usesAssignedChecksCompletionFlow(currentUser.role)) {
       const siteArea = resolveAccessibleAuditSiteArea();
       const selectedCompanyId = String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim();
-      return buildAuditsFromAssignedSchedules({
-        schedules: assignedChecksState.schedules,
-        templates,
-        siteArea,
-        owner: currentUser.name,
-        companyFolderId: selectedCompanyId,
+      const apiCompliance = complianceSchedulesFromManaged(assignedChecksState.schedules);
+      const built: Audit[] = [];
+      const seen = new Set<string>();
+
+      assignedChecksState.schedules.forEach((schedule) => {
+        schedule.audits.forEach((scheduleAudit) => {
+          const auditId = scheduleAudit.auditId;
+          const auditName = scheduleAudit.auditName;
+          const resolvedAuditId = resolveAssignedCheckAuditId(auditId, auditName);
+          const key = resolvedAuditId || auditName.trim().toLowerCase();
+          if (!key || seen.has(key)) {
+            return;
+          }
+          const nextDue = nearestNextDueDate(auditId, auditName, "", apiCompliance, selectedCompanyId);
+          const dueHours = nextDue ? computeDueHoursFromSchedule(nextDue) : 24;
+          const dueLabel =
+            !nextDue.trim()
+              ? "Available"
+              : dueHours < 0
+                ? "Overdue"
+                : dueHours <= 24
+                  ? "Due today"
+                  : "Upcoming";
+          seen.add(key);
+          built.push(
+            buildAuditFromAssignedSchedule({
+              auditId,
+              auditName,
+              scheduleName: schedule.scheduleName,
+              templates,
+              siteArea,
+              owner: currentUser.name,
+              dueLabel: dueLabel === "Available" ? "Available" : dueLabel,
+              dueHours,
+            }),
+          );
+        });
       });
+
+      return built;
     }
 
     const userEmails = resolveCurrentUserReportEmails(currentUser, companyReportUsers);
@@ -5131,7 +5166,7 @@ function App() {
       return false;
     });
 
-    if (!canCompleteAssignedCheck(currentUser.role)) {
+    if (!canCompleteAuditAsAuditor(currentUser.role)) {
       return applyScheduleDue(base);
     }
 
@@ -5204,21 +5239,12 @@ function App() {
       }
       const scheduleCompanyFolderId = String(schedule.companyFolderId || sessionCompanyFolderId).trim();
       schedule.audits.forEach((scheduleAudit) => {
-        const auditId = String(scheduleAudit.auditId || "").trim();
-        const auditName = String(scheduleAudit.auditName || "").trim();
-        const resolvedAuditId = auditId || auditName;
-        if (!resolvedAuditId) {
-          return;
-        }
-        const context: ActiveAssignedCheckContext = {
+        const auditId = resolveAssignedCheckAuditId(scheduleAudit.auditId, scheduleAudit.auditName);
+        map.set(auditId, {
           scheduleId,
-          auditId: resolvedAuditId,
+          auditId,
           companyFolderId: scheduleCompanyFolderId || sessionCompanyFolderId,
-        };
-        map.set(resolvedAuditId, context);
-        if (auditName) {
-          map.set(auditName.trim().toLowerCase(), context);
-        }
+        });
       });
     });
     return map;
@@ -5488,7 +5514,7 @@ function App() {
       masterSheetInput,
       companySheetSyncSheetId: companySheetSync?.sheetId,
     });
-    if (!currentUser || !canCompleteAssignedCheck(currentUser.role)) {
+    if (!currentUser || !usesAssignedChecksCompletionFlow(currentUser.role)) {
       setAssignedChecksState({ schedules: [], loading: false });
       return;
     }
@@ -10038,11 +10064,11 @@ function App() {
   };
 
   const startAudit = (auditId: string) => {
-    const completingAssignedCheck = Boolean(currentUser && canCompleteAssignedCheck(currentUser.role));
-    let audit = completingAssignedCheck
+    const assignedCheckCompleting = Boolean(currentUser && usesAssignedChecksCompletionFlow(currentUser.role));
+    let audit = assignedCheckCompleting
       ? assignedAudits.find((item) => item.id === auditId)
       : audits.find((item) => item.id === auditId);
-    if (!audit && !completingAssignedCheck) {
+    if (!audit && !assignedCheckCompleting) {
       const template = templates.find((item) => item.id === auditId && item.active);
       if (template) {
         const siteArea = selectedSite?.name || sites.find((site) => site.active)?.name || "Main site";
@@ -10056,12 +10082,12 @@ function App() {
       }
     }
     if (!audit) {
-      if (completingAssignedCheck) {
+      if (assignedCheckCompleting) {
         pushToast("Check not available", "This check is not assigned to you from My Checks.", "warning");
       }
       return;
     }
-    if (completingAssignedCheck) {
+    if (assignedCheckCompleting) {
       const assigned = assignedCheckByAuditId.get(auditId);
       if (!assigned) {
         pushToast("Check not available", "This check is not assigned to you from My Checks.", "warning");
@@ -10843,7 +10869,7 @@ function App() {
   };
 
   useEffect(() => {
-    if (!activeAudit || screen !== "complete" || !currentUser || !canCompleteAssignedCheck(currentUser.role)) {
+    if (!activeAudit || screen !== "complete" || !currentUser || !usesAssignedChecksCompletionFlow(currentUser.role)) {
       return;
     }
     const timer = window.setTimeout(() => {
@@ -13738,7 +13764,7 @@ function App() {
     if (
       currentUser &&
       screen === "sync" &&
-      !canCompleteAssignedCheck(currentUser.role) &&
+      !canCompleteAuditAsAuditor(currentUser.role) &&
       !canViewSyncCentre(currentUser.role)
     ) {
       setScreen(getHomeScreenForRole(currentUser.role));
@@ -13747,7 +13773,7 @@ function App() {
       currentUser &&
       screen === "complete" &&
       !activeAudit &&
-      !(canCompleteAssignedCheck(currentUser.role) && auditCompletionSummary)
+      !(canCompleteAuditAsAuditor(currentUser.role) && auditCompletionSummary)
     ) {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
@@ -14867,7 +14893,7 @@ function App() {
             currentUser.role !== "Master" &&
             currentUser.role !== "Admin" &&
             currentUser.role !== "Manager" &&
-            !canCompleteAssignedCheck(currentUser.role) ? (
+            !canCompleteAuditAsAuditor(currentUser.role) ? (
               <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 flex-1">
                   <h1 className={["text-xl font-semibold tracking-tight md:text-2xl", themeMode === "dark" ? "text-slate-100" : "text-slate-900"].join(" ")}>
@@ -15128,10 +15154,11 @@ function App() {
             )}
 
             {screen === "audits" &&
-              (canAccessAuditsCentre(currentUser.role) || canCompleteAssignedCheck(currentUser.role)) && (
+              (canAccessAuditsCentre(currentUser.role) || usesAssignedChecksCompletionFlow(currentUser.role)) && (
               <AuditsScreen
                 currentUser={currentUser}
-                audits={canCompleteAssignedCheck(currentUser.role) ? assignedAudits : siteScopedAudits}
+                audits={canCompleteAuditAsAuditor(currentUser.role) ? assignedAudits : siteScopedAudits}
+                myAssignedChecks={usesAssignedChecksCompletionFlow(currentUser.role) ? assignedAudits : []}
                 groupedAudits={groupedAudits}
                 drafts={drafts}
                 unsyncedAuditIds={unsyncedSubmittedAuditIds}
@@ -15142,13 +15169,13 @@ function App() {
                 auditScheduleMatrix={auditScheduleMatrix}
                 onToggleAuditAccess={handleToggleAuditAccess}
                 onNavigateToToday={
-                  canCompleteAssignedCheck(currentUser.role) ? () => setScreen("dashboard") : undefined
+                  canCompleteAuditAsAuditor(currentUser.role) ? () => setScreen("dashboard") : undefined
                 }
                 onNavigateToSubmit={
-                  canCompleteAssignedCheck(currentUser.role) ? () => setScreen("incidents") : undefined
+                  canCompleteAuditAsAuditor(currentUser.role) ? () => setScreen("incidents") : undefined
                 }
                 onNavigateToSchedules={
-                  canSubmitAuditForReview(currentUser.role) ? () => setScreen("schedules") : undefined
+                  !canCompleteAuditAsAuditor(currentUser.role) ? () => setScreen("schedules") : undefined
                 }
                 onNavigateToAuditBuilder={
                   canAccessWorkspaceNav(currentUser.role) ? () => setScreen("auditBuilder") : undefined
@@ -15378,7 +15405,7 @@ function App() {
               />
             )}
 
-            {screen === "sync" && canCompleteAssignedCheck(currentUser.role) && (
+            {screen === "sync" && canCompleteAuditAsAuditor(currentUser.role) && (
               <AuditorHistoryScreen
                 currentUserName={currentUser.name}
                 history={assignmentFilteredHistory}
@@ -15389,7 +15416,7 @@ function App() {
               />
             )}
 
-            {screen === "sync" && !canCompleteAssignedCheck(currentUser.role) && canViewSyncCentre(currentUser.role) && (
+            {screen === "sync" && !canCompleteAuditAsAuditor(currentUser.role) && canViewSyncCentre(currentUser.role) && (
               <SyncCentreScreen
                 currentUser={currentUser}
                 syncQueue={syncQueue}
@@ -15863,7 +15890,7 @@ function App() {
               />
             )}
 
-            {screen === "complete" && canCompleteAssignedCheck(currentUser.role) && auditCompletionSummary && (
+            {screen === "complete" && activeAudit && usesAssignedChecksCompletionFlow(currentUser.role) && auditCompletionSummary && (
               <AnimatedScreen screenKey={`audit-summary-${auditCompletionSummary.auditId}`}>
               <AuditCompletionSummary
                 offlineQueueCount={offlineQueue.length}
@@ -15898,7 +15925,7 @@ function App() {
               </AnimatedScreen>
             )}
 
-            {screen === "complete" && activeAudit && canCompleteAssignedCheck(currentUser.role) && !auditCompletionSummary && (
+            {screen === "complete" && activeAudit && usesAssignedChecksCompletionFlow(currentUser.role) && !auditCompletionSummary && (
               <CheckCompletionWizard
                 audit={activeAudit}
                 responses={responses}
@@ -15946,7 +15973,7 @@ function App() {
               />
             )}
 
-            {screen === "complete" && activeAudit && canSubmitAuditForReview(currentUser.role) && (
+            {screen === "complete" && activeAudit && canSubmitAuditForReview(currentUser.role) && !activeAssignedCheck && (
               <CompleteAuditScreen
                 audit={activeAudit}
                 responses={responses}

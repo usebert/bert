@@ -37,6 +37,8 @@ export type AuditScheduleMatrixInfo = {
 export type AuditsScreenProps = {
   currentUser: User;
   audits: Audit[];
+  /** Schedules assigned to the signed-in user (Admin/Manager hybrid Forms & checks view). */
+  myAssignedChecks?: Audit[];
   groupedAudits: Record<AuditStatus, Audit[]>;
   drafts: Record<string, AuditDraft>;
   unsyncedAuditIds: Set<string>;
