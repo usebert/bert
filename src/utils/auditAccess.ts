@@ -209,8 +209,8 @@ export function buildCompleteWorkAssignedAudits(input: {
 
   input.schedules.forEach((schedule) => {
     schedule.audits.forEach((scheduleAudit) => {
-      const auditId = scheduleAudit.auditId;
-      const auditName = scheduleAudit.auditName;
+      const auditId = String(scheduleAudit.auditId || "").trim();
+      const auditName = String(scheduleAudit.auditName || schedule.scheduleName || "Scheduled check").trim();
       const resolvedAuditId = resolveAssignedCheckAuditId(auditId, auditName);
       const key = resolvedAuditId || auditName.trim().toLowerCase();
       if (!key || seen.has(key)) {

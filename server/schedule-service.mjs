@@ -236,7 +236,7 @@ export async function resolveCompanyScheduleContext(auth, deps, input = {}) {
   let companyName = String(input.companyName || "").trim();
 
   let resolvedCompanyFolderId = companyFolderIdHint;
-  let masterSheetId = "";
+  let masterSheetId = String(input.masterSheetId || "").trim();
   let registryRecord = null;
 
   if (hasUsableGoogleAuth(auth) && companyFolderIdHint) {
@@ -250,7 +250,7 @@ export async function resolveCompanyScheduleContext(auth, deps, input = {}) {
       resolvedCompanyFolderId = String(
         folderResolved.companyFolderId || folderResolved.companyId || companyFolderIdHint,
       ).trim();
-      masterSheetId = String(folderResolved.masterSheetId).trim();
+      masterSheetId = masterSheetId || String(folderResolved.masterSheetId).trim();
       companyName = companyName || String(folderResolved.companyName || "").trim();
     }
   }
@@ -259,10 +259,10 @@ export async function resolveCompanyScheduleContext(auth, deps, input = {}) {
     masterSheetId = readCachedMasterSheetId(deps, companyFolderIdHint);
   }
 
-  if (!masterSheetId && (companyIdHint || companyFolderIdHint)) {
+  if (companyIdHint || companyFolderIdHint) {
     registryRecord = await resolveCompanyById(auth, deps, companyIdHint || companyFolderIdHint).catch(() => null);
     if (registryRecord) {
-      masterSheetId = String(registryRecord.masterSheetId || "").trim();
+      masterSheetId = masterSheetId || String(registryRecord.masterSheetId || "").trim();
       companyName =
         companyName ||
         String(registryRecord.companyName || registryRecord.name || registryRecord.companyFolderName || "").trim();

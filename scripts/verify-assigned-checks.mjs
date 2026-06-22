@@ -14,6 +14,12 @@ import {
   isScheduleAssignedToAnyEmail,
 } from "../shared/schedule-assignment.mjs";
 import { canCompleteAudit } from "../shared/schedule-assignees.mjs";
+import {
+  isActiveMyCheckScheduleStatus,
+  listMyChecks,
+  scheduleMatchesCompanyFolder,
+} from "../server/schedule-service.mjs";
+import { parseCompanyScheduleListFromRecords } from "../shared/schedule-list.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -178,5 +184,110 @@ assert(appSrc.includes("shouldLoadAssignedChecksScreen(screen)"), "8h1: App uses
 assert(checkService.includes("fetchJson"), "8e: assigned checks uses fetchJson diagnostics");
 assert(checkService.includes("loadErrorDetail"), "8f: assigned checks exposes load error detail");
 assert(!checkService.includes("error.message : ASSIGNED_CHECKS_USER_MESSAGE"), "8g: assigned checks does not surface raw NetworkError as primary message");
+assert(coreRoutes.includes("includeDiagnostics"), "8i: assigned-checks route supports diagnostics query");
+assert(coreRoutes.includes("signedInEmail"), "8j: assigned-checks diagnostics include signedInEmail");
+
+/** 10: Production fixture — icloud assignee + gf-check audit + folder id alternates. */
+{
+  const signedInEmail = "dovecotestudio@icloud.com";
+  const sessionFolderId = "dovecote-root-folder";
+  const registryCompanyId = "dovecote-company-id";
+  const scheduleRecords = [
+    {
+      "Schedule ID": "schedule-3",
+      "Company Folder ID": registryCompanyId,
+      "Schedule Name": "schdule 3",
+      Status: "ACTIVE",
+      "Assigned User Emails": "dovecotestudio@icloud.com",
+      "Assigned User Names": "Edward Thomas",
+      "Assigned User Roles": "Admin",
+      "Audit ID": "gf-check-dc-hs-audit",
+      "Template Name": "DC H&S Audit",
+      Frequency: "Weekly",
+    },
+  ];
+
+  const parsed = parseCompanyScheduleListFromRecords(scheduleRecords, sessionFolderId, [
+    sessionFolderId,
+    registryCompanyId,
+  ]);
+  assert(parsed.length === 1, "10: schedule parses for registry company folder id");
+  assert(isScheduleAssignedToUser(parsed[0], signedInEmail), "10b: icloud email matches assignedUserEmails");
+  assert(
+    parsed[0].assignedUsers.some((user) => user.email === signedInEmail && user.role === "Admin"),
+    "10c: assignedUsers includes Admin icloud email",
+  );
+  assert(
+    parsed[0].audits.some((audit) => audit.auditId.startsWith("gf-check") && audit.auditName === "DC H&S Audit"),
+    "10d: gf-check audit retained",
+  );
+  assert(!scheduleMatchesCompanyFolder(parsed[0], sessionFolderId), "10e: strict folder match fails without alternates");
+  assert(
+    scheduleMatchesCompanyFolder(parsed[0], sessionFolderId, [registryCompanyId]),
+    "10f: alternate company id resolves folder match",
+  );
+
+  const filtered = parsed.filter(
+    (schedule) =>
+      scheduleMatchesCompanyFolder(schedule, sessionFolderId, [sessionFolderId, registryCompanyId]) &&
+      isActiveMyCheckScheduleStatus(schedule) &&
+      isScheduleAssignedToUser(schedule, signedInEmail),
+  );
+  assert(filtered.length === 1, "10g: icloud Admin assigned to gf-check schedule passes My Checks filters");
+
+  const myChecks = await listMyChecks(
+    {},
+    {
+      readTabRecords: async () => ({
+        ok: true,
+        records: [{ ...scheduleRecords[0], "Company Folder ID": sessionFolderId }],
+        rowCount: 1,
+      }),
+      getTabValues: async () => [],
+      resolveCompanyFromFolder: async () => ({
+        ok: true,
+        companyFolderId: sessionFolderId,
+        companyId: sessionFolderId,
+        masterSheetId: "sheet-dovecote",
+      }),
+      masterSheetCache: {
+        getEntry: () => ({ masterSheetId: "sheet-dovecote" }),
+      },
+    },
+    {
+      email: signedInEmail,
+      companyFolderId: sessionFolderId,
+      masterSheetId: "sheet-dovecote",
+      includeDiagnostics: true,
+    },
+  );
+  assert(myChecks.ok, "10h: listMyChecks succeeds for icloud fixture");
+  assert(myChecks.schedules.length === 1, "10i: assigned schedule returned for icloud Admin");
+  assert(myChecks.diagnostics?.signedInEmail === signedInEmail, "10j: diagnostics include signedInEmail");
+  assert(Array.isArray(myChecks.diagnostics?.included) && myChecks.diagnostics.included.length === 1, "10k: diagnostics include assigned schedule");
+  const gfAudit = myChecks.schedules[0].audits.find((row) => row.auditName === "DC H&S Audit");
+  assert(gfAudit && gfAudit.auditId.startsWith("gf-check"), "10l: gf-check audit present in API schedules");
+
+  const cards = [];
+  for (const schedule of myChecks.schedules) {
+    for (const scheduleAudit of schedule.audits) {
+      const auditId = String(scheduleAudit.auditId || "").trim();
+      const auditName = String(scheduleAudit.auditName || schedule.scheduleName || "Scheduled check").trim();
+      if (!auditId && !auditName) {
+        continue;
+      }
+      cards.push({
+        id: auditId || auditName.toLowerCase().replace(/\s+/g, "-"),
+        name: auditName,
+      });
+    }
+  }
+  assert(
+    cards.some((card) => card.name === "DC H&S Audit" && card.id.startsWith("gf-check")),
+    "10m: Complete Work renders DC H&S Audit card with Start/Continue id",
+  );
+  assert(read("src/screens/AuditsScreen.tsx").includes('"Start"'), "10n: Complete Work UI exposes Start");
+  assert(read("src/screens/AuditsScreen.tsx").includes('"Continue"'), "10o: Complete Work UI exposes Continue");
+}
 
 console.log("[verify:assigned-checks] OK: assigned-check contract verified");

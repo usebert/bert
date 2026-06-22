@@ -111,6 +111,17 @@ assert(!isActiveMyCheckScheduleStatus({ status: "Archived" }), "30: archived exc
 
 assert(scheduleMatchesCompanyFolder({ companyFolderId }, companyFolderId), "31: company folder match");
 assert(!scheduleMatchesCompanyFolder({ companyFolderId: "other-folder" }, companyFolderId), "32: other folder excluded");
+assert(
+  scheduleMatchesCompanyFolder({ companyFolderId: "registry-company-id" }, companyFolderId, [
+    companyFolderId,
+    "registry-company-id",
+  ]),
+  "32b: alternate company id matches session folder",
+);
+assert(
+  !scheduleMatchesCompanyFolder({ companyFolderId: "registry-company-id" }, companyFolderId),
+  "32c: registry company id excluded without alternates",
+);
 
 const scheduleRecords = [
   {
