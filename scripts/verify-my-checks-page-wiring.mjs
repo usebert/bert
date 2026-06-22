@@ -37,6 +37,16 @@ assert(
   /useEffect\([\s\S]{0,4500}fetchAssignedChecks/.test(appTsx),
   "1e: page load uses session company context + fetchAssignedChecks",
 );
+assert(
+  /screen === "audits"[\s\S]{0,2200}fetchAssignedChecks/.test(appTsx),
+  "1e2: Complete Work screen loads assigned checks",
+);
+assert(
+  /screen !== "schedules"[\s\S]{0,2200}listCompanySchedules/.test(appTsx),
+  "1e3: company schedules list loads only on Schedules screen",
+);
+assert(read("src/utils/auditAccess.ts").includes("buildCompleteWorkAssignedAudits"), "1e4: assigned checks builder is API-only");
+assert(!appTsx.includes("companySchedulesState.loadError") || !/AuditsScreen[\s\S]{0,400}companySchedulesState/.test(appTsx), "1e5: Complete Work does not wire company schedule list errors");
 assert(!checkService.includes("isScheduleAssignedToUser"), "1f: client does not filter schedules by email");
 assert(!checkService.includes("listCompanySchedules"), "1g: client does not list all schedules for My Checks");
 
@@ -61,9 +71,10 @@ assert(
   /usesAssignedChecksCompletionFlow\(currentUser\.role\)[\s\S]{0,1200}assignedChecksState\.schedules/.test(appTsx),
   "4: assigned audits built from API schedules for all completable roles",
 );
-assert(appTsx.includes("buildAuditFromAssignedSchedule"), "4d: App builds actionable audits from assigned schedules");
+assert(appTsx.includes("buildCompleteWorkAssignedAudits"), "4d: App builds Complete Work audits from assigned-checks API");
 assert(auditsScreen.includes("myAssignedChecks"), "4e: AuditsScreen accepts myAssignedChecks for Admin/Manager");
 assert(auditsScreen.includes("My assigned checks"), "4f: Admin/Manager see assigned checks action section");
+assert(auditsScreen.includes("audits={myAssignedChecks}"), "4g: Auditor My Checks renders from myAssignedChecks prop");
 {
   const fetchAssignedChecksCall =
     appTsx.match(/await fetchAssignedChecks\([\s\S]{0,500}\);/)?.[0] ?? "";

@@ -311,7 +311,7 @@ import { pickNextAuditorAudit } from "./src/utils/auditorDashboard";
 import { mergeTextIntoNotes, syncTextResponsesToAnswers } from "./src/utils/checkCompletionHelpers";
 import {
   buildAvailableAuditFromTemplate,
-  buildAuditFromAssignedSchedule,
+  buildCompleteWorkAssignedAudits,
   resolveAssignedCheckAuditId,
   isAuditorCompletableAccess,
   normalizeAuditAccessLevel,
@@ -5042,54 +5042,40 @@ function App() {
     return firstActiveSite?.name || "Main site";
   };
 
+  const completeWorkAssignedAudits = useMemo(() => {
+    if (!currentUser || !usesAssignedChecksCompletionFlow(currentUser.role)) {
+      return [];
+    }
+    const siteArea = resolveAccessibleAuditSiteArea();
+    const selectedCompanyId = String(
+      assignedChecksState.companyFolderId || activeCompanyContext.companyFolderId || selectedFolderId || "",
+    ).trim();
+    return buildCompleteWorkAssignedAudits({
+      schedules: assignedChecksState.schedules,
+      templates,
+      siteArea,
+      owner: currentUser.name,
+      companyFolderId: selectedCompanyId,
+    });
+  }, [
+    currentUser,
+    assignedChecksState.schedules,
+    assignedChecksState.companyFolderId,
+    templates,
+    activeCompanyContext.companyFolderId,
+    selectedFolderId,
+    sites,
+    currentUserAssignedSiteIds,
+    areaRestrictionsEnabled,
+  ]);
+
   const assignedAudits = useMemo(() => {
     if (!currentUser) {
       return siteScopedAudits.filter((audit) => !isAuditCompleted(audit));
     }
 
     if (usesAssignedChecksCompletionFlow(currentUser.role)) {
-      const siteArea = resolveAccessibleAuditSiteArea();
-      const selectedCompanyId = String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim();
-      const apiCompliance = complianceSchedulesFromManaged(assignedChecksState.schedules);
-      const built: Audit[] = [];
-      const seen = new Set<string>();
-
-      assignedChecksState.schedules.forEach((schedule) => {
-        schedule.audits.forEach((scheduleAudit) => {
-          const auditId = scheduleAudit.auditId;
-          const auditName = scheduleAudit.auditName;
-          const resolvedAuditId = resolveAssignedCheckAuditId(auditId, auditName);
-          const key = resolvedAuditId || auditName.trim().toLowerCase();
-          if (!key || seen.has(key)) {
-            return;
-          }
-          const nextDue = nearestNextDueDate(auditId, auditName, "", apiCompliance, selectedCompanyId);
-          const dueHours = nextDue ? computeDueHoursFromSchedule(nextDue) : 24;
-          const dueLabel =
-            !nextDue.trim()
-              ? "Available"
-              : dueHours < 0
-                ? "Overdue"
-                : dueHours <= 24
-                  ? "Due today"
-                  : "Upcoming";
-          seen.add(key);
-          built.push(
-            buildAuditFromAssignedSchedule({
-              auditId,
-              auditName,
-              scheduleName: schedule.scheduleName,
-              templates,
-              siteArea,
-              owner: currentUser.name,
-              dueLabel: dueLabel === "Available" ? "Available" : dueLabel,
-              dueHours,
-            }),
-          );
-        });
-      });
-
-      return built;
+      return completeWorkAssignedAudits;
     }
 
     const userEmails = resolveCurrentUserReportEmails(currentUser, companyReportUsers);
@@ -5212,6 +5198,7 @@ function App() {
   }, [
     siteScopedAudits,
     currentUser,
+    completeWorkAssignedAudits,
     currentUserAuditAccess,
     availableScheduleAudits,
     templates,
@@ -5519,9 +5506,11 @@ function App() {
       setAssignedChecksState({ schedules: [], loading: false });
       return;
     }
-    const canLoadAssignedChecks = Boolean(companyId) && masterCompanyWorkspaceDataMatchesSelection;
-    if (!canLoadAssignedChecks) {
-      setAssignedChecksState({ schedules: [], loading: false });
+    const shouldLoadAssignedChecks =
+      (screen === "audits" || screen === "dashboard") &&
+      Boolean(companyId) &&
+      masterCompanyWorkspaceDataMatchesSelection;
+    if (!shouldLoadAssignedChecks) {
       return;
     }
 
@@ -5530,7 +5519,12 @@ function App() {
     const timeoutId = window.setTimeout(() => {
       controller.abort(new DOMException("Assigned checks load timed out", "TimeoutError"));
     }, ASSIGNED_CHECKS_LOAD_TIMEOUT_MS);
-    setAssignedChecksState({ schedules: [], loading: true, loadError: undefined, loadErrorDetail: undefined });
+    setAssignedChecksState((previous) => ({
+      ...previous,
+      loading: true,
+      loadError: undefined,
+      loadErrorDetail: undefined,
+    }));
 
     void (async () => {
       try {
@@ -5540,12 +5534,13 @@ function App() {
           return;
         }
         if (!result.ok) {
-          setAssignedChecksState({
-            schedules: [],
+          setAssignedChecksState((previous) => ({
+            ...previous,
+            schedules: previous.schedules,
             loading: false,
             loadError: result.loadError || ASSIGNED_CHECKS_USER_MESSAGE,
             loadErrorDetail: result.loadErrorDetail,
-          });
+          }));
           return;
         }
 
@@ -5564,21 +5559,23 @@ function App() {
         if (error instanceof DOMException && error.name === "AbortError") {
           const timedOut = error.message.includes("timed out") || error.message === "TimeoutError";
           if (timedOut) {
-            setAssignedChecksState({
-              schedules: [],
+            setAssignedChecksState((previous) => ({
+              ...previous,
+              schedules: previous.schedules,
               loading: false,
               loadError: ASSIGNED_CHECKS_LOAD_TIMEOUT_MESSAGE,
               loadErrorDetail: `GET ${apiUrl("/api/me/assigned-checks")} → request timed out`,
-            });
+            }));
           }
           return;
         }
-        setAssignedChecksState({
-          schedules: [],
+        setAssignedChecksState((previous) => ({
+          ...previous,
+          schedules: previous.schedules,
           loading: false,
           loadError: ASSIGNED_CHECKS_USER_MESSAGE,
           loadErrorDetail: error instanceof Error ? error.message : undefined,
-        });
+        }));
       } finally {
         window.clearTimeout(timeoutId);
       }
@@ -5590,7 +5587,7 @@ function App() {
       controller.abort();
     };
   }, [
-    googleConnected,
+    screen,
     currentUser,
     masterCompanyWorkspaceDataMatchesSelection,
     activeCompanyContext.companyFolderId,
@@ -6208,6 +6205,9 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (screen !== "schedules") {
+      return;
+    }
     const { companyId, masterSheetId, companyName } = resolveCompanyMembersLoadContext({
       activeCompanyContext,
       selectedFolderId: selectedFolder?.id,
@@ -6286,6 +6286,7 @@ function App() {
       controller.abort();
     };
   }, [
+    screen,
     googleConnected,
     currentUser?.role,
     masterCompanyWorkspaceDataMatchesSelection,
@@ -15162,8 +15163,8 @@ function App() {
               (canAccessAuditsCentre(currentUser.role) || usesAssignedChecksCompletionFlow(currentUser.role)) && (
               <AuditsScreen
                 currentUser={currentUser}
-                audits={canCompleteAuditAsAuditor(currentUser.role) ? assignedAudits : siteScopedAudits}
-                myAssignedChecks={usesAssignedChecksCompletionFlow(currentUser.role) ? assignedAudits : []}
+                audits={canCompleteAuditAsAuditor(currentUser.role) ? completeWorkAssignedAudits : siteScopedAudits}
+                myAssignedChecks={completeWorkAssignedAudits}
                 groupedAudits={groupedAudits}
                 drafts={drafts}
                 unsyncedAuditIds={unsyncedSubmittedAuditIds}

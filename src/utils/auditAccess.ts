@@ -1,8 +1,13 @@
 import type { AuditAccessLevel } from "../types/auditsScreenProps";
-import type { Audit, AuditQuestion, AuditTemplate } from "../types/reportsScreenProps";
+import type { Audit, AuditQuestion, AuditTemplate, ManagedSchedule } from "../types/reportsScreenProps";
 import type { User } from "../types/dashboardScreenProps";
 import { GOOGLE_FORM_IMPORT_STATUS } from "./googleFormImportQuestions";
 import { buildGoogleFormImportQuestions } from "./googleFormImportQuestions";
+import {
+  complianceSchedulesFromManaged,
+  computeDueHoursFromSchedule,
+  nearestNextDueDate,
+} from "./complianceSchedule";
 
 export type CompanyReportUserLike = {
   name: string;
@@ -187,4 +192,55 @@ export function buildAuditFromAssignedSchedule(input: {
     lastCompletedAt: "Not yet completed",
     questions: buildGoogleFormImportQuestions(auditName),
   };
+}
+
+/** Complete Work / My Checks — built only from GET /api/me/assigned-checks schedules. */
+export function buildCompleteWorkAssignedAudits(input: {
+  schedules: ManagedSchedule[];
+  templates: AuditTemplate[];
+  siteArea: string;
+  owner: string;
+  companyFolderId?: string;
+}): Audit[] {
+  const apiCompliance = complianceSchedulesFromManaged(input.schedules);
+  const selectedCompanyId = String(input.companyFolderId || "").trim();
+  const built: Audit[] = [];
+  const seen = new Set<string>();
+
+  input.schedules.forEach((schedule) => {
+    schedule.audits.forEach((scheduleAudit) => {
+      const auditId = scheduleAudit.auditId;
+      const auditName = scheduleAudit.auditName;
+      const resolvedAuditId = resolveAssignedCheckAuditId(auditId, auditName);
+      const key = resolvedAuditId || auditName.trim().toLowerCase();
+      if (!key || seen.has(key)) {
+        return;
+      }
+      const nextDue = nearestNextDueDate(auditId, auditName, "", apiCompliance, selectedCompanyId);
+      const dueHours = nextDue ? computeDueHoursFromSchedule(nextDue) : 24;
+      const dueLabel =
+        !nextDue.trim()
+          ? "Available"
+          : dueHours < 0
+            ? "Overdue"
+            : dueHours <= 24
+              ? "Due today"
+              : "Upcoming";
+      seen.add(key);
+      built.push(
+        buildAuditFromAssignedSchedule({
+          auditId,
+          auditName,
+          scheduleName: schedule.scheduleName,
+          templates: input.templates,
+          siteArea: input.siteArea,
+          owner: input.owner,
+          dueLabel: dueLabel === "Available" ? "Available" : dueLabel,
+          dueHours,
+        }),
+      );
+    });
+  });
+
+  return built;
 }

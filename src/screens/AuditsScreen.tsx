@@ -522,7 +522,7 @@ export function AuditsScreen({
           <AssignedChecksLoadError loadError={assignedChecksLoadError} loadErrorDetail={assignedChecksLoadErrorDetail} />
         ) : (
           <AuditorChecksList
-            audits={audits}
+            audits={myAssignedChecks}
             drafts={drafts}
             onOpenAudit={onOpenAudit}
             onNavigateToToday={onNavigateToToday}
