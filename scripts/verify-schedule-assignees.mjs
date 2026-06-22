@@ -9,6 +9,7 @@ import {
   belongsToCurrentCompany,
   canCompleteAudit,
   isActiveUser,
+  isFoundationVerifyUserEmail,
 } from "../shared/schedule-assignees.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -358,4 +359,44 @@ assert(schedulesScreenSrc.includes("companyAreas"), "14n: schedule UI shows comp
   );
 }
 
-console.log("[verify:schedule-assignees] OK: all 15 schedule assignee cases passed");
+/** 16: Foundation verifier emails excluded from UI-facing assignees. */
+{
+  assert(isFoundationVerifyUserEmail("verify.foundation+123@usebert.co.uk"), "16: foundation verify email detected");
+  const mixed = buildAvailableScheduleAssigneesFromUsers(
+    [
+      activeAdmin,
+      {
+        email: "verify.foundation+123@usebert.co.uk",
+        name: "Foundation Verify User",
+        role: "Admin",
+        accessLevel: "full",
+        status: "ACTIVE",
+        companyId: ownCompany,
+        companyAreas: [],
+      },
+    ],
+    { companyId: ownCompany, includeDiagnostics: true },
+  );
+  assert(!mixed.assignees.some((item) => item.email.includes("verify.foundation+")), "16b: foundation verify users excluded");
+  assert(mixed.assignees.some((item) => item.email === activeAdmin.email), "16c: real users retained");
+  assert((mixed.diagnostics?.excludedFoundationVerifyUsers || 0) >= 1, "16d: diagnostics count foundation verify exclusions");
+}
+
+const scheduleServiceModule = read("server/schedule-service.mjs");
+const frontendScheduleService = read("src/services/scheduleService.ts");
+assert(scheduleServiceModule.includes("loadSchedulerAssigneeProfiles"), "17: scheduler assignee loader helper");
+assert(scheduleServiceModule.includes("readActiveUsersFromSheetWithStats"), "17b: fast Users tab read when context known");
+assert(scheduleServiceModule.includes("companyUsersCache"), "17c: server users cache may accelerate assignees");
+assert(
+  scheduleAssigneesSrc.includes("if (context.loading)") &&
+    /if \(context\.loading\)[\s\S]{0,120}Loading assignable users/.test(scheduleAssigneesSrc),
+  "17d: loading message takes precedence over stale load errors",
+);
+assert(appSrc.includes("readScheduleAssigneesCache"), "17e: App warms assignees from localStorage cache");
+assert(appSrc.includes("writeScheduleAssigneesCache"), "17f: App persists assignees cache after successful load");
+assert(
+  frontendScheduleService.includes("SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS = 90_000"),
+  "17g: frontend assignee timeout allows slow workbook reads",
+);
+
+console.log("[verify:schedule-assignees] OK: all schedule assignee cases passed");

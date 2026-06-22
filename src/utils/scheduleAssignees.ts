@@ -510,11 +510,11 @@ export function resolveScheduleAssigneeEmptyMessage(
     warning?: string;
   },
 ): string {
-  if (context.loadError?.trim()) {
-    return context.loadError.trim();
-  }
   if (context.loading) {
     return "Loading assignable users…";
+  }
+  if (context.loadError?.trim()) {
+    return context.loadError.trim();
   }
   if (assignees.length > 0) {
     return context.warning?.trim() || "";

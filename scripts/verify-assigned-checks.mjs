@@ -110,7 +110,8 @@ assert(complianceSrc.includes("getScheduleAssignedEmails"), "4e: compliance sche
 assert(scheduleSaveSrc.includes("getScheduleAssignedEmails"), "4f: schedule save uses helper");
 assert(read("src/permissions.ts").includes("canCompleteAssignedCheck"), "4g: completion permission helper exists");
 assert(read("src/utils/scheduleAssignees.ts").includes("deriveScheduleAssigneesFromCompanyMembers"), "4h: assignees helper retained for diagnostics");
-assert(!appSrc.includes("readScheduleAssigneesCache"), "4i: App does not read assignee localStorage cache");
+assert(appSrc.includes("readScheduleAssigneesCache"), "4i: App reads assignee localStorage cache while loading");
+assert(appSrc.includes("writeScheduleAssigneesCache"), "4i1: App writes assignee localStorage cache after load");
 assert(!appSrc.includes("readCompanyMembersCache"), "4i2: App does not read company members localStorage cache");
 assert(appSrc.includes("fetchScheduleAssignees"), "4i3: App loads schedule assignees from schedule-assignees API");
 assert(appSrc.includes("listCompanySchedules"), "4j: App loads company schedules via shared list service");

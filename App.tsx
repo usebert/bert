@@ -317,6 +317,8 @@ import {
   normalizeScheduleAssigneeIds,
   resolveScheduleAssigneeLabels,
   resolveScheduleAssigneeEmptyMessage,
+  readScheduleAssigneesCache,
+  writeScheduleAssigneesCache,
   type ScheduleAssigneeDiagnostics,
   type ScheduleAssigneeOption,
 } from "./src/utils/scheduleAssignees";
@@ -5396,11 +5398,15 @@ function App() {
 
     const controller = new AbortController();
     let cancelled = false;
+    const selectedArea = scheduleBuilderAreaFilter.trim();
+    const cachedAssignees = readScheduleAssigneesCache(storageKeys.scheduleAssigneesCache, companyId, selectedArea);
     const timeoutId = window.setTimeout(() => {
       controller.abort(new DOMException("Schedule assignees load timed out", "TimeoutError"));
     }, SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS);
     setScheduleAssigneesState({
-      assignees: [],
+      assignees: cachedAssignees?.assignees?.length ? cachedAssignees.assignees : [],
+      diagnostics: cachedAssignees?.diagnostics,
+      warning: cachedAssignees?.warning,
       loading: true,
       loadError: undefined,
     });
@@ -5417,7 +5423,7 @@ function App() {
             companyName,
           },
           {
-            selectedArea: scheduleBuilderAreaFilter.trim(),
+            selectedArea,
             includeDiagnostics,
             signal: controller.signal,
           },
@@ -5427,20 +5433,32 @@ function App() {
           return;
         }
         if (!result.ok) {
-          setScheduleAssigneesState({
-            assignees: [],
+          setScheduleAssigneesState((previous) => ({
+            assignees: previous.assignees.length > 0 ? previous.assignees : [],
             loadError: result.loadError || SCHEDULE_ASSIGNEES_USER_MESSAGE,
             loadErrorDetail: result.loadErrorDetail,
+            diagnostics: previous.diagnostics,
+            warning: previous.warning,
             loading: false,
-          });
+          }));
           return;
         }
+
+        writeScheduleAssigneesCache(storageKeys.scheduleAssigneesCache, {
+          companyId,
+          area: selectedArea,
+          assignees: result.assignees,
+          diagnostics: result.diagnostics,
+          warning: result.warning,
+          cachedAt: Date.now(),
+        });
 
         setScheduleAssigneesState({
           assignees: result.assignees,
           warning: result.warning,
           diagnostics: result.diagnostics,
           loading: false,
+          loadError: undefined,
         });
       } catch (error) {
         if (cancelled) {
@@ -5449,21 +5467,28 @@ function App() {
         if (error instanceof DOMException && error.name === "AbortError") {
           const timedOut = error.message.includes("timed out") || error.message === "TimeoutError";
           if (timedOut) {
-            setScheduleAssigneesState({
-              assignees: [],
-              loadError: SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MESSAGE,
-              loadErrorDetail: SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MESSAGE,
+            setScheduleAssigneesState((previous) => ({
+              assignees: previous.assignees.length > 0 ? previous.assignees : [],
+              loadError:
+                previous.assignees.length > 0 ? undefined : SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MESSAGE,
+              loadErrorDetail:
+                previous.assignees.length > 0 ? undefined : SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MESSAGE,
+              diagnostics: previous.diagnostics,
+              warning: previous.warning,
               loading: false,
-            });
+            }));
           }
           return;
         }
-        setScheduleAssigneesState({
-          assignees: [],
-          loadError: SCHEDULE_ASSIGNEES_USER_MESSAGE,
-          loadErrorDetail: error instanceof Error ? error.message : SCHEDULE_ASSIGNEES_USER_MESSAGE,
+        setScheduleAssigneesState((previous) => ({
+          assignees: previous.assignees.length > 0 ? previous.assignees : [],
+          loadError: previous.assignees.length > 0 ? undefined : SCHEDULE_ASSIGNEES_USER_MESSAGE,
+          loadErrorDetail:
+            error instanceof Error ? error.message : SCHEDULE_ASSIGNEES_USER_MESSAGE,
+          diagnostics: previous.diagnostics,
+          warning: previous.warning,
           loading: false,
-        });
+        }));
       } finally {
         window.clearTimeout(timeoutId);
       }

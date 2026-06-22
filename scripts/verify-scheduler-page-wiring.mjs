@@ -36,7 +36,8 @@ assert(
   "1d: page load uses session company context + fetchScheduleAssignees",
 );
 assert(!appTsx.includes("deriveScheduleAssigneesFromCompanyMembers"), "1e: App does not derive assignees locally");
-assert(!appTsx.includes("readScheduleAssigneesCache"), "1f: no assignee localStorage cache");
+assert(appTsx.includes("readScheduleAssigneesCache"), "1f: assignee localStorage cache used while loading");
+assert(appTsx.includes("writeScheduleAssigneesCache"), "1f2: assignee localStorage cache updated after load");
 assert(!appTsx.includes("buildAvailableScheduleAssignees("), "1g: no local assignee filtering in App");
 
 /** 2: Schedules list + save — company API routes. */

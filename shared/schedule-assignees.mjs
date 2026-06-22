@@ -14,6 +14,19 @@ export function normalize(value) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+/** Live foundation verifier accounts — excluded from UI-facing schedule assignee pickers. */
+export const FOUNDATION_VERIFY_EMAIL_DOMAIN = "usebert.co.uk";
+export const FOUNDATION_VERIFY_EMAIL_LOCAL_PREFIX = "verify.foundation+";
+
+export function isFoundationVerifyUserEmail(email) {
+  const normalized = normalize(email);
+  if (!normalized || !normalized.endsWith(`@${FOUNDATION_VERIFY_EMAIL_DOMAIN}`)) {
+    return false;
+  }
+  const localPart = normalized.split("@")[0] || "";
+  return localPart.startsWith(FOUNDATION_VERIFY_EMAIL_LOCAL_PREFIX);
+}
+
 export function parseCompanyAreasList(value) {
   return String(value ?? "")
     .split(",")
@@ -149,6 +162,7 @@ export function buildScheduleAssigneeDiagnostics(users, options = {}) {
     excludedByCompany: 0,
     excludedByArea: 0,
     excludedNotAssignable: 0,
+    excludedFoundationVerifyUsers: 0,
     finalCount: 0,
     candidates: [],
   };
@@ -166,6 +180,13 @@ export function buildScheduleAssigneeDiagnostics(users, options = {}) {
       normalizedStatus: normalize(snapshot.status),
       excludedReason: null,
     };
+
+    if (isFoundationVerifyUserEmail(snapshot.email)) {
+      diagnostics.excludedFoundationVerifyUsers += 1;
+      entry.excludedReason = "foundation_verify_user";
+      diagnostics.candidates.push(entry);
+      continue;
+    }
 
     if (!isListableCompanyProfile(user)) {
       diagnostics.excludedByStatus += 1;
@@ -234,6 +255,10 @@ export function buildAvailableScheduleAssigneesFromUsers(users, options = {}) {
   for (const user of users) {
     const email = String(user.email ?? user.Email ?? "").trim();
     if (!email) {
+      continue;
+    }
+
+    if (isFoundationVerifyUserEmail(email)) {
       continue;
     }
 
