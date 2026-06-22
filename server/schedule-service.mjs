@@ -22,7 +22,7 @@ import {
   assignedUsersFromSchedule,
   buildSchedulesTabRows,
 } from "../shared/schedule-save.mjs";
-import { isScheduleAssignedToUser } from "../shared/schedule-assignment.mjs";
+import { getScheduleAssignedEmails, isScheduleAssignedToUser } from "../shared/schedule-assignment.mjs";
 import { buildAvailableScheduleAssigneesFromUsers } from "../shared/schedule-assignees.mjs";
 import { readActiveUsersFromSheetWithStats } from "./company-user-sheet-flow.mjs";
 import { syncCompanyUsersCache } from "./company-users-foundation.mjs";
@@ -351,16 +351,20 @@ export function isActiveMyCheckScheduleStatus(schedule = {}) {
   return status === "active" || status === "live" || status === "scheduled";
 }
 
-export function scheduleMatchesCompanyFolder(schedule = {}, companyFolderId = "") {
-  const target = String(companyFolderId || "").trim();
-  if (!target) {
+export function scheduleMatchesCompanyFolder(schedule = {}, companyFolderId = "", alternateIds = []) {
+  const targets = new Set(
+    [companyFolderId, ...(Array.isArray(alternateIds) ? alternateIds : [])]
+      .map((entry) => String(entry || "").trim())
+      .filter(Boolean),
+  );
+  if (targets.size === 0) {
     return true;
   }
   const rowId = String(schedule.companyFolderId || schedule.companyId || "").trim();
   if (!rowId) {
     return true;
   }
-  return rowId === target;
+  return targets.has(rowId);
 }
 
 function resolveRowsToRecords(deps) {
@@ -740,26 +744,64 @@ export async function listSchedulerAssignees(auth, deps, companyContext = {}) {
 export async function listMyChecks(auth, deps, input = {}) {
   const email = normalizeEmail(input.email || input.userEmail);
   const companyFolderId = String(input.companyFolderId || input.companyId || "").trim();
+  const includeDiagnostics = input.includeDiagnostics === true;
   const listed = await listCompanySchedules(auth, deps, {
     companyFolderId,
     companyId: companyFolderId,
     companyName: String(input.companyName || "").trim(),
+    masterSheetId: String(input.masterSheetId || "").trim(),
   });
   if (!listed.ok) {
     return listed;
   }
 
+  const alternateIds = Array.isArray(listed.alternateIds) ? listed.alternateIds : [];
+  const excluded = [];
   const schedules = (listed.schedules || []).filter((schedule) => {
-    if (!scheduleMatchesCompanyFolder(schedule, companyFolderId)) {
+    if (!scheduleMatchesCompanyFolder(schedule, companyFolderId, alternateIds)) {
+      if (includeDiagnostics) {
+        excluded.push({
+          scheduleId: schedule.id,
+          scheduleName: schedule.scheduleName,
+          reason: "company_folder_mismatch",
+          scheduleCompanyFolderId: String(schedule.companyFolderId || schedule.companyId || "").trim(),
+          assignedUserEmails: getScheduleAssignedEmails(schedule),
+          status: schedule.status,
+          lifecycle: schedule.lifecycle,
+        });
+      }
       return false;
     }
     if (!isActiveMyCheckScheduleStatus(schedule)) {
+      if (includeDiagnostics) {
+        excluded.push({
+          scheduleId: schedule.id,
+          scheduleName: schedule.scheduleName,
+          reason: "inactive_status",
+          assignedUserEmails: getScheduleAssignedEmails(schedule),
+          status: schedule.status,
+          lifecycle: schedule.lifecycle,
+        });
+      }
       return false;
     }
-    return isScheduleAssignedToUser(schedule, email);
+    if (!isScheduleAssignedToUser(schedule, email)) {
+      if (includeDiagnostics) {
+        excluded.push({
+          scheduleId: schedule.id,
+          scheduleName: schedule.scheduleName,
+          reason: "not_assigned",
+          assignedUserEmails: getScheduleAssignedEmails(schedule),
+          status: schedule.status,
+          lifecycle: schedule.lifecycle,
+        });
+      }
+      return false;
+    }
+    return true;
   });
 
-  return {
+  const result = {
     ok: true,
     companyId: listed.companyId,
     companyFolderId: listed.companyFolderId,
@@ -767,6 +809,33 @@ export async function listMyChecks(auth, deps, input = {}) {
     masterSheetId: listed.masterSheetId,
     schedules,
   };
+
+  if (includeDiagnostics) {
+    result.diagnostics = {
+      signedInEmail: email,
+      companyFolderId,
+      alternateIds,
+      masterSheetId: listed.masterSheetId,
+      totalListed: (listed.schedules || []).length,
+      includedCount: schedules.length,
+      excluded,
+      included: schedules.map((schedule) => ({
+        scheduleId: schedule.id,
+        scheduleName: schedule.scheduleName,
+        assignedUserEmails: getScheduleAssignedEmails(schedule),
+        assignedUsers: Array.isArray(schedule.assignedUsers) ? schedule.assignedUsers : [],
+        audits: (schedule.audits || []).map((audit) => ({
+          auditId: audit.auditId,
+          auditName: audit.auditName,
+        })),
+        status: schedule.status,
+        lifecycle: schedule.lifecycle,
+        companyFolderId: String(schedule.companyFolderId || schedule.companyId || "").trim(),
+      })),
+    };
+  }
+
+  return result;
 }
 
 /** @deprecated Prefer listMyChecks — filters by email only (no status/company gate). */

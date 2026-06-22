@@ -193,6 +193,35 @@ export function buildSchedulesTabRows(schedule = {}, assignedUsers = []) {
   }));
 }
 
+function assignedUsersFromJsonField(record = {}) {
+  const jsonRaw = extractField(record, ["assigned users json", "assignedusersjson"]);
+  if (!jsonRaw) {
+    return [];
+  }
+  try {
+    const parsed = typeof jsonRaw === "string" ? JSON.parse(jsonRaw) : jsonRaw;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .map((entry) =>
+        normalizeAssignedUser(
+          typeof entry === "string"
+            ? { email: entry }
+            : {
+                email: entry?.email,
+                name: entry?.name,
+                role: entry?.role,
+                accessLevel: entry?.accessLevel,
+              },
+        ),
+      )
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 export function parseAssignedUsersFromRecord(record = {}) {
   const emailsRaw = extractField(record, ["assigned user emails", "assigneduseremails"]);
   if (emailsRaw) {
@@ -216,6 +245,11 @@ export function parseAssignedUsersFromRecord(record = {}) {
         }),
       )
       .filter(Boolean);
+  }
+
+  const fromJson = assignedUsersFromJsonField(record);
+  if (fromJson.length > 0) {
+    return fromJson;
   }
 
   const legacyRaw = extractField(record, ["auditors", "auditor emails", "assigned auditors", "auditor"]);

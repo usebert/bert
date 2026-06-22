@@ -617,12 +617,18 @@ export function installCoreWorkflowRoutes(app, deps) {
       return res.status(403).json(folderDenial);
     }
 
+    const includeDiagnostics =
+      String(req.query.diagnostics || "").trim() === "1" ||
+      String(process.env.BERT_GODMODE_DIAGNOSTICS || "").trim().toLowerCase() === "true";
+
     try {
       const result = await listAssignedChecks(authed, { ...registryDeps, ...scheduleDeps }, {
         email: signedInEmail,
         companyFolderId,
         companyId: companyFolderId,
         companyName: String(actor?.companyName || "").trim(),
+        masterSheetId: String(actor?.masterSheetId || "").trim(),
+        includeDiagnostics,
       });
 
       if (!result.ok) {
@@ -642,6 +648,7 @@ export function installCoreWorkflowRoutes(app, deps) {
         companyName: result.companyName,
         masterSheetId: result.masterSheetId,
         schedules: result.schedules,
+        ...(includeDiagnostics && result.diagnostics ? { diagnostics: result.diagnostics } : {}),
       });
     } catch (error) {
       return res.status(500).json({

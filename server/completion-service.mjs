@@ -202,7 +202,7 @@ export async function verifyScheduleCompletionEligibility(auth, deps, input = {}
   }
 
   const schedule = scheduleResult.schedule;
-  if (!scheduleMatchesCompanyFolder(schedule, companyFolderId)) {
+  if (!scheduleMatchesCompanyFolder(schedule, companyFolderId, context.alternateIds || [])) {
     return {
       ok: false,
       code: "SCHEDULE_WRONG_COMPANY",
