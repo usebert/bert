@@ -134,6 +134,7 @@ import {
 import { installGodmodeRegistryActionRoutes, relinkCompanyRegistryForWorkspace } from "./godmode-registry-actions.mjs";
 import { createBackgroundJobsService } from "./background-jobs-service.mjs";
 import { BACKGROUND_INVITE_CREATED_MESSAGE } from "../shared/background-jobs.mjs";
+import { SCHEDULES_TAB_COLUMNS } from "../shared/schedule-save.mjs";
 import { isKnownStaleAuthIndexPairing } from "../shared/auth-index-trust.mjs";
 import { installCoreWorkflowRoutes } from "./core-workflow-routes.mjs";
 import { assertCompanyInviteReady } from "./company-invite-readiness.mjs";
@@ -360,7 +361,6 @@ const REQUIRED_TABS = [
   "Config",
   "Onboarding",
   "Users",
-  "Schedule",
   "Schedules",
   "Actions",
   "ActionComments",
@@ -492,6 +492,7 @@ const TAB_COLUMNS = {
     "Remote Row ID",
     "Schema Version",
   ],
+  Schedules: SCHEDULES_TAB_COLUMNS,
   AuditResults: [
     "Result ID",
     "Company ID",
@@ -3674,97 +3675,6 @@ async function ensureTabsAndColumns(auth, spreadsheetId, options = {}) {
   });
 
   return { ok: errors.length === 0, tabsAdded, columnsAdded, warnings, errors };
-}
-
-async function writeCompanySchedules(auth, spreadsheetId, companyFolderId, schedules) {
-  const sheets = google.sheets({ version: "v4", auth });
-  await ensureTabsAndColumns(auth, spreadsheetId, { companyId: companyFolderId });
-
-  const headers = TAB_COLUMNS.Schedule;
-  const existingRows = await getTabValues(auth, spreadsheetId, "Schedule");
-  const existingRecords = rowsToRecords(existingRows);
-  const existingDataRows = existingRows.length > 0 ? existingRows.slice(1) : [];
-  const companyFolderIndex = headers.indexOf("Company Folder ID");
-  const scheduleIdIndex = headers.indexOf("Schedule ID");
-  const updatedAtIndex = headers.indexOf("Updated At");
-
-  for (const row of existingDataRows) {
-    if (String(row[companyFolderIndex] || "").trim() !== companyFolderId) {
-      continue;
-    }
-    const remoteScheduleId = String(row[scheduleIdIndex] || "").trim();
-    const remoteUpdatedAt = String(row[updatedAtIndex] || "").trim();
-    const localSchedule = schedules.find((schedule) => schedule.id === remoteScheduleId);
-    if (localSchedule?.updatedAt && remoteUpdatedAt && new Date(localSchedule.updatedAt).getTime() < new Date(remoteUpdatedAt).getTime()) {
-      throw new Error(`Conflict: schedule ${localSchedule.scheduleName || remoteScheduleId} changed in Google Sheets while this tablet was offline.`);
-    }
-  }
-
-  const keptRows = existingDataRows.filter((row) => String(row[companyFolderIndex] || "").trim() !== companyFolderId);
-  const nextRows = schedules.flatMap((schedule) =>
-    schedule.audits.map((audit) =>
-      mapRowObjectToHeaders(headers, {
-        "Root ID": schedule.rootId,
-        "Schedule ID": schedule.id,
-        "Version Number": schedule.versionNumber,
-        "Version Label": schedule.versionLabel,
-        Lifecycle: schedule.lifecycle,
-        "Company Folder ID": schedule.companyFolderId,
-        "Schedule Name": schedule.scheduleName,
-        "Area ID": schedule.areaId || "",
-        "Audit ID": audit.auditId,
-        "Audit Name": audit.auditName,
-        Days: (audit.days || []).join(", "),
-        Frequency: audit.frequency,
-        "Live Time": audit.liveTime,
-        "Completion Hours": audit.completionHours,
-        Auditors: (schedule.auditors || []).join(", "),
-        "Assigned Role": schedule.assignedRole || "",
-        "Assigned User": schedule.assignedUser || "",
-        Status: schedule.status || schedule.lifecycle || "active",
-        "Created At": schedule.createdAt || schedule.updatedAt || "",
-        "Start Date": schedule.startDate,
-        "End Date": schedule.endDate,
-        "Updated At": schedule.updatedAt,
-        "Parent Schedule ID": schedule.parentScheduleId || schedule.rootId || "",
-        "Archived At": schedule.archivedAt || "",
-        "Reactivated At": schedule.reactivatedAt || "",
-        "Escalation User IDs": (schedule.escalationUserIds || []).join(", "),
-        "Trigger Reaudit On Failure": String(Boolean(schedule.triggerReauditOnFailure)),
-        "Reaudit Delay Hours": schedule.reauditDelayHours || 0,
-        "Missed Audit Count": schedule.missedAuditCount || 0,
-        "Last Completed At": schedule.lastCompletedAt || "",
-        "Next Due At": schedule.nextDueAt || "",
-        "Health State": schedule.healthState || "",
-        "Created By": schedule.createdBy || "",
-        "Updated By": schedule.updatedBy || "",
-        "Sync Status": schedule.syncStatus || "Pending",
-        "Sync Attempts": schedule.syncAttempts || 0,
-        "Last Sync Error": schedule.lastSyncError || "",
-        "Remote Row ID": schedule.remoteRowId || "",
-        "Schema Version": schedule.schemaVersion || CURRENT_SCHEMA_VERSION,
-      }),
-    ),
-  );
-
-  await withSheetsQuotaRetry(() =>
-    sheets.spreadsheets.values.clear({
-      spreadsheetId,
-      range: "Schedule!A:ZZ",
-    }),
-  );
-  await withSheetsQuotaRetry(() =>
-    sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: "Schedule!A1",
-      valueInputOption: "USER_ENTERED",
-      requestBody: {
-        values: [headers, ...keptRows, ...nextRows],
-      },
-    }),
-  );
-
-  return { ok: true, written: nextRows.length, existing: existingRecords.length };
 }
 
 async function writeCompanyUsers(auth, spreadsheetId, companyFolderId, users, options = {}) {
@@ -7229,7 +7139,6 @@ backgroundJobs = createBackgroundJobsService(sessionDir, {
   ensureColumns,
   getWorkbook,
   withSheetsQuotaRetry,
-  writeLegacyCompanySchedules: writeCompanySchedules,
   authIndex: authIndexApi,
   getCompanyUsersDeps,
   ...getCompanyWorkspaceRegistryDeps(),
@@ -7302,7 +7211,6 @@ installCoreWorkflowRoutes(app, {
   getCompanyUsersDeps,
   registryDeps: getCompanyWorkspaceRegistryDeps(),
   getConfig,
-  writeLegacyCompanySchedules: writeCompanySchedules,
   getTabValues,
   ensureTabExists,
   ensureColumns,

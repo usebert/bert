@@ -1,4 +1,9 @@
 import {
+  LEGACY_SCHEDULE_TAB,
+  SCHEDULES_TAB,
+} from "../shared/schedule-save.mjs";
+import { scheduleTabRecordsPreferCanonical } from "../shared/schedule-list.mjs";
+import {
   AUDIT_TEMPLATE_TRANSLATIONS_COLUMNS,
   AUDIT_TEMPLATE_TRANSLATIONS_TAB,
   DEFAULT_FORM_LANGUAGE,
@@ -261,7 +266,9 @@ function parseScheduleRows(records) {
     .map((row) => {
       const scheduleId = String(row["Schedule ID"] || row.scheduleId || "").trim();
       const auditId = String(row["Audit ID"] || row.auditId || "").trim();
-      const auditName = String(row["Audit Name"] || row.auditName || "").trim();
+      const auditName = String(
+        row["Audit Name"] || row["Template Name"] || row.auditName || row.templateName || "",
+      ).trim();
       const areaName = String(row["Schedule Name"] || row.siteArea || row["Site Area"] || "").trim();
       if (!scheduleId && !auditId) return null;
       return {
@@ -273,12 +280,36 @@ function parseScheduleRows(records) {
         frequency: String(row.Frequency || row.frequency || "").trim(),
         nextDueDate: String(row["Next Due Date"] || row["Next Due At"] || row.nextDueDate || row["Live Time"] || "").trim(),
         assignedRole: String(row["Assigned Role"] || row.assignedRole || "").trim(),
-        assignedUser: String(row["Assigned User"] || row.assignedUser || row.Auditors || "").trim(),
+        assignedUser: String(
+          row["Assigned User"] ||
+            row["Assigned User Emails"] ||
+            row.assignedUser ||
+            row.Auditors ||
+            "",
+        ).trim(),
         companyFolderId: String(row["Company Folder ID"] || row.companyFolderId || "").trim(),
         status: String(row.Status || row.status || row.Lifecycle || "").trim().toLowerCase(),
       };
     })
     .filter(Boolean);
+}
+
+async function readAuditMappingSchedules(deps, authed, masterSheetId) {
+  const { getTabValues, rowsToRecords } = deps;
+  let canonicalRecords = [];
+  let legacyRecords = [];
+  try {
+    canonicalRecords = rowsToRecords(await getTabValues(authed, masterSheetId, SCHEDULES_TAB));
+  } catch {
+    canonicalRecords = [];
+  }
+  try {
+    legacyRecords = rowsToRecords(await getTabValues(authed, masterSheetId, LEGACY_SCHEDULE_TAB));
+  } catch {
+    legacyRecords = [];
+  }
+  const preferred = scheduleTabRecordsPreferCanonical(canonicalRecords, legacyRecords);
+  return parseScheduleRows(preferred);
 }
 
 export function installCompanyAuditMappingRoutes(app, deps) {
@@ -308,9 +339,7 @@ export function installCompanyAuditMappingRoutes(app, deps) {
 
       let schedules = [];
       try {
-        const { getTabValues, rowsToRecords } = deps;
-        const scheduleRows = rowsToRecords(await getTabValues(authed, masterSheetId, "Schedule"));
-        schedules = parseScheduleRows(scheduleRows);
+        schedules = await readAuditMappingSchedules(deps, authed, masterSheetId);
       } catch {
         schedules = [];
       }

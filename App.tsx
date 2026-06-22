@@ -1167,7 +1167,7 @@ const demoRoleSwitchEnabled = isDemoRoleSwitchEnabled();
 /** Sign-in / landing demo copy — display names only; internal `Role` values are unchanged (`Master`, etc.). */
 const roles = ["Workspace setup", "Admin", "Manager", "Auditor"] as const;
 const CURRENT_SCHEMA_VERSION = "2.0.0";
-const REQUIRED_WORKSPACE_TABS = ["Onboarding", "Users", "Schedule", "Actions", "Notes", "Config"] as const;
+const REQUIRED_WORKSPACE_TABS = ["Onboarding", "Users", "Schedules", "Actions", "Notes", "Config"] as const;
 const ACTION_DUE_DAYS_BY_SEVERITY: Record<RiskLevel, number> = {
   Critical: 1,
   High: 3,
@@ -2358,7 +2358,7 @@ function buildDemoPrecastWorkspace(): {
   const companySheetSync: CompanySheetSyncStatus = {
     sheetId: "demo-master-sheet",
     sheetName: `${companyName} Master Sheet`,
-    tabs: ["Onboarding", "Users", "Schedule", "Actions", "Notes", "Config"],
+    tabs: ["Onboarding", "Users", "Schedules", "Actions", "Notes", "Config"],
     usersCount: 5,
     schedulesCount: 4,
     onboardingCount: 3,

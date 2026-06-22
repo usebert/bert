@@ -79,7 +79,6 @@ export function installCoreWorkflowRoutes(app, deps) {
     readCompanySheetById,
     getCompanyUsersDeps,
     registryDeps,
-    writeLegacyCompanySchedules,
     getTabValues,
     ensureTabExists,
     ensureColumns,
@@ -94,13 +93,13 @@ export function installCoreWorkflowRoutes(app, deps) {
   const scheduleDeps = {
     readCompanySheetById,
     ...getCompanyUsersDeps(),
-    writeLegacyCompanySchedules,
     getTabValues,
     ensureTabExists,
     ensureColumns,
     getWorkbook,
     withSheetsQuotaRetry,
     google,
+    rowsToRecords,
   };
 
   app.get("/api/companies/:companyId/invite-readiness", async (req, res) => {

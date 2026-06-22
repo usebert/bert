@@ -2,10 +2,14 @@
  * Company schedule list — parse Schedules tab rows, company filter, backward compat.
  */
 import {
+  LEGACY_SCHEDULE_TAB,
+  SCHEDULES_TAB,
   parseAssignedUsersFromRecord,
   parseDueWindow,
   scheduleRecordsPreferSchedulesTab,
 } from "./schedule-save.mjs";
+
+export { LEGACY_SCHEDULE_TAB, SCHEDULES_TAB };
 import { getScheduleAssignedEmails } from "./schedule-assignment.mjs";
 
 function normalize(value) {
@@ -160,10 +164,17 @@ export function parseCompanyScheduleListFromRecords(records = [], companyFolderI
 }
 
 export function companyScheduleRecordsFromSheetPayload(payload = {}, companyFolderId = "", alternateIds = []) {
-  const scheduleRecords = Array.isArray(payload?.data?.Schedule) ? payload.data.Schedule : [];
-  const schedulesRecords = Array.isArray(payload?.data?.Schedules) ? payload.data.Schedules : [];
+  const scheduleRecords = Array.isArray(payload?.data?.[LEGACY_SCHEDULE_TAB])
+    ? payload.data[LEGACY_SCHEDULE_TAB]
+    : [];
+  const schedulesRecords = Array.isArray(payload?.data?.[SCHEDULES_TAB]) ? payload.data[SCHEDULES_TAB] : [];
   const preferred = scheduleRecordsPreferSchedulesTab(scheduleRecords, schedulesRecords);
   return parseCompanyScheduleListFromRecords(preferred, companyFolderId, alternateIds);
+}
+
+/** Prefer canonical Schedules tab row objects; fall back to legacy Schedule only when canonical is empty. */
+export function scheduleTabRecordsPreferCanonical(canonicalRecords = [], legacyRecords = []) {
+  return scheduleRecordsPreferSchedulesTab(legacyRecords, canonicalRecords);
 }
 
 export function findCompanyScheduleById(schedules = [], scheduleId = "") {

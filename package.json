@@ -85,6 +85,7 @@
     "verify:godmode-company-members": "node scripts/verify-godmode-company-members.mjs",
     "verify:schedule-assignees": "node scripts/verify-schedule-assignees.mjs",
     "verify:schedule-save": "node scripts/verify-schedule-save.mjs",
+    "verify:schedule-tab-canonical": "node scripts/verify-schedule-tab-canonical.mjs",
     "verify:assigned-checks": "node scripts/verify-assigned-checks.mjs",
     "verify:godmode-company-schedules": "node scripts/verify-godmode-company-schedules.mjs",
     "verify:reports-dashboard": "node scripts/verify-reports-dashboard.mjs",

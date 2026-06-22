@@ -14,7 +14,7 @@ import {
   USER_AUDIT_ACCESS_TAB,
   USER_AUDIT_ACCESS_COLUMNS,
 } from "./company-audit-mapping.mjs";
-import { CONFIG_KEY_DEFAULT_FORM_LANGUAGE } from "./template-languages.mjs";
+import { SCHEDULES_TAB, SCHEDULES_TAB_COLUMNS } from "../shared/schedule-save.mjs";
 
 export const RESET_CONFIRM_PHRASE = "RESET COMPANY";
 
@@ -253,7 +253,7 @@ export async function resetCompanyWorkspace(deps, auth, input) {
   const operationalTabs = [
     ["Users", TAB_COLUMNS.Users],
     ["Onboarding", TAB_COLUMNS.Onboarding],
-    ["Schedule", TAB_COLUMNS.Schedule],
+    [SCHEDULES_TAB, SCHEDULES_TAB_COLUMNS],
     ["Actions", TAB_COLUMNS.Actions],
     ["ActionComments", TAB_COLUMNS.ActionComments],
     ["AuditResults", TAB_COLUMNS.AuditResults],

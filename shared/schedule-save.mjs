@@ -5,6 +5,8 @@ import { inviteAccessLevelForRole } from "./schedule-assignees.mjs";
 import { getScheduleAssignedEmails } from "./schedule-assignment.mjs";
 
 export const SCHEDULES_TAB = "Schedules";
+/** @deprecated Legacy singular tab — read/migrate only; never write here. */
+export const LEGACY_SCHEDULE_TAB = "Schedule";
 
 export const SCHEDULES_TAB_COLUMNS = [
   "Schedule ID",

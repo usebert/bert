@@ -11,8 +11,10 @@ import {
   companyScheduleRecordsFromSheetPayload,
   findCompanyScheduleById,
   parseCompanyScheduleListFromRecords,
+  scheduleTabRecordsPreferCanonical,
 } from "../shared/schedule-list.mjs";
 import {
+  LEGACY_SCHEDULE_TAB,
   SCHEDULES_TAB,
   SCHEDULES_TAB_COLUMNS,
   SCHEDULE_SAVE_FAILED_CODE,
@@ -251,6 +253,95 @@ export function scheduleMatchesCompanyFolder(schedule = {}, companyFolderId = ""
   return rowId === target;
 }
 
+function resolveRowsToRecords(deps) {
+  return typeof deps?.rowsToRecords === "function" ? deps.rowsToRecords : null;
+}
+
+async function readLegacyScheduleRecords(auth, deps, masterSheetId) {
+  const getTabValues = resolveGetTabValues(deps);
+  const rowsToRecords = resolveRowsToRecords(deps);
+  if (!rowsToRecords) {
+    return [];
+  }
+  try {
+    const legacyRows = await getTabValues(auth, deps, masterSheetId, LEGACY_SCHEDULE_TAB);
+    return rowsToRecords(legacyRows);
+  } catch {
+    return [];
+  }
+}
+
+async function readCanonicalScheduleRecords(auth, deps, masterSheetId) {
+  const readTabRecords = resolveReadTabRecords(deps);
+  try {
+    const readResult = await readTabRecords(auth, deps, masterSheetId, SCHEDULES_TAB, {
+      expectedHeaders: SCHEDULES_TAB_COLUMNS,
+    });
+    return readResult.records || [];
+  } catch {
+    return [];
+  }
+}
+
+async function loadCompanySchedulesFromWorkbook(auth, deps, context) {
+  const canonicalRecords = await readCanonicalScheduleRecords(auth, deps, context.masterSheetId);
+  let schedules = parseCompanyScheduleListFromRecords(
+    canonicalRecords,
+    context.companyFolderId,
+    context.alternateIds,
+  );
+  let sourceTab = SCHEDULES_TAB;
+  let legacyRecords = [];
+
+  if (schedules.length === 0) {
+    legacyRecords = await readLegacyScheduleRecords(auth, deps, context.masterSheetId);
+    schedules = parseCompanyScheduleListFromRecords(
+      legacyRecords,
+      context.companyFolderId,
+      context.alternateIds,
+    );
+    if (schedules.length > 0) {
+      sourceTab = LEGACY_SCHEDULE_TAB;
+    }
+  }
+
+  const preferredRecords = scheduleTabRecordsPreferCanonical(canonicalRecords, legacyRecords);
+  return {
+    schedules,
+    records: preferredRecords,
+    sourceTab,
+    canonicalRecords,
+    legacyRecords,
+  };
+}
+
+async function migrateLegacySchedulesToCanonicalTab(auth, deps, context, schedules) {
+  if (!Array.isArray(schedules) || schedules.length === 0) {
+    return { migrated: false };
+  }
+  const canonicalRecords = await readCanonicalScheduleRecords(auth, deps, context.masterSheetId);
+  const existingCanonical = parseCompanyScheduleListFromRecords(
+    canonicalRecords,
+    context.companyFolderId,
+    context.alternateIds,
+  );
+  if (existingCanonical.length > 0) {
+    return { migrated: false, reason: "canonical_not_empty" };
+  }
+
+  const writeResult = await writeScheduleToTab(auth, deps, {
+    companyFolderId: context.companyFolderId,
+    companyId: context.companyId,
+    masterSheetId: context.masterSheetId,
+    schedules,
+    skipLegacyMigration: true,
+  });
+  return {
+    migrated: writeResult.ok === true,
+    writeResult,
+  };
+}
+
 /** Read Schedules tab via workbookService header-based I/O. */
 export async function readSchedulesFromTab(auth, deps, input = {}) {
   const context = await resolveCompanyScheduleContext(auth, deps, input);
@@ -259,15 +350,23 @@ export async function readSchedulesFromTab(auth, deps, input = {}) {
   }
 
   try {
-    const readTabRecords = resolveReadTabRecords(deps);
-    const readResult = await readTabRecords(auth, deps, context.masterSheetId, SCHEDULES_TAB, {
-      expectedHeaders: SCHEDULES_TAB_COLUMNS,
-    });
-    const schedules = parseCompanyScheduleListFromRecords(
-      readResult.records || [],
-      context.companyFolderId,
-      context.alternateIds,
-    );
+    const loaded = await loadCompanySchedulesFromWorkbook(auth, deps, context);
+    let schedules = loaded.schedules;
+    let migrated = false;
+
+    if (
+      loaded.sourceTab === LEGACY_SCHEDULE_TAB &&
+      schedules.length > 0 &&
+      input.skipLegacyMigration !== true
+    ) {
+      const migration = await migrateLegacySchedulesToCanonicalTab(auth, deps, context, schedules);
+      migrated = migration.migrated === true;
+      if (migrated) {
+        const reloaded = await loadCompanySchedulesFromWorkbook(auth, deps, context);
+        schedules = reloaded.schedules;
+      }
+    }
+
     return {
       ok: true,
       companyId: context.companyId,
@@ -276,7 +375,9 @@ export async function readSchedulesFromTab(auth, deps, input = {}) {
       masterSheetId: context.masterSheetId,
       alternateIds: context.alternateIds,
       schedules,
-      records: readResult.records || [],
+      records: loaded.records,
+      sourceTab: migrated ? SCHEDULES_TAB : loaded.sourceTab,
+      migratedFromLegacy: migrated,
     };
   } catch (error) {
     const technicalError = error instanceof Error ? error.message : String(error);
@@ -301,7 +402,7 @@ export async function writeScheduleToTab(auth, deps, input = {}) {
   const schedules = Array.isArray(input.schedules) ? input.schedules : [];
   const createdBy = String(input.createdBy || "").trim();
   const resolvedCompanyId = context.companyFolderId;
-  const { writeLegacyCompanySchedules, withSheetsQuotaRetry, google } = deps;
+  const { withSheetsQuotaRetry, google } = deps;
 
   try {
     const ensureTabColumns = resolveEnsureTabColumns(deps);
@@ -371,10 +472,6 @@ export async function writeScheduleToTab(auth, deps, input = {}) {
           },
         }));
 
-    if (typeof writeLegacyCompanySchedules === "function") {
-      await writeLegacyCompanySchedules(auth, context.masterSheetId, resolvedCompanyId, schedules);
-    }
-
     return {
       ok: true,
       companyId: resolvedCompanyId,
@@ -396,29 +493,7 @@ export async function writeScheduleToTab(auth, deps, input = {}) {
 }
 
 export async function listCompanySchedules(auth, deps, input = {}) {
-  const readResult = await readSchedulesFromTab(auth, deps, input);
-  if (!readResult.ok) {
-    return readResult;
-  }
-
-  const { readCompanySheetById } = deps;
-  if (typeof readCompanySheetById === "function" && (readResult.schedules || []).length === 0) {
-    try {
-      const payload = await readCompanySheetById(auth, readResult.masterSheetId);
-      const legacySchedules = companyScheduleRecordsFromSheetPayload(
-        payload,
-        readResult.companyFolderId,
-        readResult.alternateIds,
-      );
-      if (legacySchedules.length > 0) {
-        return { ...readResult, schedules: legacySchedules };
-      }
-    } catch {
-      // Schedules tab is canonical; legacy read is best-effort only.
-    }
-  }
-
-  return readResult;
+  return readSchedulesFromTab(auth, deps, input);
 }
 
 export async function getCompanySchedule(auth, deps, input = {}) {
@@ -567,7 +642,7 @@ export async function listSchedulerAssignees(auth, deps, companyContext = {}) {
 export async function listMyChecks(auth, deps, input = {}) {
   const email = normalizeEmail(input.email || input.userEmail);
   const companyFolderId = String(input.companyFolderId || input.companyId || "").trim();
-  const listed = await readSchedulesFromTab(auth, deps, {
+  const listed = await listCompanySchedules(auth, deps, {
     companyFolderId,
     companyId: companyFolderId,
     companyName: String(input.companyName || "").trim(),
