@@ -173,6 +173,8 @@ assert(
 );
 assert(!checkService.includes("isScheduleAssignedToUser"), "8c: frontend does not client-filter by email");
 assert(appSrc.includes("fetchAssignedChecks"), "8d: App loads assigned checks from API");
+assert(read("src/config/roleNavigation.ts").includes("shouldLoadAssignedChecksScreen"), "8h: Complete Work screen gate helper exists");
+assert(appSrc.includes("shouldLoadAssignedChecksScreen(screen)"), "8h1: App uses assigned-checks screen gate");
 assert(checkService.includes("fetchJson"), "8e: assigned checks uses fetchJson diagnostics");
 assert(checkService.includes("loadErrorDetail"), "8f: assigned checks exposes load error detail");
 assert(!checkService.includes("error.message : ASSIGNED_CHECKS_USER_MESSAGE"), "8g: assigned checks does not surface raw NetworkError as primary message");

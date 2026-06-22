@@ -13,7 +13,7 @@ import {
   canAccessWorkspaceNav,
   canRoleAccessNavItem,
 } from "../permissions";
-import type { NavItemId } from "../types/navigation";
+import type { NavItemId, RoutedScreen } from "../types/navigation";
 
 export type RoleNavBucket = "master" | "companyAdmin" | "manager" | "auditor";
 
@@ -79,6 +79,19 @@ const MORE_BY_BUCKET: Record<RoleNavBucket, NavItemId[]> = {
   manager: [],
   auditor: [],
 };
+
+/** Sidebar nav id for Complete Work / My Checks (Forms & checks page). */
+export const COMPLETE_WORK_NAV_SCREEN_ID = "audits" as const satisfies NavItemId;
+
+/** True when the routed shell is showing the Complete Work assigned-checks list. */
+export function isCompleteWorkListScreen(screen: RoutedScreen): boolean {
+  return screen === COMPLETE_WORK_NAV_SCREEN_ID;
+}
+
+/** Screens that should load GET /api/me/assigned-checks (session-scoped; no client company id). */
+export function shouldLoadAssignedChecksScreen(screen: RoutedScreen): boolean {
+  return isCompleteWorkListScreen(screen) || screen === "dashboard";
+}
 
 export function getRoleNavBucket(role: Role): RoleNavBucket {
   if (role === "Master") return "master";

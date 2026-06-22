@@ -63,9 +63,11 @@ import {
   getMobileBottomNavForRole,
   getMoreNavIdsForRole,
   getPresentedNavForRole,
+  isCompleteWorkListScreen,
   isMasterCompanyContextExemptScreen,
   isMasterCompanyScopedScreen,
   resolveAdminPilotFocus,
+  shouldLoadAssignedChecksScreen,
 } from "./src/config/roleNavigation";
 import { MORE_MENU_NAV_IDS, PILOT_PRIMARY_NAV_IDS, PRIMARY_NAV_IDS } from "./src/config/navStructure";
 import { RoleContextBanner } from "./src/components/RoleContextBanner";
@@ -5495,22 +5497,14 @@ function App() {
   ]);
 
   useEffect(() => {
-    const { companyId } = resolveCompanyMembersLoadContext({
-      activeCompanyContext,
-      selectedFolderId: selectedFolder?.id,
-      folderIdInput,
-      masterSheetInput,
-      companySheetSyncSheetId: companySheetSync?.sheetId,
-    });
     if (!currentUser || !usesAssignedChecksCompletionFlow(currentUser.role)) {
       setAssignedChecksState({ schedules: [], loading: false });
       return;
     }
-    const shouldLoadAssignedChecks =
-      (screen === "audits" || screen === "dashboard") &&
-      Boolean(companyId) &&
-      masterCompanyWorkspaceDataMatchesSelection;
-    if (!shouldLoadAssignedChecks) {
+    if (!shouldLoadAssignedChecksScreen(screen)) {
+      return;
+    }
+    if (!masterCompanyWorkspaceDataMatchesSelection) {
       return;
     }
 
@@ -15159,7 +15153,7 @@ function App() {
               </AnimatedScreen>
             )}
 
-            {screen === "audits" &&
+            {isCompleteWorkListScreen(screen) &&
               (canAccessAuditsCentre(currentUser.role) || usesAssignedChecksCompletionFlow(currentUser.role)) && (
               <AuditsScreen
                 currentUser={currentUser}
