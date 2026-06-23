@@ -57,8 +57,9 @@ function formatAssignedChecksLoadErrorDetail(input: {
   return `GET ${url} → ${fetchErrorName || "error"}: ${fetchErrorMessage}`;
 }
 
-export const ASSIGNED_CHECKS_LOAD_TIMEOUT_MS = 90_000;
-export const ASSIGNED_CHECKS_LOADING_MESSAGE = "Loading your checks…";
+export const ASSIGNED_CHECKS_LOAD_TIMEOUT_MS = 180_000;
+export const ASSIGNED_CHECKS_LOADING_MESSAGE = "Loading assigned checks…";
+export const ASSIGNED_CHECKS_REFRESHING_MESSAGE = "Refreshing assigned checks…";
 export const ASSIGNED_CHECKS_USER_MESSAGE = "Could not load your assigned checks.";
 export const ASSIGNED_CHECKS_LOAD_TIMEOUT_MESSAGE =
   "Loading your checks timed out before the server finished reading your company workbook. Try again — if it keeps failing, ask your operator to check the BERT Master Sheet.";
@@ -153,6 +154,56 @@ export async function fetchAssignedChecks(
 
 export { fetchAssignedChecks as listAssignedChecks };
 export { fetchAssignedChecks as listAssignedSchedulesForUser };
+
+export type AssignedChecksCacheEntry = {
+  companyFolderId: string;
+  userEmail: string;
+  schedules: ManagedSchedule[];
+  masterSheetId?: string;
+  cachedAt: number;
+};
+
+function assignedChecksCacheKey(companyFolderId: string, userEmail: string): string {
+  return `${companyFolderId.trim()}::${userEmail.trim().toLowerCase()}`;
+}
+
+export function readAssignedChecksCache(
+  storageKey: string,
+  companyFolderId: string,
+  userEmail: string,
+): AssignedChecksCacheEntry | null {
+  if (typeof window === "undefined" || !companyFolderId.trim() || !userEmail.trim()) {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as Record<string, AssignedChecksCacheEntry>;
+    const entry = parsed[assignedChecksCacheKey(companyFolderId, userEmail)];
+    if (!entry || !Array.isArray(entry.schedules)) {
+      return null;
+    }
+    return entry;
+  } catch {
+    return null;
+  }
+}
+
+export function writeAssignedChecksCache(storageKey: string, entry: AssignedChecksCacheEntry): void {
+  if (typeof window === "undefined" || !entry.companyFolderId.trim() || !entry.userEmail.trim()) {
+    return;
+  }
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    const parsed = raw ? (JSON.parse(raw) as Record<string, AssignedChecksCacheEntry>) : {};
+    parsed[assignedChecksCacheKey(entry.companyFolderId, entry.userEmail)] = entry;
+    window.localStorage.setItem(storageKey, JSON.stringify(parsed));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
 
 export function getAssignedEmailsForSchedule(schedule: ManagedSchedule | Record<string, unknown>): string[] {
   return getScheduleAssignedEmails(schedule);

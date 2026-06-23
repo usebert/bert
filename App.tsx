@@ -360,6 +360,8 @@ import {
   CHECK_COMPLETION_USER_MESSAGE,
   completeCheck,
   fetchAssignedChecks,
+  readAssignedChecksCache,
+  writeAssignedChecksCache,
 } from "./src/services/checkService";
 import {
   COMPANY_RESULTS_LOAD_TIMEOUT_MESSAGE,
@@ -5508,6 +5510,16 @@ function App() {
       return;
     }
 
+    const companyFolderId = String(
+      activeCompanyContext.companyFolderId || selectedFolderId || "",
+    ).trim();
+    const userEmails = resolveCurrentUserReportEmails(currentUser, companyReportUsers);
+    const signedInEmail = [...userEmails][0] || String(currentUser.username || "").trim().toLowerCase();
+    const cachedAssignedChecks =
+      companyFolderId && signedInEmail
+        ? readAssignedChecksCache(storageKeys.assignedChecksCache, companyFolderId, signedInEmail)
+        : null;
+
     const controller = new AbortController();
     let cancelled = false;
     const timeoutId = window.setTimeout(() => {
@@ -5515,6 +5527,14 @@ function App() {
     }, ASSIGNED_CHECKS_LOAD_TIMEOUT_MS);
     setAssignedChecksState((previous) => ({
       ...previous,
+      schedules:
+        cachedAssignedChecks?.schedules?.length && previous.schedules.length === 0
+          ? (cachedAssignedChecks.schedules as ManagedSchedule[])
+          : previous.schedules.length > 0
+            ? previous.schedules
+            : ((cachedAssignedChecks?.schedules || []) as ManagedSchedule[]),
+      companyFolderId: previous.companyFolderId || cachedAssignedChecks?.companyFolderId || companyFolderId,
+      masterSheetId: previous.masterSheetId || cachedAssignedChecks?.masterSheetId,
       loading: true,
       loadError: undefined,
       loadErrorDetail: undefined,
@@ -5532,20 +5552,31 @@ function App() {
             ...previous,
             schedules: previous.schedules,
             loading: false,
-            loadError: result.loadError || ASSIGNED_CHECKS_USER_MESSAGE,
-            loadErrorDetail: result.loadErrorDetail,
+            loadError: previous.schedules.length > 0 ? undefined : result.loadError || ASSIGNED_CHECKS_USER_MESSAGE,
+            loadErrorDetail:
+              previous.schedules.length > 0 ? undefined : result.loadErrorDetail,
           }));
           return;
         }
 
+        const nextCompanyFolderId = result.companyFolderId || result.companyId || companyFolderId;
         setAssignedChecksState({
           schedules: result.schedules as ManagedSchedule[],
           loading: false,
-          companyFolderId: result.companyFolderId || result.companyId,
+          companyFolderId: nextCompanyFolderId,
           masterSheetId: result.masterSheetId,
           loadError: undefined,
           loadErrorDetail: undefined,
         });
+        if (nextCompanyFolderId && signedInEmail) {
+          writeAssignedChecksCache(storageKeys.assignedChecksCache, {
+            companyFolderId: nextCompanyFolderId,
+            userEmail: signedInEmail,
+            schedules: result.schedules as ManagedSchedule[],
+            masterSheetId: result.masterSheetId,
+            cachedAt: Date.now(),
+          });
+        }
       } catch (error) {
         if (cancelled) {
           return;
@@ -5557,8 +5588,11 @@ function App() {
               ...previous,
               schedules: previous.schedules,
               loading: false,
-              loadError: ASSIGNED_CHECKS_LOAD_TIMEOUT_MESSAGE,
-              loadErrorDetail: `GET ${apiUrl("/api/me/assigned-checks")} → request timed out`,
+              loadError: previous.schedules.length > 0 ? undefined : ASSIGNED_CHECKS_LOAD_TIMEOUT_MESSAGE,
+              loadErrorDetail:
+                previous.schedules.length > 0
+                  ? undefined
+                  : `GET ${apiUrl("/api/me/assigned-checks")} → request timed out`,
             }));
           }
           return;
@@ -5583,11 +5617,13 @@ function App() {
   }, [
     screen,
     currentUser,
+    companyReportUsers,
     masterCompanyWorkspaceDataMatchesSelection,
     activeCompanyContext.companyFolderId,
     activeCompanyContext.companyName,
     activeCompanyContext.masterSheetId,
     selectedFolder?.id,
+    selectedFolderId,
     folderIdInput,
     masterSheetInput,
     companySheetSync?.sheetId,

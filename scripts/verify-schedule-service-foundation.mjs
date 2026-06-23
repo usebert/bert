@@ -176,6 +176,7 @@ const myChecks = await listMyChecks(
     email: "manager@testco.test",
     companyFolderId,
     masterSheetId: "sheet-123",
+    trustSessionContext: true,
   },
 );
 assert(myChecks.ok, "33: listMyChecks succeeds with mock tab read");

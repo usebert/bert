@@ -184,8 +184,20 @@ assert(appSrc.includes("shouldLoadAssignedChecksScreen(screen)"), "8h1: App uses
 assert(checkService.includes("fetchJson"), "8e: assigned checks uses fetchJson diagnostics");
 assert(checkService.includes("loadErrorDetail"), "8f: assigned checks exposes load error detail");
 assert(!checkService.includes("error.message : ASSIGNED_CHECKS_USER_MESSAGE"), "8g: assigned checks does not surface raw NetworkError as primary message");
-assert(coreRoutes.includes("includeDiagnostics"), "8i: assigned-checks route supports diagnostics query");
-assert(coreRoutes.includes("signedInEmail"), "8j: assigned-checks diagnostics include signedInEmail");
+assert(coreRoutes.includes("trustSessionContext"), "8k: assigned-checks route uses session fast path");
+assert(read("server/schedule-service.mjs").includes("buildSessionScheduleContext"), "8l: session schedule context helper exists");
+assert(read("server/schedule-service.mjs").includes("canonicalSchedulesOnly"), "8m: assigned checks reads canonical Schedules tab only");
+assert(read("server/schedule-service.mjs").includes("templateHydrationMs"), "8n: assigned-checks diagnostics include templateHydrationMs");
+assert(read("server/schedule-service.mjs").includes("resolveContextMs"), "8o: assigned-checks diagnostics include resolveContextMs");
+{
+  const timeoutMatch = checkService.match(/ASSIGNED_CHECKS_LOAD_TIMEOUT_MS\s*=\s*([\d_]+)/);
+  const timeoutMs = Number(String(timeoutMatch?.[1] || "0").replace(/_/g, ""));
+  assert(timeoutMs >= 180_000, "8p: assigned checks timeout is production-safe");
+}
+assert(appSrc.includes("readAssignedChecksCache"), "8q: App reads assigned checks cache while refreshing");
+assert(appSrc.includes("writeAssignedChecksCache"), "8r: App writes assigned checks cache after load");
+assert(/listMyChecks[\s\S]{0,500}readSchedulesFromTab/.test(read("server/schedule-service.mjs")), "8s: listMyChecks uses direct Schedules tab read");
+assert(read("src/utils/auditAccess.ts").includes("buildAuditFromAssignedSchedule"), "8t: Complete Work cards render without template hydration requirement");
 
 /** 10: Production fixture — icloud assignee + gf-check audit + folder id alternates. */
 {
@@ -258,6 +270,7 @@ assert(coreRoutes.includes("signedInEmail"), "8j: assigned-checks diagnostics in
       email: signedInEmail,
       companyFolderId: sessionFolderId,
       masterSheetId: "sheet-dovecote",
+      trustSessionContext: true,
       includeDiagnostics: true,
     },
   );
@@ -282,6 +295,8 @@ assert(coreRoutes.includes("signedInEmail"), "8j: assigned-checks diagnostics in
       });
     }
   }
+  assert(myChecks.diagnostics?.timing?.templateHydrationMs === 0, "10m1: diagnostics report no template hydration");
+  assert(typeof myChecks.diagnostics?.timing?.totalMs === "number", "10m2: diagnostics include totalMs");
   assert(
     cards.some((card) => card.name === "DC H&S Audit" && card.id.startsWith("gf-check")),
     "10m: Complete Work renders DC H&S Audit card with Start/Continue id",

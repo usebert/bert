@@ -598,6 +598,7 @@ export function installCoreWorkflowRoutes(app, deps) {
     }
 
     const companyFolderId = String(actor?.companyFolderId || actor?.companyId || "").trim();
+    const masterSheetId = String(actor?.masterSheetId || "").trim();
     if (!companyFolderId) {
       return res.status(401).json({
         ok: false,
@@ -607,14 +608,17 @@ export function installCoreWorkflowRoutes(app, deps) {
       });
     }
 
-    const folderDenial = await rejectCompanyApiIfFolderInvalid(
-      authed,
-      { ...registryDeps, ...scheduleDeps },
-      companyFolderId,
-      String(actor?.companyName || "").trim(),
-    );
-    if (folderDenial) {
-      return res.status(403).json(folderDenial);
+    const trustSessionContext = actor?.kind === "company" && Boolean(companyFolderId && masterSheetId);
+    if (!trustSessionContext) {
+      const folderDenial = await rejectCompanyApiIfFolderInvalid(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        companyFolderId,
+        String(actor?.companyName || "").trim(),
+      );
+      if (folderDenial) {
+        return res.status(403).json(folderDenial);
+      }
     }
 
     const includeDiagnostics =
@@ -627,7 +631,8 @@ export function installCoreWorkflowRoutes(app, deps) {
         companyFolderId,
         companyId: companyFolderId,
         companyName: String(actor?.companyName || "").trim(),
-        masterSheetId: String(actor?.masterSheetId || "").trim(),
+        masterSheetId,
+        trustSessionContext,
         includeDiagnostics,
       });
 

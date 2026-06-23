@@ -9,7 +9,7 @@ import { SECTION_INTROS } from "../config/sectionIntros";
 import { SectionIntro } from "../components/SectionIntro";
 import { EmptyPanel, SectionHeader, StatusBadge } from "../components/dashboard/DashboardPrimitives";
 import { FormsChecksTemplatesPanel } from "../components/forms/FormsChecksTemplatesPanel";
-import { ASSIGNED_CHECKS_LOADING_MESSAGE } from "../services/checkService";
+import { ASSIGNED_CHECKS_LOADING_MESSAGE, ASSIGNED_CHECKS_REFRESHING_MESSAGE } from "../services/checkService";
 import { amberThresholdHours, getAuditTrafficStatus, getDueWarning, statusStyles } from "../utils/dashboardHealth";
 import type {
   AuditAccessLevel,
@@ -19,6 +19,16 @@ import type {
 } from "../types/auditsScreenProps";
 import type { Audit, AuditStatus } from "../types/reportsScreenProps";
 import type { AuditDraft } from "../types/dashboardScreenProps";
+
+function AssignedChecksLoadingState({
+  message,
+  className = "rounded-2xl border border-violet-200/80 bg-white px-5 py-6 text-sm text-slate-600",
+}: {
+  message: string;
+  className?: string;
+}) {
+  return <div className={className}>{message}</div>;
+}
 
 function AssignedChecksLoadError({
   loadError,
@@ -514,20 +524,26 @@ export function AuditsScreen({
             </button>
           ) : null}
         </section>
-        {assignedChecksLoading ? (
-          <div className="rounded-2xl border border-violet-200/80 bg-white px-5 py-6 text-sm text-slate-600">
-            {ASSIGNED_CHECKS_LOADING_MESSAGE}
-          </div>
-        ) : assignedChecksLoadError ? (
+        {assignedChecksLoading && myAssignedChecks.length === 0 ? (
+          <AssignedChecksLoadingState message={ASSIGNED_CHECKS_LOADING_MESSAGE} />
+        ) : assignedChecksLoadError && myAssignedChecks.length === 0 ? (
           <AssignedChecksLoadError loadError={assignedChecksLoadError} loadErrorDetail={assignedChecksLoadErrorDetail} />
         ) : (
-          <AuditorChecksList
-            audits={myAssignedChecks}
-            drafts={drafts}
-            onOpenAudit={onOpenAudit}
-            onNavigateToToday={onNavigateToToday}
-            onNavigateToSubmit={onNavigateToSubmit}
-          />
+          <div className="space-y-3">
+            {assignedChecksLoading ? (
+              <AssignedChecksLoadingState
+                message={ASSIGNED_CHECKS_REFRESHING_MESSAGE}
+                className="rounded-2xl border border-violet-100 bg-violet-50/70 px-4 py-3 text-sm text-slate-600"
+              />
+            ) : null}
+            <AuditorChecksList
+              audits={myAssignedChecks}
+              drafts={drafts}
+              onOpenAudit={onOpenAudit}
+              onNavigateToToday={onNavigateToToday}
+              onNavigateToSubmit={onNavigateToSubmit}
+            />
+          </div>
         )}
       </div>
     );
@@ -617,14 +633,23 @@ export function AuditsScreen({
             Checks scheduled for you. Start or continue when you are ready — submissions save to AuditResults.
           </p>
           <div className="mt-4">
-            {assignedChecksLoading ? (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-6 text-sm text-slate-600">
-                {ASSIGNED_CHECKS_LOADING_MESSAGE}
-              </div>
-            ) : assignedChecksLoadError ? (
+            {assignedChecksLoading && myAssignedChecks.length === 0 ? (
+              <AssignedChecksLoadingState
+                message={ASSIGNED_CHECKS_LOADING_MESSAGE}
+                className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-6 text-sm text-slate-600"
+              />
+            ) : assignedChecksLoadError && myAssignedChecks.length === 0 ? (
               <AssignedChecksLoadError loadError={assignedChecksLoadError} loadErrorDetail={assignedChecksLoadErrorDetail} />
             ) : (
-              <AuditorChecksList audits={myAssignedChecks} drafts={drafts} onOpenAudit={onOpenAudit} />
+              <div className="space-y-3">
+                {assignedChecksLoading ? (
+                  <AssignedChecksLoadingState
+                    message={ASSIGNED_CHECKS_REFRESHING_MESSAGE}
+                    className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600"
+                  />
+                ) : null}
+                <AuditorChecksList audits={myAssignedChecks} drafts={drafts} onOpenAudit={onOpenAudit} />
+              </div>
             )}
           </div>
         </section>

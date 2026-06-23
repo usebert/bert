@@ -205,6 +205,48 @@ function readCachedMasterSheetId(deps, companyFolderId) {
   return String(entry?.masterSheetId || "").trim();
 }
 
+/** Fast path — trust signed-in session company folder + master sheet (skip Drive folder resolve). */
+export function buildSessionScheduleContext(input = {}, deps = {}) {
+  const companyFolderId = String(input.companyFolderId || input.companyId || "").trim();
+  const masterSheetId = String(input.masterSheetId || "").trim();
+  const companyId = String(input.companyId || companyFolderId).trim();
+  const cacheEntry =
+    deps?.masterSheetCache && typeof deps.masterSheetCache.getEntry === "function"
+      ? deps.masterSheetCache.getEntry(companyFolderId)
+      : null;
+  const alternateIds = [
+    companyFolderId,
+    companyId,
+    cacheEntry?.registryCompanyId,
+    cacheEntry?.companyRegistryId,
+    cacheEntry?.rootFolderId,
+  ]
+    .map((entry) => String(entry || "").trim())
+    .filter(Boolean)
+    .filter((entry, index, all) => all.indexOf(entry) === index);
+
+  if (!companyFolderId || !masterSheetId) {
+    return {
+      ok: false,
+      code: "COMPANY_CONTEXT_MISSING",
+      error: "Company workspace could not be resolved.",
+      message: "Company workspace could not be resolved.",
+      httpStatus: 404,
+    };
+  }
+
+  return {
+    ok: true,
+    companyId: companyFolderId,
+    companyFolderId,
+    companyName: String(input.companyName || cacheEntry?.companyName || "").trim(),
+    masterSheetId,
+    alternateIds,
+    registryRecord: null,
+    contextSource: "session",
+  };
+}
+
 function hasUsableGoogleAuth(auth) {
   if (!auth) {
     return false;
@@ -397,7 +439,7 @@ async function readCanonicalScheduleRecords(auth, deps, masterSheetId) {
   }
 }
 
-async function loadCompanySchedulesFromWorkbook(auth, deps, context) {
+async function loadCompanySchedulesFromWorkbook(auth, deps, context, options = {}) {
   const canonicalRecords = await readCanonicalScheduleRecords(auth, deps, context.masterSheetId);
   let schedules = parseCompanyScheduleListFromRecords(
     canonicalRecords,
@@ -407,7 +449,7 @@ async function loadCompanySchedulesFromWorkbook(auth, deps, context) {
   let sourceTab = SCHEDULES_TAB;
   let legacyRecords = [];
 
-  if (schedules.length === 0) {
+  if (schedules.length === 0 && options.canonicalOnly !== true) {
     legacyRecords = await readLegacyScheduleRecords(auth, deps, context.masterSheetId);
     schedules = parseCompanyScheduleListFromRecords(
       legacyRecords,
@@ -458,13 +500,33 @@ async function migrateLegacySchedulesToCanonicalTab(auth, deps, context, schedul
 
 /** Read Schedules tab via workbookService header-based I/O. */
 export async function readSchedulesFromTab(auth, deps, input = {}) {
-  const context = await resolveCompanyScheduleContext(auth, deps, input);
+  const includeTiming = input.includeDiagnostics === true;
+  const totalStart = Date.now();
+  let resolveContextMs = 0;
+  let readSchedulesMs = 0;
+
+  let context;
+  const contextStart = Date.now();
+  if (
+    input.trustSessionContext === true &&
+    String(input.companyFolderId || input.companyId || "").trim() &&
+    String(input.masterSheetId || "").trim()
+  ) {
+    context = buildSessionScheduleContext(input, deps);
+  } else {
+    context = await resolveCompanyScheduleContext(auth, deps, input);
+  }
+  resolveContextMs = Date.now() - contextStart;
   if (!context.ok) {
     return context;
   }
 
   try {
-    const loaded = await loadCompanySchedulesFromWorkbook(auth, deps, context);
+    const readStart = Date.now();
+    const loaded = await loadCompanySchedulesFromWorkbook(auth, deps, context, {
+      canonicalOnly: input.canonicalSchedulesOnly === true,
+    });
+    readSchedulesMs = Date.now() - readStart;
     let schedules = loaded.schedules;
     let migrated = false;
 
@@ -476,12 +538,14 @@ export async function readSchedulesFromTab(auth, deps, input = {}) {
       const migration = await migrateLegacySchedulesToCanonicalTab(auth, deps, context, schedules);
       migrated = migration.migrated === true;
       if (migrated) {
-        const reloaded = await loadCompanySchedulesFromWorkbook(auth, deps, context);
+        const reloaded = await loadCompanySchedulesFromWorkbook(auth, deps, context, {
+          canonicalOnly: input.canonicalSchedulesOnly === true,
+        });
         schedules = reloaded.schedules;
       }
     }
 
-    return {
+    const result = {
       ok: true,
       companyId: context.companyId,
       companyFolderId: context.companyFolderId,
@@ -492,7 +556,16 @@ export async function readSchedulesFromTab(auth, deps, input = {}) {
       records: loaded.records,
       sourceTab: migrated ? SCHEDULES_TAB : loaded.sourceTab,
       migratedFromLegacy: migrated,
+      contextSource: context.contextSource,
     };
+    if (includeTiming) {
+      result.timing = {
+        resolveContextMs,
+        readSchedulesMs,
+        totalMs: Date.now() - totalStart,
+      };
+    }
+    return result;
   } catch (error) {
     const technicalError = error instanceof Error ? error.message : String(error);
     return {
@@ -744,12 +817,20 @@ export async function listSchedulerAssignees(auth, deps, companyContext = {}) {
 export async function listMyChecks(auth, deps, input = {}) {
   const email = normalizeEmail(input.email || input.userEmail);
   const companyFolderId = String(input.companyFolderId || input.companyId || "").trim();
+  const masterSheetId = String(input.masterSheetId || "").trim();
   const includeDiagnostics = input.includeDiagnostics === true;
-  const listed = await listCompanySchedules(auth, deps, {
+  const trustSessionContext = input.trustSessionContext === true && Boolean(companyFolderId && masterSheetId);
+  const totalStart = Date.now();
+
+  const listed = await readSchedulesFromTab(auth, deps, {
     companyFolderId,
     companyId: companyFolderId,
     companyName: String(input.companyName || "").trim(),
-    masterSheetId: String(input.masterSheetId || "").trim(),
+    masterSheetId,
+    trustSessionContext,
+    skipLegacyMigration: true,
+    canonicalSchedulesOnly: true,
+    includeDiagnostics,
   });
   if (!listed.ok) {
     return listed;
@@ -757,6 +838,7 @@ export async function listMyChecks(auth, deps, input = {}) {
 
   const alternateIds = Array.isArray(listed.alternateIds) ? listed.alternateIds : [];
   const excluded = [];
+  const filterStart = Date.now();
   const schedules = (listed.schedules || []).filter((schedule) => {
     if (!scheduleMatchesCompanyFolder(schedule, companyFolderId, alternateIds)) {
       if (includeDiagnostics) {
@@ -800,6 +882,7 @@ export async function listMyChecks(auth, deps, input = {}) {
     }
     return true;
   });
+  const filterSchedulesMs = Date.now() - filterStart;
 
   const result = {
     ok: true,
@@ -811,11 +894,14 @@ export async function listMyChecks(auth, deps, input = {}) {
   };
 
   if (includeDiagnostics) {
+    const resolveContextMs = Number(listed.timing?.resolveContextMs) || 0;
+    const readSchedulesMs = Number(listed.timing?.readSchedulesMs) || 0;
     result.diagnostics = {
       signedInEmail: email,
       companyFolderId,
       alternateIds,
       masterSheetId: listed.masterSheetId,
+      contextSource: listed.contextSource || (trustSessionContext ? "session" : "resolved"),
       totalListed: (listed.schedules || []).length,
       includedCount: schedules.length,
       excluded,
@@ -832,6 +918,13 @@ export async function listMyChecks(auth, deps, input = {}) {
         lifecycle: schedule.lifecycle,
         companyFolderId: String(schedule.companyFolderId || schedule.companyId || "").trim(),
       })),
+      timing: {
+        resolveContextMs,
+        readSchedulesMs,
+        filterSchedulesMs,
+        templateHydrationMs: 0,
+        totalMs: Date.now() - totalStart,
+      },
     };
   }
 

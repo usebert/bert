@@ -46,7 +46,7 @@ assert(roleNav.includes("COMPLETE_WORK_NAV_SCREEN_ID"), "1e0d: Complete Work nav
 assert(appTsx.includes("shouldLoadAssignedChecksScreen"), "1e1: App gates assigned-checks load via screen helper");
 assert(appTsx.includes("isCompleteWorkListScreen"), "1e1b: App renders Complete Work via screen helper");
 assert(
-  /shouldLoadAssignedChecksScreen\(screen\)[\s\S]{0,1200}fetchAssignedChecks/.test(appTsx),
+  /shouldLoadAssignedChecksScreen\(screen\)[\s\S]{0,2400}fetchAssignedChecks/.test(appTsx),
   "1e2: Complete Work screen gate triggers fetchAssignedChecks",
 );
 assert(
@@ -73,6 +73,13 @@ assert(!appTsx.includes("localStorage.getItem(storageKeys.companyName)"), "2d: n
 /** 3: Friendly states + timeouts. */
 assert(checkService.includes("ASSIGNED_CHECKS_LOAD_TIMEOUT_MS"), "3: assigned checks load timeout");
 assert(auditsScreen.includes("ASSIGNED_CHECKS_LOADING_MESSAGE"), "3b: loading message in My Checks UI");
+assert(auditsScreen.includes("ASSIGNED_CHECKS_REFRESHING_MESSAGE"), "3b1: refreshing message shown while cache reloads");
+assert(appTsx.includes("readAssignedChecksCache"), "3b2: App warms assigned checks from localStorage cache");
+{
+  const timeoutMatch = checkService.match(/ASSIGNED_CHECKS_LOAD_TIMEOUT_MS\s*=\s*([\d_]+)/);
+  const timeoutMs = Number(String(timeoutMatch?.[1] || "0").replace(/_/g, ""));
+  assert(timeoutMs >= 180_000, "3c: assigned checks timeout is production-safe");
+}
 assert(auditsScreen.includes("assignedChecksLoadError"), "3c: error UI in My Checks screen");
 assert(appTsx.includes("assignedChecksState"), "3d: App tracks assigned checks load state");
 assert(appTsx.includes("assignedChecksLoading={assignedChecksState.loading}"), "3e: loading wired to AuditsScreen");
