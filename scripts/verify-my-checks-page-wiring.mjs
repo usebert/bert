@@ -26,6 +26,10 @@ const contextService = read("src/services/companyContextService.ts");
 const coreRoutes = read("server/core-workflow-routes.mjs");
 const roleNav = read("src/config/roleNavigation.ts");
 const auditAccess = read("src/utils/auditAccess.ts");
+const managerDashboard = read("src/components/dashboard/ManagerRoleDashboard.tsx");
+const thingsToDoSection = read("src/components/dashboard/DashboardThingsToDoSection.tsx");
+const assignedCheckRow = read("src/components/checks/AssignedCheckActionRow.tsx");
+const assignedCheckDisplay = read("src/utils/assignedCheckDisplay.ts");
 const pkg = JSON.parse(read("package.json"));
 
 assert(pkg.scripts["verify:my-checks-page-wiring"], "PKG: npm script registered");
@@ -61,8 +65,26 @@ assert(auditAccess.includes("buildCompleteWorkAssignedAudits"), "1e5: assigned c
 assert(!appTsx.includes("companySchedulesState.loadError") || !/AuditsScreen[\s\S]{0,400}companySchedulesState/.test(appTsx), "1e6: Complete Work does not wire company schedule list errors");
 assert(!checkService.includes("isScheduleAssignedToUser"), "1f: client does not filter schedules by email");
 assert(!checkService.includes("listCompanySchedules"), "1g: client does not list all schedules for My Checks");
-assert(auditsScreen.includes('"Start"'), "1h: assigned checks list exposes Start action");
-assert(auditsScreen.includes('"Continue"'), "1i: assigned checks list exposes Continue action");
+assert(auditsScreen.includes("AssignedCheckActionRow"), "1h: assigned checks list uses shared Start/Continue row");
+assert(assignedCheckRow.includes('"Start"'), "1i: assigned checks list exposes Start action");
+assert(assignedCheckRow.includes('"Continue"'), "1i2: assigned checks list exposes Continue action");
+assert(roleNav.includes('screen === "dashboard"'), "1e0e: dashboard screen loads assigned checks");
+assert(thingsToDoSection.includes("Things to do"), "1e0f: dashboard Things to do section title");
+assert(thingsToDoSection.includes("No checks due right now."), "1e0g: dashboard Things to do empty state");
+assert(managerDashboard.includes("DashboardThingsToDoSection"), "1e0h: manager dashboard renders Things to do section");
+assert(
+  managerDashboard.indexOf("DashboardThingsToDoSection") < managerDashboard.indexOf("Open actions"),
+  "1e0h2: Things to do appears before Open actions on manager dashboard",
+);
+assert(assignedCheckRow.includes('"Start"'), "1e0i: shared assigned-check row exposes Start");
+assert(assignedCheckRow.includes('"Continue"'), "1e0j: shared assigned-check row exposes Continue");
+assert(appTsx.includes("buildAssignedCheckScheduleMeta"), "1e0k: App builds schedule meta for dashboard cards");
+assert(assignedCheckDisplay.includes("buildAssignedCheckScheduleMeta"), "1e0l: schedule meta helper for dashboard");
+assert(
+  /renderManagerDashboard[\s\S]{0,1200}assignedCheckScheduleMeta/.test(appTsx),
+  "1e0m: manager dashboard receives assigned-check schedule meta",
+);
+assert(auditsScreen.includes("AssignedCheckActionRow"), "1e0n: Complete Work reuses shared assigned-check row");
 
 /** 2: Session company context — no localStorage companyName truth. */
 assert(contextService.includes("resolveActiveCompanyContext"), "2: unified company context resolver");

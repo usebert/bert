@@ -121,6 +121,11 @@ assert(read("src/utils/auditAccess.ts").includes("buildAuditFromAssignedSchedule
 assert(read("src/utils/auditAccess.ts").includes("buildCompleteWorkAssignedAudits"), "4g3b: Complete Work audits built from assigned-checks API only");
 assert(read("src/utils/auditAccess.ts").includes("resolveAssignedCheckAuditId"), "4g4: stable audit id for assigned schedules");
 assert(read("src/screens/AuditsScreen.tsx").includes("My assigned checks"), "4g5: Admin/Manager assigned checks UI");
+assert(read("src/components/dashboard/ManagerRoleDashboard.tsx").includes("DashboardThingsToDoSection"), "4g5a: manager dashboard Things to do section");
+assert(read("src/components/dashboard/DashboardThingsToDoSection.tsx").includes("Things to do"), "4g5a1: Things to do section title");
+assert(read("src/components/dashboard/DashboardThingsToDoSection.tsx").includes("No checks due right now."), "4g5b: dashboard empty state for assigned checks");
+assert(read("src/components/checks/AssignedCheckActionRow.tsx").includes('"Start"'), "4g5c: dashboard assigned-check row Start");
+assert(read("src/components/checks/AssignedCheckActionRow.tsx").includes('"Continue"'), "4g5d: dashboard assigned-check row Continue");
 assert(read("server/bert-cors.mjs").includes("PUT"), "9: CORS preflight allows PUT for audit-templates");
 assert(read("src/utils/scheduleAssignees.ts").includes("deriveScheduleAssigneesFromCompanyMembers"), "4h: assignees helper retained for diagnostics");
 assert(appSrc.includes("readScheduleAssigneesCache"), "4i: App reads assignee localStorage cache while loading");
@@ -314,8 +319,9 @@ assert(read("src/utils/auditAccess.ts").includes("buildAuditFromAssignedSchedule
     cards.some((card) => card.name === "DC H&S Audit" && card.id.startsWith("gf-check")),
     "10m: Complete Work renders DC H&S Audit card with Start/Continue id",
   );
-  assert(read("src/screens/AuditsScreen.tsx").includes('"Start"'), "10n: Complete Work UI exposes Start");
-  assert(read("src/screens/AuditsScreen.tsx").includes('"Continue"'), "10o: Complete Work UI exposes Continue");
+  assert(read("src/screens/AuditsScreen.tsx").includes("AssignedCheckActionRow"), "10n: Complete Work UI uses shared Start row");
+  assert(read("src/components/checks/AssignedCheckActionRow.tsx").includes('"Start"'), "10n1: Complete Work UI exposes Start");
+  assert(read("src/components/checks/AssignedCheckActionRow.tsx").includes('"Continue"'), "10o: Complete Work UI exposes Continue");
 }
 
 /** 11: Canonical verifier row + legacy "schdule 3" — assigned-checks must list the real schedule. */

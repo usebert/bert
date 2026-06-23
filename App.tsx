@@ -319,6 +319,7 @@ import {
   normalizeAuditAccessLevel,
   resolveCurrentUserReportEmails,
 } from "./src/utils/auditAccess";
+import { buildAssignedCheckScheduleMeta } from "./src/utils/assignedCheckDisplay";
 import {
   normalizeScheduleAssigneeIds,
   resolveScheduleAssigneeLabels,
@@ -5072,6 +5073,11 @@ function App() {
     currentUserAssignedSiteIds,
     areaRestrictionsEnabled,
   ]);
+
+  const assignedCheckScheduleMeta = useMemo(
+    () => buildAssignedCheckScheduleMeta(assignedChecksState.schedules),
+    [assignedChecksState.schedules],
+  );
 
   const assignedAudits = useMemo(() => {
     if (!currentUser) {
@@ -15144,6 +15150,9 @@ function App() {
                     }}
                     onOpenAudit={startAudit}
                     onAdvanceAction={updateActionStatus}
+                    drafts={drafts}
+                    assignedCheckScheduleMeta={assignedCheckScheduleMeta}
+                    assignedChecksLoading={assignedChecksState.loading}
                     recurringFailedQuestions={recurringFailedQuestions}
                     onViewAllNeedsAttention={() => {
                       setActionFilter("Overdue");

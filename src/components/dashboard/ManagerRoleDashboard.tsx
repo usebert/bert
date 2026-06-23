@@ -1,9 +1,12 @@
 import { useMemo } from "react";
 import type { NavItemId } from "../../types/navigation";
 import type { ActionItem } from "../../types/reportsScreenProps";
+import type { AuditDraft } from "../../types/dashboardScreenProps";
 import type { ManagerDashboardProps } from "../../types/dashboardScreenProps";
 import { isOverdue } from "../../utils/managerDashboard";
+import type { AssignedCheckScheduleMeta } from "../../utils/assignedCheckDisplay";
 import { AnimatedCard } from "../animation/AnimatedCard";
+import { DashboardThingsToDoSection } from "./DashboardThingsToDoSection";
 import {
   DASHBOARD_CARD,
   ManagerSummaryCard,
@@ -15,6 +18,9 @@ type Props = ManagerDashboardProps & {
   workspaceName: string;
   teamCount: number;
   onNavigate: (screen: NavItemId) => void;
+  drafts: Record<string, AuditDraft>;
+  assignedCheckScheduleMeta: Record<string, AssignedCheckScheduleMeta>;
+  assignedChecksLoading?: boolean;
 };
 
 function actionStatusLabel(action: ActionItem): { label: string; tone: "danger" | "warning" | "info" | "neutral" } {
@@ -35,7 +41,18 @@ function closedThisWeek(actions: ActionItem[]): number {
   }).length;
 }
 
-export function ManagerRoleDashboard({ workspaceName, teamCount, onNavigate, actions, ...managerProps }: Props) {
+export function ManagerRoleDashboard({
+  workspaceName,
+  teamCount,
+  onNavigate,
+  assignedAudits,
+  drafts,
+  assignedCheckScheduleMeta,
+  assignedChecksLoading = false,
+  onOpenAudit,
+  actions,
+  ...managerProps
+}: Props) {
   void workspaceName;
   void teamCount;
   void managerProps;
@@ -108,7 +125,17 @@ export function ManagerRoleDashboard({ workspaceName, teamCount, onNavigate, act
         </AnimatedCard>
       </div>
 
-      <AnimatedCard as="section" index={3} className={DASHBOARD_CARD}>
+      <DashboardThingsToDoSection
+        assignedAudits={assignedAudits}
+        drafts={drafts}
+        scheduleMetaByAuditId={assignedCheckScheduleMeta}
+        onOpenAudit={onOpenAudit}
+        loading={assignedChecksLoading}
+        role="Manager"
+        cardIndex={3}
+      />
+
+      <AnimatedCard as="section" index={4} className={DASHBOARD_CARD}>
         <h2 className="text-lg font-black text-slate-900">Open actions</h2>
         {openActions.length === 0 ? (
           <p className="mt-4 text-sm text-slate-600">No open corrective actions right now.</p>
