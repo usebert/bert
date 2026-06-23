@@ -35,6 +35,9 @@ import {
   ensureTabColumns as workbookEnsureTabColumns,
 } from "./workbook-service.mjs";
 
+/** Bumped when assigned-checks diagnostics shape or merge behaviour changes — verify in production via ?diagnostics=1. */
+export const ASSIGNED_CHECKS_DIAGNOSTICS_VERSION = "canonical-legacy-merge-v2";
+
 function resolveListActiveUsers(deps) {
   return typeof deps?.listActiveUsers === "function" ? deps.listActiveUsers : listActiveUsersFromUserService;
 }
@@ -152,7 +155,16 @@ function resolveReadTabRecords(deps) {
 }
 
 function resolveGetTabValues(deps) {
-  return typeof deps?.getTabValues === "function" ? deps.getTabValues : workbookGetTabValues;
+  const injected = deps?.getTabValues;
+  if (typeof injected !== "function") {
+    return workbookGetTabValues;
+  }
+  // server.mjs injects (auth, spreadsheetId, tabName, range?) without a workbook deps arg.
+  if (injected.length < 4) {
+    return async (auth, depsArg, spreadsheetId, tabName, range) =>
+      injected(auth, spreadsheetId, tabName, range);
+  }
+  return injected;
 }
 
 function resolveEnsureTabColumns(deps) {
@@ -416,6 +428,16 @@ function resolveRowsToRecords(deps) {
 }
 
 async function readLegacyScheduleRecords(auth, deps, masterSheetId) {
+  const readTabRecords = resolveReadTabRecords(deps);
+  try {
+    const readResult = await readTabRecords(auth, deps, masterSheetId, LEGACY_SCHEDULE_TAB);
+    if (Array.isArray(readResult?.records)) {
+      return readResult.records;
+    }
+  } catch {
+    /* fall through to row-based read for test doubles */
+  }
+
   const getTabValues = resolveGetTabValues(deps);
   const rowsToRecords = resolveRowsToRecords(deps);
   if (!rowsToRecords) {
@@ -936,6 +958,7 @@ export async function listMyChecks(auth, deps, input = {}) {
     const resolveContextMs = Number(listed.timing?.resolveContextMs) || 0;
     const readSchedulesMs = Number(listed.timing?.readSchedulesMs) || 0;
     result.diagnostics = {
+      assignedChecksDiagnosticsVersion: ASSIGNED_CHECKS_DIAGNOSTICS_VERSION,
       signedInEmail: email,
       companyFolderId,
       alternateIds,

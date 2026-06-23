@@ -19,6 +19,7 @@ import {
   sanitizeCompanyFolderId,
   sanitizeGoogleSpreadsheetId,
 } from "../shared/google-drive-id.mjs";
+import { readTabRecords } from "./workbook-service.mjs";
 import {
   canListCompanySchedules,
   getCompanySchedule,
@@ -93,6 +94,7 @@ export function installCoreWorkflowRoutes(app, deps) {
   const scheduleDeps = {
     readCompanySheetById,
     ...getCompanyUsersDeps(),
+    readTabRecords,
     getTabValues,
     ensureTabExists,
     ensureColumns,

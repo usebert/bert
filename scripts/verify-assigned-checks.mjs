@@ -191,6 +191,14 @@ assert(read("server/schedule-service.mjs").includes("canonicalSchedulesCount"), 
 assert(read("server/schedule-service.mjs").includes("legacyScheduleCount"), "8m2: assigned-checks diagnostics include legacyScheduleCount");
 assert(read("server/schedule-service.mjs").includes("scheduleNamesListed"), "8m3: assigned-checks diagnostics include scheduleNamesListed");
 assert(read("server/schedule-service.mjs").includes("dataSource"), "8m4: assigned-checks diagnostics include dataSource");
+assert(
+  read("server/schedule-service.mjs").includes('assignedChecksDiagnosticsVersion: ASSIGNED_CHECKS_DIAGNOSTICS_VERSION'),
+  "8m4a: assigned-checks diagnostics include version marker",
+);
+assert(
+  read("server/schedule-service.mjs").includes('ASSIGNED_CHECKS_DIAGNOSTICS_VERSION = "canonical-legacy-merge-v2"'),
+  "8m4b: assigned-checks diagnostics version is canonical-legacy-merge-v2",
+);
 assert(!read("server/schedule-service.mjs").includes("canonicalSchedulesOnly: true"), "8m5: assigned checks does not skip legacy fallback when canonical has rows");
 assert(read("server/schedule-service.mjs").includes("templateHydrationMs"), "8n: assigned-checks diagnostics include templateHydrationMs");
 assert(read("server/schedule-service.mjs").includes("resolveContextMs"), "8o: assigned-checks diagnostics include resolveContextMs");
@@ -353,6 +361,9 @@ assert(read("src/utils/auditAccess.ts").includes("buildAuditFromAssignedSchedule
     if (tabName === "Schedules") {
       return { ok: true, records: canonicalRecords, rowCount: canonicalRecords.length };
     }
+    if (tabName === "Schedule") {
+      return { ok: true, records: legacyRecords, rowCount: legacyRecords.length };
+    }
     return { ok: true, records: [], rowCount: 0 };
   }
   async function mockGetTabValues(_auth, _deps, _sheetId, tabName) {
@@ -397,6 +408,10 @@ assert(read("src/utils/auditAccess.ts").includes("buildAuditFromAssignedSchedule
   );
 
   assert(myChecks.ok, "11: listMyChecks succeeds with canonical + legacy sources");
+  assert(
+    myChecks.diagnostics?.assignedChecksDiagnosticsVersion === "canonical-legacy-merge-v2",
+    "11a: diagnostics version marker is canonical-legacy-merge-v2",
+  );
   assert((myChecks.diagnostics?.canonicalSchedulesCount || 0) === 1, "11b: diagnostics count canonical schedule");
   assert((myChecks.diagnostics?.legacyScheduleCount || 0) === 1, "11c: diagnostics count legacy schedule");
   assert(
