@@ -3702,11 +3702,6 @@ function App() {
   const [actionNcFilter, setActionNcFilter] = useState<string>("All");
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const activeAudit = useMemo(
-    () => audits.find((audit) => audit.id === activeAuditId) ?? null,
-    [audits, activeAuditId],
-  );
-
   const selectedFolder = useMemo(() => {
     const fromFolders = folders.find((folder) => folder.id === selectedFolderId);
     if (fromFolders) {
@@ -5253,6 +5248,20 @@ function App() {
     assignedChecksState.companyFolderId,
     activeCompanyContext.companyFolderId,
   ]);
+
+  const activeAudit = useMemo(() => {
+    if (!activeAuditId) {
+      return null;
+    }
+    const fromWorkspaceAudits = audits.find((audit) => audit.id === activeAuditId);
+    if (fromWorkspaceAudits) {
+      return fromWorkspaceAudits;
+    }
+    if (currentUser && usesAssignedChecksCompletionFlow(currentUser.role)) {
+      return assignedAudits.find((audit) => audit.id === activeAuditId) ?? null;
+    }
+    return null;
+  }, [activeAuditId, audits, assignedAudits, currentUser]);
 
   const dashboardNextActionInput = useMemo((): DashboardSummaryForNextAction | null => {
     if (!currentUser) return null;
