@@ -21,6 +21,8 @@ type Props = ManagerDashboardProps & {
   drafts: Record<string, AuditDraft>;
   assignedCheckScheduleMeta: Record<string, AssignedCheckScheduleMeta>;
   assignedChecksLoading?: boolean;
+  assignedChecksLoadError?: string;
+  assignedChecksLoadErrorDetail?: string;
 };
 
 function actionStatusLabel(action: ActionItem): { label: string; tone: "danger" | "warning" | "info" | "neutral" } {
@@ -49,6 +51,8 @@ export function ManagerRoleDashboard({
   drafts,
   assignedCheckScheduleMeta,
   assignedChecksLoading = false,
+  assignedChecksLoadError,
+  assignedChecksLoadErrorDetail,
   onOpenAudit,
   actions,
   ...managerProps
@@ -131,6 +135,8 @@ export function ManagerRoleDashboard({
         scheduleMetaByAuditId={assignedCheckScheduleMeta}
         onOpenAudit={onOpenAudit}
         loading={assignedChecksLoading}
+        loadError={assignedChecksLoadError}
+        loadErrorDetail={assignedChecksLoadErrorDetail}
         role="Manager"
         cardIndex={3}
       />

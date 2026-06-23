@@ -50,7 +50,7 @@ assert(roleNav.includes("COMPLETE_WORK_NAV_SCREEN_ID"), "1e0d: Complete Work nav
 assert(appTsx.includes("shouldLoadAssignedChecksScreen"), "1e1: App gates assigned-checks load via screen helper");
 assert(appTsx.includes("isCompleteWorkListScreen"), "1e1b: App renders Complete Work via screen helper");
 assert(
-  /shouldLoadAssignedChecksScreen\(screen\)[\s\S]{0,2400}fetchAssignedChecks/.test(appTsx),
+  /shouldLoadAssignedChecksScreen\(screen\)[\s\S]{0,3200}fetchAssignedChecks/.test(appTsx),
   "1e2: Complete Work screen gate triggers fetchAssignedChecks",
 );
 assert(
@@ -105,6 +105,22 @@ assert(appTsx.includes("readAssignedChecksCache"), "3b2: App warms assigned chec
 assert(auditsScreen.includes("assignedChecksLoadError"), "3c: error UI in My Checks screen");
 assert(appTsx.includes("assignedChecksState"), "3d: App tracks assigned checks load state");
 assert(appTsx.includes("assignedChecksLoading={assignedChecksState.loading}"), "3e: loading wired to AuditsScreen");
+assert(appTsx.includes("assignedChecksLoadError={assignedChecksState.loadError}"), "3e1: error wired to AuditsScreen");
+assert(appTsx.includes("assignedChecksRequestRef"), "3e2: assigned-check fetch uses request generation guard");
+assert(appTsx.includes("hasLoadedOnce"), "3e3: assigned-check state tracks initial load completion");
+assert(
+  /shouldLoadAssignedChecksScreen\(screen\)[\s\S]{0,220}loading:\s*false/.test(appTsx),
+  "3e4: leaving assigned-check screens clears loading",
+);
+assert(
+  /!result\.ok[\s\S]{0,320}loading:\s*false/.test(appTsx),
+  "3e5: assigned-check fetch failure clears loading",
+);
+assert(
+  /schedules:\s*result\.schedules[\s\S]{0,180}loading:\s*false/.test(appTsx),
+  "3e6: assigned-check fetch success clears loading",
+);
+assert(thingsToDoSection.includes("loadError"), "3e7: dashboard Things to do handles load errors");
 assert(auditsScreen.includes("assignedChecksLoadErrorDetail"), "3f: error detail wired in My Checks UI");
 assert(appTsx.includes("assignedChecksLoadErrorDetail"), "3g: App passes assigned checks error detail");
 assert(appTsx.includes("usesAssignedChecksCompletionFlow(currentUser.role)"), "3h: assigned checks load gated to completable roles");

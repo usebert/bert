@@ -117,6 +117,9 @@ assert(scheduleSaveSrc.includes("getScheduleAssignedEmails"), "4f: schedule save
 assert(read("src/permissions.ts").includes("canCompleteAssignedCheck"), "4g: completion permission helper exists");
 assert(read("src/permissions.ts").includes("usesAssignedChecksCompletionFlow"), "4g1: assigned-check completion flow helper exists");
 assert(appSrc.includes("usesAssignedChecksCompletionFlow"), "4g2: App uses assigned-check completion flow");
+assert(appSrc.includes("assignedChecksRequestRef"), "4g2a: assigned-check fetch guarded against stale responses");
+assert(appSrc.includes("hasLoadedOnce"), "4g2b: assigned-check state tracks settled load");
+assert(read("src/components/dashboard/DashboardThingsToDoSection.tsx").includes("Things to do"), "4g2c: dashboard Things to do section retained");
 assert(read("src/utils/auditAccess.ts").includes("buildAuditFromAssignedSchedule"), "4g3: audit builder for assigned schedules");
 assert(read("src/utils/auditAccess.ts").includes("buildCompleteWorkAssignedAudits"), "4g3b: Complete Work audits built from assigned-checks API only");
 assert(read("src/utils/auditAccess.ts").includes("resolveAssignedCheckAuditId"), "4g4: stable audit id for assigned schedules");

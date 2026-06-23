@@ -3381,6 +3381,7 @@ function App() {
   const isLoggingOutRef = useRef(false);
   const explicitLogoutRef = useRef(false);
   const authBootstrapGenerationRef = useRef(0);
+  const assignedChecksRequestRef = useRef(0);
   const [shellMoreExpanded, setShellMoreExpanded] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [dashboardPreferences, setDashboardPreferences] = useState<DashboardPreferences>(() =>
@@ -3597,6 +3598,7 @@ function App() {
     loadErrorDetail?: string;
     companyFolderId?: string;
     masterSheetId?: string;
+    hasLoadedOnce?: boolean;
   }>({ schedules: [], loading: false });
   const [companyResultsState, setCompanyResultsState] = useState<{
     results: AuditResultSummary[];
@@ -5506,13 +5508,21 @@ function App() {
 
   useEffect(() => {
     if (!currentUser || !usesAssignedChecksCompletionFlow(currentUser.role)) {
-      setAssignedChecksState({ schedules: [], loading: false });
+      setAssignedChecksState({ schedules: [], loading: false, hasLoadedOnce: false });
       return;
     }
     if (!shouldLoadAssignedChecksScreen(screen)) {
+      setAssignedChecksState((previous) => ({
+        ...previous,
+        loading: false,
+      }));
       return;
     }
     if (!masterCompanyWorkspaceDataMatchesSelection) {
+      setAssignedChecksState((previous) => ({
+        ...previous,
+        loading: false,
+      }));
       return;
     }
 
@@ -5526,31 +5536,43 @@ function App() {
         ? readAssignedChecksCache(storageKeys.assignedChecksCache, companyFolderId, signedInEmail)
         : null;
 
+    const requestId = ++assignedChecksRequestRef.current;
+    const isActiveRequest = () => assignedChecksRequestRef.current === requestId;
+
     const controller = new AbortController();
-    let cancelled = false;
     const timeoutId = window.setTimeout(() => {
       controller.abort(new DOMException("Assigned checks load timed out", "TimeoutError"));
     }, ASSIGNED_CHECKS_LOAD_TIMEOUT_MS);
-    setAssignedChecksState((previous) => ({
-      ...previous,
-      schedules:
-        cachedAssignedChecks?.schedules?.length && previous.schedules.length === 0
+    setAssignedChecksState((previous) => {
+      const companyChanged =
+        Boolean(previous.companyFolderId) &&
+        Boolean(companyFolderId) &&
+        previous.companyFolderId !== companyFolderId;
+      const schedules =
+        cachedAssignedChecks?.schedules?.length && (previous.schedules.length === 0 || companyChanged)
           ? (cachedAssignedChecks.schedules as ManagedSchedule[])
-          : previous.schedules.length > 0
+          : previous.schedules.length > 0 && !companyChanged
             ? previous.schedules
-            : ((cachedAssignedChecks?.schedules || []) as ManagedSchedule[]),
-      companyFolderId: previous.companyFolderId || cachedAssignedChecks?.companyFolderId || companyFolderId,
-      masterSheetId: previous.masterSheetId || cachedAssignedChecks?.masterSheetId,
-      loading: true,
-      loadError: undefined,
-      loadErrorDetail: undefined,
-    }));
+            : ((cachedAssignedChecks?.schedules || []) as ManagedSchedule[]);
+      const hasLoadedOnce = companyChanged ? false : previous.hasLoadedOnce;
+      const shouldShowBlockingLoad = !hasLoadedOnce && schedules.length === 0 && !previous.loadError;
+      return {
+        ...previous,
+        schedules,
+        companyFolderId: companyFolderId || previous.companyFolderId || cachedAssignedChecks?.companyFolderId,
+        masterSheetId: previous.masterSheetId || cachedAssignedChecks?.masterSheetId,
+        hasLoadedOnce,
+        loading: shouldShowBlockingLoad || schedules.length > 0,
+        loadError: companyChanged ? undefined : previous.loadError,
+        loadErrorDetail: companyChanged ? undefined : previous.loadErrorDetail,
+      };
+    });
 
     void (async () => {
       try {
         const result = await fetchAssignedChecks({ signal: controller.signal });
 
-        if (cancelled) {
+        if (!isActiveRequest()) {
           return;
         }
         if (!result.ok) {
@@ -5558,6 +5580,7 @@ function App() {
             ...previous,
             schedules: previous.schedules,
             loading: false,
+            hasLoadedOnce: true,
             loadError: previous.schedules.length > 0 ? undefined : result.loadError || ASSIGNED_CHECKS_USER_MESSAGE,
             loadErrorDetail:
               previous.schedules.length > 0 ? undefined : result.loadErrorDetail,
@@ -5569,6 +5592,7 @@ function App() {
         setAssignedChecksState({
           schedules: result.schedules as ManagedSchedule[],
           loading: false,
+          hasLoadedOnce: true,
           companyFolderId: nextCompanyFolderId,
           masterSheetId: result.masterSheetId,
           loadError: undefined,
@@ -5584,39 +5608,43 @@ function App() {
           });
         }
       } catch (error) {
-        if (cancelled) {
+        if (!isActiveRequest()) {
           return;
         }
         if (error instanceof DOMException && error.name === "AbortError") {
           const timedOut = error.message.includes("timed out") || error.message === "TimeoutError";
-          if (timedOut) {
-            setAssignedChecksState((previous) => ({
-              ...previous,
-              schedules: previous.schedules,
-              loading: false,
-              loadError: previous.schedules.length > 0 ? undefined : ASSIGNED_CHECKS_LOAD_TIMEOUT_MESSAGE,
-              loadErrorDetail:
-                previous.schedules.length > 0
-                  ? undefined
-                  : `GET ${apiUrl("/api/me/assigned-checks")} → request timed out`,
-            }));
-          }
+          setAssignedChecksState((previous) => ({
+            ...previous,
+            loading: false,
+            hasLoadedOnce: previous.hasLoadedOnce || timedOut,
+            loadError:
+              timedOut && previous.schedules.length === 0
+                ? ASSIGNED_CHECKS_LOAD_TIMEOUT_MESSAGE
+                : previous.loadError,
+            loadErrorDetail:
+              timedOut && previous.schedules.length === 0
+                ? `GET ${apiUrl("/api/me/assigned-checks")} → request timed out`
+                : previous.loadErrorDetail,
+          }));
           return;
         }
         setAssignedChecksState((previous) => ({
           ...previous,
           schedules: previous.schedules,
           loading: false,
+          hasLoadedOnce: true,
           loadError: ASSIGNED_CHECKS_USER_MESSAGE,
           loadErrorDetail: error instanceof Error ? error.message : undefined,
         }));
       } finally {
         window.clearTimeout(timeoutId);
+        if (isActiveRequest()) {
+          setAssignedChecksState((previous) => (previous.loading ? { ...previous, loading: false } : previous));
+        }
       }
     })();
 
     return () => {
-      cancelled = true;
       window.clearTimeout(timeoutId);
       controller.abort();
     };
@@ -15153,6 +15181,8 @@ function App() {
                     drafts={drafts}
                     assignedCheckScheduleMeta={assignedCheckScheduleMeta}
                     assignedChecksLoading={assignedChecksState.loading}
+                    assignedChecksLoadError={assignedChecksState.loadError}
+                    assignedChecksLoadErrorDetail={assignedChecksState.loadErrorDetail}
                     recurringFailedQuestions={recurringFailedQuestions}
                     onViewAllNeedsAttention={() => {
                       setActionFilter("Overdue");
