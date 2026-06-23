@@ -10,6 +10,7 @@ import {
   SCHEDULES_TAB,
   scheduleRecordsPreferSchedulesTab,
 } from "../shared/schedule-save.mjs";
+import { mergeCompanyScheduleLists } from "../shared/schedule-list.mjs";
 import { SETUP_REQUIRED_TABS } from "../server/ensure-required-tabs.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -60,6 +61,7 @@ assert(scheduleService.includes("${SCHEDULES_TAB}!"), "13: write targets Schedul
 assert(!scheduleService.includes("writeLegacyCompanySchedules"), "14: no legacy dual-write helper");
 assert(scheduleService.includes("migrateLegacySchedulesToCanonicalTab"), "15: legacy migration on read");
 assert(scheduleService.includes("readLegacyScheduleRecords"), "16: legacy read helper exists");
+assert(scheduleService.includes("mergeCompanyScheduleLists"), "16b: canonical + legacy schedules merge on read");
 assert(scheduleService.includes("LEGACY_SCHEDULE_TAB"), "17: legacy tab used for read fallback");
 
 const writeBlock = scheduleService.slice(
@@ -97,6 +99,12 @@ assert(appTsx.includes('"Schedules"'), "32: App workspace tabs include Schedules
     [{ "Schedule ID": "canonical" }],
   );
   assert(preferred[0]["Schedule ID"] === "canonical", "33: canonical records preferred over legacy");
+  const merged = mergeCompanyScheduleLists(
+    [{ id: "canonical", scheduleName: "Canonical schedule", updatedAt: "2026-06-02" }],
+    [{ id: "legacy-only", scheduleName: "Legacy schedule", updatedAt: "2026-06-01" }],
+  );
+  assert(merged.length === 2, "33b: merged schedule lists include both canonical and legacy-only ids");
+  assert(merged.some((schedule) => schedule.scheduleName === "Legacy schedule"), "33c: legacy-only schedule survives merge");
 }
 
 /** No active server write ranges target legacy Schedule tab. */

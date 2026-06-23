@@ -10,6 +10,8 @@ import {
 import {
   companyScheduleRecordsFromSheetPayload,
   findCompanyScheduleById,
+  mergeCompanyScheduleLists,
+  describeMergedScheduleDataSource,
   parseCompanyScheduleListFromRecords,
   scheduleTabRecordsPreferCanonical,
 } from "../shared/schedule-list.mjs";
@@ -149,8 +151,8 @@ function resolveReadTabRecords(deps) {
   return typeof deps?.readTabRecords === "function" ? deps.readTabRecords : workbookReadTabRecords;
 }
 
-function resolveGetTabValues(_deps) {
-  return workbookGetTabValues;
+function resolveGetTabValues(deps) {
+  return typeof deps?.getTabValues === "function" ? deps.getTabValues : workbookGetTabValues;
 }
 
 function resolveEnsureTabColumns(deps) {
@@ -439,26 +441,64 @@ async function readCanonicalScheduleRecords(auth, deps, masterSheetId) {
   }
 }
 
+async function resolveScheduleReadContext(auth, deps, input = {}) {
+  if (
+    input.trustSessionContext === true &&
+    String(input.companyFolderId || input.companyId || "").trim() &&
+    String(input.masterSheetId || "").trim()
+  ) {
+    const base = buildSessionScheduleContext(input, deps);
+    if (!base.ok) {
+      return base;
+    }
+    const registryRecord = await resolveCompanyById(
+      auth,
+      deps,
+      String(input.companyFolderId || input.companyId || "").trim(),
+    ).catch(() => null);
+    if (registryRecord) {
+      const extraIds = [
+        registryRecord.companyId,
+        registryRecord.rootFolderId,
+        registryRecord.companyFolderId,
+      ]
+        .map((entry) => String(entry || "").trim())
+        .filter(Boolean);
+      base.alternateIds = [...new Set([...(base.alternateIds || []), ...extraIds])].filter(
+        (entry, index, all) => all.indexOf(entry) === index,
+      );
+      base.registryRecord = registryRecord;
+    }
+    return base;
+  }
+  return resolveCompanyScheduleContext(auth, deps, input);
+}
+
 async function loadCompanySchedulesFromWorkbook(auth, deps, context, options = {}) {
   const canonicalRecords = await readCanonicalScheduleRecords(auth, deps, context.masterSheetId);
-  let schedules = parseCompanyScheduleListFromRecords(
+  const canonicalSchedules = parseCompanyScheduleListFromRecords(
     canonicalRecords,
     context.companyFolderId,
     context.alternateIds,
   );
-  let sourceTab = SCHEDULES_TAB;
   let legacyRecords = [];
+  let legacySchedules = [];
 
-  if (schedules.length === 0 && options.canonicalOnly !== true) {
+  if (options.canonicalOnly !== true) {
     legacyRecords = await readLegacyScheduleRecords(auth, deps, context.masterSheetId);
-    schedules = parseCompanyScheduleListFromRecords(
+    legacySchedules = parseCompanyScheduleListFromRecords(
       legacyRecords,
       context.companyFolderId,
       context.alternateIds,
     );
-    if (schedules.length > 0) {
-      sourceTab = LEGACY_SCHEDULE_TAB;
-    }
+  }
+
+  const schedules = mergeCompanyScheduleLists(canonicalSchedules, legacySchedules);
+  let sourceTab = SCHEDULES_TAB;
+  if (canonicalSchedules.length === 0 && legacySchedules.length > 0) {
+    sourceTab = LEGACY_SCHEDULE_TAB;
+  } else if (canonicalSchedules.length > 0 && legacySchedules.length > 0) {
+    sourceTab = "merged";
   }
 
   const preferredRecords = scheduleTabRecordsPreferCanonical(canonicalRecords, legacyRecords);
@@ -468,6 +508,13 @@ async function loadCompanySchedulesFromWorkbook(auth, deps, context, options = {
     sourceTab,
     canonicalRecords,
     legacyRecords,
+    loadDiagnostics: {
+      canonicalSchedulesCount: canonicalSchedules.length,
+      legacyScheduleCount: legacySchedules.length,
+      workspaceScheduleCount: 0,
+      scheduleNamesListed: schedules.map((schedule) => String(schedule.scheduleName || "").trim()).filter(Boolean),
+      dataSource: describeMergedScheduleDataSource(canonicalSchedules.length, legacySchedules.length),
+    },
   };
 }
 
@@ -507,15 +554,7 @@ export async function readSchedulesFromTab(auth, deps, input = {}) {
 
   let context;
   const contextStart = Date.now();
-  if (
-    input.trustSessionContext === true &&
-    String(input.companyFolderId || input.companyId || "").trim() &&
-    String(input.masterSheetId || "").trim()
-  ) {
-    context = buildSessionScheduleContext(input, deps);
-  } else {
-    context = await resolveCompanyScheduleContext(auth, deps, input);
-  }
+  context = await resolveScheduleReadContext(auth, deps, input);
   resolveContextMs = Date.now() - contextStart;
   if (!context.ok) {
     return context;
@@ -557,6 +596,7 @@ export async function readSchedulesFromTab(auth, deps, input = {}) {
       sourceTab: migrated ? SCHEDULES_TAB : loaded.sourceTab,
       migratedFromLegacy: migrated,
       contextSource: context.contextSource,
+      loadDiagnostics: loaded.loadDiagnostics,
     };
     if (includeTiming) {
       result.timing = {
@@ -829,7 +869,6 @@ export async function listMyChecks(auth, deps, input = {}) {
     masterSheetId,
     trustSessionContext,
     skipLegacyMigration: true,
-    canonicalSchedulesOnly: true,
     includeDiagnostics,
   });
   if (!listed.ok) {
@@ -902,6 +941,11 @@ export async function listMyChecks(auth, deps, input = {}) {
       alternateIds,
       masterSheetId: listed.masterSheetId,
       contextSource: listed.contextSource || (trustSessionContext ? "session" : "resolved"),
+      canonicalSchedulesCount: listed.loadDiagnostics?.canonicalSchedulesCount ?? 0,
+      legacyScheduleCount: listed.loadDiagnostics?.legacyScheduleCount ?? 0,
+      workspaceScheduleCount: listed.loadDiagnostics?.workspaceScheduleCount ?? 0,
+      scheduleNamesListed: listed.loadDiagnostics?.scheduleNamesListed ?? [],
+      dataSource: listed.loadDiagnostics?.dataSource || listed.sourceTab || "unknown",
       totalListed: (listed.schedules || []).length,
       includedCount: schedules.length,
       excluded,

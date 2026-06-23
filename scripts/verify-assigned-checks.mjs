@@ -186,7 +186,12 @@ assert(checkService.includes("loadErrorDetail"), "8f: assigned checks exposes lo
 assert(!checkService.includes("error.message : ASSIGNED_CHECKS_USER_MESSAGE"), "8g: assigned checks does not surface raw NetworkError as primary message");
 assert(coreRoutes.includes("trustSessionContext"), "8k: assigned-checks route uses session fast path");
 assert(read("server/schedule-service.mjs").includes("buildSessionScheduleContext"), "8l: session schedule context helper exists");
-assert(read("server/schedule-service.mjs").includes("canonicalSchedulesOnly"), "8m: assigned checks reads canonical Schedules tab only");
+assert(read("server/schedule-service.mjs").includes("mergeCompanyScheduleLists"), "8m: assigned checks merge canonical + legacy schedule lists");
+assert(read("server/schedule-service.mjs").includes("canonicalSchedulesCount"), "8m1: assigned-checks diagnostics include canonicalSchedulesCount");
+assert(read("server/schedule-service.mjs").includes("legacyScheduleCount"), "8m2: assigned-checks diagnostics include legacyScheduleCount");
+assert(read("server/schedule-service.mjs").includes("scheduleNamesListed"), "8m3: assigned-checks diagnostics include scheduleNamesListed");
+assert(read("server/schedule-service.mjs").includes("dataSource"), "8m4: assigned-checks diagnostics include dataSource");
+assert(!read("server/schedule-service.mjs").includes("canonicalSchedulesOnly: true"), "8m5: assigned checks does not skip legacy fallback when canonical has rows");
 assert(read("server/schedule-service.mjs").includes("templateHydrationMs"), "8n: assigned-checks diagnostics include templateHydrationMs");
 assert(read("server/schedule-service.mjs").includes("resolveContextMs"), "8o: assigned-checks diagnostics include resolveContextMs");
 {
@@ -303,6 +308,106 @@ assert(read("src/utils/auditAccess.ts").includes("buildAuditFromAssignedSchedule
   );
   assert(read("src/screens/AuditsScreen.tsx").includes('"Start"'), "10n: Complete Work UI exposes Start");
   assert(read("src/screens/AuditsScreen.tsx").includes('"Continue"'), "10o: Complete Work UI exposes Continue");
+}
+
+/** 11: Canonical verifier row + legacy "schdule 3" — assigned-checks must list the real schedule. */
+{
+  const signedInEmail = "dovecotestudio@icloud.com";
+  const companyFolderId = "dovecote-root-folder";
+  const canonicalRecords = [
+    {
+      "Schedule ID": "foundation-verify",
+      "Company Folder ID": companyFolderId,
+      "Schedule Name": "Foundation verify check",
+      Status: "ACTIVE",
+      "Assigned User Emails": "verify.foundation+1782200530242@usebert.co.uk",
+      "Audit ID": "gf-check-foundation",
+      "Template Name": "Foundation verify",
+      Frequency: "Weekly",
+    },
+  ];
+  const legacyRecords = [
+    {
+      "Schedule ID": "schedule-3",
+      "Company Folder ID": companyFolderId,
+      "Schedule Name": "schdule 3",
+      Status: "ACTIVE",
+      "Assigned User Emails": "dovecotestudio@icloud.com",
+      "Audit ID": "gf-check-dc-hs-audit",
+      "Template Name": "DC H&S Audit",
+      Frequency: "Weekly",
+    },
+  ];
+  const legacyHeaders = [
+    "Schedule ID",
+    "Company Folder ID",
+    "Schedule Name",
+    "Status",
+    "Assigned User Emails",
+    "Audit ID",
+    "Template Name",
+    "Frequency",
+  ];
+
+  async function mockReadTabRecords(_auth, _deps, _sheetId, tabName) {
+    if (tabName === "Schedules") {
+      return { ok: true, records: canonicalRecords, rowCount: canonicalRecords.length };
+    }
+    return { ok: true, records: [], rowCount: 0 };
+  }
+  async function mockGetTabValues(_auth, _deps, _sheetId, tabName) {
+    if (tabName === "Schedule") {
+      return [
+        legacyHeaders,
+        ...legacyRecords.map((row) => legacyHeaders.map((header) => row[header] ?? "")),
+      ];
+    }
+    return [];
+  }
+
+  const myChecks = await listMyChecks(
+    {},
+    {
+      readTabRecords: mockReadTabRecords,
+      getTabValues: mockGetTabValues,
+      rowsToRecords: (rows) => {
+        if (!Array.isArray(rows) || rows.length < 2) {
+          return [];
+        }
+        const headers = rows[0];
+        return rows.slice(1).map((row) => {
+          const record = {};
+          headers.forEach((header, index) => {
+            record[String(header)] = String(row[index] ?? "");
+          });
+          return record;
+        });
+      },
+      masterSheetCache: {
+        getEntry: () => ({ masterSheetId: "sheet-dovecote" }),
+      },
+    },
+    {
+      email: signedInEmail,
+      companyFolderId,
+      masterSheetId: "sheet-dovecote",
+      trustSessionContext: true,
+      includeDiagnostics: true,
+    },
+  );
+
+  assert(myChecks.ok, "11: listMyChecks succeeds with canonical + legacy sources");
+  assert((myChecks.diagnostics?.canonicalSchedulesCount || 0) === 1, "11b: diagnostics count canonical schedule");
+  assert((myChecks.diagnostics?.legacyScheduleCount || 0) === 1, "11c: diagnostics count legacy schedule");
+  assert(
+    (myChecks.diagnostics?.scheduleNamesListed || []).includes("schdule 3"),
+    "11d: diagnostics list schdule 3 from merged sources",
+  );
+  assert(myChecks.diagnostics?.dataSource === "schedules_tab+legacy_schedule", "11e: diagnostics dataSource is merged");
+  assert(myChecks.schedules.length === 1, "11f: only schdule 3 assigned to signed-in user");
+  assert(myChecks.schedules[0].scheduleName === "schdule 3", "11g: assigned schedule is schdule 3");
+  const audit = myChecks.schedules[0].audits.find((row) => row.auditName === "DC H&S Audit");
+  assert(audit && audit.auditId.startsWith("gf-check"), "11h: schdule 3 exposes DC H&S Audit");
 }
 
 console.log("[verify:assigned-checks] OK: assigned-check contract verified");

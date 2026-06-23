@@ -166,6 +166,39 @@ export function parseCompanyScheduleListFromRecords(records = [], companyFolderI
   );
 }
 
+/** Merge canonical + legacy schedule lists — canonical wins when the same Schedule ID exists in both. */
+export function mergeCompanyScheduleLists(canonicalSchedules = [], legacySchedules = []) {
+  const byId = new Map();
+  for (const schedule of legacySchedules) {
+    const id = String(schedule?.id || "").trim();
+    if (id) {
+      byId.set(id, schedule);
+    }
+  }
+  for (const schedule of canonicalSchedules) {
+    const id = String(schedule?.id || "").trim();
+    if (id) {
+      byId.set(id, schedule);
+    }
+  }
+  return Array.from(byId.values()).sort((left, right) =>
+    String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")),
+  );
+}
+
+export function describeMergedScheduleDataSource(canonicalCount = 0, legacyCount = 0) {
+  if (canonicalCount > 0 && legacyCount > 0) {
+    return "schedules_tab+legacy_schedule";
+  }
+  if (canonicalCount > 0) {
+    return "schedules_tab";
+  }
+  if (legacyCount > 0) {
+    return "legacy_schedule";
+  }
+  return "none";
+}
+
 export function companyScheduleRecordsFromSheetPayload(payload = {}, companyFolderId = "", alternateIds = []) {
   const scheduleRecords = Array.isArray(payload?.data?.[LEGACY_SCHEDULE_TAB])
     ? payload.data[LEGACY_SCHEDULE_TAB]
