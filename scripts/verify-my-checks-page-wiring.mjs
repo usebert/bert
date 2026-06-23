@@ -85,6 +85,18 @@ assert(
   "1e0m: manager dashboard receives assigned-check schedule meta",
 );
 assert(auditsScreen.includes("AssignedCheckActionRow"), "1e0n: Complete Work reuses shared assigned-check row");
+assert(
+  thingsToDoSection.includes("AssignedCheckActionRow") && thingsToDoSection.includes("onOpenAudit={onOpenAudit}"),
+  "1e0o: dashboard Things to do wires Start through shared AssignedCheckActionRow",
+);
+assert(
+  /renderManagerDashboard[\s\S]{0,1600}onOpenAudit=\{startAudit\}/.test(appTsx),
+  "1e0p: manager dashboard passes startAudit to Things to do",
+);
+assert(
+  /const activeAudit = useMemo\([\s\S]{0,900}assignedAudits\.find/.test(appTsx),
+  "1e0q: activeAudit resolves assigned-check audits for completion wizard",
+);
 
 /** 2: Session company context — no localStorage companyName truth. */
 assert(contextService.includes("resolveActiveCompanyContext"), "2: unified company context resolver");
