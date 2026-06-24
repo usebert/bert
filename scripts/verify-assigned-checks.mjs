@@ -577,5 +577,89 @@ assert(read("server/schedule-service.mjs").includes("enrichAssignedSchedulesWith
 assert(read("src/utils/auditAccess.ts").includes("isAssignedScheduleAuditCompletedForCurrentDue"), "12k: Complete Work filters completed due instances");
 assert(read("src/utils/assignedCheckCompletion.ts").includes("mergeScheduleLastCompletedFromResults"), "12l: schedules merge last completed from results");
 assert(read("src/screens/SchedulesScreen.tsx").includes("Last completed"), "12m: schedules UI shows last completed date");
+assert(read("src/utils/assignedCheckCompletion.ts").includes("Never completed"), "12m1: schedule last completed fallback is Never completed");
+assert(read("src/screens/SchedulesScreen.tsx").includes("Next due"), "12m2: schedules UI shows next due");
+assert(read("src/utils/assignedCheckCompletion.ts").includes("resolveScheduleListStatusChip"), "12m3: schedule list status chip helper exists");
+assert(read("src/utils/assignedCheckCompletion.ts").includes("formatScheduleLastCompletedLabel"), "12m4: schedule last completed label helper exists");
+assert(read("src/components/dashboard/DashboardThingsToDoSection.tsx").includes("AssignedCheckActionRow"), "12n: dashboard Things to do still uses assigned-check row");
+assert(read("src/utils/auditAccess.ts").includes("buildCompleteWorkAssignedAudits"), "12o: Complete Work still builds from assigned-checks API");
+
+/** 13: Schedule list completion polish — labels + enrichment from AuditResults. */
+{
+  const scheduleId = "schedule-polish-1";
+  const completedAt = "2026-06-24T09:15:00.000Z";
+  const nextDueAt = "2026-06-24T08:00:00.000Z";
+
+  assert(
+    read("src/utils/assignedCheckCompletion.ts").includes('return "Never completed"'),
+    "13a: no completion shows Never completed",
+  );
+  assert(
+    read("src/utils/assignedCheckCompletion.ts").includes("formatScheduleNextDueLabel"),
+    "13b: schedule next due label helper exists",
+  );
+
+  const completion = resolveAssignedCheckCompletion(
+    [
+      {
+        "Schedule ID": scheduleId,
+        "Audit ID": "audit-1",
+        "Audit Name": "Fire walk",
+        "Completed At": completedAt,
+        "Completed By Email": "manager@testco.test",
+        Status: "completed",
+      },
+    ],
+    {
+      scheduleId,
+      auditId: "audit-1",
+      auditName: "Fire walk",
+      email: "manager@testco.test",
+      nextDueAt,
+      frequency: "Daily",
+    },
+    new Date("2026-06-24T12:00:00.000Z"),
+  );
+  assert(completion.completedForCurrentDue, "13c: AuditResults completion resolves for current due");
+  assert(completion.lastCompletedAt === completedAt, "13d: AuditResults completion exposes lastCompletedAt");
+
+  const scheduleRecords = [
+    {
+      "Schedule ID": scheduleId,
+      "Company Folder ID": "company-1",
+      "Schedule Name": "Daily walk",
+      Status: "ACTIVE",
+      "Assigned User Emails": "manager@testco.test",
+      "Audit ID": "audit-1",
+      "Template Name": "Fire walk",
+      Frequency: "Daily",
+      "Next Due At": nextDueAt,
+    },
+  ];
+  const parsed = parseCompanyScheduleListFromRecords(scheduleRecords, "company-1");
+  assert(parsed.length === 1, "13e: schedule with due info parses for list display");
+  assert(String(parsed[0].nextDueAt || "").trim() === nextDueAt, "13f: schedule list retains nextDueAt");
+
+  const enriched = enrichAssignedSchedulesWithCompletion(
+    parsed,
+    [
+      {
+        "Schedule ID": scheduleId,
+        "Audit ID": "audit-1",
+        "Audit Name": "Fire walk",
+        "Completed At": completedAt,
+        "Completed By Email": "manager@testco.test",
+        Status: "completed",
+      },
+    ],
+    "manager@testco.test",
+    new Date("2026-06-24T12:00:00.000Z"),
+  );
+  assert(enriched[0]?.audits?.[0]?.completedForCurrentDue === true, "13g: enriched schedule audit completed for current due");
+  const dueAudits = enriched.flatMap((schedule) =>
+    (schedule.audits || []).filter((audit) => audit.completedForCurrentDue !== true),
+  );
+  assert(dueAudits.length === 0, "13h: enriched assigned schedule hides completed due audit");
+}
 
 console.log("[verify:assigned-checks] OK: assigned-check contract verified");

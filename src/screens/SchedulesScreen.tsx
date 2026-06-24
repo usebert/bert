@@ -11,7 +11,12 @@ import type {
 } from "../types/reportsScreenProps";
 import { EmptyPanel } from "../components/dashboard/DashboardPrimitives";
 import { slatePrimaryCtaInteract } from "../styles/interactions";
-import { formatAssignedCheckLastCompletedAt } from "../utils/assignedCheckCompletion";
+import {
+  formatScheduleNextDueLabel,
+  resolveScheduleListStatusChip,
+  scheduleLastCompletedLabel,
+  scheduleNextDueLabel,
+} from "../utils/assignedCheckCompletion";
 import { darkPanelBody, darkPanelEyebrow, darkPanelShell, darkPanelTitleLg } from "../styles/darkPanel";
 
 const amberThresholdHours = 2;
@@ -136,16 +141,45 @@ function SectionHeader({
 function MetaPill({
   icon,
   label,
+  tone = "neutral",
 }: {
   icon: string;
   label: string;
+  tone?: "neutral" | "success" | "warning" | "danger" | "info";
 }) {
+  const toneClasses =
+    tone === "success"
+      ? "bg-emerald-100 text-emerald-800"
+      : tone === "warning"
+        ? "bg-amber-100 text-amber-800"
+        : tone === "danger"
+          ? "bg-rose-100 text-rose-800"
+          : tone === "info"
+            ? "bg-blue-100 text-blue-800"
+            : "bg-slate-100 text-slate-600";
+
   return (
-    <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-600">
+    <div className={["inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold", toneClasses].join(" ")}>
       <SchedulesScreenIcon name={icon} className="h-3.5 w-3.5" />
       <span>{label}</span>
     </div>
   );
+}
+
+function scheduleStatusChipTone(chip: ReturnType<typeof resolveScheduleListStatusChip>) {
+  if (chip === "Completed") {
+    return "success";
+  }
+  if (chip === "Due now") {
+    return "warning";
+  }
+  if (chip === "Overdue") {
+    return "danger";
+  }
+  if (chip === "Upcoming") {
+    return "info";
+  }
+  return "neutral";
 }
 
 export function SchedulesScreen({
@@ -304,7 +338,10 @@ export function SchedulesScreen({
               text="Nothing listed — add a schedule or switch Live / Archived so saved schedules can appear here."
             />
           ) : (
-            schedules.map((schedule) => (
+            schedules.map((schedule) => {
+              const statusChip = resolveScheduleListStatusChip(schedule);
+              const nextDueLabel = scheduleNextDueLabel(schedule);
+              return (
               <div key={schedule.id} className="rounded-[1.4rem] border border-[rgba(249,115,22,0.35)] bg-[rgba(249,115,22,0.1)] px-4 py-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -313,16 +350,19 @@ export function SchedulesScreen({
                       <MetaPill icon="spark" label={`${schedule.lifecycle} rev ${schedule.versionLabel}`} />
                       <MetaPill icon="clipboard" label={`${schedule.audits.length} audits`} />
                       <MetaPill icon="user" label={`${schedule.auditors.length} assigned`} />
-                      {schedule.lastCompletedAt ? (
-                        <MetaPill
-                          icon="check"
-                          label={`Last completed ${formatAssignedCheckLastCompletedAt(schedule.lastCompletedAt)}`}
-                        />
+                      {statusChip ? (
+                        <MetaPill icon="check" label={statusChip} tone={scheduleStatusChipTone(statusChip)} />
                       ) : null}
-                      {computeScheduleHealthState(schedule) === "Paused" && schedule.nextDueAt && (
-                        <MetaPill icon="clock" label={`Paused until ${schedule.nextDueAt}`} />
-                      )}
+                      {computeScheduleHealthState(schedule) === "Paused" && schedule.nextDueAt ? (
+                        <MetaPill icon="clock" label={`Paused until ${formatScheduleNextDueLabel(schedule.nextDueAt)}`} />
+                      ) : null}
                     </div>
+                    <p className="mt-2 text-xs text-slate-600">
+                      Last completed: {scheduleLastCompletedLabel(schedule)}
+                    </p>
+                    {nextDueLabel ? (
+                      <p className="mt-1 text-xs text-slate-600">Next due: {nextDueLabel}</p>
+                    ) : null}
                     <p className="mt-2 text-xs text-slate-500">
                       Start {schedule.startDate} {schedule.endDate ? `• End ${schedule.endDate}` : "• No end date"}
                       {schedule.audits[0]?.frequency ? ` • ${schedule.audits[0].frequency}` : ""}
@@ -363,7 +403,8 @@ export function SchedulesScreen({
                   </div>
                 </div>
               </div>
-            ))
+            );
+            })
           )}
         </div>
       </section>
