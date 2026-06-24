@@ -10,6 +10,8 @@ export type AuditResultSummary = {
   companyFolderId: string;
   nextDueAt?: string;
   frequency?: string;
+  totalRiskScore?: string;
+  highestRiskLevel?: string;
 };
 
 export type AuditResultDetail = AuditResultSummary & {
@@ -21,8 +23,11 @@ export type AuditResultDetail = AuditResultSummary & {
   evidenceDisplay: string;
 };
 
+import type { ManagedSchedule } from "./reportsScreenProps";
+
 export type ResultsScreenProps = {
   results: AuditResultSummary[];
+  schedules?: ManagedSchedule[];
   resultsLoading: boolean;
   resultsLoadError?: string;
   selectedResultId: string | null;

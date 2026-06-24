@@ -76,6 +76,11 @@ export function mapListedAuditResult(record: Record<string, unknown>): AuditResu
     completedByEmail.split("@")[0] ||
     completedByEmail;
 
+  const nextDueAt = pickRecordField(sanitized, "Next Due At", "NextDueAt");
+  const frequency = pickRecordField(sanitized, "Frequency");
+  const totalRiskScore = pickRecordField(sanitized, "Total Risk Score", "TotalRiskScore");
+  const highestRiskLevel = pickRecordField(sanitized, "Highest Risk Level", "HighestRiskLevel");
+
   return {
     resultId: pickRecordField(sanitized, "Result ID", "ResultId"),
     scheduleId: pickRecordField(sanitized, "Schedule ID", "ScheduleId"),
@@ -86,6 +91,10 @@ export function mapListedAuditResult(record: Record<string, unknown>): AuditResu
     completedByName,
     status: pickRecordField(sanitized, "Status") || "completed",
     companyFolderId,
+    nextDueAt: nextDueAt || undefined,
+    frequency: frequency || undefined,
+    totalRiskScore: totalRiskScore || undefined,
+    highestRiskLevel: highestRiskLevel || undefined,
   };
 }
 

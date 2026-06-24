@@ -15387,6 +15387,7 @@ function App() {
             {screen === "results" && canAccessResults(currentUser.role) && (
               <ResultsScreen
                 results={companyResultsState.results}
+                schedules={managedSchedules}
                 resultsLoading={companyResultsState.loading}
                 resultsLoadError={companyResultsState.loadError}
                 selectedResultId={selectedResultState.resultId}

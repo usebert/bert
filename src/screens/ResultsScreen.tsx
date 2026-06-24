@@ -1,10 +1,23 @@
+import { useMemo, useState } from "react";
 import { EmptyPanel } from "../components/dashboard/DashboardPrimitives";
 import { SectionIntro } from "../components/SectionIntro";
 import {
   COMPANY_RESULTS_LOADING_MESSAGE,
   COMPANY_RESULT_DETAIL_LOADING_MESSAGE,
 } from "../services/resultsService";
-import type { ResultsScreenProps } from "../types/resultsScreenProps";
+import type { AuditResultDetail, ResultsScreenProps } from "../types/resultsScreenProps";
+import {
+  collectCompletedByOptions,
+  collectStatusOptions,
+  EMPTY_RESULTS_FILTERS,
+  enrichAuditResult,
+  enrichAuditResults,
+  buildScheduleLookup,
+  filterEnrichedResults,
+  hasActiveResultsFilters,
+  sortResultsByCompletedAtDesc,
+  type EnrichedAuditResult,
+} from "../utils/resultsView";
 
 function formatDisplayDate(isoOrDisplay: string): string {
   const parsed = Date.parse(isoOrDisplay);
@@ -52,8 +65,226 @@ function JsonPanel({ title, body }: { title: string; body: string }) {
   );
 }
 
+const filterControlClass =
+  "h-11 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none";
+
+function ScheduledCheckBadge({ selected }: { selected: boolean }) {
+  return (
+    <span
+      className={`rounded-full px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-wide ${
+        selected ? "bg-white/15 text-white" : "bg-sky-50 text-sky-800"
+      }`}
+    >
+      Scheduled check
+    </span>
+  );
+}
+
+function CompletionModeBadge({
+  label,
+  selected,
+}: {
+  label: string;
+  selected: boolean;
+}) {
+  return (
+    <span
+      className={`rounded-full px-2.5 py-1 text-[0.65rem] font-semibold ${
+        selected ? "bg-white/10 text-slate-100" : "bg-slate-100 text-slate-600"
+      }`}
+    >
+      {label}
+    </span>
+  );
+}
+
+function ResultMetaLine({
+  result,
+  selected,
+}: {
+  result: EnrichedAuditResult;
+  selected: boolean;
+}) {
+  const mutedClass = selected ? "text-slate-300" : "text-slate-400";
+  const bodyClass = selected ? "text-slate-200" : "text-slate-500";
+
+  return (
+    <div className={`mt-3 space-y-1 text-xs ${mutedClass}`}>
+      <p className={bodyClass}>
+        Completed by {result.completedByName || result.completedByEmail}
+      </p>
+      <p>{formatDisplayDate(result.completedAt)}</p>
+      {result.frequency ? <p>Frequency: {result.frequency}</p> : null}
+      {result.totalRiskScore ? <p>Risk score: {result.totalRiskScore}</p> : null}
+      {result.highestRiskLevel ? <p>Highest risk: {result.highestRiskLevel}</p> : null}
+    </div>
+  );
+}
+
+function ResultDetailHeader({
+  result,
+  enriched,
+  onClear,
+}: {
+  result: AuditResultDetail;
+  enriched: EnrichedAuditResult;
+  onClear: () => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <div className="flex flex-wrap items-center gap-2">
+          {enriched.isScheduledCheck ? <ScheduledCheckBadge selected={false} /> : null}
+          {enriched.completionModeLabel ? (
+            <CompletionModeBadge label={enriched.completionModeLabel} selected={false} />
+          ) : null}
+          <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-800">
+            {result.status || "completed"}
+          </span>
+        </div>
+        <h2 className="mt-3 text-lg font-semibold text-slate-900">{enriched.checkDisplayName}</h2>
+        {enriched.scheduleName ? (
+          <p className="mt-1 text-sm text-slate-600">Schedule: {enriched.scheduleName}</p>
+        ) : null}
+        <p className="mt-1 text-sm text-slate-500">
+          Completed by {result.completedByName || result.completedByEmail}
+        </p>
+        <p className="mt-1 text-xs text-slate-400">{formatDisplayDate(result.completedAt)}</p>
+        {result.frequency ? (
+          <p className="mt-1 text-xs text-slate-400">Frequency: {result.frequency}</p>
+        ) : null}
+      </div>
+      <button
+        type="button"
+        onClick={onClear}
+        className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+      >
+        Close
+      </button>
+    </div>
+  );
+}
+
+function ResultsFiltersPanel({
+  filters,
+  completedByOptions,
+  statusOptions,
+  filteredCount,
+  totalCount,
+  onChange,
+  onClear,
+}: {
+  filters: typeof EMPTY_RESULTS_FILTERS;
+  completedByOptions: string[];
+  statusOptions: string[];
+  filteredCount: number;
+  totalCount: number;
+  onChange: (next: typeof EMPTY_RESULTS_FILTERS) => void;
+  onClear: () => void;
+}) {
+  const active = hasActiveResultsFilters(filters);
+
+  return (
+    <div className="rounded-[1.35rem] border border-slate-200/80 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-900">Filter results</p>
+          <p className="mt-1 text-xs text-slate-500">
+            Showing {filteredCount} of {totalCount} completed checks
+          </p>
+        </div>
+        {active ? (
+          <button
+            type="button"
+            onClick={onClear}
+            className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+          >
+            Clear filters
+          </button>
+        ) : null}
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <label className="space-y-1.5">
+          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+            Check or schedule
+          </span>
+          <input
+            type="search"
+            value={filters.nameQuery}
+            onChange={(event) => onChange({ ...filters, nameQuery: event.target.value })}
+            placeholder="Search name…"
+            className={filterControlClass}
+          />
+        </label>
+
+        <label className="space-y-1.5">
+          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+            Completed by
+          </span>
+          <select
+            value={filters.completedBy}
+            onChange={(event) => onChange({ ...filters, completedBy: event.target.value })}
+            className={filterControlClass}
+          >
+            <option value="">All users</option>
+            {completedByOptions.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="space-y-1.5">
+          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+            Status
+          </span>
+          <select
+            value={filters.status}
+            onChange={(event) => onChange({ ...filters, status: event.target.value })}
+            className={filterControlClass}
+          >
+            <option value="">All statuses</option>
+            {statusOptions.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="space-y-1.5">
+          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+            From date
+          </span>
+          <input
+            type="date"
+            value={filters.fromDate}
+            onChange={(event) => onChange({ ...filters, fromDate: event.target.value })}
+            className={filterControlClass}
+          />
+        </label>
+
+        <label className="space-y-1.5">
+          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+            To date
+          </span>
+          <input
+            type="date"
+            value={filters.toDate}
+            onChange={(event) => onChange({ ...filters, toDate: event.target.value })}
+            className={filterControlClass}
+          />
+        </label>
+      </div>
+    </div>
+  );
+}
+
 export function ResultsScreen({
   results,
+  schedules = [],
   resultsLoading,
   resultsLoadError,
   selectedResultId,
@@ -63,10 +294,25 @@ export function ResultsScreen({
   onSelectResult,
   onClearSelectedResult,
 }: ResultsScreenProps) {
-  const sortedResults = [...results].sort(
-    (a, b) => Date.parse(b.completedAt) - Date.parse(a.completedAt),
-  );
+  const [filters, setFilters] = useState(EMPTY_RESULTS_FILTERS);
 
+  const enrichedResults = useMemo(
+    () => sortResultsByCompletedAtDesc(enrichAuditResults(results, schedules)),
+    [results, schedules],
+  );
+  const filteredResults = useMemo(
+    () => sortResultsByCompletedAtDesc(filterEnrichedResults(enrichedResults, filters)),
+    [enrichedResults, filters],
+  );
+  const completedByOptions = useMemo(() => collectCompletedByOptions(results), [results]);
+  const statusOptions = useMemo(() => collectStatusOptions(results), [results]);
+  const scheduleLookup = useMemo(() => buildScheduleLookup(schedules), [schedules]);
+  const selectedEnriched = useMemo(() => {
+    if (!selectedResult) {
+      return null;
+    }
+    return enrichAuditResult(selectedResult, scheduleLookup);
+  }, [selectedResult, scheduleLookup]);
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
@@ -79,108 +325,160 @@ export function ResultsScreen({
         </div>
       </div>
 
-      <SectionIntro text="Completed checks from your company AuditResults tab. Open a row to review answers and evidence metadata." />
+      <SectionIntro text="Completed checks from your company AuditResults tab. Filter by date, user, or schedule, then open a row to review answers and evidence metadata." />
 
       {resultsLoading ? (
         <EmptyPanel title={COMPANY_RESULTS_LOADING_MESSAGE} text="Reading your company workbook…" />
       ) : resultsLoadError ? (
         <EmptyPanel title="Could not load results" text={resultsLoadError} />
-      ) : sortedResults.length === 0 ? (
+      ) : enrichedResults.length === 0 ? (
         <EmptyPanel
           title="No completed checks yet"
           text="When someone completes a check, it will appear here from your company workbook."
         />
       ) : (
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-          <div className="space-y-3">
-            {sortedResults.map((result) => {
-              const selected = selectedResultId === result.resultId;
-              return (
-                <button
-                  key={result.resultId}
-                  type="button"
-                  onClick={() => onSelectResult(result.resultId)}
-                  className={`w-full rounded-[1.35rem] border px-4 py-4 text-left shadow-[0_10px_24px_rgba(15,23,42,0.05)] transition ${
-                    selected
-                      ? "border-slate-900 bg-slate-900 text-white"
-                      : "border-slate-200/80 bg-white hover:border-slate-300"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className={`text-sm font-semibold ${selected ? "text-white" : "text-slate-900"}`}>
-                        {result.auditName || result.scheduleId || "Completed check"}
-                      </p>
-                      <p className={`mt-1 text-sm ${selected ? "text-slate-200" : "text-slate-500"}`}>
-                        {result.completedByName || result.completedByEmail}
-                      </p>
-                    </div>
-                    <span
-                      className={`rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${
-                        selected ? "bg-white/10 text-white" : "bg-emerald-50 text-emerald-800"
+        <>
+          <ResultsFiltersPanel
+            filters={filters}
+            completedByOptions={completedByOptions}
+            statusOptions={statusOptions}
+            filteredCount={filteredResults.length}
+            totalCount={enrichedResults.length}
+            onChange={setFilters}
+            onClear={() => setFilters(EMPTY_RESULTS_FILTERS)}
+          />
+
+          {filteredResults.length === 0 ? (
+            <EmptyPanel
+              title="No results match these filters."
+              text="Try clearing filters or widening the date range."
+            />
+          ) : (
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+              <div className="space-y-3">
+                {filteredResults.map((result) => {
+                  const selected = selectedResultId === result.resultId;
+                  return (
+                    <button
+                      key={result.resultId}
+                      type="button"
+                      onClick={() => onSelectResult(result.resultId)}
+                      className={`w-full rounded-[1.35rem] border px-4 py-4 text-left shadow-[0_10px_24px_rgba(15,23,42,0.05)] transition ${
+                        selected
+                          ? "border-slate-900 bg-slate-900 text-white"
+                          : "border-slate-200/80 bg-white hover:border-slate-300"
                       }`}
                     >
-                      {result.status || "completed"}
-                    </span>
-                  </div>
-                  <p className={`mt-3 text-xs ${selected ? "text-slate-300" : "text-slate-400"}`}>
-                    {formatDisplayDate(result.completedAt)}
-                  </p>
-                </button>
-              );
-            })}
-          </div>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {result.isScheduledCheck ? (
+                              <ScheduledCheckBadge selected={selected} />
+                            ) : null}
+                            {result.completionModeLabel ? (
+                              <CompletionModeBadge
+                                label={result.completionModeLabel}
+                                selected={selected}
+                              />
+                            ) : null}
+                          </div>
+                          <p
+                            className={`mt-2 text-sm font-semibold ${selected ? "text-white" : "text-slate-900"}`}
+                          >
+                            {result.checkDisplayName}
+                          </p>
+                          {result.scheduleName ? (
+                            <p className={`mt-1 text-sm ${selected ? "text-slate-200" : "text-slate-600"}`}>
+                              Schedule: {result.scheduleName}
+                            </p>
+                          ) : null}
+                        </div>
+                        <span
+                          className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${
+                            selected ? "bg-white/10 text-white" : "bg-emerald-50 text-emerald-800"
+                          }`}
+                        >
+                          {result.status || "completed"}
+                        </span>
+                      </div>
+                      <ResultMetaLine result={result} selected={selected} />
+                    </button>
+                  );
+                })}
+              </div>
 
-          <div className="space-y-4">
-            {!selectedResultId ? (
-              <EmptyPanel title="Select a completed check" text="Choose a result to review completion metadata and saved answers." />
-            ) : selectedResultLoading ? (
-              <EmptyPanel title={COMPANY_RESULT_DETAIL_LOADING_MESSAGE} text="Reading saved answers…" />
-            ) : selectedResultLoadError ? (
-              <EmptyPanel title="Could not load check details" text={selectedResultLoadError} />
-            ) : selectedResult ? (
-              <>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h2 className="text-lg font-semibold text-slate-900">
-                      {selectedResult.auditName || selectedResult.scheduleId}
-                    </h2>
-                    <p className="mt-1 text-sm text-slate-500">
-                      Completed by {selectedResult.completedByName || selectedResult.completedByEmail}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      {formatDisplayDate(selectedResult.completedAt)}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={onClearSelectedResult}
-                    className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-                  >
-                    Close
-                  </button>
-                </div>
+              <div className="space-y-4">
+                {!selectedResultId ? (
+                  <EmptyPanel
+                    title="Select a completed check"
+                    text="Choose a result to review completion metadata and saved answers."
+                  />
+                ) : selectedResultLoading ? (
+                  <EmptyPanel
+                    title={COMPANY_RESULT_DETAIL_LOADING_MESSAGE}
+                    text="Reading saved answers…"
+                  />
+                ) : selectedResultLoadError ? (
+                  <EmptyPanel title="Could not load check details" text={selectedResultLoadError} />
+                ) : selectedResult && selectedEnriched ? (
+                  <>
+                    <ResultDetailHeader
+                      result={selectedResult}
+                      enriched={selectedEnriched}
+                      onClear={onClearSelectedResult}
+                    />
 
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-[1.25rem] border border-slate-200/80 bg-white p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Result ID</p>
-                    <p className="mt-2 break-all text-sm text-slate-700">{selectedResult.resultId}</p>
-                  </div>
-                  <div className="rounded-[1.25rem] border border-slate-200/80 bg-white p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Schedule ID</p>
-                    <p className="mt-2 break-all text-sm text-slate-700">{selectedResult.scheduleId || "—"}</p>
-                  </div>
-                </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-[1.25rem] border border-slate-200/80 bg-white p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                          Result ID
+                        </p>
+                        <p className="mt-2 break-all text-sm text-slate-700">{selectedResult.resultId}</p>
+                      </div>
+                      <div className="rounded-[1.25rem] border border-slate-200/80 bg-white p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                          Schedule
+                        </p>
+                        <p className="mt-2 text-sm text-slate-700">
+                          {selectedEnriched.scheduleName || selectedResult.scheduleId || "—"}
+                        </p>
+                      </div>
+                      {selectedResult.frequency ? (
+                        <div className="rounded-[1.25rem] border border-slate-200/80 bg-white p-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                            Frequency
+                          </p>
+                          <p className="mt-2 text-sm text-slate-700">{selectedResult.frequency}</p>
+                        </div>
+                      ) : null}
+                      {selectedResult.totalRiskScore || selectedResult.highestRiskLevel ? (
+                        <div className="rounded-[1.25rem] border border-slate-200/80 bg-white p-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                            Outcome
+                          </p>
+                          <p className="mt-2 text-sm text-slate-700">
+                            {[selectedResult.totalRiskScore, selectedResult.highestRiskLevel]
+                              .filter(Boolean)
+                              .join(" · ") || "—"}
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
 
-                <JsonPanel title="Answers" body={selectedResult.answersDisplay} />
-                <JsonPanel title="Findings" body={selectedResult.findingsDisplay} />
-                <JsonPanel title="Evidence refs" body={selectedResult.evidenceDisplay} />
-              </>
-            ) : (
-              <EmptyPanel title="Check details unavailable" text="This completed check could not be shown." />
-            )}
-          </div>
-        </div>
+                    <JsonPanel title="Answers" body={selectedResult.answersDisplay} />
+                    <JsonPanel title="Findings" body={selectedResult.findingsDisplay} />
+                    <JsonPanel title="Evidence refs" body={selectedResult.evidenceDisplay} />
+                  </>
+                ) : (
+                  <EmptyPanel
+                    title="Check details unavailable"
+                    text="This completed check could not be shown."
+                  />
+                )}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

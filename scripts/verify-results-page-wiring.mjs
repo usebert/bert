@@ -83,4 +83,22 @@ assert(resultsScreen.includes("answersDisplay"), "6c: Results UI renders safe JS
 assert(appTsx.includes('<ResultsScreen'), "7: App renders ResultsScreen");
 assert(resultsScreen.includes("Results"), "7b: Results screen present");
 
+/** 8: Results filters + scheduled-check polish. */
+const resultsView = read("src/utils/resultsView.ts");
+assert(resultsView.includes("filterEnrichedResults"), "8: results filter helper");
+assert(resultsView.includes("enrichAuditResults"), "8b: schedule enrichment helper");
+assert(appTsx.includes("schedules={managedSchedules}"), "8c: App passes schedules to ResultsScreen");
+assert(resultsScreen.includes("Filter results"), "8d: filter panel in Results UI");
+assert(resultsScreen.includes("No results match these filters."), "8e: filtered empty state");
+assert(resultsScreen.includes("Scheduled check"), "8f: scheduled check label");
+assert(
+  resultsView.includes("Once per period") || resultsView.includes("Repeatable"),
+  "8g: completion mode label",
+);
+assert(resultsScreen.includes("nameQuery"), "8h: check/schedule name filter");
+assert(resultsScreen.includes("completedBy"), "8i: completed-by filter");
+assert(resultsScreen.includes("fromDate"), "8j: date range filter");
+assert(resultsScreen.includes("status"), "8k: status filter");
+assert(resultsService.includes("frequency"), "8l: frequency mapped from AuditResults");
+
 console.log(`[verify:results-page-wiring] OK — ${caseCount} cases passed`);
