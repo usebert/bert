@@ -319,6 +319,7 @@ import {
   normalizeAuditAccessLevel,
   resolveCurrentUserReportEmails,
 } from "./src/utils/auditAccess";
+import { mergeScheduleLastCompletedFromResults } from "./src/utils/assignedCheckCompletion";
 import { buildAssignedCheckScheduleMeta } from "./src/utils/assignedCheckDisplay";
 import {
   normalizeScheduleAssigneeIds,
@@ -6395,16 +6396,19 @@ function App() {
   }, [currentUser, managerAlerts]);
 
   const visibleSchedules = useMemo(() => {
-    if (!selectedFolderId) {
-      return managedSchedules;
-    }
+    const base = (() => {
+      if (!selectedFolderId) {
+        return managedSchedules;
+      }
 
-    const companySchedules = managedSchedules.filter((schedule) => schedule.companyFolderId === selectedFolderId);
-    if (scheduleListFilter === "All schedules") {
-      return companySchedules;
-    }
-    return companySchedules.filter((schedule) => schedule.lifecycle === scheduleListFilter);
-  }, [managedSchedules, scheduleListFilter, selectedFolderId]);
+      const companySchedules = managedSchedules.filter((schedule) => schedule.companyFolderId === selectedFolderId);
+      if (scheduleListFilter === "All schedules") {
+        return companySchedules;
+      }
+      return companySchedules.filter((schedule) => schedule.lifecycle === scheduleListFilter);
+    })();
+    return mergeScheduleLastCompletedFromResults(base, companyResultsState.results);
+  }, [managedSchedules, scheduleListFilter, selectedFolderId, companyResultsState.results]);
 
   const auditScheduleMatrix = useMemo<Record<string, AuditScheduleMatrixInfo>>(() => {
     const byAuditId: Record<string, AuditScheduleMatrixInfo> = {};
@@ -10858,6 +10862,79 @@ function App() {
             : "Check saved to AuditResults.",
           resultId: result.resultId,
         });
+        if (assignedContext && result.resultId) {
+          const completedAtIso = new Date().toISOString();
+          setCompanyResultsState((previous) => ({
+            ...previous,
+            results: [
+              {
+                resultId: result.resultId || "",
+                scheduleId: assignedContext.scheduleId,
+                auditId: activeAudit.id,
+                auditName: activeAudit.name,
+                completedAt: completedAtIso,
+                completedByEmail: String(currentUser.username || "").includes("@")
+                  ? currentUser.username.toLowerCase()
+                  : `${currentUser.username}@usebert.co.uk`.toLowerCase(),
+                completedByName: currentUser.name,
+                status: "completed",
+                companyFolderId: assignedContext.companyFolderId,
+              },
+              ...previous.results,
+            ],
+          }));
+          setAssignedChecksState((previous) => ({
+            ...previous,
+            schedules: previous.schedules.map((schedule) => {
+              if (schedule.id !== assignedContext.scheduleId) {
+                return schedule;
+              }
+              return {
+                ...schedule,
+                lastCompletedAt: completedAtIso,
+                audits: schedule.audits.map((scheduleAudit) => {
+                  const auditId = resolveAssignedCheckAuditId(scheduleAudit.auditId, scheduleAudit.auditName);
+                  if (auditId !== activeAudit.id) {
+                    return scheduleAudit;
+                  }
+                  return {
+                    ...scheduleAudit,
+                    completedForCurrentDue: true,
+                    lastCompletedAt: completedAtIso,
+                    currentDueCompletedAt: completedAtIso,
+                  };
+                }),
+              };
+            }),
+          }));
+        }
+        void fetchAssignedChecks()
+          .then((refresh) => {
+            if (!refresh.ok) {
+              return;
+            }
+            const nextCompanyFolderId =
+              refresh.companyFolderId || refresh.companyId || assignedContext?.companyFolderId || "";
+            setAssignedChecksState((previous) => ({
+              ...previous,
+              schedules: (refresh.schedules || previous.schedules) as ManagedSchedule[],
+              companyFolderId: nextCompanyFolderId || previous.companyFolderId,
+              masterSheetId: refresh.masterSheetId || previous.masterSheetId,
+              hasLoadedOnce: true,
+            }));
+            const userEmails = resolveCurrentUserReportEmails(currentUser, companyReportUsers);
+            const signedInEmail = [...userEmails][0] || String(currentUser.username || "").trim().toLowerCase();
+            if (nextCompanyFolderId && signedInEmail) {
+              writeAssignedChecksCache(storageKeys.assignedChecksCache, {
+                companyFolderId: nextCompanyFolderId,
+                userEmail: signedInEmail,
+                schedules: refresh.schedules as ManagedSchedule[],
+                masterSheetId: refresh.masterSheetId,
+                cachedAt: Date.now(),
+              });
+            }
+          })
+          .catch(() => undefined);
         pushToast(
           "Check submitted",
           issuesFound > 0

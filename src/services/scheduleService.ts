@@ -95,6 +95,9 @@ export function mapListedSchedule(schedule: Record<string, unknown>): ManagedSch
         frequency: String(row.frequency || "Weekly") as ManagedSchedule["audits"][number]["frequency"],
         liveTime: String(row.liveTime || "08:00"),
         completionHours: Number(row.completionHours) || 24,
+        completedForCurrentDue: row.completedForCurrentDue === true,
+        lastCompletedAt: row.lastCompletedAt ? String(row.lastCompletedAt) : undefined,
+        currentDueCompletedAt: row.currentDueCompletedAt ? String(row.currentDueCompletedAt) : undefined,
       };
     }),
     auditors: assignedUserEmails,

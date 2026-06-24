@@ -24,7 +24,9 @@ import {
   assignedUsersFromSchedule,
   buildSchedulesTabRows,
 } from "../shared/schedule-save.mjs";
+import { enrichAssignedSchedulesWithCompletion } from "../shared/assigned-check-completion.mjs";
 import { getScheduleAssignedEmails, isScheduleAssignedToUser } from "../shared/schedule-assignment.mjs";
+import { listAuditResults } from "./completion-service.mjs";
 import { buildAvailableScheduleAssigneesFromUsers } from "../shared/schedule-assignees.mjs";
 import { readActiveUsersFromSheetWithStats } from "./company-user-sheet-flow.mjs";
 import { syncCompanyUsersCache } from "./company-users-foundation.mjs";
@@ -945,13 +947,33 @@ export async function listMyChecks(auth, deps, input = {}) {
   });
   const filterSchedulesMs = Date.now() - filterStart;
 
+  let enrichedSchedules = schedules;
+  const completionStart = Date.now();
+  try {
+    const listedResults = await listAuditResults(auth, deps, {
+      companyFolderId: listed.companyFolderId || companyFolderId,
+      companyId: listed.companyFolderId || companyFolderId,
+      masterSheetId: listed.masterSheetId || masterSheetId,
+    });
+    if (listedResults.ok) {
+      enrichedSchedules = enrichAssignedSchedulesWithCompletion(
+        schedules,
+        listedResults.results || [],
+        email,
+      );
+    }
+  } catch {
+    enrichedSchedules = schedules;
+  }
+  const auditResultsMs = Date.now() - completionStart;
+
   const result = {
     ok: true,
     companyId: listed.companyId,
     companyFolderId: listed.companyFolderId,
     companyName: listed.companyName,
     masterSheetId: listed.masterSheetId,
-    schedules,
+    schedules: enrichedSchedules,
   };
 
   if (includeDiagnostics) {
@@ -989,6 +1011,7 @@ export async function listMyChecks(auth, deps, input = {}) {
         resolveContextMs,
         readSchedulesMs,
         filterSchedulesMs,
+        auditResultsMs,
         templateHydrationMs: 0,
         totalMs: Date.now() - totalStart,
       },

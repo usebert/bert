@@ -11,6 +11,7 @@ import type {
 } from "../types/reportsScreenProps";
 import { EmptyPanel } from "../components/dashboard/DashboardPrimitives";
 import { slatePrimaryCtaInteract } from "../styles/interactions";
+import { formatAssignedCheckLastCompletedAt } from "../utils/assignedCheckCompletion";
 import { darkPanelBody, darkPanelEyebrow, darkPanelShell, darkPanelTitleLg } from "../styles/darkPanel";
 
 const amberThresholdHours = 2;
@@ -312,6 +313,12 @@ export function SchedulesScreen({
                       <MetaPill icon="spark" label={`${schedule.lifecycle} rev ${schedule.versionLabel}`} />
                       <MetaPill icon="clipboard" label={`${schedule.audits.length} audits`} />
                       <MetaPill icon="user" label={`${schedule.auditors.length} assigned`} />
+                      {schedule.lastCompletedAt ? (
+                        <MetaPill
+                          icon="check"
+                          label={`Last completed ${formatAssignedCheckLastCompletedAt(schedule.lastCompletedAt)}`}
+                        />
+                      ) : null}
                       {computeScheduleHealthState(schedule) === "Paused" && schedule.nextDueAt && (
                         <MetaPill icon="clock" label={`Paused until ${schedule.nextDueAt}`} />
                       )}

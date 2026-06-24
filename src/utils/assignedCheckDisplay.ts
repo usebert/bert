@@ -43,7 +43,14 @@ export function sortAssignedChecksForAction(audits: Audit[], drafts: Record<stri
   });
 }
 
-export function assignedCheckStatusLabel(audit: Audit, inProgress: boolean): string {
+export function assignedCheckStatusLabel(
+  audit: Audit,
+  inProgress: boolean,
+  completedForCurrentDue = false,
+): string {
+  if (completedForCurrentDue) {
+    return "Completed";
+  }
   if (audit.dueLabel === "Available") {
     return "Available";
   }

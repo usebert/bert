@@ -127,6 +127,9 @@ export type ManagedScheduleAudit = {
   frequency: ScheduleFrequency;
   liveTime: string;
   completionHours: number;
+  completedForCurrentDue?: boolean;
+  lastCompletedAt?: string;
+  currentDueCompletedAt?: string;
 };
 
 export type ManagedSchedule = {

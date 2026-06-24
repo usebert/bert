@@ -20,6 +20,12 @@ import {
   scheduleMatchesCompanyFolder,
 } from "../server/schedule-service.mjs";
 import { parseCompanyScheduleListFromRecords } from "../shared/schedule-list.mjs";
+import {
+  enrichAssignedSchedulesWithCompletion,
+  isCompletionForCurrentDueInstance,
+  resolveAssignedCheckCompletion,
+} from "../shared/assigned-check-completion.mjs";
+import { submitCompletedCheck } from "../server/completion-service.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -433,5 +439,143 @@ assert(read("src/utils/auditAccess.ts").includes("buildAuditFromAssignedSchedule
   const audit = myChecks.schedules[0].audits.find((row) => row.auditName === "DC H&S Audit");
   assert(audit && audit.auditId.startsWith("gf-check"), "11h: schdule 3 exposes DC H&S Audit");
 }
+
+/** 12: Completed assigned check no longer appears as due for the current instance. */
+{
+  const signedInEmail = "manager@testco.test";
+  const companyFolderId = "company-1";
+  const scheduleId = "schedule-due-1";
+  const auditId = "audit-due-1";
+  const scheduleRecords = [
+    {
+      "Schedule ID": scheduleId,
+      "Company Folder ID": companyFolderId,
+      "Schedule Name": "Daily walk",
+      Status: "ACTIVE",
+      "Assigned User Emails": signedInEmail,
+      "Audit ID": auditId,
+      "Template Name": "Fire walk",
+      Frequency: "Daily",
+      "Next Due At": "2026-06-24T08:00:00.000Z",
+    },
+  ];
+  const auditResultStore = [];
+
+  async function mockReadTabRecords(_auth, _deps, _sheetId, tabName) {
+    if (tabName === "Schedules") {
+      return { ok: true, records: scheduleRecords, rowCount: scheduleRecords.length };
+    }
+    if (tabName === "AuditResults") {
+      return { ok: true, records: [...auditResultStore], rowCount: auditResultStore.length };
+    }
+    return { ok: true, records: [], rowCount: 0 };
+  }
+
+  const deps = {
+    readTabRecords: mockReadTabRecords,
+    appendTabRows: async (_auth, _deps, _sheetId, tabName, _columns, rows = []) => {
+      if (tabName === "AuditResults") {
+        auditResultStore.push(...rows);
+      }
+      return { ok: true, written: rows.length };
+    },
+    ensureTabColumns: async () => ({ addedColumns: [], headers: [] }),
+    masterSheetCache: {
+      getEntry: () => ({ masterSheetId: "sheet-1" }),
+    },
+  };
+
+  const beforeCompletion = await listMyChecks(
+    {},
+    deps,
+    {
+      email: signedInEmail,
+      companyFolderId,
+      masterSheetId: "sheet-1",
+      trustSessionContext: true,
+    },
+  );
+  assert(beforeCompletion.ok, "12: listMyChecks succeeds before completion");
+  const beforeAudit = beforeCompletion.schedules[0]?.audits?.[0];
+  assert(beforeAudit && beforeAudit.completedForCurrentDue !== true, "12a: assigned check is due before completion");
+
+  const submitted = await submitCompletedCheck(
+    {},
+    deps,
+    {
+      scheduleId,
+      email: signedInEmail,
+      companyFolderId,
+      masterSheetId: "sheet-1",
+      auditId,
+      auditName: "Fire walk",
+      answers: { q1: "pass" },
+      findings: [],
+      evidence: [],
+      completedAt: "2026-06-24T09:15:00.000Z",
+    },
+  );
+  assert(submitted.ok, "12b: completion writes AuditResults row");
+
+  const completion = resolveAssignedCheckCompletion(
+    auditResultStore,
+    {
+      scheduleId,
+      auditId,
+      auditName: "Fire walk",
+      email: signedInEmail,
+      nextDueAt: "2026-06-24T08:00:00.000Z",
+      frequency: "Daily",
+    },
+    new Date("2026-06-24T12:00:00.000Z"),
+  );
+  assert(completion.completedForCurrentDue, "12c: completion matches current due instance");
+  assert(
+    isCompletionForCurrentDueInstance(auditResultStore[0], {
+      scheduleId,
+      auditId,
+      auditName: "Fire walk",
+      email: signedInEmail,
+      nextDueAt: "2026-06-24T08:00:00.000Z",
+      frequency: "Daily",
+    }),
+    "12d: isCompletionForCurrentDueInstance true for submitted row",
+  );
+
+  const afterCompletion = await listMyChecks(
+    {},
+    deps,
+    {
+      email: signedInEmail,
+      companyFolderId,
+      masterSheetId: "sheet-1",
+      trustSessionContext: true,
+    },
+  );
+  assert(afterCompletion.ok, "12e: listMyChecks succeeds after completion");
+  const afterAudit = afterCompletion.schedules[0]?.audits?.[0];
+  assert(afterAudit?.completedForCurrentDue === true, "12f: assigned check marked completed for current due");
+  const dueAudits = (afterCompletion.schedules || []).flatMap((schedule) =>
+    (schedule.audits || []).filter((audit) => audit.completedForCurrentDue !== true),
+  );
+  assert(dueAudits.length === 0, "12g: no assigned checks remain due after completion for current instance");
+
+  const enrichedOnly = enrichAssignedSchedulesWithCompletion(
+    beforeCompletion.schedules,
+    auditResultStore,
+    signedInEmail,
+    new Date("2026-06-24T12:00:00.000Z"),
+  );
+  assert(
+    enrichedOnly[0]?.audits?.[0]?.completedForCurrentDue === true,
+    "12h: enrichAssignedSchedulesWithCompletion marks current due complete",
+  );
+}
+
+assert(read("shared/assigned-check-completion.mjs").includes("enrichAssignedSchedulesWithCompletion"), "12i: shared completion helper exists");
+assert(read("server/schedule-service.mjs").includes("enrichAssignedSchedulesWithCompletion"), "12j: listMyChecks enriches schedules from AuditResults");
+assert(read("src/utils/auditAccess.ts").includes("isAssignedScheduleAuditCompletedForCurrentDue"), "12k: Complete Work filters completed due instances");
+assert(read("src/utils/assignedCheckCompletion.ts").includes("mergeScheduleLastCompletedFromResults"), "12l: schedules merge last completed from results");
+assert(read("src/screens/SchedulesScreen.tsx").includes("Last completed"), "12m: schedules UI shows last completed date");
 
 console.log("[verify:assigned-checks] OK: assigned-check contract verified");

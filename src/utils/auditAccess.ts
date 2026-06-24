@@ -8,6 +8,10 @@ import {
   computeDueHoursFromSchedule,
   nearestNextDueDate,
 } from "./complianceSchedule";
+import {
+  formatAssignedCheckLastCompletedAt,
+  isAssignedScheduleAuditCompletedForCurrentDue,
+} from "./assignedCheckCompletion";
 
 export type CompanyReportUserLike = {
   name: string;
@@ -159,6 +163,7 @@ export function buildAuditFromAssignedSchedule(input: {
   owner: string;
   dueLabel?: string;
   dueHours?: number;
+  lastCompletedAt?: string;
 }): Audit {
   const auditId = String(input.auditId || "").trim();
   const auditName = String(input.auditName || input.scheduleName || "Scheduled check").trim() || "Scheduled check";
@@ -166,6 +171,9 @@ export function buildAuditFromAssignedSchedule(input: {
   const template = findTemplateForAssignedSchedule(input.templates, auditId, auditName);
   const dueLabel = input.dueLabel || "Available";
   const dueHours = typeof input.dueHours === "number" ? input.dueHours : 24;
+  const lastCompletedAt = input.lastCompletedAt
+    ? formatAssignedCheckLastCompletedAt(input.lastCompletedAt)
+    : "Not yet completed";
 
   if (template) {
     return {
@@ -175,6 +183,7 @@ export function buildAuditFromAssignedSchedule(input: {
       questions: questionsForAssignedScheduleTemplate(template),
       dueHours,
       dueLabel,
+      lastCompletedAt,
     };
   }
 
@@ -189,7 +198,7 @@ export function buildAuditFromAssignedSchedule(input: {
     owner: input.owner,
     templateVersion: "Scheduled check",
     status: "green",
-    lastCompletedAt: "Not yet completed",
+    lastCompletedAt,
     questions: buildGoogleFormImportQuestions(auditName),
   };
 }
@@ -209,6 +218,9 @@ export function buildCompleteWorkAssignedAudits(input: {
 
   input.schedules.forEach((schedule) => {
     schedule.audits.forEach((scheduleAudit) => {
+      if (isAssignedScheduleAuditCompletedForCurrentDue(scheduleAudit)) {
+        return;
+      }
       const auditId = String(scheduleAudit.auditId || "").trim();
       const auditName = String(scheduleAudit.auditName || schedule.scheduleName || "Scheduled check").trim();
       const resolvedAuditId = resolveAssignedCheckAuditId(auditId, auditName);
@@ -237,6 +249,7 @@ export function buildCompleteWorkAssignedAudits(input: {
           owner: input.owner,
           dueLabel: dueLabel === "Available" ? "Available" : dueLabel,
           dueHours,
+          lastCompletedAt: scheduleAudit.lastCompletedAt,
         }),
       );
     });
