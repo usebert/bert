@@ -13,6 +13,7 @@ export type ScheduleFrequency = "Daily" | "Weekly" | "Bi-Weekly" | "Monthly";
 export type ScheduleDay = "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun";
 export type ScheduleLifecycle = "Live" | "Archived";
 export type ScheduleHealthState = "Healthy" | "Due Soon" | "Overdue" | "Failing" | "Paused";
+export type ScheduleCompletionMode = "repeatable" | "once-per-period";
 
 export type AuditQuestionFieldType =
   | "Traffic light"
@@ -142,6 +143,8 @@ export type ManagedSchedule = {
   companyFolderId: string;
   companyId?: string;
   scheduleName: string;
+  /** Default repeatable when unset — only once-per-period hides after one completion per due window. */
+  completionMode?: ScheduleCompletionMode;
   audits: ManagedScheduleAudit[];
   auditors: string[];
   assignedUserEmails?: string[];

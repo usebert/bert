@@ -40,6 +40,8 @@ export const AUDIT_RESULTS_TAB_COLUMNS = [
   "Area ID",
   "Audit Name",
   "Completed By",
+  "Next Due At",
+  "Frequency",
   "Sync Status",
   "Created By",
   "Updated By",
@@ -160,6 +162,8 @@ export function buildAuditResultRow(input = {}) {
     "Area ID": trim(input.areaId) || "area-main",
     "Audit Name": trim(input.auditName),
     "Completed By": completedByEmail,
+    "Next Due At": trim(input.nextDueAt),
+    Frequency: trim(input.frequency),
     "Sync Status": "synced",
     "Created By": completedByEmail,
     "Updated By": completedByEmail,
@@ -257,6 +261,12 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
   }
 
   const schedule = eligibility.schedule || {};
+  const auditId = trim(input.auditId || schedule.auditId || schedule.audits?.[0]?.auditId);
+  const auditName = trim(input.auditName || schedule.scheduleName || schedule.audits?.[0]?.auditName);
+  const matchingAudit =
+    (schedule.audits || []).find((audit) => trim(audit.auditId) === auditId) ||
+    (schedule.audits || []).find((audit) => trim(audit.auditName) === auditName) ||
+    schedule.audits?.[0];
   const row = buildAuditResultRow({
     ...input,
     scheduleId: scheduleId || trim(schedule.id),
@@ -264,8 +274,10 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
     companyId: eligibility.companyFolderId,
     completedByEmail: email,
     completedByName: trim(input.completedByName || input.name),
-    auditId: trim(input.auditId || schedule.auditId || schedule.audits?.[0]?.auditId),
-    auditName: trim(input.auditName || schedule.scheduleName || schedule.audits?.[0]?.auditName),
+    auditId,
+    auditName,
+    nextDueAt: trim(input.nextDueAt || schedule.nextDueAt),
+    frequency: trim(input.frequency || matchingAudit?.frequency || "Weekly"),
     status: trim(input.status || input.result) || "completed",
     answers: input.answers,
     answersJson: input.answersJson,

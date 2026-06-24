@@ -5,6 +5,7 @@ import { formatUserRoleLabel } from "../utils/inviteStatusDisplay";
 import type {
   ManagedSchedule,
   ManagedScheduleAudit,
+  ScheduleCompletionMode,
   ScheduleDay,
   ScheduleFrequency,
   ScheduleHealthState,
@@ -17,6 +18,7 @@ import {
   scheduleLastCompletedLabel,
   scheduleNextDueLabel,
 } from "../utils/assignedCheckCompletion";
+import { formatScheduleCompletionModeLabel, resolveScheduleCompletionMode } from "../utils/scheduleCompletionMode";
 import { darkPanelBody, darkPanelEyebrow, darkPanelShell, darkPanelTitleLg } from "../styles/darkPanel";
 
 const amberThresholdHours = 2;
@@ -198,6 +200,7 @@ export function SchedulesScreen({
   editorOpen,
   editingSchedule,
   scheduleName,
+  completionMode,
   selectedAuditIds,
   scheduleAudits,
   startDate,
@@ -212,6 +215,7 @@ export function SchedulesScreen({
   onToggleAuditDay,
   onAuditFieldChange,
   onScheduleNameChange,
+  onCompletionModeChange,
   onStartDateChange,
   onEndDateChange,
   onContinuousChange,
@@ -245,6 +249,7 @@ export function SchedulesScreen({
   editorOpen: boolean;
   editingSchedule: ManagedSchedule | null;
   scheduleName: string;
+  completionMode: ScheduleCompletionMode;
   selectedAuditIds: string[];
   scheduleAudits: ManagedScheduleAudit[];
   startDate: string;
@@ -259,6 +264,7 @@ export function SchedulesScreen({
   onToggleAuditDay: (auditId: string, day: ScheduleDay) => void;
   onAuditFieldChange: (auditId: string, field: "frequency" | "liveTime" | "completionHours", value: string) => void;
   onScheduleNameChange: (value: string) => void;
+  onCompletionModeChange: (value: ScheduleCompletionMode) => void;
   onStartDateChange: (value: string) => void;
   onEndDateChange: (value: string) => void;
   onContinuousChange: (value: boolean) => void;
@@ -363,6 +369,9 @@ export function SchedulesScreen({
                     {nextDueLabel ? (
                       <p className="mt-1 text-xs text-slate-600">Next due: {nextDueLabel}</p>
                     ) : null}
+                    <p className="mt-1 text-xs text-slate-600">
+                      Completion mode: {formatScheduleCompletionModeLabel(resolveScheduleCompletionMode(schedule))}
+                    </p>
                     <p className="mt-2 text-xs text-slate-500">
                       Start {schedule.startDate} {schedule.endDate ? `• End ${schedule.endDate}` : "• No end date"}
                       {schedule.audits[0]?.frequency ? ` • ${schedule.audits[0].frequency}` : ""}
@@ -430,6 +439,21 @@ export function SchedulesScreen({
                 ].join(" ")}
                 placeholder="Enter the schedule name"
               />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Completion mode</label>
+              <select
+                value={completionMode}
+                onChange={(event) => onCompletionModeChange(event.target.value as ScheduleCompletionMode)}
+                className={`h-12 w-full rounded-2xl px-4 text-sm ${brandAccentFormField}`}
+              >
+                <option value="repeatable">Repeatable</option>
+                <option value="once-per-period">Once per due period</option>
+              </select>
+              <p className="mt-2 text-xs text-slate-500">
+                Repeatable checks stay available after completion. Once per due period hides the check until the next due window.
+              </p>
             </div>
 
             <div className={["rounded-[1.5rem] border p-4", auditsError ? "border-rose-300 bg-rose-50/50" : "border-slate-200 bg-slate-50"].join(" ")}>

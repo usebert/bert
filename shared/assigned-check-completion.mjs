@@ -1,6 +1,29 @@
 /**
  * Link AuditResults rows back to assigned schedule checks for the current due instance.
  */
+import {
+  resolveScheduleCompletionMode,
+  shouldHideCompletedAssignedScheduleAudit,
+  formatScheduleCompletionModeLabel,
+} from "./schedule-completion-mode.mjs";
+
+export {
+  resolveScheduleCompletionMode,
+  shouldHideCompletedAssignedScheduleAudit,
+  formatScheduleCompletionModeLabel as scheduleCompletionModeLabel,
+} from "./schedule-completion-mode.mjs";
+
+export const SCHEDULE_COMPLETION_MODE_REPEATABLE = "repeatable";
+export const SCHEDULE_COMPLETION_MODE_ONCE_PER_PERIOD = "once-per-period";
+export const DEFAULT_SCHEDULE_COMPLETION_MODE = SCHEDULE_COMPLETION_MODE_REPEATABLE;
+
+export function normalizeScheduleCompletionMode(value) {
+  return resolveScheduleCompletionMode({ completionMode: value });
+}
+
+export function shouldHideAssignedCheckAfterCompletion(completionMode) {
+  return resolveScheduleCompletionMode({ completionMode }) === SCHEDULE_COMPLETION_MODE_ONCE_PER_PERIOD;
+}
 
 function trim(value) {
   return String(value ?? "").trim();
@@ -35,6 +58,8 @@ export function mapAuditResultCompletionRecord(record = {}) {
       pickResultField(record, "Completed By Email", "CompletedByEmail") ||
       pickResultField(record, "Completed By", "CompletedBy"),
     status: pickResultField(record, "Status") || "completed",
+    nextDueAt: pickResultField(record, "Next Due At", "NextDueAt"),
+    frequency: pickResultField(record, "Frequency"),
   };
 }
 
@@ -130,8 +155,19 @@ export function isCompletionForCurrentDueInstance(result, ctx = {}, now = new Da
   if (!Number.isFinite(completedAt.getTime())) {
     return false;
   }
-  const periodStart = duePeriodStart(ctx.nextDueAt, ctx.frequency, now);
-  return completedAt.getTime() >= periodStart.getTime();
+  const anchorFrequency = trim(normalized.frequency) || trim(ctx.frequency) || "Weekly";
+  const periodStart = duePeriodStart(ctx.nextDueAt, anchorFrequency, now);
+  if (completedAt.getTime() < periodStart.getTime()) {
+    return false;
+  }
+  const resultNextDueAt = trim(normalized.nextDueAt);
+  if (resultNextDueAt) {
+    const resultPeriodStart = duePeriodStart(resultNextDueAt, anchorFrequency, now);
+    if (resultPeriodStart.getTime() !== periodStart.getTime()) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function findLatestCompletionForAssignedCheck(results = [], ctx = {}) {
@@ -204,6 +240,6 @@ export function enrichAssignedSchedulesWithCompletion(schedules = [], rawResults
 }
 
 /** True when an assigned check should not show Start for the current due instance. */
-export function isAssignedCheckCompletedForCurrentDue(scheduleAudit = {}) {
-  return scheduleAudit.completedForCurrentDue === true;
+export function isAssignedCheckCompletedForCurrentDue(schedule = {}, scheduleAudit = {}) {
+  return shouldHideCompletedAssignedScheduleAudit(schedule, scheduleAudit);
 }

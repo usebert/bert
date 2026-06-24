@@ -2,6 +2,7 @@ import { apiUrl } from "../config/apiBase";
 import type { ResolvedCompanyContext } from "./companyContextService";
 import type { ManagedSchedule } from "../types/reportsScreenProps";
 import { formatScheduleSaveError } from "../utils/scheduleSave";
+import { normalizeScheduleCompletionMode } from "../utils/scheduleCompletionMode";
 import { BACKGROUND_SCHEDULE_SAVED_MESSAGE } from "./backgroundJobsService";
 import { getScheduleAssignedEmails } from "../utils/scheduleAssignment";
 import type { ScheduleAssignedUser } from "../utils/scheduleSave";
@@ -85,6 +86,7 @@ export function mapListedSchedule(schedule: Record<string, unknown>): ManagedSch
     lifecycle: (String(schedule.lifecycle || "Live") as ManagedSchedule["lifecycle"]),
     companyFolderId: String(schedule.companyFolderId || schedule.companyId || "").trim(),
     scheduleName: String(schedule.scheduleName || "Unnamed schedule"),
+    completionMode: normalizeScheduleCompletionMode(String(schedule.completionMode || schedule["Completion Mode"] || "")) || "repeatable",
     audits: audits.map((audit) => {
       const row = audit as Record<string, unknown>;
       return {

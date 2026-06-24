@@ -10,8 +10,8 @@ import {
 } from "./complianceSchedule";
 import {
   formatAssignedCheckLastCompletedAt,
-  isAssignedScheduleAuditCompletedForCurrentDue,
 } from "./assignedCheckCompletion";
+import { shouldHideCompletedAssignedScheduleAudit } from "./scheduleCompletionMode";
 
 export type CompanyReportUserLike = {
   name: string;
@@ -218,7 +218,7 @@ export function buildCompleteWorkAssignedAudits(input: {
 
   input.schedules.forEach((schedule) => {
     schedule.audits.forEach((scheduleAudit) => {
-      if (isAssignedScheduleAuditCompletedForCurrentDue(scheduleAudit)) {
+      if (shouldHideCompletedAssignedScheduleAudit(schedule, scheduleAudit)) {
         return;
       }
       const auditId = String(scheduleAudit.auditId || "").trim();

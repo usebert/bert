@@ -39,6 +39,7 @@ export type AuditsScreenProps = {
   audits: Audit[];
   /** Schedules assigned to the signed-in user (Admin/Manager hybrid Forms & checks view). */
   myAssignedChecks?: Audit[];
+  assignedCheckScheduleMeta?: Record<string, import("../utils/assignedCheckDisplay").AssignedCheckScheduleMeta>;
   groupedAudits: Record<AuditStatus, Audit[]>;
   drafts: Record<string, AuditDraft>;
   unsyncedAuditIds: Set<string>;

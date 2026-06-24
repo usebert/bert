@@ -3,6 +3,7 @@
  */
 import { inviteAccessLevelForRole } from "./schedule-assignees.mjs";
 import { getScheduleAssignedEmails } from "./schedule-assignment.mjs";
+import { resolveScheduleCompletionMode } from "./schedule-completion-mode.mjs";
 
 export const SCHEDULES_TAB = "Schedules";
 /** @deprecated Legacy singular tab — read/migrate only; never write here. */
@@ -30,6 +31,7 @@ export const SCHEDULES_TAB_COLUMNS = [
   "Auditors",
   "Auditor Emails",
   "Assigned Auditors",
+  "Completion Mode",
 ];
 
 export const SCHEDULE_SAVE_FAILED_CODE = "SCHEDULE_SAVE_FAILED";
@@ -175,6 +177,12 @@ export function buildSchedulesTabRows(schedule = {}, assignedUsers = []) {
     "End Date": String(schedule.endDate || "").trim(),
     Continuous: continuous ? "true" : "false",
     "Due Window": formatDueWindow(audit),
+    "Completion Mode":
+      String(schedule.completionMode || "").trim() === "once-per-period"
+        ? "Once per due period"
+        : String(schedule.completionMode || "").trim() === "repeatable"
+          ? "Repeatable"
+          : "",
     "Assigned User Emails": emails,
     "Assigned User Names": names,
     "Assigned User Roles": roles,
@@ -185,6 +193,7 @@ export function buildSchedulesTabRows(schedule = {}, assignedUsers = []) {
     Auditors: emails,
     "Auditor Emails": emails,
     "Assigned Auditors": names || emails,
+    "Completion Mode": resolveScheduleCompletionMode(schedule),
     companyId: String(schedule.companyId || schedule.companyFolderId || "").trim(),
     assignedUserEmails: emails,
     assignedUsersJson,

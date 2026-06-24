@@ -1,5 +1,28 @@
 import type { AuditResultSummary } from "../types/resultsScreenProps";
-import type { ManagedSchedule, ScheduleFrequency } from "../types/reportsScreenProps";
+import type { ManagedSchedule, ScheduleCompletionMode, ScheduleFrequency } from "../types/reportsScreenProps";
+
+export const DEFAULT_SCHEDULE_COMPLETION_MODE: ScheduleCompletionMode = "repeatable";
+
+export function normalizeScheduleCompletionMode(value: unknown): ScheduleCompletionMode {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (
+    normalized === "once-per-period" ||
+    normalized === "once per due period" ||
+    normalized === "once per period" ||
+    normalized === "once"
+  ) {
+    return "once-per-period";
+  }
+  return "repeatable";
+}
+
+export function scheduleCompletionModeLabel(mode: ScheduleCompletionMode | string | undefined): string {
+  return normalizeScheduleCompletionMode(mode) === "once-per-period" ? "Once per due period" : "Repeatable";
+}
+
+export function shouldHideAssignedCheckAfterCompletion(completionMode: unknown): boolean {
+  return normalizeScheduleCompletionMode(completionMode) === "once-per-period";
+}
 
 export type ScheduleCompletionStatusLabel = "Completed" | "Due now" | "Upcoming" | "Overdue";
 
@@ -7,9 +30,13 @@ const scheduleAmberThresholdHours = 2;
 export type ScheduleListStatusChip = ScheduleCompletionStatusLabel;
 
 export function isAssignedScheduleAuditCompletedForCurrentDue(
+  schedule: Pick<ManagedSchedule, "completionMode"> | undefined,
   scheduleAudit: { completedForCurrentDue?: boolean } | undefined,
 ): boolean {
-  return scheduleAudit?.completedForCurrentDue === true;
+  if (scheduleAudit?.completedForCurrentDue !== true) {
+    return false;
+  }
+  return shouldHideAssignedCheckAfterCompletion(schedule?.completionMode);
 }
 
 function isCompletionStatusCompleted(status: string): boolean {
@@ -94,8 +121,19 @@ function isResultForCurrentDueInstance(
   if (!Number.isFinite(completedAt.getTime())) {
     return false;
   }
-  const periodStart = duePeriodStart(nextDueAt, frequency, now);
-  return completedAt.getTime() >= periodStart.getTime();
+  const anchorFrequency = String(result.frequency || frequency || "Weekly");
+  const periodStart = duePeriodStart(nextDueAt, anchorFrequency, now);
+  if (completedAt.getTime() < periodStart.getTime()) {
+    return false;
+  }
+  const resultNextDueAt = String(result.nextDueAt || "").trim();
+  if (resultNextDueAt) {
+    const resultPeriodStart = duePeriodStart(resultNextDueAt, anchorFrequency, now);
+    if (resultPeriodStart.getTime() !== periodStart.getTime()) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function resolveAuditCompletionFromResults(
@@ -144,6 +182,9 @@ function resolveAuditCompletionFromResults(
 }
 
 export function isScheduleCompletedForCurrentDue(schedule: ManagedSchedule, now = new Date()): boolean {
+  if (!shouldHideAssignedCheckAfterCompletion(schedule.completionMode)) {
+    return false;
+  }
   const audits = schedule.audits || [];
   if (audits.length > 0 && audits.every((audit) => audit.completedForCurrentDue === true)) {
     return true;

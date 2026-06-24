@@ -22,8 +22,11 @@ import {
 import { parseCompanyScheduleListFromRecords } from "../shared/schedule-list.mjs";
 import {
   enrichAssignedSchedulesWithCompletion,
+  isAssignedCheckCompletedForCurrentDue,
   isCompletionForCurrentDueInstance,
+  normalizeScheduleCompletionMode,
   resolveAssignedCheckCompletion,
+  shouldHideAssignedCheckAfterCompletion,
 } from "../shared/assigned-check-completion.mjs";
 import { submitCompletedCheck } from "../server/completion-service.mjs";
 
@@ -457,6 +460,7 @@ assert(read("src/utils/auditAccess.ts").includes("buildAuditFromAssignedSchedule
       "Template Name": "Fire walk",
       Frequency: "Daily",
       "Next Due At": "2026-06-24T08:00:00.000Z",
+      "Completion Mode": "once-per-period",
     },
   ];
   const auditResultStore = [];
@@ -556,9 +560,9 @@ assert(read("src/utils/auditAccess.ts").includes("buildAuditFromAssignedSchedule
   const afterAudit = afterCompletion.schedules[0]?.audits?.[0];
   assert(afterAudit?.completedForCurrentDue === true, "12f: assigned check marked completed for current due");
   const dueAudits = (afterCompletion.schedules || []).flatMap((schedule) =>
-    (schedule.audits || []).filter((audit) => audit.completedForCurrentDue !== true),
+    (schedule.audits || []).filter((audit) => !isAssignedCheckCompletedForCurrentDue(schedule, audit)),
   );
-  assert(dueAudits.length === 0, "12g: no assigned checks remain due after completion for current instance");
+  assert(dueAudits.length === 0, "12g: no assigned checks remain due after once-per-period completion");
 
   const enrichedOnly = enrichAssignedSchedulesWithCompletion(
     beforeCompletion.schedules,
@@ -574,11 +578,15 @@ assert(read("src/utils/auditAccess.ts").includes("buildAuditFromAssignedSchedule
 
 assert(read("shared/assigned-check-completion.mjs").includes("enrichAssignedSchedulesWithCompletion"), "12i: shared completion helper exists");
 assert(read("server/schedule-service.mjs").includes("enrichAssignedSchedulesWithCompletion"), "12j: listMyChecks enriches schedules from AuditResults");
-assert(read("src/utils/auditAccess.ts").includes("isAssignedScheduleAuditCompletedForCurrentDue"), "12k: Complete Work filters completed due instances");
+assert(read("src/utils/auditAccess.ts").includes("shouldHideCompletedAssignedScheduleAudit"), "12k: Complete Work filters completed due instances by mode");
+assert(read("src/utils/scheduleCompletionMode.ts").includes("resolveScheduleCompletionMode"), "12k1: schedule completion mode helper exists");
+assert(read("src/components/checks/AssignedCheckActionRow.tsx").includes("Start again"), "12k2: repeatable completion exposes Start again");
+assert(read("shared/schedule-completion-mode.mjs").includes("once-per-period"), "12k3: shared schedule completion mode helper exists");
 assert(read("src/utils/assignedCheckCompletion.ts").includes("mergeScheduleLastCompletedFromResults"), "12l: schedules merge last completed from results");
 assert(read("src/screens/SchedulesScreen.tsx").includes("Last completed"), "12m: schedules UI shows last completed date");
 assert(read("src/utils/assignedCheckCompletion.ts").includes("Never completed"), "12m1: schedule last completed fallback is Never completed");
 assert(read("src/screens/SchedulesScreen.tsx").includes("Next due"), "12m2: schedules UI shows next due");
+assert(read("src/screens/SchedulesScreen.tsx").includes("Completion mode"), "12m2a: schedules UI shows completion mode");
 assert(read("src/utils/assignedCheckCompletion.ts").includes("resolveScheduleListStatusChip"), "12m3: schedule list status chip helper exists");
 assert(read("src/utils/assignedCheckCompletion.ts").includes("formatScheduleLastCompletedLabel"), "12m4: schedule last completed label helper exists");
 assert(read("src/components/dashboard/DashboardThingsToDoSection.tsx").includes("AssignedCheckActionRow"), "12n: dashboard Things to do still uses assigned-check row");
@@ -634,6 +642,7 @@ assert(read("src/utils/auditAccess.ts").includes("buildCompleteWorkAssignedAudit
       "Template Name": "Fire walk",
       Frequency: "Daily",
       "Next Due At": nextDueAt,
+      "Completion Mode": "once-per-period",
     },
   ];
   const parsed = parseCompanyScheduleListFromRecords(scheduleRecords, "company-1");
@@ -657,9 +666,106 @@ assert(read("src/utils/auditAccess.ts").includes("buildCompleteWorkAssignedAudit
   );
   assert(enriched[0]?.audits?.[0]?.completedForCurrentDue === true, "13g: enriched schedule audit completed for current due");
   const dueAudits = enriched.flatMap((schedule) =>
-    (schedule.audits || []).filter((audit) => audit.completedForCurrentDue !== true),
+    (schedule.audits || []).filter((audit) => !isAssignedCheckCompletedForCurrentDue(schedule, audit)),
   );
-  assert(dueAudits.length === 0, "13h: enriched assigned schedule hides completed due audit");
+  assert(dueAudits.length === 0, "13h: enriched once-per-period schedule hides completed due audit");
+}
+
+/** 14: Completion mode behaviour — once-per-period hides; repeatable stays available. */
+{
+  const {
+    duePeriodStart,
+    isCompletionForCurrentDueInstance,
+    resolveAssignedCheckCompletion,
+  } = await import("../shared/assigned-check-completion.mjs");
+  const {
+    resolveScheduleCompletionMode,
+    shouldHideCompletedAssignedScheduleAudit,
+  } = await import("../shared/schedule-completion-mode.mjs");
+  const signedInEmail = "manager@testco.test";
+  const companyFolderId = "company-1";
+  const now = new Date("2026-06-24T12:00:00.000Z");
+
+  assert(resolveScheduleCompletionMode({}) === "repeatable", "14a: default completion mode is repeatable");
+  assert(
+    resolveScheduleCompletionMode({ completionMode: "once-per-period" }) === "once-per-period",
+    "14b: once-per-period mode resolves",
+  );
+
+  const dailyOnceSchedule = {
+    id: "schedule-daily-once",
+    companyFolderId,
+    scheduleName: "Daily once",
+    lifecycle: "Live",
+    completionMode: "once-per-period",
+    nextDueAt: "2026-06-24T08:00:00.000Z",
+    audits: [{ auditId: "audit-daily", auditName: "Daily walk", frequency: "Daily", completedForCurrentDue: true }],
+  };
+  const dailyRepeatSchedule = {
+    ...dailyOnceSchedule,
+    id: "schedule-daily-repeat",
+    scheduleName: "Daily repeat",
+    completionMode: "repeatable",
+  };
+
+  assert(
+    shouldHideCompletedAssignedScheduleAudit(dailyOnceSchedule, dailyOnceSchedule.audits[0]),
+    "14c: daily once-per-period hides after completion",
+  );
+  assert(
+    !shouldHideCompletedAssignedScheduleAudit(dailyRepeatSchedule, dailyRepeatSchedule.audits[0]),
+    "14d: repeatable daily stays available after completion",
+  );
+
+  const weeklyNextDue = "2026-06-27T08:00:00.000Z";
+  const weeklyCompletedAt = "2026-06-24T09:00:00.000Z";
+  const weeklyCtx = {
+    scheduleId: "schedule-weekly-once",
+    auditId: "audit-weekly",
+    auditName: "Weekly walk",
+    email: signedInEmail,
+    nextDueAt: weeklyNextDue,
+    frequency: "Weekly",
+  };
+  const weeklyResult = {
+    "Schedule ID": weeklyCtx.scheduleId,
+    "Audit ID": weeklyCtx.auditId,
+    "Audit Name": weeklyCtx.auditName,
+    "Completed At": weeklyCompletedAt,
+    "Completed By Email": signedInEmail,
+    "Next Due At": weeklyNextDue,
+    Frequency: "Weekly",
+    Status: "completed",
+  };
+  assert(
+    isCompletionForCurrentDueInstance(weeklyResult, weeklyCtx, now),
+    "14e: weekly once-per-period completion matches current week",
+  );
+  const futureWeeklyCtx = {
+    ...weeklyCtx,
+    nextDueAt: "2026-07-04T08:00:00.000Z",
+  };
+  assert(
+    !isCompletionForCurrentDueInstance(weeklyResult, futureWeeklyCtx, new Date("2026-07-05T12:00:00.000Z")),
+    "14f: future weekly period is not marked complete by prior week",
+  );
+  assert(
+    duePeriodStart("2026-07-04T08:00:00.000Z", "Weekly", new Date("2026-07-05T12:00:00.000Z")).getTime() >
+      new Date(weeklyCompletedAt).getTime(),
+    "14g: future weekly due period starts after prior completion",
+  );
+
+  const repeatableCompletion = resolveAssignedCheckCompletion([weeklyResult], weeklyCtx, now);
+  assert(repeatableCompletion.lastCompletedAt === weeklyCompletedAt, "14h: last completed updates for completion modes");
+
+  const dueAuditsOnce = dailyOnceSchedule.audits.filter(
+    (audit) => !shouldHideCompletedAssignedScheduleAudit(dailyOnceSchedule, audit),
+  );
+  const dueAuditsRepeat = dailyRepeatSchedule.audits.filter(
+    (audit) => !shouldHideCompletedAssignedScheduleAudit(dailyRepeatSchedule, audit),
+  );
+  assert(dueAuditsOnce.length === 0, "14i: once-per-period removes due audit for current period");
+  assert(dueAuditsRepeat.length === 1, "14j: repeatable keeps due audit after completion");
 }
 
 console.log("[verify:assigned-checks] OK: assigned-check contract verified");

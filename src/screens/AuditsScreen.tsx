@@ -8,6 +8,7 @@ import { rankAuditorAudit } from "../utils/auditorDashboard";
 import { SECTION_INTROS } from "../config/sectionIntros";
 import { SectionIntro } from "../components/SectionIntro";
 import { AssignedCheckActionRow } from "../components/checks/AssignedCheckActionRow";
+import type { AssignedCheckScheduleMeta } from "../utils/assignedCheckDisplay";
 import { EmptyPanel, SectionHeader, StatusBadge } from "../components/dashboard/DashboardPrimitives";
 import { FormsChecksTemplatesPanel } from "../components/forms/FormsChecksTemplatesPanel";
 import { ASSIGNED_CHECKS_LOADING_MESSAGE, ASSIGNED_CHECKS_REFRESHING_MESSAGE } from "../services/checkService";
@@ -347,12 +348,14 @@ function TrafficLane({
 function AuditorChecksList({
   audits,
   drafts,
+  scheduleMetaByAuditId = {},
   onOpenAudit,
   onNavigateToToday,
   onNavigateToSubmit,
 }: {
   audits: Audit[];
   drafts: Record<string, AuditDraft>;
+  scheduleMetaByAuditId?: Record<string, AssignedCheckScheduleMeta>;
   onOpenAudit: (auditId: string) => void;
   onNavigateToToday?: () => void;
   onNavigateToSubmit?: () => void;
@@ -413,6 +416,7 @@ function AuditorChecksList({
       key={audit.id}
       audit={audit}
       drafts={drafts}
+      scheduleMeta={scheduleMetaByAuditId[audit.id]}
       onOpenAudit={onOpenAudit}
       themeRole="Auditor"
     />
@@ -447,6 +451,7 @@ export function AuditsScreen({
   currentUser,
   audits,
   myAssignedChecks = [],
+  assignedCheckScheduleMeta = {},
   groupedAudits,
   drafts,
   unsyncedAuditIds,
@@ -514,6 +519,7 @@ export function AuditsScreen({
             <AuditorChecksList
               audits={myAssignedChecks}
               drafts={drafts}
+              scheduleMetaByAuditId={assignedCheckScheduleMeta}
               onOpenAudit={onOpenAudit}
               onNavigateToToday={onNavigateToToday}
               onNavigateToSubmit={onNavigateToSubmit}
@@ -623,7 +629,12 @@ export function AuditsScreen({
                     className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600"
                   />
                 ) : null}
-                <AuditorChecksList audits={myAssignedChecks} drafts={drafts} onOpenAudit={onOpenAudit} />
+                <AuditorChecksList
+                  audits={myAssignedChecks}
+                  drafts={drafts}
+                  scheduleMetaByAuditId={assignedCheckScheduleMeta}
+                  onOpenAudit={onOpenAudit}
+                />
               </div>
             )}
           </div>

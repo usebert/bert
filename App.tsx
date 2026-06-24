@@ -455,6 +455,7 @@ type Screen = RoutedScreen;
 type ThemeMode = "light" | "dark";
 type ScheduleDay = "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun";
 type ScheduleLifecycle = "Live" | "Archived";
+type ScheduleCompletionMode = "repeatable" | "once-per-period";
 type ScheduleListFilter = "Live" | "Archived" | "All schedules";
 type ScheduleHealthState = "Healthy" | "Due Soon" | "Overdue" | "Failing" | "Paused";
 type PreviewOrientation = "portrait" | "landscape";
@@ -814,6 +815,7 @@ type ManagedSchedule = {
   companyFolderId: string;
   companyId?: string;
   scheduleName: string;
+  completionMode?: ScheduleCompletionMode;
   audits: ManagedScheduleAudit[];
   auditors: string[];
   assignedUserEmails?: string[];
@@ -2691,6 +2693,12 @@ function parseManagedSchedules(records: Record<string, string>[], companyFolderI
       lifecycle: (extractByKeys(record, ["lifecycle"]) as ScheduleLifecycle) || "Live",
       companyFolderId: rowCompanyFolderId,
       scheduleName: extractByKeys(record, ["schedule name", "name"]) || "Unnamed schedule",
+      completionMode:
+        ["once-per-period", "once per period", "once per due period", "once"].includes(
+          safeLower(extractByKeys(record, ["completion mode"])),
+        )
+          ? "once-per-period"
+          : "repeatable",
       audits: [audit],
       assignedUsers,
       assignedUserEmails,
@@ -3557,6 +3565,7 @@ function App() {
   const [scheduleDraftStartDate, setScheduleDraftStartDate] = useState("");
   const [scheduleDraftEndDate, setScheduleDraftEndDate] = useState("");
   const [scheduleDraftContinuous, setScheduleDraftContinuous] = useState(true);
+  const [scheduleDraftCompletionMode, setScheduleDraftCompletionMode] = useState<ScheduleCompletionMode>("repeatable");
   const [scheduleDraftAuditors, setScheduleDraftAuditors] = useState<string[]>([]);
   const [scheduleValidationAttempted, setScheduleValidationAttempted] = useState(false);
   const [scheduleSaving, setScheduleSaving] = useState(false);
@@ -13438,6 +13447,7 @@ function App() {
     setScheduleDraftStartDate("");
     setScheduleDraftEndDate("");
     setScheduleDraftContinuous(true);
+    setScheduleDraftCompletionMode("repeatable");
     setScheduleDraftAuditors([]);
     setScheduleValidationAttempted(false);
     setScheduleEditorOpen(false);
@@ -13451,6 +13461,7 @@ function App() {
     setScheduleDraftStartDate(new Date().toISOString().slice(0, 10));
     setScheduleDraftEndDate("");
     setScheduleDraftContinuous(true);
+    setScheduleDraftCompletionMode("repeatable");
     setScheduleDraftAuditors([]);
     setScheduleValidationAttempted(false);
     setScheduleEditorOpen(true);
@@ -13469,6 +13480,7 @@ function App() {
     setScheduleDraftStartDate(schedule.startDate);
     setScheduleDraftEndDate(schedule.endDate);
     setScheduleDraftContinuous(!schedule.endDate);
+    setScheduleDraftCompletionMode(schedule.completionMode || "repeatable");
     setScheduleDraftAuditors(normalizeScheduleAssigneeIds(schedule.auditors, availableScheduleAssignees));
     setScheduleValidationAttempted(false);
     setScheduleEditorOpen(true);
@@ -13600,6 +13612,7 @@ function App() {
       companyFolderId,
       companyId: companyFolderId,
       scheduleName: trimmedName,
+      completionMode: scheduleDraftCompletionMode,
       audits: scheduleDraftAudits,
       auditors: resolvedAuditors,
       assignedUserEmails: resolvedAuditors,
@@ -15320,6 +15333,7 @@ function App() {
                 currentUser={currentUser}
                 audits={canCompleteAuditAsAuditor(currentUser.role) ? completeWorkAssignedAudits : siteScopedAudits}
                 myAssignedChecks={completeWorkAssignedAudits}
+                assignedCheckScheduleMeta={assignedCheckScheduleMeta}
                 groupedAudits={groupedAudits}
                 drafts={drafts}
                 unsyncedAuditIds={unsyncedSubmittedAuditIds}
@@ -15666,6 +15680,7 @@ function App() {
                 editorOpen={scheduleEditorOpen}
                 editingSchedule={editingScheduleId ? managedSchedules.find((item) => item.id === editingScheduleId) || null : null}
                 scheduleName={scheduleDraftName}
+                completionMode={scheduleDraftCompletionMode}
                 selectedAuditIds={scheduleDraftSelectedAuditIds}
                 scheduleAudits={scheduleDraftAudits}
                 startDate={scheduleDraftStartDate}
@@ -15680,6 +15695,7 @@ function App() {
                 onToggleAuditDay={handleToggleScheduleAuditDay}
                 onAuditFieldChange={handleUpdateScheduleAuditField}
                 onScheduleNameChange={setScheduleDraftName}
+                onCompletionModeChange={setScheduleDraftCompletionMode}
                 onStartDateChange={setScheduleDraftStartDate}
                 onEndDateChange={setScheduleDraftEndDate}
                 onContinuousChange={setScheduleDraftContinuous}

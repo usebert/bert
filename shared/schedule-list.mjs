@@ -11,6 +11,7 @@ import {
 
 export { LEGACY_SCHEDULE_TAB, SCHEDULES_TAB };
 import { getScheduleAssignedEmails } from "./schedule-assignment.mjs";
+import { resolveScheduleCompletionMode } from "./schedule-completion-mode.mjs";
 
 function normalize(value) {
   return String(value ?? "").trim().toLowerCase();
@@ -141,6 +142,9 @@ export function parseCompanyScheduleListFromRecords(records = [], companyFolderI
       companyFolderId: rowCompanyFolderId,
       companyId: rowCompanyFolderId,
       scheduleName: extractField(record, ["schedule name", "name"]) || "Unnamed schedule",
+      completionMode: resolveScheduleCompletionMode({
+        completionMode: extractField(record, ["completion mode", "completionmode"]),
+      }),
       audits: [audit],
       assignedUsers,
       assignedUserEmails,
@@ -158,6 +162,7 @@ export function parseCompanyScheduleListFromRecords(records = [], companyFolderI
       missedAuditCount: Number(extractField(record, ["missed audit count"])) || 0,
       lastCompletedAt: extractField(record, ["last completed at"]) || undefined,
       nextDueAt: extractField(record, ["next due at"]) || undefined,
+      completionMode: extractField(record, ["completion mode", "completionmode"]) || undefined,
     });
   });
 

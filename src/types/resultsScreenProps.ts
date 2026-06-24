@@ -8,6 +8,8 @@ export type AuditResultSummary = {
   completedByName: string;
   status: string;
   companyFolderId: string;
+  nextDueAt?: string;
+  frequency?: string;
 };
 
 export type AuditResultDetail = AuditResultSummary & {

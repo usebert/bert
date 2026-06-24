@@ -3,11 +3,15 @@ import type { Audit, ManagedSchedule } from "../types/reportsScreenProps";
 import { rankAuditorAudit } from "./auditorDashboard";
 import { getAuditTrafficStatus, getDueWarning } from "./dashboardHealth";
 import { resolveAssignedCheckAuditId } from "./auditAccess";
+import { resolveScheduleCompletionMode } from "./scheduleCompletionMode";
+import type { ScheduleCompletionMode } from "../types/reportsScreenProps";
 
 export type AssignedCheckScheduleMeta = {
   scheduleName: string;
   frequency?: string;
   liveTime?: string;
+  completionMode?: ScheduleCompletionMode;
+  completedForCurrentDue?: boolean;
 };
 
 export function buildAssignedCheckScheduleMeta(
@@ -27,6 +31,8 @@ export function buildAssignedCheckScheduleMeta(
         scheduleName,
         frequency: String(scheduleAudit.frequency || "").trim() || undefined,
         liveTime: String(scheduleAudit.liveTime || "").trim() || undefined,
+        completionMode: resolveScheduleCompletionMode(schedule),
+        completedForCurrentDue: scheduleAudit.completedForCurrentDue === true,
       };
     });
   });
@@ -47,9 +53,13 @@ export function assignedCheckStatusLabel(
   audit: Audit,
   inProgress: boolean,
   completedForCurrentDue = false,
+  completionMode: AssignedCheckScheduleMeta["completionMode"] = "repeatable",
 ): string {
-  if (completedForCurrentDue) {
+  if (completedForCurrentDue && completionMode === "once-per-period") {
     return "Completed";
+  }
+  if (completedForCurrentDue && completionMode === "repeatable") {
+    return "Ready again";
   }
   if (audit.dueLabel === "Available") {
     return "Available";
