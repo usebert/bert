@@ -33,6 +33,8 @@ import { BACKGROUND_SCHEDULE_SAVED_MESSAGE } from "../shared/background-jobs.mjs
 import { rejectIfCompanyFolderNotUnderCompaniesRoot } from "./company-folder-placement.mjs";
 import {
   canListCompanyAuditResults,
+  DEFAULT_RESULTS_LIST_LIMIT,
+  DEFAULT_RESULTS_LIST_SINCE_DAYS,
   getAuditResult,
   listAuditResults,
   submitCompletedCheck,
@@ -51,6 +53,18 @@ async function rejectCompanyApiIfFolderInvalid(authed, deps, companyFolderId, co
   return rejectIfCompanyFolderNotUnderCompaniesRoot(authed, deps, companyFolderId, {
     companyFolderName: companyName,
   });
+}
+
+function parseOptionalPositiveInt(value, fallback) {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return fallback;
+  }
+  const parsed = Number.parseInt(text, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return fallback;
+  }
+  return parsed;
 }
 
 function buildInvitePermissionSession(actor) {
@@ -936,11 +950,20 @@ export function installCoreWorkflowRoutes(app, deps) {
         });
       }
 
+      const listOptions = options.applyListDefaults
+        ? {
+            limit: parseOptionalPositiveInt(req.query?.limit, DEFAULT_RESULTS_LIST_LIMIT),
+            sinceDays: parseOptionalPositiveInt(req.query?.sinceDays, DEFAULT_RESULTS_LIST_SINCE_DAYS),
+            offset: parseOptionalPositiveInt(req.query?.offset, 0),
+            resolvedContext: resolved,
+          }
+        : null;
+
       const listed = await listAuditResults(authed, { ...registryDeps, ...scheduleDeps }, {
         companyId: resolved.companyFolderId,
         companyFolderId: resolved.companyFolderId,
         masterSheetId: resolved.masterSheetId,
-      });
+      }, listOptions);
       if (!listed.ok) {
         return res.status(listed.httpStatus || 400).json({
           ok: false,
@@ -957,6 +980,9 @@ export function installCoreWorkflowRoutes(app, deps) {
         companyFolderId: listed.companyFolderId,
         masterSheetId: listed.masterSheetId,
         results: listed.results,
+        totalMatched: listed.totalMatched,
+        hasMore: listed.hasMore,
+        nextOffset: listed.nextOffset,
       });
     } catch (error) {
       return res.status(500).json({
@@ -1076,7 +1102,10 @@ export function installCoreWorkflowRoutes(app, deps) {
   }
 
   app.get("/api/companies/:companyId/results", async (req, res) => {
-    return respondWithCompanyAuditResults(req, res, { trustClientSheetHints: false });
+    return respondWithCompanyAuditResults(req, res, {
+      trustClientSheetHints: false,
+      applyListDefaults: true,
+    });
   });
 
   app.get("/api/companies/:companyId/results/:resultId", async (req, res) => {

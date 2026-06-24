@@ -47,6 +47,13 @@ export const AUDIT_RESULTS_TAB_COLUMNS = [
   "Updated By",
 ];
 
+export const AUDIT_RESULTS_DETAIL_COLUMNS = ["Answers JSON", "Findings JSON", "Evidence Refs"];
+
+export const AUDIT_RESULTS_SUMMARY_READ_RANGES = ["A:H", "L:W"];
+
+export const DEFAULT_RESULTS_LIST_LIMIT = 100;
+export const DEFAULT_RESULTS_LIST_SINCE_DAYS = 30;
+
 function trim(value) {
   return String(value ?? "").trim();
 }
@@ -84,6 +91,80 @@ function resolveReadTabRecords(deps) {
 
 function resolveEnsureTabColumns(deps) {
   return typeof deps?.ensureTabColumns === "function" ? deps.ensureTabColumns : workbookEnsureTabColumns;
+}
+
+function resolveGetTabValues(deps) {
+  return typeof deps?.getTabValues === "function" ? deps.getTabValues : null;
+}
+
+function resolveRowsToRecords(deps) {
+  return typeof deps?.rowsToRecords === "function" ? deps.rowsToRecords : null;
+}
+
+function completedAtMsFromRecord(record = {}) {
+  const completedAt = pickRecordField(record, "Completed At", "CompletedAt");
+  const parsed = Date.parse(completedAt);
+  return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
+}
+
+export function sortAuditResultsByCompletedAtDesc(records = []) {
+  return [...records].sort((left, right) => completedAtMsFromRecord(right) - completedAtMsFromRecord(left));
+}
+
+export function sliceAuditResultsList(records = [], listOptions = {}) {
+  const sorted = sortAuditResultsByCompletedAtDesc(records);
+  const sinceDays = Number(listOptions.sinceDays);
+  const hasSinceDays = Number.isFinite(sinceDays) && sinceDays > 0;
+  const sinceMs = hasSinceDays ? Date.now() - sinceDays * 24 * 60 * 60 * 1000 : null;
+  const filtered = sinceMs === null
+    ? sorted
+    : sorted.filter((record) => completedAtMsFromRecord(record) >= sinceMs);
+
+  const offset = Math.max(Number(listOptions.offset) || 0, 0);
+  const limit = Number(listOptions.limit);
+  const hasLimit = Number.isFinite(limit) && limit > 0;
+  const sliced = hasLimit ? filtered.slice(offset, offset + limit) : filtered.slice(offset);
+  const nextOffset = offset + sliced.length;
+  const hasMore = hasLimit ? nextOffset < filtered.length : false;
+
+  return {
+    results: sliced,
+    totalMatched: filtered.length,
+    hasMore,
+    nextOffset,
+  };
+}
+
+async function readAuditResultRecordById(auth, deps, masterSheetId, resultId) {
+  const getTabValues = resolveGetTabValues(deps);
+  const rowsToRecords = resolveRowsToRecords(deps);
+  if (!getTabValues || !rowsToRecords) {
+    return null;
+  }
+
+  const idColumnValues = await getTabValues(auth, deps, masterSheetId, AUDIT_RESULTS_TAB, "A:A");
+  let rowIndex = -1;
+  for (let index = 1; index < idColumnValues.length; index += 1) {
+    if (trim(idColumnValues[index]?.[0]) === resultId) {
+      rowIndex = index;
+      break;
+    }
+  }
+  if (rowIndex < 0) {
+    return null;
+  }
+
+  const sheetRowNumber = rowIndex + 1;
+  const headerValues = await getTabValues(auth, deps, masterSheetId, AUDIT_RESULTS_TAB, "A1:W1");
+  const rowValues = await getTabValues(
+    auth,
+    deps,
+    masterSheetId,
+    AUDIT_RESULTS_TAB,
+    `A${sheetRowNumber}:W${sheetRowNumber}`,
+  );
+  const records = rowsToRecords([...(headerValues || []), ...(rowValues || [])]);
+  return records[0] || null;
 }
 
 function pickRecordField(record = {}, ...keys) {
@@ -333,27 +414,49 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
 }
 
 /** Read AuditResults from company workbook — filtered by CompanyFolderId. */
-export async function listAuditResults(auth, deps, companyContext = {}) {
+export async function listAuditResults(auth, deps, companyContext = {}, listOptions = null) {
   const companyFolderId = trim(companyContext.companyFolderId || companyContext.companyId);
   const masterSheetId = trim(companyContext.masterSheetId);
+  const preResolvedContext = listOptions?.resolvedContext;
 
-  const context = await resolveCompanyScheduleContext(auth, deps, {
-    companyId: companyFolderId,
-    companyFolderId,
-    masterSheetId,
-  });
+  const context =
+    preResolvedContext?.ok === true
+      ? preResolvedContext
+      : await resolveCompanyScheduleContext(auth, deps, {
+          companyId: companyFolderId,
+          companyFolderId,
+          masterSheetId,
+        });
   if (!context.ok) {
     return context;
   }
 
   try {
+    const ensureTabColumns = resolveEnsureTabColumns(deps);
+    await ensureTabColumns(auth, deps, context.masterSheetId, AUDIT_RESULTS_TAB, AUDIT_RESULTS_TAB_COLUMNS);
     const readTabRecords = resolveReadTabRecords(deps);
     const readResult = await readTabRecords(auth, deps, context.masterSheetId, AUDIT_RESULTS_TAB, {
       expectedHeaders: AUDIT_RESULTS_TAB_COLUMNS,
+      summaryOnly: true,
     });
     const records = (readResult.records || []).filter((record) =>
       auditResultMatchesCompanyFolder(record, context.companyFolderId),
     );
+
+    if (listOptions) {
+      const sliced = sliceAuditResultsList(records, listOptions);
+      return {
+        ok: true,
+        companyId: context.companyFolderId,
+        companyFolderId: context.companyFolderId,
+        masterSheetId: context.masterSheetId,
+        results: sliced.results,
+        totalMatched: sliced.totalMatched,
+        hasMore: sliced.hasMore,
+        nextOffset: sliced.nextOffset,
+      };
+    }
+
     return {
       ok: true,
       companyId: context.companyFolderId,
@@ -385,14 +488,30 @@ export async function getAuditResult(auth, deps, companyContext = {}, resultId =
     };
   }
 
-  const listed = await listAuditResults(auth, deps, companyContext);
-  if (!listed.ok) {
-    return listed;
+  const companyFolderId = trim(companyContext.companyFolderId || companyContext.companyId);
+  const masterSheetId = trim(companyContext.masterSheetId);
+  const context = await resolveCompanyScheduleContext(auth, deps, {
+    companyId: companyFolderId,
+    companyFolderId,
+    masterSheetId,
+  });
+  if (!context.ok) {
+    return context;
   }
 
-  const match = (listed.results || []).find(
-    (record) => pickRecordField(record, "Result ID", "ResultId") === targetId,
-  );
+  let match = await readAuditResultRecordById(auth, deps, context.masterSheetId, targetId);
+  if (!match) {
+    const readTabRecords = resolveReadTabRecords(deps);
+    const readResult = await readTabRecords(auth, deps, context.masterSheetId, AUDIT_RESULTS_TAB, {
+      expectedHeaders: AUDIT_RESULTS_TAB_COLUMNS,
+    });
+    match =
+      (readResult.records || []).find(
+        (record) =>
+          pickRecordField(record, "Result ID", "ResultId") === targetId &&
+          auditResultMatchesCompanyFolder(record, context.companyFolderId),
+      ) || null;
+  }
   if (!match) {
     return {
       ok: false,
@@ -405,9 +524,9 @@ export async function getAuditResult(auth, deps, companyContext = {}, resultId =
 
   return {
     ok: true,
-    companyId: listed.companyFolderId,
-    companyFolderId: listed.companyFolderId,
-    masterSheetId: listed.masterSheetId,
+    companyId: context.companyFolderId,
+    companyFolderId: context.companyFolderId,
+    masterSheetId: context.masterSheetId,
     result: match,
   };
 }

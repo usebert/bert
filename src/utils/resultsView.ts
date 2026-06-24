@@ -18,6 +18,19 @@ export const EMPTY_RESULTS_FILTERS: ResultsViewFilters = {
   toDate: "",
 };
 
+export function defaultResultsFromDate(days = 30): string {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return date.toISOString().slice(0, 10);
+}
+
+export function createInitialResultsFilters(days = 30): ResultsViewFilters {
+  return {
+    ...EMPTY_RESULTS_FILTERS,
+    fromDate: defaultResultsFromDate(days),
+  };
+}
+
 export type EnrichedAuditResult = AuditResultSummary & {
   scheduleName?: string;
   completionModeLabel?: string;
@@ -65,10 +78,23 @@ export function enrichAuditResult(
   };
 }
 
+export function enrichAuditResultBasic(result: AuditResultSummary): EnrichedAuditResult {
+  const checkDisplayName =
+    result.auditName?.trim() || result.scheduleId?.trim() || "Completed check";
+  return {
+    ...result,
+    isScheduledCheck: Boolean(result.scheduleId?.trim()),
+    checkDisplayName,
+  };
+}
+
 export function enrichAuditResults(
   results: AuditResultSummary[],
   schedules: ManagedSchedule[],
 ): EnrichedAuditResult[] {
+  if (!schedules.length) {
+    return results.map((result) => enrichAuditResultBasic(result));
+  }
   const scheduleLookup = buildScheduleLookup(schedules);
   return results.map((result) => enrichAuditResult(result, scheduleLookup));
 }

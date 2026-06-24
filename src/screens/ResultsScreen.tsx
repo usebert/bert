@@ -9,6 +9,7 @@ import type { AuditResultDetail, ResultsScreenProps } from "../types/resultsScre
 import {
   collectCompletedByOptions,
   collectStatusOptions,
+  createInitialResultsFilters,
   EMPTY_RESULTS_FILTERS,
   enrichAuditResult,
   enrichAuditResults,
@@ -286,7 +287,12 @@ export function ResultsScreen({
   results,
   schedules = [],
   resultsLoading,
+  resultsLoadingMore = false,
   resultsLoadError,
+  resultsLoadWarning,
+  resultsHasMore = false,
+  onRefreshResults,
+  onLoadMoreResults,
   selectedResultId,
   selectedResult,
   selectedResultLoading,
@@ -294,10 +300,14 @@ export function ResultsScreen({
   onSelectResult,
   onClearSelectedResult,
 }: ResultsScreenProps) {
-  const [filters, setFilters] = useState(EMPTY_RESULTS_FILTERS);
+  const [filters, setFilters] = useState(createInitialResultsFilters);
 
+  const basicResults = useMemo(
+    () => sortResultsByCompletedAtDesc(results),
+    [results],
+  );
   const enrichedResults = useMemo(
-    () => sortResultsByCompletedAtDesc(enrichAuditResults(results, schedules)),
+    () => enrichAuditResults(results, schedules),
     [results, schedules],
   );
   const filteredResults = useMemo(
@@ -327,11 +337,40 @@ export function ResultsScreen({
 
       <SectionIntro text="Completed checks from your company AuditResults tab. Filter by date, user, or schedule, then open a row to review answers and evidence metadata." />
 
-      {resultsLoading ? (
+      {resultsLoadWarning ? (
+        <div className="rounded-[1.25rem] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {resultsLoadWarning}
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-2">
+        {onRefreshResults ? (
+          <button
+            type="button"
+            onClick={onRefreshResults}
+            disabled={resultsLoading || resultsLoadingMore}
+            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {resultsLoading ? "Refreshing…" : "Refresh"}
+          </button>
+        ) : null}
+        {resultsHasMore && onLoadMoreResults ? (
+          <button
+            type="button"
+            onClick={onLoadMoreResults}
+            disabled={resultsLoading || resultsLoadingMore}
+            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {resultsLoadingMore ? "Loading more…" : "Load more"}
+          </button>
+        ) : null}
+      </div>
+
+      {resultsLoading && basicResults.length === 0 ? (
         <EmptyPanel title={COMPANY_RESULTS_LOADING_MESSAGE} text="Reading your company workbook…" />
-      ) : resultsLoadError ? (
+      ) : resultsLoadError && basicResults.length === 0 ? (
         <EmptyPanel title="Could not load results" text={resultsLoadError} />
-      ) : enrichedResults.length === 0 ? (
+      ) : basicResults.length === 0 ? (
         <EmptyPanel
           title="No completed checks yet"
           text="When someone completes a check, it will appear here from your company workbook."
@@ -345,7 +384,7 @@ export function ResultsScreen({
             filteredCount={filteredResults.length}
             totalCount={enrichedResults.length}
             onChange={setFilters}
-            onClear={() => setFilters(EMPTY_RESULTS_FILTERS)}
+            onClear={() => setFilters(createInitialResultsFilters())}
           />
 
           {filteredResults.length === 0 ? (

@@ -372,6 +372,7 @@ import {
   COMPANY_RESULT_DETAIL_LOAD_TIMEOUT_MESSAGE,
   COMPANY_RESULT_DETAIL_LOAD_TIMEOUT_MS,
   COMPANY_RESULT_DETAIL_USER_MESSAGE,
+  DEFAULT_COMPANY_RESULTS_LIMIT,
   fetchCompanyResultDetail,
   fetchCompanyResults,
 } from "./src/services/resultsService";
@@ -3613,10 +3614,14 @@ function App() {
   const [companyResultsState, setCompanyResultsState] = useState<{
     results: AuditResultSummary[];
     loading: boolean;
+    loadingMore: boolean;
     loadError?: string;
+    loadWarning?: string;
+    hasMore: boolean;
+    nextOffset: number;
     companyFolderId?: string;
     masterSheetId?: string;
-  }>({ results: [], loading: false });
+  }>({ results: [], loading: false, loadingMore: false, hasMore: false, nextOffset: 0 });
   const [selectedResultState, setSelectedResultState] = useState<{
     resultId: string | null;
     result: AuditResultDetail | null;
@@ -5809,7 +5814,10 @@ function App() {
     companySheetSync?.sheetId,
   ]);
 
-  useEffect(() => {
+  const companyResultsRequestIdRef = useRef(0);
+  const companyResultsNextOffsetRef = useRef(0);
+
+  const resolveCompanyResultsLoadContext = useCallback(() => {
     const { companyId } = resolveCompanyMembersLoadContext({
       activeCompanyContext,
       selectedFolderId: selectedFolder?.id,
@@ -5818,94 +5826,171 @@ function App() {
       companySheetSyncSheetId: companySheetSync?.sheetId,
     });
     const canLoadCompanyApi = Boolean(companyId) && (currentUser?.role !== "Master" || googleConnected);
-    if (!canLoadCompanyApi) {
-      setCompanyResultsState({ results: [], loading: false });
-      setSelectedResultState({ resultId: null, result: null, loading: false });
-      return;
-    }
-    if (!masterCompanyWorkspaceDataMatchesSelection) {
-      setCompanyResultsState({ results: [], loading: false });
-      setSelectedResultState({ resultId: null, result: null, loading: false });
-      return;
-    }
+    return {
+      companyId,
+      canLoadCompanyApi: canLoadCompanyApi && masterCompanyWorkspaceDataMatchesSelection,
+    };
+  }, [
+    activeCompanyContext,
+    companySheetSync?.sheetId,
+    currentUser?.role,
+    folderIdInput,
+    googleConnected,
+    masterCompanyWorkspaceDataMatchesSelection,
+    masterSheetInput,
+    selectedFolder?.id,
+  ]);
 
-    const controller = new AbortController();
-    let cancelled = false;
-    const timeoutId = window.setTimeout(() => {
-      controller.abort(new DOMException("Company results load timed out", "TimeoutError"));
-    }, COMPANY_RESULTS_LOAD_TIMEOUT_MS);
-    setCompanyResultsState({
-      results: [],
-      loading: true,
-      loadError: undefined,
-    });
-    setSelectedResultState({ resultId: null, result: null, loading: false });
-
-    void (async () => {
-      try {
-        const result = await fetchCompanyResults(companyId, { signal: controller.signal });
-        if (!result.ok) {
-          if (cancelled) {
-            return;
-          }
+  const loadCompanyResults = useCallback(
+    async (mode: "initial" | "refresh" | "more") => {
+      const { companyId, canLoadCompanyApi } = resolveCompanyResultsLoadContext();
+      if (!canLoadCompanyApi || !companyId) {
+        if (mode === "initial") {
+          companyResultsNextOffsetRef.current = 0;
           setCompanyResultsState({
             results: [],
             loading: false,
-            loadError: result.loadError || COMPANY_RESULTS_USER_MESSAGE,
+            loadingMore: false,
+            hasMore: false,
+            nextOffset: 0,
           });
-          return;
+          setSelectedResultState({ resultId: null, result: null, loading: false });
         }
-        if (cancelled) {
-          return;
+        return null;
+      }
+
+      const requestId = companyResultsRequestIdRef.current + 1;
+      companyResultsRequestIdRef.current = requestId;
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => {
+        controller.abort(new DOMException("Company results load timed out", "TimeoutError"));
+      }, COMPANY_RESULTS_LOAD_TIMEOUT_MS);
+
+      if (mode === "more") {
+        setCompanyResultsState((previous) => ({
+          ...previous,
+          loadingMore: true,
+          loadError: undefined,
+        }));
+      } else {
+        if (mode === "initial") {
+          companyResultsNextOffsetRef.current = 0;
         }
-        setCompanyResultsState({
-          results: result.results,
-          loading: false,
-          companyFolderId: result.companyFolderId || companyId,
-          masterSheetId: result.masterSheetId,
+        setCompanyResultsState((previous) => ({
+          results: mode === "refresh" ? previous.results : [],
+          loading: true,
+          loadingMore: false,
+          loadError: undefined,
+          loadWarning: undefined,
+          hasMore: mode === "refresh" ? previous.hasMore : false,
+          nextOffset: mode === "refresh" ? previous.nextOffset : 0,
+          companyFolderId: previous.companyFolderId,
+          masterSheetId: previous.masterSheetId,
+        }));
+        if (mode === "initial") {
+          setSelectedResultState({ resultId: null, result: null, loading: false });
+        }
+      }
+
+      const offset = mode === "more" ? companyResultsNextOffsetRef.current : 0;
+
+      try {
+        const result = await fetchCompanyResults(companyId, {
+          signal: controller.signal,
+          offset,
+          ...(mode === "more"
+            ? { sinceDays: 0, limit: DEFAULT_COMPANY_RESULTS_LIMIT }
+            : {}),
         });
+        if (companyResultsRequestIdRef.current !== requestId) {
+          return null;
+        }
+        if (!result.ok) {
+          setCompanyResultsState((previous) => ({
+            ...previous,
+            loading: false,
+            loadingMore: false,
+            loadError:
+              previous.results.length > 0 && mode === "more"
+                ? previous.loadError
+                : result.loadError || COMPANY_RESULTS_USER_MESSAGE,
+          }));
+          return null;
+        }
+
+        setCompanyResultsState((previous) => {
+          const mergedResults =
+            mode === "more"
+              ? [
+                  ...previous.results,
+                  ...result.results.filter(
+                    (row) => !previous.results.some((existing) => existing.resultId === row.resultId),
+                  ),
+                ]
+              : result.results;
+          const nextOffset = result.nextOffset ?? mergedResults.length;
+          companyResultsNextOffsetRef.current = nextOffset;
+          return {
+            results: mergedResults,
+            loading: false,
+            loadingMore: false,
+            loadError: undefined,
+            loadWarning: undefined,
+            hasMore: result.hasMore ?? false,
+            nextOffset,
+            companyFolderId: result.companyFolderId || companyId,
+            masterSheetId: result.masterSheetId,
+          };
+        });
+        return result;
       } catch (error) {
-        if (cancelled) {
-          return;
+        if (companyResultsRequestIdRef.current !== requestId) {
+          return null;
         }
         if (error instanceof DOMException && error.name === "AbortError") {
           const timedOut = error.message.includes("timed out") || error.message === "TimeoutError";
           if (timedOut) {
-            setCompanyResultsState({
-              results: [],
+            setCompanyResultsState((previous) => ({
+              ...previous,
               loading: false,
-              loadError: COMPANY_RESULTS_LOAD_TIMEOUT_MESSAGE,
-            });
+              loadingMore: false,
+              loadWarning: previous.results.length > 0 ? COMPANY_RESULTS_LOAD_TIMEOUT_MESSAGE : undefined,
+              loadError: previous.results.length > 0 ? undefined : COMPANY_RESULTS_LOAD_TIMEOUT_MESSAGE,
+            }));
           }
-          return;
+          return null;
         }
-        setCompanyResultsState({
-          results: [],
+        setCompanyResultsState((previous) => ({
+          ...previous,
           loading: false,
-          loadError: COMPANY_RESULTS_USER_MESSAGE,
-        });
+          loadingMore: false,
+          loadError:
+            previous.results.length > 0 && mode === "more"
+              ? previous.loadError
+              : COMPANY_RESULTS_USER_MESSAGE,
+        }));
+        return null;
       } finally {
         window.clearTimeout(timeoutId);
       }
-    })();
+    },
+    [resolveCompanyResultsLoadContext],
+  );
 
+  useEffect(() => {
+    void loadCompanyResults("initial");
     return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
-      controller.abort();
+      companyResultsRequestIdRef.current += 1;
     };
-  }, [
-    googleConnected,
-    currentUser?.role,
-    masterCompanyWorkspaceDataMatchesSelection,
-    activeCompanyContext.companyFolderId,
-    activeCompanyContext.companyName,
-    activeCompanyContext.masterSheetId,
-    selectedFolder?.id,
-    folderIdInput,
-    masterSheetInput,
-    companySheetSync?.sheetId,
-  ]);
+  }, [loadCompanyResults]);
+
+  const refreshCompanyResults = useCallback(() => {
+    void loadCompanyResults("refresh");
+  }, [loadCompanyResults]);
+
+  const loadMoreCompanyResults = useCallback(() => {
+    void loadCompanyResults("more");
+  }, [loadCompanyResults]);
 
   useEffect(() => {
     const { companyId } = resolveCompanyMembersLoadContext({
@@ -15389,7 +15474,12 @@ function App() {
                 results={companyResultsState.results}
                 schedules={managedSchedules}
                 resultsLoading={companyResultsState.loading}
+                resultsLoadingMore={companyResultsState.loadingMore}
                 resultsLoadError={companyResultsState.loadError}
+                resultsLoadWarning={companyResultsState.loadWarning}
+                resultsHasMore={companyResultsState.hasMore}
+                onRefreshResults={refreshCompanyResults}
+                onLoadMoreResults={loadMoreCompanyResults}
                 selectedResultId={selectedResultState.resultId}
                 selectedResult={selectedResultState.result}
                 selectedResultLoading={selectedResultState.loading}

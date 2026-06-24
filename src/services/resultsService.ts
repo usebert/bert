@@ -7,6 +7,9 @@ export const COMPANY_RESULTS_USER_MESSAGE = "Could not load completed checks.";
 export const COMPANY_RESULTS_LOAD_TIMEOUT_MESSAGE =
   "Loading completed checks timed out before the server finished reading your company workbook. Try again — if it keeps failing, ask your operator to check the BERT Master Sheet.";
 
+export const DEFAULT_COMPANY_RESULTS_LIMIT = 100;
+export const DEFAULT_COMPANY_RESULTS_SINCE_DAYS = 30;
+
 export const COMPANY_RESULT_DETAIL_LOAD_TIMEOUT_MS = 90_000;
 export const COMPANY_RESULT_DETAIL_LOADING_MESSAGE = "Loading check details…";
 export const COMPANY_RESULT_DETAIL_USER_MESSAGE = "Could not load this completed check.";
@@ -135,18 +138,36 @@ export type FetchCompanyResultsResult = {
   companyId?: string;
   companyFolderId?: string;
   masterSheetId?: string;
+  totalMatched?: number;
+  hasMore?: boolean;
+  nextOffset?: number;
 };
 
-export type FetchCompanyResultDetailResult = {
-  ok: boolean;
-  result: AuditResultDetail | null;
-  loadError?: string;
+export type FetchCompanyResultsOptions = {
+  signal?: AbortSignal;
+  limit?: number;
+  sinceDays?: number;
+  offset?: number;
 };
+
+function buildCompanyResultsQuery(options?: Pick<FetchCompanyResultsOptions, "limit" | "sinceDays" | "offset">): string {
+  const parts: string[] = [];
+  if (options?.limit !== undefined) {
+    parts.push(`limit=${encodeURIComponent(String(options.limit))}`);
+  }
+  if (options?.sinceDays !== undefined) {
+    parts.push(`sinceDays=${encodeURIComponent(String(options.sinceDays))}`);
+  }
+  if (options?.offset !== undefined) {
+    parts.push(`offset=${encodeURIComponent(String(options.offset))}`);
+  }
+  return parts.length > 0 ? `?${parts.join("&")}` : "";
+}
 
 /** Completed checks from company workbook AuditResults tab — session-scoped company folder only. */
 export async function fetchCompanyResults(
   companyId: string,
-  options?: { signal?: AbortSignal },
+  options?: FetchCompanyResultsOptions,
 ): Promise<FetchCompanyResultsResult> {
   const companyFolderId = String(companyId || "").trim();
   if (!companyFolderId) {
@@ -157,11 +178,16 @@ export async function fetchCompanyResults(
     };
   }
 
+  const query = buildCompanyResultsQuery(options);
+
   try {
-    const response = await fetch(apiUrl(`/api/companies/${encodeURIComponent(companyFolderId)}/results`), {
-      credentials: "include",
-      signal: options?.signal,
-    });
+    const response = await fetch(
+      apiUrl(`/api/companies/${encodeURIComponent(companyFolderId)}/results${query}`),
+      {
+        credentials: "include",
+        signal: options?.signal,
+      },
+    );
     const payload = (await response.json()) as {
       ok?: boolean;
       results?: Record<string, unknown>[];
@@ -170,6 +196,9 @@ export async function fetchCompanyResults(
       companyId?: string;
       companyFolderId?: string;
       masterSheetId?: string;
+      totalMatched?: number;
+      hasMore?: boolean;
+      nextOffset?: number;
     };
 
     if (!response.ok || payload.ok === false) {
@@ -190,6 +219,9 @@ export async function fetchCompanyResults(
       companyId: payload.companyId,
       companyFolderId: payload.companyFolderId,
       masterSheetId: payload.masterSheetId,
+      totalMatched: payload.totalMatched,
+      hasMore: payload.hasMore,
+      nextOffset: payload.nextOffset,
     };
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
@@ -202,6 +234,12 @@ export async function fetchCompanyResults(
     };
   }
 }
+
+export type FetchCompanyResultDetailResult = {
+  ok: boolean;
+  result: AuditResultDetail | null;
+  loadError?: string;
+};
 
 export async function fetchCompanyResultDetail(
   companyId: string,

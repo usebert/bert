@@ -101,4 +101,18 @@ assert(resultsScreen.includes("fromDate"), "8j: date range filter");
 assert(resultsScreen.includes("status"), "8k: status filter");
 assert(resultsService.includes("frequency"), "8l: frequency mapped from AuditResults");
 
+/** 9: Fast default list window + progressive loading. */
+assert(resultsService.includes("DEFAULT_COMPANY_RESULTS_LIMIT"), "9: default results list limit");
+assert(resultsService.includes("DEFAULT_COMPANY_RESULTS_SINCE_DAYS"), "9b: default results since-days");
+assert(resultsService.includes("hasMore"), "9c: client handles hasMore pagination");
+assert(resultsService.includes("offset="), "9d: client can request result offsets");
+assert(resultsView.includes("createInitialResultsFilters"), "9e: default results date filter");
+assert(resultsView.includes("enrichAuditResultBasic"), "9f: basic row enrichment without schedules");
+assert(resultsScreen.includes("Load more"), "9g: load more control in Results UI");
+assert(resultsScreen.includes("Refresh"), "9h: refresh control in Results UI");
+assert(resultsScreen.includes("resultsLoadWarning"), "9i: non-blocking results warning");
+assert(resultsScreen.includes("basicResults"), "9j: basic results render before schedule enrichment");
+assert(coreRoutes.includes("applyListDefaults"), "9k: canonical results route applies list defaults");
+assert(completionService.includes("AUDIT_RESULTS_SUMMARY_READ_RANGES"), "9l: summary-only AuditResults read");
+
 console.log(`[verify:results-page-wiring] OK — ${caseCount} cases passed`);

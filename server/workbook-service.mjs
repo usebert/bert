@@ -79,6 +79,43 @@ export async function getTabValues(auth, deps, spreadsheetId, tabName, range = "
   }
 }
 
+/** Merge AuditResults summary ranges (A:H + L:ZZ), skipping heavy JSON columns I–K. */
+export function mergeSummaryValueRanges(valueRanges = []) {
+  const primary = valueRanges[0]?.values || valueRanges[0] || [];
+  const secondary = valueRanges[1]?.values || valueRanges[1] || [];
+  if (!primary.length) {
+    return secondary.length ? secondary : [];
+  }
+  if (!secondary.length) {
+    return primary;
+  }
+  const merged = [];
+  const maxLen = Math.max(primary.length, secondary.length);
+  for (let i = 0; i < maxLen; i += 1) {
+    merged.push([...(primary[i] || []), ...(secondary[i] || [])]);
+  }
+  return merged;
+}
+
+export async function getTabValuesSummary(auth, deps, spreadsheetId, tabName, rowLimit = 5000) {
+  const tab = trim(tabName);
+  const maxRow = Math.max(Number(rowLimit) || 5000, 1);
+  const { google, withSheetsQuotaRetry } = deps;
+  const sheets = google.sheets({ version: "v4", auth });
+  const ranges = [`${tab}!A1:H${maxRow}`, `${tab}!L1:ZZ${maxRow}`];
+  try {
+    const request = () =>
+      sheets.spreadsheets.values.batchGet({
+        spreadsheetId,
+        ranges,
+      });
+    const response = withSheetsQuotaRetry ? await withSheetsQuotaRetry(request) : await request();
+    return mergeSummaryValueRanges(response.data.valueRanges || []);
+  } catch {
+    return [];
+  }
+}
+
 export async function ensureTabExists(auth, deps, spreadsheetId, tabName, existingWorkbook = null) {
   const { google, withSheetsQuotaRetry } = deps;
   const lower = deps.safeLower || safeLower;
@@ -206,7 +243,9 @@ export async function readTabRecords(auth, deps, masterSheetId, tabName, options
     await ensureTabColumns(auth, deps, sheetId, tab, expectedHeaders);
   }
 
-  const values = await getTabValues(auth, deps, sheetId, tab, options.range);
+  const values = options.summaryOnly
+    ? await getTabValuesSummary(auth, deps, sheetId, tab, options.rowLimit)
+    : await getTabValues(auth, deps, sheetId, tab, options.range);
   const records = rowsToRecords(values);
   return {
     ok: true,

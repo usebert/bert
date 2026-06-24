@@ -29,7 +29,12 @@ export type ResultsScreenProps = {
   results: AuditResultSummary[];
   schedules?: ManagedSchedule[];
   resultsLoading: boolean;
+  resultsLoadingMore?: boolean;
   resultsLoadError?: string;
+  resultsLoadWarning?: string;
+  resultsHasMore?: boolean;
+  onRefreshResults?: () => void;
+  onLoadMoreResults?: () => void;
   selectedResultId: string | null;
   selectedResult: AuditResultDetail | null;
   selectedResultLoading: boolean;
