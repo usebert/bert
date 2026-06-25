@@ -90,13 +90,38 @@ function companyNamesMatch(left, right) {
 export const USERS_TAB_LOGIN_EMAIL_ALIASES = [
   "Email",
   "email",
+  "Email Address",
+  "email address",
   "UserEmail",
   "userEmail",
   "Username",
   "username",
   "User",
   "user",
+  "Login",
+  "login",
 ];
+
+export function normalizeLoginEmailValue(value) {
+  return String(value || "")
+    .replace(/\u00a0/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/** Match variants for sheet cells with stray whitespace around or inside emails. */
+export function loginEmailMatchVariants(value) {
+  const base = normalizeLoginEmailValue(value);
+  const variants = new Set();
+  if (base) {
+    variants.add(base);
+    const compact = base.replace(/\s+/g, "");
+    if (compact && compact !== base) {
+      variants.add(compact);
+    }
+  }
+  return [...variants];
+}
 
 export function pickUsersTabLoginEmail(obj) {
   return pickField(obj, ...USERS_TAB_LOGIN_EMAIL_ALIASES);
@@ -272,13 +297,26 @@ export function rowEmailCandidates(obj) {
   const candidates = new Set();
   for (const source of [remapped, obj]) {
     const loginEmail = pickUsersTabLoginEmail(source);
-    if (loginEmail) {
-      candidates.add(safeLower(loginEmail));
+    for (const variant of loginEmailMatchVariants(loginEmail)) {
+      if (isValidCompanyUserEmail(variant)) {
+        candidates.add(variant);
+      }
     }
     for (const legacyKey of ["Role", "Name"]) {
-      const value = safeLower(pickField(source, legacyKey));
-      if (isValidCompanyUserEmail(value)) {
-        candidates.add(value);
+      for (const variant of loginEmailMatchVariants(pickField(source, legacyKey))) {
+        if (isValidCompanyUserEmail(variant)) {
+          candidates.add(variant);
+        }
+      }
+    }
+    for (const [header, rawValue] of Object.entries(source || {})) {
+      if (!isEmailLikeUsersTabHeader(header)) {
+        continue;
+      }
+      for (const variant of loginEmailMatchVariants(rawValue)) {
+        if (isValidCompanyUserEmail(variant)) {
+          candidates.add(variant);
+        }
       }
     }
   }
@@ -289,9 +327,11 @@ export function isEmailLikeUsersTabHeader(header) {
   const normalized = safeLower(header).replace(/[\s_-]+/g, "");
   return (
     normalized === "email" ||
+    normalized === "emailaddress" ||
     normalized === "useremail" ||
     normalized === "username" ||
     normalized === "user" ||
+    normalized === "login" ||
     normalized.endsWith("email")
   );
 }

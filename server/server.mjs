@@ -6292,6 +6292,7 @@ app.post("/api/auth/company/login", async (req, res) => {
 
     const auth = getAuthedClient();
     const result = await performCompanyLogin(auth, {
+      ...getCompanyContextResolutionDeps(),
       authIndex: authIndexApi,
       getCompanyUsersDeps,
       getCompanyResolverDeps: () => ({ google, ...getCompanyWorkspaceRegistryDeps() }),

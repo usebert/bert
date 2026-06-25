@@ -24,6 +24,8 @@ import {
   pickUsersTabLoginEmail,
   remapShiftedLegacyUsersRow,
   rowEmailCandidates,
+  loginEmailMatchVariants,
+  normalizeLoginEmailValue,
   USERS_TAB_LOGIN_EMAIL_ALIASES,
   sanitizeUserRecordForClient,
   sanitizeUsersTabRecords,
@@ -207,46 +209,33 @@ async function resolveUsersTabTitle(auth, spreadsheetId, deps, options = {}) {
   return USERS_TAB;
 }
 
-/** Server-only login diagnostics — never logs passwords or PasswordHash values. */
-export async function collectUsersTabLoginDiagnostics(auth, spreadsheetId, email, deps) {
-  const sheetId = String(spreadsheetId || "").trim();
-  const target = safeLower(email);
-  if (!auth || !sheetId || !target) {
-    return {
-      masterSheetId: sheetId,
-      usersTabTitle: "",
-      usersTabRowCount: 0,
-      detectedHeaders: [],
-      emailLikeHeaders: [],
-      normalizedEmailColumnCandidates: [...USERS_TAB_LOGIN_EMAIL_ALIASES],
-      targetEmailExists: false,
-    };
-  }
-  const { getTabValues } = deps;
-  const tabTitle = await resolveUsersTabTitle(auth, sheetId, deps, { createIfMissing: false });
-  const rows = await getTabValues(auth, sheetId, tabTitle).catch(() => []);
-  const headers = (rows[0] || []).map((cell) => String(cell || "").trim());
-  const emailLikeHeaders = headers.filter((header) => isEmailLikeUsersTabHeader(header));
-  let targetEmailExists = false;
-  for (let i = 1; i < rows.length; i += 1) {
-    const rawObj = buildUsersTabRowObject(headers, rows[i]);
-    if (rowEmailCandidates(rawObj).includes(target)) {
-      targetEmailExists = true;
-      break;
-    }
-  }
-  return {
-    masterSheetId: sheetId,
-    usersTabTitle: tabTitle,
-    usersTabRowCount: Math.max(0, rows.length - 1),
-    detectedHeaders: headers,
-    emailLikeHeaders,
-    normalizedEmailColumnCandidates: [...USERS_TAB_LOGIN_EMAIL_ALIASES],
-    targetEmailExists,
-  };
+function rowMatchesLoginEmail(obj, target) {
+  return rowEmailCandidates(obj).includes(target);
 }
 
-export async function findCompanyUsersTabRow(auth, spreadsheetId, email, deps) {
+async function findCompanyUsersTabRowFromProfiles(auth, spreadsheetId, email, deps) {
+  const readFn = deps.readCompanyUsers;
+  if (typeof readFn !== "function") {
+    return null;
+  }
+  const target = safeLower(email);
+  const readResult = await readFn(auth, spreadsheetId, deps, { createIfMissing: false }).catch(() => null);
+  if (!readResult?.ok || !Array.isArray(readResult.records)) {
+    return null;
+  }
+  for (const record of readResult.records) {
+    if (!rowMatchesLoginEmail(record, target)) {
+      continue;
+    }
+    const direct = await findCompanyUsersTabRowDirect(auth, spreadsheetId, email, deps);
+    if (direct) {
+      return direct;
+    }
+  }
+  return null;
+}
+
+async function findCompanyUsersTabRowDirect(auth, spreadsheetId, email, deps) {
   const { getTabValues } = deps;
   const tabTitle = await resolveUsersTabTitle(auth, spreadsheetId, deps, { createIfMissing: false });
   const rows = await getTabValues(auth, spreadsheetId, tabTitle);
@@ -260,7 +249,7 @@ export async function findCompanyUsersTabRow(auth, spreadsheetId, email, deps) {
     const legacyRaw = rowToObject(headers, row);
     const rawObj = buildUsersTabRowObject(headers, row);
     const obj = normalizeUsersTabRowObject({ ...legacyRaw, ...rawObj });
-    if (!rowEmailCandidates(legacyRaw).includes(target)) {
+    if (!rowMatchesLoginEmail(obj, target)) {
       continue;
     }
     const rowEmail = pickUsersTabLoginEmail(obj) || pickField(obj, "Email") || target;
@@ -305,12 +294,79 @@ export async function findCompanyUsersTabRow(auth, spreadsheetId, email, deps) {
   return null;
 }
 
+/** Server-only login diagnostics — never logs passwords or PasswordHash values. */
+export async function collectUsersTabLoginDiagnostics(auth, spreadsheetId, email, deps) {
+  const sheetId = String(spreadsheetId || "").trim();
+  const target = safeLower(email);
+  if (!auth || !sheetId || !target) {
+    return {
+      masterSheetId: sheetId,
+      usersTabTitle: "",
+      usersTabRowCount: 0,
+      detectedHeaders: [],
+      emailLikeHeaders: [],
+      normalizedEmailColumnCandidates: [...USERS_TAB_LOGIN_EMAIL_ALIASES],
+      targetEmailExists: false,
+    };
+  }
+  const { getTabValues } = deps;
+  const tabTitle = await resolveUsersTabTitle(auth, sheetId, deps, { createIfMissing: false });
+  const rows = await getTabValues(auth, sheetId, tabTitle).catch(() => []);
+  const headers = (rows[0] || []).map((cell) => String(cell || "").trim());
+  const emailLikeHeaders = headers.filter((header) => isEmailLikeUsersTabHeader(header));
+  let targetEmailExists = false;
+  let targetEmailInEmailLikeColumns = false;
+  for (let i = 1; i < rows.length; i += 1) {
+    const row = rows[i];
+    const legacyRaw = rowToObject(headers, row);
+    const rawObj = buildUsersTabRowObject(headers, row);
+    const obj = normalizeUsersTabRowObject({ ...legacyRaw, ...rawObj });
+    if (rowMatchesLoginEmail(obj, target)) {
+      targetEmailExists = true;
+    }
+    for (const header of emailLikeHeaders) {
+      const idx = headers.indexOf(header);
+      if (idx < 0) {
+        continue;
+      }
+      const cellVariants = loginEmailMatchVariants(row[idx]);
+      if (cellVariants.includes(target)) {
+        targetEmailInEmailLikeColumns = true;
+      }
+    }
+    if (targetEmailExists) {
+      break;
+    }
+  }
+  return {
+    masterSheetId: sheetId,
+    usersTabTitle: tabTitle,
+    usersTabRowCount: Math.max(0, rows.length - 1),
+    detectedHeaders: headers,
+    emailLikeHeaders,
+    normalizedEmailColumnCandidates: [...USERS_TAB_LOGIN_EMAIL_ALIASES],
+    targetEmailExists,
+    targetEmailInEmailLikeColumns,
+  };
+}
+
+export async function findCompanyUsersTabRow(auth, spreadsheetId, email, deps) {
+  const direct = await findCompanyUsersTabRowDirect(auth, spreadsheetId, email, deps).catch(() => null);
+  if (direct) {
+    return direct;
+  }
+  return findCompanyUsersTabRowFromProfiles(auth, spreadsheetId, email, deps).catch(() => null);
+}
+
 export async function readCompanyUsersTabRecord(auth, spreadsheetId, email, deps) {
   const row = await findCompanyUsersTabRow(auth, spreadsheetId, email, deps);
   if (!row) {
     return null;
   }
-  const role = parseRoleFromUsersSheet(row.roleRaw);
+  let role = parseRoleFromUsersSheet(row.roleRaw);
+  if (!role && String(row.roleRaw || "").trim()) {
+    role = "User";
+  }
   if (!role) {
     return null;
   }

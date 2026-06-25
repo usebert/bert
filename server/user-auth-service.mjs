@@ -24,7 +24,9 @@ import {
   sanitizeGoogleSpreadsheetId,
 } from "../shared/google-drive-id.mjs";
 import { isKnownStaleAuthIndexPairing } from "../shared/auth-index-trust.mjs";
+import { isCompanyRegistryLive } from "../shared/company-invite-permissions.mjs";
 import { resolveCompanyFromFolder } from "./company-service.mjs";
+import { readCanonicalCompanyWorkspaceRegistryMap } from "./company-workspace-registry.mjs";
 
 const LIGHT_RESOLVE_OPTS = {
   ensureTabsSync: false,
@@ -70,6 +72,7 @@ function buildLoginAuthFailure({
   message = "Email or password is incorrect.",
   attemptCount = 0,
   failedStep = "users_tab_auth",
+  usersTabDiagnostics = null,
 }) {
   const reasonCode = diagnosticReasonCode(authFailureReason);
   const emailNorm = normalizeUserAuthEmail(email);
@@ -79,8 +82,30 @@ function buildLoginAuthFailure({
     authFailureReason,
     attemptCount,
     failedStep,
+    candidateMasterSheetIds: usersTabDiagnostics?.candidateMasterSheetIds,
   });
   const inactive = authFailureReason === AUTH_FAILURE_REASON.INACTIVE;
+  const diagnostics = {
+    email: emailNorm,
+    reasonCode,
+    authFailureReason,
+    failedStep,
+    attemptCount,
+  };
+  if (usersTabDiagnostics?.candidateMasterSheetIds?.length) {
+    diagnostics.candidateMasterSheetIds = usersTabDiagnostics.candidateMasterSheetIds;
+  }
+  if (usersTabDiagnostics?.usersTabLookups?.length) {
+    diagnostics.usersTabLookups = usersTabDiagnostics.usersTabLookups.map((lookup) => ({
+      masterSheetId: lookup.masterSheetId,
+      usersTabTitle: lookup.usersTabTitle,
+      usersTabRowCount: lookup.usersTabRowCount,
+      detectedHeaders: lookup.detectedHeaders,
+      emailLikeHeaders: lookup.emailLikeHeaders,
+      targetEmailExists: lookup.targetEmailExists,
+      targetEmailInEmailLikeColumns: lookup.targetEmailInEmailLikeColumns,
+    }));
+  }
   return {
     ok: false,
     reason: inactive ? "inactive" : "invalid_credentials",
@@ -91,13 +116,7 @@ function buildLoginAuthFailure({
     message: inactive ? "This account is inactive. Contact your company administrator." : message,
     authFailureReason,
     reasonCode,
-    diagnostics: {
-      email: emailNorm,
-      reasonCode,
-      authFailureReason,
-      failedStep,
-      attemptCount,
-    },
+    diagnostics,
   };
 }
 
@@ -331,6 +350,21 @@ function resolverDeps(deps = {}) {
   return deps;
 }
 
+function registryLookupDeps(deps = {}, userDeps = {}) {
+  const resolver = resolverDeps(deps);
+  return {
+    ...userDeps,
+    ...resolver,
+    findMasterSheetIdsForCompanyLoginEmail: deps.findMasterSheetIdsForCompanyLoginEmail,
+    readCompanyUsersTabRecord: userDeps.readCompanyUsersTabRecord || readCompanyUsersTabRecord,
+    readCanonicalCompanyWorkspaceRegistryMap:
+      deps.readCanonicalCompanyWorkspaceRegistryMap ||
+      resolver.readCanonicalCompanyWorkspaceRegistryMap ||
+      readCanonicalCompanyWorkspaceRegistryMap,
+    isCompanyRegistryLive: deps.isCompanyRegistryLive || resolver.isCompanyRegistryLive || isCompanyRegistryLive,
+  };
+}
+
 function resolveFolderContextFn(deps = {}) {
   return typeof deps.resolveCompanyFromFolder === "function"
     ? deps.resolveCompanyFromFolder
@@ -369,6 +403,7 @@ async function logUsersTabLookupDiagnostics(auth, userDeps, companyContext, emai
     emailLikeHeaders: diagnostics.emailLikeHeaders,
     normalizedEmailColumnCandidates: diagnostics.normalizedEmailColumnCandidates,
     targetEmailExists: diagnostics.targetEmailExists,
+    targetEmailInEmailLikeColumns: diagnostics.targetEmailInEmailLikeColumns,
   });
   return diagnostics;
 }
@@ -410,10 +445,33 @@ async function pickLoginMasterSheetId(auth, userDeps, email, { pairedSheetId, re
       return masterSheetId;
     }
   }
-  return resolvedId || pairedId || "";
+  // Hinted/paired workbook wins over folder discovery when neither sheet has a matching row yet.
+  return pairedId || resolvedId || "";
 }
 
-async function logLoginUsersTabDiagnostics(auth, userDeps, email, attempts = []) {
+async function collectRegistryLoginSheetIds(auth, deps) {
+  const lookupDeps = registryLookupDeps(deps, {});
+  const fn = lookupDeps.readCanonicalCompanyWorkspaceRegistryMap;
+  if (typeof fn !== "function" || !auth) {
+    return [];
+  }
+  const registryResult = await fn(auth, lookupDeps).catch(() => ({ map: new Map() }));
+  const map = registryResult?.map instanceof Map ? registryResult.map : new Map();
+  const isLive = lookupDeps.isCompanyRegistryLive;
+  const ids = [];
+  for (const record of map.values()) {
+    if (typeof isLive === "function" && !isLive(record)) {
+      continue;
+    }
+    const id = sanitizeGoogleSpreadsheetId(record.masterSheetId);
+    if (id && !ids.includes(id)) {
+      ids.push(id);
+    }
+  }
+  return ids;
+}
+
+async function logLoginUsersTabDiagnostics(auth, userDeps, email, attempts = [], extraSheetIds = []) {
   const sheetIds = new Set();
   const folderIds = new Set();
   for (const attempt of attempts) {
@@ -429,8 +487,13 @@ async function logLoginUsersTabDiagnostics(auth, userDeps, email, attempts = [])
       }
     }
   }
+  for (const sheetId of extraSheetIds) {
+    if (sheetId) {
+      sheetIds.add(sheetId);
+    }
+  }
   if (!sheetIds.size) {
-    return;
+    return { candidateMasterSheetIds: [], usersTabLookups: [] };
   }
   const diagnostics = [];
   for (const masterSheetId of sheetIds) {
@@ -439,11 +502,14 @@ async function logLoginUsersTabDiagnostics(auth, userDeps, email, attempts = [])
       diagnostics.push(usersTab);
     }
   }
-  console.warn("[company-auth] users tab login diagnostics", {
+  const payload = {
     email: normalizeUserAuthEmail(email) || "(missing)",
+    candidateMasterSheetIds: [...sheetIds],
     resolvedCompanyFolderIds: [...folderIds],
     usersTabLookups: diagnostics,
-  });
+  };
+  console.warn("[company-auth] users tab login diagnostics", payload);
+  return payload;
 }
 
 function dedupeLoginAttempts(attempts = []) {
@@ -562,6 +628,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
 
   let inactiveHit = false;
   let lastAuthFailureReason = AUTH_FAILURE_REASON.USER_NOT_FOUND;
+  let usersTabDiagnostics = null;
   for (const attempt of attempts) {
     let companyContext = {};
     if (attempt.type === "folder") {
@@ -654,12 +721,9 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
     return { ok: true, email, row, companyContext, entry };
   }
 
-  const registryContext = await resolveCompanyContextForUser(auth, email, {
-    ...userDeps,
-    ...resolverDeps(deps),
-    findMasterSheetIdsForCompanyLoginEmail: deps.findMasterSheetIdsForCompanyLoginEmail,
-    readCompanyUsersTabRecord: userDeps.readCompanyUsersTabRecord || readCompanyUsersTabRecord,
-  }).catch(() => null);
+  const registryContext = await resolveCompanyContextForUser(auth, email, registryLookupDeps(deps, userDeps)).catch(
+    () => null,
+  );
 
   if (registryContext?.masterSheetId) {
     const companyContext = {
@@ -709,7 +773,16 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
   }
 
   if (lastAuthFailureReason === AUTH_FAILURE_REASON.USER_NOT_FOUND) {
-    await logLoginUsersTabDiagnostics(auth, userDeps, email, attempts).catch(() => null);
+    const registrySheetIds = registryContext?.masterSheetId
+      ? [registryContext.masterSheetId]
+      : await collectRegistryLoginSheetIds(auth, deps).catch(() => []);
+    usersTabDiagnostics = await logLoginUsersTabDiagnostics(
+      auth,
+      userDeps,
+      email,
+      attempts,
+      registrySheetIds,
+    ).catch(() => null);
   }
 
   if (!attempts.length && !registryContext?.masterSheetId) {
@@ -725,6 +798,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
     email,
     authFailureReason: lastAuthFailureReason,
     attemptCount: attempts.length,
+    usersTabDiagnostics,
   });
 }
 

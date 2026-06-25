@@ -57,7 +57,11 @@ assert(userAuth.includes("password_compare_failed"), "static: password_compare_f
 assert(userAuth.includes("isKnownStaleAuthIndexPairing"), "static: stale auth index pairings skipped for login");
 assert(userAuth.includes("resolveCompanyContextForUser"), "static: registry Users tab fallback on login");
 assert(userAuth.includes("pickLoginMasterSheetId"), "static: paired sheet hint preferred over folder discovery");
-assert(userAuth.includes("collectUsersTabLoginDiagnostics"), "static: users tab login diagnostics");
+assert(userAuth.includes("targetEmailInEmailLikeColumns"), "static: email-like column diagnostics");
+assert(userAuth.includes("candidateMasterSheetIds"), "static: candidate workbook diagnostics");
+assert(userAuth.includes("registryLookupDeps"), "static: registry lookup deps for login fallback");
+assert(userAuth.includes("return pairedId || resolvedId"), "static: paired sheet hint wins over folder discovery");
+assert(read("server/server.mjs").includes("...getCompanyContextResolutionDeps()"), "static: login route receives registry resolution deps");
 const appTsx = read("App.tsx");
 assert(appTsx.includes("persistedCompanyLoginHints"), "static: App persists login hints before stale clear");
 assert(
@@ -573,6 +577,116 @@ try {
   assert(
     sophieRegistryLogin.ok === true,
     "runtime: stale Rock Solid auth index skipped; registry Dovecote Users tab login succeeds",
+  );
+
+  const sophieResolverRegistryLogin = await authenticateCompanyUserLogin(
+    {},
+    {
+      authIndex: staleRockIndexApi,
+      getCompanyUsersDeps: () => doveUserDeps,
+      getCompanyResolverDeps: () => ({
+        google: doveMock.deps.google,
+        readCanonicalCompanyWorkspaceRegistryMap: async () => ({ map: registryMap }),
+        isCompanyRegistryLive: (record) => String(record?.status || "").toUpperCase() === "LIVE",
+      }),
+      resolveCompanyFromFolder: failingResolver,
+      findMasterSheetIdsForCompanyLoginEmail: () => [],
+    },
+    { email: sophieEmail, password: sophiePassword },
+  );
+  assert(
+    sophieResolverRegistryLogin.ok === true,
+    "runtime: registry fallback resolves via getCompanyResolverDeps registry helpers",
+  );
+
+  const sophieHintedFolderLogin = await authenticateCompanyUserLogin(
+    {},
+    {
+      authIndex: staleRockIndexApi,
+      getCompanyUsersDeps: () => doveUserDeps,
+      getCompanyResolverDeps: () => ({ google: doveMock.deps.google }),
+      resolveCompanyFromFolder: async (_auth, _deps, folderId) => ({
+        ok: folderId === DOVECOTE_FOLDER_ID,
+        companyFolderId: DOVECOTE_FOLDER_ID,
+        companyId: DOVECOTE_FOLDER_ID,
+        companyName: DOVECOTE_COMPANY_NAME,
+        masterSheetId: wrongRockSheetId,
+      }),
+      findMasterSheetIdsForCompanyLoginEmail: () => [],
+    },
+    {
+      email: sophieEmail,
+      password: sophiePassword,
+      masterSheetId: DOVECOTE_MASTER_SHEET_ID,
+      companyFolderId: DOVECOTE_FOLDER_ID,
+    },
+  );
+  assert(
+    sophieHintedFolderLogin.ok === true,
+    "runtime: Dovecote hinted masterSheetId wins over stale folder discovery",
+  );
+
+  const loginColumnEmail = "login.column.user@example.com";
+  const loginColumnPassword = "LoginColumn-2026!";
+  const loginColumnDeps = {
+    ...legacyMock.deps,
+    getTabValues: async () => [
+      ["Login", "Name", "Role", "PasswordHash", "Status", "CompanyFolderId", "CompanyName"],
+      [
+        loginColumnEmail,
+        "Login Column User",
+        "User",
+        hashPassword(loginColumnPassword),
+        "ACTIVE",
+        companyFolderId,
+        "Seven Oaks Cottages",
+      ],
+    ],
+    findCompanyUsersTabRow: async (_auth, sheetId, addr) => {
+      const { findCompanyUsersTabRow } = await import("../server/company-users.mjs");
+      return findCompanyUsersTabRow(_auth, sheetId, addr, loginColumnDeps);
+    },
+    readCompanyUsersTabRecord: async (_auth, sheetId, addr) => {
+      const { readCompanyUsersTabRecord } = await import("../server/company-users.mjs");
+      return readCompanyUsersTabRecord(_auth, sheetId, addr, loginColumnDeps);
+    },
+  };
+  const loginColumnResult = await authenticateCompanyUserLogin(
+    {},
+    {
+      getCompanyUsersDeps: () => loginColumnDeps,
+      resolveCompanyFromFolder: mockResolver(
+        { [companyFolderId]: masterSheetId },
+        { [companyFolderId]: "Seven Oaks Cottages" },
+      ),
+      findMasterSheetIdsForCompanyLoginEmail: () => [],
+    },
+    { email: loginColumnEmail, password: loginColumnPassword, masterSheetId },
+  );
+  assert(loginColumnResult.ok === true, "runtime: Login-column Users row can log in");
+
+  const missingUserLogin = await authenticateCompanyUserLogin(
+    {},
+    {
+      getCompanyUsersDeps: () => userDeps,
+      resolveCompanyFromFolder: failingResolver,
+      findMasterSheetIdsForCompanyLoginEmail: () => [],
+    },
+    { email: "nobody@example.com", password: "nope-2026", masterSheetId },
+  );
+  assert(
+    missingUserLogin.diagnostics?.candidateMasterSheetIds?.includes(masterSheetId),
+    "runtime: user_not_found diagnostics include candidate workbook ids",
+  );
+  assert(
+    Array.isArray(missingUserLogin.diagnostics?.usersTabLookups?.[0]?.detectedHeaders),
+    "runtime: user_not_found diagnostics include Users tab headers",
+  );
+  const serializedDiagnostics = JSON.stringify(missingUserLogin.diagnostics || {});
+  assert(
+    !/"passwordHash"\s*:\s*"[^"]+"/i.test(serializedDiagnostics) &&
+      !serializedDiagnostics.includes("scrypt$"),
+    "runtime: login diagnostics never include password hash values",
   );
 } finally {
   fs.rmSync(sessionDir, { recursive: true, force: true });
