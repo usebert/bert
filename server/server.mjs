@@ -203,6 +203,7 @@ import {
 } from "../shared/schedule-assignees.mjs";
 import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
 import { isSystemTemplateCompany } from "../shared/system-template-company.mjs";
+import { bertCorsMiddleware } from "./bert-cors.mjs";
 
 dotenv.config();
 
