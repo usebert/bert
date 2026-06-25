@@ -14,13 +14,17 @@ import {
   isPasswordHash as schemaIsPasswordHash,
   isShiftedLegacyUsersRow,
   isValidCompanyUserEmail,
+  buildUsersTabRowObject,
+  isEmailLikeUsersTabHeader,
   mapRecordToSheetHeaders,
   normalizeRoleForSheetRepair,
   normalizeUserStatus as schemaNormalizeUserStatus,
   normalizeUsersTabRowObject,
   parseRoleFromUsersSheet as schemaParseRoleFromUsersSheet,
+  pickUsersTabLoginEmail,
   remapShiftedLegacyUsersRow,
   rowEmailCandidates,
+  USERS_TAB_LOGIN_EMAIL_ALIASES,
   sanitizeUserRecordForClient,
   sanitizeUsersTabRecords,
   backfillRowCompanyFields,
@@ -203,6 +207,45 @@ async function resolveUsersTabTitle(auth, spreadsheetId, deps, options = {}) {
   return USERS_TAB;
 }
 
+/** Server-only login diagnostics — never logs passwords or PasswordHash values. */
+export async function collectUsersTabLoginDiagnostics(auth, spreadsheetId, email, deps) {
+  const sheetId = String(spreadsheetId || "").trim();
+  const target = safeLower(email);
+  if (!auth || !sheetId || !target) {
+    return {
+      masterSheetId: sheetId,
+      usersTabTitle: "",
+      usersTabRowCount: 0,
+      detectedHeaders: [],
+      emailLikeHeaders: [],
+      normalizedEmailColumnCandidates: [...USERS_TAB_LOGIN_EMAIL_ALIASES],
+      targetEmailExists: false,
+    };
+  }
+  const { getTabValues } = deps;
+  const tabTitle = await resolveUsersTabTitle(auth, sheetId, deps, { createIfMissing: false });
+  const rows = await getTabValues(auth, sheetId, tabTitle).catch(() => []);
+  const headers = (rows[0] || []).map((cell) => String(cell || "").trim());
+  const emailLikeHeaders = headers.filter((header) => isEmailLikeUsersTabHeader(header));
+  let targetEmailExists = false;
+  for (let i = 1; i < rows.length; i += 1) {
+    const rawObj = buildUsersTabRowObject(headers, rows[i]);
+    if (rowEmailCandidates(rawObj).includes(target)) {
+      targetEmailExists = true;
+      break;
+    }
+  }
+  return {
+    masterSheetId: sheetId,
+    usersTabTitle: tabTitle,
+    usersTabRowCount: Math.max(0, rows.length - 1),
+    detectedHeaders: headers,
+    emailLikeHeaders,
+    normalizedEmailColumnCandidates: [...USERS_TAB_LOGIN_EMAIL_ALIASES],
+    targetEmailExists,
+  };
+}
+
 export async function findCompanyUsersTabRow(auth, spreadsheetId, email, deps) {
   const { getTabValues } = deps;
   const tabTitle = await resolveUsersTabTitle(auth, spreadsheetId, deps, { createIfMissing: false });
@@ -214,13 +257,13 @@ export async function findCompanyUsersTabRow(auth, spreadsheetId, email, deps) {
   const target = safeLower(email);
   for (let i = 1; i < rows.length; i += 1) {
     const row = rows[i];
-    const rawObj = rowToObject(headers, row);
-    const obj = normalizeUsersTabRowObject(rawObj);
-    const candidates = rowEmailCandidates(rawObj);
-    if (!candidates.includes(target)) {
+    const legacyRaw = rowToObject(headers, row);
+    const rawObj = buildUsersTabRowObject(headers, row);
+    const obj = normalizeUsersTabRowObject({ ...legacyRaw, ...rawObj });
+    if (!rowEmailCandidates(legacyRaw).includes(target)) {
       continue;
     }
-    const rowEmail = pickField(obj, "Email") || target;
+    const rowEmail = pickUsersTabLoginEmail(obj) || pickField(obj, "Email") || target;
     const roleRaw = pickField(obj, "Role", "role");
     const fullName =
       pickField(obj, "Name", "name", "Full Name", "Full name") || rowEmail;
@@ -319,7 +362,7 @@ export async function writeUsersTabRecordByHeaders(auth, spreadsheetId, record, 
   const target = emailNorm;
   let rowIndex = -1;
   for (let i = 1; i < rows.length; i += 1) {
-    const rawObj = rowToObject(headers, rows[i]);
+    const rawObj = buildUsersTabRowObject(headers, rows[i]);
     if (rowEmailCandidates(rawObj).includes(target)) {
       rowIndex = i;
       break;

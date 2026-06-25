@@ -11,6 +11,7 @@ import {
   pickRowCompanyFolderId,
   pickRowCompanyId,
   pickRowCompanyName,
+  pickUsersTabLoginEmail,
   resolvedProfileCompanyFolderId,
   isWorkbookScopedCompanyContext,
   rowPassesCompanyProfileContext,
@@ -43,7 +44,7 @@ export function mapUsersTabRecordToProfileRow(record, companyContext = {}) {
   const rowCompanyId = pickRowCompanyId(filled) || companyFolderId;
   const rowCompanyFolderId = pickRowCompanyFolderId(filled) || rowCompanyId;
   return {
-    email: pickRowValue(filled, "Email", "email"),
+    email: pickUsersTabLoginEmail(filled) || pickRowValue(filled, "Email", "email"),
     name: pickRowValue(filled, "Name", "name", "Full Name"),
     role: pickRowValue(filled, "Role", "role"),
     accessLevel: pickRowValue(filled, "AccessLevel", "Access Level", "accessLevel"),

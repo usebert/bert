@@ -54,7 +54,10 @@ assert(userAuth.includes("buildLoginAuthFailure"), "static: login auth failure b
 assert(userAuth.includes("no_workbook_candidates"), "static: no_workbook_candidates diagnostic");
 assert(userAuth.includes("password_hash_missing"), "static: password_hash_missing diagnostic");
 assert(userAuth.includes("password_compare_failed"), "static: password_compare_failed diagnostic");
-assert(userAuth.includes('console.warn("[company-auth] login rejected"'), "static: safe server login rejection log");
+assert(userAuth.includes("isKnownStaleAuthIndexPairing"), "static: stale auth index pairings skipped for login");
+assert(userAuth.includes("resolveCompanyContextForUser"), "static: registry Users tab fallback on login");
+assert(userAuth.includes("pickLoginMasterSheetId"), "static: paired sheet hint preferred over folder discovery");
+assert(userAuth.includes("collectUsersTabLoginDiagnostics"), "static: users tab login diagnostics");
 const appTsx = read("App.tsx");
 assert(appTsx.includes("persistedCompanyLoginHints"), "static: App persists login hints before stale clear");
 assert(
@@ -437,6 +440,139 @@ try {
   assert(
     indexPairedLogin.ok === true,
     "runtime: auth-index folder+sheet login via sheet hint when folder resolve fails",
+  );
+
+  const legacyUsernameEmail = "legacy.username.user@example.com";
+  const legacyPassword = "LegacyUser-2026!";
+  const legacyMock = createMockUsersTabStore({});
+  const legacyUserDeps = {
+    ...legacyMock.deps,
+    getTabValues: async () => [
+      ["Username", "Name", "Role", "PasswordHash", "Status", "CompanyFolderId", "CompanyName"],
+      [
+        legacyUsernameEmail,
+        "Legacy Username User",
+        "Manager",
+        hashPassword(legacyPassword),
+        "ACTIVE",
+        companyFolderId,
+        "Seven Oaks Cottages",
+      ],
+    ],
+    findCompanyUsersTabRow: async (_auth, sheetId, addr) => {
+      const { findCompanyUsersTabRow } = await import("../server/company-users.mjs");
+      return findCompanyUsersTabRow(_auth, sheetId, addr, legacyUserDeps);
+    },
+    readCompanyUsersTabRecord: async (_auth, sheetId, addr) => {
+      const { readCompanyUsersTabRecord } = await import("../server/company-users.mjs");
+      return readCompanyUsersTabRecord(_auth, sheetId, addr, legacyUserDeps);
+    },
+  };
+
+  const legacyUsernameLogin = await authenticateCompanyUserLogin(
+    {},
+    {
+      getCompanyUsersDeps: () => legacyUserDeps,
+      resolveCompanyFromFolder: mockResolver(
+        { [companyFolderId]: masterSheetId },
+        { [companyFolderId]: "Seven Oaks Cottages" },
+      ),
+      findMasterSheetIdsForCompanyLoginEmail: () => [],
+    },
+    { email: legacyUsernameEmail, password: legacyPassword, masterSheetId },
+  );
+  assert(legacyUsernameLogin.ok === true, "runtime: legacy Username-column Users row can log in");
+
+  const {
+    DOVECOTE_USERS_TAB_HEADERS,
+    DOVECOTE_USERS_TAB_ROWS,
+    DOVECOTE_FOLDER_ID,
+    DOVECOTE_MASTER_SHEET_ID,
+    DOVECOTE_COMPANY_NAME,
+  } = await import("./fixtures/dovecote-users-tab.fixture.mjs");
+  const sophieEmail = "7oakcottages@gmail.com";
+  const sophiePassword = "Sophie-Dovecote-2026!";
+  const sophieHash = hashPassword(sophiePassword);
+  const doveMockRows = DOVECOTE_USERS_TAB_ROWS.map((row) =>
+    row[0] === sophieEmail ? [row[0], row[1], row[2], row[3], row[4], row[5], sophieHash, ...row.slice(7)] : row,
+  );
+  const doveMock = {
+    deps: {
+      getTabValues: async () => [DOVECOTE_USERS_TAB_HEADERS, ...doveMockRows],
+      getConfig: async () => ({}),
+      updateConfig: async () => null,
+      ensureColumns: async () => ({ addedColumns: [] }),
+      google: {
+        sheets: () => ({
+          spreadsheets: { values: { update: async () => null, append: async () => null } },
+        }),
+      },
+      withSheetsQuotaRetry: (fn) => fn(),
+      resolveUsersTab: async () => ({ tabTitle: "Users" }),
+    },
+  };
+  const doveUserDeps = {
+    ...doveMock.deps,
+    findCompanyUsersTabRow: async (auth, sheetId, addr) => {
+      const { findCompanyUsersTabRow } = await import("../server/company-users.mjs");
+      return findCompanyUsersTabRow(auth, sheetId, addr, doveUserDeps);
+    },
+    readCompanyUsersTabRecord: async (auth, sheetId, addr) => {
+      const { readCompanyUsersTabRecord } = await import("../server/company-users.mjs");
+      return readCompanyUsersTabRecord(auth, sheetId, addr, doveUserDeps);
+    },
+  };
+  const wrongRockSheetId = "1RockSolidWrongSheet000000000000000000000";
+  const wrongRockFolderId = "1RockSolidWrongFolder00000000000000000";
+  const staleRockIndexPath = path.join(sessionDir, "auth-index-rock-solid.json");
+  const staleRockIndexApi = createAuthIndexApi(staleRockIndexPath);
+  staleRockIndexApi.upsertEntry({
+    email: sophieEmail,
+    name: "sophie Graney",
+    role: "Manager",
+    companyId: wrongRockFolderId,
+    companyFolderId: wrongRockFolderId,
+    companyName: "Rock Solid",
+    masterSheetId: wrongRockSheetId,
+    status: "ACTIVE",
+    passwordHash: hashPassword("StaleRockSolid-99"),
+    updatedAt: new Date().toISOString(),
+  });
+
+  const registryMap = new Map([
+    [
+      DOVECOTE_FOLDER_ID,
+      {
+        companyId: DOVECOTE_FOLDER_ID,
+        companyFolderId: DOVECOTE_FOLDER_ID,
+        companyName: DOVECOTE_COMPANY_NAME,
+        masterSheetId: DOVECOTE_MASTER_SHEET_ID,
+        status: "LIVE",
+      },
+    ],
+  ]);
+
+  const sophieRegistryLogin = await authenticateCompanyUserLogin(
+    {},
+    {
+      authIndex: staleRockIndexApi,
+      getCompanyUsersDeps: () => doveUserDeps,
+      resolveCompanyFromFolder: async (_auth, _deps, folderId) => ({
+        ok: folderId === DOVECOTE_FOLDER_ID,
+        companyFolderId: DOVECOTE_FOLDER_ID,
+        companyId: DOVECOTE_FOLDER_ID,
+        companyName: DOVECOTE_COMPANY_NAME,
+        masterSheetId: DOVECOTE_MASTER_SHEET_ID,
+      }),
+      findMasterSheetIdsForCompanyLoginEmail: () => [],
+      readCanonicalCompanyWorkspaceRegistryMap: async () => ({ map: registryMap }),
+      isCompanyRegistryLive: (record) => String(record?.status || "").toUpperCase() === "LIVE",
+    },
+    { email: sophieEmail, password: sophiePassword },
+  );
+  assert(
+    sophieRegistryLogin.ok === true,
+    "runtime: stale Rock Solid auth index skipped; registry Dovecote Users tab login succeeds",
   );
 } finally {
   fs.rmSync(sessionDir, { recursive: true, force: true });

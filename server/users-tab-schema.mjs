@@ -86,6 +86,22 @@ function companyNamesMatch(left, right) {
   return Boolean(a && b && a === b);
 }
 
+/** Header aliases for login/profile email resolution (canonical Email first). */
+export const USERS_TAB_LOGIN_EMAIL_ALIASES = [
+  "Email",
+  "email",
+  "UserEmail",
+  "userEmail",
+  "Username",
+  "username",
+  "User",
+  "user",
+];
+
+export function pickUsersTabLoginEmail(obj) {
+  return pickField(obj, ...USERS_TAB_LOGIN_EMAIL_ALIASES);
+}
+
 /**
  * Build a Users tab row object by header name — first canonical match for identity cols,
  * last non-empty match for duplicate CompanyId / CompanyFolderId / legacy Company ID cols.
@@ -108,7 +124,7 @@ export function buildUsersTabRowObject(headers, row) {
 
   return {
     ...raw,
-    Email: pickFirstByHeaders(headerRow, dataRow, "Email", "email"),
+    Email: pickFirstByHeaders(headerRow, dataRow, ...USERS_TAB_LOGIN_EMAIL_ALIASES),
     Name:
       pickFirstByHeaders(headerRow, dataRow, "Name", "name") ||
       pickFirstByHeaders(headerRow, dataRow, "Full Name", "Full name"),
@@ -253,9 +269,31 @@ export function normalizeUsersTabRowObject(obj) {
 
 export function rowEmailCandidates(obj) {
   const remapped = remapShiftedLegacyUsersRow(obj);
-  return [pickField(remapped, "Email"), pickField(obj, "Email"), pickField(obj, "Role"), pickField(obj, "Name")]
-    .map((value) => safeLower(value))
-    .filter((value) => isValidCompanyUserEmail(value));
+  const candidates = new Set();
+  for (const source of [remapped, obj]) {
+    const loginEmail = pickUsersTabLoginEmail(source);
+    if (loginEmail) {
+      candidates.add(safeLower(loginEmail));
+    }
+    for (const legacyKey of ["Role", "Name"]) {
+      const value = safeLower(pickField(source, legacyKey));
+      if (isValidCompanyUserEmail(value)) {
+        candidates.add(value);
+      }
+    }
+  }
+  return [...candidates].filter((value) => isValidCompanyUserEmail(value));
+}
+
+export function isEmailLikeUsersTabHeader(header) {
+  const normalized = safeLower(header).replace(/[\s_-]+/g, "");
+  return (
+    normalized === "email" ||
+    normalized === "useremail" ||
+    normalized === "username" ||
+    normalized === "user" ||
+    normalized.endsWith("email")
+  );
 }
 
 export function mapRecordToSheetHeaders(headers, record) {
