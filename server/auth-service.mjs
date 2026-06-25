@@ -656,6 +656,9 @@ export async function performCompanyLogin(auth, deps, input = {}) {
       blocker: authResult.blocker || authResult.reason,
       error: authResult.error || authResult.message,
       message: authResult.message || authResult.error,
+      reasonCode: authResult.reasonCode || authResult.diagnostics?.reasonCode,
+      authFailureReason: authResult.authFailureReason,
+      diagnostics: authResult.diagnostics,
       timing,
     };
   }

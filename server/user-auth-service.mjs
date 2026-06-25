@@ -11,7 +11,12 @@ import {
   isPasswordHash,
   readCompanyUsersTabRecord,
 } from "./company-users.mjs";
-import { pickRowCompanyFolderId, pickRowCompanyId, pickRowCompanyName } from "./users-tab-schema.mjs";
+import {
+  pickRowCompanyFolderId,
+  pickRowCompanyId,
+  pickRowCompanyName,
+  rowExplicitlyPointsToOtherCompany,
+} from "./users-tab-schema.mjs";
 import {
   sanitizeCompanyFolderId,
   sanitizeGoogleSpreadsheetId,
@@ -25,6 +30,103 @@ const LIGHT_RESOLVE_OPTS = {
   skipFolderPlacementCheck: true,
   preferFolderResolution: true,
 };
+
+/** Safe client/server diagnostic codes — never include passwords or hash values. */
+export const AUTH_FAILURE_REASON = {
+  USER_NOT_FOUND: "USER_NOT_FOUND",
+  PASSWORD_MISSING: "PASSWORD_MISSING",
+  PASSWORD_HASH_MISSING: "PASSWORD_HASH_MISSING",
+  PASSWORD_COMPARE_FAILED: "PASSWORD_COMPARE_FAILED",
+  COMPANY_WORKBOOK_NOT_RESOLVED: "COMPANY_WORKBOOK_NOT_RESOLVED",
+  WRONG_COMPANY: "WRONG_COMPANY",
+  NO_LOGIN_CANDIDATES: "NO_LOGIN_CANDIDATES",
+  INACTIVE: "INACTIVE",
+};
+
+const AUTH_REASON_TO_DIAGNOSTIC = {
+  [AUTH_FAILURE_REASON.USER_NOT_FOUND]: "user_not_found",
+  [AUTH_FAILURE_REASON.PASSWORD_MISSING]: "password_missing",
+  [AUTH_FAILURE_REASON.PASSWORD_HASH_MISSING]: "password_hash_missing",
+  [AUTH_FAILURE_REASON.PASSWORD_COMPARE_FAILED]: "password_compare_failed",
+  [AUTH_FAILURE_REASON.COMPANY_WORKBOOK_NOT_RESOLVED]: "company_workbook_not_resolved",
+  [AUTH_FAILURE_REASON.WRONG_COMPANY]: "wrong_company",
+  [AUTH_FAILURE_REASON.NO_LOGIN_CANDIDATES]: "no_workbook_candidates",
+  [AUTH_FAILURE_REASON.INACTIVE]: "inactive",
+};
+
+function diagnosticReasonCode(authFailureReason) {
+  return AUTH_REASON_TO_DIAGNOSTIC[authFailureReason] || "invalid_credentials";
+}
+
+function buildLoginAuthFailure({
+  email,
+  authFailureReason,
+  httpStatus = 401,
+  code = "INVALID_CREDENTIALS",
+  blocker = "invalid_credentials",
+  message = "Email or password is incorrect.",
+  attemptCount = 0,
+  failedStep = "users_tab_auth",
+}) {
+  const reasonCode = diagnosticReasonCode(authFailureReason);
+  const emailNorm = normalizeUserAuthEmail(email);
+  console.warn("[company-auth] login rejected", {
+    email: emailNorm || "(missing)",
+    reasonCode,
+    authFailureReason,
+    attemptCount,
+    failedStep,
+  });
+  const inactive = authFailureReason === AUTH_FAILURE_REASON.INACTIVE;
+  return {
+    ok: false,
+    reason: inactive ? "inactive" : "invalid_credentials",
+    httpStatus: inactive ? 403 : httpStatus,
+    code: inactive ? undefined : code,
+    blocker: inactive ? "inactive" : blocker,
+    error: inactive ? "This account is inactive. Contact your company administrator." : message,
+    message: inactive ? "This account is inactive. Contact your company administrator." : message,
+    authFailureReason,
+    reasonCode,
+    diagnostics: {
+      email: emailNorm,
+      reasonCode,
+      authFailureReason,
+      failedStep,
+      attemptCount,
+    },
+  };
+}
+
+function classifyVerifyFailure(verifyResult = {}) {
+  if (verifyResult.reason === "wrong_company") {
+    return AUTH_FAILURE_REASON.WRONG_COMPANY;
+  }
+  if (verifyResult.reason === "no_password_hash") {
+    return AUTH_FAILURE_REASON.PASSWORD_HASH_MISSING;
+  }
+  if (verifyResult.reason === "inactive") {
+    return AUTH_FAILURE_REASON.INACTIVE;
+  }
+  if (verifyResult.rowFound === false) {
+    return AUTH_FAILURE_REASON.USER_NOT_FOUND;
+  }
+  if (verifyResult.reason === "invalid_credentials") {
+    return AUTH_FAILURE_REASON.PASSWORD_COMPARE_FAILED;
+  }
+  return AUTH_FAILURE_REASON.PASSWORD_COMPARE_FAILED;
+}
+
+function classifyContextFailure(reason = "") {
+  const normalized = String(reason || "").trim();
+  if (normalized === "user_not_found") {
+    return AUTH_FAILURE_REASON.USER_NOT_FOUND;
+  }
+  if (normalized === "company_folder_missing" || normalized === "company_context_failed") {
+    return AUTH_FAILURE_REASON.COMPANY_WORKBOOK_NOT_RESOLVED;
+  }
+  return AUTH_FAILURE_REASON.COMPANY_WORKBOOK_NOT_RESOLVED;
+}
 
 function resolveUsersTabReaders(deps = {}) {
   return {
@@ -188,14 +290,16 @@ export async function verifyUserPasswordFromUsersTab(auth, companyContext, email
   if (String(row.status || "").toUpperCase() !== "ACTIVE") {
     return { ok: false, reason: "inactive", rowFound: true, status: row.status };
   }
-  const ctxFolderId = sanitizeCompanyFolderId(ctx.companyFolderId || ctx.companyId);
-  if (ctxFolderId) {
-    const rowFolderId = sanitizeCompanyFolderId(
-      row.companyFolderId || pickRowCompanyFolderId(row.rowObject || row) || row.companyId || "",
-    );
-    if (rowFolderId && rowFolderId !== ctxFolderId) {
-      return { ok: false, reason: "wrong_company", rowFound: true, status: row.status };
-    }
+  const rowForCompanyCheck = row.rowObject || row;
+  if (
+    rowExplicitlyPointsToOtherCompany(rowForCompanyCheck, {
+      companyFolderId: ctx.companyFolderId || ctx.companyId,
+      companyId: ctx.companyId || ctx.companyFolderId,
+      masterSheetId: ctx.masterSheetId,
+      companyName: ctx.companyName,
+    })
+  ) {
+    return { ok: false, reason: "wrong_company", rowFound: true, status: row.status };
   }
   if (!row.passwordHash) {
     return { ok: false, reason: "no_password_hash", rowFound: true, status: row.status };
@@ -357,24 +461,32 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
   const email = normalizeUserAuthEmail(input.email);
   const password = String(input.password || "");
   if (!auth || !email || !password) {
-    return { ok: false, reason: "missing_context", httpStatus: 400, code: "MISSING_FIELDS" };
+    return buildLoginAuthFailure({
+      email,
+      authFailureReason: !password
+        ? AUTH_FAILURE_REASON.PASSWORD_MISSING
+        : AUTH_FAILURE_REASON.COMPANY_WORKBOOK_NOT_RESOLVED,
+      httpStatus: 400,
+      code: "MISSING_FIELDS",
+      blocker: "missing_fields",
+      message: "Email and password are required.",
+      failedStep: "input_validation",
+    });
   }
 
   const userDeps = typeof deps.getCompanyUsersDeps === "function" ? deps.getCompanyUsersDeps() : deps;
   const attempts = collectLoginResolutionAttempts(input, deps);
   if (!attempts.length) {
-    return {
-      ok: false,
-      reason: "invalid_credentials",
-      httpStatus: 401,
-      code: "INVALID_CREDENTIALS",
-      blocker: "invalid_credentials",
-      error: "Email or password is incorrect.",
-      message: "Email or password is incorrect.",
-    };
+    return buildLoginAuthFailure({
+      email,
+      authFailureReason: AUTH_FAILURE_REASON.NO_LOGIN_CANDIDATES,
+      failedStep: "collect_attempts",
+      attemptCount: 0,
+    });
   }
 
   let inactiveHit = false;
+  let lastAuthFailureReason = AUTH_FAILURE_REASON.USER_NOT_FOUND;
   for (const attempt of attempts) {
     let companyContext = {};
     if (attempt.type === "folder") {
@@ -391,10 +503,14 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
         const row = await readUserAuthRowByEmail(auth, { masterSheetId: pairedSheetId }, email, userDeps);
         const fallback = row ? buildCompanyContextFromHintedSheet(row, pairedSheetId, resolved) : null;
         if (!fallback) {
+          lastAuthFailureReason = row
+            ? AUTH_FAILURE_REASON.COMPANY_WORKBOOK_NOT_RESOLVED
+            : AUTH_FAILURE_REASON.USER_NOT_FOUND;
           continue;
         }
         companyContext = fallback;
       } else {
+        lastAuthFailureReason = AUTH_FAILURE_REASON.COMPANY_WORKBOOK_NOT_RESOLVED;
         continue;
       }
     } else {
@@ -402,6 +518,9 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
       if (!hinted.ok) {
         if (hinted.reason === "inactive") {
           inactiveHit = true;
+          lastAuthFailureReason = AUTH_FAILURE_REASON.INACTIVE;
+        } else {
+          lastAuthFailureReason = classifyContextFailure(hinted.reason);
         }
         continue;
       }
@@ -412,6 +531,9 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
     if (!verifyResult.ok) {
       if (verifyResult.reason === "inactive") {
         inactiveHit = true;
+        lastAuthFailureReason = AUTH_FAILURE_REASON.INACTIVE;
+      } else {
+        lastAuthFailureReason = classifyVerifyFailure(verifyResult);
       }
       continue;
     }
@@ -450,25 +572,18 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
   }
 
   if (inactiveHit) {
-    return {
-      ok: false,
-      reason: "inactive",
-      httpStatus: 403,
-      blocker: "inactive",
-      error: "This account is inactive. Contact your company administrator.",
-      message: "This account is inactive. Contact your company administrator.",
-    };
+    return buildLoginAuthFailure({
+      email,
+      authFailureReason: AUTH_FAILURE_REASON.INACTIVE,
+      attemptCount: attempts.length,
+    });
   }
 
-  return {
-    ok: false,
-    reason: "invalid_credentials",
-    httpStatus: 401,
-    code: "INVALID_CREDENTIALS",
-    blocker: "invalid_credentials",
-    error: "Email or password is incorrect.",
-    message: "Email or password is incorrect.",
-  };
+  return buildLoginAuthFailure({
+    email,
+    authFailureReason: lastAuthFailureReason,
+    attemptCount: attempts.length,
+  });
 }
 
 /**

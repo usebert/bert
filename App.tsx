@@ -8409,6 +8409,19 @@ function App() {
     const pwd = password;
     const platformOwnerLogin =
       loginIdentity.includes("@") && isPlatformOwnerEmail(loginIdentity, import.meta.env);
+    const persistedCompanyLoginHints = (() => {
+      if (!loginIdentity.includes("@")) {
+        return { masterSheetId: "", companyFolderId: "" };
+      }
+      const hint = readCompanyLoginHint();
+      if (!hint || hint.email !== loginIdentity) {
+        return { masterSheetId: "", companyFolderId: "" };
+      }
+      return {
+        masterSheetId: hint.masterSheetId || "",
+        companyFolderId: hint.companyFolderId || "",
+      };
+    })();
 
     clearStaleCompanyLocalStorage(loginIdentity.includes("@") ? loginIdentity : undefined);
     setLinkedCompanyContext(null);
@@ -8539,18 +8552,6 @@ function App() {
       return true;
     };
 
-    const resolveCompanyLoginClientHints = (email: string): { masterSheetId: string; companyFolderId: string } => {
-      const normalized = email.trim().toLowerCase();
-      const hint = readCompanyLoginHint();
-      if (hint?.email !== normalized) {
-        return { masterSheetId: "", companyFolderId: "" };
-      }
-      return {
-        masterSheetId: hint.masterSheetId || "",
-        companyFolderId: hint.companyFolderId || "",
-      };
-    };
-
     let companyLoginFailure:
       | {
           blocker?: string;
@@ -8566,13 +8567,12 @@ function App() {
         return false;
       }
       const email = loginIdentity.trim().toLowerCase();
-      const loginHints = resolveCompanyLoginClientHints(email);
       try {
         const loginResult = await companyLogin({
           email,
           password: pwd,
-          masterSheetId: loginHints.masterSheetId || undefined,
-          companyFolderId: loginHints.companyFolderId || undefined,
+          masterSheetId: persistedCompanyLoginHints.masterSheetId || undefined,
+          companyFolderId: persistedCompanyLoginHints.companyFolderId || undefined,
         });
         if (
           loginResult.code === "NETWORK_UNREACHABLE" ||
@@ -8605,6 +8605,7 @@ function App() {
             blocker: "invalid_credentials",
             code: loginResult.code,
             message: "Email or password is incorrect.",
+            diagnostics: loginResult.diagnostics,
           };
           return false;
         }

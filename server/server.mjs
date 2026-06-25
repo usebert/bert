@@ -6316,6 +6316,7 @@ app.post("/api/auth/company/login", async (req, res) => {
         blocker: result.blocker,
         error: result.error,
         reasonCode: result.diagnostics?.reasonCode || result.reasonCode,
+        authFailureReason: result.authFailureReason,
         diagnostics: result.diagnostics,
         ...(invalidCredentials
           ? {}

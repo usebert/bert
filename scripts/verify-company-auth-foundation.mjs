@@ -50,7 +50,17 @@ assert(resetModule.includes("resolveCompanyFromFolder"), "static: reset folder-f
 assert(sheetFlow.includes('reason: "cache_only"'), "static: cache-only login denied");
 assert(userAuth.includes("buildCompanyContextFromHintedSheet"), "static: hinted sheet fallback builder");
 assert(userAuth.includes("pushFolder(indexFolderId, indexSheetId)"), "static: auth-index pairs folder with sheet");
-assert(userAuth.includes("skipFolderPlacementCheck: true"), "static: login resolve skips folder placement gate");
+assert(userAuth.includes("buildLoginAuthFailure"), "static: login auth failure builder");
+assert(userAuth.includes("no_workbook_candidates"), "static: no_workbook_candidates diagnostic");
+assert(userAuth.includes("password_hash_missing"), "static: password_hash_missing diagnostic");
+assert(userAuth.includes("password_compare_failed"), "static: password_compare_failed diagnostic");
+assert(userAuth.includes('console.warn("[company-auth] login rejected"'), "static: safe server login rejection log");
+const appTsx = read("App.tsx");
+assert(appTsx.includes("persistedCompanyLoginHints"), "static: App persists login hints before stale clear");
+assert(
+  /readCompanyLoginHint\(\)[\s\S]*?clearStaleCompanyLocalStorage/.test(appTsx),
+  "static: login hint captured before clearStaleCompanyLocalStorage",
+);
 
 function createMockUsersTabStore(initial = {}) {
   const store = new Map(Object.entries(initial));
@@ -316,6 +326,70 @@ try {
     "runtime: login succeeds when folder resolve fails but masterSheetId hint + Users row exist",
   );
 
+  const legacyMasterSheetLogin = await authenticateCompanyUserLogin(
+    {},
+    {
+      getCompanyUsersDeps: () => {
+        const legacyDeps = buildUserDeps(mock, companyFolderId, "Seven Oaks Cottages");
+        const legacyFindRow = async (_auth, sheetId, addr) => {
+          const key = String(addr || "").trim().toLowerCase();
+          if (key !== email) return null;
+          return {
+            email: key,
+            roleRaw: "Admin",
+            role: "Admin",
+            name: "Active User",
+            status: "ACTIVE",
+            passwordHash: hashPassword(newPassword),
+            companyFolderId: masterSheetId,
+            companyId: masterSheetId,
+            companyName: "Seven Oaks Cottages",
+            sheetRowIndex: 1,
+            headers: ["Email", "PasswordHash", "Status", "Role", "Name", "CompanyId", "CompanyName"],
+            rowObject: {
+              Email: key,
+              PasswordHash: hashPassword(newPassword),
+              Status: "ACTIVE",
+              Role: "Admin",
+              Name: "Active User",
+              CompanyId: masterSheetId,
+              CompanyName: "Seven Oaks Cottages",
+            },
+          };
+        };
+        return {
+          ...legacyDeps,
+          findCompanyUsersTabRow: legacyFindRow,
+          readCompanyUsersTabRecord: async (_auth, _sheetId, addr) => {
+            const row = await legacyFindRow(_auth, _sheetId, addr);
+            if (!row) return null;
+            return {
+              role: row.role,
+              name: row.name,
+              email: row.email,
+              status: row.status,
+              passwordHash: row.passwordHash,
+              companyFolderId: row.companyFolderId,
+              companyId: row.companyId,
+              companyName: row.companyName,
+              rowObject: row.rowObject,
+            };
+          },
+        };
+      },
+      resolveCompanyFromFolder: mockResolver(
+        { [companyFolderId]: masterSheetId },
+        { [companyFolderId]: "Seven Oaks Cottages" },
+      ),
+      findMasterSheetIdsForCompanyLoginEmail: () => [],
+    },
+    { email, password: newPassword, masterSheetId },
+  );
+  assert(
+    legacyMasterSheetLogin.ok === true,
+    "runtime: legacy Users tab CompanyId=masterSheetId still logs in after folder resolve",
+  );
+
   const noHintsLogin = await authenticateCompanyUserLogin(
     {},
     {
@@ -329,6 +403,10 @@ try {
   assert(
     noHintsLogin.ok === false && noHintsLogin.blocker === "invalid_credentials",
     "runtime: missing hints still blocks login",
+  );
+  assert(
+    noHintsLogin.diagnostics?.reasonCode === "no_workbook_candidates",
+    "runtime: missing hints return no_workbook_candidates diagnostic",
   );
 
   const pairedIndexPath = path.join(sessionDir, "auth-index-paired.json");
