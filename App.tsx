@@ -3621,7 +3621,6 @@ function App() {
     nextOffset: number;
     companyFolderId?: string;
     masterSheetId?: string;
-    hasLoadedOnce?: boolean;
   }>({ results: [], loading: false, loadingMore: false, hasMore: false, nextOffset: 0 });
   const [selectedResultState, setSelectedResultState] = useState<{
     resultId: string | null;
@@ -5816,9 +5815,6 @@ function App() {
   ]);
 
   const companyResultsRequestIdRef = useRef(0);
-  const companyResultsAbortRef = useRef<{ controller: AbortController; timeoutId: number } | null>(
-    null,
-  );
   const companyResultsNextOffsetRef = useRef(0);
 
   const resolveCompanyResultsLoadContext = useCallback(() => {
@@ -5857,21 +5853,18 @@ function App() {
             loadingMore: false,
             hasMore: false,
             nextOffset: 0,
-            hasLoadedOnce: false,
           });
           setSelectedResultState({ resultId: null, result: null, loading: false });
         }
         return null;
       }
 
-      const requestId = ++companyResultsRequestIdRef.current;
-      const isActiveRequest = () => companyResultsRequestIdRef.current === requestId;
-
+      const requestId = companyResultsRequestIdRef.current + 1;
+      companyResultsRequestIdRef.current = requestId;
       const controller = new AbortController();
       const timeoutId = window.setTimeout(() => {
         controller.abort(new DOMException("Company results load timed out", "TimeoutError"));
       }, COMPANY_RESULTS_LOAD_TIMEOUT_MS);
-      companyResultsAbortRef.current = { controller, timeoutId };
 
       if (mode === "more") {
         setCompanyResultsState((previous) => ({
@@ -5883,38 +5876,18 @@ function App() {
         if (mode === "initial") {
           companyResultsNextOffsetRef.current = 0;
         }
-        let clearSelectedResult = false;
-        setCompanyResultsState((previous) => {
-          const companyChanged =
-            Boolean(previous.companyFolderId) &&
-            Boolean(companyId) &&
-            previous.companyFolderId !== companyId;
-          if (mode === "initial" && companyChanged) {
-            clearSelectedResult = true;
-          }
-          const results =
-            mode === "refresh"
-              ? previous.results
-              : companyChanged
-                ? []
-                : previous.results;
-          const shouldShowBlockingLoad =
-            !previous.hasLoadedOnce && results.length === 0 && !previous.loadError;
-          return {
-            ...previous,
-            results,
-            loading: shouldShowBlockingLoad || results.length > 0 || mode === "refresh",
-            loadingMore: false,
-            loadError: companyChanged ? undefined : mode === "refresh" ? undefined : previous.loadError,
-            loadWarning: companyChanged || mode === "refresh" ? undefined : previous.loadWarning,
-            hasMore: mode === "refresh" ? previous.hasMore : companyChanged ? false : previous.hasMore,
-            nextOffset: mode === "refresh" ? previous.nextOffset : companyChanged ? 0 : previous.nextOffset,
-            companyFolderId: companyChanged ? undefined : previous.companyFolderId,
-            masterSheetId: companyChanged ? undefined : previous.masterSheetId,
-            hasLoadedOnce: companyChanged ? false : previous.hasLoadedOnce,
-          };
-        });
-        if (clearSelectedResult) {
+        setCompanyResultsState((previous) => ({
+          results: mode === "refresh" ? previous.results : [],
+          loading: true,
+          loadingMore: false,
+          loadError: undefined,
+          loadWarning: undefined,
+          hasMore: mode === "refresh" ? previous.hasMore : false,
+          nextOffset: mode === "refresh" ? previous.nextOffset : 0,
+          companyFolderId: previous.companyFolderId,
+          masterSheetId: previous.masterSheetId,
+        }));
+        if (mode === "initial") {
           setSelectedResultState({ resultId: null, result: null, loading: false });
         }
       }
@@ -5929,7 +5902,7 @@ function App() {
             ? { sinceDays: 0, limit: DEFAULT_COMPANY_RESULTS_LIMIT }
             : {}),
         });
-        if (!isActiveRequest()) {
+        if (companyResultsRequestIdRef.current !== requestId) {
           return null;
         }
         if (!result.ok) {
@@ -5937,12 +5910,9 @@ function App() {
             ...previous,
             loading: false,
             loadingMore: false,
-            hasLoadedOnce: true,
-            loadWarning:
-              previous.results.length > 0 ? result.loadError || COMPANY_RESULTS_USER_MESSAGE : undefined,
             loadError:
-              previous.results.length > 0
-                ? undefined
+              previous.results.length > 0 && mode === "more"
+                ? previous.loadError
                 : result.loadError || COMPANY_RESULTS_USER_MESSAGE,
           }));
           return null;
@@ -5970,12 +5940,11 @@ function App() {
             nextOffset,
             companyFolderId: result.companyFolderId || companyId,
             masterSheetId: result.masterSheetId,
-            hasLoadedOnce: true,
           };
         });
         return result;
       } catch (error) {
-        if (!isActiveRequest()) {
+        if (companyResultsRequestIdRef.current !== requestId) {
           return null;
         }
         if (error instanceof DOMException && error.name === "AbortError") {
@@ -5985,7 +5954,6 @@ function App() {
               ...previous,
               loading: false,
               loadingMore: false,
-              hasLoadedOnce: previous.hasLoadedOnce || timedOut,
               loadWarning: previous.results.length > 0 ? COMPANY_RESULTS_LOAD_TIMEOUT_MESSAGE : undefined,
               loadError: previous.results.length > 0 ? undefined : COMPANY_RESULTS_LOAD_TIMEOUT_MESSAGE,
             }));
@@ -5996,23 +5964,14 @@ function App() {
           ...previous,
           loading: false,
           loadingMore: false,
-          hasLoadedOnce: true,
-          loadWarning: previous.results.length > 0 ? COMPANY_RESULTS_USER_MESSAGE : undefined,
-          loadError: previous.results.length > 0 ? undefined : COMPANY_RESULTS_USER_MESSAGE,
+          loadError:
+            previous.results.length > 0 && mode === "more"
+              ? previous.loadError
+              : COMPANY_RESULTS_USER_MESSAGE,
         }));
         return null;
       } finally {
         window.clearTimeout(timeoutId);
-        if (companyResultsAbortRef.current?.controller === controller) {
-          companyResultsAbortRef.current = null;
-        }
-        if (isActiveRequest()) {
-          setCompanyResultsState((previous) =>
-            previous.loading || previous.loadingMore
-              ? { ...previous, loading: false, loadingMore: false }
-              : previous,
-          );
-        }
       }
     },
     [resolveCompanyResultsLoadContext],
@@ -6022,12 +5981,6 @@ function App() {
     void loadCompanyResults("initial");
     return () => {
       companyResultsRequestIdRef.current += 1;
-      const inflight = companyResultsAbortRef.current;
-      if (inflight) {
-        window.clearTimeout(inflight.timeoutId);
-        inflight.controller.abort();
-        companyResultsAbortRef.current = null;
-      }
     };
   }, [loadCompanyResults]);
 

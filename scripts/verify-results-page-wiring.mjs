@@ -115,27 +115,4 @@ assert(resultsScreen.includes("basicResults"), "9j: basic results render before 
 assert(coreRoutes.includes("applyListDefaults"), "9k: canonical results route applies list defaults");
 assert(completionService.includes("AUDIT_RESULTS_SUMMARY_READ_RANGES"), "9l: summary-only AuditResults read");
 
-/** 10: Stale/aborted results fetch must not clobber successful rows. */
-assert(appTsx.includes("companyResultsRequestIdRef"), "10: results fetch uses request generation guard");
-assert(appTsx.includes("companyResultsAbortRef"), "10b: results fetch tracks in-flight abort controller");
-assert(appTsx.includes("isActiveRequest"), "10c: results fetch checks active request before state updates");
-assert(appTsx.includes("hasLoadedOnce"), "10d: results state tracks settled load");
-assert(resultsService.includes('cache: "no-store"'), "10e: results API fetch bypasses HTTP cache");
-assert(
-  /inflight\.controller\.abort\(\)/.test(appTsx),
-  "10f: results effect cleanup aborts in-flight request",
-);
-assert(
-  /previous\.results\.length > 0 \? undefined : COMPANY_RESULTS_LOAD_TIMEOUT_MESSAGE/.test(appTsx),
-  "10g: aborted/timeout results refresh keeps rows and clears fatal error",
-);
-assert(
-  /previous\.results\.length > 0 \? COMPANY_RESULTS_LOAD_TIMEOUT_MESSAGE : undefined/.test(appTsx),
-  "10h: stale results timeout surfaces non-blocking warning when rows exist",
-);
-assert(
-  resultsScreen.includes("resultsLoadError && basicResults.length === 0"),
-  "10i: full-page results error only when no rows to show",
-);
-
 console.log(`[verify:results-page-wiring] OK — ${caseCount} cases passed`);

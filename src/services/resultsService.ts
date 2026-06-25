@@ -185,7 +185,6 @@ export async function fetchCompanyResults(
       apiUrl(`/api/companies/${encodeURIComponent(companyFolderId)}/results${query}`),
       {
         credentials: "include",
-        cache: "no-store",
         signal: options?.signal,
       },
     );
@@ -264,7 +263,6 @@ export async function fetchCompanyResultDetail(
       ),
       {
         credentials: "include",
-        cache: "no-store",
         signal: options?.signal,
       },
     );
