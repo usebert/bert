@@ -19,6 +19,12 @@ import {
   verifyUserPasswordFromUsersTab,
 } from "../server/user-auth-service.mjs";
 
+import {
+  DOVECOTE_USERS_TAB_HEADERS,
+  DOVECOTE_USERS_TAB_ROWS,
+  DOVECOTE_MASTER_SHEET_ID,
+} from "./fixtures/dovecote-users-tab.fixture.mjs";
+
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 let caseCount = 0;
 
@@ -62,6 +68,14 @@ assert(userAuth.includes("candidateMasterSheetIds"), "static: candidate workbook
 assert(userAuth.includes("registryLookupDeps"), "static: registry lookup deps for login fallback");
 assert(userAuth.includes("return pairedId || resolvedId"), "static: paired sheet hint wins over folder discovery");
 assert(read("server/server.mjs").includes("...getCompanyContextResolutionDeps()"), "static: login route receives registry resolution deps");
+assert(read("server/server.mjs").includes("/api/diagnostics/dovecote-users-tab"), "static: temporary Users-tab diagnostic route registered");
+assert(read("server/server.mjs").includes("requireUsersTabDiagnosticsAccess"), "static: Users-tab diagnostic route is gated");
+assert(read("server/dovecote-users-tab-diagnostics.mjs").includes("ENABLE_USERS_TAB_DIAGNOSTICS"), "static: Users-tab diagnostic uses env flag");
+assert(read("server/dovecote-users-tab-diagnostics.mjs").includes("BERT_DIAGNOSTICS_SECRET"), "static: Users-tab diagnostic uses secret env");
+assert(read("server/dovecote-users-tab-diagnostics.mjs").includes("TODO(remove)"), "static: diagnostic module marked temporary");
+assert(userAuth.includes("summarizeUsersTabEmailScanForLoginLog"), "static: USER_NOT_FOUND login logs include live email scan");
+assert(userAuth.includes("probeEmailScan"), "static: USER_NOT_FOUND login logs include Dovecote probe email scan");
+assert(read("server/server.mjs").includes("assertUsersTabDiagnosticPayloadSafe"), "static: diagnostic route rejects unsafe payloads");
 const appTsx = read("App.tsx");
 assert(appTsx.includes("persistedCompanyLoginHints"), "static: App persists login hints before stale clear");
 assert(
@@ -688,6 +702,54 @@ try {
       !serializedDiagnostics.includes("scrypt$"),
     "runtime: login diagnostics never include password hash values",
   );
+
+  const {
+    assertUsersTabDiagnosticPayloadSafe,
+    buildUsersTabDiagnosticReportFromRows,
+    isUsersTabDiagnosticsEnabled,
+    usersTabDiagnosticsSecretConfigured,
+  } = await import("../server/dovecote-users-tab-diagnostics.mjs");
+  const fixtureReport = buildUsersTabDiagnosticReportFromRows({
+    masterSheetId: DOVECOTE_MASTER_SHEET_ID,
+    resolved: { tabTitle: "Users", matchKind: "fixture" },
+    rows: [DOVECOTE_USERS_TAB_HEADERS, ...DOVECOTE_USERS_TAB_ROWS],
+    dataSource: "fixture",
+  });
+  assert(fixtureReport.rowCount === 3, "runtime: fixture Users tab has three data rows");
+  assert(
+    fixtureReport.targetEmailScan.find((item) => item.email === "7oakcottages@gmail.com")?.found === true,
+    "runtime: fixture finds Sophie email in Email column",
+  );
+  assert(
+    fixtureReport.targetEmailScan.find((item) => item.email === "dovecotestudio@icloud.com")?.found === true,
+    "runtime: fixture finds Edward email in Email column",
+  );
+  assert(assertUsersTabDiagnosticPayloadSafe(fixtureReport), "runtime: diagnostic report excludes secrets");
+  const fixtureSerialized = JSON.stringify(fixtureReport);
+  assert(fixtureSerialized.includes('"PasswordHash"'), "runtime: diagnostic report lists PasswordHash header name");
+  assert(!/"PasswordHash"\s*:\s*"scrypt/.test(fixtureSerialized), "runtime: diagnostic report never includes hash values");
+  assert(!fixtureSerialized.includes("scrypt$"), "runtime: diagnostic report never includes scrypt hash values");
+
+  const prevEnable = process.env.ENABLE_USERS_TAB_DIAGNOSTICS;
+  const prevSecret = process.env.BERT_DIAGNOSTICS_SECRET;
+  delete process.env.ENABLE_USERS_TAB_DIAGNOSTICS;
+  delete process.env.BERT_DIAGNOSTICS_SECRET;
+  assert(!isUsersTabDiagnosticsEnabled(), "runtime: diagnostic route disabled without env flag");
+  assert(!usersTabDiagnosticsSecretConfigured(), "runtime: diagnostic route disabled without secret");
+  process.env.ENABLE_USERS_TAB_DIAGNOSTICS = "true";
+  process.env.BERT_DIAGNOSTICS_SECRET = "verify-secret";
+  assert(isUsersTabDiagnosticsEnabled(), "runtime: diagnostic route enabled with env flag");
+  assert(usersTabDiagnosticsSecretConfigured(), "runtime: diagnostic secret configured");
+  if (prevEnable === undefined) {
+    delete process.env.ENABLE_USERS_TAB_DIAGNOSTICS;
+  } else {
+    process.env.ENABLE_USERS_TAB_DIAGNOSTICS = prevEnable;
+  }
+  if (prevSecret === undefined) {
+    delete process.env.BERT_DIAGNOSTICS_SECRET;
+  } else {
+    process.env.BERT_DIAGNOSTICS_SECRET = prevSecret;
+  }
 } finally {
   fs.rmSync(sessionDir, { recursive: true, force: true });
 }

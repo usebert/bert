@@ -6,7 +6,13 @@ import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
 import { google } from "googleapis";
 import nodemailer from "nodemailer";
-import { bertCorsMiddleware } from "./bert-cors.mjs";
+import {
+  assertUsersTabDiagnosticPayloadSafe,
+  isUsersTabDiagnosticsEnabled,
+  readLiveUsersTabDiagnosticReport,
+  scanUsersTabRowsForEmails,
+  usersTabDiagnosticsSecretConfigured,
+} from "./dovecote-users-tab-diagnostics.mjs";
 import {
   handleSeedMasterRequest,
   hashPassword,
@@ -6696,6 +6702,20 @@ function requireBertToolSecret(req, res, next) {
   return next();
 }
 
+/** TODO(remove): temporary gated Users-tab diagnostic for Dovecote login investigation. */
+function requireUsersTabDiagnosticsAccess(req, res, next) {
+  if (!isUsersTabDiagnosticsEnabled() || !usersTabDiagnosticsSecretConfigured()) {
+    return res.status(404).json({ ok: false, error: "Not found." });
+  }
+  const secret = String(process.env.BERT_DIAGNOSTICS_SECRET || "").trim();
+  const querySecret = String(req.query.secret || "").trim();
+  const headerSecret = String(req.headers["x-bert-diagnostics-secret"] || "").trim();
+  if (querySecret !== secret && headerSecret !== secret) {
+    return res.status(403).json({ ok: false, error: "Forbidden." });
+  }
+  return next();
+}
+
 /** Bootstrap Master operator on hosted API when shell access is unavailable (e.g. Render free tier). */
 app.post("/api/tools/seed-master", requireBertToolSecret, async (req, res) => {
   try {
@@ -6730,6 +6750,35 @@ app.post("/api/tools/migrate-users-tab", requireBertToolSecret, requireGoogleWor
     return res.status(500).json({ ok: false, error: "Users tab migration failed." });
   }
 });
+
+/** TODO(remove): temporary live Users-tab diagnostic — env flag + secret required; safe fields only. */
+app.get(
+  "/api/diagnostics/dovecote-users-tab",
+  requireUsersTabDiagnosticsAccess,
+  requireGoogleWorkspaceSession,
+  async (req, res) => {
+    try {
+      const auth = getAuthedClient();
+      const masterSheetId = String(
+        req.query.masterSheetId || process.env.BERT_DOVECOTE_MASTER_SHEET_ID || "",
+      ).trim();
+      if (!masterSheetId) {
+        return res.status(400).json({ ok: false, error: "masterSheetId is required." });
+      }
+      const report = await readLiveUsersTabDiagnosticReport(auth, masterSheetId, getCompanyUsersDeps());
+      if (!assertUsersTabDiagnosticPayloadSafe(report)) {
+        return res.status(500).json({ ok: false, error: "Diagnostic payload failed safety check." });
+      }
+      return res.json(report);
+    } catch (error) {
+      console.error("[diagnostics] dovecote-users-tab failed:", error);
+      return res.status(500).json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Unable to read Users tab diagnostic.",
+      });
+    }
+  },
+);
 
 app.post(
   "/api/godmode/rebuild-auth-index",

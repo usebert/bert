@@ -14,6 +14,11 @@ import {
   collectUsersTabLoginDiagnostics,
 } from "./company-users.mjs";
 import {
+  DOVECOTE_USERS_TAB_TARGET_EMAILS,
+  summarizeUsersTabEmailScanForLoginLog,
+  scanUsersTabRowsForEmails,
+} from "./dovecote-users-tab-diagnostics.mjs";
+import {
   pickRowCompanyFolderId,
   pickRowCompanyId,
   pickRowCompanyName,
@@ -498,9 +503,34 @@ async function logLoginUsersTabDiagnostics(auth, userDeps, email, attempts = [],
   const diagnostics = [];
   for (const masterSheetId of sheetIds) {
     const usersTab = await collectUsersTabLoginDiagnostics(auth, masterSheetId, email, userDeps).catch(() => null);
-    if (usersTab) {
-      diagnostics.push(usersTab);
+    if (!usersTab) {
+      continue;
     }
+    let liveEmailScan = null;
+    let probeEmailScan = null;
+    if (typeof userDeps.getTabValues === "function" && usersTab.usersTabTitle) {
+      const rows = await userDeps
+        .getTabValues(auth, masterSheetId, usersTab.usersTabTitle)
+        .catch(() => []);
+      if (rows.length) {
+        liveEmailScan = summarizeUsersTabEmailScanForLoginLog(rows, email);
+        const headers = (rows[0] || []).map((cell) => String(cell || "").trim());
+        const dataRows = rows.slice(1).filter((row) => row.some((cell) => String(cell || "").trim()));
+        probeEmailScan = scanUsersTabRowsForEmails(headers, dataRows, DOVECOTE_USERS_TAB_TARGET_EMAILS);
+      }
+    }
+    diagnostics.push({
+      ...usersTab,
+      ...(liveEmailScan
+        ? {
+            liveHeaders: liveEmailScan.headers,
+            liveRowCount: liveEmailScan.rowCount,
+            targetEmailColumnHits: liveEmailScan.targetEmailScan.hits,
+            targetEmailFoundAnywhere: liveEmailScan.targetEmailScan.found,
+          }
+        : {}),
+      ...(probeEmailScan ? { probeEmailScan } : {}),
+    });
   }
   const payload = {
     email: normalizeUserAuthEmail(email) || "(missing)",
@@ -508,6 +538,7 @@ async function logLoginUsersTabDiagnostics(auth, userDeps, email, attempts = [],
     resolvedCompanyFolderIds: [...folderIds],
     usersTabLookups: diagnostics,
   };
+  // TODO(remove): temporary USER_NOT_FOUND investigation — safe fields only.
   console.warn("[company-auth] users tab login diagnostics", payload);
   return payload;
 }
