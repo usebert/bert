@@ -78,6 +78,12 @@ assert(review.includes("Submitting…"), "3c: review UI shows submitting state")
 assert(review.includes("submitError"), "3d: review UI shows submit error");
 assert(appTsx.includes("checkSubmitState"), "3e: App tracks check submit state");
 assert(appTsx.includes("setAuditCompletionSummary"), "3f: success summary after completion");
+assert(
+  /screen === "complete"[\s\S]{0,120}usesAssignedChecksCompletionFlow\(currentUser\.role\)[\s\S]{0,120}auditCompletionSummary &&/.test(
+    appTsx,
+  ),
+  "3g: success summary renders without active audit",
+);
 
 /** 4: Session-scoped company folder on submit body (no authoritative client query params). */
 assert(!checkService.includes('params.set("companyFolderId"'), "4: client does not send company query params for complete");

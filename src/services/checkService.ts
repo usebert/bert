@@ -67,6 +67,7 @@ export const ASSIGNED_CHECKS_LOAD_TIMEOUT_MESSAGE =
 export const CHECK_COMPLETION_TIMEOUT_MS = 90_000;
 export const CHECK_COMPLETION_SUBMITTING_MESSAGE = "Submitting your check…";
 export const CHECK_COMPLETION_USER_MESSAGE = "Could not submit this check.";
+export const CHECK_COMPLETION_SUCCESS_MESSAGE = "Check submitted successfully.";
 export const CHECK_COMPLETION_TIMEOUT_MESSAGE =
   "Submitting your check timed out before the server finished saving. Try again — if it keeps failing, ask your operator to check the BERT Master Sheet.";
 export const CHECK_COMPLETION_NOT_ASSIGNED_MESSAGE = "This check is not assigned to your account.";
@@ -260,7 +261,7 @@ export async function completeCheck(
     },
   );
 
-  const payload = (await response.json()) as {
+  let payload: {
     ok?: boolean;
     resultId?: string;
     scheduleId?: string;
@@ -268,7 +269,21 @@ export async function completeCheck(
     reasonCode?: string;
     error?: string;
     message?: string;
-  };
+  } = {};
+  try {
+    payload = (await response.json()) as typeof payload;
+  } catch {
+    if (response.ok) {
+      return {
+        ok: true,
+        scheduleId,
+      };
+    }
+    return {
+      ok: false,
+      error: CHECK_COMPLETION_USER_MESSAGE,
+    };
+  }
 
   if (!response.ok || payload.ok === false) {
     return {
@@ -279,10 +294,13 @@ export async function completeCheck(
     };
   }
 
+  const resultId = String(payload.resultId || "").trim() || undefined;
+  const resolvedScheduleId = String(payload.scheduleId || scheduleId).trim() || scheduleId;
+
   return {
     ok: true,
-    resultId: payload.resultId,
-    scheduleId: payload.scheduleId || scheduleId,
+    resultId,
+    scheduleId: resolvedScheduleId,
   };
 }
 

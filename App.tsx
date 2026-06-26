@@ -10953,35 +10953,41 @@ function App() {
           issues: issuesFound,
           syncTone: "green",
           syncLabel: result.resultId
-            ? `Check saved to AuditResults (${result.resultId}).`
-            : "Check saved to AuditResults.",
+            ? `Check submitted successfully (${result.resultId}).`
+            : "Check submitted successfully.",
           resultId: result.resultId,
         });
-        if (assignedContext && result.resultId) {
+        if (assignedContext) {
           const completedAtIso = new Date().toISOString();
+          const resolvedResultId = String(result.resultId || "").trim();
+          const resolvedScheduleId = String(result.scheduleId || assignedContext.scheduleId || "").trim();
           setCompanyResultsState((previous) => ({
             ...previous,
             results: [
-              {
-                resultId: result.resultId || "",
-                scheduleId: assignedContext.scheduleId,
-                auditId: activeAudit.id,
-                auditName: activeAudit.name,
-                completedAt: completedAtIso,
-                completedByEmail: String(currentUser.username || "").includes("@")
-                  ? currentUser.username.toLowerCase()
-                  : `${currentUser.username}@usebert.co.uk`.toLowerCase(),
-                completedByName: currentUser.name,
-                status: "completed",
-                companyFolderId: assignedContext.companyFolderId,
-              },
+              ...(resolvedResultId
+                ? [
+                    {
+                      resultId: resolvedResultId,
+                      scheduleId: resolvedScheduleId,
+                      auditId: activeAudit.id,
+                      auditName: activeAudit.name,
+                      completedAt: completedAtIso,
+                      completedByEmail: String(currentUser.username || "").includes("@")
+                        ? currentUser.username.toLowerCase()
+                        : `${currentUser.username}@usebert.co.uk`.toLowerCase(),
+                      completedByName: currentUser.name,
+                      status: "completed",
+                      companyFolderId: assignedContext.companyFolderId,
+                    },
+                  ]
+                : []),
               ...previous.results,
             ],
           }));
           setAssignedChecksState((previous) => ({
             ...previous,
             schedules: previous.schedules.map((schedule) => {
-              if (schedule.id !== assignedContext.scheduleId) {
+              if (schedule.id !== resolvedScheduleId) {
                 return schedule;
               }
               return {
@@ -16160,7 +16166,7 @@ function App() {
               />
             )}
 
-            {screen === "complete" && activeAudit && usesAssignedChecksCompletionFlow(currentUser.role) && auditCompletionSummary && (
+            {screen === "complete" && usesAssignedChecksCompletionFlow(currentUser.role) && auditCompletionSummary && (
               <AnimatedScreen screenKey={`audit-summary-${auditCompletionSummary.auditId}`}>
               <AuditCompletionSummary
                 offlineQueueCount={offlineQueue.length}
