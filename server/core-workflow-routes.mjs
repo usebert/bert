@@ -20,6 +20,7 @@ import {
   sanitizeGoogleSpreadsheetId,
 } from "../shared/google-drive-id.mjs";
 import { readTabRecords } from "./workbook-service.mjs";
+import { logPerfPhase } from "./perf-timing.mjs";
 import {
   canListCompanySchedules,
   getCompanySchedule,
@@ -586,6 +587,7 @@ export function installCoreWorkflowRoutes(app, deps) {
   });
 
   app.get("/api/me/assigned-checks", async (req, res) => {
+    const routeStartedAt = Date.now();
     const authed = getAuthedClient();
     if (!envConfigured() || !authed) {
       return res.status(401).json({
@@ -665,6 +667,12 @@ export function installCoreWorkflowRoutes(app, deps) {
         });
       }
 
+      logPerfPhase("my-checks-route", "route_complete", routeStartedAt, {
+        companyId: result.companyFolderId || companyFolderId,
+        userEmail: signedInEmail,
+        scheduleCount: Array.isArray(result.schedules) ? result.schedules.length : 0,
+      });
+
       return res.json({
         ok: true,
         companyId: result.companyId,
@@ -673,8 +681,16 @@ export function installCoreWorkflowRoutes(app, deps) {
         masterSheetId: result.masterSheetId,
         schedules: result.schedules,
         ...(includeDiagnostics && result.diagnostics ? { diagnostics: result.diagnostics } : {}),
+        timingMs: {
+          total: Date.now() - routeStartedAt,
+          ...(result.timing || result.diagnostics?.timing || {}),
+        },
       });
     } catch (error) {
+      logPerfPhase("my-checks-route", "route_error", routeStartedAt, {
+        companyId: companyFolderId,
+        userEmail: signedInEmail,
+      });
       return res.status(500).json({
         ok: false,
         code: "ASSIGNED_CHECKS_LOAD_FAILED",
@@ -1247,6 +1263,13 @@ export function installCoreWorkflowRoutes(app, deps) {
         });
       }
 
+      logPerfPhase("complete-check", "route_complete", routeStartedAt, {
+        companyId: companyFolderId,
+        scheduleId,
+        userEmail: email.toLowerCase(),
+        ok: true,
+      });
+
       return respondJson(200, {
         ok: true,
         resultId: result.resultId,
@@ -1255,6 +1278,7 @@ export function installCoreWorkflowRoutes(app, deps) {
         companyFolderId: result.companyFolderId,
         masterSheetId: result.masterSheetId,
         written: result.written,
+        timingMs: result.timingMs,
       });
     } catch (error) {
       clearTimeout(routeTimeout);

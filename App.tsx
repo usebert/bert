@@ -11009,8 +11009,17 @@ function App() {
             }),
           }));
         }
+        const postSubmitRefreshStarted = performance.now();
         void fetchAssignedChecks()
           .then((refresh) => {
+            if (typeof console !== "undefined" && typeof console.info === "function") {
+              console.info("[post-submit-refresh]", {
+                phase: "assigned_checks_reload",
+                durationMs: Math.round(performance.now() - postSubmitRefreshStarted),
+                ok: refresh.ok,
+                scheduleCount: Array.isArray(refresh.schedules) ? refresh.schedules.length : 0,
+              });
+            }
             if (!refresh.ok) {
               return;
             }

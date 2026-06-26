@@ -30,7 +30,9 @@ function performCompanyLoginBody(source) {
 }
 
 const appTsx = read("App.tsx");
+const authClient = read("src/services/authService.ts");
 const authService = read("server/auth-service.mjs");
+const userAuth = read("server/user-auth-service.mjs");
 const authIndex = read("server/auth-index.mjs");
 const serverMain = read("server/server.mjs");
 const pkg = JSON.parse(read("package.json"));
@@ -59,9 +61,9 @@ assert(!companyLoginBlock.includes("ensureCompanyLiveIfReady"), "company login r
 assert(companyLoginBlock.includes("authIndex: authIndexApi"), "company login route uses auth index");
 assert(!companyLoginBlock.includes("probeCompanyLoginSheet"), "company login route does not probe Users tab");
 
-assert(loginFn.includes("auth_index_lookup"), "performCompanyLogin uses auth index lookup");
-assert(loginFn.includes("authIndex.lookupByEmail"), "performCompanyLogin uses auth index lookup");
-assert(loginFn.includes("reconcileLoginEntryFromUsersTab"), "performCompanyLogin reconciles stale index from Users tab");
+assert(loginFn.includes("authenticateCompanyUserLogin"), "performCompanyLogin delegates to Users tab auth");
+assert(loginFn.includes("users_tab_auth"), "performCompanyLogin records users_tab_auth timing");
+assert(loginFn.includes("persistLoginAuthIndexEntry"), "performCompanyLogin upserts verified auth index entry");
 assert(!loginFn.includes("probeCompanyLoginSheet"), "performCompanyLogin does not probe sheet");
 assert(!loginFn.includes("resolveCompanyContextForUser"), "performCompanyLogin does not scan companies");
 assert(!loginFn.includes("resolveCompanyContextFromLoginWorkbook"), "performCompanyLogin does not resolve workbook");
@@ -74,9 +76,19 @@ assert(!loginFn.includes("readCompanyUsersTabRecord"), "performCompanyLogin read
 assert(loginFn.includes("[login] start"), "performCompanyLogin logs start");
 assert(loginFn.includes("background_jobs_queued"), "performCompanyLogin queues background jobs marker");
 
+const userAuthLoginFn = userAuth.slice(
+  userAuth.indexOf("export async function authenticateCompanyUserLogin"),
+  userAuth.indexOf("export async function attemptUsersTabPasswordLogin"),
+);
+assert(
+  !userAuthLoginFn.includes("await rebuildAuthIndexFromUsersTab"),
+  "performCompanyLogin auth path does not await full Users tab rebuild",
+);
+assert(userAuthLoginFn.includes("upsertAuthIndexFromVerifiedLoginRow"), "login auth uses fast index upsert");
+
 assert(appTsx.includes("tryServerMasterLogin") && appTsx.includes("tryServerCompanyLogin"), "client uses direct auth endpoints");
 assert(appTsx.includes("fetchAppSession"), "client bootstrap uses unified fetchAppSession");
-assert(appTsx.includes("/api/session"), "session restore uses GET /api/session");
+assert(authClient.includes('/api/session"'), "session restore uses GET /api/session");
 assert(!/auth-session-bootstrap[\s\S]{0,1200}\/api\/health/.test(appTsx), "session bootstrap does not call /api/health");
 
 function fnBody(source, fnName) {

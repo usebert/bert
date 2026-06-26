@@ -1003,5 +1003,6 @@ export { performMasterLogin as platformLogin, performCompanyLogin as companyLogi
 export {
   authenticateCompanyUserLogin,
   rebuildAuthIndexFromUsersTab,
+  upsertAuthIndexFromVerifiedLoginRow,
   verifyPassword,
 } from "./user-auth-service.mjs";

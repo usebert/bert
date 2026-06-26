@@ -442,6 +442,7 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
     startedAt,
   });
   logCheckCompletePhase("validate_answers_end", { ...traceMeta, durationMs: Date.now() - validateStart });
+  const validateMs = Date.now() - validateStart;
   if (!eligibility.ok) {
     logCheckCompletePhase("response_sent", { ...traceMeta, ok: false, code: eligibility.code });
     return eligibility;
@@ -498,6 +499,7 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
       row,
     );
     logCheckCompletePhase("write_audit_results_end", { ...traceMeta, durationMs: Date.now() - writeStart });
+    const writeAuditResultsMs = Date.now() - writeStart;
     logCheckCompletePhase("update_schedule_status_end", {
       ...traceMeta,
       skipped: true,
@@ -512,6 +514,11 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
       masterSheetId: eligibility.masterSheetId,
       scheduleId: row["Schedule ID"],
       written,
+      timingMs: {
+        total: Date.now() - startedAt,
+        validateMs,
+        writeAuditResultsMs,
+      },
     };
   } catch (error) {
     logCheckCompletePhase("catch_error", {

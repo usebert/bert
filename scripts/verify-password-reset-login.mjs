@@ -63,7 +63,12 @@ assert(!resetModule.includes("setCompanyUserPasswordHash("), "3b: reset no longe
 assert(loginFn.includes("authenticateCompanyUserLogin"), "4a: login uses authenticateCompanyUserLogin");
 assert(loginFn.includes("users_tab_auth"), "4b: login authenticates via Users tab path");
 assert(!loginFn.includes("verifyPasswordForEntry(passwordEntry"), "4c: login does not verify auth-index password first");
-assert(userAuth.includes("rebuildAuthIndexFromUsersTab"), "4d: auth index rebuilt from Users tab after login");
+assert(userAuth.includes("rebuildAuthIndexFromUsersTab"), "4d: auth index rebuild helper available for background/reset flows");
+assert(userAuth.includes("upsertAuthIndexFromVerifiedLoginRow"), "4e: login uses fast auth index upsert");
+assert(
+  !/authenticateCompanyUserLogin[\s\S]{0,5000}await rebuildAuthIndexFromUsersTab/.test(userAuth),
+  "4f: login hot path does not await full Users tab rebuild",
+);
 
 assert(authIndex.includes("indexHash !== rowHash"), "5: auth index detects stale password hash");
 

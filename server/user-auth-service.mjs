@@ -28,6 +28,7 @@ import { isKnownStaleAuthIndexPairing } from "../shared/auth-index-trust.mjs";
 import { isCompanyRegistryLive } from "../shared/company-invite-permissions.mjs";
 import { resolveCompanyFromFolder } from "./company-service.mjs";
 import { readCanonicalCompanyWorkspaceRegistryMap } from "./company-workspace-registry.mjs";
+import { createPerfTimer } from "./perf-timing.mjs";
 
 const LIGHT_RESOLVE_OPTS = {
   ensureTabsSync: false,
@@ -302,6 +303,35 @@ export async function rebuildAuthIndexFromUsersTab(auth, deps, companyContext, a
     }
   }
   return rebuilt;
+}
+
+/** Fast login path — upsert verified Users tab row only; full rebuild runs in background jobs. */
+export function upsertAuthIndexFromVerifiedLoginRow(authIndex, row, companyContext, email = "") {
+  if (!authIndex || typeof authIndex.upsertEntry !== "function") {
+    return null;
+  }
+  const emailNorm = normalizeUserAuthEmail(email || row?.email);
+  if (!emailNorm) {
+    return null;
+  }
+  const ctx = resolveUserAuthCompanyContext(companyContext);
+  const indexEntry =
+    typeof authIndex.entryFromUsersTabRow === "function"
+      ? authIndex.entryFromUsersTabRow(
+          {
+            ...row,
+            email: emailNorm,
+            roleRaw: row?.role,
+            rowObject: row?.rowObject,
+          },
+          ctx,
+        )
+      : null;
+  if (!indexEntry?.passwordHash) {
+    return null;
+  }
+  authIndex.upsertEntry(indexEntry);
+  return indexEntry;
 }
 
 export async function verifyUserPasswordFromUsersTab(auth, companyContext, email, plainPassword, deps) {
@@ -624,6 +654,7 @@ async function companyContextFromSheetHint(auth, deps, masterSheetId, email, use
  * Auth index and invite hints only narrow which workbook/folder to read; never authenticate alone.
  */
 export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) {
+  const perf = createPerfTimer("users-tab-auth", { email: normalizeUserAuthEmail(input.email) });
   const email = normalizeUserAuthEmail(input.email);
   const password = String(input.password || "");
   if (!auth || !email || !password) {
@@ -723,17 +754,18 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
     };
 
     if (deps.authIndex) {
-      await rebuildAuthIndexFromUsersTab(auth, deps, companyContext, deps.authIndex, email).catch(() => null);
-      const indexed = deps.authIndex.lookupByEmail?.(email);
+      const indexed = upsertAuthIndexFromVerifiedLoginRow(deps.authIndex, row, companyContext, email);
       if (indexed) {
         entry.name = indexed.name || entry.name;
         entry.role = indexed.role || entry.role;
         entry.accessLevel = indexed.accessLevel || entry.accessLevel;
         entry.companyAreas = indexed.companyAreas?.length ? indexed.companyAreas : entry.companyAreas;
         entry.companyName = indexed.companyName || entry.companyName;
+        entry.passwordHash = indexed.passwordHash || entry.passwordHash;
       }
     }
 
+    perf.finish({ ok: true, attemptCount: attempts.length });
     return { ok: true, email, row, companyContext, entry };
   }
 
@@ -769,8 +801,9 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
             : [],
       };
       if (deps.authIndex) {
-        await rebuildAuthIndexFromUsersTab(auth, deps, companyContext, deps.authIndex, email).catch(() => null);
+        upsertAuthIndexFromVerifiedLoginRow(deps.authIndex, row, companyContext, email);
       }
+      perf.finish({ ok: true, attemptCount: attempts.length, via: "registry_fallback" });
       return { ok: true, email, row, companyContext, entry };
     }
     if (verifyResult.reason === "inactive") {
@@ -803,6 +836,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
   }
 
   if (!attempts.length && !registryContext?.masterSheetId) {
+    perf.finish({ ok: false, reason: "no_login_candidates" });
     return buildLoginAuthFailure({
       email,
       authFailureReason: AUTH_FAILURE_REASON.NO_LOGIN_CANDIDATES,
@@ -811,6 +845,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
     });
   }
 
+  perf.finish({ ok: false, attemptCount: attempts.length, authFailureReason: lastAuthFailureReason });
   return buildLoginAuthFailure({
     email,
     authFailureReason: lastAuthFailureReason,

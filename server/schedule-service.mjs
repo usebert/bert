@@ -27,6 +27,7 @@ import {
 import { enrichAssignedSchedulesWithCompletion } from "../shared/assigned-check-completion.mjs";
 import { getScheduleAssignedEmails, isScheduleAssignedToUser } from "../shared/schedule-assignment.mjs";
 import { listAuditResults } from "./completion-service.mjs";
+import { logPerfPhase } from "./perf-timing.mjs";
 import { buildAvailableScheduleAssigneesFromUsers } from "../shared/schedule-assignees.mjs";
 import { readActiveUsersFromSheetWithStats } from "./company-user-sheet-flow.mjs";
 import { syncCompanyUsersCache } from "./company-users-foundation.mjs";
@@ -621,14 +622,19 @@ export async function readSchedulesFromTab(auth, deps, input = {}) {
       migratedFromLegacy: migrated,
       contextSource: context.contextSource,
       loadDiagnostics: loaded.loadDiagnostics,
-    };
-    if (includeTiming) {
-      result.timing = {
+      timing: {
         resolveContextMs,
         readSchedulesMs,
         totalMs: Date.now() - totalStart,
-      };
-    }
+      },
+    };
+    logPerfPhase("schedules-read", "read_complete", totalStart, {
+      companyId: context.companyFolderId,
+      readSchedulesMs,
+      resolveContextMs,
+      scheduleCount: schedules.length,
+      sourceTab: result.sourceTab,
+    });
     return result;
   } catch (error) {
     const technicalError = error instanceof Error ? error.message : String(error);
@@ -1064,6 +1070,24 @@ export async function listMyChecks(auth, deps, input = {}) {
   }
   const auditResultsMs = Date.now() - completionStart;
 
+  const timing = {
+    resolveContextMs: Number(listed.timing?.resolveContextMs) || 0,
+    readSchedulesMs: Number(listed.timing?.readSchedulesMs) || 0,
+    filterSchedulesMs,
+    auditResultsMs,
+    templateHydrationMs: 0,
+    totalMs: Date.now() - totalStart,
+  };
+  logPerfPhase("assigned-checks", "load_complete", totalStart, {
+    companyId: companyFolderId,
+    userEmail: email,
+    includedCount: schedules.length,
+    totalListed: (listed.schedules || []).length,
+    resolveContextMs: timing.resolveContextMs,
+    readSchedulesMs: timing.readSchedulesMs,
+    auditResultsMs: timing.auditResultsMs,
+  });
+
   const result = {
     ok: true,
     companyId: listed.companyId,
@@ -1071,6 +1095,7 @@ export async function listMyChecks(auth, deps, input = {}) {
     companyName: listed.companyName,
     masterSheetId: listed.masterSheetId,
     schedules: enrichedSchedules,
+    timing,
   };
 
   if (includeDiagnostics) {
@@ -1104,14 +1129,7 @@ export async function listMyChecks(auth, deps, input = {}) {
         lifecycle: schedule.lifecycle,
         companyFolderId: String(schedule.companyFolderId || schedule.companyId || "").trim(),
       })),
-      timing: {
-        resolveContextMs,
-        readSchedulesMs,
-        filterSchedulesMs,
-        auditResultsMs,
-        templateHydrationMs: 0,
-        totalMs: Date.now() - totalStart,
-      },
+      timing,
     };
   }
 
