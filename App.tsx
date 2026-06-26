@@ -79,9 +79,10 @@ import { slatePrimaryCtaInteract } from "./src/styles/interactions";
 import { OfflineSyncBanner } from "./src/components/animation/OfflineSyncBanner";
 import { AnimatedScreen } from "./src/components/animation/AnimatedScreen";
 import { AnimatedButton } from "./src/components/animation/AnimatedButton";
-import { SubmitResultBanner } from "./src/components/animation/SubmitResultBanner";
+import { SuccessTick } from "./src/components/animation/SuccessTick";
+import { bertEvidencePanel, bertSubmitSuccess } from "./src/components/animation/animationClasses";
+import { usePrefersReducedMotion } from "./src/components/animation/usePrefersReducedMotion";
 import { StatusPulse, type SyncVisualState } from "./src/components/animation/StatusPulse";
-import { bertEvidencePanel } from "./src/components/animation/animationClasses";
 import { getGreetingFirstName, getTimeBasedGreeting, getUserInitials } from "./src/utils/userDisplay";
 import { isDebugUiAllowed } from "./src/utils/debugUiVisibility";
 import { AccountIdentitySummary } from "./src/components/AccountIdentitySummary";
@@ -357,6 +358,7 @@ import {
   ASSIGNED_CHECKS_LOAD_TIMEOUT_MESSAGE,
   ASSIGNED_CHECKS_LOAD_TIMEOUT_MS,
   ASSIGNED_CHECKS_USER_MESSAGE,
+  CHECK_COMPLETION_SUCCESS_MESSAGE,
   CHECK_COMPLETION_TIMEOUT_MESSAGE,
   CHECK_COMPLETION_TIMEOUT_MS,
   CHECK_COMPLETION_USER_MESSAGE,
@@ -10839,6 +10841,7 @@ function App() {
       setActiveAssignedCheck(null);
       setCheckSubmitState({ submitting: false });
       setTextResponses({});
+      setScreen("complete");
     };
 
     if (offlineMode) {
@@ -10951,9 +10954,7 @@ function App() {
         finishCompletionSummary({
           issues: issuesFound,
           syncTone: "green",
-          syncLabel: result.resultId
-            ? `Check submitted successfully (${result.resultId}).`
-            : "Check submitted successfully.",
+          syncLabel: CHECK_COMPLETION_SUCCESS_MESSAGE,
           resultId: result.resultId,
         });
         if (assignedContext) {
@@ -14033,7 +14034,10 @@ function App() {
       currentUser &&
       screen === "complete" &&
       !activeAudit &&
-      !(canCompleteAuditAsAuditor(currentUser.role) && auditCompletionSummary)
+      !(
+        auditCompletionSummary &&
+        (usesAssignedChecksCompletionFlow(currentUser.role) || canCompleteAuditAsAuditor(currentUser.role))
+      )
     ) {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
@@ -16511,34 +16515,60 @@ function AuditCompletionSummary({
   onStartNext: () => void;
   onReturnDashboard: () => void;
 }) {
+  const reducedMotion = usePrefersReducedMotion();
   const submittedOnline = summary.syncTone === "green";
+  const successMessage = submittedOnline ? CHECK_COMPLETION_SUCCESS_MESSAGE : summary.syncLabel;
   return (
     <div className="space-y-4">
-      <SubmitResultBanner
-        online={submittedOnline}
-        title={summary.auditName}
-        subtitle={summary.syncLabel}
-        queuedCount={offlineQueueCount}
-      />
-      <section className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-[0_16px_30px_rgba(15,23,42,0.06)]">
-        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Audit complete</p>
-        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{summary.auditName}</h2>
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
-          <MiniMetric label="Answered" value={String(summary.questionsAnswered)} />
-          <MiniMetric label="Issues" value={String(summary.issuesFound)} />
-          <MiniMetric label="Actions" value={String(summary.actionsCreated)} />
-          <MiniMetric label="Photos" value={String(summary.photosCaptured)} />
-          <MiniMetric label="Sync status" value={summary.syncLabel} />
+      <div
+        className={[
+          "flex items-start gap-3 rounded-2xl border px-4 py-4",
+          submittedOnline ? "border-emerald-200 bg-emerald-50/80" : "border-amber-200 bg-amber-50/90",
+          reducedMotion ? "" : bertSubmitSuccess,
+        ].join(" ")}
+        role="status"
+        aria-live="polite"
+      >
+        {submittedOnline ? (
+          <SuccessTick className="h-11 w-11 text-base" label="Submitted" />
+        ) : (
+          <StatusPulse
+            state={offlineQueueCount > 0 ? "waiting" : "synced"}
+            label={offlineQueueCount > 0 ? `${offlineQueueCount} waiting to sync` : "Saved on tablet"}
+            className="shrink-0"
+          />
+        )}
+        <div className="min-w-0">
+          <p className="text-base font-bold tracking-tight text-slate-900">{successMessage}</p>
+          {summary.auditName ? (
+            <p className="mt-1 text-sm font-semibold text-slate-800">{summary.auditName}</p>
+          ) : null}
+          {!submittedOnline && offlineQueueCount > 0 ? (
+            <p className="mt-2 text-xs font-semibold text-amber-900">
+              {offlineQueueCount} check{offlineQueueCount === 1 ? "" : "s"} queued — will sync when online
+            </p>
+          ) : null}
         </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <AnimatedButton type="button" showArrow onClick={onStartNext} className={`h-12 rounded-2xl bg-slate-900 px-5 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}>
-            {hasMoreAudits ? "Start next audit" : "All audits complete"}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <AnimatedButton
+          type="button"
+          showArrow
+          onClick={onReturnDashboard}
+          className={`h-12 rounded-2xl bg-slate-900 px-5 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}
+        >
+          Back to Things to do
+        </AnimatedButton>
+        {hasMoreAudits ? (
+          <AnimatedButton
+            type="button"
+            onClick={onStartNext}
+            className="h-12 rounded-2xl border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700"
+          >
+            Start next check
           </AnimatedButton>
-          <AnimatedButton type="button" onClick={onReturnDashboard} className="h-12 rounded-2xl border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700">
-            Return to dashboard
-          </AnimatedButton>
-        </div>
-      </section>
+        ) : null}
+      </div>
     </div>
   );
 }

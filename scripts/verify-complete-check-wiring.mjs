@@ -86,12 +86,35 @@ assert(review.includes("Submitting…"), "3c: review UI shows submitting state")
 assert(review.includes("submitError"), "3d: review UI shows submit error");
 assert(appTsx.includes("checkSubmitState"), "3e: App tracks check submit state");
 assert(appTsx.includes("setAuditCompletionSummary"), "3f: success summary after completion");
+assert(checkService.includes('CHECK_COMPLETION_SUCCESS_MESSAGE = "Check submitted successfully."'), "3f1: canonical success message constant");
+assert(appTsx.includes("CHECK_COMPLETION_SUCCESS_MESSAGE"), "3f2: App uses canonical success message");
+assert(appTsx.includes("Back to Things to do"), "3f3: success panel back button label");
+assert(
+  /screen === "complete"[\s\S]{0,200}usesAssignedChecksCompletionFlow\(currentUser\.role\)[\s\S]{0,200}auditCompletionSummary &&/.test(
+    appTsx,
+  ),
+  "3g: success summary renders without active audit",
+);
+assert(
+  /screen === "complete"[\s\S]{0,200}!activeAudit[\s\S]{0,400}usesAssignedChecksCompletionFlow\(currentUser\.role\)/.test(
+    appTsx,
+  ),
+  "3g1: complete screen guard keeps success summary for assigned-check roles",
+);
+assert(
+  !/finishCompletionSummary[\s\S]{0,1200}setAuditCompletionSummary\(null\)/.test(appTsx),
+  "3g2: finishCompletionSummary does not clear completion summary",
+);
 assert(
   !/Master Sheet/i.test(
     checkService.match(/CHECK_COMPLETION_TIMEOUT_MESSAGE\s*=\s*\n?\s*"([^"]+)"/)?.[1] || "",
   ),
   "3h: completion timeout does not mention Master Sheet",
 );
+
+/** 4: Session-scoped company folder on submit body (no authoritative client query params). */
+assert(!checkService.includes('params.set("companyFolderId"'), "4: client does not send company query params for complete");
+assert(!checkService.includes("PasswordHash"), "4b: no PasswordHash in check client");
 assert(
   !/completeCheck[\s\S]{0,900}masterSheetId/.test(checkService),
   "4c: completeCheck does not send client masterSheetId",
@@ -100,15 +123,5 @@ assert(
   /respondJson\(504[\s\S]{0,400}CHECK_SUBMIT_TIMEOUT/.test(coreRoutes),
   "4d: route timeout returns CHECK_SUBMIT_TIMEOUT",
 );
-assert(
-  /screen === "complete"[\s\S]{0,120}usesAssignedChecksCompletionFlow\(currentUser\.role\)[\s\S]{0,120}auditCompletionSummary &&/.test(
-    appTsx,
-  ),
-  "3g: success summary renders without active audit",
-);
-
-/** 4: Session-scoped company folder on submit body (no authoritative client query params). */
-assert(!checkService.includes('params.set("companyFolderId"'), "4: client does not send company query params for complete");
-assert(!checkService.includes("PasswordHash"), "4b: no PasswordHash in check client");
 
 console.log(`[verify:complete-check-wiring] OK — ${caseCount} cases passed`);
