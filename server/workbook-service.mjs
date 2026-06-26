@@ -142,19 +142,28 @@ export async function ensureTabExists(auth, deps, spreadsheetId, tabName, existi
   return { added: true, workbook };
 }
 
+function headerRangeForColumnCount(columnCount) {
+  const count = Math.max(Number(columnCount) || 1, 1);
+  return `A1:${sheetEndColumnLetter(count)}1`;
+}
+
 export async function ensureTabColumns(auth, deps, spreadsheetId, tabName, expectedHeaders) {
   await ensureTabExists(auth, deps, spreadsheetId, tabName, null);
 
   const { google, withSheetsQuotaRetry } = deps;
   const lower = deps.safeLower || safeLower;
   const sheets = google.sheets({ version: "v4", auth });
-  const rows = await getTabValues(auth, deps, spreadsheetId, tabName);
-  const existingHeaders = rows[0] || [];
+  const headerRange =
+    Array.isArray(expectedHeaders) && expectedHeaders.length > 0
+      ? headerRangeForColumnCount(expectedHeaders.length)
+      : "A1:ZZ1";
+  const headerRows = await getTabValues(auth, deps, spreadsheetId, tabName, headerRange);
+  const existingHeaders = headerRows[0] || [];
   const missing = expectedHeaders.filter(
     (header) => !existingHeaders.some((existing) => lower(existing) === lower(header)),
   );
 
-  if (rows.length === 0) {
+  if (headerRows.length === 0) {
     const request = () =>
       sheets.spreadsheets.values.update({
         spreadsheetId,
@@ -174,7 +183,16 @@ export async function ensureTabColumns(auth, deps, spreadsheetId, tabName, expec
     return { addedColumns: [], headers: existingHeaders };
   }
 
-  const nextHeaders = [...existingHeaders, ...missing];
+  const rows = await getTabValues(auth, deps, spreadsheetId, tabName);
+  const currentHeaders = rows[0] || existingHeaders;
+  const stillMissing = expectedHeaders.filter(
+    (header) => !currentHeaders.some((existing) => lower(existing) === lower(header)),
+  );
+  if (stillMissing.length === 0) {
+    return { addedColumns: [], headers: currentHeaders };
+  }
+
+  const nextHeaders = [...currentHeaders, ...stillMissing];
   const remainingRows = rows.slice(1).map((row) => {
     const padded = [...row];
     while (padded.length < nextHeaders.length) {
@@ -204,7 +222,7 @@ export async function ensureTabColumns(auth, deps, spreadsheetId, tabName, expec
     await updateRequest();
   }
 
-  return { addedColumns: missing, headers: nextHeaders };
+  return { addedColumns: stillMissing, headers: nextHeaders };
 }
 
 /** @deprecated Prefer ensureTabColumns — alias for server.mjs backward compatibility. */
@@ -399,9 +417,14 @@ export async function appendTabRows(auth, deps, masterSheetId, tabName, expected
     await ensureTabColumns(auth, deps, sheetId, tab, columns);
   }
 
-  const values = await getTabValues(auth, deps, sheetId, tab);
-  const sheetHeaders = (values[0] || columns).map((header) => String(header || "").trim()).filter(Boolean);
-  const headers = sheetHeaders.length > 0 ? sheetHeaders : columns;
+  let headers = columns;
+  if (columns.length > 0) {
+    headers = columns;
+  } else {
+    const headerValues = await getTabValues(auth, deps, sheetId, tab, "A1:ZZ1");
+    const sheetHeaders = (headerValues[0] || []).map((header) => String(header || "").trim()).filter(Boolean);
+    headers = sheetHeaders;
+  }
   if (headers.length === 0) {
     throw new Error(`Tab "${tab}" has no headers.`);
   }

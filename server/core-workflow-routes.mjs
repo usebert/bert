@@ -33,12 +33,15 @@ import { BACKGROUND_SCHEDULE_SAVED_MESSAGE } from "../shared/background-jobs.mjs
 import { rejectIfCompanyFolderNotUnderCompaniesRoot } from "./company-folder-placement.mjs";
 import {
   canListCompanyAuditResults,
+  CHECK_COMPLETION_GOOGLE_TIMEOUT_MS,
+  CHECK_COMPLETION_ROUTE_TIMEOUT_MS,
   DEFAULT_RESULTS_LIST_LIMIT,
   DEFAULT_RESULTS_LIST_SINCE_DAYS,
   getAuditResult,
   listAuditResults,
   submitCompletedCheck,
 } from "./completion-service.mjs";
+import { withOperationTimeout } from "./ensure-required-tabs.mjs";
 import {
   handleCompanyGoogleFormsGet,
   handleCompanyGoogleFormsSyncPost,
@@ -1117,9 +1120,35 @@ export function installCoreWorkflowRoutes(app, deps) {
   });
 
   app.post("/api/companies/:companyId/checks/:scheduleId/complete", async (req, res) => {
+    const routeStartedAt = Date.now();
+    let responded = false;
+    const respondJson = (status, body) => {
+      if (responded) {
+        return;
+      }
+      responded = true;
+      return res.status(status).json(body);
+    };
+    const routeTimeout = setTimeout(() => {
+      console.info("[complete-check]", {
+        phase: "route_timeout",
+        companyId: String(req.params?.companyId || "").trim(),
+        scheduleId: String(req.params?.scheduleId || "").trim(),
+        elapsedMs: Date.now() - routeStartedAt,
+      });
+      respondJson(504, {
+        ok: false,
+        code: "CHECK_SUBMIT_TIMEOUT",
+        reasonCode: "REQUEST_TIMEOUT",
+        error: "Submitting your check timed out before the server finished saving.",
+        message: "Submitting your check timed out before the server finished saving.",
+      });
+    }, CHECK_COMPLETION_ROUTE_TIMEOUT_MS);
+
     const authed = getAuthedClient();
     if (!envConfigured() || !authed) {
-      return res.status(401).json({
+      clearTimeout(routeTimeout);
+      return respondJson(401, {
         ok: false,
         error: "Please connect Google before submitting a completed check.",
         message: "Could not submit completed check.",
@@ -1135,29 +1164,44 @@ export function installCoreWorkflowRoutes(app, deps) {
     ).trim();
     const email = String(actor?.email || req.body?.email || req.body?.completedByEmail || "").trim();
 
+    console.info("[complete-check]", {
+      phase: "route_entered",
+      companyId: companyFolderId,
+      scheduleId,
+      userEmail: email.toLowerCase(),
+      hasMasterSheetId: Boolean(masterSheetId),
+    });
+
     if (!scheduleId) {
-      return res.status(400).json({
+      clearTimeout(routeTimeout);
+      return respondJson(400, {
         ok: false,
         code: "SCHEDULE_ID_REQUIRED",
         error: "Schedule ID is required.",
       });
     }
     if (!email) {
-      return res.status(401).json({
+      clearTimeout(routeTimeout);
+      return respondJson(401, {
         ok: false,
         code: "AUTH_REQUIRED",
         error: "Signed-in user email is required to complete a check.",
       });
     }
 
-    const folderDenial = await rejectCompanyApiIfFolderInvalid(
-      authed,
-      { ...registryDeps, ...scheduleDeps },
-      companyFolderId,
-      String(req.body?.companyName || actor?.companyName || "").trim(),
-    );
+    const folderDenial = await withOperationTimeout(
+      rejectCompanyApiIfFolderInvalid(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        companyFolderId,
+        String(req.body?.companyName || actor?.companyName || "").trim(),
+      ),
+      "validate_company_folder_placement",
+      Math.min(CHECK_COMPLETION_GOOGLE_TIMEOUT_MS, 20_000),
+    ).catch(() => null);
     if (folderDenial) {
-      return res.status(403).json(folderDenial);
+      clearTimeout(routeTimeout);
+      return respondJson(403, folderDenial);
     }
 
     try {
@@ -1185,20 +1229,22 @@ export function installCoreWorkflowRoutes(app, deps) {
           localSubmissionId: req.body?.localSubmissionId,
           resultId: req.body?.resultId,
           completedAt: req.body?.completedAt,
+          startedAt: routeStartedAt,
         },
       );
 
+      clearTimeout(routeTimeout);
       if (!result.ok) {
-        return res.status(result.httpStatus || 400).json({
+        return respondJson(result.httpStatus || 400, {
           ok: false,
           code: result.code,
+          reasonCode: result.reasonCode,
           error: result.error,
           message: result.message || result.error,
-          technicalError: result.technicalError,
         });
       }
 
-      return res.json({
+      return respondJson(200, {
         ok: true,
         resultId: result.resultId,
         scheduleId: result.scheduleId,
@@ -1208,12 +1254,20 @@ export function installCoreWorkflowRoutes(app, deps) {
         written: result.written,
       });
     } catch (error) {
-      return res.status(500).json({
+      clearTimeout(routeTimeout);
+      const technicalError = error instanceof Error ? error.message : String(error);
+      console.error("[complete-check] route catch_error:", {
+        companyId: companyFolderId,
+        scheduleId,
+        userEmail: email.toLowerCase(),
+        elapsedMs: Date.now() - routeStartedAt,
+        error: technicalError,
+      });
+      return respondJson(500, {
         ok: false,
         code: "CHECK_SUBMIT_FAILED",
         error: "Could not submit completed check.",
         message: "Could not submit completed check.",
-        technicalError: error instanceof Error ? error.message : String(error),
       });
     }
   });

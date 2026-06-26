@@ -747,6 +747,110 @@ export async function listCompanySchedules(auth, deps, input = {}) {
   return readSchedulesFromTab(auth, deps, input);
 }
 
+async function readScheduleRecordsByScheduleId(auth, deps, masterSheetId, scheduleId) {
+  const targetId = String(scheduleId || "").trim();
+  if (!targetId) {
+    return null;
+  }
+
+  const getTabValues = resolveGetTabValues(deps);
+  const rowsToRecords = resolveRowsToRecords(deps);
+  if (!getTabValues || !rowsToRecords) {
+    return null;
+  }
+
+  const idColumnValues = await getTabValues(auth, deps, masterSheetId, SCHEDULES_TAB, "A:A");
+  const matchingSheetRows = [];
+  for (let index = 1; index < idColumnValues.length; index += 1) {
+    if (String(idColumnValues[index]?.[0] || "").trim() === targetId) {
+      matchingSheetRows.push(index + 1);
+    }
+  }
+  if (matchingSheetRows.length === 0) {
+    return [];
+  }
+
+  const headerValues = await getTabValues(auth, deps, masterSheetId, SCHEDULES_TAB, "A1:W1");
+  const minRow = Math.min(...matchingSheetRows);
+  const maxRow = Math.max(...matchingSheetRows);
+  const blockValues = await getTabValues(auth, deps, masterSheetId, SCHEDULES_TAB, `A${minRow}:W${maxRow}`);
+  const records = rowsToRecords([...(headerValues || []), ...(blockValues || [])]);
+  return records.filter((record) => {
+    const rowScheduleId = String(record["Schedule ID"] || record.ScheduleId || "").trim();
+    return rowScheduleId === targetId;
+  });
+}
+
+/** Fast schedule lookup for completion — trusts session masterSheetId, skips legacy migration. */
+export async function getCompanyScheduleForCompletion(auth, deps, input = {}) {
+  const scheduleId = String(input.scheduleId || "").trim();
+  const companyFolderId = String(input.companyFolderId || input.companyId || "").trim();
+  const masterSheetId = String(input.masterSheetId || "").trim();
+
+  const context = masterSheetId
+    ? await resolveScheduleReadContext(auth, deps, {
+        ...input,
+        companyFolderId,
+        companyId: companyFolderId,
+        masterSheetId,
+        trustSessionContext: true,
+      })
+    : await resolveCompanyScheduleContext(auth, deps, {
+        companyId: companyFolderId,
+        companyFolderId,
+        masterSheetId,
+        companyName: input.companyName,
+      });
+
+  if (!context.ok) {
+    return context;
+  }
+
+  let records = await readScheduleRecordsByScheduleId(auth, deps, context.masterSheetId, scheduleId);
+  if (records === null) {
+    const loaded = await loadCompanySchedulesFromWorkbook(auth, deps, context, {
+      canonicalOnly: true,
+    });
+    records = (loaded.records || []).filter(
+      (record) => String(record["Schedule ID"] || record.ScheduleId || "").trim() === scheduleId,
+    );
+  }
+
+  if (!records || records.length === 0) {
+    return {
+      ok: false,
+      code: "SCHEDULE_NOT_FOUND",
+      error: "Schedule not found for this company.",
+      message: "Schedule not found for this company.",
+      httpStatus: 404,
+    };
+  }
+
+  const schedules = parseCompanyScheduleListFromRecords(
+    records,
+    context.companyFolderId,
+    context.alternateIds || [],
+  );
+  const schedule = findCompanyScheduleById(schedules, scheduleId);
+  if (!schedule) {
+    return {
+      ok: false,
+      code: "SCHEDULE_NOT_FOUND",
+      error: "Schedule not found for this company.",
+      message: "Schedule not found for this company.",
+      httpStatus: 404,
+    };
+  }
+
+  return {
+    ok: true,
+    companyId: context.companyFolderId,
+    companyFolderId: context.companyFolderId,
+    masterSheetId: context.masterSheetId,
+    schedule,
+  };
+}
+
 export async function getCompanySchedule(auth, deps, input = {}) {
   const scheduleId = String(input.scheduleId || "").trim();
   const listed = await listCompanySchedules(auth, deps, input);

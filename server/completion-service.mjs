@@ -8,16 +8,70 @@ import {
   isCompanyInviteActor,
 } from "../shared/company-invite-permissions.mjs";
 import {
-  getCompanySchedule,
+  getCompanyScheduleForCompletion,
   isActiveMyCheckScheduleStatus,
   resolveCompanyScheduleContext,
   scheduleMatchesCompanyFolder,
 } from "./schedule-service.mjs";
 import {
+  withOperationTimeout,
+  DEFAULT_GOOGLE_OPERATION_TIMEOUT_MS,
+} from "./ensure-required-tabs.mjs";
+import {
   appendTabRows as workbookAppendTabRows,
   ensureTabColumns as workbookEnsureTabColumns,
   readTabRecords as workbookReadTabRecords,
 } from "./workbook-service.mjs";
+
+export const CHECK_COMPLETION_GOOGLE_TIMEOUT_MS = Math.min(
+  DEFAULT_GOOGLE_OPERATION_TIMEOUT_MS,
+  75_000,
+);
+export const CHECK_COMPLETION_ROUTE_TIMEOUT_MS = 90_000;
+
+function logCheckCompletePhase(phase, meta = {}) {
+  const { startedAt, companyId, scheduleId, userEmail, answerCount, ...rest } = meta;
+  const payload = {
+    phase,
+    companyId: trim(companyId),
+    scheduleId: trim(scheduleId),
+    userEmail: normalizeEmail(userEmail),
+    ...rest,
+  };
+  if (typeof startedAt === "number") {
+    payload.elapsedMs = Date.now() - startedAt;
+  }
+  if (typeof answerCount === "number") {
+    payload.answerCount = answerCount;
+  }
+  console.info("[complete-check]", payload);
+}
+
+function completionTimeoutError(operation, error) {
+  if (error?.code === "GOOGLE_TIMEOUT") {
+    return {
+      ok: false,
+      code: "CHECK_SUBMIT_TIMEOUT",
+      reasonCode: "GOOGLE_TIMEOUT",
+      error: "Saving your check timed out while reading or writing the company workbook.",
+      message: "Saving your check timed out while reading or writing the company workbook.",
+      httpStatus: 504,
+    };
+  }
+  const technicalError = error instanceof Error ? error.message : String(error);
+  console.error(`[complete-check] ${operation} failed:`, technicalError);
+  return {
+    ok: false,
+    code: "CHECK_SUBMIT_FAILED",
+    error: "Could not save completed check to the company workbook.",
+    message: "Could not save completed check to the company workbook.",
+    httpStatus: 502,
+  };
+}
+
+async function withCheckCompletionTimeout(promise, operation, timeoutMs = CHECK_COMPLETION_GOOGLE_TIMEOUT_MS) {
+  return withOperationTimeout(promise, operation, timeoutMs);
+}
 
 export const AUDIT_RESULTS_TAB = "AuditResults";
 
@@ -257,6 +311,8 @@ export async function verifyScheduleCompletionEligibility(auth, deps, input = {}
   const email = normalizeEmail(input.email || input.userEmail);
   const companyFolderId = trim(input.companyFolderId || input.companyId);
   const masterSheetId = trim(input.masterSheetId);
+  const startedAt = Number(input.startedAt) || Date.now();
+  const traceMeta = { startedAt, companyId: companyFolderId, scheduleId, userEmail: email };
 
   if (!scheduleId || !email || !companyFolderId) {
     return {
@@ -267,21 +323,54 @@ export async function verifyScheduleCompletionEligibility(auth, deps, input = {}
     };
   }
 
-  const context = await resolveCompanyScheduleContext(auth, deps, {
-    companyId: companyFolderId,
-    companyFolderId,
-    masterSheetId,
-  });
+  let context;
+  const resolveStart = Date.now();
+  if (masterSheetId) {
+    context = {
+      ok: true,
+      companyId: companyFolderId,
+      companyFolderId,
+      masterSheetId,
+      alternateIds: [companyFolderId],
+    };
+  } else {
+    try {
+      context = await withCheckCompletionTimeout(
+        resolveCompanyScheduleContext(auth, deps, {
+          companyId: companyFolderId,
+          companyFolderId,
+          masterSheetId,
+        }),
+        "resolve_company_schedule_context",
+      );
+    } catch (error) {
+      logCheckCompletePhase("resolve_company_error", { ...traceMeta, durationMs: Date.now() - resolveStart });
+      return completionTimeoutError("resolve_company_schedule_context", error);
+    }
+  }
+  logCheckCompletePhase("resolve_company_end", { ...traceMeta, durationMs: Date.now() - resolveStart });
   if (!context.ok) {
     return context;
   }
 
-  const scheduleResult = await getCompanySchedule(auth, deps, {
-    companyId: context.companyFolderId,
-    companyFolderId: context.companyFolderId,
-    masterSheetId: context.masterSheetId,
-    scheduleId,
-  });
+  const loadScheduleStart = Date.now();
+  logCheckCompletePhase("load_schedule_start", traceMeta);
+  let scheduleResult;
+  try {
+    scheduleResult = await withCheckCompletionTimeout(
+      getCompanyScheduleForCompletion(auth, deps, {
+        companyId: context.companyFolderId,
+        companyFolderId: context.companyFolderId,
+        masterSheetId: context.masterSheetId,
+        scheduleId,
+      }),
+      "load_schedule_for_completion",
+    );
+  } catch (error) {
+    logCheckCompletePhase("load_schedule_error", { ...traceMeta, durationMs: Date.now() - loadScheduleStart });
+    return completionTimeoutError("load_schedule_for_completion", error);
+  }
+  logCheckCompletePhase("load_schedule_end", { ...traceMeta, durationMs: Date.now() - loadScheduleStart });
   if (!scheduleResult.ok) {
     return scheduleResult;
   }
@@ -330,14 +419,28 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
   const scheduleId = trim(input.scheduleId);
   const companyFolderId = trim(input.companyFolderId || input.companyId);
   const masterSheetId = trim(input.masterSheetId);
+  const startedAt = Date.now();
+  const answerCount = Array.isArray(input.answers)
+    ? input.answers.length
+    : input.answers && typeof input.answers === "object"
+      ? Object.keys(input.answers).length
+      : undefined;
+  const traceMeta = { startedAt, companyId: companyFolderId, scheduleId, userEmail: email, answerCount };
 
+  logCheckCompletePhase("route_entered", traceMeta);
+
+  const validateStart = Date.now();
+  logCheckCompletePhase("validate_answers_start", traceMeta);
   const eligibility = await verifyScheduleCompletionEligibility(auth, deps, {
     scheduleId,
     email,
     companyFolderId,
     masterSheetId,
+    startedAt,
   });
+  logCheckCompletePhase("validate_answers_end", { ...traceMeta, durationMs: Date.now() - validateStart });
   if (!eligibility.ok) {
+    logCheckCompletePhase("response_sent", { ...traceMeta, ok: false, code: eligibility.code });
     return eligibility;
   }
 
@@ -383,15 +486,30 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
   const appendTabRows = resolveAppendTabRows(deps);
   const ensureTabColumns = resolveEnsureTabColumns(deps);
   try {
-    await ensureTabColumns(auth, deps, eligibility.masterSheetId, AUDIT_RESULTS_TAB, AUDIT_RESULTS_TAB_COLUMNS);
-    const written = await appendTabRows(
-      auth,
-      deps,
-      eligibility.masterSheetId,
-      AUDIT_RESULTS_TAB,
-      AUDIT_RESULTS_TAB_COLUMNS,
-      [row],
+    const writeStart = Date.now();
+    logCheckCompletePhase("write_audit_results_start", traceMeta);
+    await withCheckCompletionTimeout(
+      ensureTabColumns(auth, deps, eligibility.masterSheetId, AUDIT_RESULTS_TAB, AUDIT_RESULTS_TAB_COLUMNS),
+      "ensure_audit_results_columns",
     );
+    const written = await withCheckCompletionTimeout(
+      appendTabRows(
+        auth,
+        deps,
+        eligibility.masterSheetId,
+        AUDIT_RESULTS_TAB,
+        AUDIT_RESULTS_TAB_COLUMNS,
+        [row],
+      ),
+      "append_audit_results_row",
+    );
+    logCheckCompletePhase("write_audit_results_end", { ...traceMeta, durationMs: Date.now() - writeStart });
+    logCheckCompletePhase("update_schedule_status_end", {
+      ...traceMeta,
+      skipped: true,
+      reason: "completion_derived_from_audit_results",
+    });
+    logCheckCompletePhase("response_sent", { ...traceMeta, ok: true, resultId: row["Result ID"] });
     return {
       ok: true,
       resultId: row["Result ID"],
@@ -402,12 +520,24 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
       written,
     };
   } catch (error) {
+    logCheckCompletePhase("catch_error", {
+      ...traceMeta,
+      code: error?.code || "CHECK_SUBMIT_FAILED",
+      durationMs: Date.now() - startedAt,
+    });
+    const timeoutResult = completionTimeoutError("write_audit_results", error);
+    if (timeoutResult.reasonCode === "GOOGLE_TIMEOUT") {
+      logCheckCompletePhase("response_sent", { ...traceMeta, ok: false, code: timeoutResult.code });
+      return timeoutResult;
+    }
+    const technicalError = error instanceof Error ? error.message : String(error);
+    console.error("[complete-check] write_audit_results failed:", technicalError);
+    logCheckCompletePhase("response_sent", { ...traceMeta, ok: false, code: "CHECK_SUBMIT_FAILED" });
     return {
       ok: false,
       code: "CHECK_SUBMIT_FAILED",
       error: "Could not save completed check to the company workbook.",
       message: "Could not save completed check to the company workbook.",
-      technicalError: error instanceof Error ? error.message : String(error),
       httpStatus: 502,
     };
   }

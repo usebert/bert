@@ -72,9 +72,17 @@ export const CHECK_COMPLETION_TIMEOUT_MESSAGE =
 export const CHECK_COMPLETION_NOT_ASSIGNED_MESSAGE = "This check is not assigned to your account.";
 export const CHECK_COMPLETION_WRONG_COMPANY_MESSAGE = "This check does not belong to your company workspace.";
 export const CHECK_COMPLETION_FORBIDDEN_MESSAGE = "You do not have permission to submit this check.";
+export const CHECK_COMPLETION_WORKBOOK_TIMEOUT_MESSAGE =
+  "Saving your check timed out while reading or writing the company workbook. Try again in a moment.";
 
-function completionErrorMessage(payload: { code?: string; message?: string; error?: string }): string {
+function completionErrorMessage(payload: {
+  code?: string;
+  reasonCode?: string;
+  message?: string;
+  error?: string;
+}): string {
   const code = String(payload.code || "").trim();
+  const reasonCode = String(payload.reasonCode || "").trim();
   if (code === "CHECK_NOT_ASSIGNED") {
     return CHECK_COMPLETION_NOT_ASSIGNED_MESSAGE;
   }
@@ -83,6 +91,12 @@ function completionErrorMessage(payload: { code?: string; message?: string; erro
   }
   if (code === "CHECK_NOT_ACTIVE" || code === "AUTH_REQUIRED" || code === "SESSION_REQUIRED") {
     return CHECK_COMPLETION_FORBIDDEN_MESSAGE;
+  }
+  if (code === "CHECK_SUBMIT_TIMEOUT" || reasonCode === "REQUEST_TIMEOUT") {
+    return CHECK_COMPLETION_TIMEOUT_MESSAGE;
+  }
+  if (reasonCode === "GOOGLE_TIMEOUT") {
+    return CHECK_COMPLETION_WORKBOOK_TIMEOUT_MESSAGE;
   }
   return payload.message || payload.error || CHECK_COMPLETION_USER_MESSAGE;
 }
@@ -232,6 +246,8 @@ export async function completeCheck(
       headers: { "Content-Type": "application/json" },
       signal: options?.signal,
       body: JSON.stringify({
+        companyFolderId,
+        masterSheetId: String(input.companyContext.masterSheetId || "").trim() || undefined,
         auditId: input.auditId,
         auditName: input.auditName,
         status: input.status || "completed",
@@ -249,6 +265,7 @@ export async function completeCheck(
     resultId?: string;
     scheduleId?: string;
     code?: string;
+    reasonCode?: string;
     error?: string;
     message?: string;
   };
@@ -258,7 +275,7 @@ export async function completeCheck(
       ok: false,
       code: payload.code,
       error: completionErrorMessage(payload),
-      message: payload.message,
+      message: payload.message || payload.error,
     };
   }
 
