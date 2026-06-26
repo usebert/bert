@@ -13,3 +13,6 @@ vite.config.d.ts
 android/keystore.properties
 android/*.jks
 android/*.keystore
+
+# BERT local verifier temp folders
+.tmp-login-bg-jobs-*/

@@ -27,6 +27,7 @@ export type CompleteCheckResult = {
   ok: boolean;
   resultId?: string;
   scheduleId?: string;
+  syncStatus?: "pending" | "syncing" | "synced" | "failed";
   error?: string;
   message?: string;
   code?: string;
@@ -73,6 +74,11 @@ export const CHECK_COMPLETION_TIMEOUT_MS = 90_000;
 export const CHECK_COMPLETION_SUBMITTING_MESSAGE = "Submitting your check…";
 export const CHECK_COMPLETION_USER_MESSAGE = "Could not submit this check.";
 export const CHECK_COMPLETION_SUCCESS_MESSAGE = "Check submitted successfully.";
+export const CHECK_COMPLETION_PENDING_SYNC_MESSAGE = "Saved. Syncing to company workbook…";
+export const CHECK_COMPLETION_SYNCED_MESSAGE = "Synced to company workbook.";
+export const CHECK_COMPLETION_SYNC_RETRY_MESSAGE = "Saved, but workbook sync needs retry.";
+export const CHECK_COMPLETION_SYNCING_MESSAGE = "Saved. Syncing to company workbook…";
+export const CHECK_COMPLETION_SYNC_FAILED_MESSAGE = "Saved, but workbook sync needs retry";
 export const CHECK_COMPLETION_TIMEOUT_MESSAGE =
   "Submitting your check timed out before the server finished saving to your company workbook. Try again — if it keeps failing, ask your operator to check your company records.";
 export const CHECK_COMPLETION_NOT_ASSIGNED_MESSAGE = "This check is not assigned to your account.";
@@ -269,6 +275,7 @@ export async function completeCheck(
     ok?: boolean;
     resultId?: string;
     scheduleId?: string;
+    syncStatus?: "pending" | "syncing" | "synced" | "failed";
     code?: string;
     reasonCode?: string;
     error?: string;
@@ -300,11 +307,16 @@ export async function completeCheck(
 
   const resultId = String(payload.resultId || "").trim() || undefined;
   const resolvedScheduleId = String(payload.scheduleId || scheduleId).trim() || scheduleId;
+  const syncStatus = payload.syncStatus;
 
   return {
     ok: true,
     resultId,
     scheduleId: resolvedScheduleId,
+    syncStatus:
+      syncStatus === "pending" || syncStatus === "syncing" || syncStatus === "synced" || syncStatus === "failed"
+        ? syncStatus
+        : "synced",
   };
 }
 

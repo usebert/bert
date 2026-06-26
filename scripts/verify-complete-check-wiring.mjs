@@ -87,6 +87,8 @@ assert(review.includes("submitError"), "3d: review UI shows submit error");
 assert(appTsx.includes("checkSubmitState"), "3e: App tracks check submit state");
 assert(appTsx.includes("setAuditCompletionSummary"), "3f: success summary after completion");
 assert(checkService.includes('CHECK_COMPLETION_SUCCESS_MESSAGE = "Check submitted successfully."'), "3f1: canonical success message constant");
+assert(checkService.includes("CHECK_COMPLETION_SYNCING_MESSAGE"), "3f1b: workbook syncing message constant");
+assert(checkService.includes("syncStatus"), "3f1c: client handles syncStatus from complete response");
 assert(appTsx.includes("CHECK_COMPLETION_SUCCESS_MESSAGE"), "3f2: App uses canonical success message");
 assert(appTsx.includes("Back to Things to do"), "3f3: success panel back button label");
 assert(
@@ -123,5 +125,8 @@ assert(
   /respondJson\(504[\s\S]{0,400}CHECK_SUBMIT_TIMEOUT/.test(coreRoutes),
   "4d: route timeout returns CHECK_SUBMIT_TIMEOUT",
 );
+assert(coreRoutes.includes("syncStatus: result.syncStatus"), "4e: complete route returns syncStatus");
+assert(completionService.includes("enqueuePendingCompletion"), "4f: completion saves to pending queue first");
+assert(read("server/pending-completion-queue.mjs").includes("processNextPending"), "4g: pending queue background processor");
 
 console.log(`[verify:complete-check-wiring] OK — ${caseCount} cases passed`);

@@ -359,6 +359,8 @@ import {
   ASSIGNED_CHECKS_LOAD_TIMEOUT_MS,
   ASSIGNED_CHECKS_USER_MESSAGE,
   CHECK_COMPLETION_SUCCESS_MESSAGE,
+  CHECK_COMPLETION_SYNCING_MESSAGE,
+  CHECK_COMPLETION_SYNC_FAILED_MESSAGE,
   CHECK_COMPLETION_TIMEOUT_MESSAGE,
   CHECK_COMPLETION_TIMEOUT_MS,
   CHECK_COMPLETION_USER_MESSAGE,
@@ -1156,6 +1158,7 @@ type AuditCompletionSummaryState = {
   photosCaptured: number;
   syncTone: "green" | "amber" | "red";
   syncLabel: string;
+  syncStatus?: "pending" | "syncing" | "synced" | "failed";
   resultId?: string;
 };
 
@@ -5588,7 +5591,7 @@ function App() {
         companyFolderId: companyFolderId || previous.companyFolderId || cachedAssignedChecks?.companyFolderId,
         masterSheetId: previous.masterSheetId || cachedAssignedChecks?.masterSheetId,
         hasLoadedOnce,
-        loading: shouldShowBlockingLoad || schedules.length > 0,
+        loading: shouldShowBlockingLoad,
         loadError: companyChanged ? undefined : previous.loadError,
         loadErrorDetail: companyChanged ? undefined : previous.loadErrorDetail,
       };
@@ -8472,6 +8475,12 @@ function App() {
           ? "setupInitial"
           : getHomeScreenForRole(match.role),
       );
+      if (typeof console !== "undefined" && typeof console.info === "function") {
+        console.info("[login-transition]", {
+          phase: "app_shell_entered",
+          role: match.role,
+        });
+      }
       setUsername("");
       setPassword("");
       setCompanySetupLoginPortal(false);
@@ -8713,6 +8722,7 @@ function App() {
             registryStatus: loggedInCompany?.registryStatus,
           }),
         );
+        // Login app transition — assigned checks load in background; do not await fetchAssignedChecks here.
         applySignedInUser(match, {
           companyName: loggedInCompany?.companyName,
         });
@@ -10818,6 +10828,7 @@ function App() {
       issues: number;
       syncTone: AuditCompletionSummaryState["syncTone"];
       syncLabel: string;
+      syncStatus?: AuditCompletionSummaryState["syncStatus"];
       resultId?: string;
     }) => {
       setDrafts((current) => {
@@ -10834,6 +10845,7 @@ function App() {
         photosCaptured,
         syncTone: input.syncTone,
         syncLabel: input.syncLabel,
+        syncStatus: input.syncStatus,
         resultId: input.resultId,
       });
       notifySelectedManagersForNonCompliance(activeAudit, currentUser.name, input.issues, input.syncTone !== "green");
@@ -10951,10 +10963,18 @@ function App() {
           return;
         }
 
+        const syncStatus = result.syncStatus || "synced";
+        const isWorkbookPending = syncStatus === "pending" || syncStatus === "syncing";
         finishCompletionSummary({
           issues: issuesFound,
-          syncTone: "green",
-          syncLabel: CHECK_COMPLETION_SUCCESS_MESSAGE,
+          syncTone: syncStatus === "failed" ? "amber" : "green",
+          syncLabel:
+            syncStatus === "failed"
+              ? CHECK_COMPLETION_SYNC_FAILED_MESSAGE
+              : isWorkbookPending
+                ? CHECK_COMPLETION_SYNCING_MESSAGE
+                : CHECK_COMPLETION_SUCCESS_MESSAGE,
+          syncStatus,
           resultId: result.resultId,
         });
         if (assignedContext) {
@@ -16527,6 +16547,14 @@ function AuditCompletionSummary({
   const reducedMotion = usePrefersReducedMotion();
   const submittedOnline = summary.syncTone === "green";
   const successMessage = submittedOnline ? CHECK_COMPLETION_SUCCESS_MESSAGE : summary.syncLabel;
+  const syncDetail =
+    summary.syncStatus === "pending" || summary.syncStatus === "syncing"
+      ? CHECK_COMPLETION_SYNCING_MESSAGE
+      : summary.syncStatus === "failed"
+        ? CHECK_COMPLETION_SYNC_FAILED_MESSAGE
+        : summary.syncStatus === "synced"
+          ? "Synced to company workbook."
+          : "";
   return (
     <div className="space-y-4">
       <div
@@ -16549,6 +16577,9 @@ function AuditCompletionSummary({
         )}
         <div className="min-w-0">
           <p className="text-base font-bold tracking-tight text-slate-900">{successMessage}</p>
+          {syncDetail && submittedOnline ? (
+            <p className="mt-1 text-xs font-semibold text-emerald-900/80">{syncDetail}</p>
+          ) : null}
           {summary.auditName ? (
             <p className="mt-1 text-sm font-semibold text-slate-800">{summary.auditName}</p>
           ) : null}

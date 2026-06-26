@@ -107,6 +107,7 @@ export function installCoreWorkflowRoutes(app, deps) {
     backgroundJobs,
     sessionDir,
     rowsToRecords,
+    pendingCompletionQueue,
   } = deps;
 
   const scheduleDeps = {
@@ -118,6 +119,11 @@ export function installCoreWorkflowRoutes(app, deps) {
     ensureColumns,
     getWorkbook,
     withSheetsQuotaRetry,
+    pendingCompletionQueue,
+    enqueueCompletionSyncJob:
+      typeof backgroundJobs?.queueCompletionSyncJob === "function"
+        ? backgroundJobs.queueCompletionSyncJob.bind(backgroundJobs)
+        : undefined,
     google,
     rowsToRecords,
   };
@@ -1277,6 +1283,7 @@ export function installCoreWorkflowRoutes(app, deps) {
         companyId: result.companyId,
         companyFolderId: result.companyFolderId,
         masterSheetId: result.masterSheetId,
+        syncStatus: result.syncStatus || "synced",
         written: result.written,
         timingMs: result.timingMs,
       });

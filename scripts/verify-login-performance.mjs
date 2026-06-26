@@ -55,6 +55,8 @@ assert(
   "login handlers do not gate on /api/health",
 );
 assert(appTsx.includes("loginSubmitting"), "client login shows spinner only during request");
+assert(!/handleLogin[\s\S]{0,12000}await fetchAssignedChecks/.test(appTsx), "client login does not await assigned-checks before app shell");
+assert(appTsx.includes("[login-transition]"), "client login logs app shell transition");
 assert(appTsx.includes("Email or password is incorrect."), "client invalid login copy");
 
 assert(!companyLoginBlock.includes("ensureCompanyLiveIfReady"), "company login route does not block on ensureCompanyLiveIfReady");
