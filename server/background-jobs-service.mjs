@@ -338,31 +338,6 @@ export function createBackgroundJobsService(sessionDir, deps = {}) {
     };
   }
 
-  async function runSyncPendingCompletion(job) {
-    const auth = deps.getAuthedClient?.();
-    if (!auth) {
-      throw Object.assign(new Error("Google Workspace is not connected."), { code: "GOOGLE_NOT_CONNECTED" });
-    }
-    if (typeof deps.syncPendingCompletion !== "function") {
-      throw new Error("Pending completion sync is not configured.");
-    }
-    const payload = job.payload && typeof job.payload === "object" ? job.payload : {};
-    const resultId = String(payload.resultId || "").trim();
-    const outcome = await deps.syncPendingCompletion(resultId);
-    if (!outcome?.ok) {
-      const technicalError = String(outcome?.lastError || outcome?.technicalError || "workbook_sync_failed").trim();
-      if (outcome?.retryable) {
-        throw Object.assign(new Error(technicalError), { code: "GOOGLE_TIMEOUT" });
-      }
-      return {
-        needsAttention: true,
-        userMessage: "Check saved, but workbook sync needs attention.",
-        technicalError,
-      };
-    }
-    return { userMessage: "Check result synced to the company workbook." };
-  }
-
   async function runVerifyAuthIndex(job) {
     const auth = deps.getAuthedClient?.();
     if (!auth) {
@@ -404,8 +379,6 @@ export function createBackgroundJobsService(sessionDir, deps = {}) {
         return runRebuildAuthIndex(job);
       case BACKGROUND_JOB_TYPES.VERIFY_AUTH_INDEX:
         return runVerifyAuthIndex(job);
-      case BACKGROUND_JOB_TYPES.SYNC_PENDING_COMPLETION:
-        return runSyncPendingCompletion(job);
       case BACKGROUND_JOB_TYPES.REPAIR_COMPANY_STRUCTURE:
       case BACKGROUND_JOB_TYPES.SYNC_COMPANY_USERS:
       case BACKGROUND_JOB_TYPES.GENERATE_REPORT:
@@ -640,25 +613,6 @@ export function createBackgroundJobsService(sessionDir, deps = {}) {
     });
   }
 
-  function queueCompletionSyncJob(input = {}) {
-    const companyId = String(input.companyId || input.companyFolderId || "").trim();
-    const resultId = String(input.resultId || "").trim();
-    if (!companyId || !resultId) {
-      return null;
-    }
-    return enqueueJob({
-      type: BACKGROUND_JOB_TYPES.SYNC_PENDING_COMPLETION,
-      companyId,
-      requestedBy: String(input.requestedBy || "").trim(),
-      userMessage: "Syncing completed check to the company workbook.",
-      payload: {
-        resultId,
-        companyFolderId: companyId,
-        scheduleId: String(input.scheduleId || "").trim(),
-      },
-    });
-  }
-
   return {
     enqueueJob,
     getJob,
@@ -670,7 +624,6 @@ export function createBackgroundJobsService(sessionDir, deps = {}) {
     queueCompanyHealthCheckIfReady,
     queueInviteEmailJob,
     queueScheduleSyncJob,
-    queueCompletionSyncJob,
     processNextJob,
     startProcessor,
     stopProcessor,

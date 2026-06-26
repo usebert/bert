@@ -11,7 +11,6 @@ import {
   buildAuditResultRow,
   listAuditResults,
   submitCompletedCheck,
-  submitCompletedCheckDirect,
   verifyScheduleCompletionEligibility,
 } from "../server/completion-service.mjs";
 import { isScheduleAssignedToUser } from "../shared/schedule-assignment.mjs";
@@ -41,8 +40,6 @@ const godmodeService = read("server/godmode-service.mjs");
 assert(pkg.scripts["verify:completion-service-foundation"], "1: npm script registered");
 assert(completionService.includes("verifyScheduleCompletionEligibility"), "2: verifyScheduleCompletionEligibility exported");
 assert(completionService.includes("submitCompletedCheck"), "3: submitCompletedCheck exported");
-assert(completionService.includes("pending_queue_save_start"), "3a: submitCompletedCheck saves pending queue first");
-assert(completionService.includes("syncPendingCompletionToWorkbook"), "3b: background sync helper exported");
 assert(completionService.includes("listAuditResults"), "4: listAuditResults exported");
 assert(completionService.includes("buildAuditResultRow"), "5: buildAuditResultRow exported");
 assert(completionService.includes("readTabRecords"), "6: reads AuditResults via workbookService readTabRecords");
@@ -114,16 +111,7 @@ const mockDeps = {
   masterSheetCache: {
     getEntry: (id) => (id === companyFolderId ? { masterSheetId } : null),
   },
-  pendingCompletionQueue: {
-    enqueuePendingCompletion(input = {}) {
-      const resultId = String(input.resultId || input.row?.["Result ID"] || "").trim();
-      pendingQueueStore.push(input);
-      return { resultId, syncStatus: "pending" };
-    },
-  },
 };
-
-const pendingQueueStore = [];
 
 const row = buildAuditResultRow({
   companyFolderId,
@@ -185,33 +173,6 @@ assert(!blockedCompany.ok, "30: wrong-company schedule blocked for selected fold
 
 const submitted = await submitCompletedCheck(
   {},
-  {
-    ...mockDeps,
-    pendingCompletionQueue: {
-      enqueuePendingCompletion(input) {
-        return {
-          resultId: input.resultId,
-          syncStatus: "pending",
-        };
-      },
-    },
-  },
-  {
-    scheduleId,
-    email: "manager@testco.test",
-    completedByName: "Site Manager",
-    companyFolderId,
-    masterSheetId,
-    answers: { q1: "pass" },
-    findings: [],
-    evidence: [],
-  },
-);
-assert(submitted.ok, "31: assigned user can complete check with pending queue");
-assert(submitted.syncStatus === "pending", "31b: completion returns pending syncStatus");
-
-const directSubmitted = await submitCompletedCheckDirect(
-  {},
   mockDeps,
   {
     scheduleId,
@@ -224,8 +185,8 @@ const directSubmitted = await submitCompletedCheckDirect(
     evidence: [],
   },
 );
-assert(directSubmitted.ok, "31c: direct completion path still works");
-assert(auditResultStore.length === 1, "32: one AuditResults row written via direct path");
+assert(submitted.ok, "31: assigned user can complete check");
+assert(auditResultStore.length === 1, "32: one AuditResults row written");
 assert(auditResultStore[0]["Schedule ID"] === scheduleId, "33: written row has ScheduleId");
 assert(auditResultStore[0]["Company ID"] === companyFolderId, "34: written row CompanyId correct");
 

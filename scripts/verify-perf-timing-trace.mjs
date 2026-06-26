@@ -46,26 +46,12 @@ assert(
 
 assert(scheduleService.includes('logPerfPhase("assigned-checks"'), "8: assigned-checks server timing log");
 assert(scheduleService.includes('logPerfPhase("schedules-read"'), "9: schedules-read server timing log");
-assert(completionService.includes("pending_queue_save_start"), "10a: completion saves pending queue before response");
-assert(completionService.includes("syncStatus"), "10b: completion returns syncStatus");
-assert(read("server/pending-completion-queue.mjs").includes("enqueuePendingCompletion"), "10c: pending completion queue exists");
-assert(
-  !/(?:handleLogin|tryServerCompanyLogin)[\s\S]{0,2500}await fetchAssignedChecks/.test(appTsx),
-  "10d: login app transition does not await assigned checks",
-);
-assert(
-  appTsx.includes("Login app transition — assigned checks load in background"),
-  "10e: login defers assigned-checks load to background",
-);
+assert(completionService.includes("[complete-check]"), "10: completion phase logs");
 assert(completionService.includes("timingMs"), "11: completion returns timingMs");
-assert(completionService.includes("pending_queue_save_start"), "11b: completion queues pending save before Google write");
-assert(read("server/pending-completion-queue.mjs").includes("enqueuePendingCompletion"), "11c: pending completion queue module");
 assert(coreRoutes.includes('logPerfPhase("my-checks-route", "route_complete"'), "12: assigned-checks route timing");
 assert(coreRoutes.includes('logPerfPhase("complete-check", "route_complete"'), "13: complete-check route timing");
 assert(coreRoutes.includes("timingMs: result.timingMs"), "14: complete route returns timingMs");
 assert(appTsx.includes("[post-submit-refresh]"), "15: post-submit refresh client timing log");
-assert(appTsx.includes("[login-transition]"), "15b: login app shell transition timing log");
-assert(!/handleLogin[\s\S]{0,12000}await fetchAssignedChecks/.test(appTsx), "15c: login does not await assigned-checks");
 
 const safe = safePerfMeta({
   companyId: "folder-1",

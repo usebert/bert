@@ -313,7 +313,7 @@ export function buildAuditResultRow(input = {}) {
     "Completed By": completedByEmail,
     "Next Due At": trim(input.nextDueAt),
     Frequency: trim(input.frequency),
-    "Sync Status": trim(input.syncStatus) || "synced",
+    "Sync Status": "synced",
     "Created By": completedByEmail,
     "Updated By": completedByEmail,
   };
@@ -417,50 +417,6 @@ export async function verifyScheduleCompletionEligibility(auth, deps, input = {}
   };
 }
 
-/** Append one pending completion row to AuditResults — used by background sync. */
-export async function syncPendingCompletionToWorkbook(auth, deps, pendingEntry = {}) {
-  const masterSheetId = trim(pendingEntry.masterSheetId);
-  const rowInput = pendingEntry.row;
-  if (!masterSheetId || !rowInput || typeof rowInput !== "object") {
-    return {
-      ok: false,
-      code: "PENDING_COMPLETION_INVALID",
-      error: "Pending completion is missing workbook row data.",
-      httpStatus: 500,
-    };
-  }
-
-  const row = {
-    ...rowInput,
-    "Sync Status": "synced",
-    "Updated At": new Date().toISOString(),
-  };
-  const appendTabRows = resolveAppendTabRows(deps);
-  try {
-    const written = await appendAuditResultRowWithRetry(appendTabRows, auth, deps, masterSheetId, row);
-    return {
-      ok: true,
-      resultId: trim(row["Result ID"]),
-      written,
-    };
-  } catch (error) {
-    const timeoutResult = completionTimeoutError("write_audit_results", error);
-    if (timeoutResult.reasonCode === "GOOGLE_TIMEOUT") {
-      return timeoutResult;
-    }
-    const technicalError = error instanceof Error ? error.message : String(error);
-    console.error("[complete-check] pending_sync failed:", technicalError);
-    return {
-      ok: false,
-      code: "CHECK_SUBMIT_FAILED",
-      error: "Could not save completed check to the company workbook.",
-      message: "Could not save completed check to the company workbook.",
-      httpStatus: 502,
-      technicalError,
-    };
-  }
-}
-
 /** Append completed check row to AuditResults tab via workbookService. */
 export async function submitCompletedCheck(auth, deps, input = {}) {
   const email = normalizeEmail(input.email || input.userEmail || input.completedByEmail);
@@ -520,151 +476,6 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
     localSubmissionId: input.localSubmissionId,
     resultId: input.resultId,
     completedAt: input.completedAt,
-    syncStatus: "pending",
-  });
-
-  if (row["Company ID"] !== row["Company Folder ID"]) {
-    return {
-      ok: false,
-      code: "AUDIT_RESULT_INVALID",
-      error: "Audit result company identifiers must match.",
-      httpStatus: 500,
-    };
-  }
-
-  const pendingQueue = deps?.pendingCompletionQueue;
-  if (!pendingQueue || typeof pendingQueue.enqueuePendingCompletion !== "function") {
-    return {
-      ok: false,
-      code: "PENDING_QUEUE_UNAVAILABLE",
-      error: "Could not save completed check.",
-      message: "Could not save completed check.",
-      httpStatus: 503,
-    };
-  }
-
-  const queueStart = Date.now();
-  logCheckCompletePhase("pending_queue_save_start", traceMeta);
-  let queued;
-  try {
-    queued = pendingQueue.enqueuePendingCompletion({
-      resultId: row["Result ID"],
-      companyFolderId: eligibility.companyFolderId,
-      companyId: eligibility.companyFolderId,
-      scheduleId: row["Schedule ID"],
-      submittedBy: email,
-      submittedAt: row["Completed At"],
-      masterSheetId: eligibility.masterSheetId,
-      row,
-    });
-  } catch (error) {
-    const technicalError = error instanceof Error ? error.message : String(error);
-    console.error("[complete-check] pending_queue_save failed:", technicalError);
-    logCheckCompletePhase("response_sent", { ...traceMeta, ok: false, code: "PENDING_QUEUE_SAVE_FAILED" });
-    return {
-      ok: false,
-      code: "CHECK_SUBMIT_FAILED",
-      error: "Could not save completed check.",
-      message: "Could not save completed check.",
-      httpStatus: 500,
-    };
-  }
-  logCheckCompletePhase("pending_queue_save_end", { ...traceMeta, durationMs: Date.now() - queueStart });
-  const pendingQueueSaveMs = Date.now() - queueStart;
-
-  if (typeof deps?.enqueueCompletionSyncJob === "function") {
-    try {
-      deps.enqueueCompletionSyncJob({
-        resultId: queued.resultId,
-        companyFolderId: eligibility.companyFolderId,
-        scheduleId: row["Schedule ID"],
-        requestedBy: email,
-      });
-    } catch (error) {
-      console.warn("[complete-check] completion sync job enqueue failed", {
-        resultId: queued.resultId,
-        companyFolderId: eligibility.companyFolderId,
-        scheduleId: row["Schedule ID"],
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  logCheckCompletePhase("update_schedule_status_end", {
-    ...traceMeta,
-    skipped: true,
-    reason: "completion_derived_from_audit_results",
-  });
-  logCheckCompletePhase("response_sent", {
-    ...traceMeta,
-    ok: true,
-    resultId: row["Result ID"],
-    syncStatus: queued.syncStatus || "pending",
-  });
-  return {
-    ok: true,
-    resultId: row["Result ID"],
-    companyId: eligibility.companyFolderId,
-    companyFolderId: eligibility.companyFolderId,
-    masterSheetId: eligibility.masterSheetId,
-    scheduleId: row["Schedule ID"],
-    syncStatus: queued.syncStatus || "pending",
-    timingMs: {
-      total: Date.now() - startedAt,
-      validateMs,
-      pendingQueueSaveMs,
-      writeAuditResultsMs: 0,
-    },
-  };
-}
-
-/** Direct synchronous AuditResults append — tests and legacy callers only. */
-export async function submitCompletedCheckDirect(auth, deps, input = {}) {
-  const email = normalizeEmail(input.email || input.userEmail || input.completedByEmail);
-  const scheduleId = trim(input.scheduleId);
-  const companyFolderId = trim(input.companyFolderId || input.companyId);
-  const startedAt = Date.now();
-  const eligibility = await verifyScheduleCompletionEligibility(auth, deps, {
-    scheduleId,
-    email,
-    companyFolderId,
-    companyName: input.companyName,
-    startedAt,
-  });
-  const validateMs = Date.now() - startedAt;
-  if (!eligibility.ok) {
-    return eligibility;
-  }
-
-  const schedule = eligibility.schedule || {};
-  const auditId = trim(input.auditId || schedule.auditId || schedule.audits?.[0]?.auditId);
-  const auditName = trim(input.auditName || schedule.scheduleName || schedule.audits?.[0]?.auditName);
-  const matchingAudit =
-    (schedule.audits || []).find((audit) => trim(audit.auditId) === auditId) ||
-    (schedule.audits || []).find((audit) => trim(audit.auditName) === auditName) ||
-    schedule.audits?.[0];
-  const row = buildAuditResultRow({
-    ...input,
-    scheduleId: scheduleId || trim(schedule.id),
-    companyFolderId: eligibility.companyFolderId,
-    companyId: eligibility.companyFolderId,
-    completedByEmail: email,
-    completedByName: trim(input.completedByName || input.name),
-    auditId,
-    auditName,
-    nextDueAt: trim(input.nextDueAt || schedule.nextDueAt),
-    frequency: trim(input.frequency || matchingAudit?.frequency || "Weekly"),
-    status: trim(input.status || input.result) || "completed",
-    answers: input.answers,
-    answersJson: input.answersJson,
-    findings: input.findings,
-    findingsJson: input.findingsJson,
-    evidence: input.evidence,
-    evidenceRefs: input.evidenceRefs,
-    localSubmissionId: input.localSubmissionId,
-    resultId: input.resultId,
-    completedAt: input.completedAt,
-    syncStatus: "synced",
   });
 
   if (row["Company ID"] !== row["Company Folder ID"]) {
@@ -679,6 +490,7 @@ export async function submitCompletedCheckDirect(auth, deps, input = {}) {
   const appendTabRows = resolveAppendTabRows(deps);
   try {
     const writeStart = Date.now();
+    logCheckCompletePhase("write_audit_results_start", traceMeta);
     const written = await appendAuditResultRowWithRetry(
       appendTabRows,
       auth,
@@ -686,7 +498,14 @@ export async function submitCompletedCheckDirect(auth, deps, input = {}) {
       eligibility.masterSheetId,
       row,
     );
+    logCheckCompletePhase("write_audit_results_end", { ...traceMeta, durationMs: Date.now() - writeStart });
     const writeAuditResultsMs = Date.now() - writeStart;
+    logCheckCompletePhase("update_schedule_status_end", {
+      ...traceMeta,
+      skipped: true,
+      reason: "completion_derived_from_audit_results",
+    });
+    logCheckCompletePhase("response_sent", { ...traceMeta, ok: true, resultId: row["Result ID"] });
     return {
       ok: true,
       resultId: row["Result ID"],
@@ -695,7 +514,6 @@ export async function submitCompletedCheckDirect(auth, deps, input = {}) {
       masterSheetId: eligibility.masterSheetId,
       scheduleId: row["Schedule ID"],
       written,
-      syncStatus: "synced",
       timingMs: {
         total: Date.now() - startedAt,
         validateMs,
@@ -703,12 +521,19 @@ export async function submitCompletedCheckDirect(auth, deps, input = {}) {
       },
     };
   } catch (error) {
+    logCheckCompletePhase("catch_error", {
+      ...traceMeta,
+      code: error?.code || "CHECK_SUBMIT_FAILED",
+      durationMs: Date.now() - startedAt,
+    });
     const timeoutResult = completionTimeoutError("write_audit_results", error);
     if (timeoutResult.reasonCode === "GOOGLE_TIMEOUT") {
+      logCheckCompletePhase("response_sent", { ...traceMeta, ok: false, code: timeoutResult.code });
       return timeoutResult;
     }
     const technicalError = error instanceof Error ? error.message : String(error);
     console.error("[complete-check] write_audit_results failed:", technicalError);
+    logCheckCompletePhase("response_sent", { ...traceMeta, ok: false, code: "CHECK_SUBMIT_FAILED" });
     return {
       ok: false,
       code: "CHECK_SUBMIT_FAILED",

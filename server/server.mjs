@@ -129,11 +129,9 @@ import {
   getTabValues as workbookGetTabValues,
   ensureTabExists as workbookEnsureTabExists,
   ensureTabColumns as workbookEnsureTabColumns,
-  appendTabRows as workbookAppendTabRows,
 } from "./workbook-service.mjs";
 import { installGodmodeRegistryActionRoutes, relinkCompanyRegistryForWorkspace } from "./godmode-registry-actions.mjs";
 import { createBackgroundJobsService } from "./background-jobs-service.mjs";
-import { createPendingCompletionQueue } from "./pending-completion-queue.mjs";
 import { BACKGROUND_INVITE_CREATED_MESSAGE } from "../shared/background-jobs.mjs";
 import { SCHEDULES_TAB_COLUMNS } from "../shared/schedule-save.mjs";
 import { isKnownStaleAuthIndexPairing } from "../shared/auth-index-trust.mjs";
@@ -217,7 +215,6 @@ const googleOAuthStore = createGoogleOAuthSessionStore({
 });
 const sessionDir = googleOAuthStore.sessionDir;
 let backgroundJobs = null;
-let pendingCompletionQueue = null;
 
 const requiredEnv = {
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || "",
@@ -7132,14 +7129,6 @@ installCompanySetupProgressRoutes(app, {
   registryDeps: getCompanyWorkspaceRegistryDeps(),
 });
 
-pendingCompletionQueue = createPendingCompletionQueue(sessionDir, {
-  getAuthedClient,
-  appendTabRows: workbookAppendTabRows,
-  ...getWorkbookServiceDeps(),
-});
-pendingCompletionQueue.installRoutes(app, { requireMasterOnlyActor });
-pendingCompletionQueue.startProcessor();
-
 backgroundJobs = createBackgroundJobsService(sessionDir, {
   getAuthedClient,
   envConfigured,
@@ -7154,7 +7143,6 @@ backgroundJobs = createBackgroundJobsService(sessionDir, {
   withSheetsQuotaRetry,
   authIndex: authIndexApi,
   getCompanyUsersDeps,
-  syncPendingCompletion: (resultId) => pendingCompletionQueue.syncPendingCompletionById(resultId),
   ...getCompanyWorkspaceRegistryDeps(),
 });
 backgroundJobs.installRoutes(app, { requireMasterOnlyActor });
@@ -7235,7 +7223,6 @@ installCoreWorkflowRoutes(app, {
   authIndex: authIndexApi,
   sessionDir,
   rowsToRecords,
-  pendingCompletionQueue,
 });
 
 installCompanyOnboardingRoutes(app, {

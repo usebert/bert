@@ -475,7 +475,6 @@ assert(read("src/utils/auditAccess.ts").includes("buildAuditFromAssignedSchedule
     return { ok: true, records: [], rowCount: 0 };
   }
 
-  const pendingCompletions = [];
   const deps = {
     readTabRecords: mockReadTabRecords,
     appendTabRows: async (_auth, _deps, _sheetId, tabName, _columns, rows = []) => {
@@ -487,12 +486,6 @@ assert(read("src/utils/auditAccess.ts").includes("buildAuditFromAssignedSchedule
     ensureTabColumns: async () => ({ addedColumns: [], headers: [] }),
     masterSheetCache: {
       getEntry: () => ({ masterSheetId: "sheet-1" }),
-    },
-    pendingCompletionQueue: {
-      enqueuePendingCompletion(input) {
-        pendingCompletions.push(input);
-        return { resultId: input.resultId, syncStatus: "pending" };
-      },
     },
   };
 
@@ -526,15 +519,7 @@ assert(read("src/utils/auditAccess.ts").includes("buildAuditFromAssignedSchedule
       completedAt: "2026-06-24T09:15:00.000Z",
     },
   );
-  assert(submitted.ok, "12b: completion saves to pending queue");
-  assert(submitted.syncStatus === "pending", "12b1: completion returns pending syncStatus");
-  assert(pendingCompletions.length === 1, "12b2: pending queue received completion row");
-  if (pendingCompletions[0]?.row) {
-    auditResultStore.push({
-      ...pendingCompletions[0].row,
-      "Sync Status": "synced",
-    });
-  }
+  assert(submitted.ok, "12b: completion writes AuditResults row");
 
   const completion = resolveAssignedCheckCompletion(
     auditResultStore,
