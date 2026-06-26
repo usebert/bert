@@ -14,15 +14,11 @@ import {
   collectUsersTabLoginDiagnostics,
 } from "./company-users.mjs";
 import {
-  DOVECOTE_USERS_TAB_TARGET_EMAILS,
-  summarizeUsersTabEmailScanForLoginLog,
-  scanUsersTabRowsForEmails,
-} from "./dovecote-users-tab-diagnostics.mjs";
-import {
   pickRowCompanyFolderId,
   pickRowCompanyId,
   pickRowCompanyName,
   rowExplicitlyPointsToOtherCompany,
+  summarizeUsersTabEmailScanForLoginLog,
 } from "./users-tab-schema.mjs";
 import {
   sanitizeCompanyFolderId,
@@ -507,16 +503,12 @@ async function logLoginUsersTabDiagnostics(auth, userDeps, email, attempts = [],
       continue;
     }
     let liveEmailScan = null;
-    let probeEmailScan = null;
     if (typeof userDeps.getTabValues === "function" && usersTab.usersTabTitle) {
       const rows = await userDeps
         .getTabValues(auth, masterSheetId, usersTab.usersTabTitle)
         .catch(() => []);
       if (rows.length) {
         liveEmailScan = summarizeUsersTabEmailScanForLoginLog(rows, email);
-        const headers = (rows[0] || []).map((cell) => String(cell || "").trim());
-        const dataRows = rows.slice(1).filter((row) => row.some((cell) => String(cell || "").trim()));
-        probeEmailScan = scanUsersTabRowsForEmails(headers, dataRows, DOVECOTE_USERS_TAB_TARGET_EMAILS);
       }
     }
     diagnostics.push({
@@ -529,7 +521,6 @@ async function logLoginUsersTabDiagnostics(auth, userDeps, email, attempts = [],
             targetEmailFoundAnywhere: liveEmailScan.targetEmailScan.found,
           }
         : {}),
-      ...(probeEmailScan ? { probeEmailScan } : {}),
     });
   }
   const payload = {
