@@ -377,10 +377,7 @@ async function resolveFolderFirstContext(auth, deps, companyFolderId, masterShee
   const sheetHint = sanitizeGoogleSpreadsheetId(masterSheetId);
   return resolveFn(auth, resolverDeps(deps), companyFolderId, {
     ...LIGHT_RESOLVE_OPTS,
-    masterSheetId: sheetHint,
-    ...(sheetHint
-      ? { createIfMissing: false, preferFolderResolution: false }
-      : {}),
+    ...(sheetHint ? { masterSheetId: sheetHint, createIfMissing: false } : {}),
   });
 }
 
@@ -420,34 +417,26 @@ function buildCompanyContextFromHintedSheet(row, masterSheetId, resolved = null)
   const companyName = String(
     row?.companyName || pickRowCompanyName(row?.rowObject || row) || resolved?.companyName || "",
   ).trim();
+  const resolvedSheetId = sanitizeGoogleSpreadsheetId(resolved?.masterSheetId);
   return {
-    // Users tab row was read from the hinted workbook — never override with folder discovery.
-    masterSheetId: hintedSheetId,
+    masterSheetId: resolvedSheetId || hintedSheetId,
     companyFolderId: sanitizeCompanyFolderId(resolved?.companyFolderId) || rowFolderId,
     companyId: sanitizeCompanyFolderId(resolved?.companyId || resolved?.companyFolderId) || rowFolderId,
     companyName,
   };
 }
 
-/** Prefer the workbook that actually contains the Users tab row (paired hint before discovered). */
+/** Folder-discovered workbook is authoritative; paired sheet hint only when discovery finds nothing. */
 async function pickLoginMasterSheetId(auth, userDeps, email, { pairedSheetId, resolved } = {}) {
   const pairedId = sanitizeGoogleSpreadsheetId(pairedSheetId);
   const resolvedId = sanitizeGoogleSpreadsheetId(resolved?.masterSheetId);
-  const candidates = [];
+  if (resolvedId) {
+    return resolvedId;
+  }
   if (pairedId) {
-    candidates.push(pairedId);
+    return pairedId;
   }
-  if (resolvedId && resolvedId !== pairedId) {
-    candidates.push(resolvedId);
-  }
-  for (const masterSheetId of candidates) {
-    const row = await readUserAuthRowByEmail(auth, { masterSheetId }, email, userDeps).catch(() => null);
-    if (row) {
-      return masterSheetId;
-    }
-  }
-  // Hinted/paired workbook wins over folder discovery when neither sheet has a matching row yet.
-  return pairedId || resolvedId || "";
+  return "";
 }
 
 async function collectRegistryLoginSheetIds(auth, deps) {
@@ -573,25 +562,31 @@ function collectLoginResolutionAttempts(input = {}, deps = {}) {
 
   const hintedSheetId = sanitizeGoogleSpreadsheetId(input.masterSheetId || input.requestedSheetId);
   const hintedFolderId = sanitizeCompanyFolderId(input.companyFolderId);
-  pushSheet(hintedSheetId);
-  pushFolder(hintedFolderId, hintedSheetId);
+  // Selected company folder is source of truth — cached masterSheetId is only a paired fallback.
+  if (hintedFolderId) {
+    pushFolder(hintedFolderId, hintedSheetId);
+  } else if (hintedSheetId) {
+    pushSheet(hintedSheetId);
+  }
 
   const email = normalizeUserAuthEmail(input.email);
   const indexEntry =
     typeof deps.authIndex?.lookupByEmail === "function" ? deps.authIndex.lookupByEmail(email) : null;
-  if (indexEntry && !isKnownStaleAuthIndexPairing(email, indexEntry.companyName)) {
+  if (indexEntry && !isKnownStaleAuthIndexPairing(email, indexEntry.companyName) && !hintedFolderId) {
     const indexSheetId = sanitizeGoogleSpreadsheetId(indexEntry.masterSheetId);
     const indexFolderId = sanitizeCompanyFolderId(indexEntry.companyFolderId || indexEntry.companyId);
-    if (indexSheetId) {
-      pushSheet(indexSheetId);
-    }
     if (indexFolderId) {
       pushFolder(indexFolderId, indexSheetId);
+    } else if (indexSheetId) {
+      pushSheet(indexSheetId);
     }
   }
   if (typeof deps.findMasterSheetIdsForCompanyLoginEmail === "function") {
     for (const sheetId of deps.findMasterSheetIdsForCompanyLoginEmail(email) || []) {
-      pushSheet(sheetId);
+      const sanitized = sanitizeGoogleSpreadsheetId(sheetId);
+      if (sanitized && !hintedFolderId) {
+        pushSheet(sanitized);
+      }
     }
   }
   return dedupeLoginAttempts(attempts);
@@ -663,9 +658,10 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
       }
       const rowOnSheet = await readUserAuthRowByEmail(auth, { masterSheetId }, email, userDeps).catch(() => null);
       if (rowOnSheet) {
-        const fallback = buildCompanyContextFromHintedSheet(rowOnSheet, masterSheetId, resolved);
+        const folderWorkbookId = sanitizeGoogleSpreadsheetId(resolved?.masterSheetId) || masterSheetId;
+        const fallback = buildCompanyContextFromHintedSheet(rowOnSheet, folderWorkbookId, resolved);
         companyContext = fallback || {
-          masterSheetId,
+          masterSheetId: folderWorkbookId,
           companyFolderId: sanitizeCompanyFolderId(resolved?.companyFolderId || attempt.companyFolderId),
           companyId: sanitizeCompanyFolderId(
             resolved?.companyId || resolved?.companyFolderId || attempt.companyFolderId,
@@ -673,8 +669,9 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
           companyName: String(resolved?.companyName || rowOnSheet.companyName || "").trim(),
         };
       } else {
+        const folderWorkbookId = sanitizeGoogleSpreadsheetId(resolved?.masterSheetId) || masterSheetId;
         companyContext = {
-          masterSheetId,
+          masterSheetId: folderWorkbookId,
           companyFolderId: sanitizeCompanyFolderId(resolved?.companyFolderId || attempt.companyFolderId),
           companyId: sanitizeCompanyFolderId(
             resolved?.companyId || resolved?.companyFolderId || attempt.companyFolderId,
@@ -734,18 +731,16 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
         entry.accessLevel = indexed.accessLevel || entry.accessLevel;
         entry.companyAreas = indexed.companyAreas?.length ? indexed.companyAreas : entry.companyAreas;
         entry.companyName = indexed.companyName || entry.companyName;
-        entry.masterSheetId = indexed.masterSheetId || entry.masterSheetId;
-        entry.companyFolderId = indexed.companyFolderId || entry.companyFolderId;
-        entry.companyId = indexed.companyId || entry.companyId;
       }
     }
 
     return { ok: true, email, row, companyContext, entry };
   }
 
-  const registryContext = await resolveCompanyContextForUser(auth, email, registryLookupDeps(deps, userDeps)).catch(
-    () => null,
-  );
+  const selectedFolderId = sanitizeCompanyFolderId(input.companyFolderId);
+  const registryContext = selectedFolderId
+    ? null
+    : await resolveCompanyContextForUser(auth, email, registryLookupDeps(deps, userDeps)).catch(() => null);
 
   if (registryContext?.masterSheetId) {
     const companyContext = {

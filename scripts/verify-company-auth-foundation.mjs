@@ -62,11 +62,12 @@ assert(userAuth.includes("password_hash_missing"), "static: password_hash_missin
 assert(userAuth.includes("password_compare_failed"), "static: password_compare_failed diagnostic");
 assert(userAuth.includes("isKnownStaleAuthIndexPairing"), "static: stale auth index pairings skipped for login");
 assert(userAuth.includes("resolveCompanyContextForUser"), "static: registry Users tab fallback on login");
-assert(userAuth.includes("pickLoginMasterSheetId"), "static: paired sheet hint preferred over folder discovery");
+assert(userAuth.includes("pickLoginMasterSheetId"), "static: folder workbook picker for login");
 assert(userAuth.includes("targetEmailInEmailLikeColumns"), "static: email-like column diagnostics");
 assert(userAuth.includes("candidateMasterSheetIds"), "static: candidate workbook diagnostics");
 assert(userAuth.includes("registryLookupDeps"), "static: registry lookup deps for login fallback");
-assert(userAuth.includes("return pairedId || resolvedId"), "static: paired sheet hint wins over folder discovery");
+assert(userAuth.includes("if (resolvedId)"), "static: folder discovery workbook wins over paired hint");
+assert(userAuth.includes("!hintedFolderId"), "static: auth-index skipped when company folder selected");
 assert(read("server/server.mjs").includes("...getCompanyContextResolutionDeps()"), "static: login route receives registry resolution deps");
 assert(userAuth.includes("summarizeUsersTabEmailScanForLoginLog"), "static: USER_NOT_FOUND login logs include live email scan");
 assert(!read("server/server.mjs").includes("/api/diagnostics/dovecote-users-tab"), "static: temporary Users-tab diagnostic route removed");
@@ -619,20 +620,24 @@ try {
         companyFolderId: DOVECOTE_FOLDER_ID,
         companyId: DOVECOTE_FOLDER_ID,
         companyName: DOVECOTE_COMPANY_NAME,
-        masterSheetId: wrongRockSheetId,
+        masterSheetId: DOVECOTE_MASTER_SHEET_ID,
       }),
       findMasterSheetIdsForCompanyLoginEmail: () => [],
     },
     {
       email: sophieEmail,
       password: sophiePassword,
-      masterSheetId: DOVECOTE_MASTER_SHEET_ID,
+      masterSheetId: wrongRockSheetId,
       companyFolderId: DOVECOTE_FOLDER_ID,
     },
   );
   assert(
     sophieHintedFolderLogin.ok === true,
-    "runtime: Dovecote hinted masterSheetId wins over stale folder discovery",
+    "runtime: folder workbook wins over stale cached masterSheetId when company folder selected",
+  );
+  assert(
+    sophieHintedFolderLogin.companyContext?.masterSheetId === DOVECOTE_MASTER_SHEET_ID,
+    "runtime: login session uses folder-discovered workbook not stale hint",
   );
 
   const loginColumnEmail = "login.column.user@example.com";
