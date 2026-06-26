@@ -73,11 +73,33 @@ assert(
 
 /** 3: Friendly loading, success, error, timeout states. */
 assert(checkService.includes("CHECK_COMPLETION_TIMEOUT_MS"), "3: completion timeout constant");
+assert(
+  !checkService.includes("CHECK_COMPLETION_TIMEOUT_MESSAGE") ||
+    !/Master Sheet/i.test(
+      checkService.match(/CHECK_COMPLETION_TIMEOUT_MESSAGE\s*=\s*\n?\s*"([^"]+)"/)?.[1] || "",
+    ),
+  "3a: completion timeout message must not mention Master Sheet",
+);
 assert(checkService.includes("CHECK_COMPLETION_NOT_ASSIGNED_MESSAGE"), "3b: not-assigned user message");
+assert(!checkService.includes('masterSheetId: String(input.companyContext.masterSheetId'), "3b1: completeCheck does not send client masterSheetId");
 assert(review.includes("Submitting…"), "3c: review UI shows submitting state");
 assert(review.includes("submitError"), "3d: review UI shows submit error");
 assert(appTsx.includes("checkSubmitState"), "3e: App tracks check submit state");
 assert(appTsx.includes("setAuditCompletionSummary"), "3f: success summary after completion");
+assert(
+  !/Master Sheet/i.test(
+    checkService.match(/CHECK_COMPLETION_TIMEOUT_MESSAGE\s*=\s*\n?\s*"([^"]+)"/)?.[1] || "",
+  ),
+  "3h: completion timeout does not mention Master Sheet",
+);
+assert(
+  !/completeCheck[\s\S]{0,900}masterSheetId/.test(checkService),
+  "4c: completeCheck does not send client masterSheetId",
+);
+assert(
+  /respondJson\(504[\s\S]{0,400}CHECK_SUBMIT_TIMEOUT/.test(coreRoutes),
+  "4d: route timeout returns CHECK_SUBMIT_TIMEOUT",
+);
 assert(
   /screen === "complete"[\s\S]{0,120}usesAssignedChecksCompletionFlow\(currentUser\.role\)[\s\S]{0,120}auditCompletionSummary &&/.test(
     appTsx,

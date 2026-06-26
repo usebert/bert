@@ -5,8 +5,13 @@ import { getScheduleAssignedEmails } from "../utils/scheduleAssignment";
 import type { ManagedSchedule } from "../types/reportsScreenProps";
 import { fetchJson, type FetchJsonDiagnostics } from "../utils/fetchJson";
 
+export type CheckCompletionCompanyContext = Pick<
+  CompanyScheduleContext,
+  "companyId" | "companyFolderId" | "companyName"
+>;
+
 export type SubmitCheckResultInput = {
-  companyContext: CompanyScheduleContext;
+  companyContext: CheckCompletionCompanyContext;
   scheduleId: string;
   localSubmissionId?: string;
   auditId: string;
@@ -69,7 +74,7 @@ export const CHECK_COMPLETION_SUBMITTING_MESSAGE = "Submitting your check…";
 export const CHECK_COMPLETION_USER_MESSAGE = "Could not submit this check.";
 export const CHECK_COMPLETION_SUCCESS_MESSAGE = "Check submitted successfully.";
 export const CHECK_COMPLETION_TIMEOUT_MESSAGE =
-  "Submitting your check timed out before the server finished saving. Try again — if it keeps failing, ask your operator to check the BERT Master Sheet.";
+  "Submitting your check timed out before the server finished saving to your company workbook. Try again — if it keeps failing, ask your operator to check your company records.";
 export const CHECK_COMPLETION_NOT_ASSIGNED_MESSAGE = "This check is not assigned to your account.";
 export const CHECK_COMPLETION_WRONG_COMPANY_MESSAGE = "This check does not belong to your company workspace.";
 export const CHECK_COMPLETION_FORBIDDEN_MESSAGE = "You do not have permission to submit this check.";
@@ -248,7 +253,6 @@ export async function completeCheck(
       signal: options?.signal,
       body: JSON.stringify({
         companyFolderId,
-        masterSheetId: String(input.companyContext.masterSheetId || "").trim() || undefined,
         auditId: input.auditId,
         auditName: input.auditName,
         status: input.status || "completed",

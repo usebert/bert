@@ -183,8 +183,7 @@ export async function ensureTabColumns(auth, deps, spreadsheetId, tabName, expec
     return { addedColumns: [], headers: existingHeaders };
   }
 
-  const rows = await getTabValues(auth, deps, spreadsheetId, tabName);
-  const currentHeaders = rows[0] || existingHeaders;
+  const currentHeaders = existingHeaders;
   const stillMissing = expectedHeaders.filter(
     (header) => !currentHeaders.some((existing) => lower(existing) === lower(header)),
   );
@@ -193,32 +192,18 @@ export async function ensureTabColumns(auth, deps, spreadsheetId, tabName, expec
   }
 
   const nextHeaders = [...currentHeaders, ...stillMissing];
-  const remainingRows = rows.slice(1).map((row) => {
-    const padded = [...row];
-    while (padded.length < nextHeaders.length) {
-      padded.push("");
-    }
-    return padded;
-  });
-
-  const clearRequest = () =>
-    sheets.spreadsheets.values.clear({
-      spreadsheetId,
-      range: `${tabName}!A:ZZ`,
-    });
+  const lastCol = sheetEndColumnLetter(nextHeaders.length);
   const updateRequest = () =>
     sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${tabName}!A1`,
+      range: `${tabName}!A1:${lastCol}1`,
       valueInputOption: "USER_ENTERED",
-      requestBody: { values: [nextHeaders, ...remainingRows] },
+      requestBody: { values: [nextHeaders] },
     });
 
   if (withSheetsQuotaRetry) {
-    await withSheetsQuotaRetry(clearRequest);
     await withSheetsQuotaRetry(updateRequest);
   } else {
-    await clearRequest();
     await updateRequest();
   }
 

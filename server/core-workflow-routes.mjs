@@ -1140,8 +1140,10 @@ export function installCoreWorkflowRoutes(app, deps) {
         ok: false,
         code: "CHECK_SUBMIT_TIMEOUT",
         reasonCode: "REQUEST_TIMEOUT",
-        error: "Submitting your check timed out before the server finished saving.",
-        message: "Submitting your check timed out before the server finished saving.",
+        error:
+          "Submitting your check timed out before the server finished saving to your company workbook.",
+        message:
+          "Submitting your check timed out before the server finished saving to your company workbook.",
       });
     }, CHECK_COMPLETION_ROUTE_TIMEOUT_MS);
 
@@ -1157,7 +1159,6 @@ export function installCoreWorkflowRoutes(app, deps) {
 
     const companyId = String(req.params?.companyId || "").trim();
     const scheduleId = String(req.params?.scheduleId || "").trim();
-    const masterSheetId = String(req.body?.masterSheetId || req.query?.masterSheetId || "").trim();
     const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
     const companyFolderId = String(
       req.body?.companyFolderId || actor?.companyFolderId || actor?.companyId || companyId,
@@ -1169,7 +1170,9 @@ export function installCoreWorkflowRoutes(app, deps) {
       companyId: companyFolderId,
       scheduleId,
       userEmail: email.toLowerCase(),
-      hasMasterSheetId: Boolean(masterSheetId),
+      hasClientMasterSheetId: Boolean(
+        String(req.body?.masterSheetId || req.query?.masterSheetId || "").trim(),
+      ),
     });
 
     if (!scheduleId) {
@@ -1215,7 +1218,7 @@ export function installCoreWorkflowRoutes(app, deps) {
           completedByName: String(actor?.name || req.body?.completedByName || req.body?.name || "").trim(),
           companyId: companyFolderId,
           companyFolderId,
-          masterSheetId,
+          companyName: String(req.body?.companyName || actor?.companyName || "").trim(),
           auditId: req.body?.auditId,
           auditName: req.body?.auditName,
           areaId: req.body?.areaId,

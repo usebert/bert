@@ -10927,7 +10927,6 @@ function App() {
               companyId: assignedContext.companyFolderId,
               companyFolderId: assignedContext.companyFolderId,
               companyName: activeCompanyContext.companyName,
-              masterSheetId: assignedChecksState.masterSheetId || activeCompanyContext.masterSheetId,
             },
             scheduleId: assignedContext.scheduleId,
             auditId: activeAudit.id,

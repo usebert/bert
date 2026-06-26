@@ -73,6 +73,20 @@ async function withCheckCompletionTimeout(promise, operation, timeoutMs = CHECK_
   return withOperationTimeout(promise, operation, timeoutMs);
 }
 
+async function appendAuditResultRowWithRetry(appendTabRows, auth, deps, masterSheetId, row) {
+  const doAppend = () =>
+    appendTabRows(auth, deps, masterSheetId, AUDIT_RESULTS_TAB, AUDIT_RESULTS_TAB_COLUMNS, [row]);
+  try {
+    return await withCheckCompletionTimeout(doAppend(), "append_audit_results_row");
+  } catch (firstError) {
+    if (firstError?.code === "GOOGLE_TIMEOUT") {
+      throw firstError;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    return await withCheckCompletionTimeout(doAppend(), "append_audit_results_row_retry");
+  }
+}
+
 export const AUDIT_RESULTS_TAB = "AuditResults";
 
 export const AUDIT_RESULTS_TAB_COLUMNS = [
@@ -310,7 +324,6 @@ export async function verifyScheduleCompletionEligibility(auth, deps, input = {}
   const scheduleId = trim(input.scheduleId);
   const email = normalizeEmail(input.email || input.userEmail);
   const companyFolderId = trim(input.companyFolderId || input.companyId);
-  const masterSheetId = trim(input.masterSheetId);
   const startedAt = Number(input.startedAt) || Date.now();
   const traceMeta = { startedAt, companyId: companyFolderId, scheduleId, userEmail: email };
 
@@ -325,28 +338,18 @@ export async function verifyScheduleCompletionEligibility(auth, deps, input = {}
 
   let context;
   const resolveStart = Date.now();
-  if (masterSheetId) {
-    context = {
-      ok: true,
-      companyId: companyFolderId,
-      companyFolderId,
-      masterSheetId,
-      alternateIds: [companyFolderId],
-    };
-  } else {
-    try {
-      context = await withCheckCompletionTimeout(
-        resolveCompanyScheduleContext(auth, deps, {
-          companyId: companyFolderId,
-          companyFolderId,
-          masterSheetId,
-        }),
-        "resolve_company_schedule_context",
-      );
-    } catch (error) {
-      logCheckCompletePhase("resolve_company_error", { ...traceMeta, durationMs: Date.now() - resolveStart });
-      return completionTimeoutError("resolve_company_schedule_context", error);
-    }
+  try {
+    context = await withCheckCompletionTimeout(
+      resolveCompanyScheduleContext(auth, deps, {
+        companyId: companyFolderId,
+        companyFolderId,
+        companyName: input.companyName,
+      }),
+      "resolve_company_schedule_context",
+    );
+  } catch (error) {
+    logCheckCompletePhase("resolve_company_error", { ...traceMeta, durationMs: Date.now() - resolveStart });
+    return completionTimeoutError("resolve_company_schedule_context", error);
   }
   logCheckCompletePhase("resolve_company_end", { ...traceMeta, durationMs: Date.now() - resolveStart });
   if (!context.ok) {
@@ -361,8 +364,9 @@ export async function verifyScheduleCompletionEligibility(auth, deps, input = {}
       getCompanyScheduleForCompletion(auth, deps, {
         companyId: context.companyFolderId,
         companyFolderId: context.companyFolderId,
-        masterSheetId: context.masterSheetId,
+        companyName: input.companyName,
         scheduleId,
+        resolvedContext: context,
       }),
       "load_schedule_for_completion",
     );
@@ -418,7 +422,6 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
   const email = normalizeEmail(input.email || input.userEmail || input.completedByEmail);
   const scheduleId = trim(input.scheduleId);
   const companyFolderId = trim(input.companyFolderId || input.companyId);
-  const masterSheetId = trim(input.masterSheetId);
   const startedAt = Date.now();
   const answerCount = Array.isArray(input.answers)
     ? input.answers.length
@@ -435,7 +438,7 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
     scheduleId,
     email,
     companyFolderId,
-    masterSheetId,
+    companyName: input.companyName,
     startedAt,
   });
   logCheckCompletePhase("validate_answers_end", { ...traceMeta, durationMs: Date.now() - validateStart });
@@ -484,24 +487,15 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
   }
 
   const appendTabRows = resolveAppendTabRows(deps);
-  const ensureTabColumns = resolveEnsureTabColumns(deps);
   try {
     const writeStart = Date.now();
     logCheckCompletePhase("write_audit_results_start", traceMeta);
-    await withCheckCompletionTimeout(
-      ensureTabColumns(auth, deps, eligibility.masterSheetId, AUDIT_RESULTS_TAB, AUDIT_RESULTS_TAB_COLUMNS),
-      "ensure_audit_results_columns",
-    );
-    const written = await withCheckCompletionTimeout(
-      appendTabRows(
-        auth,
-        deps,
-        eligibility.masterSheetId,
-        AUDIT_RESULTS_TAB,
-        AUDIT_RESULTS_TAB_COLUMNS,
-        [row],
-      ),
-      "append_audit_results_row",
+    const written = await appendAuditResultRowWithRetry(
+      appendTabRows,
+      auth,
+      deps,
+      eligibility.masterSheetId,
+      row,
     );
     logCheckCompletePhase("write_audit_results_end", { ...traceMeta, durationMs: Date.now() - writeStart });
     logCheckCompletePhase("update_schedule_status_end", {

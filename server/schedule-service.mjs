@@ -781,26 +781,19 @@ async function readScheduleRecordsByScheduleId(auth, deps, masterSheetId, schedu
   });
 }
 
-/** Fast schedule lookup for completion — trusts session masterSheetId, skips legacy migration. */
+/** Fast schedule lookup for completion — folder-first workbook resolution, targeted row read. */
 export async function getCompanyScheduleForCompletion(auth, deps, input = {}) {
   const scheduleId = String(input.scheduleId || "").trim();
   const companyFolderId = String(input.companyFolderId || input.companyId || "").trim();
-  const masterSheetId = String(input.masterSheetId || "").trim();
 
-  const context = masterSheetId
-    ? await resolveScheduleReadContext(auth, deps, {
-        ...input,
-        companyFolderId,
-        companyId: companyFolderId,
-        masterSheetId,
-        trustSessionContext: true,
-      })
-    : await resolveCompanyScheduleContext(auth, deps, {
-        companyId: companyFolderId,
-        companyFolderId,
-        masterSheetId,
-        companyName: input.companyName,
-      });
+  const context =
+    input.resolvedContext?.ok === true
+      ? input.resolvedContext
+      : await resolveCompanyScheduleContext(auth, deps, {
+          companyId: companyFolderId,
+          companyFolderId,
+          companyName: input.companyName,
+        });
 
   if (!context.ok) {
     return context;
