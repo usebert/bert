@@ -153,7 +153,7 @@ assert(
   "auditor invite API does not live-gate",
 );
 
-for (const role of ["Admin", "Manager", "Auditor", "User"]) {
+for (const role of ["Admin", "Manager", "Auditor", "User", "Master"]) {
   assert(canCompleteAudit({ email: `${role}@test.com`, role }), `${role} can complete assigned checks`);
 }
 

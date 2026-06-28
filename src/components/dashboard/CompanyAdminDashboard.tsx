@@ -2,9 +2,12 @@ import { useMemo } from "react";
 import type { NavItemId } from "../../types/navigation";
 import type { ActionItem, Audit, HistoryEntry } from "../../types/reportsScreenProps";
 import type { UserInvite } from "../../types/adminScreenProps";
+import type { AuditDraft } from "../../types/dashboardScreenProps";
 import { QmsReadinessSummaryWidget } from "../qms/QmsReadinessSummaryWidget";
 import type { QmsReadinessSummary } from "../../types/qms";
+import type { AssignedCheckScheduleMeta } from "../../utils/assignedCheckDisplay";
 import { AnimatedCard } from "../animation/AnimatedCard";
+import { DashboardThingsToDoSection } from "./DashboardThingsToDoSection";
 import {
   DASHBOARD_CARD,
   RoleDashboardShell,
@@ -69,6 +72,11 @@ type Props = {
   workspaceName: string;
   invitedUsers: UserInvite[];
   assignedAudits: Audit[];
+  drafts: Record<string, AuditDraft>;
+  assignedCheckScheduleMeta: Record<string, AssignedCheckScheduleMeta>;
+  assignedChecksLoading?: boolean;
+  assignedChecksLoadError?: string;
+  assignedChecksLoadErrorDetail?: string;
   actions: ActionItem[];
   openActionsCount?: number;
   openActionsCountLoading?: boolean;
@@ -84,6 +92,11 @@ export function CompanyAdminDashboard({
   workspaceName,
   invitedUsers,
   assignedAudits,
+  drafts,
+  assignedCheckScheduleMeta,
+  assignedChecksLoading = false,
+  assignedChecksLoadError,
+  assignedChecksLoadErrorDetail,
   actions,
   openActionsCount,
   openActionsCountLoading = false,
@@ -92,10 +105,9 @@ export function CompanyAdminDashboard({
   syncIssueCount = 0,
   qmsSummary,
   onNavigate,
-  onOpenAudit: _onOpenAudit,
+  onOpenAudit,
 }: Props) {
   void workspaceName;
-  void _onOpenAudit;
 
   const setupCtx: SetupContext = { invitedUsers, assignedAudits, openReportsCount, history };
   const openActionsMetric = useMemo(() => {
@@ -150,8 +162,20 @@ export function CompanyAdminDashboard({
         </aside>
       </div>
 
+      <DashboardThingsToDoSection
+        assignedAudits={assignedAudits}
+        drafts={drafts}
+        scheduleMetaByAuditId={assignedCheckScheduleMeta}
+        onOpenAudit={onOpenAudit}
+        loading={assignedChecksLoading}
+        loadError={assignedChecksLoadError}
+        loadErrorDetail={assignedChecksLoadErrorDetail}
+        role="Admin"
+        cardIndex={2}
+      />
+
       {qmsSummary ? (
-        <AnimatedCard index={2}>
+        <AnimatedCard index={3}>
         <QmsReadinessSummaryWidget
           summary={qmsSummary}
           compact

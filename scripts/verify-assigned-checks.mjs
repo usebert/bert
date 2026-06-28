@@ -13,7 +13,7 @@ import {
   isScheduleAssignedToUser,
   isScheduleAssignedToAnyEmail,
 } from "../shared/schedule-assignment.mjs";
-import { canCompleteAudit } from "../shared/schedule-assignees.mjs";
+import { canCompleteAudit, isAssignableScheduleUser } from "../shared/schedule-assignees.mjs";
 import {
   isActiveMyCheckScheduleStatus,
   listMyChecks,
@@ -48,6 +48,7 @@ const roles = [
   { email: "manager@testco.test", name: "Site Manager", role: "Manager" },
   { email: "auditor@testco.test", name: "Field Auditor", role: "Auditor" },
   { email: "user@testco.test", name: "Operator", role: "User" },
+  { email: "master@testco.test", name: "Platform Owner", role: "Master" },
 ];
 
 const sampleSchedule = {
@@ -134,6 +135,10 @@ assert(read("src/utils/auditAccess.ts").includes("buildCompleteWorkAssignedAudit
 assert(read("src/utils/auditAccess.ts").includes("resolveAssignedCheckAuditId"), "4g4: stable audit id for assigned schedules");
 assert(read("src/screens/AuditsScreen.tsx").includes("My assigned checks"), "4g5: Admin/Manager assigned checks UI");
 assert(read("src/components/dashboard/ManagerRoleDashboard.tsx").includes("DashboardThingsToDoSection"), "4g5a: manager dashboard Things to do section");
+assert(read("src/components/dashboard/CompanyAdminDashboard.tsx").includes("DashboardThingsToDoSection"), "4g5a2: admin dashboard Things to do section");
+assert(read("src/components/dashboard/AuditorTaskDashboard.tsx").includes("DashboardThingsToDoSection"), "4g5a3: auditor dashboard Things to do section");
+assert(read("src/components/dashboard/MasterPlatformDashboard.tsx").includes("DashboardThingsToDoSection"), "4g5a4: master dashboard Things to do section when company linked");
+assert(read("src/permissions.ts").includes('role === "Master"'), "4g5a5: Master role uses assigned-check completion flow");
 assert(read("src/components/dashboard/DashboardThingsToDoSection.tsx").includes("Things to do"), "4g5a1: Things to do section title");
 assert(read("src/components/dashboard/DashboardThingsToDoSection.tsx").includes("No checks due right now."), "4g5b: dashboard empty state for assigned checks");
 assert(read("src/components/checks/AssignedCheckActionRow.tsx").includes('"Start"'), "4g5c: dashboard assigned-check row Start");
@@ -146,6 +151,33 @@ assert(!appSrc.includes("readCompanyMembersCache"), "4i2: App does not read comp
 assert(appSrc.includes("fetchScheduleAssignees"), "4i3: App loads schedule assignees from schedule-assignees API");
 assert(appSrc.includes("listCompanySchedules"), "4j: App loads company schedules via shared list service");
 assert(read("src/screens/SchedulesScreen.tsx").includes("schedulesLoadError"), "4k: schedules UI surfaces list read failures");
+
+/** 4l: ACTIVE-only assignee filter — inactive and invited excluded; Master assignable. */
+{
+  const companyId = "company-1";
+  const activeMaster = {
+    email: "master@testco.test",
+    name: "Platform Owner",
+    role: "Master",
+    status: "ACTIVE",
+    companyId,
+  };
+  const inactive = {
+    email: "inactive@testco.test",
+    name: "Inactive User",
+    role: "Auditor",
+    status: "INVITED",
+    companyId,
+  };
+  assert(isAssignableScheduleUser(activeMaster), "4l: active Master assignable");
+  assert(!isAssignableScheduleUser(inactive), "4l2: invited user not assignable");
+  const { assignees } = (await import("../shared/schedule-assignees.mjs")).buildAvailableScheduleAssigneesFromUsers(
+    [activeMaster, inactive],
+    { companyId },
+  );
+  assert(assignees.some((row) => row.email === activeMaster.email), "4l3: assignee picker includes active Master");
+  assert(!assignees.some((row) => row.email === inactive.email), "4l4: assignee picker excludes invited user");
+}
 
 /** 5: assigned users see schedule; non-selected users do not. */
 {
@@ -197,7 +229,7 @@ assert(
 assert(!checkService.includes("isScheduleAssignedToUser"), "8c: frontend does not client-filter by email");
 assert(appSrc.includes("fetchAssignedChecks"), "8d: App loads assigned checks from API");
 assert(read("src/config/roleNavigation.ts").includes("shouldLoadAssignedChecksScreen"), "8h: Complete Work screen gate helper exists");
-assert(appSrc.includes("shouldLoadAssignedChecksScreen(screen)"), "8h1: App uses assigned-checks screen gate");
+assert(appSrc.includes("shouldLoadAssignedChecksScreen(screen, currentUser.role)"), "8h1: App uses assigned-checks screen gate");
 assert(checkService.includes("fetchJson"), "8e: assigned checks uses fetchJson diagnostics");
 assert(checkService.includes("loadErrorDetail"), "8f: assigned checks exposes load error detail");
 assert(!checkService.includes("error.message : ASSIGNED_CHECKS_USER_MESSAGE"), "8g: assigned checks does not surface raw NetworkError as primary message");

@@ -5537,7 +5537,7 @@ function App() {
       setAssignedChecksState({ schedules: [], loading: false, hasLoadedOnce: false });
       return;
     }
-    if (!shouldLoadAssignedChecksScreen(screen)) {
+    if (!shouldLoadAssignedChecksScreen(screen, currentUser.role)) {
       setAssignedChecksState((previous) => ({
         ...previous,
         loading: false,
@@ -15330,6 +15330,14 @@ function App() {
                       navigateToSetupInitial();
                       setScreen("setup");
                     }}
+                    companyWorkspaceLinked={Boolean(selectedFolder)}
+                    assignedAudits={assignedAudits}
+                    drafts={drafts}
+                    assignedCheckScheduleMeta={assignedCheckScheduleMeta}
+                    assignedChecksLoading={assignedChecksState.loading}
+                    assignedChecksLoadError={assignedChecksState.loadError}
+                    assignedChecksLoadErrorDetail={assignedChecksState.loadErrorDetail}
+                    onOpenAudit={startAudit}
                   />
                 )}
                 renderAuditorDashboard={() => (
@@ -15347,6 +15355,10 @@ function App() {
                     recentCompletionsCount={assignmentFilteredHistory.length}
                     onOpenAudit={startAudit}
                     onNavigate={(nextScreen) => setScreen(nextScreen)}
+                    assignedCheckScheduleMeta={assignedCheckScheduleMeta}
+                    assignedChecksLoading={assignedChecksState.loading}
+                    assignedChecksLoadError={assignedChecksState.loadError}
+                    assignedChecksLoadErrorDetail={assignedChecksState.loadErrorDetail}
                     slatePrimaryCtaInteract={slatePrimaryCtaInteract}
                   />
                 )}
@@ -15407,6 +15419,11 @@ function App() {
                     workspaceName={workspaceName}
                     invitedUsers={invitedUsers}
                     assignedAudits={assignedAudits}
+                    drafts={drafts}
+                    assignedCheckScheduleMeta={assignedCheckScheduleMeta}
+                    assignedChecksLoading={assignedChecksState.loading}
+                    assignedChecksLoadError={assignedChecksState.loadError}
+                    assignedChecksLoadErrorDetail={assignedChecksState.loadErrorDetail}
                     actions={visibleActions}
                     openActionsCount={liveOpenActionsCount ?? 0}
                     openActionsCountLoading={!actionsCountReady}

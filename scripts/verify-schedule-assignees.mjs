@@ -138,14 +138,19 @@ const invitedUser = {
   companyAreas: [],
 };
 
-const godmodeOnlyUser = {
+const godmodeCompanyUser = {
   email: "godmode@example.com",
   name: "Platform Owner",
   role: "Master",
   accessLevel: "full",
   status: "ACTIVE",
-  companyId: "",
+  companyId: ownCompany,
   companyAreas: [],
+};
+
+const godmodeOnlyUser = {
+  ...godmodeCompanyUser,
+  companyId: otherCompany,
 };
 
 /** 1: Company Admin + ACTIVE appears. */
@@ -215,19 +220,25 @@ const godmodeOnlyUser = {
   assert(!belongsToCurrentCompany(otherCompanyUser, ownCompany), "9b: belongsToCurrentCompany rejects other company");
 }
 
-/** 10: Deleted/removed users do not appear; invited profiles do. */
+/** 10: Deleted/inactive/invited users do not appear. */
 {
   const { assignees: deletedOnly } = buildAvailableScheduleAssigneesFromUsers([inactiveUser], { companyId: ownCompany });
   assert(!deletedOnly.some((item) => item.email === inactiveUser.email), "10: deleted user excluded");
   const { assignees: invitedOnly } = buildAvailableScheduleAssigneesFromUsers([invitedUser], { companyId: ownCompany });
-  assert(invitedOnly.some((item) => item.email === invitedUser.email), "10b: invited profile included");
+  assert(!invitedOnly.some((item) => item.email === invitedUser.email), "10b: invited profile excluded");
 }
 
-/** 11: Godmode-only platform user does not appear. */
+/** 11: Active Master/Godmode in company appears; platform-only row without company does not. */
 {
-  const { assignees } = buildAvailableScheduleAssigneesFromUsers([godmodeOnlyUser], { companyId: ownCompany });
-  assert(!assignees.some((item) => item.email === godmodeOnlyUser.email), "11: godmode-only user excluded");
-  assert(!canCompleteAudit(godmodeOnlyUser), "11b: master role is not assignable");
+  const { assignees: companyMaster } = buildAvailableScheduleAssigneesFromUsers([godmodeCompanyUser], {
+    companyId: ownCompany,
+  });
+  assert(companyMaster.some((item) => item.email === godmodeCompanyUser.email), "11: active Master in company appears");
+  assert(canCompleteAudit(godmodeCompanyUser), "11b: master role is assignable");
+  const { assignees: platformOnly } = buildAvailableScheduleAssigneesFromUsers([godmodeOnlyUser], {
+    companyId: ownCompany,
+  });
+  assert(!platformOnly.some((item) => item.email === godmodeOnlyUser.email), "11c: master from other company excluded");
 }
 
 /** 12: Area mismatch excludes user when schedule area is selected. */
@@ -268,16 +279,16 @@ const godmodeOnlyUser = {
   );
   assert(diagnostics.totalRows === 5, "14: diagnostics total rows");
   assert(diagnostics.excludedByStatus >= 1, "14b: deleted user counted in excludedByStatus");
-  assert(diagnostics.excludedByCompany >= 1, "14c: other-company user counted in excludedByCompany");
-  assert(diagnostics.excludedNotAssignable >= 1, "14d: godmode user counted in excludedNotAssignable");
+  assert(diagnostics.excludedByCompany >= 2, "14c: other-company users counted in excludedByCompany");
+  assert(diagnostics.excludedNotAssignable === 0, "14d: active assignable roles are not excluded by role");
   const inactiveCandidate = diagnostics.candidates.find((item) => item.email === inactiveUser.email);
   const invitedCandidate = diagnostics.candidates.find((item) => item.email === invitedUser.email);
   const otherCandidate = diagnostics.candidates.find((item) => item.email === otherCompanyUser.email);
   const godmodeCandidate = diagnostics.candidates.find((item) => item.email === godmodeOnlyUser.email);
   assert(inactiveCandidate?.excludedReason === "excluded_status", "14e: deleted exclusion reason");
-  assert(!invitedCandidate?.excludedReason, "14e2: invited profile not excluded by status");
+  assert(invitedCandidate?.excludedReason === "excluded_status", "14e2: invited profile excluded by inactive status");
   assert(otherCandidate?.excludedReason === "wrong_company", "14f: company exclusion reason");
-  assert(godmodeCandidate?.excludedReason === "not_assignable", "14g: godmode exclusion reason");
+  assert(godmodeCandidate?.excludedReason === "wrong_company", "14g: master from other company excluded");
 }
 
 const scheduleAssigneesSrc = read("src/utils/scheduleAssignees.ts");
@@ -352,10 +363,10 @@ assert(schedulesScreenSrc.includes("companyAreas"), "14n: schedule UI shows comp
     ],
     { companyId: "TESTCO" },
   );
-  assert(pendingOnly.assignees.length === 3, "15j: invited Users tab profiles populate assignee list");
+  assert(pendingOnly.assignees.length === 0, "15j: invited/pending Users tab profiles excluded from assignee list");
   assert(
-    managerScenario.assignees.length > 0 && pendingOnly.assignees.length > 0,
-    "15k: active and invited Users tab profiles both appear for schedule builder",
+    managerScenario.assignees.length > 0 && pendingOnly.assignees.length === 0,
+    "15k: only ACTIVE Users tab profiles appear for schedule builder",
   );
 }
 

@@ -1,35 +1,27 @@
-import { useMemo } from "react";
 import type { NavItemId } from "../../types/navigation";
 import type { AuditorTaskDashboardProps } from "../../types/dashboardScreenProps";
-import { getRoleTheme } from "../../config/roleTheme";
-import { rankAuditorAudit } from "../../utils/auditorDashboard";
-import { AnimatedCard } from "../animation/AnimatedCard";
-import { AnimatedButton } from "../animation/AnimatedButton";
-import { DASHBOARD_CARD, PageHeader, TabletBottomNav } from "./RoleDashboardPrimitives";
-import { EmptyPanel } from "./DashboardPrimitives";
+import type { AssignedCheckScheduleMeta } from "../../utils/assignedCheckDisplay";
+import { DashboardThingsToDoSection } from "./DashboardThingsToDoSection";
+import { PageHeader, TabletBottomNav } from "./RoleDashboardPrimitives";
 
 type Props = AuditorTaskDashboardProps & {
   workspaceName: string;
+  assignedCheckScheduleMeta?: Record<string, AssignedCheckScheduleMeta>;
+  assignedChecksLoading?: boolean;
+  assignedChecksLoadError?: string;
+  assignedChecksLoadErrorDetail?: string;
   onNavigate: (screen: NavItemId) => void;
 };
-
-function duePillLabel(dueHours: number, inProgress: boolean): string {
-  if (inProgress) return "In progress";
-  if (dueHours < 0) return "Overdue";
-  if (dueHours <= 2) return "Due now";
-  return "Due today";
-}
-
-function estimateMinutes(questionCount: number): number {
-  if (questionCount <= 0) return 3;
-  return Math.max(3, Math.min(15, Math.round(questionCount * 0.75)));
-}
 
 export function AuditorTaskDashboard({
   workspaceName,
   currentUser,
   assignedAudits,
   drafts,
+  assignedCheckScheduleMeta = {},
+  assignedChecksLoading = false,
+  assignedChecksLoadError,
+  assignedChecksLoadErrorDetail,
   showStartHereCard,
   onOpenAudit,
   onNavigate,
@@ -37,84 +29,35 @@ export function AuditorTaskDashboard({
   void currentUser;
   void workspaceName;
   void showStartHereCard;
-  const theme = getRoleTheme("Auditor");
 
-  const sortedAudits = useMemo(
-    () =>
-      [...assignedAudits].sort((a, b) => {
-        const rankDiff = rankAuditorAudit(a, Boolean(drafts[a.id])) - rankAuditorAudit(b, Boolean(drafts[b.id]));
-        if (rankDiff !== 0) return rankDiff;
-        return a.dueHours - b.dueHours;
-      }),
-    [assignedAudits, drafts],
-  );
-  const todaysChecks = useMemo(
-    () =>
-      sortedAudits.filter(
-        (audit) => audit.dueLabel === "Available" || (audit.dueHours >= 0 && audit.dueHours <= 24) || audit.dueHours < 0,
-      ),
-    [sortedAudits],
-  );
-  const displayChecks = todaysChecks.length > 0 ? todaysChecks : sortedAudits;
   const checksSubtitle =
-    displayChecks.length === 1
+    assignedAudits.length === 1
       ? "1 check to do. Tap start and follow the steps."
-      : `${displayChecks.length} checks to do. Tap start and follow the steps.`;
+      : assignedAudits.length > 0
+        ? `${assignedAudits.length} checks to do. Tap start and follow the steps.`
+        : "When your manager assigns checks, they will appear here with a big Start button.";
 
   return (
-      <div className="space-y-6">
+    <div className="space-y-6">
       <PageHeader role="Auditor" eyebrow="Tablet mode" title="Today" subtitle={checksSubtitle} />
-      {displayChecks.length === 0 ? (
-        <AnimatedCard as="section" className={DASHBOARD_CARD}>
-          <EmptyPanel
-            title="No checks assigned"
-            text="When your manager assigns checks, they will appear here with a big Start button."
-          />
-        </AnimatedCard>
-      ) : (
-        <ul className="space-y-4">
-          {displayChecks.slice(0, 8).map((audit, index) => {
-            const inProgress = Boolean(drafts[audit.id]);
-            const pillLabel = duePillLabel(audit.dueHours, inProgress);
-            const minutes = estimateMinutes(audit.questions?.length ?? 0);
-            return (
-              <AnimatedCard
-                key={audit.id}
-                as="li"
-                index={index}
-                className={[DASHBOARD_CARD, "flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"].join(" ")}
-              >
-                <div className="min-w-0 flex-1">
-                  <span className="inline-flex rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-black uppercase tracking-wide text-violet-800">
-                    {pillLabel}
-                  </span>
-                  <p className="mt-3 text-2xl font-black text-slate-900">{audit.name}</p>
-                  <p className="mt-2 text-sm text-slate-600">
-                    Takes about {minutes} minute{minutes === 1 ? "" : "s"}.
-                  </p>
-                </div>
-                <AnimatedButton
-                  type="button"
-                  onClick={() => onOpenAudit(audit.id)}
-                  showArrow
-                  className={[
-                    "flex min-h-16 shrink-0 items-center justify-center rounded-2xl px-10 text-lg font-black text-white shadow-lg sm:min-w-[8rem]",
-                    theme.primaryButton,
-                    theme.primaryButtonHover,
-                  ].join(" ")}
-                >
-                  {inProgress ? "Continue" : "Start"}
-                </AnimatedButton>
-              </AnimatedCard>
-            );
-          })}
-        </ul>
-      )}
+
+      <DashboardThingsToDoSection
+        assignedAudits={assignedAudits}
+        drafts={drafts}
+        scheduleMetaByAuditId={assignedCheckScheduleMeta}
+        onOpenAudit={onOpenAudit}
+        loading={assignedChecksLoading}
+        loadError={assignedChecksLoadError}
+        loadErrorDetail={assignedChecksLoadErrorDetail}
+        role="Auditor"
+        cardIndex={0}
+      />
+
       <TabletBottomNav
         onChecks={() => onNavigate("audits")}
         onSubmit={() => onNavigate("reports")}
         onHistory={() => onNavigate("reports")}
       />
-      </div>
+    </div>
   );
 }

@@ -1,4 +1,8 @@
 import type { NavItemId } from "../../types/navigation";
+import type { AuditDraft } from "../../types/dashboardScreenProps";
+import type { Audit } from "../../types/reportsScreenProps";
+import type { AssignedCheckScheduleMeta } from "../../utils/assignedCheckDisplay";
+import { DashboardThingsToDoSection } from "./DashboardThingsToDoSection";
 import { DashboardLandingCard, RoleDashboardShell } from "./RoleDashboardPrimitives";
 
 type Props = {
@@ -7,6 +11,14 @@ type Props = {
   onNavigate: (screen: NavItemId) => void;
   onOpenInitialSetup: () => void;
   onOpenSelectCompany?: () => void;
+  companyWorkspaceLinked?: boolean;
+  assignedAudits?: Audit[];
+  drafts?: Record<string, AuditDraft>;
+  assignedCheckScheduleMeta?: Record<string, AssignedCheckScheduleMeta>;
+  assignedChecksLoading?: boolean;
+  assignedChecksLoadError?: string;
+  assignedChecksLoadErrorDetail?: string;
+  onOpenAudit?: (auditId: string) => void;
 };
 
 /** Master platform home — mirrors Godmode reference layout. */
@@ -16,6 +28,14 @@ export function MasterPlatformDashboard({
   onNavigate,
   onOpenInitialSetup,
   onOpenSelectCompany,
+  companyWorkspaceLinked = false,
+  assignedAudits = [],
+  drafts = {},
+  assignedCheckScheduleMeta = {},
+  assignedChecksLoading = false,
+  assignedChecksLoadError,
+  assignedChecksLoadErrorDetail,
+  onOpenAudit,
 }: Props) {
   void companiesCount;
   void pendingOnboardingCount;
@@ -79,6 +99,20 @@ export function MasterPlatformDashboard({
           />
         ))}
       </div>
+
+      {companyWorkspaceLinked && onOpenAudit ? (
+        <DashboardThingsToDoSection
+          assignedAudits={assignedAudits}
+          drafts={drafts}
+          scheduleMetaByAuditId={assignedCheckScheduleMeta}
+          onOpenAudit={onOpenAudit}
+          loading={assignedChecksLoading}
+          loadError={assignedChecksLoadError}
+          loadErrorDetail={assignedChecksLoadErrorDetail}
+          role="Master"
+          cardIndex={4}
+        />
+      ) : null}
     </RoleDashboardShell>
   );
 }

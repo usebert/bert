@@ -227,7 +227,7 @@ assert(
     ],
     { companyId: ownCompany },
   );
-  assert(pendingOnly.assignees.length === 2, "F3: invited Users tab profiles populate assignees");
+  assert(pendingOnly.assignees.length === 0, "F3: invited Users tab profiles excluded from assignees");
 }
 {
   const mixed = buildAvailableScheduleAssigneesFromUsers(
@@ -237,7 +237,7 @@ assert(
     ],
     { companyId: ownCompany },
   );
-  assert(mixed.assignees.length === 5, "F4: invited profiles appear alongside active users");
+  assert(mixed.assignees.length === 4, "F4: only ACTIVE users appear alongside active roles");
 }
 assert(coreRoutes.includes("/api/companies/:companyId/schedule-assignees"), "F5: schedule-assignees API route");
 assert(assigneeService.includes("getScheduleAssigneesForCompany"), "F6: schedule assignee service");

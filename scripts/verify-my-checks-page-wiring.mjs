@@ -50,11 +50,11 @@ assert(roleNav.includes("COMPLETE_WORK_NAV_SCREEN_ID"), "1e0d: Complete Work nav
 assert(appTsx.includes("shouldLoadAssignedChecksScreen"), "1e1: App gates assigned-checks load via screen helper");
 assert(appTsx.includes("isCompleteWorkListScreen"), "1e1b: App renders Complete Work via screen helper");
 assert(
-  /shouldLoadAssignedChecksScreen\(screen\)[\s\S]{0,3200}fetchAssignedChecks/.test(appTsx),
+  /shouldLoadAssignedChecksScreen\(screen, currentUser\.role\)[\s\S]{0,3200}fetchAssignedChecks/.test(appTsx),
   "1e2: Complete Work screen gate triggers fetchAssignedChecks",
 );
 assert(
-  !/shouldLoadAssignedChecksScreen\(screen\)[\s\S]{0,400}Boolean\(companyId\)/.test(appTsx),
+  !/shouldLoadAssignedChecksScreen\(screen, currentUser\.role\)[\s\S]{0,400}Boolean\(companyId\)/.test(appTsx),
   "1e3: assigned-checks load does not require client companyId",
 );
 assert(
@@ -72,6 +72,11 @@ assert(roleNav.includes('screen === "dashboard"'), "1e0e: dashboard screen loads
 assert(thingsToDoSection.includes("Things to do"), "1e0f: dashboard Things to do section title");
 assert(thingsToDoSection.includes("No checks due right now."), "1e0g: dashboard Things to do empty state");
 assert(managerDashboard.includes("DashboardThingsToDoSection"), "1e0h: manager dashboard renders Things to do section");
+assert(read("src/components/dashboard/CompanyAdminDashboard.tsx").includes("DashboardThingsToDoSection"), "1e0h1: admin dashboard renders Things to do section");
+assert(read("src/components/dashboard/AuditorTaskDashboard.tsx").includes("DashboardThingsToDoSection"), "1e0h1b: auditor dashboard renders Things to do section");
+assert(read("src/components/dashboard/MasterPlatformDashboard.tsx").includes("DashboardThingsToDoSection"), "1e0h1c: master dashboard renders Things to do when company linked");
+assert(read("src/components/dashboard/CompanyAdminDashboard.tsx").includes("DashboardThingsToDoSection"), "1e0h1: admin dashboard renders Things to do section");
+assert(read("src/components/dashboard/MasterPlatformDashboard.tsx").includes("DashboardThingsToDoSection"), "1e0h1b: master dashboard renders Things to do section");
 assert(
   managerDashboard.indexOf("DashboardThingsToDoSection") < managerDashboard.indexOf("Open actions"),
   "1e0h2: Things to do appears before Open actions on manager dashboard",
@@ -121,7 +126,7 @@ assert(appTsx.includes("assignedChecksLoadError={assignedChecksState.loadError}"
 assert(appTsx.includes("assignedChecksRequestRef"), "3e2: assigned-check fetch uses request generation guard");
 assert(appTsx.includes("hasLoadedOnce"), "3e3: assigned-check state tracks initial load completion");
 assert(
-  /shouldLoadAssignedChecksScreen\(screen\)[\s\S]{0,220}loading:\s*false/.test(appTsx),
+  /shouldLoadAssignedChecksScreen\(screen, currentUser\.role\)[\s\S]{0,220}loading:\s*false/.test(appTsx),
   "3e4: leaving assigned-check screens clears loading",
 );
 assert(
@@ -161,12 +166,10 @@ assert(auditsScreen.includes("audits={myAssignedChecks}"), "4g: Auditor My Check
   assert(completeWorkScreenMatch, "4d1: isCompleteWorkListScreen helper present");
   assert(completeWorkScreenMatch[1].includes("COMPLETE_WORK_NAV_SCREEN_ID"), "4d2: Complete Work screen uses nav constant");
   assert(roleNav.includes('export const COMPLETE_WORK_NAV_SCREEN_ID = "audits"'), "4d3: Complete Work nav constant is audits");
-  const loadGateMatch = roleNav.match(
-    /export function shouldLoadAssignedChecksScreen\(screen: RoutedScreen\)[\s\S]{0,200}?return ([^;]+);/,
-  );
-  assert(loadGateMatch, "4d4: shouldLoadAssignedChecksScreen helper present");
-  assert(loadGateMatch[1].includes("isCompleteWorkListScreen"), "4d5: load gate includes Complete Work screen");
-  assert(appTsx.includes("shouldLoadAssignedChecksScreen(screen)"), "4d6: App calls load gate with current screen");
+  assert(roleNav.includes("export function shouldLoadAssignedChecksScreen(screen: RoutedScreen, role?: Role)"), "4d4: shouldLoadAssignedChecksScreen helper present");
+  assert(roleNav.includes("isCompleteWorkListScreen(screen)"), "4d5: load gate includes Complete Work screen");
+  assert(roleNav.includes('role === "Master" && screen === "godmodeHome"'), "4d5b: load gate includes Master godmode home");
+  assert(appTsx.includes("shouldLoadAssignedChecksScreen(screen, currentUser.role)"), "4d6: App calls load gate with current screen and role");
 }
 
 /** 5: Backend uses session email + company folder; rejects query email override. */

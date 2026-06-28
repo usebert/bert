@@ -69,9 +69,14 @@ export type ScheduleAuditorDiagnostics = ScheduleAssigneeDiagnostics & {
 const COMPLETABLE_ROLE_VALUES = new Set([
   "admin",
   "company admin",
+  "administrator",
   "manager",
   "auditor",
   "user",
+  "master",
+  "godmode",
+  "god mode",
+  "platform owner",
 ]);
 
 type InviteLike = {
@@ -112,6 +117,23 @@ export function isActiveCompanyUser(user: CompanyUsersTabRow): boolean {
   return Boolean(user.email.trim()) && isActiveCompanyUsersTabRow(user);
 }
 
+/** ACTIVE Users tab row with valid email + name — schedule assignee picker source. */
+export function isAssignableActiveCompanyUser(user: CompanyUsersTabRow): boolean {
+  const email = user.email.trim();
+  const name = user.name.trim();
+  return Boolean(email) && Boolean(name) && isActiveCompanyUsersTabRow(user);
+}
+
+/** ACTIVE Users tab row with valid email + name — schedule assignee picker source. */
+export function isAssignableScheduleUser(user: CompanyUsersTabRow): boolean {
+  const email = user.email.trim();
+  const name = user.name.trim();
+  if (!email || !name) {
+    return false;
+  }
+  return isActiveCompanyUser(user);
+}
+
 export function canCompleteAuditUser(user: CompanyUsersTabRow): boolean {
   const role = normalizeScheduleValue(user.role);
   const accessLevel = normalizeScheduleValue(user.accessLevel);
@@ -130,7 +152,7 @@ export function belongsToCompanyUsersTabRow(user: CompanyUsersTabRow, companyId:
   }
   const userCompanyId = user.companyId.trim();
   if (!userCompanyId) {
-    return true;
+    return false;
   }
   return userCompanyId === targetCompanyId;
 }
@@ -169,7 +191,9 @@ function parseClientRole(roleRaw: string): Role | "User" {
   if (role === "manager") return "Manager";
   if (role === "auditor") return "Auditor";
   if (role === "user") return "User";
-  if (role === "master") return "Master";
+  if (role === "master" || role === "godmode" || role === "god mode" || role === "platform owner") {
+    return "Master";
+  }
   return "User";
 }
 
@@ -215,15 +239,13 @@ export function buildScheduleAssigneeDiagnostics(
       continue;
     }
 
-    if (!isListableCompanyProfile(user)) {
+    if (!isAssignableScheduleUser(user)) {
       diagnostics.excludedByStatus += 1;
       snapshot.excludedReason = "excluded_status";
       diagnostics.candidates.push(snapshot);
       continue;
     }
-    if (isActiveCompanyUsersTabRow(user)) {
-      diagnostics.activeCount += 1;
-    }
+    diagnostics.activeCount += 1;
 
     if (!canCompleteAuditUser(user)) {
       diagnostics.excludedNotAssignable += 1;
@@ -292,7 +314,7 @@ export function buildAvailableScheduleAssignees(
     if (!email) {
       continue;
     }
-    if (!isListableCompanyProfile(user) || !canCompleteAuditUser(user) || !belongsToCompanyUsersTabRow(user, companyId)) {
+    if (!isAssignableScheduleUser(user) || !canCompleteAuditUser(user) || !belongsToCompanyUsersTabRow(user, companyId)) {
       continue;
     }
 

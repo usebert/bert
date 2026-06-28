@@ -89,8 +89,11 @@ export function isCompleteWorkListScreen(screen: RoutedScreen): boolean {
 }
 
 /** Screens that should load GET /api/me/assigned-checks (session-scoped; no client company id). */
-export function shouldLoadAssignedChecksScreen(screen: RoutedScreen): boolean {
-  return isCompleteWorkListScreen(screen) || screen === "dashboard";
+export function shouldLoadAssignedChecksScreen(screen: RoutedScreen, role?: Role): boolean {
+  if (isCompleteWorkListScreen(screen) || screen === "dashboard") {
+    return true;
+  }
+  return role === "Master" && screen === "godmodeHome";
 }
 
 export function getRoleNavBucket(role: Role): RoleNavBucket {

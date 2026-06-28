@@ -43,6 +43,7 @@ const userService = read("server/user-service.mjs");
 assert(pkg.scripts["verify:schedule-service-foundation"], "1: npm script registered");
 assert(scheduleService.includes("listSchedulerAssignees"), "2: listSchedulerAssignees exported");
 assert(scheduleService.includes("listActiveUsersFromUserService") || scheduleService.includes("listActiveUsers"), "3: assignees delegate to listActiveUsers");
+assert(read("shared/schedule-assignees.mjs").includes("isAssignableActiveCompanyUser"), "3b: assignees filter ACTIVE users only");
 assert(scheduleService.includes("readSchedulesFromTab"), "4: readSchedulesFromTab exported");
 assert(scheduleService.includes("writeScheduleToTab"), "5: writeScheduleToTab exported");
 assert(scheduleService.includes("buildScheduleAssignmentFields"), "6: buildScheduleAssignmentFields exported");
@@ -65,6 +66,7 @@ const activeUsers = [
   { email: "manager@testco.test", name: "Site Manager", role: "Manager", status: "ACTIVE", companyFolderId },
   { email: "auditor@testco.test", name: "Field Auditor", role: "Auditor", status: "ACTIVE", companyFolderId },
   { email: "user@testco.test", name: "Operator", role: "User", status: "ACTIVE", companyFolderId },
+  { email: "master@testco.test", name: "Platform Owner", role: "Master", status: "ACTIVE", companyFolderId },
 ];
 
 const people = buildAvailableScheduleAssigneesFromUsers(activeUsers, { companyId: companyFolderId });
@@ -201,7 +203,7 @@ const assigneeResult = await listSchedulerAssignees(
     readTabRecords: mockReadTabRecords,
     listActiveUsers: mockListActiveUsers,
   },
-  { companyFolderId, masterSheetId: "sheet-123" },
+  { companyFolderId },
 );
 assert(assigneeResult.ok, "37: listSchedulerAssignees succeeds with mock listActiveUsers");
 assert(assigneeResult.assignees.length === activeUsers.length, "38: mock assignees include all ACTIVE roles");

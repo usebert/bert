@@ -5,9 +5,14 @@
 const COMPLETABLE_ROLE_VALUES = new Set([
   "admin",
   "company admin",
+  "administrator",
   "manager",
   "auditor",
   "user",
+  "master",
+  "godmode",
+  "god mode",
+  "platform owner",
 ]);
 
 export function normalize(value) {
@@ -59,9 +64,21 @@ export function isActiveCompanyUser(user) {
   return Boolean(email) && isActiveUser(user);
 }
 
-/** @deprecated Use isListableCompanyProfile — assignees share the People page profile list. */
+/** ACTIVE Users tab row with valid email + name — schedule assignee picker source. */
+export function isAssignableActiveCompanyUser(user) {
+  const email = String(user.email ?? user.Email ?? "").trim();
+  const name = String(user.name ?? user.Name ?? "").trim();
+  return Boolean(email) && Boolean(name) && isActiveUser(user);
+}
+
+/** @deprecated Use isAssignableActiveCompanyUser — assignees are ACTIVE Users tab rows only. */
 export function isAssignableCompanyProfile(user) {
-  return isListableCompanyProfile(user);
+  return isAssignableActiveCompanyUser(user);
+}
+
+/** Alias — schedule assignee picker ACTIVE user gate. */
+export function isAssignableScheduleUser(user) {
+  return isAssignableActiveCompanyUser(user);
 }
 
 export function canCompleteAudit(user) {
@@ -84,7 +101,7 @@ export function belongsToCurrentCompany(user, companyId) {
     user.companyId ?? user.companyFolderId ?? user["Company ID"] ?? user.company_id ?? "",
   ).trim();
   if (!userCompanyId) {
-    return true;
+    return false;
   }
   return userCompanyId === targetCompanyId;
 }
@@ -95,7 +112,7 @@ export function parseRoleForClient(roleRaw) {
   if (role === "manager") return "Manager";
   if (role === "auditor") return "Auditor";
   if (role === "user") return "User";
-  if (role === "master") return "Master";
+  if (role === "master" || role === "godmode" || role === "god mode" || role === "platform owner") return "Master";
   return "User";
 }
 
@@ -188,15 +205,13 @@ export function buildScheduleAssigneeDiagnostics(users, options = {}) {
       continue;
     }
 
-    if (!isListableCompanyProfile(user)) {
+    if (!isAssignableActiveCompanyUser(user)) {
       diagnostics.excludedByStatus += 1;
       entry.excludedReason = "excluded_status";
       diagnostics.candidates.push(entry);
       continue;
     }
-    if (isActiveUser(user)) {
-      diagnostics.activeCount += 1;
-    }
+    diagnostics.activeCount += 1;
 
     if (!canCompleteAudit(user)) {
       diagnostics.excludedNotAssignable += 1;
@@ -262,7 +277,7 @@ export function buildAvailableScheduleAssigneesFromUsers(users, options = {}) {
       continue;
     }
 
-    if (!isListableCompanyProfile(user) || !canCompleteAudit(user) || !belongsToCurrentCompany(user, companyId)) {
+    if (!isAssignableActiveCompanyUser(user) || !canCompleteAudit(user) || !belongsToCurrentCompany(user, companyId)) {
       continue;
     }
 
