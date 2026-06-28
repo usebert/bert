@@ -152,6 +152,7 @@ import {
   INVALID_CREDENTIALS,
   LOGIN_CONTEXT_FAILED,
 } from "./auth-service.mjs";
+import { createLoginTimingTrace, loginTimingEmailMeta, logLoginTimingMark } from "./login-timing.mjs";
 import { debugVerifyUserPassword } from "./user-auth-service.mjs";
 import { createAuthIndexApi, syncAuthIndexAfterUsersRead } from "./auth-index.mjs";
 import { completeInviteToUserRow } from "./company-user-sheet-flow.mjs";
@@ -6261,9 +6262,16 @@ app.post("/auth/google/logout", (_req, res) => {
 });
 
 app.post("/api/auth/company/login", async (req, res) => {
+  const routeTiming = createLoginTimingTrace({ route: "company_login" });
+  routeTiming.mark("route_entered");
   try {
+    const tParse = Date.now();
     const loginIdentity = String(req.body?.email || req.body?.username || "").trim();
     const loginPassword = String(req.body?.password || "");
+    routeTiming.phase("request_parsed", tParse, {
+      ...loginTimingEmailMeta(loginIdentity.includes("@") ? loginIdentity : ""),
+      hasPassword: Boolean(loginPassword),
+    });
 
     if (loginIdentity.includes("@") && isPlatformOwnerEmail(loginIdentity, process.env)) {
       const masterResult = performMasterLogin(
@@ -6272,10 +6280,16 @@ app.post("/api/auth/company/login", async (req, res) => {
           findOperatorByIdentity,
           verifyPassword,
           upsertMasterOperator,
+          loginTiming: routeTiming,
         },
         { email: loginIdentity, password: loginPassword },
       );
       if (!masterResult.ok) {
+        logLoginTimingMark("total_login_duration", {
+          durationMs: routeTiming.totalMs(),
+          ok: false,
+          flow: "master",
+        });
         return res.status(masterResult.httpStatus || 401).json({
           ok: false,
           blocker: "invalid_credentials",
@@ -6284,6 +6298,11 @@ app.post("/api/auth/company/login", async (req, res) => {
         });
       }
       res.cookie(MASTER_SESSION_COOKIE, masterResult.sessionPayload, getSessionCookieOptions({ maxAge: MASTER_SESSION_MS }));
+      logLoginTimingMark("total_login_duration", {
+        durationMs: routeTiming.totalMs(),
+        ok: true,
+        flow: "master",
+      });
       return res.json({
         ...buildMasterSessionApiResponse({ email: masterResult.email, name: masterResult.name }),
         timingMs: masterResult.timing,
@@ -6301,6 +6320,7 @@ app.post("/api/auth/company/login", async (req, res) => {
       sessionRevocation: companySessionRevocationApi,
       isPlatformOwner: isPlatformOwnerEmail,
       masterSheetCache: masterSheetCacheApi,
+      loginTiming: routeTiming,
       email: loginIdentity,
       password: loginPassword,
       masterSheetId: String(req.body?.masterSheetId || "").trim(),
@@ -6310,6 +6330,7 @@ app.post("/api/auth/company/login", async (req, res) => {
     if (!result.ok) {
       const invalidCredentials =
         result.code === INVALID_CREDENTIALS || result.blocker === "invalid_credentials";
+      routeTiming.total("total_login_duration", { ok: false, flow: "company" });
       return res.status(result.httpStatus || 400).json({
         ok: false,
         code: result.code,
@@ -6332,9 +6353,12 @@ app.post("/api/auth/company/login", async (req, res) => {
     res.on("finish", () => {
       const responseSentMs = Date.now() - responseStarted;
       console.log(`[login] response_sent durationMs=${responseSentMs}`);
+      routeTiming.phase("response_sent", responseStarted, { flow: "company" });
       if (result.timing) {
         result.timing.response_sent = responseSentMs;
       }
+      const tJobs = Date.now();
+      routeTiming.mark("background_jobs_queued_start", { flow: "company_post_response" });
       try {
         queueCompanyLoginBackgroundJobs(
           {
@@ -6347,6 +6371,13 @@ app.post("/api/auth/company/login", async (req, res) => {
         );
       } catch (error) {
         console.warn("[login] post-response background job queue failed", error);
+      } finally {
+        routeTiming.phase("background_jobs_queued_end", tJobs, { flow: "company_post_response" });
+        routeTiming.total("total_login_duration", {
+          ok: true,
+          flow: "company",
+          includeResponse: true,
+        });
       }
     });
 

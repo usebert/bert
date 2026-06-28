@@ -28,6 +28,7 @@ import { isKnownStaleAuthIndexPairing } from "../shared/auth-index-trust.mjs";
 import { isCompanyRegistryLive } from "../shared/company-invite-permissions.mjs";
 import { resolveCompanyFromFolder } from "./company-service.mjs";
 import { readCanonicalCompanyWorkspaceRegistryMap } from "./company-workspace-registry.mjs";
+import { loginTimingEmailMeta } from "./login-timing.mjs";
 
 const LIGHT_RESOLVE_OPTS = {
   ensureTabsSync: false,
@@ -184,7 +185,12 @@ export async function readUserAuthRowByEmail(auth, companyContext, email, deps) 
     return null;
   }
   const { readRecord } = resolveUsersTabReaders(deps);
+  const tRead = Date.now();
   const rec = await readRecord(auth, ctx.masterSheetId, emailNorm, deps).catch(() => null);
+  deps.loginTiming?.logPhase?.("users_tab_read", tRead, {
+    masterSheetId: ctx.masterSheetId,
+    rowFound: Boolean(rec),
+  });
   if (!rec) {
     return null;
   }
@@ -327,7 +333,12 @@ export async function verifyUserPasswordFromUsersTab(auth, companyContext, email
   if (!row.passwordHash) {
     return { ok: false, reason: "no_password_hash", rowFound: true, status: row.status };
   }
+  const tPassword = Date.now();
   const verifyOk = verifyPassword(String(plainPassword || ""), row.passwordHash);
+  deps.loginTiming?.logPhase?.("password_check", tPassword, {
+    masterSheetId: row.masterSheetId,
+    verifyOk,
+  });
   return {
     ok: verifyOk,
     verifyOk,
@@ -607,7 +618,13 @@ async function companyContextFromSheetHint(auth, deps, masterSheetId, email, use
   if (!rowFolderId) {
     return { ok: false, reason: "company_folder_missing", row };
   }
+  const tFolder = Date.now();
   const resolved = await resolveFolderFirstContext(auth, deps, rowFolderId, hintedSheetId);
+  deps.loginTiming?.logPhase?.("folder_company_resolve", tFolder, {
+    companyFolderId: rowFolderId,
+    source: "sheet_hint",
+    resolved: Boolean(resolved?.masterSheetId || resolved?.companyFolderId),
+  });
   const companyContext = buildCompanyContextFromHintedSheet(row, hintedSheetId, resolved);
   if (!companyContext) {
     return { ok: false, reason: "company_context_failed", row, resolved };
@@ -641,7 +658,14 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
   }
 
   const userDeps = typeof deps.getCompanyUsersDeps === "function" ? deps.getCompanyUsersDeps() : deps;
+  const loginTiming = deps.loginTiming;
+  const timingDeps = loginTiming ? { ...userDeps, loginTiming } : userDeps;
+  const tCandidates = Date.now();
   const attempts = collectLoginResolutionAttempts(input, deps);
+  loginTiming?.logPhase?.("collect_login_candidates", tCandidates, {
+    ...loginTimingEmailMeta(email),
+    attemptCount: attempts.length,
+  });
 
   let inactiveHit = false;
   let lastAuthFailureReason = AUTH_FAILURE_REASON.USER_NOT_FOUND;
@@ -650,13 +674,18 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
     let companyContext = {};
     if (attempt.type === "folder") {
       const pairedSheetId = sanitizeGoogleSpreadsheetId(attempt.masterSheetId);
+      const tFolder = Date.now();
       const resolved = await resolveFolderFirstContext(auth, deps, attempt.companyFolderId, pairedSheetId);
+      loginTiming?.logPhase?.("folder_company_resolve", tFolder, {
+        companyFolderId: attempt.companyFolderId,
+        resolved: Boolean(resolved?.masterSheetId || resolved?.companyFolderId),
+      });
       const masterSheetId = await pickLoginMasterSheetId(auth, userDeps, email, { pairedSheetId, resolved });
       if (!masterSheetId) {
         lastAuthFailureReason = AUTH_FAILURE_REASON.COMPANY_WORKBOOK_NOT_RESOLVED;
         continue;
       }
-      const rowOnSheet = await readUserAuthRowByEmail(auth, { masterSheetId }, email, userDeps).catch(() => null);
+      const rowOnSheet = await readUserAuthRowByEmail(auth, { masterSheetId }, email, timingDeps).catch(() => null);
       if (rowOnSheet) {
         const folderWorkbookId = sanitizeGoogleSpreadsheetId(resolved?.masterSheetId) || masterSheetId;
         const fallback = buildCompanyContextFromHintedSheet(rowOnSheet, folderWorkbookId, resolved);
@@ -680,7 +709,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
         };
       }
     } else {
-      const hinted = await companyContextFromSheetHint(auth, deps, attempt.masterSheetId, email, userDeps);
+      const hinted = await companyContextFromSheetHint(auth, deps, attempt.masterSheetId, email, timingDeps);
       if (!hinted.ok) {
         if (hinted.reason === "inactive") {
           inactiveHit = true;
@@ -693,7 +722,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
       companyContext = hinted.companyContext;
     }
 
-    const verifyResult = await verifyUserPasswordFromUsersTab(auth, companyContext, email, password, userDeps);
+    const verifyResult = await verifyUserPasswordFromUsersTab(auth, companyContext, email, password, timingDeps);
     if (!verifyResult.ok) {
       if (verifyResult.rowFound === false) {
         await logUsersTabLookupDiagnostics(auth, userDeps, companyContext, email, attempt.type).catch(() => null);
@@ -749,7 +778,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
       companyId: registryContext.companyId || registryContext.companyFolderId,
       companyName: registryContext.companyName,
     };
-    const verifyResult = await verifyUserPasswordFromUsersTab(auth, companyContext, email, password, userDeps);
+    const verifyResult = await verifyUserPasswordFromUsersTab(auth, companyContext, email, password, timingDeps);
     if (verifyResult.ok) {
       const row = verifyResult.row;
       const entry = {
@@ -855,7 +884,7 @@ export async function attemptUsersTabPasswordLogin(auth, deps, input = {}) {
       continue;
     }
     const companyContext = hinted.companyContext;
-    const verifyResult = await verifyUserPasswordFromUsersTab(auth, companyContext, email, password, userDeps);
+    const verifyResult = await verifyUserPasswordFromUsersTab(auth, companyContext, email, password, timingDeps);
     if (!verifyResult.ok) {
       continue;
     }

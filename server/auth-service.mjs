@@ -28,6 +28,12 @@ import {
   pickRowCompanyId,
   pickRowCompanyName,
 } from "./users-tab-schema.mjs";
+import {
+  createLoginTimingTrace,
+  loginTimingEmailMeta,
+  logLoginTimingMark,
+  logLoginTimingPhase,
+} from "./login-timing.mjs";
 
 export { COMPANY_CONTEXT_INVALID, COMPANY_NO_LONGER_AVAILABLE_MESSAGE, FOLDER_NOT_IN_COMPANIES_ROOT, validateLiveCompanyContext };
 
@@ -151,8 +157,8 @@ export function buildMasterSessionPayload(input = {}) {
   });
 }
 
-function logLoginPhase(phase, startMs) {
-  const durationMs = Date.now() - startMs;
+function logLoginPhase(phase, startMs, loginTiming, meta = {}) {
+  const durationMs = loginTiming?.phase?.(phase, startMs, meta) ?? logLoginTimingPhase(phase, startMs, meta);
   console.log(`[login] ${phase} durationMs=${durationMs}`);
   return durationMs;
 }
@@ -170,6 +176,8 @@ function logLoginPhase(phase, startMs) {
 export function performMasterLogin(deps = {}, input = {}) {
   const loginStarted = Date.now();
   const timing = {};
+  const loginTiming = deps.loginTiming || createLoginTimingTrace({ flow: "master" });
+  logLoginTimingMark("route_processing_start", { flow: "master" });
   console.log("[login] start");
 
   const {
@@ -185,10 +193,12 @@ export function performMasterLogin(deps = {}, input = {}) {
   const identity = String(input.email || input.username || "").trim();
   const password = String(input.password || "");
   const identityKind = identity.includes("@") ? "email" : identity ? "username" : "missing";
-  timing.normalise_email = logLoginPhase("normalise_email", tNormalize);
+  timing.normalise_email = logLoginPhase("email_normalised", tNormalize, loginTiming, {
+    identityKind,
+  });
 
   if (!identity || !password) {
-    timing.total = logLoginPhase("total", loginStarted);
+    timing.total = logLoginPhase("total_login_duration", loginStarted, loginTiming);
     return {
       ok: false,
       httpStatus: 400,
@@ -200,7 +210,7 @@ export function performMasterLogin(deps = {}, input = {}) {
   const tPlatform = Date.now();
   const platformOwnerLogin =
     identity.includes("@") && isPlatformOwner(identity, env);
-  timing.platform_auth_check = logLoginPhase("platform_auth_check", tPlatform);
+  timing.platform_auth_check = logLoginPhase("platform_auth_check", tPlatform, loginTiming);
 
   const tLookup = Date.now();
   let found = findOperatorByIdentity(sessionDir, identity);
@@ -211,7 +221,9 @@ export function performMasterLogin(deps = {}, input = {}) {
     }
   }
   let op = found?.operator;
-  timing.auth_index_lookup = logLoginPhase("auth_index_lookup", tLookup);
+  timing.auth_index_lookup = logLoginPhase("auth_index_lookup", tLookup, loginTiming, {
+    scope: "master_operators_only",
+  });
   console.log(`[login] auth_index_lookup durationMs=${timing.auth_index_lookup} (master-operators only)`);
 
   const tPassword = Date.now();
@@ -227,9 +239,11 @@ export function performMasterLogin(deps = {}, input = {}) {
       passwordOk = Boolean(op && verifyPassword(password, op.passwordHash));
     }
   }
-  timing.password_verify = logLoginPhase("password_verify", tPassword);
+  timing.password_verify = logLoginPhase("password_check", tPassword, loginTiming);
   const tContext = Date.now();
-  timing.company_context_load = logLoginPhase("company_context_load", tContext);
+  loginTiming.logMark("company_context_load_start");
+  timing.company_context_load = logLoginPhase("company_context_load", tContext, loginTiming);
+  loginTiming.logMark("company_context_load_end");
   console.log(`[login] company_context_load durationMs=0 (no company context)`);
 
   console.log(
@@ -237,7 +251,7 @@ export function performMasterLogin(deps = {}, input = {}) {
   );
 
   if (!passwordOk) {
-    timing.total = logLoginPhase("total", loginStarted);
+    timing.total = logLoginPhase("total_login_duration", loginStarted, loginTiming);
     return {
       ok: false,
       httpStatus: 401,
@@ -247,13 +261,18 @@ export function performMasterLogin(deps = {}, input = {}) {
   }
 
   const tSession = Date.now();
+  loginTiming.logMark("session_create_start");
   const sessionPayload = buildMasterSessionPayload({ email: op.email, name: op.name });
-  timing.session_create = logLoginPhase("session_create", tSession);
+  timing.session_create = logLoginPhase("session_create", tSession, loginTiming);
+  loginTiming.logMark("session_create_end");
   const tJobs = Date.now();
-  timing.background_jobs_queued = logLoginPhase("background_jobs_queued", tJobs);
+  loginTiming.logMark("background_jobs_queued_start");
+  timing.background_jobs_queued = logLoginPhase("background_jobs_queued", tJobs, loginTiming);
+  loginTiming.logMark("background_jobs_queued_end");
   console.log(`[login] background_jobs_queued durationMs=0`);
   timing.response_sent = 0;
   timing.total = Date.now() - loginStarted;
+  logLoginTimingMark("total_login_duration", { durationMs: timing.total, flow: "master" });
   console.log(`[login] total durationMs=${timing.total}`);
 
   return {
@@ -378,8 +397,8 @@ export function safeEnqueueBackgroundJob(enqueueBackgroundJob, input = {}) {
   }
 }
 
-function buildInvalidCredentialsFailure(timing, loginStarted) {
-  timing.total = logLoginPhase("total", loginStarted);
+function buildInvalidCredentialsFailure(timing, loginStarted, loginTiming) {
+  timing.total = logLoginPhase("total_login_duration", loginStarted, loginTiming, { ok: false });
   return {
     ok: false,
     httpStatus: 401,
@@ -495,6 +514,7 @@ function persistLoginAuthIndexEntry(authIndex, email, indexEntry = {}, session =
 function buildLoginContextFailure({
   timing,
   loginStarted,
+  loginTiming,
   email,
   failedStep,
   reasonCode,
@@ -513,7 +533,10 @@ function buildLoginContextFailure({
           companyId: String(indexEntry.companyId || "").trim(),
           companyFolderId: String(indexEntry.companyFolderId || indexEntry.companyId || "").trim(),
         };
-  timing.total = logLoginPhase("total", loginStarted);
+  timing.total = logLoginPhase("total_login_duration", loginStarted, loginTiming, {
+    ok: false,
+    failedStep,
+  });
   return {
     ok: false,
     httpStatus: 409,
@@ -543,6 +566,7 @@ function buildLoginContextFailure({
 export async function performCompanyLogin(auth, deps, input = {}) {
   const loginStarted = Date.now();
   const timing = {};
+  const loginTiming = deps.loginTiming || createLoginTimingTrace({ flow: "company_login" });
   console.log("[login] start");
 
   const {
@@ -559,10 +583,10 @@ export async function performCompanyLogin(auth, deps, input = {}) {
   const tNormalize = Date.now();
   const email = String(rawEmail || input.email || "").trim().toLowerCase();
   const pwd = String(password || input.password || "");
-  timing.normalise_email = logLoginPhase("normalise_email", tNormalize);
+  timing.normalise_email = logLoginPhase("email_normalised", tNormalize, loginTiming, loginTimingEmailMeta(email));
 
   if (!email || !pwd) {
-    timing.total = logLoginPhase("total", loginStarted);
+    timing.total = logLoginPhase("total_login_duration", loginStarted, loginTiming, { ok: false });
     return {
       ok: false,
       httpStatus: 400,
@@ -574,7 +598,7 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     };
   }
   if (!email.includes("@")) {
-    timing.total = logLoginPhase("total", loginStarted);
+    timing.total = logLoginPhase("total_login_duration", loginStarted, loginTiming, { ok: false });
     return {
       ok: false,
       httpStatus: 400,
@@ -588,8 +612,8 @@ export async function performCompanyLogin(auth, deps, input = {}) {
 
   const tPlatform = Date.now();
   if (isPlatformOwner(email, process.env)) {
-    timing.platform_auth_check = logLoginPhase("platform_auth_check", tPlatform);
-    timing.total = logLoginPhase("total", loginStarted);
+    timing.platform_auth_check = logLoginPhase("platform_auth_check", tPlatform, loginTiming, { blocked: true });
+    timing.total = logLoginPhase("total_login_duration", loginStarted, loginTiming, { ok: false });
     return {
       ok: false,
       httpStatus: 401,
@@ -599,12 +623,15 @@ export async function performCompanyLogin(auth, deps, input = {}) {
       timing,
     };
   }
-  timing.platform_auth_check = logLoginPhase("platform_auth_check", tPlatform);
+  timing.platform_auth_check = logLoginPhase("platform_auth_check", tPlatform, loginTiming, { blocked: false });
 
   const requested = sanitizeGoogleSpreadsheetId(requestedSheetId);
 
   if (!auth) {
-    timing.total = logLoginPhase("total", loginStarted);
+    timing.total = logLoginPhase("total_login_duration", loginStarted, loginTiming, {
+      ok: false,
+      blocker: "google_not_connected",
+    });
     return {
       ok: false,
       httpStatus: 503,
@@ -615,6 +642,7 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     };
   }
 
+  loginTiming.logMark("users_tab_auth_start", loginTimingEmailMeta(email));
   const tAuth = Date.now();
   const authResult = await authenticateCompanyUserLogin(
     auth,
@@ -623,6 +651,7 @@ export async function performCompanyLogin(auth, deps, input = {}) {
       authIndex,
       getCompanyUsersDeps,
       findMasterSheetIdsForCompanyLoginEmail,
+      loginTiming,
     },
     {
       email,
@@ -631,10 +660,14 @@ export async function performCompanyLogin(auth, deps, input = {}) {
       companyFolderId: sanitizeCompanyFolderId(input.companyFolderId || ""),
     },
   );
-  timing.users_tab_auth = logLoginPhase("users_tab_auth", tAuth);
+  timing.users_tab_auth = logLoginPhase("users_tab_auth", tAuth, loginTiming, { ok: authResult.ok === true });
+  loginTiming.logMark("users_tab_auth_end", { ok: authResult.ok === true });
 
   if (!authResult.ok) {
-    timing.total = logLoginPhase("total", loginStarted);
+    timing.total = logLoginPhase("total_login_duration", loginStarted, loginTiming, {
+      ok: false,
+      blocker: authResult.blocker || authResult.reason,
+    });
     if (authResult.blocker === "inactive" || authResult.reason === "inactive") {
       return {
         ok: false,
@@ -678,13 +711,14 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     sessionRevocation.isCompanyUserSessionRevoked(email, sessionCompanyId, masterSheetId)
   ) {
     authIndex?.removeEntry?.(email);
-    return buildInvalidCredentialsFailure(timing, loginStarted);
+    return buildInvalidCredentialsFailure(timing, loginStarted, loginTiming);
   }
 
   if (!isValidGoogleSpreadsheetId(masterSheetId)) {
     return buildLoginContextFailure({
       timing,
       loginStarted,
+      loginTiming,
       email,
       failedStep: "master_sheet_resolve",
       reasonCode: "MASTER_SHEET_MISSING",
@@ -696,6 +730,7 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     return buildLoginContextFailure({
       timing,
       loginStarted,
+      loginTiming,
       email,
       failedStep: "company_folder_resolve",
       reasonCode: "COMPANY_FOLDER_MISSING",
@@ -714,6 +749,7 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     return buildLoginContextFailure({
       timing,
       loginStarted,
+      loginTiming,
       email,
       failedStep: "company_context_resolve",
       reasonCode: "COMPANY_NAME_MISSING",
@@ -731,14 +767,20 @@ export async function performCompanyLogin(auth, deps, input = {}) {
   }
 
   const tContext = Date.now();
+  loginTiming.logMark("company_context_load_start", { companyFolderId: sessionCompanyId, masterSheetId });
   const companyAreas = Array.isArray(usersTabRec?.companyAreas)
     ? usersTabRec.companyAreas
     : Array.isArray(indexEntry.companyAreas)
       ? indexEntry.companyAreas
       : [];
-  timing.company_context_load = logLoginPhase("company_context_load", tContext);
+  timing.company_context_load = logLoginPhase("company_context_load", tContext, loginTiming, {
+    companyFolderId: sessionCompanyId,
+    masterSheetId,
+  });
+  loginTiming.logMark("company_context_load_end", { companyFolderId: sessionCompanyId, masterSheetId });
 
   const tSession = Date.now();
+  loginTiming.logMark("session_create_start", { companyFolderId: sessionCompanyId });
   const sessionPayload = buildCompanySessionPayload({
     email,
     masterSheetId,
@@ -750,9 +792,11 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     accessLevel: indexEntry.accessLevel || "",
     companyAreas,
   });
-  timing.session_create = logLoginPhase("session_create", tSession);
+  timing.session_create = logLoginPhase("session_create", tSession, loginTiming, { companyFolderId: sessionCompanyId });
+  loginTiming.logMark("session_create_end", { companyFolderId: sessionCompanyId });
 
   const tJobs = Date.now();
+  loginTiming.logMark("background_jobs_queued_start", { companyFolderId: sessionCompanyId });
   const backgroundJobs = {
     email,
     masterSheetId,
@@ -762,7 +806,10 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     validateLiveCompany: Boolean(auth),
     touchLastLogin: true,
   };
-  timing.background_jobs_queued = logLoginPhase("background_jobs_queued", tJobs);
+  timing.background_jobs_queued = logLoginPhase("background_jobs_queued", tJobs, loginTiming, {
+    companyFolderId: sessionCompanyId,
+  });
+  loginTiming.logMark("background_jobs_queued_end", { companyFolderId: sessionCompanyId });
 
   timing.response_sent = 0;
   timing.total = Date.now() - loginStarted;

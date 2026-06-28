@@ -340,6 +340,7 @@ import {
   type ScheduleAssignedUser,
 } from "./src/utils/scheduleSave";
 import { companyLogin, fetchAppSession, fetchCompanySession, type LoginContextDiagnostics } from "./src/services/authService";
+import { createClientLoginTimingTrace, logClientLoginTiming } from "./src/utils/loginTiming";
 import {
   companyLoginNetworkError,
   formatLoginNetworkDebugSuffix,
@@ -3394,6 +3395,7 @@ function App() {
   const explicitLogoutRef = useRef(false);
   const authBootstrapGenerationRef = useRef(0);
   const assignedChecksRequestRef = useRef(0);
+  const postLoginTimingRef = useRef<number | null>(null);
   const [shellMoreExpanded, setShellMoreExpanded] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [dashboardPreferences, setDashboardPreferences] = useState<DashboardPreferences>(() =>
@@ -5582,6 +5584,11 @@ function App() {
             : ((cachedAssignedChecks?.schedules || []) as ManagedSchedule[]);
       const hasLoadedOnce = companyChanged ? false : previous.hasLoadedOnce;
       const shouldShowBlockingLoad = !hasLoadedOnce && schedules.length === 0 && !previous.loadError;
+      if (shouldShowBlockingLoad || schedules.length > 0) {
+        logClientLoginTiming("dashboard_things_to_do_loading_started", postLoginTimingRef.current ?? undefined, {
+          companyFolderId: companyFolderId || "(pending)",
+        });
+      }
       return {
         ...previous,
         schedules,
@@ -5611,6 +5618,10 @@ function App() {
             loadErrorDetail:
               previous.schedules.length > 0 ? undefined : result.loadErrorDetail,
           }));
+          logClientLoginTiming("dashboard_things_to_do_loading_finished", postLoginTimingRef.current ?? undefined, {
+            ok: false,
+            scheduleCount: 0,
+          });
           return;
         }
 
@@ -5623,6 +5634,10 @@ function App() {
           masterSheetId: result.masterSheetId,
           loadError: undefined,
           loadErrorDetail: undefined,
+        });
+        logClientLoginTiming("dashboard_things_to_do_loading_finished", postLoginTimingRef.current ?? undefined, {
+          ok: true,
+          scheduleCount: result.schedules.length,
         });
         if (nextCompanyFolderId && signedInEmail) {
           writeAssignedChecksCache(storageKeys.assignedChecksCache, {
@@ -5665,7 +5680,17 @@ function App() {
       } finally {
         window.clearTimeout(timeoutId);
         if (isActiveRequest()) {
-          setAssignedChecksState((previous) => (previous.loading ? { ...previous, loading: false } : previous));
+          setAssignedChecksState((previous) => {
+            if (previous.loading) {
+              logClientLoginTiming("dashboard_things_to_do_loading_finished", postLoginTimingRef.current ?? undefined, {
+                ok: true,
+                scheduleCount: previous.schedules.length,
+                reason: "finally_clear_loading",
+              });
+              return { ...previous, loading: false };
+            }
+            return previous;
+          });
         }
       }
     })();
@@ -8405,6 +8430,8 @@ function App() {
     if (loginSubmitting) {
       return;
     }
+    const loginTrace = createClientLoginTimingTrace();
+    loginTrace.mark("login_button_clicked");
     setLoginSubmitting(true);
     try {
     const loginIdentity = username.trim().toLowerCase();
@@ -8503,6 +8530,7 @@ function App() {
       }
       let response: Response;
       try {
+        loginTrace.mark("login_request_started", { flow: "master" });
         response = await fetch(apiUrl("/api/auth/master/login"), {
           method: "POST",
           credentials: "include",
@@ -8530,6 +8558,11 @@ function App() {
         return false;
       }
       if (!response.ok || !data.ok || !data.operator) {
+        loginTrace.mark("login_response_received", {
+          flow: "master",
+          ok: false,
+          status: response.status,
+        });
         if (masterFailureGuidesUx) {
           if (response.status === 401 || response.status === 403) {
             masterGuidedFailure = "auth";
@@ -8551,6 +8584,9 @@ function App() {
         name: data.operator.name || data.operator.email,
       };
       applySignedInUser(match, { workspaceSetupOnly: companySetupLoginPortal });
+      postLoginTimingRef.current = loginTrace.startedAt;
+      loginTrace.mark("app_state_set", { flow: "master", role: "Master" });
+      loginTrace.mark("login_response_received", { flow: "master", ok: true });
       return true;
     };
 
@@ -8570,11 +8606,17 @@ function App() {
       }
       const email = loginIdentity.trim().toLowerCase();
       try {
+        loginTrace.mark("login_request_started", { flow: "company" });
         const loginResult = await companyLogin({
           email,
           password: pwd,
           masterSheetId: persistedCompanyLoginHints.masterSheetId || undefined,
           companyFolderId: persistedCompanyLoginHints.companyFolderId || undefined,
+        });
+        loginTrace.mark("login_response_received", {
+          flow: "company",
+          ok: loginResult.ok === true,
+          blocker: loginResult.blocker || "",
         });
         if (
           loginResult.code === "NETWORK_UNREACHABLE" ||
@@ -8716,6 +8758,8 @@ function App() {
         applySignedInUser(match, {
           companyName: loggedInCompany?.companyName,
         });
+        postLoginTimingRef.current = loginTrace.startedAt;
+        loginTrace.mark("app_state_set", { flow: "company", role: match.role });
         return true;
       } catch (error) {
         companyLoginFailure = {
