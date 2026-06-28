@@ -67,8 +67,14 @@ assert(userAuth.includes("targetEmailInEmailLikeColumns"), "static: email-like c
 assert(userAuth.includes("candidateMasterSheetIds"), "static: candidate workbook diagnostics");
 assert(userAuth.includes("registryLookupDeps"), "static: registry lookup deps for login fallback");
 assert(userAuth.includes("if (resolvedId)"), "static: folder discovery workbook wins over paired hint");
-assert(userAuth.includes("!hintedFolderId"), "static: auth-index skipped when company folder selected");
-assert(read("server/server.mjs").includes("...getCompanyContextResolutionDeps()"), "static: login route receives registry resolution deps");
+assert(userAuth.includes("if (hintedFolderId) {") && userAuth.includes("return dedupeLoginAttempts(attempts);"), "static: auth-index skipped when company folder selected");
+const serverMain = read("server/server.mjs");
+assert(serverMain.includes("...getCompanyContextResolutionDeps()"), "static: login route receives registry resolution deps");
+assert(serverMain.includes("sessionCompanyFolderId"), "static: login route passes sessionCompanyFolderId to auth-service");
+assert(
+  /performCompanyLogin\([\s\S]*?sessionCompanyFolderId:\s*loginSessionCompanyFolderId/.test(serverMain),
+  "static: login route wires sessionCompanyFolderId into performCompanyLogin input",
+);
 assert(userAuth.includes("summarizeUsersTabEmailScanForLoginLog"), "static: USER_NOT_FOUND login logs include live email scan");
 assert(!read("server/server.mjs").includes("/api/diagnostics/dovecote-users-tab"), "static: temporary Users-tab diagnostic route removed");
 assert(!read("server/server.mjs").includes("dovecote-users-tab-diagnostics"), "static: diagnostic module not imported by server");
@@ -226,6 +232,28 @@ try {
   );
   assert(activeLogin.ok === true, "runtime: active Users tab user can log in");
   assert(!("passwordHash" in (activeLogin.user || {})), "runtime: login user payload has no PasswordHash");
+
+  const staleSheetId = "1StaleSheetId000000000000000000000000000";
+  const routeInputLogin = await performCompanyLogin(
+    {},
+    {
+      ...loginDeps,
+      email,
+      password,
+      masterSheetId: staleSheetId,
+      findMasterSheetIdsForCompanyLoginEmail: () => [staleSheetId, masterSheetId],
+    },
+    {
+      companyFolderId,
+      sessionCompanyFolderId: companyFolderId,
+    },
+  );
+  assert(routeInputLogin.ok === true, "runtime: route-style folder hints prioritize folder-first before stale sheet");
+  assert(
+    routeInputLogin.company?.companyFolderId === companyFolderId ||
+      routeInputLogin.sessionPayload?.includes(companyFolderId),
+    "runtime: route-style login resolves correct company folder",
+  );
 
   mock.store.set(email, {
     ...mock.store.get(email),
