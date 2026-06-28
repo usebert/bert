@@ -120,18 +120,33 @@ export function mapListedSchedule(schedule: Record<string, unknown>): ManagedSch
 }
 
 function mapScheduleAssigneeOption(raw: Record<string, unknown>): ScheduleAssigneeOption {
-  const email = String(raw.email || "").trim().toLowerCase();
-  const role = String(raw.role || "User").trim() as Role | "User";
+  const email = String(raw?.email || "").trim().toLowerCase();
+  const role = String(raw?.role || "User").trim() as Role | "User";
   return {
-    id: String(raw.id || email).trim().toLowerCase(),
-    name: String(raw.name || email.split("@")[0] || email).trim() || email,
+    id: String(raw?.id || email).trim().toLowerCase(),
+    name: String(raw?.name || email.split("@")[0] || email).trim() || email,
     role,
     email,
-    companyAreas: Array.isArray(raw.companyAreas)
+    companyAreas: Array.isArray(raw?.companyAreas)
       ? (raw.companyAreas as string[]).map((entry) => String(entry).trim()).filter(Boolean)
       : [],
-    areaWarning: raw.areaWarning ? String(raw.areaWarning) : undefined,
+    areaWarning: raw?.areaWarning ? String(raw.areaWarning) : undefined,
   };
+}
+
+function scheduleAssigneeRowsFromPayload(payload: {
+  assignees?: Record<string, unknown>[];
+  auditors?: Record<string, unknown>[];
+  users?: Record<string, unknown>[];
+}): Record<string, unknown>[] {
+  const source = Array.isArray(payload.assignees)
+    ? payload.assignees
+    : Array.isArray(payload.auditors)
+      ? payload.auditors
+      : Array.isArray(payload.users)
+        ? payload.users
+        : [];
+  return source.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object");
 }
 
 export async function fetchScheduleAssignees(
@@ -171,11 +186,15 @@ export async function fetchScheduleAssignees(
   }>(apiUrl(path), { signal: options?.signal });
 
   if (!result.ok) {
+    const detail =
+      result.diagnostics?.status !== undefined
+        ? `${result.message} (HTTP ${result.diagnostics.status})`
+        : result.message;
     return {
       ok: false,
       assignees: [],
       loadError: SCHEDULE_ASSIGNEES_USER_MESSAGE,
-      loadErrorDetail: result.message,
+      loadErrorDetail: detail,
     };
   }
 
@@ -189,13 +208,7 @@ export async function fetchScheduleAssignees(
     };
   }
 
-  const rawAssignees = Array.isArray(payload.assignees)
-    ? payload.assignees
-    : Array.isArray(payload.auditors)
-      ? payload.auditors
-      : Array.isArray(payload.users)
-        ? payload.users
-        : [];
+  const rawAssignees = scheduleAssigneeRowsFromPayload(payload);
 
   return {
     ok: true,

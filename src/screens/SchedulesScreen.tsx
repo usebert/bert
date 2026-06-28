@@ -169,19 +169,26 @@ function MetaPill({
 }
 
 function scheduleStatusChipTone(chip: ReturnType<typeof resolveScheduleListStatusChip>) {
-  if (chip === "Completed") {
+  if (chip === "Completed for period") {
     return "success";
   }
-  if (chip === "Due now") {
+  if (chip === "Due soon" || chip === "Due") {
     return "warning";
   }
   if (chip === "Overdue") {
     return "danger";
   }
-  if (chip === "Upcoming") {
+  if (chip === "Active") {
     return "info";
   }
+  if (chip === "Paused") {
+    return "neutral";
+  }
   return "neutral";
+}
+
+function scheduleLifecycleStatusChip(schedule: ManagedSchedule) {
+  return resolveScheduleListStatusChip(schedule);
 }
 
 export function SchedulesScreen({
@@ -345,7 +352,7 @@ export function SchedulesScreen({
             />
           ) : (
             schedules.map((schedule) => {
-              const statusChip = resolveScheduleListStatusChip(schedule);
+              const statusChip = scheduleLifecycleStatusChip(schedule);
               const nextDueLabel = scheduleNextDueLabel(schedule);
               return (
               <div key={schedule.id} className="rounded-[1.4rem] border border-[rgba(249,115,22,0.35)] bg-[rgba(249,115,22,0.1)] px-4 py-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
@@ -359,8 +366,8 @@ export function SchedulesScreen({
                       {statusChip ? (
                         <MetaPill icon="check" label={statusChip} tone={scheduleStatusChipTone(statusChip)} />
                       ) : null}
-                      {computeScheduleHealthState(schedule) === "Paused" && schedule.nextDueAt ? (
-                        <MetaPill icon="clock" label={`Paused until ${formatScheduleNextDueLabel(schedule.nextDueAt)}`} />
+                      {statusChip === "Paused" && schedule.nextDueAt ? (
+                        <MetaPill icon="clock" label={`Resumes ${formatScheduleNextDueLabel(schedule.nextDueAt)}`} />
                       ) : null}
                     </div>
                     <p className="mt-2 text-xs text-slate-600">

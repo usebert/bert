@@ -3,8 +3,10 @@ import { getRoleTheme } from "../../config/roleTheme";
 import type { AuditDraft } from "../../types/dashboardScreenProps";
 import type { Audit } from "../../types/reportsScreenProps";
 import {
-  assignedCheckDetailLine,
-  assignedCheckStatusLabel,
+  assignedCheckCardStatus,
+  assignedCheckDueWindowLine,
+  assignedCheckFrequencyLine,
+  assignedCheckStatusTone,
   type AssignedCheckScheduleMeta,
 } from "../../utils/assignedCheckDisplay";
 import { shouldHideAssignedCheckAfterCompletion } from "../../utils/assignedCheckCompletion";
@@ -16,6 +18,14 @@ type AssignedCheckActionRowProps = {
   onOpenAudit: (auditId: string) => void;
   themeRole?: Role;
 };
+
+const statusToneClasses = {
+  danger: "border-rose-200 bg-rose-50 text-rose-800",
+  warning: "border-amber-200 bg-amber-50 text-amber-800",
+  success: "border-emerald-200 bg-emerald-50 text-emerald-800",
+  info: "border-blue-200 bg-blue-50 text-blue-800",
+  neutral: "border-slate-200 bg-slate-50 text-slate-700",
+} as const;
 
 export function AssignedCheckActionRow({
   audit,
@@ -30,21 +40,36 @@ export function AssignedCheckActionRow({
   const hideAfterCompletion = shouldHideAssignedCheckAfterCompletion(scheduleMeta?.completionMode);
   const isOncePerPeriodComplete = completedForCurrentDue && hideAfterCompletion;
   const isRepeatableComplete = completedForCurrentDue && !hideAfterCompletion;
-  const status = assignedCheckStatusLabel(
+  const status = assignedCheckCardStatus(
     audit,
     inProgress,
     completedForCurrentDue,
     scheduleMeta?.completionMode,
   );
-  const actionLabel = inProgress ? "Continue" : isRepeatableComplete ? "Start again" : "Start";
+  const statusTone = assignedCheckStatusTone(status);
+  const frequencyLine = assignedCheckFrequencyLine(scheduleMeta);
+  const dueWindowLine = assignedCheckDueWindowLine(audit, scheduleMeta);
+  const actionLabel = inProgress ? "Continue check" : isRepeatableComplete ? "Start check" : "Start check";
 
   return (
     <li className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200/90 bg-white px-4 py-4 shadow-sm sm:flex-nowrap">
       <div className="min-w-0 flex-1">
-        <p className="text-base font-semibold text-slate-900">{audit.name}</p>
-        <p className="mt-1 text-sm text-slate-600">
-          {status} · {assignedCheckDetailLine(audit, scheduleMeta)}
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-base font-semibold text-slate-900">{audit.name}</p>
+          <span
+            className={[
+              "inline-flex shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-semibold",
+              statusToneClasses[statusTone],
+            ].join(" ")}
+          >
+            {status}
+          </span>
+        </div>
+        {frequencyLine ? <p className="mt-1 text-sm text-slate-600">{frequencyLine}</p> : null}
+        <p className="mt-1 text-sm text-slate-600">{dueWindowLine}</p>
+        {scheduleMeta?.scheduleName ? (
+          <p className="mt-1 text-xs text-slate-500">{scheduleMeta.scheduleName}</p>
+        ) : null}
         {isOncePerPeriodComplete && audit.lastCompletedAt !== "Not yet completed" ? (
           <p className="mt-1 text-xs text-emerald-700">Completed {audit.lastCompletedAt}</p>
         ) : isRepeatableComplete && audit.lastCompletedAt !== "Not yet completed" ? (

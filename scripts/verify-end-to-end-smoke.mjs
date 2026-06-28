@@ -62,6 +62,7 @@ function read(rel) {
 
 const serverMain = read("server/server.mjs");
 const authService = read("server/auth-service.mjs");
+const companyContextService = read("server/company-context-service.mjs");
 const masterAuth = read("server/master-auth.mjs");
 const coreRoutes = read("server/core-workflow-routes.mjs");
 const registryActions = read("server/godmode-registry-actions.mjs");
@@ -109,7 +110,7 @@ assert(
 );
 assert(
   serverMain.includes("user: result.user") &&
-    authService.includes("accessLevel: successRec.accessLevel"),
+    authService.includes("accessLevel: indexEntry.accessLevel"),
   "A5: company login JSON returns user email + accessLevel",
 );
 assert(
@@ -194,7 +195,7 @@ assert(coreRoutes.includes("/api/invites/company-user/:token"), "E1: GET invite 
 assert(coreRoutes.includes("/api/invites/company-user/:token/complete"), "E2: POST invite complete route");
 assert(coreRoutes.includes("companyName: inviteRecord.companyName"), "E3: invite preview includes companyName");
 assert(serverMain.includes("completeInviteToUserRow"), "E4b: invite completion uses sheet write helper");
-assert(authService.includes("resolveCompanyContextFromLoginWorkbook"), "E4c: login resolves workbook context");
+assert(companyContextService.includes("resolveCompanyContextFromLoginWorkbook"), "E4c: login resolves workbook context");
 assert(serverMain.includes("setCompanyUserPasswordHash"), "E4: invite completion hashes password");
 assert(serverMain.includes('status: "ACTIVE"') || serverMain.includes('status: "active"'), "E5: invite creates ACTIVE user");
 assert(serverMain.includes("buildCompanySessionPayload") && serverMain.includes("handleAppInviteComplete"), "E6: invite completion sets session");

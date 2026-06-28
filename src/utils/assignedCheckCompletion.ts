@@ -24,10 +24,16 @@ export function shouldHideAssignedCheckAfterCompletion(completionMode: unknown):
   return normalizeScheduleCompletionMode(completionMode) === "once-per-period";
 }
 
-export type ScheduleCompletionStatusLabel = "Completed" | "Due now" | "Upcoming" | "Overdue";
+export type ScheduleCompletionStatusLabel = "Completed for period" | "Due" | "Due soon" | "Upcoming" | "Overdue";
 
 const scheduleAmberThresholdHours = 2;
-export type ScheduleListStatusChip = ScheduleCompletionStatusLabel;
+export type ScheduleListStatusChip =
+  | "Active"
+  | "Paused"
+  | "Overdue"
+  | "Due soon"
+  | "Due"
+  | "Completed for period";
 
 export function isAssignedScheduleAuditCompletedForCurrentDue(
   schedule: Pick<ManagedSchedule, "completionMode"> | undefined,
@@ -217,7 +223,7 @@ export function scheduleNextDueLabel(schedule: ManagedSchedule): string | null {
 export function scheduleCompletionStatusLabel(
   schedule: ManagedSchedule,
   now = new Date(),
-): ScheduleCompletionStatusLabel | null {
+): ScheduleListStatusChip | null {
   return resolveScheduleListStatusChip(schedule, now);
 }
 
@@ -225,28 +231,41 @@ export function resolveScheduleListStatusChip(
   schedule: ManagedSchedule,
   now = new Date(),
 ): ScheduleListStatusChip | null {
-  if (schedule.lifecycle === "Archived" || schedule.healthState === "Paused") {
-    return null;
+  if (schedule.lifecycle === "Archived") {
+    return "Paused";
+  }
+  if (schedule.healthState === "Paused") {
+    if (schedule.nextDueAt) {
+      const resumeAt = new Date(schedule.nextDueAt).getTime();
+      if (Number.isFinite(resumeAt) && resumeAt > now.getTime()) {
+        return "Paused";
+      }
+    } else {
+      return "Paused";
+    }
   }
   if (isScheduleCompletedForCurrentDue(schedule, now)) {
-    return "Completed";
+    return "Completed for period";
   }
   const nextDue = String(schedule.nextDueAt || "").trim();
   if (!nextDue) {
-    return (schedule.missedAuditCount || 0) > 0 ? "Overdue" : null;
+    return (schedule.missedAuditCount || 0) > 0 ? "Overdue" : "Active";
   }
   const dueMs = new Date(nextDue).getTime();
   if (!Number.isFinite(dueMs)) {
-    return null;
+    return "Active";
   }
   const diffHours = Math.round((dueMs - now.getTime()) / 36e5);
   if (diffHours < 0 || (schedule.missedAuditCount || 0) > 0) {
     return "Overdue";
   }
   if (diffHours < scheduleAmberThresholdHours) {
-    return "Due now";
+    return "Due soon";
   }
-  return "Upcoming";
+  if (diffHours <= 24) {
+    return "Due";
+  }
+  return "Active";
 }
 
 export function mergeScheduleLastCompletedFromResults(

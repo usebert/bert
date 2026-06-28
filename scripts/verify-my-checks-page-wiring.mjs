@@ -66,8 +66,8 @@ assert(!appTsx.includes("companySchedulesState.loadError") || !/AuditsScreen[\s\
 assert(!checkService.includes("isScheduleAssignedToUser"), "1f: client does not filter schedules by email");
 assert(!checkService.includes("listCompanySchedules"), "1g: client does not list all schedules for My Checks");
 assert(auditsScreen.includes("AssignedCheckActionRow"), "1h: assigned checks list uses shared Start/Continue row");
-assert(assignedCheckRow.includes('"Start"'), "1i: assigned checks list exposes Start action");
-assert(assignedCheckRow.includes('"Continue"'), "1i2: assigned checks list exposes Continue action");
+assert(assignedCheckRow.includes('"Start check"'), "1i: assigned checks list exposes Start check action");
+assert(assignedCheckRow.includes('"Continue check"'), "1i2: assigned checks list exposes Continue check action");
 assert(roleNav.includes('screen === "dashboard"'), "1e0e: dashboard screen loads assigned checks");
 assert(thingsToDoSection.includes("Things to do"), "1e0f: dashboard Things to do section title");
 assert(thingsToDoSection.includes("No checks due right now."), "1e0g: dashboard Things to do empty state");
@@ -81,10 +81,13 @@ assert(
   managerDashboard.indexOf("DashboardThingsToDoSection") < managerDashboard.indexOf("Open actions"),
   "1e0h2: Things to do appears before Open actions on manager dashboard",
 );
-assert(assignedCheckRow.includes('"Start"'), "1e0i: shared assigned-check row exposes Start");
-assert(assignedCheckRow.includes('"Continue"'), "1e0j: shared assigned-check row exposes Continue");
+assert(assignedCheckRow.includes('"Start check"'), "1e0i: shared assigned-check row exposes Start check");
+assert(assignedCheckRow.includes('"Continue check"'), "1e0j: shared assigned-check row exposes Continue check");
+assert(assignedCheckDisplay.includes('"Not due yet"'), "1e0m: dashboard status includes Not due yet");
+assert(assignedCheckDisplay.includes('"Overdue"'), "1e0n: dashboard status includes Overdue");
 assert(appTsx.includes("buildAssignedCheckScheduleMeta"), "1e0k: App builds schedule meta for dashboard cards");
-assert(assignedCheckDisplay.includes("buildAssignedCheckScheduleMeta"), "1e0l: schedule meta helper for dashboard");
+assert(assignedCheckDisplay.includes("filterAssignedChecksForThingsToDo"), "1e0l1: Things to do due-check filter helper");
+assert(assignedCheckDisplay.includes("assignedCheckCardStatus"), "1e0l2: assigned-check card status helper");
 assert(
   /renderManagerDashboard[\s\S]{0,1200}assignedCheckScheduleMeta/.test(appTsx),
   "1e0m: manager dashboard receives assigned-check schedule meta",

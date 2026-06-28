@@ -141,8 +141,11 @@ assert(read("src/components/dashboard/MasterPlatformDashboard.tsx").includes("Da
 assert(read("src/permissions.ts").includes('role === "Master"'), "4g5a5: Master role uses assigned-check completion flow");
 assert(read("src/components/dashboard/DashboardThingsToDoSection.tsx").includes("Things to do"), "4g5a1: Things to do section title");
 assert(read("src/components/dashboard/DashboardThingsToDoSection.tsx").includes("No checks due right now."), "4g5b: dashboard empty state for assigned checks");
-assert(read("src/components/checks/AssignedCheckActionRow.tsx").includes('"Start"'), "4g5c: dashboard assigned-check row Start");
-assert(read("src/components/checks/AssignedCheckActionRow.tsx").includes('"Continue"'), "4g5d: dashboard assigned-check row Continue");
+assert(read("src/components/checks/AssignedCheckActionRow.tsx").includes('"Start check"'), "4g5c: dashboard assigned-check row Start check");
+assert(read("src/components/checks/AssignedCheckActionRow.tsx").includes('"Continue check"'), "4g5d: dashboard assigned-check row Continue check");
+assert(read("src/utils/assignedCheckDisplay.ts").includes('"Overdue"'), "4g5e: assigned check status includes Overdue");
+assert(read("src/utils/assignedCheckDisplay.ts").includes('"Not due yet"'), "4g5f: assigned check status includes Not due yet");
+assert(read("src/utils/assignedCheckDisplay.ts").includes("assignedCheckStatusLabel"), "4g5g: assigned check status label helper");
 assert(read("server/bert-cors.mjs").includes("PUT"), "9: CORS preflight allows PUT for audit-templates");
 assert(read("src/utils/scheduleAssignees.ts").includes("deriveScheduleAssigneesFromCompanyMembers"), "4h: assignees helper retained for diagnostics");
 assert(appSrc.includes("readScheduleAssigneesCache"), "4i: App reads assignee localStorage cache while loading");
@@ -364,8 +367,8 @@ assert(read("src/utils/auditAccess.ts").includes("buildAuditFromAssignedSchedule
     "10m: Complete Work renders DC H&S Audit card with Start/Continue id",
   );
   assert(read("src/screens/AuditsScreen.tsx").includes("AssignedCheckActionRow"), "10n: Complete Work UI uses shared Start row");
-  assert(read("src/components/checks/AssignedCheckActionRow.tsx").includes('"Start"'), "10n1: Complete Work UI exposes Start");
-  assert(read("src/components/checks/AssignedCheckActionRow.tsx").includes('"Continue"'), "10o: Complete Work UI exposes Continue");
+  assert(read("src/components/checks/AssignedCheckActionRow.tsx").includes('"Start check"'), "10n1: Complete Work UI exposes Start check");
+  assert(read("src/components/checks/AssignedCheckActionRow.tsx").includes('"Continue check"'), "10o: Complete Work UI exposes Continue check");
 }
 
 /** 11: Canonical verifier row + legacy "schdule 3" — assigned-checks must list the real schedule. */
@@ -612,7 +615,7 @@ assert(read("shared/assigned-check-completion.mjs").includes("enrichAssignedSche
 assert(read("server/schedule-service.mjs").includes("enrichAssignedSchedulesWithCompletion"), "12j: listMyChecks enriches schedules from AuditResults");
 assert(read("src/utils/auditAccess.ts").includes("shouldHideCompletedAssignedScheduleAudit"), "12k: Complete Work filters completed due instances by mode");
 assert(read("src/utils/scheduleCompletionMode.ts").includes("resolveScheduleCompletionMode"), "12k1: schedule completion mode helper exists");
-assert(read("src/components/checks/AssignedCheckActionRow.tsx").includes("Start again"), "12k2: repeatable completion exposes Start again");
+assert(read("src/components/checks/AssignedCheckActionRow.tsx").includes('"Start check"'), "12k2: repeatable completion exposes Start check");
 assert(read("shared/schedule-completion-mode.mjs").includes("once-per-period"), "12k3: shared schedule completion mode helper exists");
 assert(read("src/utils/assignedCheckCompletion.ts").includes("mergeScheduleLastCompletedFromResults"), "12l: schedules merge last completed from results");
 assert(read("src/screens/SchedulesScreen.tsx").includes("Last completed"), "12m: schedules UI shows last completed date");
@@ -620,6 +623,9 @@ assert(read("src/utils/assignedCheckCompletion.ts").includes("Never completed"),
 assert(read("src/screens/SchedulesScreen.tsx").includes("Next due"), "12m2: schedules UI shows next due");
 assert(read("src/screens/SchedulesScreen.tsx").includes("Completion mode"), "12m2a: schedules UI shows completion mode");
 assert(read("src/utils/assignedCheckCompletion.ts").includes("resolveScheduleListStatusChip"), "12m3: schedule list status chip helper exists");
+assert(read("src/utils/assignedCheckCompletion.ts").includes('"Completed for period"'), "12m3a: schedule list status includes Completed for period");
+assert(read("src/utils/assignedCheckCompletion.ts").includes('"Active"'), "12m3b: schedule list status includes Active");
+assert(read("src/utils/assignedCheckCompletion.ts").includes('"Due soon"'), "12m3c: schedule list status includes Due soon");
 assert(read("src/utils/assignedCheckCompletion.ts").includes("formatScheduleLastCompletedLabel"), "12m4: schedule last completed label helper exists");
 assert(read("src/components/dashboard/DashboardThingsToDoSection.tsx").includes("AssignedCheckActionRow"), "12n: dashboard Things to do still uses assigned-check row");
 assert(read("src/utils/auditAccess.ts").includes("buildCompleteWorkAssignedAudits"), "12o: Complete Work still builds from assigned-checks API");
@@ -798,6 +804,29 @@ assert(read("src/utils/auditAccess.ts").includes("buildCompleteWorkAssignedAudit
   );
   assert(dueAuditsOnce.length === 0, "14i: once-per-period removes due audit for current period");
   assert(dueAuditsRepeat.length === 1, "14j: repeatable keeps due audit after completion");
+}
+
+/** 15: Dashboard status clarity — due/overdue/completed labels and Things to do filter. */
+{
+  const assignedCheckDisplay = read("src/utils/assignedCheckDisplay.ts");
+  const thingsToDoSection = read("src/components/dashboard/DashboardThingsToDoSection.tsx");
+  const assignedCheckRow = read("src/components/checks/AssignedCheckActionRow.tsx");
+  const assignedCheckCompletion = read("src/utils/assignedCheckCompletion.ts");
+  const schedulesScreen = read("src/screens/SchedulesScreen.tsx");
+
+  assert(assignedCheckDisplay.includes('export type AssignedCheckCardStatus = "Due" | "Overdue" | "Completed" | "Not due yet"'), "15a: assigned-check card status union");
+  assert(assignedCheckDisplay.includes("assignedCheckCardStatus"), "15b: assigned-check card status helper");
+  assert(assignedCheckDisplay.includes("filterAssignedChecksForThingsToDo"), "15c: Things to do due-check filter");
+  assert(thingsToDoSection.includes("filterAssignedChecksForThingsToDo"), "15d: Things to do uses due-check filter");
+  assert(thingsToDoSection.includes("No checks due right now."), "15e: Things to do empty state");
+  assert(assignedCheckRow.includes('"Overdue"') || assignedCheckDisplay.includes('"Overdue"'), "15f: overdue status label");
+  assert(assignedCheckDisplay.includes('"Not due yet"'), "15g: not-due-yet status label");
+  assert(assignedCheckRow.includes("assignedCheckCardStatus"), "15h: action row uses card status helper");
+  assert(assignedCheckRow.includes("assignedCheckDueWindowLine"), "15i: action row shows due window");
+  assert(assignedCheckCompletion.includes('"Completed for period"'), "15j: schedule list completed-for-period label");
+  assert(assignedCheckCompletion.includes('"Due soon"'), "15k: schedule list due-soon label");
+  assert(assignedCheckCompletion.includes('"Active"'), "15l: schedule list active label");
+  assert(schedulesScreen.includes("resolveScheduleListStatusChip"), "15m: schedules screen shows management status chip");
 }
 
 console.log("[verify:assigned-checks] OK: assigned-check contract verified");

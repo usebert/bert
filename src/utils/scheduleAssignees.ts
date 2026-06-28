@@ -152,7 +152,7 @@ export function belongsToCompanyUsersTabRow(user: CompanyUsersTabRow, companyId:
   }
   const userCompanyId = user.companyId.trim();
   if (!userCompanyId) {
-    return false;
+    return true;
   }
   return userCompanyId === targetCompanyId;
 }

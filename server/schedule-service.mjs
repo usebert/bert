@@ -45,15 +45,33 @@ function resolveListActiveUsers(deps) {
 
 const SCHEDULER_ASSIGNEE_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
 
+function logSchedulerAssigneeLoadIssue(context, error, extra = {}) {
+  const companyFolderId = String(context?.companyFolderId || context?.companyId || "").trim();
+  const masterSheetId = String(context?.masterSheetId || "").trim();
+  const technicalError = error instanceof Error ? error.message : String(error || "");
+  console.error(
+    "[schedule-assignees]",
+    JSON.stringify({
+      companyFolderId: companyFolderId || undefined,
+      masterSheetId: masterSheetId || undefined,
+      code: String(error?.code || extra.code || "").trim() || undefined,
+      failedStep: String(error?.failedStep || extra.failedStep || "").trim() || undefined,
+      dataSource: String(extra.dataSource || "").trim() || undefined,
+      message: technicalError.slice(0, 240) || undefined,
+    }),
+  );
+}
+
 function mapProfileRowForScheduleAssignees(row, resolvedCompanyId) {
+  const companyFolderId = String(resolvedCompanyId || row.companyFolderId || row.companyId || "").trim();
   return {
     email: row.email,
     name: row.name,
     role: row.role,
     accessLevel: row.accessLevel,
     status: row.status,
-    companyId: row.companyId || resolvedCompanyId,
-    companyFolderId: row.companyFolderId || resolvedCompanyId,
+    companyId: companyFolderId,
+    companyFolderId,
     companyAreas: Array.isArray(row.companyAreas) ? row.companyAreas : [],
     companyAreasRaw: row.companyAreasRaw || "",
   };
@@ -75,6 +93,7 @@ async function loadSchedulerAssigneeProfiles(auth, deps, companyContext = {}) {
       cached &&
       Array.isArray(cached.users) &&
       cached.users.length > 0 &&
+      (!masterSheetId || !cacheMasterSheetId || cacheMasterSheetId === masterSheetId) &&
       cacheAgeMs <= SCHEDULER_ASSIGNEE_CACHE_MAX_AGE_MS;
 
     if (cacheMatches) {
@@ -107,6 +126,15 @@ async function loadSchedulerAssigneeProfiles(auth, deps, companyContext = {}) {
     includeDiagnostics: true,
   });
   if (!listed.ok) {
+    logSchedulerAssigneeLoadIssue(
+      { companyFolderId, masterSheetId },
+      new Error(listed.message || listed.error || "USERS_TAB_READ_FAILED"),
+      {
+        code: listed.code || "USERS_TAB_READ_FAILED",
+        failedStep: listed.failedStep || listed.diagnostics?.failedStep || "users_tab_read",
+        dataSource: listed.diagnostics?.dataSource,
+      },
+    );
     return listed;
   }
 
@@ -894,6 +922,15 @@ export async function listSchedulerAssignees(auth, deps, companyContext = {}) {
     });
 
     if (!listed.ok) {
+      logSchedulerAssigneeLoadIssue(
+        { companyFolderId, masterSheetId },
+        new Error(listed.message || listed.error || "USERS_TAB_READ_FAILED"),
+        {
+          code: listed.code || "USERS_TAB_READ_FAILED",
+          failedStep: listed.failedStep || listed.diagnostics?.failedStep || "users_tab_read",
+          dataSource: listed.diagnostics?.dataSource,
+        },
+      );
       return {
         ok: false,
         code: listed.code || "USERS_TAB_READ_FAILED",
@@ -942,6 +979,11 @@ export async function listSchedulerAssignees(auth, deps, companyContext = {}) {
     };
   } catch (error) {
     const technicalError = error instanceof Error ? error.message : String(error);
+    logSchedulerAssigneeLoadIssue(
+      { companyFolderId, masterSheetId },
+      error,
+      { code: "USERS_TAB_READ_FAILED", failedStep: "list_scheduler_assignees" },
+    );
     return {
       ok: false,
       code: "USERS_TAB_READ_FAILED",

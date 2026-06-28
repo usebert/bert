@@ -5,6 +5,7 @@ import type { Audit } from "../../types/reportsScreenProps";
 import { AssignedCheckActionRow } from "../checks/AssignedCheckActionRow";
 import { AnimatedCard } from "../animation/AnimatedCard";
 import {
+  filterAssignedChecksForThingsToDo,
   sortAssignedChecksForAction,
   type AssignedCheckScheduleMeta,
 } from "../../utils/assignedCheckDisplay";
@@ -33,11 +34,13 @@ export function DashboardThingsToDoSection({
   role = "Manager",
   cardIndex = 3,
 }: DashboardThingsToDoSectionProps) {
-  const sortedChecks = sortAssignedChecksForAction(assignedAudits, drafts);
+  const dueChecks = filterAssignedChecksForThingsToDo(assignedAudits, drafts, scheduleMetaByAuditId);
+  const sortedChecks = sortAssignedChecksForAction(dueChecks, drafts);
 
   return (
     <AnimatedCard as="section" index={cardIndex} className={DASHBOARD_CARD}>
       <h2 className="text-lg font-black text-slate-900">Things to do</h2>
+      <p className="mt-1 text-sm text-slate-600">Checks that are due, overdue, or in progress.</p>
       {loading && sortedChecks.length === 0 && !loadError ? (
         <p className="mt-4 text-sm text-slate-600">{ASSIGNED_CHECKS_LOADING_MESSAGE}</p>
       ) : loadError && sortedChecks.length === 0 ? (
