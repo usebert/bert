@@ -39,7 +39,7 @@ const LIGHT_RESOLVE_OPTS = {
 };
 
 /** Per-candidate Google read budget during login — stale/wrong workbooks must not block for 50s+. */
-export const LOGIN_CANDIDATE_TIMEOUT_MS = 8000;
+export const LOGIN_CANDIDATE_TIMEOUT_MS = 5000;
 
 function loginCandidateLabel(attempt = {}) {
   if (attempt.type === "folder") {
@@ -58,21 +58,24 @@ function loginCandidateTimingMeta(attempt = {}, candidateIndex = 0) {
   };
 }
 
-function withLoginCandidateTimeout(promise, timeoutMs = LOGIN_CANDIDATE_TIMEOUT_MS, label = "login_candidate") {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error(`${label}_timeout`));
-    }, timeoutMs);
-    Promise.resolve(promise)
-      .then((value) => {
-        clearTimeout(timer);
-        resolve(value);
-      })
-      .catch((error) => {
-        clearTimeout(timer);
-        reject(error);
-      });
+/**
+ * Race a candidate attempt against a hard timeout. On timeout, returns immediately — the
+ * losing attempt promise is abandoned (not awaited) so slow Google reads cannot block login.
+ */
+async function raceLoginCandidateAttempt(
+  attemptFn,
+  timeoutMs = LOGIN_CANDIDATE_TIMEOUT_MS,
+  label = "login_candidate",
+) {
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`${label}_timeout`)), timeoutMs);
   });
+  try {
+    return await Promise.race([Promise.resolve().then(attemptFn), timeoutPromise]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function upsertLoginAuthIndexFromUsersTabRow(authIndex, row, companyContext, email) {
@@ -605,10 +608,27 @@ async function logLoginUsersTabDiagnostics(auth, userDeps, email, attempts = [],
   return payload;
 }
 
+function pairedSheetIdsFromFolderAttempts(attempts = []) {
+  const paired = new Set();
+  for (const attempt of attempts) {
+    if (attempt.type === "folder" && attempt.masterSheetId) {
+      paired.add(sanitizeGoogleSpreadsheetId(attempt.masterSheetId));
+    }
+  }
+  return paired;
+}
+
 function dedupeLoginAttempts(attempts = []) {
   const seen = new Set();
+  const folderPairedSheets = pairedSheetIdsFromFolderAttempts(attempts);
   const out = [];
   for (const attempt of attempts) {
+    if (attempt.type === "sheet_hint") {
+      const sheetId = sanitizeGoogleSpreadsheetId(attempt.masterSheetId);
+      if (sheetId && folderPairedSheets.has(sheetId)) {
+        continue;
+      }
+    }
     const key =
       attempt.type === "folder"
         ? `f:${attempt.companyFolderId}:${attempt.masterSheetId || ""}`
@@ -711,22 +731,16 @@ async function companyContextFromSheetHint(auth, deps, masterSheetId, email, use
   };
 }
 
-async function resolveSingleLoginAttempt(auth, deps, attempt, email, password, userDeps, timingDeps, loginTiming, candidateIndex) {
-  const candidateMeta = loginCandidateTimingMeta(attempt, candidateIndex);
-  loginTiming?.logPhase?.("candidate_attempt_start", Date.now(), {
-    ...candidateMeta,
-    candidateTimeoutMs: LOGIN_CANDIDATE_TIMEOUT_MS,
-  });
-
+async function resolveSingleLoginAttempt(auth, deps, attempt, email, password, userDeps, timingDeps, candidateIndex) {
   let companyContext = {};
   if (attempt.type === "folder") {
     const pairedSheetId = sanitizeGoogleSpreadsheetId(attempt.masterSheetId);
     const tFolder = Date.now();
     const resolved = await resolveFolderFirstContext(auth, deps, attempt.companyFolderId, pairedSheetId);
-    loginTiming?.logPhase?.("folder_company_resolve", tFolder, {
+    timingDeps.loginTiming?.logPhase?.("folder_company_resolve", tFolder, {
       companyFolderId: attempt.companyFolderId,
       resolved: Boolean(resolved?.masterSheetId || resolved?.companyFolderId),
-      ...candidateMeta,
+      ...loginCandidateTimingMeta(attempt, candidateIndex),
     });
     const masterSheetId = await pickLoginMasterSheetId(auth, userDeps, email, { pairedSheetId, resolved });
     if (!masterSheetId) {
@@ -858,27 +872,35 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
     const attempt = attempts[candidateIndex];
     const candidateMeta = loginCandidateTimingMeta(attempt, candidateIndex);
     const tAttempt = Date.now();
+    loginTiming?.logPhase?.("candidate_attempt_start", tAttempt, {
+      ...candidateMeta,
+      candidateTimeoutMs: LOGIN_CANDIDATE_TIMEOUT_MS,
+    });
     let attemptResult;
     try {
-      attemptResult = await withLoginCandidateTimeout(
-        resolveSingleLoginAttempt(
-          auth,
-          deps,
-          attempt,
-          email,
-          password,
-          userDeps,
-          timingDeps,
-          loginTiming,
-          candidateIndex,
-        ),
+      attemptResult = await raceLoginCandidateAttempt(
+        () =>
+          resolveSingleLoginAttempt(
+            auth,
+            deps,
+            attempt,
+            email,
+            password,
+            userDeps,
+            timingDeps,
+            candidateIndex,
+          ),
         LOGIN_CANDIDATE_TIMEOUT_MS,
       );
     } catch (error) {
       if (String(error?.message || "").includes("_timeout")) {
-        loginTiming?.logPhase?.("candidate_timeout", tAttempt, {
+        loginTiming?.logPhase?.("candidate_attempt_timeout", tAttempt, {
           ...candidateMeta,
           candidateTimeoutMs: LOGIN_CANDIDATE_TIMEOUT_MS,
+        });
+        loginTiming?.logPhase?.("candidate_attempt_skipped", Date.now(), {
+          ...candidateMeta,
+          reason: "timeout",
         });
         lastAuthFailureReason = AUTH_FAILURE_REASON.COMPANY_WORKBOOK_NOT_RESOLVED;
         continue;
@@ -910,46 +932,89 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
   }
 
   const selectedFolderId = sanitizeCompanyFolderId(input.companyFolderId);
-  const registryContext = selectedFolderId
-    ? null
-    : await resolveCompanyContextForUser(auth, email, registryLookupDeps(deps, userDeps)).catch(() => null);
-
-  if (registryContext?.masterSheetId) {
-    const companyContext = {
-      masterSheetId: registryContext.masterSheetId,
-      companyFolderId: registryContext.companyFolderId,
-      companyId: registryContext.companyId || registryContext.companyFolderId,
-      companyName: registryContext.companyName,
-    };
-    const verifyResult = await verifyUserPasswordFromUsersTab(auth, companyContext, email, password, timingDeps);
-    if (verifyResult.ok) {
-      const row = verifyResult.row;
-      const entry = {
-        email,
-        name: String(row?.name || email).trim() || email,
-        role: row?.role || registryContext.role || "User",
-        accessLevel: row?.accessLevel || registryContext.accessLevel || "",
-        companyId: companyContext.companyFolderId,
-        companyFolderId: companyContext.companyFolderId,
-        companyName: companyContext.companyName,
-        masterSheetId: companyContext.masterSheetId,
-        status: "ACTIVE",
-        companyAreas: Array.isArray(row?.companyAreas)
-          ? row.companyAreas
-          : Array.isArray(registryContext.companyAreas)
-            ? registryContext.companyAreas
-            : [],
-      };
-      if (deps.authIndex) {
-        upsertLoginAuthIndexFromUsersTabRow(deps.authIndex, row, companyContext, email);
+  if (!selectedFolderId) {
+    try {
+      const registryResult = await raceLoginCandidateAttempt(
+        async () => {
+          const registryContext = await resolveCompanyContextForUser(
+            auth,
+            email,
+            registryLookupDeps(deps, userDeps),
+          ).catch(() => null);
+          if (!registryContext?.masterSheetId) {
+            return { ok: false, skip: true };
+          }
+          const companyContext = {
+            masterSheetId: registryContext.masterSheetId,
+            companyFolderId: registryContext.companyFolderId,
+            companyId: registryContext.companyId || registryContext.companyFolderId,
+            companyName: registryContext.companyName,
+          };
+          const verifyResult = await verifyUserPasswordFromUsersTab(
+            auth,
+            companyContext,
+            email,
+            password,
+            timingDeps,
+          );
+          if (!verifyResult.ok) {
+            return {
+              ok: false,
+              inactive: verifyResult.reason === "inactive",
+              authFailureReason:
+                verifyResult.reason === "inactive"
+                  ? AUTH_FAILURE_REASON.INACTIVE
+                  : classifyVerifyFailure(verifyResult),
+            };
+          }
+          const row = verifyResult.row;
+          const entry = {
+            email,
+            name: String(row?.name || email).trim() || email,
+            role: row?.role || registryContext.role || "User",
+            accessLevel: row?.accessLevel || registryContext.accessLevel || "",
+            companyId: companyContext.companyFolderId,
+            companyFolderId: companyContext.companyFolderId,
+            companyName: companyContext.companyName,
+            masterSheetId: companyContext.masterSheetId,
+            status: "ACTIVE",
+            companyAreas: Array.isArray(row?.companyAreas)
+              ? row.companyAreas
+              : Array.isArray(registryContext.companyAreas)
+                ? registryContext.companyAreas
+                : [],
+          };
+          if (deps.authIndex) {
+            upsertLoginAuthIndexFromUsersTabRow(deps.authIndex, row, companyContext, email);
+          }
+          return { ok: true, email, row, companyContext, entry };
+        },
+        LOGIN_CANDIDATE_TIMEOUT_MS,
+        "registry_login_fallback",
+      );
+      if (registryResult.ok) {
+        return registryResult;
       }
-      return { ok: true, email, row, companyContext, entry };
-    }
-    if (verifyResult.reason === "inactive") {
-      inactiveHit = true;
-      lastAuthFailureReason = AUTH_FAILURE_REASON.INACTIVE;
-    } else {
-      lastAuthFailureReason = classifyVerifyFailure(verifyResult);
+      if (registryResult.inactive) {
+        inactiveHit = true;
+        lastAuthFailureReason = AUTH_FAILURE_REASON.INACTIVE;
+      } else if (!registryResult.skip && registryResult.authFailureReason) {
+        lastAuthFailureReason = registryResult.authFailureReason;
+      }
+    } catch (error) {
+      if (String(error?.message || "").includes("_timeout")) {
+        loginTiming?.logPhase?.("candidate_attempt_timeout", Date.now(), {
+          candidateType: "registry_fallback",
+          candidateTimeoutMs: LOGIN_CANDIDATE_TIMEOUT_MS,
+        });
+        loginTiming?.logPhase?.("candidate_attempt_skipped", Date.now(), {
+          candidateType: "registry_fallback",
+          reason: "timeout",
+        });
+        lastAuthFailureReason = AUTH_FAILURE_REASON.COMPANY_WORKBOOK_NOT_RESOLVED;
+      } else {
+        throw error;
+      }
     }
   }
 
@@ -962,19 +1027,36 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
   }
 
   if (lastAuthFailureReason === AUTH_FAILURE_REASON.USER_NOT_FOUND) {
-    const registrySheetIds = registryContext?.masterSheetId
-      ? [registryContext.masterSheetId]
-      : await collectRegistryLoginSheetIds(auth, deps).catch(() => []);
-    usersTabDiagnostics = await logLoginUsersTabDiagnostics(
-      auth,
-      userDeps,
-      email,
-      attempts,
-      registrySheetIds,
-    ).catch(() => null);
+    try {
+      usersTabDiagnostics = await raceLoginCandidateAttempt(
+        () => logLoginUsersTabDiagnostics(auth, userDeps, email, attempts, []),
+        LOGIN_CANDIDATE_TIMEOUT_MS,
+        "login_failure_diagnostics",
+      );
+    } catch (error) {
+      if (String(error?.message || "").includes("_timeout")) {
+        loginTiming?.logPhase?.("candidate_attempt_skipped", Date.now(), {
+          candidateType: "failure_diagnostics",
+          reason: "timeout",
+        });
+      } else {
+        throw error;
+      }
+      const sheetIds = new Set();
+      for (const attempt of attempts) {
+        const sheetId = sanitizeGoogleSpreadsheetId(attempt.masterSheetId);
+        if (sheetId) {
+          sheetIds.add(sheetId);
+        }
+      }
+      usersTabDiagnostics = {
+        candidateMasterSheetIds: [...sheetIds],
+        usersTabLookups: [],
+      };
+    }
   }
 
-  if (!attempts.length && !registryContext?.masterSheetId) {
+  if (!attempts.length) {
     return buildLoginAuthFailure({
       email,
       authFailureReason: AUTH_FAILURE_REASON.NO_LOGIN_CANDIDATES,

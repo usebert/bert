@@ -33,8 +33,10 @@ const userAuth = read("server/user-auth-service.mjs");
 const pkg = JSON.parse(read("package.json"));
 
 assert(pkg.scripts["verify:login-candidate-order"], "PKG: npm script registered");
-assert(userAuth.includes("export const LOGIN_CANDIDATE_TIMEOUT_MS = 8000"), "static: 8s per-candidate timeout");
-assert(userAuth.includes("candidate_timeout"), "static: candidate_timeout timing phase");
+assert(userAuth.includes("export const LOGIN_CANDIDATE_TIMEOUT_MS = 5000"), "static: 5s per-candidate timeout");
+assert(userAuth.includes("candidate_attempt_timeout"), "static: candidate_attempt_timeout timing phase");
+assert(userAuth.includes("candidate_attempt_skipped"), "static: candidate_attempt_skipped timing phase");
+assert(userAuth.includes("raceLoginCandidateAttempt"), "static: Promise.race candidate wrapper");
 assert(userAuth.includes("candidateOrder"), "static: candidate order logged");
 assert(userAuth.includes("export function collectLoginResolutionAttempts"), "static: collectLoginResolutionAttempts exported");
 assert(userAuth.includes("upsertLoginAuthIndexFromUsersTabRow"), "static: login upserts auth index without full rebuild");
@@ -253,19 +255,24 @@ try {
     };
   };
 
-  const wrongIndexApi = createAuthIndexApi(path.join(path.dirname(authIndexPath), "wrong-index.json"));
-  wrongIndexApi.upsertEntry({
-    email,
-    name: "Candidate Order",
-    role: "Admin",
-    companyId: wrongFolderId,
-    companyFolderId: wrongFolderId,
-    companyName: "Wrong Co",
-    masterSheetId: staleSheetId,
-    status: "ACTIVE",
-    passwordHash: hashPassword("WrongCo-2026!"),
-    updatedAt: new Date().toISOString(),
-  });
+  function createWrongIndexApi() {
+    const api = createAuthIndexApi(path.join(path.dirname(authIndexPath), `wrong-index-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.json`));
+    api.upsertEntry({
+      email,
+      name: "Candidate Order",
+      role: "Admin",
+      companyId: wrongFolderId,
+      companyFolderId: wrongFolderId,
+      companyName: "Wrong Co",
+      masterSheetId: staleSheetId,
+      status: "ACTIVE",
+      passwordHash: hashPassword("WrongCo-2026!"),
+      updatedAt: new Date().toISOString(),
+    });
+    return api;
+  }
+
+  const wrongIndexApi = createWrongIndexApi();
 
   const timeoutStarted = Date.now();
   const timeoutLogin = await authenticateCompanyUserLogin(
@@ -287,8 +294,99 @@ try {
   assert(timeoutLogin.ok === true, "runtime: login succeeds after timed-out wrong candidates");
   assert(timeoutElapsed < LOGIN_CANDIDATE_TIMEOUT_MS * 3, "runtime: timed-out candidates do not block login for 50s");
   assert(
-    timingLines.some((line) => line.includes("candidate_timeout")),
-    "runtime: candidate_timeout logged for slow candidate",
+    timingLines.some((line) => line.includes("candidate_attempt_timeout")),
+    "runtime: candidate_attempt_timeout logged for slow candidate",
+  );
+  assert(
+    timingLines.some((line) => line.includes("candidate_attempt_skipped")),
+    "runtime: candidate_attempt_skipped logged after timeout",
+  );
+
+  const hangingFolderLines = [];
+  const hangingFolderResolver = async (_auth, _deps, folderId) => {
+    if (folderId === wrongFolderId) {
+      await new Promise((resolve) => setTimeout(resolve, LOGIN_CANDIDATE_TIMEOUT_MS + 2000));
+      return { ok: false, masterSheetId: "" };
+    }
+    return {
+      ok: folderId === companyFolderId,
+      companyFolderId,
+      companyId: companyFolderId,
+      companyName: "Candidate Co",
+      masterSheetId,
+    };
+  };
+  const hangingFolderStarted = Date.now();
+  const hangingFolderLogin = await authenticateCompanyUserLogin(
+    {},
+    {
+      authIndex: createWrongIndexApi(),
+      getCompanyUsersDeps: () => userDeps,
+      resolveCompanyFromFolder: hangingFolderResolver,
+      findMasterSheetIdsForCompanyLoginEmail: () => [masterSheetId],
+      loginTiming: {
+        logPhase(phase, _startMs, meta = {}) {
+          hangingFolderLines.push(`${phase} ${JSON.stringify(meta)}`);
+        },
+      },
+    },
+    { email, password, masterSheetId: staleSheetId },
+  );
+  const hangingFolderElapsed = Date.now() - hangingFolderStarted;
+  assert(hangingFolderLogin.ok === true, "runtime: login succeeds after hanging folder_company_resolve on first candidate");
+  assert(
+    hangingFolderElapsed < LOGIN_CANDIDATE_TIMEOUT_MS * 3,
+    "runtime: hanging folder_company_resolve times out within budget",
+  );
+  assert(
+    hangingFolderLines.some((line) => line.includes("candidate_attempt_timeout")),
+    "runtime: hanging folder resolve logs candidate_attempt_timeout",
+  );
+  assert(
+    hangingFolderLines.some((line) => line.includes("folder_company_resolve")),
+    "runtime: folder_company_resolve phase logged inside timed candidate",
+  );
+
+  let responseSentAt = 0;
+  let slowResolveFinishedAt = 0;
+  const blockTestResolver = async (_auth, _deps, folderId) => {
+    if (folderId === wrongFolderId) {
+      await new Promise((resolve) => {
+        setTimeout(() => {
+          slowResolveFinishedAt = Date.now();
+          resolve(undefined);
+        }, LOGIN_CANDIDATE_TIMEOUT_MS + 3000);
+      });
+      return { ok: false, masterSheetId: "" };
+    }
+    return {
+      ok: folderId === companyFolderId,
+      companyFolderId,
+      companyId: companyFolderId,
+      companyName: "Candidate Co",
+      masterSheetId,
+    };
+  };
+  const blockTestStarted = Date.now();
+  const blockTestLogin = await authenticateCompanyUserLogin(
+    {},
+    {
+      authIndex: createWrongIndexApi(),
+      getCompanyUsersDeps: () => userDeps,
+      resolveCompanyFromFolder: blockTestResolver,
+      findMasterSheetIdsForCompanyLoginEmail: () => [masterSheetId],
+    },
+    { email, password, masterSheetId: staleSheetId },
+  );
+  responseSentAt = Date.now();
+  const blockTestElapsed = responseSentAt - blockTestStarted;
+  assert(blockTestLogin.ok === true, "runtime: login returns before timed-out candidate finishes");
+  assert(blockTestElapsed < LOGIN_CANDIDATE_TIMEOUT_MS * 3, "runtime: response not blocked by timed-out candidate");
+  await new Promise((resolve) => setTimeout(resolve, LOGIN_CANDIDATE_TIMEOUT_MS + 3500));
+  assert(slowResolveFinishedAt > 0, "runtime: timed-out resolver eventually completed in background");
+  assert(
+    responseSentAt < slowResolveFinishedAt,
+    "runtime: response_sent precedes timed-out candidate completion",
   );
 
   mock.store.set(email, { ...mock.store.get(email), status: "INACTIVE" });

@@ -664,6 +664,10 @@ export async function performCompanyLogin(auth, deps, input = {}) {
   loginTiming.logMark("users_tab_auth_end", { ok: authResult.ok === true });
 
   if (!authResult.ok) {
+    logLoginPhase("login_response_ready", loginStarted, loginTiming, {
+      ok: false,
+      blocker: authResult.blocker || authResult.reason,
+    });
     timing.total = logLoginPhase("total_login_duration", loginStarted, loginTiming, {
       ok: false,
       blocker: authResult.blocker || authResult.reason,
@@ -813,6 +817,11 @@ export async function performCompanyLogin(auth, deps, input = {}) {
 
   timing.response_sent = 0;
   timing.total = Date.now() - loginStarted;
+  logLoginPhase("login_response_ready", loginStarted, loginTiming, {
+    ok: true,
+    companyFolderId: sessionCompanyId,
+    masterSheetId,
+  });
   console.log(`[login] total durationMs=${timing.total}`);
 
   if (deps.masterSheetCache && typeof deps.masterSheetCache.setEntry === "function" && sessionCompanyId && masterSheetId) {

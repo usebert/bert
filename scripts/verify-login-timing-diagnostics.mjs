@@ -130,7 +130,8 @@ const requiredServerPhases = [
   "platform_auth_check",
   "collect_login_candidates",
   "candidate_attempt_start",
-  "candidate_timeout",
+  "candidate_attempt_timeout",
+  "candidate_attempt_skipped",
   "candidate_attempt_success",
   "folder_company_resolve",
   "users_tab_auth_start",
@@ -143,6 +144,7 @@ const requiredServerPhases = [
   "session_create_end",
   "background_jobs_queued_start",
   "background_jobs_queued_end",
+  "login_response_ready",
   "response_sent",
   "total_login_duration",
 ];
