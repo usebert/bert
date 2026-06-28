@@ -106,6 +106,7 @@
     "verify:login-performance": "node scripts/verify-login-performance.mjs",
     "verify:login-timing-trace": "node scripts/verify-login-timing-trace.mjs",
     "verify:login-timing-diagnostics": "node scripts/verify-login-timing-diagnostics.mjs",
+    "verify:login-candidate-order": "node scripts/verify-login-candidate-order.mjs",
     "verify:login-context-trace": "node scripts/verify-login-context-trace.mjs",
     "verify:login-background-jobs": "node scripts/verify-login-background-jobs.mjs",
     "verify:login-api-connectivity": "node scripts/verify-login-api-connectivity.mjs",
