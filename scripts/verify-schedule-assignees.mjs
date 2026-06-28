@@ -396,7 +396,11 @@ assert(schedulesScreenSrc.includes("companyAreas"), "14n: schedule UI shows comp
 const scheduleServiceModule = read("server/schedule-service.mjs");
 const frontendScheduleService = read("src/services/scheduleService.ts");
 assert(scheduleServiceModule.includes("loadSchedulerAssigneeProfiles"), "17: scheduler assignee loader helper");
-assert(scheduleServiceModule.includes("readActiveUsersFromSheetWithStats"), "17b: fast Users tab read when context known");
+assert(
+  scheduleServiceModule.includes("resolveListActiveUsers") && scheduleServiceModule.includes("listActiveUsers(auth, deps"),
+  "17b: assignees use folder-first listActiveUsers (same path as People)",
+);
+assert(!scheduleServiceModule.includes("readActiveUsersFromSheetWithStats"), "17b2: assignees do not bypass folder-first with session masterSheetId");
 assert(scheduleServiceModule.includes("companyUsersCache"), "17c: server users cache may accelerate assignees");
 assert(
   scheduleAssigneesSrc.includes("if (context.loading)") &&
@@ -408,6 +412,16 @@ assert(appSrc.includes("writeScheduleAssigneesCache"), "17f: App persists assign
 assert(
   frontendScheduleService.includes("SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS = 90_000"),
   "17g: frontend assignee timeout allows slow workbook reads",
+);
+assert(
+  frontendScheduleService.includes("/schedule-assignees") &&
+    frontendScheduleService.includes("payload.users"),
+  "17h: frontend schedule form tolerates assignees, auditors, or users response arrays",
+);
+assert(
+  read("server/core-workflow-routes.mjs").includes('app.get("/api/companies/:companyId/schedule-assignees"') &&
+    read("server/core-workflow-routes.mjs").includes("assignees: result.assignees"),
+  "17i: production schedule-assignees route returns ok:true with assignees array",
 );
 
 console.log("[verify:schedule-assignees] OK: all schedule assignee cases passed");

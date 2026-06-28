@@ -556,6 +556,17 @@ export function installCoreWorkflowRoutes(app, deps) {
       });
 
       if (!result.ok) {
+        console.warn(
+          "[schedule-assignees]",
+          JSON.stringify({
+            companyId: companyFolderId || companyId || undefined,
+            masterSheetId: masterSheetId || undefined,
+            code: result.code,
+            reasonCode: result.reasonCode,
+            failedStep: result.failedStep || result.diagnostics?.failedStep,
+            message: result.message || result.error,
+          }),
+        );
         return res.status(result.httpStatus || 400).json({
           ok: false,
           code: result.code,
@@ -576,11 +587,21 @@ export function installCoreWorkflowRoutes(app, deps) {
         warning: result.warning,
       });
     } catch (error) {
+      const safeMessage = error instanceof Error ? error.message : "Unable to load schedule assignees.";
+      console.warn(
+        "[schedule-assignees]",
+        JSON.stringify({
+          companyId: companyFolderId || companyId || undefined,
+          masterSheetId: masterSheetId || undefined,
+          code: "USERS_TAB_READ_FAILED",
+          message: safeMessage,
+        }),
+      );
       return res.status(500).json({
         ok: false,
         code: "USERS_TAB_READ_FAILED",
-        error: error instanceof Error ? error.message : "Unable to load schedule assignees.",
-        message: error instanceof Error ? error.message : "Unable to load schedule assignees.",
+        error: safeMessage,
+        message: safeMessage,
       });
     }
   });

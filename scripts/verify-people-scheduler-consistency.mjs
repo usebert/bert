@@ -48,6 +48,10 @@ assert(
   coreRoutes.includes("/api/companies/:companyId/schedule-assignees"),
   "11: schedule-assignees route exists",
 );
+assert(
+  !scheduleService.includes("readActiveUsersFromSheetWithStats"),
+  "11b: scheduler assignees use listActiveUsers folder-first path",
+);
 
 const companyFolderId = "1TVQ-gbpxoOzE6PCkHX581eTDgtMC11lc";
 const people = [

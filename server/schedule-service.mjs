@@ -28,7 +28,6 @@ import { enrichAssignedSchedulesWithCompletion } from "../shared/assigned-check-
 import { getScheduleAssignedEmails, isScheduleAssignedToUser } from "../shared/schedule-assignment.mjs";
 import { listAuditResults } from "./completion-service.mjs";
 import { buildAvailableScheduleAssigneesFromUsers } from "../shared/schedule-assignees.mjs";
-import { readActiveUsersFromSheetWithStats } from "./company-user-sheet-flow.mjs";
 import { syncCompanyUsersCache } from "./company-users-foundation.mjs";
 import { listActiveUsers as listActiveUsersFromUserService } from "./user-service.mjs";
 import {
@@ -66,7 +65,7 @@ async function loadSchedulerAssigneeProfiles(auth, deps, companyContext = {}) {
   let masterSheetId = String(companyContext.masterSheetId || "").trim();
   let companyName = String(companyContext.companyName || "").trim();
 
-  if (companyFolderId && masterSheetId) {
+  if (companyFolderId) {
     const cache = deps?.companyUsersCache;
     const cached = typeof cache?.getEntry === "function" ? cache.getEntry(companyFolderId) : null;
     const cacheMasterSheetId = String(cached?.masterSheetId || "").trim();
@@ -76,7 +75,6 @@ async function loadSchedulerAssigneeProfiles(auth, deps, companyContext = {}) {
       cached &&
       Array.isArray(cached.users) &&
       cached.users.length > 0 &&
-      (!cacheMasterSheetId || cacheMasterSheetId === masterSheetId) &&
       cacheAgeMs <= SCHEDULER_ASSIGNEE_CACHE_MAX_AGE_MS;
 
     if (cacheMatches) {
@@ -87,9 +85,9 @@ async function loadSchedulerAssigneeProfiles(auth, deps, companyContext = {}) {
         companyFolderId,
         companyName,
         masterSheetId: cacheMasterSheetId || masterSheetId,
-        dataSource: `company-users-cache:${cacheMasterSheetId || masterSheetId}`,
+        dataSource: `company-users-cache:${cacheMasterSheetId || masterSheetId || companyFolderId}`,
         diagnostics: {
-          dataSource: `company-users-cache:${cacheMasterSheetId || masterSheetId}`,
+          dataSource: `company-users-cache:${cacheMasterSheetId || masterSheetId || companyFolderId}`,
           cacheHit: true,
           totalUsersRead: cached.users.length,
           profilesReturned: cached.users.length,
@@ -97,30 +95,6 @@ async function loadSchedulerAssigneeProfiles(auth, deps, companyContext = {}) {
         },
       };
     }
-
-    const sheetResult = await readActiveUsersFromSheetWithStats(auth, deps, {
-      companyFolderId,
-      companyId: companyFolderId,
-      companyName,
-      masterSheetId,
-    });
-    const members = Array.isArray(sheetResult.members) ? sheetResult.members : [];
-    syncCompanyUsersCache(deps, { companyFolderId, masterSheetId }, members);
-    return {
-      ok: true,
-      users: members,
-      companyId: companyFolderId,
-      companyFolderId,
-      companyName,
-      masterSheetId,
-      dataSource: `company-workbook-users:${masterSheetId}`,
-      diagnostics: {
-        dataSource: `company-workbook-users:${masterSheetId}`,
-        totalUsersRead: sheetResult.totalSheetRows,
-        profilesReturned: members.length,
-        activeOnlyCount: sheetResult.activeOnlyCount,
-      },
-    };
   }
 
   const listActiveUsers = resolveListActiveUsers(deps);
@@ -139,10 +113,15 @@ async function loadSchedulerAssigneeProfiles(auth, deps, companyContext = {}) {
   masterSheetId = String(listed.masterSheetId || masterSheetId).trim();
   companyName = String(listed.companyName || companyName).trim();
   const resolvedCompanyId = String(listed.companyFolderId || listed.companyId || companyFolderId).trim();
+  const users = listed.users || [];
+
+  if (resolvedCompanyId && masterSheetId && users.length > 0) {
+    syncCompanyUsersCache(deps, { companyFolderId: resolvedCompanyId, masterSheetId }, users);
+  }
 
   return {
     ok: true,
-    users: listed.users || [],
+    users,
     companyId: resolvedCompanyId,
     companyFolderId: resolvedCompanyId,
     companyName,

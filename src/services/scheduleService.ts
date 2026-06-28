@@ -162,6 +162,7 @@ export async function fetchScheduleAssignees(
     ok?: boolean;
     assignees?: Record<string, unknown>[];
     auditors?: Record<string, unknown>[];
+    users?: Record<string, unknown>[];
     message?: string;
     error?: string;
     code?: string;
@@ -192,7 +193,9 @@ export async function fetchScheduleAssignees(
     ? payload.assignees
     : Array.isArray(payload.auditors)
       ? payload.auditors
-      : [];
+      : Array.isArray(payload.users)
+        ? payload.users
+        : [];
 
   return {
     ok: true,
