@@ -41,10 +41,7 @@ const LIGHT_RESOLVE_OPTS = {
 /** Per-candidate Google read budget during login — stale/wrong workbooks must not block for 50s+. */
 export const LOGIN_CANDIDATE_TIMEOUT_MS = 5000;
 
-/** Dedicated budget for explicit folder-first login — cold Google Drive reads can exceed 7s. */
-export const LOGIN_FOLDER_FIRST_TIMEOUT_MS = 20000;
-
-/** Hard cap across stale fallback candidate attempts — stale hints cannot stack 5s × N. */
+/** Hard cap across every login candidate attempt — stale hints cannot stack 5s × N. */
 export const LOGIN_AUTH_TOTAL_CAP_MS = 7000;
 
 function createLoginAuthBudget(totalCapMs = LOGIN_AUTH_TOTAL_CAP_MS) {
@@ -914,9 +911,6 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
   const userDeps = typeof deps.getCompanyUsersDeps === "function" ? deps.getCompanyUsersDeps() : deps;
   const loginTiming = deps.loginTiming;
   const timingDeps = loginTiming ? { ...userDeps, loginTiming } : userDeps;
-  const explicitFolderId = sanitizeCompanyFolderId(input.companyFolderId);
-  const sessionFolderId = sanitizeCompanyFolderId(input.sessionCompanyFolderId);
-  const hasExplicitFolderHint = Boolean(explicitFolderId || sessionFolderId);
   const authBudget = createLoginAuthBudget();
   const tCandidates = Date.now();
   const attempts = collectLoginResolutionAttempts(input, deps);
@@ -925,9 +919,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
     attemptCount: attempts.length,
     candidateOrder: attempts.map((attempt, index) => loginCandidateLabel(attempt, index)).join("|"),
     candidateTimeoutMs: LOGIN_CANDIDATE_TIMEOUT_MS,
-    loginFolderFirstTimeoutMs: LOGIN_FOLDER_FIRST_TIMEOUT_MS,
     loginAuthTotalCapMs: authBudget.totalCapMs,
-    explicitFolderFirst: hasExplicitFolderHint,
   });
 
   let inactiveHit = false;
@@ -935,36 +927,30 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
   let usersTabDiagnostics = null;
   const { folderAttempts, sheetAttempts } = partitionLoginAttempts(attempts);
 
-  async function tryLoginCandidate(attempt, candidateIndex, { explicitFolderFirst = false } = {}) {
+  async function tryLoginCandidate(attempt, candidateIndex) {
+    if (authBudget.isExpired()) {
+      loginTiming?.logPhase?.("candidate_attempt_skipped", Date.now(), {
+        candidateIndex,
+        reason: "global_auth_cap",
+        loginAuthTotalCapMs: authBudget.totalCapMs,
+      });
+      return { stop: true };
+    }
     const candidateMeta = loginCandidateTimingMeta(attempt, candidateIndex);
-    let attemptBudgetMs;
-    if (explicitFolderFirst) {
-      attemptBudgetMs = LOGIN_FOLDER_FIRST_TIMEOUT_MS;
-    } else {
-      if (authBudget.isExpired()) {
-        loginTiming?.logPhase?.("candidate_attempt_skipped", Date.now(), {
-          candidateIndex,
-          reason: "global_auth_cap",
-          loginAuthTotalCapMs: authBudget.totalCapMs,
-        });
-        return { stop: true };
-      }
-      attemptBudgetMs = authBudget.budgetForAttempt();
-      if (attemptBudgetMs <= 0) {
-        loginTiming?.logPhase?.("candidate_attempt_skipped", Date.now(), {
-          ...candidateMeta,
-          reason: "global_auth_cap",
-          loginAuthTotalCapMs: authBudget.totalCapMs,
-        });
-        return { stop: true };
-      }
+    const attemptBudgetMs = authBudget.budgetForAttempt();
+    if (attemptBudgetMs <= 0) {
+      loginTiming?.logPhase?.("candidate_attempt_skipped", Date.now(), {
+        ...candidateMeta,
+        reason: "global_auth_cap",
+        loginAuthTotalCapMs: authBudget.totalCapMs,
+      });
+      return { stop: true };
     }
     const tAttempt = Date.now();
     loginTiming?.logPhase?.("candidate_attempt_start", tAttempt, {
       ...candidateMeta,
       candidateTimeoutMs: attemptBudgetMs,
-      explicitFolderFirst,
-      loginAuthRemainingMs: explicitFolderFirst ? undefined : authBudget.remainingMs(),
+      loginAuthRemainingMs: authBudget.remainingMs(),
     });
     let attemptResult;
     try {
@@ -1028,9 +1014,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
 
   let candidateIndex = 0;
   for (const attempt of folderAttempts) {
-    const outcome = await tryLoginCandidate(attempt, candidateIndex, {
-      explicitFolderFirst: hasExplicitFolderHint && attempt.type === "folder",
-    });
+    const outcome = await tryLoginCandidate(attempt, candidateIndex);
     candidateIndex += 1;
     if (outcome.success) {
       return outcome.success;
