@@ -643,7 +643,10 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     };
   }
 
-  const explicitFolderFirst = Boolean(sanitizeCompanyFolderId(input.companyFolderId || ""));
+  const explicitFolderFirst = Boolean(
+    sanitizeCompanyFolderId(input.companyFolderId || "") ||
+      sanitizeCompanyFolderId(input.sessionCompanyFolderId || ""),
+  );
   loginTiming.logMark("company_login_input_hints", {
     explicitFolderFirst,
     companyFolderIdSource: resolveLoginCompanyFolderIdSource(input, { authIndex, ...deps }, email),

@@ -37,6 +37,9 @@ assert(userAuth.includes("export const LOGIN_CANDIDATE_TIMEOUT_MS = 5000"), "sta
 assert(userAuth.includes("candidate_attempt_timeout"), "static: candidate_attempt_timeout timing phase");
 assert(userAuth.includes("candidate_attempt_skipped"), "static: candidate_attempt_skipped timing phase");
 assert(userAuth.includes("raceLoginCandidateAttempt"), "static: Promise.race candidate wrapper");
+assert(userAuth.includes("isTrustedFolderCandidate"), "static: trusted folder candidates fully awaited");
+assert(userAuth.includes("sessionCompanyFolderId"), "static: session company folder collected as candidate");
+assert(userAuth.includes("candidate_attempt_await"), "static: trusted folder await phase logged");
 assert(userAuth.includes("candidateOrder"), "static: candidate order logged");
 assert(userAuth.includes("export function collectLoginResolutionAttempts"), "static: collectLoginResolutionAttempts exported");
 assert(userAuth.includes("upsertLoginAuthIndexFromUsersTabRow"), "static: login upserts auth index without full rebuild");
@@ -413,6 +416,88 @@ try {
   );
   assert(wrongPasswordLogin.ok === false, "runtime: wrong password still fails");
   assert(wrongPasswordLogin.entry === undefined, "runtime: failed login does not return entry payload");
+
+  const slowTrustedLines = [];
+  const slowTrustedDelayMs = LOGIN_CANDIDATE_TIMEOUT_MS + 2500;
+  const slowTrustedResolver = async (_auth, _deps, folderId) => {
+    if (folderId !== companyFolderId) {
+      return { ok: false, masterSheetId: "" };
+    }
+    await new Promise((resolve) => setTimeout(resolve, slowTrustedDelayMs));
+    return {
+      ok: true,
+      companyFolderId,
+      companyId: companyFolderId,
+      companyName: "Candidate Co",
+      masterSheetId,
+    };
+  };
+  const slowTrustedStarted = Date.now();
+  const slowTrustedLogin = await authenticateCompanyUserLogin(
+    {},
+    {
+      getCompanyUsersDeps: () => userDeps,
+      resolveCompanyFromFolder: slowTrustedResolver,
+      findMasterSheetIdsForCompanyLoginEmail: () => [staleSheetId],
+      loginTiming: {
+        logPhase(phase, _startMs, meta = {}) {
+          slowTrustedLines.push(`${phase} ${JSON.stringify(meta)}`);
+        },
+      },
+    },
+    { email, password, companyFolderId, masterSheetId: staleSheetId },
+  );
+  const slowTrustedElapsed = Date.now() - slowTrustedStarted;
+  assert(slowTrustedLogin.ok === true, "runtime: trusted body folder awaits slow resolve and returns 200");
+  assert(
+    slowTrustedElapsed >= slowTrustedDelayMs,
+    "runtime: trusted body folder not abandoned before folder resolve completes",
+  );
+  assert(
+    !slowTrustedLines.some((line) => line.includes("candidate_attempt_timeout")),
+    "runtime: trusted body folder does not log candidate timeout",
+  );
+  assert(
+    !slowTrustedLines.some((line) => line.includes("registry_fallback")),
+    "runtime: trusted body folder skips registry fallback",
+  );
+
+  const sessionFolderLines = [];
+  const sessionFolderStarted = Date.now();
+  const sessionFolderLogin = await authenticateCompanyUserLogin(
+    {},
+    {
+      getCompanyUsersDeps: () => userDeps,
+      resolveCompanyFromFolder: slowTrustedResolver,
+      findMasterSheetIdsForCompanyLoginEmail: () => [staleSheetId],
+      loginTiming: {
+        logPhase(phase, _startMs, meta = {}) {
+          sessionFolderLines.push(`${phase} ${JSON.stringify(meta)}`);
+        },
+      },
+    },
+    { email, password, sessionCompanyFolderId: companyFolderId, masterSheetId: staleSheetId },
+  );
+  const sessionFolderElapsed = Date.now() - sessionFolderStarted;
+  assert(sessionFolderLogin.ok === true, "runtime: trusted session folder awaits slow resolve and returns 200");
+  assert(
+    sessionFolderElapsed >= slowTrustedDelayMs,
+    "runtime: trusted session folder not abandoned before folder resolve completes",
+  );
+  assert(
+    !sessionFolderLines.some((line) => line.includes("candidate_attempt_timeout")),
+    "runtime: trusted session folder does not log candidate timeout",
+  );
+
+  const sessionOnlyAttempts = collectLoginResolutionAttempts(
+    { email, sessionCompanyFolderId: companyFolderId, masterSheetId: staleSheetId },
+    { findMasterSheetIdsForCompanyLoginEmail: () => [staleSheetId] },
+  );
+  assert(
+    sessionOnlyAttempts[0]?.type === "folder" && sessionOnlyAttempts[0]?.companyFolderId === companyFolderId,
+    "runtime: session company folder collected before stale sheet hints",
+  );
+  assert(sessionOnlyAttempts.length === 1, "runtime: session folder absorbs stale session sheet candidate");
 } finally {
   console.info = originalInfo;
 }

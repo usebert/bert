@@ -67,7 +67,7 @@ assert(userAuth.includes("targetEmailInEmailLikeColumns"), "static: email-like c
 assert(userAuth.includes("candidateMasterSheetIds"), "static: candidate workbook diagnostics");
 assert(userAuth.includes("registryLookupDeps"), "static: registry lookup deps for login fallback");
 assert(userAuth.includes("if (resolvedId)"), "static: folder discovery workbook wins over paired hint");
-assert(userAuth.includes("!hintedFolderId"), "static: auth-index skipped when company folder selected");
+assert(userAuth.includes("!trustedFolderIds.length"), "static: auth-index skipped when trusted company folder selected");
 assert(read("server/server.mjs").includes("...getCompanyContextResolutionDeps()"), "static: login route receives registry resolution deps");
 assert(userAuth.includes("summarizeUsersTabEmailScanForLoginLog"), "static: USER_NOT_FOUND login logs include live email scan");
 assert(!read("server/server.mjs").includes("/api/diagnostics/dovecote-users-tab"), "static: temporary Users-tab diagnostic route removed");
