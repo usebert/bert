@@ -58,6 +58,25 @@ export function safeLoginTimingMeta(meta = {}) {
   return safe;
 }
 
+/** Presence-only request hint meta for company login — key names only, never values. */
+export function safeLoginRequestHintMeta(body = {}) {
+  const payload = body && typeof body === "object" ? body : {};
+  const requestHintKeys = Object.keys(payload)
+    .filter((key) => {
+      const normalized = normalizeMetaKey(key);
+      return normalized && !BLOCKED_META_KEYS.has(normalized);
+    })
+    .sort();
+  const hasCompanySlugField = Object.prototype.hasOwnProperty.call(payload, "companySlug");
+  return {
+    hasCompanyFolderId: Boolean(String(payload.companyFolderId || "").trim()),
+    hasCompanyId: Boolean(String(payload.companyId || "").trim()),
+    hasMasterSheetId: Boolean(String(payload.masterSheetId || "").trim()),
+    ...(hasCompanySlugField ? { hasCompanySlug: Boolean(String(payload.companySlug || "").trim()) } : {}),
+    requestHintKeys,
+  };
+}
+
 /** Mask email for timing logs when full address is not required. */
 export function maskLoginEmail(email) {
   const normalized = String(email || "").trim().toLowerCase();

@@ -10,6 +10,7 @@ import {
   createLoginTimingTrace,
   logLoginTimingMark,
   logLoginTimingPhase,
+  safeLoginRequestHintMeta,
   safeLoginTimingMeta,
 } from "../server/login-timing.mjs";
 import { buildCompanySessionApiResponse } from "../server/auth-service.mjs";
@@ -40,6 +41,7 @@ const appTsx = read("App.tsx");
 const clientTiming = read("src/utils/loginTiming.ts");
 
 assert(loginTimingModule.includes("safeLoginTimingMeta"), "static: safeLoginTimingMeta exported");
+assert(loginTimingModule.includes("safeLoginRequestHintMeta"), "static: safeLoginRequestHintMeta exported");
 assert(loginTimingModule.includes(LOGIN_TIMING_PREFIX), "static: login timing prefix constant");
 assert(authService.includes("login-timing.mjs"), "static: auth-service uses login-timing module");
 assert(userAuth.includes("login-timing.mjs"), "static: user-auth-service uses login-timing module");
@@ -47,10 +49,17 @@ assert(serverMain.includes("login-timing.mjs"), "static: server route uses login
 assert(appTsx.includes("loginTiming"), "static: App.tsx uses client login timing");
 assert(clientTiming.includes(LOGIN_TIMING_PREFIX), "static: client timing prefix");
 
+const companyLoginBlock = serverMain.slice(
+  serverMain.indexOf('app.post("/api/auth/company/login"'),
+  serverMain.indexOf('app.post("/api/auth/company/logout"'),
+);
+
 const forbiddenLogPatterns = [
   /logLoginTimingPhase\([^)]*password/i,
   /logClientLoginTiming\([^)]*password/i,
   /console\.log\([^)]*passwordHash/i,
+  /login_request_hints[^)]*req\.body\?\.password/i,
+  /safeLoginRequestHintMeta\([^)]*password/i,
 ];
 for (const pattern of forbiddenLogPatterns) {
   assert(
@@ -59,10 +68,41 @@ for (const pattern of forbiddenLogPatterns) {
   );
 }
 
-const companyLoginBlock = serverMain.slice(
-  serverMain.indexOf('app.post("/api/auth/company/login"'),
-  serverMain.indexOf('app.post("/api/auth/company/logout"'),
+assert(companyLoginBlock.includes("login_request_hints"), "static: route logs login_request_hints phase");
+assert(companyLoginBlock.includes("safeLoginRequestHintMeta"), "static: route uses safeLoginRequestHintMeta");
+assert(authService.includes("company_login_input_hints"), "static: auth-service logs company_login_input_hints");
+assert(authService.includes("explicitFolderFirst"), "static: auth-service logs explicitFolderFirst");
+assert(authService.includes("companyFolderIdSource"), "static: auth-service logs companyFolderIdSource");
+assert(userAuth.includes("login_resolution_diagnostics"), "static: user-auth logs login_resolution_diagnostics");
+assert(userAuth.includes("resolveLoginCompanyFolderIdSource"), "static: user-auth resolves companyFolderIdSource");
+assert(userAuth.includes("attemptCount"), "static: user-auth logs attemptCount");
+assert(userAuth.includes("candidateOrder"), "static: user-auth logs candidateOrder");
+
+const hintMeta = safeLoginRequestHintMeta({
+  email: "hint@usebert.co.uk",
+  password: "must-not-appear",
+  passwordHash: "must-not-appear",
+  companyFolderId: "folder-1",
+  companyId: "folder-1",
+  masterSheetId: "sheet-1",
+  token: "secret-token",
+  cookie: "secret-cookie",
+});
+assert(hintMeta.hasCompanyFolderId === true, "hint meta: hasCompanyFolderId");
+assert(hintMeta.hasCompanyId === true, "hint meta: hasCompanyId");
+assert(hintMeta.hasMasterSheetId === true, "hint meta: hasMasterSheetId");
+assert(hintMeta.requestHintKeys.includes("email"), "hint meta: requestHintKeys includes email");
+assert(hintMeta.requestHintKeys.includes("companyFolderId"), "hint meta: requestHintKeys includes companyFolderId");
+assert(!hintMeta.requestHintKeys.includes("password"), "hint meta: requestHintKeys omits password");
+assert(!("password" in hintMeta), "hint meta: omits password value");
+assert(!("passwordHash" in hintMeta), "hint meta: omits passwordHash value");
+assert(!("token" in hintMeta), "hint meta: omits token value");
+assert(!("cookie" in hintMeta), "hint meta: omits cookie value");
+assert(
+  !JSON.stringify(hintMeta).match(/must-not-appear|secret-token|secret-cookie/i),
+  "hint meta: JSON has no secret values",
 );
+
 const successResponseKeys = ["ok: true", "user:", "company:", "timingMs:"];
 for (const key of successResponseKeys) {
   assert(companyLoginBlock.includes(key), `static: company login success response still includes ${key}`);
@@ -125,10 +165,13 @@ assert(captured.some((line) => line.includes("total_login_duration")), "runtime:
 
 const requiredServerPhases = [
   "route_entered",
+  "login_request_hints",
   "request_parsed",
   "email_normalised",
   "platform_auth_check",
   "collect_login_candidates",
+  "login_resolution_diagnostics",
+  "company_login_input_hints",
   "candidate_attempt_start",
   "candidate_attempt_timeout",
   "candidate_attempt_skipped",

@@ -16,6 +16,7 @@ import { validateLiveCompanyContext } from "./company-context-service.mjs";
 import {
   authenticateCompanyUserLogin,
   rebuildAuthIndexFromUsersTab,
+  resolveLoginCompanyFolderIdSource,
 } from "./user-auth-service.mjs";
 import {
   isValidCompanyFolderId,
@@ -642,6 +643,13 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     };
   }
 
+  const explicitFolderFirst = Boolean(sanitizeCompanyFolderId(input.companyFolderId || ""));
+  loginTiming.logMark("company_login_input_hints", {
+    explicitFolderFirst,
+    companyFolderIdSource: resolveLoginCompanyFolderIdSource(input, { authIndex, ...deps }, email),
+    hasMasterSheetIdHint: Boolean(requested),
+  });
+
   loginTiming.logMark("users_tab_auth_start", loginTimingEmailMeta(email));
   const tAuth = Date.now();
   const authResult = await authenticateCompanyUserLogin(
@@ -658,6 +666,7 @@ export async function performCompanyLogin(auth, deps, input = {}) {
       password: pwd,
       masterSheetId: requested,
       companyFolderId: sanitizeCompanyFolderId(input.companyFolderId || ""),
+      sessionCompanyFolderId: sanitizeCompanyFolderId(input.sessionCompanyFolderId || ""),
     },
   );
   timing.users_tab_auth = logLoginPhase("users_tab_auth", tAuth, loginTiming, { ok: authResult.ok === true });

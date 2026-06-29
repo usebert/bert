@@ -152,7 +152,12 @@ import {
   INVALID_CREDENTIALS,
   LOGIN_CONTEXT_FAILED,
 } from "./auth-service.mjs";
-import { createLoginTimingTrace, loginTimingEmailMeta, logLoginTimingMark } from "./login-timing.mjs";
+import {
+  createLoginTimingTrace,
+  loginTimingEmailMeta,
+  logLoginTimingMark,
+  safeLoginRequestHintMeta,
+} from "./login-timing.mjs";
 import { debugVerifyUserPassword } from "./user-auth-service.mjs";
 import { createAuthIndexApi, syncAuthIndexAfterUsersRead } from "./auth-index.mjs";
 import { completeInviteToUserRow } from "./company-user-sheet-flow.mjs";
@@ -6261,9 +6266,23 @@ app.post("/auth/google/logout", (_req, res) => {
   });
 });
 
+function readDiagnosticCompanySessionFolderId(req) {
+  try {
+    const raw = req.signedCookies?.[COMPANY_SESSION_COOKIE];
+    if (!raw || typeof raw !== "string") {
+      return "";
+    }
+    const data = JSON.parse(raw);
+    return String(data?.companyFolderId || data?.companyId || "").trim();
+  } catch {
+    return "";
+  }
+}
+
 app.post("/api/auth/company/login", async (req, res) => {
   const routeTiming = createLoginTimingTrace({ route: "company_login" });
   routeTiming.mark("route_entered");
+  routeTiming.mark("login_request_hints", safeLoginRequestHintMeta(req.body));
   try {
     const tParse = Date.now();
     const loginIdentity = String(req.body?.email || req.body?.username || "").trim();
@@ -6325,6 +6344,7 @@ app.post("/api/auth/company/login", async (req, res) => {
       password: loginPassword,
       masterSheetId: String(req.body?.masterSheetId || "").trim(),
       companyFolderId: String(req.body?.companyFolderId || "").trim(),
+      sessionCompanyFolderId: readDiagnosticCompanySessionFolderId(req),
     });
 
     if (!result.ok) {

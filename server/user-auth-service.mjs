@@ -618,6 +618,30 @@ function pairedSheetIdsFromFolderAttempts(attempts = []) {
   return paired;
 }
 
+/** Safe enum for where login companyFolderId hint originated — never logs the id value. */
+export function resolveLoginCompanyFolderIdSource(input = {}, deps = {}, email = "") {
+  const bodyFolderId = sanitizeCompanyFolderId(input.companyFolderId);
+  if (bodyFolderId) {
+    return "body";
+  }
+  const bodyCompanyId = sanitizeCompanyFolderId(input.companyId);
+  if (bodyCompanyId) {
+    return "body";
+  }
+  const sessionFolderId = sanitizeCompanyFolderId(input.sessionCompanyFolderId);
+  if (sessionFolderId) {
+    return "session";
+  }
+  const emailNorm = normalizeUserAuthEmail(email || input.email);
+  const indexEntry =
+    typeof deps.authIndex?.lookupByEmail === "function" ? deps.authIndex.lookupByEmail(emailNorm) : null;
+  const indexFolderId = sanitizeCompanyFolderId(indexEntry?.companyFolderId || indexEntry?.companyId);
+  if (indexFolderId && !isKnownStaleAuthIndexPairing(emailNorm, indexEntry?.companyName)) {
+    return "persisted_hint";
+  }
+  return "none";
+}
+
 function dedupeLoginAttempts(attempts = []) {
   const seen = new Set();
   const folderPairedSheets = pairedSheetIdsFromFolderAttempts(attempts);
@@ -858,6 +882,14 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
   const timingDeps = loginTiming ? { ...userDeps, loginTiming } : userDeps;
   const tCandidates = Date.now();
   const attempts = collectLoginResolutionAttempts(input, deps);
+  const explicitFolderFirst = Boolean(sanitizeCompanyFolderId(input.companyFolderId));
+  const companyFolderIdSource = resolveLoginCompanyFolderIdSource(input, deps, email);
+  loginTiming?.logMark?.("login_resolution_diagnostics", {
+    explicitFolderFirst,
+    companyFolderIdSource,
+    attemptCount: attempts.length,
+    candidateOrder: attempts.map((attempt, index) => loginCandidateLabel(attempt)).join("|"),
+  });
   loginTiming?.logPhase?.("collect_login_candidates", tCandidates, {
     ...loginTimingEmailMeta(email),
     attemptCount: attempts.length,
@@ -933,6 +965,12 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
 
   const selectedFolderId = sanitizeCompanyFolderId(input.companyFolderId);
   if (!selectedFolderId) {
+    loginTiming?.logMark?.("login_resolution_diagnostics", {
+      explicitFolderFirst: false,
+      companyFolderIdSource: "fallback",
+      attemptCount: attempts.length,
+      candidateOrder: attempts.map((attempt) => loginCandidateLabel(attempt)).join("|"),
+    });
     try {
       const registryResult = await raceLoginCandidateAttempt(
         async () => {
