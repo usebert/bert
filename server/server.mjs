@@ -6309,35 +6309,23 @@ app.post("/api/auth/company/login", async (req, res) => {
       });
     }
 
-    const loginMasterSheetId = String(req.body?.masterSheetId || "").trim();
-    const loginCompanyFolderId = String(req.body?.companyFolderId || req.body?.companyId || "").trim();
-    const loginSessionCompanyFolderId = String(
-      req.body?.sessionCompanyFolderId || loginCompanyFolderId || "",
-    ).trim();
-
     const auth = getAuthedClient();
-    const result = await performCompanyLogin(
-      auth,
-      {
-        ...getCompanyContextResolutionDeps(),
-        authIndex: authIndexApi,
-        getCompanyUsersDeps,
-        getCompanyResolverDeps: () => ({ google, ...getCompanyWorkspaceRegistryDeps() }),
-        resolveCompanyFromFolder,
-        findMasterSheetIdsForCompanyLoginEmail,
-        sessionRevocation: companySessionRevocationApi,
-        isPlatformOwner: isPlatformOwnerEmail,
-        masterSheetCache: masterSheetCacheApi,
-        loginTiming: routeTiming,
-        email: loginIdentity,
-        password: loginPassword,
-        masterSheetId: loginMasterSheetId,
-      },
-      {
-        companyFolderId: loginCompanyFolderId,
-        sessionCompanyFolderId: loginSessionCompanyFolderId,
-      },
-    );
+    const result = await performCompanyLogin(auth, {
+      ...getCompanyContextResolutionDeps(),
+      authIndex: authIndexApi,
+      getCompanyUsersDeps,
+      getCompanyResolverDeps: () => ({ google, ...getCompanyWorkspaceRegistryDeps() }),
+      resolveCompanyFromFolder,
+      findMasterSheetIdsForCompanyLoginEmail,
+      sessionRevocation: companySessionRevocationApi,
+      isPlatformOwner: isPlatformOwnerEmail,
+      masterSheetCache: masterSheetCacheApi,
+      loginTiming: routeTiming,
+      email: loginIdentity,
+      password: loginPassword,
+      masterSheetId: String(req.body?.masterSheetId || "").trim(),
+      companyFolderId: String(req.body?.companyFolderId || "").trim(),
+    });
 
     if (!result.ok) {
       const invalidCredentials =

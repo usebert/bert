@@ -657,10 +657,7 @@ export async function performCompanyLogin(auth, deps, input = {}) {
       email,
       password: pwd,
       masterSheetId: requested,
-      companyFolderId: sanitizeCompanyFolderId(input.companyFolderId || deps.companyFolderId || ""),
-      sessionCompanyFolderId: sanitizeCompanyFolderId(
-        input.sessionCompanyFolderId || deps.sessionCompanyFolderId || "",
-      ),
+      companyFolderId: sanitizeCompanyFolderId(input.companyFolderId || ""),
     },
   );
   timing.users_tab_auth = logLoginPhase("users_tab_auth", tAuth, loginTiming, { ok: authResult.ok === true });

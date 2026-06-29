@@ -41,26 +41,6 @@ const LIGHT_RESOLVE_OPTS = {
 /** Per-candidate Google read budget during login — stale/wrong workbooks must not block for 50s+. */
 export const LOGIN_CANDIDATE_TIMEOUT_MS = 5000;
 
-/** Hard cap across every login candidate attempt — stale hints cannot stack 5s × N. */
-export const LOGIN_AUTH_TOTAL_CAP_MS = 7000;
-
-function createLoginAuthBudget(totalCapMs = LOGIN_AUTH_TOTAL_CAP_MS) {
-  const deadline = Date.now() + totalCapMs;
-  return {
-    deadline,
-    totalCapMs,
-    remainingMs() {
-      return Math.max(0, deadline - Date.now());
-    },
-    budgetForAttempt(defaultMs = LOGIN_CANDIDATE_TIMEOUT_MS) {
-      return Math.min(defaultMs, this.remainingMs());
-    },
-    isExpired() {
-      return this.remainingMs() <= 0;
-    },
-  };
-}
-
 function loginCandidateLabel(attempt = {}) {
   if (attempt.type === "folder") {
     return `folder:${attempt.companyFolderId || "?"}:${attempt.masterSheetId || ""}`;
@@ -639,60 +619,35 @@ function pairedSheetIdsFromFolderAttempts(attempts = []) {
 }
 
 function dedupeLoginAttempts(attempts = []) {
-  const seenFolders = new Set();
-  const seenSheets = new Set();
+  const seen = new Set();
   const folderPairedSheets = pairedSheetIdsFromFolderAttempts(attempts);
   const out = [];
   for (const attempt of attempts) {
-    if (attempt.type === "folder") {
-      const folderId = sanitizeCompanyFolderId(attempt.companyFolderId);
+    if (attempt.type === "sheet_hint") {
       const sheetId = sanitizeGoogleSpreadsheetId(attempt.masterSheetId);
-      const folderKey = `f:${folderId}`;
-      if (!folderId || seenFolders.has(folderKey)) {
+      if (sheetId && folderPairedSheets.has(sheetId)) {
         continue;
       }
-      seenFolders.add(folderKey);
-      if (sheetId) {
-        seenSheets.add(sheetId);
-      }
-      out.push({
-        type: "folder",
-        companyFolderId: folderId,
-        ...(sheetId ? { masterSheetId: sheetId } : {}),
-      });
+    }
+    const key =
+      attempt.type === "folder"
+        ? `f:${attempt.companyFolderId}:${attempt.masterSheetId || ""}`
+        : `s:${attempt.masterSheetId}`;
+    if (!key || seen.has(key)) {
       continue;
     }
-    const sheetId = sanitizeGoogleSpreadsheetId(attempt.masterSheetId);
-    if (!sheetId || seenSheets.has(sheetId) || folderPairedSheets.has(sheetId)) {
-      continue;
-    }
-    seenSheets.add(sheetId);
-    out.push({ type: "sheet_hint", masterSheetId: sheetId });
+    seen.add(key);
+    out.push(attempt);
   }
   return out;
 }
 
-function partitionLoginAttempts(attempts = []) {
-  const folderAttempts = [];
-  const sheetAttempts = [];
-  for (const attempt of attempts) {
-    if (attempt.type === "folder") {
-      folderAttempts.push(attempt);
-    } else {
-      sheetAttempts.push(attempt);
-    }
-  }
-  return { folderAttempts, sheetAttempts };
-}
-
 export function collectLoginResolutionAttempts(input = {}, deps = {}) {
   const attempts = [];
-  let hasFolderCandidate = false;
   const pushFolder = (raw, pairedMasterSheetId = "") => {
     const folderId = sanitizeCompanyFolderId(raw);
     const sheetId = sanitizeGoogleSpreadsheetId(pairedMasterSheetId);
     if (folderId) {
-      hasFolderCandidate = true;
       attempts.push({
         type: "folder",
         companyFolderId: folderId,
@@ -709,43 +664,33 @@ export function collectLoginResolutionAttempts(input = {}, deps = {}) {
 
   const hintedSheetId = sanitizeGoogleSpreadsheetId(input.masterSheetId || input.requestedSheetId);
   const hintedFolderId = sanitizeCompanyFolderId(input.companyFolderId);
-  const sessionFolderId = sanitizeCompanyFolderId(input.sessionCompanyFolderId);
-
-  // 1. Explicit request folder — sole candidate; stale session/invite sheets are paired hints only.
+  // Selected company folder is source of truth — cached masterSheetId is only a paired fallback.
   if (hintedFolderId) {
     pushFolder(hintedFolderId, hintedSheetId);
-    return dedupeLoginAttempts(attempts);
-  }
-
-  // 2. Session-selected company folder (no orphan stale sheet pairing).
-  if (sessionFolderId) {
-    pushFolder(sessionFolderId);
-    return dedupeLoginAttempts(attempts);
   }
 
   const email = normalizeUserAuthEmail(input.email);
   const indexEntry =
     typeof deps.authIndex?.lookupByEmail === "function" ? deps.authIndex.lookupByEmail(email) : null;
-  // 3. Auth-index folder before stale session/request masterSheetId candidates.
-  if (indexEntry && !isKnownStaleAuthIndexPairing(email, indexEntry.companyName)) {
+  // Folder-first auth-index hint before stale session/request masterSheetId candidates.
+  if (indexEntry && !isKnownStaleAuthIndexPairing(email, indexEntry.companyName) && !hintedFolderId) {
     const indexSheetId = sanitizeGoogleSpreadsheetId(indexEntry.masterSheetId);
     const indexFolderId = sanitizeCompanyFolderId(indexEntry.companyFolderId || indexEntry.companyId);
     if (indexFolderId) {
       pushFolder(indexFolderId, indexSheetId);
-    } else if (indexSheetId && !hasFolderCandidate) {
+    } else if (indexSheetId) {
       pushSheet(indexSheetId);
     }
   }
 
-  // 4–5. Orphan stale sheet hints only when no folder-first candidate exists.
-  if (!hasFolderCandidate && hintedSheetId) {
+  if (hintedSheetId && !hintedFolderId) {
     pushSheet(hintedSheetId);
   }
 
-  if (!hasFolderCandidate && typeof deps.findMasterSheetIdsForCompanyLoginEmail === "function") {
+  if (typeof deps.findMasterSheetIdsForCompanyLoginEmail === "function") {
     for (const sheetId of deps.findMasterSheetIdsForCompanyLoginEmail(email) || []) {
       const sanitized = sanitizeGoogleSpreadsheetId(sheetId);
-      if (sanitized) {
+      if (sanitized && !hintedFolderId) {
         pushSheet(sanitized);
       }
     }
@@ -911,7 +856,6 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
   const userDeps = typeof deps.getCompanyUsersDeps === "function" ? deps.getCompanyUsersDeps() : deps;
   const loginTiming = deps.loginTiming;
   const timingDeps = loginTiming ? { ...userDeps, loginTiming } : userDeps;
-  const authBudget = createLoginAuthBudget();
   const tCandidates = Date.now();
   const attempts = collectLoginResolutionAttempts(input, deps);
   loginTiming?.logPhase?.("collect_login_candidates", tCandidates, {
@@ -919,38 +863,18 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
     attemptCount: attempts.length,
     candidateOrder: attempts.map((attempt, index) => loginCandidateLabel(attempt, index)).join("|"),
     candidateTimeoutMs: LOGIN_CANDIDATE_TIMEOUT_MS,
-    loginAuthTotalCapMs: authBudget.totalCapMs,
   });
 
   let inactiveHit = false;
   let lastAuthFailureReason = AUTH_FAILURE_REASON.USER_NOT_FOUND;
   let usersTabDiagnostics = null;
-  const { folderAttempts, sheetAttempts } = partitionLoginAttempts(attempts);
-
-  async function tryLoginCandidate(attempt, candidateIndex) {
-    if (authBudget.isExpired()) {
-      loginTiming?.logPhase?.("candidate_attempt_skipped", Date.now(), {
-        candidateIndex,
-        reason: "global_auth_cap",
-        loginAuthTotalCapMs: authBudget.totalCapMs,
-      });
-      return { stop: true };
-    }
+  for (let candidateIndex = 0; candidateIndex < attempts.length; candidateIndex += 1) {
+    const attempt = attempts[candidateIndex];
     const candidateMeta = loginCandidateTimingMeta(attempt, candidateIndex);
-    const attemptBudgetMs = authBudget.budgetForAttempt();
-    if (attemptBudgetMs <= 0) {
-      loginTiming?.logPhase?.("candidate_attempt_skipped", Date.now(), {
-        ...candidateMeta,
-        reason: "global_auth_cap",
-        loginAuthTotalCapMs: authBudget.totalCapMs,
-      });
-      return { stop: true };
-    }
     const tAttempt = Date.now();
     loginTiming?.logPhase?.("candidate_attempt_start", tAttempt, {
       ...candidateMeta,
-      candidateTimeoutMs: attemptBudgetMs,
-      loginAuthRemainingMs: authBudget.remainingMs(),
+      candidateTimeoutMs: LOGIN_CANDIDATE_TIMEOUT_MS,
     });
     let attemptResult;
     try {
@@ -966,21 +890,20 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
             timingDeps,
             candidateIndex,
           ),
-        attemptBudgetMs,
+        LOGIN_CANDIDATE_TIMEOUT_MS,
       );
     } catch (error) {
       if (String(error?.message || "").includes("_timeout")) {
         loginTiming?.logPhase?.("candidate_attempt_timeout", tAttempt, {
           ...candidateMeta,
-          candidateTimeoutMs: attemptBudgetMs,
-          loginAuthRemainingMs: authBudget.remainingMs(),
+          candidateTimeoutMs: LOGIN_CANDIDATE_TIMEOUT_MS,
         });
         loginTiming?.logPhase?.("candidate_attempt_skipped", Date.now(), {
           ...candidateMeta,
           reason: "timeout",
         });
         lastAuthFailureReason = AUTH_FAILURE_REASON.COMPANY_WORKBOOK_NOT_RESOLVED;
-        return { stop: false };
+        continue;
       }
       throw error;
     }
@@ -992,42 +915,24 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
       } else {
         lastAuthFailureReason = attemptResult.authFailureReason || AUTH_FAILURE_REASON.USER_NOT_FOUND;
       }
-      return { stop: false };
+      continue;
     }
 
     loginTiming?.logPhase?.("candidate_attempt_success", tAttempt, {
       ...candidateMeta,
       folderFirst: attemptResult.folderFirst === true,
-      loginAuthRemainingMs: authBudget.remainingMs(),
     });
     return {
-      stop: true,
-      success: {
-        ok: true,
-        email: attemptResult.email,
-        row: attemptResult.row,
-        companyContext: attemptResult.companyContext,
-        entry: attemptResult.entry,
-      },
+      ok: true,
+      email: attemptResult.email,
+      row: attemptResult.row,
+      companyContext: attemptResult.companyContext,
+      entry: attemptResult.entry,
     };
   }
 
-  let candidateIndex = 0;
-  for (const attempt of folderAttempts) {
-    const outcome = await tryLoginCandidate(attempt, candidateIndex);
-    candidateIndex += 1;
-    if (outcome.success) {
-      return outcome.success;
-    }
-    if (outcome.stop) {
-      break;
-    }
-  }
-
-  const selectedFolderId = sanitizeCompanyFolderId(input.companyFolderId || input.sessionCompanyFolderId);
-  if (!selectedFolderId && !authBudget.isExpired()) {
-    const registryBudgetMs = authBudget.budgetForAttempt();
-    if (registryBudgetMs > 0) {
+  const selectedFolderId = sanitizeCompanyFolderId(input.companyFolderId);
+  if (!selectedFolderId) {
     try {
       const registryResult = await raceLoginCandidateAttempt(
         async () => {
@@ -1084,7 +989,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
           }
           return { ok: true, email, row, companyContext, entry };
         },
-        registryBudgetMs,
+        LOGIN_CANDIDATE_TIMEOUT_MS,
         "registry_login_fallback",
       );
       if (registryResult.ok) {
@@ -1100,8 +1005,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
       if (String(error?.message || "").includes("_timeout")) {
         loginTiming?.logPhase?.("candidate_attempt_timeout", Date.now(), {
           candidateType: "registry_fallback",
-          candidateTimeoutMs: registryBudgetMs,
-          loginAuthRemainingMs: authBudget.remainingMs(),
+          candidateTimeoutMs: LOGIN_CANDIDATE_TIMEOUT_MS,
         });
         loginTiming?.logPhase?.("candidate_attempt_skipped", Date.now(), {
           candidateType: "registry_fallback",
@@ -1111,18 +1015,6 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
       } else {
         throw error;
       }
-    }
-    }
-  }
-
-  for (const attempt of sheetAttempts) {
-    const outcome = await tryLoginCandidate(attempt, candidateIndex);
-    candidateIndex += 1;
-    if (outcome.success) {
-      return outcome.success;
-    }
-    if (outcome.stop) {
-      break;
     }
   }
 
