@@ -1,13 +1,5 @@
 import crypto from "node:crypto";
-import { attachApiRouteTimingFinish, createApiTimingTrace } from "./api-timing.mjs";
-import {
-  getCompanyAreasCacheEntry,
-  invalidateCompanyAreasCache,
-  setCompanyAreasCacheEntry,
-} from "./company-areas-cache.mjs";
-import { getCompanyContextHint, setCompanyContextHint } from "./company-context-hint-cache.mjs";
 import { isReservedWorkspaceAreaName } from "./invite-target.mjs";
-import { safeLoginTimingMeta } from "./login-timing.mjs";
 import {
   CONFIG_KEY_DEFAULT_FORM_LANGUAGE,
   DEFAULT_FORM_LANGUAGE,
@@ -107,48 +99,6 @@ function parseDefaultFormLanguage(config) {
   return value ? normalizeFormLanguage(value) : DEFAULT_FORM_LANGUAGE;
 }
 
-function trim(value) {
-  return String(value ?? "").trim();
-}
-
-function resolveCompanyAreasContext(queryFolderId, config = {}) {
-  const requestedFolderId = trim(queryFolderId);
-  const configFolderId = trim(config.companyId || config.companyFolderId);
-  let companyFolderId = requestedFolderId || configFolderId;
-  let companyName = trim(config.companyName);
-  let contextSource = requestedFolderId ? "query" : configFolderId ? "config" : "none";
-
-  if (requestedFolderId) {
-    companyFolderId = requestedFolderId;
-    contextSource = "query_folder_first";
-  }
-
-  if (companyFolderId) {
-    const hint = getCompanyContextHint(companyFolderId);
-    if (hint) {
-      companyName = companyName || hint.companyName || "";
-      if (contextSource === "none") {
-        contextSource = "hint_cache";
-      }
-    }
-  }
-
-  return { companyFolderId, companyName, contextSource };
-}
-
-function rememberVerifiedCompanyContext(companyFolderId, masterSheetId, companyName) {
-  const folderId = trim(companyFolderId);
-  const sheetId = trim(masterSheetId);
-  if (!folderId || !sheetId) {
-    return;
-  }
-  setCompanyContextHint(folderId, { masterSheetId: sheetId, companyName: trim(companyName) });
-}
-
-function invalidateAreasCacheForWrite(masterSheetId, companyFolderId = "") {
-  invalidateCompanyAreasCache(masterSheetId, companyFolderId);
-}
-
 function validateAreaName(name) {
   const trimmed = normalizeAreaName(name);
   if (!trimmed) {
@@ -180,66 +130,23 @@ export function installCompanyAreasRoutes(app, deps) {
       });
     }
 
-    const masterSheetId = trim(req.params.masterSheetId);
-    const queryCompanyFolderId = trim(req.query.companyFolderId);
+    const masterSheetId = String(req.params.masterSheetId || "").trim();
+    const companyFolderId = String(req.query.companyFolderId || "").trim();
     if (!masterSheetId) {
       return res.status(400).json({ ok: false, error: "masterSheetId is required." });
     }
 
-    const trace = createApiTimingTrace(
-      safeLoginTimingMeta({
-        route: "company-areas",
-        masterSheetId,
-        ...(queryCompanyFolderId ? { companyFolderId: queryCompanyFolderId } : {}),
-      }),
-    );
-    trace.mark("route_start");
-    attachApiRouteTimingFinish(res, trace);
-
-    const cached = getCompanyAreasCacheEntry(masterSheetId, queryCompanyFolderId);
-    if (cached) {
-      trace.mark("cache_hit", { companyFolderId: cached.companyFolderId || queryCompanyFolderId });
-      trace.mark("response_ready", { areaCount: cached.areas?.length ?? 0, cached: true });
-      return res.json(cached);
-    }
-    trace.mark("cache_miss");
-
     try {
-      const sheetsReadStartedMs = Date.now();
-      trace.mark("sheets_read_start");
       const config = await getConfig(authed, masterSheetId);
       const areas = await readAreasTab(deps, authed, masterSheetId);
-      trace.phase("sheets_read_end", sheetsReadStartedMs, {
-        tabs: ["Config", AREAS_TAB],
-        areaCount: areas.length,
-      });
-
-      const contextStartedMs = Date.now();
-      const resolvedContext = resolveCompanyAreasContext(queryCompanyFolderId, config, { masterSheetId });
-      const companyFolderId = resolvedContext.companyFolderId || queryCompanyFolderId;
-      trace.phase("resolve_company_context", contextStartedMs, {
-        contextSource: resolvedContext.contextSource,
-        hasCompanyFolderId: Boolean(companyFolderId),
-      });
-
-      const parseStartedMs = Date.now();
-      const payload = {
+      return res.json({
         ok: true,
         masterSheetId,
         companyFolderId,
         areaRestrictionsEnabled: parseRestrictionsFlag(config),
         defaultFormLanguage: parseDefaultFormLanguage(config),
         areas,
-      };
-      trace.phase("parse_rows", parseStartedMs, { areaCount: areas.length });
-
-      setCompanyAreasCacheEntry(masterSheetId, queryCompanyFolderId, payload);
-      if (companyFolderId && companyFolderId !== queryCompanyFolderId) {
-        setCompanyAreasCacheEntry(masterSheetId, companyFolderId, payload);
-      }
-      rememberVerifiedCompanyContext(companyFolderId, masterSheetId, resolvedContext.companyName || config.companyName);
-      trace.mark("response_ready", { areaCount: areas.length, cached: false });
-      return res.json(payload);
+      });
     } catch (error) {
       return res.status(500).json({
         ok: false,
@@ -267,7 +174,6 @@ export function installCompanyAreasRoutes(app, deps) {
       await updateConfig(authed, masterSheetId, {
         [CONFIG_KEY_DEFAULT_FORM_LANGUAGE]: language,
       });
-      invalidateAreasCacheForWrite(masterSheetId);
       return res.json({ ok: true, defaultFormLanguage: language });
     } catch (error) {
       return res.status(500).json({
@@ -320,7 +226,6 @@ export function installCompanyAreasRoutes(app, deps) {
         archivedAt: "",
       };
       await writeAreasTab(deps, authed, masterSheetId, [...areas, area]);
-      invalidateAreasCacheForWrite(masterSheetId);
       const config = await getConfig(authed, masterSheetId);
       return res.json({
         ok: true,
@@ -400,7 +305,6 @@ export function installCompanyAreasRoutes(app, deps) {
         });
       }
 
-      invalidateAreasCacheForWrite(masterSheetId);
       const config = await getConfig(authed, masterSheetId);
       return res.json({
         ok: true,
@@ -434,7 +338,6 @@ export function installCompanyAreasRoutes(app, deps) {
       await updateConfig(authed, masterSheetId, {
         [CONFIG_KEY_AREA_RESTRICTIONS]: enabled ? "true" : "false",
       });
-      invalidateAreasCacheForWrite(masterSheetId);
       const areas = await readAreasTab(deps, authed, masterSheetId);
       return res.json({
         ok: true,

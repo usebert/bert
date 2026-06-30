@@ -14,7 +14,6 @@ import { resolveCompanyById } from "./company-registry-service.mjs";
 import { resolveCompanyFromFolder } from "./company-service.mjs";
 import { resolveCompanyContextForUser } from "./company-users.mjs";
 import { validateCompanyFolderUnderCompaniesRoot } from "./company-folder-placement.mjs";
-import { getCompanyContextHint, setCompanyContextHint } from "./company-context-hint-cache.mjs";
 import { readCanonicalCompanyWorkspaceRegistryMap } from "./company-workspace-registry.mjs";
 
 function trim(value) {
@@ -174,32 +173,22 @@ export async function resolveCompanyContextFields(auth, deps, partial = {}) {
 
   const folderIdForWorkbookResolve = requestedFolderId || companyFolderId;
   if (!masterSheetId && folderIdForWorkbookResolve) {
-    const hint = getCompanyContextHint(folderIdForWorkbookResolve);
-    if (hint?.masterSheetId && !trim(partial.masterSheetId)) {
-      masterSheetId = trim(hint.masterSheetId);
-      companyName = companyName || hint.companyName || "";
-    }
-    if (!masterSheetId) {
-      try {
-        const folderResolved = await resolveCompanyFromFolder(auth, deps, folderIdForWorkbookResolve, {
-          companyName,
-          masterSheetId,
-          skipFolderPlacementCheck: true,
-        });
-        if (folderResolved?.ok && trim(folderResolved.masterSheetId)) {
-          masterSheetId = trim(folderResolved.masterSheetId) || masterSheetId;
-          companyName = companyName || trim(folderResolved.companyName);
-        }
-      } catch {
-        /* non-blocking */
+    try {
+      const folderResolved = await resolveCompanyFromFolder(auth, deps, folderIdForWorkbookResolve, {
+        companyName,
+        masterSheetId,
+        skipFolderPlacementCheck: true,
+      });
+      if (folderResolved?.ok && trim(folderResolved.masterSheetId)) {
+        masterSheetId = trim(folderResolved.masterSheetId) || masterSheetId;
+        companyName = companyName || trim(folderResolved.companyName);
       }
+    } catch {
+      /* non-blocking */
     }
   }
 
   const resolvedCompanyId = requestedFolderId || companyFolderId;
-  if (resolvedCompanyId && masterSheetId) {
-    setCompanyContextHint(resolvedCompanyId, { masterSheetId, companyName });
-  }
   return {
     companyId: resolvedCompanyId,
     companyFolderId: resolvedCompanyId,
