@@ -13,6 +13,7 @@ import {
   wrapGetTabValuesWithUsersTabCache,
 } from "../server/users-tab-cache.mjs";
 import {
+  authenticateCompanyUserLogin,
   readUserAuthRowByEmail,
   verifyUserPasswordFromUsersTab,
 } from "../server/user-auth-service.mjs";
@@ -51,6 +52,8 @@ assert(companyUsers.includes("invalidateUsersTabCache"), "static: company-users 
 assert(usersTabReader.includes("readUsersTabValuesWithCache") || usersTabReader.includes("deps.getTabValues"), "static: users-tab-reader uses cache layer");
 
 const masterSheetId = "sheet-cache-test-001";
+const loginMasterSheetId = "1PlwknNgtt-4j08matn1w4358YTe5SXFs5Hh0zA_m3So";
+const loginCompanyFolderId = "1TVQ-gbpxoOzE6PCkHX581eTDgtMC11lc";
 const email = "cache.user@example.com";
 const password = "CacheTestPass1!";
 const passwordHash = hashPassword(password);
@@ -254,6 +257,178 @@ async function runRuntimeTests() {
   const foundation = read("server/company-users-foundation.mjs");
   assert(foundation.includes("Never expose PasswordHash"), "static: foundation documents hash exclusion");
   assert(foundation.includes("listCompanyProfiles"), "static: user list endpoint foundation present");
+
+  clearUsersTabCache();
+  let coldGoogleReads = 0;
+  const coldStore = new Map([
+    [
+      email,
+      {
+        passwordHash,
+        status: "ACTIVE",
+        role: "Admin",
+        name: "Cold Cache Login",
+        companyFolderId: loginCompanyFolderId,
+        companyName: "Cache Co",
+      },
+    ],
+  ]);
+  const coldLoginDeps = {
+    googleReads: () => coldGoogleReads,
+    getTabValues: wrapGetTabValuesWithUsersTabCache(async () => {
+      coldGoogleReads += 1;
+      if (coldGoogleReads === 1) {
+        await new Promise((resolve) => setTimeout(resolve, 120));
+      }
+      return buildUsersTabRows(coldStore);
+    }),
+    getConfig: async () => ({}),
+    updateConfig: async () => null,
+    ensureColumns: async () => ({ addedColumns: [] }),
+    google: {
+      sheets: () => ({
+        spreadsheets: {
+          values: {
+            update: async () => null,
+            append: async () => null,
+          },
+        },
+      }),
+    },
+    withSheetsQuotaRetry: (fn) => fn(),
+    resolveUsersTab: async () => ({ tabTitle: "Users" }),
+  };
+  const coldLogin = await authenticateCompanyUserLogin(
+    {},
+    { getCompanyUsersDeps: () => coldLoginDeps },
+    { email, password, masterSheetId: loginMasterSheetId },
+  );
+  assert(coldLogin.ok === true, "runtime: cold cache first login succeeds on cache miss read");
+  assert(coldGoogleReads === 1, "runtime: cold cache first login performed one Users tab read");
+
+  clearUsersTabCache();
+  const coldWrongPassword = await authenticateCompanyUserLogin(
+    {},
+    { getCompanyUsersDeps: () => createCachedDeps({
+      [email]: {
+        passwordHash,
+        status: "ACTIVE",
+        role: "Admin",
+        name: "Cold Wrong",
+        companyFolderId: loginCompanyFolderId,
+        companyName: "Cache Co",
+      },
+    }) },
+    { email, password: "WrongPassword99!", masterSheetId: loginMasterSheetId },
+  );
+  assert(coldWrongPassword.ok === false, "runtime: cold cache wrong password fails on miss");
+
+  clearUsersTabCache();
+  const coldInactive = await authenticateCompanyUserLogin(
+    {},
+    { getCompanyUsersDeps: () => createCachedDeps({
+      [email]: {
+        passwordHash,
+        status: "INACTIVE",
+        role: "User",
+        name: "Cold Inactive",
+        companyFolderId: loginCompanyFolderId,
+        companyName: "Cache Co",
+      },
+    }) },
+    { email, password, masterSheetId: loginMasterSheetId },
+  );
+  assert(coldInactive.ok === false, "runtime: cold cache inactive fails on miss");
+  assert(coldInactive.blocker === "inactive", "runtime: cold cache inactive blocker on miss");
+
+  clearUsersTabCache();
+  const warmLoginDeps = createCachedDeps({
+    [email]: {
+      passwordHash,
+      status: "ACTIVE",
+      role: "Admin",
+      name: "Warm Cache Login",
+      companyFolderId: loginCompanyFolderId,
+      companyName: "Cache Co",
+    },
+  });
+  await readUserAuthRowByEmail({}, { masterSheetId: loginMasterSheetId }, email, warmLoginDeps);
+  let warmGoogleReads = warmLoginDeps.googleReads();
+  const warmLogin = await authenticateCompanyUserLogin(
+    {},
+    { getCompanyUsersDeps: () => warmLoginDeps },
+    { email, password, masterSheetId: loginMasterSheetId },
+  );
+  assert(warmLogin.ok === true, "runtime: warm cache login succeeds on cache hit");
+  assert(warmLoginDeps.googleReads() === warmGoogleReads, "runtime: warm cache login avoids extra Google read");
+
+  clearUsersTabCache();
+  const folderColdStore = new Map([
+    [
+      email,
+      {
+        passwordHash,
+        status: "ACTIVE",
+        role: "Admin",
+        name: "Folder Cold Login",
+        companyFolderId: loginCompanyFolderId,
+        companyName: "Cache Co",
+      },
+    ],
+  ]);
+  let folderColdReads = 0;
+  const folderColdDeps = {
+    googleReads: () => folderColdReads,
+    getTabValues: wrapGetTabValuesWithUsersTabCache(async () => {
+      folderColdReads += 1;
+      if (folderColdReads === 1) {
+        await new Promise((resolve) => setTimeout(resolve, 120));
+      }
+      return buildUsersTabRows(folderColdStore);
+    }),
+    getConfig: async () => ({}),
+    updateConfig: async () => null,
+    ensureColumns: async () => ({ addedColumns: [] }),
+    google: {
+      sheets: () => ({
+        spreadsheets: {
+          values: {
+            update: async () => null,
+            append: async () => null,
+          },
+        },
+      }),
+    },
+    withSheetsQuotaRetry: (fn) => fn(),
+    resolveUsersTab: async () => ({ tabTitle: "Users" }),
+  };
+  const staleSheetId = "1StaleSheet000000000000000000000000000000";
+  const folderColdLogin = await authenticateCompanyUserLogin(
+    {},
+    {
+      getCompanyUsersDeps: () => folderColdDeps,
+      resolveCompanyFromFolder: async () => ({
+        companyFolderId: loginCompanyFolderId,
+        companyId: loginCompanyFolderId,
+        companyName: "Cache Co",
+        masterSheetId: loginMasterSheetId,
+      }),
+      findMasterSheetIdsForCompanyLoginEmail: () => [],
+      authIndex: {
+        lookupByEmail: () => ({
+          email,
+          companyFolderId: loginCompanyFolderId,
+          companyId: loginCompanyFolderId,
+          companyName: "Cache Co",
+          masterSheetId: staleSheetId,
+          status: "ACTIVE",
+        }),
+      },
+    },
+    { email, password },
+  );
+  assert(folderColdLogin.ok === true, "runtime: folder candidate cold cache miss still returns 200");
+  assert(folderColdReads >= 1, "runtime: folder candidate performed Users tab read on cold cache");
 }
 
 await runRuntimeTests();

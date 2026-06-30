@@ -41,6 +41,10 @@ assert(userAuth.includes("isTrustedFolderCandidate"), "static: trusted folder ca
 assert(userAuth.includes("isSheetHintCandidate"), "static: sheet_hint candidates skip race timeout");
 assert(userAuth.includes("sheet_hint_background"), "static: sheet_hint folder resolve is background only");
 assert(userAuth.includes("scheduleSheetHintFolderResolveRefresh"), "static: sheet_hint folder resolve scheduled async");
+assert(userAuth.includes("resolveFolderLoginContext"), "static: folder resolve split from Users tab verify");
+assert(userAuth.includes("tryUsersTabSheetHintLogin"), "static: sheet_hint login uses same-request row for password_check");
+assert(userAuth.includes("verifyUsersTabLoginAttempt"), "static: Users tab verify reuses existingRow from cache miss");
+assert(userAuth.includes("folderResolveOnlyTimeout"), "static: only folder_company_resolve is race-timed for folder candidates");
 assert(userAuth.includes("sessionCompanyFolderId"), "static: session company folder collected as candidate");
 assert(userAuth.includes("candidate_attempt_await"), "static: trusted folder await phase logged");
 assert(userAuth.includes("candidateOrder"), "static: candidate order logged");

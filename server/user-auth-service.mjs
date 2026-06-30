@@ -808,6 +808,79 @@ function scheduleSheetHintFolderResolveRefresh(auth, deps, companyFolderId, mast
     .catch(() => null);
 }
 
+function buildLoginSuccessEntry(email, row, companyContext, deps) {
+  const entry = {
+    email,
+    name: String(row?.name || email).trim() || email,
+    role: row?.role || "User",
+    accessLevel: row?.accessLevel || "",
+    companyId: companyContext.companyFolderId,
+    companyFolderId: companyContext.companyFolderId,
+    companyName:
+      companyContext.companyName || String(pickRowCompanyName(row?.rowObject || row) || "").trim(),
+    masterSheetId: companyContext.masterSheetId,
+    status: "ACTIVE",
+    companyAreas: Array.isArray(row?.companyAreas) ? row.companyAreas : [],
+  };
+  if (deps.authIndex) {
+    upsertLoginAuthIndexFromUsersTabRow(deps.authIndex, row, companyContext, email);
+    const indexed = deps.authIndex.lookupByEmail?.(email);
+    if (indexed) {
+      entry.name = indexed.name || entry.name;
+      entry.role = indexed.role || entry.role;
+      entry.accessLevel = indexed.accessLevel || entry.accessLevel;
+      entry.companyAreas = indexed.companyAreas?.length ? indexed.companyAreas : entry.companyAreas;
+      entry.companyName = indexed.companyName || entry.companyName;
+    }
+  }
+  return entry;
+}
+
+function buildLoginAttemptFailure(verifyResult, authFailureReason, inactive = false) {
+  return {
+    ok: false,
+    authFailureReason:
+      verifyResult?.reason === "inactive" || inactive
+        ? AUTH_FAILURE_REASON.INACTIVE
+        : authFailureReason || classifyVerifyFailure(verifyResult || {}),
+    inactive: verifyResult?.reason === "inactive" || inactive,
+    rowFound: verifyResult?.rowFound === true,
+  };
+}
+
+/** Users tab read + password verify — uses existingRow from same-request cache miss (no second read). */
+async function verifyUsersTabLoginAttempt(
+  auth,
+  deps,
+  companyContext,
+  email,
+  password,
+  timingDeps,
+  existingRow = null,
+  folderFirst = false,
+) {
+  const verifyResult = await verifyUserPasswordFromUsersTab(
+    auth,
+    companyContext,
+    email,
+    password,
+    timingDeps,
+    existingRow,
+  );
+  if (!verifyResult.ok) {
+    return buildLoginAttemptFailure(verifyResult, classifyVerifyFailure(verifyResult));
+  }
+  const row = verifyResult.row;
+  return {
+    ok: true,
+    email,
+    row,
+    companyContext,
+    entry: buildLoginSuccessEntry(email, row, companyContext, deps),
+    folderFirst,
+  };
+}
+
 /**
  * sheet_hint — Users tab first; folder resolve is background hint refresh only (never blocks login).
  */
@@ -838,155 +911,169 @@ async function companyContextFromSheetHint(auth, deps, masterSheetId, email, use
   };
 }
 
-async function resolveSingleLoginAttempt(auth, deps, attempt, email, password, userDeps, timingDeps, candidateIndex) {
-  let companyContext = {};
-  if (attempt.type === "folder") {
-    const pairedSheetId = sanitizeGoogleSpreadsheetId(attempt.masterSheetId);
-    const tFolder = Date.now();
-    const resolved = await resolveFolderFirstContext(auth, deps, attempt.companyFolderId, pairedSheetId);
-    timingDeps.loginTiming?.logPhase?.("folder_company_resolve", tFolder, {
-      companyFolderId: attempt.companyFolderId,
-      resolved: Boolean(resolved?.masterSheetId || resolved?.companyFolderId),
-      ...loginCandidateTimingMeta(attempt, candidateIndex),
-    });
-    const masterSheetId = await pickLoginMasterSheetId(auth, userDeps, email, { pairedSheetId, resolved });
-    if (!masterSheetId) {
-      return {
-        ok: false,
-        authFailureReason: AUTH_FAILURE_REASON.COMPANY_WORKBOOK_NOT_RESOLVED,
-      };
-    }
-    const rowOnSheet = await readUserAuthRowByEmail(auth, { masterSheetId }, email, timingDeps).catch(() => null);
-    if (rowOnSheet) {
-      const folderWorkbookId = sanitizeGoogleSpreadsheetId(resolved?.masterSheetId) || masterSheetId;
-      const fallback = buildCompanyContextFromHintedSheet(rowOnSheet, folderWorkbookId, resolved);
-      companyContext = fallback || {
+/** sheet_hint path — cache miss row is passed straight into password_check (same request). */
+async function tryUsersTabSheetHintLogin(auth, deps, masterSheetId, email, password, userDeps, timingDeps) {
+  const hinted = await companyContextFromSheetHint(auth, deps, masterSheetId, email, timingDeps);
+  if (!hinted.ok) {
+    return {
+      ok: false,
+      authFailureReason:
+        hinted.reason === "inactive"
+          ? AUTH_FAILURE_REASON.INACTIVE
+          : classifyContextFailure(hinted.reason),
+      inactive: hinted.reason === "inactive",
+      rowFound: Boolean(hinted.row),
+    };
+  }
+  return verifyUsersTabLoginAttempt(
+    auth,
+    deps,
+    hinted.companyContext,
+    email,
+    password,
+    timingDeps,
+    hinted.row,
+    false,
+  );
+}
+
+function buildFolderAttemptCompanyContext(attempt, resolved, masterSheetId, rowOnSheet) {
+  const folderWorkbookId = sanitizeGoogleSpreadsheetId(resolved?.masterSheetId) || masterSheetId;
+  if (rowOnSheet) {
+    const fallback = buildCompanyContextFromHintedSheet(rowOnSheet, folderWorkbookId, resolved);
+    return (
+      fallback || {
         masterSheetId: folderWorkbookId,
         companyFolderId: sanitizeCompanyFolderId(resolved?.companyFolderId || attempt.companyFolderId),
         companyId: sanitizeCompanyFolderId(
           resolved?.companyId || resolved?.companyFolderId || attempt.companyFolderId,
         ),
         companyName: String(resolved?.companyName || rowOnSheet.companyName || "").trim(),
-      };
-    } else {
-      const folderWorkbookId = sanitizeGoogleSpreadsheetId(resolved?.masterSheetId) || masterSheetId;
-      companyContext = {
-        masterSheetId: folderWorkbookId,
-        companyFolderId: sanitizeCompanyFolderId(resolved?.companyFolderId || attempt.companyFolderId),
-        companyId: sanitizeCompanyFolderId(
-          resolved?.companyId || resolved?.companyFolderId || attempt.companyFolderId,
-        ),
-        companyName: String(resolved?.companyName || "").trim(),
-      };
-    }
-  } else {
-    const hinted = await companyContextFromSheetHint(auth, deps, attempt.masterSheetId, email, timingDeps);
-    if (!hinted.ok) {
-      return {
-        ok: false,
-        authFailureReason:
-          hinted.reason === "inactive"
-            ? AUTH_FAILURE_REASON.INACTIVE
-            : classifyContextFailure(hinted.reason),
-        inactive: hinted.reason === "inactive",
-      };
-    }
-    companyContext = hinted.companyContext;
-    const verifyResult = await verifyUserPasswordFromUsersTab(
-      auth,
-      companyContext,
-      email,
-      password,
-      timingDeps,
-      hinted.row,
+      }
     );
-    if (!verifyResult.ok) {
-      if (verifyResult.rowFound === false) {
-        await logUsersTabLookupDiagnostics(auth, userDeps, companyContext, email, attempt.type).catch(() => null);
-      }
-      return {
-        ok: false,
-        authFailureReason:
-          verifyResult.reason === "inactive"
-            ? AUTH_FAILURE_REASON.INACTIVE
-            : classifyVerifyFailure(verifyResult),
-        inactive: verifyResult.reason === "inactive",
-      };
-    }
-
-    const row = verifyResult.row;
-    const entry = {
-      email,
-      name: String(row?.name || email).trim() || email,
-      role: row?.role || "User",
-      accessLevel: row?.accessLevel || "",
-      companyId: companyContext.companyFolderId,
-      companyFolderId: companyContext.companyFolderId,
-      companyName:
-        companyContext.companyName || String(pickRowCompanyName(row?.rowObject || row) || "").trim(),
-      masterSheetId: companyContext.masterSheetId,
-      status: "ACTIVE",
-      companyAreas: Array.isArray(row?.companyAreas) ? row.companyAreas : [],
-    };
-
-    if (deps.authIndex) {
-      upsertLoginAuthIndexFromUsersTabRow(deps.authIndex, row, companyContext, email);
-      const indexed = deps.authIndex.lookupByEmail?.(email);
-      if (indexed) {
-        entry.name = indexed.name || entry.name;
-        entry.role = indexed.role || entry.role;
-        entry.accessLevel = indexed.accessLevel || entry.accessLevel;
-        entry.companyAreas = indexed.companyAreas?.length ? indexed.companyAreas : entry.companyAreas;
-        entry.companyName = indexed.companyName || entry.companyName;
-      }
-    }
-
-    return { ok: true, email, row, companyContext, entry, folderFirst: false };
   }
+  return {
+    masterSheetId: folderWorkbookId,
+    companyFolderId: sanitizeCompanyFolderId(resolved?.companyFolderId || attempt.companyFolderId),
+    companyId: sanitizeCompanyFolderId(
+      resolved?.companyId || resolved?.companyFolderId || attempt.companyFolderId,
+    ),
+    companyName: String(resolved?.companyName || "").trim(),
+  };
+}
 
-  const verifyResult = await verifyUserPasswordFromUsersTab(auth, companyContext, email, password, timingDeps);
-  if (!verifyResult.ok) {
-    if (verifyResult.rowFound === false) {
-      await logUsersTabLookupDiagnostics(auth, userDeps, companyContext, email, attempt.type).catch(() => null);
-    }
+async function resolveFolderLoginContext(auth, deps, attempt, email, userDeps, timingDeps, candidateIndex) {
+  const pairedSheetId = sanitizeGoogleSpreadsheetId(attempt.masterSheetId);
+  const tFolder = Date.now();
+  const resolved = await resolveFolderFirstContext(auth, deps, attempt.companyFolderId, pairedSheetId);
+  timingDeps.loginTiming?.logPhase?.("folder_company_resolve", tFolder, {
+    companyFolderId: attempt.companyFolderId,
+    resolved: Boolean(resolved?.masterSheetId || resolved?.companyFolderId),
+    ...loginCandidateTimingMeta(attempt, candidateIndex),
+  });
+  const masterSheetId = await pickLoginMasterSheetId(auth, userDeps, email, { pairedSheetId, resolved });
+  if (!masterSheetId) {
     return {
       ok: false,
-      authFailureReason:
-        verifyResult.reason === "inactive"
-          ? AUTH_FAILURE_REASON.INACTIVE
-          : classifyVerifyFailure(verifyResult),
-      inactive: verifyResult.reason === "inactive",
+      authFailureReason: AUTH_FAILURE_REASON.COMPANY_WORKBOOK_NOT_RESOLVED,
     };
   }
-
-  const row = verifyResult.row;
-  const entry = {
-    email,
-    name: String(row?.name || email).trim() || email,
-    role: row?.role || "User",
-    accessLevel: row?.accessLevel || "",
-    companyId: companyContext.companyFolderId,
-    companyFolderId: companyContext.companyFolderId,
-    companyName:
-      companyContext.companyName || String(pickRowCompanyName(row?.rowObject || row) || "").trim(),
-    masterSheetId: companyContext.masterSheetId,
-    status: "ACTIVE",
-    companyAreas: Array.isArray(row?.companyAreas) ? row.companyAreas : [],
+  const rowOnSheet = await readUserAuthRowByEmail(auth, { masterSheetId }, email, timingDeps).catch(() => null);
+  return {
+    ok: true,
+    companyContext: buildFolderAttemptCompanyContext(attempt, resolved, masterSheetId, rowOnSheet),
+    rowOnSheet,
   };
+}
 
-  if (deps.authIndex) {
-    upsertLoginAuthIndexFromUsersTabRow(deps.authIndex, row, companyContext, email);
-    const indexed = deps.authIndex.lookupByEmail?.(email);
-    if (indexed) {
-      entry.name = indexed.name || entry.name;
-      entry.role = indexed.role || entry.role;
-      entry.accessLevel = indexed.accessLevel || entry.accessLevel;
-      entry.companyAreas = indexed.companyAreas?.length ? indexed.companyAreas : entry.companyAreas;
-      entry.companyName = indexed.companyName || entry.companyName;
+async function resolveSingleLoginAttempt(
+  auth,
+  deps,
+  attempt,
+  email,
+  password,
+  userDeps,
+  timingDeps,
+  candidateIndex,
+  options = {},
+) {
+  if (attempt.type === "sheet_hint") {
+    const sheetResult = await tryUsersTabSheetHintLogin(
+      auth,
+      deps,
+      attempt.masterSheetId,
+      email,
+      password,
+      userDeps,
+      timingDeps,
+    );
+    if (!sheetResult.ok && sheetResult.rowFound === false) {
+      await logUsersTabLookupDiagnostics(
+        auth,
+        userDeps,
+        { masterSheetId: attempt.masterSheetId },
+        email,
+        attempt.type,
+      ).catch(() => null);
+    }
+    return sheetResult;
+  }
+
+  const pairedSheetId = sanitizeGoogleSpreadsheetId(attempt.masterSheetId);
+  if (pairedSheetId && !options.skipPairedSheetUsersFirst) {
+    const pairedResult = await tryUsersTabSheetHintLogin(
+      auth,
+      deps,
+      pairedSheetId,
+      email,
+      password,
+      userDeps,
+      timingDeps,
+    );
+    if (pairedResult.ok) {
+      return { ...pairedResult, folderFirst: true };
+    }
+    if (pairedResult.inactive) {
+      return pairedResult;
     }
   }
 
-  return { ok: true, email, row, companyContext, entry, folderFirst: attempt.type === "folder" };
+  let folderContext = options.folderContext;
+  if (!folderContext) {
+    folderContext = await resolveFolderLoginContext(
+      auth,
+      deps,
+      attempt,
+      email,
+      userDeps,
+      timingDeps,
+      candidateIndex,
+    );
+  }
+  if (!folderContext.ok) {
+    return folderContext;
+  }
+
+  const folderResult = await verifyUsersTabLoginAttempt(
+    auth,
+    deps,
+    folderContext.companyContext,
+    email,
+    password,
+    timingDeps,
+    folderContext.rowOnSheet,
+    true,
+  );
+  if (!folderResult.ok && folderResult.rowFound === false) {
+    await logUsersTabLookupDiagnostics(
+      auth,
+      userDeps,
+      folderContext.companyContext,
+      email,
+      attempt.type,
+    ).catch(() => null);
+  }
+  return folderResult;
 }
 
 /**
@@ -1065,6 +1152,116 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
           attemptTimingDeps,
           candidateIndex,
         );
+      } else if (attempt.type === "folder") {
+        loginTiming?.logPhase?.("candidate_attempt_await", tAttempt, {
+          ...candidateMeta,
+          folderResolveOnlyTimeout: true,
+        });
+        const pairedSheetId = sanitizeGoogleSpreadsheetId(attempt.masterSheetId);
+        if (pairedSheetId) {
+          const pairedResult = await tryUsersTabSheetHintLogin(
+            auth,
+            deps,
+            pairedSheetId,
+            email,
+            password,
+            userDeps,
+            attemptTimingDeps,
+          );
+          if (pairedResult.ok) {
+            attemptResult = { ...pairedResult, folderFirst: true };
+          } else if (pairedResult.inactive) {
+            attemptResult = pairedResult;
+          } else {
+            let folderContext;
+            try {
+              folderContext = await raceLoginCandidateAttempt(
+                () =>
+                  resolveFolderLoginContext(
+                    auth,
+                    deps,
+                    attempt,
+                    email,
+                    userDeps,
+                    attemptTimingDeps,
+                    candidateIndex,
+                  ),
+                LOGIN_CANDIDATE_TIMEOUT_MS,
+                loginCandidateLabel(attempt),
+              );
+            } catch (error) {
+              throw error;
+            }
+            if (!folderContext?.ok) {
+              attemptResult = folderContext || {
+                ok: false,
+                authFailureReason: AUTH_FAILURE_REASON.COMPANY_WORKBOOK_NOT_RESOLVED,
+              };
+            } else {
+              attemptResult = await verifyUsersTabLoginAttempt(
+                auth,
+                deps,
+                folderContext.companyContext,
+                email,
+                password,
+                attemptTimingDeps,
+                folderContext.rowOnSheet,
+                true,
+              );
+              if (!attemptResult.ok && attemptResult.rowFound === false) {
+                await logUsersTabLookupDiagnostics(
+                  auth,
+                  userDeps,
+                  folderContext.companyContext,
+                  email,
+                  attempt.type,
+                ).catch(() => null);
+              }
+            }
+          }
+        } else {
+          let folderContext;
+          folderContext = await raceLoginCandidateAttempt(
+            () =>
+              resolveFolderLoginContext(
+                auth,
+                deps,
+                attempt,
+                email,
+                userDeps,
+                attemptTimingDeps,
+                candidateIndex,
+              ),
+            LOGIN_CANDIDATE_TIMEOUT_MS,
+            loginCandidateLabel(attempt),
+          );
+          if (!folderContext?.ok) {
+            attemptResult = folderContext || {
+              ok: false,
+              authFailureReason: AUTH_FAILURE_REASON.COMPANY_WORKBOOK_NOT_RESOLVED,
+            };
+          } else {
+            attemptResult = await verifyUsersTabLoginAttempt(
+              auth,
+              deps,
+              folderContext.companyContext,
+              email,
+              password,
+              attemptTimingDeps,
+              folderContext.rowOnSheet,
+              true,
+            );
+            if (!attemptResult.ok && attemptResult.rowFound === false) {
+              await logUsersTabLookupDiagnostics(
+                auth,
+                userDeps,
+                folderContext.companyContext,
+                email,
+                attempt.type,
+              ).catch(() => null);
+            }
+          }
+        }
       } else {
         attemptResult = await raceLoginCandidateAttempt(
           () =>
