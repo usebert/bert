@@ -32,8 +32,8 @@ assert(scheduleService.includes("fetchScheduleAssignees"), "1: client fetchSched
 assert(scheduleService.includes("/schedule-assignees"), "1b: schedule-assignees API path");
 assert(appTsx.includes("fetchScheduleAssignees"), "1c: App loads assignees via fetchScheduleAssignees");
 assert(
-  /useEffect\([\s\S]{0,4500}fetchScheduleAssignees/.test(appTsx),
-  "1d: page load uses session company context + fetchScheduleAssignees",
+  /shouldLoadScheduleAssigneesScreen\(screen\)[\s\S]{0,6000}fetchScheduleAssignees/.test(appTsx),
+  "1d: schedules/actions screen gate before fetchScheduleAssignees",
 );
 assert(!appTsx.includes("deriveScheduleAssigneesFromCompanyMembers"), "1e: App does not derive assignees locally");
 assert(appTsx.includes("readScheduleAssigneesCache"), "1f: assignee localStorage cache used while loading");

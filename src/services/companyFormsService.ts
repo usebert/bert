@@ -1,4 +1,5 @@
 import { apiUrl } from "../config/apiBase";
+import { dedupeInFlight, requestDedupeKey } from "../utils/requestDedupe";
 
 export type CompanyGoogleForm = {
   formId: string;
@@ -140,12 +141,12 @@ export async function fetchCompanyGoogleForms(
   }
 
   try {
-    const response = await fetch(
-      apiUrl(`/api/companies/${encodeURIComponent(companyFolderId)}/google-forms`),
-      {
+    const requestUrl = apiUrl(`/api/companies/${encodeURIComponent(companyFolderId)}/google-forms`);
+    const response = await dedupeInFlight(requestDedupeKey("GET", requestUrl), () =>
+      fetch(requestUrl, {
         credentials: "include",
         signal: options?.signal,
-      },
+      }),
     );
     const payload = await parseJsonResponse(response);
     const forms = Array.isArray(payload.forms) ? payload.forms : [];

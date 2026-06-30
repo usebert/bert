@@ -96,6 +96,21 @@ export function shouldLoadAssignedChecksScreen(screen: RoutedScreen, role?: Role
   return role === "Master" && screen === "godmodeHome";
 }
 
+/** Screens that should load GET …/schedule-assignees (scheduler UI + action assignee picker). */
+export function shouldLoadScheduleAssigneesScreen(screen: RoutedScreen): boolean {
+  return screen === "schedules" || screen === "actions";
+}
+
+/** Screens that should load GET …/results (Results UI, Reports, schedule last-completed enrichment). */
+export function shouldLoadCompanyResultsScreen(screen: RoutedScreen): boolean {
+  return screen === "results" || screen === "reports" || screen === "schedules";
+}
+
+/** Screens that should load GET …/google-forms. */
+export function shouldLoadGoogleFormsScreen(screen: RoutedScreen): boolean {
+  return screen === "googleForms";
+}
+
 export function getRoleNavBucket(role: Role): RoleNavBucket {
   if (role === "Master") return "master";
   if (role === "Admin") return "companyAdmin";

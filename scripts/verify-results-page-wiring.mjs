@@ -38,8 +38,8 @@ assert(coreRoutes.includes('app.get("/api/companies/:companyId/results/:resultId
 assert(completionService.includes("getAuditResult"), "1f: server getAuditResult exported");
 assert(appTsx.includes("fetchCompanyResults"), "1g: App loads results via fetchCompanyResults");
 assert(
-  /useEffect\([\s\S]{0,4500}resolveCompanyMembersLoadContext[\s\S]{0,4500}fetchCompanyResults/.test(appTsx),
-  "1h: page load uses session company context + fetchCompanyResults",
+  /shouldLoadCompanyResultsScreen\(screen\)[\s\S]{0,4000}loadCompanyResults/.test(appTsx),
+  "1h: results/reports/schedules screen gate before loadCompanyResults",
 );
 assert(!resultsService.includes("/api/google-sheet-by-id/"), "1i: client does not use legacy sheet sync for results");
 assert(!resultsService.includes("appendAuditResults"), "1j: client does not append results via legacy path");

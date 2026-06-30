@@ -1,4 +1,5 @@
 import { apiUrl } from "../config/apiBase";
+import { dedupeInFlight, requestDedupeKey } from "./requestDedupe";
 
 export type FetchJsonErrorCode =
   | "NON_JSON_RESPONSE"
@@ -45,8 +46,7 @@ function looksLikeHtml(text: string): boolean {
   return trimmed.startsWith("<!doctype") || trimmed.startsWith("<html");
 }
 
-/** Safe JSON fetch — checks Content-Type and never throws on HTML or invalid JSON bodies. */
-export async function fetchJson<T = Record<string, unknown>>(
+async function fetchJsonOnce<T = Record<string, unknown>>(
   path: string,
   init?: RequestInit,
 ): Promise<FetchJsonResult<T>> {
@@ -114,4 +114,17 @@ export async function fetchJson<T = Record<string, unknown>>(
       },
     };
   }
+}
+
+/** Safe JSON fetch — checks Content-Type and never throws on HTML or invalid JSON bodies. */
+export async function fetchJson<T = Record<string, unknown>>(
+  path: string,
+  init?: RequestInit,
+): Promise<FetchJsonResult<T>> {
+  const url = resolveFetchUrl(path);
+  const method = (init?.method || "GET").toUpperCase();
+  if (method === "GET" && !init?.body) {
+    return dedupeInFlight(requestDedupeKey(method, url), () => fetchJsonOnce<T>(path, init));
+  }
+  return fetchJsonOnce<T>(path, init);
 }

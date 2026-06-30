@@ -68,6 +68,9 @@ import {
   isMasterCompanyScopedScreen,
   resolveAdminPilotFocus,
   shouldLoadAssignedChecksScreen,
+  shouldLoadCompanyResultsScreen,
+  shouldLoadGoogleFormsScreen,
+  shouldLoadScheduleAssigneesScreen,
 } from "./src/config/roleNavigation";
 import { MORE_MENU_NAV_IDS, PILOT_PRIMARY_NAV_IDS, PRIMARY_NAV_IDS } from "./src/config/navStructure";
 import { RoleContextBanner } from "./src/components/RoleContextBanner";
@@ -5404,6 +5407,9 @@ function App() {
   }, [scheduleAssigneesState.diagnostics]);
 
   useEffect(() => {
+    if (!shouldLoadScheduleAssigneesScreen(screen)) {
+      return;
+    }
     const { companyId, masterSheetId, companyName } = resolveCompanyMembersLoadContext({
       activeCompanyContext,
       selectedFolderId: selectedFolder?.id,
@@ -5521,6 +5527,7 @@ function App() {
       controller.abort();
     };
   }, [
+    screen,
     googleConnected,
     currentUser?.role,
     masterCompanyWorkspaceDataMatchesSelection,
@@ -6005,11 +6012,14 @@ function App() {
   );
 
   useEffect(() => {
+    if (!shouldLoadCompanyResultsScreen(screen)) {
+      return;
+    }
     void loadCompanyResults("initial");
     return () => {
       companyResultsRequestIdRef.current += 1;
     };
-  }, [loadCompanyResults]);
+  }, [loadCompanyResults, screen]);
 
   const refreshCompanyResults = useCallback(() => {
     void loadCompanyResults("refresh");
@@ -6020,6 +6030,9 @@ function App() {
   }, [loadCompanyResults]);
 
   useEffect(() => {
+    if (!shouldLoadGoogleFormsScreen(screen)) {
+      return;
+    }
     const { companyId } = resolveCompanyMembersLoadContext({
       activeCompanyContext,
       selectedFolderId: selectedFolder?.id,
@@ -6114,6 +6127,7 @@ function App() {
       controller.abort();
     };
   }, [
+    screen,
     googleConnected,
     currentUser?.role,
     masterCompanyWorkspaceDataMatchesSelection,
@@ -6204,6 +6218,9 @@ function App() {
   ]);
 
   useEffect(() => {
+    if (!shouldLoadCompanyResultsScreen(screen)) {
+      return;
+    }
     const { companyId } = resolveCompanyMembersLoadContext({
       activeCompanyContext,
       selectedFolderId: selectedFolder?.id,
@@ -6281,6 +6298,7 @@ function App() {
       controller.abort();
     };
   }, [
+    screen,
     selectedResultState.resultId,
     masterCompanyWorkspaceDataMatchesSelection,
     activeCompanyContext.companyFolderId,

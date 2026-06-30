@@ -7,6 +7,7 @@ import { BACKGROUND_SCHEDULE_SAVED_MESSAGE } from "./backgroundJobsService";
 import { getScheduleAssignedEmails } from "../utils/scheduleAssignment";
 import type { ScheduleAssignedUser } from "../utils/scheduleSave";
 import { fetchJson } from "../utils/fetchJson";
+import { dedupeInFlight, requestDedupeKey } from "../utils/requestDedupe";
 import type { Role } from "../permissions";
 import type {
   ScheduleAssigneeDiagnostics,
@@ -173,6 +174,15 @@ export async function fetchScheduleAssignees(
   }
 
   const path = `/api/companies/${encodeURIComponent(companyFolderId)}/schedule-assignees?${params.toString()}`;
+  const url = apiUrl(path);
+  const dedupeKey = requestDedupeKey("GET", url);
+  return dedupeInFlight(dedupeKey, () => fetchScheduleAssigneesRequest(url, options));
+}
+
+async function fetchScheduleAssigneesRequest(
+  url: string,
+  options?: { selectedArea?: string; includeDiagnostics?: boolean; signal?: AbortSignal },
+): Promise<FetchScheduleAssigneesResult> {
   const result = await fetchJson<{
     ok?: boolean;
     assignees?: Record<string, unknown>[];
@@ -183,7 +193,7 @@ export async function fetchScheduleAssignees(
     code?: string;
     warning?: string;
     diagnostics?: ScheduleAssigneeDiagnostics;
-  }>(apiUrl(path), { signal: options?.signal });
+  }>(url, { signal: options?.signal });
 
   if (!result.ok) {
     const detail =

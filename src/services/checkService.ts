@@ -4,6 +4,7 @@ import type { CompanyScheduleContext } from "./scheduleService";
 import { getScheduleAssignedEmails } from "../utils/scheduleAssignment";
 import type { ManagedSchedule } from "../types/reportsScreenProps";
 import { fetchJson, type FetchJsonDiagnostics } from "../utils/fetchJson";
+import { dedupeInFlight, requestDedupeKey } from "../utils/requestDedupe";
 
 export type CheckCompletionCompanyContext = Pick<
   CompanyScheduleContext,
@@ -112,6 +113,14 @@ export async function fetchAssignedChecks(
   options?: { signal?: AbortSignal },
 ): Promise<FetchAssignedChecksResult> {
   const path = "/api/me/assigned-checks";
+  const dedupeKey = requestDedupeKey("GET", apiUrl(path));
+  return dedupeInFlight(dedupeKey, () => fetchAssignedChecksRequest(path, options));
+}
+
+async function fetchAssignedChecksRequest(
+  path: string,
+  options?: { signal?: AbortSignal },
+): Promise<FetchAssignedChecksResult> {
   const result = await fetchJson<{
     ok?: boolean;
     schedules?: Record<string, unknown>[];

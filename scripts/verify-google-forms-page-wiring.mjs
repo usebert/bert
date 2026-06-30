@@ -48,8 +48,8 @@ assert(
 );
 assert(appTsx.includes("fetchCompanyGoogleForms"), "1g: App loads forms via fetchCompanyGoogleForms");
 assert(
-  /useEffect\([\s\S]{0,5000}resolveCompanyMembersLoadContext[\s\S]{0,5000}fetchCompanyGoogleForms/.test(appTsx),
-  "1h: page load uses session company context + fetchCompanyGoogleForms",
+  /shouldLoadGoogleFormsScreen\(screen\)[\s\S]{0,6000}fetchCompanyGoogleForms/.test(appTsx),
+  "1h: Google Forms screen gate before fetchCompanyGoogleForms",
 );
 assert(appTsx.includes("syncCompanyGoogleForms"), "1i: App sync handler uses syncCompanyGoogleForms");
 assert(!companyFormsService.includes('params.set("masterSheetId"'), "1j: client does not send masterSheetId query");

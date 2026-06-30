@@ -1,5 +1,6 @@
 import { apiUrl } from "../config/apiBase";
 import type { AuditResultDetail, AuditResultSummary } from "../types/resultsScreenProps";
+import { dedupeInFlight, requestDedupeKey } from "../utils/requestDedupe";
 
 export const COMPANY_RESULTS_LOAD_TIMEOUT_MS = 90_000;
 export const COMPANY_RESULTS_LOADING_MESSAGE = "Loading completed checks…";
@@ -181,12 +182,12 @@ export async function fetchCompanyResults(
   const query = buildCompanyResultsQuery(options);
 
   try {
-    const response = await fetch(
-      apiUrl(`/api/companies/${encodeURIComponent(companyFolderId)}/results${query}`),
-      {
+    const requestUrl = apiUrl(`/api/companies/${encodeURIComponent(companyFolderId)}/results${query}`);
+    const response = await dedupeInFlight(requestDedupeKey("GET", requestUrl), () =>
+      fetch(requestUrl, {
         credentials: "include",
         signal: options?.signal,
-      },
+      }),
     );
     const payload = (await response.json()) as {
       ok?: boolean;
