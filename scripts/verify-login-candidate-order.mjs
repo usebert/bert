@@ -38,6 +38,9 @@ assert(userAuth.includes("candidate_attempt_timeout"), "static: candidate_attemp
 assert(userAuth.includes("candidate_attempt_skipped"), "static: candidate_attempt_skipped timing phase");
 assert(userAuth.includes("raceLoginCandidateAttempt"), "static: Promise.race candidate wrapper");
 assert(userAuth.includes("isTrustedFolderCandidate"), "static: trusted folder candidates fully awaited");
+assert(userAuth.includes("isSheetHintCandidate"), "static: sheet_hint candidates skip race timeout");
+assert(userAuth.includes("sheet_hint_background"), "static: sheet_hint folder resolve is background only");
+assert(userAuth.includes("scheduleSheetHintFolderResolveRefresh"), "static: sheet_hint folder resolve scheduled async");
 assert(userAuth.includes("sessionCompanyFolderId"), "static: session company folder collected as candidate");
 assert(userAuth.includes("candidate_attempt_await"), "static: trusted folder await phase logged");
 assert(userAuth.includes("candidateOrder"), "static: candidate order logged");
@@ -46,11 +49,11 @@ assert(userAuth.includes("upsertLoginAuthIndexFromUsersTabRow"), "static: login 
 assert(!userAuth.includes("await rebuildAuthIndexFromUsersTab(auth, deps, companyContext, deps.authIndex, email)"), "static: login success path skips full auth-index rebuild");
 
 const staleSheetAfterIndexBlock = userAuth.slice(
-  userAuth.indexOf("Folder-first auth-index hint before stale session"),
+  userAuth.indexOf("Users-first: body/session masterSheetId before slow auth-index"),
   userAuth.indexOf("if (typeof deps.findMasterSheetIdsForCompanyLoginEmail"),
 );
-assert(staleSheetAfterIndexBlock.includes("pushSheet(hintedSheetId)"), "static: session masterSheetId tried after auth-index folder");
-assert(!staleSheetAfterIndexBlock.includes("else if (hintedSheetId)"), "static: session sheet no longer tried before auth-index");
+assert(staleSheetAfterIndexBlock.includes("pushSheet(hintedSheetId)"), "static: session masterSheetId tried before auth-index folder");
+assert(staleSheetAfterIndexBlock.includes("pushFolder(indexFolderId"), "static: auth-index folder follows body sheet hint");
 
 function createMockUsersTabStore(initial = {}) {
   const store = new Map(Object.entries(initial));
@@ -234,12 +237,12 @@ try {
     { authIndex: authIndexApi, findMasterSheetIdsForCompanyLoginEmail: () => [] },
   );
   assert(
-    orderedAttempts[0]?.type === "folder" && orderedAttempts[0]?.companyFolderId === companyFolderId,
-    "runtime: auth-index folder tried before stale session masterSheetId",
+    orderedAttempts[0]?.type === "sheet_hint" && orderedAttempts[0]?.masterSheetId === staleSheetId,
+    "runtime: body masterSheetId sheet_hint tried before auth-index folder",
   );
   assert(
-    orderedAttempts[1]?.type === "sheet_hint" && orderedAttempts[1]?.masterSheetId === staleSheetId,
-    "runtime: stale session masterSheetId follows folder candidate",
+    orderedAttempts[1]?.type === "folder" && orderedAttempts[1]?.companyFolderId === companyFolderId,
+    "runtime: auth-index folder follows body sheet hint",
   );
 
   const slowResolveCalls = [];
@@ -341,13 +344,79 @@ try {
     hangingFolderElapsed < LOGIN_CANDIDATE_TIMEOUT_MS * 3,
     "runtime: hanging folder_company_resolve times out within budget",
   );
+
+  const usersFirstLines = [];
+  let passwordCheckAt = 0;
+  let folderResolveFinishedAt = 0;
+  const slowSheetHintResolver = async (_auth, _deps, folderId) => {
+    await new Promise((resolve) => {
+      setTimeout(() => {
+        folderResolveFinishedAt = Date.now();
+        resolve(undefined);
+      }, LOGIN_CANDIDATE_TIMEOUT_MS + 2000);
+    });
+    return {
+      ok: folderId === companyFolderId,
+      companyFolderId,
+      companyId: companyFolderId,
+      companyName: "Candidate Co",
+      masterSheetId,
+    };
+  };
+  const usersFirstStarted = Date.now();
+  const usersFirstLogin = await authenticateCompanyUserLogin(
+    {},
+    {
+      authIndex: createWrongIndexApi(),
+      getCompanyUsersDeps: () => userDeps,
+      resolveCompanyFromFolder: slowSheetHintResolver,
+      findMasterSheetIdsForCompanyLoginEmail: () => [],
+      loginTiming: {
+        logPhase(phase, startMs, meta = {}) {
+          usersFirstLines.push(`${phase} ${JSON.stringify(meta)}`);
+          if (phase === "password_check") {
+            passwordCheckAt = Date.now();
+          }
+        },
+      },
+    },
+    { email, password, masterSheetId },
+  );
+  const usersFirstElapsed = Date.now() - usersFirstStarted;
+  assert(usersFirstLogin.ok === true, "runtime: sheet_hint login returns 200 with slow folder resolve");
+  assert(usersFirstElapsed < LOGIN_CANDIDATE_TIMEOUT_MS, "runtime: sheet_hint login completes before folder resolve");
+  assert(passwordCheckAt > 0, "runtime: password_check phase logged for sheet_hint");
   assert(
-    hangingFolderLines.some((line) => line.includes("candidate_attempt_timeout")),
-    "runtime: hanging folder resolve logs candidate_attempt_timeout",
+    folderResolveFinishedAt === 0 || passwordCheckAt < folderResolveFinishedAt,
+    "runtime: password_check precedes background folder_company_resolve completion",
   );
   assert(
-    hangingFolderLines.some((line) => line.includes("folder_company_resolve")),
-    "runtime: folder_company_resolve phase logged inside timed candidate",
+    usersFirstLines.some((line) => line.includes("users_tab_read") && line.includes('"rowFound":true')),
+    "runtime: sheet_hint finds user row quickly",
+  );
+  assert(
+    !usersFirstLogin.entry?.passwordHash,
+    "runtime: successful login entry does not leak PasswordHash",
+  );
+
+  const duplicateIndexLogin = await authenticateCompanyUserLogin(
+    {},
+    {
+      authIndex: createWrongIndexApi(),
+      getCompanyUsersDeps: () => userDeps,
+      resolveCompanyFromFolder: slowWrongFolderResolver,
+      findMasterSheetIdsForCompanyLoginEmail: () => [],
+    },
+    { email, password, masterSheetId },
+  );
+  assert(duplicateIndexLogin.ok === true, "runtime: duplicate auth-index cannot override valid Users tab row");
+  assert(
+    duplicateIndexLogin.companyContext?.masterSheetId === masterSheetId,
+    "runtime: login uses Dovecote workbook from Users tab not stale auth-index",
+  );
+  assert(
+    duplicateIndexLogin.companyContext?.companyFolderId === companyFolderId,
+    "runtime: login uses CompanyFolderId from Users tab row",
   );
 
   let responseSentAt = 0;

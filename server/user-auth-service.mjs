@@ -63,6 +63,11 @@ function isTrustedFolderCandidate(attempt = {}, trustedFolderIds = []) {
   return Boolean(folderId && trustedFolderIds.includes(folderId));
 }
 
+/** sheet_hint reads Users tab first — no blocking folder resolve; skip per-candidate race timeout. */
+function isSheetHintCandidate(attempt = {}) {
+  return attempt.type === "sheet_hint";
+}
+
 /** Suppress timing logs from abandoned stale candidates so success phases cannot appear after 401. */
 function createLoginAttemptTimingGuard(loginTiming) {
   let detached = false;
@@ -439,9 +444,9 @@ export async function rebuildAuthIndexFromUsersTab(auth, deps, companyContext, a
   return rebuilt;
 }
 
-export async function verifyUserPasswordFromUsersTab(auth, companyContext, email, plainPassword, deps) {
+export async function verifyUserPasswordFromUsersTab(auth, companyContext, email, plainPassword, deps, existingRow = null) {
   const ctx = resolveUserAuthCompanyContext(companyContext);
-  const row = await readUserAuthRowByEmail(auth, ctx, email, deps);
+  const row = existingRow || (await readUserAuthRowByEmail(auth, ctx, email, deps));
   if (!row) {
     return { ok: false, reason: "user_not_found", rowFound: false };
   }
@@ -752,10 +757,14 @@ export function collectLoginResolutionAttempts(input = {}, deps = {}) {
     pushFolder(sessionFolderId, hintedSheetId);
   }
 
+  // Users-first: body/session masterSheetId before slow auth-index folder hints.
+  if (hintedSheetId && !trustedFolderIds.length) {
+    pushSheet(hintedSheetId);
+  }
+
   const email = normalizeUserAuthEmail(input.email);
   const indexEntry =
     typeof deps.authIndex?.lookupByEmail === "function" ? deps.authIndex.lookupByEmail(email) : null;
-  // Folder-first auth-index hint before stale session/request masterSheetId candidates.
   if (
     indexEntry &&
     !isKnownStaleAuthIndexPairing(email, indexEntry.companyName) &&
@@ -770,10 +779,6 @@ export function collectLoginResolutionAttempts(input = {}, deps = {}) {
     }
   }
 
-  if (hintedSheetId && !trustedFolderIds.length) {
-    pushSheet(hintedSheetId);
-  }
-
   if (typeof deps.findMasterSheetIdsForCompanyLoginEmail === "function") {
     for (const sheetId of deps.findMasterSheetIdsForCompanyLoginEmail(email) || []) {
       const sanitized = sanitizeGoogleSpreadsheetId(sheetId);
@@ -785,6 +790,27 @@ export function collectLoginResolutionAttempts(input = {}, deps = {}) {
   return dedupeLoginAttempts(attempts);
 }
 
+function scheduleSheetHintFolderResolveRefresh(auth, deps, companyFolderId, masterSheetId, timingDeps) {
+  const folderId = sanitizeCompanyFolderId(companyFolderId);
+  const sheetId = sanitizeGoogleSpreadsheetId(masterSheetId);
+  if (!folderId || !sheetId) {
+    return;
+  }
+  const tFolder = Date.now();
+  resolveFolderFirstContext(auth, deps, folderId, sheetId)
+    .then((resolved) => {
+      timingDeps?.loginTiming?.logPhase?.("folder_company_resolve", tFolder, {
+        companyFolderId: folderId,
+        source: "sheet_hint_background",
+        resolved: Boolean(resolved?.masterSheetId || resolved?.companyFolderId),
+      });
+    })
+    .catch(() => null);
+}
+
+/**
+ * sheet_hint — Users tab first; folder resolve is background hint refresh only (never blocks login).
+ */
 async function companyContextFromSheetHint(auth, deps, masterSheetId, email, userDeps) {
   const hintedSheetId = sanitizeGoogleSpreadsheetId(masterSheetId);
   if (!hintedSheetId) {
@@ -800,17 +826,11 @@ async function companyContextFromSheetHint(auth, deps, masterSheetId, email, use
   if (!rowFolderId) {
     return { ok: false, reason: "company_folder_missing", row };
   }
-  const tFolder = Date.now();
-  const resolved = await resolveFolderFirstContext(auth, deps, rowFolderId, hintedSheetId);
-  deps.loginTiming?.logPhase?.("folder_company_resolve", tFolder, {
-    companyFolderId: rowFolderId,
-    source: "sheet_hint",
-    resolved: Boolean(resolved?.masterSheetId || resolved?.companyFolderId),
-  });
-  const companyContext = buildCompanyContextFromHintedSheet(row, hintedSheetId, resolved);
+  const companyContext = buildCompanyContextFromHintedSheet(row, hintedSheetId, null);
   if (!companyContext) {
-    return { ok: false, reason: "company_context_failed", row, resolved };
+    return { ok: false, reason: "company_context_failed", row };
   }
+  scheduleSheetHintFolderResolveRefresh(auth, deps, rowFolderId, hintedSheetId, userDeps);
   return {
     ok: true,
     companyContext,
@@ -872,6 +892,56 @@ async function resolveSingleLoginAttempt(auth, deps, attempt, email, password, u
       };
     }
     companyContext = hinted.companyContext;
+    const verifyResult = await verifyUserPasswordFromUsersTab(
+      auth,
+      companyContext,
+      email,
+      password,
+      timingDeps,
+      hinted.row,
+    );
+    if (!verifyResult.ok) {
+      if (verifyResult.rowFound === false) {
+        await logUsersTabLookupDiagnostics(auth, userDeps, companyContext, email, attempt.type).catch(() => null);
+      }
+      return {
+        ok: false,
+        authFailureReason:
+          verifyResult.reason === "inactive"
+            ? AUTH_FAILURE_REASON.INACTIVE
+            : classifyVerifyFailure(verifyResult),
+        inactive: verifyResult.reason === "inactive",
+      };
+    }
+
+    const row = verifyResult.row;
+    const entry = {
+      email,
+      name: String(row?.name || email).trim() || email,
+      role: row?.role || "User",
+      accessLevel: row?.accessLevel || "",
+      companyId: companyContext.companyFolderId,
+      companyFolderId: companyContext.companyFolderId,
+      companyName:
+        companyContext.companyName || String(pickRowCompanyName(row?.rowObject || row) || "").trim(),
+      masterSheetId: companyContext.masterSheetId,
+      status: "ACTIVE",
+      companyAreas: Array.isArray(row?.companyAreas) ? row.companyAreas : [],
+    };
+
+    if (deps.authIndex) {
+      upsertLoginAuthIndexFromUsersTabRow(deps.authIndex, row, companyContext, email);
+      const indexed = deps.authIndex.lookupByEmail?.(email);
+      if (indexed) {
+        entry.name = indexed.name || entry.name;
+        entry.role = indexed.role || entry.role;
+        entry.accessLevel = indexed.accessLevel || entry.accessLevel;
+        entry.companyAreas = indexed.companyAreas?.length ? indexed.companyAreas : entry.companyAreas;
+        entry.companyName = indexed.companyName || entry.companyName;
+      }
+    }
+
+    return { ok: true, email, row, companyContext, entry, folderFirst: false };
   }
 
   const verifyResult = await verifyUserPasswordFromUsersTab(auth, companyContext, email, password, timingDeps);
@@ -920,8 +990,9 @@ async function resolveSingleLoginAttempt(auth, deps, attempt, email, password, u
 }
 
 /**
- * Company user login — Users tab PasswordHash is verified after folder-first company resolve.
- * Auth index and invite hints only narrow which workbook/folder to read; never authenticate alone.
+ * Company user login — Users tab PasswordHash is source of truth.
+ * sheet_hint: Users tab read + password verify first; folder resolve is background hint refresh only.
+ * folder candidates: folder resolve then Users tab verify. Auth index only narrows candidates.
  */
 export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) {
   const email = normalizeUserAuthEmail(input.email);
@@ -973,14 +1044,16 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
       candidateTimeoutMs: LOGIN_CANDIDATE_TIMEOUT_MS,
     });
     const trustedFolder = isTrustedFolderCandidate(attempt, trustedFolderIds);
+    const sheetHint = isSheetHintCandidate(attempt);
     const attemptTimingGuard = createLoginAttemptTimingGuard(loginTiming);
     const attemptTimingDeps = attemptTimingGuard.wrapTimingDeps(timingDeps);
     let attemptResult;
     try {
-      if (trustedFolder) {
+      if (trustedFolder || sheetHint) {
         loginTiming?.logPhase?.("candidate_attempt_await", tAttempt, {
           ...candidateMeta,
-          trustedFolder: true,
+          trustedFolder: trustedFolder === true,
+          sheetHint: sheetHint === true,
         });
         attemptResult = await resolveSingleLoginAttempt(
           auth,
@@ -1233,7 +1306,14 @@ export async function attemptUsersTabPasswordLogin(auth, deps, input = {}) {
       continue;
     }
     const companyContext = hinted.companyContext;
-    const verifyResult = await verifyUserPasswordFromUsersTab(auth, companyContext, email, password, timingDeps);
+    const verifyResult = await verifyUserPasswordFromUsersTab(
+      auth,
+      companyContext,
+      email,
+      password,
+      userDeps,
+      hinted.row,
+    );
     if (!verifyResult.ok) {
       continue;
     }
