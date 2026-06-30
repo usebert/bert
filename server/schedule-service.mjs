@@ -25,6 +25,10 @@ import {
   buildSchedulesTabRows,
 } from "../shared/schedule-save.mjs";
 import { enrichAssignedSchedulesWithCompletion } from "../shared/assigned-check-completion.mjs";
+import { enrichSchedulesWithDueOccurrence, pickScheduleDueAudit } from "../shared/schedule-due.mjs";
+import {
+  buildAssignedCheckDueDiagnostics,
+} from "../shared/schedule-due.mjs";
 import {
   getScheduleAssignedEmails,
   getScheduleAssigneeIdentityTokens,
@@ -43,7 +47,7 @@ import {
 } from "./workbook-service.mjs";
 
 /** Bumped when assigned-checks diagnostics shape or merge behaviour changes — verify in production via ?diagnostics=1. */
-export const ASSIGNED_CHECKS_DIAGNOSTICS_VERSION = "canonical-legacy-merge-v2";
+export const ASSIGNED_CHECKS_DIAGNOSTICS_VERSION = "schedule-due-window-v1";
 
 function resolveListActiveUsers(deps) {
   return typeof deps?.listActiveUsers === "function" ? deps.listActiveUsers : listActiveUsersFromUserService;
@@ -1146,7 +1150,9 @@ export async function listMyChecks(auth, deps, input = {}) {
     return true;
   });
   const filterSchedulesMs = Date.now() - filterStart;
-  const limitedSchedules = previewLimit > 0 ? schedules.slice(0, previewLimit) : schedules;
+  const now = new Date();
+  const schedulesWithDue = enrichSchedulesWithDueOccurrence(schedules, now);
+  const limitedSchedules = previewLimit > 0 ? schedulesWithDue.slice(0, previewLimit) : schedulesWithDue;
 
   let enrichedSchedules = limitedSchedules;
   const completionStart = Date.now();
@@ -1159,7 +1165,7 @@ export async function listMyChecks(auth, deps, input = {}) {
       });
       if (listedResults.ok) {
         enrichedSchedules = enrichAssignedSchedulesWithCompletion(
-          limitedSchedules,
+          enrichedSchedules,
           listedResults.results || [],
           email,
         );
@@ -1196,9 +1202,9 @@ export async function listMyChecks(auth, deps, input = {}) {
       scheduleNamesListed: listed.loadDiagnostics?.scheduleNamesListed ?? [],
       dataSource: listed.loadDiagnostics?.dataSource || listed.sourceTab || "unknown",
       totalListed: (listed.schedules || []).length,
-      includedCount: limitedSchedules.length,
+      includedCount: enrichedSchedules.length,
       excluded,
-      included: limitedSchedules.map((schedule) => ({
+      included: enrichedSchedules.map((schedule) => ({
         scheduleId: schedule.id,
         scheduleName: schedule.scheduleName,
         assignedUserEmails: getScheduleAssignedEmails(schedule),
@@ -1206,10 +1212,19 @@ export async function listMyChecks(auth, deps, input = {}) {
         audits: (schedule.audits || []).map((audit) => ({
           auditId: audit.auditId,
           auditName: audit.auditName,
+          liveTime: audit.liveTime,
+          frequency: audit.frequency,
+          completionHours: audit.completionHours,
+          dueAt: audit.dueAt,
+          windowEnd: audit.windowEnd,
+          isDueNow: audit.isDueNow,
+          rejectReason: audit.rejectReason,
         })),
         status: schedule.status,
         lifecycle: schedule.lifecycle,
         companyFolderId: String(schedule.companyFolderId || schedule.companyId || "").trim(),
+        startDate: schedule.startDate,
+        dueDiagnostics: buildAssignedCheckDueDiagnostics(schedule, now),
       })),
       timing: {
         resolveContextMs,

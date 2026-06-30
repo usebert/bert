@@ -249,8 +249,8 @@ assert(
   "8m4a: assigned-checks diagnostics include version marker",
 );
 assert(
-  read("server/schedule-service.mjs").includes('ASSIGNED_CHECKS_DIAGNOSTICS_VERSION = "canonical-legacy-merge-v2"'),
-  "8m4b: assigned-checks diagnostics version is canonical-legacy-merge-v2",
+  read("server/schedule-service.mjs").includes('ASSIGNED_CHECKS_DIAGNOSTICS_VERSION = "schedule-due-window-v1"'),
+  "8m4b: assigned-checks diagnostics version is schedule-due-window-v1",
 );
 assert(!read("server/schedule-service.mjs").includes("canonicalSchedulesOnly: true"), "8m5: assigned checks does not skip legacy fallback when canonical has rows");
 assert(read("server/schedule-service.mjs").includes("templateHydrationMs"), "8n: assigned-checks diagnostics include templateHydrationMs");
@@ -463,7 +463,7 @@ assert(read("src/utils/auditAccess.ts").includes("buildAuditFromAssignedSchedule
 
   assert(myChecks.ok, "11: listMyChecks succeeds with canonical + legacy sources");
   assert(
-    myChecks.diagnostics?.assignedChecksDiagnosticsVersion === "canonical-legacy-merge-v2",
+    myChecks.diagnostics?.assignedChecksDiagnosticsVersion === "schedule-due-window-v1",
     "11a: diagnostics version marker is canonical-legacy-merge-v2",
   );
   assert((myChecks.diagnostics?.canonicalSchedulesCount || 0) === 1, "11b: diagnostics count canonical schedule");
@@ -974,6 +974,200 @@ assert(read("src/utils/auditAccess.ts").includes("buildCompleteWorkAssignedAudit
   assert(appSrc.includes("assignedChecksIdentityMismatch"), "16l: App blocks profile/session identity mismatch for assigned-checks");
   assert(appSrc.includes("enrichSchedulesWithCanonicalAssignees") === false, "16m: App does not bypass server save canonicalisation");
   assert(read("server/schedule-service.mjs").includes("enrichSchedulesWithCanonicalAssignees"), "16n: server save canonicalises assignees");
+}
+
+/** 17: Schedule due windows — Option A (active window after scheduled time counts as due). */
+{
+  const {
+    resolveScheduleDueOccurrence,
+    resolveScheduleAuditDue,
+    computeAssignedCheckDueHours,
+    enrichScheduleWithDueOccurrence,
+    buildAssignedCheckDueDiagnostics,
+  } = await import("../shared/schedule-due.mjs");
+
+  const now = new Date(2026, 5, 30, 18, 45, 0, 0);
+  const dailyDue = resolveScheduleDueOccurrence(
+    {
+      startDate: "2026-06-30",
+      liveTime: "08:00",
+      frequency: "Daily",
+      completionHours: 24,
+    },
+    now,
+  );
+  assert(dailyDue.isDueNow, "17a: daily start-today 08:00 is due at 18:45 within 24h window");
+  assert(dailyDue.rejectReason === null, "17a2: active window has no reject reason");
+  assert(computeAssignedCheckDueHours(dailyDue, now) > 0, "17a3: due hours stay positive inside window");
+  assert(resolveScheduleAuditDue === resolveScheduleDueOccurrence, "17a4: resolveScheduleAuditDue alias matches");
+
+  const futureStart = resolveScheduleDueOccurrence(
+    {
+      startDate: "2026-07-01",
+      liveTime: "08:00",
+      frequency: "Daily",
+      completionHours: 24,
+    },
+    now,
+  );
+  assert(!futureStart.isDueNow && futureStart.rejectReason === "not_due_yet", "17b: future start date is not_due_yet");
+
+  const expiredWindow = resolveScheduleDueOccurrence(
+    {
+      startDate: "2026-06-28",
+      liveTime: "08:00",
+      frequency: "Daily",
+      completionHours: 4,
+    },
+    now,
+  );
+  assert(!expiredWindow.isDueNow && expiredWindow.rejectReason === "window_closed", "17c: expired short window is window_closed");
+
+  const tomorrowOccurrence = resolveScheduleDueOccurrence(
+    {
+      startDate: "2026-06-30",
+      liveTime: "08:00",
+      frequency: "Daily",
+      completionHours: 24,
+    },
+    new Date(2026, 5, 30, 7, 0, 0, 0),
+  );
+  assert(!tomorrowOccurrence.isDueNow && tomorrowOccurrence.rejectReason === "not_due_yet", "17d: before first 08:00 is not_due_yet");
+
+  const scheduleFixture = {
+    id: "schedule-dc-hs",
+    companyFolderId: "1TVQ-gbpxoOzE6PCkHX581eTDgtMC11lc",
+    scheduleName: "DC H&S Audit",
+    lifecycle: "Live",
+    startDate: "2026-06-30",
+    assignedUserEmails: ["dovecotestudio@icloud.com"],
+    audits: [
+      {
+        auditId: "gf-check-dc-hs-audit",
+        auditName: "DC H&S Audit",
+        frequency: "Daily",
+        liveTime: "08:00",
+        completionHours: 24,
+        days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+      },
+    ],
+  };
+
+  const enriched = enrichScheduleWithDueOccurrence(scheduleFixture, now);
+  assert(enriched.isDueNow, "17e: enriched schedule marks due now");
+  assert(String(enriched.nextDueAt || "").includes("2026-06-30"), "17e2: computed nextDueAt anchors on today's occurrence");
+
+  const diagnostics = buildAssignedCheckDueDiagnostics(enriched, now);
+  assert(diagnostics.isDueNow, "17f: diagnostics report isDueNow");
+  assert(diagnostics.rejectReason === null, "17f2: diagnostics rejectReason empty when due");
+  assert(diagnostics.serverTime, "17f3: diagnostics include serverTime");
+
+  const icloudChecks = await listMyChecks(
+    {},
+    {
+      readTabRecords: async () => ({
+        ok: true,
+        records: [
+          {
+            "Schedule ID": scheduleFixture.id,
+            "Company Folder ID": scheduleFixture.companyFolderId,
+            "Schedule Name": scheduleFixture.scheduleName,
+            Status: "ACTIVE",
+            "Assigned User Emails": "dovecotestudio@icloud.com",
+            "Audit ID": scheduleFixture.audits[0].auditId,
+            "Template Name": scheduleFixture.audits[0].auditName,
+            Frequency: "Daily",
+            "Due Window": "08:00|24h",
+            "Start Date": "2026-06-30",
+          },
+        ],
+        rowCount: 1,
+      }),
+      getTabValues: async () => [],
+    },
+    {
+      email: "dovecotestudio@icloud.com",
+      companyFolderId: scheduleFixture.companyFolderId,
+      masterSheetId: "1PlwknNgtt-4j08matn1w4358YTe5SXFs5Hh0zA_m3So",
+      trustSessionContext: true,
+      includeDiagnostics: true,
+      limit: 5,
+    },
+  );
+  assert(icloudChecks.ok && icloudChecks.schedules.length === 1, "17g: dashboard limit=5 returns icloud schedule");
+  assert(icloudChecks.schedules[0].isDueNow === true, "17g2: dashboard preview schedule is due now");
+
+  const fullChecks = await listMyChecks(
+    {},
+    {
+      readTabRecords: async () => ({
+        ok: true,
+        records: [
+          {
+            "Schedule ID": scheduleFixture.id,
+            "Company Folder ID": scheduleFixture.companyFolderId,
+            "Schedule Name": scheduleFixture.scheduleName,
+            Status: "ACTIVE",
+            "Assigned User Emails": "dovecotestudio@icloud.com",
+            "Audit ID": scheduleFixture.audits[0].auditId,
+            "Template Name": scheduleFixture.audits[0].auditName,
+            Frequency: "Daily",
+            "Due Window": "08:00|24h",
+            "Start Date": "2026-06-30",
+          },
+        ],
+        rowCount: 1,
+      }),
+      getTabValues: async () => [],
+    },
+    {
+      email: "dovecotestudio@icloud.com",
+      companyFolderId: scheduleFixture.companyFolderId,
+      masterSheetId: "1PlwknNgtt-4j08matn1w4358YTe5SXFs5Hh0zA_m3So",
+      trustSessionContext: true,
+    },
+  );
+  assert(fullChecks.ok && fullChecks.schedules[0].isDueNow === true, "17h: full assigned-checks agrees on isDueNow");
+
+  const gmailChecks = await listMyChecks(
+    {},
+    {
+      readTabRecords: async () => ({
+        ok: true,
+        records: [
+          {
+            "Schedule ID": scheduleFixture.id,
+            "Company Folder ID": scheduleFixture.companyFolderId,
+            "Schedule Name": scheduleFixture.scheduleName,
+            Status: "ACTIVE",
+            "Assigned User Emails": "dovecotestudio@icloud.com",
+            "Audit ID": scheduleFixture.audits[0].auditId,
+            "Template Name": scheduleFixture.audits[0].auditName,
+            Frequency: "Daily",
+            "Start Date": "2026-06-30",
+          },
+        ],
+        rowCount: 1,
+      }),
+      getTabValues: async () => [],
+    },
+    {
+      email: "7oakcottages@gmail.com",
+      companyFolderId: scheduleFixture.companyFolderId,
+      masterSheetId: "1PlwknNgtt-4j08matn1w4358YTe5SXFs5Hh0zA_m3So",
+      trustSessionContext: true,
+    },
+  );
+  assert(gmailChecks.ok && gmailChecks.schedules.length === 0, "17i: gmail user does not see icloud assignment");
+
+  const auditAccessSrc = read("src/utils/auditAccess.ts");
+  const assignedCheckDisplaySrc = read("src/utils/assignedCheckDisplay.ts");
+  assert(auditAccessSrc.includes("resolveScheduleDueOccurrence"), "17j: Complete Work uses schedule due occurrence resolver");
+  assert(assignedCheckDisplaySrc.includes("filterAssignedChecksForThingsToDo"), "17j2: Things to do filter exists");
+
+  assert(read("shared/schedule-due.mjs").includes("isDueNow"), "17k: shared schedule due module exists");
+  assert(read("src/utils/scheduleDue.ts").includes("resolveScheduleDueOccurrence"), "17l: client schedule due mirror exists");
+  assert(read("server/schedule-service.mjs").includes("enrichSchedulesWithDueOccurrence"), "17m: listMyChecks enriches computed due");
 }
 
 console.log("[verify:assigned-checks] OK: assigned-check contract verified");

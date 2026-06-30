@@ -4,10 +4,10 @@ import type { User } from "../types/dashboardScreenProps";
 import { GOOGLE_FORM_IMPORT_STATUS } from "./googleFormImportQuestions";
 import { buildGoogleFormImportQuestions } from "./googleFormImportQuestions";
 import {
-  complianceSchedulesFromManaged,
-  computeDueHoursFromSchedule,
-  nearestNextDueDate,
-} from "./complianceSchedule";
+  assignedCheckDueLabelFromState,
+  computeAssignedCheckDueHours,
+  resolveScheduleDueOccurrence,
+} from "./scheduleDue";
 import {
   formatAssignedCheckLastCompletedAt,
 } from "./assignedCheckCompletion";
@@ -211,8 +211,6 @@ export function buildCompleteWorkAssignedAudits(input: {
   owner: string;
   companyFolderId?: string;
 }): Audit[] {
-  const apiCompliance = complianceSchedulesFromManaged(input.schedules);
-  const selectedCompanyId = String(input.companyFolderId || "").trim();
   const built: Audit[] = [];
   const seen = new Set<string>();
 
@@ -228,16 +226,19 @@ export function buildCompleteWorkAssignedAudits(input: {
       if (!key || seen.has(key)) {
         return;
       }
-      const nextDue = nearestNextDueDate(auditId, auditName, "", apiCompliance, selectedCompanyId);
-      const dueHours = nextDue ? computeDueHoursFromSchedule(nextDue) : 24;
-      const dueLabel =
-        !nextDue.trim()
-          ? "Available"
-          : dueHours < 0
-            ? "Overdue"
-            : dueHours <= 24
-              ? "Due today"
-              : "Upcoming";
+      const dueState = resolveScheduleDueOccurrence(
+        {
+          startDate: schedule.startDate,
+          endDate: schedule.endDate,
+          liveTime: scheduleAudit.liveTime,
+          completionHours: scheduleAudit.completionHours,
+          frequency: scheduleAudit.frequency,
+          days: scheduleAudit.days,
+          nextDueAt: schedule.nextDueAt,
+        },
+      );
+      const dueHours = computeAssignedCheckDueHours(dueState);
+      const dueLabel = assignedCheckDueLabelFromState(dueState, dueHours);
       seen.add(key);
       built.push(
         buildAuditFromAssignedSchedule({
@@ -247,7 +248,7 @@ export function buildCompleteWorkAssignedAudits(input: {
           templates: input.templates,
           siteArea: input.siteArea,
           owner: input.owner,
-          dueLabel: dueLabel === "Available" ? "Available" : dueLabel,
+          dueLabel,
           dueHours,
           lastCompletedAt: scheduleAudit.lastCompletedAt,
         }),
