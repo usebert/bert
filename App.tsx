@@ -67,9 +67,12 @@ import {
   isMasterCompanyContextExemptScreen,
   isMasterCompanyScopedScreen,
   resolveAdminPilotFocus,
-  shouldLoadAssignedChecksScreen,
+  shouldLoadCompanyMembersScreen,
   shouldLoadCompanyResultsScreen,
+  shouldLoadDashboardAssignedChecksPreview,
+  shouldLoadFullAssignedChecksScreen,
   shouldLoadGoogleFormsScreen,
+  shouldLoadSchedulesResultsEnrichment,
   shouldLoadScheduleAssigneesScreen,
 } from "./src/config/roleNavigation";
 import { MORE_MENU_NAV_IDS, PILOT_PRIMARY_NAV_IDS, PRIMARY_NAV_IDS } from "./src/config/navStructure";
@@ -367,6 +370,8 @@ import {
   CHECK_COMPLETION_TIMEOUT_MS,
   CHECK_COMPLETION_USER_MESSAGE,
   completeCheck,
+  DASHBOARD_ASSIGNED_CHECKS_PREVIEW_LIMIT,
+  DASHBOARD_ASSIGNED_CHECKS_PREVIEW_TIMEOUT_MS,
   fetchAssignedChecks,
   readAssignedChecksCache,
   writeAssignedChecksCache,
@@ -5407,7 +5412,8 @@ function App() {
   }, [scheduleAssigneesState.diagnostics]);
 
   useEffect(() => {
-    if (!shouldLoadScheduleAssigneesScreen(screen)) {
+    if (!currentUser || !shouldLoadScheduleAssigneesScreen(screen)) {
+      setScheduleAssigneesState({ assignees: [], loading: false });
       return;
     }
     const { companyId, masterSheetId, companyName } = resolveCompanyMembersLoadContext({
@@ -5528,6 +5534,7 @@ function App() {
     };
   }, [
     screen,
+    currentUser,
     googleConnected,
     currentUser?.role,
     masterCompanyWorkspaceDataMatchesSelection,
@@ -5546,7 +5553,9 @@ function App() {
       setAssignedChecksState({ schedules: [], loading: false, hasLoadedOnce: false });
       return;
     }
-    if (!shouldLoadAssignedChecksScreen(screen, currentUser.role)) {
+    const isDashboardPreview = shouldLoadDashboardAssignedChecksPreview(screen, currentUser.role);
+    const isFullList = shouldLoadFullAssignedChecksScreen(screen, currentUser.role);
+    if (!isDashboardPreview && !isFullList) {
       setAssignedChecksState((previous) => ({
         ...previous,
         loading: false,
@@ -5570,6 +5579,10 @@ function App() {
       companyFolderId && signedInEmail
         ? readAssignedChecksCache(storageKeys.assignedChecksCache, companyFolderId, signedInEmail)
         : null;
+    const previewLimit = isDashboardPreview ? DASHBOARD_ASSIGNED_CHECKS_PREVIEW_LIMIT : undefined;
+    const loadTimeoutMs = isDashboardPreview
+      ? DASHBOARD_ASSIGNED_CHECKS_PREVIEW_TIMEOUT_MS
+      : ASSIGNED_CHECKS_LOAD_TIMEOUT_MS;
 
     const requestId = ++assignedChecksRequestRef.current;
     const isActiveRequest = () => assignedChecksRequestRef.current === requestId;
@@ -5577,7 +5590,7 @@ function App() {
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => {
       controller.abort(new DOMException("Assigned checks load timed out", "TimeoutError"));
-    }, ASSIGNED_CHECKS_LOAD_TIMEOUT_MS);
+    }, loadTimeoutMs);
     setAssignedChecksState((previous) => {
       const companyChanged =
         Boolean(previous.companyFolderId) &&
@@ -5590,10 +5603,14 @@ function App() {
             ? previous.schedules
             : ((cachedAssignedChecks?.schedules || []) as ManagedSchedule[]);
       const hasLoadedOnce = companyChanged ? false : previous.hasLoadedOnce;
-      const shouldShowBlockingLoad = !hasLoadedOnce && schedules.length === 0 && !previous.loadError;
-      if (shouldShowBlockingLoad || schedules.length > 0) {
+      const shouldShowPreviewLoad =
+        isDashboardPreview && !hasLoadedOnce && schedules.length === 0 && !previous.loadError;
+      const shouldShowFullLoad =
+        isFullList && !hasLoadedOnce && schedules.length === 0 && !previous.loadError;
+      if (shouldShowPreviewLoad || shouldShowFullLoad) {
         logClientLoginTiming("dashboard_things_to_do_loading_started", postLoginTimingRef.current ?? undefined, {
           companyFolderId: companyFolderId || "(pending)",
+          preview: isDashboardPreview,
         });
       }
       return {
@@ -5602,7 +5619,7 @@ function App() {
         companyFolderId: companyFolderId || previous.companyFolderId || cachedAssignedChecks?.companyFolderId,
         masterSheetId: previous.masterSheetId || cachedAssignedChecks?.masterSheetId,
         hasLoadedOnce,
-        loading: shouldShowBlockingLoad || schedules.length > 0,
+        loading: shouldShowPreviewLoad || shouldShowFullLoad,
         loadError: companyChanged ? undefined : previous.loadError,
         loadErrorDetail: companyChanged ? undefined : previous.loadErrorDetail,
       };
@@ -5610,7 +5627,10 @@ function App() {
 
     void (async () => {
       try {
-        const result = await fetchAssignedChecks({ signal: controller.signal });
+        const result = await fetchAssignedChecks({
+          signal: controller.signal,
+          ...(previewLimit ? { limit: previewLimit } : {}),
+        });
 
         if (!isActiveRequest()) {
           return;
@@ -5628,6 +5648,7 @@ function App() {
           logClientLoginTiming("dashboard_things_to_do_loading_finished", postLoginTimingRef.current ?? undefined, {
             ok: false,
             scheduleCount: 0,
+            preview: isDashboardPreview,
           });
           return;
         }
@@ -5645,8 +5666,9 @@ function App() {
         logClientLoginTiming("dashboard_things_to_do_loading_finished", postLoginTimingRef.current ?? undefined, {
           ok: true,
           scheduleCount: result.schedules.length,
+          preview: isDashboardPreview,
         });
-        if (nextCompanyFolderId && signedInEmail) {
+        if (!previewLimit && nextCompanyFolderId && signedInEmail) {
           writeAssignedChecksCache(storageKeys.assignedChecksCache, {
             companyFolderId: nextCompanyFolderId,
             userEmail: signedInEmail,
@@ -5671,7 +5693,7 @@ function App() {
                 : previous.loadError,
             loadErrorDetail:
               timedOut && previous.schedules.length === 0
-                ? `GET ${apiUrl("/api/me/assigned-checks")} → request timed out`
+                ? `GET ${apiUrl(previewLimit ? `/api/me/assigned-checks?limit=${previewLimit}` : "/api/me/assigned-checks")} → request timed out`
                 : previous.loadErrorDetail,
           }));
           return;
@@ -5693,6 +5715,7 @@ function App() {
                 ok: true,
                 scheduleCount: previous.schedules.length,
                 reason: "finally_clear_loading",
+                preview: isDashboardPreview,
               });
               return { ...previous, loading: false };
             }
@@ -5722,6 +5745,10 @@ function App() {
   ]);
 
   useEffect(() => {
+    if (!currentUser || !shouldLoadCompanyMembersScreen(screen)) {
+      setCompanyMembersState({ members: [], loading: false });
+      return;
+    }
     const { companyId, masterSheetId, companyName } = resolveCompanyMembersLoadContext({
       activeCompanyContext,
       selectedFolderId: selectedFolder?.id,
@@ -5836,6 +5863,8 @@ function App() {
       controller.abort();
     };
   }, [
+    screen,
+    currentUser,
     googleConnected,
     currentUser?.role,
     masterCompanyWorkspaceDataMatchesSelection,
@@ -6012,14 +6041,17 @@ function App() {
   );
 
   useEffect(() => {
-    if (!shouldLoadCompanyResultsScreen(screen)) {
+    if (!currentUser) {
+      return;
+    }
+    if (!shouldLoadCompanyResultsScreen(screen) && !shouldLoadSchedulesResultsEnrichment(screen)) {
       return;
     }
     void loadCompanyResults("initial");
     return () => {
       companyResultsRequestIdRef.current += 1;
     };
-  }, [loadCompanyResults, screen]);
+  }, [currentUser, loadCompanyResults, screen]);
 
   const refreshCompanyResults = useCallback(() => {
     void loadCompanyResults("refresh");
@@ -6030,7 +6062,8 @@ function App() {
   }, [loadCompanyResults]);
 
   useEffect(() => {
-    if (!shouldLoadGoogleFormsScreen(screen)) {
+    if (!currentUser || !shouldLoadGoogleFormsScreen(screen)) {
+      setCompanyGoogleFormsState({ forms: [], loading: false, status: "idle", syncing: false });
       return;
     }
     const { companyId } = resolveCompanyMembersLoadContext({
@@ -6128,6 +6161,7 @@ function App() {
     };
   }, [
     screen,
+    currentUser,
     googleConnected,
     currentUser?.role,
     masterCompanyWorkspaceDataMatchesSelection,
@@ -6218,7 +6252,10 @@ function App() {
   ]);
 
   useEffect(() => {
-    if (!shouldLoadCompanyResultsScreen(screen)) {
+    if (!currentUser) {
+      return;
+    }
+    if (!shouldLoadCompanyResultsScreen(screen) && !shouldLoadSchedulesResultsEnrichment(screen)) {
       return;
     }
     const { companyId } = resolveCompanyMembersLoadContext({
@@ -6299,6 +6336,7 @@ function App() {
     };
   }, [
     screen,
+    currentUser,
     selectedResultState.resultId,
     masterCompanyWorkspaceDataMatchesSelection,
     activeCompanyContext.companyFolderId,

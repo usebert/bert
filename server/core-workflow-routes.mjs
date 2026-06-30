@@ -664,6 +664,8 @@ export function installCoreWorkflowRoutes(app, deps) {
     const includeDiagnostics =
       String(req.query.diagnostics || "").trim() === "1" ||
       String(process.env.BERT_GODMODE_DIAGNOSTICS || "").trim().toLowerCase() === "true";
+    const limitRaw = String(req.query.limit || "").trim();
+    const limit = limitRaw ? Number(limitRaw) : undefined;
 
     try {
       const result = await listAssignedChecks(authed, { ...registryDeps, ...scheduleDeps }, {
@@ -674,6 +676,7 @@ export function installCoreWorkflowRoutes(app, deps) {
         masterSheetId,
         trustSessionContext,
         includeDiagnostics,
+        limit,
       });
 
       if (!result.ok) {

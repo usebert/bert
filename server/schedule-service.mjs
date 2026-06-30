@@ -1002,6 +1002,9 @@ export async function listMyChecks(auth, deps, input = {}) {
   const masterSheetId = String(input.masterSheetId || "").trim();
   const includeDiagnostics = input.includeDiagnostics === true;
   const trustSessionContext = input.trustSessionContext === true && Boolean(companyFolderId && masterSheetId);
+  const previewLimitRaw = Number(input.limit);
+  const previewLimit =
+    Number.isFinite(previewLimitRaw) && previewLimitRaw > 0 ? Math.min(Math.floor(previewLimitRaw), 50) : 0;
   const totalStart = Date.now();
 
   const listed = await readSchedulesFromTab(auth, deps, {
@@ -1064,24 +1067,27 @@ export async function listMyChecks(auth, deps, input = {}) {
     return true;
   });
   const filterSchedulesMs = Date.now() - filterStart;
+  const limitedSchedules = previewLimit > 0 ? schedules.slice(0, previewLimit) : schedules;
 
-  let enrichedSchedules = schedules;
+  let enrichedSchedules = limitedSchedules;
   const completionStart = Date.now();
-  try {
-    const listedResults = await listAuditResults(auth, deps, {
-      companyFolderId: listed.companyFolderId || companyFolderId,
-      companyId: listed.companyFolderId || companyFolderId,
-      masterSheetId: listed.masterSheetId || masterSheetId,
-    });
-    if (listedResults.ok) {
-      enrichedSchedules = enrichAssignedSchedulesWithCompletion(
-        schedules,
-        listedResults.results || [],
-        email,
-      );
+  if (previewLimit === 0) {
+    try {
+      const listedResults = await listAuditResults(auth, deps, {
+        companyFolderId: listed.companyFolderId || companyFolderId,
+        companyId: listed.companyFolderId || companyFolderId,
+        masterSheetId: listed.masterSheetId || masterSheetId,
+      });
+      if (listedResults.ok) {
+        enrichedSchedules = enrichAssignedSchedulesWithCompletion(
+          limitedSchedules,
+          listedResults.results || [],
+          email,
+        );
+      }
+    } catch {
+      enrichedSchedules = limitedSchedules;
     }
-  } catch {
-    enrichedSchedules = schedules;
   }
   const auditResultsMs = Date.now() - completionStart;
 
@@ -1092,6 +1098,7 @@ export async function listMyChecks(auth, deps, input = {}) {
     companyName: listed.companyName,
     masterSheetId: listed.masterSheetId,
     schedules: enrichedSchedules,
+    ...(previewLimit > 0 ? { previewLimit } : {}),
   };
 
   if (includeDiagnostics) {
@@ -1110,9 +1117,9 @@ export async function listMyChecks(auth, deps, input = {}) {
       scheduleNamesListed: listed.loadDiagnostics?.scheduleNamesListed ?? [],
       dataSource: listed.loadDiagnostics?.dataSource || listed.sourceTab || "unknown",
       totalListed: (listed.schedules || []).length,
-      includedCount: schedules.length,
+      includedCount: limitedSchedules.length,
       excluded,
-      included: schedules.map((schedule) => ({
+      included: limitedSchedules.map((schedule) => ({
         scheduleId: schedule.id,
         scheduleName: schedule.scheduleName,
         assignedUserEmails: getScheduleAssignedEmails(schedule),

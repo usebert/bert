@@ -64,6 +64,8 @@ function formatAssignedChecksLoadErrorDetail(input: {
 }
 
 export const ASSIGNED_CHECKS_LOAD_TIMEOUT_MS = 180_000;
+export const DASHBOARD_ASSIGNED_CHECKS_PREVIEW_LIMIT = 5;
+export const DASHBOARD_ASSIGNED_CHECKS_PREVIEW_TIMEOUT_MS = 45_000;
 export const ASSIGNED_CHECKS_LOADING_MESSAGE = "Loading assigned checks…";
 export const ASSIGNED_CHECKS_REFRESHING_MESSAGE = "Refreshing assigned checks…";
 export const ASSIGNED_CHECKS_USER_MESSAGE = "Could not load your assigned checks.";
@@ -110,9 +112,14 @@ function completionErrorMessage(payload: {
 
 /** Assigned schedules for signed-in user — company + identity from session only. */
 export async function fetchAssignedChecks(
-  options?: { signal?: AbortSignal },
+  options?: { signal?: AbortSignal; limit?: number },
 ): Promise<FetchAssignedChecksResult> {
-  const path = "/api/me/assigned-checks";
+  const limit =
+    typeof options?.limit === "number" && Number.isFinite(options.limit) && options.limit > 0
+      ? Math.floor(options.limit)
+      : 0;
+  const path =
+    limit > 0 ? `/api/me/assigned-checks?limit=${encodeURIComponent(String(limit))}` : "/api/me/assigned-checks";
   const dedupeKey = requestDedupeKey("GET", apiUrl(path));
   return dedupeInFlight(dedupeKey, () => fetchAssignedChecksRequest(path, options));
 }

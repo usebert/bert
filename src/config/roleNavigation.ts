@@ -88,12 +88,25 @@ export function isCompleteWorkListScreen(screen: RoutedScreen): boolean {
   return screen === COMPLETE_WORK_NAV_SCREEN_ID;
 }
 
-/** Screens that should load GET /api/me/assigned-checks (session-scoped; no client company id). */
-export function shouldLoadAssignedChecksScreen(screen: RoutedScreen, role?: Role): boolean {
-  if (isCompleteWorkListScreen(screen) || screen === "dashboard") {
+/** Dashboard Things To Do — lightweight assigned-checks preview only. */
+export function shouldLoadDashboardAssignedChecksPreview(screen: RoutedScreen, role?: Role): boolean {
+  if (screen !== "dashboard") {
+    return false;
+  }
+  return role === "Admin" || role === "Manager" || role === "Auditor";
+}
+
+/** Complete Work / My Checks — full assigned-checks list. */
+export function shouldLoadFullAssignedChecksScreen(screen: RoutedScreen, role?: Role): boolean {
+  if (isCompleteWorkListScreen(screen)) {
     return true;
   }
   return role === "Master" && screen === "godmodeHome";
+}
+
+/** Screens that should load GET /api/me/assigned-checks (session-scoped; no client company id). */
+export function shouldLoadAssignedChecksScreen(screen: RoutedScreen, role?: Role): boolean {
+  return shouldLoadDashboardAssignedChecksPreview(screen, role) || shouldLoadFullAssignedChecksScreen(screen, role);
 }
 
 /** Screens that should load GET …/schedule-assignees (scheduler UI + action assignee picker). */
@@ -101,9 +114,19 @@ export function shouldLoadScheduleAssigneesScreen(screen: RoutedScreen): boolean
   return screen === "schedules" || screen === "actions";
 }
 
-/** Screens that should load GET …/results (Results UI, Reports, schedule last-completed enrichment). */
+/** Screens that should load GET …/results (Results UI and Reports). */
 export function shouldLoadCompanyResultsScreen(screen: RoutedScreen): boolean {
-  return screen === "results" || screen === "reports" || screen === "schedules";
+  return screen === "results" || screen === "reports";
+}
+
+/** Schedules page enriches last-completed from company results. */
+export function shouldLoadSchedulesResultsEnrichment(screen: RoutedScreen): boolean {
+  return screen === "schedules";
+}
+
+/** Screens that should load GET …/users (company members list). */
+export function shouldLoadCompanyMembersScreen(screen: RoutedScreen): boolean {
+  return screen === "users" || screen === "invites" || screen === "admin";
 }
 
 /** Screens that should load GET …/google-forms. */

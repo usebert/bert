@@ -214,7 +214,7 @@ const coreRoutes = read("server/core-workflow-routes.mjs");
 assert(checkService.includes("/api/me/assigned-checks"), "8: frontend assigned-checks API path");
 assert(!checkService.includes('params.set("companyFolderId"'), "8a: client does not send companyFolderId query param");
 assert(!checkService.includes('params.set("masterSheetId"'), "8a2: client does not send masterSheetId query param");
-assert(!checkService.includes("URLSearchParams"), "8a3: client does not build assigned-checks query string");
+assert(checkService.includes("limit=") && checkService.includes("DASHBOARD_ASSIGNED_CHECKS_PREVIEW_LIMIT"), "8a3: client may send optional assigned-checks limit only");
 assert(coreRoutes.includes('app.get("/api/me/assigned-checks"'), "8b: server assigned-checks route");
 assert(coreRoutes.includes("SESSION_COMPANY_REQUIRED"), "8b2: route requires session company folder");
 assert(
@@ -231,8 +231,9 @@ assert(
 );
 assert(!checkService.includes("isScheduleAssignedToUser"), "8c: frontend does not client-filter by email");
 assert(appSrc.includes("fetchAssignedChecks"), "8d: App loads assigned checks from API");
-assert(read("src/config/roleNavigation.ts").includes("shouldLoadAssignedChecksScreen"), "8h: Complete Work screen gate helper exists");
-assert(appSrc.includes("shouldLoadAssignedChecksScreen(screen, currentUser.role)"), "8h1: App uses assigned-checks screen gate");
+assert(read("src/config/roleNavigation.ts").includes("shouldLoadFullAssignedChecksScreen"), "8h: Complete Work screen gate helper exists");
+assert(appSrc.includes("shouldLoadFullAssignedChecksScreen(screen, currentUser.role)"), "8h1: App uses full assigned-checks screen gate");
+assert(appSrc.includes("shouldLoadDashboardAssignedChecksPreview(screen, currentUser.role)"), "8h1b: App uses dashboard assigned-checks preview gate");
 assert(checkService.includes("fetchJson"), "8e: assigned checks uses fetchJson diagnostics");
 assert(checkService.includes("loadErrorDetail"), "8f: assigned checks exposes load error detail");
 assert(!checkService.includes("error.message : ASSIGNED_CHECKS_USER_MESSAGE"), "8g: assigned checks does not surface raw NetworkError as primary message");
@@ -261,7 +262,7 @@ assert(read("server/schedule-service.mjs").includes("resolveContextMs"), "8o: as
 }
 assert(appSrc.includes("readAssignedChecksCache"), "8q: App reads assigned checks cache while refreshing");
 assert(appSrc.includes("writeAssignedChecksCache"), "8r: App writes assigned checks cache after load");
-assert(/listMyChecks[\s\S]{0,500}readSchedulesFromTab/.test(read("server/schedule-service.mjs")), "8s: listMyChecks uses direct Schedules tab read");
+assert(/listMyChecks[\s\S]{0,900}readSchedulesFromTab/.test(read("server/schedule-service.mjs")), "8s: listMyChecks uses direct Schedules tab read");
 assert(read("src/utils/auditAccess.ts").includes("buildAuditFromAssignedSchedule"), "8t: Complete Work cards render without template hydration requirement");
 
 /** 10: Production fixture — icloud assignee + gf-check audit + folder id alternates. */
