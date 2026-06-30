@@ -1,3 +1,4 @@
+import { invalidateCompanyAreasCache } from "./company-areas-cache.mjs";
 import {
   LEGACY_SCHEDULE_TAB,
   SCHEDULES_TAB,
@@ -392,6 +393,7 @@ export function installCompanyAuditMappingRoutes(app, deps) {
       }));
       const merged = [...kept, ...nextForArea];
       await writeTab(deps, authed, masterSheetId, AREA_AUDITS_TAB, AREA_AUDITS_COLUMNS, areaAuditsToRows(merged));
+      invalidateCompanyAreasCache(masterSheetId);
       return res.json({ ok: true, areaId, areaAudits: merged });
     } catch (error) {
       return res.status(500).json({
@@ -452,6 +454,7 @@ export function installCompanyAuditMappingRoutes(app, deps) {
         AUDIT_TEMPLATES_COLUMNS,
         auditTemplatesToRows(normalized),
       );
+      invalidateCompanyAreasCache(masterSheetId);
       return res.json({ ok: true, auditTemplates: normalized });
     } catch (error) {
       return res.status(500).json({
@@ -493,6 +496,7 @@ export function installCompanyAuditMappingRoutes(app, deps) {
         USER_AREA_ACCESS_COLUMNS,
         userAreaAccessToRows(normalized),
       );
+      invalidateCompanyAreasCache(masterSheetId);
       return res.json({ ok: true, userAreaAccess: normalized });
     } catch (error) {
       return res.status(500).json({
@@ -535,6 +539,7 @@ export function installCompanyAuditMappingRoutes(app, deps) {
         USER_AUDIT_ACCESS_COLUMNS,
         userAuditAccessToRows(normalized),
       );
+      invalidateCompanyAreasCache(masterSheetId);
       return res.json({ ok: true, userAuditAccess: normalized });
     } catch (error) {
       return res.status(500).json({
