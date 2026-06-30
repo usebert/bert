@@ -158,6 +158,7 @@ import {
   logLoginTimingMark,
   safeLoginRequestHintMeta,
 } from "./login-timing.mjs";
+import { attachApiRouteTimingFinish, createApiTimingTrace } from "./api-timing.mjs";
 import { debugVerifyUserPassword } from "./user-auth-service.mjs";
 import { createAuthIndexApi, syncAuthIndexAfterUsersRead } from "./auth-index.mjs";
 import { completeInviteToUserRow } from "./company-user-sheet-flow.mjs";
@@ -5361,6 +5362,9 @@ app.post("/api/onboarding/app-invites/company-user", requireGoogleWorkspaceEnv, 
 });
 
 app.get("/api/onboarding/app-invites", requireGoogleWorkspaceEnv, (req, res) => {
+  const routeTiming = createApiTimingTrace({ route: "app-invites" });
+  routeTiming.mark("route_entered");
+  attachApiRouteTimingFinish(res, routeTiming);
   const actor = parseBertActorFromRequest(req);
   const permissionSession = buildInvitePermissionSession(actor);
   if (!actor || (!isGodmodeInviteSession(permissionSession) && !isCompanyInviteActor(permissionSession))) {

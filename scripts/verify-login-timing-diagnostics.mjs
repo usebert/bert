@@ -13,6 +13,11 @@ import {
   safeLoginRequestHintMeta,
   safeLoginTimingMeta,
 } from "../server/login-timing.mjs";
+import {
+  API_TIMING_PREFIX,
+  attachApiRouteTimingFinish,
+  createApiTimingTrace,
+} from "../server/api-timing.mjs";
 import { buildCompanySessionApiResponse } from "../server/auth-service.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -34,6 +39,8 @@ const pkg = JSON.parse(read("package.json"));
 assert(pkg.scripts["verify:login-timing-diagnostics"], "PKG: npm script registered");
 
 const loginTimingModule = read("server/login-timing.mjs");
+const apiTimingModule = read("server/api-timing.mjs");
+const coreWorkflowRoutes = read("server/core-workflow-routes.mjs");
 const authService = read("server/auth-service.mjs");
 const userAuth = read("server/user-auth-service.mjs");
 const serverMain = read("server/server.mjs");
@@ -41,6 +48,15 @@ const appTsx = read("App.tsx");
 const clientTiming = read("src/utils/loginTiming.ts");
 
 assert(loginTimingModule.includes("safeLoginTimingMeta"), "static: safeLoginTimingMeta exported");
+assert(apiTimingModule.includes("safeLoginTimingMeta"), "static: api-timing reuses safeLoginTimingMeta");
+assert(apiTimingModule.includes(API_TIMING_PREFIX), "static: api timing prefix constant");
+assert(coreWorkflowRoutes.includes("api-timing.mjs"), "static: core-workflow-routes uses api-timing module");
+assert(coreWorkflowRoutes.includes('beginTrackedApiRoute(req, res, "users")'), "static: users route has api timing");
+assert(coreWorkflowRoutes.includes('beginTrackedApiRoute(req, res, "schedule-assignees")'), "static: schedule-assignees route has api timing");
+assert(coreWorkflowRoutes.includes('beginTrackedApiRoute(req, res, "assigned-checks")'), "static: assigned-checks route has api timing");
+assert(coreWorkflowRoutes.includes('beginTrackedApiRoute(req, res, "results")'), "static: results route has api timing");
+assert(coreWorkflowRoutes.includes('beginTrackedApiRoute(req, res, "google-forms")'), "static: google-forms route has api timing");
+assert(serverMain.includes('createApiTimingTrace({ route: "app-invites" })'), "static: app-invites route has api timing");
 assert(loginTimingModule.includes("safeLoginRequestHintMeta"), "static: safeLoginRequestHintMeta exported");
 assert(loginTimingModule.includes(LOGIN_TIMING_PREFIX), "static: login timing prefix constant");
 assert(authService.includes("login-timing.mjs"), "static: auth-service uses login-timing module");
@@ -198,6 +214,50 @@ for (const phase of requiredServerPhases) {
     userAuth.includes(`"${phase}"`);
   assert(inServer, `static: server logs phase ${phase}`);
 }
+
+const requiredApiPhases = ["route_entered", "response_sent", "total_duration"];
+for (const phase of requiredApiPhases) {
+  assert(
+    apiTimingModule.includes(`"${phase}"`) ||
+      coreWorkflowRoutes.includes(`"${phase}"`) ||
+      serverMain.includes(`"${phase}"`),
+    `static: api timing logs phase ${phase}`,
+  );
+}
+
+const apiCaptured = [];
+console.info = (...args) => {
+  apiCaptured.push(args.map((part) => String(part)).join(" "));
+};
+try {
+  const finishHandlers = [];
+  const mockRes = {
+    headersSent: false,
+    writableEnded: false,
+    on(event, handler) {
+      if (event === "finish") {
+        finishHandlers.push(handler);
+      }
+    },
+  };
+  const apiTrace = createApiTimingTrace({ route: "verify-api" });
+  apiTrace.mark("route_entered");
+  attachApiRouteTimingFinish(mockRes, apiTrace, { ok: true });
+  for (const handler of finishHandlers) {
+    handler();
+  }
+} finally {
+  console.info = originalInfo;
+}
+
+for (const line of apiCaptured) {
+  assert(line.includes(API_TIMING_PREFIX), `runtime: api timing line uses prefix (${line})`);
+  assert(!/password=|passwordHash=|\"password\":/i.test(line), `runtime: api timing must not leak password (${line})`);
+  assert(!/\"token\":/i.test(line), `runtime: api timing must not include token (${line})`);
+}
+assert(apiCaptured.some((line) => line.includes("route_entered")), "runtime: api route_entered logged");
+assert(apiCaptured.some((line) => line.includes("response_sent")), "runtime: api response_sent logged");
+assert(apiCaptured.some((line) => line.includes("total_duration")), "runtime: api total_duration logged");
 
 const requiredClientPhases = [
   "login_button_clicked",
