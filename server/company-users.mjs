@@ -4,6 +4,7 @@
  */
 import { hashPassword, verifyPassword } from "./master-auth.mjs";
 import { patchTabRowByHeader } from "./workbook-service.mjs";
+import { invalidateUsersTabCache } from "./users-tab-cache.mjs";
 import { isUserAuthScryptHash } from "./userauth-password.mjs";
 import {
   USERS_TAB,
@@ -405,6 +406,7 @@ async function writeUsersRowPatch(auth, spreadsheetId, match, patch, deps) {
     throw new Error("Users row patch requires Email header.");
   }
   await patchTabRowByHeader(auth, deps, spreadsheetId, tabTitle, "Email", email, patch);
+  invalidateUsersTabCache(spreadsheetId, { source: "writeUsersRowPatch" });
 }
 
 /** Write or update a Users tab row using actual sheet header order (never positional TAB_COLUMNS). */
@@ -481,6 +483,7 @@ export async function writeUsersTabRecordByHeaders(auth, spreadsheetId, record, 
       return { ok: false, reason: "password_hash_mismatch" };
     }
   }
+  invalidateUsersTabCache(spreadsheetId, { source: "writeUsersTabRecordByHeaders" });
   return { ok: true, email: emailNorm, updated: rowIndex >= 0, appended: rowIndex === -1 };
 }
 
@@ -839,6 +842,7 @@ export async function migrateUsersTabCompanyColumns(auth, spreadsheetId, company
         requestBody: { values: nextRows },
       }),
     );
+    invalidateUsersTabCache(spreadsheetId, { source: "migrateUsersTabCompanyColumns" });
   }
   return { ok: true, addedColumns, backfilled, companyColumnsAdded: addedColumns.length > 0 };
 }
@@ -934,6 +938,7 @@ export async function migrateUsersTabColumns(auth, spreadsheetId, deps, options 
         requestBody: { values: nextRows },
       }),
     );
+    invalidateUsersTabCache(spreadsheetId, { source: "migrateUsersTabColumns" });
   }
   return { ok: true, addedColumns, backfilled };
 }

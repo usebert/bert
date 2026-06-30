@@ -169,6 +169,7 @@ import {
 import { listSchedulerAssignees } from "./schedule-service.mjs";
 import { createCompanyUsersCacheApi } from "./company-users-cache.mjs";
 import { createMasterSheetCacheApi } from "./master-sheet-cache.mjs";
+import { invalidateUsersTabCache, wrapGetTabValuesWithUsersTabCache } from "./users-tab-cache.mjs";
 import { rebuildUsersFromSheet } from "./company-users-foundation.mjs";
 import {
   inspectConfiguredWorkspaceRoot,
@@ -3238,7 +3239,7 @@ async function updateConfig(auth, spreadsheetId, patch) {
 
 function getCompanyUsersDeps() {
   return {
-    getTabValues,
+    getTabValues: wrapGetTabValuesWithUsersTabCache(getTabValues),
     getConfig,
     updateConfig,
     ensureColumns,
@@ -3330,6 +3331,7 @@ async function deleteUsersTabRowByEmail(auth, spreadsheetId, email) {
       },
     }),
   );
+  invalidateUsersTabCache(spreadsheetId, { source: "deleteUsersTabRowByEmail" });
   return true;
 }
 

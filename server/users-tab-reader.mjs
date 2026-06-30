@@ -2,7 +2,8 @@
  * Company workbook Users tab resolution and reads — legacy tab names, header repair, error surfacing.
  */
 import { classifyGoogleSheetsAccessError } from "./ensure-required-tabs.mjs";
-import { ensureTabColumns, readTabRecords, writeTabRecords } from "./workbook-service.mjs";
+import { ensureTabColumns, getTabValues as workbookGetTabValues, readTabRecords, rowsToRecords, writeTabRecords } from "./workbook-service.mjs";
+import { readUsersTabValuesWithCache, invalidateUsersTabCache } from "./users-tab-cache.mjs";
 import { USERS_TAB, USERS_TAB_COLUMNS, USERS_TAB_MINIMUM_HEADERS } from "./users-tab-constants.mjs";
 import {
   isShiftedLegacyUsersRow,
@@ -230,16 +231,19 @@ export async function readCompanyUsers(auth, spreadsheetId, deps, options = {}) 
       createIfMissing: options.createIfMissing !== false,
     }));
 
-  const { google, withSheetsQuotaRetry } = deps;
-  const sheets = google.sheets({ version: "v4", auth });
   const tabTitle = resolved.tabTitle || USERS_TAB;
+  const sheetId = resolved.spreadsheetId || spreadsheetId;
 
   try {
-    const readResult = await readTabRecords(auth, deps, resolved.spreadsheetId || spreadsheetId, tabTitle, {
-      expectedHeaders: USERS_TAB_ENSURE_HEADERS,
-    });
+    await ensureTabColumns(auth, deps, sheetId, tabTitle, USERS_TAB_ENSURE_HEADERS);
+    const rawValues =
+      typeof deps.getTabValues === "function"
+        ? await deps.getTabValues(auth, sheetId, tabTitle)
+        : await readUsersTabValuesWithCache(auth, sheetId, tabTitle, () =>
+            workbookGetTabValues(auth, deps, sheetId, tabTitle),
+          );
     const records = sanitizeUsersTabRecords(
-      (readResult.records || []).map((row) => normalizeUsersTabRowObject(row)),
+      rowsToRecords(rawValues).map((row) => normalizeUsersTabRowObject(row)),
     );
     return {
       ok: true,
@@ -386,6 +390,7 @@ export async function repairUsersTabSchema(auth, spreadsheetId, deps, options = 
       }, {}),
     );
     await writeTabRecords(auth, deps, spreadsheetId, tabTitle, canonicalHeaders, dataRows);
+    invalidateUsersTabCache(spreadsheetId, { source: "repairUsersTabSchema" });
   }
 
   let companyMigration = null;
