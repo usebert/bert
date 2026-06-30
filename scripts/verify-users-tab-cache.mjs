@@ -8,8 +8,10 @@ import { fileURLToPath } from "node:url";
 import { hashPassword } from "../server/master-auth.mjs";
 import {
   clearUsersTabCache,
+  classifyUsersTabCacheMiss,
   getUsersTabCache,
   invalidateUsersTabCache,
+  setUsersTabCache,
   wrapGetTabValuesWithUsersTabCache,
 } from "../server/users-tab-cache.mjs";
 import {
@@ -18,7 +20,7 @@ import {
   verifyUserPasswordFromUsersTab,
 } from "../server/user-auth-service.mjs";
 import { listableProfilesFromUsersTabRecords } from "../server/users-tab-profiles.mjs";
-import { writeUsersTabRecordByHeaders } from "../server/company-users.mjs";
+import { touchCompanyUserLastLogin, writeUsersTabRecordByHeaders } from "../server/company-users.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 let caseCount = 0;
@@ -47,6 +49,16 @@ assert(cacheModule.includes("users_tab_cache_hit"), "static: cache hit log event
 assert(cacheModule.includes("users_tab_cache_miss"), "static: cache miss log event");
 assert(cacheModule.includes("users_tab_cache_set"), "static: cache set log event");
 assert(cacheModule.includes("users_tab_cache_invalidate"), "static: cache invalidate log event");
+assert(cacheModule.includes("missReason"), "static: cache miss reason logged");
+assert(cacheModule.includes("no_entry"), "static: no_entry miss reason");
+assert(cacheModule.includes("expired"), "static: expired miss reason");
+assert(cacheModule.includes("key_mismatch"), "static: key_mismatch miss reason");
+assert(cacheModule.includes("manually_invalidated"), "static: manually_invalidated miss reason");
+assert(companyUsers.includes("skipCacheInvalidation"), "static: last-login touch skips cache invalidation");
+assert(!serverSource.includes('invalidateUsersTabCache') || !serverSource.slice(
+  serverSource.indexOf('app.post("/api/auth/company/logout"'),
+  serverSource.indexOf('async function respondCompanyUserSession'),
+).includes("invalidateUsersTabCache"), "static: company logout does not invalidate Users tab cache");
 assert(serverSource.includes("wrapGetTabValuesWithUsersTabCache"), "static: server wraps getTabValues");
 assert(companyUsers.includes("invalidateUsersTabCache"), "static: company-users invalidates cache");
 assert(usersTabReader.includes("readUsersTabValuesWithCache") || usersTabReader.includes("deps.getTabValues"), "static: users-tab-reader uses cache layer");
@@ -60,7 +72,7 @@ const passwordHash = hashPassword(password);
 
 function buildUsersTabRows(store) {
   return [
-    ["Email", "PasswordHash", "Status", "Role", "Name", "CompanyFolderId", "CompanyName"],
+    ["Email", "PasswordHash", "Status", "Role", "Name", "CompanyFolderId", "CompanyName", "LastLoginAt", "UpdatedAt"],
     ...[...store.entries()].map(([rowEmail, row]) => [
       rowEmail,
       row.passwordHash,
@@ -69,8 +81,25 @@ function buildUsersTabRows(store) {
       row.name,
       row.companyFolderId,
       row.companyName,
+      row.lastLoginAt || "",
+      row.updatedAt || "",
     ]),
   ];
+}
+
+function createGoogleSheetsMock(store) {
+  return {
+    spreadsheets: {
+      get: async () => ({
+        data: { sheets: [{ properties: { title: "Users", sheetId: 1 } }] },
+      }),
+      values: {
+        get: async () => ({ data: { values: buildUsersTabRows(store) } }),
+        update: async () => null,
+        append: async () => null,
+      },
+    },
+  };
 }
 
 function createCachedDeps(initial = {}) {
@@ -91,14 +120,7 @@ function createCachedDeps(initial = {}) {
     updateConfig: async () => null,
     ensureColumns: async () => ({ addedColumns: [] }),
     google: {
-      sheets: () => ({
-        spreadsheets: {
-          values: {
-            update: async () => null,
-            append: async () => null,
-          },
-        },
-      }),
+      sheets: () => createGoogleSheetsMock(store),
     },
     withSheetsQuotaRetry: (fn) => fn(),
     resolveUsersTab: async () => ({ tabTitle: "Users" }),
@@ -429,6 +451,51 @@ async function runRuntimeTests() {
   );
   assert(folderColdLogin.ok === true, "runtime: folder candidate cold cache miss still returns 200");
   assert(folderColdReads >= 1, "runtime: folder candidate performed Users tab read on cold cache");
+
+  clearUsersTabCache();
+  const reloginDeps = createCachedDeps({
+    [email]: {
+      passwordHash,
+      status: "ACTIVE",
+      role: "Admin",
+      name: "Relogin User",
+      companyFolderId: loginCompanyFolderId,
+      companyName: "Cache Co",
+    },
+  });
+  const relogin = await authenticateCompanyUserLogin(
+    {},
+    { getCompanyUsersDeps: () => reloginDeps },
+    { email, password, masterSheetId: loginMasterSheetId },
+  );
+  assert(relogin.ok === true, "runtime: first login cache_miss/set → 200");
+  assert(reloginDeps.googleReads() === 1, "runtime: first login performed one Users tab read");
+  assert(getUsersTabCache(loginMasterSheetId) !== null, "runtime: first login populated cache");
+
+  await touchCompanyUserLastLogin({}, loginMasterSheetId, email, reloginDeps);
+  assert(getUsersTabCache(loginMasterSheetId) !== null, "runtime: post-login last-login touch preserves cache");
+  assert(classifyUsersTabCacheMiss(loginMasterSheetId) === null, "runtime: cache still fresh after last-login touch");
+
+  reloginDeps.resetReads();
+  const secondLogin = await authenticateCompanyUserLogin(
+    {},
+    { getCompanyUsersDeps: () => reloginDeps },
+    { email, password, masterSheetId: loginMasterSheetId },
+  );
+  assert(secondLogin.ok === true, "runtime: second login within TTL → cache_hit → 200");
+  assert(reloginDeps.googleReads() === 0, "runtime: second login avoids Google read on cache hit");
+
+  clearUsersTabCache();
+  setUsersTabCache(loginMasterSheetId, {
+    headers: ["Email", "PasswordHash"],
+    rows: [["Email", "PasswordHash"], [email, passwordHash]],
+  });
+  invalidateUsersTabCache(loginMasterSheetId, { source: "test" });
+  assert(
+    classifyUsersTabCacheMiss(loginMasterSheetId) === "manually_invalidated",
+    "runtime: manual invalidation miss reason",
+  );
+  assert(classifyUsersTabCacheMiss("") === "key_mismatch", "runtime: empty cache key is key_mismatch");
 }
 
 await runRuntimeTests();

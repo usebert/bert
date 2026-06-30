@@ -11,6 +11,8 @@ const USERS_TAB_LEGACY_LOWER = new Set(["companyusers", "user", "login", "compan
 const CACHE_TIMING_PREFIX = "[users-tab-cache]";
 
 const memory = new Map();
+/** masterSheetId → invalidatedAt ms — distinguishes manual invalidation from cold miss. */
+const invalidatedAt = new Map();
 
 export const USERS_TAB_CACHE_TTL_MS = DEFAULT_TTL_MS;
 
@@ -36,6 +38,29 @@ function isFresh(entry) {
     return false;
   }
   return Date.now() - cachedAt < DEFAULT_TTL_MS;
+}
+
+/**
+ * Classify why a cache lookup missed (within TTL window).
+ * @returns {"no_entry"|"expired"|"key_mismatch"|"manually_invalidated"|null}
+ */
+export function classifyUsersTabCacheMiss(masterSheetId) {
+  const id = trim(masterSheetId);
+  if (!id) {
+    return "key_mismatch";
+  }
+  const manualAt = invalidatedAt.get(id);
+  if (manualAt && Date.now() - manualAt < DEFAULT_TTL_MS) {
+    return "manually_invalidated";
+  }
+  const entry = memory.get(id);
+  if (!entry) {
+    return "no_entry";
+  }
+  if (!isFresh(entry)) {
+    return "expired";
+  }
+  return null;
 }
 
 /** @returns {{ headers: string[], rows: unknown[][], tabTitle?: string } | null} */
@@ -74,7 +99,36 @@ export function setUsersTabCache(masterSheetId, payload = {}) {
     cachedAt: Date.now(),
   };
   memory.set(id, entry);
+  invalidatedAt.delete(id);
   return { headers: entry.headers, rows: entry.rows };
+}
+
+/**
+ * Patch a cached Users tab row in place (e.g. LastLoginAt) without invalidating the cache.
+ * @returns {boolean} true when the cached row was updated
+ */
+export function patchUsersTabCacheRow(masterSheetId, sheetRowIndex, headers, patch = {}) {
+  const id = trim(masterSheetId);
+  const entry = memory.get(id);
+  if (!id || !entry || !isFresh(entry) || !Array.isArray(entry.rows)) {
+    return false;
+  }
+  const rowIdx = Number(sheetRowIndex);
+  if (!Number.isFinite(rowIdx) || rowIdx < 1 || rowIdx >= entry.rows.length) {
+    return false;
+  }
+  const hdrs = Array.isArray(headers) && headers.length ? headers : entry.headers;
+  const row = entry.rows[rowIdx];
+  if (!Array.isArray(row)) {
+    return false;
+  }
+  for (const [key, value] of Object.entries(patch)) {
+    const colIndex = hdrs.findIndex((header) => safeLower(header) === safeLower(key));
+    if (colIndex >= 0) {
+      row[colIndex] = String(value ?? "").trim();
+    }
+  }
+  return true;
 }
 
 export function invalidateUsersTabCache(masterSheetId, meta = {}) {
@@ -84,6 +138,7 @@ export function invalidateUsersTabCache(masterSheetId, meta = {}) {
   }
   const hadEntry = memory.has(id);
   memory.delete(id);
+  invalidatedAt.set(id, Date.now());
   const t0 = Date.now();
   console.info(CACHE_TIMING_PREFIX, "users_tab_cache_invalidate", {
     durationMs: Date.now() - t0,
@@ -97,6 +152,7 @@ export function invalidateUsersTabCache(masterSheetId, meta = {}) {
 /** Test-only — clear all cached Users tab entries. */
 export function clearUsersTabCache() {
   memory.clear();
+  invalidatedAt.clear();
 }
 
 function logCacheEvent(event, startMs, meta = {}) {
@@ -128,7 +184,12 @@ export async function readUsersTabValuesWithCache(auth, masterSheetId, tabTitle,
   }
 
   const tMiss = Date.now();
-  logCacheEvent("users_tab_cache_miss", tMiss, { masterSheetId: id, tabTitle: tab });
+  const missReason = classifyUsersTabCacheMiss(id);
+  logCacheEvent("users_tab_cache_miss", tMiss, {
+    masterSheetId: id,
+    tabTitle: tab,
+    missReason: missReason || "no_entry",
+  });
 
   const rows = await readFn();
   if (!Array.isArray(rows) || rows.length === 0) {

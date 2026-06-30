@@ -398,7 +398,7 @@ async function readUsersTabHeaders(auth, spreadsheetId, deps) {
   return { tabTitle, headers, rows };
 }
 
-async function writeUsersRowPatch(auth, spreadsheetId, match, patch, deps) {
+async function writeUsersRowPatch(auth, spreadsheetId, match, patch, deps, options = {}) {
   const { tabTitle } = await readUsersTabHeaders(auth, spreadsheetId, deps);
   const current = normalizeUsersTabRowObject(match.rowObject || {});
   const email = safeLower(current.Email || current.email || "");
@@ -406,7 +406,9 @@ async function writeUsersRowPatch(auth, spreadsheetId, match, patch, deps) {
     throw new Error("Users row patch requires Email header.");
   }
   await patchTabRowByHeader(auth, deps, spreadsheetId, tabTitle, "Email", email, patch);
-  invalidateUsersTabCache(spreadsheetId, { source: "writeUsersRowPatch" });
+  if (options.skipCacheInvalidation !== true) {
+    invalidateUsersTabCache(spreadsheetId, { source: "writeUsersRowPatch" });
+  }
 }
 
 /** Write or update a Users tab row using actual sheet header order (never positional TAB_COLUMNS). */
@@ -524,7 +526,14 @@ export async function touchCompanyUserLastLogin(auth, spreadsheetId, email, deps
     return;
   }
   const now = new Date().toISOString();
-  await writeUsersRowPatch(auth, spreadsheetId, match, { LastLoginAt: now, UpdatedAt: now }, deps);
+  await writeUsersRowPatch(
+    auth,
+    spreadsheetId,
+    match,
+    { LastLoginAt: now, UpdatedAt: now },
+    deps,
+    { skipCacheInvalidation: true },
+  );
 }
 
 /**
