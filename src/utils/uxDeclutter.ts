@@ -63,3 +63,28 @@ export function softenUserFacingMessage(message: string, role: Role | undefined)
     .replace(/\bhealth check\b/gi, "readiness check")
     .replace(/\bsync log\b/gi, "activity");
 }
+
+export function resolveSignedInAssigneeEmail(user: unknown): string {
+  if (!user || typeof user !== "object") return "";
+
+  const record = user as Record<string, unknown>;
+
+  const candidates = [
+    record.email,
+    record.Email,
+    record.userEmail,
+    record.UserEmail,
+    record.profileEmail,
+    record.ProfileEmail,
+    record.assigneeEmail,
+    record.AssigneeEmail,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim().toLowerCase();
+    }
+  }
+
+  return "";
+}
