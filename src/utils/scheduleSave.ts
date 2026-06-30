@@ -1,6 +1,10 @@
 import type { ScheduleAssigneeOption } from "./scheduleAssignees";
 import { normalizeScheduleValue } from "./scheduleAssignees";
-import { getScheduleAssignedEmails } from "./scheduleAssignment";
+import {
+  getScheduleAssignedEmails,
+  isValidAssigneeEmail,
+  resolveAssigneeTokensToEmails,
+} from "./scheduleAssignment";
 
 export type ScheduleAssignedUser = {
   email: string;
@@ -24,27 +28,26 @@ export function buildAssignedUsersForSave(
   selectedIds: string[],
   assigneeOptions: ScheduleAssigneeOption[],
 ): ScheduleAssignedUser[] {
+  const directory = assigneeOptions.map((option) => ({
+    email: option.email,
+    name: option.name,
+  }));
+  const resolvedEmails = resolveAssigneeTokensToEmails(selectedIds, directory);
   const users: ScheduleAssignedUser[] = [];
   const seen = new Set<string>();
 
-  for (const selectedId of selectedIds) {
-    const key = normalizeScheduleValue(selectedId);
-    if (!key || seen.has(key)) {
+  for (const email of resolvedEmails) {
+    if (!isValidAssigneeEmail(email) || seen.has(email)) {
       continue;
     }
-    seen.add(key);
+    seen.add(email);
 
     const assignee = assigneeOptions.find(
       (option) =>
-        normalizeScheduleValue(option.id) === key ||
-        normalizeScheduleValue(option.email) === key ||
-        normalizeScheduleValue(option.name) === key,
+        normalizeScheduleValue(option.id) === email ||
+        normalizeScheduleValue(option.email) === email ||
+        normalizeScheduleValue(option.name) === email,
     );
-    const email = (assignee?.email || selectedId).trim().toLowerCase();
-    if (!email) {
-      continue;
-    }
-
     const role = assignee?.role || "User";
     users.push({
       email,

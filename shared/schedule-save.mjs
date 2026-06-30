@@ -2,7 +2,7 @@
  * Schedule save helpers — Schedules tab columns, assignedUsers payload, backward-compat load.
  */
 import { inviteAccessLevelForRole } from "./schedule-assignees.mjs";
-import { getScheduleAssignedEmails } from "./schedule-assignment.mjs";
+import { getScheduleAssignedEmails, isValidAssigneeEmail } from "./schedule-assignment.mjs";
 import { resolveScheduleCompletionMode } from "./schedule-completion-mode.mjs";
 
 export const SCHEDULES_TAB = "Schedules";
@@ -54,7 +54,7 @@ function extractField(record, keys) {
 
 export function normalizeAssignedUser(user = {}) {
   const email = String(user.email || "").trim().toLowerCase();
-  if (!email) {
+  if (!email || !email.includes("@")) {
     return null;
   }
   return {
@@ -85,7 +85,7 @@ export function buildAssignedUsersFromSelection(selectedIds = [], assigneeOption
     const tabRow = tabRows.find((row) => normalize(row.email) === key);
 
     const normalized = normalizeAssignedUser({
-      email: assignee?.email || tabRow?.email || selectedId,
+      email: assignee?.email || tabRow?.email || (isValidAssigneeEmail(selectedId) ? selectedId : ""),
       name: assignee?.name || tabRow?.name,
       role: assignee?.role || tabRow?.role || "User",
       accessLevel: tabRow?.accessLevel || inviteAccessLevelForRole(assignee?.role || tabRow?.role || "User"),

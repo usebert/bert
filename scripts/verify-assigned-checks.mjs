@@ -830,4 +830,150 @@ assert(read("src/utils/auditAccess.ts").includes("buildCompleteWorkAssignedAudit
   assert(schedulesScreen.includes("resolveScheduleListStatusChip"), "15m: schedules screen shows management status chip");
 }
 
+/** 16: Canonical assignee identity — icloud vs gmail, name fallback, save enrichment, profile/session gate. */
+{
+  const {
+    getScheduleAssignedEmails,
+    getScheduleAssigneeIdentityTokens,
+    isScheduleAssignedToUser,
+    isValidAssigneeEmail,
+    resolveAssigneeTokensToEmails,
+  } = await import("../shared/schedule-assignment.mjs");
+  const {
+    enrichSchedulesWithCanonicalAssignees,
+    buildScheduleAssignmentFields,
+    listMyChecks,
+  } = await import("../server/schedule-service.mjs");
+
+  const directory = [
+    { email: "dovecotestudio@icloud.com", name: "Edward Thomas", role: "Admin" },
+    { email: "7oakcottages@gmail.com", name: "Other User", role: "Manager" },
+  ];
+
+  assert(isValidAssigneeEmail("dovecotestudio@icloud.com"), "16a: icloud email valid");
+  assert(!isValidAssigneeEmail("Edward Thomas"), "16b: display name is not assignee email");
+
+  const nameOnlySchedule = {
+    assignedUserEmails: "Edward Thomas",
+    assignedAuditors: "Edward Thomas",
+  };
+  assert(getScheduleAssignedEmails(nameOnlySchedule).length === 0, "16c: names alone are not canonical emails");
+  assert(
+    isScheduleAssignedToUser(nameOnlySchedule, "dovecotestudio@icloud.com", { assigneeDirectory: directory }),
+    "16d: Users tab resolves display name to icloud email",
+  );
+  assert(
+    !isScheduleAssignedToUser(nameOnlySchedule, "7oakcottages@gmail.com", { assigneeDirectory: directory }),
+    "16e: gmail user does not inherit icloud assignment",
+  );
+
+  const resolved = resolveAssigneeTokensToEmails(
+    getScheduleAssigneeIdentityTokens(nameOnlySchedule),
+    directory,
+  );
+  assert(resolved[0] === "dovecotestudio@icloud.com", "16f: token resolver returns canonical icloud email");
+  const fields = buildScheduleAssignmentFields(directory, resolved);
+  assert(fields.AssignedUserEmails === "dovecotestudio@icloud.com", "16g: save fields write canonical email column");
+
+  const enriched = await enrichSchedulesWithCanonicalAssignees(
+    {},
+    {
+      listActiveUsers: async () => ({
+        ok: true,
+        users: directory,
+        companyFolderId: "1TVQ-gbpxoOzE6PCkHX581eTDgtMC11lc",
+        masterSheetId: "1PlwknNgtt-4j08matn1w4358YTe5SXFs5Hh0zA_m3So",
+      }),
+    },
+    {
+      companyFolderId: "1TVQ-gbpxoOzE6PCkHX581eTDgtMC11lc",
+      masterSheetId: "1PlwknNgtt-4j08matn1w4358YTe5SXFs5Hh0zA_m3So",
+    },
+    [{ scheduleName: "New schedule", assignedUserEmails: "Edward Thomas" }],
+  );
+  assert(
+    enriched[0]?.assignedUserEmails?.[0] === "dovecotestudio@icloud.com",
+    "16h: save enrichment canonicalises display name to icloud email",
+  );
+
+  const icloudChecks = await listMyChecks(
+    {},
+    {
+      readTabRecords: async () => ({
+        ok: true,
+        records: [
+          {
+            "Schedule ID": "schedule-new",
+            "Company Folder ID": "1TVQ-gbpxoOzE6PCkHX581eTDgtMC11lc",
+            "Schedule Name": "New schedule",
+            Status: "ACTIVE",
+            "Assigned User Emails": "Edward Thomas",
+            "Assigned User Names": "Edward Thomas",
+            "Audit ID": "gf-check-1",
+            "Template Name": "DC H&S Audit",
+            Frequency: "Weekly",
+          },
+        ],
+        rowCount: 1,
+      }),
+      getTabValues: async () => [],
+      listActiveUsers: async () => ({
+        ok: true,
+        users: directory,
+        companyFolderId: "1TVQ-gbpxoOzE6PCkHX581eTDgtMC11lc",
+        masterSheetId: "1PlwknNgtt-4j08matn1w4358YTe5SXFs5Hh0zA_m3So",
+      }),
+    },
+    {
+      email: "dovecotestudio@icloud.com",
+      companyFolderId: "1TVQ-gbpxoOzE6PCkHX581eTDgtMC11lc",
+      masterSheetId: "1PlwknNgtt-4j08matn1w4358YTe5SXFs5Hh0zA_m3So",
+      trustSessionContext: true,
+    },
+  );
+  assert(icloudChecks.ok && icloudChecks.schedules.length === 1, "16i: icloud user sees name-stored assignment via directory");
+
+  const gmailChecks = await listMyChecks(
+    {},
+    {
+      readTabRecords: async () => ({
+        ok: true,
+        records: [
+          {
+            "Schedule ID": "schedule-new",
+            "Company Folder ID": "1TVQ-gbpxoOzE6PCkHX581eTDgtMC11lc",
+            "Schedule Name": "New schedule",
+            Status: "ACTIVE",
+            "Assigned User Emails": "dovecotestudio@icloud.com",
+            "Audit ID": "gf-check-1",
+            "Template Name": "DC H&S Audit",
+            Frequency: "Weekly",
+          },
+        ],
+        rowCount: 1,
+      }),
+      getTabValues: async () => [],
+      listActiveUsers: async () => ({
+        ok: true,
+        users: directory,
+        companyFolderId: "1TVQ-gbpxoOzE6PCkHX581eTDgtMC11lc",
+        masterSheetId: "1PlwknNgtt-4j08matn1w4358YTe5SXFs5Hh0zA_m3So",
+      }),
+    },
+    {
+      email: "7oakcottages@gmail.com",
+      companyFolderId: "1TVQ-gbpxoOzE6PCkHX581eTDgtMC11lc",
+      masterSheetId: "1PlwknNgtt-4j08matn1w4358YTe5SXFs5Hh0zA_m3So",
+      trustSessionContext: true,
+    },
+  );
+  assert(gmailChecks.ok && gmailChecks.schedules.length === 0, "16j: gmail user does not see icloud-only assignment");
+
+  const appSrc = read("App.tsx");
+  assert(appSrc.includes("sessionSignedInEmail"), "16k: App tracks session email for assigned-checks identity");
+  assert(appSrc.includes("assignedChecksIdentityMismatch"), "16l: App blocks profile/session identity mismatch for assigned-checks");
+  assert(appSrc.includes("enrichSchedulesWithCanonicalAssignees") === false, "16m: App does not bypass server save canonicalisation");
+  assert(read("server/schedule-service.mjs").includes("enrichSchedulesWithCanonicalAssignees"), "16n: server save canonicalises assignees");
+}
+
 console.log("[verify:assigned-checks] OK: assigned-check contract verified");

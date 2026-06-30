@@ -25,7 +25,13 @@ import {
   buildSchedulesTabRows,
 } from "../shared/schedule-save.mjs";
 import { enrichAssignedSchedulesWithCompletion } from "../shared/assigned-check-completion.mjs";
-import { getScheduleAssignedEmails, isScheduleAssignedToUser } from "../shared/schedule-assignment.mjs";
+import {
+  getScheduleAssignedEmails,
+  getScheduleAssigneeIdentityTokens,
+  isScheduleAssignedToUser,
+  isValidAssigneeEmail,
+  resolveAssigneeTokensToEmails,
+} from "../shared/schedule-assignment.mjs";
 import { listAuditResults } from "./completion-service.mjs";
 import { buildAvailableScheduleAssigneesFromUsers } from "../shared/schedule-assignees.mjs";
 import { syncCompanyUsersCache } from "./company-users-foundation.mjs";
@@ -373,6 +379,64 @@ export async function resolveCompanyScheduleContext(auth, deps, input = {}) {
   };
 }
 
+function scheduleNeedsAssigneeDirectory(schedule = {}) {
+  if (getScheduleAssignedEmails(schedule).length > 0) {
+    return false;
+  }
+  return getScheduleAssigneeIdentityTokens(schedule).length > 0;
+}
+
+async function loadAssigneeDirectoryForSchedules(auth, deps, context = {}) {
+  try {
+    const listed = await loadSchedulerAssigneeProfiles(auth, deps, {
+      companyId: context.companyId || context.companyFolderId,
+      companyFolderId: context.companyFolderId || context.companyId,
+      masterSheetId: context.masterSheetId,
+      companyName: context.companyName,
+    });
+    if (listed.ok && Array.isArray(listed.users)) {
+      return listed.users;
+    }
+  } catch {
+    /* best-effort */
+  }
+  return [];
+}
+
+/** Canonicalise schedule assignees via Users tab before writing to Schedules sheet. */
+export async function enrichSchedulesWithCanonicalAssignees(auth, deps, context = {}, schedules = []) {
+  const needsDirectory = schedules.some((schedule) => scheduleNeedsAssigneeDirectory(schedule));
+  const assigneeDirectory = needsDirectory
+    ? await loadAssigneeDirectoryForSchedules(auth, deps, context)
+    : [];
+  return schedules.map((schedule) => {
+    const canonicalEmails = getScheduleAssignedEmails(schedule);
+    if (canonicalEmails.length > 0) {
+      const fields = buildScheduleAssignmentFields(assigneeDirectory, canonicalEmails);
+      return {
+        ...schedule,
+        assignedUsers: fields.assignedUsers,
+        assignedUserEmails: fields.assignedUserEmails,
+        auditors: fields.assignedUserEmails,
+        assignedUsersJson: JSON.stringify(fields.assignedUsers),
+      };
+    }
+    const tokens = getScheduleAssigneeIdentityTokens(schedule);
+    const resolvedEmails = resolveAssigneeTokensToEmails(tokens, assigneeDirectory);
+    const fields = buildScheduleAssignmentFields(assigneeDirectory, resolvedEmails);
+    if (fields.assignedUsers.length === 0) {
+      return schedule;
+    }
+    return {
+      ...schedule,
+      assignedUsers: fields.assignedUsers,
+      assignedUserEmails: fields.assignedUserEmails,
+      auditors: fields.assignedUserEmails,
+      assignedUsersJson: JSON.stringify(fields.assignedUsers),
+    };
+  });
+}
+
 /** Derive Schedules tab assignment columns from Users tab profiles + selected emails. */
 export function buildScheduleAssignmentFields(users = [], emails = []) {
   const userByEmail = new Map();
@@ -387,7 +451,7 @@ export function buildScheduleAssignmentFields(users = [], emails = []) {
   const seen = new Set();
   for (const rawEmail of emails) {
     const email = normalizeEmail(rawEmail);
-    if (!email || seen.has(email)) {
+    if (!isValidAssigneeEmail(email) || seen.has(email)) {
       continue;
     }
     seen.add(email);
@@ -661,6 +725,7 @@ export async function writeScheduleToTab(auth, deps, input = {}) {
   const createdBy = String(input.createdBy || "").trim();
   const resolvedCompanyId = context.companyFolderId;
   const { withSheetsQuotaRetry, google } = deps;
+  const canonicalSchedules = await enrichSchedulesWithCanonicalAssignees(auth, deps, context, schedules);
 
   try {
     const ensureTabColumns = resolveEnsureTabColumns(deps);
@@ -676,7 +741,7 @@ export async function writeScheduleToTab(auth, deps, input = {}) {
       (row) => String(row[companyFolderIndex] || "").trim() !== resolvedCompanyId,
     );
 
-    const nextRows = schedules.flatMap((schedule) => {
+    const nextRows = canonicalSchedules.flatMap((schedule) => {
       const assignedUsers = assignedUsersFromSchedule({
         ...schedule,
         createdBy: schedule.createdBy || schedule.createdByEmail || createdBy,
@@ -1020,6 +1085,19 @@ export async function listMyChecks(auth, deps, input = {}) {
     return listed;
   }
 
+  const needsAssigneeDirectory = (listed.schedules || []).some((schedule) =>
+    scheduleNeedsAssigneeDirectory(schedule),
+  );
+  const assigneeDirectory = needsAssigneeDirectory
+    ? await loadAssigneeDirectoryForSchedules(auth, deps, {
+        companyFolderId: listed.companyFolderId || companyFolderId,
+        companyId: listed.companyId || companyFolderId,
+        masterSheetId: listed.masterSheetId || masterSheetId,
+        companyName: listed.companyName || input.companyName,
+      })
+    : [];
+  const assigneeMatchOptions = { assigneeDirectory };
+
   const alternateIds = Array.isArray(listed.alternateIds) ? listed.alternateIds : [];
   const excluded = [];
   const filterStart = Date.now();
@@ -1051,13 +1129,14 @@ export async function listMyChecks(auth, deps, input = {}) {
       }
       return false;
     }
-    if (!isScheduleAssignedToUser(schedule, email)) {
+    if (!isScheduleAssignedToUser(schedule, email, assigneeMatchOptions)) {
       if (includeDiagnostics) {
         excluded.push({
           scheduleId: schedule.id,
           scheduleName: schedule.scheduleName,
           reason: "not_assigned",
           assignedUserEmails: getScheduleAssignedEmails(schedule),
+          assigneeIdentityTokens: getScheduleAssigneeIdentityTokens(schedule),
           status: schedule.status,
           lifecycle: schedule.lifecycle,
         });

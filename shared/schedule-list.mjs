@@ -10,7 +10,7 @@ import {
 } from "./schedule-save.mjs";
 
 export { LEGACY_SCHEDULE_TAB, SCHEDULES_TAB };
-import { getScheduleAssignedEmails } from "./schedule-assignment.mjs";
+import { getScheduleAssignedEmails, getScheduleAssigneeIdentityTokens } from "./schedule-assignment.mjs";
 import { resolveScheduleCompletionMode } from "./schedule-completion-mode.mjs";
 
 function normalize(value) {
@@ -118,9 +118,20 @@ export function parseCompanyScheduleListFromRecords(records = [], companyFolderI
       return;
     }
 
+    const assignedUserNames = extractField(record, ["assigned user names", "assignedusernames"]);
     const assignedUsers = parseAssignedUsersFromRecord(record);
+    const assigneeIdentityTokens = getScheduleAssigneeIdentityTokens({
+      assignedUserEmails: extractField(record, ["assigned user emails"]),
+      assignedUserNames,
+      assignedUsersJson: extractField(record, ["assigned users json", "assignedusersjson"]),
+      assignedUsers,
+      auditorEmails: extractField(record, ["auditor emails"]),
+      auditors: extractField(record, ["auditors", "auditor"]),
+      assignedAuditors: extractField(record, ["assigned auditors"]),
+    });
     const assignedUserEmails = getScheduleAssignedEmails({
       assignedUserEmails: extractField(record, ["assigned user emails"]),
+      assignedUserNames,
       assignedUsersJson: extractField(record, ["assigned users json", "assignedusersjson"]),
       assignedUsers,
       auditorEmails: extractField(record, ["auditor emails"]),
@@ -148,6 +159,8 @@ export function parseCompanyScheduleListFromRecords(records = [], companyFolderI
       audits: [audit],
       assignedUsers,
       assignedUserEmails,
+      assignedUserNames,
+      assigneeIdentityTokens,
       assignedUsersJson: assignedUsers.length > 0 ? JSON.stringify(assignedUsers) : "",
       auditors: assignedUserEmails,
       startDate: extractField(record, ["start date"]),

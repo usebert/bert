@@ -92,7 +92,7 @@ import { StatusPulse, type SyncVisualState } from "./src/components/animation/St
 import { getGreetingFirstName, getTimeBasedGreeting, getUserInitials } from "./src/utils/userDisplay";
 import { isDebugUiAllowed } from "./src/utils/debugUiVisibility";
 import { AccountIdentitySummary } from "./src/components/AccountIdentitySummary";
-import { UX_STATUS, canShowTechnicalUi, resolveUserEmail } from "./src/utils/uxDeclutter";
+import { UX_STATUS, canShowTechnicalUi, resolveSignedInAssigneeEmail, resolveUserEmail } from "./src/utils/uxDeclutter";
 import {
   resolveDocumentTitle,
   resolveHeaderRoleLabel,
@@ -3377,6 +3377,8 @@ function App() {
     }
   });
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  /** Canonical signed-in email from server session — assigned-checks API is scoped to this identity. */
+  const [sessionSignedInEmail, setSessionSignedInEmail] = useState("");
   const [tabletKioskRevision, setTabletKioskRevision] = useState(0);
   const tabletKioskOn = useMemo(() => isTabletKioskEnabled(), [tabletKioskRevision]);
   useTabletKiosk(tabletKioskOn);
@@ -3403,6 +3405,7 @@ function App() {
   const explicitLogoutRef = useRef(false);
   const authBootstrapGenerationRef = useRef(0);
   const assignedChecksRequestRef = useRef(0);
+  const assignedChecksIdentityRef = useRef("");
   const dashboardAssignedChecksPreviewKeyRef = useRef<string | null>(null);
   const dashboardAssignedChecksPreviewInFlightRef = useRef<string | null>(null);
   const assignedChecksScreenAbortRef = useRef<AbortController | null>(null);
@@ -5585,7 +5588,35 @@ function App() {
     const companyFolderId = String(
       activeCompanyContext.companyFolderId || selectedFolderId || "",
     ).trim();
-    const signedInEmail = String(currentUser.username || "").trim().toLowerCase();
+    const profileEmail = resolveSignedInAssigneeEmail(currentUser);
+    const signedInEmail = String(sessionSignedInEmail || profileEmail).trim().toLowerCase();
+    const identityKey = `${companyFolderId}::${signedInEmail}`;
+    const identityChanged =
+      Boolean(assignedChecksIdentityRef.current) && assignedChecksIdentityRef.current !== identityKey;
+    if (identityChanged) {
+      dashboardAssignedChecksPreviewKeyRef.current = null;
+      dashboardAssignedChecksPreviewInFlightRef.current = null;
+    }
+    assignedChecksIdentityRef.current = identityKey;
+    const assignedChecksIdentityMismatch =
+      Boolean(sessionSignedInEmail && profileEmail) && sessionSignedInEmail !== profileEmail;
+
+    if (assignedChecksIdentityMismatch) {
+      assignedChecksScreenAbortRef.current?.abort();
+      assignedChecksScreenAbortRef.current = null;
+      dashboardAssignedChecksPreviewKeyRef.current = null;
+      dashboardAssignedChecksPreviewInFlightRef.current = null;
+      setAssignedChecksState({
+        schedules: [],
+        loading: false,
+        hasLoadedOnce: true,
+        companyFolderId: companyFolderId || undefined,
+        loadError: `Assigned checks are tied to ${sessionSignedInEmail}. Sign in as that account to load checks for ${profileEmail}.`,
+        loadErrorDetail: "Profile switch on this device does not change your signed-in session.",
+      });
+      return;
+    }
+
     const cachedAssignedChecks =
       companyFolderId && signedInEmail
         ? readAssignedChecksCache(storageKeys.assignedChecksCache, companyFolderId, signedInEmail)
@@ -5648,12 +5679,12 @@ function App() {
         Boolean(companyFolderId) &&
         previous.companyFolderId !== companyFolderId;
       const schedules =
-        cachedAssignedChecks?.schedules?.length && (previous.schedules.length === 0 || companyChanged)
+        cachedAssignedChecks?.schedules?.length && (previous.schedules.length === 0 || companyChanged || identityChanged)
           ? (cachedAssignedChecks.schedules as ManagedSchedule[])
-          : previous.schedules.length > 0 && !companyChanged
+          : previous.schedules.length > 0 && !companyChanged && !identityChanged
             ? previous.schedules
             : ((cachedAssignedChecks?.schedules || []) as ManagedSchedule[]);
-      const hasLoadedOnce = companyChanged ? false : previous.hasLoadedOnce;
+      const hasLoadedOnce = companyChanged || identityChanged ? false : previous.hasLoadedOnce;
       const shouldShowPreviewLoad =
         isDashboardPreview && !hasLoadedOnce && schedules.length === 0 && !previous.loadError;
       const shouldShowFullLoad =
@@ -5671,8 +5702,8 @@ function App() {
         masterSheetId: previous.masterSheetId || cachedAssignedChecks?.masterSheetId,
         hasLoadedOnce,
         loading: shouldShowPreviewLoad || shouldShowFullLoad,
-        loadError: companyChanged ? undefined : previous.loadError,
-        loadErrorDetail: companyChanged ? undefined : previous.loadErrorDetail,
+        loadError: companyChanged || identityChanged ? undefined : previous.loadError,
+        loadErrorDetail: companyChanged || identityChanged ? undefined : previous.loadErrorDetail,
       };
     });
 
@@ -5809,6 +5840,7 @@ function App() {
   }, [
     screen,
     currentUser,
+    sessionSignedInEmail,
     assignedChecksRetryNonce,
     masterCompanyWorkspaceDataMatchesSelection,
     activeCompanyContext.companyFolderId,
@@ -6934,6 +6966,7 @@ function App() {
             clearStaleCompanyLocalStorage();
             setCompanyLinkBlockedMessage(session.error || COMPANY_NO_LONGER_AVAILABLE_MESSAGE);
             setCurrentUser(null);
+            setSessionSignedInEmail("");
             setLinkedCompanyContext(null);
             setSelectedFolderId("");
             setFolders([]);
@@ -6946,14 +6979,16 @@ function App() {
         }
 
         if (session.sessionKind === "master" && session.operator?.email) {
+          const masterEmail = String(session.operator.email).toLowerCase();
           const masterUser: User = {
-            username: String(session.operator.email).toLowerCase(),
-            email: String(session.operator.email).toLowerCase(),
+            username: masterEmail,
+            email: masterEmail,
             password: "",
             role: "Master",
             name: session.operator.name || session.operator.email,
           };
           setCurrentUser(masterUser);
+          setSessionSignedInEmail(masterEmail);
           setAccountNameInput(masterUser.name);
           setAccountPhotoUrl(getStoredProfilePhoto(masterUser));
           if (!authSessionBootstrapHandledRef.current) {
@@ -7020,9 +7055,10 @@ function App() {
           session.user?.role &&
           !isPlatformOwnerEmail(session.user.email, import.meta.env)
         ) {
+          const companyEmail = String(session.user.email).toLowerCase();
           const companyUser: User = {
-            username: String(session.user.email).toLowerCase(),
-            email: String(session.user.email).toLowerCase(),
+            username: companyEmail,
+            email: companyEmail,
             password: "",
             role: session.user.role,
             name: session.user.name || session.user.email,
@@ -7035,6 +7071,7 @@ function App() {
             clearStaleCompanyLocalStorage(companyUser.username);
             setCompanyLinkBlockedMessage(COMPANY_NO_LONGER_AVAILABLE_MESSAGE);
             setCurrentUser(null);
+            setSessionSignedInEmail("");
             setLinkedCompanyContext(null);
             window.localStorage.removeItem(userStorageKey);
             return;
@@ -7045,6 +7082,7 @@ function App() {
             ? ""
             : session.error || FOLDER_NOT_IN_COMPANIES_ROOT_MESSAGE;
           setCurrentUser(companyUser);
+          setSessionSignedInEmail(companyEmail);
           setCompanyLinkBlockedMessage(linkBlockedMessage);
           setCompanyRegistryStatus(
             getCanonicalCompanyStatus({
@@ -8627,6 +8665,12 @@ function App() {
         setGodCompanySetupSession(false);
       }
       setCurrentUser(match);
+      const signedInEmail = String(match.email || match.username || "")
+        .trim()
+        .toLowerCase();
+      if (signedInEmail.includes("@")) {
+        setSessionSignedInEmail(signedInEmail);
+      }
       setAccountNameInput(match.name);
       setAccountPhotoUrl(getStoredProfilePhoto(match));
       window.localStorage.setItem(userStorageKey, JSON.stringify(match));
@@ -9112,6 +9156,23 @@ function App() {
         /* ignore */
       }
       setGodCompanySetupSession(false);
+    }
+    const nextProfileEmail = String(user.email || user.username || "").trim().toLowerCase();
+    const sessionEmail = String(sessionSignedInEmail || "").trim().toLowerCase();
+    if (sessionEmail && nextProfileEmail && sessionEmail !== nextProfileEmail) {
+      dashboardAssignedChecksPreviewKeyRef.current = null;
+      dashboardAssignedChecksPreviewInFlightRef.current = null;
+      setAssignedChecksState({
+        schedules: [],
+        loading: false,
+        hasLoadedOnce: true,
+        loadError: `Assigned checks are tied to ${sessionEmail}. Sign in as that account to load checks for ${nextProfileEmail}.`,
+        loadErrorDetail: "Profile switch on this device does not change your signed-in session.",
+      });
+    } else {
+      dashboardAssignedChecksPreviewKeyRef.current = null;
+      dashboardAssignedChecksPreviewInFlightRef.current = null;
+      setAssignedChecksRetryNonce((nonce) => nonce + 1);
     }
     setCurrentUser(user);
     setAccountNameInput(user.name);
@@ -10344,6 +10405,7 @@ function App() {
     }
     document.title = resolveDocumentTitle({ appDisplayName: companyName, signedIn: false });
     setCurrentUser(null);
+    setSessionSignedInEmail("");
     setAccountNameInput("");
     setAccountPhotoUrl("");
     setCompanyLinkBlockedMessage("");
