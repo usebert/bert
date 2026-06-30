@@ -48,22 +48,6 @@ import {
   handleCreateBertCheckFromGoogleFormPost,
 } from "./google-forms-service.mjs";
 import { listAssignedChecks } from "./check-service.mjs";
-import { attachApiRouteTimingFinish, createApiTimingTrace } from "./api-timing.mjs";
-import { safeLoginTimingMeta } from "./login-timing.mjs";
-
-function beginTrackedApiRoute(req, res, route, extraMeta = {}) {
-  const companyFolderId = sanitizeCompanyFolderId(
-    String(req.params?.companyId || req.query?.companyFolderId || "").trim(),
-  );
-  const trace = createApiTimingTrace({
-    route,
-    ...(companyFolderId ? { companyFolderId } : {}),
-    ...safeLoginTimingMeta(extraMeta),
-  });
-  trace.mark("route_entered");
-  attachApiRouteTimingFinish(res, trace);
-  return trace;
-}
 
 async function rejectCompanyApiIfFolderInvalid(authed, deps, companyFolderId, companyName = "") {
   if (!authed || !companyFolderId) {
@@ -424,7 +408,6 @@ export function installCoreWorkflowRoutes(app, deps) {
   });
 
   app.get("/api/companies/:companyId/users", async (req, res) => {
-    beginTrackedApiRoute(req, res, "users");
     const authed = getAuthedClient();
     const companyId = sanitizeCompanyFolderId(String(req.params?.companyId || "").trim());
     const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
@@ -533,7 +516,6 @@ export function installCoreWorkflowRoutes(app, deps) {
   });
 
   app.get("/api/companies/:companyId/schedule-assignees", async (req, res) => {
-    beginTrackedApiRoute(req, res, "schedule-assignees");
     const authed = getAuthedClient();
     if (!envConfigured() || !authed) {
       return res.status(401).json({
@@ -625,7 +607,6 @@ export function installCoreWorkflowRoutes(app, deps) {
   });
 
   app.get("/api/me/assigned-checks", async (req, res) => {
-    beginTrackedApiRoute(req, res, "assigned-checks");
     const authed = getAuthedClient();
     if (!envConfigured() || !authed) {
       return res.status(401).json({
@@ -916,7 +897,6 @@ export function installCoreWorkflowRoutes(app, deps) {
   });
 
   async function respondWithCompanyAuditResults(req, res, options = {}) {
-    beginTrackedApiRoute(req, res, "results");
     const trustClientSheetHints = options.trustClientSheetHints === true;
     const authed = getAuthedClient();
     if (!envConfigured() || !authed) {
@@ -1317,7 +1297,6 @@ export function installCoreWorkflowRoutes(app, deps) {
   });
 
   app.get("/api/companies/:companyId/google-forms", async (req, res) => {
-    beginTrackedApiRoute(req, res, "google-forms");
     return handleCompanyGoogleFormsGet(req, res, {
       getAuthedClient,
       envConfigured,
