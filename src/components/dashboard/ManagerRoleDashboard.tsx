@@ -23,6 +23,7 @@ type Props = ManagerDashboardProps & {
   assignedChecksLoading?: boolean;
   assignedChecksLoadError?: string;
   assignedChecksLoadErrorDetail?: string;
+  onRetryAssignedChecks?: () => void;
 };
 
 function actionStatusLabel(action: ActionItem): { label: string; tone: "danger" | "warning" | "info" | "neutral" } {
@@ -53,6 +54,7 @@ export function ManagerRoleDashboard({
   assignedChecksLoading = false,
   assignedChecksLoadError,
   assignedChecksLoadErrorDetail,
+  onRetryAssignedChecks,
   onOpenAudit,
   actions,
   ...managerProps
@@ -137,6 +139,7 @@ export function ManagerRoleDashboard({
         loading={assignedChecksLoading}
         loadError={assignedChecksLoadError}
         loadErrorDetail={assignedChecksLoadErrorDetail}
+        onRetry={onRetryAssignedChecks}
         role="Manager"
         cardIndex={3}
       />

@@ -18,6 +18,7 @@ type DashboardThingsToDoSectionProps = {
   loading?: boolean;
   loadError?: string;
   loadErrorDetail?: string;
+  onRetry?: () => void;
   role?: Role;
   cardIndex?: number;
 };
@@ -30,6 +31,7 @@ export function DashboardThingsToDoSection({
   loading = false,
   loadError,
   loadErrorDetail,
+  onRetry,
   role = "Manager",
   cardIndex = 3,
 }: DashboardThingsToDoSectionProps) {
@@ -52,6 +54,15 @@ export function DashboardThingsToDoSection({
           <p className="mt-2 text-sm text-rose-800">{loadError}</p>
           {loadErrorDetail ? (
             <p className="mt-2 break-all font-mono text-xs text-rose-700">{loadErrorDetail}</p>
+          ) : null}
+          {onRetry ? (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="mt-3 rounded-xl bg-rose-900 px-3 py-2 text-xs font-semibold text-white"
+            >
+              Try again
+            </button>
           ) : null}
         </div>
       ) : sortedChecks.length === 0 ? (

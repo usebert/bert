@@ -3403,6 +3403,12 @@ function App() {
   const explicitLogoutRef = useRef(false);
   const authBootstrapGenerationRef = useRef(0);
   const assignedChecksRequestRef = useRef(0);
+  const dashboardAssignedChecksPreviewKeyRef = useRef<string | null>(null);
+  const dashboardAssignedChecksPreviewInFlightRef = useRef<string | null>(null);
+  const assignedChecksScreenAbortRef = useRef<AbortController | null>(null);
+  const companyWorkspaceBootSyncKeyRef = useRef<string | null>(null);
+  const companyAuditMappingSyncInFlightRef = useRef<Promise<void> | null>(null);
+  const [assignedChecksRetryNonce, setAssignedChecksRetryNonce] = useState(0);
   const postLoginTimingRef = useRef<number | null>(null);
   const [shellMoreExpanded, setShellMoreExpanded] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
@@ -5550,12 +5556,18 @@ function App() {
 
   useEffect(() => {
     if (!currentUser || !usesAssignedChecksCompletionFlow(currentUser.role)) {
+      assignedChecksScreenAbortRef.current?.abort();
+      assignedChecksScreenAbortRef.current = null;
+      dashboardAssignedChecksPreviewKeyRef.current = null;
+      dashboardAssignedChecksPreviewInFlightRef.current = null;
       setAssignedChecksState({ schedules: [], loading: false, hasLoadedOnce: false });
       return;
     }
     const isDashboardPreview = shouldLoadDashboardAssignedChecksPreview(screen, currentUser.role);
     const isFullList = shouldLoadFullAssignedChecksScreen(screen, currentUser.role);
     if (!isDashboardPreview && !isFullList) {
+      assignedChecksScreenAbortRef.current?.abort();
+      assignedChecksScreenAbortRef.current = null;
       setAssignedChecksState((previous) => ({
         ...previous,
         loading: false,
@@ -5573,8 +5585,7 @@ function App() {
     const companyFolderId = String(
       activeCompanyContext.companyFolderId || selectedFolderId || "",
     ).trim();
-    const userEmails = resolveCurrentUserReportEmails(currentUser, companyReportUsers);
-    const signedInEmail = [...userEmails][0] || String(currentUser.username || "").trim().toLowerCase();
+    const signedInEmail = String(currentUser.username || "").trim().toLowerCase();
     const cachedAssignedChecks =
       companyFolderId && signedInEmail
         ? readAssignedChecksCache(storageKeys.assignedChecksCache, companyFolderId, signedInEmail)
@@ -5583,13 +5594,53 @@ function App() {
     const loadTimeoutMs = isDashboardPreview
       ? DASHBOARD_ASSIGNED_CHECKS_PREVIEW_TIMEOUT_MS
       : ASSIGNED_CHECKS_LOAD_TIMEOUT_MS;
+    const previewSessionKey =
+      isDashboardPreview && companyFolderId && signedInEmail
+        ? `${companyFolderId}::${signedInEmail}::preview`
+        : "";
+
+    if (isDashboardPreview && previewSessionKey) {
+      if (dashboardAssignedChecksPreviewKeyRef.current === previewSessionKey) {
+        setAssignedChecksState((previous) => ({
+          ...previous,
+          loading: false,
+        }));
+        return;
+      }
+      if (dashboardAssignedChecksPreviewInFlightRef.current === previewSessionKey) {
+        return;
+      }
+      dashboardAssignedChecksPreviewInFlightRef.current = previewSessionKey;
+    }
 
     const requestId = ++assignedChecksRequestRef.current;
     const isActiveRequest = () => assignedChecksRequestRef.current === requestId;
+    const fullListController = isFullList ? new AbortController() : null;
+    if (fullListController) {
+      assignedChecksScreenAbortRef.current = fullListController;
+    }
+    let previewTimedOut = false;
 
-    const controller = new AbortController();
     const timeoutId = window.setTimeout(() => {
-      controller.abort(new DOMException("Assigned checks load timed out", "TimeoutError"));
+      if (!isActiveRequest()) {
+        return;
+      }
+      if (isDashboardPreview) {
+        previewTimedOut = true;
+        setAssignedChecksState((previous) => ({
+          ...previous,
+          loading: false,
+          hasLoadedOnce: true,
+          loadError:
+            previous.schedules.length > 0 ? undefined : ASSIGNED_CHECKS_LOAD_TIMEOUT_MESSAGE,
+          loadErrorDetail:
+            previous.schedules.length > 0
+              ? undefined
+              : `GET ${apiUrl(`/api/me/assigned-checks?limit=${DASHBOARD_ASSIGNED_CHECKS_PREVIEW_LIMIT}`)} → request timed out`,
+        }));
+        return;
+      }
+      fullListController?.abort(new DOMException("Assigned checks load timed out", "TimeoutError"));
     }, loadTimeoutMs);
     setAssignedChecksState((previous) => {
       const companyChanged =
@@ -5626,88 +5677,115 @@ function App() {
     });
 
     void (async () => {
+      const maxAttempts = isDashboardPreview ? 2 : 1;
       try {
-        const result = await fetchAssignedChecks({
-          signal: controller.signal,
-          ...(previewLimit ? { limit: previewLimit } : {}),
-        });
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+          try {
+            const result = await fetchAssignedChecks({
+              ...(previewLimit ? { limit: previewLimit } : {}),
+              ...(fullListController ? { signal: fullListController.signal } : {}),
+            });
 
-        if (!isActiveRequest()) {
-          return;
-        }
-        if (!result.ok) {
-          setAssignedChecksState((previous) => ({
-            ...previous,
-            schedules: previous.schedules,
-            loading: false,
-            hasLoadedOnce: true,
-            loadError: previous.schedules.length > 0 ? undefined : result.loadError || ASSIGNED_CHECKS_USER_MESSAGE,
-            loadErrorDetail:
-              previous.schedules.length > 0 ? undefined : result.loadErrorDetail,
-          }));
-          logClientLoginTiming("dashboard_things_to_do_loading_finished", postLoginTimingRef.current ?? undefined, {
-            ok: false,
-            scheduleCount: 0,
-            preview: isDashboardPreview,
-          });
-          return;
-        }
+            if (!isActiveRequest()) {
+              return;
+            }
+            if (isDashboardPreview && previewTimedOut) {
+              return;
+            }
+            if (!result.ok) {
+              if (isDashboardPreview && attempt < maxAttempts) {
+                dashboardAssignedChecksPreviewInFlightRef.current = null;
+                continue;
+              }
+              setAssignedChecksState((previous) => ({
+                ...previous,
+                schedules: previous.schedules,
+                loading: false,
+                hasLoadedOnce: true,
+                loadError: previous.schedules.length > 0 ? undefined : result.loadError || ASSIGNED_CHECKS_USER_MESSAGE,
+                loadErrorDetail:
+                  previous.schedules.length > 0 ? undefined : result.loadErrorDetail,
+              }));
+              logClientLoginTiming("dashboard_things_to_do_loading_finished", postLoginTimingRef.current ?? undefined, {
+                ok: false,
+                scheduleCount: 0,
+                preview: isDashboardPreview,
+              });
+              return;
+            }
 
-        const nextCompanyFolderId = result.companyFolderId || result.companyId || companyFolderId;
-        setAssignedChecksState({
-          schedules: result.schedules as ManagedSchedule[],
-          loading: false,
-          hasLoadedOnce: true,
-          companyFolderId: nextCompanyFolderId,
-          masterSheetId: result.masterSheetId,
-          loadError: undefined,
-          loadErrorDetail: undefined,
-        });
-        logClientLoginTiming("dashboard_things_to_do_loading_finished", postLoginTimingRef.current ?? undefined, {
-          ok: true,
-          scheduleCount: result.schedules.length,
-          preview: isDashboardPreview,
-        });
-        if (!previewLimit && nextCompanyFolderId && signedInEmail) {
-          writeAssignedChecksCache(storageKeys.assignedChecksCache, {
-            companyFolderId: nextCompanyFolderId,
-            userEmail: signedInEmail,
-            schedules: result.schedules as ManagedSchedule[],
-            masterSheetId: result.masterSheetId,
-            cachedAt: Date.now(),
-          });
+            const nextCompanyFolderId = result.companyFolderId || result.companyId || companyFolderId;
+            setAssignedChecksState({
+              schedules: result.schedules as ManagedSchedule[],
+              loading: false,
+              hasLoadedOnce: true,
+              companyFolderId: nextCompanyFolderId,
+              masterSheetId: result.masterSheetId,
+              loadError: undefined,
+              loadErrorDetail: undefined,
+            });
+            if (isDashboardPreview && previewSessionKey) {
+              dashboardAssignedChecksPreviewKeyRef.current = previewSessionKey;
+            }
+            logClientLoginTiming("dashboard_things_to_do_loading_finished", postLoginTimingRef.current ?? undefined, {
+              ok: true,
+              scheduleCount: result.schedules.length,
+              preview: isDashboardPreview,
+            });
+            if (!previewLimit && nextCompanyFolderId && signedInEmail) {
+              writeAssignedChecksCache(storageKeys.assignedChecksCache, {
+                companyFolderId: nextCompanyFolderId,
+                userEmail: signedInEmail,
+                schedules: result.schedules as ManagedSchedule[],
+                masterSheetId: result.masterSheetId,
+                cachedAt: Date.now(),
+              });
+            }
+            return;
+          } catch (error) {
+            if (!isActiveRequest()) {
+              return;
+            }
+            if (isDashboardPreview && previewTimedOut) {
+              return;
+            }
+            if (error instanceof DOMException && error.name === "AbortError") {
+              const timedOut = error.message.includes("timed out") || error.message === "TimeoutError";
+              setAssignedChecksState((previous) => ({
+                ...previous,
+                loading: false,
+                hasLoadedOnce: previous.hasLoadedOnce || timedOut,
+                loadError:
+                  timedOut && previous.schedules.length === 0
+                    ? ASSIGNED_CHECKS_LOAD_TIMEOUT_MESSAGE
+                    : previous.loadError,
+                loadErrorDetail:
+                  timedOut && previous.schedules.length === 0
+                    ? `GET ${apiUrl(previewLimit ? `/api/me/assigned-checks?limit=${previewLimit}` : "/api/me/assigned-checks")} → request timed out`
+                    : previous.loadErrorDetail,
+              }));
+              return;
+            }
+            if (isDashboardPreview && attempt < maxAttempts) {
+              dashboardAssignedChecksPreviewInFlightRef.current = null;
+              continue;
+            }
+            setAssignedChecksState((previous) => ({
+              ...previous,
+              schedules: previous.schedules,
+              loading: false,
+              hasLoadedOnce: true,
+              loadError: ASSIGNED_CHECKS_USER_MESSAGE,
+              loadErrorDetail: error instanceof Error ? error.message : undefined,
+            }));
+            return;
+          }
         }
-      } catch (error) {
-        if (!isActiveRequest()) {
-          return;
-        }
-        if (error instanceof DOMException && error.name === "AbortError") {
-          const timedOut = error.message.includes("timed out") || error.message === "TimeoutError";
-          setAssignedChecksState((previous) => ({
-            ...previous,
-            loading: false,
-            hasLoadedOnce: previous.hasLoadedOnce || timedOut,
-            loadError:
-              timedOut && previous.schedules.length === 0
-                ? ASSIGNED_CHECKS_LOAD_TIMEOUT_MESSAGE
-                : previous.loadError,
-            loadErrorDetail:
-              timedOut && previous.schedules.length === 0
-                ? `GET ${apiUrl(previewLimit ? `/api/me/assigned-checks?limit=${previewLimit}` : "/api/me/assigned-checks")} → request timed out`
-                : previous.loadErrorDetail,
-          }));
-          return;
-        }
-        setAssignedChecksState((previous) => ({
-          ...previous,
-          schedules: previous.schedules,
-          loading: false,
-          hasLoadedOnce: true,
-          loadError: ASSIGNED_CHECKS_USER_MESSAGE,
-          loadErrorDetail: error instanceof Error ? error.message : undefined,
-        }));
       } finally {
         window.clearTimeout(timeoutId);
+        if (isDashboardPreview && previewSessionKey) {
+          dashboardAssignedChecksPreviewInFlightRef.current = null;
+        }
         if (isActiveRequest()) {
           setAssignedChecksState((previous) => {
             if (previous.loading) {
@@ -5727,22 +5805,28 @@ function App() {
 
     return () => {
       window.clearTimeout(timeoutId);
-      controller.abort();
     };
   }, [
     screen,
     currentUser,
-    companyReportUsers,
+    assignedChecksRetryNonce,
     masterCompanyWorkspaceDataMatchesSelection,
     activeCompanyContext.companyFolderId,
-    activeCompanyContext.companyName,
-    activeCompanyContext.masterSheetId,
-    selectedFolder?.id,
     selectedFolderId,
-    folderIdInput,
-    masterSheetInput,
-    companySheetSync?.sheetId,
   ]);
+
+  const handleRetryAssignedChecksPreview = useCallback(() => {
+    dashboardAssignedChecksPreviewKeyRef.current = null;
+    dashboardAssignedChecksPreviewInFlightRef.current = null;
+    setAssignedChecksState((previous) => ({
+      ...previous,
+      loading: true,
+      loadError: undefined,
+      loadErrorDetail: undefined,
+      hasLoadedOnce: false,
+    }));
+    setAssignedChecksRetryNonce((nonce) => nonce + 1);
+  }, []);
 
   useEffect(() => {
     if (!currentUser || !shouldLoadCompanyMembersScreen(screen)) {
@@ -11887,46 +11971,57 @@ function App() {
       if (!googleConnected || !masterSheetId) {
         return;
       }
-      setMappingSyncLoading(true);
-      setMappingSyncError(null);
-      try {
-        const payload = await fetchCompanyAuditMapping(masterSheetId);
-        if (payload.areaAudits) {
-          setAreaAudits(payload.areaAudits);
-        }
-        if (payload.userAreaAccess?.length) {
-          setUserSiteAssignments((current) => ({
-            ...current,
-            ...mergeUserAreaAccessIntoAssignments(payload.userAreaAccess || []),
-          }));
-        }
-        if (payload.userAuditAccess?.length) {
-          setAuditAccessOverrides((current) => ({
-            ...current,
-            ...mergeUserAuditAccessIntoOverrides(payload.userAuditAccess || []),
-          }));
-        }
-        if (payload.schedules?.length) {
-          setComplianceSchedules(payload.schedules);
-        }
-        if (payload.auditTemplates?.length) {
-          setTemplates((current) => {
-            const merged = mergeAuditTemplatesFromSheet(current, payload.auditTemplates || []);
-            return merged.map((template) => ({
-              ...template,
-              questions: template.questions.length ? template.questions : buildDefaultQuestions(template.name),
-            }));
-          });
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Unable to sync audit mapping.";
-        setMappingSyncError(message);
-        if (!options?.silent) {
-          pushToast("Audit mapping not synced", message, "warning");
-        }
-      } finally {
-        setMappingSyncLoading(false);
+      if (companyAuditMappingSyncInFlightRef.current) {
+        return companyAuditMappingSyncInFlightRef.current;
       }
+      const run = (async () => {
+        setMappingSyncLoading(true);
+        setMappingSyncError(null);
+        try {
+          const payload = await fetchCompanyAuditMapping(masterSheetId);
+          if (payload.areaAudits) {
+            setAreaAudits(payload.areaAudits);
+          }
+          if (payload.userAreaAccess?.length) {
+            setUserSiteAssignments((current) => ({
+              ...current,
+              ...mergeUserAreaAccessIntoAssignments(payload.userAreaAccess || []),
+            }));
+          }
+          if (payload.userAuditAccess?.length) {
+            setAuditAccessOverrides((current) => ({
+              ...current,
+              ...mergeUserAuditAccessIntoOverrides(payload.userAuditAccess || []),
+            }));
+          }
+          if (payload.schedules?.length) {
+            setComplianceSchedules(payload.schedules);
+          }
+          if (payload.auditTemplates?.length) {
+            setTemplates((current) => {
+              const merged = mergeAuditTemplatesFromSheet(current, payload.auditTemplates || []);
+              return merged.map((template) => ({
+                ...template,
+                questions: template.questions.length ? template.questions : buildDefaultQuestions(template.name),
+              }));
+            });
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Unable to sync audit mapping.";
+          setMappingSyncError(message);
+          if (!options?.silent) {
+            pushToast("Audit mapping not synced", message, "warning");
+          }
+        } finally {
+          setMappingSyncLoading(false);
+        }
+      })();
+      companyAuditMappingSyncInFlightRef.current = run.finally(() => {
+        if (companyAuditMappingSyncInFlightRef.current === run) {
+          companyAuditMappingSyncInFlightRef.current = null;
+        }
+      });
+      return companyAuditMappingSyncInFlightRef.current;
     },
     [
       googleConnected,
@@ -12042,9 +12137,6 @@ function App() {
           setGoogleFormCopyLanguage((current) => (current === DEFAULT_FORM_LANGUAGE ? language : current));
         }
         await syncCompanyAuditMappingFromServer({ silent: true });
-        if (templates.some((template) => template.active)) {
-          await syncAuditTemplatesToSheet(masterSheetId, templates);
-        }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unable to sync company areas.";
         setAreaSyncError(message);
@@ -12064,7 +12156,6 @@ function App() {
       folderInspection?.masterSheet?.id,
       selectedFolderId,
       syncCompanyAuditMappingFromServer,
-      templates,
     ],
   );
 
@@ -12199,8 +12290,13 @@ function App() {
     if (!masterSheetId) {
       return;
     }
+    const syncKey = `${masterSheetId}::${selectedFolderId || ""}`;
+    if (companyWorkspaceBootSyncKeyRef.current === syncKey) {
+      return;
+    }
+    companyWorkspaceBootSyncKeyRef.current = syncKey;
     void syncCompanyAreasFromServer({ silent: true });
-  }, [googleConnected, companySheetSync?.sheetId, masterSheetInput, folderInspection?.masterSheet?.id, syncCompanyAreasFromServer]);
+  }, [googleConnected, companySheetSync?.sheetId, masterSheetInput, folderInspection?.masterSheet?.id, selectedFolderId, syncCompanyAreasFromServer]);
 
   useEffect(() => {
     if (!googleConnected || screen !== "schedules") {
@@ -15437,6 +15533,7 @@ function App() {
                     assignedChecksLoading={assignedChecksState.loading}
                     assignedChecksLoadError={assignedChecksState.loadError}
                     assignedChecksLoadErrorDetail={assignedChecksState.loadErrorDetail}
+                    onRetryAssignedChecks={handleRetryAssignedChecksPreview}
                     onOpenAudit={startAudit}
                   />
                 )}
@@ -15459,6 +15556,7 @@ function App() {
                     assignedChecksLoading={assignedChecksState.loading}
                     assignedChecksLoadError={assignedChecksState.loadError}
                     assignedChecksLoadErrorDetail={assignedChecksState.loadErrorDetail}
+                    onRetryAssignedChecks={handleRetryAssignedChecksPreview}
                     slatePrimaryCtaInteract={slatePrimaryCtaInteract}
                   />
                 )}
@@ -15489,6 +15587,7 @@ function App() {
                     assignedChecksLoading={assignedChecksState.loading}
                     assignedChecksLoadError={assignedChecksState.loadError}
                     assignedChecksLoadErrorDetail={assignedChecksState.loadErrorDetail}
+                    onRetryAssignedChecks={handleRetryAssignedChecksPreview}
                     recurringFailedQuestions={recurringFailedQuestions}
                     onViewAllNeedsAttention={() => {
                       setActionFilter("Overdue");
@@ -15524,6 +15623,7 @@ function App() {
                     assignedChecksLoading={assignedChecksState.loading}
                     assignedChecksLoadError={assignedChecksState.loadError}
                     assignedChecksLoadErrorDetail={assignedChecksState.loadErrorDetail}
+                    onRetryAssignedChecks={handleRetryAssignedChecksPreview}
                     actions={visibleActions}
                     openActionsCount={liveOpenActionsCount ?? 0}
                     openActionsCountLoading={!actionsCountReady}

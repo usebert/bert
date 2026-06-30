@@ -121,7 +121,11 @@ export async function fetchAssignedChecks(
   const path =
     limit > 0 ? `/api/me/assigned-checks?limit=${encodeURIComponent(String(limit))}` : "/api/me/assigned-checks";
   const dedupeKey = requestDedupeKey("GET", apiUrl(path));
-  return dedupeInFlight(dedupeKey, () => fetchAssignedChecksRequest(path, options));
+  if (options?.signal) {
+    return fetchAssignedChecksRequest(path, { signal: options.signal });
+  }
+  // In-flight dedupe shares one network fetch — preview callers must not pass AbortSignal.
+  return dedupeInFlight(dedupeKey, () => fetchAssignedChecksRequest(path));
 }
 
 async function fetchAssignedChecksRequest(

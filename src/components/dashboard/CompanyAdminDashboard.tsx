@@ -77,6 +77,7 @@ type Props = {
   assignedChecksLoading?: boolean;
   assignedChecksLoadError?: string;
   assignedChecksLoadErrorDetail?: string;
+  onRetryAssignedChecks?: () => void;
   actions: ActionItem[];
   openActionsCount?: number;
   openActionsCountLoading?: boolean;
@@ -97,6 +98,7 @@ export function CompanyAdminDashboard({
   assignedChecksLoading = false,
   assignedChecksLoadError,
   assignedChecksLoadErrorDetail,
+  onRetryAssignedChecks,
   actions,
   openActionsCount,
   openActionsCountLoading = false,
@@ -170,6 +172,7 @@ export function CompanyAdminDashboard({
         loading={assignedChecksLoading}
         loadError={assignedChecksLoadError}
         loadErrorDetail={assignedChecksLoadErrorDetail}
+        onRetry={onRetryAssignedChecks}
         role="Admin"
         cardIndex={2}
       />

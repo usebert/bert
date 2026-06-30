@@ -1,5 +1,6 @@
 import { apiUrl } from "../config/apiBase";
 import type { Site } from "../types/adminScreenProps";
+import { fetchJson } from "../utils/fetchJson";
 
 export type CompanyAreasPayload = {
   ok: boolean;
@@ -20,10 +21,15 @@ async function parseAreasResponse(response: Response): Promise<CompanyAreasPaylo
 
 export async function fetchCompanyAreas(masterSheetId: string, companyFolderId?: string) {
   const query = companyFolderId ? `?companyFolderId=${encodeURIComponent(companyFolderId)}` : "";
-  const response = await fetch(apiUrl(`/api/company-areas/${encodeURIComponent(masterSheetId)}${query}`), {
-    credentials: "include",
-  });
-  return parseAreasResponse(response);
+  const path = `/api/company-areas/${encodeURIComponent(masterSheetId)}${query}`;
+  const result = await fetchJson<CompanyAreasPayload>(path);
+  if (!result.ok) {
+    throw new Error(result.message || "Company areas request failed.");
+  }
+  if (!result.response.ok || result.data.ok === false) {
+    throw new Error(result.data.error || "Company areas request failed.");
+  }
+  return result.data;
 }
 
 export async function createCompanyArea(

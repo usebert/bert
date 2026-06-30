@@ -10,6 +10,7 @@ type Props = AuditorTaskDashboardProps & {
   assignedChecksLoading?: boolean;
   assignedChecksLoadError?: string;
   assignedChecksLoadErrorDetail?: string;
+  onRetryAssignedChecks?: () => void;
   onNavigate: (screen: NavItemId) => void;
 };
 
@@ -22,6 +23,7 @@ export function AuditorTaskDashboard({
   assignedChecksLoading = false,
   assignedChecksLoadError,
   assignedChecksLoadErrorDetail,
+  onRetryAssignedChecks,
   showStartHereCard,
   onOpenAudit,
   onNavigate,
@@ -49,6 +51,7 @@ export function AuditorTaskDashboard({
         loading={assignedChecksLoading}
         loadError={assignedChecksLoadError}
         loadErrorDetail={assignedChecksLoadErrorDetail}
+        onRetry={onRetryAssignedChecks}
         role="Auditor"
         cardIndex={0}
       />

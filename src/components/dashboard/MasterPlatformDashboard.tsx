@@ -18,6 +18,7 @@ type Props = {
   assignedChecksLoading?: boolean;
   assignedChecksLoadError?: string;
   assignedChecksLoadErrorDetail?: string;
+  onRetryAssignedChecks?: () => void;
   onOpenAudit?: (auditId: string) => void;
 };
 
@@ -35,6 +36,7 @@ export function MasterPlatformDashboard({
   assignedChecksLoading = false,
   assignedChecksLoadError,
   assignedChecksLoadErrorDetail,
+  onRetryAssignedChecks,
   onOpenAudit,
 }: Props) {
   void companiesCount;
@@ -109,6 +111,7 @@ export function MasterPlatformDashboard({
           loading={assignedChecksLoading}
           loadError={assignedChecksLoadError}
           loadErrorDetail={assignedChecksLoadErrorDetail}
+          onRetry={onRetryAssignedChecks}
           role="Master"
           cardIndex={4}
         />
