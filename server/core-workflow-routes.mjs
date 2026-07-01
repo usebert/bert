@@ -48,6 +48,13 @@ import {
   handleCreateBertCheckFromGoogleFormPost,
 } from "./google-forms-service.mjs";
 import { listAssignedChecks } from "./check-service.mjs";
+import {
+  canListCompanyIncidents,
+  canSubmitCompanyIncident,
+  INCIDENTS_ROUTE_TIMEOUT_MS,
+  listCompanyIncidents,
+  submitCompanyIncident,
+} from "./incidents-service.mjs";
 
 async function rejectCompanyApiIfFolderInvalid(authed, deps, companyFolderId, companyName = "") {
   if (!authed || !companyFolderId) {
@@ -1335,5 +1342,261 @@ export function installCoreWorkflowRoutes(app, deps) {
       rowsToRecords,
       ...scheduleDeps,
     });
+  });
+
+  async function respondWithCompanyIncidents(req, res) {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({
+        ok: false,
+        error: "Please connect Google before loading incidents.",
+        message: "Could not load incidents for this company.",
+      });
+    }
+
+    const companyFolderId = String(req.params?.companyFolderId || req.params?.companyId || "").trim();
+    const masterSheetId = String(req.query?.masterSheetId || req.query?.sheetId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || "").trim();
+    const resolvedCompanyFolderId = sessionCompanyFolderId || companyFolderId;
+
+    if (sessionCompanyFolderId && companyFolderId && sessionCompanyFolderId !== companyFolderId) {
+      if (!isGodmodeInviteSession({ kind: actor?.kind, role: actor?.role })) {
+        return res.status(403).json({
+          ok: false,
+          code: "SESSION_COMPANY_MISMATCH",
+          error: "Incidents are scoped to your signed-in company workspace.",
+          message: "You do not have permission to view incidents for this company.",
+        });
+      }
+    }
+
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      resolvedCompanyFolderId,
+      String(req.query?.companyName || actor?.companyName || "").trim(),
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
+
+    try {
+      const resolved = await resolveCompanyScheduleContext(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        {
+          companyId: companyFolderId,
+          companyFolderId,
+          masterSheetId,
+          companyName: String(req.query?.companyName || actor?.companyName || "").trim(),
+        },
+      );
+      if (!resolved.ok) {
+        return res.status(resolved.httpStatus || 400).json({
+          ok: false,
+          code: resolved.code,
+          error: resolved.error,
+          message: resolved.message || resolved.error,
+          technicalError: resolved.technicalError,
+        });
+      }
+
+      if (
+        !canListCompanyIncidents(actor, resolved.companyFolderId, [
+          companyFolderId,
+          resolved.companyId,
+          ...resolved.alternateIds,
+        ])
+      ) {
+        return res.status(403).json({
+          ok: false,
+          code: "INCIDENTS_FORBIDDEN",
+          error: "You do not have permission to view incidents for this company.",
+          message: "You do not have permission to view incidents for this company.",
+        });
+      }
+
+      const listed = await listCompanyIncidents(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        {
+          companyId: resolved.companyFolderId,
+          companyFolderId: resolved.companyFolderId,
+          masterSheetId: resolved.masterSheetId,
+        },
+        { resolvedContext: resolved },
+      );
+      if (!listed.ok) {
+        return res.status(listed.httpStatus || 400).json({
+          ok: false,
+          code: listed.code,
+          error: listed.error,
+          message: listed.message || listed.error,
+          technicalError: listed.technicalError,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        companyId: listed.companyId,
+        companyFolderId: listed.companyFolderId,
+        masterSheetId: listed.masterSheetId,
+        incidents: listed.incidents,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "INCIDENTS_LOAD_FAILED",
+        error: "Could not load incidents for this company.",
+        message: "Could not load incidents for this company.",
+        technicalError: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  app.get("/api/companies/:companyFolderId/incidents", async (req, res) => {
+    return respondWithCompanyIncidents(req, res);
+  });
+
+  app.post("/api/companies/:companyFolderId/incidents", async (req, res) => {
+    const routeStartedAt = Date.now();
+    let responded = false;
+    const respondJson = (status, body) => {
+      if (responded) {
+        return;
+      }
+      responded = true;
+      return res.status(status).json(body);
+    };
+    const routeTimeout = setTimeout(() => {
+      console.info("[incidents]", {
+        phase: "route_timeout",
+        companyId: String(req.params?.companyFolderId || "").trim(),
+        elapsedMs: Date.now() - routeStartedAt,
+      });
+      respondJson(504, {
+        ok: false,
+        code: "INCIDENT_SUBMIT_TIMEOUT",
+        reasonCode: "REQUEST_TIMEOUT",
+        error: "Submitting your incident timed out before the server finished saving to your company workbook.",
+        message: "Submitting your incident timed out before the server finished saving to your company workbook.",
+      });
+    }, INCIDENTS_ROUTE_TIMEOUT_MS);
+
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      clearTimeout(routeTimeout);
+      return respondJson(401, {
+        ok: false,
+        error: "Please connect Google before submitting an incident.",
+        message: "Could not submit incident.",
+      });
+    }
+
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || companyFolderId).trim();
+    const email = String(actor?.email || req.body?.reporterEmail || req.body?.email || "").trim();
+
+    console.info("[incidents]", {
+      phase: "route_entered",
+      companyId: sessionCompanyFolderId,
+      userEmail: email.toLowerCase(),
+      hasClientMasterSheetId: Boolean(String(req.body?.masterSheetId || "").trim()),
+    });
+
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      sessionCompanyFolderId,
+      String(req.body?.companyName || actor?.companyName || "").trim(),
+    );
+    if (folderDenial) {
+      clearTimeout(routeTimeout);
+      return respondJson(403, folderDenial);
+    }
+
+    try {
+      const resolved = await resolveCompanyScheduleContext(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        {
+          companyId: sessionCompanyFolderId,
+          companyFolderId: sessionCompanyFolderId,
+          masterSheetId: String(req.body?.masterSheetId || "").trim(),
+          companyName: String(req.body?.companyName || actor?.companyName || "").trim(),
+        },
+      );
+      if (!resolved.ok) {
+        clearTimeout(routeTimeout);
+        return respondJson(resolved.httpStatus || 400, {
+          ok: false,
+          code: resolved.code,
+          error: resolved.error,
+          message: resolved.message || resolved.error,
+          technicalError: resolved.technicalError,
+        });
+      }
+
+      if (
+        !canSubmitCompanyIncident(actor, resolved.companyFolderId, [
+          companyFolderId,
+          resolved.companyId,
+          ...resolved.alternateIds,
+        ])
+      ) {
+        clearTimeout(routeTimeout);
+        return respondJson(403, {
+          ok: false,
+          code: "INCIDENT_SUBMIT_FORBIDDEN",
+          error: "You do not have permission to submit incidents for this company.",
+          message: "You do not have permission to submit incidents for this company.",
+        });
+      }
+
+      const submitted = await submitCompanyIncident(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        {
+          ...req.body,
+          companyId: resolved.companyFolderId,
+          companyFolderId: resolved.companyFolderId,
+          masterSheetId: resolved.masterSheetId,
+          reporterEmail: email || req.body?.reporterEmail,
+          createdBy: String(actor?.name || req.body?.reporterName || req.body?.createdBy || "").trim(),
+          resolvedContext: resolved,
+        },
+      );
+      clearTimeout(routeTimeout);
+      if (!submitted.ok) {
+        return respondJson(submitted.httpStatus || 400, {
+          ok: false,
+          code: submitted.code,
+          error: submitted.error,
+          message: submitted.message || submitted.error,
+          missing: submitted.missing,
+          technicalError: submitted.technicalError,
+        });
+      }
+
+      return respondJson(200, {
+        ok: true,
+        companyId: submitted.companyId,
+        companyFolderId: submitted.companyFolderId,
+        masterSheetId: submitted.masterSheetId,
+        incidentId: submitted.incidentId,
+        incident: submitted.incident,
+      });
+    } catch (error) {
+      clearTimeout(routeTimeout);
+      return respondJson(500, {
+        ok: false,
+        code: "INCIDENT_SUBMIT_FAILED",
+        error: "Could not submit incident.",
+        message: "Could not submit incident.",
+        technicalError: error instanceof Error ? error.message : String(error),
+      });
+    }
   });
 }

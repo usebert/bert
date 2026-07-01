@@ -40,8 +40,12 @@ assert(screen.includes('role="alert"'), "3c: error banner has alert role");
 
 /** 4: Notification failure does not discard incident save. */
 assert(
-  /setIncidents\(\(current\) => \[incident, \.\.\.current\]\)[\s\S]{0,1200}return \{ \.\.\.incident, notificationStatus \}/.test(appTsx),
-  "4: incident saved before notification; return includes notificationStatus",
+  /setIncidents\([\s\S]{0,1200}sendIncidentNotification/.test(appTsx),
+  "4: incident saved before notification",
+);
+assert(
+  /return \{ \.\.\.(savedIncident|incident), notificationStatus \}/.test(appTsx),
+  "4c: return includes notificationStatus",
 );
 assert(appTsx.includes("pushToast(\"Notification failed\""), "4b: notification failure surfaces toast without rethrow");
 

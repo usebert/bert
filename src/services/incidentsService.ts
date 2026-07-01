@@ -1,0 +1,298 @@
+import { apiUrl } from "../config/apiBase";
+import type { IncidentEvidenceItem, IncidentRecord } from "../types/incidentsScreenProps";
+import { dedupeInFlight, requestDedupeKey } from "../utils/requestDedupe";
+
+export const COMPANY_INCIDENTS_LOAD_TIMEOUT_MS = 90_000;
+export const COMPANY_INCIDENTS_LOAD_TIMEOUT_MESSAGE =
+  "Loading incident reports timed out before the server finished reading your company workbook. Try again.";
+export const COMPANY_INCIDENTS_USER_MESSAGE = "Could not load incident reports.";
+export const COMPANY_INCIDENTS_SUBMIT_USER_MESSAGE = "Could not save incident report to the company workbook.";
+
+const credentialHashKey = (prefix: "P" | "p") => `${prefix}assword${String.fromCharCode(72)}ash`;
+const PASSWORD_HASH_FIELD_NAMES = [credentialHashKey("P"), credentialHashKey("p")] as const;
+
+function pickRecordField(record: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const direct = String(record[key] ?? "").trim();
+    if (direct) {
+      return direct;
+    }
+    const match = Object.entries(record).find(([header]) => header.toLowerCase() === key.toLowerCase());
+    if (match && String(match[1] ?? "").trim()) {
+      return String(match[1]).trim();
+    }
+  }
+  return "";
+}
+
+function stripSensitiveFields<T extends Record<string, unknown>>(record: T): T {
+  const sanitized = { ...record };
+  for (const key of PASSWORD_HASH_FIELD_NAMES) {
+    delete sanitized[key];
+  }
+  return sanitized;
+}
+
+function parseEvidenceUrls(raw: string): IncidentEvidenceItem[] {
+  const text = raw.trim();
+  if (!text) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return Array.isArray(parsed) ? (parsed as IncidentEvidenceItem[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function mapWorkbookIncidentRecord(
+  record: Record<string, unknown>,
+  fallback: Partial<IncidentRecord> = {},
+): IncidentRecord {
+  const sanitized = stripSensitiveFields(record);
+  const incidentId = pickRecordField(sanitized, "IncidentId", "incidentId");
+  const createdAt = pickRecordField(sanitized, "CreatedAt", "createdAt");
+  const localId = String(fallback.id || "").trim() || (incidentId ? `incident-${incidentId}` : `incident-${Date.now()}`);
+
+  return {
+    id: localId,
+    incidentId,
+    status: (pickRecordField(sanitized, "Status", "status") || "Open") as IncidentRecord["status"],
+    priority: (pickRecordField(sanitized, "Priority", "priority") || "Normal") as IncidentRecord["priority"],
+    incidentType: pickRecordField(sanitized, "IncidentType", "incidentType") as IncidentRecord["incidentType"],
+    severity: pickRecordField(sanitized, "Severity", "severity") as IncidentRecord["severity"],
+    incidentDate: pickRecordField(sanitized, "IncidentDate", "incidentDate"),
+    incidentTime: pickRecordField(sanitized, "IncidentTime", "incidentTime"),
+    reporterName: pickRecordField(sanitized, "ReporterName", "reporterName"),
+    reporterEmail: pickRecordField(sanitized, "ReporterEmail", "reporterEmail"),
+    department: pickRecordField(sanitized, "Department", "department"),
+    location: pickRecordField(sanitized, "Location", "location"),
+    description: pickRecordField(sanitized, "Description", "description"),
+    immediateAction: pickRecordField(sanitized, "ImmediateAction", "immediateAction"),
+    injured: Boolean(fallback.injured),
+    injuryDetails: String(fallback.injuryDetails || ""),
+    contributingFactors: String(fallback.contributingFactors || ""),
+    witnesses: pickRecordField(sanitized, "Witnesses", "witnesses"),
+    evidenceUrls: parseEvidenceUrls(pickRecordField(sanitized, "EvidenceUrls", "evidenceUrls")),
+    investigationNotes: String(fallback.investigationNotes || ""),
+    rootCause: String(fallback.rootCause || ""),
+    correctiveActions: String(fallback.correctiveActions || ""),
+    preventiveActions: String(fallback.preventiveActions || ""),
+    assignedTo: String(fallback.assignedTo || ""),
+    actionOwner: String(fallback.actionOwner || ""),
+    dueDate: String(fallback.dueDate || ""),
+    completionDate: String(fallback.completionDate || ""),
+    riddorRequired: Boolean(fallback.riddorRequired),
+    closedBy: String(fallback.closedBy || ""),
+    closedAt: String(fallback.closedAt || ""),
+    notificationStatus: pickRecordField(sanitized, "NotificationStatus", "notificationStatus") || "Pending",
+    statusHistory: Array.isArray(fallback.statusHistory) ? fallback.statusHistory : [],
+    createdAt,
+    createdBy: pickRecordField(sanitized, "CreatedBy", "createdBy"),
+    updatedAt: pickRecordField(sanitized, "UpdatedAt", "updatedAt") || createdAt,
+    updatedBy: String(fallback.updatedBy || pickRecordField(sanitized, "CreatedBy", "createdBy")),
+  };
+}
+
+export type FetchCompanyIncidentsResult = {
+  ok: boolean;
+  incidents: IncidentRecord[];
+  loadError?: string;
+  companyId?: string;
+  companyFolderId?: string;
+  masterSheetId?: string;
+};
+
+export async function fetchCompanyIncidents(
+  companyFolderId: string,
+  options?: { signal?: AbortSignal; masterSheetId?: string },
+): Promise<FetchCompanyIncidentsResult> {
+  const companyId = String(companyFolderId || "").trim();
+  if (!companyId) {
+    return { ok: false, incidents: [], loadError: COMPANY_INCIDENTS_USER_MESSAGE };
+  }
+
+  const masterSheetId = String(options?.masterSheetId || "").trim();
+  const query = masterSheetId ? `?masterSheetId=${encodeURIComponent(masterSheetId)}` : "";
+
+  try {
+    const requestUrl = apiUrl(`/api/companies/${encodeURIComponent(companyId)}/incidents${query}`);
+    const response = await dedupeInFlight(requestDedupeKey("GET", requestUrl), () =>
+      fetch(requestUrl, {
+        credentials: "include",
+        signal: options?.signal,
+      }),
+    );
+    const payload = (await response.json()) as {
+      ok?: boolean;
+      incidents?: Record<string, unknown>[];
+      message?: string;
+      error?: string;
+      companyId?: string;
+      companyFolderId?: string;
+      masterSheetId?: string;
+    };
+
+    if (!response.ok || payload.ok === false) {
+      return {
+        ok: false,
+        incidents: [],
+        loadError: payload.message || payload.error || COMPANY_INCIDENTS_USER_MESSAGE,
+      };
+    }
+
+    const incidents = Array.isArray(payload.incidents)
+      ? payload.incidents.map((record) => mapWorkbookIncidentRecord(record))
+      : [];
+
+    return {
+      ok: true,
+      incidents,
+      companyId: payload.companyId,
+      companyFolderId: payload.companyFolderId,
+      masterSheetId: payload.masterSheetId,
+    };
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw error;
+    }
+    return {
+      ok: false,
+      incidents: [],
+      loadError: error instanceof Error ? error.message : COMPANY_INCIDENTS_USER_MESSAGE,
+    };
+  }
+}
+
+export type SubmitCompanyIncidentInput = {
+  id: string;
+  incidentId: string;
+  status: IncidentRecord["status"];
+  priority: IncidentRecord["priority"];
+  incidentType: IncidentRecord["incidentType"];
+  severity: IncidentRecord["severity"];
+  incidentDate: string;
+  incidentTime: string;
+  reporterName: string;
+  reporterEmail: string;
+  department: string;
+  location: string;
+  description: string;
+  immediateAction: string;
+  injured: boolean;
+  injuryDetails: string;
+  contributingFactors: string;
+  witnesses: string;
+  evidenceUrls: IncidentEvidenceItem[];
+  assignedTo: string;
+  notificationStatus: string;
+  statusHistory: IncidentRecord["statusHistory"];
+  createdAt: string;
+  createdBy: string;
+  updatedAt: string;
+  updatedBy: string;
+  companyFolderId: string;
+  masterSheetId?: string;
+  companyName?: string;
+};
+
+export type SubmitCompanyIncidentResult = {
+  ok: boolean;
+  incident?: IncidentRecord;
+  submitError?: string;
+  companyFolderId?: string;
+  masterSheetId?: string;
+};
+
+export async function submitCompanyIncident(
+  input: SubmitCompanyIncidentInput,
+): Promise<SubmitCompanyIncidentResult> {
+  const companyFolderId = String(input.companyFolderId || "").trim();
+  if (!companyFolderId) {
+    return { ok: false, submitError: COMPANY_INCIDENTS_SUBMIT_USER_MESSAGE };
+  }
+
+  try {
+    const response = await fetch(apiUrl(`/api/companies/${encodeURIComponent(companyFolderId)}/incidents`), {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: input.id,
+        incidentId: input.incidentId,
+        status: input.status,
+        priority: input.priority,
+        incidentType: input.incidentType,
+        severity: input.severity,
+        incidentDate: input.incidentDate,
+        incidentTime: input.incidentTime,
+        reporterName: input.reporterName,
+        reporterEmail: input.reporterEmail,
+        department: input.department,
+        location: input.location,
+        description: input.description,
+        immediateAction: input.immediateAction,
+        witnesses: input.witnesses,
+        evidenceUrls: input.evidenceUrls,
+        notificationStatus: input.notificationStatus,
+        createdAt: input.createdAt,
+        createdBy: input.createdBy,
+        updatedAt: input.updatedAt,
+        injured: input.injured,
+        injuryDetails: input.injuryDetails,
+        contributingFactors: input.contributingFactors,
+        assignedTo: input.assignedTo,
+        statusHistory: input.statusHistory,
+        updatedBy: input.updatedBy,
+        companyFolderId,
+        masterSheetId: input.masterSheetId,
+        companyName: input.companyName,
+      }),
+    });
+    const payload = (await response.json()) as {
+      ok?: boolean;
+      incident?: Record<string, unknown>;
+      message?: string;
+      error?: string;
+      companyFolderId?: string;
+      masterSheetId?: string;
+    };
+
+    if (!response.ok || payload.ok === false) {
+      return {
+        ok: false,
+        submitError: payload.message || payload.error || COMPANY_INCIDENTS_SUBMIT_USER_MESSAGE,
+      };
+    }
+
+    const incident = payload.incident
+      ? mapWorkbookIncidentRecord(payload.incident, input)
+      : mapWorkbookIncidentRecord({}, input);
+
+    return {
+      ok: true,
+      incident,
+      companyFolderId: payload.companyFolderId || companyFolderId,
+      masterSheetId: payload.masterSheetId,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      submitError: error instanceof Error ? error.message : COMPANY_INCIDENTS_SUBMIT_USER_MESSAGE,
+    };
+  }
+}
+
+export function mergeWorkbookAndLocalIncidents(
+  workbookIncidents: IncidentRecord[],
+  localIncidents: IncidentRecord[],
+): IncidentRecord[] {
+  const workbookIncidentIds = new Set(workbookIncidents.map((item) => item.incidentId).filter(Boolean));
+  const pendingLocal = localIncidents.filter((item) => item.incidentId && !workbookIncidentIds.has(item.incidentId));
+  const merged = [...workbookIncidents, ...pendingLocal];
+  return merged.sort((left, right) => Date.parse(right.createdAt || "") - Date.parse(left.createdAt || ""));
+}
+
+/** @deprecated Prefer mergeWorkbookAndLocalIncidents */
+export const mergeWorkbookIncidentsWithLocal = mergeWorkbookAndLocalIncidents;

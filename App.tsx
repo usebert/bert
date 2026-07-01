@@ -36,6 +36,7 @@ import {
   canRoleAccessNavItem,
   canSubmitAuditForReview,
   canSubmitIncidents,
+  canInvestigateIncidents,
   canViewSyncCentre,
   getCreatableRoles,
   getHomeScreenForRole,
@@ -387,6 +388,12 @@ import {
   fetchCompanyResultDetail,
   fetchCompanyResults,
 } from "./src/services/resultsService";
+import {
+  COMPANY_INCIDENTS_LOAD_TIMEOUT_MS,
+  fetchCompanyIncidents,
+  mergeWorkbookAndLocalIncidents,
+  submitCompanyIncident,
+} from "./src/services/incidentsService";
 import type { AuditResultDetail, AuditResultSummary } from "./src/types/resultsScreenProps";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
 import { getNextBestAction } from "./src/utils/nextBestAction";
@@ -7539,6 +7546,65 @@ function App() {
     }
   };
 
+  const companyIncidentsRequestIdRef = useRef(0);
+
+  const loadCompanyIncidentsFromWorkbook = useCallback(async () => {
+    if (!currentUser || !canInvestigateIncidents(currentUser.role)) {
+      return;
+    }
+    const companyId = activeCompanyContext.companyFolderId;
+    const canLoadCompanyApi = Boolean(companyId) && (currentUser.role !== "Master" || googleConnected);
+    if (!canLoadCompanyApi || !masterCompanyWorkspaceDataMatchesSelection) {
+      return;
+    }
+
+    const requestId = companyIncidentsRequestIdRef.current + 1;
+    companyIncidentsRequestIdRef.current = requestId;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      controller.abort(new DOMException("Company incidents load timed out", "TimeoutError"));
+    }, COMPANY_INCIDENTS_LOAD_TIMEOUT_MS);
+
+    try {
+      const result = await fetchCompanyIncidents(companyId, {
+        signal: controller.signal,
+        masterSheetId: activeCompanyContext.masterSheetId,
+      });
+      if (companyIncidentsRequestIdRef.current !== requestId) {
+        return;
+      }
+      if (!result.ok) {
+        return;
+      }
+      setIncidents((current) => mergeWorkbookAndLocalIncidents(result.incidents, current));
+    } catch (error) {
+      if (companyIncidentsRequestIdRef.current !== requestId) {
+        return;
+      }
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  }, [
+    activeCompanyContext.companyFolderId,
+    activeCompanyContext.masterSheetId,
+    currentUser,
+    googleConnected,
+    masterCompanyWorkspaceDataMatchesSelection,
+  ]);
+
+  useEffect(() => {
+    if (!currentUser || screen !== "incidents" || !canInvestigateIncidents(currentUser.role)) {
+      return;
+    }
+    void loadCompanyIncidentsFromWorkbook();
+    return () => {
+      companyIncidentsRequestIdRef.current += 1;
+    };
+  }, [currentUser, screen, loadCompanyIncidentsFromWorkbook]);
+
   const submitIncidentReport = async (payload: {
     incidentType: IncidentType;
     severity: IncidentSeverity;
@@ -7573,7 +7639,7 @@ function App() {
       ? users.find((user) => user.role === "Master")?.name || "System Setup"
       : users.find((user) => user.role === "Manager")?.name || "Unassigned";
 
-    const incident: IncidentRecord = {
+    let incident: IncidentRecord = {
       id: `incident-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       incidentId,
       status: "Open",
@@ -7612,17 +7678,77 @@ function App() {
       updatedBy: currentUser.name,
     };
 
-    setIncidents((current) => [incident, ...current]);
+    const companyFolderId = activeCompanyContext.companyFolderId;
+    const canPostToWorkbook =
+      Boolean(companyFolderId) &&
+      (currentUser.role !== "Master" || googleConnected) &&
+      masterCompanyWorkspaceDataMatchesSelection;
+
+    let savedIncident = incident;
+    if (canPostToWorkbook) {
+      const workbookResult = await submitCompanyIncident({
+        id: incident.id,
+        incidentId,
+        status: incident.status,
+        priority: incident.priority,
+        incidentType: payload.incidentType,
+        severity: payload.severity,
+        incidentDate: payload.incidentDate,
+        incidentTime: payload.incidentTime,
+        reporterName: payload.reporterName,
+        reporterEmail: payload.reporterEmail || currentUser.email || currentUser.username,
+        department: payload.department,
+        location: payload.location,
+        description: payload.description,
+        immediateAction: payload.immediateAction,
+        injured: incident.injured,
+        injuryDetails: incident.injuryDetails,
+        contributingFactors: incident.contributingFactors,
+        witnesses: payload.witnesses,
+        evidenceUrls: payload.evidenceUrls,
+        assignedTo: incident.assignedTo,
+        notificationStatus: incident.notificationStatus,
+        statusHistory: incident.statusHistory,
+        createdAt: incident.createdAt,
+        createdBy: incident.createdBy,
+        updatedAt: incident.updatedAt,
+        updatedBy: incident.updatedBy,
+        companyFolderId,
+        masterSheetId: activeCompanyContext.masterSheetId,
+        companyName: activeCompanyContext.companyName,
+      });
+      if (workbookResult.ok && workbookResult.incident) {
+        savedIncident = {
+          ...incident,
+          ...workbookResult.incident,
+          injured: incident.injured,
+          injuryDetails: incident.injuryDetails,
+          contributingFactors: incident.contributingFactors,
+          assignedTo: incident.assignedTo,
+          statusHistory: incident.statusHistory,
+          updatedBy: currentUser.name,
+        };
+      } else if (workbookResult.submitError) {
+        pushToast("Workbook save failed", `${workbookResult.submitError} Saved locally instead.`, "warning");
+      }
+    }
+
+    incident = savedIncident;
+    setIncidents((current) => [incident, ...current.filter((item) => item.incidentId !== incident.incidentId)]);
 
     let notificationStatus = incident.notificationStatus;
     try {
       await sendIncidentNotification(incident);
       notificationStatus = highPriority ? "Escalated notification sent" : "Notification sent";
-      setIncidents((current) => current.map((item) => (item.id === incident.id ? { ...item, notificationStatus } : item)));
+      setIncidents((current) =>
+        current.map((item) => (item.id === incident.id ? { ...item, notificationStatus } : item)),
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Notification failed.";
       notificationStatus = `Failed: ${message}`;
-      setIncidents((current) => current.map((item) => (item.id === incident.id ? { ...item, notificationStatus } : item)));
+      setIncidents((current) =>
+        current.map((item) => (item.id === incident.id ? { ...item, notificationStatus } : item)),
+      );
       pushToast("Notification failed", message, "warning");
     }
 
