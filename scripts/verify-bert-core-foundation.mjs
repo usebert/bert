@@ -1,13 +1,18 @@
 #!/usr/bin/env node
 /**
  * BERT core foundation — 24+ cases: folder → workbook → login → users → invite → schedule → check.
- * Static guards always run; live journey when BERT_LIVE_* creds exist.
+ * Static guards always run; live journey when BERT_LIVE_* creds exist and BERT_ALLOW_LIVE_VERIFY_WRITES=1.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadLivePathConfig, missingLiveCredentials } from "./lib/live-path-config.mjs";
+import { liveVerifyWritesAllowed, logLiveVerifyWritesSkipped } from "./lib/live-verify-write-guard.mjs";
 import { LiveHttpClient, assertNoPasswordHash, redactJson } from "./lib/live-http-client.mjs";
+import {
+  FOUNDATION_VERIFY_USER_NAME,
+  isFoundationVerifyUserEmail,
+} from "../shared/foundation-verify-users.mjs";
 import {
   COMPANY_CONTEXT_STATUS_USABLE,
   isCompanyWorkspaceUsable,
@@ -177,6 +182,16 @@ function runStaticGuards() {
     "static: folder + workbook = usable",
   );
 
+  const selfSource = read("scripts/verify-bert-core-foundation.mjs");
+  const guardSource = read("scripts/lib/live-verify-write-guard.mjs");
+  assert(guardSource.includes("BERT_ALLOW_LIVE_VERIFY_WRITES"), "static: live write guard reads BERT_ALLOW_LIVE_VERIFY_WRITES");
+  assert(selfSource.includes("liveVerifyWritesAllowed"), "static: live write guard helper used");
+  assert(
+    isFoundationVerifyUserEmail("verify.foundation+test@usebert.co.uk"),
+    "static: foundation verify email marker detected",
+  );
+  assert(FOUNDATION_VERIFY_USER_NAME === "Foundation Verify User", "static: foundation verify display name constant");
+
   log(`OK — ${caseCount} static guard cases passed`);
 }
 
@@ -199,7 +214,7 @@ async function runLiveJourney(config) {
     config.testAdminEmail || `verify.foundation+${Date.now()}@usebert.co.uk`
   ).toLowerCase();
   const testPassword = config.testAdminPassword || `VerifyLive${Date.now()}!`;
-  const testName = "Foundation Verify User";
+  const testName = FOUNDATION_VERIFY_USER_NAME;
   const companyFolderId = String(config.companyFolderId || "").trim();
 
   const masterLogin = await masterClient.request("/api/auth/master/login", {
@@ -384,6 +399,12 @@ async function main() {
         `Static guards passed (${caseCount} cases). Set BERT_LIVE_MASTER_PASSWORD and BERT_LIVE_COMPANY_FOLDER_ID for full live proof.`,
       ].join("\n"),
     );
+    process.exit(0);
+  }
+
+  if (!liveVerifyWritesAllowed()) {
+    logLiveVerifyWritesSkipped("verify:bert-core-foundation");
+    console.error(`Static guards passed (${caseCount} cases).`);
     process.exit(0);
   }
 
