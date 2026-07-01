@@ -73,6 +73,7 @@ import {
 } from "./resolve-invite-target.mjs";
 import { installCompanyWorkspaceResetRoutes } from "./company-workspace-reset.mjs";
 import { installCompanyUserResetRoutes } from "./company-user-reset.mjs";
+import { installFoundationVerifyCleanupRoutes } from "./foundation-verify-cleanup.mjs";
 import { createCompanySessionRevocationApi } from "./company-session-revocation.mjs";
 import { installPasswordResetRoutes } from "./password-reset.mjs";
 import {
@@ -7090,6 +7091,14 @@ installCompanyUserResetRoutes(app, {
   authIndex: authIndexApi,
   sessionRevocation: companySessionRevocationApi,
   registryDeps: getCompanyWorkspaceRegistryDeps(),
+});
+
+installFoundationVerifyCleanupRoutes(app, {
+  getAuthedClient,
+  envConfigured,
+  requireGoogleWorkspaceSession,
+  requireMasterOnlyActor,
+  getCompanyUsersDeps,
 });
 
 installPasswordResetRoutes(app, {

@@ -192,6 +192,13 @@ function runStaticGuards() {
   );
   assert(FOUNDATION_VERIFY_USER_NAME === "Foundation Verify User", "static: foundation verify display name constant");
 
+  assert(serverMain.includes("installFoundationVerifyCleanupRoutes"), "static: foundation cleanup routes installed");
+  assert(
+    read("server/foundation-verify-cleanup.mjs").includes('"/api/admin/cleanup/foundation-verify-users"'),
+    "static: foundation cleanup admin route path",
+  );
+  assert(pkg.scripts["verify:foundation-cleanup"], "static: foundation cleanup verify script");
+
   log(`OK — ${caseCount} static guard cases passed`);
 }
 

@@ -359,6 +359,8 @@ assert(roleNav.includes('id: "account"'), "J8: all roles have Account nav");
 // ─── Package script + cross-cutting must-fail guards ─────────────────────────
 
 assert(pkg.scripts["verify:end-to-end-smoke"], "PKG: npm script registered");
+assert(pkg.scripts["verify:foundation-cleanup"], "PKG: foundation cleanup verify script registered");
+assert(serverMain.includes("installFoundationVerifyCleanupRoutes"), "PKG: foundation cleanup route on server");
 assert(serverMain.includes("installCoreWorkflowRoutes"), "X1: core workflow routes installed");
 assert(!appTsx.includes("buildAvailableScheduleAssignees("), "X2: App does not filter assignees locally (empty when API has users)");
 assert(appTsx.includes("fetchScheduleAssignees"), "X3: assignees load via schedule-assignees API with timeout");
@@ -370,6 +372,8 @@ assert(
   "X6: live reports dashboard wired",
 );
 assert(pkg.scripts["verify:reports-dashboard"], "X7: reports dashboard verify script registered");
+assert(pkg.scripts["verify:foundation-cleanup"], "X8: foundation cleanup verify script registered");
+assert(serverMain.includes("installFoundationVerifyCleanupRoutes"), "X9: foundation cleanup routes installed");
 
 console.log(`[verify:end-to-end-smoke] OK — ${caseCount} cases passed (static + shared modules)`);
 console.log(`
