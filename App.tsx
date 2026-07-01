@@ -7614,16 +7614,19 @@ function App() {
 
     setIncidents((current) => [incident, ...current]);
 
+    let notificationStatus = incident.notificationStatus;
     try {
       await sendIncidentNotification(incident);
-      setIncidents((current) => current.map((item) => (item.id === incident.id ? { ...item, notificationStatus: highPriority ? "Escalated notification sent" : "Notification sent" } : item)));
+      notificationStatus = highPriority ? "Escalated notification sent" : "Notification sent";
+      setIncidents((current) => current.map((item) => (item.id === incident.id ? { ...item, notificationStatus } : item)));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Notification failed.";
-      setIncidents((current) => current.map((item) => (item.id === incident.id ? { ...item, notificationStatus: `Failed: ${message}` } : item)));
+      notificationStatus = `Failed: ${message}`;
+      setIncidents((current) => current.map((item) => (item.id === incident.id ? { ...item, notificationStatus } : item)));
       pushToast("Notification failed", message, "warning");
     }
 
-    return incident;
+    return { ...incident, notificationStatus };
   };
 
   const updateIncidentRecord = (incidentId: string, patch: Partial<IncidentRecord>, options?: { statusNote?: string }) => {

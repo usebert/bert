@@ -44,6 +44,8 @@ export function IncidentReportingScreen({
   const [actionOwner, setActionOwner] = useState("");
   const [actionDueDate, setActionDueDate] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [formError, setFormError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [form, setForm] = useState({
     incidentType: "Near Miss" as IncidentType,
@@ -111,26 +113,57 @@ export function IncidentReportingScreen({
     setForm((current) => ({ ...current, evidenceUrls: [...current.evidenceUrls, ...next] }));
   };
 
+  const validateForm = () => {
+    if (!form.reporterName.trim()) return "Your name is required.";
+    if (!form.department.trim()) return "Department / area is required.";
+    if (!form.location.trim()) return "Exact location is required.";
+    if (!form.description.trim()) return "Please describe what happened.";
+    if (form.injured && !form.injuryDetails.trim()) return "Injury details are required when an injury is reported.";
+    return "";
+  };
+
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    const created = await onSubmitIncident(form);
-    setSuccessMessage(`Submitted successfully: ${created.incidentId}`);
-    if (canManageIncidents) {
-      setView("register");
-      setSelectedIncidentId(created.id);
+    setFormError("");
+    setSuccessMessage("");
+
+    const validationError = validateForm();
+    if (validationError) {
+      setFormError(validationError);
+      return;
     }
-    setForm((current) => ({
-      ...current,
-      department: "",
-      location: "",
-      description: "",
-      immediateAction: "",
-      injured: false,
-      injuryDetails: "",
-      contributingFactors: "",
-      witnesses: "",
-      evidenceUrls: [],
-    }));
+
+    setIsSubmitting(true);
+    try {
+      const created = await onSubmitIncident(form);
+      const notificationFailed = created.notificationStatus.startsWith("Failed:");
+      setSuccessMessage(
+        notificationFailed
+          ? `Report saved as ${created.incidentId}. Email notification could not be sent — managers can still review it in the register.`
+          : `Submitted successfully: ${created.incidentId}`,
+      );
+      if (canManageIncidents) {
+        setView("register");
+        setSelectedIncidentId(created.id);
+      }
+      setForm((current) => ({
+        ...current,
+        department: "",
+        location: "",
+        description: "",
+        immediateAction: "",
+        injured: false,
+        injuryDetails: "",
+        contributingFactors: "",
+        witnesses: "",
+        evidenceUrls: [],
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to submit report. Please try again.";
+      setFormError(message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const fieldInputClass = fieldAuditor
@@ -175,6 +208,12 @@ export function IncidentReportingScreen({
         </section>
       )}
 
+      {formError && (
+        <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-900" role="alert">
+          {formError}
+        </section>
+      )}
+
       {view === "report" && (
         <section
           className={[
@@ -188,11 +227,11 @@ export function IncidentReportingScreen({
             <select value={form.severity} onChange={(event) => setForm((current) => ({ ...current, severity: event.target.value as IncidentSeverity }))} className={fieldInputClass}><option>Minor</option><option>Medical Treatment</option><option>Lost Time Injury</option><option>Major Incident</option><option>Fatality</option></select>
             <input type="date" value={form.incidentDate} onChange={(event) => setForm((current) => ({ ...current, incidentDate: event.target.value }))} className={fieldInputClass} />
             <input type="time" value={form.incidentTime} onChange={(event) => setForm((current) => ({ ...current, incidentTime: event.target.value }))} className={fieldInputClass} />
-            <input value={form.reporterName} onChange={(event) => setForm((current) => ({ ...current, reporterName: event.target.value }))} placeholder="Your name" className={fieldInputClass} />
+            <input value={form.reporterName} onChange={(event) => setForm((current) => ({ ...current, reporterName: event.target.value }))} placeholder="Your name (required)" required className={fieldInputClass} />
             <input value={form.reporterEmail} onChange={(event) => setForm((current) => ({ ...current, reporterEmail: event.target.value }))} placeholder="Your email" className={fieldInputClass} />
-            <input value={form.department} onChange={(event) => setForm((current) => ({ ...current, department: event.target.value }))} placeholder="Department / area" className={fieldInputClass} />
-            <input value={form.location} onChange={(event) => setForm((current) => ({ ...current, location: event.target.value }))} placeholder="Exact location" className={fieldInputClass} />
-            <textarea value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} placeholder="What happened?" className={fieldTextareaClass} />
+            <input value={form.department} onChange={(event) => setForm((current) => ({ ...current, department: event.target.value }))} placeholder="Department / area (required)" required className={fieldInputClass} />
+            <input value={form.location} onChange={(event) => setForm((current) => ({ ...current, location: event.target.value }))} placeholder="Exact location (required)" required className={fieldInputClass} />
+            <textarea value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} placeholder="What happened? (required)" required className={fieldTextareaClass} />
             <textarea value={form.immediateAction} onChange={(event) => setForm((current) => ({ ...current, immediateAction: event.target.value }))} placeholder="Immediate action taken" className={fieldTextareaClass} />
             <label className="inline-flex min-h-[2.75rem] items-center gap-2 text-base md:col-span-2">
               <input type="checkbox" checked={form.injured} onChange={(event) => setForm((current) => ({ ...current, injured: event.target.checked }))} className="h-5 w-5" />
@@ -215,13 +254,14 @@ export function IncidentReportingScreen({
             </div>
             <button
               type="submit"
+              disabled={isSubmitting}
               className={[
-                "md:col-span-2 min-h-[3rem] rounded-2xl font-semibold text-white transition active:scale-[0.98]",
+                "md:col-span-2 min-h-[3rem] rounded-2xl font-semibold text-white transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60",
                 theme.primaryButton,
                 theme.primaryButtonHover,
               ].join(" ")}
             >
-              Submit report
+              {isSubmitting ? "Submitting…" : "Submit report"}
             </button>
           </form>
         </section>

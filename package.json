@@ -114,6 +114,7 @@
     "verify:login-api-connectivity": "node scripts/verify-login-api-connectivity.mjs",
     "verify:app-paths": "node scripts/verify-app-paths.mjs",
     "verify:end-to-end-smoke": "node scripts/verify-end-to-end-smoke.mjs",
+    "verify:incident-reporting-wiring": "node scripts/verify-incident-reporting-wiring.mjs",
     "verify:post-login-lazy-load": "node scripts/verify-post-login-lazy-load.mjs",
     "verify:shared-drive-workspace": "node scripts/verify-shared-drive-workspace.mjs",
     "preview": "vite preview",
