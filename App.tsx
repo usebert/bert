@@ -75,7 +75,7 @@ import {
   shouldLoadSchedulesResultsEnrichment,
   shouldLoadScheduleAssigneesScreen,
 } from "./src/config/roleNavigation";
-import { MORE_MENU_NAV_IDS, PILOT_PRIMARY_NAV_IDS, PRIMARY_NAV_IDS } from "./src/config/navStructure";
+import { MOBILE_BOTTOM_NAV_IDS, MORE_MENU_NAV_IDS, PILOT_PRIMARY_NAV_IDS, PRIMARY_NAV_IDS } from "./src/config/navStructure";
 import { RoleContextBanner } from "./src/components/RoleContextBanner";
 import { getRoleTheme } from "./src/config/roleTheme";
 import { storageKeys } from "./src/config/storageKeys";
@@ -4729,7 +4729,10 @@ function App() {
     }).filter((item, index, list) => list.findIndex((entry) => entry.id === item.id) === index);
   }, [visibleNavIdSet, presentedNav, currentUser]);
 
-  const mobileTabBarIds = useMemo(() => new Set<string>(["dashboard", "audits", "actions", "reports"]), []);
+  const mobileTabBarIds = useMemo(
+    () => new Set<string>(MOBILE_BOTTOM_NAV_IDS.filter((id) => id !== "more")),
+    [],
+  );
 
   /** Mobile “More” sheet — same ordering as tablet (primary extras not on tab bar, then More menu ids). */
   const mobileMoreDestinations = useMemo(() => {

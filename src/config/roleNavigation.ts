@@ -14,6 +14,8 @@ import {
   canRoleAccessNavItem,
 } from "../permissions";
 import type { NavItemId, RoutedScreen } from "../types/navigation";
+import { navItems } from "./navItems";
+import { MOBILE_BOTTOM_NAV_IDS } from "./navStructure";
 
 export type RoleNavBucket = "master" | "companyAdmin" | "manager" | "auditor";
 
@@ -50,6 +52,7 @@ const COMPANY_ADMIN_NAV: PresentedNavItem[] = [
   { id: "audits", label: "Complete Work", icon: "clipboard" },
   { id: "results", label: "Results", icon: "checklist" },
   { id: "actions", label: "Actions", icon: "warningTriangle" },
+  { id: "incidents", label: "Incidents", icon: "warningTriangle" },
   { id: "nonConformance", label: "NCRs", icon: "checklist" },
   { id: "reports", label: "Reports", icon: "chart" },
   { id: "account", label: "Account", icon: "user" },
@@ -62,6 +65,7 @@ const MANAGER_NAV: PresentedNavItem[] = [
   { id: "audits", label: "Complete Work", icon: "clipboard" },
   { id: "results", label: "Results", icon: "checklist" },
   { id: "actions", label: "Actions", icon: "warningTriangle" },
+  { id: "incidents", label: "Incidents", icon: "warningTriangle" },
   { id: "nonConformance", label: "NCRs", icon: "checklist" },
   { id: "reports", label: "Reports", icon: "chart" },
   { id: "account", label: "Account", icon: "user" },
@@ -70,6 +74,7 @@ const MANAGER_NAV: PresentedNavItem[] = [
 const AUDITOR_NAV: PresentedNavItem[] = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
   { id: "audits", label: "My Checks", icon: "clipboard" },
+  { id: "incidents", label: "Incidents", icon: "warningTriangle" },
   { id: "account", label: "Account", icon: "user" },
 ];
 
@@ -199,22 +204,34 @@ export type MobileNavEntry = {
   icon: string;
 };
 
+/** Short labels for field-role mobile bottom bar (fits narrow tab slots). */
+const MOBILE_FIELD_NAV_LABELS: Partial<Record<NavItemId, string>> = {
+  incidents: "Incident",
+};
+
+function buildFieldRoleMobileBottomNav(role: Role, primary: PresentedNavItem[]): MobileNavEntry[] {
+  const tabs = MOBILE_BOTTOM_NAV_IDS.filter((id) => id !== "more").flatMap((id) => {
+    if (!canRoleAccessNavItem(role, id)) {
+      return [];
+    }
+    const fromPrimary = primary.find((entry) => entry.id === id);
+    const fromCatalog = navItems.find((entry) => entry.id === id);
+    const label = MOBILE_FIELD_NAV_LABELS[id] ?? fromPrimary?.label ?? fromCatalog?.label ?? id;
+    const icon = fromPrimary?.icon ?? fromCatalog?.icon ?? "dashboard";
+    return [{ id, label, icon }];
+  });
+  return [
+    ...tabs,
+    { id: "__more__", label: "More", icon: "grid" },
+    { id: "__logout__", label: "Log out", icon: "logOut" },
+  ];
+}
+
 export function getMobileBottomNavForRole(role: Role): MobileNavEntry[] {
   const primary = getPresentedNavForRole(role);
   const bucket = getRoleNavBucket(role);
-  if (bucket === "auditor") {
-    return [
-      { id: "dashboard", label: "Dashboard", icon: "dashboard" },
-      { id: "audits", label: "My Checks", icon: "clipboard" },
-      { id: "account", label: "Account", icon: "user" },
-      { id: "__logout__", label: "Log out", icon: "logOut" },
-    ];
-  }
-  if (bucket === "master" || bucket === "companyAdmin") {
-    const tabIds: NavItemId[] =
-      bucket === "master"
-        ? ["godmodeHome", "setup", "companies", "users"]
-        : ["dashboard", "users", "schedules", "audits"];
+  if (bucket === "master") {
+    const tabIds: NavItemId[] = ["godmodeHome", "setup", "companies", "users"];
     const tabs = tabIds.flatMap((id) => {
       const item = primary.find((entry) => entry.id === id);
       return item ? [{ id: item.id, label: item.label, icon: item.icon }] : [];
@@ -225,16 +242,7 @@ export function getMobileBottomNavForRole(role: Role): MobileNavEntry[] {
       { id: "__logout__", label: "Log out", icon: "logOut" },
     ];
   }
-  return [
-    { id: "dashboard", label: "Dashboard", icon: "dashboard" },
-    ...primary.filter((item) => item.id !== "dashboard").slice(0, 2).map((item) => ({
-      id: item.id,
-      label: item.label,
-      icon: item.icon,
-    })),
-    { id: "__more__", label: "More", icon: "grid" },
-    { id: "__logout__", label: "Log out", icon: "logOut" },
-  ];
+  return buildFieldRoleMobileBottomNav(role, primary);
 }
 
 export function resolveAdminPilotFocus(screen: NavItemId): AdminPilotFocus | undefined {

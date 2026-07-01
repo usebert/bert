@@ -26,7 +26,7 @@ export const MORE_MENU_NAV_IDS = [
 ] as const satisfies readonly NavItemId[];
 
 /** Mobile bottom bar (field roles). */
-export const MOBILE_BOTTOM_NAV_IDS = ["dashboard", "audits", "actions", "reports", "more"] as const;
+export const MOBILE_BOTTOM_NAV_IDS = ["dashboard", "audits", "incidents", "actions", "more"] as const;
 
 export type MobileBottomKey = (typeof MOBILE_BOTTOM_NAV_IDS)[number];
 
