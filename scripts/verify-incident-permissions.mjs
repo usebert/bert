@@ -37,6 +37,9 @@ const incidentsService = read("server/incidents-service.mjs");
 const coreRoutes = read("server/core-workflow-routes.mjs");
 const incidentsClient = read("src/services/incidentsService.ts");
 const screen = read("src/screens/IncidentReportingScreen.tsx");
+const roleNavigation = read("src/config/roleNavigation.ts");
+const incidentAssignment = read("src/utils/incidentAssignment.ts");
+const reassignModal = read("src/components/incidents/IncidentReassignModal.tsx");
 const appTsx = read("App.tsx");
 const evidenceVerifier = read("scripts/verify-incident-evidence-upload.mjs");
 
@@ -53,6 +56,17 @@ assert(screen.includes("IncidentReassignModal"), "UI: reassign modal wired");
 assert(screen.includes("Assignment history"), "UI: assignment history shown");
 assert(appTsx.includes("onReassignIncident={reassignIncidentRecord}"), "APP: reassign handler wired");
 assert(appTsx.includes("reassignTargets={incidentReassignTargets}"), "APP: reassign targets passed");
+assert(
+  roleNavigation.includes('screen === "incidents"') && roleNavigation.includes("shouldLoadCompanyMembersScreen"),
+  "LOAD: incidents screen loads company members",
+);
+assert(appTsx.includes("buildIncidentReassignTargets"), "APP: buildIncidentReassignTargets used");
+assert(incidentAssignment.includes("incident_reassign_targets"), "TARGETS: debug logging present");
+assert(incidentAssignment.includes("company admin"), "TARGETS: company admin role normalised");
+assert(
+  reassignModal.includes("No eligible incident handlers found"),
+  "UI: empty target message shown",
+);
 
 const companyFolderId = "1TVQ-gbpxoOzE6PCkHX581eTDgtMC11lc";
 const masterSheetId = "1PlwknNgtt-4j08matn1w4358YTe5SXFs5Hh0zA_m3So";
@@ -229,7 +243,9 @@ assert(
   "PERM: assigned handler cannot reassign to auditor",
 );
 assert(isEligibleIncidentReassignTarget({ role: "Manager" }), "TARGET: manager eligible");
+assert(isEligibleIncidentReassignTarget({ role: "Company Admin" }), "TARGET: company admin eligible");
 assert(!isEligibleIncidentReassignTarget({ role: "Auditor" }), "TARGET: auditor ineligible");
+assert(isEligibleIncidentReassignTarget({ role: "User", hsReportReceiver: true }), "TARGET: H&S receiver flag eligible");
 
 const managerReassign = await reassignCompanyIncident(
   {},

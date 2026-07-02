@@ -1,6 +1,11 @@
 import type { Role } from "../permissions";
-import type { IncidentAssignmentHistoryEntry, IncidentRecord } from "../types/incidentsScreenProps";
+import type {
+  IncidentAssignmentHistoryEntry,
+  IncidentReassignTarget,
+  IncidentRecord,
+} from "../types/incidentsScreenProps";
 import type { User } from "../types/dashboardScreenProps";
+import { isActiveCompanyUser, normalizeScheduleValue } from "./scheduleAssignees";
 
 function trim(value: unknown): string {
   return String(value ?? "").trim();
@@ -10,9 +15,146 @@ function normalizeEmail(value: unknown): string {
   return trim(value).toLowerCase();
 }
 
+/**
+ * Future-safe: if non-manager staff should handle incidents, add an explicit
+ * IncidentHandler permission/role — do not widen Auditor eligibility by default.
+ */
+export type IncidentMemberLike = {
+  email?: string;
+  name?: string;
+  role?: string;
+  accessLevel?: string;
+  status?: string;
+  companyId?: string;
+  companyFolderId?: string;
+  hsReportReceiver?: boolean;
+  isHsReportReceiver?: boolean;
+};
+
+export function parseIncidentMemberRole(value: string): Role | "User" | null {
+  const lowered = trim(value).toLowerCase().replace(/\s+/g, " ");
+  if (!lowered) {
+    return null;
+  }
+  if (lowered === "master" || lowered === "god mode" || lowered === "godmode" || lowered === "platform owner") {
+    return "Master";
+  }
+  if (lowered === "admin" || lowered === "company admin" || lowered === "administrator" || lowered === "owner") {
+    return "Admin";
+  }
+  if (lowered === "manager") {
+    return "Manager";
+  }
+  if (lowered === "auditor") {
+    return "Auditor";
+  }
+  if (lowered === "user") {
+    return "User";
+  }
+  return null;
+}
+
+export function resolveIncidentMemberRole(member: IncidentMemberLike = {}): string {
+  const fromRole = parseIncidentMemberRole(member.role || "");
+  if (fromRole && fromRole !== "User") {
+    return fromRole;
+  }
+
+  const fromAccess = parseIncidentMemberRole(member.accessLevel || "");
+  if (fromAccess && fromAccess !== "User") {
+    return fromAccess;
+  }
+
+  return fromRole || fromAccess || "User";
+}
+
+export function isHsReportReceiverMember(member: IncidentMemberLike = {}): boolean {
+  if (member.hsReportReceiver === true || member.isHsReportReceiver === true) {
+    return true;
+  }
+  const role = trim(member.role).toLowerCase();
+  const access = trim(member.accessLevel).toLowerCase();
+  const hsPattern = /h\s*&\s*s|health\s*(and|&)\s*safety|hs\s*receiver|h&s\s*receiver/;
+  return hsPattern.test(role) || hsPattern.test(access);
+}
+
 export function isIncidentHandlerRole(role: Role | string): boolean {
   const normalized = trim(role).toLowerCase();
   return normalized === "master" || normalized === "admin" || normalized === "manager";
+}
+
+export function isEligibleIncidentReassignTarget(target: {
+  role: string;
+  hsReportReceiver?: boolean;
+}): boolean {
+  if (target.hsReportReceiver) {
+    return true;
+  }
+  return isIncidentHandlerRole(target.role);
+}
+
+export function buildIncidentReassignTargets(
+  members: IncidentMemberLike[],
+  options: { companyFolderId?: string; log?: boolean } = {},
+): IncidentReassignTarget[] {
+  const companyFolderId = trim(options.companyFolderId);
+  let totalUsers = 0;
+  let activeUsers = 0;
+  let excludedAuditors = 0;
+  const seen = new Set<string>();
+  const targets: IncidentReassignTarget[] = [];
+
+  for (const member of members) {
+    totalUsers += 1;
+    const email = normalizeEmail(member.email);
+    const name = trim(member.name);
+    if (!email || !name) {
+      continue;
+    }
+
+    const status = trim(member.status);
+    if (status && normalizeScheduleValue(status) !== "active") {
+      continue;
+    }
+    activeUsers += 1;
+
+    if (companyFolderId) {
+      const memberCompanyId = trim(member.companyFolderId || member.companyId);
+      if (memberCompanyId && memberCompanyId !== companyFolderId) {
+        continue;
+      }
+    }
+
+    const hsReportReceiver = isHsReportReceiverMember(member);
+    const role = resolveIncidentMemberRole(member);
+    const candidate = { email, name, role, hsReportReceiver };
+    if (!isEligibleIncidentReassignTarget(candidate)) {
+      if (role === "Auditor") {
+        excludedAuditors += 1;
+      }
+      continue;
+    }
+
+    if (seen.has(email)) {
+      continue;
+    }
+    seen.add(email);
+    targets.push({ email, name, role });
+  }
+
+  targets.sort((left, right) => left.name.localeCompare(right.name));
+
+  if (options.log !== false) {
+    console.info("[incidents]", {
+      phase: "incident_reassign_targets",
+      totalUsers,
+      activeUsers,
+      eligibleTargets: targets.length,
+      excludedAuditors,
+    });
+  }
+
+  return targets;
 }
 
 export function incidentActorEmail(user: Pick<User, "username" | "email">): string {
@@ -43,14 +185,10 @@ export function isIncidentAssignedHandler(user: Pick<User, "username" | "email" 
   return Boolean(actorEmail && assignedToEmail && actorEmail === assignedToEmail);
 }
 
-export function isEligibleIncidentReassignTarget(target: { role: string }): boolean {
-  return isIncidentHandlerRole(target.role);
-}
-
 export function canReassignIncident(
   user: Pick<User, "username" | "email" | "role" | "name">,
   incident: IncidentRecord,
-  target?: { email: string; role: string },
+  target?: { email: string; role: string; hsReportReceiver?: boolean },
 ): boolean {
   if (user.role === "Auditor") {
     return false;
@@ -76,4 +214,20 @@ export function formatIncidentAssignee(incident: IncidentRecord): string {
 
 export function recentAssignmentHistory(history: IncidentAssignmentHistoryEntry[] = [], limit = 5): IncidentAssignmentHistoryEntry[] {
   return [...history].sort((left, right) => Date.parse(right.at) - Date.parse(left.at)).slice(0, limit);
+}
+
+/** @internal test helper */
+export function isActiveIncidentMember(member: IncidentMemberLike): boolean {
+  if (!trim(member.email) || !trim(member.name)) {
+    return false;
+  }
+  return isActiveCompanyUser({
+    email: trim(member.email),
+    name: trim(member.name),
+    role: trim(member.role),
+    accessLevel: trim(member.accessLevel),
+    status: trim(member.status) || "ACTIVE",
+    companyId: trim(member.companyId),
+    companyAreas: [],
+  });
 }

@@ -398,7 +398,7 @@ import {
   reassignCompanyIncident,
   submitCompanyIncident,
 } from "./src/services/incidentsService";
-import { isEligibleIncidentReassignTarget } from "./src/utils/incidentAssignment";
+import { buildIncidentReassignTargets } from "./src/utils/incidentAssignment";
 import { prepareSerializableAuditEvidenceFiles, buildAuditEvidenceUploadPayload } from "./src/services/checkEvidenceService";
 import type { AuditResultDetail, AuditResultSummary } from "./src/types/resultsScreenProps";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
@@ -4912,16 +4912,34 @@ function App() {
     );
   }, [companyMembersState.members, masterCompanyWorkspaceDataMatchesSelection, users]);
 
+  const incidentReassignTargetSource = useMemo(() => {
+    if (masterCompanyWorkspaceDataMatchesSelection) {
+      return companyMembersState.members;
+    }
+    return users
+      .filter((user) => user.role !== "Master")
+      .map((user) => ({
+        username: user.username,
+        email:
+          user.username === "admin"
+            ? "andy@usebert.co.uk"
+            : user.username === "manager"
+              ? "james@usebert.co.uk"
+              : user.username === "tom"
+                ? "tom@usebert.co.uk"
+                : "sarah@usebert.co.uk",
+        name: user.name,
+        role: user.role,
+        status: "ACTIVE",
+      }));
+  }, [companyMembersState.members, masterCompanyWorkspaceDataMatchesSelection, users]);
+
   const incidentReassignTargets = useMemo(
     () =>
-      companyReportUsers
-        .filter((user) => isEligibleIncidentReassignTarget(user))
-        .map((user) => ({
-          email: user.email,
-          name: user.name,
-          role: user.role,
-        })),
-    [companyReportUsers],
+      buildIncidentReassignTargets(incidentReassignTargetSource, {
+        companyFolderId: activeCompanyContext.companyFolderId,
+      }),
+    [incidentReassignTargetSource, activeCompanyContext.companyFolderId],
   );
 
   const reminderUserEmail = useMemo(() => {

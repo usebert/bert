@@ -47,18 +47,24 @@ export function IncidentReassignModal({
         <div className="mt-4 space-y-3">
           <label className="block space-y-1.5">
             <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">New handler</span>
-            <select
-              value={selectedEmail}
-              onChange={(event) => setSelectedEmail(event.target.value)}
-              className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-800"
-            >
-              <option value="">Select a person…</option>
-              {targets.map((target) => (
-                <option key={target.email} value={target.email}>
-                  {target.name} ({target.role})
-                </option>
-              ))}
-            </select>
+            {targets.length === 0 ? (
+              <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+                No eligible incident handlers found. Add a Manager/Admin or H&S receiver first.
+              </p>
+            ) : (
+              <select
+                value={selectedEmail}
+                onChange={(event) => setSelectedEmail(event.target.value)}
+                className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-800"
+              >
+                <option value="">Select a person…</option>
+                {targets.map((target) => (
+                  <option key={target.email} value={target.email}>
+                    {target.name} ({target.role})
+                  </option>
+                ))}
+              </select>
+            )}
           </label>
 
           <label className="block space-y-1.5">
@@ -87,7 +93,7 @@ export function IncidentReassignModal({
           </AnimatedButton>
           <AnimatedButton
             type="button"
-            disabled={submitting || !selectedTarget}
+            disabled={submitting || !selectedTarget || targets.length === 0}
             onClick={() => {
               if (!selectedTarget) {
                 return;

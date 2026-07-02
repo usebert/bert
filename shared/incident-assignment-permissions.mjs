@@ -58,6 +58,17 @@ export function isIncidentAssignedHandler(actor, incident = {}) {
 }
 
 export function isEligibleIncidentReassignTarget(user = {}) {
+  if (user.hsReportReceiver === true || user.isHsReportReceiver === true) {
+    return true;
+  }
+  const role = trim(user.role || user.accessLevel);
+  const lowered = role.toLowerCase();
+  if (/h\s*&\s*s|health\s*(and|&)\s*safety|hs\s*receiver|h&s\s*receiver/.test(lowered)) {
+    return true;
+  }
+  if (lowered === "company admin" || lowered === "administrator" || lowered === "owner") {
+    return true;
+  }
   return isIncidentHandlerRole(user.role || user.accessLevel);
 }
 
