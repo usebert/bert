@@ -1261,6 +1261,7 @@ export function installCoreWorkflowRoutes(app, deps) {
           findingsJson: req.body?.findingsJson,
           evidence: req.body?.evidence,
           evidenceRefs: req.body?.evidenceRefs,
+          evidenceFiles: req.body?.evidenceFiles,
           localSubmissionId: req.body?.localSubmissionId,
           resultId: req.body?.resultId,
           completedAt: req.body?.completedAt,
@@ -1287,6 +1288,7 @@ export function installCoreWorkflowRoutes(app, deps) {
         companyFolderId: result.companyFolderId,
         masterSheetId: result.masterSheetId,
         written: result.written,
+        evidenceUploadWarning: result.evidenceUploadWarning || "",
       });
     } catch (error) {
       clearTimeout(routeTimeout);

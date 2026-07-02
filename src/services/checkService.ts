@@ -22,6 +22,16 @@ export type SubmitCheckResultInput = {
   answers?: Record<string, unknown>;
   findings?: unknown[];
   evidenceRefs?: unknown[];
+  evidenceFiles?: Array<{
+    id?: string;
+    evidenceId?: string;
+    name?: string;
+    mimeType?: string;
+    size?: number;
+    dataUrl?: string;
+    addedAt?: string;
+    questionId?: string;
+  }>;
 };
 
 export type CompleteCheckResult = {
@@ -31,6 +41,7 @@ export type CompleteCheckResult = {
   error?: string;
   message?: string;
   code?: string;
+  evidenceUploadWarning?: string;
 };
 
 export type FetchAssignedChecksResult = {
@@ -279,6 +290,7 @@ export async function completeCheck(
         answers: input.answers || {},
         findings: input.findings ?? [],
         evidenceRefs: input.evidenceRefs ?? [],
+        evidenceFiles: input.evidenceFiles ?? [],
         localSubmissionId: input.localSubmissionId,
         completedByName: input.completedBy,
       }),
@@ -293,6 +305,7 @@ export async function completeCheck(
     reasonCode?: string;
     error?: string;
     message?: string;
+    evidenceUploadWarning?: string;
   } = {};
   try {
     payload = (await response.json()) as typeof payload;
@@ -325,6 +338,7 @@ export async function completeCheck(
     ok: true,
     resultId,
     scheduleId: resolvedScheduleId,
+    evidenceUploadWarning: String(payload.evidenceUploadWarning || "").trim() || undefined,
   };
 }
 

@@ -394,8 +394,10 @@ import {
   fetchCompanyIncidents,
   mergeWorkbookAndLocalIncidents,
   prepareSerializableEvidenceUploadFiles,
+  readFileAsDataUrl,
   submitCompanyIncident,
 } from "./src/services/incidentsService";
+import { prepareSerializableAuditEvidenceFiles } from "./src/services/checkEvidenceService";
 import type { AuditResultDetail, AuditResultSummary } from "./src/types/resultsScreenProps";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
 import { getNextBestAction } from "./src/utils/nextBestAction";
@@ -3484,6 +3486,9 @@ function App() {
   const [textResponses, setTextResponses] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [evidence, setEvidence] = useState<Record<string, EvidenceItem[]>>({});
+  const [auditEvidenceUploadData, setAuditEvidenceUploadData] = useState<
+    Record<string, { dataUrl: string; name: string; mimeType: string; size: number; questionId: string }>
+  >({});
   const [evidenceDebugLabel, setEvidenceDebugLabel] = useState("");
   const [auditModeQuestionIndex, setAuditModeQuestionIndex] = useState(0);
   const [issuePrompt, setIssuePrompt] = useState<IssuePromptState | null>(null);
@@ -10657,6 +10662,10 @@ function App() {
       setEvidenceDebugLabel(`Selected: ${list.map((file) => file.name).join(", ")}`);
       const timestamp = formatStamp();
       const nextItems: EvidenceItem[] = [];
+      const nextUploadData: Record<
+        string,
+        { dataUrl: string; name: string; mimeType: string; size: number; questionId: string }
+      > = {};
       for (const file of list) {
         const evidenceId = `${questionId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const blobKey = `${evidenceId}-${file.name}`;
@@ -10666,6 +10675,21 @@ function App() {
           }
         } catch {
           // Best effort: still keep in-memory preview if blob persistence fails.
+        }
+        let dataUrl = "";
+        try {
+          dataUrl = await readFileAsDataUrl(file);
+        } catch {
+          // Preview still works from blob URL; upload payload may be omitted on submit.
+        }
+        if (dataUrl.startsWith("data:")) {
+          nextUploadData[evidenceId] = {
+            dataUrl,
+            name: file.name,
+            mimeType: file.type || "application/octet-stream",
+            size: file.size,
+            questionId,
+          };
         }
         nextItems.push({
           id: evidenceId,
@@ -10677,6 +10701,7 @@ function App() {
           size: file.size,
         });
       }
+      setAuditEvidenceUploadData((current) => ({ ...current, ...nextUploadData }));
       setEvidence((current) => ({
         ...current,
         [questionId]: [...(current[questionId] ?? []), ...nextItems],
@@ -11297,6 +11322,7 @@ function App() {
       setActiveAssignedCheck(null);
       setCheckSubmitState({ submitting: false });
       setTextResponses({});
+      setAuditEvidenceUploadData({});
       setScreen("complete");
     };
 
@@ -11369,7 +11395,30 @@ function App() {
         evidenceId: item.id,
         name: item.name,
         mimeType: item.mimeType || "application/octet-stream",
+        addedAt: item.addedAt,
       })),
+    );
+    const evidenceFiles = prepareSerializableAuditEvidenceFiles(
+      Object.entries(evidence).flatMap(([questionId, items]) =>
+        items
+          .map((item) => {
+            const upload = auditEvidenceUploadData[item.id];
+            if (!upload?.dataUrl?.startsWith("data:")) {
+              return null;
+            }
+            return {
+              id: item.id,
+              evidenceId: item.id,
+              name: upload.name,
+              mimeType: upload.mimeType,
+              size: upload.size,
+              dataUrl: upload.dataUrl,
+              addedAt: item.addedAt,
+              questionId,
+            };
+          })
+          .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)),
+      ),
     );
 
     setCheckSubmitState({ submitting: true, error: undefined });
@@ -11395,6 +11444,7 @@ function App() {
             answers: syncedResponses,
             findings,
             evidenceRefs,
+            evidenceFiles,
             localSubmissionId: `check-${activeAudit.id}-${Date.now()}`,
           },
           { signal: controller.signal },
@@ -11405,6 +11455,14 @@ function App() {
           setCheckSubmitState({ submitting: false, error: message });
           pushToast("Could not submit check", message, "warning");
           return;
+        }
+
+        if (result.evidenceUploadWarning) {
+          pushToast(
+            "Check completed",
+            `Check completed, but evidence upload failed: ${result.evidenceUploadWarning}`,
+            "warning",
+          );
         }
 
         finishCompletionSummary({

@@ -292,6 +292,26 @@ export async function ensureIncidentEvidenceFolderId(drive, photosFolderId, inci
   };
 }
 
+/** Drive path prefix for per-audit-result photo evidence (under company root). */
+export const AUDIT_EVIDENCE_DRIVE_PATH_PREFIX = "03 - Evidence/Photos/Audits";
+
+/**
+ * Ensures Photos/Audits/{resultId} exists under the company Photos folder.
+ */
+export async function ensureAuditEvidenceFolderId(drive, photosFolderId, resultId) {
+  const safeResultId = String(resultId || "").trim();
+  const photosId = String(photosFolderId || "").trim();
+  if (!photosId || !safeResultId) {
+    throw new Error("Photos folder and result ID are required.");
+  }
+  const auditsFolder = await ensureNamedFolder(drive, "Audits", photosId);
+  const resultFolder = await ensureNamedFolder(drive, safeResultId, auditsFolder.folder.id);
+  return {
+    folderId: resultFolder.folder.id,
+    path: `${AUDIT_EVIDENCE_DRIVE_PATH_PREFIX}/${safeResultId}`,
+  };
+}
+
 function sheetEndColumnLetter(columnCount) {
   const count = Math.max(Number(columnCount) || 1, 1);
   if (count <= 26) {

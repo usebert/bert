@@ -22,6 +22,11 @@ import {
   ensureTabColumns as workbookEnsureTabColumns,
   readTabRecords as workbookReadTabRecords,
 } from "./workbook-service.mjs";
+import {
+  normalizeAuditEvidenceUploadFile,
+  sanitizeAuditEvidenceRefsForWorkbook,
+  uploadAuditEvidenceToDrive,
+} from "./audit-evidence-upload.mjs";
 
 export const CHECK_COMPLETION_GOOGLE_TIMEOUT_MS = Math.min(
   DEFAULT_GOOGLE_OPERATION_TIMEOUT_MS,
@@ -454,6 +459,53 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
     (schedule.audits || []).find((audit) => trim(audit.auditId) === auditId) ||
     (schedule.audits || []).find((audit) => trim(audit.auditName) === auditName) ||
     schedule.audits?.[0];
+
+  const resultId = trim(input.resultId) || newResultId();
+  let evidenceRefs = sanitizeAuditEvidenceRefsForWorkbook(input.evidenceRefs ?? input.evidence ?? []);
+  let evidenceUploadWarning = "";
+  const evidenceFiles = Array.isArray(input.evidenceFiles) ? input.evidenceFiles : [];
+
+  if (evidenceFiles.length > 0) {
+    const normalizedFiles = evidenceFiles.map((file, index) => normalizeAuditEvidenceUploadFile(file, index));
+    const validDataUrlCount = normalizedFiles.filter((file) => trim(file.dataUrl).startsWith("data:")).length;
+    logCheckCompletePhase("evidence_upload_start", {
+      ...traceMeta,
+      resultId,
+      fileCount: normalizedFiles.length,
+      validDataUrlCount,
+    });
+    const uploaded = await uploadAuditEvidenceToDrive(auth, deps, {
+      companyFolderId: eligibility.companyFolderId,
+      masterSheetId: eligibility.masterSheetId,
+      resultId,
+      files: normalizedFiles,
+    });
+    logCheckCompletePhase("evidence_upload_end", {
+      ...traceMeta,
+      resultId,
+      uploadedCount: uploaded.evidenceRefs?.length || 0,
+      folderId: uploaded.folderId || "",
+      ok: uploaded.ok,
+    });
+    if (uploaded.evidenceRefs?.length > 0) {
+      const uploadedByEvidenceId = new Map(
+        uploaded.evidenceRefs.map((ref) => [trim(ref.evidenceId), ref]),
+      );
+      evidenceRefs = evidenceRefs.map((ref) => uploadedByEvidenceId.get(trim(ref.evidenceId)) || ref);
+      for (const uploadedRef of uploaded.evidenceRefs) {
+        if (!evidenceRefs.some((ref) => trim(ref.evidenceId) === trim(uploadedRef.evidenceId))) {
+          evidenceRefs.push(uploadedRef);
+        }
+      }
+    }
+    if (!uploaded.ok) {
+      evidenceUploadWarning =
+        uploaded.message || uploaded.error || "Photo evidence could not be uploaded to Google Drive.";
+    } else if (uploaded.warning) {
+      evidenceUploadWarning = uploaded.warning;
+    }
+  }
+
   const row = buildAuditResultRow({
     ...input,
     scheduleId: scheduleId || trim(schedule.id),
@@ -470,10 +522,9 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
     answersJson: input.answersJson,
     findings: input.findings,
     findingsJson: input.findingsJson,
-    evidence: input.evidence,
-    evidenceRefs: input.evidenceRefs,
+    evidenceRefs,
     localSubmissionId: input.localSubmissionId,
-    resultId: input.resultId,
+    resultId,
     completedAt: input.completedAt,
   });
 
@@ -512,6 +563,7 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
       masterSheetId: eligibility.masterSheetId,
       scheduleId: row["Schedule ID"],
       written,
+      evidenceUploadWarning,
     };
   } catch (error) {
     logCheckCompletePhase("catch_error", {
