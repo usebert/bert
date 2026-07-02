@@ -185,6 +185,8 @@ export function canInvestigateIncidents(role: Role) {
   return role === "Master" || role === "Admin" || role === "Manager";
 }
 
+export { canReassignIncident, isEligibleIncidentReassignTarget } from "./utils/incidentAssignment";
+
 export function canEditLegalName(role: Role) {
   return role === "Master" || role === "Admin";
 }

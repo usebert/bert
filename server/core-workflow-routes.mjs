@@ -53,6 +53,7 @@ import {
   canSubmitCompanyIncident,
   INCIDENTS_ROUTE_TIMEOUT_MS,
   listCompanyIncidents,
+  reassignCompanyIncident,
   submitCompanyIncident,
 } from "./incidents-service.mjs";
 import { uploadIncidentEvidenceToDrive } from "./incident-evidence-upload.mjs";
@@ -1741,6 +1742,96 @@ export function installCoreWorkflowRoutes(app, deps) {
         code: "INCIDENT_EVIDENCE_UPLOAD_FAILED",
         error: "Could not upload incident evidence.",
         message: "Could not upload incident evidence.",
+        technicalError: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.post("/api/companies/:companyFolderId/incidents/:incidentId/reassign", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({
+        ok: false,
+        error: "Please connect Google before reassigning incidents.",
+        message: "Could not reassign incident.",
+      });
+    }
+
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const incidentId = String(req.params?.incidentId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || companyFolderId).trim();
+
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      sessionCompanyFolderId,
+      String(req.body?.companyName || actor?.companyName || "").trim(),
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
+
+    try {
+      const resolved = await resolveCompanyScheduleContext(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        {
+          companyId: sessionCompanyFolderId,
+          companyFolderId: sessionCompanyFolderId,
+          masterSheetId: String(req.body?.masterSheetId || "").trim(),
+          companyName: String(req.body?.companyName || actor?.companyName || "").trim(),
+        },
+      );
+      if (!resolved.ok) {
+        return res.status(resolved.httpStatus || 400).json({
+          ok: false,
+          code: resolved.code,
+          error: resolved.error,
+          message: resolved.message || resolved.error,
+        });
+      }
+
+      const result = await reassignCompanyIncident(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        {
+          companyFolderId: sessionCompanyFolderId,
+          companyId: sessionCompanyFolderId,
+          incidentId,
+          toEmail: req.body?.toEmail,
+          toName: req.body?.toName,
+          toRole: req.body?.toRole,
+          reason: req.body?.reason,
+          masterSheetId: resolved.masterSheetId,
+          companyName: String(req.body?.companyName || actor?.companyName || "").trim(),
+          resolvedContext: resolved,
+        },
+        actor || {},
+      );
+
+      if (!result.ok) {
+        return res.status(result.httpStatus || 400).json({
+          ok: false,
+          code: result.code,
+          error: result.error,
+          message: result.message || result.error,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        companyId: result.companyId,
+        companyFolderId: result.companyFolderId,
+        masterSheetId: result.masterSheetId,
+        incident: result.incident,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "INCIDENT_REASSIGN_FAILED",
+        error: "Could not reassign this incident.",
+        message: "Could not reassign this incident.",
         technicalError: error instanceof Error ? error.message : String(error),
       });
     }

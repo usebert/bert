@@ -395,8 +395,10 @@ import {
   mergeWorkbookAndLocalIncidents,
   prepareSerializableEvidenceUploadFiles,
   readFileAsDataUrl,
+  reassignCompanyIncident,
   submitCompanyIncident,
 } from "./src/services/incidentsService";
+import { isEligibleIncidentReassignTarget } from "./src/utils/incidentAssignment";
 import { prepareSerializableAuditEvidenceFiles, buildAuditEvidenceUploadPayload } from "./src/services/checkEvidenceService";
 import type { AuditResultDetail, AuditResultSummary } from "./src/types/resultsScreenProps";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
@@ -1143,6 +1145,31 @@ type IncidentRecord = {
   witnesses: string;
   evidenceUrls: IncidentEvidenceItem[];
   assignedTo: string;
+  assignedToEmail?: string;
+  assignedToName?: string;
+  assignedByEmail?: string;
+  assignedByName?: string;
+  assignedAt?: string;
+  receivedByEmail?: string;
+  receivedByName?: string;
+  reassignedFromEmail?: string;
+  reassignedFromName?: string;
+  reassignedToEmail?: string;
+  reassignedToName?: string;
+  reassignedByEmail?: string;
+  reassignedByName?: string;
+  reassignedAt?: string;
+  reassignmentReason?: string;
+  assignmentHistory?: {
+    fromEmail: string;
+    fromName: string;
+    toEmail: string;
+    toName: string;
+    byEmail: string;
+    byName: string;
+    at: string;
+    reason?: string;
+  }[];
   investigationNotes: string;
   rootCause: string;
   correctiveActions: string;
@@ -4885,6 +4912,18 @@ function App() {
     );
   }, [companyMembersState.members, masterCompanyWorkspaceDataMatchesSelection, users]);
 
+  const incidentReassignTargets = useMemo(
+    () =>
+      companyReportUsers
+        .filter((user) => isEligibleIncidentReassignTarget(user))
+        .map((user) => ({
+          email: user.email,
+          name: user.name,
+          role: user.role,
+        })),
+    [companyReportUsers],
+  );
+
   const reminderUserEmail = useMemo(() => {
     if (!currentUser) {
       return "";
@@ -7665,9 +7704,29 @@ function App() {
     const now = new Date().toISOString();
     const incidentId = generateIncidentNumber(payload.incidentDate);
     const highPriority = incidentEscalationSeverities.includes(payload.severity);
-    const assignedTo = highPriority
-      ? users.find((user) => user.role === "Master")?.name || "System Setup"
-      : users.find((user) => user.role === "Manager")?.name || "Unassigned";
+    const preferredHandlerRole = highPriority ? "Master" : "Manager";
+    const handlerFromCompany = companyReportUsers.find((user) => user.role === preferredHandlerRole);
+    const handlerFromUsers = users.find((user) => user.role === preferredHandlerRole);
+    const initialHandler = handlerFromCompany
+      ? { email: handlerFromCompany.email, name: handlerFromCompany.name }
+      : handlerFromUsers
+        ? {
+            email:
+              handlerFromUsers.username === "admin"
+                ? "andy@usebert.co.uk"
+                : handlerFromUsers.username === "manager"
+                  ? "james@usebert.co.uk"
+                  : handlerFromUsers.username === "tom"
+                    ? "tom@usebert.co.uk"
+                    : "sarah@usebert.co.uk",
+            name: handlerFromUsers.name,
+          }
+        : { email: "", name: "Unassigned" };
+    const assignedTo = initialHandler.name;
+    const submitterEmails = resolveCurrentUserReportEmails(currentUser, companyReportUsers);
+    const assignedByEmail =
+      submitterEmails.values().next().value ||
+      (currentUser.username.includes("@") ? currentUser.username : `${currentUser.username}@usebert.co.uk`);
 
     let incident: IncidentRecord = {
       id: `incident-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -7690,6 +7749,13 @@ function App() {
       witnesses: payload.witnesses,
       evidenceUrls: [],
       assignedTo,
+      assignedToEmail: initialHandler.email,
+      assignedToName: initialHandler.name,
+      assignedByEmail,
+      assignedByName: currentUser.name,
+      assignedAt: now,
+      receivedByEmail: initialHandler.email,
+      receivedByName: initialHandler.name,
       investigationNotes: "",
       rootCause: "",
       correctiveActions: "",
@@ -7772,6 +7838,13 @@ function App() {
         evidenceUrls: [],
         evidenceFiles: evidenceFilesForUpload,
         assignedTo: incident.assignedTo,
+        assignedToEmail: incident.assignedToEmail,
+        assignedToName: incident.assignedToName,
+        assignedByEmail: incident.assignedByEmail,
+        assignedByName: incident.assignedByName,
+        assignedAt: incident.assignedAt,
+        receivedByEmail: incident.receivedByEmail,
+        receivedByName: incident.receivedByName,
         notificationStatus: incident.notificationStatus,
         statusHistory: incident.statusHistory,
         createdAt: incident.createdAt,
@@ -7838,6 +7911,46 @@ function App() {
     }
 
     return { ...incident, notificationStatus };
+  };
+
+  const reassignIncidentRecord = async (
+    incidentId: string,
+    input: { toEmail: string; toName: string; toRole: string; reason?: string },
+  ): Promise<IncidentRecord> => {
+    if (!currentUser) {
+      throw new Error("You must be signed in to reassign incidents.");
+    }
+    const existing = incidents.find((item) => item.id === incidentId);
+    if (!existing) {
+      throw new Error("Incident not found.");
+    }
+    const companyFolderId = activeCompanyContext.companyFolderId;
+    if (!companyFolderId) {
+      throw new Error("The company workbook is unavailable.");
+    }
+
+    const result = await reassignCompanyIncident({
+      companyFolderId,
+      incidentId: existing.incidentId,
+      toEmail: input.toEmail,
+      toName: input.toName,
+      toRole: input.toRole,
+      reason: input.reason,
+      masterSheetId: activeCompanyContext.masterSheetId,
+      companyName: activeCompanyContext.companyName,
+    });
+    if (!result.ok || !result.incident) {
+      throw new Error(result.error || "Could not reassign this incident.");
+    }
+
+    const updated: IncidentRecord = {
+      ...existing,
+      ...result.incident,
+      assignedTo: result.incident.assignedToName || result.incident.assignedTo || input.toName,
+    };
+    setIncidents((current) => current.map((item) => (item.id === incidentId ? updated : item)));
+    pushToast("Incident reassigned", `Now assigned to ${input.toName}.`, "success");
+    return updated;
   };
 
   const updateIncidentRecord = (incidentId: string, patch: Partial<IncidentRecord>, options?: { statusNote?: string }) => {
@@ -16253,8 +16366,10 @@ function App() {
                 currentUser={currentUser}
                 incidents={incidents}
                 incidentActions={incidentActions}
+                reassignTargets={incidentReassignTargets}
                 onSubmitIncident={submitIncidentReport}
                 onUpdateIncident={updateIncidentRecord}
+                onReassignIncident={reassignIncidentRecord}
                 onAddIncidentAction={addIncidentCorrectiveAction}
                 onUpdateIncidentAction={updateIncidentCorrectiveAction}
               />

@@ -212,6 +212,38 @@ function pickEvidenceUrls(record: Record<string, unknown>): IncidentEvidenceItem
   return [];
 }
 
+function parseAssignmentHistory(raw: unknown): IncidentRecord["assignmentHistory"] {
+  if (Array.isArray(raw)) {
+    return raw as IncidentRecord["assignmentHistory"];
+  }
+  const text = String(raw ?? "").trim();
+  if (!text) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return Array.isArray(parsed) ? (parsed as IncidentRecord["assignmentHistory"]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function pickAssignmentHistory(record: Record<string, unknown>): IncidentRecord["assignmentHistory"] {
+  for (const key of ["AssignmentHistory", "assignmentHistory"]) {
+    const direct = record[key];
+    if (Array.isArray(direct)) {
+      return direct as IncidentRecord["assignmentHistory"];
+    }
+  }
+  for (const key of ["AssignmentHistory", "assignmentHistory"]) {
+    const parsed = parseAssignmentHistory(pickRecordField(record, key));
+    if (parsed && parsed.length > 0) {
+      return parsed;
+    }
+  }
+  return [];
+}
+
 export function mapWorkbookIncidentRecord(
   record: Record<string, unknown>,
   fallback: Partial<IncidentRecord> = {},
@@ -245,7 +277,56 @@ export function mapWorkbookIncidentRecord(
     rootCause: String(fallback.rootCause || ""),
     correctiveActions: String(fallback.correctiveActions || ""),
     preventiveActions: String(fallback.preventiveActions || ""),
-    assignedTo: String(fallback.assignedTo || ""),
+    assignedTo:
+      String(fallback.assignedTo || "").trim() ||
+      String(fallback.assignedToName || "").trim() ||
+      pickRecordField(sanitized, "AssignedToName", "assignedToName"),
+    assignedToEmail:
+      String(fallback.assignedToEmail || "").trim() ||
+      pickRecordField(sanitized, "AssignedToEmail", "assignedToEmail"),
+    assignedToName:
+      String(fallback.assignedToName || "").trim() ||
+      pickRecordField(sanitized, "AssignedToName", "assignedToName"),
+    assignedByEmail:
+      String(fallback.assignedByEmail || "").trim() ||
+      pickRecordField(sanitized, "AssignedByEmail", "assignedByEmail"),
+    assignedByName:
+      String(fallback.assignedByName || "").trim() ||
+      pickRecordField(sanitized, "AssignedByName", "assignedByName"),
+    assignedAt: String(fallback.assignedAt || "").trim() || pickRecordField(sanitized, "AssignedAt", "assignedAt"),
+    receivedByEmail:
+      String(fallback.receivedByEmail || "").trim() ||
+      pickRecordField(sanitized, "ReceivedByEmail", "receivedByEmail"),
+    receivedByName:
+      String(fallback.receivedByName || "").trim() ||
+      pickRecordField(sanitized, "ReceivedByName", "receivedByName"),
+    reassignedFromEmail:
+      String(fallback.reassignedFromEmail || "").trim() ||
+      pickRecordField(sanitized, "ReassignedFromEmail", "reassignedFromEmail"),
+    reassignedFromName:
+      String(fallback.reassignedFromName || "").trim() ||
+      pickRecordField(sanitized, "ReassignedFromName", "reassignedFromName"),
+    reassignedToEmail:
+      String(fallback.reassignedToEmail || "").trim() ||
+      pickRecordField(sanitized, "ReassignedToEmail", "reassignedToEmail"),
+    reassignedToName:
+      String(fallback.reassignedToName || "").trim() ||
+      pickRecordField(sanitized, "ReassignedToName", "reassignedToName"),
+    reassignedByEmail:
+      String(fallback.reassignedByEmail || "").trim() ||
+      pickRecordField(sanitized, "ReassignedByEmail", "reassignedByEmail"),
+    reassignedByName:
+      String(fallback.reassignedByName || "").trim() ||
+      pickRecordField(sanitized, "ReassignedByName", "reassignedByName"),
+    reassignedAt:
+      String(fallback.reassignedAt || "").trim() || pickRecordField(sanitized, "ReassignedAt", "reassignedAt"),
+    reassignmentReason:
+      String(fallback.reassignmentReason || "").trim() ||
+      pickRecordField(sanitized, "ReassignmentReason", "reassignmentReason"),
+    assignmentHistory:
+      Array.isArray(fallback.assignmentHistory) && fallback.assignmentHistory.length > 0
+        ? parseAssignmentHistory(fallback.assignmentHistory)
+        : pickAssignmentHistory(sanitized),
     actionOwner: String(fallback.actionOwner || ""),
     dueDate: String(fallback.dueDate || ""),
     completionDate: String(fallback.completionDate || ""),
@@ -353,6 +434,14 @@ export type SubmitCompanyIncidentInput = {
   evidenceUrls: IncidentEvidenceItem[];
   evidenceFiles?: IncidentEvidenceUploadFile[];
   assignedTo: string;
+  assignedToEmail?: string;
+  assignedToName?: string;
+  assignedByEmail?: string;
+  assignedByName?: string;
+  assignedAt?: string;
+  receivedByEmail?: string;
+  receivedByName?: string;
+  assignmentHistory?: IncidentRecord["assignmentHistory"];
   notificationStatus: string;
   statusHistory: IncidentRecord["statusHistory"];
   createdAt: string;
@@ -505,7 +594,14 @@ export async function submitCompanyIncident(
         injuryDetails: input.injuryDetails,
         contributingFactors: input.contributingFactors,
         assignedTo: input.assignedTo,
-        statusHistory: input.statusHistory,
+        assignedToEmail: input.assignedToEmail,
+        assignedToName: input.assignedToName || input.assignedTo,
+        assignedByEmail: input.assignedByEmail,
+        assignedByName: input.assignedByName,
+        assignedAt: input.assignedAt,
+        receivedByEmail: input.receivedByEmail,
+        receivedByName: input.receivedByName,
+        assignmentHistory: input.assignmentHistory || [],
         updatedBy: input.updatedBy,
         companyFolderId,
         masterSheetId: input.masterSheetId,
@@ -560,3 +656,74 @@ export function mergeWorkbookAndLocalIncidents(
 
 /** @deprecated Prefer mergeWorkbookAndLocalIncidents */
 export const mergeWorkbookIncidentsWithLocal = mergeWorkbookAndLocalIncidents;
+
+export type ReassignCompanyIncidentInput = {
+  companyFolderId: string;
+  incidentId: string;
+  toEmail: string;
+  toName: string;
+  toRole: string;
+  reason?: string;
+  masterSheetId?: string;
+  companyName?: string;
+};
+
+export type ReassignCompanyIncidentResult = {
+  ok: boolean;
+  incident?: IncidentRecord;
+  error?: string;
+};
+
+export async function reassignCompanyIncident(
+  input: ReassignCompanyIncidentInput,
+): Promise<ReassignCompanyIncidentResult> {
+  const companyFolderId = String(input.companyFolderId || "").trim();
+  const incidentId = String(input.incidentId || "").trim();
+  if (!companyFolderId || !incidentId) {
+    return { ok: false, error: "Incident context is required." };
+  }
+
+  try {
+    const response = await fetch(
+      apiUrl(
+        `/api/companies/${encodeURIComponent(companyFolderId)}/incidents/${encodeURIComponent(incidentId)}/reassign`,
+      ),
+      {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyFolderId,
+          incidentId,
+          toEmail: input.toEmail,
+          toName: input.toName,
+          toRole: input.toRole,
+          reason: input.reason || "",
+          masterSheetId: input.masterSheetId,
+          companyName: input.companyName,
+        }),
+      },
+    );
+    const payload = (await response.json()) as {
+      ok?: boolean;
+      incident?: Record<string, unknown>;
+      message?: string;
+      error?: string;
+    };
+    if (!response.ok || payload.ok === false) {
+      return {
+        ok: false,
+        error: payload.message || payload.error || "Could not reassign this incident.",
+      };
+    }
+    return {
+      ok: true,
+      incident: payload.incident ? mapWorkbookIncidentRecord(payload.incident) : undefined,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Could not reassign this incident.",
+    };
+  }
+}

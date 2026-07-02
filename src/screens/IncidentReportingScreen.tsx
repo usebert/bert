@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { MiniMetric } from "../components/dashboard/DashboardPrimitives";
-import { canCompleteAuditAsAuditor, canInvestigateIncidents } from "../permissions";
+import { IncidentReassignModal } from "../components/incidents/IncidentReassignModal";
+import { canCompleteAuditAsAuditor, canInvestigateIncidents, canReassignIncident } from "../permissions";
 import { getRoleTheme } from "../config/roleTheme";
 import { SECTION_INTROS } from "../config/sectionIntros";
 import { SectionIntro } from "../components/SectionIntro";
@@ -17,13 +18,20 @@ import type {
   IncidentType,
 } from "../types/incidentsScreenProps";
 import { readFileAsDataUrl } from "../services/incidentsService";
+import {
+  formatIncidentAssignee,
+  isEligibleIncidentReassignTarget,
+  recentAssignmentHistory,
+} from "../utils/incidentAssignment";
 
 export function IncidentReportingScreen({
   currentUser,
   incidents,
   incidentActions,
+  reassignTargets,
   onSubmitIncident,
   onUpdateIncident,
+  onReassignIncident,
   onAddIncidentAction,
   onUpdateIncidentAction,
 }: IncidentReportingScreenProps) {
@@ -47,6 +55,9 @@ export function IncidentReportingScreen({
   const [actionDescription, setActionDescription] = useState("");
   const [actionOwner, setActionOwner] = useState("");
   const [actionDueDate, setActionDueDate] = useState("");
+  const [reassignOpen, setReassignOpen] = useState(false);
+  const [reassignSubmitting, setReassignSubmitting] = useState(false);
+  const [reassignError, setReassignError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [formError, setFormError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -94,6 +105,14 @@ export function IncidentReportingScreen({
 
   const selectedIncident = filteredIncidents.find((item) => item.id === selectedIncidentId) || incidents.find((item) => item.id === selectedIncidentId) || null;
   const selectedActions = selectedIncident ? incidentActions.filter((item) => item.incidentId === selectedIncident.id) : [];
+  const eligibleReassignTargets = useMemo(
+    () => reassignTargets.filter((target) => isEligibleIncidentReassignTarget(target)),
+    [reassignTargets],
+  );
+  const canReassignSelectedIncident = selectedIncident
+    ? canReassignIncident(currentUser, selectedIncident)
+    : false;
+  const assignmentHistory = selectedIncident ? recentAssignmentHistory(selectedIncident.assignmentHistory) : [];
   const openActionsCount = incidentActions.filter((item) => item.status !== "Complete").length;
   const underInvestigation = incidents.filter((item) => item.status === "Under Investigation").length;
   const highSeverityIncidents = incidents.filter((item) => item.priority === "High").length;
@@ -363,7 +382,7 @@ export function IncidentReportingScreen({
                 ) : (
                   filteredIncidents.map((item) => (
                     <tr key={item.id} onClick={() => setSelectedIncidentId(item.id)} className="cursor-pointer border-t border-slate-200 hover:bg-slate-50">
-                      <td className="px-2 py-2 font-semibold">{item.incidentId}</td><td className="px-2 py-2">{item.incidentDate} {item.incidentTime}</td><td className="px-2 py-2">{item.incidentType}</td><td className="px-2 py-2">{item.severity}</td><td className="px-2 py-2">{item.reporterName}</td><td className="px-2 py-2">{item.department}</td><td className="px-2 py-2">{item.location}</td><td className="px-2 py-2">{item.status}</td><td className="px-2 py-2">{item.assignedTo || "-"}</td><td className="px-2 py-2">{item.dueDate || "-"}</td>
+                      <td className="px-2 py-2 font-semibold">{item.incidentId}</td><td className="px-2 py-2">{item.incidentDate} {item.incidentTime}</td><td className="px-2 py-2">{item.incidentType}</td><td className="px-2 py-2">{item.severity}</td><td className="px-2 py-2">{item.reporterName}</td><td className="px-2 py-2">{item.department}</td><td className="px-2 py-2">{item.location}</td><td className="px-2 py-2">{item.status}</td><td className="px-2 py-2">{formatIncidentAssignee(item)}</td><td className="px-2 py-2">{item.dueDate || "-"}</td>
                       <td className="px-2 py-2">
                         {(() => {
                           const links = item.evidenceUrls
@@ -422,30 +441,79 @@ export function IncidentReportingScreen({
         </section>
       )}
 
-      {selectedIncident && canManageIncidents && (
+      {selectedIncident && (canManageIncidents || canReassignSelectedIncident) && (
         <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Investigation workflow</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                {canManageIncidents ? "Investigation workflow" : "Incident assignment"}
+              </p>
               <h3 className="text-xl font-semibold text-slate-900">{selectedIncident.incidentId}</h3>
               <p className="text-sm text-slate-600">{selectedIncident.description}</p>
             </div>
-            <select value={selectedIncident.status} onChange={(event) => onUpdateIncident(selectedIncident.id, { status: event.target.value as IncidentStatus }, { statusNote: "Status updated from register" })} className="h-10 rounded-lg border px-2">
-              <option>Open</option><option>Under Investigation</option><option>Closed</option>
-            </select>
+            {canManageIncidents ? (
+              <select value={selectedIncident.status} onChange={(event) => onUpdateIncident(selectedIncident.id, { status: event.target.value as IncidentStatus }, { statusNote: "Status updated from register" })} className="h-10 rounded-lg border px-2">
+                <option>Open</option><option>Under Investigation</option><option>Closed</option>
+              </select>
+            ) : null}
           </div>
           <div className="mt-3 grid gap-2 md:grid-cols-2">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 md:col-span-2">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">Current handler</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{formatIncidentAssignee(selectedIncident)}</p>
+                  {selectedIncident.assignedAt ? (
+                    <p className="mt-1 text-xs text-slate-500">Assigned {selectedIncident.assignedAt}</p>
+                  ) : null}
+                </div>
+                {canReassignSelectedIncident ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReassignError("");
+                      setReassignOpen(true);
+                    }}
+                    className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
+                  >
+                    Reassign
+                  </button>
+                ) : null}
+              </div>
+              {assignmentHistory.length > 0 ? (
+                <div className="mt-3 space-y-2 border-t border-slate-200 pt-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">Assignment history</p>
+                  {assignmentHistory.map((entry) => (
+                    <div key={`${entry.at}-${entry.toEmail}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
+                      <p>
+                        <strong>{entry.fromName || entry.fromEmail || "Unassigned"}</strong>
+                        {" → "}
+                        <strong>{entry.toName || entry.toEmail}</strong>
+                      </p>
+                      <p className="mt-1 text-slate-500">
+                        By {entry.byName || entry.byEmail} · {entry.at}
+                        {entry.reason ? ` · ${entry.reason}` : ""}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            {canManageIncidents ? (
+              <>
             <textarea value={selectedIncident.investigationNotes} onChange={(event) => onUpdateIncident(selectedIncident.id, { investigationNotes: event.target.value })} placeholder="Investigation notes" className="min-h-24 rounded-xl border px-3 py-2" />
             <textarea value={selectedIncident.rootCause} onChange={(event) => onUpdateIncident(selectedIncident.id, { rootCause: event.target.value })} placeholder="Root cause analysis" className="min-h-24 rounded-xl border px-3 py-2" />
             <textarea value={selectedIncident.correctiveActions} onChange={(event) => onUpdateIncident(selectedIncident.id, { correctiveActions: event.target.value })} placeholder="Corrective actions summary" className="min-h-24 rounded-xl border px-3 py-2" />
             <textarea value={selectedIncident.preventiveActions} onChange={(event) => onUpdateIncident(selectedIncident.id, { preventiveActions: event.target.value })} placeholder="Preventive actions summary" className="min-h-24 rounded-xl border px-3 py-2" />
-            <input value={selectedIncident.assignedTo} onChange={(event) => onUpdateIncident(selectedIncident.id, { assignedTo: event.target.value })} placeholder="Assigned to" className="h-10 rounded-lg border px-3" />
             <input value={selectedIncident.actionOwner} onChange={(event) => onUpdateIncident(selectedIncident.id, { actionOwner: event.target.value })} placeholder="Action owner" className="h-10 rounded-lg border px-3" />
             <input type="date" value={selectedIncident.dueDate} onChange={(event) => onUpdateIncident(selectedIncident.id, { dueDate: event.target.value })} className="h-10 rounded-lg border px-3" />
             <input type="date" value={selectedIncident.completionDate} onChange={(event) => onUpdateIncident(selectedIncident.id, { completionDate: event.target.value })} className="h-10 rounded-lg border px-3" />
             <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={selectedIncident.riddorRequired} onChange={(event) => onUpdateIncident(selectedIncident.id, { riddorRequired: event.target.checked })} /> RIDDOR required</label>
+              </>
+            ) : null}
           </div>
 
+          {canManageIncidents ? (
           <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
             <p className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">Corrective action tracking</p>
             <div className="mt-2 grid gap-2 md:grid-cols-4">
@@ -467,11 +535,42 @@ export function IncidentReportingScreen({
               ))}
             </div>
           </div>
-          {selectedIncident.status !== "Closed" && (
+          ) : null}
+          {canManageIncidents && selectedIncident.status !== "Closed" && (
             <button type="button" onClick={() => onUpdateIncident(selectedIncident.id, { status: "Closed", closedAt: new Date().toISOString(), closedBy: currentUser.name, completionDate: selectedIncident.completionDate || new Date().toISOString().slice(0, 10) }, { statusNote: "Incident closed" })} className={["mt-3 h-10 rounded-lg px-4 text-sm font-semibold text-white", theme.primaryButton, theme.primaryButtonHover].join(" ")}>Close incident</button>
           )}
         </section>
       )}
+
+      <IncidentReassignModal
+        open={reassignOpen && Boolean(selectedIncident)}
+        incidentLabel={selectedIncident?.incidentId || "Incident"}
+        currentAssignee={selectedIncident ? formatIncidentAssignee(selectedIncident) : ""}
+        targets={eligibleReassignTargets}
+        submitting={reassignSubmitting}
+        error={reassignError}
+        onClose={() => {
+          if (!reassignSubmitting) {
+            setReassignOpen(false);
+            setReassignError("");
+          }
+        }}
+        onConfirm={async (input) => {
+          if (!selectedIncident) {
+            return;
+          }
+          setReassignSubmitting(true);
+          setReassignError("");
+          try {
+            await onReassignIncident(selectedIncident.id, input);
+            setReassignOpen(false);
+          } catch (error) {
+            setReassignError(error instanceof Error ? error.message : "Could not reassign this incident.");
+          } finally {
+            setReassignSubmitting(false);
+          }
+        }}
+      />
     </div>
   );
 }

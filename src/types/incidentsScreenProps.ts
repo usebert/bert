@@ -38,6 +38,17 @@ export type IncidentEvidenceUploadFile = {
   addedAt: string;
 };
 
+export type IncidentAssignmentHistoryEntry = {
+  fromEmail: string;
+  fromName: string;
+  toEmail: string;
+  toName: string;
+  byEmail: string;
+  byName: string;
+  at: string;
+  reason?: string;
+};
+
 export type IncidentRecord = {
   id: string;
   incidentId: string;
@@ -63,6 +74,22 @@ export type IncidentRecord = {
   correctiveActions: string;
   preventiveActions: string;
   assignedTo: string;
+  assignedToEmail?: string;
+  assignedToName?: string;
+  assignedByEmail?: string;
+  assignedByName?: string;
+  assignedAt?: string;
+  receivedByEmail?: string;
+  receivedByName?: string;
+  reassignedFromEmail?: string;
+  reassignedFromName?: string;
+  reassignedToEmail?: string;
+  reassignedToName?: string;
+  reassignedByEmail?: string;
+  reassignedByName?: string;
+  reassignedAt?: string;
+  reassignmentReason?: string;
+  assignmentHistory?: IncidentAssignmentHistoryEntry[];
   actionOwner: string;
   dueDate: string;
   completionDate: string;
@@ -108,15 +135,26 @@ export type IncidentSubmitPayload = {
   evidenceUploadFiles?: IncidentEvidenceUploadFile[];
 };
 
+export type IncidentReassignTarget = {
+  email: string;
+  name: string;
+  role: string;
+};
+
 export type IncidentReportingScreenProps = {
   currentUser: User;
   incidents: IncidentRecord[];
   incidentActions: IncidentCorrectiveAction[];
+  reassignTargets: IncidentReassignTarget[];
   onSubmitIncident: (
     payload: IncidentSubmitPayload,
     options?: { onPhase?: (phase: string) => void },
   ) => Promise<IncidentRecord>;
   onUpdateIncident: (incidentId: string, patch: Partial<IncidentRecord>, options?: { statusNote?: string }) => void;
+  onReassignIncident: (
+    incidentId: string,
+    input: { toEmail: string; toName: string; toRole: string; reason?: string },
+  ) => Promise<IncidentRecord>;
   onAddIncidentAction: (incidentId: string, payload: { description: string; owner: string; dueDate: string }) => void;
   onUpdateIncidentAction: (actionId: string, patch: Partial<IncidentCorrectiveAction>) => void;
 };
