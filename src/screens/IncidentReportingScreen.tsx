@@ -29,6 +29,7 @@ export function IncidentReportingScreen({
   incidents,
   incidentActions,
   reassignTargets,
+  reassignTargetsLoading = false,
   onSubmitIncident,
   onUpdateIncident,
   onReassignIncident,
@@ -547,6 +548,7 @@ export function IncidentReportingScreen({
         incidentLabel={selectedIncident?.incidentId || "Incident"}
         currentAssignee={selectedIncident ? formatIncidentAssignee(selectedIncident) : ""}
         targets={eligibleReassignTargets}
+        targetsLoading={reassignTargetsLoading}
         submitting={reassignSubmitting}
         error={reassignError}
         onClose={() => {

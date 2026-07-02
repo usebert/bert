@@ -150,6 +150,8 @@ import {
   COMPANY_MEMBERS_LOAD_TIMEOUT_MESSAGE,
   COMPANY_MEMBERS_USER_MESSAGE,
   fetchCompanyMembers,
+  readCompanyMembersCache,
+  writeCompanyMembersCache,
   updateCompanyMember,
   type CompanyMember,
   type CompanyMembersDiagnostics,
@@ -398,7 +400,7 @@ import {
   reassignCompanyIncident,
   submitCompanyIncident,
 } from "./src/services/incidentsService";
-import { buildIncidentReassignTargets } from "./src/utils/incidentAssignment";
+import { buildIncidentReassignTargets, mergeIncidentReassignTargets } from "./src/utils/incidentAssignment";
 import { prepareSerializableAuditEvidenceFiles, buildAuditEvidenceUploadPayload } from "./src/services/checkEvidenceService";
 import type { AuditResultDetail, AuditResultSummary } from "./src/types/resultsScreenProps";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
@@ -2642,11 +2644,11 @@ function extractByKeys(record: Record<string, string>, candidates: string[]) {
 }
 
 function parseRole(value: string): Role | null {
-  const lowered = value.trim().toLowerCase();
-  if (lowered === "master" || lowered === "god mode") {
+  const lowered = value.trim().toLowerCase().replace(/\s+/g, " ");
+  if (lowered === "master" || lowered === "god mode" || lowered === "godmode" || lowered === "platform owner") {
     return "Master";
   }
-  if (lowered === "admin") {
+  if (lowered === "admin" || lowered === "company admin" || lowered === "administrator" || lowered === "owner") {
     return "Admin";
   }
   if (lowered === "manager") {
@@ -4897,6 +4899,7 @@ function App() {
       .map((row) => {
         const role =
           parseRole(row.role) ||
+          parseRole(row.accessLevel) ||
           (row.accessLevel.trim().toLowerCase() === "auditor" ? ("Auditor" as Role) : null) ||
           ("User" as Role);
         return {
@@ -4934,13 +4937,30 @@ function App() {
       }));
   }, [companyMembersState.members, masterCompanyWorkspaceDataMatchesSelection, users]);
 
-  const incidentReassignTargets = useMemo(
-    () =>
-      buildIncidentReassignTargets(incidentReassignTargetSource, {
-        companyFolderId: activeCompanyContext.companyFolderId,
-      }),
-    [incidentReassignTargetSource, activeCompanyContext.companyFolderId],
-  );
+  const incidentReassignTargets = useMemo(() => {
+    const companyFolderId = activeCompanyContext.companyFolderId;
+    const fromMembers = buildIncidentReassignTargets(incidentReassignTargetSource, {
+      companyFolderId,
+      log: screen === "incidents",
+    });
+    const fromReportUsers = buildIncidentReassignTargets(
+      companyReportUsers.map((user) => ({
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        status: "ACTIVE",
+        companyId: companyFolderId,
+        companyFolderId,
+      })),
+      { companyFolderId, log: false },
+    );
+    return mergeIncidentReassignTargets(fromMembers, fromReportUsers);
+  }, [
+    incidentReassignTargetSource,
+    companyReportUsers,
+    activeCompanyContext.companyFolderId,
+    screen,
+  ]);
 
   const reminderUserEmail = useMemo(() => {
     if (!currentUser) {
@@ -5980,11 +6000,18 @@ function App() {
     const timeoutId = window.setTimeout(() => {
       controller.abort(new DOMException("Company members load timed out", "TimeoutError"));
     }, COMPANY_MEMBERS_LOAD_TIMEOUT_MS);
-    setCompanyMembersState({
-      members: [],
+    const cachedMembers = readCompanyMembersCache(storageKeys.companyMembersCache, companyId);
+    setCompanyMembersState((previous) => ({
+      members:
+        previous.members.length > 0
+          ? previous.members
+          : cachedMembers?.members?.length
+            ? cachedMembers.members
+            : [],
       loading: true,
       loadError: undefined,
-    });
+      warning: previous.warning || cachedMembers?.warning,
+    }));
 
     void (async () => {
       try {
@@ -5999,21 +6026,27 @@ function App() {
           if (cancelled) {
             return;
           }
-          setCompanyMembersState({
-            members: [],
+          setCompanyMembersState((previous) => ({
+            members: previous.members,
             loadError: result.loadError || COMPANY_MEMBERS_USER_MESSAGE,
             loadErrorDetail: result.loadErrorDetail,
             loadReasonCode: result.reasonCode,
             loadFailedStep: result.failedStep,
             loadDiagnostics: result.diagnostics,
             loading: false,
-          });
+          }));
           return;
         }
 
         if (cancelled) {
           return;
         }
+        writeCompanyMembersCache(storageKeys.companyMembersCache, {
+          companyId,
+          members: result.members,
+          cachedAt: Date.now(),
+          warning: result.warning,
+        });
         setCompanyMembersState({
           members: result.members,
           warning: result.warning,
@@ -6028,14 +6061,14 @@ function App() {
         if (error instanceof DOMException && error.name === "AbortError") {
           const timedOut = error.message.includes("timed out") || error.message === "TimeoutError";
           if (timedOut) {
-            setCompanyMembersState({
-              members: [],
-              loadError: COMPANY_MEMBERS_LOAD_TIMEOUT_MESSAGE,
-              loadErrorDetail: COMPANY_MEMBERS_LOAD_TIMEOUT_MESSAGE,
+            setCompanyMembersState((previous) => ({
+              members: previous.members,
+              loadError: previous.members.length > 0 ? undefined : COMPANY_MEMBERS_LOAD_TIMEOUT_MESSAGE,
+              loadErrorDetail: previous.members.length > 0 ? undefined : COMPANY_MEMBERS_LOAD_TIMEOUT_MESSAGE,
               loadReasonCode: "CLIENT_LOAD_TIMEOUT",
               loadFailedStep: "client_fetch",
               loading: false,
-            });
+            }));
           }
           return;
         }
@@ -6048,15 +6081,20 @@ function App() {
           upstreamMessage: error instanceof Error ? error.message : COMPANY_MEMBERS_USER_MESSAGE,
           dataSource: "users_tab",
         };
-        setCompanyMembersState({
-          members: [],
-          loadError: COMPANY_MEMBERS_USER_MESSAGE,
-          loadErrorDetail: error instanceof Error ? error.message : COMPANY_MEMBERS_USER_MESSAGE,
+        setCompanyMembersState((previous) => ({
+          members: previous.members,
+          loadError: previous.members.length > 0 ? undefined : COMPANY_MEMBERS_USER_MESSAGE,
+          loadErrorDetail:
+            previous.members.length > 0
+              ? undefined
+              : error instanceof Error
+                ? error.message
+                : COMPANY_MEMBERS_USER_MESSAGE,
           loadReasonCode: "CLIENT_FETCH_FAILED",
           loadFailedStep: "client_fetch",
           loadDiagnostics: fetchDiagnostics,
           loading: false,
-        });
+        }));
       } finally {
         window.clearTimeout(timeoutId);
       }
@@ -10107,6 +10145,12 @@ function App() {
     if (!membersResult.ok) {
       throw new Error(membersResult.loadErrorDetail || membersResult.loadError || COMPANY_MEMBERS_USER_MESSAGE);
     }
+    writeCompanyMembersCache(storageKeys.companyMembersCache, {
+      companyId: companyFolderId,
+      members: membersResult.members,
+      cachedAt: Date.now(),
+      warning: membersResult.warning,
+    });
     setCompanyMembersState({
       members: membersResult.members,
       warning: membersResult.warning,
@@ -16385,6 +16429,7 @@ function App() {
                 incidents={incidents}
                 incidentActions={incidentActions}
                 reassignTargets={incidentReassignTargets}
+                reassignTargetsLoading={companyMembersState.loading}
                 onSubmitIncident={submitIncidentReport}
                 onUpdateIncident={updateIncidentRecord}
                 onReassignIncident={reassignIncidentRecord}

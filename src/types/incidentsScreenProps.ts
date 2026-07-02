@@ -146,6 +146,7 @@ export type IncidentReportingScreenProps = {
   incidents: IncidentRecord[];
   incidentActions: IncidentCorrectiveAction[];
   reassignTargets: IncidentReassignTarget[];
+  reassignTargetsLoading?: boolean;
   onSubmitIncident: (
     payload: IncidentSubmitPayload,
     options?: { onPhase?: (phase: string) => void },

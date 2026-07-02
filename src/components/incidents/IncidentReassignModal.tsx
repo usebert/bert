@@ -8,6 +8,7 @@ type IncidentReassignModalProps = {
   incidentLabel: string;
   currentAssignee: string;
   targets: IncidentReassignTarget[];
+  targetsLoading?: boolean;
   submitting?: boolean;
   error?: string;
   onClose: () => void;
@@ -19,6 +20,7 @@ export function IncidentReassignModal({
   incidentLabel,
   currentAssignee,
   targets,
+  targetsLoading = false,
   submitting = false,
   error,
   onClose,
@@ -47,7 +49,11 @@ export function IncidentReassignModal({
         <div className="mt-4 space-y-3">
           <label className="block space-y-1.5">
             <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">New handler</span>
-            {targets.length === 0 ? (
+            {targetsLoading ? (
+              <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
+                Loading handlers…
+              </p>
+            ) : targets.length === 0 ? (
               <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
                 No eligible incident handlers found. Add a Manager/Admin or H&S receiver first.
               </p>
@@ -93,7 +99,7 @@ export function IncidentReassignModal({
           </AnimatedButton>
           <AnimatedButton
             type="button"
-            disabled={submitting || !selectedTarget || targets.length === 0}
+            disabled={submitting || targetsLoading || !selectedTarget || targets.length === 0}
             onClick={() => {
               if (!selectedTarget) {
                 return;

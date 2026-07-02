@@ -61,8 +61,9 @@ assert(
   "LOAD: incidents screen loads company members",
 );
 assert(appTsx.includes("buildIncidentReassignTargets"), "APP: buildIncidentReassignTargets used");
-assert(incidentAssignment.includes("incident_reassign_targets"), "TARGETS: debug logging present");
-assert(incidentAssignment.includes("company admin"), "TARGETS: company admin role normalised");
+assert(incidentAssignment.includes("sampleRoles"), "TARGETS: sample role debug logging");
+assert(incidentAssignment.includes("belongsToCompanyUsersTabRow"), "TARGETS: company filter matches People list");
+assert(reassignModal.includes("Loading handlers"), "UI: loading handlers message shown");
 assert(
   reassignModal.includes("No eligible incident handlers found"),
   "UI: empty target message shown",

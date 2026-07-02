@@ -317,7 +317,13 @@ export async function fetchCompanyMembers(
 
   return {
     ok: true,
-    members: sanitizeCompanyMembersForClient(Array.isArray(payload.users) ? payload.users : []),
+    members: sanitizeCompanyMembersForClient(
+      Array.isArray(payload.users)
+        ? payload.users
+        : Array.isArray((payload as { members?: CompanyMember[] }).members)
+          ? (payload as { members: CompanyMember[] }).members
+          : [],
+    ),
     warning: payload.warning,
     reasonCode: payload.reasonCode,
     failedStep: payload.failedStep || payload.diagnostics?.failedStep,

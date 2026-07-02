@@ -5,7 +5,11 @@ import type {
   IncidentRecord,
 } from "../types/incidentsScreenProps";
 import type { User } from "../types/dashboardScreenProps";
-import { isActiveCompanyUser, normalizeScheduleValue } from "./scheduleAssignees";
+import {
+  belongsToCompanyUsersTabRow,
+  isActiveCompanyUsersTabRow,
+  type CompanyUsersTabRow,
+} from "./scheduleAssignees";
 
 function trim(value: unknown): string {
   return String(value ?? "").trim();
@@ -36,10 +40,21 @@ export function parseIncidentMemberRole(value: string): Role | "User" | null {
   if (!lowered) {
     return null;
   }
-  if (lowered === "master" || lowered === "god mode" || lowered === "godmode" || lowered === "platform owner") {
+  if (
+    lowered === "master" ||
+    lowered === "god mode" ||
+    lowered === "godmode" ||
+    lowered === "platform owner" ||
+    lowered === "master operator"
+  ) {
     return "Master";
   }
-  if (lowered === "admin" || lowered === "company admin" || lowered === "administrator" || lowered === "owner") {
+  if (
+    lowered === "admin" ||
+    lowered === "company admin" ||
+    lowered === "administrator" ||
+    lowered === "owner"
+  ) {
     return "Admin";
   }
   if (lowered === "manager") {
@@ -51,21 +66,27 @@ export function parseIncidentMemberRole(value: string): Role | "User" | null {
   if (lowered === "user") {
     return "User";
   }
+  if (lowered.includes("company admin") || lowered.includes("administrator")) {
+    return "Admin";
+  }
   return null;
 }
 
 export function resolveIncidentMemberRole(member: IncidentMemberLike = {}): string {
-  const fromRole = parseIncidentMemberRole(member.role || "");
-  if (fromRole && fromRole !== "User") {
-    return fromRole;
+  const roleCandidates = [member.role, member.accessLevel].map((value) => trim(value)).filter(Boolean);
+  for (const candidate of roleCandidates) {
+    const parsed = parseIncidentMemberRole(candidate);
+    if (parsed && parsed !== "User") {
+      return parsed;
+    }
   }
-
-  const fromAccess = parseIncidentMemberRole(member.accessLevel || "");
-  if (fromAccess && fromAccess !== "User") {
-    return fromAccess;
+  for (const candidate of roleCandidates) {
+    const parsed = parseIncidentMemberRole(candidate);
+    if (parsed) {
+      return parsed;
+    }
   }
-
-  return fromRole || fromAccess || "User";
+  return "User";
 }
 
 export function isHsReportReceiverMember(member: IncidentMemberLike = {}): boolean {
@@ -79,7 +100,14 @@ export function isHsReportReceiverMember(member: IncidentMemberLike = {}): boole
 }
 
 export function isIncidentHandlerRole(role: Role | string): boolean {
-  const normalized = trim(role).toLowerCase();
+  const normalized = trim(role).toLowerCase().replace(/\s+/g, " ");
+  if (
+    normalized.includes("company admin") ||
+    normalized === "administrator" ||
+    normalized === "owner"
+  ) {
+    return true;
+  }
   return normalized === "master" || normalized === "admin" || normalized === "manager";
 }
 
@@ -93,6 +121,44 @@ export function isEligibleIncidentReassignTarget(target: {
   return isIncidentHandlerRole(target.role);
 }
 
+function toCompanyUsersTabRow(member: IncidentMemberLike): CompanyUsersTabRow {
+  return {
+    email: trim(member.email),
+    name: trim(member.name),
+    role: trim(member.role),
+    accessLevel: trim(member.accessLevel),
+    status: trim(member.status) || "ACTIVE",
+    companyId: trim(member.companyId || member.companyFolderId),
+    companyAreas: [],
+  };
+}
+
+function isActiveIncidentReassignMember(member: IncidentMemberLike): boolean {
+  const status = trim(member.status);
+  if (!status) {
+    return true;
+  }
+  return isActiveCompanyUsersTabRow(toCompanyUsersTabRow(member));
+}
+
+export function mergeIncidentReassignTargets(
+  ...lists: IncidentReassignTarget[][]
+): IncidentReassignTarget[] {
+  const seen = new Set<string>();
+  const merged: IncidentReassignTarget[] = [];
+  for (const list of lists) {
+    for (const target of list) {
+      const email = normalizeEmail(target.email);
+      if (!email || seen.has(email)) {
+        continue;
+      }
+      seen.add(email);
+      merged.push(target);
+    }
+  }
+  return merged.sort((left, right) => left.name.localeCompare(right.name));
+}
+
 export function buildIncidentReassignTargets(
   members: IncidentMemberLike[],
   options: { companyFolderId?: string; log?: boolean } = {},
@@ -101,6 +167,9 @@ export function buildIncidentReassignTargets(
   let totalUsers = 0;
   let activeUsers = 0;
   let excludedAuditors = 0;
+  const sampleRoles: string[] = [];
+  const sampleStatuses: string[] = [];
+  const sampleCompanyFolderIds: string[] = [];
   const seen = new Set<string>();
   const targets: IncidentReassignTarget[] = [];
 
@@ -112,17 +181,23 @@ export function buildIncidentReassignTargets(
       continue;
     }
 
-    const status = trim(member.status);
-    if (status && normalizeScheduleValue(status) !== "active") {
+    if (sampleRoles.length < 5) {
+      sampleRoles.push(trim(member.role) || trim(member.accessLevel) || "(blank)");
+    }
+    if (sampleStatuses.length < 5) {
+      sampleStatuses.push(trim(member.status) || "(blank)");
+    }
+    if (sampleCompanyFolderIds.length < 5) {
+      sampleCompanyFolderIds.push(trim(member.companyFolderId || member.companyId) || "(blank)");
+    }
+
+    if (!isActiveIncidentReassignMember(member)) {
       continue;
     }
     activeUsers += 1;
 
-    if (companyFolderId) {
-      const memberCompanyId = trim(member.companyFolderId || member.companyId);
-      if (memberCompanyId && memberCompanyId !== companyFolderId) {
-        continue;
-      }
+    if (companyFolderId && !belongsToCompanyUsersTabRow(toCompanyUsersTabRow(member), companyFolderId)) {
+      continue;
     }
 
     const hsReportReceiver = isHsReportReceiverMember(member);
@@ -151,6 +226,9 @@ export function buildIncidentReassignTargets(
       activeUsers,
       eligibleTargets: targets.length,
       excludedAuditors,
+      sampleRoles,
+      sampleStatuses,
+      sampleCompanyFolderIds,
     });
   }
 
@@ -221,13 +299,5 @@ export function isActiveIncidentMember(member: IncidentMemberLike): boolean {
   if (!trim(member.email) || !trim(member.name)) {
     return false;
   }
-  return isActiveCompanyUser({
-    email: trim(member.email),
-    name: trim(member.name),
-    role: trim(member.role),
-    accessLevel: trim(member.accessLevel),
-    status: trim(member.status) || "ACTIVE",
-    companyId: trim(member.companyId),
-    companyAreas: [],
-  });
+  return isActiveIncidentReassignMember(member);
 }
