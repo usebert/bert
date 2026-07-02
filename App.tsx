@@ -393,6 +393,7 @@ import {
   buildIncidentEvidenceUploadPayload,
   fetchCompanyIncidents,
   mergeWorkbookAndLocalIncidents,
+  prepareSerializableEvidenceUploadFiles,
   submitCompanyIncident,
 } from "./src/services/incidentsService";
 import type { AuditResultDetail, AuditResultSummary } from "./src/types/resultsScreenProps";
@@ -7635,7 +7636,14 @@ function App() {
     contributingFactors: string;
     witnesses: string;
     evidenceUrls: IncidentEvidenceItem[];
-    evidenceFiles?: IncidentEvidenceFileAttachment[];
+    evidenceUploadFiles?: Array<{
+      id: string;
+      name: string;
+      mimeType: string;
+      size: number;
+      dataUrl: string;
+      addedAt: string;
+    }>;
   }, options?: { onPhase?: (phase: string) => void }) => {
     if (!currentUser) {
       throw new Error("You must be signed in to submit incidents.");
@@ -7701,7 +7709,7 @@ function App() {
 
     let evidenceUploadWarning = "";
     const hasAttachedEvidence = payload.evidenceUrls.length > 0;
-    let evidenceFilesForUpload: Array<{ id: string; name: string; mimeType: string; dataUrl: string; addedAt: string }> = [];
+    let evidenceFilesForUpload = prepareSerializableEvidenceUploadFiles(payload.evidenceUploadFiles);
 
     if (hasAttachedEvidence) {
       if (typeof navigator !== "undefined" && !navigator.onLine) {
@@ -7710,19 +7718,18 @@ function App() {
         evidenceUploadWarning = "The company workbook is unavailable.";
       } else {
         options?.onPhase?.("Uploading evidence...");
-        console.info("[incidents]", {
-          phase: "client_prepare_evidence_upload",
-          attachedCount: payload.evidenceUrls.length,
-          fileAttachmentCount: payload.evidenceFiles?.length || 0,
-          incidentId,
-        });
-        evidenceFilesForUpload = await buildIncidentEvidenceUploadPayload(
-          payload.evidenceUrls,
-          payload.evidenceFiles,
-        );
+        if (evidenceFilesForUpload.length === 0) {
+          console.info("[incidents]", {
+            phase: "client_prepare_evidence_upload_fallback",
+            attachedCount: payload.evidenceUrls.length,
+            incidentId,
+          });
+          evidenceFilesForUpload = await buildIncidentEvidenceUploadPayload(payload.evidenceUrls);
+        }
         console.info("[incidents]", {
           phase: "client_prepared_evidence_upload",
           uploadPayloadCount: evidenceFilesForUpload.length,
+          dataUrlLengths: evidenceFilesForUpload.map((file) => file.dataUrl.length),
           incidentId,
         });
         if (evidenceFilesForUpload.length === 0) {

@@ -1,5 +1,10 @@
 import { apiUrl } from "../config/apiBase";
-import type { IncidentEvidenceItem, IncidentEvidenceFileAttachment, IncidentRecord } from "../types/incidentsScreenProps";
+import type {
+  IncidentEvidenceItem,
+  IncidentEvidenceFileAttachment,
+  IncidentEvidenceUploadFile,
+  IncidentRecord,
+} from "../types/incidentsScreenProps";
 import { dedupeInFlight, requestDedupeKey } from "../utils/requestDedupe";
 
 export const COMPANY_INCIDENTS_LOAD_TIMEOUT_MS = 90_000;
@@ -33,6 +38,27 @@ export function sanitizeEvidenceUrlsForWorkbook(evidenceUrls: IncidentEvidenceIt
   return evidenceUrls
     .map((item) => sanitizeEvidenceItemForWorkbook(item))
     .filter((item) => item.id && !item.previewUrl.startsWith("data:"));
+}
+
+export function prepareSerializableEvidenceUploadFiles(
+  files: Array<Partial<IncidentEvidenceUploadFile> & { dataUrl?: string }> = [],
+): IncidentEvidenceUploadFile[] {
+  return files
+    .map((file, index) => {
+      const dataUrl = String(file.dataUrl || "").trim();
+      if (!dataUrl.startsWith("data:")) {
+        return null;
+      }
+      return {
+        id: String(file.id || `incident-evidence-${index + 1}`).trim(),
+        name: String(file.name || `photo-${index + 1}`).trim(),
+        mimeType: String(file.mimeType || "application/octet-stream").trim(),
+        size: Number(file.size) || 0,
+        dataUrl,
+        addedAt: String(file.addedAt || new Date().toISOString()).trim(),
+      };
+    })
+    .filter((file): file is IncidentEvidenceUploadFile => Boolean(file));
 }
 
 export async function resolveIncidentEvidenceFilesForUpload(
@@ -75,7 +101,7 @@ export async function buildIncidentEvidenceUploadPayload(
   evidenceUrls: IncidentEvidenceItem[],
   evidenceFiles: IncidentEvidenceFileAttachment[] = [],
   fileMap: Record<string, File> = {},
-): Promise<Array<{ id: string; name: string; mimeType: string; dataUrl: string; addedAt: string }>> {
+): Promise<IncidentEvidenceUploadFile[]> {
   const byId = new Map<string, File>();
   for (const entry of evidenceFiles) {
     if (entry?.id && entry.file) {
@@ -88,7 +114,7 @@ export async function buildIncidentEvidenceUploadPayload(
     }
   }
 
-  const payload: Array<{ id: string; name: string; mimeType: string; dataUrl: string; addedAt: string }> = [];
+  const payload: IncidentEvidenceUploadFile[] = [];
   for (const item of evidenceUrls) {
     let file = byId.get(item.id);
     if (!file && item.previewUrl.startsWith("blob:")) {
@@ -106,11 +132,12 @@ export async function buildIncidentEvidenceUploadPayload(
       id: item.id,
       name: item.name,
       mimeType: item.mimeType || file.type || "application/octet-stream",
+      size: file.size || 0,
       addedAt: item.addedAt,
       dataUrl: await readFileAsDataUrl(file),
     });
   }
-  return payload;
+  return prepareSerializableEvidenceUploadFiles(payload);
 }
 
 export function readFileAsDataUrl(file: File): Promise<string> {
@@ -324,7 +351,7 @@ export type SubmitCompanyIncidentInput = {
   contributingFactors: string;
   witnesses: string;
   evidenceUrls: IncidentEvidenceItem[];
-  evidenceFiles?: Array<{ id: string; name: string; mimeType: string; dataUrl: string; addedAt: string }>;
+  evidenceFiles?: IncidentEvidenceUploadFile[];
   assignedTo: string;
   notificationStatus: string;
   statusHistory: IncidentRecord["statusHistory"];
@@ -441,6 +468,13 @@ export async function submitCompanyIncident(
   }
 
   try {
+    const serializableEvidenceFiles = prepareSerializableEvidenceUploadFiles(input.evidenceFiles);
+    console.info("[incidents]", {
+      phase: "client_submit_request",
+      incidentId: input.incidentId,
+      evidenceFileCount: serializableEvidenceFiles.length,
+      evidenceDataUrlLengths: serializableEvidenceFiles.map((file) => file.dataUrl.length),
+    });
     const response = await fetch(apiUrl(`/api/companies/${encodeURIComponent(companyFolderId)}/incidents`), {
       method: "POST",
       credentials: "include",
@@ -462,7 +496,7 @@ export async function submitCompanyIncident(
         immediateAction: input.immediateAction,
         witnesses: input.witnesses,
         evidenceUrls: sanitizeEvidenceUrlsForWorkbook(input.evidenceUrls),
-        evidenceFiles: input.evidenceFiles,
+        evidenceFiles: serializableEvidenceFiles,
         notificationStatus: input.notificationStatus,
         createdAt: input.createdAt,
         createdBy: input.createdBy,

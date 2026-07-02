@@ -19,6 +19,7 @@ import {
 import {
   sanitizeEvidenceUrlsForWorkbook,
   uploadIncidentEvidenceToDrive,
+  normalizeEvidenceUploadFile,
 } from "./incident-evidence-upload.mjs";
 
 export const INCIDENTS_GOOGLE_TIMEOUT_MS = Math.min(DEFAULT_GOOGLE_OPERATION_TIMEOUT_MS, 75_000);
@@ -387,9 +388,16 @@ export async function submitCompanyIncident(auth, deps, input = {}) {
 
   let evidenceUrls = sanitizeEvidenceUrlsForWorkbook(input.evidenceUrls);
   let evidenceUploadWarning = "";
-  const evidenceFiles = Array.isArray(input.evidenceFiles) ? input.evidenceFiles : [];
+  const evidenceFiles = (Array.isArray(input.evidenceFiles) ? input.evidenceFiles : []).map((file, index) =>
+    normalizeEvidenceUploadFile(file, index),
+  );
   if (evidenceFiles.length > 0) {
-    logIncidentPhase("evidence_upload_start", { ...traceMeta, fileCount: evidenceFiles.length });
+    const validDataUrlCount = evidenceFiles.filter((file) => trim(file.dataUrl).startsWith("data:")).length;
+    logIncidentPhase("evidence_upload_start", {
+      ...traceMeta,
+      fileCount: evidenceFiles.length,
+      validDataUrlCount,
+    });
     const uploaded = await uploadIncidentEvidenceToDrive(auth, deps, {
       companyFolderId,
       masterSheetId: context.masterSheetId,

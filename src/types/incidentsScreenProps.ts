@@ -28,6 +28,16 @@ export type IncidentEvidenceFileAttachment = {
   file: File;
 };
 
+/** JSON-serialisable evidence payload sent to the incident submit API. */
+export type IncidentEvidenceUploadFile = {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  dataUrl: string;
+  addedAt: string;
+};
+
 export type IncidentRecord = {
   id: string;
   incidentId: string;
@@ -95,6 +105,7 @@ export type IncidentSubmitPayload = {
   witnesses: string;
   evidenceUrls: IncidentEvidenceItem[];
   evidenceFiles?: IncidentEvidenceFileAttachment[];
+  evidenceUploadFiles?: IncidentEvidenceUploadFile[];
 };
 
 export type IncidentReportingScreenProps = {

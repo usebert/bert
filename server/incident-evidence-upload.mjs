@@ -1,6 +1,7 @@
 /**
  * Incident evidence upload — Drive path: 03 - Evidence / Photos / Incidents / {incidentId}
  */
+import { Readable } from "node:stream";
 import {
   ensureCompanyFolderStructure,
   ensureIncidentEvidenceFolderId,
@@ -75,24 +76,60 @@ export function sanitizeEvidenceUrlsForWorkbook(evidenceUrls) {
     .filter((item) => item.id && !trim(item.previewUrl).startsWith("data:"));
 }
 
-async function uploadDataUrlToDrive(auth, google, folderId, fileName, mimeType, dataUrl) {
-  const match = String(dataUrl || "").match(/^data:(.+?);base64,(.+)$/);
+export function normalizeEvidenceUploadFile(file = {}, index = 0) {
+  const mimeType = trim(file.mimeType) || "application/octet-stream";
+  let dataUrl = trim(file.dataUrl || file.dataURL || file.localRef || "");
+  if (!dataUrl.startsWith("data:")) {
+    const base64 = trim(file.base64 || file.content || "");
+    if (base64) {
+      dataUrl = `data:${mimeType};base64,${base64}`;
+    }
+  }
+  return {
+    id: trim(file.id) || `incident-evidence-${index + 1}`,
+    name: trim(file.name) || `photo-${index + 1}`,
+    mimeType,
+    size: Number(file.size) || 0,
+    addedAt: trim(file.addedAt) || new Date().toISOString(),
+    dataUrl,
+  };
+}
+
+function parseDataUrl(dataUrl) {
+  const raw = String(dataUrl || "");
+  const match = raw.match(/^data:([^;,]+)(?:;[^,]*)*;base64,([\s\S]+)$/);
   if (!match) {
-    return { id: "", link: "" };
+    return null;
+  }
+  const mimeType = trim(match[1]) || "application/octet-stream";
+  const encoded = String(match[2] || "").replace(/\s/g, "");
+  if (!encoded) {
+    return null;
+  }
+  const body = Buffer.from(encoded, "base64");
+  if (!body.length) {
+    return null;
+  }
+  return { mimeType, body };
+}
+
+async function uploadDataUrlToDrive(auth, google, folderId, fileName, mimeType, dataUrl) {
+  const parsed = parseDataUrl(dataUrl);
+  if (!parsed) {
+    return { id: "", link: "", error: "Invalid or missing data URL payload." };
   }
 
-  const [, parsedMimeType, encoded] = match;
   const drive = google.drive({ version: "v3", auth });
   const response = await drive.files.create({
     supportsAllDrives: true,
     requestBody: {
       name: fileName || `evidence-${Date.now()}`,
       parents: [folderId],
-      mimeType: mimeType || parsedMimeType,
+      mimeType: mimeType || parsed.mimeType,
     },
     media: {
-      mimeType: mimeType || parsedMimeType,
-      body: Buffer.from(encoded, "base64"),
+      mimeType: mimeType || parsed.mimeType,
+      body: Readable.from(parsed.body),
     },
     fields: "id,webViewLink",
   });
@@ -100,6 +137,7 @@ async function uploadDataUrlToDrive(auth, google, folderId, fileName, mimeType, 
   return {
     id: response.data.id || "",
     link: response.data.webViewLink || "",
+    error: "",
   };
 }
 
@@ -119,7 +157,17 @@ export async function uploadIncidentEvidenceToDrive(auth, deps, input = {}) {
   const companyFolderId = trim(input.companyFolderId || input.companyId);
   const masterSheetId = trim(input.masterSheetId);
   const incidentId = trim(input.incidentId);
-  const files = Array.isArray(input.files) ? input.files : [];
+  const files = (Array.isArray(input.files) ? input.files : []).map((file, index) =>
+    normalizeEvidenceUploadFile(file, index),
+  );
+  const validDataUrlCount = files.filter((file) => file.dataUrl.startsWith("data:")).length;
+  console.info("[incidents]", {
+    phase: "evidence_upload_start",
+    companyId: companyFolderId,
+    incidentId,
+    fileCount: files.length,
+    validDataUrlCount,
+  });
 
   if (!companyFolderId || !incidentId) {
     return {
@@ -192,12 +240,29 @@ export async function uploadIncidentEvidenceToDrive(auth, deps, input = {}) {
   for (let index = 0; index < files.length; index += 1) {
     const file = files[index] || {};
     const dataUrl = trim(file.dataUrl);
-    if (!dataUrl.startsWith("data:")) {
-      errors.push(`File ${index + 1} is missing upload data.`);
-      continue;
-    }
     const displayName = trim(file.name) || `photo-${index + 1}`;
     const fileName = buildIncidentEvidenceFileName(incidentId, index, displayName, file.mimeType);
+    if (!dataUrl.startsWith("data:")) {
+      const message = `File ${index + 1} is missing upload data.`;
+      console.info("[incidents]", {
+        phase: "evidence_upload_file_error",
+        incidentId,
+        fileName: displayName,
+        mimeType: file.mimeType,
+        size: file.size || 0,
+        error: message,
+      });
+      errors.push(message);
+      continue;
+    }
+    console.info("[incidents]", {
+      phase: "evidence_upload_file_start",
+      incidentId,
+      fileName: displayName,
+      mimeType: file.mimeType,
+      size: file.size || 0,
+      dataUrlLength: dataUrl.length,
+    });
     try {
       const upload = await withOperationTimeout(
         uploadDataUrlToDrive(auth, deps.google, folderId, fileName, file.mimeType, dataUrl),
@@ -205,9 +270,24 @@ export async function uploadIncidentEvidenceToDrive(auth, deps, input = {}) {
         INCIDENT_EVIDENCE_UPLOAD_TIMEOUT_MS,
       );
       if (!upload.id) {
-        errors.push(`Could not upload ${displayName}.`);
+        const message = upload.error || `Could not upload ${displayName}.`;
+        console.info("[incidents]", {
+          phase: "evidence_upload_file_error",
+          incidentId,
+          fileName: displayName,
+          mimeType: file.mimeType,
+          size: file.size || 0,
+          error: message,
+        });
+        errors.push(message);
         continue;
       }
+      console.info("[incidents]", {
+        phase: "evidence_upload_file_success",
+        incidentId,
+        fileName: displayName,
+        driveFileId: upload.id,
+      });
       evidenceUrls.push(
         sanitizeEvidenceItemForWorkbook({
           id: trim(file.id) || `incident-evidence-${incidentId}-${index + 1}`,
@@ -221,6 +301,14 @@ export async function uploadIncidentEvidenceToDrive(auth, deps, input = {}) {
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      console.info("[incidents]", {
+        phase: "evidence_upload_file_error",
+        incidentId,
+        fileName: displayName,
+        mimeType: file.mimeType,
+        size: file.size || 0,
+        error: message,
+      });
       errors.push(`Could not upload ${displayName}: ${message}`);
     }
   }

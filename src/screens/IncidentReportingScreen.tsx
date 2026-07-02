@@ -8,11 +8,13 @@ import { darkPanelBody, darkPanelEyebrow, darkPanelShell, darkPanelTitleLg } fro
 import type {
   IncidentCorrectiveAction,
   IncidentEvidenceItem,
+  IncidentEvidenceUploadFile,
   IncidentReportingScreenProps,
   IncidentSeverity,
   IncidentStatus,
   IncidentType,
 } from "../types/incidentsScreenProps";
+import { readFileAsDataUrl } from "../services/incidentsService";
 
 export function IncidentReportingScreen({
   currentUser,
@@ -47,7 +49,9 @@ export function IncidentReportingScreen({
   const [formError, setFormError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitPhase, setSubmitPhase] = useState("");
-  const [evidenceFileMap, setEvidenceFileMap] = useState<Record<string, File>>({});
+  const [evidenceUploadData, setEvidenceUploadData] = useState<
+    Record<string, { dataUrl: string; name: string; mimeType: string; size: number }>
+  >({});
 
   const [form, setForm] = useState({
     incidentType: "Near Miss" as IncidentType,
@@ -103,26 +107,47 @@ export function IncidentReportingScreen({
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [incidents]);
 
-  const onAddEvidence = (files: FileList | null) => {
+  const onAddEvidence = async (files: FileList | null) => {
     if (!files) return;
-    const next = Array.from(files).map((file) => {
+    for (const file of Array.from(files)) {
       const id = `incident-evidence-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      setEvidenceFileMap((current) => ({ ...current, [id]: file }));
-      console.info("[incidents]", {
-        phase: "client_evidence_selected",
-        fileName: file.name,
-        mimeType: file.type || "application/octet-stream",
-        evidenceId: id,
-      });
-      return {
-        id,
-        name: file.name,
-        mimeType: file.type || "application/octet-stream",
-        previewUrl: URL.createObjectURL(file),
-        addedAt: new Date().toISOString(),
-      };
-    });
-    setForm((current) => ({ ...current, evidenceUrls: [...current.evidenceUrls, ...next] }));
+      try {
+        const dataUrl = await readFileAsDataUrl(file);
+        setEvidenceUploadData((current) => ({
+          ...current,
+          [id]: {
+            dataUrl,
+            name: file.name,
+            mimeType: file.type || "application/octet-stream",
+            size: file.size,
+          },
+        }));
+        console.info("[incidents]", {
+          phase: "client_evidence_selected",
+          fileName: file.name,
+          mimeType: file.type || "application/octet-stream",
+          size: file.size,
+          dataUrlLength: dataUrl.length,
+          evidenceId: id,
+        });
+        setForm((current) => ({
+          ...current,
+          evidenceUrls: [
+            ...current.evidenceUrls,
+            {
+              id,
+              name: file.name,
+              mimeType: file.type || "application/octet-stream",
+              previewUrl: URL.createObjectURL(file),
+              addedAt: new Date().toISOString(),
+            },
+          ],
+        }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not read the selected file.";
+        setFormError(message);
+      }
+    }
   };
 
   const validateForm = () => {
@@ -148,27 +173,29 @@ export function IncidentReportingScreen({
     setIsSubmitting(true);
     setSubmitPhase("Preparing...");
     try {
-      const evidenceFiles = form.evidenceUrls
+      const evidenceUploadFiles: IncidentEvidenceUploadFile[] = form.evidenceUrls
         .map((item) => {
-          const file = evidenceFileMap[item.id];
-          if (!file) {
+          const upload = evidenceUploadData[item.id];
+          if (!upload?.dataUrl?.startsWith("data:")) {
             return null;
           }
           return {
             id: item.id,
-            name: item.name,
-            mimeType: item.mimeType,
+            name: upload.name,
+            mimeType: upload.mimeType,
+            size: upload.size,
+            dataUrl: upload.dataUrl,
             addedAt: item.addedAt,
-            file,
           };
         })
-        .filter((item): item is NonNullable<typeof item> => Boolean(item));
+        .filter((item): item is IncidentEvidenceUploadFile => Boolean(item));
       console.info("[incidents]", {
         phase: "client_submit_start",
         attachedCount: form.evidenceUrls.length,
-        resolvedFileCount: evidenceFiles.length,
+        uploadPayloadCount: evidenceUploadFiles.length,
+        dataUrlLengths: evidenceUploadFiles.map((file) => file.dataUrl.length),
       });
-      const created = await onSubmitIncident({ ...form, evidenceFiles }, {
+      const created = await onSubmitIncident({ ...form, evidenceUploadFiles }, {
         onPhase: (phase) => setSubmitPhase(phase),
       });
       const notificationFailed = created.notificationStatus.startsWith("Failed:");
@@ -193,7 +220,7 @@ export function IncidentReportingScreen({
         witnesses: "",
         evidenceUrls: [],
       }));
-      setEvidenceFileMap({});
+      setEvidenceUploadData({});
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to submit report. Please try again.";
       setFormError(message);

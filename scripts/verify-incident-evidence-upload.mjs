@@ -46,6 +46,9 @@ assert(
 assert(folderStructure.includes('await ensureNamedFolder(drive, "Incidents", photosId)'), "PATH: Incidents folder under Photos");
 assert(uploadModule.includes("ensureIncidentEvidenceFolderId"), "PATH: uses ensureIncidentEvidenceFolderId");
 assert(incidentsService.includes("uploadIncidentEvidenceToDrive"), "SERVER: incident submit uploads evidence");
+assert(incidentsService.includes("normalizeEvidenceUploadFile"), "SERVER: normalises serialisable evidence payloads");
+assert(uploadModule.includes("evidence_upload_file_start"), "SERVER: logs per-file upload start");
+assert(uploadModule.includes("evidence_upload_file_success"), "SERVER: logs per-file upload success");
 assert(
   coreRoutes.includes('app.post("/api/companies/:companyFolderId/incidents/:incidentId/evidence"'),
   "API: incident evidence upload route",
@@ -92,10 +95,12 @@ const emptyUpload = await uploadIncidentEvidenceToDrive({}, { google: null }, {
 });
 assert(emptyUpload.ok && emptyUpload.evidenceUrls.length === 0, "SUBMIT: no evidence upload allowed");
 
-assert(appTsx.includes("buildIncidentEvidenceUploadPayload"), "APP: prepares evidence payload before workbook save");
+assert(appTsx.includes("prepareSerializableEvidenceUploadFiles"), "APP: serialises evidence before workbook save");
 assert(appTsx.includes("Incident saved, but evidence upload failed"), "APP: evidence upload failure shows warning");
+assert(incidentsClient.includes("prepareSerializableEvidenceUploadFiles"), "CLIENT: strips non-serialisable File payloads");
 assert(incidentsClient.includes("pickEvidenceUrls"), "CLIENT: parses evidenceUrls arrays from API");
-assert(screen.includes("evidenceFileMap"), "UI: keeps local file map for upload");
+assert(screen.includes("evidenceUploadData"), "UI: stores dataUrl when file is selected");
+assert(screen.includes("evidenceUploadFiles"), "UI: submits serialisable evidence payloads");
 assert(appTsx.includes("Uploading evidence"), "UI: shows uploading evidence phase");
 
 console.log(`PASS: verify-incident-evidence-upload (${caseCount} checks)`);
