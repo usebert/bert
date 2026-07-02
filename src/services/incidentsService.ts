@@ -7,6 +7,48 @@ export const COMPANY_INCIDENTS_LOAD_TIMEOUT_MESSAGE =
   "Loading incident reports timed out before the server finished reading your company workbook. Try again.";
 export const COMPANY_INCIDENTS_USER_MESSAGE = "Could not load incident reports.";
 export const COMPANY_INCIDENTS_SUBMIT_USER_MESSAGE = "Could not save incident report to the company workbook.";
+export const COMPANY_INCIDENTS_EVIDENCE_UPLOAD_USER_MESSAGE = "Could not upload incident photo evidence to Google Drive.";
+
+function sanitizeEvidenceItemForWorkbook(item: IncidentEvidenceItem): IncidentEvidenceItem {
+  const preview = String(item.previewUrl || item.driveLink || "").trim();
+  const driveLink = String(item.driveLink || "").trim();
+  const safePreview = preview.startsWith("data:") ? driveLink : preview || driveLink;
+  const next: IncidentEvidenceItem = {
+    id: item.id,
+    name: item.name,
+    mimeType: item.mimeType,
+    previewUrl: safePreview,
+    addedAt: item.addedAt,
+  };
+  if (item.driveFileId) {
+    next.driveFileId = item.driveFileId;
+  }
+  if (driveLink && !driveLink.startsWith("data:")) {
+    next.driveLink = driveLink;
+  }
+  return next;
+}
+
+export function sanitizeEvidenceUrlsForWorkbook(evidenceUrls: IncidentEvidenceItem[]): IncidentEvidenceItem[] {
+  return evidenceUrls
+    .map((item) => sanitizeEvidenceItemForWorkbook(item))
+    .filter((item) => item.id && !item.previewUrl.startsWith("data:"));
+}
+
+export function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error("Could not read file."));
+    };
+    reader.onerror = () => reject(reader.error || new Error("Could not read file."));
+    reader.readAsDataURL(file);
+  });
+}
 
 const credentialHashKey = (prefix: "P" | "p") => `${prefix}assword${String.fromCharCode(72)}ash`;
 const PASSWORD_HASH_FIELD_NAMES = [credentialHashKey("P"), credentialHashKey("p")] as const;
@@ -205,6 +247,92 @@ export type SubmitCompanyIncidentResult = {
   masterSheetId?: string;
 };
 
+export type UploadIncidentEvidenceInput = {
+  companyFolderId: string;
+  incidentId: string;
+  masterSheetId?: string;
+  companyName?: string;
+  files: Array<{ id: string; name: string; mimeType: string; dataUrl: string; addedAt: string }>;
+};
+
+export type UploadIncidentEvidenceResult = {
+  ok: boolean;
+  evidenceUrls: IncidentEvidenceItem[];
+  uploadError?: string;
+  warning?: string;
+  partial?: boolean;
+  folderPath?: string;
+};
+
+export async function uploadIncidentEvidence(
+  input: UploadIncidentEvidenceInput,
+): Promise<UploadIncidentEvidenceResult> {
+  const companyFolderId = String(input.companyFolderId || "").trim();
+  const incidentId = String(input.incidentId || "").trim();
+  if (!companyFolderId || !incidentId) {
+    return {
+      ok: false,
+      evidenceUrls: [],
+      uploadError: COMPANY_INCIDENTS_EVIDENCE_UPLOAD_USER_MESSAGE,
+    };
+  }
+
+  if (!input.files.length) {
+    return { ok: true, evidenceUrls: [] };
+  }
+
+  try {
+    const response = await fetch(
+      apiUrl(`/api/companies/${encodeURIComponent(companyFolderId)}/incidents/${encodeURIComponent(incidentId)}/evidence`),
+      {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyFolderId,
+          masterSheetId: input.masterSheetId,
+          companyName: input.companyName,
+          files: input.files,
+        }),
+      },
+    );
+    const payload = (await response.json()) as {
+      ok?: boolean;
+      evidenceUrls?: IncidentEvidenceItem[];
+      message?: string;
+      error?: string;
+      warning?: string;
+      partial?: boolean;
+      folderPath?: string;
+    };
+
+    if (!response.ok || payload.ok === false) {
+      return {
+        ok: false,
+        evidenceUrls: [],
+        uploadError: payload.message || payload.error || COMPANY_INCIDENTS_EVIDENCE_UPLOAD_USER_MESSAGE,
+      };
+    }
+
+    const evidenceUrls = sanitizeEvidenceUrlsForWorkbook(
+      Array.isArray(payload.evidenceUrls) ? payload.evidenceUrls : [],
+    );
+    return {
+      ok: true,
+      evidenceUrls,
+      warning: payload.warning,
+      partial: payload.partial,
+      folderPath: payload.folderPath,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      evidenceUrls: [],
+      uploadError: error instanceof Error ? error.message : COMPANY_INCIDENTS_EVIDENCE_UPLOAD_USER_MESSAGE,
+    };
+  }
+}
+
 export async function submitCompanyIncident(
   input: SubmitCompanyIncidentInput,
 ): Promise<SubmitCompanyIncidentResult> {
@@ -234,7 +362,7 @@ export async function submitCompanyIncident(
         description: input.description,
         immediateAction: input.immediateAction,
         witnesses: input.witnesses,
-        evidenceUrls: input.evidenceUrls,
+        evidenceUrls: sanitizeEvidenceUrlsForWorkbook(input.evidenceUrls),
         notificationStatus: input.notificationStatus,
         createdAt: input.createdAt,
         createdBy: input.createdBy,

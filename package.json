@@ -117,6 +117,7 @@
     "verify:dark-panel-contrast": "node scripts/verify-dark-panel-contrast.mjs",
     "verify:incident-reporting-wiring": "node scripts/verify-incident-reporting-wiring.mjs",
     "verify:incidents-workbook": "node scripts/verify-incidents-workbook.mjs",
+    "verify:incident-evidence-upload": "node scripts/verify-incident-evidence-upload.mjs",
     "verify:post-login-lazy-load": "node scripts/verify-post-login-lazy-load.mjs",
     "verify:shared-drive-workspace": "node scripts/verify-shared-drive-workspace.mjs",
     "preview": "vite preview",

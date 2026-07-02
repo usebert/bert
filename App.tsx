@@ -392,7 +392,9 @@ import {
   COMPANY_INCIDENTS_LOAD_TIMEOUT_MS,
   fetchCompanyIncidents,
   mergeWorkbookAndLocalIncidents,
+  readFileAsDataUrl,
   submitCompanyIncident,
+  uploadIncidentEvidence,
 } from "./src/services/incidentsService";
 import type { AuditResultDetail, AuditResultSummary } from "./src/types/resultsScreenProps";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
@@ -1106,6 +1108,16 @@ type IncidentEvidenceItem = {
   mimeType: string;
   previewUrl: string;
   addedAt: string;
+  driveFileId?: string;
+  driveLink?: string;
+};
+
+type IncidentEvidenceFileAttachment = {
+  id: string;
+  name: string;
+  mimeType: string;
+  addedAt: string;
+  file: File;
 };
 
 type IncidentRecord = {
@@ -7624,6 +7636,7 @@ function App() {
     contributingFactors: string;
     witnesses: string;
     evidenceUrls: IncidentEvidenceItem[];
+    evidenceFiles?: IncidentEvidenceFileAttachment[];
   }) => {
     if (!currentUser) {
       throw new Error("You must be signed in to submit incidents.");
@@ -7661,7 +7674,7 @@ function App() {
       injuryDetails: payload.injuryDetails,
       contributingFactors: payload.contributingFactors,
       witnesses: payload.witnesses,
-      evidenceUrls: payload.evidenceUrls,
+      evidenceUrls: [],
       assignedTo,
       investigationNotes: "",
       rootCause: "",
@@ -7687,6 +7700,53 @@ function App() {
       (currentUser.role !== "Master" || googleConnected) &&
       masterCompanyWorkspaceDataMatchesSelection;
 
+    let evidenceUrls: IncidentEvidenceItem[] = [];
+    let evidenceUploadWarning = "";
+    const pendingEvidenceFiles = payload.evidenceFiles || [];
+
+    if (pendingEvidenceFiles.length > 0) {
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        evidenceUploadWarning = "You appear to be offline. The incident was saved without photo evidence.";
+      } else if (!canPostToWorkbook) {
+        evidenceUploadWarning = "Photo evidence could not be uploaded because the company workbook is unavailable.";
+      } else {
+        try {
+          const uploadPayload = await Promise.all(
+            pendingEvidenceFiles.map(async (entry) => ({
+              id: entry.id,
+              name: entry.name,
+              mimeType: entry.mimeType,
+              addedAt: entry.addedAt,
+              dataUrl: await readFileAsDataUrl(entry.file),
+            })),
+          );
+          const uploadResult = await uploadIncidentEvidence({
+            companyFolderId,
+            incidentId,
+            masterSheetId: activeCompanyContext.masterSheetId,
+            companyName: activeCompanyContext.companyName,
+            files: uploadPayload,
+          });
+          if (uploadResult.evidenceUrls.length > 0) {
+            evidenceUrls = uploadResult.evidenceUrls;
+          }
+          if (!uploadResult.ok) {
+            evidenceUploadWarning =
+              uploadResult.uploadError || "Photo evidence could not be uploaded to Google Drive.";
+          } else if (uploadResult.warning) {
+            evidenceUploadWarning = uploadResult.warning;
+          } else if (uploadResult.partial) {
+            evidenceUploadWarning = "Some photo evidence could not be uploaded to Google Drive.";
+          }
+        } catch (error) {
+          evidenceUploadWarning =
+            error instanceof Error ? error.message : "Photo evidence could not be uploaded to Google Drive.";
+        }
+      }
+    }
+
+    incident = { ...incident, evidenceUrls };
+
     let savedIncident = incident;
     if (canPostToWorkbook) {
       const workbookResult = await submitCompanyIncident({
@@ -7708,7 +7768,7 @@ function App() {
         injuryDetails: incident.injuryDetails,
         contributingFactors: incident.contributingFactors,
         witnesses: payload.witnesses,
-        evidenceUrls: payload.evidenceUrls,
+        evidenceUrls,
         assignedTo: incident.assignedTo,
         notificationStatus: incident.notificationStatus,
         statusHistory: incident.statusHistory,
@@ -7734,6 +7794,14 @@ function App() {
       } else if (workbookResult.submitError) {
         pushToast("Workbook save failed", `${workbookResult.submitError} Saved locally instead.`, "warning");
       }
+    }
+
+    if (evidenceUploadWarning) {
+      pushToast(
+        "Evidence upload issue",
+        `${evidenceUploadWarning} Your incident was still saved.`,
+        "warning",
+      );
     }
 
     incident = savedIncident;

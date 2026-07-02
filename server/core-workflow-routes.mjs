@@ -55,6 +55,7 @@ import {
   listCompanyIncidents,
   submitCompanyIncident,
 } from "./incidents-service.mjs";
+import { uploadIncidentEvidenceToDrive } from "./incident-evidence-upload.mjs";
 
 async function rejectCompanyApiIfFolderInvalid(authed, deps, companyFolderId, companyName = "") {
   if (!authed || !companyFolderId) {
@@ -1595,6 +1596,122 @@ export function installCoreWorkflowRoutes(app, deps) {
         code: "INCIDENT_SUBMIT_FAILED",
         error: "Could not submit incident.",
         message: "Could not submit incident.",
+        technicalError: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.post("/api/companies/:companyFolderId/incidents/:incidentId/evidence", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({
+        ok: false,
+        error: "Please connect Google before uploading incident evidence.",
+        message: "Could not upload incident evidence.",
+      });
+    }
+
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const incidentId = String(req.params?.incidentId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || companyFolderId).trim();
+    const email = String(actor?.email || req.body?.reporterEmail || req.body?.email || "").trim();
+
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      sessionCompanyFolderId,
+      String(req.body?.companyName || actor?.companyName || "").trim(),
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
+
+    try {
+      const resolved = await resolveCompanyScheduleContext(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        {
+          companyId: sessionCompanyFolderId,
+          companyFolderId: sessionCompanyFolderId,
+          masterSheetId: String(req.body?.masterSheetId || "").trim(),
+          companyName: String(req.body?.companyName || actor?.companyName || "").trim(),
+        },
+      );
+      if (!resolved.ok) {
+        return res.status(resolved.httpStatus || 400).json({
+          ok: false,
+          code: resolved.code,
+          error: resolved.error,
+          message: resolved.message || resolved.error,
+          technicalError: resolved.technicalError,
+        });
+      }
+
+      if (
+        !canSubmitCompanyIncident(actor, resolved.companyFolderId, [
+          companyFolderId,
+          resolved.companyId,
+          ...resolved.alternateIds,
+        ])
+      ) {
+        return res.status(403).json({
+          ok: false,
+          code: "INCIDENT_EVIDENCE_FORBIDDEN",
+          error: "You do not have permission to upload incident evidence for this company.",
+          message: "You do not have permission to upload incident evidence for this company.",
+        });
+      }
+
+      const uploaded = await uploadIncidentEvidenceToDrive(
+        authed,
+        {
+          google,
+          ensureTabExists,
+          ensureColumns,
+          getWorkbook,
+          getTabValues,
+          withSheetsQuotaRetry,
+          safeLower: (value) => String(value || "").toLowerCase(),
+        },
+        {
+          companyFolderId: resolved.companyFolderId,
+          masterSheetId: resolved.masterSheetId,
+          incidentId,
+          files: Array.isArray(req.body?.files) ? req.body.files : [],
+          reporterEmail: email,
+        },
+      );
+
+      if (!uploaded.ok) {
+        return res.status(uploaded.httpStatus || 502).json({
+          ok: false,
+          code: uploaded.code,
+          error: uploaded.error,
+          message: uploaded.message || uploaded.error,
+          technicalError: uploaded.technicalError,
+          errors: uploaded.errors,
+        });
+      }
+
+      return res.status(200).json({
+        ok: true,
+        companyId: resolved.companyFolderId,
+        companyFolderId: resolved.companyFolderId,
+        masterSheetId: resolved.masterSheetId,
+        incidentId,
+        evidenceUrls: uploaded.evidenceUrls,
+        folderPath: uploaded.folderPath,
+        folderId: uploaded.folderId,
+        warning: uploaded.warning || "",
+        partial: Boolean(uploaded.partial),
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "INCIDENT_EVIDENCE_UPLOAD_FAILED",
+        error: "Could not upload incident evidence.",
+        message: "Could not upload incident evidence.",
         technicalError: error instanceof Error ? error.message : String(error),
       });
     }

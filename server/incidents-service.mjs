@@ -16,6 +16,7 @@ import {
   ensureTabColumns as workbookEnsureTabColumns,
   readTabRecords as workbookReadTabRecords,
 } from "./workbook-service.mjs";
+import { sanitizeEvidenceUrlsForWorkbook } from "./incident-evidence-upload.mjs";
 
 export const INCIDENTS_GOOGLE_TIMEOUT_MS = Math.min(DEFAULT_GOOGLE_OPERATION_TIMEOUT_MS, 75_000);
 export const INCIDENTS_ROUTE_TIMEOUT_MS = 90_000;
@@ -214,7 +215,7 @@ export function buildIncidentRow(input = {}) {
     Description: trim(input.description),
     ImmediateAction: trim(input.immediateAction),
     Witnesses: trim(input.witnesses),
-    EvidenceUrls: jsonString(input.evidenceUrls, "[]"),
+    EvidenceUrls: jsonString(sanitizeEvidenceUrlsForWorkbook(input.evidenceUrls), "[]"),
     CreatedAt: trim(input.createdAt) || now,
     CreatedBy: trim(input.createdBy || input.reporterName),
     UpdatedAt: trim(input.updatedAt) || now,

@@ -16,6 +16,16 @@ export type IncidentEvidenceItem = {
   mimeType: string;
   previewUrl: string;
   addedAt: string;
+  driveFileId?: string;
+  driveLink?: string;
+};
+
+export type IncidentEvidenceFileAttachment = {
+  id: string;
+  name: string;
+  mimeType: string;
+  addedAt: string;
+  file: File;
 };
 
 export type IncidentRecord = {
@@ -84,6 +94,7 @@ export type IncidentSubmitPayload = {
   contributingFactors: string;
   witnesses: string;
   evidenceUrls: IncidentEvidenceItem[];
+  evidenceFiles?: IncidentEvidenceFileAttachment[];
 };
 
 export type IncidentReportingScreenProps = {
