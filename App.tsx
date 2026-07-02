@@ -14783,28 +14783,13 @@ function App() {
                     size="lg"
                     className="w-full"
                   />
-                  <h2
-                    className={[
-                      "text-xl font-semibold tracking-tight sm:text-2xl",
-                      themeMode === "dark" ? "text-white" : "text-slate-900",
-                    ].join(" ")}
-                  >
+                  <h2 className="text-xl font-semibold tracking-tight !text-white [text-shadow:0_1px_12px_rgba(2,6,23,0.45)] sm:text-2xl">
                     {LOGIN_HERO_HEADING}
                   </h2>
-                  <p
-                    className={[
-                      "max-w-md text-sm leading-relaxed sm:text-base",
-                      themeMode === "dark" ? "text-slate-200" : "text-slate-600",
-                    ].join(" ")}
-                  >
+                  <p className="max-w-md text-sm leading-relaxed !text-slate-200 [text-shadow:0_1px_8px_rgba(2,6,23,0.35)] sm:text-base">
                     {LOGIN_HERO_BODY}
                   </p>
-                  <p
-                    className={[
-                      "text-xs font-medium tracking-wide sm:text-sm",
-                      themeMode === "dark" ? "text-slate-400" : "text-slate-500",
-                    ].join(" ")}
-                  >
+                  <p className="text-xs font-medium tracking-wide !text-slate-300 sm:text-sm">
                     {PRODUCT_TAGLINE}
                   </p>
                 </div>
