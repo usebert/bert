@@ -4,6 +4,8 @@ import { canCompleteAuditAsAuditor, canInvestigateIncidents } from "../permissio
 import { getRoleTheme } from "../config/roleTheme";
 import { SECTION_INTROS } from "../config/sectionIntros";
 import { SectionIntro } from "../components/SectionIntro";
+import { ViewEvidenceLinks } from "../components/evidence/ViewEvidenceLinks";
+import { toViewableEvidenceLink } from "../utils/driveEvidenceLinks";
 import { darkPanelBody, darkPanelEyebrow, darkPanelShell, darkPanelTitleLg } from "../styles/darkPanel";
 import type {
   IncidentCorrectiveAction,
@@ -361,7 +363,18 @@ export function IncidentReportingScreen({
                 ) : (
                   filteredIncidents.map((item) => (
                     <tr key={item.id} onClick={() => setSelectedIncidentId(item.id)} className="cursor-pointer border-t border-slate-200 hover:bg-slate-50">
-                      <td className="px-2 py-2 font-semibold">{item.incidentId}</td><td className="px-2 py-2">{item.incidentDate} {item.incidentTime}</td><td className="px-2 py-2">{item.incidentType}</td><td className="px-2 py-2">{item.severity}</td><td className="px-2 py-2">{item.reporterName}</td><td className="px-2 py-2">{item.department}</td><td className="px-2 py-2">{item.location}</td><td className="px-2 py-2">{item.status}</td><td className="px-2 py-2">{item.assignedTo || "-"}</td><td className="px-2 py-2">{item.dueDate || "-"}</td><td className="px-2 py-2">{item.evidenceUrls.length > 0 ? "Yes" : "No"}</td>
+                      <td className="px-2 py-2 font-semibold">{item.incidentId}</td><td className="px-2 py-2">{item.incidentDate} {item.incidentTime}</td><td className="px-2 py-2">{item.incidentType}</td><td className="px-2 py-2">{item.severity}</td><td className="px-2 py-2">{item.reporterName}</td><td className="px-2 py-2">{item.department}</td><td className="px-2 py-2">{item.location}</td><td className="px-2 py-2">{item.status}</td><td className="px-2 py-2">{item.assignedTo || "-"}</td><td className="px-2 py-2">{item.dueDate || "-"}</td>
+                      <td className="px-2 py-2">
+                        {(() => {
+                          const links = item.evidenceUrls
+                            .map((evidence) => toViewableEvidenceLink(evidence, { fallbackName: evidence.name }))
+                            .filter((link): link is NonNullable<typeof link> => Boolean(link));
+                          if (links.length > 0) {
+                            return <ViewEvidenceLinks items={links} />;
+                          }
+                          return item.evidenceUrls.length > 0 ? "—" : "No";
+                        })()}
+                      </td>
                       <td className="px-2 py-2">
                         {canInvestigateIncidents(currentUser.role) && item.status !== "Closed" && (
                           <button

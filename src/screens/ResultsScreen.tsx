@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { EmptyPanel } from "../components/dashboard/DashboardPrimitives";
+import { AuditEvidencePanel } from "../components/evidence/AuditEvidencePanel";
 import { SectionIntro } from "../components/SectionIntro";
 import {
   COMPANY_RESULTS_LOADING_MESSAGE,
@@ -506,7 +507,7 @@ export function ResultsScreen({
 
                     <JsonPanel title="Answers" body={selectedResult.answersDisplay} />
                     <JsonPanel title="Findings" body={selectedResult.findingsDisplay} />
-                    <JsonPanel title="Evidence refs" body={selectedResult.evidenceDisplay} />
+                    <AuditEvidencePanel result={selectedResult} />
                   </>
                 ) : (
                   <EmptyPanel
