@@ -136,7 +136,7 @@ export function PageHeader({
       <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
         <div className="min-w-0 flex-1">
           <p className={["text-xs font-black uppercase tracking-[0.2em]", theme.pageHeaderEyebrow].join(" ")}>{eyebrow}</p>
-          <h1 className="mt-2 text-3xl font-black tracking-tight text-white md:text-5xl">{title}</h1>
+          <h1 className="mt-2 text-3xl font-black tracking-tight !text-white md:text-5xl">{title}</h1>
           {subtitle ? <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-200 md:text-base">{subtitle}</p> : null}
         </div>
         {primaryAction ? (
