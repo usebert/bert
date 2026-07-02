@@ -360,13 +360,13 @@ export function DashboardScreen({
       <section className="rounded-2xl border border-slate-700/80 bg-gradient-to-r from-slate-950 via-[#0c1f36] to-slate-950 px-4 py-3.5 text-white shadow-[0_12px_28px_rgba(2,6,23,0.28)]">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Control loop</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-300">Control loop</p>
             <h2 className="mt-1 text-lg font-semibold tracking-tight sm:text-xl">bert.</h2>
-            <p className="mt-0.5 text-xs text-slate-400">Business. Evaluate. Report. Tool.</p>
+            <p className="mt-0.5 text-xs text-slate-300">Business. Evaluate. Report. Tool.</p>
             {selectedFolder ? (
-              <p className="mt-1 text-[11px] font-medium text-slate-400">Workspace: {selectedFolder.name}</p>
+              <p className="mt-1 text-[11px] font-medium text-slate-300">Workspace: {selectedFolder.name}</p>
             ) : null}
-            <p className="mt-2 max-w-xl text-xs leading-relaxed text-slate-300">
+            <p className="mt-2 max-w-xl text-xs leading-relaxed text-slate-200">
               Provision through report — where you are in the quality cycle right now.
             </p>
             <ControlLoopStrip currentStepIndex={controlLoop.currentStepIndex} tone="onDark" className="mt-2" role={currentUser.role} />

@@ -155,8 +155,8 @@ export function AdminDashboard({
         </section>
       ) : null}
       <section className="rounded-2xl border border-slate-700/80 bg-gradient-to-r from-slate-950 via-[#0c1f36] to-slate-950 px-4 py-3.5 text-white shadow-[0_12px_28px_rgba(2,6,23,0.28)]">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Control loop</p>
-        <p className="mt-1 max-w-xl text-xs leading-relaxed text-slate-300">Provision through report — where you are in the quality cycle right now.</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-300">Control loop</p>
+        <p className="mt-1 max-w-xl text-xs leading-relaxed text-slate-200">Provision through report — where you are in the quality cycle right now.</p>
         <ControlLoopStrip currentStepIndex={controlLoop.currentStepIndex} tone="onDark" className="mt-1" role="Admin" />
       </section>
       {visibleSectionOrder.map((section) => renderSection(section))}
