@@ -1558,7 +1558,17 @@ export function installCoreWorkflowRoutes(app, deps) {
 
       const submitted = await submitCompanyIncident(
         authed,
-        { ...registryDeps, ...scheduleDeps },
+        {
+          ...registryDeps,
+          ...scheduleDeps,
+          google,
+          ensureTabExists,
+          ensureColumns,
+          getWorkbook,
+          getTabValues,
+          withSheetsQuotaRetry,
+          safeLower: (value) => String(value || "").toLowerCase(),
+        },
         {
           ...req.body,
           companyId: resolved.companyFolderId,
@@ -1588,6 +1598,7 @@ export function installCoreWorkflowRoutes(app, deps) {
         masterSheetId: submitted.masterSheetId,
         incidentId: submitted.incidentId,
         incident: submitted.incident,
+        evidenceUploadWarning: submitted.evidenceUploadWarning || "",
       });
     } catch (error) {
       clearTimeout(routeTimeout);
@@ -1613,6 +1624,13 @@ export function installCoreWorkflowRoutes(app, deps) {
 
     const companyFolderId = String(req.params?.companyFolderId || "").trim();
     const incidentId = String(req.params?.incidentId || "").trim();
+    const files = Array.isArray(req.body?.files) ? req.body.files : [];
+    console.info("[incidents]", {
+      phase: "evidence_route_entered",
+      companyId: String(req.params?.companyFolderId || "").trim(),
+      incidentId,
+      fileCount: files.length,
+    });
     const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
     const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || companyFolderId).trim();
     const email = String(actor?.email || req.body?.reporterEmail || req.body?.email || "").trim();
@@ -1678,10 +1696,19 @@ export function installCoreWorkflowRoutes(app, deps) {
           companyFolderId: resolved.companyFolderId,
           masterSheetId: resolved.masterSheetId,
           incidentId,
-          files: Array.isArray(req.body?.files) ? req.body.files : [],
+          files,
           reporterEmail: email,
         },
       );
+
+      console.info("[incidents]", {
+        phase: "evidence_route_uploaded",
+        companyId: resolved.companyFolderId,
+        incidentId,
+        folderId: uploaded.folderId || "",
+        uploadedCount: uploaded.evidenceUrls?.length || 0,
+        ok: uploaded.ok,
+      });
 
       if (!uploaded.ok) {
         return res.status(uploaded.httpStatus || 502).json({

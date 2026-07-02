@@ -30,6 +30,7 @@ function read(rel) {
 
 const pkg = JSON.parse(read("package.json"));
 const uploadModule = read("server/incident-evidence-upload.mjs");
+const incidentsService = read("server/incidents-service.mjs");
 const folderStructure = read("server/company-folder-structure.mjs");
 const coreRoutes = read("server/core-workflow-routes.mjs");
 const incidentsClient = read("src/services/incidentsService.ts");
@@ -44,6 +45,7 @@ assert(
 );
 assert(folderStructure.includes('await ensureNamedFolder(drive, "Incidents", photosId)'), "PATH: Incidents folder under Photos");
 assert(uploadModule.includes("ensureIncidentEvidenceFolderId"), "PATH: uses ensureIncidentEvidenceFolderId");
+assert(incidentsService.includes("uploadIncidentEvidenceToDrive"), "SERVER: incident submit uploads evidence");
 assert(
   coreRoutes.includes('app.post("/api/companies/:companyFolderId/incidents/:incidentId/evidence"'),
   "API: incident evidence upload route",
@@ -90,9 +92,10 @@ const emptyUpload = await uploadIncidentEvidenceToDrive({}, { google: null }, {
 });
 assert(emptyUpload.ok && emptyUpload.evidenceUrls.length === 0, "SUBMIT: no evidence upload allowed");
 
-assert(appTsx.includes("uploadIncidentEvidence("), "APP: uploads evidence before workbook save");
-assert(appTsx.includes("Evidence upload issue"), "APP: evidence upload failure shows warning");
-assert(incidentsClient.includes("sanitizeEvidenceUrlsForWorkbook"), "CLIENT: strips data URLs before POST");
-assert(screen.includes("evidenceFilesRef"), "UI: keeps local file refs for upload");
+assert(appTsx.includes("buildIncidentEvidenceUploadPayload"), "APP: prepares evidence payload before workbook save");
+assert(appTsx.includes("Incident saved, but evidence upload failed"), "APP: evidence upload failure shows warning");
+assert(incidentsClient.includes("pickEvidenceUrls"), "CLIENT: parses evidenceUrls arrays from API");
+assert(screen.includes("evidenceFileMap"), "UI: keeps local file map for upload");
+assert(appTsx.includes("Uploading evidence"), "UI: shows uploading evidence phase");
 
 console.log(`PASS: verify-incident-evidence-upload (${caseCount} checks)`);

@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { MiniMetric } from "../components/dashboard/DashboardPrimitives";
 import { canCompleteAuditAsAuditor, canInvestigateIncidents } from "../permissions";
 import { getRoleTheme } from "../config/roleTheme";
@@ -46,7 +46,8 @@ export function IncidentReportingScreen({
   const [successMessage, setSuccessMessage] = useState("");
   const [formError, setFormError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const evidenceFilesRef = useRef<Map<string, File>>(new Map());
+  const [submitPhase, setSubmitPhase] = useState("");
+  const [evidenceFileMap, setEvidenceFileMap] = useState<Record<string, File>>({});
 
   const [form, setForm] = useState({
     incidentType: "Near Miss" as IncidentType,
@@ -106,7 +107,13 @@ export function IncidentReportingScreen({
     if (!files) return;
     const next = Array.from(files).map((file) => {
       const id = `incident-evidence-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      evidenceFilesRef.current.set(id, file);
+      setEvidenceFileMap((current) => ({ ...current, [id]: file }));
+      console.info("[incidents]", {
+        phase: "client_evidence_selected",
+        fileName: file.name,
+        mimeType: file.type || "application/octet-stream",
+        evidenceId: id,
+      });
       return {
         id,
         name: file.name,
@@ -139,10 +146,11 @@ export function IncidentReportingScreen({
     }
 
     setIsSubmitting(true);
+    setSubmitPhase("Preparing...");
     try {
       const evidenceFiles = form.evidenceUrls
         .map((item) => {
-          const file = evidenceFilesRef.current.get(item.id);
+          const file = evidenceFileMap[item.id];
           if (!file) {
             return null;
           }
@@ -155,7 +163,14 @@ export function IncidentReportingScreen({
           };
         })
         .filter((item): item is NonNullable<typeof item> => Boolean(item));
-      const created = await onSubmitIncident({ ...form, evidenceFiles });
+      console.info("[incidents]", {
+        phase: "client_submit_start",
+        attachedCount: form.evidenceUrls.length,
+        resolvedFileCount: evidenceFiles.length,
+      });
+      const created = await onSubmitIncident({ ...form, evidenceFiles }, {
+        onPhase: (phase) => setSubmitPhase(phase),
+      });
       const notificationFailed = created.notificationStatus.startsWith("Failed:");
       setSuccessMessage(
         notificationFailed
@@ -178,12 +193,13 @@ export function IncidentReportingScreen({
         witnesses: "",
         evidenceUrls: [],
       }));
-      evidenceFilesRef.current.clear();
+      setEvidenceFileMap({});
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to submit report. Please try again.";
       setFormError(message);
     } finally {
       setIsSubmitting(false);
+      setSubmitPhase("");
     }
   };
 
@@ -282,7 +298,7 @@ export function IncidentReportingScreen({
                 theme.primaryButtonHover,
               ].join(" ")}
             >
-              {isSubmitting ? "Submitting…" : "Submit report"}
+              {isSubmitting ? (submitPhase || "Submitting…") : "Submit report"}
             </button>
           </form>
         </section>

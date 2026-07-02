@@ -167,6 +167,13 @@ export async function uploadIncidentEvidenceToDrive(auth, deps, input = {}) {
     const drive = deps.google.drive({ version: "v3", auth });
     const ensured = await ensureIncidentEvidenceFolderId(drive, photosFolderId, incidentId);
     folderId = ensured.folderId;
+    console.info("[incidents]", {
+      phase: "evidence_folder_ready",
+      companyId: companyFolderId,
+      incidentId,
+      folderId,
+      folderPath: ensured.path,
+    });
   } catch (error) {
     const technicalError = error instanceof Error ? error.message : String(error);
     return {

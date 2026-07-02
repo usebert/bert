@@ -101,7 +101,10 @@ export type IncidentReportingScreenProps = {
   currentUser: User;
   incidents: IncidentRecord[];
   incidentActions: IncidentCorrectiveAction[];
-  onSubmitIncident: (payload: IncidentSubmitPayload) => Promise<IncidentRecord>;
+  onSubmitIncident: (
+    payload: IncidentSubmitPayload,
+    options?: { onPhase?: (phase: string) => void },
+  ) => Promise<IncidentRecord>;
   onUpdateIncident: (incidentId: string, patch: Partial<IncidentRecord>, options?: { statusNote?: string }) => void;
   onAddIncidentAction: (incidentId: string, payload: { description: string; owner: string; dueDate: string }) => void;
   onUpdateIncidentAction: (actionId: string, patch: Partial<IncidentCorrectiveAction>) => void;

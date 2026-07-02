@@ -16,7 +16,10 @@ import {
   ensureTabColumns as workbookEnsureTabColumns,
   readTabRecords as workbookReadTabRecords,
 } from "./workbook-service.mjs";
-import { sanitizeEvidenceUrlsForWorkbook } from "./incident-evidence-upload.mjs";
+import {
+  sanitizeEvidenceUrlsForWorkbook,
+  uploadIncidentEvidenceToDrive,
+} from "./incident-evidence-upload.mjs";
 
 export const INCIDENTS_GOOGLE_TIMEOUT_MS = Math.min(DEFAULT_GOOGLE_OPERATION_TIMEOUT_MS, 75_000);
 export const INCIDENTS_ROUTE_TIMEOUT_MS = 90_000;
@@ -235,6 +238,9 @@ function stripSensitiveRecordFields(record = {}) {
 }
 
 function parseEvidenceUrls(raw) {
+  if (Array.isArray(raw)) {
+    return raw;
+  }
   const text = trim(raw);
   if (!text) {
     return [];
@@ -245,6 +251,22 @@ function parseEvidenceUrls(raw) {
   } catch {
     return [];
   }
+}
+
+function pickEvidenceUrls(record = {}) {
+  for (const key of ["EvidenceUrls", "evidenceUrls"]) {
+    const direct = record[key];
+    if (Array.isArray(direct)) {
+      return direct;
+    }
+  }
+  for (const key of ["EvidenceUrls", "evidenceUrls"]) {
+    const parsed = parseEvidenceUrls(pickRecordField(record, key));
+    if (parsed.length > 0) {
+      return parsed;
+    }
+  }
+  return [];
 }
 
 export function mapWorkbookIncidentRecord(record = {}, fallback = {}) {
@@ -274,7 +296,7 @@ export function mapWorkbookIncidentRecord(record = {}, fallback = {}) {
     injuryDetails: trim(fallback.injuryDetails),
     contributingFactors: trim(fallback.contributingFactors),
     witnesses: pickRecordField(sanitized, "Witnesses", "witnesses"),
-    evidenceUrls: parseEvidenceUrls(pickRecordField(sanitized, "EvidenceUrls", "evidenceUrls")),
+    evidenceUrls: pickEvidenceUrls(sanitized),
     investigationNotes: trim(fallback.investigationNotes),
     rootCause: trim(fallback.rootCause),
     correctiveActions: trim(fallback.correctiveActions),
@@ -363,7 +385,35 @@ export async function submitCompanyIncident(auth, deps, input = {}) {
     };
   }
 
-  const row = buildIncidentRow(input);
+  let evidenceUrls = sanitizeEvidenceUrlsForWorkbook(input.evidenceUrls);
+  let evidenceUploadWarning = "";
+  const evidenceFiles = Array.isArray(input.evidenceFiles) ? input.evidenceFiles : [];
+  if (evidenceFiles.length > 0) {
+    logIncidentPhase("evidence_upload_start", { ...traceMeta, fileCount: evidenceFiles.length });
+    const uploaded = await uploadIncidentEvidenceToDrive(auth, deps, {
+      companyFolderId,
+      masterSheetId: context.masterSheetId,
+      incidentId: trim(input.incidentId),
+      files: evidenceFiles,
+    });
+    logIncidentPhase("evidence_upload_end", {
+      ...traceMeta,
+      uploadedCount: uploaded.evidenceUrls?.length || 0,
+      folderId: uploaded.folderId || "",
+      ok: uploaded.ok,
+    });
+    if (uploaded.evidenceUrls?.length > 0) {
+      evidenceUrls = uploaded.evidenceUrls;
+    }
+    if (!uploaded.ok) {
+      evidenceUploadWarning =
+        uploaded.message || uploaded.error || "Photo evidence could not be uploaded to Google Drive.";
+    } else if (uploaded.warning) {
+      evidenceUploadWarning = uploaded.warning;
+    }
+  }
+
+  const row = buildIncidentRow({ ...input, evidenceUrls });
   const appendTabRows = resolveAppendTabRows(deps);
   try {
     const writeStart = Date.now();
@@ -384,6 +434,7 @@ export async function submitCompanyIncident(auth, deps, input = {}) {
       companyFolderId: context.companyFolderId,
       masterSheetId: context.masterSheetId,
       incident,
+      evidenceUploadWarning,
     };
   } catch (error) {
     logIncidentPhase("submit_error", {

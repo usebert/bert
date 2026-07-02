@@ -1,5 +1,5 @@
 import { apiUrl } from "../config/apiBase";
-import type { IncidentEvidenceItem, IncidentRecord } from "../types/incidentsScreenProps";
+import type { IncidentEvidenceItem, IncidentEvidenceFileAttachment, IncidentRecord } from "../types/incidentsScreenProps";
 import { dedupeInFlight, requestDedupeKey } from "../utils/requestDedupe";
 
 export const COMPANY_INCIDENTS_LOAD_TIMEOUT_MS = 90_000;
@@ -33,6 +33,84 @@ export function sanitizeEvidenceUrlsForWorkbook(evidenceUrls: IncidentEvidenceIt
   return evidenceUrls
     .map((item) => sanitizeEvidenceItemForWorkbook(item))
     .filter((item) => item.id && !item.previewUrl.startsWith("data:"));
+}
+
+export async function resolveIncidentEvidenceFilesForUpload(
+  evidenceUrls: IncidentEvidenceItem[],
+  evidenceFiles: IncidentEvidenceFileAttachment[] = [],
+  fileMap: Record<string, File> = {},
+): Promise<File[]> {
+  const byId = new Map<string, File>();
+  for (const entry of evidenceFiles) {
+    if (entry?.id && entry.file) {
+      byId.set(entry.id, entry.file);
+    }
+  }
+  for (const [id, file] of Object.entries(fileMap)) {
+    if (id && file) {
+      byId.set(id, file);
+    }
+  }
+
+  const resolved: File[] = [];
+  for (const item of evidenceUrls) {
+    const fromMap = byId.get(item.id);
+    if (fromMap) {
+      resolved.push(fromMap);
+      continue;
+    }
+    if (item.previewUrl.startsWith("blob:")) {
+      try {
+        const blob = await fetch(item.previewUrl).then((response) => response.blob());
+        resolved.push(new File([blob], item.name || "incident-photo.jpg", { type: item.mimeType || blob.type }));
+      } catch {
+        // Skip unreadable blob preview.
+      }
+    }
+  }
+  return resolved;
+}
+
+export async function buildIncidentEvidenceUploadPayload(
+  evidenceUrls: IncidentEvidenceItem[],
+  evidenceFiles: IncidentEvidenceFileAttachment[] = [],
+  fileMap: Record<string, File> = {},
+): Promise<Array<{ id: string; name: string; mimeType: string; dataUrl: string; addedAt: string }>> {
+  const byId = new Map<string, File>();
+  for (const entry of evidenceFiles) {
+    if (entry?.id && entry.file) {
+      byId.set(entry.id, entry.file);
+    }
+  }
+  for (const [id, file] of Object.entries(fileMap)) {
+    if (id && file) {
+      byId.set(id, file);
+    }
+  }
+
+  const payload: Array<{ id: string; name: string; mimeType: string; dataUrl: string; addedAt: string }> = [];
+  for (const item of evidenceUrls) {
+    let file = byId.get(item.id);
+    if (!file && item.previewUrl.startsWith("blob:")) {
+      try {
+        const blob = await fetch(item.previewUrl).then((response) => response.blob());
+        file = new File([blob], item.name || "incident-photo.jpg", { type: item.mimeType || blob.type });
+      } catch {
+        file = undefined;
+      }
+    }
+    if (!file) {
+      continue;
+    }
+    payload.push({
+      id: item.id,
+      name: item.name,
+      mimeType: item.mimeType || file.type || "application/octet-stream",
+      addedAt: item.addedAt,
+      dataUrl: await readFileAsDataUrl(file),
+    });
+  }
+  return payload;
 }
 
 export function readFileAsDataUrl(file: File): Promise<string> {
@@ -75,8 +153,11 @@ function stripSensitiveFields<T extends Record<string, unknown>>(record: T): T {
   return sanitized;
 }
 
-function parseEvidenceUrls(raw: string): IncidentEvidenceItem[] {
-  const text = raw.trim();
+function parseEvidenceUrls(raw: unknown): IncidentEvidenceItem[] {
+  if (Array.isArray(raw)) {
+    return raw as IncidentEvidenceItem[];
+  }
+  const text = String(raw ?? "").trim();
   if (!text) {
     return [];
   }
@@ -86,6 +167,22 @@ function parseEvidenceUrls(raw: string): IncidentEvidenceItem[] {
   } catch {
     return [];
   }
+}
+
+function pickEvidenceUrls(record: Record<string, unknown>): IncidentEvidenceItem[] {
+  for (const key of ["EvidenceUrls", "evidenceUrls"]) {
+    const direct = record[key];
+    if (Array.isArray(direct)) {
+      return direct as IncidentEvidenceItem[];
+    }
+  }
+  for (const key of ["EvidenceUrls", "evidenceUrls"]) {
+    const parsed = parseEvidenceUrls(pickRecordField(record, key));
+    if (parsed.length > 0) {
+      return parsed;
+    }
+  }
+  return [];
 }
 
 export function mapWorkbookIncidentRecord(
@@ -116,7 +213,7 @@ export function mapWorkbookIncidentRecord(
     injuryDetails: String(fallback.injuryDetails || ""),
     contributingFactors: String(fallback.contributingFactors || ""),
     witnesses: pickRecordField(sanitized, "Witnesses", "witnesses"),
-    evidenceUrls: parseEvidenceUrls(pickRecordField(sanitized, "EvidenceUrls", "evidenceUrls")),
+    evidenceUrls: pickEvidenceUrls(sanitized),
     investigationNotes: String(fallback.investigationNotes || ""),
     rootCause: String(fallback.rootCause || ""),
     correctiveActions: String(fallback.correctiveActions || ""),
@@ -227,6 +324,7 @@ export type SubmitCompanyIncidentInput = {
   contributingFactors: string;
   witnesses: string;
   evidenceUrls: IncidentEvidenceItem[];
+  evidenceFiles?: Array<{ id: string; name: string; mimeType: string; dataUrl: string; addedAt: string }>;
   assignedTo: string;
   notificationStatus: string;
   statusHistory: IncidentRecord["statusHistory"];
@@ -243,6 +341,7 @@ export type SubmitCompanyIncidentResult = {
   ok: boolean;
   incident?: IncidentRecord;
   submitError?: string;
+  evidenceUploadWarning?: string;
   companyFolderId?: string;
   masterSheetId?: string;
 };
@@ -363,6 +462,7 @@ export async function submitCompanyIncident(
         immediateAction: input.immediateAction,
         witnesses: input.witnesses,
         evidenceUrls: sanitizeEvidenceUrlsForWorkbook(input.evidenceUrls),
+        evidenceFiles: input.evidenceFiles,
         notificationStatus: input.notificationStatus,
         createdAt: input.createdAt,
         createdBy: input.createdBy,
@@ -385,6 +485,7 @@ export async function submitCompanyIncident(
       error?: string;
       companyFolderId?: string;
       masterSheetId?: string;
+      evidenceUploadWarning?: string;
     };
 
     if (!response.ok || payload.ok === false) {
@@ -401,6 +502,7 @@ export async function submitCompanyIncident(
     return {
       ok: true,
       incident,
+      evidenceUploadWarning: payload.evidenceUploadWarning,
       companyFolderId: payload.companyFolderId || companyFolderId,
       masterSheetId: payload.masterSheetId,
     };

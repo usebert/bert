@@ -390,11 +390,10 @@ import {
 } from "./src/services/resultsService";
 import {
   COMPANY_INCIDENTS_LOAD_TIMEOUT_MS,
+  buildIncidentEvidenceUploadPayload,
   fetchCompanyIncidents,
   mergeWorkbookAndLocalIncidents,
-  readFileAsDataUrl,
   submitCompanyIncident,
-  uploadIncidentEvidence,
 } from "./src/services/incidentsService";
 import type { AuditResultDetail, AuditResultSummary } from "./src/types/resultsScreenProps";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
@@ -7637,7 +7636,7 @@ function App() {
     witnesses: string;
     evidenceUrls: IncidentEvidenceItem[];
     evidenceFiles?: IncidentEvidenceFileAttachment[];
-  }) => {
+  }, options?: { onPhase?: (phase: string) => void }) => {
     if (!currentUser) {
       throw new Error("You must be signed in to submit incidents.");
     }
@@ -7700,55 +7699,43 @@ function App() {
       (currentUser.role !== "Master" || googleConnected) &&
       masterCompanyWorkspaceDataMatchesSelection;
 
-    let evidenceUrls: IncidentEvidenceItem[] = [];
     let evidenceUploadWarning = "";
-    const pendingEvidenceFiles = payload.evidenceFiles || [];
+    const hasAttachedEvidence = payload.evidenceUrls.length > 0;
+    let evidenceFilesForUpload: Array<{ id: string; name: string; mimeType: string; dataUrl: string; addedAt: string }> = [];
 
-    if (pendingEvidenceFiles.length > 0) {
+    if (hasAttachedEvidence) {
       if (typeof navigator !== "undefined" && !navigator.onLine) {
-        evidenceUploadWarning = "You appear to be offline. The incident was saved without photo evidence.";
+        evidenceUploadWarning = "You appear to be offline.";
       } else if (!canPostToWorkbook) {
-        evidenceUploadWarning = "Photo evidence could not be uploaded because the company workbook is unavailable.";
+        evidenceUploadWarning = "The company workbook is unavailable.";
       } else {
-        try {
-          const uploadPayload = await Promise.all(
-            pendingEvidenceFiles.map(async (entry) => ({
-              id: entry.id,
-              name: entry.name,
-              mimeType: entry.mimeType,
-              addedAt: entry.addedAt,
-              dataUrl: await readFileAsDataUrl(entry.file),
-            })),
-          );
-          const uploadResult = await uploadIncidentEvidence({
-            companyFolderId,
-            incidentId,
-            masterSheetId: activeCompanyContext.masterSheetId,
-            companyName: activeCompanyContext.companyName,
-            files: uploadPayload,
-          });
-          if (uploadResult.evidenceUrls.length > 0) {
-            evidenceUrls = uploadResult.evidenceUrls;
-          }
-          if (!uploadResult.ok) {
-            evidenceUploadWarning =
-              uploadResult.uploadError || "Photo evidence could not be uploaded to Google Drive.";
-          } else if (uploadResult.warning) {
-            evidenceUploadWarning = uploadResult.warning;
-          } else if (uploadResult.partial) {
-            evidenceUploadWarning = "Some photo evidence could not be uploaded to Google Drive.";
-          }
-        } catch (error) {
-          evidenceUploadWarning =
-            error instanceof Error ? error.message : "Photo evidence could not be uploaded to Google Drive.";
+        options?.onPhase?.("Uploading evidence...");
+        console.info("[incidents]", {
+          phase: "client_prepare_evidence_upload",
+          attachedCount: payload.evidenceUrls.length,
+          fileAttachmentCount: payload.evidenceFiles?.length || 0,
+          incidentId,
+        });
+        evidenceFilesForUpload = await buildIncidentEvidenceUploadPayload(
+          payload.evidenceUrls,
+          payload.evidenceFiles,
+        );
+        console.info("[incidents]", {
+          phase: "client_prepared_evidence_upload",
+          uploadPayloadCount: evidenceFilesForUpload.length,
+          incidentId,
+        });
+        if (evidenceFilesForUpload.length === 0) {
+          evidenceUploadWarning = "Attached files could not be read for upload.";
         }
       }
     }
 
-    incident = { ...incident, evidenceUrls };
+    incident = { ...incident, evidenceUrls: [] };
 
     let savedIncident = incident;
     if (canPostToWorkbook) {
+      options?.onPhase?.("Saving incident...");
       const workbookResult = await submitCompanyIncident({
         id: incident.id,
         incidentId,
@@ -7768,7 +7755,8 @@ function App() {
         injuryDetails: incident.injuryDetails,
         contributingFactors: incident.contributingFactors,
         witnesses: payload.witnesses,
-        evidenceUrls,
+        evidenceUrls: [],
+        evidenceFiles: evidenceFilesForUpload,
         assignedTo: incident.assignedTo,
         notificationStatus: incident.notificationStatus,
         statusHistory: incident.statusHistory,
@@ -7784,6 +7772,10 @@ function App() {
         savedIncident = {
           ...incident,
           ...workbookResult.incident,
+          evidenceUrls:
+            workbookResult.incident.evidenceUrls?.length > 0
+              ? workbookResult.incident.evidenceUrls
+              : incident.evidenceUrls,
           injured: incident.injured,
           injuryDetails: incident.injuryDetails,
           contributingFactors: incident.contributingFactors,
@@ -7791,6 +7783,14 @@ function App() {
           statusHistory: incident.statusHistory,
           updatedBy: currentUser.name,
         };
+        if (workbookResult.evidenceUploadWarning) {
+          evidenceUploadWarning = workbookResult.evidenceUploadWarning;
+        }
+        console.info("[incidents]", {
+          phase: "client_submit_saved",
+          incidentId,
+          evidenceCount: savedIncident.evidenceUrls.length,
+        });
       } else if (workbookResult.submitError) {
         pushToast("Workbook save failed", `${workbookResult.submitError} Saved locally instead.`, "warning");
       }
@@ -7798,8 +7798,8 @@ function App() {
 
     if (evidenceUploadWarning) {
       pushToast(
-        "Evidence upload issue",
-        `${evidenceUploadWarning} Your incident was still saved.`,
+        "Incident saved",
+        `Incident saved, but evidence upload failed: ${evidenceUploadWarning}`,
         "warning",
       );
     }
