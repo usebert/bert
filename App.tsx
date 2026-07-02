@@ -1189,6 +1189,9 @@ function resolveAppDisplayNameFromEnv(): string {
 }
 const companyName = resolveAppDisplayNameFromEnv();
 const PRODUCT_TAGLINE = "Business. Evaluate. Report. Tool.";
+const LOGIN_HERO_HEADING = "Welcome to bert.";
+const LOGIN_HERO_BODY =
+  "Your simple tool for checks, reports, actions, and safer day-to-day work.";
 function isDemoRoleSwitchEnabled() {
   const rawValue = String(import.meta.env.VITE_ENABLE_DEMO_ROLE_SWITCH || "").trim().toLowerCase();
   return rawValue === "true" || rawValue === "1" || rawValue === "yes" || rawValue === "on";
@@ -14562,7 +14565,7 @@ function App() {
     ].join(" ");
 
     const signInTabletChrome = isDebugUiAllowed();
-    const signInLogoVariant = signInTabletChrome ? "mark" : "full";
+    const signInLogoVariant = signInTabletChrome ? "mark" : "wordmark";
 
     const wrapSignInTabletChrome = (node: React.ReactNode) =>
       signInTabletChrome ? (
@@ -14780,7 +14783,30 @@ function App() {
                     size="lg"
                     className="w-full"
                   />
-                  <p className="text-xs font-medium text-slate-500 sm:text-sm sm:text-slate-400">{PRODUCT_TAGLINE}</p>
+                  <h2
+                    className={[
+                      "text-xl font-semibold tracking-tight sm:text-2xl",
+                      themeMode === "dark" ? "text-white" : "text-slate-900",
+                    ].join(" ")}
+                  >
+                    {LOGIN_HERO_HEADING}
+                  </h2>
+                  <p
+                    className={[
+                      "max-w-md text-sm leading-relaxed sm:text-base",
+                      themeMode === "dark" ? "text-slate-200" : "text-slate-600",
+                    ].join(" ")}
+                  >
+                    {LOGIN_HERO_BODY}
+                  </p>
+                  <p
+                    className={[
+                      "text-xs font-medium tracking-wide sm:text-sm",
+                      themeMode === "dark" ? "text-slate-400" : "text-slate-500",
+                    ].join(" ")}
+                  >
+                    {PRODUCT_TAGLINE}
+                  </p>
                 </div>
 
                 <div className="flex min-h-0 items-center">
