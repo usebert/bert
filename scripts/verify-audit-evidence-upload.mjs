@@ -49,8 +49,11 @@ assert(folderStructure.includes('await ensureNamedFolder(drive, "Audits", photos
 assert(uploadModule.includes("ensureAuditEvidenceFolderId"), "PATH: uses ensureAuditEvidenceFolderId");
 assert(completionService.includes("uploadAuditEvidenceToDrive"), "SERVER: check completion uploads evidence");
 assert(completionService.includes("normalizeAuditEvidenceUploadFile"), "SERVER: normalises serialisable evidence payloads");
-assert(uploadModule.includes("evidence_upload_file_start"), "SERVER: logs per-file upload start");
-assert(uploadModule.includes("evidence_upload_file_success"), "SERVER: logs per-file upload success");
+assert(uploadModule.includes("audit_evidence_upload_start"), "SERVER: logs audit evidence upload start");
+assert(uploadModule.includes("audit_evidence_folder_ready"), "SERVER: logs audit evidence folder ready");
+assert(uploadModule.includes("audit_evidence_file_start"), "SERVER: logs per-file upload start");
+assert(uploadModule.includes("audit_evidence_file_success"), "SERVER: logs per-file upload success");
+assert(completionService.includes("audit_evidence_upload_skipped"), "SERVER: warns when evidence refs lack files");
 assert(coreRoutes.includes("evidenceFiles: req.body?.evidenceFiles"), "API: check complete accepts evidenceFiles");
 assert(coreRoutes.includes("evidenceUploadWarning: result.evidenceUploadWarning"), "API: returns evidence upload warning");
 
@@ -115,7 +118,10 @@ const noEvidenceRow = buildAuditResultRow({
 assert(noEvidenceRow["Evidence Refs"] === "[]", "SUBMIT: completion works with no evidence");
 
 assert(appTsx.includes("prepareSerializableAuditEvidenceFiles"), "APP: serialises audit evidence before submit");
-assert(appTsx.includes("auditEvidenceUploadData"), "APP: stores dataUrl when audit evidence is selected");
+assert(appTsx.includes("audit_evidence_selected"), "APP: logs audit evidence selection");
+assert(appTsx.includes("audit_complete_submit"), "APP: logs audit complete submit payload");
+assert(appTsx.includes("buildAuditEvidenceUploadPayload"), "APP: submit-time evidence payload fallback");
+assert(checkEvidenceClient.includes("buildAuditEvidenceUploadPayload"), "CLIENT: can rebuild serialisable evidence at submit");
 assert(appTsx.includes("Check completed, but evidence upload failed"), "APP: evidence upload failure shows warning");
 assert(checkClient.includes("evidenceFiles: input.evidenceFiles"), "CLIENT: sends serialisable evidenceFiles in JSON");
 assert(!checkClient.includes("new File("), "CLIENT: no raw File objects in check submit");

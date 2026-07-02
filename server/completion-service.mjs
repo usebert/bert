@@ -464,11 +464,22 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
   let evidenceRefs = sanitizeAuditEvidenceRefsForWorkbook(input.evidenceRefs ?? input.evidence ?? []);
   let evidenceUploadWarning = "";
   const evidenceFiles = Array.isArray(input.evidenceFiles) ? input.evidenceFiles : [];
+  const attachedEvidenceRefCount = evidenceRefs.length;
+
+  if (attachedEvidenceRefCount > 0 && evidenceFiles.length === 0) {
+    logCheckCompletePhase("audit_evidence_upload_skipped", {
+      ...traceMeta,
+      resultId,
+      attachedEvidenceRefCount,
+      reason: "no_serialisable_evidence_files",
+    });
+    evidenceUploadWarning = "Attached evidence could not be uploaded because file data was missing from the request.";
+  }
 
   if (evidenceFiles.length > 0) {
     const normalizedFiles = evidenceFiles.map((file, index) => normalizeAuditEvidenceUploadFile(file, index));
     const validDataUrlCount = normalizedFiles.filter((file) => trim(file.dataUrl).startsWith("data:")).length;
-    logCheckCompletePhase("evidence_upload_start", {
+    logCheckCompletePhase("audit_evidence_upload_start", {
       ...traceMeta,
       resultId,
       fileCount: normalizedFiles.length,
@@ -480,7 +491,7 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
       resultId,
       files: normalizedFiles,
     });
-    logCheckCompletePhase("evidence_upload_end", {
+    logCheckCompletePhase("audit_evidence_upload_end", {
       ...traceMeta,
       resultId,
       uploadedCount: uploaded.evidenceRefs?.length || 0,
@@ -488,6 +499,7 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
       ok: uploaded.ok,
     });
     if (uploaded.evidenceRefs?.length > 0) {
+      evidenceUploadWarning = "";
       const uploadedByEvidenceId = new Map(
         uploaded.evidenceRefs.map((ref) => [trim(ref.evidenceId), ref]),
       );

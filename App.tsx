@@ -397,7 +397,7 @@ import {
   readFileAsDataUrl,
   submitCompanyIncident,
 } from "./src/services/incidentsService";
-import { prepareSerializableAuditEvidenceFiles } from "./src/services/checkEvidenceService";
+import { prepareSerializableAuditEvidenceFiles, buildAuditEvidenceUploadPayload } from "./src/services/checkEvidenceService";
 import type { AuditResultDetail, AuditResultSummary } from "./src/types/resultsScreenProps";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
 import { getNextBestAction } from "./src/utils/nextBestAction";
@@ -3489,6 +3489,8 @@ function App() {
   const [auditEvidenceUploadData, setAuditEvidenceUploadData] = useState<
     Record<string, { dataUrl: string; name: string; mimeType: string; size: number; questionId: string }>
   >({});
+  const auditEvidenceUploadDataRef = useRef(auditEvidenceUploadData);
+  auditEvidenceUploadDataRef.current = auditEvidenceUploadData;
   const [evidenceDebugLabel, setEvidenceDebugLabel] = useState("");
   const [auditModeQuestionIndex, setAuditModeQuestionIndex] = useState(0);
   const [issuePrompt, setIssuePrompt] = useState<IssuePromptState | null>(null);
@@ -10680,7 +10682,7 @@ function App() {
         try {
           dataUrl = await readFileAsDataUrl(file);
         } catch {
-          // Preview still works from blob URL; upload payload may be omitted on submit.
+          // Preview still works from blob URL; submit will retry from blob/IndexedDB.
         }
         if (dataUrl.startsWith("data:")) {
           nextUploadData[evidenceId] = {
@@ -10690,6 +10692,26 @@ function App() {
             size: file.size,
             questionId,
           };
+          console.info("[audit-evidence]", {
+            phase: "audit_evidence_selected",
+            fileName: file.name,
+            mimeType: file.type || "application/octet-stream",
+            size: file.size,
+            dataUrlLength: dataUrl.length,
+            evidenceId,
+            questionId,
+          });
+        } else {
+          console.info("[audit-evidence]", {
+            phase: "audit_evidence_selected",
+            fileName: file.name,
+            mimeType: file.type || "application/octet-stream",
+            size: file.size,
+            dataUrlLength: 0,
+            evidenceId,
+            questionId,
+            warning: "dataUrl_missing_at_selection",
+          });
         }
         nextItems.push({
           id: evidenceId,
@@ -11398,11 +11420,23 @@ function App() {
         addedAt: item.addedAt,
       })),
     );
-    const evidenceFiles = prepareSerializableAuditEvidenceFiles(
-      Object.entries(evidence).flatMap(([questionId, items]) =>
-        items
-          .map((item) => {
-            const upload = auditEvidenceUploadData[item.id];
+    const attachedEvidenceCount = photosCaptured;
+
+    setCheckSubmitState({ submitting: true, error: undefined });
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      controller.abort(new DOMException("Check completion timed out", "TimeoutError"));
+    }, CHECK_COMPLETION_TIMEOUT_MS);
+
+    void (async () => {
+      const uploadDataById = auditEvidenceUploadDataRef.current;
+      const evidenceEntries = Object.entries(evidence).flatMap(([questionId, items]) =>
+        items.map((item) => ({ questionId, item })),
+      );
+      let evidenceFiles = prepareSerializableAuditEvidenceFiles(
+        evidenceEntries
+          .map(({ questionId, item }) => {
+            const upload = uploadDataById[item.id];
             if (!upload?.dataUrl?.startsWith("data:")) {
               return null;
             }
@@ -11418,16 +11452,37 @@ function App() {
             };
           })
           .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)),
-      ),
-    );
+      );
 
-    setCheckSubmitState({ submitting: true, error: undefined });
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => {
-      controller.abort(new DOMException("Check completion timed out", "TimeoutError"));
-    }, CHECK_COMPLETION_TIMEOUT_MS);
+      if (attachedEvidenceCount > 0 && evidenceFiles.length === 0) {
+        console.info("[audit-evidence]", {
+          phase: "audit_complete_submit_fallback",
+          attachedEvidenceCount,
+          uploadDataCount: Object.keys(uploadDataById).length,
+        });
+        evidenceFiles = await buildAuditEvidenceUploadPayload(
+          evidenceEntries,
+          uploadDataById,
+          tabletOfflineService.canUseIndexedDb()
+            ? (blobKey) => tabletOfflineService.getEvidenceBlob(blobKey)
+            : undefined,
+        );
+      }
 
-    void (async () => {
+      const validDataUrlCount = evidenceFiles.filter((file) => file.dataUrl.startsWith("data:")).length;
+      console.info("[audit-evidence]", {
+        phase: "audit_complete_submit",
+        attachedEvidenceCount,
+        evidenceFilesCount: evidenceFiles.length,
+        validDataUrlCount,
+        evidenceRefsCount: evidenceRefs.length,
+      });
+
+      let evidenceUploadWarning = "";
+      if (attachedEvidenceCount > 0 && evidenceFiles.length === 0) {
+        evidenceUploadWarning = "Attached files could not be read for upload.";
+      }
+
       try {
         const result = await completeCheck(
           {
@@ -11458,9 +11513,13 @@ function App() {
         }
 
         if (result.evidenceUploadWarning) {
+          evidenceUploadWarning = result.evidenceUploadWarning;
+        }
+
+        if (evidenceUploadWarning) {
           pushToast(
             "Check completed",
-            `Check completed, but evidence upload failed: ${result.evidenceUploadWarning}`,
+            `Check completed, but evidence upload failed: ${evidenceUploadWarning}`,
             "warning",
           );
         }
@@ -16794,12 +16853,20 @@ function App() {
                 onAddEvidence={(questionId, files) => {
                   void handleAttachEvidenceFiles(questionId, files);
                 }}
-                onRemoveEvidence={(questionId, evidenceId) =>
+                onRemoveEvidence={(questionId, evidenceId) => {
                   setEvidence((current) => ({
                     ...current,
                     [questionId]: (current[questionId] ?? []).filter((item) => item.id !== evidenceId),
-                  }))
-                }
+                  }));
+                  setAuditEvidenceUploadData((current) => {
+                    if (!current[evidenceId]) {
+                      return current;
+                    }
+                    const next = { ...current };
+                    delete next[evidenceId];
+                    return next;
+                  });
+                }}
                 onSaveAndExit={handleAuditModeSaveAndExit}
                 onSubmit={completeAuditModeFlow}
                 submitting={checkSubmitState.submitting}

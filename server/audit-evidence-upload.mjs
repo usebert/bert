@@ -150,8 +150,8 @@ export async function uploadAuditEvidenceToDrive(auth, deps, input = {}) {
     normalizeAuditEvidenceUploadFile(file, index),
   );
   const validDataUrlCount = files.filter((file) => file.dataUrl.startsWith("data:")).length;
-  console.info("[complete-check]", {
-    phase: "evidence_upload_start",
+  console.info("[audit-evidence]", {
+    phase: "audit_evidence_upload_start",
     companyId: companyFolderId,
     resultId,
     fileCount: files.length,
@@ -207,8 +207,8 @@ export async function uploadAuditEvidenceToDrive(auth, deps, input = {}) {
     const drive = deps.google.drive({ version: "v3", auth });
     const ensured = await ensureAuditEvidenceFolderId(drive, photosFolderId, resultId);
     folderId = ensured.folderId;
-    console.info("[complete-check]", {
-      phase: "evidence_folder_ready",
+    console.info("[audit-evidence]", {
+      phase: "audit_evidence_folder_ready",
       companyId: companyFolderId,
       resultId,
       folderId,
@@ -237,8 +237,8 @@ export async function uploadAuditEvidenceToDrive(auth, deps, input = {}) {
     const fileName = buildAuditEvidenceFileName(resultId, index, displayName, file.mimeType);
     if (!dataUrl.startsWith("data:")) {
       const message = `File ${index + 1} is missing upload data.`;
-      console.info("[complete-check]", {
-        phase: "evidence_upload_file_error",
+      console.info("[audit-evidence]", {
+        phase: "audit_evidence_file_error",
         resultId,
         fileName: displayName,
         mimeType: file.mimeType,
@@ -248,8 +248,8 @@ export async function uploadAuditEvidenceToDrive(auth, deps, input = {}) {
       errors.push(message);
       continue;
     }
-    console.info("[complete-check]", {
-      phase: "evidence_upload_file_start",
+    console.info("[audit-evidence]", {
+      phase: "audit_evidence_file_start",
       resultId,
       fileName: displayName,
       mimeType: file.mimeType,
@@ -264,8 +264,8 @@ export async function uploadAuditEvidenceToDrive(auth, deps, input = {}) {
       );
       if (!upload.id) {
         const message = upload.error || `Could not upload ${displayName}.`;
-        console.info("[complete-check]", {
-          phase: "evidence_upload_file_error",
+        console.info("[audit-evidence]", {
+          phase: "audit_evidence_file_error",
           resultId,
           fileName: displayName,
           mimeType: file.mimeType,
@@ -275,8 +275,8 @@ export async function uploadAuditEvidenceToDrive(auth, deps, input = {}) {
         errors.push(message);
         continue;
       }
-      console.info("[complete-check]", {
-        phase: "evidence_upload_file_success",
+      console.info("[audit-evidence]", {
+        phase: "audit_evidence_file_success",
         resultId,
         fileName: displayName,
         driveFileId: upload.id,
@@ -294,8 +294,8 @@ export async function uploadAuditEvidenceToDrive(auth, deps, input = {}) {
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.info("[complete-check]", {
-        phase: "evidence_upload_file_error",
+      console.info("[audit-evidence]", {
+        phase: "audit_evidence_file_error",
         resultId,
         fileName: displayName,
         mimeType: file.mimeType,
