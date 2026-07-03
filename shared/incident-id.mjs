@@ -121,3 +121,31 @@ export function sampleIncidentIdsFromRecords(records = [], limit = 5) {
   }
   return sample;
 }
+
+/** INC-YYYY-NNN or INC-YYYY-NNNN — register-visible incident IDs only. */
+export const REGISTER_INCIDENT_ID_PATTERN = /^INC-\d{4}-\d{3,4}$/i;
+
+const NON_REGISTER_INCIDENT_ID_VALUES = new Set([
+  "open",
+  "closed",
+  "under investigation",
+  "underinvestigation",
+  "pending",
+  "draft",
+  "minor",
+  "major incident",
+  "fatality",
+  "near miss",
+  "accident",
+]);
+
+export function isValidRegisterIncidentId(value) {
+  const text = trim(value);
+  if (!text) {
+    return false;
+  }
+  if (NON_REGISTER_INCIDENT_ID_VALUES.has(text.toLowerCase())) {
+    return false;
+  }
+  return REGISTER_INCIDENT_ID_PATTERN.test(text);
+}

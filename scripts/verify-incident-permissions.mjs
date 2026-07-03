@@ -12,6 +12,7 @@ import {
 import {
   findIncidentWorkbookRecord,
   incidentIdsMatch,
+  isValidRegisterIncidentId,
   normalizeIncidentIdForLookup,
   pickIncidentIdFromRecord,
 } from "../shared/incident-id.mjs";
@@ -77,7 +78,14 @@ assert(appTsx.includes("buildIncidentReassignTargets"), "APP: buildIncidentReass
 assert(incidentsService.includes("incident_reassign_lookup"), "LOOKUP: reassign lookup logging");
 assert(incidentsService.includes("findIncidentWorkbookRecord"), "LOOKUP: shared incident id finder used");
 assert(incidentsClient.includes("incident_reassign_submit"), "CLIENT: reassign submit logging");
-assert(incidentsClient.includes("INCIDENT_NOT_IN_WORKBOOK_MESSAGE"), "CLIENT: local-only refresh message");
+assert(incidentsClient.includes("filterValidRegisterIncidents"), "FILTER: register filter helper exported");
+assert(incidentsClient.includes("incident_register_filter"), "FILTER: register filter logging");
+assert(!isValidRegisterIncidentId("Open"), "FILTER: status Open rejected as incident id");
+assert(!isValidRegisterIncidentId("Closed"), "FILTER: status Closed rejected as incident id");
+assert(!isValidRegisterIncidentId(""), "FILTER: blank incident id rejected");
+assert(isValidRegisterIncidentId("INC-2026-006"), "FILTER: INC-2026-006 accepted");
+assert(isValidRegisterIncidentId("INC-2026-0006"), "FILTER: INC-2026-0006 accepted");
+assert(!isValidRegisterIncidentId("INC-2026-06"), "FILTER: short sequence rejected");
 
 assert(
   pickIncidentIdFromRecord({ "Incident ID": "INC-2026-003" }) === "INC-2026-003",

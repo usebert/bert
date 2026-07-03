@@ -1,6 +1,7 @@
 import { apiUrl } from "../config/apiBase";
 import {
   canonicalIncidentId,
+  isValidRegisterIncidentId,
   normalizeIncidentIdForLookup,
   pickIncidentIdFromRecord,
   INCIDENT_NOT_IN_WORKBOOK_MESSAGE,
@@ -350,6 +351,22 @@ export function mapWorkbookIncidentRecord(
   };
 }
 
+export function filterValidRegisterIncidents(
+  incidents: IncidentRecord[],
+  options: { log?: boolean } = {},
+): IncidentRecord[] {
+  const valid = incidents.filter((item) => isValidRegisterIncidentId(item.incidentId));
+  if (options.log !== false && incidents.length > 0) {
+    console.info("[incidents]", {
+      phase: "incident_register_filter",
+      totalRows: incidents.length,
+      validIncidentRows: valid.length,
+      invalidIncidentRows: incidents.length - valid.length,
+    });
+  }
+  return valid;
+}
+
 export type FetchCompanyIncidentsResult = {
   ok: boolean;
   incidents: IncidentRecord[];
@@ -397,9 +414,12 @@ export async function fetchCompanyIncidents(
       };
     }
 
-    const incidents = Array.isArray(payload.incidents)
-      ? payload.incidents.map((record) => mapWorkbookIncidentRecord(record))
-      : [];
+    const incidents = filterValidRegisterIncidents(
+      Array.isArray(payload.incidents)
+        ? payload.incidents.map((record) => mapWorkbookIncidentRecord(record))
+        : [],
+      { log: true },
+    );
 
     return {
       ok: true,
@@ -656,17 +676,34 @@ export function mergeWorkbookAndLocalIncidents(
   workbookIncidents: IncidentRecord[],
   localIncidents: IncidentRecord[],
 ): IncidentRecord[] {
+  const validWorkbook = filterValidRegisterIncidents(workbookIncidents, { log: false });
+  const validLocal = filterValidRegisterIncidents(localIncidents, { log: false });
   const workbookIncidentIds = new Set(
-    workbookIncidents
+    validWorkbook
       .map((item) => normalizeIncidentIdForLookup(item.incidentId))
       .filter(Boolean),
   );
-  const pendingLocal = localIncidents.filter((item) => {
+  const pendingLocal = validLocal.filter((item) => {
     const id = item.incidentId;
     return id && !workbookIncidentIds.has(normalizeIncidentIdForLookup(id));
   });
-  const merged = [...workbookIncidents, ...pendingLocal];
-  return merged.sort((left, right) => Date.parse(right.createdAt || "") - Date.parse(left.createdAt || ""));
+  const merged = [...validWorkbook, ...pendingLocal].sort(
+    (left, right) => Date.parse(right.createdAt || "") - Date.parse(left.createdAt || ""),
+  );
+  const totalRows = workbookIncidents.length + localIncidents.length;
+  const invalidIncidentRows =
+    workbookIncidents.length -
+    validWorkbook.length +
+    (localIncidents.length - validLocal.length);
+  if (totalRows > 0) {
+    console.info("[incidents]", {
+      phase: "incident_register_filter",
+      totalRows,
+      validIncidentRows: merged.length,
+      invalidIncidentRows,
+    });
+  }
+  return merged;
 }
 
 /** @deprecated Prefer mergeWorkbookAndLocalIncidents */

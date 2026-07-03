@@ -395,6 +395,7 @@ import {
   buildIncidentEvidenceUploadPayload,
   fetchCompanyIncidents,
   mergeWorkbookAndLocalIncidents,
+  filterValidRegisterIncidents,
   prepareSerializableEvidenceUploadFiles,
   readFileAsDataUrl,
   reassignCompanyIncident,
@@ -3504,7 +3505,9 @@ function App() {
   const [history, setHistory] = useState<HistoryEntry[]>(storedWorkspaceState?.history || initialHistory);
   const [actions, setActions] = useState<ActionItem[]>(storedWorkspaceState?.actions || initialActions);
   const [nonConformances, setNonConformances] = useState<NonConformanceRecord[]>(storedWorkspaceState?.nonConformances || initialNonConformances);
-  const [incidents, setIncidents] = useState<IncidentRecord[]>(storedWorkspaceState?.incidents || initialIncidents);
+  const [incidents, setIncidents] = useState<IncidentRecord[]>(() =>
+    filterValidRegisterIncidents(storedWorkspaceState?.incidents || initialIncidents, { log: true }),
+  );
   const [incidentActions, setIncidentActions] = useState<IncidentCorrectiveAction[]>(storedWorkspaceState?.incidentActions || initialIncidentActions);
   const [schedules, setSchedules] = useState<ScheduleItem[]>(storedWorkspaceState?.schedules || initialSchedules);
   const [sites, setSites] = useState<Site[]>(storedWorkspaceState?.sites || deriveSitesFromWorkspace(storedWorkspaceState?.audits || initialAudits, storedWorkspaceState?.schedules || initialSchedules, storedWorkspaceState?.managedSchedules || []));
