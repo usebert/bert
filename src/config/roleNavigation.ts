@@ -131,7 +131,7 @@ export function shouldLoadSchedulesResultsEnrichment(screen: RoutedScreen): bool
 
 /** Screens that should load GET …/users (company members list). */
 export function shouldLoadCompanyMembersScreen(screen: RoutedScreen): boolean {
-  return screen === "users" || screen === "invites" || screen === "admin" || screen === "incidents";
+  return screen === "users" || screen === "invites" || screen === "admin" || screen === "incidents" || screen === "reports";
 }
 
 /** Screens that should load GET …/google-forms. */

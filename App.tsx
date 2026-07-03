@@ -80,6 +80,7 @@ import { MOBILE_BOTTOM_NAV_IDS, MORE_MENU_NAV_IDS, PILOT_PRIMARY_NAV_IDS, PRIMAR
 import { RoleContextBanner } from "./src/components/RoleContextBanner";
 import { getRoleTheme } from "./src/config/roleTheme";
 import { storageKeys } from "./src/config/storageKeys";
+import { SECTION_INTROS, type SectionIntroKey } from "./src/config/sectionIntros";
 import { API_BASE_URL, apiUrl } from "./src/config/apiBase";
 import { isPlatformOwnerEmail } from "./src/config/platformOwner";
 import { slatePrimaryCtaInteract } from "./src/styles/interactions";
@@ -2936,9 +2937,58 @@ function isAuditCompleted(audit: Audit) {
   return !["Not yet completed", "Not completed yet"].includes(audit.lastCompletedAt);
 }
 
+function resolveHelpIntro(screen: string, role: Role): string {
+  const keyByScreen: Partial<Record<string, SectionIntroKey>> = {
+    reports: role === "Master" ? "diagnostics" : "reports",
+    schedules: "formsChecks",
+    incidents: role === "Auditor" ? "auditorSubmit" : "reports",
+    audits: "formsChecks",
+    actions: "correctiveActions",
+    results: "results",
+    users: "team",
+    invites: "usersInvites",
+    dashboard: "workspace",
+    auditBuilder: "formsChecks",
+    templates: "formsChecks",
+    googleForms: "googleForms",
+    qmsReadiness: "qmsReadiness",
+  };
+  return SECTION_INTROS[keyByScreen[screen] || "workspace"];
+}
+
 function formatScheduleVersionLabel(versionNumber: number) {
   const alphabet = "abcdefghijklmnopqrstuvwxyz";
   return alphabet[versionNumber - 1] || `v${versionNumber}`;
+}
+
+function buildAuditPackReportHtml(
+  reportDefinition: { title: string; intro: string; sections: [string, string[]][] },
+  timestamp: string,
+  metrics: {
+    workspaceName: string;
+    compliance: number;
+    openActionsCount: number;
+    overdueActionsCount: number;
+    auditsCount: number;
+    evidenceCount: number;
+  },
+): string {
+  return `
+      <h1>${reportDefinition.title}</h1>
+      <p class="meta">Generated ${timestamp} for ${metrics.workspaceName}</p>
+      <p>${reportDefinition.intro}</p>
+      <div class="grid">
+        <div class="card"><strong>Compliance</strong><p>${metrics.compliance}% live compliance</p></div>
+        <div class="card"><strong>Open actions</strong><p>${metrics.openActionsCount} open, ${metrics.overdueActionsCount} overdue</p></div>
+        <div class="card"><strong>Live audits</strong><p>${metrics.auditsCount} active audits</p></div>
+        <div class="card"><strong>Evidence</strong><p>${metrics.evidenceCount} captured evidence items</p></div>
+      </div>
+      ${reportDefinition.sections
+        .map(
+          ([heading, lines]) =>
+            `<h2>${heading}</h2><ul>${lines.map((line: string) => `<li>${line.replace(/^- /, "")}</li>`).join("")}</ul>`,
+        )
+        .join("")}`;
 }
 
 function openPrintableReport(title: string, bodyHtml: string) {
@@ -3423,6 +3473,7 @@ function DataFlowBackground({ className = "", showBase = true }: { className?: s
 function App() {
   const actionsPersistReadyRef = useRef(false);
   const [themeMode, setThemeMode] = useState<ThemeMode>("light");
+  const [helpPanelOpen, setHelpPanelOpen] = useState(false);
   const [previewOrientation, setPreviewOrientation] = useState<PreviewOrientation>(() => readStoredPreviewOrientation());
   const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState<boolean>(() => {
     try {
@@ -4963,6 +5014,7 @@ function App() {
 
   const incidentReassignTargetsLoading =
     companyMembersState.loading && incidentReassignTargets.length === 0;
+  const reportUsersLoading = companyMembersState.loading && companyReportUsers.length === 0;
 
   const reminderUserEmail = useMemo(() => {
     if (!currentUser) {
@@ -14154,22 +14206,14 @@ function App() {
 
     const timestamp = formatStamp();
     const reportDefinition = buildReportSections();
-    const html = `
-      <h1>${reportDefinition.title}</h1>
-      <p class="meta">Generated ${timestamp} for ${workspaceName}</p>
-      <p>${reportDefinition.intro}</p>
-      <div class="grid">
-        <div class="card"><strong>Compliance</strong><p>${compliance}% live compliance</p></div>
-        <div class="card"><strong>Open actions</strong><p>${openActions.length} open, ${overdueActions.length} overdue</p></div>
-        <div class="card"><strong>Live audits</strong><p>${audits.length} active audits</p></div>
-        <div class="card"><strong>Evidence</strong><p>${evidenceCount} captured evidence items</p></div>
-      </div>
-      ${reportDefinition.sections
-        .map(
-          ([heading, lines]) => `<h2>${heading}</h2><ul>${lines.map((line: string) => `<li>${line.replace(/^- /, "")}</li>`).join("")}</ul>`,
-        )
-        .join("")}
-    `;
+    const html = buildAuditPackReportHtml(reportDefinition, timestamp, {
+      workspaceName,
+      compliance,
+      openActionsCount: openActions.length,
+      overdueActionsCount: overdueActions.length,
+      auditsCount: audits.length,
+      evidenceCount,
+    });
 
     const opened = openPrintableReport(reportDefinition.title, html);
     if (!opened) {
@@ -14190,6 +14234,68 @@ function App() {
       ...current,
     ]);
     pushToast("PDF report opened", "The printable audit report view is ready to save as PDF.", "success");
+  };
+
+  const handleEmailAuditPackPdf = async () => {
+    if (reportRecipients.length === 0) {
+      pushToast("Recipients required", "Select who should receive this report before emailing it.", "warning");
+      return;
+    }
+
+    const timestamp = formatStamp();
+    const reportDefinition = buildReportSections();
+    const html = buildAuditPackReportHtml(reportDefinition, timestamp, {
+      workspaceName,
+      compliance,
+      openActionsCount: openActions.length,
+      overdueActionsCount: overdueActions.length,
+      auditsCount: audits.length,
+      evidenceCount,
+    });
+
+    try {
+      const response = await fetch(apiUrl("/api/reports/email-pdf"), {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: reportDefinition.title,
+          html,
+          recipients: reportRecipients,
+          workspaceName,
+          createdBy: currentUser?.name || companyName,
+        }),
+      });
+      const payload = (await response.json()) as { ok?: boolean; message?: string; error?: string };
+      if (!response.ok || payload.ok === false) {
+        pushToast(
+          "Email not sent",
+          payload.message || payload.error || "Could not email this report. Check SMTP settings or try Export PDF.",
+          "warning",
+        );
+        return;
+      }
+
+      setReportInbox((current) => [
+        {
+          id: `report-email-${Date.now()}`,
+          title: reportDefinition.title,
+          type: "Emailed PDF report",
+          createdAt: timestamp,
+          createdBy: currentUser?.name || companyName,
+          visibleTo: reportRecipients,
+          template: selectedReportTemplate,
+        },
+        ...current,
+      ]);
+      pushToast("Report emailed", payload.message || "The report was emailed to the selected recipients.", "success");
+    } catch (error) {
+      pushToast(
+        "Email not sent",
+        error instanceof Error ? error.message : "Could not email this report.",
+        "warning",
+      );
+    }
   };
 
   const handleToggleReportRecipient = (email: string) => {
@@ -15107,6 +15213,7 @@ function App() {
               <div className="absolute right-4 top-4 z-20 flex items-center gap-1.5 sm:right-6 sm:top-6">
                 <button
                   type="button"
+                  onClick={() => setHelpPanelOpen(true)}
                   className="rounded-full border border-slate-700 bg-slate-900/75 p-2 text-slate-300 transition hover:border-orange-400/60 hover:text-blue-400"
                   aria-label="Help"
                 >
@@ -15572,6 +15679,7 @@ function App() {
                 {!godCompanySetupOnlyShell ? (
                   <button
                     type="button"
+                    onClick={() => setHelpPanelOpen(true)}
                     className={[
                       "hidden items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold sm:inline-flex",
                       themeMode === "dark"
@@ -16468,6 +16576,7 @@ function App() {
                 completedToday={completedToday}
                 offlineQueueCount={offlineQueue.length}
                 reportUsers={companyReportUsers}
+                reportUsersLoading={reportUsersLoading}
                 reportRecipients={reportRecipients}
                 reportInbox={reportInbox}
                 history={history}
@@ -16482,6 +16591,7 @@ function App() {
                 onToggleReportSection={handleToggleReportSection}
                 onExportAuditPack={handleExportAuditPack}
                 onExportAuditPackPdf={handleExportAuditPackPdf}
+                onEmailAuditPackPdf={handleEmailAuditPackPdf}
               />
             )}
 
@@ -17217,6 +17327,39 @@ function App() {
 
         </div>
       )}
+
+      {helpPanelOpen ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-end justify-center bg-slate-950/45 p-3 sm:items-center"
+          onClick={() => setHelpPanelOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Help"
+          >
+            <h3 className="text-xl font-semibold text-slate-950">Help</h3>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600">
+              {currentUser
+                ? resolveHelpIntro(screen, currentUser.role)
+                : "Sign in with your company email and password. If you were invited, use the link from your invite email."}
+            </p>
+            <p className="mt-3 text-sm text-slate-500">
+              For access or company setup issues, contact your company admin or manager.
+            </p>
+            <button
+              type="button"
+              onClick={() => setHelpPanelOpen(false)}
+              className={`mt-5 min-h-[44px] w-full rounded-2xl bg-slate-900 px-4 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <ToastStack toasts={toasts} />
     </div>

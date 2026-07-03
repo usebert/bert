@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CompanyFolder, ScheduleAssigneeOption, ScheduleListFilter } from "../types/schedulesScreenProps";
 import type { ScheduleAssigneeDiagnostics } from "../utils/scheduleAssignees";
 import { formatUserRoleLabel } from "../utils/inviteStatusDisplay";
@@ -287,10 +287,43 @@ export function SchedulesScreen({
   onResume: (scheduleId: string) => void;
 }) {
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
+  const [pendingBuilderScroll, setPendingBuilderScroll] = useState(false);
+  const scheduleBuilderRef = useRef<HTMLElement | null>(null);
   const nameError = validationAttempted && !scheduleName.trim();
   const auditsError = validationAttempted && scheduleAudits.length === 0;
   const startDateError = validationAttempted && !startDate;
   const auditorsError = validationAttempted && selectedAuditors.length === 0;
+
+  useEffect(() => {
+    if (!editorOpen || !pendingBuilderScroll) {
+      return;
+    }
+    let cancelled = false;
+    let attempts = 0;
+    const scrollToBuilder = () => {
+      if (cancelled) {
+        return;
+      }
+      const element = document.getElementById("schedule-builder") || scheduleBuilderRef.current;
+      if (element) {
+        element.scrollIntoView({ behavior: "smooth", block: "start" });
+        setPendingBuilderScroll(false);
+        return;
+      }
+      attempts += 1;
+      if (attempts < 8) {
+        requestAnimationFrame(scrollToBuilder);
+      } else {
+        setPendingBuilderScroll(false);
+      }
+    };
+    requestAnimationFrame(() => {
+      requestAnimationFrame(scrollToBuilder);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [editorOpen, pendingBuilderScroll]);
 
   return (
     <div className="space-y-4">
@@ -309,7 +342,10 @@ export function SchedulesScreen({
             </div>
           </div>
           <button
-            onClick={onOpenNew}
+            onClick={() => {
+              onOpenNew();
+              setPendingBuilderScroll(true);
+            }}
             disabled={companyActionsBlocked}
             title={companyActionsBlocked ? companyActionsBlockedMessage : undefined}
             className={`h-12 rounded-2xl px-5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${brandAccentFormField} ${slatePrimaryCtaInteract}`}
@@ -426,7 +462,11 @@ export function SchedulesScreen({
       </section>
 
       {editorOpen && (
-        <section className="rounded-[1.75rem] border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)]">
+        <section
+          ref={scheduleBuilderRef}
+          id="schedule-builder"
+          className="scroll-mt-24 rounded-[1.75rem] border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)]"
+        >
           <SectionHeader
             icon="check"
             eyebrow="Schedule builder"

@@ -26,7 +26,7 @@ export type ReportSectionKey =
 export type ReportItem = {
   id: string;
   title: string;
-  type: "PDF report" | "Text audit pack";
+  type: "PDF report" | "Text audit pack" | "Emailed PDF report";
   createdAt: string;
   createdBy: string;
   visibleTo: string[];

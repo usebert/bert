@@ -378,6 +378,7 @@ export function ReportsScreen({
   completedToday,
   offlineQueueCount,
   reportUsers,
+  reportUsersLoading = false,
   reportRecipients,
   reportInbox,
   history,
@@ -391,6 +392,7 @@ export function ReportsScreen({
   onToggleReportSection,
   onExportAuditPack,
   onExportAuditPackPdf,
+  onEmailAuditPackPdf,
 }: {
   currentUserRole: Role;
   companyContext: ResolvedCompanyContext;
@@ -415,6 +417,7 @@ export function ReportsScreen({
   completedToday: number;
   offlineQueueCount: number;
   reportUsers: CompanyReportUser[];
+  reportUsersLoading?: boolean;
   reportRecipients: string[];
   reportInbox: ReportItem[];
   history: HistoryEntry[];
@@ -428,6 +431,7 @@ export function ReportsScreen({
   onToggleReportSection: (section: ReportSectionKey) => void;
   onExportAuditPack: () => void;
   onExportAuditPackPdf: () => void;
+  onEmailAuditPackPdf: () => void;
 }) {
   const [showReportCreator, setShowReportCreator] = useState(false);
   const [showAuditPackOptions, setShowAuditPackOptions] = useState(false);
@@ -501,7 +505,6 @@ export function ReportsScreen({
         </section>
       ) : null}
 
-      {currentUserRole === "Master" ? (
       <section className="rounded-[1.75rem] border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)]">
         <SectionHeader
           icon="chart"
@@ -548,7 +551,6 @@ export function ReportsScreen({
           </div>
         </div>
       </section>
-      ) : null}
 
       <section className="rounded-[1.75rem] border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)]">
         <div className="mb-4 flex items-start justify-between gap-3">
@@ -625,7 +627,15 @@ export function ReportsScreen({
               <p className="text-sm font-semibold text-slate-900">Who can see this report?</p>
               <p className="mt-1 text-sm text-slate-500">Select the company users who should see the report in their app.</p>
               <div className="mt-3 space-y-2">
-                {reportUsers.map((user) => {
+                {reportUsersLoading && reportUsers.length === 0 ? (
+                  <EmptyPanel title="Loading people…" text="Reading company members for this workspace." />
+                ) : reportUsers.length === 0 ? (
+                  <EmptyPanel
+                    title="No people to select"
+                    text="Add company members in People first, then return here to choose report recipients."
+                  />
+                ) : (
+                reportUsers.map((user) => {
                   const selected = reportRecipients.includes(user.email);
                   return (
                     <button
@@ -652,7 +662,8 @@ export function ReportsScreen({
                       </div>
                     </button>
                   );
-                })}
+                })
+                )}
               </div>
             </div>
             <div className="mb-4 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
@@ -700,6 +711,12 @@ export function ReportsScreen({
                 className={`h-14 rounded-2xl bg-slate-900 px-4 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}
               >
                 Export PDF report
+              </button>
+              <button
+                onClick={onEmailAuditPackPdf}
+                className="h-14 rounded-2xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition-colors duration-200 ease-in-out hover:bg-slate-900/25 hover:text-white"
+              >
+                Email PDF to selected
               </button>
               {showAuditPackOptions && (
                 <>

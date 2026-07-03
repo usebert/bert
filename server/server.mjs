@@ -1647,6 +1647,51 @@ async function sendIncidentReportEmail({
   });
 }
 
+async function sendReportPackEmail({ title, html, recipients = [], workspaceName, createdBy }) {
+  if (!emailConfigured()) {
+    throw new Error("SMTP is not configured. Add SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM_EMAIL.");
+  }
+  const toList = Array.isArray(recipients)
+    ? recipients.map((entry) => String(entry || "").trim()).filter(Boolean)
+    : [];
+  if (!toList.length) {
+    throw new Error("Select at least one recipient before emailing this report.");
+  }
+  const reportTitle = String(title || "BERT report").trim() || "BERT report";
+  const transporter = createSmtpTransport();
+  const from = requiredEnv.SMTP_FROM_NAME
+    ? `"${requiredEnv.SMTP_FROM_NAME}" <${requiredEnv.SMTP_FROM_EMAIL}>`
+    : requiredEnv.SMTP_FROM_EMAIL;
+  const subject = `${reportTitle}${workspaceName ? ` — ${workspaceName}` : ""}`;
+  const textBody = [
+    `${reportTitle}`,
+    workspaceName ? `Workspace: ${workspaceName}` : "",
+    createdBy ? `Created by: ${createdBy}` : "",
+    "",
+    "Open the HTML version of this email to view the full report pack.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const htmlBody = `
+    <div style="font-family:Arial,sans-serif;color:#0f172a;max-width:720px;">
+      <p style="color:#475569;font-size:12px;margin:0 0 16px;">
+        ${workspaceName ? `Workspace: <strong>${workspaceName}</strong><br/>` : ""}
+        ${createdBy ? `Created by: <strong>${createdBy}</strong>` : ""}
+      </p>
+      ${html}
+      <p style="margin-top:24px;font-size:12px;color:#64748b;">Sent from ${APP_BRAND_NAME}.</p>
+    </div>
+  `;
+  await transporter.sendMail({
+    from,
+    to: toList.join(", "),
+    subject,
+    text: textBody,
+    html: htmlBody,
+  });
+  return { recipientCount: toList.length };
+}
+
 function pickValue(record, matchers) {
   const entries = Object.entries(record || {});
 
@@ -6146,6 +6191,35 @@ app.post("/api/incidents/notify", async (req, res) => {
     return res.status(500).json({
       ok: false,
       error: error instanceof Error ? error.message : "Unable to send incident notification email.",
+    });
+  }
+});
+
+app.post("/api/reports/email-pdf", async (req, res) => {
+  const title = String(req.body?.title || "").trim();
+  const html = String(req.body?.html || "").trim();
+  const recipients = Array.isArray(req.body?.recipients) ? req.body.recipients : [];
+  const workspaceName = String(req.body?.workspaceName || "").trim();
+  const createdBy = String(req.body?.createdBy || "").trim();
+
+  if (!title || !html) {
+    return res.status(400).json({ ok: false, error: "Report title and content are required." });
+  }
+  if (!recipients.length) {
+    return res.status(400).json({ ok: false, error: "Select at least one recipient before emailing this report." });
+  }
+
+  try {
+    const result = await sendReportPackEmail({ title, html, recipients, workspaceName, createdBy });
+    return res.json({
+      ok: true,
+      message: `Report emailed to ${result.recipientCount} recipient${result.recipientCount === 1 ? "" : "s"}.`,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error instanceof Error ? error.message : "Unable to email this report.",
+      message: error instanceof Error ? error.message : "Unable to email this report.",
     });
   }
 });
