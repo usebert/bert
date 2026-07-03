@@ -79,4 +79,38 @@ assert(read("src/config/navStructure.ts").includes('MOBILE_BOTTOM_NAV_IDS = ["da
 
 assertContains("package.json", ["verify:navigation"]);
 
+assertContains("src/components/auditCentre/AuditCentreBackButton.tsx", [
+  "Back to Audit Centre",
+  "min-h-[44px]",
+]);
+
+assertContains("src/screens/AuditBuilderScreen.tsx", ["AuditCentreBackButton"]);
+
+assertContains("src/screens/GoogleFormsScreen.tsx", [
+  "AuditCentreBackButton",
+  "onBackToAuditCentre",
+]);
+
+assertContains("src/screens/AuditsScreen.tsx", [
+  "AuditCentreBackButton",
+  "onBackToAuditCentre",
+]);
+
+assertContains("src/screens/ResultsScreen.tsx", [
+  "AuditCentreBackButton",
+  "onBackToAuditCentre",
+]);
+
+assertContains("src/components/checks/CheckCompletionWizard.tsx", [
+  "AuditCentreBackButton",
+  "onBackToAuditCentre",
+]);
+
+assertContains("src/screens/AuditTemplateEditScreen.tsx", ["AuditCentreBackButton"]);
+
+assert(appTsx.includes("handleNavigateToAuditCentre"), "App navigates back to Audit Centre");
+assert(appTsx.includes('setScreen("auditCentre")'), "App sets auditCentre screen");
+assert(appTsx.includes("onBackToAuditCentre={handleNavigateToAuditCentre}"), "child screens wired to Audit Centre back");
+assert(appTsx.includes("onBackToAuditCentre={handleBackToAuditCentreFromCheck}"), "check completion saves and returns to Audit Centre");
+
 console.log(`[verify:navigation] ${checks} checks OK`);

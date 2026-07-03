@@ -11989,6 +11989,20 @@ function App() {
     setScreen("dashboard");
   };
 
+  const handleNavigateToAuditCentre = () => {
+    setScreen("auditCentre");
+  };
+
+  const handleBackToAuditCentreFromCheck = () => {
+    if (activeAudit) {
+      saveDraft({ silent: true });
+      setActiveAuditId(null);
+      setIssuePrompt(null);
+      setAuditModeQuestionIndex(0);
+    }
+    setScreen("auditCentre");
+  };
+
   useEffect(() => {
     if (!activeAudit || screen !== "complete" || !currentUser || !usesAssignedChecksCompletionFlow(currentUser.role)) {
       return;
@@ -16446,6 +16460,7 @@ function App() {
                 assignedChecksLoadError={assignedChecksState.loadError}
                 assignedChecksLoadErrorDetail={assignedChecksState.loadErrorDetail}
                 onGoogleFormUpdated={handleGoogleFormTemplateUpdated}
+                onBackToAuditCentre={handleNavigateToAuditCentre}
               />
             )}
 
@@ -16470,6 +16485,7 @@ function App() {
                 onClearSelectedResult={() =>
                   setSelectedResultState({ resultId: null, result: null, loading: false, loadError: undefined })
                 }
+                onBackToAuditCentre={handleNavigateToAuditCentre}
               />
             )}
 
@@ -16489,6 +16505,7 @@ function App() {
                 creatingBertCheckFormId={creatingBertCheckFormId}
                 bertCheckCreatedFormIds={bertCheckCreatedFormIds}
                 onCreateBertCheck={handleCreateBertCheckFromGoogleForm}
+                onBackToAuditCentre={handleNavigateToAuditCentre}
               />
             )}
 
@@ -17239,6 +17256,7 @@ function App() {
                   });
                 }}
                 onSaveAndExit={handleAuditModeSaveAndExit}
+                onBackToAuditCentre={handleBackToAuditCentreFromCheck}
                 onSubmit={completeAuditModeFlow}
                 submitting={checkSubmitState.submitting}
                 submitError={checkSubmitState.error}

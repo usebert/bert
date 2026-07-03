@@ -26,6 +26,7 @@ export type CheckCompletionWizardProps = {
   onRemoveEvidence: (questionId: string, evidenceId: string) => void;
   onSaveAndExit: () => void;
   onSubmit: () => void;
+  onBackToAuditCentre?: () => void;
   submitting?: boolean;
   submitError?: string;
 };

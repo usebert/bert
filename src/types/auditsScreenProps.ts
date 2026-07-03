@@ -79,4 +79,5 @@ export type AuditsScreenProps = {
       currentDriveFolderName?: string;
     },
   ) => void;
+  onBackToAuditCentre?: () => void;
 };

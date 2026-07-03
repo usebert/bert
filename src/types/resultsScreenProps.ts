@@ -41,4 +41,5 @@ export type ResultsScreenProps = {
   selectedResultLoadError?: string;
   onSelectResult: (resultId: string) => void;
   onClearSelectedResult: () => void;
+  onBackToAuditCentre?: () => void;
 };

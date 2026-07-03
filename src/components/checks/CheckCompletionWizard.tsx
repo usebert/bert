@@ -12,6 +12,7 @@ import { darkPanelDescription, darkPanelEyebrow, darkPanelShell, darkPanelTitleL
 import { bertSecondaryButtonInteract } from "../../styles/interactions";
 import { CheckQuestionControls } from "./CheckQuestionControls";
 import { CheckCompletionReview } from "./CheckCompletionReview";
+import { AuditCentreBackButton } from "../auditCentre/AuditCentreBackButton";
 
 export function CheckCompletionWizard({
   audit,
@@ -35,6 +36,7 @@ export function CheckCompletionWizard({
   onRemoveEvidence,
   onSaveAndExit,
   onSubmit,
+  onBackToAuditCentre,
   submitting = false,
   submitError,
 }: CheckCompletionWizardProps) {
@@ -73,6 +75,11 @@ export function CheckCompletionWizard({
   if (phase === "review") {
     return (
       <AnimatedScreen screenKey={`check-review-${audit.id}`}>
+        {onBackToAuditCentre ? (
+          <div className="mb-4">
+            <AuditCentreBackButton onClick={onBackToAuditCentre} />
+          </div>
+        ) : null}
         <CheckCompletionReview
           audit={audit}
           responses={responses}
@@ -101,6 +108,7 @@ export function CheckCompletionWizard({
   return (
     <AnimatedScreen screenKey={`check-wizard-${audit.id}-q${safeIndex}`}>
       <div className={reducedMotion ? "space-y-4 pb-28" : ["space-y-4 pb-28", bertScreenEnter].join(" ")}>
+        {onBackToAuditCentre ? <AuditCentreBackButton onClick={onBackToAuditCentre} /> : null}
         <section className={darkPanelShell}>
           <div className="flex items-center justify-between gap-3">
             <div>

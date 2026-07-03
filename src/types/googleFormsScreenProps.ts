@@ -15,4 +15,5 @@ export type GoogleFormsScreenProps = {
   creatingBertCheckFormId?: string | null;
   bertCheckCreatedFormIds?: string[];
   onCreateBertCheck?: (form: CompanyGoogleForm) => void | Promise<void>;
+  onBackToAuditCentre?: () => void;
 };

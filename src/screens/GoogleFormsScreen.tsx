@@ -1,4 +1,5 @@
 import { EmptyPanel } from "../components/dashboard/DashboardPrimitives";
+import { AuditCentreBackButton } from "../components/auditCentre/AuditCentreBackButton";
 import { SectionIntro } from "../components/SectionIntro";
 import {
   COMPANY_GOOGLE_FORMS_LOADING_MESSAGE,
@@ -54,12 +55,14 @@ export function GoogleFormsScreen({
   creatingBertCheckFormId = null,
   bertCheckCreatedFormIds = [],
   onCreateBertCheck,
+  onBackToAuditCentre,
 }: GoogleFormsScreenProps) {
   const sortedForms = [...forms].sort((a, b) => a.name.localeCompare(b.name));
   const createdFormIds = new Set(bertCheckCreatedFormIds);
 
   return (
     <div className="space-y-6">
+      {onBackToAuditCentre ? <AuditCentreBackButton onClick={onBackToAuditCentre} /> : null}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-900 text-white">

@@ -7,6 +7,7 @@ import { getRoleTheme } from "../config/roleTheme";
 import { rankAuditorAudit } from "../utils/auditorDashboard";
 import { SECTION_INTROS } from "../config/sectionIntros";
 import { SectionIntro } from "../components/SectionIntro";
+import { AuditCentreBackButton } from "../components/auditCentre/AuditCentreBackButton";
 import { AssignedCheckActionRow } from "../components/checks/AssignedCheckActionRow";
 import type { AssignedCheckScheduleMeta } from "../utils/assignedCheckDisplay";
 import { EmptyPanel, SectionHeader, StatusBadge } from "../components/dashboard/DashboardPrimitives";
@@ -482,11 +483,13 @@ export function AuditsScreen({
   assignedChecksLoadError,
   assignedChecksLoadErrorDetail,
   onGoogleFormUpdated,
+  onBackToAuditCentre,
 }: AuditsScreenProps) {
   if (canCompleteAuditAsAuditor(currentUser.role)) {
     const theme = getRoleTheme("Auditor");
     return (
       <div className="space-y-4">
+        {onBackToAuditCentre ? <AuditCentreBackButton onClick={onBackToAuditCentre} /> : null}
         <section className="rounded-2xl border border-violet-200/80 bg-violet-50/60 px-5 py-4 shadow-sm">
           <h2 className="text-2xl font-semibold tracking-tight text-slate-900">My checks</h2>
           <SectionIntro text={SECTION_INTROS.auditorChecks} className="mt-2" role="Auditor" />
@@ -540,6 +543,7 @@ export function AuditsScreen({
 
   return (
     <div className="space-y-4">
+      {onBackToAuditCentre ? <AuditCentreBackButton onClick={onBackToAuditCentre} /> : null}
       <section className="rounded-[1.75rem] border border-slate-200/90 bg-white p-5 shadow-sm">
         <div className="flex items-start gap-3">
           <div className={["flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl", heroIconChip].join(" ")}>

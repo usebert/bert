@@ -4,6 +4,7 @@ import { getRoleTheme } from "../config/roleTheme";
 import { CreateGoogleFormCopyOption } from "../components/forms/CreateGoogleFormCopyOption";
 import { GoogleFormTemplatePanel } from "../components/admin/GoogleFormTemplatePanel";
 import { SectionIntro } from "../components/SectionIntro";
+import { AuditCentreBackButton } from "../components/auditCentre/AuditCentreBackButton";
 import type { GoogleFormCopyOptionState } from "../utils/googleFormCopyOptionState";
 import {
   generateAuditTemplateFromText,
@@ -182,24 +183,17 @@ export function AuditBuilderScreen({
     <div className="space-y-4">
       <section className="rounded-[1.75rem] border border-slate-200/90 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Audit Builder</h2>
-            <SectionIntro
-              text="Paste a checklist to generate a reusable audit template with compliance answer options."
-              className="mt-2"
-              role={role}
-            />
+          <div className="min-w-0 flex-1 space-y-3">
+            <AuditCentreBackButton onClick={onBack} />
+            <div>
+              <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Audit Builder</h2>
+              <SectionIntro
+                text="Paste a checklist to generate a reusable audit template with compliance answer options."
+                className="mt-2"
+                role={role}
+              />
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={onBack}
-            className={[
-              "inline-flex h-11 items-center rounded-xl border px-4 text-sm font-semibold",
-              theme.outlineButton,
-            ].join(" ")}
-          >
-            Back to Audits
-          </button>
         </div>
       </section>
 

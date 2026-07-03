@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { EmptyPanel } from "../components/dashboard/DashboardPrimitives";
+import { AuditCentreBackButton } from "../components/auditCentre/AuditCentreBackButton";
 import { AuditEvidencePanel } from "../components/evidence/AuditEvidencePanel";
 import { SectionIntro } from "../components/SectionIntro";
 import {
@@ -300,6 +301,7 @@ export function ResultsScreen({
   selectedResultLoadError,
   onSelectResult,
   onClearSelectedResult,
+  onBackToAuditCentre,
 }: ResultsScreenProps) {
   const [filters, setFilters] = useState(createInitialResultsFilters);
 
@@ -326,6 +328,7 @@ export function ResultsScreen({
   }, [selectedResult, scheduleLookup]);
   return (
     <div className="space-y-6">
+      {onBackToAuditCentre ? <AuditCentreBackButton onClick={onBackToAuditCentre} /> : null}
       <div className="flex items-center gap-3">
         <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-900 text-white">
           <ResultsScreenIcon />
