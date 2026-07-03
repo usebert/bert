@@ -73,6 +73,7 @@ import {
   shouldLoadCompanyMembersScreen,
   shouldLoadCompanyResultsScreen,
   shouldLoadDashboardAssignedChecksPreview,
+  shouldLoadDashboardBriefingsPreview,
   shouldLoadFullAssignedChecksScreen,
   shouldLoadGoogleFormsScreen,
   shouldLoadSchedulesResultsEnrichment,
@@ -281,6 +282,7 @@ import { requestPasswordReset } from "./src/services/passwordResetService";
 import { DashboardScreen } from "./src/screens/DashboardScreen";
 import { AuditsScreen } from "./src/screens/AuditsScreen";
 import { AuditCentreScreen } from "./src/screens/AuditCentreScreen";
+import { BriefingsScreen } from "./src/screens/BriefingsScreen";
 import { CheckCompletionWizard } from "./src/components/checks/CheckCompletionWizard";
 import { CompleteAuditScreen } from "./src/screens/CompleteAuditScreen";
 import { IncidentReportingScreen } from "./src/screens/IncidentReportingScreen";
@@ -389,6 +391,8 @@ import {
   readAssignedChecksCache,
   writeAssignedChecksCache,
 } from "./src/services/checkService";
+import { fetchBriefingsTodoPreview } from "./src/services/briefingsService";
+import type { BriefingRecipientRecord } from "./src/types/briefings";
 import {
   COMPANY_RESULTS_LOAD_TIMEOUT_MESSAGE,
   COMPANY_RESULTS_LOAD_TIMEOUT_MS,
@@ -3758,6 +3762,13 @@ function App() {
     masterSheetId?: string;
     hasLoadedOnce?: boolean;
   }>({ schedules: [], loading: false });
+  const [briefingTodoState, setBriefingTodoState] = useState<{
+    items: BriefingRecipientRecord[];
+    loading: boolean;
+    loadError?: string;
+  }>({ items: [], loading: false });
+  const [selectedBriefingId, setSelectedBriefingId] = useState("");
+  const dashboardBriefingsPreviewKeyRef = useRef<string | null>(null);
   const [companyResultsState, setCompanyResultsState] = useState<{
     results: AuditResultSummary[];
     loading: boolean;
@@ -6035,6 +6046,75 @@ function App() {
     }));
     setAssignedChecksRetryNonce((nonce) => nonce + 1);
   }, []);
+
+  const handleOpenBriefingFromTodo = useCallback((briefingId: string) => {
+    setSelectedBriefingId(briefingId);
+    setScreen("briefings");
+  }, []);
+
+  const handleViewAllBriefings = useCallback(() => {
+    setScreen("briefings");
+  }, []);
+
+  useEffect(() => {
+    if (!currentUser || !shouldLoadDashboardBriefingsPreview(screen, currentUser.role)) {
+      setBriefingTodoState((previous) => ({ ...previous, loading: false }));
+      return;
+    }
+    if (!masterCompanyWorkspaceDataMatchesSelection) {
+      setBriefingTodoState((previous) => ({ ...previous, loading: false }));
+      return;
+    }
+    const companyFolderId = String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim();
+    if (!companyFolderId) {
+      setBriefingTodoState({ items: [], loading: false });
+      return;
+    }
+    const previewKey = `${companyFolderId}::briefings-preview`;
+    if (dashboardBriefingsPreviewKeyRef.current === previewKey) {
+      setBriefingTodoState((previous) => ({ ...previous, loading: false }));
+      return;
+    }
+    let cancelled = false;
+    setBriefingTodoState((previous) => ({ ...previous, loading: true, loadError: undefined }));
+    void (async () => {
+      try {
+        const result = await fetchBriefingsTodoPreview(companyFolderId, { limit: 5 });
+        if (cancelled) {
+          return;
+        }
+        dashboardBriefingsPreviewKeyRef.current = previewKey;
+        setBriefingTodoState({
+          items: (result.items || []) as BriefingRecipientRecord[],
+          loading: false,
+        });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setBriefingTodoState({
+          items: [],
+          loading: false,
+          loadError: error instanceof Error ? error.message : "Could not load briefing to-do items.",
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    screen,
+    currentUser,
+    masterCompanyWorkspaceDataMatchesSelection,
+    activeCompanyContext.companyFolderId,
+    selectedFolderId,
+  ]);
+
+  useEffect(() => {
+    if (screen === "briefings") {
+      dashboardBriefingsPreviewKeyRef.current = null;
+    }
+  }, [screen]);
 
   useEffect(() => {
     if (!currentUser || !shouldLoadCompanyMembersScreen(screen)) {
@@ -16298,6 +16378,10 @@ function App() {
                     assignedChecksLoadErrorDetail={assignedChecksState.loadErrorDetail}
                     onRetryAssignedChecks={handleRetryAssignedChecksPreview}
                     onOpenAudit={startAudit}
+                    briefingTodoItems={briefingTodoState.items}
+                    briefingTodoLoading={briefingTodoState.loading}
+                    onOpenBriefing={handleOpenBriefingFromTodo}
+                    onViewAllBriefings={handleViewAllBriefings}
                   />
                 )}
                 renderAuditorDashboard={() => (
@@ -16321,6 +16405,10 @@ function App() {
                     assignedChecksLoadErrorDetail={assignedChecksState.loadErrorDetail}
                     onRetryAssignedChecks={handleRetryAssignedChecksPreview}
                     slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+                    briefingTodoItems={briefingTodoState.items}
+                    briefingTodoLoading={briefingTodoState.loading}
+                    onOpenBriefing={handleOpenBriefingFromTodo}
+                    onViewAllBriefings={handleViewAllBriefings}
                   />
                 )}
                 renderManagerDashboard={() => (
@@ -16374,6 +16462,10 @@ function App() {
                       setScreen("sync");
                     }}
                     lastSyncedAt={companySheetSync?.lastSyncedAt ?? null}
+                    briefingTodoItems={briefingTodoState.items}
+                    briefingTodoLoading={briefingTodoState.loading}
+                    onOpenBriefing={handleOpenBriefingFromTodo}
+                    onViewAllBriefings={handleViewAllBriefings}
                   />
                 )}
                 renderAdminDashboard={() => (
@@ -16396,6 +16488,10 @@ function App() {
                     qmsSummary={canAccessQmsReadinessNav(currentUser.role) ? qmsReadinessSummary : null}
                     onNavigate={(nextScreen) => setScreen(nextScreen)}
                     onOpenAudit={startAudit}
+                    briefingTodoItems={briefingTodoState.items}
+                    briefingTodoLoading={briefingTodoState.loading}
+                    onOpenBriefing={handleOpenBriefingFromTodo}
+                    onViewAllBriefings={handleViewAllBriefings}
                   />
                 )}
               />
@@ -16404,6 +16500,15 @@ function App() {
 
             {screen === "auditCentre" && canAccessAuditCentre(currentUser.role) && (
               <AuditCentreScreen role={currentUser.role} onNavigate={(nextScreen) => setScreen(nextScreen)} />
+            )}
+
+            {screen === "briefings" && canRoleAccessNavItem(currentUser.role, "briefings") && (
+              <BriefingsScreen
+                role={currentUser.role}
+                companyFolderId={String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim()}
+                initialBriefingId={selectedBriefingId || undefined}
+                onBack={() => setScreen("dashboard")}
+              />
             )}
 
             {isCompleteWorkListScreen(screen) &&

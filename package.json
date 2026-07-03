@@ -46,6 +46,7 @@
     "verify:check-completion": "node scripts/verify-check-completion.mjs",
     "verify:form-prompts-escalation": "node scripts/verify-form-prompts-escalation.mjs",
     "verify:navigation": "node scripts/verify-navigation.mjs",
+    "verify:briefings-to-do": "node scripts/verify-briefings-to-do.mjs",
     "verify:pilot-readiness": "node scripts/verify-pilot-readiness.mjs",
     "verify:godmode-company-context": "node scripts/verify-godmode-company-context.mjs",
     "verify:google-form-templates": "node scripts/verify-google-form-templates.mjs",

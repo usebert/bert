@@ -14,6 +14,7 @@ export const navItems = [
   { id: "actions", label: "Actions", icon: "warningTriangle" },
   { id: "nonConformance", label: "NCRs", icon: "checklist" },
   { id: "incidents", label: "Incidents", icon: "warningTriangle" },
+  { id: "briefings", label: "Briefings", icon: "note" },
   { id: "schedules", label: "Schedules", icon: "clock" },
   { id: "reports", label: "Reports", icon: "chart" },
   { id: "documentTraining", label: "Upload & training", icon: "note" },

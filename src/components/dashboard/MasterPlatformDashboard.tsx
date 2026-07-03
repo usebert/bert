@@ -2,7 +2,8 @@ import type { NavItemId } from "../../types/navigation";
 import type { AuditDraft } from "../../types/dashboardScreenProps";
 import type { Audit } from "../../types/reportsScreenProps";
 import type { AssignedCheckScheduleMeta } from "../../utils/assignedCheckDisplay";
-import { DashboardThingsToDoSection } from "./DashboardThingsToDoSection";
+import type { BriefingRecipientRecord } from "../../types/briefings";
+import { DashboardToDoSection } from "./DashboardToDoSection";
 import { DashboardLandingCard, RoleDashboardShell } from "./RoleDashboardPrimitives";
 
 type Props = {
@@ -20,6 +21,10 @@ type Props = {
   assignedChecksLoadErrorDetail?: string;
   onRetryAssignedChecks?: () => void;
   onOpenAudit?: (auditId: string) => void;
+  briefingTodoItems?: BriefingRecipientRecord[];
+  briefingTodoLoading?: boolean;
+  onOpenBriefing?: (briefingId: string) => void;
+  onViewAllBriefings?: () => void;
 };
 
 /** Master platform home — mirrors Godmode reference layout. */
@@ -38,6 +43,10 @@ export function MasterPlatformDashboard({
   assignedChecksLoadErrorDetail,
   onRetryAssignedChecks,
   onOpenAudit,
+  briefingTodoItems = [],
+  briefingTodoLoading = false,
+  onOpenBriefing,
+  onViewAllBriefings,
 }: Props) {
   void companiesCount;
   void pendingOnboardingCount;
@@ -103,12 +112,16 @@ export function MasterPlatformDashboard({
       </div>
 
       {companyWorkspaceLinked && onOpenAudit ? (
-        <DashboardThingsToDoSection
+        <DashboardToDoSection
           assignedAudits={assignedAudits}
           drafts={drafts}
           scheduleMetaByAuditId={assignedCheckScheduleMeta}
+          briefingItems={briefingTodoItems}
           onOpenAudit={onOpenAudit}
+          onOpenBriefing={onOpenBriefing}
+          onViewAllBriefings={onViewAllBriefings}
           loading={assignedChecksLoading}
+          briefingLoading={briefingTodoLoading}
           loadError={assignedChecksLoadError}
           loadErrorDetail={assignedChecksLoadErrorDetail}
           onRetry={onRetryAssignedChecks}

@@ -1,7 +1,8 @@
 import type { NavItemId } from "../../types/navigation";
+import type { BriefingRecipientRecord } from "../../types/briefings";
 import type { AuditorTaskDashboardProps } from "../../types/dashboardScreenProps";
 import type { AssignedCheckScheduleMeta } from "../../utils/assignedCheckDisplay";
-import { DashboardThingsToDoSection } from "./DashboardThingsToDoSection";
+import { DashboardToDoSection } from "./DashboardToDoSection";
 import { PageHeader, TabletBottomNav } from "./RoleDashboardPrimitives";
 
 type Props = AuditorTaskDashboardProps & {
@@ -11,6 +12,10 @@ type Props = AuditorTaskDashboardProps & {
   assignedChecksLoadError?: string;
   assignedChecksLoadErrorDetail?: string;
   onRetryAssignedChecks?: () => void;
+  briefingTodoItems?: BriefingRecipientRecord[];
+  briefingTodoLoading?: boolean;
+  onOpenBriefing?: (briefingId: string) => void;
+  onViewAllBriefings?: () => void;
   onNavigate: (screen: NavItemId) => void;
 };
 
@@ -24,6 +29,10 @@ export function AuditorTaskDashboard({
   assignedChecksLoadError,
   assignedChecksLoadErrorDetail,
   onRetryAssignedChecks,
+  briefingTodoItems = [],
+  briefingTodoLoading = false,
+  onOpenBriefing,
+  onViewAllBriefings,
   showStartHereCard,
   onOpenAudit,
   onNavigate,
@@ -43,12 +52,16 @@ export function AuditorTaskDashboard({
     <div className="space-y-6">
       <PageHeader role="Auditor" eyebrow="Tablet mode" title="Today" subtitle={checksSubtitle} />
 
-      <DashboardThingsToDoSection
+      <DashboardToDoSection
         assignedAudits={assignedAudits}
         drafts={drafts}
         scheduleMetaByAuditId={assignedCheckScheduleMeta}
+        briefingItems={briefingTodoItems}
         onOpenAudit={onOpenAudit}
+        onOpenBriefing={onOpenBriefing}
+        onViewAllBriefings={onViewAllBriefings}
         loading={assignedChecksLoading}
+        briefingLoading={briefingTodoLoading}
         loadError={assignedChecksLoadError}
         loadErrorDetail={assignedChecksLoadErrorDetail}
         onRetry={onRetryAssignedChecks}

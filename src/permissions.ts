@@ -138,6 +138,16 @@ export function canAccessDocumentTraining(role: Role) {
   return role === "Admin" || role === "Manager";
 }
 
+/** Briefings — all signed-in company roles may view assigned briefings. */
+export function canAccessBriefings(_role: Role) {
+  return true;
+}
+
+/** Send briefings and open tracker — managers and admins (plus Master). */
+export function canManageBriefings(role: Role) {
+  return role === "Master" || role === "Admin" || role === "Manager";
+}
+
 /** Full QMS readiness hub (registers, management review pack). */
 export function canAccessQmsReadinessFull(role: Role) {
   return role === "Master" || role === "Admin";
@@ -223,6 +233,7 @@ export function canRoleAccessNavItem(role: Role, itemId: NavItemId) {
     return canAccessMasterTemplatesNav(role) || canAccessSchedules(role);
   }
   if (itemId === "documentTraining") return canAccessDocumentTraining(role);
+  if (itemId === "briefings") return canAccessBriefings(role);
   if (itemId === "qmsReadiness") return canAccessQmsReadinessNav(role);
   if (itemId === "reports") return canAccessReports(role) || canAccessPlatformDiagnosticsNav(role);
   if (itemId === "results") return canAccessResults(role);

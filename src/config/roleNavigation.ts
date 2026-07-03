@@ -38,6 +38,7 @@ const MASTER_NAV: PresentedNavItem[] = [
   { id: "users", label: "People", icon: "user", adminPilotFocus: "users" },
   { id: "schedules", label: "Templates", icon: "clock" },
   { id: "auditCentre", label: "Audit Centre", icon: "clipboard" },
+  { id: "briefings", label: "Briefings", icon: "note" },
   { id: "results", label: "Results", icon: "checklist" },
   { id: "reports", label: "Reports / Diagnostics", icon: "chart" },
   { id: "account", label: "Account", icon: "user" },
@@ -50,6 +51,7 @@ const COMPANY_ADMIN_NAV: PresentedNavItem[] = [
   { id: "users", label: "People", icon: "user", adminPilotFocus: "users" },
   { id: "schedules", label: "Schedules", icon: "clock" },
   { id: "auditCentre", label: "Audit Centre", icon: "clipboard" },
+  { id: "briefings", label: "Briefings", icon: "note" },
   { id: "results", label: "Results", icon: "checklist" },
   { id: "actions", label: "Actions", icon: "warningTriangle" },
   { id: "incidents", label: "Incidents", icon: "warningTriangle" },
@@ -63,6 +65,7 @@ const MANAGER_NAV: PresentedNavItem[] = [
   { id: "invites", label: "People", icon: "user", adminPilotFocus: "invites" },
   { id: "schedules", label: "Schedules", icon: "clock" },
   { id: "auditCentre", label: "Audit Centre", icon: "clipboard" },
+  { id: "briefings", label: "Briefings", icon: "note" },
   { id: "results", label: "Results", icon: "checklist" },
   { id: "actions", label: "Actions", icon: "warningTriangle" },
   { id: "incidents", label: "Incidents", icon: "warningTriangle" },
@@ -74,6 +77,7 @@ const MANAGER_NAV: PresentedNavItem[] = [
 const AUDITOR_NAV: PresentedNavItem[] = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
   { id: "auditCentre", label: "Audit Centre", icon: "clipboard" },
+  { id: "briefings", label: "Briefings", icon: "note" },
   { id: "incidents", label: "Incidents", icon: "warningTriangle" },
   { id: "account", label: "Account", icon: "user" },
 ];
@@ -129,6 +133,16 @@ export function shouldLoadFullAssignedChecksScreen(screen: RoutedScreen, role?: 
 /** Screens that should load GET /api/me/assigned-checks (session-scoped; no client company id). */
 export function shouldLoadAssignedChecksScreen(screen: RoutedScreen, role?: Role): boolean {
   return shouldLoadDashboardAssignedChecksPreview(screen, role) || shouldLoadFullAssignedChecksScreen(screen, role);
+}
+
+/** Dashboard To Do — lightweight briefing actions preview only. */
+export function shouldLoadDashboardBriefingsPreview(screen: RoutedScreen, _role?: Role): boolean {
+  return screen === "dashboard";
+}
+
+/** Briefings screen — full mine/tracker/send data. */
+export function shouldLoadBriefingsScreen(screen: RoutedScreen): boolean {
+  return screen === "briefings";
 }
 
 /** Screens that should load GET …/schedule-assignees (scheduler UI + action assignee picker). */

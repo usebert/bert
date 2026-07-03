@@ -24,6 +24,8 @@ export const SETUP_REQUIRED_TABS = [
   "SyncLog",
   "Documents",
   "DocumentAcknowledgements",
+  "Briefings",
+  "BriefingRecipients",
   "NCRs",
   "Invites",
 ];

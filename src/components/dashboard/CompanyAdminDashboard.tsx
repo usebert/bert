@@ -7,7 +7,8 @@ import { QmsReadinessSummaryWidget } from "../qms/QmsReadinessSummaryWidget";
 import type { QmsReadinessSummary } from "../../types/qms";
 import type { AssignedCheckScheduleMeta } from "../../utils/assignedCheckDisplay";
 import { AnimatedCard } from "../animation/AnimatedCard";
-import { DashboardThingsToDoSection } from "./DashboardThingsToDoSection";
+import type { BriefingRecipientRecord } from "../../types/briefings";
+import { DashboardToDoSection } from "./DashboardToDoSection";
 import {
   DASHBOARD_CARD,
   RoleDashboardShell,
@@ -78,6 +79,10 @@ type Props = {
   assignedChecksLoadError?: string;
   assignedChecksLoadErrorDetail?: string;
   onRetryAssignedChecks?: () => void;
+  briefingTodoItems?: BriefingRecipientRecord[];
+  briefingTodoLoading?: boolean;
+  onOpenBriefing?: (briefingId: string) => void;
+  onViewAllBriefings?: () => void;
   actions: ActionItem[];
   openActionsCount?: number;
   openActionsCountLoading?: boolean;
@@ -99,6 +104,10 @@ export function CompanyAdminDashboard({
   assignedChecksLoadError,
   assignedChecksLoadErrorDetail,
   onRetryAssignedChecks,
+  briefingTodoItems = [],
+  briefingTodoLoading = false,
+  onOpenBriefing,
+  onViewAllBriefings,
   actions,
   openActionsCount,
   openActionsCountLoading = false,
@@ -131,6 +140,28 @@ export function CompanyAdminDashboard({
       subtitle="One simple checklist to get the company working: users, areas, checks, schedules, reports."
       primaryAction={{ label: "Invite user", onClick: () => onNavigate("users"), icon: "invite" }}
     >
+      <DashboardToDoSection
+        assignedAudits={assignedAudits}
+        drafts={drafts}
+        scheduleMetaByAuditId={assignedCheckScheduleMeta}
+        briefingItems={briefingTodoItems}
+        onOpenAudit={onOpenAudit}
+        onOpenBriefing={onOpenBriefing}
+        onViewAllBriefings={onViewAllBriefings}
+        loading={assignedChecksLoading}
+        briefingLoading={briefingTodoLoading}
+        loadError={assignedChecksLoadError}
+        loadErrorDetail={assignedChecksLoadErrorDetail}
+        onRetry={onRetryAssignedChecks}
+        role="Admin"
+        cardIndex={0}
+        showTeamSummary
+        teamSummary={{
+          overdueChecks: assignedAudits.filter((audit) => audit.dueHours < 0).length,
+          unreadBriefings: briefingTodoItems.filter((item) => item.needsAction !== false).length,
+        }}
+      />
+
       <div className="grid gap-6 lg:grid-cols-3">
         <AnimatedCard as="section" index={0} className={[DASHBOARD_CARD, "lg:col-span-2"].join(" ")}>
           <h2 className="text-lg font-black text-slate-900">Next steps</h2>
@@ -163,19 +194,6 @@ export function CompanyAdminDashboard({
           </AnimatedCard>
         </aside>
       </div>
-
-      <DashboardThingsToDoSection
-        assignedAudits={assignedAudits}
-        drafts={drafts}
-        scheduleMetaByAuditId={assignedCheckScheduleMeta}
-        onOpenAudit={onOpenAudit}
-        loading={assignedChecksLoading}
-        loadError={assignedChecksLoadError}
-        loadErrorDetail={assignedChecksLoadErrorDetail}
-        onRetry={onRetryAssignedChecks}
-        role="Admin"
-        cardIndex={2}
-      />
 
       {qmsSummary ? (
         <AnimatedCard index={3}>

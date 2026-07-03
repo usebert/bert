@@ -57,6 +57,21 @@ import {
   submitCompanyIncident,
 } from "./incidents-service.mjs";
 import { uploadIncidentEvidenceToDrive } from "./incident-evidence-upload.mjs";
+import {
+  acknowledgeBriefing,
+  BRIEFINGS_ROUTE_TIMEOUT_MS,
+  canAccessBriefings,
+  canManageBriefings,
+  canViewBriefingsTracker,
+  createAndSendBriefing,
+  listBriefingsTodoPreview,
+  listBriefingsTracker,
+  listMyBriefings,
+  openBriefing,
+  readBriefing,
+  replyToBriefing,
+  signBriefing,
+} from "./briefings-service.mjs";
 
 async function rejectCompanyApiIfFolderInvalid(authed, deps, companyFolderId, companyName = "") {
   if (!authed || !companyFolderId) {
@@ -1836,4 +1851,153 @@ export function installCoreWorkflowRoutes(app, deps) {
       });
     }
   });
+
+  app.get("/api/companies/:companyFolderId/briefings/mine", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, message: "Could not load briefings." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    if (!canAccessBriefings(actor)) {
+      return res.status(403).json({ ok: false, code: "BRIEFING_FORBIDDEN", message: "You do not have permission to view briefings." });
+    }
+    try {
+      const result = await withOperationTimeout(
+        () => listMyBriefings(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId),
+        BRIEFINGS_ROUTE_TIMEOUT_MS,
+      );
+      if (!result.ok) {
+        return res.status(result.httpStatus || 400).json(result);
+      }
+      return res.json(result);
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "BRIEFINGS_LOAD_FAILED",
+        message: "Could not load briefings.",
+        technicalError: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.get("/api/companies/:companyFolderId/briefings/todo", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, message: "Could not load briefing to-do items." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const limit = parseOptionalPositiveInt(req.query.limit, 5);
+    try {
+      const result = await withOperationTimeout(
+        () => listBriefingsTodoPreview(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, limit),
+        BRIEFINGS_ROUTE_TIMEOUT_MS,
+      );
+      if (!result.ok) {
+        return res.status(result.httpStatus || 400).json(result);
+      }
+      return res.json(result);
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "BRIEFINGS_TODO_FAILED",
+        message: "Could not load briefing to-do items.",
+      });
+    }
+  });
+
+  app.get("/api/companies/:companyFolderId/briefings/tracker", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, message: "Could not load briefing tracker." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    if (!canViewBriefingsTracker(actor)) {
+      return res.status(403).json({ ok: false, code: "BRIEFING_TRACKER_FORBIDDEN", message: "Tracker is available to managers and admins only." });
+    }
+    try {
+      const result = await withOperationTimeout(
+        () => listBriefingsTracker(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId),
+        BRIEFINGS_ROUTE_TIMEOUT_MS,
+      );
+      if (!result.ok) {
+        return res.status(result.httpStatus || 400).json(result);
+      }
+      return res.json(result);
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "BRIEFINGS_TRACKER_FAILED",
+        message: "Could not load briefing tracker.",
+      });
+    }
+  });
+
+  app.post("/api/companies/:companyFolderId/briefings", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, message: "Could not send briefing." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    if (!canManageBriefings(actor)) {
+      return res.status(403).json({ ok: false, code: "BRIEFING_FORBIDDEN", message: "You do not have permission to send briefings." });
+    }
+    try {
+      const result = await withOperationTimeout(
+        () => createAndSendBriefing(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, req.body || {}),
+        BRIEFINGS_ROUTE_TIMEOUT_MS,
+      );
+      if (!result.ok) {
+        return res.status(result.httpStatus || 400).json(result);
+      }
+      return res.json(result);
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "BRIEFING_SEND_FAILED",
+        message: "Could not send briefing.",
+        technicalError: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  async function handleBriefingAction(req, res, action) {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, message: "Could not update briefing." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const briefingId = String(req.params?.briefingId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const handlers = {
+      open: () => openBriefing(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, briefingId),
+      read: () => readBriefing(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, briefingId),
+      acknowledge: () => acknowledgeBriefing(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, briefingId),
+      sign: () => signBriefing(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, briefingId, req.body || {}),
+      reply: () => replyToBriefing(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, briefingId, req.body || {}),
+    };
+    try {
+      const result = await withOperationTimeout(handlers[action], BRIEFINGS_ROUTE_TIMEOUT_MS);
+      if (!result.ok) {
+        return res.status(result.httpStatus || 400).json(result);
+      }
+      return res.json(result);
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "BRIEFING_ACTION_FAILED",
+        message: "Could not update briefing.",
+        technicalError: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  app.post("/api/companies/:companyFolderId/briefings/:briefingId/open", (req, res) => handleBriefingAction(req, res, "open"));
+  app.post("/api/companies/:companyFolderId/briefings/:briefingId/read", (req, res) => handleBriefingAction(req, res, "read"));
+  app.post("/api/companies/:companyFolderId/briefings/:briefingId/acknowledge", (req, res) => handleBriefingAction(req, res, "acknowledge"));
+  app.post("/api/companies/:companyFolderId/briefings/:briefingId/sign", (req, res) => handleBriefingAction(req, res, "sign"));
+  app.post("/api/companies/:companyFolderId/briefings/:briefingId/reply", (req, res) => handleBriefingAction(req, res, "reply"));
 }

@@ -6,7 +6,8 @@ import type { ManagerDashboardProps } from "../../types/dashboardScreenProps";
 import { isOverdue } from "../../utils/managerDashboard";
 import type { AssignedCheckScheduleMeta } from "../../utils/assignedCheckDisplay";
 import { AnimatedCard } from "../animation/AnimatedCard";
-import { DashboardThingsToDoSection } from "./DashboardThingsToDoSection";
+import type { BriefingRecipientRecord } from "../../types/briefings";
+import { DashboardToDoSection } from "./DashboardToDoSection";
 import {
   DASHBOARD_CARD,
   ManagerSummaryCard,
@@ -24,6 +25,10 @@ type Props = ManagerDashboardProps & {
   assignedChecksLoadError?: string;
   assignedChecksLoadErrorDetail?: string;
   onRetryAssignedChecks?: () => void;
+  briefingTodoItems?: BriefingRecipientRecord[];
+  briefingTodoLoading?: boolean;
+  onOpenBriefing?: (briefingId: string) => void;
+  onViewAllBriefings?: () => void;
 };
 
 function actionStatusLabel(action: ActionItem): { label: string; tone: "danger" | "warning" | "info" | "neutral" } {
@@ -55,6 +60,10 @@ export function ManagerRoleDashboard({
   assignedChecksLoadError,
   assignedChecksLoadErrorDetail,
   onRetryAssignedChecks,
+  onOpenBriefing,
+  onViewAllBriefings,
+  briefingTodoItems = [],
+  briefingTodoLoading = false,
   onOpenAudit,
   actions,
   ...managerProps
@@ -97,6 +106,28 @@ export function ManagerRoleDashboard({
       subtitle="Failed checks, open actions, and evidence waiting for review. No setup clutter."
       primaryAction={{ label: "View actions", onClick: () => onNavigate("actions"), icon: "alert" }}
     >
+      <DashboardToDoSection
+        assignedAudits={assignedAudits}
+        drafts={drafts}
+        scheduleMetaByAuditId={assignedCheckScheduleMeta}
+        briefingItems={briefingTodoItems}
+        onOpenAudit={onOpenAudit}
+        onOpenBriefing={onOpenBriefing}
+        onViewAllBriefings={onViewAllBriefings}
+        loading={assignedChecksLoading}
+        briefingLoading={briefingTodoLoading}
+        loadError={assignedChecksLoadError}
+        loadErrorDetail={assignedChecksLoadErrorDetail}
+        onRetry={onRetryAssignedChecks}
+        role="Manager"
+        cardIndex={0}
+        showTeamSummary
+        teamSummary={{
+          overdueChecks: assignedAudits.filter((audit) => audit.dueHours < 0).length,
+          unreadBriefings: briefingTodoItems.filter((item) => item.needsAction !== false).length,
+        }}
+      />
+
       <div className="grid gap-4 sm:grid-cols-3">
         <AnimatedCard index={0}>
           <ManagerSummaryCard
@@ -130,19 +161,6 @@ export function ManagerRoleDashboard({
           />
         </AnimatedCard>
       </div>
-
-      <DashboardThingsToDoSection
-        assignedAudits={assignedAudits}
-        drafts={drafts}
-        scheduleMetaByAuditId={assignedCheckScheduleMeta}
-        onOpenAudit={onOpenAudit}
-        loading={assignedChecksLoading}
-        loadError={assignedChecksLoadError}
-        loadErrorDetail={assignedChecksLoadErrorDetail}
-        onRetry={onRetryAssignedChecks}
-        role="Manager"
-        cardIndex={3}
-      />
 
       <AnimatedCard as="section" index={4} className={DASHBOARD_CARD}>
         <h2 className="text-lg font-black text-slate-900">Open actions</h2>

@@ -32,6 +32,7 @@ export type RoutedScreen =
   | "account"
   | "emailReminders"
   | "qmsReadiness"
+  | "briefings"
   | "auditBuilder"
   | "auditTemplateEdit"
   | "complete";

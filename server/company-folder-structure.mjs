@@ -312,6 +312,27 @@ export async function ensureAuditEvidenceFolderId(drive, photosFolderId, resultI
   };
 }
 
+/** Drive path prefix for briefing documents (under company root). */
+export const BRIEFINGS_DRIVE_PATH_PREFIX = "04 - Documents/Briefings";
+
+/**
+ * Ensures 04 - Documents/Briefings/{briefingId} exists under the company root folder.
+ */
+export async function ensureBriefingDocumentFolderId(drive, companyRootFolderId, briefingId) {
+  const rootId = String(companyRootFolderId || "").trim();
+  const safeBriefingId = String(briefingId || "").trim();
+  if (!rootId || !safeBriefingId) {
+    throw new Error("Company root folder and briefing ID are required.");
+  }
+  const documentsFolder = await ensureNamedFolder(drive, "04 - Documents", rootId);
+  const briefingsFolder = await ensureNamedFolder(drive, "Briefings", documentsFolder.folder.id);
+  const briefingFolder = await ensureNamedFolder(drive, safeBriefingId, briefingsFolder.folder.id);
+  return {
+    folderId: briefingFolder.folder.id,
+    path: `${BRIEFINGS_DRIVE_PATH_PREFIX}/${safeBriefingId}`,
+  };
+}
+
 function sheetEndColumnLetter(columnCount) {
   const count = Math.max(Number(columnCount) || 1, 1);
   if (count <= 26) {
