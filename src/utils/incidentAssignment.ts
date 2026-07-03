@@ -219,7 +219,7 @@ export function buildIncidentReassignTargets(
 
   targets.sort((left, right) => left.name.localeCompare(right.name));
 
-  if (options.log !== false) {
+  if (options.log === true) {
     console.info("[incidents]", {
       phase: "incident_reassign_targets",
       totalUsers,

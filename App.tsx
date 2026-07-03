@@ -4942,7 +4942,7 @@ function App() {
     const companyFolderId = activeCompanyContext.companyFolderId;
     const fromMembers = buildIncidentReassignTargets(incidentReassignTargetSource, {
       companyFolderId,
-      log: screen === "incidents",
+      log: false,
     });
     const fromReportUsers = buildIncidentReassignTargets(
       companyReportUsers.map((user) => ({
@@ -4956,12 +4956,10 @@ function App() {
       { companyFolderId, log: false },
     );
     return mergeIncidentReassignTargets(fromMembers, fromReportUsers);
-  }, [
-    incidentReassignTargetSource,
-    companyReportUsers,
-    activeCompanyContext.companyFolderId,
-    screen,
-  ]);
+  }, [incidentReassignTargetSource, companyReportUsers, activeCompanyContext.companyFolderId]);
+
+  const incidentReassignTargetsLoading =
+    companyMembersState.loading && incidentReassignTargets.length === 0;
 
   const reminderUserEmail = useMemo(() => {
     if (!currentUser) {
@@ -6002,17 +6000,16 @@ function App() {
       controller.abort(new DOMException("Company members load timed out", "TimeoutError"));
     }, COMPANY_MEMBERS_LOAD_TIMEOUT_MS);
     const cachedMembers = readCompanyMembersCache(storageKeys.companyMembersCache, companyId);
-    setCompanyMembersState((previous) => ({
-      members:
-        previous.members.length > 0
-          ? previous.members
-          : cachedMembers?.members?.length
-            ? cachedMembers.members
-            : [],
-      loading: true,
-      loadError: undefined,
-      warning: previous.warning || cachedMembers?.warning,
-    }));
+    const cachedSeed = cachedMembers?.members?.length ? cachedMembers.members : [];
+    setCompanyMembersState((previous) => {
+      const members = cachedSeed.length > 0 ? cachedSeed : previous.members;
+      return {
+        members,
+        loading: members.length === 0,
+        loadError: undefined,
+        warning: previous.warning || cachedMembers?.warning,
+      };
+    });
 
     void (async () => {
       try {
@@ -16440,7 +16437,7 @@ function App() {
                 incidents={incidents}
                 incidentActions={incidentActions}
                 reassignTargets={incidentReassignTargets}
-                reassignTargetsLoading={companyMembersState.loading}
+                reassignTargetsLoading={incidentReassignTargetsLoading}
                 onSubmitIncident={submitIncidentReport}
                 onUpdateIncident={updateIncidentRecord}
                 onReassignIncident={reassignIncidentRecord}

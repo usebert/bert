@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MiniMetric } from "../components/dashboard/DashboardPrimitives";
 import { IncidentReassignModal } from "../components/incidents/IncidentReassignModal";
 import { IncidentAssigneeSelect } from "../components/incidents/IncidentAssigneeSelect";
@@ -63,6 +63,8 @@ export function IncidentReportingScreen({
   const [assigneePendingEmails, setAssigneePendingEmails] = useState<Record<string, string>>({});
   const [reassignSubmitting, setReassignSubmitting] = useState(false);
   const [reassignError, setReassignError] = useState("");
+  const [pendingInvestigationScrollId, setPendingInvestigationScrollId] = useState("");
+  const investigationWorkflowRef = useRef<HTMLElement | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
   const [formError, setFormError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -157,6 +159,54 @@ export function IncidentReportingScreen({
     setReassignError("");
     setReassignOpen(true);
   };
+
+  const openInvestigationWorkflow = useCallback(
+    (incidentId: string, options?: { startInvestigation?: boolean }) => {
+      setSelectedIncidentId(incidentId);
+      if (options?.startInvestigation) {
+        onUpdateIncident(incidentId, { status: "Under Investigation" }, { statusNote: "Investigation started" });
+      }
+      setPendingInvestigationScrollId(incidentId);
+    },
+    [onUpdateIncident],
+  );
+
+  useEffect(() => {
+    if (!pendingInvestigationScrollId || selectedIncidentId !== pendingInvestigationScrollId) {
+      return;
+    }
+
+    let cancelled = false;
+    let attempts = 0;
+
+    const scrollToWorkflow = () => {
+      if (cancelled) {
+        return;
+      }
+      const element =
+        document.getElementById(`investigation-workflow-${pendingInvestigationScrollId}`) ||
+        investigationWorkflowRef.current;
+      if (element) {
+        element.scrollIntoView({ behavior: "smooth", block: "start" });
+        setPendingInvestigationScrollId("");
+        return;
+      }
+      attempts += 1;
+      if (attempts < 8) {
+        requestAnimationFrame(scrollToWorkflow);
+      } else {
+        setPendingInvestigationScrollId("");
+      }
+    };
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(scrollToWorkflow);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingInvestigationScrollId, selectedIncidentId]);
 
   const monthlyTrend = useMemo(() => {
     const map = new Map<string, number>();
@@ -439,10 +489,9 @@ export function IncidentReportingScreen({
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation();
-                              setSelectedIncidentId(item.id);
-                              if (item.status === "Open") {
-                                onUpdateIncident(item.id, { status: "Under Investigation" }, { statusNote: "Investigation started" });
-                              }
+                              openInvestigationWorkflow(item.id, {
+                                startInvestigation: item.status === "Open",
+                              });
                             }}
                             className="rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white"
                           >
@@ -481,7 +530,11 @@ export function IncidentReportingScreen({
       )}
 
       {selectedIncident && (canManageIncidents || canReassignSelectedIncident) && (
-        <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4">
+        <section
+          ref={investigationWorkflowRef}
+          id={`investigation-workflow-${selectedIncident.id}`}
+          className="scroll-mt-24 rounded-[1.75rem] border border-slate-200 bg-white p-4"
+        >
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-xs uppercase tracking-[0.18em] text-slate-500">

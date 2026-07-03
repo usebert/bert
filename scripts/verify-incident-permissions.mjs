@@ -61,6 +61,10 @@ assert(incidentsClient.includes("reassignCompanyIncident"), "CLIENT: reassign AP
 assert(screen.includes("IncidentReassignModal"), "UI: reassign modal wired");
 assert(screen.includes("IncidentAssigneeSelect"), "UI: inline assignee dropdown wired");
 assert(screen.includes("openReassignForIncident"), "UI: table assignment opens reassign flow");
+assert(screen.includes("openInvestigationWorkflow"), "UI: Continue opens investigation workflow");
+assert(screen.includes("investigation-workflow-"), "UI: investigation workflow scroll target id");
+assert(appTsx.includes("incidentReassignTargetsLoading"), "LOAD: assignee loading only when targets empty");
+assert(appTsx.includes("cachedSeed"), "LOAD: company members use cache seed without blocking UI");
 assert(!screen.includes(">Reassign</button>"), "UI: duplicate Reassign button removed");
 assert(screen.includes("Assignment history"), "UI: assignment history shown");
 assert(appTsx.includes("onReassignIncident={reassignIncidentRecord}"), "APP: reassign handler wired");

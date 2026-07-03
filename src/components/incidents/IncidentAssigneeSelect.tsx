@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { IncidentReassignTarget, IncidentRecord } from "../../types/incidentsScreenProps";
 import {
   formatIncidentAssignee,
@@ -15,7 +16,7 @@ type IncidentAssigneeSelectProps = {
   className?: string;
 };
 
-export function IncidentAssigneeSelect({
+function IncidentAssigneeSelectComponent({
   incident,
   targets,
   targetsLoading = false,
@@ -36,7 +37,9 @@ export function IncidentAssigneeSelect({
     .filter(Boolean)
     .join(" ");
 
-  if (targetsLoading) {
+  const showLoading = targetsLoading && targets.length === 0;
+
+  if (showLoading) {
     return (
       <select disabled className={selectClassName} aria-label="Assigned handler">
         <option>Loading...</option>
@@ -75,3 +78,5 @@ export function IncidentAssigneeSelect({
     </select>
   );
 }
+
+export const IncidentAssigneeSelect = memo(IncidentAssigneeSelectComponent);
