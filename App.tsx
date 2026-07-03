@@ -323,6 +323,12 @@ import { validateCompanyDriveIds } from "./src/utils/googleDriveId";
 import { pickNextAuditorAudit } from "./src/utils/auditorDashboard";
 import { mergeTextIntoNotes, syncTextResponsesToAnswers } from "./src/utils/checkCompletionHelpers";
 import {
+  buildCheckAnswersPayload,
+  buildPromptRuleFindings,
+  countPromptRuleIssues,
+} from "./src/utils/promptRules";
+import type { PromptFollowUpAnswers } from "./src/types/promptRules";
+import {
   buildAvailableAuditFromTemplate,
   buildCompleteWorkAssignedAudits,
   resolveAssignedCheckAuditId,
@@ -653,6 +659,7 @@ type AuditQuestion = {
   requiresPhotoEvidence?: boolean;
   requiresManagerReview?: boolean;
   answerPrompts?: Partial<Record<Answer, string[]>>;
+  promptRules?: import("./src/types/promptRules").PromptRule[];
 };
 
 type Audit = {
@@ -689,6 +696,7 @@ type AuditDraft = {
   textResponses?: Record<string, string>;
   notes: Record<string, string>;
   evidence: Record<string, EvidenceItem[]>;
+  promptFollowUps?: PromptFollowUpAnswers;
   questionIndex?: number;
   updatedAt: string;
 };
@@ -3570,6 +3578,7 @@ function App() {
   const [textResponses, setTextResponses] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [evidence, setEvidence] = useState<Record<string, EvidenceItem[]>>({});
+  const [promptFollowUps, setPromptFollowUps] = useState<PromptFollowUpAnswers>({});
   const [auditEvidenceUploadData, setAuditEvidenceUploadData] = useState<
     Record<string, { dataUrl: string; name: string; mimeType: string; size: number; questionId: string }>
   >({});
@@ -10682,6 +10691,7 @@ function App() {
               offlineSubmittedByFallback,
             completedAt: submission.createdAt,
             signatureDataUrl: submission.signatureDataUrl,
+            promptFollowUps: submission.promptFollowUps,
           });
           await syncAuditSubmissionToSheet({
             sheetId,
@@ -11028,6 +11038,7 @@ function App() {
     setTextResponses(draft?.textResponses ?? {});
     setNotes(draft?.notes ?? {});
     setEvidence(draft?.evidence ?? {});
+    setPromptFollowUps(draft?.promptFollowUps ?? {});
     setAuditModeQuestionIndex(draft?.questionIndex ?? 0);
     setIssuePrompt(null);
     setAuditCompletionSummary(null);
@@ -11048,6 +11059,7 @@ function App() {
         textResponses,
         notes,
         evidence,
+        promptFollowUps,
         questionIndex: auditModeQuestionIndex,
         updatedAt: formatStamp(),
       },
@@ -11348,6 +11360,8 @@ function App() {
     submittedByUser,
     completedAt,
     signatureDataUrl: submissionSignature,
+    promptFollowUps,
+    textResponses,
   }: {
     audit: Audit;
     responseMap: Record<string, Answer>;
@@ -11357,6 +11371,8 @@ function App() {
     submittedByUser: User;
     completedAt: string;
     signatureDataUrl?: string;
+    promptFollowUps?: PromptFollowUpAnswers;
+    textResponses?: Record<string, string>;
   }) => {
     const areaId =
       resolveAuditAreaId(audit, sites, areaRestrictionsEnabled) || SINGLE_WORKSPACE_AREA_ID;
@@ -11371,6 +11387,8 @@ function App() {
       submittedByUser,
       completedAt,
       signatureDataUrl: submissionSignature,
+      promptFollowUps,
+      textResponses,
     });
     const { outcomeStatus, payload, sheetResult, sheetFindings, sheetEvidence, sheetSyncLog } = bundle;
     const findings = payload.findings;
@@ -11549,8 +11567,26 @@ function App() {
     if (!activeAudit || !currentUser || checkSubmitState.submitting) return;
     const syncedResponses = syncTextResponsesToAnswers(activeAudit, responses, textResponses, evidence);
     const mergedNotes = mergeTextIntoNotes(activeAudit, syncedResponses, textResponses, notes);
+    const promptRuleFindings = buildPromptRuleFindings(
+      activeAudit,
+      syncedResponses,
+      textResponses,
+      promptFollowUps,
+      mergedNotes,
+    );
+    const answersPayload = buildCheckAnswersPayload({
+      responses: syncedResponses,
+      notes: mergedNotes,
+      promptFollowUps,
+      evidenceIds: Object.fromEntries(
+        Object.entries(evidence).map(([questionId, items]) => [questionId, items.map((item) => item.id)]),
+      ),
+    });
     const stamp = formatStamp();
-    const issuesFound = activeAudit.questions.filter((question) => syncedResponses[question.id] === "fail" || syncedResponses[question.id] === "nc").length;
+    const issuesFound =
+      activeAudit.questions.filter(
+        (question) => syncedResponses[question.id] === "fail" || syncedResponses[question.id] === "nc",
+      ).length + countPromptRuleIssues(promptRuleFindings);
     const photosCaptured = Object.values(evidence).reduce((count, items) => count + items.length, 0);
     const assignedContext = activeAssignedCheck?.auditId === activeAudit.id ? activeAssignedCheck : assignedCheckByAuditId.get(activeAudit.id);
     let actionsCreated = 0;
@@ -11582,6 +11618,7 @@ function App() {
       setActiveAssignedCheck(null);
       setCheckSubmitState({ submitting: false });
       setTextResponses({});
+      setPromptFollowUps({});
       setAuditEvidenceUploadData({});
       setScreen("complete");
     };
@@ -11613,6 +11650,7 @@ function App() {
         answers: syncedResponses,
         failedAnswers: Object.fromEntries(Object.entries(syncedResponses).filter(([, value]) => value === "fail" || value === "nc")),
         notes: mergedNotes,
+        promptFollowUps,
         evidenceRefs,
         signatureDataUrl: "audit-mode-signature-not-required",
         createdAt: stamp,
@@ -11641,14 +11679,25 @@ function App() {
       return;
     }
 
-    const findings = activeAudit.questions
-      .filter((question) => syncedResponses[question.id] === "fail" || syncedResponses[question.id] === "nc")
-      .map((question) => ({
-        questionId: question.id,
-        questionText: question.text,
-        answer: syncedResponses[question.id],
-        note: mergedNotes[question.id] || "",
-      }));
+    const findings = [
+      ...activeAudit.questions
+        .filter((question) => syncedResponses[question.id] === "fail" || syncedResponses[question.id] === "nc")
+        .map((question) => ({
+          questionId: question.id,
+          questionText: question.text,
+          answer: syncedResponses[question.id],
+          note: mergedNotes[question.id] || "",
+        })),
+      ...promptRuleFindings.map((finding) => ({
+        questionId: finding.questionId,
+        questionText: finding.questionText,
+        answer: finding.answer,
+        note: finding.note,
+        requiresManagerReview: finding.requiresManagerReview,
+        escalationMessage: finding.escalationMessage,
+        source: finding.source,
+      })),
+    ];
     const evidenceRefs = Object.entries(evidence).flatMap(([questionId, items]) =>
       items.map((item) => ({
         questionId,
@@ -11734,7 +11783,7 @@ function App() {
             auditName: activeAudit.name,
             completedBy: currentUser.name,
             status: "completed",
-            answers: syncedResponses,
+            answers: answersPayload,
             findings,
             evidenceRefs,
             evidenceFiles,
@@ -11952,6 +12001,7 @@ function App() {
     textResponses,
     notes,
     evidence,
+    promptFollowUps,
     auditModeQuestionIndex,
   ]);
 
@@ -17124,6 +17174,7 @@ function App() {
                 textResponses={textResponses}
                 notes={notes}
                 evidence={evidence}
+                promptFollowUps={promptFollowUps}
                 questionIndex={auditModeQuestionIndex}
                 offlineMode={offlineMode}
                 pendingSyncCount={pendingSyncCount}
@@ -17147,6 +17198,15 @@ function App() {
                   setNotes((current) => ({
                     ...current,
                     [questionId]: value,
+                  }))
+                }
+                onPromptFollowUpChange={(questionId, followUpId, value) =>
+                  setPromptFollowUps((current) => ({
+                    ...current,
+                    [questionId]: {
+                      ...(current[questionId] ?? {}),
+                      [followUpId]: value,
+                    },
                   }))
                 }
                 onAddEvidence={(questionId, files) => {

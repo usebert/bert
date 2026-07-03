@@ -30,6 +30,7 @@ export type TabletOfflineSubmission = {
   answers: Record<string, string>;
   failedAnswers: Record<string, string>;
   notes: Record<string, string>;
+  promptFollowUps?: Record<string, Record<string, string>>;
   evidenceRefs: TabletEvidenceRef[];
   signatureDataUrl: string;
   createdAt: string;

@@ -44,6 +44,7 @@
     "verify:offline-shell": "node scripts/verify-offline-shell.mjs",
     "verify:offline-tablet": "node scripts/verify-offline-tablet.mjs",
     "verify:check-completion": "node scripts/verify-check-completion.mjs",
+    "verify:form-prompts-escalation": "node scripts/verify-form-prompts-escalation.mjs",
     "verify:pilot-readiness": "node scripts/verify-pilot-readiness.mjs",
     "verify:godmode-company-context": "node scripts/verify-godmode-company-context.mjs",
     "verify:google-form-templates": "node scripts/verify-google-form-templates.mjs",

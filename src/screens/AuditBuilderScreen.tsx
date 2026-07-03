@@ -11,6 +11,12 @@ import {
 } from "../services/auditBuilderService";
 import type { AuditBuilderSection, AuditBuilderTemplateDraft, AuditBuilderTemplateRecord } from "../types/auditBuilder";
 import type { Role } from "../permissions";
+import { QuestionPromptRulesEditor } from "../components/auditBuilder/QuestionPromptRulesEditor";
+import { FRIDGE_PROMPT_EXAMPLE } from "../utils/promptRules";
+import {
+  updateQuestionAnswerType,
+  updateQuestionPromptRules,
+} from "../utils/auditBuilderPromptRules";
 
 const FIRE_SAFETY_SEED = `Fire Safety Check Audit
 
@@ -209,6 +215,20 @@ export function AuditBuilderScreen({
           >
             Paste checklist
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDraft(FRIDGE_PROMPT_EXAMPLE);
+              setSavedTemplate(null);
+              setStep("review");
+            }}
+            className={[
+              "mb-4 ml-3 inline-flex h-11 items-center rounded-xl border px-4 text-sm font-semibold",
+              theme.outlineButton,
+            ].join(" ")}
+          >
+            Paste fridge example
+          </button>
           <form onSubmit={handleGenerate} className="space-y-4">
             <label className="block text-sm font-semibold text-slate-900" htmlFor="audit-builder-text">
               Paste checklist or audit questions
@@ -300,7 +320,7 @@ export function AuditBuilderScreen({
                 />
                 <ul className="mt-3 space-y-2">
                   {section.questions.map((question, questionIndex) => (
-                    <li key={`question-${sectionIndex}-${questionIndex}`}>
+                    <li key={`question-${sectionIndex}-${questionIndex}`} className="space-y-2">
                       <input
                         value={question.question_text}
                         onChange={(event) =>
@@ -315,6 +335,43 @@ export function AuditBuilderScreen({
                           })
                         }
                         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
+                      />
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <label className="block text-xs font-semibold text-slate-600">
+                          Answer type
+                          <select
+                            value={question.answer_type}
+                            onChange={(event) =>
+                              setDraft({
+                                ...draft,
+                                sections: updateQuestionAnswerType(
+                                  draft.sections,
+                                  sectionIndex,
+                                  questionIndex,
+                                  event.target.value,
+                                ),
+                              })
+                            }
+                            className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900"
+                          >
+                            <option value="compliance">Compliant / Non-compliant</option>
+                            <option value="yes_no">Yes / No</option>
+                          </select>
+                        </label>
+                      </div>
+                      <QuestionPromptRulesEditor
+                        question={question}
+                        onChange={(promptRules) =>
+                          setDraft({
+                            ...draft,
+                            sections: updateQuestionPromptRules(
+                              draft.sections,
+                              sectionIndex,
+                              questionIndex,
+                              promptRules,
+                            ),
+                          })
+                        }
                       />
                     </li>
                   ))}

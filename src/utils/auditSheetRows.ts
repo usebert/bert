@@ -2,6 +2,8 @@ import type { Answer, Audit, AuditQuestion, AuditStatus, RiskLevel } from "../ty
 import type { EvidenceItem } from "../types/dashboardScreenProps";
 import type { AuditFindingRecord, AuditSubmissionSyncPayload } from "../types/complianceLoop";
 import type { User } from "../types/dashboardScreenProps";
+import type { PromptFollowUpAnswers } from "../types/promptRules";
+import { buildPromptRuleFindings } from "./promptRules";
 
 const CURRENT_SCHEMA_VERSION = "3.0.0";
 
@@ -39,6 +41,8 @@ export function buildAuditSubmissionBundle(input: {
   submittedByUser: User;
   completedAt: string;
   signatureDataUrl?: string;
+  promptFollowUps?: PromptFollowUpAnswers;
+  textResponses?: Record<string, string>;
 }): {
   outcomeStatus: AuditStatus;
   payload: AuditSubmissionSyncPayload;
@@ -47,7 +51,7 @@ export function buildAuditSubmissionBundle(input: {
   sheetEvidence: Record<string, string>[];
   sheetSyncLog: Record<string, string>;
 } {
-  const { audit, areaId, companyFolderId, responseMap, noteMap, evidenceMap, submittedByUser, completedAt, signatureDataUrl } =
+  const { audit, areaId, companyFolderId, responseMap, noteMap, evidenceMap, submittedByUser, completedAt, signatureDataUrl, promptFollowUps = {}, textResponses = {} } =
     input;
   const answers = Object.values(responseMap);
   const outcomeStatus: AuditStatus = answers.includes("fail")
@@ -91,6 +95,29 @@ export function buildAuditSubmissionBundle(input: {
     };
   });
 
+  const promptFindings = buildPromptRuleFindings(audit, responseMap, textResponses, promptFollowUps, noteMap);
+  const promptFindingRecords: AuditFindingRecord[] = promptFindings.map((finding, index) => ({
+    id: `finding-${resultId}-prompt-${index + 1}`,
+    resultId,
+    auditId: audit.id,
+    companyId: companyFolderId,
+    areaId,
+    questionId: finding.questionId,
+    questionText: finding.questionText,
+    answer: finding.answer,
+    riskLevel: "Medium",
+    riskCategory: "Health & Safety",
+    autoActionRequired: false,
+    requiresPhotoEvidence: false,
+    requiresManagerReview: true,
+    note: finding.escalationMessage ? `${finding.note}\n${finding.escalationMessage}`.trim() : finding.note,
+    localEvidenceRefs: (evidenceMap[finding.questionId] || []).map((item) => item.id),
+    createdAt: completedAt,
+    createdBy: submittedByUser.name,
+  }));
+
+  const allFindings = [...findings, ...promptFindingRecords];
+
   const evidenceRecords: Record<string, unknown>[] = [];
   audit.questions.forEach((question) => {
     (evidenceMap[question.id] || []).forEach((item, index) => {
@@ -99,7 +126,7 @@ export function buildAuditSubmissionBundle(input: {
         "Company ID": companyFolderId,
         "Audit ID": audit.id,
         "Action ID": "",
-        "Finding ID": findings.find((finding) => finding.questionId === question.id)?.id || "",
+        "Finding ID": allFindings.find((finding) => finding.questionId === question.id)?.id || "",
         "File Name": item.name || `audit-${audit.id}-${question.id}-${index + 1}`,
         "Mime Type": "image/jpeg",
         "Drive File ID": "",
@@ -123,6 +150,7 @@ export function buildAuditSubmissionBundle(input: {
     areaId,
     responses: responseMap,
     notes: noteMap,
+    promptFollowUps,
     evidenceIds: Object.fromEntries(
       Object.entries(evidenceMap).map(([questionId, items]) => [questionId, items.map((item) => item.id)]),
     ),
@@ -144,7 +172,7 @@ export function buildAuditSubmissionBundle(input: {
     highestRiskLevel,
     criticalFindingsCount: numberOfCriticalFindings,
     highFindingsCount: numberOfHighFindings,
-    findings,
+    findings: allFindings,
     evidenceRecords,
   };
 
@@ -174,7 +202,7 @@ export function buildAuditSubmissionBundle(input: {
     "Schema Version": CURRENT_SCHEMA_VERSION,
   };
 
-  const sheetFindings = findings.map((finding) => ({
+  const sheetFindings = allFindings.map((finding) => ({
     "Finding ID": finding.id,
     "Result ID": finding.resultId,
     "Audit ID": finding.auditId,

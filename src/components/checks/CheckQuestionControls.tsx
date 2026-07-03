@@ -8,6 +8,13 @@ import {
   mapChoiceToAnswer,
   resolveCheckFieldType,
 } from "../../utils/checkCompletionHelpers";
+import {
+  getActivePromptRules,
+  getPromptEscalateActions,
+  getPromptFollowUpActions,
+  getPromptInstructionTexts,
+  promptRuleEvidenceRequired,
+} from "../../utils/promptRules";
 
 export function CheckQuestionControls({
   question,
@@ -16,17 +23,25 @@ export function CheckQuestionControls({
   textResponses,
   notes,
   evidence,
+  promptFollowUps,
   slatePrimaryCtaInteract,
   onAnswerChange,
   onTextResponseChange,
   onNoteChange,
+  onPromptFollowUpChange,
   onAddEvidence,
   onRemoveEvidence,
 }: CheckQuestionControlsProps) {
   const fieldType = resolveCheckFieldType(question);
   const answer = responses[question.id];
   const questionEvidence = evidence[question.id] ?? [];
-  const showFailedFollowUp = isNegativeAnswer(answer);
+  const showFailedFollowUp = isNegativeAnswer(answer) && (question.promptRules?.length ?? 0) === 0;
+  const activePromptRules = getActivePromptRules(question, answer, textResponses[question.id]);
+  const promptInstructions = getPromptInstructionTexts(activePromptRules);
+  const promptFollowUpActions = getPromptFollowUpActions(activePromptRules);
+  const promptEscalations = getPromptEscalateActions(activePromptRules);
+  const promptEvidenceRequired = promptRuleEvidenceRequired(activePromptRules);
+  const questionPromptAnswers = promptFollowUps[question.id] ?? {};
 
   return (
     <div className="space-y-4">
@@ -49,6 +64,67 @@ export function CheckQuestionControls({
         onTextResponseChange={onTextResponseChange}
         onAddEvidence={onAddEvidence}
       />
+
+      {activePromptRules.length > 0 ? (
+        <div className="space-y-3 rounded-2xl border border-sky-200 bg-sky-50/80 p-4">
+          <p className="text-sm font-semibold text-sky-950">Follow-up prompts</p>
+          {promptInstructions.map((instruction, index) => (
+            <p key={`instruction-${index}`} className="text-sm text-sky-900">
+              {instruction}
+            </p>
+          ))}
+          {promptFollowUpActions.map((followUp) => (
+            <label key={followUp.id} className="block text-sm font-semibold text-sky-950">
+              {followUp.label}
+              {followUp.inputType === "number" ? (
+                <div className="mt-2 flex items-center gap-2">
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    value={questionPromptAnswers[followUp.id] ?? ""}
+                    onChange={(event) => onPromptFollowUpChange(question.id, followUp.id, event.target.value)}
+                    className="min-h-[48px] w-full rounded-xl border border-sky-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-sky-400"
+                  />
+                  {followUp.unit ? <span className="text-sm text-sky-800">{followUp.unit}</span> : null}
+                </div>
+              ) : followUp.inputType === "paragraph" ? (
+                <textarea
+                  value={questionPromptAnswers[followUp.id] ?? ""}
+                  onChange={(event) => onPromptFollowUpChange(question.id, followUp.id, event.target.value)}
+                  className="mt-2 min-h-[5rem] w-full rounded-xl border border-sky-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-sky-400"
+                />
+              ) : (
+                <input
+                  type="text"
+                  value={questionPromptAnswers[followUp.id] ?? ""}
+                  onChange={(event) => onPromptFollowUpChange(question.id, followUp.id, event.target.value)}
+                  className="mt-2 min-h-[48px] w-full rounded-xl border border-sky-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-sky-400"
+                />
+              )}
+            </label>
+          ))}
+          {promptEscalations.map((escalate, index) =>
+            escalate.message ? (
+              <p key={`escalate-${index}`} className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-950">
+                {escalate.message}
+              </p>
+            ) : null,
+          )}
+          {promptEvidenceRequired ? (
+            <div className="rounded-xl border border-sky-200 bg-white p-3">
+              <p className="text-xs font-semibold text-sky-900">Evidence required for this prompt</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <EvidenceUploadChoice
+                  triggerLabel="Add photo"
+                  triggerClassName={`min-h-[48px] rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}
+                  onFiles={(files) => onAddEvidence(question.id, files)}
+                />
+                <span className="text-xs text-sky-800">{questionEvidence.length} photo(s)</span>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {showFailedFollowUp ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50/80 p-4">

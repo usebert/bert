@@ -28,6 +28,8 @@ export type AuditQuestionFieldType =
   | "Number"
   | "Date";
 
+import type { PromptRule } from "./promptRules";
+
 export type AuditQuestion = {
   id: string;
   text: string;
@@ -39,6 +41,7 @@ export type AuditQuestion = {
   requiresPhotoEvidence?: boolean;
   requiresManagerReview?: boolean;
   answerPrompts?: Partial<Record<Answer, string[]>>;
+  promptRules?: PromptRule[];
 };
 
 export type Audit = {

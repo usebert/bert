@@ -15,6 +15,7 @@ export function CheckCompletionReview({
   textResponses,
   notes,
   evidence,
+  promptFollowUps,
   canSubmit,
   offlineMode,
   submitting = false,
@@ -23,7 +24,7 @@ export function CheckCompletionReview({
   onBack,
   onSubmit,
 }: CheckCompletionReviewProps) {
-  const stats = getCompletionStats(audit, { responses, textResponses, notes, evidence });
+  const stats = getCompletionStats(audit, { responses, textResponses, notes, evidence, promptFollowUps });
 
   return (
     <div className="space-y-4 pb-28">
@@ -76,12 +77,16 @@ export function CheckCompletionReview({
 
       <section className="space-y-2">
         {audit.questions.map((question, index) => {
-          const answered = isQuestionAnswered(question, { responses, textResponses, notes, evidence });
+          const answered = isQuestionAnswered(question, { responses, textResponses, notes, evidence, promptFollowUps });
           const answer = responses[question.id];
           const failed = isNegativeAnswer(answer);
           const fieldType = resolveCheckFieldType(question);
           const text = textResponses[question.id];
           const photoCount = evidence[question.id]?.length ?? 0;
+          const followUpSummary = Object.entries(promptFollowUps[question.id] ?? {})
+            .map(([, value]) => value)
+            .filter(Boolean)
+            .join(", ");
           return (
             <div
               key={question.id}
@@ -100,6 +105,7 @@ export function CheckCompletionReview({
                       ? ` • ${text.replace(/\|\|/g, ", ")}`
                       : ""}
                     {photoCount ? ` • ${photoCount} photo(s)` : ""}
+                    {followUpSummary ? ` • Follow-up: ${followUpSummary}` : ""}
                     {notes[question.id]?.trim() ? " • Note added" : ""}
                   </p>
                 </div>

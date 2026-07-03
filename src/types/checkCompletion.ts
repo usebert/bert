@@ -1,5 +1,6 @@
 import type { EvidenceItem } from "./dashboardScreenProps";
 import type { Answer, Audit, AuditQuestion } from "./reportsScreenProps";
+import type { PromptFollowUpAnswers } from "./promptRules";
 
 export type CheckCompletionPhase = "questions" | "review";
 
@@ -9,6 +10,7 @@ export type CheckCompletionWizardProps = {
   textResponses: Record<string, string>;
   notes: Record<string, string>;
   evidence: Record<string, EvidenceItem[]>;
+  promptFollowUps: PromptFollowUpAnswers;
   questionIndex: number;
   offlineMode: boolean;
   pendingSyncCount: number;
@@ -19,6 +21,7 @@ export type CheckCompletionWizardProps = {
   onAnswerChange: (questionId: string, answer: Answer) => void;
   onTextResponseChange: (questionId: string, value: string) => void;
   onNoteChange: (questionId: string, value: string) => void;
+  onPromptFollowUpChange: (questionId: string, followUpId: string, value: string) => void;
   onAddEvidence: (questionId: string, files: FileList) => void;
   onRemoveEvidence: (questionId: string, evidenceId: string) => void;
   onSaveAndExit: () => void;
@@ -34,10 +37,12 @@ export type CheckQuestionControlsProps = {
   textResponses: Record<string, string>;
   notes: Record<string, string>;
   evidence: Record<string, EvidenceItem[]>;
+  promptFollowUps: PromptFollowUpAnswers;
   slatePrimaryCtaInteract: string;
   onAnswerChange: (questionId: string, answer: Answer) => void;
   onTextResponseChange: (questionId: string, value: string) => void;
   onNoteChange: (questionId: string, value: string) => void;
+  onPromptFollowUpChange: (questionId: string, followUpId: string, value: string) => void;
   onAddEvidence: (questionId: string, files: FileList) => void;
   onRemoveEvidence: (questionId: string, evidenceId: string) => void;
 };
@@ -48,6 +53,7 @@ export type CheckCompletionReviewProps = {
   textResponses: Record<string, string>;
   notes: Record<string, string>;
   evidence: Record<string, EvidenceItem[]>;
+  promptFollowUps: PromptFollowUpAnswers;
   canSubmit: boolean;
   offlineMode: boolean;
   onJumpToQuestion: (index: number) => void;

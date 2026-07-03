@@ -1,10 +1,13 @@
+import type { PromptRule } from "./promptRules";
+
 export type AuditBuilderQuestion = {
   question_text: string;
-  answer_type: "compliance" | string;
+  answer_type: "compliance" | "yes_no" | string;
   options: string[];
   requires_comment_on_failure: boolean;
   requires_action_on_failure: boolean;
   allows_photo_evidence: boolean;
+  prompt_rules?: PromptRule[];
 };
 
 export type AuditBuilderSection = {

@@ -19,6 +19,7 @@ export function CheckCompletionWizard({
   textResponses,
   notes,
   evidence,
+  promptFollowUps,
   questionIndex,
   offlineMode,
   pendingSyncCount,
@@ -29,6 +30,7 @@ export function CheckCompletionWizard({
   onAnswerChange,
   onTextResponseChange,
   onNoteChange,
+  onPromptFollowUpChange,
   onAddEvidence,
   onRemoveEvidence,
   onSaveAndExit,
@@ -41,8 +43,8 @@ export function CheckCompletionWizard({
   const safeIndex = Math.max(0, Math.min(questionIndex, Math.max(audit.questions.length - 1, 0)));
   const currentQuestion = audit.questions[safeIndex];
   const draftSlice = useMemo(
-    () => ({ responses, textResponses, notes, evidence }),
-    [responses, textResponses, notes, evidence],
+    () => ({ responses, textResponses, notes, evidence, promptFollowUps }),
+    [responses, textResponses, notes, evidence, promptFollowUps],
   );
   const stats = getCompletionStats(audit, draftSlice);
   const syncPlain = getPlainEnglishSyncStatus({ offlineQueueCount: 0, pendingSyncCount, failedSyncCount });
@@ -77,6 +79,7 @@ export function CheckCompletionWizard({
           textResponses={textResponses}
           notes={notes}
           evidence={evidence}
+          promptFollowUps={promptFollowUps}
           canSubmit={canSubmitCheck(audit, draftSlice)}
           offlineMode={offlineMode}
           submitting={submitting}
@@ -138,10 +141,12 @@ export function CheckCompletionWizard({
             textResponses={textResponses}
             notes={notes}
             evidence={evidence}
+            promptFollowUps={promptFollowUps}
             slatePrimaryCtaInteract={slatePrimaryCtaInteract}
             onAnswerChange={onAnswerChange}
             onTextResponseChange={onTextResponseChange}
             onNoteChange={onNoteChange}
+            onPromptFollowUpChange={onPromptFollowUpChange}
             onAddEvidence={onAddEvidence}
             onRemoveEvidence={onRemoveEvidence}
           />

@@ -1,10 +1,6 @@
-import type {
-  AuditBuilderSection,
-  AuditBuilderTemplateDraft,
-  AuditBuilderTemplateRecord,
-  AuditBuilderTemplateStatus,
-} from "../types/auditBuilder";
+import type { AuditBuilderSection, AuditBuilderTemplateDraft, AuditBuilderTemplateRecord, AuditBuilderTemplateStatus } from "../types/auditBuilder";
 import type { AuditQuestion, AuditTemplate } from "../types/reportsScreenProps";
+import { normalizePromptRules } from "./promptRules";
 
 export function auditBuilderTemplateToBertQuestions(
   template: AuditBuilderTemplateDraft | AuditBuilderTemplateRecord,
@@ -14,20 +10,29 @@ export function auditBuilderTemplateToBertQuestions(
   for (const section of template.sections) {
     for (const question of section.questions) {
       index += 1;
+      const answerType = String(question.answer_type || "compliance");
+      const isYesNo = answerType === "yes_no";
+      const passLabel = question.options[0] || (isYesNo ? "Yes" : "Compliant");
+      const failLabel = question.options[1] || (isYesNo ? "No" : "Non-compliant");
+      const ncLabel = question.options[2] || "Not applicable";
+      const promptRules = normalizePromptRules(question.prompt_rules);
       questions.push({
         id: `ab-q-${index}`,
         text: question.question_text,
-        fieldType: "Pass / Fail",
+        fieldType: isYesNo ? "Yes / No" : "Pass / Fail",
         riskLevel: "Medium",
         riskCategory: "Health & Safety",
         autoActionRequired: question.requires_action_on_failure,
         requiresPhotoEvidence: question.allows_photo_evidence,
         requiresManagerReview: question.requires_comment_on_failure,
-        answerPrompts: {
-          pass: [question.options[0] || "Compliant"],
-          fail: [question.options[1] || "Non-compliant"],
-          nc: [question.options[2] || "Not applicable"],
-        },
+        answerPrompts: isYesNo
+          ? { pass: [passLabel], fail: [failLabel] }
+          : {
+              pass: [passLabel],
+              fail: [failLabel],
+              nc: [ncLabel],
+            },
+        ...(promptRules.length > 0 ? { promptRules } : {}),
       });
     }
     void section.name;
@@ -58,15 +63,18 @@ export function bertTemplateToEditorDraft(template: AuditTemplate): AuditBuilder
       name: "General",
       questions: template.questions.map((question) => ({
         question_text: question.text,
-        answer_type: "compliance",
+        answer_type: question.fieldType === "Yes / No" ? "yes_no" : "compliance",
         options: [
-          question.answerPrompts?.pass?.[0] || "Compliant",
-          question.answerPrompts?.fail?.[0] || "Non-compliant",
+          question.answerPrompts?.pass?.[0] || (question.fieldType === "Yes / No" ? "Yes" : "Compliant"),
+          question.answerPrompts?.fail?.[0] || (question.fieldType === "Yes / No" ? "No" : "Non-compliant"),
           question.answerPrompts?.nc?.[0] || "Not applicable",
         ],
         requires_comment_on_failure: question.requiresManagerReview !== false,
         requires_action_on_failure: question.autoActionRequired !== false,
         allows_photo_evidence: question.requiresPhotoEvidence !== false,
+        ...(question.promptRules && question.promptRules.length > 0
+          ? { prompt_rules: question.promptRules }
+          : {}),
       })),
     },
   ];

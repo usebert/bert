@@ -1,5 +1,12 @@
 import type { Answer, Audit, AuditQuestion } from "../types/reportsScreenProps";
 import type { EvidenceItem } from "../types/dashboardScreenProps";
+import type { PromptFollowUpAnswers } from "../types/promptRules";
+import {
+  getActivePromptRules,
+  getPromptFollowUpActions,
+  getPromptInstructionTexts,
+  promptRuleEvidenceRequired,
+} from "./promptRules";
 
 export type CheckFieldType =
   | "Traffic light"
@@ -19,6 +26,7 @@ export type CheckCompletionDraftSlice = {
   textResponses: Record<string, string>;
   notes: Record<string, string>;
   evidence: Record<string, EvidenceItem[]>;
+  promptFollowUps?: PromptFollowUpAnswers;
   questionIndex?: number;
 };
 
@@ -69,27 +77,50 @@ export function isQuestionAnswered(
   const answer = draft.responses[question.id];
   const text = (draft.textResponses[question.id] ?? "").trim();
   const photos = draft.evidence[question.id]?.length ?? 0;
+  const promptFollowUps = draft.promptFollowUps ?? {};
 
   if (answer === "nc") return true;
 
+  let baseAnswered = false;
   switch (fieldType) {
     case "Photo evidence":
-      return photos > 0;
+      baseAnswered = photos > 0;
+      break;
     case "Short text":
     case "Paragraph":
     case "Number":
     case "Date":
     case "Text note":
-      return text.length > 0;
+      baseAnswered = text.length > 0;
+      break;
     case "Single choice":
-      return text.length > 0;
+      baseAnswered = text.length > 0;
+      break;
     case "Multiple choice": {
       const selected = text.split("||").filter(Boolean);
-      return selected.length > 0;
+      baseAnswered = selected.length > 0;
+      break;
     }
     default:
-      return Boolean(answer);
+      baseAnswered = Boolean(answer);
   }
+
+  if (!baseAnswered) return false;
+
+  const activeRules = getActivePromptRules(question, answer, draft.textResponses[question.id]);
+  if (activeRules.length === 0) return true;
+
+  for (const followUp of getPromptFollowUpActions(activeRules)) {
+    if (followUp.required === false) continue;
+    const value = String(promptFollowUps[question.id]?.[followUp.id] ?? "").trim();
+    if (!value) return false;
+  }
+
+  if (promptRuleEvidenceRequired(activeRules)) {
+    return photos > 0;
+  }
+
+  return true;
 }
 
 export function getUnansweredRequiredQuestions(

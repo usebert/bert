@@ -81,15 +81,73 @@ function normalizeTemplatePayload(body = {}) {
             .map((question) => {
               const questionText = String(question?.question_text || question?.text || "").trim();
               if (!questionText) return null;
+              const answerType = String(question?.answer_type || "compliance").trim() || "compliance";
+              const defaultOptions =
+                answerType === "yes_no"
+                  ? ["Yes", "No"]
+                  : ["Compliant", "Non-compliant", "Not applicable"];
+              const promptRules = Array.isArray(question?.prompt_rules)
+                ? question.prompt_rules
+                    .map((rule) => {
+                      const triggerValue = String(rule?.when?.value || "").trim();
+                      if (!triggerValue) return null;
+                      const actions = Array.isArray(rule?.actions)
+                        ? rule.actions
+                            .map((action) => {
+                              const type = String(action?.type || "").trim();
+                              if (type === "instruction") {
+                                const text = String(action?.text || "").trim();
+                                return text ? { type, text } : null;
+                              }
+                              if (type === "followUpQuestion") {
+                                const label = String(action?.label || "").trim();
+                                if (!label) return null;
+                                return {
+                                  type,
+                                  id: String(action?.id || "").trim() || `follow-up-${Date.now()}`,
+                                  label,
+                                  inputType: String(action?.inputType || "text").trim() || "text",
+                                  unit: String(action?.unit || "").trim() || undefined,
+                                  required: action?.required !== false,
+                                };
+                              }
+                              if (type === "escalate") {
+                                const message = String(action?.message || "").trim();
+                                if (!message) return null;
+                                const safeMin = Number(action?.safeMin);
+                                const safeMax = Number(action?.safeMax);
+                                return {
+                                  type,
+                                  message,
+                                  managerReview: Boolean(action?.managerReview),
+                                  evidenceRequired: Boolean(action?.evidenceRequired),
+                                  followUpId: String(action?.followUpId || "").trim() || undefined,
+                                  safeMin: Number.isFinite(safeMin) ? safeMin : undefined,
+                                  safeMax: Number.isFinite(safeMax) ? safeMax : undefined,
+                                };
+                              }
+                              return null;
+                            })
+                            .filter(Boolean)
+                        : [];
+                      if (actions.length === 0) return null;
+                      return {
+                        when: { operator: "equals", value: triggerValue },
+                        actions,
+                      };
+                    })
+                    .filter(Boolean)
+                : undefined;
               return {
                 question_text: questionText,
-                answer_type: String(question?.answer_type || "compliance").trim() || "compliance",
+                answer_type: answerType,
                 options: Array.isArray(question?.options) && question.options.length > 0
                   ? question.options.map((option) => String(option).trim()).filter(Boolean)
-                  : ["Compliant", "Non-compliant", "Not applicable"],
+                  : defaultOptions,
                 requires_comment_on_failure: question?.requires_comment_on_failure !== false,
                 requires_action_on_failure: question?.requires_action_on_failure !== false,
                 allows_photo_evidence: question?.allows_photo_evidence !== false,
+                ...(promptRules && promptRules.length > 0 ? { prompt_rules: promptRules } : {}),
               };
             })
             .filter(Boolean)
