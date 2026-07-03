@@ -290,6 +290,22 @@ export function formatIncidentAssignee(incident: IncidentRecord): string {
   return trim(incident.assignedToName || incident.assignedTo) || "Unassigned";
 }
 
+export function incidentAssigneeSelectValue(
+  incident: IncidentRecord,
+  targets: IncidentReassignTarget[] = [],
+): string {
+  const email = incidentAssignedToEmail(incident);
+  if (email) {
+    return email;
+  }
+  const assigneeName = trim(incident.assignedToName || incident.assignedTo);
+  if (!assigneeName) {
+    return "";
+  }
+  const match = targets.find((target) => target.name.toLowerCase() === assigneeName.toLowerCase());
+  return match?.email || "";
+}
+
 export function recentAssignmentHistory(history: IncidentAssignmentHistoryEntry[] = [], limit = 5): IncidentAssignmentHistoryEntry[] {
   return [...history].sort((left, right) => Date.parse(right.at) - Date.parse(left.at)).slice(0, limit);
 }

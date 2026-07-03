@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AnimatedButton } from "../animation/AnimatedButton";
 import { bertSecondaryButtonInteract } from "../../styles/interactions";
 import type { IncidentReassignTarget } from "../../types/incidentsScreenProps";
@@ -9,6 +9,7 @@ type IncidentReassignModalProps = {
   currentAssignee: string;
   targets: IncidentReassignTarget[];
   targetsLoading?: boolean;
+  initialSelectedEmail?: string;
   submitting?: boolean;
   error?: string;
   onClose: () => void;
@@ -21,6 +22,7 @@ export function IncidentReassignModal({
   currentAssignee,
   targets,
   targetsLoading = false,
+  initialSelectedEmail = "",
   submitting = false,
   error,
   onClose,
@@ -28,6 +30,13 @@ export function IncidentReassignModal({
 }: IncidentReassignModalProps) {
   const [selectedEmail, setSelectedEmail] = useState("");
   const [reason, setReason] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setSelectedEmail(initialSelectedEmail || "");
+      setReason("");
+    }
+  }, [open, initialSelectedEmail]);
 
   const selectedTarget = useMemo(
     () => targets.find((target) => target.email.toLowerCase() === selectedEmail.toLowerCase()) || null,

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { MiniMetric } from "../components/dashboard/DashboardPrimitives";
 import { IncidentReassignModal } from "../components/incidents/IncidentReassignModal";
+import { IncidentAssigneeSelect } from "../components/incidents/IncidentAssigneeSelect";
 import { canCompleteAuditAsAuditor, canInvestigateIncidents, canReassignIncident } from "../permissions";
 import { getRoleTheme } from "../config/roleTheme";
 import { SECTION_INTROS } from "../config/sectionIntros";
@@ -57,6 +58,9 @@ export function IncidentReportingScreen({
   const [actionOwner, setActionOwner] = useState("");
   const [actionDueDate, setActionDueDate] = useState("");
   const [reassignOpen, setReassignOpen] = useState(false);
+  const [reassignModalIncidentId, setReassignModalIncidentId] = useState("");
+  const [prefilledReassignEmail, setPrefilledReassignEmail] = useState("");
+  const [assigneePendingEmails, setAssigneePendingEmails] = useState<Record<string, string>>({});
   const [reassignSubmitting, setReassignSubmitting] = useState(false);
   const [reassignError, setReassignError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
@@ -113,12 +117,46 @@ export function IncidentReportingScreen({
   const canReassignSelectedIncident = selectedIncident
     ? canReassignIncident(currentUser, selectedIncident)
     : false;
+  const reassignModalIncident =
+    incidents.find((item) => item.id === reassignModalIncidentId) || selectedIncident;
   const assignmentHistory = selectedIncident ? recentAssignmentHistory(selectedIncident.assignmentHistory) : [];
   const openActionsCount = incidentActions.filter((item) => item.status !== "Complete").length;
   const underInvestigation = incidents.filter((item) => item.status === "Under Investigation").length;
   const highSeverityIncidents = incidents.filter((item) => item.priority === "High").length;
   const nearMisses = incidents.filter((item) => item.incidentType === "Near Miss").length;
   const overdueActions = incidentActions.filter((item) => item.status !== "Complete" && item.dueDate && item.dueDate < new Date().toISOString().slice(0, 10)).length;
+
+  const clearAssigneePending = (incidentId: string) => {
+    setAssigneePendingEmails((current) => {
+      if (!current[incidentId]) {
+        return current;
+      }
+      const next = { ...current };
+      delete next[incidentId];
+      return next;
+    });
+  };
+
+  const closeReassignModal = () => {
+    if (reassignSubmitting) {
+      return;
+    }
+    if (reassignModalIncidentId) {
+      clearAssigneePending(reassignModalIncidentId);
+    }
+    setReassignOpen(false);
+    setReassignModalIncidentId("");
+    setPrefilledReassignEmail("");
+    setReassignError("");
+  };
+
+  const openReassignForIncident = (incidentId: string, toEmail: string) => {
+    setReassignModalIncidentId(incidentId);
+    setPrefilledReassignEmail(toEmail);
+    setAssigneePendingEmails((current) => ({ ...current, [incidentId]: toEmail }));
+    setReassignError("");
+    setReassignOpen(true);
+  };
 
   const monthlyTrend = useMemo(() => {
     const map = new Map<string, number>();
@@ -383,7 +421,7 @@ export function IncidentReportingScreen({
                 ) : (
                   filteredIncidents.map((item) => (
                     <tr key={item.id} onClick={() => setSelectedIncidentId(item.id)} className="cursor-pointer border-t border-slate-200 hover:bg-slate-50">
-                      <td className="px-2 py-2 font-semibold">{item.incidentId}</td><td className="px-2 py-2">{item.incidentDate} {item.incidentTime}</td><td className="px-2 py-2">{item.incidentType}</td><td className="px-2 py-2">{item.severity}</td><td className="px-2 py-2">{item.reporterName}</td><td className="px-2 py-2">{item.department}</td><td className="px-2 py-2">{item.location}</td><td className="px-2 py-2">{item.status}</td><td className="px-2 py-2">{formatIncidentAssignee(item)}</td><td className="px-2 py-2">{item.dueDate || "-"}</td>
+                      <td className="px-2 py-2 font-semibold">{item.incidentId}</td><td className="px-2 py-2">{item.incidentDate} {item.incidentTime}</td><td className="px-2 py-2">{item.incidentType}</td><td className="px-2 py-2">{item.severity}</td><td className="px-2 py-2">{item.reporterName}</td><td className="px-2 py-2">{item.department}</td><td className="px-2 py-2">{item.location}</td><td className="px-2 py-2">{item.status}</td><td className="px-2 py-2" onClick={(event) => event.stopPropagation()}><IncidentAssigneeSelect incident={item} targets={eligibleReassignTargets} targetsLoading={reassignTargetsLoading} canEdit={canReassignIncident(currentUser, item)} pendingEmail={assigneePendingEmails[item.id]} onSelectPerson={(email) => openReassignForIncident(item.id, email)} /></td><td className="px-2 py-2">{item.dueDate || "-"}</td>
                       <td className="px-2 py-2">
                         {(() => {
                           const links = item.evidenceUrls
@@ -461,25 +499,23 @@ export function IncidentReportingScreen({
           <div className="mt-3 grid gap-2 md:grid-cols-2">
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 md:col-span-2">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
+                <div className="min-w-0 flex-1">
                   <p className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">Current handler</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{formatIncidentAssignee(selectedIncident)}</p>
+                  <div className="mt-1">
+                    <IncidentAssigneeSelect
+                      incident={selectedIncident}
+                      targets={eligibleReassignTargets}
+                      targetsLoading={reassignTargetsLoading}
+                      canEdit={canReassignSelectedIncident}
+                      pendingEmail={assigneePendingEmails[selectedIncident.id]}
+                      onSelectPerson={(email) => openReassignForIncident(selectedIncident.id, email)}
+                      className="max-w-full text-sm"
+                    />
+                  </div>
                   {selectedIncident.assignedAt ? (
                     <p className="mt-1 text-xs text-slate-500">Assigned {selectedIncident.assignedAt}</p>
                   ) : null}
                 </div>
-                {canReassignSelectedIncident ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setReassignError("");
-                      setReassignOpen(true);
-                    }}
-                    className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
-                  >
-                    Reassign
-                  </button>
-                ) : null}
               </div>
               {assignmentHistory.length > 0 ? (
                 <div className="mt-3 space-y-2 border-t border-slate-200 pt-3">
@@ -544,29 +580,30 @@ export function IncidentReportingScreen({
       )}
 
       <IncidentReassignModal
-        open={reassignOpen && Boolean(selectedIncident)}
-        incidentLabel={selectedIncident?.incidentId || "Incident"}
-        currentAssignee={selectedIncident ? formatIncidentAssignee(selectedIncident) : ""}
+        open={reassignOpen && Boolean(reassignModalIncident)}
+        incidentLabel={reassignModalIncident?.incidentId || "Incident"}
+        currentAssignee={reassignModalIncident ? formatIncidentAssignee(reassignModalIncident) : ""}
         targets={eligibleReassignTargets}
         targetsLoading={reassignTargetsLoading}
+        initialSelectedEmail={prefilledReassignEmail}
         submitting={reassignSubmitting}
         error={reassignError}
-        onClose={() => {
-          if (!reassignSubmitting) {
-            setReassignOpen(false);
-            setReassignError("");
-          }
-        }}
+        onClose={closeReassignModal}
         onConfirm={async (input) => {
-          if (!selectedIncident) {
+          if (!reassignModalIncident) {
             return;
           }
+          const incidentId = reassignModalIncident.id;
           setReassignSubmitting(true);
           setReassignError("");
           try {
-            await onReassignIncident(selectedIncident.id, input);
+            await onReassignIncident(incidentId, input);
+            clearAssigneePending(incidentId);
             setReassignOpen(false);
+            setReassignModalIncidentId("");
+            setPrefilledReassignEmail("");
           } catch (error) {
+            clearAssigneePending(incidentId);
             setReassignError(error instanceof Error ? error.message : "Could not reassign this incident.");
           } finally {
             setReassignSubmitting(false);

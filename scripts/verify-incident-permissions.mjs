@@ -59,6 +59,9 @@ assert(
 );
 assert(incidentsClient.includes("reassignCompanyIncident"), "CLIENT: reassign API helper");
 assert(screen.includes("IncidentReassignModal"), "UI: reassign modal wired");
+assert(screen.includes("IncidentAssigneeSelect"), "UI: inline assignee dropdown wired");
+assert(screen.includes("openReassignForIncident"), "UI: table assignment opens reassign flow");
+assert(!screen.includes(">Reassign</button>"), "UI: duplicate Reassign button removed");
 assert(screen.includes("Assignment history"), "UI: assignment history shown");
 assert(appTsx.includes("onReassignIncident={reassignIncidentRecord}"), "APP: reassign handler wired");
 assert(appTsx.includes("reassignTargets={incidentReassignTargets}"), "APP: reassign targets passed");
@@ -90,6 +93,7 @@ assert(
   reassignModal.includes("No eligible incident handlers found"),
   "UI: empty target message shown",
 );
+assert(reassignModal.includes("initialSelectedEmail"), "UI: modal supports prefilled handler");
 
 const companyFolderId = "1TVQ-gbpxoOzE6PCkHX581eTDgtMC11lc";
 const masterSheetId = "1PlwknNgtt-4j08matn1w4358YTe5SXFs5Hh0zA_m3So";
