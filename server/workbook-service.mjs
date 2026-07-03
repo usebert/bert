@@ -299,23 +299,37 @@ export async function patchTabRowByHeader(
   matchHeader,
   matchValue,
   updates = {},
+  options = {},
 ) {
   const sheetId = trim(masterSheetId);
   const tab = trim(tabName);
   const matchKey = trim(matchHeader);
-  const want = trim(matchValue).toLowerCase();
+  const want = trim(matchValue);
   if (!sheetId || !tab || !matchKey || !want) {
     throw new Error("masterSheetId, tabName, matchHeader, and matchValue are required.");
   }
+
+  const compareValues =
+    typeof options.compareValues === "function"
+      ? options.compareValues
+      : (left, right) => trim(left).toLowerCase() === trim(right).toLowerCase();
+  const headerAliases = [matchKey, ...(Array.isArray(options.matchHeaderAliases) ? options.matchHeaderAliases : [])]
+    .map((entry) => trim(entry))
+    .filter(Boolean);
+  const normalizeHeader = (value) => trim(value).toLowerCase().replace(/\s+/g, "");
+  const headerMatches = (header) =>
+    headerAliases.some(
+      (alias) =>
+        safeLower(header) === safeLower(alias) || normalizeHeader(header) === normalizeHeader(alias),
+    );
 
   const readResult = await readTabRecords(auth, deps, sheetId, tab);
   const lower = deps.safeLower || safeLower;
   const records = readResult.records || [];
   const hasMatch = records.some((record) => {
-    const cell = trim(
-      Object.entries(record).find(([key]) => lower(key) === lower(matchKey))?.[1] ?? "",
-    ).toLowerCase();
-    return cell === want;
+    const entry = Object.entries(record).find(([key]) => headerMatches(key));
+    const cell = trim(entry?.[1] ?? "");
+    return compareValues(cell, want);
   });
   if (!hasMatch) {
     throw new Error(`No row found where ${matchKey}=${matchValue}.`);
@@ -328,13 +342,13 @@ export async function patchTabRowByHeader(
 
   const headers = values[0].map((value, index) => String(value || `Column ${index + 1}`).trim());
   let rowIndex = -1;
-  const matchColIndex = headers.findIndex((header) => lower(header) === lower(matchKey));
+  const matchColIndex = headers.findIndex((header) => headerMatches(header));
   if (matchColIndex < 0) {
     throw new Error(`Match header "${matchKey}" not found on tab "${tab}".`);
   }
   for (let i = 1; i < values.length; i += 1) {
-    const cell = String(values[i][matchColIndex] || "").trim().toLowerCase();
-    if (cell === want) {
+    const cell = String(values[i][matchColIndex] || "").trim();
+    if (compareValues(cell, want)) {
       rowIndex = i;
       break;
     }

@@ -16,6 +16,16 @@ import {
   isEligibleIncidentReassignTarget,
 } from "../shared/incident-assignment-permissions.mjs";
 import {
+  INCIDENT_ID_HEADER_ALIASES,
+  canonicalIncidentId,
+  findIncidentIdHeader,
+  findIncidentWorkbookRecord,
+  incidentIdsMatch,
+  normalizeIncidentIdForLookup,
+  pickIncidentIdFromRecord,
+  sampleIncidentIdsFromRecords,
+} from "../shared/incident-id.mjs";
+import {
   appendTabRows as workbookAppendTabRows,
   ensureTabColumns as workbookEnsureTabColumns,
   patchTabRowByHeader as workbookPatchTabRowByHeader,
@@ -355,8 +365,9 @@ export function validateIncidentSubmitInput(input = {}) {
 
 export function buildIncidentRow(input = {}) {
   const now = new Date().toISOString();
+  const incidentId = canonicalIncidentId(input.incidentId) || trim(input.incidentId);
   return {
-    IncidentId: trim(input.incidentId),
+    IncidentId: incidentId,
     Status: trim(input.status) || "Open",
     Priority: trim(input.priority) || "Normal",
     IncidentType: trim(input.incidentType),
@@ -424,7 +435,8 @@ function pickEvidenceUrls(record = {}) {
 
 export function mapWorkbookIncidentRecord(record = {}, fallback = {}) {
   const sanitized = stripSensitiveRecordFields(record);
-  const incidentId = pickRecordField(sanitized, "IncidentId", "incidentId");
+  const rawIncidentId = pickIncidentIdFromRecord(sanitized) || pickRecordField(sanitized, "IncidentId", "Incident ID", "incidentId");
+  const incidentId = canonicalIncidentId(rawIncidentId) || rawIncidentId;
   const createdAt = pickRecordField(sanitized, "CreatedAt", "createdAt");
   const localId =
     trim(fallback.id) ||
@@ -755,19 +767,29 @@ export async function reassignCompanyIncident(auth, deps, input = {}, actor = {}
     const readResult = await readTabRecords(auth, deps, context.masterSheetId, INCIDENTS_TAB, {
       expectedHeaders: INCIDENTS_TAB_COLUMNS,
     });
-    const rawRecord = (readResult.records || []).find(
-      (record) => trim(pickRecordField(record, "IncidentId", "incidentId")) === incidentId,
-    );
-    if (!rawRecord) {
+    const records = readResult.records || [];
+    const found = findIncidentWorkbookRecord(records, incidentId);
+    logIncidentPhase("incident_reassign_lookup", {
+      ...traceMeta,
+      requestedIncidentId: incidentId,
+      normalizedIncidentId: normalizeIncidentIdForLookup(incidentId),
+      availableIncidentIdsSample: sampleIncidentIdsFromRecords(records),
+      workbookId: context.masterSheetId,
+      rowCount: records.length,
+      matchedWorkbookIncidentId: found?.workbookIncidentId || "",
+    });
+    if (!found) {
       return {
         ok: false,
         code: "INCIDENT_NOT_FOUND",
         error: "Incident not found in the company workbook.",
+        message:
+          "Incident not found in the company workbook. Refresh the register to sync incidents, then try again.",
         httpStatus: 404,
       };
     }
 
-    const incident = mapWorkbookIncidentRecord(rawRecord);
+    const incident = mapWorkbookIncidentRecord(found.record);
     const godmode = isGodmodeInviteSession({ kind: actor.kind, role: actor.role });
     const targetUser = {
       email: validation.toEmail,
@@ -794,15 +816,28 @@ export async function reassignCompanyIncident(auth, deps, input = {}, actor = {}
       actor,
     );
     const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
+    const incidentIdHeader = findIncidentIdHeader(Object.keys(found.record));
     await withIncidentsTimeout(
-      patchTabRowByHeader(auth, deps, context.masterSheetId, INCIDENTS_TAB, "IncidentId", incidentId, {
-        ...buildIncidentAssignmentFields(patchInput),
-        UpdatedAt: patchInput.updatedAt,
-      }),
+      patchTabRowByHeader(
+        auth,
+        deps,
+        context.masterSheetId,
+        INCIDENTS_TAB,
+        incidentIdHeader,
+        found.workbookIncidentId,
+        {
+          ...buildIncidentAssignmentFields(patchInput),
+          UpdatedAt: patchInput.updatedAt,
+        },
+        {
+          matchHeaderAliases: INCIDENT_ID_HEADER_ALIASES,
+          compareValues: incidentIdsMatch,
+        },
+      ),
       "patch_incident_reassign",
     );
 
-    const updatedIncident = mapWorkbookIncidentRecord(rawRecord, patchInput);
+    const updatedIncident = mapWorkbookIncidentRecord(found.record, patchInput);
     logIncidentPhase("reassign_success", {
       ...traceMeta,
       assignedToEmail: updatedIncident.assignedToEmail,

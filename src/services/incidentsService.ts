@@ -1,4 +1,10 @@
 import { apiUrl } from "../config/apiBase";
+import {
+  canonicalIncidentId,
+  normalizeIncidentIdForLookup,
+  pickIncidentIdFromRecord,
+  INCIDENT_NOT_IN_WORKBOOK_MESSAGE,
+} from "../utils/incidentId";
 import type {
   IncidentEvidenceItem,
   IncidentEvidenceFileAttachment,
@@ -249,7 +255,9 @@ export function mapWorkbookIncidentRecord(
   fallback: Partial<IncidentRecord> = {},
 ): IncidentRecord {
   const sanitized = stripSensitiveFields(record);
-  const incidentId = pickRecordField(sanitized, "IncidentId", "incidentId");
+  const rawIncidentId =
+    pickIncidentIdFromRecord(sanitized) || pickRecordField(sanitized, "IncidentId", "Incident ID", "incidentId");
+  const incidentId = canonicalIncidentId(rawIncidentId) || rawIncidentId;
   const createdAt = pickRecordField(sanitized, "CreatedAt", "createdAt");
   const localId = String(fallback.id || "").trim() || (incidentId ? `incident-${incidentId}` : `incident-${Date.now()}`);
 
@@ -648,8 +656,15 @@ export function mergeWorkbookAndLocalIncidents(
   workbookIncidents: IncidentRecord[],
   localIncidents: IncidentRecord[],
 ): IncidentRecord[] {
-  const workbookIncidentIds = new Set(workbookIncidents.map((item) => item.incidentId).filter(Boolean));
-  const pendingLocal = localIncidents.filter((item) => item.incidentId && !workbookIncidentIds.has(item.incidentId));
+  const workbookIncidentIds = new Set(
+    workbookIncidents
+      .map((item) => normalizeIncidentIdForLookup(item.incidentId))
+      .filter(Boolean),
+  );
+  const pendingLocal = localIncidents.filter((item) => {
+    const id = item.incidentId;
+    return id && !workbookIncidentIds.has(normalizeIncidentIdForLookup(id));
+  });
   const merged = [...workbookIncidents, ...pendingLocal];
   return merged.sort((left, right) => Date.parse(right.createdAt || "") - Date.parse(left.createdAt || ""));
 }
@@ -672,16 +687,23 @@ export type ReassignCompanyIncidentResult = {
   ok: boolean;
   incident?: IncidentRecord;
   error?: string;
+  code?: string;
 };
 
 export async function reassignCompanyIncident(
   input: ReassignCompanyIncidentInput,
 ): Promise<ReassignCompanyIncidentResult> {
   const companyFolderId = String(input.companyFolderId || "").trim();
-  const incidentId = String(input.incidentId || "").trim();
+  const incidentId = canonicalIncidentId(input.incidentId) || String(input.incidentId || "").trim();
   if (!companyFolderId || !incidentId) {
     return { ok: false, error: "Incident context is required." };
   }
+
+  console.info("[incidents]", {
+    phase: "incident_reassign_submit",
+    incidentId,
+    targetEmail: input.toEmail,
+  });
 
   try {
     const response = await fetch(
@@ -709,11 +731,16 @@ export async function reassignCompanyIncident(
       incident?: Record<string, unknown>;
       message?: string;
       error?: string;
+      code?: string;
     };
     if (!response.ok || payload.ok === false) {
       return {
         ok: false,
-        error: payload.message || payload.error || "Could not reassign this incident.",
+        code: payload.code,
+        error:
+          payload.code === "INCIDENT_NOT_FOUND"
+            ? payload.message || INCIDENT_NOT_IN_WORKBOOK_MESSAGE
+            : payload.message || payload.error || "Could not reassign this incident.",
       };
     }
     return {

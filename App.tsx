@@ -401,6 +401,7 @@ import {
   submitCompanyIncident,
 } from "./src/services/incidentsService";
 import { buildIncidentReassignTargets, mergeIncidentReassignTargets } from "./src/utils/incidentAssignment";
+import { INCIDENT_NOT_IN_WORKBOOK_MESSAGE } from "./src/utils/incidentId";
 import { prepareSerializableAuditEvidenceFiles, buildAuditEvidenceUploadPayload } from "./src/services/checkEvidenceService";
 import type { AuditResultDetail, AuditResultSummary } from "./src/types/resultsScreenProps";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
@@ -7985,6 +7986,12 @@ function App() {
       throw new Error("The company workbook is unavailable.");
     }
 
+    console.info("[incidents]", {
+      phase: "incident_reassign_submit",
+      incidentId: existing.incidentId,
+      targetEmail: input.toEmail,
+    });
+
     const result = await reassignCompanyIncident({
       companyFolderId,
       incidentId: existing.incidentId,
@@ -7996,7 +8003,11 @@ function App() {
       companyName: activeCompanyContext.companyName,
     });
     if (!result.ok || !result.incident) {
-      throw new Error(result.error || "Could not reassign this incident.");
+      throw new Error(
+        result.code === "INCIDENT_NOT_FOUND"
+          ? result.error || INCIDENT_NOT_IN_WORKBOOK_MESSAGE
+          : result.error || "Could not reassign this incident.",
+      );
     }
 
     const updated: IncidentRecord = {

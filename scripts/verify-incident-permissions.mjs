@@ -10,6 +10,12 @@ import {
   isEligibleIncidentReassignTarget,
 } from "../shared/incident-assignment-permissions.mjs";
 import {
+  findIncidentWorkbookRecord,
+  incidentIdsMatch,
+  normalizeIncidentIdForLookup,
+  pickIncidentIdFromRecord,
+} from "../shared/incident-id.mjs";
+import {
   INCIDENTS_TAB,
   INCIDENTS_TAB_COLUMNS,
   buildIncidentRow,
@@ -61,7 +67,23 @@ assert(
   "LOAD: incidents screen loads company members",
 );
 assert(appTsx.includes("buildIncidentReassignTargets"), "APP: buildIncidentReassignTargets used");
-assert(incidentAssignment.includes("sampleRoles"), "TARGETS: sample role debug logging");
+assert(incidentsService.includes("incident_reassign_lookup"), "LOOKUP: reassign lookup logging");
+assert(incidentsService.includes("findIncidentWorkbookRecord"), "LOOKUP: shared incident id finder used");
+assert(incidentsClient.includes("incident_reassign_submit"), "CLIENT: reassign submit logging");
+assert(incidentsClient.includes("INCIDENT_NOT_IN_WORKBOOK_MESSAGE"), "CLIENT: local-only refresh message");
+
+assert(
+  pickIncidentIdFromRecord({ "Incident ID": "INC-2026-003" }) === "INC-2026-003",
+  "LOOKUP: Incident ID header alias",
+);
+assert(incidentIdsMatch("INC-2026-003", "INC-2026-0003"), "LOOKUP: padded incident ids match");
+assert(
+  normalizeIncidentIdForLookup("INC-2026-003") === normalizeIncidentIdForLookup("INC-2026-0003"),
+  "LOOKUP: normalized incident ids equal",
+);
+const aliasRecord = findIncidentWorkbookRecord([{ "Incident ID": "INC-2026-0003" }], "INC-2026-003");
+assert(aliasRecord?.workbookIncidentId === "INC-2026-0003", "LOOKUP: alias record found by padded id");
+
 assert(incidentAssignment.includes("belongsToCompanyUsersTabRow"), "TARGETS: company filter matches People list");
 assert(reassignModal.includes("Loading handlers"), "UI: loading handlers message shown");
 assert(
@@ -87,11 +109,15 @@ async function mockAppendTabRows(_auth, _deps, _sheetId, tabName, _columns, rows
   return { ok: true, written: rows.length };
 }
 
-async function mockPatchTabRowByHeader(_auth, _deps, _sheetId, tabName, keyColumn, keyValue, patch = {}) {
+async function mockPatchTabRowByHeader(_auth, _deps, _sheetId, tabName, keyColumn, keyValue, patch = {}, options = {}) {
   if (tabName !== INCIDENTS_TAB) {
     return { ok: true, updated: 0 };
   }
-  const row = incidentStore.find((entry) => String(entry[keyColumn] || "") === String(keyValue));
+  const compare =
+    typeof options.compareValues === "function"
+      ? options.compareValues
+      : (left, right) => String(left || "").trim().toLowerCase() === String(right || "").trim().toLowerCase();
+  const row = incidentStore.find((entry) => compare(entry[keyColumn], keyValue));
   if (!row) {
     return { ok: false, updated: 0 };
   }
@@ -135,6 +161,30 @@ const managerActor = {
   companyId: companyFolderId,
   companyFolderId,
 };
+
+incidentStore.push({
+  "Incident ID": "INC-2026-0003",
+  Status: "Open",
+  AssignedToEmail: "handler@testco.test",
+  AssignedToName: "Handler User",
+});
+const paddedReassign = await reassignCompanyIncident(
+  {},
+  mockDeps,
+  {
+    companyFolderId,
+    companyId: companyFolderId,
+    incidentId: "INC-2026-003",
+    toEmail: "manager@testco.test",
+    toName: "Manager User",
+    toRole: "Manager",
+    resolvedContext: mockContext,
+  },
+  managerActor,
+);
+assert(paddedReassign.ok, "REASSIGN: padded request id matches Incident ID column");
+assert(incidentStore[0].AssignedToEmail === "manager@testco.test", "REASSIGN: padded workbook row patched");
+incidentStore.length = 0;
 
 const masterActor = {
   kind: "company",
