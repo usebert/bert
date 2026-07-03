@@ -7,7 +7,7 @@ export const PILOT_PRIMARY_NAV_IDS = PILOT_OPERATOR_NAV_IDS;
 /** Field roles — operational day-to-day work. */
 export const PRIMARY_NAV_IDS = [
   "dashboard",
-  "audits",
+  "auditCentre",
   "actions",
   "nonConformance",
   "incidents",
@@ -26,7 +26,7 @@ export const MORE_MENU_NAV_IDS = [
 ] as const satisfies readonly NavItemId[];
 
 /** Mobile bottom bar (field roles). */
-export const MOBILE_BOTTOM_NAV_IDS = ["dashboard", "audits", "incidents", "actions", "more"] as const;
+export const MOBILE_BOTTOM_NAV_IDS = ["dashboard", "auditCentre", "incidents", "actions", "more"] as const;
 
 export type MobileBottomKey = (typeof MOBILE_BOTTOM_NAV_IDS)[number];
 

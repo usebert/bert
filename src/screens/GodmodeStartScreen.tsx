@@ -35,7 +35,7 @@ type QuickLink = {
 const QUICK_LINKS: QuickLink[] = [
   { label: "People", screen: "users" },
   { label: "Areas", screen: "companies" },
-  { label: "Forms & Checks", screen: "audits" },
+  { label: "Audit Centre", screen: "auditCentre" },
   { label: "Schedules", screen: "schedules" },
   { label: "Quality & Safety", screen: "qmsReadiness" },
   { label: "Reports", screen: "reports" },

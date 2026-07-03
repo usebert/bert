@@ -350,8 +350,10 @@ assert(roleNav.includes('if (role === "Master") return "master"'), "J1: role nav
 assert(roleNav.includes("COMPANY_ADMIN_NAV") && roleNav.includes("MANAGER_NAV") && roleNav.includes("AUDITOR_NAV"), "J2: per-role nav templates");
 assert(roleNav.includes('id: "schedules", label: "Schedules"'), "J3: Manager/Admin see Schedules");
 assert(roleNav.includes('id: "invites", label: "People"'), "J4: Manager sees People nav");
-assert(roleNav.includes('id: "audits", label: "Complete Work"'), "J4b: Admin/Manager see Complete Work nav");
-assert(roleNav.includes('id: "audits", label: "My Checks"'), "J5: Auditor sees My Checks");
+assert(roleNav.includes('id: "auditCentre", label: "Audit Centre"'), "J4b: roles see Audit Centre nav");
+assert(roleNav.includes('export const COMPLETE_WORK_NAV_SCREEN_ID = "audits"'), "J5: Complete Work internal route remains audits");
+assert(!roleNav.includes('id: "audits", label: "Complete Work"'), "J5b: Complete Work removed from visible sidebar");
+assert(!roleNav.includes('id: "googleForms", label: "Google Forms"'), "J5c: Google Forms removed from visible sidebar");
 assert(roleNav.includes("getPresentedNavForRole"), "J6: nav resolved per role");
 assert(appTsx.includes("getPresentedNavForRole"), "J7: App uses role-based nav");
 assert(roleNav.includes('id: "account"'), "J8: all roles have Account nav");

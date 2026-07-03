@@ -7,6 +7,7 @@ import {
   canAccessAdmin,
   canAccessAdminOnboardingWorkspace,
   canAccessAuditsCentre,
+  canAccessAuditCentre,
   canAccessCompletedNcrReports,
   canAccessControlScreen,
   canAccessDocumentTraining,
@@ -65,6 +66,7 @@ import {
   getMoreNavIdsForRole,
   getPresentedNavForRole,
   isCompleteWorkListScreen,
+  isAuditCentreNavActive,
   isMasterCompanyContextExemptScreen,
   isMasterCompanyScopedScreen,
   resolveAdminPilotFocus,
@@ -278,6 +280,7 @@ import { PasswordResetConfirm } from "./src/screens/PasswordResetConfirm";
 import { requestPasswordReset } from "./src/services/passwordResetService";
 import { DashboardScreen } from "./src/screens/DashboardScreen";
 import { AuditsScreen } from "./src/screens/AuditsScreen";
+import { AuditCentreScreen } from "./src/screens/AuditCentreScreen";
 import { CheckCompletionWizard } from "./src/components/checks/CheckCompletionWizard";
 import { CompleteAuditScreen } from "./src/screens/CompleteAuditScreen";
 import { IncidentReportingScreen } from "./src/screens/IncidentReportingScreen";
@@ -2951,6 +2954,7 @@ function resolveHelpIntro(screen: string, role: Role): string {
     schedules: "formsChecks",
     incidents: role === "Auditor" ? "auditorSubmit" : "reports",
     audits: "formsChecks",
+    auditCentre: "formsChecks",
     actions: "correctiveActions",
     results: "results",
     users: "team",
@@ -14934,6 +14938,9 @@ function App() {
     if (currentUser && !canAccessResults(currentUser.role) && screen === "results") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
+    if (currentUser && !canAccessAuditCentre(currentUser.role) && screen === "auditCentre") {
+      setScreen(getHomeScreenForRole(currentUser.role));
+    }
     if (currentUser && !canAccessGoogleForms(currentUser.role) && screen === "googleForms") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
@@ -15837,7 +15844,8 @@ function App() {
             </div>
             <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 pb-2" aria-label="Primary">
               {primaryNavItems.map((item) => {
-                const selected = screen === item.id || (screen === "complete" && item.id === "audits");
+                const selected =
+                  screen === item.id || (isAuditCentreNavActive(screen) && item.id === "auditCentre");
                 return (
                   <button
                     key={`sidebar-${item.id}`}
@@ -16378,6 +16386,10 @@ function App() {
                 )}
               />
               </AnimatedScreen>
+            )}
+
+            {screen === "auditCentre" && canAccessAuditCentre(currentUser.role) && (
+              <AuditCentreScreen role={currentUser.role} onNavigate={(nextScreen) => setScreen(nextScreen)} />
             )}
 
             {isCompleteWorkListScreen(screen) &&
@@ -17084,7 +17096,7 @@ function App() {
                     ? templates.find((template) => template.id === auditBuilderSavedTemplateId)?.googleForm
                     : undefined
                 }
-                onBack={() => setScreen("audits")}
+                onBack={() => setScreen("auditCentre")}
                 onTemplateSaved={handleAuditBuilderTemplateSaved}
                 onStartAudit={handleAuditBuilderStartAudit}
               />
@@ -17105,7 +17117,7 @@ function App() {
                 onGoogleFormCopyLanguageChange={setGoogleFormCopyLanguage}
                 onBack={() => {
                   setEditingTemplateId(null);
-                  setScreen("audits");
+                  setScreen("auditCentre");
                 }}
                 onTemplateUpdated={handleAuditTemplateUpdated}
                 onTemplateArchived={handleAuditTemplateArchived}
@@ -17362,7 +17374,8 @@ function App() {
                     </button>
                   );
                 }
-                const selected = screen === entry.id || (screen === "complete" && entry.id === "audits");
+                const selected =
+                  screen === entry.id || (isAuditCentreNavActive(screen) && entry.id === "auditCentre");
                 return (
                   <button
                     key={`mobile-nav-${entry.id}`}

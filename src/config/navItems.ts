@@ -7,6 +7,7 @@ export const navItems = [
   { id: "users", label: "Users", icon: "user" },
   { id: "invites", label: "Invites", icon: "note" },
   { id: "settings", label: "Settings", icon: "shield" },
+  { id: "auditCentre", label: "Audit Centre", icon: "clipboard" },
   { id: "audits", label: "Audits", icon: "clipboard" },
   { id: "results", label: "Results", icon: "checklist" },
   { id: "googleForms", label: "Google Forms", icon: "note" },

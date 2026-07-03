@@ -16,6 +16,7 @@ export type RoutedScreen =
   | "invites"
   | "settings"
   | "setupInitial"
+  | "auditCentre"
   | "audits"
   | "results"
   | "googleForms"

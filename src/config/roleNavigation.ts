@@ -1,5 +1,6 @@
 import type { Role } from "../permissions";
 import {
+  canAccessAuditCentre,
   canAccessCompanyOnboardingNav,
   canAccessFormsChecksNav,
   canAccessMasterTemplatesNav,
@@ -36,7 +37,7 @@ const MASTER_NAV: PresentedNavItem[] = [
   { id: "onboarding", label: "Company Onboarding", icon: "spark", adminPilotFocus: "companies" },
   { id: "users", label: "People", icon: "user", adminPilotFocus: "users" },
   { id: "schedules", label: "Templates", icon: "clock" },
-  { id: "googleForms", label: "Google Forms", icon: "note" },
+  { id: "auditCentre", label: "Audit Centre", icon: "clipboard" },
   { id: "results", label: "Results", icon: "checklist" },
   { id: "reports", label: "Reports / Diagnostics", icon: "chart" },
   { id: "account", label: "Account", icon: "user" },
@@ -48,8 +49,7 @@ const COMPANY_ADMIN_NAV: PresentedNavItem[] = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
   { id: "users", label: "People", icon: "user", adminPilotFocus: "users" },
   { id: "schedules", label: "Schedules", icon: "clock" },
-  { id: "googleForms", label: "Google Forms", icon: "note" },
-  { id: "audits", label: "Complete Work", icon: "clipboard" },
+  { id: "auditCentre", label: "Audit Centre", icon: "clipboard" },
   { id: "results", label: "Results", icon: "checklist" },
   { id: "actions", label: "Actions", icon: "warningTriangle" },
   { id: "incidents", label: "Incidents", icon: "warningTriangle" },
@@ -62,7 +62,7 @@ const MANAGER_NAV: PresentedNavItem[] = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
   { id: "invites", label: "People", icon: "user", adminPilotFocus: "invites" },
   { id: "schedules", label: "Schedules", icon: "clock" },
-  { id: "audits", label: "Complete Work", icon: "clipboard" },
+  { id: "auditCentre", label: "Audit Centre", icon: "clipboard" },
   { id: "results", label: "Results", icon: "checklist" },
   { id: "actions", label: "Actions", icon: "warningTriangle" },
   { id: "incidents", label: "Incidents", icon: "warningTriangle" },
@@ -73,7 +73,7 @@ const MANAGER_NAV: PresentedNavItem[] = [
 
 const AUDITOR_NAV: PresentedNavItem[] = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
-  { id: "audits", label: "My Checks", icon: "clipboard" },
+  { id: "auditCentre", label: "Audit Centre", icon: "clipboard" },
   { id: "incidents", label: "Incidents", icon: "warningTriangle" },
   { id: "account", label: "Account", icon: "user" },
 ];
@@ -87,6 +87,23 @@ const MORE_BY_BUCKET: Record<RoleNavBucket, NavItemId[]> = {
 
 /** Sidebar nav id for Complete Work / My Checks (Forms & checks page). */
 export const COMPLETE_WORK_NAV_SCREEN_ID = "audits" as const satisfies NavItemId;
+
+/** Internal routes grouped under Audit Centre in the sidebar. */
+export const AUDIT_CENTRE_CHILD_SCREEN_IDS = [
+  "audits",
+  "googleForms",
+  "auditBuilder",
+  "auditTemplateEdit",
+] as const satisfies readonly NavItemId[];
+
+/** True when Audit Centre should appear selected in the shell nav. */
+export function isAuditCentreNavActive(screen: RoutedScreen): boolean {
+  return (
+    screen === "auditCentre" ||
+    screen === "complete" ||
+    AUDIT_CENTRE_CHILD_SCREEN_IDS.includes(screen as (typeof AUDIT_CENTRE_CHILD_SCREEN_IDS)[number])
+  );
+}
 
 /** True when the routed shell is showing the Complete Work assigned-checks list. */
 export function isCompleteWorkListScreen(screen: RoutedScreen): boolean {
@@ -175,6 +192,7 @@ function canPresentNavItem(role: Role, item: PresentedNavItem): boolean {
     return canAccessSchedules(role);
   }
   if (item.id === "reports" && item.label.includes("Diagnostics")) return canAccessPlatformDiagnosticsNav(role);
+  if (item.id === "auditCentre") return canAccessAuditCentre(role);
   if (
     item.id === "audits" &&
     (item.label === "Checks" ||
@@ -206,6 +224,7 @@ export type MobileNavEntry = {
 
 /** Short labels for field-role mobile bottom bar (fits narrow tab slots). */
 const MOBILE_FIELD_NAV_LABELS: Partial<Record<NavItemId, string>> = {
+  auditCentre: "Audits",
   incidents: "Incident",
 };
 
@@ -262,6 +281,7 @@ const MASTER_COMPANY_SCOPED_SCREENS: NavItemId[] = [
   "invites",
   "admin",
   "schedules",
+  "auditCentre",
   "googleForms",
   "results",
   "qmsReadiness",

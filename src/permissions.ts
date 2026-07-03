@@ -80,6 +80,16 @@ export function canAccessFormsChecksNav(role: Role) {
   return role === "Admin" || role === "Manager";
 }
 
+/** Unified Audit Centre sidebar — build, complete, forms, and results entry. */
+export function canAccessAuditCentre(role: Role) {
+  return (
+    canAccessGoogleForms(role) ||
+    canAccessFormsChecksNav(role) ||
+    canAccessAuditsCentre(role) ||
+    role === "Auditor"
+  );
+}
+
 /** Master schedule / template tooling. */
 export function canAccessMasterTemplatesNav(role: Role) {
   return role === "Master";
@@ -216,6 +226,7 @@ export function canRoleAccessNavItem(role: Role, itemId: NavItemId) {
   if (itemId === "qmsReadiness") return canAccessQmsReadinessNav(role);
   if (itemId === "reports") return canAccessReports(role) || canAccessPlatformDiagnosticsNav(role);
   if (itemId === "results") return canAccessResults(role);
+  if (itemId === "auditCentre") return canAccessAuditCentre(role);
   if (itemId === "googleForms") return canAccessGoogleForms(role);
   if (itemId === "incidents") return canSubmitIncidents(role);
   if (itemId === "actions" || itemId === "nonConformance") return canAccessActions(role);
