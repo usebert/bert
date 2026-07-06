@@ -1,5 +1,6 @@
 import { AnimatedButton } from "./AnimatedButton";
 import { StatusPulse, type SyncVisualState } from "./StatusPulse";
+import { queueIndicatorSummary } from "../../utils/submissionQueueMessages";
 
 type Props = {
   offlineMode: boolean;
@@ -33,37 +34,30 @@ export function OfflineSyncBanner({
       ? `${Math.min(syncProgress.current, syncProgress.total)} of ${syncProgress.total} synced`
       : null;
 
-  const statusLabel = hasFailed
-    ? "Sync failed — retry when online"
-    : syncing
-      ? progressLabel
-        ? `Syncing saved checks… ${progressLabel}`
-        : "Syncing saved checks…"
-      : offlineMode
-        ? "Offline — saved on this tablet"
-        : waitingCount > 0
-          ? `${waitingCount} waiting to sync`
-          : "All checks synced";
+  const statusLabel = queueIndicatorSummary({
+    waitingCount: waitingCount || queuedCount,
+    failedCount: hasFailed ? 1 : 0,
+  });
 
   return (
     <section className="mb-4 rounded-[1.5rem] border border-amber-200 bg-amber-50 px-4 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-amber-900">
-            {offlineMode ? "Offline mode active" : syncing ? "Syncing saved checks" : "Queued submissions waiting to sync"}
+            {offlineMode ? "Offline mode active" : syncing ? "Syncing queued submissions" : "Queued submissions waiting to sync"}
           </p>
           <p className="mt-1 text-sm text-amber-800">
             {offlineMode
-              ? "You are offline. Checks will be saved on this tablet and synced when internet returns."
+              ? "Added to queue. This will sync when connection returns."
               : syncing
-                ? "Uploading saved checks to your company sheet. Keep this tablet online."
+                ? progressLabel
+                  ? `Added to queue. Syncing now… ${progressLabel}`
+                  : "Added to queue. Syncing now…"
                 : `${queuedCount} queued submission${queuedCount === 1 ? "" : "s"} will sync automatically.`}
           </p>
-          <p className="mt-2 text-xs font-bold tabular-nums text-amber-950">
-            {offlineMode ? `${queuedCount} saved on this tablet` : `${waitingCount} waiting · ${queuedCount} in queue`}
-          </p>
+          <p className="mt-2 text-xs font-bold tabular-nums text-amber-950">{statusLabel}</p>
         </div>
-        <StatusPulse state={visualState} label={statusLabel} />
+        <StatusPulse state={visualState} label={syncing && progressLabel ? progressLabel : statusLabel} />
       </div>
       {hasFailed ? (
         <AnimatedButton

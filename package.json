@@ -43,6 +43,7 @@
     "verify:password-auth-flow": "node scripts/verify-password-auth-flow.mjs",
     "verify:offline-shell": "node scripts/verify-offline-shell.mjs",
     "verify:offline-tablet": "node scripts/verify-offline-tablet.mjs",
+    "verify:offline-submission-queue": "node scripts/verify-offline-submission-queue.mjs",
     "verify:check-completion": "node scripts/verify-check-completion.mjs",
     "verify:form-prompts-escalation": "node scripts/verify-form-prompts-escalation.mjs",
     "verify:navigation": "node scripts/verify-navigation.mjs",

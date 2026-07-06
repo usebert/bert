@@ -24,7 +24,7 @@ export function queueAddedMessage(input: { online: boolean; hasEvidence?: boolea
 export function queueIndicatorSummary(input: {
   waitingCount: number;
   failedCount: number;
-}): "All synced" | `${number} items waiting to sync` | "Sync failed — retry" {
+}): "All synced" | "Sync failed — retry" | `${number} item waiting to sync` | `${number} items waiting to sync` {
   if (input.failedCount > 0) {
     return "Sync failed — retry";
   }

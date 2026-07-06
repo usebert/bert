@@ -480,8 +480,6 @@ import {
 } from "./src/services/tabletOfflineService";
 import { submissionQueueService } from "./src/services/submissionQueueService";
 import { queueAddedMessage, SUBMISSION_QUEUE_MESSAGES, queueIndicatorSummary } from "./src/utils/submissionQueueMessages";
-import { submissionQueueItemToSyncQueueItem } from "./src/utils/submissionQueueBridge";
-import type { SubmissionQueueItem } from "./src/types/submissionQueue";
 
 type AuditStatus = "green" | "amber" | "red";
 type Answer = "pass" | "nc" | "fail";
@@ -3606,6 +3604,16 @@ function App() {
   const [offlineQueue, setOfflineQueue] = useState<OfflineSubmission[]>([]);
   const [offlineSyncProgress, setOfflineSyncProgress] = useState<{ current: number; total: number } | null>(null);
   const [syncQueue, setSyncQueue] = useState<SyncQueueItem[]>(storedWorkspaceState?.syncQueue || initialSyncQueue);
+  const submissionInFlightKeysRef = useRef(new Set<string>());
+  const submissionQueueHydratedRef = useRef(false);
+  const refreshSubmissionQueueViews = useCallback(async () => {
+    if (!submissionQueueService.canUseIndexedDb()) {
+      return;
+    }
+    const items = await submissionQueueService.listActiveItems();
+    setSyncQueue(submissionQueueService.toSyncQueueView(items));
+    setOfflineQueue(submissionQueueService.toOfflineQueueView(items));
+  }, []);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [backendConfigured, setBackendConfigured] = useState(false);
   const [sharedDriveId, setSharedDriveId] = useState("");
@@ -7742,12 +7750,7 @@ function App() {
   }, [googleConnected]);
 
   useEffect(() => {
-    const handleOnline = () => {
-      setOfflineMode(false);
-      void refreshSubmissionQueueViews()
-        .then(() => syncOfflineSubmissions())
-        .catch(() => undefined);
-    };
+    const handleOnline = () => setOfflineMode(false);
     const handleOffline = () => setOfflineMode(true);
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
@@ -10783,17 +10786,6 @@ function App() {
 
   const syncProcessingRef = useRef(false);
   const offlineSyncProcessingRef = useRef(false);
-  const submissionInFlightKeysRef = useRef(new Set<string>());
-  const submissionQueueHydratedRef = useRef(false);
-
-  const refreshSubmissionQueueViews = useCallback(async () => {
-    if (!submissionQueueService.canUseIndexedDb()) {
-      return;
-    }
-    const items = await submissionQueueService.listActiveItems();
-    setSyncQueue(submissionQueueService.toSyncQueueView(items));
-    setOfflineQueue(submissionQueueService.toOfflineQueueView(items));
-  }, []);
 
   async function syncOfflineSubmissions() {
     if (offlineMode || offlineQueue.length === 0 || offlineSyncProcessingRef.current) {
@@ -10960,8 +10952,9 @@ function App() {
       updateSyncItemStatus(
         item.localId,
         "Failed",
-        error instanceof Error ? error.message : "Unable to save your work right now.",
+        SUBMISSION_QUEUE_MESSAGES.failure,
       );
+      pushToast("Sync issue", SUBMISSION_QUEUE_MESSAGES.failure, "warning");
     } finally {
       syncProcessingRef.current = false;
     }
@@ -11617,6 +11610,11 @@ function App() {
 
     if (offlineMode) {
       const localSubmissionId = `offline-${activeAudit.id}-${Date.now()}`;
+      const submitKey = `audit-completion::${selectedFolderId || ""}::${activeAudit.id}`;
+      if (submissionInFlightKeysRef.current.has(submitKey)) {
+        return;
+      }
+      submissionInFlightKeysRef.current.add(submitKey);
       const evidenceRefs: TabletEvidenceRef[] = Object.entries(evidence).flatMap(([questionId, items]) =>
         items.map((item) => ({
           evidenceId: item.id,
@@ -11652,7 +11650,12 @@ function App() {
         audit: activeAudit,
       };
       setOfflineQueue((current) => [queuedSubmission, ...current]);
-      void tabletOfflineService.upsertSubmission(queuedSubmission).catch(() => undefined);
+      void submissionQueueService.enqueueOfflineSubmission(queuedSubmission).then(() => {
+        submissionInFlightKeysRef.current.delete(submitKey);
+        void refreshSubmissionQueueViews();
+      }).catch(() => {
+        submissionInFlightKeysRef.current.delete(submitKey);
+      });
       setDrafts((current) => {
         const nextDrafts = { ...current };
         delete nextDrafts[activeAudit.id];
@@ -11665,11 +11668,17 @@ function App() {
       setSignatureDataUrl("");
       setSignatureSignedAt("");
       setScreen("dashboard");
-      pushToast("Queued offline", `${activeAudit.name} has been saved and will sync when the tablet reconnects.`, "warning");
+      pushToast("Added to queue", queueAddedMessage({ online: false }), "warning");
       triggerNotification(companyName, `${activeAudit.name} has been queued offline for sync.`);
       notifySelectedManagersForNonCompliance(activeAudit, currentUser.name, nonComplianceCount, true);
       return;
     }
+
+    const onlineSubmitKey = `audit-submission::${selectedFolderId || ""}::${activeAudit.id}`;
+    if (submissionInFlightKeysRef.current.has(onlineSubmitKey)) {
+      return;
+    }
+    submissionInFlightKeysRef.current.add(onlineSubmitKey);
 
     const { outcomeStatus, createdActions, syncBundle, findingsCount } = applyAuditSubmission({
       audit: activeAudit,
@@ -11712,12 +11721,11 @@ function App() {
     setScreen("dashboard");
 
     pushToast(
-      "Check submitted",
-      findingsCount > 0
-        ? `${activeAudit.name} is recorded. ${findingsCount} issue${findingsCount === 1 ? "" : "s"} flagged for follow-up.`
-        : `${activeAudit.name} is recorded with no issues found.`,
+      "Added to queue",
+      queueAddedMessage({ online: !offlineMode }),
       outcomeStatus === "green" ? "success" : "warning",
     );
+    submissionInFlightKeysRef.current.delete(onlineSubmitKey);
     triggerNotification("Audit submitted", `${activeAudit.name} has been submitted by ${currentUser.name}.`);
     notifySelectedManagersForNonCompliance(activeAudit, currentUser.name, nonComplianceCount, false);
   };
@@ -11784,6 +11792,11 @@ function App() {
 
     if (offlineMode) {
       const localSubmissionId = `offline-${activeAudit.id}-${Date.now()}`;
+      const submitKey = `audit-completion::${assignedContext?.companyFolderId || selectedFolderId || ""}::${activeAudit.id}`;
+      if (submissionInFlightKeysRef.current.has(submitKey)) {
+        return;
+      }
+      submissionInFlightKeysRef.current.add(submitKey);
       const evidenceRefs: TabletEvidenceRef[] = Object.entries(evidence).flatMap(([questionId, items]) =>
         items.map((item) => ({
           evidenceId: item.id,
@@ -11820,11 +11833,16 @@ function App() {
         audit: activeAudit,
       };
       setOfflineQueue((current) => [queuedSubmission, ...current]);
-      void tabletOfflineService.upsertSubmission(queuedSubmission).catch(() => undefined);
+      void submissionQueueService.enqueueOfflineSubmission(queuedSubmission).then(() => {
+        submissionInFlightKeysRef.current.delete(submitKey);
+        void refreshSubmissionQueueViews();
+      }).catch(() => {
+        submissionInFlightKeysRef.current.delete(submitKey);
+      });
       finishCompletionSummary({
         issues: issuesFound,
         syncTone: "amber",
-        syncLabel: "Audit complete / not synced",
+        syncLabel: queueAddedMessage({ online: false, hasEvidence: photosCaptured > 0 }),
       });
       return;
     }
@@ -12314,9 +12332,9 @@ function App() {
       createdAt: stamp,
       retryCount: 0,
       lastError: "",
-      payload: { actionId, fileCount },
+      payload: { actionId, fileCount, companyFolderId: selectedFolderId },
     });
-    pushToast("Evidence uploaded", `${fileCount} file${fileCount === 1 ? "" : "s"} added.`, "success");
+    pushToast("Evidence added", SUBMISSION_QUEUE_MESSAGES.evidenceAdded, "success");
   };
 
   const handleGoogleConnect = () => {

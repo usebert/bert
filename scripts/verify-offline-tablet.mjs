@@ -21,9 +21,9 @@ assertContains("src/services/tabletOfflineService.ts", [
 ]);
 
 assertContains("App.tsx", [
-  "Syncing saved checks",
-  "All saved checks synced",
-  "You are offline. Checks will be saved on this tablet and synced when internet returns.",
+  "submissionQueueService",
+  "enqueueOfflineSubmission",
+  "Added to queue",
   "localSubmissionId",
 ]);
 

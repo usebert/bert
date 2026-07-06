@@ -1,3 +1,5 @@
+import { queueIndicatorSummary } from "./submissionQueueMessages";
+
 export type PlainEnglishSyncInput = {
   offlineQueueCount: number;
   pendingSyncCount: number;
@@ -20,25 +22,26 @@ export type PlainEnglishSyncResult = {
 export function getPlainEnglishSyncStatus(input: PlainEnglishSyncInput): PlainEnglishSyncResult {
   const { offlineQueueCount, pendingSyncCount, failedSyncCount, lastSyncedAt } = input;
   const last = lastSyncedAt?.trim();
+  const waitingCount = pendingSyncCount + offlineQueueCount;
+  const summary = queueIndicatorSummary({ waitingCount, failedCount: failedSyncCount });
 
   if (failedSyncCount > 0) {
     return {
-      summary: `${failedSyncCount} item${failedSyncCount === 1 ? "" : "s"} not yet saved online`,
-      detail: `${failedSyncCount} item${failedSyncCount === 1 ? "" : "s"} could not be saved online yet. Open Sync Centre (under More) to retry or review.${last ? ` Last synced ${last}.` : ""}`,
+      summary,
+      detail: `Sync failed — retry from Sync Centre when you are back online.${last ? ` Last synced ${last}.` : ""}`,
       tone: "problem",
     };
   }
-  if (pendingSyncCount > 0 || offlineQueueCount > 0) {
-    const waiting = pendingSyncCount + offlineQueueCount;
+  if (waitingCount > 0) {
     return {
-      summary: `${waiting} item${waiting === 1 ? "" : "s"} waiting to sync`,
-      detail: `${waiting} piece${waiting === 1 ? "" : "s"} of work ${waiting === 1 ? "is" : "are"} waiting to sync when you are back online.${last ? ` Last synced ${last}.` : ""}`,
+      summary,
+      detail: `${waitingCount} item${waitingCount === 1 ? "" : "s"} waiting to sync.${last ? ` Last synced ${last}.` : ""}`,
       tone: "waiting",
     };
   }
   return {
-    summary: "All work saved",
-    detail: last ? `Everything looks saved. Last synced ${last}.` : "Everything looks saved and up to date.",
+    summary: "All synced",
+    detail: last ? `All synced. Last synced ${last}.` : "All synced.",
     tone: "ok",
   };
 }

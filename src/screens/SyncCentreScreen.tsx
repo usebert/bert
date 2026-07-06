@@ -78,13 +78,13 @@ export function SyncCentreScreen({
         </div>
       </section>
       <section className="grid grid-cols-2 gap-3">
-        <MiniMetric label="Queued offline submissions" value={String(offlineQueueCount)} />
-        <MiniMetric label="Tracked sync items" value={String(syncQueue.length)} />
+        <MiniMetric label="Waiting to sync" value={String(offlineQueueCount + syncQueue.filter((item) => item.status === "Pending Sync" || item.status === "Syncing").length)} />
+        <MiniMetric label="Sync failed" value={String(syncQueue.filter((item) => item.status === "Failed" || item.status === "Conflict").length)} />
       </section>
       {syncQueue.length === 0 ? (
         <EmptyPanel
-          title="No sync items waiting"
-          text="All clear — nothing queued right now. Items appear when field or admin work is waiting to upload or retry to your company sheet."
+          title="All synced"
+          text="Nothing is waiting to sync right now. Items appear here when field work is queued or needs a retry."
         />
       ) : (
         <div className="space-y-3">
