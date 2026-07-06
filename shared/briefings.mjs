@@ -92,8 +92,8 @@ export function isUsableBriefingRecipientStatus(status) {
   return !BRIEFING_EXCLUDED_RECIPIENT_STATUSES.has(normalized);
 }
 
-export function pickBriefingRecipientField(record = {}, keys = []) {
-  const keyList = Array.isArray(keys) ? keys : [keys];
+export function pickBriefingRecipientField(record = {}, ...keys) {
+  const keyList = keys.flat();
   for (const key of keyList) {
     const direct = String(record?.[key] ?? "").trim();
     if (direct) {
