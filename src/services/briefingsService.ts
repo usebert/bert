@@ -47,10 +47,13 @@ async function briefingRequest(path: string, init?: RequestInit) {
   return payload;
 }
 
-export async function fetchMyBriefings(companyFolderId: string, options: { signal?: AbortSignal } = {}) {
+export async function fetchMyBriefings(
+  companyFolderId: string,
+  options: { signal?: AbortSignal; refresh?: boolean } = {},
+) {
   const path = `/api/companies/${encodeURIComponent(companyFolderId)}/briefings/mine`;
   const dedupeKey = requestDedupeKey("GET", path);
-  if (options.signal) {
+  if (options.signal || options.refresh) {
     return briefingRequest(path, { signal: options.signal }) as Promise<BriefingMineResponse>;
   }
   return dedupeInFlight(dedupeKey, () => briefingRequest(path)) as Promise<BriefingMineResponse>;

@@ -307,18 +307,24 @@ export function computeRecipientStatus(recipient, briefing) {
   return "New";
 }
 
-export function briefingActionLabel(briefing) {
-  if (briefing?.requiresSignature) {
-    return "Sign";
+export function briefingActionLabel(recipient, briefing) {
+  if (!briefing) {
+    return "Open";
   }
-  if (briefing?.requiresAcknowledgement) {
+  if (briefing.requiresRead && !recipient?.readAt) {
+    return "Read";
+  }
+  if (briefing.requiresAcknowledgement && !recipient?.acknowledgedAt) {
     return "Acknowledge";
   }
-  if (briefing?.requiresReply) {
+  if (briefing.requiresSignature && !recipient?.signedAt) {
+    return "Sign";
+  }
+  if (briefing.requiresReply && !recipient?.replyAt) {
     return "Reply";
   }
-  if (briefing?.requiresRead) {
-    return "Read";
+  if (!recipient?.openedAt) {
+    return "Open";
   }
   return "Open";
 }
@@ -899,31 +905,60 @@ async function applyRecipientAction(auth, deps, actor, companyFolderId, briefing
   if (action === "open" && !recipient.openedAt) {
     updates.OpenedAt = timestamp;
   }
-  if (action === "read" && briefing.requiresRead) {
-    updates.ReadAt = timestamp;
-    if (!recipient.openedAt) updates.OpenedAt = timestamp;
+  if (action === "read") {
+    if (!briefing.requiresRead) {
+      return briefingApiFailure("BRIEFING_READ_NOT_REQUIRED", "This briefing does not require read confirmation.");
+    }
+    if (!recipient.readAt) {
+      updates.ReadAt = timestamp;
+      if (!recipient.openedAt) updates.OpenedAt = timestamp;
+    }
   }
-  if (action === "acknowledge" && briefing.requiresAcknowledgement) {
-    updates.AcknowledgedAt = timestamp;
-    if (!recipient.openedAt) updates.OpenedAt = timestamp;
+  if (action === "acknowledge") {
+    if (!briefing.requiresAcknowledgement) {
+      return briefingApiFailure("BRIEFING_ACK_NOT_REQUIRED", "This briefing does not require acknowledgement.");
+    }
+    if (briefing.requiresRead && !recipient.readAt) {
+      updates.ReadAt = timestamp;
+    }
+    if (!recipient.acknowledgedAt) {
+      updates.AcknowledgedAt = timestamp;
+      if (!recipient.openedAt) updates.OpenedAt = timestamp;
+    }
   }
-  if (action === "sign" && briefing.requiresSignature) {
+  if (action === "sign") {
+    if (!briefing.requiresSignature) {
+      return briefingApiFailure("BRIEFING_SIGNATURE_NOT_REQUIRED", "This briefing does not require a signature.");
+    }
     const signatureName = trim(payload.signatureName);
     if (!signatureName) {
       return briefingApiFailure("BRIEFING_SIGNATURE_REQUIRED", "Signature name is required.");
     }
-    updates.SignedAt = timestamp;
-    updates.SignatureName = signatureName;
-    if (!recipient.openedAt) updates.OpenedAt = timestamp;
+    if (briefing.requiresRead && !recipient.readAt) {
+      updates.ReadAt = timestamp;
+    }
+    if (!recipient.signedAt) {
+      updates.SignedAt = timestamp;
+      updates.SignatureName = signatureName;
+      if (!recipient.openedAt) updates.OpenedAt = timestamp;
+    }
   }
-  if (action === "reply" && briefing.requiresReply) {
+  if (action === "reply") {
+    if (!briefing.requiresReply) {
+      return briefingApiFailure("BRIEFING_REPLY_NOT_REQUIRED", "This briefing does not require a reply.");
+    }
     const replyText = trim(payload.replyText);
     if (!replyText) {
       return briefingApiFailure("BRIEFING_REPLY_REQUIRED", "Reply text is required.");
     }
-    updates.ReplyAt = timestamp;
-    updates.ReplyText = replyText;
-    if (!recipient.openedAt) updates.OpenedAt = timestamp;
+    if (briefing.requiresRead && !recipient.readAt) {
+      updates.ReadAt = timestamp;
+    }
+    if (!recipient.replyAt) {
+      updates.ReplyAt = timestamp;
+      updates.ReplyText = replyText;
+      if (!recipient.openedAt) updates.OpenedAt = timestamp;
+    }
   }
 
   if (!Object.keys(updates).length) {

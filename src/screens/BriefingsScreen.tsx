@@ -25,6 +25,7 @@ import {
   sendBriefing,
   signBriefingItem,
 } from "../services/briefingsService";
+import { briefingActionLabel, briefingActionPending } from "../utils/briefingActions";
 
 type BriefingsTab = "mine" | "send" | "tracker";
 
@@ -45,14 +46,12 @@ const TARGET_MODES: Array<{ id: BriefingTargetMode; label: string }> = [
   { id: "users", label: "Specific people" },
 ];
 
-function actionLabelForItem(item: BriefingRecipientRecord): string {
-  const briefing = item.briefing;
-  if (!briefing) return "Open";
-  if (briefing.requiresSignature && !item.signedAt) return "Sign";
-  if (briefing.requiresAcknowledgement && !item.acknowledgedAt) return "Acknowledge";
-  if (briefing.requiresReply && !item.replyAt) return "Reply";
-  if (briefing.requiresRead && !item.readAt) return "Read";
-  return "Open";
+function mergeRecipientUpdate(
+  items: BriefingRecipientRecord[],
+  briefingId: string,
+  patch: Partial<BriefingRecipientRecord>,
+): BriefingRecipientRecord[] {
+  return items.map((item) => (item.briefingId === briefingId ? { ...item, ...patch } : item));
 }
 
 export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBack }: Props) {
@@ -82,12 +81,12 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
     renewalFrequency: "None",
   });
 
-  const loadMine = useCallback(async () => {
+  const loadMine = useCallback(async (options: { refresh?: boolean } = {}) => {
     if (!companyFolderId) return;
     setLoading(true);
     setError("");
     try {
-      const result = await fetchMyBriefings(companyFolderId);
+      const result = await fetchMyBriefings(companyFolderId, { refresh: options.refresh });
       setMine(result.items || []);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Could not load briefings.");
@@ -130,17 +129,50 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
     [mine, selectedId],
   );
 
+  useEffect(() => {
+    if (selectedItem?.recipientName) {
+      setSignatureName(selectedItem.recipientName);
+    }
+  }, [selectedItem?.briefingId, selectedItem?.recipientName]);
+
   async function runAction(action: "open" | "read" | "acknowledge" | "sign" | "reply") {
     if (!selectedId || !companyFolderId) return;
+    if (action === "sign" && !signatureName.trim()) {
+      setError("Enter your name to sign.");
+      return;
+    }
+    if (action === "reply" && !replyText.trim()) {
+      setError("Enter a reply before sending.");
+      return;
+    }
     setActionBusy(true);
     setError("");
     try {
-      if (action === "open") await openBriefingItem(companyFolderId, selectedId);
-      if (action === "read") await readBriefingItem(companyFolderId, selectedId);
-      if (action === "acknowledge") await acknowledgeBriefingItem(companyFolderId, selectedId);
-      if (action === "sign") await signBriefingItem(companyFolderId, selectedId, signatureName);
-      if (action === "reply") await replyToBriefingItem(companyFolderId, selectedId, replyText);
-      await loadMine();
+      let patch: Partial<BriefingRecipientRecord> | null = null;
+      if (action === "open") {
+        const result = await openBriefingItem(companyFolderId, selectedId);
+        if (result?.recipient) patch = result.recipient as Partial<BriefingRecipientRecord>;
+      }
+      if (action === "read") {
+        const result = await readBriefingItem(companyFolderId, selectedId);
+        if (result?.recipient) patch = result.recipient as Partial<BriefingRecipientRecord>;
+      }
+      if (action === "acknowledge") {
+        const result = await acknowledgeBriefingItem(companyFolderId, selectedId);
+        if (result?.recipient) patch = result.recipient as Partial<BriefingRecipientRecord>;
+      }
+      if (action === "sign") {
+        const result = await signBriefingItem(companyFolderId, selectedId, signatureName.trim());
+        if (result?.recipient) patch = result.recipient as Partial<BriefingRecipientRecord>;
+      }
+      if (action === "reply") {
+        const result = await replyToBriefingItem(companyFolderId, selectedId, replyText.trim());
+        if (result?.recipient) patch = result.recipient as Partial<BriefingRecipientRecord>;
+      }
+      if (patch) {
+        setMine((previous) => mergeRecipientUpdate(previous, selectedId, patch as Partial<BriefingRecipientRecord>));
+      }
+      await loadMine({ refresh: true });
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Could not update briefing.");
     } finally {
@@ -290,17 +322,17 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
                   >
                     Open
                   </button>
-                  {selectedItem.briefing?.requiresRead ? (
+                  {selectedItem && briefingActionPending(selectedItem, "read") ? (
                     <button type="button" disabled={actionBusy} onClick={() => void runAction("read")} className="rounded-xl border px-3 py-2 text-xs font-semibold">
                       Read
                     </button>
                   ) : null}
-                  {selectedItem.briefing?.requiresAcknowledgement ? (
+                  {selectedItem && briefingActionPending(selectedItem, "acknowledge") ? (
                     <button type="button" disabled={actionBusy} onClick={() => void runAction("acknowledge")} className="rounded-xl border px-3 py-2 text-xs font-semibold">
                       Acknowledge
                     </button>
                   ) : null}
-                  {selectedItem.briefing?.requiresSignature ? (
+                  {selectedItem && briefingActionPending(selectedItem, "sign") ? (
                     <>
                       <input
                         value={signatureName}
@@ -313,7 +345,7 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
                       </button>
                     </>
                   ) : null}
-                  {selectedItem.briefing?.requiresReply ? (
+                  {selectedItem && briefingActionPending(selectedItem, "reply") ? (
                     <>
                       <textarea
                         value={replyText}
@@ -326,11 +358,11 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
                       </button>
                     </>
                   ) : null}
-                  {!selectedItem.briefing?.requiresRead &&
-                  !selectedItem.briefing?.requiresAcknowledgement &&
-                  !selectedItem.briefing?.requiresSignature &&
-                  !selectedItem.briefing?.requiresReply ? (
-                    <span className="text-xs text-slate-600">Action: {actionLabelForItem(selectedItem)}</span>
+                  {selectedItem && !briefingActionPending(selectedItem, "read") &&
+                  !briefingActionPending(selectedItem, "acknowledge") &&
+                  !briefingActionPending(selectedItem, "sign") &&
+                  !briefingActionPending(selectedItem, "reply") ? (
+                    <span className="text-xs text-slate-600">Action: {briefingActionLabel(selectedItem)}</span>
                   ) : null}
                 </div>
               </div>

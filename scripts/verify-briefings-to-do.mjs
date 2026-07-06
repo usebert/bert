@@ -28,6 +28,7 @@ import {
   signBriefing,
   replyToBriefing,
   recipientNeedsAction,
+  briefingActionLabel,
   validateBriefingCreateInput,
   actorCanAccessCompanyBriefings,
   briefingApiFailure,
@@ -96,6 +97,18 @@ assert(coreRoutes.includes("briefingRouteError"), "API: standardized briefing er
 const briefingsServiceTs = read("src/services/briefingsService.ts");
 assert(briefingsServiceTs.includes("payload?.error || payload?.message"), "CLIENT: prefers backend error field");
 assert(briefingsServiceTs.includes("payload?.details"), "CLIENT: appends backend details");
+assert(briefingsServiceTs.includes("refresh"), "CLIENT: mine fetch supports refresh after actions");
+
+const briefingsScreenTs = read("src/screens/BriefingsScreen.tsx");
+assert(briefingsScreenTs.includes("briefingActionPending"), "UI: briefing actions use pending checks");
+assert(briefingsScreenTs.includes("refresh: true"), "UI: reload mine after actions bypasses dedupe");
+
+const briefingActionsTs = read("src/utils/briefingActions.ts");
+assert(briefingActionsTs.includes("requiresRead && !item.readAt"), "UI: action order starts with read");
+assert(
+  briefingActionsTs.indexOf("requiresAcknowledgement") < briefingActionsTs.indexOf("requiresSignature"),
+  "UI: acknowledge precedes sign in action order",
+);
 
 const briefingTodoCatch = appTsx.slice(
   appTsx.indexOf("dashboardBriefingsPreviewKeyRef.current = previewKey"),
@@ -281,11 +294,47 @@ assert(opened.ok && opened.recipient.openedAt, "FLOW: OpenedAt recorded");
 const readResult = await readBriefing({}, mockDeps, auditorActor, companyFolderId, briefingId);
 assert(readResult.ok && readResult.recipient.readAt, "FLOW: ReadAt recorded");
 
-const ackResult = await acknowledgeBriefing({}, mockDeps, auditorActor, companyFolderId, briefingId);
+const ackResult = await acknowledgeBriefing({ }, mockDeps, auditorActor, companyFolderId, briefingId);
 assert(ackResult.ok && ackResult.recipient.acknowledgedAt, "FLOW: AcknowledgedAt recorded");
 
 const briefing = mapBriefingRecord(briefingStore.find((entry) => entry.BriefingId === briefingId));
+assert(briefingActionLabel(ackResult.recipient, briefing) === "Open", "FLOW: action label follows workflow order");
 assert(!recipientNeedsAction(ackResult.recipient, briefing), "FLOW: completed briefing not active");
+
+const multiActionBriefingId = "BRF-2026-4004";
+briefingStore.push(
+  buildBriefingRow({
+    briefingId: multiActionBriefingId,
+    title: "Read then sign",
+    type: "Policy",
+    targetMode: "users",
+    requiresRead: true,
+    requiresAcknowledgement: true,
+    requiresSignature: true,
+    createdByEmail: "manager@test.co",
+    recipientCount: 1,
+  }),
+);
+recipientStore.push(
+  buildRecipientRow({
+    briefingId: multiActionBriefingId,
+    recipientEmail: "auditor@test.co",
+    recipientName: "Auditor One",
+    status: "New",
+  }),
+);
+const multiBriefing = mapBriefingRecord(briefingStore.find((entry) => entry.BriefingId === multiActionBriefingId));
+const multiRead = await readBriefing({}, mockDeps, auditorActor, companyFolderId, multiActionBriefingId);
+assert(multiRead.ok && multiRead.recipient.readAt, "FLOW: multi-action read recorded");
+assert(briefingActionLabel(multiRead.recipient, multiBriefing) === "Acknowledge", "FLOW: after read next action is acknowledge");
+const multiAck = await acknowledgeBriefing({}, mockDeps, auditorActor, companyFolderId, multiActionBriefingId);
+assert(multiAck.ok && multiAck.recipient.acknowledgedAt, "FLOW: multi-action acknowledge recorded");
+assert(briefingActionLabel(multiAck.recipient, multiBriefing) === "Sign", "FLOW: after acknowledge next action is sign");
+const multiSign = await signBriefing({}, mockDeps, auditorActor, companyFolderId, multiActionBriefingId, {
+  signatureName: "Auditor One",
+});
+assert(multiSign.ok && multiSign.recipient.signedAt, "FLOW: multi-action sign recorded after read");
+assert(!recipientNeedsAction(multiSign.recipient, multiBriefing), "FLOW: multi-action briefing complete");
 
 const todoAfter = await listBriefingsTodoPreview({}, mockDeps, auditorActor, companyFolderId, 5);
 assert((todoAfter.items || []).every((item) => item.briefingId !== briefingId), "FLOW: completed briefing removed from active todo");

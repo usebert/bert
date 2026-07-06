@@ -1,6 +1,7 @@
 import type { AuditDraft } from "../types/dashboardScreenProps";
 import type { Audit } from "../types/reportsScreenProps";
 import type { BriefingRecipientRecord, DashboardToDoItem } from "../types/briefings";
+import { briefingActionLabel } from "./briefingActions";
 import {
   filterAssignedChecksForThingsToDo,
   sortAssignedChecksForAction,
@@ -51,26 +52,6 @@ function briefingGroup(item: BriefingRecipientRecord): DashboardToDoItem["group"
     return "waiting";
   }
   return "waiting";
-}
-
-function briefingActionLabel(item: BriefingRecipientRecord): string {
-  const briefing = item.briefing;
-  if (!briefing) {
-    return "Open";
-  }
-  if (briefing.requiresSignature && !item.signedAt) {
-    return "Sign";
-  }
-  if (briefing.requiresAcknowledgement && !item.acknowledgedAt) {
-    return "Acknowledge";
-  }
-  if (briefing.requiresReply && !item.replyAt) {
-    return "Reply";
-  }
-  if (briefing.requiresRead && !item.readAt) {
-    return "Read";
-  }
-  return "Open";
 }
 
 export function buildDashboardToDoItems(input: {
