@@ -4671,6 +4671,15 @@ function App() {
     () => [...syncQueue, ...offlineQueue.map(offlineSubmissionToSyncQueueItem)],
     [syncQueue, offlineQueue],
   );
+  const syncCentreWaitingCount = useMemo(
+    () => syncCentreQueue.filter((item) => item.status === "Pending Sync" || item.status === "Syncing").length,
+    [syncCentreQueue],
+  );
+  const syncCentreFailedCount = useMemo(
+    () => syncCentreQueue.filter((item) => item.status === "Failed" || item.status === "Conflict").length,
+    [syncCentreQueue],
+  );
+  const syncCentreBadgeCount = syncCentreWaitingCount + syncCentreFailedCount;
   const unsyncedSubmittedAuditIds = useMemo(
     () =>
       new Set(
@@ -4934,6 +4943,12 @@ function App() {
     }
     return getMobileBottomNavForRole(currentUser.role);
   }, [currentUser]);
+  const navLabelForItem = (item: { id: string; label: string }) => {
+    if (item.id !== "sync") {
+      return item.label;
+    }
+    return syncCentreBadgeCount > 0 ? `Sync Centre (${syncCentreBadgeCount})` : "Sync Centre";
+  };
 
   const showSiteSelectorForRole = currentUser ? (roleSiteSelectorVisibility[currentUser.role] ?? true) : true;
   const showHeaderSiteSelector =
@@ -11900,10 +11915,11 @@ function App() {
       }).catch(() => {
         submissionInFlightKeysRef.current.delete(submitKey);
       });
+      pushToast("Added to queue", queueAddedMessage({ online: false }), "warning");
       finishCompletionSummary({
         issues: issuesFound,
         syncTone: "amber",
-        syncLabel: queueAddedMessage({ online: false, hasEvidence: photosCaptured > 0 }),
+        syncLabel: queueAddedMessage({ online: false }),
       });
       return;
     }
@@ -16113,7 +16129,7 @@ function App() {
                     title={item.label}
                   >
                     <AppIcon name={item.icon} className="h-4 w-4 shrink-0 opacity-95" />
-                    {!desktopSidebarCollapsed && <span className="truncate">{item.label}</span>}
+                    {!desktopSidebarCollapsed && <span className="truncate">{navLabelForItem(item)}</span>}
                   </button>
                 );
               })}
@@ -16155,7 +16171,7 @@ function App() {
                             ].join(" ")}
                           >
                             <AppIcon name={item.icon} className="h-3.5 w-3.5 shrink-0 opacity-90" />
-                            <span className="truncate">{item.label}</span>
+                            <span className="truncate">{navLabelForItem(item)}</span>
                           </button>
                         );
                       })}
@@ -17625,7 +17641,7 @@ function App() {
                         className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-left text-sm font-semibold text-slate-800"
                       >
                         <AppIcon name={item.icon} className="h-4 w-4 shrink-0" />
-                        <span className="truncate">{item.label}</span>
+                        <span className="truncate">{navLabelForItem(item)}</span>
                       </button>
                     ))}
                   </div>

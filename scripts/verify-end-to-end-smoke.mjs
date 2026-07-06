@@ -155,10 +155,10 @@ assert(
 // ─── C. Declutter — company roles clean; Godmode diagnostics collapsed ───────
 
 assert(uxDeclutter.includes('role === "Master"') && uxDeclutter.includes("canShowTechnicalUi"), "C1: technical UI Master-only");
-assert(!roleNav.includes('companyAdmin: ["qmsReadiness"') || roleNav.includes("companyAdmin: []"), "C2: company admin no More clutter");
-assert(roleNav.includes("manager: []") && roleNav.includes("auditor: []"), "C3: manager/auditor no More clutter");
+assert(!roleNav.includes('companyAdmin: ["qmsReadiness"') && roleNav.includes('companyAdmin: ["sync"]'), "C2: company admin more keeps sync only");
+assert(roleNav.includes('manager: ["sync"]') && roleNav.includes('auditor: ["sync"]'), "C3: manager/auditor more exposes sync");
 assert(!roleNav.match(/COMPANY_ADMIN_NAV[\s\S]*?id: "admin"/), "C4: company admin nav has no workspace tab");
-assert(!roleNav.match(/AUDITOR_NAV[\s\S]*?id: "sync"/), "C5: auditor nav has no sync tab");
+assert(!roleNav.match(/AUDITOR_NAV[\s\S]*?id: "sync"/), "C5: auditor sync stays under More (not primary)");
 assert(godmodePanel.includes("Advanced diagnostics") && godmodePanel.includes("useState(false)"), "C6: godmode diagnostics collapsed by default");
 assert(schedulesScreen.includes("Advanced diagnostics") && schedulesScreen.includes("useState(false)"), "C7: schedule diagnostics collapsed by default");
 assert(

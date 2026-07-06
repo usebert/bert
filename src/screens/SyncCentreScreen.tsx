@@ -24,6 +24,27 @@ function syncTrustLabel(status: SyncStatus): string {
   return status;
 }
 
+function queueItemTypeLabel(itemType: string): string {
+  if (itemType === "auditCompletion") return "Check completion";
+  if (itemType === "auditSubmission") return "Audit submission";
+  if (itemType === "incidentReport") return "Incident report";
+  if (itemType === "actionUpdate") return "Action update";
+  if (itemType === "briefingCreate") return "Briefing created";
+  if (itemType === "briefingAck") return "Briefing acknowledgement";
+  return "Queued item";
+}
+
+function queueTimeLabel(value: string): string {
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) {
+    return value;
+  }
+  return new Intl.DateTimeFormat("en-GB", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(parsed));
+}
+
 function SyncCentreAppIcon({ name, className = "h-5 w-5" }: { name: string; className?: string }) {
   const shared = {
     viewBox: "0 0 24 24",
@@ -78,8 +99,8 @@ export function SyncCentreScreen({
         </div>
       </section>
       <section className="grid grid-cols-2 gap-3">
-        <MiniMetric label="Waiting to sync" value={String(syncQueue.filter((item) => item.status === "Pending Sync" || item.status === "Syncing").length)} />
-        <MiniMetric label="Sync failed" value={String(syncQueue.filter((item) => item.status === "Failed" || item.status === "Conflict").length)} />
+        <MiniMetric label="Waiting" value={String(syncQueue.filter((item) => item.status === "Pending Sync" || item.status === "Syncing").length)} />
+        <MiniMetric label="Failed" value={String(syncQueue.filter((item) => item.status === "Failed" || item.status === "Conflict").length)} />
       </section>
       {syncQueue.length === 0 ? (
         <EmptyPanel
@@ -92,11 +113,10 @@ export function SyncCentreScreen({
             <section key={item.id} className="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-slate-900">{item.itemType}</p>
-                  <p className="mt-1 text-xs text-slate-500">Reference: {item.localId}</p>
+                  <p className="text-sm font-semibold text-slate-900">{queueItemTypeLabel(item.itemType)}</p>
                   <p className="mt-1 text-xs text-slate-500">
-                    Created {item.createdAt}
-                    {item.attemptedAt ? ` · Last attempt ${item.attemptedAt}` : ""} · Updated {item.updatedAt}
+                    Created {queueTimeLabel(item.createdAt)}
+                    {item.attemptedAt ? ` · Last attempt ${queueTimeLabel(item.attemptedAt)}` : ""} · Updated {queueTimeLabel(item.updatedAt)}
                   </p>
                   {item.lastError ? <p className="mt-2 text-xs font-semibold text-rose-600">{item.lastError}</p> : null}
                 </div>
@@ -106,7 +126,7 @@ export function SyncCentreScreen({
                 <div className="rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-500">Retries {item.retryCount}</div>
                 {(item.status === "Failed" || item.status === "Conflict") && (
                   <AnimatedButton type="button" onClick={() => onRetryItem(item.localId)} className={`rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white ${slatePrimaryCtaInteract}`}>
-                    Retry sync
+                    Retry failed
                   </AnimatedButton>
                 )}
                 {permissions.canRepairWorkspace && <button onClick={() => onForceSyncItem(item.localId)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800">Force sync</button>}

@@ -28,6 +28,8 @@ const messages = read("src/utils/submissionQueueMessages.ts");
 const bridge = read("src/utils/submissionQueueBridge.ts");
 const types = read("src/types/submissionQueue.ts");
 const syncCentre = read("src/screens/SyncCentreScreen.tsx");
+const roleNavigation = read("src/config/roleNavigation.ts");
+const permissions = read("src/permissions.ts");
 const serviceWorker = read("public/service-worker.js");
 const manifest = read("public/manifest.webmanifest");
 const mainTsx = read("src/main.tsx");
@@ -72,6 +74,10 @@ assert(appTsx.includes("listActiveItemsForSession"), "APP: session-scoped queue 
 assert(appTsx.includes("isSubmissionReadyForRetry"), "APP: respects retry backoff");
 assert(appTsx.includes("offlineSubmissionToSyncQueueItem"), "APP: offline items in Sync Centre");
 assert(appTsx.includes("syncCentreQueue"), "APP: merged Sync Centre queue");
+assert(appTsx.includes('screen === "sync"'), "APP: sync route guard present");
+assert(appTsx.includes("navLabelForItem"), "APP: sync nav label helper");
+assert(appTsx.includes("syncCentreBadgeCount"), "APP: sync nav badge count");
+assert(appTsx.includes('pushToast("Added to queue", queueAddedMessage({ online: false }), "warning")'), "APP: check flow immediate queue feedback");
 assert(appTsx.includes("setSyncQueue([])"), "APP: logout clears in-memory sync queue");
 assert(appTsx.includes("setOfflineQueue([])"), "APP: logout clears in-memory offline queue");
 assert(/addEventListener\("online"/.test(appTsx), "APP: reconnect listener");
@@ -82,6 +88,14 @@ assert(bridge.includes("offlineSubmissionToSyncQueueItem"), "BRIDGE: offline to 
 
 assert(read("src/components/animation/OfflineSyncBanner.tsx").includes("queueIndicatorSummary"), "UI: banner uses queue indicator");
 assert(syncCentre.includes("All synced"), "UI: sync centre empty state");
+assert(syncCentre.includes("Retry failed"), "UI: retry failed action label");
+assert(syncCentre.includes("queueItemTypeLabel"), "UI: sync centre item type labels");
+assert(syncCentre.includes("queueTimeLabel"), "UI: sync centre timestamps");
+assert(roleNavigation.includes('companyAdmin: ["sync"]'), "NAV: company admin sync in main nav");
+assert(roleNavigation.includes('manager: ["sync"]'), "NAV: manager sync in main nav");
+assert(roleNavigation.includes('auditor: ["sync"]'), "NAV: auditor sync in main nav");
+assert(permissions.includes('if (itemId === "sync")'), "PERM: sync nav gate exists");
+assert(permissions.includes('role === "Master" || role === "Admin" || role === "Manager" || role === "Auditor"'), "PERM: sync visible to main field roles");
 
 assert(manifest.includes('"display": "standalone"'), "PWA: standalone manifest");
 assert(manifest.includes("start_url"), "PWA: start_url");

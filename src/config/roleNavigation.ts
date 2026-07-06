@@ -84,9 +84,9 @@ const AUDITOR_NAV: PresentedNavItem[] = [
 
 const MORE_BY_BUCKET: Record<RoleNavBucket, NavItemId[]> = {
   master: ["qmsReadiness", "emailReminders"],
-  companyAdmin: [],
-  manager: [],
-  auditor: [],
+  companyAdmin: ["sync"],
+  manager: ["sync"],
+  auditor: ["sync"],
 };
 
 /** Sidebar nav id for Complete Work / My Checks (Forms & checks page). */
