@@ -41,6 +41,7 @@ const MASTER_NAV: PresentedNavItem[] = [
   { id: "briefings", label: "Briefings", icon: "note" },
   { id: "results", label: "Results", icon: "checklist" },
   { id: "reports", label: "Reports / Diagnostics", icon: "chart" },
+  { id: "sync", label: "Sync Centre", icon: "sync" },
   { id: "account", label: "Account", icon: "user" },
   { id: "setupInitial", label: "Tablet / Kiosk", icon: "shield" },
 ];
@@ -57,6 +58,7 @@ const COMPANY_ADMIN_NAV: PresentedNavItem[] = [
   { id: "incidents", label: "Incidents", icon: "warningTriangle" },
   { id: "nonConformance", label: "NCRs", icon: "checklist" },
   { id: "reports", label: "Reports", icon: "chart" },
+  { id: "sync", label: "Sync Centre", icon: "sync" },
   { id: "account", label: "Account", icon: "user" },
 ];
 
@@ -71,6 +73,7 @@ const MANAGER_NAV: PresentedNavItem[] = [
   { id: "incidents", label: "Incidents", icon: "warningTriangle" },
   { id: "nonConformance", label: "NCRs", icon: "checklist" },
   { id: "reports", label: "Reports", icon: "chart" },
+  { id: "sync", label: "Sync Centre", icon: "sync" },
   { id: "account", label: "Account", icon: "user" },
 ];
 
@@ -79,14 +82,15 @@ const AUDITOR_NAV: PresentedNavItem[] = [
   { id: "auditCentre", label: "Audit Centre", icon: "clipboard" },
   { id: "briefings", label: "Briefings", icon: "note" },
   { id: "incidents", label: "Incidents", icon: "warningTriangle" },
+  { id: "sync", label: "Sync Centre", icon: "sync" },
   { id: "account", label: "Account", icon: "user" },
 ];
 
 const MORE_BY_BUCKET: Record<RoleNavBucket, NavItemId[]> = {
   master: ["qmsReadiness", "emailReminders"],
-  companyAdmin: ["sync"],
-  manager: ["sync"],
-  auditor: ["sync"],
+  companyAdmin: [],
+  manager: [],
+  auditor: [],
 };
 
 /** Sidebar nav id for Complete Work / My Checks (Forms & checks page). */

@@ -113,4 +113,19 @@ assert(appTsx.includes('setScreen("auditCentre")'), "App sets auditCentre screen
 assert(appTsx.includes("onBackToAuditCentre={handleNavigateToAuditCentre}"), "child screens wired to Audit Centre back");
 assert(appTsx.includes("onBackToAuditCentre={handleBackToAuditCentreFromCheck}"), "check completion saves and returns to Audit Centre");
 
+function assertPrimaryNavIncludesSync(navBlockName) {
+  const block = roleNav.match(new RegExp(`const ${navBlockName}[\\s\\S]*?\\];`))?.[0] ?? "";
+  assert(block.includes('id: "sync", label: "Sync Centre"'), `${navBlockName} primary nav includes Sync Centre`);
+}
+
+assertPrimaryNavIncludesSync("MASTER_NAV");
+assertPrimaryNavIncludesSync("COMPANY_ADMIN_NAV");
+assertPrimaryNavIncludesSync("MANAGER_NAV");
+assertPrimaryNavIncludesSync("AUDITOR_NAV");
+
+assert(roleNav.includes("companyAdmin: []") && roleNav.includes("manager: []") && roleNav.includes("auditor: []"), "sync not duplicated in More bucket");
+assert(appTsx.includes('setScreen(item.id)') && appTsx.includes('screen === "sync"'), "sync route opens from sidebar");
+assert(appTsx.includes("navLabelForItem") && appTsx.includes("syncCentreBadgeCount"), "sync nav badge when pending/failed");
+assert(roleNav.includes('id: "dashboard"') && roleNav.includes('id: "briefings"') && roleNav.includes('id: "reports"'), "existing nav items remain");
+
 console.log(`[verify:navigation] ${checks} checks OK`);

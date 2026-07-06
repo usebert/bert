@@ -91,9 +91,10 @@ assert(syncCentre.includes("All synced"), "UI: sync centre empty state");
 assert(syncCentre.includes("Retry failed"), "UI: retry failed action label");
 assert(syncCentre.includes("queueItemTypeLabel"), "UI: sync centre item type labels");
 assert(syncCentre.includes("queueTimeLabel"), "UI: sync centre timestamps");
-assert(roleNavigation.includes('companyAdmin: ["sync"]'), "NAV: company admin sync in main nav");
-assert(roleNavigation.includes('manager: ["sync"]'), "NAV: manager sync in main nav");
-assert(roleNavigation.includes('auditor: ["sync"]'), "NAV: auditor sync in main nav");
+assert(roleNavigation.match(/MASTER_NAV[\s\S]*?id: "sync", label: "Sync Centre"/), "NAV: master sync in primary nav");
+assert(roleNavigation.match(/COMPANY_ADMIN_NAV[\s\S]*?id: "sync", label: "Sync Centre"/), "NAV: company admin sync in primary nav");
+assert(roleNavigation.match(/MANAGER_NAV[\s\S]*?id: "sync", label: "Sync Centre"/), "NAV: manager sync in primary nav");
+assert(roleNavigation.match(/AUDITOR_NAV[\s\S]*?id: "sync", label: "Sync Centre"/), "NAV: auditor sync in primary nav");
 assert(permissions.includes('if (itemId === "sync")'), "PERM: sync nav gate exists");
 assert(permissions.includes('role === "Master" || role === "Admin" || role === "Manager" || role === "Auditor"'), "PERM: sync visible to main field roles");
 
