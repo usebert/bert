@@ -394,8 +394,9 @@ assert(everyoneSent.recipientCount >= 2, "EVERYONE: expands to company users");
 
 const emptyUsersDeps = {
   ...mockDeps,
-  readUsersTabProfiles: async () => ({ ok: true, profiles: [] }),
 };
+peopleTabRows = [];
+usersTabRows = [];
 const noRecipients = await createAndSendBriefing({}, emptyUsersDeps, managerActor, companyFolderId, {
   title: "Nobody home",
   type: "Notice",
@@ -403,7 +404,40 @@ const noRecipients = await createAndSendBriefing({}, emptyUsersDeps, managerActo
 });
 assert(!noRecipients.ok, "ERR: everyone with no users fails");
 assert(noRecipients.error && noRecipients.error.includes("No recipients"), "ERR: clear error message");
+assert(noRecipients.details && noRecipients.details.includes("tabs checked"), "ERR: empty workbook includes tabs checked");
 assert(!noRecipients.technicalError, "ERR: no technical leak");
+
+peopleTabRows = [
+  { PersonEmail: "people.admin@test.co", DisplayName: "People Admin", Roles: "Admin", UserStatus: "ACTIVE" },
+  { PersonEmail: "people.auditor@test.co", DisplayName: "People Auditor", Roles: "Auditor", UserStatus: "enabled" },
+];
+usersTabRows = [];
+const peopleExpanded = expandBriefingRecipientProfilesFromRecords(peopleTabRows);
+assert(peopleExpanded.length === 2, "EVERYONE: People tab expands valid profiles");
+assert(peopleExpanded.some((row) => row.email === "people.admin@test.co"), "EVERYONE: People tab reads PersonEmail");
+
+peopleTabRows = [];
+usersTabRows = [
+  { UserEmail: "users.manager@test.co", FullName: "Users Manager", Role: "Manager", Status: "Active" },
+  { UserEmail: "users.blank@test.co", FullName: "Legacy Blank", Role: "User", Status: "" },
+];
+const usersExpanded = expandBriefingRecipientProfilesFromRecords(usersTabRows);
+assert(usersExpanded.length === 2, "EVERYONE: Users fallback expands valid profiles");
+assert(usersExpanded.some((row) => row.email === "users.blank@test.co"), "STATUS: blank legacy status accepted");
+
+assert(isUsableBriefingRecipientStatus("ACTIVE"), "STATUS: ACTIVE casing accepted");
+assert(isUsableBriefingRecipientStatus("enabled"), "STATUS: enabled accepted");
+assert(!isUsableBriefingRecipientStatus("disabled"), "STATUS: disabled excluded");
+assert(!isUsableBriefingRecipientStatus("revoked"), "STATUS: revoked excluded");
+assert(!isUsableBriefingRecipientStatus("inactive"), "STATUS: inactive excluded");
+
+const deduped = expandBriefingRecipientProfilesFromRecords([
+  { Email: "dup@test.co", Name: "One", Status: "active" },
+  { email: "dup@test.co", Name: "Duplicate", Status: "ACTIVE" },
+]);
+assert(deduped.length === 1 && deduped[0].email === "dup@test.co", "DEDUPE: duplicate emails collapsed");
+
+assert(mapRecordToBriefingRecipientProfile({ Name: "No Email", Status: "active" }) === null, "EMAIL: missing email rows skipped");
 
 const failureShape = briefingApiFailure("TEST_CODE", "Safe user message", "Optional detail");
 assert(failureShape.ok === false && failureShape.error === "Safe user message", "ERR: briefingApiFailure shape");
