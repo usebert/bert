@@ -5,8 +5,16 @@ export const MOTION_CARD_DURATION_MS = 300;
 export const MOTION_CARD_STAGGER_MS = 60;
 
 export const bertScreenEnter = "bert-screen-enter";
+export const bertSectionEnter = "bert-section-enter";
 export const bertCardEnter = "bert-card-enter";
 export const bertPressable = "bert-pressable";
+export const bertBtnInteractive = "bert-btn-interactive";
+export const bertCardInteractive = "bert-card-interactive";
+export const bertRowInteractive = "bert-row-interactive";
+export const bertTabPanel = "bert-tab-panel";
+export const bertTabTrigger = "bert-tab-trigger";
+export const bertNavItem = "bert-nav-item";
+export const bertLoadingPulse = "bert-loading-pulse";
 export const bertArrowNudge = "bert-arrow-nudge";
 export const bertFadeIn = "bert-fade-in";
 export const bertEvidencePanel = "bert-evidence-panel-enter";

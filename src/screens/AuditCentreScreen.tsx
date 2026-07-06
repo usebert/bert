@@ -10,6 +10,7 @@ import type { NavItemId } from "../types/navigation";
 import { getRoleTheme } from "../config/roleTheme";
 import { SectionIntro } from "../components/SectionIntro";
 import { AnimatedButton } from "../components/animation/AnimatedButton";
+import { bertSectionEnter } from "../components/animation/animationClasses";
 
 type AuditCentreCard = {
   id: string;
@@ -75,7 +76,7 @@ export function AuditCentreScreen({ role, onNavigate }: Props) {
   const cards = buildCards(role);
 
   return (
-    <div className="space-y-4">
+    <div className={["space-y-4", bertSectionEnter].join(" ")}>
       <section className="rounded-[1.75rem] border border-slate-200/90 bg-white p-5 shadow-sm">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Audit Centre</h1>
         <SectionIntro

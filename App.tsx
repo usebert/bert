@@ -15950,7 +15950,7 @@ function App() {
                       setScreen(item.id);
                     }}
                     className={[
-                      "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold transition",
+                      "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold bert-nav-item transition",
                       selected
                         ? roleTheme?.navActive ?? "bg-[var(--bert-signal-orange)] text-[var(--qms-navy-950)]"
                         : roleTheme?.navHover ?? "text-slate-200 hover:bg-white/8 hover:text-white",
@@ -15969,7 +15969,7 @@ function App() {
                     type="button"
                     onClick={() => setShellMoreExpanded((current) => !current)}
                     className={[
-                      "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold transition",
+                      "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold bert-nav-item transition",
                       shellMoreExpanded || moreNavItems.some((item) => item.id === screen)
                         ? roleTheme?.navMoreActive ?? "border border-orange-400/40 bg-orange-500/15 text-orange-100"
                         : roleTheme?.navHover ?? "text-slate-300 hover:bg-white/8 hover:text-white",
@@ -15994,7 +15994,7 @@ function App() {
                               setMobileMoreOpen(false);
                             }}
                             className={[
-                              "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold transition",
+                              "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold bert-nav-item transition",
                               selected
                                 ? roleTheme?.navSubActive ?? "bg-sky-500/20 text-sky-100"
                                 : roleTheme?.navSubHover ?? "text-slate-400 hover:bg-white/6 hover:text-slate-100",

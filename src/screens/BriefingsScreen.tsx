@@ -1,4 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  bertBtnInteractive,
+  bertRowInteractive,
+  bertSectionEnter,
+  bertTabPanel,
+  bertTabTrigger,
+} from "../components/animation/animationClasses";
 import type { Role } from "../permissions";
 import { canManageBriefings } from "../permissions";
 import type {
@@ -171,10 +178,14 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 p-4 pb-24">
+    <div className={["mx-auto max-w-5xl space-y-6 p-4 pb-24", bertSectionEnter].join(" ")}>
       <header className="space-y-2">
         {onBack ? (
-          <button type="button" onClick={onBack} className="text-sm font-semibold text-slate-600">
+          <button
+            type="button"
+            onClick={onBack}
+            className={["text-sm font-semibold text-slate-600", bertBtnInteractive].join(" ")}
+          >
             ← Back
           </button>
         ) : null}
@@ -186,7 +197,11 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
         <button
           type="button"
           onClick={() => setTab("mine")}
-          className={["rounded-xl px-4 py-2 text-sm font-semibold", tab === "mine" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700"].join(" ")}
+          className={[
+            "rounded-xl px-4 py-2 text-sm font-semibold",
+            bertTabTrigger,
+            tab === "mine" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700",
+          ].join(" ")}
         >
           My briefings
         </button>
@@ -195,14 +210,22 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
             <button
               type="button"
               onClick={() => setTab("send")}
-              className={["rounded-xl px-4 py-2 text-sm font-semibold", tab === "send" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700"].join(" ")}
+              className={[
+                "rounded-xl px-4 py-2 text-sm font-semibold",
+                bertTabTrigger,
+                tab === "send" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700",
+              ].join(" ")}
             >
               Send briefing
             </button>
             <button
               type="button"
               onClick={() => setTab("tracker")}
-              className={["rounded-xl px-4 py-2 text-sm font-semibold", tab === "tracker" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700"].join(" ")}
+              className={[
+                "rounded-xl px-4 py-2 text-sm font-semibold",
+                bertTabTrigger,
+                tab === "tracker" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700",
+              ].join(" ")}
             >
               Tracker
             </button>
@@ -214,7 +237,7 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
       {sendMessage ? <p className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{sendMessage}</p> : null}
 
       {tab === "mine" ? (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div key="mine" className={["grid gap-4 lg:grid-cols-2", bertTabPanel].join(" ")}>
           <section className="rounded-2xl border border-slate-200 bg-white p-4">
             <h2 className="text-lg font-bold text-slate-900">Assigned to you</h2>
             {loading && mine.length === 0 ? <p className="mt-3 text-sm text-slate-600">Loading…</p> : null}
@@ -227,6 +250,7 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
                     onClick={() => setSelectedId(item.briefingId)}
                     className={[
                       "w-full rounded-xl border px-3 py-3 text-left",
+                      bertRowInteractive,
                       selectedId === item.briefingId ? "border-slate-900 bg-slate-50" : "border-slate-200 bg-white",
                     ].join(" ")}
                   >
@@ -262,7 +286,7 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
                     type="button"
                     disabled={actionBusy}
                     onClick={() => void runAction("open")}
-                    className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
+                    className={["rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white", bertBtnInteractive].join(" ")}
                   >
                     Open
                   </button>
@@ -316,7 +340,7 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
       ) : null}
 
       {tab === "send" && canManage ? (
-        <form onSubmit={handleSendBriefing} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4">
+        <form key="send" onSubmit={handleSendBriefing} className={["space-y-4 rounded-2xl border border-slate-200 bg-white p-4", bertTabPanel].join(" ")}>
           <h2 className="text-lg font-bold text-slate-900">Send briefing</h2>
           <label className="block space-y-1">
             <span className="text-sm font-semibold">Title</span>
@@ -442,14 +466,14 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
               className="w-full rounded-xl border px-3 py-2"
             />
           </label>
-          <button type="submit" disabled={sendBusy} className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">
+          <button type="submit" disabled={sendBusy} className={["rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white", bertBtnInteractive].join(" ")}>
             {sendBusy ? "Sending…" : "Send briefing"}
           </button>
         </form>
       ) : null}
 
       {tab === "tracker" && canManage ? (
-        <section className="rounded-2xl border border-slate-200 bg-white p-4">
+        <section key="tracker" className={["rounded-2xl border border-slate-200 bg-white p-4", bertTabPanel].join(" ")}>
           <h2 className="text-lg font-bold text-slate-900">Tracker</h2>
           {loading && tracker.length === 0 ? <p className="mt-3 text-sm text-slate-600">Loading…</p> : null}
           {!loading && tracker.length === 0 ? <p className="mt-3 text-sm text-slate-600">No briefings sent yet.</p> : null}

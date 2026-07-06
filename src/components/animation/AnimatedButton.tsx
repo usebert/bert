@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { bertArrowNudge, bertPressable } from "./animationClasses";
+import { bertArrowNudge, bertBtnInteractive } from "./animationClasses";
 import { usePrefersReducedMotion } from "./usePrefersReducedMotion";
 
 type Props = ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -26,7 +26,7 @@ export function AnimatedButton({
       disabled={isDisabled}
       className={[
         "inline-flex items-center justify-center gap-2",
-        reducedMotion ? "transition-opacity duration-150" : bertPressable,
+        reducedMotion ? "transition-opacity duration-150" : bertBtnInteractive,
         showArrow && !reducedMotion ? `group ${bertArrowNudge}` : "",
         isDisabled ? "cursor-not-allowed opacity-60" : "",
         className,

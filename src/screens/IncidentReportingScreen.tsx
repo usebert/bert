@@ -367,9 +367,9 @@ export function IncidentReportingScreen({
               <p className={["mt-2", darkPanelBody].join(" ")}>Mobile-first reporting plus register, investigation workflow, corrective actions, and dashboard.</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => setView("report")} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${view === "report" ? theme.tabActiveOnDark : theme.tabInactiveOnDark}`}>Report form</button>
-              <button type="button" onClick={() => setView("register")} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${view === "register" ? theme.tabActiveOnDark : theme.tabInactiveOnDark}`}>Incident register</button>
-              <button type="button" onClick={() => setView("dashboard")} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${view === "dashboard" ? theme.tabActiveOnDark : theme.tabInactiveOnDark}`}>Dashboard</button>
+              <button type="button" onClick={() => setView("report")} className={`bert-tab-trigger rounded-xl border px-3 py-2 text-xs font-semibold ${view === "report" ? theme.tabActiveOnDark : theme.tabInactiveOnDark}`}>Report form</button>
+              <button type="button" onClick={() => setView("register")} className={`bert-tab-trigger rounded-xl border px-3 py-2 text-xs font-semibold ${view === "register" ? theme.tabActiveOnDark : theme.tabInactiveOnDark}`}>Incident register</button>
+              <button type="button" onClick={() => setView("dashboard")} className={`bert-tab-trigger rounded-xl border px-3 py-2 text-xs font-semibold ${view === "dashboard" ? theme.tabActiveOnDark : theme.tabInactiveOnDark}`}>Dashboard</button>
             </div>
           </div>
           <p className="mt-3 text-xs text-slate-400">QR reporting link: <span className="font-semibold text-slate-200">{`${window.location.origin}/?screen=incidents`}</span></p>
@@ -470,7 +470,7 @@ export function IncidentReportingScreen({
                   </tr>
                 ) : (
                   filteredIncidents.map((item) => (
-                    <tr key={item.id} onClick={() => setSelectedIncidentId(item.id)} className="cursor-pointer border-t border-slate-200 hover:bg-slate-50">
+                    <tr key={item.id} onClick={() => setSelectedIncidentId(item.id)} className="bert-row-interactive cursor-pointer border-t border-slate-200 hover:bg-slate-50">
                       <td className="px-2 py-2 font-semibold">{item.incidentId}</td><td className="px-2 py-2">{item.incidentDate} {item.incidentTime}</td><td className="px-2 py-2">{item.incidentType}</td><td className="px-2 py-2">{item.severity}</td><td className="px-2 py-2">{item.reporterName}</td><td className="px-2 py-2">{item.department}</td><td className="px-2 py-2">{item.location}</td><td className="px-2 py-2">{item.status}</td><td className="px-2 py-2" onClick={(event) => event.stopPropagation()}><IncidentAssigneeSelect incident={item} targets={eligibleReassignTargets} targetsLoading={reassignTargetsLoading} canEdit={canReassignIncident(currentUser, item)} pendingEmail={assigneePendingEmails[item.id]} onSelectPerson={(email) => openReassignForIncident(item.id, email)} /></td><td className="px-2 py-2">{item.dueDate || "-"}</td>
                       <td className="px-2 py-2">
                         {(() => {
@@ -493,7 +493,7 @@ export function IncidentReportingScreen({
                                 startInvestigation: item.status === "Open",
                               });
                             }}
-                            className="rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white"
+                            className="bert-btn-interactive rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white"
                           >
                             {item.status === "Open" ? "Start investigation" : "Continue"}
                           </button>

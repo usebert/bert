@@ -136,6 +136,29 @@ select {
   --bert-motion-card-duration: 300ms;
   --bert-motion-panel-duration: 280ms;
   --bert-motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --bert-motion-interact-duration: 160ms;
+  --bert-motion-interact-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes bert-section-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bert-loading-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
 }
 
 @keyframes bert-fade-slide-up {
@@ -254,6 +277,14 @@ select {
   animation: bert-fade-slide-up var(--bert-motion-duration) var(--bert-motion-ease) both;
 }
 
+.bert-section-enter {
+  animation: bert-section-reveal 200ms var(--bert-motion-interact-ease) both;
+}
+
+.bert-tab-panel {
+  animation: bert-fade-in 180ms var(--bert-motion-interact-ease) both;
+}
+
 .bert-card-enter {
   animation: bert-card-reveal var(--bert-motion-card-duration) var(--bert-motion-ease) both;
 }
@@ -288,23 +319,95 @@ select {
   animation: bert-success-pop 220ms var(--bert-motion-ease) both;
 }
 
-.bert-pressable:not(:disabled) {
+.bert-pressable:not(:disabled),
+.bert-btn-interactive:not(:disabled) {
   transition:
-    transform 140ms cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 180ms ease-out,
-    background-color 180ms ease-out,
-    border-color 180ms ease-out,
-    opacity 180ms ease-out;
+    transform var(--bert-motion-interact-duration) var(--bert-motion-interact-ease),
+    box-shadow var(--bert-motion-interact-duration) ease-out,
+    background-color var(--bert-motion-interact-duration) ease-out,
+    border-color var(--bert-motion-interact-duration) ease-out,
+    opacity var(--bert-motion-interact-duration) ease-out;
 }
 
-.bert-pressable:not(:disabled):hover {
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.14);
+.bert-pressable:not(:disabled):hover,
+.bert-btn-interactive:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
 }
 
-.bert-pressable:not(:disabled):active {
-  transform: scale(0.97);
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
-  transition-duration: 80ms;
+.bert-pressable:not(:disabled):active,
+.bert-btn-interactive:not(:disabled):active {
+  transform: translateY(0) scale(0.98);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.1);
+  transition-duration: 100ms;
+}
+
+.bert-btn-interactive:focus-visible {
+  outline: 2px solid var(--bert-signal-orange, #f97316);
+  outline-offset: 2px;
+}
+
+.bert-card-interactive {
+  transition:
+    transform var(--bert-motion-interact-duration) var(--bert-motion-interact-ease),
+    box-shadow var(--bert-motion-interact-duration) ease-out,
+    border-color var(--bert-motion-interact-duration) ease-out;
+}
+
+.bert-card-interactive:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.1);
+}
+
+.bert-row-interactive {
+  transition:
+    box-shadow var(--bert-motion-interact-duration) ease-out,
+    border-color var(--bert-motion-interact-duration) ease-out,
+    background-color var(--bert-motion-interact-duration) ease-out;
+}
+
+.bert-row-interactive:hover {
+  border-color: rgb(203 213 225);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.bert-row-interactive:active {
+  background-color: rgb(248 250 252);
+}
+
+button.bert-row-interactive,
+a.bert-row-interactive {
+  cursor: pointer;
+}
+
+.bert-tab-trigger {
+  transition:
+    background-color var(--bert-motion-interact-duration) ease-out,
+    color var(--bert-motion-interact-duration) ease-out,
+    border-color var(--bert-motion-interact-duration) ease-out,
+    box-shadow var(--bert-motion-interact-duration) ease-out,
+    opacity var(--bert-motion-interact-duration) ease-out;
+}
+
+.bert-tab-trigger:focus-visible {
+  outline: 2px solid var(--bert-signal-orange, #f97316);
+  outline-offset: 2px;
+}
+
+.bert-nav-item {
+  transition:
+    background-color var(--bert-motion-interact-duration) ease-out,
+    color var(--bert-motion-interact-duration) ease-out,
+    border-color var(--bert-motion-interact-duration) ease-out;
+}
+
+.bert-nav-item:focus-visible {
+  outline: 2px solid var(--bert-signal-orange, #f97316);
+  outline-offset: 2px;
+}
+
+.bert-loading-pulse {
+  animation: bert-loading-pulse 1.4s ease-in-out infinite;
 }
 
 .bert-arrow-nudge:hover .bert-arrow-icon {
@@ -325,6 +428,8 @@ select {
 
 @media (prefers-reduced-motion: reduce) {
   .bert-screen-enter,
+  .bert-section-enter,
+  .bert-tab-panel,
   .bert-card-enter,
   .bert-fade-in,
   .bert-evidence-panel-enter,
@@ -335,14 +440,35 @@ select {
   .bert-field-complete,
   .bert-success-tick,
   .bert-status-pulse,
+  .bert-loading-pulse,
   .bert-sync-spinner .bert-sync-spinner-stroke {
     animation: none !important;
   }
 
+  .bert-pressable:not(:disabled),
+  .bert-btn-interactive:not(:disabled),
+  .bert-card-interactive,
+  .bert-row-interactive,
+  .bert-tab-trigger,
+  .bert-nav-item {
+    transition: none !important;
+  }
+
   .bert-pressable:not(:disabled):hover,
-  .bert-pressable:not(:disabled):active {
+  .bert-pressable:not(:disabled):active,
+  .bert-btn-interactive:not(:disabled):hover,
+  .bert-btn-interactive:not(:disabled):active,
+  .bert-card-interactive:hover,
+  .bert-card-interactive:active {
     transform: none;
     box-shadow: none;
+  }
+
+  .bert-row-interactive:hover,
+  .bert-row-interactive:active {
+    box-shadow: none;
+    background-color: inherit;
+    border-color: inherit;
   }
 
   .bert-arrow-nudge:hover .bert-arrow-icon {

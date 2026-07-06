@@ -340,7 +340,7 @@ export function OpenActionRow({
   onOpen: () => void;
 }) {
   return (
-    <li className="flex flex-col gap-3 border-b border-slate-100 py-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
+    <li className={["flex flex-col gap-3 border-b border-slate-100 py-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between", "bert-row-interactive"].join(" ")}>
       <div className="min-w-0">
         <p className="font-black text-slate-900">{title}</p>
         <p className="mt-0.5 text-sm text-slate-500">{area}</p>

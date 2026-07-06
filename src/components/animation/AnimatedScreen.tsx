@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { usePrefersReducedMotion } from "./usePrefersReducedMotion";
-import { bertScreenEnter } from "./animationClasses";
+import { bertSectionEnter } from "./animationClasses";
 
 type Props = {
   screenKey: string;
@@ -15,7 +15,7 @@ export function AnimatedScreen({ screenKey, children, className = "" }: Props) {
   return (
     <div
       key={screenKey}
-      className={[reducedMotion ? "" : bertScreenEnter, className].filter(Boolean).join(" ")}
+      className={[reducedMotion ? "" : bertSectionEnter, className].filter(Boolean).join(" ")}
     >
       {children}
     </div>

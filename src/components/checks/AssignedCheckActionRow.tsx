@@ -1,4 +1,5 @@
 import type { Role } from "../../permissions";
+import { bertBtnInteractive, bertRowInteractive } from "../animation/animationClasses";
 import { getRoleTheme } from "../../config/roleTheme";
 import type { AuditDraft } from "../../types/dashboardScreenProps";
 import type { Audit } from "../../types/reportsScreenProps";
@@ -52,7 +53,7 @@ export function AssignedCheckActionRow({
   const actionLabel = inProgress ? "Continue check" : isRepeatableComplete ? "Start check" : "Start check";
 
   return (
-    <li className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200/90 bg-white px-4 py-4 shadow-sm sm:flex-nowrap">
+    <li className={["flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200/90 bg-white px-4 py-4 shadow-sm sm:flex-nowrap", bertRowInteractive].join(" ")}>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-base font-semibold text-slate-900">{audit.name}</p>
@@ -85,7 +86,8 @@ export function AssignedCheckActionRow({
           type="button"
           onClick={() => onOpenAudit(audit.id)}
           className={[
-            "min-h-[2.75rem] shrink-0 rounded-full px-5 py-2 text-sm font-semibold transition active:scale-[0.98]",
+            "min-h-[2.75rem] shrink-0 rounded-full px-5 py-2 text-sm font-semibold",
+            bertBtnInteractive,
             theme.primaryButton,
             theme.primaryButtonHover,
           ].join(" ")}
