@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   bertBtnInteractive,
   bertRowInteractive,
@@ -25,9 +25,25 @@ import {
   sendBriefing,
   signBriefingItem,
 } from "../services/briefingsService";
-import { briefingActionLabel, briefingActionPending } from "../utils/briefingActions";
+import {
+  buildOptimisticBriefingPatch,
+  briefingActionInFlightKey,
+  briefingActionLabel,
+  briefingActionPending,
+  briefingCompletionSummary,
+  briefingHasPendingActions,
+  briefingIsComplete,
+  type BriefingActionKind,
+} from "../utils/briefingActions";
 
 type BriefingsTab = "mine" | "send" | "tracker";
+
+type BriefingPendingAction = {
+  action: BriefingActionKind;
+  phase: "saving" | "syncing" | "failed";
+  error?: string;
+  snapshot: BriefingRecipientRecord;
+};
 
 type Props = {
   role: Role;
@@ -64,7 +80,8 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
   const [selectedId, setSelectedId] = useState(initialBriefingId || "");
   const [signatureName, setSignatureName] = useState("");
   const [replyText, setReplyText] = useState("");
-  const [actionBusy, setActionBusy] = useState(false);
+  const [pendingActions, setPendingActions] = useState<Record<string, BriefingPendingAction>>({});
+  const actionInFlightRef = useRef(new Set<string>());
   const [sendBusy, setSendBusy] = useState(false);
   const [sendMessage, setSendMessage] = useState("");
 
@@ -81,31 +98,45 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
     renewalFrequency: "None",
   });
 
-  const loadMine = useCallback(async (options: { refresh?: boolean } = {}) => {
+  const loadMine = useCallback(async (options: { refresh?: boolean; silent?: boolean } = {}) => {
     if (!companyFolderId) return;
-    setLoading(true);
+    const silent = options.silent === true;
+    if (!silent) {
+      setLoading(true);
+    }
     setError("");
     try {
       const result = await fetchMyBriefings(companyFolderId, { refresh: options.refresh });
       setMine(result.items || []);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Could not load briefings.");
+      if (!silent) {
+        setError(loadError instanceof Error ? loadError.message : "Could not load briefings.");
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }, [companyFolderId]);
 
-  const loadTracker = useCallback(async () => {
+  const loadTracker = useCallback(async (options: { silent?: boolean } = {}) => {
     if (!companyFolderId || !canManage) return;
-    setLoading(true);
-    setError("");
+    const silent = options.silent === true;
+    if (!silent) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const result = await fetchBriefingsTracker(companyFolderId);
       setTracker((result.items || []) as Array<Record<string, unknown>>);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Could not load tracker.");
+      if (!silent) {
+        setError(loadError instanceof Error ? loadError.message : "Could not load tracker.");
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }, [canManage, companyFolderId]);
 
@@ -129,14 +160,40 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
     [mine, selectedId],
   );
 
+  const selectedPending = selectedId ? pendingActions[selectedId] : undefined;
+
+  const refreshAfterAction = useCallback(
+    async (briefingId: string) => {
+      await loadMine({ refresh: true, silent: true });
+      if (canManage) {
+        await loadTracker({ silent: true });
+      }
+      setPendingActions((previous) => {
+        if (!previous[briefingId] || previous[briefingId].phase === "failed") {
+          return previous;
+        }
+        const next = { ...previous };
+        delete next[briefingId];
+        return next;
+      });
+    },
+    [canManage, loadMine, loadTracker],
+  );
+
   useEffect(() => {
     if (selectedItem?.recipientName) {
       setSignatureName(selectedItem.recipientName);
     }
   }, [selectedItem?.briefingId, selectedItem?.recipientName]);
 
-  async function runAction(action: "open" | "read" | "acknowledge" | "sign" | "reply") {
-    if (!selectedId || !companyFolderId) return;
+  function runAction(action: BriefingActionKind) {
+    if (!selectedId || !companyFolderId || !selectedItem) return;
+
+    const inFlightKey = briefingActionInFlightKey(selectedId, action);
+    if (actionInFlightRef.current.has(inFlightKey)) {
+      return;
+    }
+
     if (action === "sign" && !signatureName.trim()) {
       setError("Enter your name to sign.");
       return;
@@ -145,39 +202,111 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
       setError("Enter a reply before sending.");
       return;
     }
-    setActionBusy(true);
+
+    const snapshot = selectedItem;
+    const optimisticPatch = buildOptimisticBriefingPatch(action, snapshot, {
+      signatureName: signatureName.trim(),
+      replyText: replyText.trim(),
+    });
+
+    actionInFlightRef.current.add(inFlightKey);
     setError("");
-    try {
-      let patch: Partial<BriefingRecipientRecord> | null = null;
-      if (action === "open") {
-        const result = await openBriefingItem(companyFolderId, selectedId);
-        if (result?.recipient) patch = result.recipient as Partial<BriefingRecipientRecord>;
+    setPendingActions((previous) => ({
+      ...previous,
+      [selectedId]: { action, phase: "saving", snapshot },
+    }));
+    setMine((previous) => mergeRecipientUpdate(previous, selectedId, optimisticPatch));
+
+    void (async () => {
+      try {
+        let patch: Partial<BriefingRecipientRecord> | null = null;
+        if (action === "open") {
+          const result = await openBriefingItem(companyFolderId, selectedId);
+          if (result?.recipient) patch = result.recipient as Partial<BriefingRecipientRecord>;
+        }
+        if (action === "read") {
+          const result = await readBriefingItem(companyFolderId, selectedId);
+          if (result?.recipient) patch = result.recipient as Partial<BriefingRecipientRecord>;
+        }
+        if (action === "acknowledge") {
+          const result = await acknowledgeBriefingItem(companyFolderId, selectedId);
+          if (result?.recipient) patch = result.recipient as Partial<BriefingRecipientRecord>;
+        }
+        if (action === "sign") {
+          const result = await signBriefingItem(companyFolderId, selectedId, signatureName.trim());
+          if (result?.recipient) patch = result.recipient as Partial<BriefingRecipientRecord>;
+        }
+        if (action === "reply") {
+          const result = await replyToBriefingItem(companyFolderId, selectedId, replyText.trim());
+          if (result?.recipient) patch = result.recipient as Partial<BriefingRecipientRecord>;
+          setReplyText("");
+        }
+
+        if (patch) {
+          setMine((previous) => mergeRecipientUpdate(previous, selectedId, patch as Partial<BriefingRecipientRecord>));
+        }
+
+        setPendingActions((previous) => {
+          const current = previous[selectedId];
+          if (!current || current.action !== action || current.phase === "failed") {
+            return previous;
+          }
+          return {
+            ...previous,
+            [selectedId]: { ...current, phase: "syncing" },
+          };
+        });
+
+        await refreshAfterAction(selectedId);
+      } catch (actionError) {
+        const message = actionError instanceof Error ? actionError.message : "Could not update briefing.";
+        setMine((previous) => mergeRecipientUpdate(previous, selectedId, snapshot));
+        setPendingActions((previous) => ({
+          ...previous,
+          [selectedId]: {
+            action,
+            phase: "failed",
+            error: "Sync failed. Please retry.",
+            snapshot,
+          },
+        }));
+        setError(message);
+      } finally {
+        actionInFlightRef.current.delete(inFlightKey);
       }
-      if (action === "read") {
-        const result = await readBriefingItem(companyFolderId, selectedId);
-        if (result?.recipient) patch = result.recipient as Partial<BriefingRecipientRecord>;
-      }
-      if (action === "acknowledge") {
-        const result = await acknowledgeBriefingItem(companyFolderId, selectedId);
-        if (result?.recipient) patch = result.recipient as Partial<BriefingRecipientRecord>;
-      }
-      if (action === "sign") {
-        const result = await signBriefingItem(companyFolderId, selectedId, signatureName.trim());
-        if (result?.recipient) patch = result.recipient as Partial<BriefingRecipientRecord>;
-      }
-      if (action === "reply") {
-        const result = await replyToBriefingItem(companyFolderId, selectedId, replyText.trim());
-        if (result?.recipient) patch = result.recipient as Partial<BriefingRecipientRecord>;
-      }
-      if (patch) {
-        setMine((previous) => mergeRecipientUpdate(previous, selectedId, patch as Partial<BriefingRecipientRecord>));
-      }
-      await loadMine({ refresh: true });
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Could not update briefing.");
-    } finally {
-      setActionBusy(false);
+    })();
+  }
+
+  function isActionPending(action: BriefingActionKind): boolean {
+    return selectedPending?.action === action && selectedPending.phase !== "failed";
+  }
+
+  function isActionFailed(action: BriefingActionKind): boolean {
+    return selectedPending?.action === action && selectedPending.phase === "failed";
+  }
+
+  function actionButtonLabel(action: BriefingActionKind, defaultLabel: string): string {
+    if (isActionFailed(action)) {
+      return "Retry";
     }
+    if (isActionPending(action)) {
+      return selectedPending?.phase === "syncing" ? "Syncing…" : "Saving…";
+    }
+    return defaultLabel;
+  }
+
+  function listStatusLabel(item: BriefingRecipientRecord): string {
+    const pending = pendingActions[item.briefingId];
+    if (!pending) {
+      return item.status;
+    }
+    if (pending.phase === "failed") {
+      return "Sync failed";
+    }
+    if (pending.phase === "syncing" && briefingIsComplete(item)) {
+      return "Syncing…";
+    }
+    return "Saving…";
   }
 
   async function handleSendBriefing(event: React.FormEvent) {
@@ -288,7 +417,7 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
                   >
                     <p className="font-semibold text-slate-900">{item.briefing?.title || item.briefingId}</p>
                     <p className="mt-1 text-xs text-slate-600">
-                      {item.briefing?.type} · {item.status}
+                      {item.briefing?.type} · {listStatusLabel(item)}
                       {item.briefing?.dueDate ? ` · Due ${item.briefing.dueDate}` : ""}
                     </p>
                   </button>
@@ -314,22 +443,44 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
                   </a>
                 ) : null}
                 <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={actionBusy}
-                    onClick={() => void runAction("open")}
-                    className={["rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white", bertBtnInteractive].join(" ")}
-                  >
-                    Open
-                  </button>
+                  {selectedPending && selectedPending.phase !== "failed" ? (
+                    <p className="w-full text-xs font-semibold text-amber-800" role="status">
+                      {selectedPending.phase === "syncing" ? "Syncing…" : "Saving…"}
+                    </p>
+                  ) : null}
+                  {selectedPending?.phase === "failed" ? (
+                    <p className="w-full text-xs font-semibold text-rose-700" role="alert">
+                      {selectedPending.error || "Sync failed. Please retry."}
+                    </p>
+                  ) : null}
+                  {selectedItem && briefingActionPending(selectedItem, "open") ? (
+                    <button
+                      type="button"
+                      disabled={isActionPending("open")}
+                      onClick={() => runAction("open")}
+                      className={["rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white", bertBtnInteractive].join(" ")}
+                    >
+                      {actionButtonLabel("open", "Open")}
+                    </button>
+                  ) : null}
                   {selectedItem && briefingActionPending(selectedItem, "read") ? (
-                    <button type="button" disabled={actionBusy} onClick={() => void runAction("read")} className="rounded-xl border px-3 py-2 text-xs font-semibold">
-                      Read
+                    <button
+                      type="button"
+                      disabled={isActionPending("read")}
+                      onClick={() => runAction("read")}
+                      className="rounded-xl border px-3 py-2 text-xs font-semibold"
+                    >
+                      {actionButtonLabel("read", "Read")}
                     </button>
                   ) : null}
                   {selectedItem && briefingActionPending(selectedItem, "acknowledge") ? (
-                    <button type="button" disabled={actionBusy} onClick={() => void runAction("acknowledge")} className="rounded-xl border px-3 py-2 text-xs font-semibold">
-                      Acknowledge
+                    <button
+                      type="button"
+                      disabled={isActionPending("acknowledge")}
+                      onClick={() => runAction("acknowledge")}
+                      className="rounded-xl border px-3 py-2 text-xs font-semibold"
+                    >
+                      {actionButtonLabel("acknowledge", "Acknowledge")}
                     </button>
                   ) : null}
                   {selectedItem && briefingActionPending(selectedItem, "sign") ? (
@@ -338,10 +489,16 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
                         value={signatureName}
                         onChange={(event) => setSignatureName(event.target.value)}
                         placeholder="Signature name"
+                        disabled={isActionPending("sign")}
                         className="rounded-xl border px-3 py-2 text-xs"
                       />
-                      <button type="button" disabled={actionBusy} onClick={() => void runAction("sign")} className="rounded-xl border px-3 py-2 text-xs font-semibold">
-                        Sign
+                      <button
+                        type="button"
+                        disabled={isActionPending("sign")}
+                        onClick={() => runAction("sign")}
+                        className="rounded-xl border px-3 py-2 text-xs font-semibold"
+                      >
+                        {actionButtonLabel("sign", "Sign")}
                       </button>
                     </>
                   ) : null}
@@ -351,18 +508,33 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
                         value={replyText}
                         onChange={(event) => setReplyText(event.target.value)}
                         placeholder="Your reply"
+                        disabled={isActionPending("reply")}
                         className="min-h-[4rem] w-full rounded-xl border px-3 py-2 text-xs"
                       />
-                      <button type="button" disabled={actionBusy} onClick={() => void runAction("reply")} className="rounded-xl border px-3 py-2 text-xs font-semibold">
-                        Reply
+                      <button
+                        type="button"
+                        disabled={isActionPending("reply")}
+                        onClick={() => runAction("reply")}
+                        className="rounded-xl border px-3 py-2 text-xs font-semibold"
+                      >
+                        {actionButtonLabel("reply", "Reply")}
                       </button>
                     </>
                   ) : null}
-                  {selectedItem && !briefingActionPending(selectedItem, "read") &&
-                  !briefingActionPending(selectedItem, "acknowledge") &&
-                  !briefingActionPending(selectedItem, "sign") &&
-                  !briefingActionPending(selectedItem, "reply") ? (
-                    <span className="text-xs text-slate-600">Action: {briefingActionLabel(selectedItem)}</span>
+                  {selectedItem && briefingIsComplete(selectedItem) ? (
+                    <span className="text-xs font-semibold text-emerald-700">
+                      {selectedPending?.phase === "syncing"
+                        ? "Completing…"
+                        : selectedPending?.phase === "saving"
+                          ? "Saving…"
+                          : briefingCompletionSummary(selectedItem)}
+                    </span>
+                  ) : null}
+                  {selectedItem &&
+                  !briefingHasPendingActions(selectedItem) &&
+                  !briefingIsComplete(selectedItem) &&
+                  !briefingActionPending(selectedItem, "open") ? (
+                    <span className="text-xs text-slate-600">{briefingActionLabel(selectedItem)}</span>
                   ) : null}
                 </div>
               </div>

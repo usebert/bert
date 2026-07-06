@@ -109,6 +109,20 @@ assert(
   briefingActionsTs.indexOf("requiresAcknowledgement") < briefingActionsTs.indexOf("requiresSignature"),
   "UI: acknowledge precedes sign in action order",
 );
+assert(briefingActionsTs.includes("buildOptimisticBriefingPatch"), "UI: optimistic briefing patch helper");
+assert(briefingActionsTs.includes('return "Complete"'), "UI: complete briefings label as Complete");
+assert(briefingActionsTs.includes("briefingCompletionSummary"), "UI: completion summary for finished briefings");
+assert(briefingActionsTs.includes("briefingActionInFlightKey"), "UI: per-action in-flight dedupe key");
+
+assert(briefingsScreenTs.includes("buildOptimisticBriefingPatch"), "UI: optimistic patch on action click");
+assert(briefingsScreenTs.includes("actionInFlightRef"), "UI: blocks duplicate action submits");
+assert(briefingsScreenTs.includes("silent: true"), "UI: background refresh without loading gate");
+assert(briefingsScreenTs.includes("Sync failed. Please retry."), "UI: failed sync shows retry message");
+assert(briefingsScreenTs.includes("isActionPending"), "UI: only clicked action button disabled");
+assert(briefingsScreenTs.includes("briefingCompletionSummary"), "UI: complete briefing summary label");
+assert(!briefingsScreenTs.includes('Action: {briefingActionLabel'), "UI: no misleading Action: Open on complete");
+assert(briefingsScreenTs.includes("Saving…"), "UI: immediate saving feedback");
+assert(briefingsScreenTs.includes("loadTracker({ silent: true })"), "UI: tracker refreshes after action success");
 
 const briefingTodoCatch = appTsx.slice(
   appTsx.indexOf("dashboardBriefingsPreviewKeyRef.current = previewKey"),
