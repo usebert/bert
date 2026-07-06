@@ -32,6 +32,8 @@ export const storageKeys = {
   reportsDashboardCache: "bert-reports-dashboard-cache",
   /** Complete Work assigned checks — keyed by company folder id + user email. */
   assignedChecksCache: "bert-assigned-checks-cache",
+  /** App-level SWR cache — keyed by logical cache key in JSON payload. */
+  appDataCache: "bert-app-data-cache",
 } as const;
 
 /** Old keys from the QMS Precast product id — migrated to `storageKeys` on first load. */

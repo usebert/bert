@@ -17,14 +17,22 @@ import type {
 } from "../types/briefings";
 import {
   acknowledgeBriefingItem,
-  fetchBriefingsTracker,
-  fetchMyBriefings,
   openBriefingItem,
   readBriefingItem,
   replyToBriefingItem,
   sendBriefing,
   signBriefingItem,
 } from "../services/briefingsService";
+import {
+  briefingsMineCacheKey,
+  briefingsTrackerCacheKey,
+  loadBriefingsMineCached,
+  loadBriefingsTrackerCached,
+  patchBriefingsMineCache,
+  readAppDataCache,
+  readBriefingsPendingActions,
+  writeBriefingsPendingActions,
+} from "../services/appDataCacheService";
 import {
   buildOptimisticBriefingPatch,
   briefingActionInFlightKey,
@@ -48,6 +56,7 @@ type BriefingPendingAction = {
 type Props = {
   role: Role;
   companyFolderId: string;
+  userEmail: string;
   initialBriefingId?: string;
   onBack?: () => void;
 };
@@ -70,17 +79,32 @@ function mergeRecipientUpdate(
   return items.map((item) => (item.briefingId === briefingId ? { ...item, ...patch } : item));
 }
 
-export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBack }: Props) {
+export function BriefingsScreen({ role, companyFolderId, userEmail, initialBriefingId, onBack }: Props) {
   const canManage = canManageBriefings(role);
+  const normalizedEmail = String(userEmail || "").trim().toLowerCase();
   const [tab, setTab] = useState<BriefingsTab>("mine");
-  const [mine, setMine] = useState<BriefingRecipientRecord[]>([]);
-  const [tracker, setTracker] = useState<Array<Record<string, unknown>>>([]);
+  const [mine, setMine] = useState<BriefingRecipientRecord[]>(() => {
+    if (!companyFolderId || !normalizedEmail) {
+      return [];
+    }
+    return readAppDataCache<BriefingRecipientRecord[]>(briefingsMineCacheKey(companyFolderId, normalizedEmail))?.data || [];
+  });
+  const [tracker, setTracker] = useState<Array<Record<string, unknown>>>(() => {
+    if (!companyFolderId) {
+      return [];
+    }
+    return readAppDataCache<Array<Record<string, unknown>>>(briefingsTrackerCacheKey(companyFolderId))?.data || [];
+  });
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshWarning, setRefreshWarning] = useState("");
   const [error, setError] = useState("");
   const [selectedId, setSelectedId] = useState(initialBriefingId || "");
   const [signatureName, setSignatureName] = useState("");
   const [replyText, setReplyText] = useState("");
-  const [pendingActions, setPendingActions] = useState<Record<string, BriefingPendingAction>>({});
+  const [pendingActions, setPendingActions] = useState<Record<string, BriefingPendingAction>>(() =>
+    readBriefingsPendingActions(companyFolderId, normalizedEmail) as Record<string, BriefingPendingAction>,
+  );
   const actionInFlightRef = useRef(new Set<string>());
   const [sendBusy, setSendBusy] = useState(false);
   const [sendMessage, setSendMessage] = useState("");
@@ -98,47 +122,138 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
     renewalFrequency: "None",
   });
 
-  const loadMine = useCallback(async (options: { refresh?: boolean; silent?: boolean } = {}) => {
-    if (!companyFolderId) return;
-    const silent = options.silent === true;
-    if (!silent) {
-      setLoading(true);
-    }
-    setError("");
-    try {
-      const result = await fetchMyBriefings(companyFolderId, { refresh: options.refresh });
-      setMine(result.items || []);
-    } catch (loadError) {
-      if (!silent) {
-        setError(loadError instanceof Error ? loadError.message : "Could not load briefings.");
+  const loadMine = useCallback(
+    async (options: { refresh?: boolean; silent?: boolean; manualRefresh?: boolean } = {}) => {
+      if (!companyFolderId || !normalizedEmail) {
+        return;
       }
-    } finally {
-      if (!silent) {
-        setLoading(false);
-      }
-    }
-  }, [companyFolderId]);
+      const silent = options.silent === true;
+      const cacheKey = briefingsMineCacheKey(companyFolderId, normalizedEmail);
+      const cached = readAppDataCache<BriefingRecipientRecord[]>(cacheKey);
+      const hadCache = Boolean(cached);
 
-  const loadTracker = useCallback(async (options: { silent?: boolean } = {}) => {
-    if (!companyFolderId || !canManage) return;
-    const silent = options.silent === true;
-    if (!silent) {
-      setLoading(true);
-      setError("");
-    }
-    try {
-      const result = await fetchBriefingsTracker(companyFolderId);
-      setTracker((result.items || []) as Array<Record<string, unknown>>);
-    } catch (loadError) {
-      if (!silent) {
-        setError(loadError instanceof Error ? loadError.message : "Could not load tracker.");
+      if (!silent && !hadCache) {
+        setLoading(true);
       }
-    } finally {
-      if (!silent) {
-        setLoading(false);
+      if (!silent && hadCache && (options.refresh || options.manualRefresh)) {
+        setRefreshing(true);
       }
-    }
-  }, [canManage, companyFolderId]);
+      if (!silent) {
+        setError("");
+        setRefreshWarning("");
+      }
+
+      try {
+        const result = await loadBriefingsMineCached(companyFolderId, normalizedEmail, {
+          refresh: options.refresh,
+          manualRefresh: options.manualRefresh,
+          forceRefresh: options.refresh || options.manualRefresh,
+        });
+        setMine(result.data);
+        if (result.refreshWarning) {
+          setRefreshWarning("Showing saved data. Refresh failed.");
+        }
+        if (result.revalidatePromise) {
+          setRefreshing(true);
+          void result.revalidatePromise
+            .then((fresh) => {
+              if (Array.isArray(fresh)) {
+                setMine(fresh);
+              }
+            })
+            .catch(() => {
+              setRefreshWarning("Showing saved data. Refresh failed.");
+            })
+            .finally(() => {
+              setRefreshing(false);
+            });
+        }
+      } catch (loadError) {
+        if (!silent) {
+          if (hadCache) {
+            setRefreshWarning("Showing saved data. Refresh failed.");
+          } else {
+            setError(loadError instanceof Error ? loadError.message : "Could not load briefings.");
+          }
+        }
+      } finally {
+        if (!silent) {
+          setLoading(false);
+          if (!options.refresh && !options.manualRefresh) {
+            setRefreshing(false);
+          }
+        }
+      }
+    },
+    [companyFolderId, normalizedEmail],
+  );
+
+  const loadTracker = useCallback(
+    async (options: { silent?: boolean; refresh?: boolean; manualRefresh?: boolean } = {}) => {
+      if (!companyFolderId || !canManage) {
+        return;
+      }
+      const silent = options.silent === true;
+      const cacheKey = briefingsTrackerCacheKey(companyFolderId);
+      const cached = readAppDataCache<Array<Record<string, unknown>>>(cacheKey);
+      const hadCache = Boolean(cached);
+
+      if (!silent && !hadCache) {
+        setLoading(true);
+        setError("");
+      }
+      if (!silent && hadCache && (options.refresh || options.manualRefresh)) {
+        setRefreshing(true);
+      }
+
+      try {
+        const result = await loadBriefingsTrackerCached(companyFolderId, {
+          refresh: options.refresh,
+          manualRefresh: options.manualRefresh,
+          forceRefresh: options.refresh || options.manualRefresh,
+        });
+        setTracker(result.data);
+        if (result.refreshWarning) {
+          setRefreshWarning("Showing saved data. Refresh failed.");
+        }
+        if (result.revalidatePromise) {
+          setRefreshing(true);
+          void result.revalidatePromise
+            .then((fresh) => {
+              if (Array.isArray(fresh)) {
+                setTracker(fresh);
+              }
+            })
+            .catch(() => {
+              setRefreshWarning("Showing saved data. Refresh failed.");
+            })
+            .finally(() => {
+              setRefreshing(false);
+            });
+        }
+      } catch (loadError) {
+        if (!silent) {
+          if (hadCache) {
+            setRefreshWarning("Showing saved data. Refresh failed.");
+          } else {
+            setError(loadError instanceof Error ? loadError.message : "Could not load tracker.");
+          }
+        }
+      } finally {
+        if (!silent) {
+          setLoading(false);
+          if (!options.refresh && !options.manualRefresh) {
+            setRefreshing(false);
+          }
+        }
+      }
+    },
+    [canManage, companyFolderId],
+  );
+
+  useEffect(() => {
+    writeBriefingsPendingActions(companyFolderId, normalizedEmail, pendingActions);
+  }, [companyFolderId, normalizedEmail, pendingActions]);
 
   useEffect(() => {
     if (tab === "mine") {
@@ -216,6 +331,7 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
       [selectedId]: { action, phase: "saving", snapshot },
     }));
     setMine((previous) => mergeRecipientUpdate(previous, selectedId, optimisticPatch));
+    patchBriefingsMineCache(companyFolderId, normalizedEmail, selectedId, optimisticPatch);
 
     void (async () => {
       try {
@@ -331,6 +447,7 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
         renewalFrequency: "None",
       });
       setTab("tracker");
+      void loadTracker({ refresh: true, silent: true });
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "Could not send briefing.");
     } finally {
@@ -395,12 +512,23 @@ export function BriefingsScreen({ role, companyFolderId, initialBriefingId, onBa
       </div>
 
       {error ? <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</p> : null}
+      {refreshWarning ? <p className="text-xs text-amber-800">{refreshWarning}</p> : null}
+      {refreshing ? <p className="text-xs text-slate-500">Refreshing…</p> : null}
       {sendMessage ? <p className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{sendMessage}</p> : null}
 
       {tab === "mine" ? (
         <div key="mine" className={["grid gap-4 lg:grid-cols-2", bertTabPanel].join(" ")}>
           <section className="rounded-2xl border border-slate-200 bg-white p-4">
-            <h2 className="text-lg font-bold text-slate-900">Assigned to you</h2>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-lg font-bold text-slate-900">Assigned to you</h2>
+              <button
+                type="button"
+                onClick={() => void loadMine({ manualRefresh: true })}
+                className="text-xs font-semibold text-slate-600 underline"
+              >
+                Refresh
+              </button>
+            </div>
             {loading && mine.length === 0 ? <p className="mt-3 text-sm text-slate-600">Loading…</p> : null}
             {!loading && mine.length === 0 ? <p className="mt-3 text-sm text-slate-600">No briefings assigned yet.</p> : null}
             <ul className="mt-3 space-y-2">

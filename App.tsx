@@ -391,7 +391,13 @@ import {
   readAssignedChecksCache,
   writeAssignedChecksCache,
 } from "./src/services/checkService";
-import { fetchBriefingsTodoPreview } from "./src/services/briefingsService";
+import {
+  briefingsTodoPreviewCacheKey,
+  ensureAppDataContext,
+  loadBriefingsTodoPreviewCached,
+  preloadAppData,
+  readAppDataCache,
+} from "./src/services/appDataCacheService";
 import type { BriefingRecipientRecord } from "./src/types/briefings";
 import {
   COMPANY_RESULTS_LOAD_TIMEOUT_MESSAGE,
@@ -3780,7 +3786,6 @@ function App() {
     loadError?: string;
   }>({ items: [], loading: false });
   const [selectedBriefingId, setSelectedBriefingId] = useState("");
-  const dashboardBriefingsPreviewKeyRef = useRef<string | null>(null);
   const [companyResultsState, setCompanyResultsState] = useState<{
     results: AuditResultSummary[];
     loading: boolean;
@@ -6077,37 +6082,51 @@ function App() {
       return;
     }
     const companyFolderId = String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim();
-    if (!companyFolderId) {
+    const profileEmail = resolveSignedInAssigneeEmail(currentUser);
+    const userEmail = String(sessionSignedInEmail || profileEmail).trim().toLowerCase();
+    if (!companyFolderId || !userEmail) {
       setBriefingTodoState({ items: [], loading: false });
       return;
     }
-    const previewKey = `${companyFolderId}::briefings-preview`;
-    if (dashboardBriefingsPreviewKeyRef.current === previewKey) {
-      setBriefingTodoState((previous) => ({ ...previous, loading: false }));
-      return;
+
+    ensureAppDataContext(companyFolderId, userEmail, { role: currentUser.role });
+
+    const cacheKey = briefingsTodoPreviewCacheKey(companyFolderId, userEmail, 5);
+    const cached = readAppDataCache<BriefingRecipientRecord[]>(cacheKey);
+    const hadCache = Boolean(cached);
+
+    if (hadCache) {
+      setBriefingTodoState({
+        items: cached!.data,
+        loading: false,
+      });
+    } else {
+      setBriefingTodoState((previous) => ({ ...previous, loading: true, loadError: undefined }));
     }
+
     let cancelled = false;
-    setBriefingTodoState((previous) => ({ ...previous, loading: true, loadError: undefined }));
     void (async () => {
       try {
-        const result = await fetchBriefingsTodoPreview(companyFolderId, { limit: 5 });
+        const result = await loadBriefingsTodoPreviewCached(companyFolderId, userEmail, { limit: 5 });
         if (cancelled) {
           return;
         }
-        dashboardBriefingsPreviewKeyRef.current = previewKey;
         setBriefingTodoState({
-          items: (result.items || []) as BriefingRecipientRecord[],
+          items: result.data,
           loading: false,
         });
       } catch {
         if (cancelled) {
           return;
         }
-        dashboardBriefingsPreviewKeyRef.current = previewKey;
-        setBriefingTodoState({
-          items: [],
-          loading: false,
-        });
+        if (hadCache) {
+          setBriefingTodoState({
+            items: cached!.data,
+            loading: false,
+          });
+        } else {
+          setBriefingTodoState({ items: [], loading: false });
+        }
       }
     })();
     return () => {
@@ -6116,16 +6135,34 @@ function App() {
   }, [
     screen,
     currentUser,
+    sessionSignedInEmail,
     masterCompanyWorkspaceDataMatchesSelection,
     activeCompanyContext.companyFolderId,
     selectedFolderId,
   ]);
 
   useEffect(() => {
-    if (screen === "briefings") {
-      dashboardBriefingsPreviewKeyRef.current = null;
+    if (!currentUser || !masterCompanyWorkspaceDataMatchesSelection) {
+      return;
     }
-  }, [screen]);
+    const companyFolderId = String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim();
+    const profileEmail = resolveSignedInAssigneeEmail(currentUser);
+    const userEmail = String(sessionSignedInEmail || profileEmail).trim().toLowerCase();
+    if (!companyFolderId || !userEmail) {
+      return;
+    }
+    preloadAppData({
+      companyFolderId,
+      userEmail,
+      role: currentUser.role,
+    });
+  }, [
+    currentUser,
+    sessionSignedInEmail,
+    masterCompanyWorkspaceDataMatchesSelection,
+    activeCompanyContext.companyFolderId,
+    selectedFolderId,
+  ]);
 
   useEffect(() => {
     if (!currentUser || !shouldLoadCompanyMembersScreen(screen)) {
@@ -16599,6 +16636,7 @@ function App() {
               <BriefingsScreen
                 role={currentUser.role}
                 companyFolderId={String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim()}
+                userEmail={String(sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser)).trim().toLowerCase()}
                 initialBriefingId={selectedBriefingId || undefined}
                 onBack={() => setScreen("dashboard")}
               />

@@ -69,7 +69,10 @@ assert(read("src/components/dashboard/DashboardToDoSection.tsx").includes("all c
 assert(read("src/components/dashboard/AuditorTaskDashboard.tsx").includes("DashboardToDoSection"), "APP: DashboardToDoSection wired");
 assert(appTsx.includes("BriefingsScreen"), "APP: BriefingsScreen wired");
 assert(appTsx.includes('screen === "briefings"'), "APP: briefings route mounted");
-assert(appTsx.includes("fetchBriefingsTodoPreview"), "APP: lazy briefing todo preview");
+assert(
+  appTsx.includes("loadBriefingsTodoPreviewCached") || appTsx.includes("fetchBriefingsTodoPreview"),
+  "APP: lazy briefing todo preview",
+);
 assert(appTsx.includes("shouldLoadDashboardBriefingsPreview"), "APP: dashboard briefing preview gate");
 assert(read("src/components/dashboard/ManagerRoleDashboard.tsx").includes("DashboardToDoSection"), "UI: manager dashboard uses To Do");
 assert(
@@ -124,13 +127,13 @@ assert(!briefingsScreenTs.includes('Action: {briefingActionLabel'), "UI: no misl
 assert(briefingsScreenTs.includes("Saving…"), "UI: immediate saving feedback");
 assert(briefingsScreenTs.includes("loadTracker({ silent: true })"), "UI: tracker refreshes after action success");
 
-const briefingTodoCatch = appTsx.slice(
-  appTsx.indexOf("dashboardBriefingsPreviewKeyRef.current = previewKey"),
-  appTsx.indexOf("dashboardBriefingsPreviewKeyRef.current = previewKey") + 900,
-);
+const briefingTodoEffectStart = appTsx.indexOf("const cacheKey = briefingsTodoPreviewCacheKey");
+const briefingTodoCatch = appTsx.slice(briefingTodoEffectStart, briefingTodoEffectStart + 1200);
+const briefingTodoCatchBlock = briefingTodoCatch.slice(briefingTodoCatch.indexOf("} catch {"));
 assert(briefingTodoCatch.includes("catch {"), "SOFT: briefing todo uses bare catch");
 assert(
-  briefingTodoCatch.includes("items: []") && !briefingTodoCatch.includes("loadError:"),
+  (briefingTodoCatchBlock.includes("items: []") || briefingTodoCatchBlock.includes("items: cached")) &&
+    !briefingTodoCatchBlock.includes("loadError:"),
   "SOFT: dashboard briefing todo fails soft without loadError",
 );
 assert(read("server/incident-evidence-upload.mjs").includes("INCIDENT_EVIDENCE_DRIVE_PATH_PREFIX"), "SAFE: incident evidence path preserved");

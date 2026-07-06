@@ -72,9 +72,19 @@ export async function fetchBriefingsTodoPreview(
   return dedupeInFlight(dedupeKey, () => briefingRequest(path)) as Promise<BriefingMineResponse>;
 }
 
-export async function fetchBriefingsTracker(companyFolderId: string, options: { signal?: AbortSignal } = {}) {
+export async function fetchBriefingsTracker(
+  companyFolderId: string,
+  options: { signal?: AbortSignal; refresh?: boolean } = {},
+) {
   const path = `/api/companies/${encodeURIComponent(companyFolderId)}/briefings/tracker`;
-  return briefingRequest(path, { signal: options.signal }) as Promise<{ ok: boolean; items?: BriefingTrackerItem[] }>;
+  const dedupeKey = requestDedupeKey("GET", path);
+  if (options.signal || options.refresh) {
+    return briefingRequest(path, { signal: options.signal }) as Promise<{ ok: boolean; items?: BriefingTrackerItem[] }>;
+  }
+  return dedupeInFlight(dedupeKey, () => briefingRequest(path)) as Promise<{
+    ok: boolean;
+    items?: BriefingTrackerItem[];
+  }>;
 }
 
 export async function sendBriefing(companyFolderId: string, input: BriefingCreateInput) {
