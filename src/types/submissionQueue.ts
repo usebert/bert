@@ -1,0 +1,40 @@
+import type { TabletEvidenceRef } from "../services/tabletOfflineService";
+
+export type SubmissionQueueItemType =
+  | "auditCompletion"
+  | "auditSubmission"
+  | "actionUpdate"
+  | "evidenceUpload"
+  | "incidentReport"
+  | "briefingCreate"
+  | "briefingAck"
+  | "briefingSign"
+  | "briefingReply"
+  | "scheduleTaskCompletion"
+  | "scheduleEdit"
+  | "reportExport";
+
+export type SubmissionQueueStatus = "queued" | "syncing" | "synced" | "failed";
+
+export type SubmissionQueueItem = {
+  id: string;
+  type: SubmissionQueueItemType;
+  companyFolderId: string;
+  userEmail: string;
+  createdAt: string;
+  updatedAt: string;
+  status: SubmissionQueueStatus;
+  attemptCount: number;
+  lastError: string;
+  payload: Record<string, unknown>;
+  evidenceRefs?: TabletEvidenceRef[];
+  idempotencyKey: string;
+  /** Stable local reference used by Sync Centre retry UI */
+  localId: string;
+  nextRetryAt?: string;
+};
+
+export type SubmissionQueueMeta = {
+  lastSyncedAt?: string;
+  lastHydratedAt?: string;
+};

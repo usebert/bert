@@ -478,6 +478,10 @@ import {
   type TabletEvidenceRef,
   type TabletOfflineSubmission,
 } from "./src/services/tabletOfflineService";
+import { submissionQueueService } from "./src/services/submissionQueueService";
+import { queueAddedMessage, SUBMISSION_QUEUE_MESSAGES, queueIndicatorSummary } from "./src/utils/submissionQueueMessages";
+import { submissionQueueItemToSyncQueueItem } from "./src/utils/submissionQueueBridge";
+import type { SubmissionQueueItem } from "./src/types/submissionQueue";
 
 type AuditStatus = "green" | "amber" | "red";
 type Answer = "pass" | "nc" | "fail";
@@ -5553,11 +5557,10 @@ function App() {
   );
 
   const syncPlainSummary = useMemo(() => {
-    if (offlineMode) return "Offline";
-    if (failedSyncCount > 0) return `${failedSyncCount} sync issue${failedSyncCount === 1 ? "" : "s"}`;
-    if (pendingSyncCount > 0 || offlineQueue.length > 0) return "Saving…";
-    return "All work saved";
-  }, [offlineMode, failedSyncCount, pendingSyncCount, offlineQueue.length]);
+    const waiting = pendingSyncCount + offlineQueue.length;
+    const failed = failedSyncCount + offlineQueue.filter((item) => item.syncStatus === "failed").length;
+    return queueIndicatorSummary({ waitingCount: waiting, failedCount: failed });
+  }, [failedSyncCount, offlineQueue, pendingSyncCount]);
 
   const headerSyncVisualState = useMemo((): SyncVisualState => {
     if (offlineMode) return "waiting";
@@ -7508,10 +7511,23 @@ function App() {
       if (!tabletOfflineService.canUseIndexedDb()) {
         return;
       }
-      const records = await tabletOfflineService.listSubmissions();
-      if (alive) {
-        setOfflineQueue(records.filter((item) => item.syncStatus !== "synced"));
+      if (!submissionQueueHydratedRef.current) {
+        const legacyOffline = await tabletOfflineService.listSubmissions();
+        await submissionQueueService.migrateLegacyQueues({
+          legacySyncQueue: storedWorkspaceState?.syncQueue || initialSyncQueue,
+          legacyOfflineSubmissions: legacyOffline.filter((item) => item.syncStatus !== "synced"),
+          companyFolderId: storedWorkspaceState?.selectedFolderId || selectedFolderId,
+          userEmail: currentUser?.email || currentUser?.username,
+        });
+        submissionQueueHydratedRef.current = true;
       }
+      const items = await submissionQueueService.listActiveItems();
+      if (!alive) {
+        return;
+      }
+      setSyncQueue(submissionQueueService.toSyncQueueView(items));
+      setOfflineQueue(submissionQueueService.toOfflineQueueView(items));
+      submissionQueueService.writeMeta({ lastHydratedAt: new Date().toISOString() });
     };
     void hydrateOffline().catch(() => undefined);
     return () => {
@@ -7726,7 +7742,12 @@ function App() {
   }, [googleConnected]);
 
   useEffect(() => {
-    const handleOnline = () => setOfflineMode(false);
+    const handleOnline = () => {
+      setOfflineMode(false);
+      void refreshSubmissionQueueViews()
+        .then(() => syncOfflineSubmissions())
+        .catch(() => undefined);
+    };
     const handleOffline = () => setOfflineMode(true);
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
@@ -8362,14 +8383,36 @@ function App() {
   };
 
   const queueSyncItem = (item: Omit<SyncQueueItem, "id" | "updatedAt">) => {
-    setSyncQueue((current) => [
-      {
-        ...item,
-        id: `sync-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        updatedAt: formatStamp(),
-      },
-      ...current,
-    ]);
+    const id = `sync-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const updatedAt = formatStamp();
+    const nextItem: SyncQueueItem = {
+      ...item,
+      id,
+      updatedAt,
+    };
+    setSyncQueue((current) => [nextItem, ...current.filter((existing) => existing.localId !== item.localId)]);
+    void submissionQueueService
+      .enqueue({
+        id,
+        type:
+          item.itemType === "actionUpdate"
+            ? "actionUpdate"
+            : item.itemType === "evidenceUpload"
+              ? "evidenceUpload"
+              : item.itemType === "reportExport"
+                ? "reportExport"
+                : item.itemType === "scheduleEdit"
+                  ? "scheduleEdit"
+                  : "auditSubmission",
+        companyFolderId: String(item.payload.companyFolderId || selectedFolderId || ""),
+        userEmail: currentUser?.email || currentUser?.username || "",
+        createdAt: item.createdAt,
+        localId: item.localId,
+        payload: item.payload,
+        idempotencyKey: `${item.itemType}::${item.localId}`,
+      })
+      .then(() => refreshSubmissionQueueViews())
+      .catch(() => undefined);
   };
 
   const updateSyncItemStatus = (localId: string, status: SyncStatus, lastError = "") => {
@@ -8389,6 +8432,23 @@ function App() {
           : item,
       ),
     );
+    void (async () => {
+      const items = await submissionQueueService.listActiveItems();
+      const match = items.find((entry) => entry.localId === localId);
+      if (!match) {
+        return;
+      }
+      if (status === "Synced") {
+        await submissionQueueService.markSynced(match.id);
+      } else if (status === "Failed" || status === "Conflict") {
+        await submissionQueueService.markFailed(match.id, lastError || SUBMISSION_QUEUE_MESSAGES.failure);
+      } else if (status === "Syncing") {
+        await submissionQueueService.markSyncing(match.id);
+      } else {
+        await submissionQueueService.updateItem(match.id, { status: "queued", lastError: "" });
+      }
+      await refreshSubmissionQueueViews();
+    })().catch(() => undefined);
   };
 
   const loadGoogleStatus = async (options?: { silent?: boolean }) => {
@@ -10723,6 +10783,17 @@ function App() {
 
   const syncProcessingRef = useRef(false);
   const offlineSyncProcessingRef = useRef(false);
+  const submissionInFlightKeysRef = useRef(new Set<string>());
+  const submissionQueueHydratedRef = useRef(false);
+
+  const refreshSubmissionQueueViews = useCallback(async () => {
+    if (!submissionQueueService.canUseIndexedDb()) {
+      return;
+    }
+    const items = await submissionQueueService.listActiveItems();
+    setSyncQueue(submissionQueueService.toSyncQueueView(items));
+    setOfflineQueue(submissionQueueService.toOfflineQueueView(items));
+  }, []);
 
   async function syncOfflineSubmissions() {
     if (offlineMode || offlineQueue.length === 0 || offlineSyncProcessingRef.current) {
@@ -10796,12 +10867,14 @@ function App() {
             void tabletOfflineService.deleteEvidenceBlob(ref.blobKey).catch(() => undefined);
           }
           void tabletOfflineService.deleteSubmission(submission.localSubmissionId).catch(() => undefined);
+          void submissionQueueService.markSynced(submission.localSubmissionId).catch(() => undefined);
           setOfflineQueue((current) => current.filter((item) => item.localSubmissionId !== submission.localSubmissionId));
         } catch (error) {
           const nextRetry = submission.retryCount + 1;
           const nextError = error instanceof Error ? error.message : "Unable to sync saved check.";
           const failed: OfflineSubmission = { ...submission, syncStatus: "failed", retryCount: nextRetry, lastError: nextError };
           void tabletOfflineService.upsertSubmission(failed).catch(() => undefined);
+          void submissionQueueService.markFailed(submission.localSubmissionId, SUBMISSION_QUEUE_MESSAGES.failure).catch(() => undefined);
           setOfflineQueue((current) =>
             current.map((item) =>
               item.localSubmissionId === submission.localSubmissionId
@@ -10812,8 +10885,9 @@ function App() {
         }
       }
       if (offlineQueue.length > 0) {
-        pushToast("Sync complete", "All saved checks synced", "success");
+        pushToast(SUBMISSION_QUEUE_MESSAGES.success, SUBMISSION_QUEUE_MESSAGES.success, "success");
       }
+      await refreshSubmissionQueueViews();
     } finally {
       offlineSyncProcessingRef.current = false;
       setOfflineSyncProgress(null);
@@ -10881,6 +10955,7 @@ function App() {
       }
 
       updateSyncItemStatus(item.localId, "Synced");
+      pushToast(SUBMISSION_QUEUE_MESSAGES.success, SUBMISSION_QUEUE_MESSAGES.success, "success");
     } catch (error) {
       updateSyncItemStatus(
         item.localId,

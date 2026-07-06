@@ -1,8 +1,9 @@
 import type { Audit } from "../types/reportsScreenProps";
 
 const DB_NAME = "bert-tablet-offline-v1";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const SUBMISSION_STORE = "offlineSubmissions";
+const QUEUE_STORE = "submissionQueue";
 const BLOB_STORE = "offlineEvidenceBlobs";
 const CACHE_STORE = "tabletAssignedWork";
 
@@ -57,7 +58,7 @@ export type TabletAssignedWorkCache = {
   updatedAt: string;
 };
 
-type StoreName = typeof SUBMISSION_STORE | typeof BLOB_STORE | typeof CACHE_STORE;
+type StoreName = typeof SUBMISSION_STORE | typeof QUEUE_STORE | typeof BLOB_STORE | typeof CACHE_STORE;
 
 function canUseIndexedDb() {
   return typeof window !== "undefined" && typeof window.indexedDB !== "undefined";
@@ -71,6 +72,9 @@ function openDb() {
       const db = request.result;
       if (!db.objectStoreNames.contains(SUBMISSION_STORE)) {
         db.createObjectStore(SUBMISSION_STORE, { keyPath: "localSubmissionId" });
+      }
+      if (!db.objectStoreNames.contains(QUEUE_STORE)) {
+        db.createObjectStore(QUEUE_STORE, { keyPath: "id" });
       }
       if (!db.objectStoreNames.contains(BLOB_STORE)) {
         db.createObjectStore(BLOB_STORE);
@@ -165,6 +169,30 @@ export const tabletOfflineService = {
     return withStore(CACHE_STORE, "readonly", async (store) => {
       const cache = (await requestToPromise(store.get("latest"))) as TabletAssignedWorkCache | undefined;
       return cache || null;
+    });
+  },
+  async upsertQueueItem<T extends { id: string }>(item: T) {
+    await withStore(QUEUE_STORE, "readwrite", async (store) => {
+      await requestToPromise(store.put(item));
+      return true;
+    });
+  },
+  async listQueueItems<T extends { id: string; createdAt?: string }>() {
+    return withStore(QUEUE_STORE, "readonly", async (store) => {
+      const rows = (await requestToPromise(store.getAll())) as T[];
+      return rows.sort((a, b) => Date.parse(b.createdAt || "") - Date.parse(a.createdAt || ""));
+    });
+  },
+  async deleteQueueItem(id: string) {
+    await withStore(QUEUE_STORE, "readwrite", async (store) => {
+      await requestToPromise(store.delete(id));
+      return true;
+    });
+  },
+  async getQueueItem<T extends { id: string }>(id: string) {
+    return withStore(QUEUE_STORE, "readonly", async (store) => {
+      const row = (await requestToPromise(store.get(id))) as T | undefined;
+      return row || null;
     });
   },
 };
