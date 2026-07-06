@@ -15,6 +15,7 @@ function assertContains(filePath, snippets) {
 
 assertContains("src/services/tabletOfflineService.ts", [
   "offlineSubmissions",
+  "submissionQueue",
   "offlineEvidenceBlobs",
   "tabletAssignedWork",
   "defaultFormLanguage",
@@ -27,10 +28,13 @@ assertContains("App.tsx", [
   "localSubmissionId",
 ]);
 
-assertContains("server/server.mjs", [
+assertContains("server/completion-service.mjs", [
   "Local Submission ID",
   "localSubmissionId",
-  "deduped: true",
+]);
+
+assertContains("server/core-workflow-routes.mjs", [
+  "localSubmissionId",
 ]);
 
 console.log("[verify:offline-tablet] queue checks OK");
