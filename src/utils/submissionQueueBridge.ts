@@ -127,3 +127,29 @@ export function offlineSubmissionsFromQueue(items: SubmissionQueueItem[]): Table
     .map((item) => queueItemToOfflineSubmission(item))
     .filter((item): item is TabletOfflineSubmission => Boolean(item));
 }
+
+export function offlineSubmissionToSyncQueueItem(submission: TabletOfflineSubmission): SyncQueueItem {
+  const status: SyncStatus =
+    submission.syncStatus === "synced"
+      ? "Synced"
+      : submission.syncStatus === "syncing"
+        ? "Syncing"
+        : submission.syncStatus === "failed"
+          ? "Failed"
+          : "Pending Sync";
+  return {
+    id: submission.localSubmissionId,
+    itemType: "auditSubmission",
+    localId: submission.localSubmissionId,
+    status,
+    createdAt: submission.createdAt,
+    updatedAt: submission.createdAt,
+    retryCount: submission.retryCount,
+    lastError: submission.lastError,
+    payload: {
+      auditId: submission.checkId,
+      companyFolderId: submission.companyFolderId || "",
+      offlineCompletion: true,
+    },
+  };
+}

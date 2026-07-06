@@ -484,7 +484,8 @@ import {
   type TabletEvidenceRef,
   type TabletOfflineSubmission,
 } from "./src/services/tabletOfflineService";
-import { submissionQueueService } from "./src/services/submissionQueueService";
+import { submissionQueueService, isSubmissionReadyForRetry } from "./src/services/submissionQueueService";
+import { offlineSubmissionToSyncQueueItem } from "./src/utils/submissionQueueBridge";
 import { queueAddedMessage, SUBMISSION_QUEUE_MESSAGES, queueIndicatorSummary } from "./src/utils/submissionQueueMessages";
 
 type AuditStatus = "green" | "amber" | "red";
@@ -3612,14 +3613,18 @@ function App() {
   const [syncQueue, setSyncQueue] = useState<SyncQueueItem[]>(storedWorkspaceState?.syncQueue || initialSyncQueue);
   const submissionInFlightKeysRef = useRef(new Set<string>());
   const submissionQueueHydratedRef = useRef(false);
+  const selectedFolderIdRef = useRef(storedWorkspaceState?.selectedFolderId || "");
   const refreshSubmissionQueueViews = useCallback(async () => {
     if (!submissionQueueService.canUseIndexedDb()) {
       return;
     }
-    const items = await submissionQueueService.listActiveItems();
+    const items = await submissionQueueService.listActiveItemsForSession({
+      companyFolderId: selectedFolderIdRef.current || undefined,
+      userEmail: currentUser?.email || currentUser?.username,
+    });
     setSyncQueue(submissionQueueService.toSyncQueueView(items));
     setOfflineQueue(submissionQueueService.toOfflineQueueView(items));
-  }, []);
+  }, [currentUser?.email, currentUser?.username]);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [backendConfigured, setBackendConfigured] = useState(false);
   const [sharedDriveId, setSharedDriveId] = useState("");
@@ -3742,7 +3747,6 @@ function App() {
   const [folders, setFolders] = useState<CompanyFolder[]>(storedWorkspaceState?.folders || []);
   const [godmodeLiveCompaniesWarning, setGodmodeLiveCompaniesWarning] = useState("");
   const [selectedFolderId, setSelectedFolderId] = useState(storedWorkspaceState?.selectedFolderId || "");
-  const selectedFolderIdRef = useRef(selectedFolderId);
   const [hydratedCompanyFolderId, setHydratedCompanyFolderId] = useState(
     () => storedWorkspaceState?.selectedFolderId || "",
   );
@@ -3913,7 +3917,8 @@ function App() {
 
   useEffect(() => {
     selectedFolderIdRef.current = selectedFolderId;
-  }, [selectedFolderId]);
+    void refreshSubmissionQueueViews().catch(() => undefined);
+  }, [selectedFolderId, refreshSubmissionQueueViews]);
 
   useEffect(() => {
     if (currentUser?.role === "Master") {
@@ -4661,6 +4666,10 @@ function App() {
   const failedSyncCount = useMemo(
     () => syncQueue.filter((item) => item.status === "Failed" || item.status === "Conflict").length,
     [syncQueue],
+  );
+  const syncCentreQueue = useMemo(
+    () => [...syncQueue, ...offlineQueue.map(offlineSubmissionToSyncQueueItem)],
+    [syncQueue, offlineQueue],
   );
   const unsyncedSubmittedAuditIds = useMemo(
     () =>
@@ -7566,7 +7575,10 @@ function App() {
         });
         submissionQueueHydratedRef.current = true;
       }
-      const items = await submissionQueueService.listActiveItems();
+      const items = await submissionQueueService.listActiveItemsForSession({
+        companyFolderId: storedWorkspaceState?.selectedFolderId || selectedFolderId,
+        userEmail: currentUser?.email || currentUser?.username,
+      });
       if (!alive) {
         return;
       }
@@ -10842,6 +10854,12 @@ function App() {
         if (submission.syncStatus === "synced") {
           continue;
         }
+        const queueItem = await submissionQueueService.getQueueItem<import("./src/types/submissionQueue").SubmissionQueueItem>(
+          submission.localSubmissionId,
+        );
+        if (queueItem && !isSubmissionReadyForRetry(queueItem)) {
+          continue;
+        }
         setOfflineSyncProgress({ current: index + 1, total: queued.length });
         setOfflineQueue((current) =>
           current.map((item) => (item.localSubmissionId === submission.localSubmissionId ? { ...item, syncStatus: "syncing" } : item)),
@@ -10925,6 +10943,10 @@ function App() {
 
   const processSyncQueueItem = async (item: SyncQueueItem) => {
     if (syncProcessingRef.current) {
+      return;
+    }
+    const queueMatch = await submissionQueueService.getQueueItem<import("./src/types/submissionQueue").SubmissionQueueItem>(item.id);
+    if (queueMatch && !isSubmissionReadyForRetry(queueMatch)) {
       return;
     }
     syncProcessingRef.current = true;
@@ -11073,6 +11095,8 @@ function App() {
     setAuditModeQuestionIndex(0);
     setIssuePrompt(null);
     setAuditCompletionSummary(null);
+    setSyncQueue([]);
+    setOfflineQueue([]);
     pushToast("Signed out", "Your session has been closed.", "neutral");
   };
 
@@ -16435,6 +16459,7 @@ function App() {
                     next.forEach((item) => {
                       if (item.syncStatus === "queued") {
                         void tabletOfflineService.upsertSubmission(item).catch(() => undefined);
+                        void submissionQueueService.retryItem(item.localSubmissionId).catch(() => undefined);
                       }
                     });
                     return next;
@@ -16924,19 +16949,38 @@ function App() {
             {screen === "sync" && !canCompleteAuditAsAuditor(currentUser.role) && canViewSyncCentre(currentUser.role) && (
               <SyncCentreScreen
                 currentUser={currentUser}
-                syncQueue={syncQueue}
-                offlineQueueCount={offlineQueue.length}
+                syncQueue={syncCentreQueue}
+                offlineQueueCount={0}
                 onRetryItem={(id) => {
                   const item = syncQueue.find((entry) => entry.localId === id);
                   if (item) {
+                    void submissionQueueService.retryItem(item.id).catch(() => undefined);
                     updateSyncItemStatus(id, "Pending Sync");
                     void processSyncQueueItem({ ...item, status: "Pending Sync" });
+                    return;
                   }
+                  const offline = offlineQueue.find((entry) => entry.localSubmissionId === id);
+                  if (!offline) {
+                    return;
+                  }
+                  void submissionQueueService.retryItem(id).then(() => refreshSubmissionQueueViews()).catch(() => undefined);
+                  setOfflineQueue((current) =>
+                    current.map((entry) =>
+                      entry.localSubmissionId === id ? { ...entry, syncStatus: "queued" as const, lastError: "" } : entry,
+                    ),
+                  );
+                  void tabletOfflineService.upsertSubmission({ ...offline, syncStatus: "queued", lastError: "" }).catch(() => undefined);
                 }}
                 onForceSyncItem={(id) => {
                   const item = syncQueue.find((entry) => entry.localId === id);
                   if (item) {
                     void processSyncQueueItem({ ...item, status: "Syncing" });
+                    return;
+                  }
+                  const offline = offlineQueue.find((entry) => entry.localSubmissionId === id);
+                  if (offline) {
+                    void submissionQueueService.retryItem(id).then(() => refreshSubmissionQueueViews()).catch(() => undefined);
+                    void syncOfflineSubmissions();
                   }
                 }}
               />

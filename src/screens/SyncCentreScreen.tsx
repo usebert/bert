@@ -78,7 +78,7 @@ export function SyncCentreScreen({
         </div>
       </section>
       <section className="grid grid-cols-2 gap-3">
-        <MiniMetric label="Waiting to sync" value={String(offlineQueueCount + syncQueue.filter((item) => item.status === "Pending Sync" || item.status === "Syncing").length)} />
+        <MiniMetric label="Waiting to sync" value={String(syncQueue.filter((item) => item.status === "Pending Sync" || item.status === "Syncing").length)} />
         <MiniMetric label="Sync failed" value={String(syncQueue.filter((item) => item.status === "Failed" || item.status === "Conflict").length)} />
       </section>
       {syncQueue.length === 0 ? (

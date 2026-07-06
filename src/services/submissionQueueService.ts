@@ -50,6 +50,33 @@ export function buildSubmissionIdempotencyKey(input: {
   return `${input.type}::${company}::${input.localId}`;
 }
 
+export function filterSubmissionQueueForSession(
+  items: SubmissionQueueItem[],
+  context: { companyFolderId?: string; userEmail?: string },
+) {
+  const company = String(context.companyFolderId || "").trim();
+  const email = String(context.userEmail || "").trim().toLowerCase();
+  return items.filter((item) => {
+    if (company && item.companyFolderId && item.companyFolderId !== company) {
+      return false;
+    }
+    if (email && item.userEmail && item.userEmail.toLowerCase() !== email) {
+      return false;
+    }
+    return true;
+  });
+}
+
+export function isSubmissionReadyForRetry(item: SubmissionQueueItem, now = Date.now()) {
+  if (item.status === "synced") {
+    return false;
+  }
+  if (!item.nextRetryAt) {
+    return true;
+  }
+  return Date.parse(item.nextRetryAt) <= now;
+}
+
 type EnqueueInput = Omit<SubmissionQueueItem, "id" | "createdAt" | "updatedAt" | "status" | "attemptCount" | "lastError" | "nextRetryAt"> & {
   id?: string;
   createdAt?: string;
@@ -76,6 +103,11 @@ export const submissionQueueService = {
   async listActiveItems() {
     const items = await this.listItems();
     return items.filter((item) => item.status !== "synced");
+  },
+
+  async listActiveItemsForSession(context: { companyFolderId?: string; userEmail?: string }) {
+    const items = await this.listActiveItems();
+    return filterSubmissionQueueForSession(items, context);
   },
 
   async enqueue(input: EnqueueInput): Promise<SubmissionQueueItem> {
@@ -111,6 +143,13 @@ export const submissionQueueService = {
   async findByIdempotencyKey(idempotencyKey: string) {
     const items = await this.listItems();
     return items.find((item) => item.idempotencyKey === idempotencyKey) || null;
+  },
+
+  async getQueueItem<T extends { id: string }>(id: string) {
+    if (!tabletOfflineService.canUseIndexedDb()) {
+      return null;
+    }
+    return tabletOfflineService.getQueueItem<T>(id);
   },
 
   async updateItem(id: string, patch: Partial<SubmissionQueueItem>) {

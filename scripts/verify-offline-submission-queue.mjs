@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Offline submission queue verifier — IndexedDB queue, UX copy, and App wiring.
+ * Offline submission queue verifier — IndexedDB queue, UX copy, App wiring, and hardening guards.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -27,6 +27,10 @@ const submissionQueue = read("src/services/submissionQueueService.ts");
 const messages = read("src/utils/submissionQueueMessages.ts");
 const bridge = read("src/utils/submissionQueueBridge.ts");
 const types = read("src/types/submissionQueue.ts");
+const syncCentre = read("src/screens/SyncCentreScreen.tsx");
+const serviceWorker = read("public/service-worker.js");
+const manifest = read("public/manifest.webmanifest");
+const mainTsx = read("src/main.tsx");
 const pkg = JSON.parse(read("package.json"));
 
 assert(pkg.scripts["verify:offline-submission-queue"], "PKG: verify script registered");
@@ -41,6 +45,9 @@ assert(submissionQueue.includes("markFailed"), "QUEUE: failed sync keeps lastErr
 assert(submissionQueue.includes("computeSubmissionBackoffMs"), "QUEUE: backoff retry");
 assert(submissionQueue.includes("idempotencyKey"), "QUEUE: idempotency key");
 assert(submissionQueue.includes("migrateLegacyQueues"), "QUEUE: legacy migration");
+assert(submissionQueue.includes("filterSubmissionQueueForSession"), "QUEUE: session namespace filter");
+assert(submissionQueue.includes("listActiveItemsForSession"), "QUEUE: session-scoped list");
+assert(submissionQueue.includes("isSubmissionReadyForRetry"), "QUEUE: retry backoff gate");
 
 assert(messages.includes('"Added to queue"'), "UX: Added to queue");
 assert(messages.includes('"Added to queue. Syncing now…"'), "UX: online syncing copy");
@@ -61,11 +68,29 @@ assert(appTsx.includes("refreshSubmissionQueueViews"), "APP: refresh survives re
 assert(appTsx.includes("submissionInFlightKeysRef"), "APP: double-submit guard");
 assert(appTsx.includes("queueAddedMessage"), "APP: queue feedback messages");
 assert(appTsx.includes("SUBMISSION_QUEUE_MESSAGES.success"), "APP: success only after sync");
+assert(appTsx.includes("listActiveItemsForSession"), "APP: session-scoped queue hydrate");
+assert(appTsx.includes("isSubmissionReadyForRetry"), "APP: respects retry backoff");
+assert(appTsx.includes("offlineSubmissionToSyncQueueItem"), "APP: offline items in Sync Centre");
+assert(appTsx.includes("syncCentreQueue"), "APP: merged Sync Centre queue");
+assert(appTsx.includes("setSyncQueue([])"), "APP: logout clears in-memory sync queue");
+assert(appTsx.includes("setOfflineQueue([])"), "APP: logout clears in-memory offline queue");
+assert(/addEventListener\("online"/.test(appTsx), "APP: reconnect listener");
 
 assert(bridge.includes("offlineSubmissionToQueueItem"), "BRIDGE: offline submission mapping");
 assert(bridge.includes("syncQueueItemToSubmissionQueueItem"), "BRIDGE: legacy sync queue migration");
+assert(bridge.includes("offlineSubmissionToSyncQueueItem"), "BRIDGE: offline to sync centre view");
 
 assert(read("src/components/animation/OfflineSyncBanner.tsx").includes("queueIndicatorSummary"), "UI: banner uses queue indicator");
-assert(read("src/screens/SyncCentreScreen.tsx").includes("All synced"), "UI: sync centre empty state");
+assert(syncCentre.includes("All synced"), "UI: sync centre empty state");
+
+assert(manifest.includes('"display": "standalone"'), "PWA: standalone manifest");
+assert(manifest.includes("start_url"), "PWA: start_url");
+assert(manifest.includes("icons"), "PWA: icons");
+
+assert(serviceWorker.includes("install"), "SW: install handler");
+assert(serviceWorker.includes("fetch"), "SW: fetch handler");
+assert(serviceWorker.includes("caches.match"), "SW: cache fallback");
+
+assert(mainTsx.includes('register("/service-worker.js")'), "SW: registration in main");
 
 console.log(`[verify:offline-submission-queue] ${caseCount} checks OK`);
