@@ -9,11 +9,19 @@ import {
   BRIEFING_RECIPIENTS_TAB_COLUMNS,
   BRIEFING_PRIORITIES,
   BRIEFING_RENEWAL_FREQUENCIES,
+  BRIEFING_RECIPIENT_AREA_HEADERS,
+  BRIEFING_RECIPIENT_DEPARTMENT_HEADERS,
+  BRIEFING_RECIPIENT_EMAIL_HEADERS,
+  BRIEFING_RECIPIENT_NAME_HEADERS,
+  BRIEFING_RECIPIENT_ROLE_HEADERS,
+  BRIEFING_RECIPIENT_SOURCE_TABS,
+  BRIEFING_RECIPIENT_STATUS_HEADERS,
   BRIEFING_TARGET_MODES,
   BRIEFING_TYPES,
+  isUsableBriefingRecipientStatus,
+  pickBriefingRecipientField,
 } from "../shared/briefings.mjs";
 import { resolveCompanyScheduleContext } from "./schedule-service.mjs";
-import { readUsersTabProfiles } from "./company-users-foundation.mjs";
 import {
   appendTabRows as workbookAppendTabRows,
   ensureTabColumns as workbookEnsureTabColumns,
@@ -482,12 +490,127 @@ async function safeReadAllRecipients(auth, deps, masterSheetId) {
   }
 }
 
+export function mapRecordToBriefingRecipientProfile(record = {}) {
+  const email = normalizeEmail(pickBriefingRecipientField(record, ...BRIEFING_RECIPIENT_EMAIL_HEADERS));
+  if (!email || !email.includes("@")) {
+    return null;
+  }
+  const status = pickBriefingRecipientField(record, ...BRIEFING_RECIPIENT_STATUS_HEADERS);
+  if (!isUsableBriefingRecipientStatus(status)) {
+    return null;
+  }
+  const name =
+    pickBriefingRecipientField(record, ...BRIEFING_RECIPIENT_NAME_HEADERS) || email.split("@")[0] || email;
+  const role = pickBriefingRecipientField(record, ...BRIEFING_RECIPIENT_ROLE_HEADERS);
+  const area = pickBriefingRecipientField(record, ...BRIEFING_RECIPIENT_AREA_HEADERS);
+  const department = pickBriefingRecipientField(record, ...BRIEFING_RECIPIENT_DEPARTMENT_HEADERS);
+  return {
+    email,
+    name,
+    displayName: name,
+    role,
+    area,
+    siteArea: area,
+    department,
+    status,
+  };
+}
+
+export function expandBriefingRecipientProfilesFromRecords(records = []) {
+  const profiles = [];
+  const seen = new Set();
+  for (const record of Array.isArray(records) ? records : []) {
+    const profile = mapRecordToBriefingRecipientProfile(record);
+    if (!profile || seen.has(profile.email)) {
+      continue;
+    }
+    seen.add(profile.email);
+    profiles.push(profile);
+  }
+  return profiles;
+}
+
+function buildBriefingRecipientExpansionDebug(tabsChecked = [], counts = {}) {
+  const parts = [];
+  if (tabsChecked.length) {
+    parts.push(`tabs checked: ${tabsChecked.join(", ")}`);
+  }
+  if (typeof counts.peopleRows === "number") {
+    parts.push(`People rows: ${counts.peopleRows}`);
+  }
+  if (typeof counts.usersRows === "number") {
+    parts.push(`Users rows: ${counts.usersRows}`);
+  }
+  if (typeof counts.usableProfiles === "number") {
+    parts.push(`usable profiles: ${counts.usableProfiles}`);
+  }
+  if (typeof counts.matchedProfiles === "number") {
+    parts.push(`matched target: ${counts.matchedProfiles}`);
+  }
+  return parts.join("; ");
+}
+
+async function readBriefingRecipientSourceRecords(auth, deps, masterSheetId) {
+  const readTabRecords = resolveReadTabRecords(deps);
+  const tabsChecked = [];
+  const counts = { peopleRows: 0, usersRows: 0 };
+  let peopleRecords = [];
+  let usersRecords = [];
+
+  for (const tabName of BRIEFING_RECIPIENT_SOURCE_TABS) {
+    tabsChecked.push(tabName);
+    try {
+      const result = await readTabRecords(auth, deps, masterSheetId, tabName);
+      const records = result?.records || [];
+      if (tabName === "People") {
+        peopleRecords = records;
+        counts.peopleRows = records.length;
+      } else if (tabName === "Users") {
+        usersRecords = records;
+        counts.usersRows = records.length;
+      }
+    } catch (error) {
+      if (!isBenignTabReadError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  const peopleProfiles = expandBriefingRecipientProfilesFromRecords(peopleRecords);
+  if (peopleProfiles.length) {
+    return {
+      records: peopleRecords,
+      profiles: peopleProfiles,
+      sourceTab: "People",
+      tabsChecked,
+      counts: { ...counts, usableProfiles: peopleProfiles.length },
+    };
+  }
+
+  const usersProfiles = expandBriefingRecipientProfilesFromRecords(usersRecords);
+  return {
+    records: usersRecords,
+    profiles: usersProfiles,
+    sourceTab: usersProfiles.length ? "Users" : null,
+    tabsChecked,
+    counts: { ...counts, usableProfiles: usersProfiles.length },
+  };
+}
+
 async function resolveRecipientsForTarget(auth, deps, companyContext, input) {
-  const readProfiles =
-    typeof deps?.readUsersTabProfiles === "function" ? deps.readUsersTabProfiles : readUsersTabProfiles;
-  const profilesResult = await readProfiles(auth, deps, companyContext);
-  const profiles = (profilesResult?.profiles || []).filter((profile) => normalizeEmail(profile.email));
-  return profiles.filter((profile) => profileMatchesTarget(profile, input));
+  const masterSheetId = trim(companyContext?.masterSheetId);
+  const expansion = await readBriefingRecipientSourceRecords(auth, deps, masterSheetId);
+  const matched = expansion.profiles.filter((profile) => profileMatchesTarget(profile, input));
+  return {
+    profiles: matched,
+    expansion: {
+      ...expansion,
+      counts: {
+        ...expansion.counts,
+        matchedProfiles: matched.length,
+      },
+    },
+  };
 }
 
 function aggregateBriefingCounts(recipients = []) {
@@ -561,12 +684,18 @@ export async function createAndSendBriefing(auth, deps, actor, companyFolderId, 
   const briefingId = buildBriefingId();
   const sentAt = nowIso();
   const targetInput = { ...input, targetMode: validation.targetMode || input.targetMode };
-  const targetProfiles = await resolveRecipientsForTarget(auth, deps, context, targetInput);
+  const recipientResolution = await resolveRecipientsForTarget(auth, deps, context, targetInput);
+  const targetProfiles = recipientResolution.profiles || [];
   if (!targetProfiles.length) {
+    const debugDetails = buildBriefingRecipientExpansionDebug(
+      recipientResolution.expansion?.tabsChecked,
+      recipientResolution.expansion?.counts,
+    );
     return briefingApiFailure(
       "BRIEFING_NO_RECIPIENTS",
       "No recipients matched the selected target.",
-      "Add users to your company workbook or choose a different recipient group.",
+      debugDetails ||
+        "Add users to your company workbook or choose a different recipient group.",
     );
   }
 

@@ -15,10 +15,13 @@ import {
   canManageBriefings,
   canViewBriefingsTracker,
   createAndSendBriefing,
+  expandBriefingRecipientProfilesFromRecords,
+  isUsableBriefingRecipientStatus,
   listBriefingsTodoPreview,
   listMyBriefings,
   listBriefingsTracker,
   mapBriefingRecord,
+  mapRecordToBriefingRecipientProfile,
   openBriefing,
   readBriefing,
   acknowledgeBriefing,
@@ -111,6 +114,11 @@ const companyFolderId = "folder-briefings-test";
 const masterSheetId = "sheet-briefings-test";
 const briefingStore = [];
 const recipientStore = [];
+let peopleTabRows = [];
+let usersTabRows = [
+  { Email: "manager@test.co", Name: "Manager One", Role: "Manager", Status: "ACTIVE", Department: "Ops" },
+  { Email: "auditor@test.co", Name: "Auditor One", Role: "Auditor", Status: "active", Department: "Ops" },
+];
 
 async function mockReadTabRecords(_auth, _deps, _sheetId, tabName) {
   if (tabName === BRIEFINGS_TAB) {
@@ -118,6 +126,12 @@ async function mockReadTabRecords(_auth, _deps, _sheetId, tabName) {
   }
   if (tabName === BRIEFING_RECIPIENTS_TAB) {
     return { ok: true, records: recipientStore.map((row) => ({ ...row })), rowCount: recipientStore.length };
+  }
+  if (tabName === "People") {
+    return { ok: true, records: peopleTabRows.map((row) => ({ ...row })), rowCount: peopleTabRows.length };
+  }
+  if (tabName === "Users") {
+    return { ok: true, records: usersTabRows.map((row) => ({ ...row })), rowCount: usersTabRows.length };
   }
   return { ok: true, records: [], rowCount: 0 };
 }
@@ -161,16 +175,6 @@ async function mockResolveCompanyScheduleContext() {
   };
 }
 
-async function mockReadUsersTabProfiles() {
-  return {
-    ok: true,
-    profiles: [
-      { email: "manager@test.co", name: "Manager One", role: "Manager", department: "Ops" },
-      { email: "auditor@test.co", name: "Auditor One", role: "Auditor", department: "Ops" },
-    ],
-  };
-}
-
 const mockDeps = {
   readTabRecords: mockReadTabRecords,
   appendTabRows: mockAppendTabRows,
@@ -178,7 +182,6 @@ const mockDeps = {
   ensureTabColumns: mockEnsureTabColumns,
   patchTabRowByHeader: mockPatchTabRowByHeader,
   resolveCompanyScheduleContext: mockResolveCompanyScheduleContext,
-  readUsersTabProfiles: mockReadUsersTabProfiles,
 };
 
 const managerActor = {
