@@ -1880,7 +1880,8 @@ export function installCoreWorkflowRoutes(app, deps) {
     }
     try {
       const result = await withOperationTimeout(
-        () => listMyBriefings(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId),
+        listMyBriefings(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId),
+        "briefings_mine",
         BRIEFINGS_ROUTE_TIMEOUT_MS,
       );
       if (!result.ok) {
@@ -1911,7 +1912,8 @@ export function installCoreWorkflowRoutes(app, deps) {
     const limit = parseOptionalPositiveInt(req.query.limit, 5);
     try {
       const result = await withOperationTimeout(
-        () => listBriefingsTodoPreview(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, limit),
+        listBriefingsTodoPreview(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, limit),
+        "briefings_todo",
         BRIEFINGS_ROUTE_TIMEOUT_MS,
       );
       if (!result.ok) {
@@ -1949,7 +1951,8 @@ export function installCoreWorkflowRoutes(app, deps) {
     }
     try {
       const result = await withOperationTimeout(
-        () => listBriefingsTracker(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId),
+        listBriefingsTracker(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId),
+        "briefings_tracker",
         BRIEFINGS_ROUTE_TIMEOUT_MS,
       );
       if (!result.ok) {
@@ -1983,7 +1986,8 @@ export function installCoreWorkflowRoutes(app, deps) {
     }
     try {
       const result = await withOperationTimeout(
-        () => createAndSendBriefing(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, req.body || {}),
+        createAndSendBriefing(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, req.body || {}),
+        "briefings_create",
         BRIEFINGS_ROUTE_TIMEOUT_MS,
       );
       if (!result.ok) {
@@ -2016,7 +2020,7 @@ export function installCoreWorkflowRoutes(app, deps) {
       reply: () => replyToBriefing(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, briefingId, req.body || {}),
     };
     try {
-      const result = await withOperationTimeout(handlers[action], BRIEFINGS_ROUTE_TIMEOUT_MS);
+      const result = await withOperationTimeout(handlers[action](), `briefing_${action}`, BRIEFINGS_ROUTE_TIMEOUT_MS);
       if (!result.ok) {
         return briefingRouteError(res, result);
       }
