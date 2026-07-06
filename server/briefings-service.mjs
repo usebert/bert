@@ -1,7 +1,7 @@
 /**
  * Briefings service — Briefings + BriefingRecipients workbook tabs.
  */
-import { isCompanyInviteActor } from "../shared/company-invite-permissions.mjs";
+import { isCompanyInviteActor, isGodmodeInviteSession } from "../shared/company-invite-permissions.mjs";
 import {
   BRIEFINGS_TAB,
   BRIEFINGS_TAB_COLUMNS,
@@ -115,13 +115,75 @@ export function canViewBriefingsTracker(actor) {
   return canManageBriefings(actor);
 }
 
-function actorOwnsCompany(actor, companyFolderId) {
-  const folderId = trim(companyFolderId);
-  if (!folderId) {
+export function briefingApiFailure(code, error, details = "", httpStatus = 400) {
+  const safeError = trim(error) || "Request failed.";
+  const safeDetails = trim(details);
+  return {
+    ok: false,
+    code,
+    error: safeError,
+    details: safeDetails || undefined,
+    message: safeError,
+    httpStatus,
+  };
+}
+
+function normalizeContextFailure(context = {}) {
+  if (context?.ok) {
+    return context;
+  }
+  return briefingApiFailure(
+    context.code || "BRIEFING_CONTEXT_FAILED",
+    context.error || context.message || "Company workspace could not be resolved.",
+    context.details || "",
+    context.httpStatus || 404,
+  );
+}
+
+export function actorCanAccessCompanyBriefings(actor, companyFolderId, alternateIds = []) {
+  if (!canAccessBriefings(actor)) {
     return false;
   }
-  const actorFolder = trim(actor?.companyFolderId || actor?.companyId);
-  return actorFolder === folderId;
+  if (isGodmodeInviteSession({ kind: actor?.kind, role: actor?.role })) {
+    return Boolean(trim(companyFolderId));
+  }
+  const sessionCompanyId = trim(actor?.companyId || actor?.companyFolderId);
+  if (!sessionCompanyId) {
+    return false;
+  }
+  const targets = new Set(
+    [companyFolderId, ...alternateIds].map((entry) => trim(entry)).filter(Boolean),
+  );
+  return targets.has(sessionCompanyId);
+}
+
+function normalizeDueDate(value) {
+  const raw = trim(value);
+  if (!raw) {
+    return "";
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw;
+  }
+  const parsed = Date.parse(raw);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  const date = new Date(parsed);
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function isBenignTabReadError(error) {
+  const message = String(error?.message || error || "").toLowerCase();
+  return (
+    message.includes("unable to parse range") ||
+    message.includes("not found") ||
+    message.includes("is empty or missing") ||
+    message.includes('tab ""')
+  );
 }
 
 export function mapBriefingRecord(record = {}) {
@@ -280,28 +342,40 @@ function profileMatchesTarget(profile, input) {
 export function validateBriefingCreateInput(input = {}) {
   const title = trim(input.title);
   if (!title) {
-    return { ok: false, code: "BRIEFING_TITLE_REQUIRED", message: "Title is required." };
+    return briefingApiFailure("BRIEFING_TITLE_REQUIRED", "Title is required.");
   }
   const type = trim(input.type);
   if (!BRIEFING_TYPES.includes(type)) {
-    return { ok: false, code: "BRIEFING_TYPE_INVALID", message: "Briefing type is invalid." };
+    return briefingApiFailure("BRIEFING_TYPE_INVALID", "Briefing type is invalid.");
   }
   const priority = trim(input.priority || "Normal");
   if (!BRIEFING_PRIORITIES.includes(priority)) {
-    return { ok: false, code: "BRIEFING_PRIORITY_INVALID", message: "Priority is invalid." };
+    return briefingApiFailure("BRIEFING_PRIORITY_INVALID", "Priority is invalid.");
   }
   const targetMode = trim(input.targetMode).toLowerCase();
   if (!BRIEFING_TARGET_MODES.includes(targetMode)) {
-    return { ok: false, code: "BRIEFING_TARGET_INVALID", message: "Recipient target mode is invalid." };
+    return briefingApiFailure("BRIEFING_TARGET_INVALID", "Recipient target mode is invalid.");
   }
   const renewalFrequency = trim(input.renewalFrequency || "None");
   if (!BRIEFING_RENEWAL_FREQUENCIES.includes(renewalFrequency)) {
-    return { ok: false, code: "BRIEFING_RENEWAL_INVALID", message: "Renewal frequency is invalid." };
+    return briefingApiFailure("BRIEFING_RENEWAL_INVALID", "Renewal frequency is invalid.");
   }
   if (targetMode === "users" && !(input.targetUserEmails || []).length) {
-    return { ok: false, code: "BRIEFING_RECIPIENTS_REQUIRED", message: "Select at least one recipient." };
+    return briefingApiFailure("BRIEFING_RECIPIENTS_REQUIRED", "Select at least one recipient.");
   }
-  return { ok: true };
+  let dueDate = "";
+  if (input.dueDate !== undefined && input.dueDate !== null && trim(input.dueDate)) {
+    const normalized = normalizeDueDate(input.dueDate);
+    if (normalized === null) {
+      return briefingApiFailure(
+        "BRIEFING_DUE_DATE_INVALID",
+        "Due date format is invalid. Use YYYY-MM-DD.",
+        trim(input.dueDate),
+      );
+    }
+    dueDate = normalized;
+  }
+  return { ok: true, dueDate: dueDate || undefined, targetMode };
 }
 
 export function buildBriefingRow(input = {}) {
@@ -386,6 +460,28 @@ async function readAllRecipients(auth, deps, masterSheetId) {
   return (result.records || []).map(mapRecipientRecord);
 }
 
+async function safeReadAllBriefings(auth, deps, masterSheetId) {
+  try {
+    return await readAllBriefings(auth, deps, masterSheetId);
+  } catch (error) {
+    if (isBenignTabReadError(error)) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+async function safeReadAllRecipients(auth, deps, masterSheetId) {
+  try {
+    return await readAllRecipients(auth, deps, masterSheetId);
+  } catch (error) {
+    if (isBenignTabReadError(error)) {
+      return [];
+    }
+    throw error;
+  }
+}
+
 async function resolveRecipientsForTarget(auth, deps, companyContext, input) {
   const readProfiles =
     typeof deps?.readUsersTabProfiles === "function" ? deps.readUsersTabProfiles : readUsersTabProfiles;
@@ -441,10 +537,7 @@ async function resolveCompanyContext(auth, deps, actor, companyFolderId) {
 
 export async function createAndSendBriefing(auth, deps, actor, companyFolderId, input = {}) {
   if (!canManageBriefings(actor)) {
-    return { ok: false, code: "BRIEFING_FORBIDDEN", message: "You do not have permission to send briefings." };
-  }
-  if (!actorOwnsCompany(actor, companyFolderId)) {
-    return { ok: false, code: "BRIEFING_COMPANY_MISMATCH", message: "Briefing must be sent within your company workspace." };
+    return briefingApiFailure("BRIEFING_FORBIDDEN", "You do not have permission to send briefings.", "", 403);
   }
 
   const validation = validateBriefingCreateInput(input);
@@ -454,14 +547,27 @@ export async function createAndSendBriefing(auth, deps, actor, companyFolderId, 
 
   const context = await resolveCompanyContext(auth, deps, actor, companyFolderId);
   if (!context?.ok) {
-    return context;
+    return normalizeContextFailure(context);
+  }
+  if (!actorCanAccessCompanyBriefings(actor, companyFolderId, context.alternateIds)) {
+    return briefingApiFailure(
+      "BRIEFING_COMPANY_MISMATCH",
+      "Briefing must be sent within your company workspace.",
+      "",
+      403,
+    );
   }
 
   const briefingId = buildBriefingId();
   const sentAt = nowIso();
-  const targetProfiles = await resolveRecipientsForTarget(auth, deps, context, input);
+  const targetInput = { ...input, targetMode: validation.targetMode || input.targetMode };
+  const targetProfiles = await resolveRecipientsForTarget(auth, deps, context, targetInput);
   if (!targetProfiles.length) {
-    return { ok: false, code: "BRIEFING_NO_RECIPIENTS", message: "No recipients matched the selected target." };
+    return briefingApiFailure(
+      "BRIEFING_NO_RECIPIENTS",
+      "No recipients matched the selected target.",
+      "Add users to your company workbook or choose a different recipient group.",
+    );
   }
 
   let documentDriveFileId = trim(input.documentDriveFileId);
@@ -473,8 +579,10 @@ export async function createAndSendBriefing(auth, deps, actor, companyFolderId, 
 
   const briefingRow = buildBriefingRow({
     ...input,
+    ...targetInput,
     briefingId,
     sentAt,
+    dueDate: validation.dueDate ?? input.dueDate,
     createdByEmail: actor.email,
     createdByName: trim(actor.name || actor.displayName || actor.email),
     recipientCount: targetProfiles.length,
@@ -516,16 +624,19 @@ export async function createAndSendBriefing(auth, deps, actor, companyFolderId, 
 }
 
 export async function listMyBriefings(auth, deps, actor, companyFolderId) {
-  if (!canAccessBriefings(actor) || !actorOwnsCompany(actor, companyFolderId)) {
-    return { ok: false, code: "BRIEFING_FORBIDDEN", message: "You do not have permission to view briefings." };
+  if (!canAccessBriefings(actor)) {
+    return briefingApiFailure("BRIEFING_FORBIDDEN", "You do not have permission to view briefings.", "", 403);
   }
   const context = await resolveCompanyContext(auth, deps, actor, companyFolderId);
   if (!context?.ok) {
-    return context;
+    return normalizeContextFailure(context);
+  }
+  if (!actorCanAccessCompanyBriefings(actor, companyFolderId, context.alternateIds)) {
+    return briefingApiFailure("BRIEFING_FORBIDDEN", "You do not have permission to view briefings.", "", 403);
   }
   const email = normalizeEmail(actor.email);
-  const briefings = await readAllBriefings(auth, deps, context.masterSheetId);
-  const recipients = await readAllRecipients(auth, deps, context.masterSheetId);
+  const briefings = await safeReadAllBriefings(auth, deps, context.masterSheetId);
+  const recipients = await safeReadAllRecipients(auth, deps, context.masterSheetId);
   const briefingById = new Map(briefings.map((briefing) => [briefing.briefingId, briefing]));
   const mine = recipients
     .filter((recipient) => recipient.recipientEmail === email)
@@ -554,15 +665,28 @@ export async function listBriefingsTodoPreview(auth, deps, actor, companyFolderI
 }
 
 export async function listBriefingsTracker(auth, deps, actor, companyFolderId) {
-  if (!canViewBriefingsTracker(actor) || !actorOwnsCompany(actor, companyFolderId)) {
-    return { ok: false, code: "BRIEFING_TRACKER_FORBIDDEN", message: "Tracker is available to managers and admins only." };
+  if (!canViewBriefingsTracker(actor)) {
+    return briefingApiFailure(
+      "BRIEFING_TRACKER_FORBIDDEN",
+      "Tracker is available to managers and admins only.",
+      "",
+      403,
+    );
   }
   const context = await resolveCompanyContext(auth, deps, actor, companyFolderId);
   if (!context?.ok) {
-    return context;
+    return normalizeContextFailure(context);
   }
-  const briefings = await readAllBriefings(auth, deps, context.masterSheetId);
-  const recipients = await readAllRecipients(auth, deps, context.masterSheetId);
+  if (!actorCanAccessCompanyBriefings(actor, companyFolderId, context.alternateIds)) {
+    return briefingApiFailure(
+      "BRIEFING_TRACKER_FORBIDDEN",
+      "Tracker is available to managers and admins only.",
+      "",
+      403,
+    );
+  }
+  const briefings = await safeReadAllBriefings(auth, deps, context.masterSheetId);
+  const recipients = await safeReadAllRecipients(auth, deps, context.masterSheetId);
   const recipientsByBriefing = new Map();
   recipients.forEach((recipient) => {
     const list = recipientsByBriefing.get(recipient.briefingId) || [];
@@ -594,12 +718,12 @@ async function findRecipientRow(auth, deps, masterSheetId, briefingId, recipient
     (entry) => entry.briefingId === briefingId && entry.recipientEmail === normalizeEmail(recipientEmail),
   );
   if (!recipient) {
-    return { ok: false, code: "BRIEFING_RECIPIENT_NOT_FOUND", message: "Briefing assignment not found." };
+    return briefingApiFailure("BRIEFING_RECIPIENT_NOT_FOUND", "Briefing assignment not found.");
   }
-  const briefings = await readAllBriefings(auth, deps, masterSheetId);
+  const briefings = await safeReadAllBriefings(auth, deps, masterSheetId);
   const briefing = briefings.find((entry) => entry.briefingId === briefingId);
   if (!briefing) {
-    return { ok: false, code: "BRIEFING_NOT_FOUND", message: "Briefing not found." };
+    return briefingApiFailure("BRIEFING_NOT_FOUND", "Briefing not found.");
   }
   return { ok: true, recipient, briefing };
 }
@@ -625,12 +749,15 @@ async function patchRecipient(auth, deps, masterSheetId, briefingId, recipientEm
 }
 
 async function applyRecipientAction(auth, deps, actor, companyFolderId, briefingId, action, payload = {}) {
-  if (!canAccessBriefings(actor) || !actorOwnsCompany(actor, companyFolderId)) {
-    return { ok: false, code: "BRIEFING_FORBIDDEN", message: "You do not have permission to update this briefing." };
+  if (!canAccessBriefings(actor)) {
+    return briefingApiFailure("BRIEFING_FORBIDDEN", "You do not have permission to update this briefing.", "", 403);
   }
   const context = await resolveCompanyContext(auth, deps, actor, companyFolderId);
   if (!context?.ok) {
-    return context;
+    return normalizeContextFailure(context);
+  }
+  if (!actorCanAccessCompanyBriefings(actor, companyFolderId, context.alternateIds)) {
+    return briefingApiFailure("BRIEFING_FORBIDDEN", "You do not have permission to update this briefing.", "", 403);
   }
   const found = await findRecipientRow(auth, deps, context.masterSheetId, briefingId, actor.email);
   if (!found.ok) {
@@ -653,7 +780,7 @@ async function applyRecipientAction(auth, deps, actor, companyFolderId, briefing
   if (action === "sign" && briefing.requiresSignature) {
     const signatureName = trim(payload.signatureName);
     if (!signatureName) {
-      return { ok: false, code: "BRIEFING_SIGNATURE_REQUIRED", message: "Signature name is required." };
+      return briefingApiFailure("BRIEFING_SIGNATURE_REQUIRED", "Signature name is required.");
     }
     updates.SignedAt = timestamp;
     updates.SignatureName = signatureName;
@@ -662,7 +789,7 @@ async function applyRecipientAction(auth, deps, actor, companyFolderId, briefing
   if (action === "reply" && briefing.requiresReply) {
     const replyText = trim(payload.replyText);
     if (!replyText) {
-      return { ok: false, code: "BRIEFING_REPLY_REQUIRED", message: "Reply text is required." };
+      return briefingApiFailure("BRIEFING_REPLY_REQUIRED", "Reply text is required.");
     }
     updates.ReplyAt = timestamp;
     updates.ReplyText = replyText;

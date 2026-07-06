@@ -6088,14 +6088,14 @@ function App() {
           items: (result.items || []) as BriefingRecipientRecord[],
           loading: false,
         });
-      } catch (error) {
+      } catch {
         if (cancelled) {
           return;
         }
+        dashboardBriefingsPreviewKeyRef.current = previewKey;
         setBriefingTodoState({
           items: [],
           loading: false,
-          loadError: error instanceof Error ? error.message : "Could not load briefing to-do items.",
         });
       }
     })();

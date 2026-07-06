@@ -39,7 +39,9 @@ async function briefingRequest(path: string, init?: RequestInit) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload?.ok === false) {
-    const message = String(payload?.message || payload?.error || "Request failed.");
+    const baseMessage = String(payload?.error || payload?.message || "Request failed.");
+    const details = String(payload?.details || "").trim();
+    const message = details ? `${baseMessage} ${details}` : baseMessage;
     throw new Error(message);
   }
   return payload;

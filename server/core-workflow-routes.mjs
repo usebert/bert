@@ -73,6 +73,17 @@ import {
   signBriefing,
 } from "./briefings-service.mjs";
 
+function briefingRouteError(res, result, fallbackStatus = 400) {
+  const status = result?.httpStatus || fallbackStatus;
+  return res.status(status).json({
+    ok: false,
+    code: result?.code,
+    error: result?.error || result?.message || "Request failed.",
+    details: result?.details || undefined,
+    message: result?.message || result?.error || "Request failed.",
+  });
+}
+
 async function rejectCompanyApiIfFolderInvalid(authed, deps, companyFolderId, companyName = "") {
   if (!authed || !companyFolderId) {
     return null;
@@ -1855,12 +1866,17 @@ export function installCoreWorkflowRoutes(app, deps) {
   app.get("/api/companies/:companyFolderId/briefings/mine", async (req, res) => {
     const authed = getAuthedClient();
     if (!envConfigured() || !authed) {
-      return res.status(401).json({ ok: false, message: "Could not load briefings." });
+      return res.status(401).json({ ok: false, error: "Could not load briefings.", message: "Could not load briefings." });
     }
     const companyFolderId = String(req.params?.companyFolderId || "").trim();
     const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
     if (!canAccessBriefings(actor)) {
-      return res.status(403).json({ ok: false, code: "BRIEFING_FORBIDDEN", message: "You do not have permission to view briefings." });
+      return res.status(403).json({
+        ok: false,
+        code: "BRIEFING_FORBIDDEN",
+        error: "You do not have permission to view briefings.",
+        message: "You do not have permission to view briefings.",
+      });
     }
     try {
       const result = await withOperationTimeout(
@@ -1868,15 +1884,15 @@ export function installCoreWorkflowRoutes(app, deps) {
         BRIEFINGS_ROUTE_TIMEOUT_MS,
       );
       if (!result.ok) {
-        return res.status(result.httpStatus || 400).json(result);
+        return briefingRouteError(res, result);
       }
       return res.json(result);
     } catch (error) {
       return res.status(500).json({
         ok: false,
         code: "BRIEFINGS_LOAD_FAILED",
+        error: "Could not load briefings.",
         message: "Could not load briefings.",
-        technicalError: error instanceof Error ? error.message : String(error),
       });
     }
   });
@@ -1884,7 +1900,11 @@ export function installCoreWorkflowRoutes(app, deps) {
   app.get("/api/companies/:companyFolderId/briefings/todo", async (req, res) => {
     const authed = getAuthedClient();
     if (!envConfigured() || !authed) {
-      return res.status(401).json({ ok: false, message: "Could not load briefing to-do items." });
+      return res.status(401).json({
+        ok: false,
+        error: "Could not load briefing to-do items.",
+        message: "Could not load briefing to-do items.",
+      });
     }
     const companyFolderId = String(req.params?.companyFolderId || "").trim();
     const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
@@ -1895,13 +1915,14 @@ export function installCoreWorkflowRoutes(app, deps) {
         BRIEFINGS_ROUTE_TIMEOUT_MS,
       );
       if (!result.ok) {
-        return res.status(result.httpStatus || 400).json(result);
+        return briefingRouteError(res, result);
       }
       return res.json(result);
     } catch (error) {
       return res.status(500).json({
         ok: false,
         code: "BRIEFINGS_TODO_FAILED",
+        error: "Could not load briefing to-do items.",
         message: "Could not load briefing to-do items.",
       });
     }
@@ -1910,12 +1931,21 @@ export function installCoreWorkflowRoutes(app, deps) {
   app.get("/api/companies/:companyFolderId/briefings/tracker", async (req, res) => {
     const authed = getAuthedClient();
     if (!envConfigured() || !authed) {
-      return res.status(401).json({ ok: false, message: "Could not load briefing tracker." });
+      return res.status(401).json({
+        ok: false,
+        error: "Could not load briefing tracker.",
+        message: "Could not load briefing tracker.",
+      });
     }
     const companyFolderId = String(req.params?.companyFolderId || "").trim();
     const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
     if (!canViewBriefingsTracker(actor)) {
-      return res.status(403).json({ ok: false, code: "BRIEFING_TRACKER_FORBIDDEN", message: "Tracker is available to managers and admins only." });
+      return res.status(403).json({
+        ok: false,
+        code: "BRIEFING_TRACKER_FORBIDDEN",
+        error: "Tracker is available to managers and admins only.",
+        message: "Tracker is available to managers and admins only.",
+      });
     }
     try {
       const result = await withOperationTimeout(
@@ -1923,13 +1953,14 @@ export function installCoreWorkflowRoutes(app, deps) {
         BRIEFINGS_ROUTE_TIMEOUT_MS,
       );
       if (!result.ok) {
-        return res.status(result.httpStatus || 400).json(result);
+        return briefingRouteError(res, result);
       }
       return res.json(result);
     } catch (error) {
       return res.status(500).json({
         ok: false,
         code: "BRIEFINGS_TRACKER_FAILED",
+        error: "Could not load briefing tracker.",
         message: "Could not load briefing tracker.",
       });
     }
@@ -1938,12 +1969,17 @@ export function installCoreWorkflowRoutes(app, deps) {
   app.post("/api/companies/:companyFolderId/briefings", async (req, res) => {
     const authed = getAuthedClient();
     if (!envConfigured() || !authed) {
-      return res.status(401).json({ ok: false, message: "Could not send briefing." });
+      return res.status(401).json({ ok: false, error: "Could not send briefing.", message: "Could not send briefing." });
     }
     const companyFolderId = String(req.params?.companyFolderId || "").trim();
     const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
     if (!canManageBriefings(actor)) {
-      return res.status(403).json({ ok: false, code: "BRIEFING_FORBIDDEN", message: "You do not have permission to send briefings." });
+      return res.status(403).json({
+        ok: false,
+        code: "BRIEFING_FORBIDDEN",
+        error: "You do not have permission to send briefings.",
+        message: "You do not have permission to send briefings.",
+      });
     }
     try {
       const result = await withOperationTimeout(
@@ -1951,15 +1987,15 @@ export function installCoreWorkflowRoutes(app, deps) {
         BRIEFINGS_ROUTE_TIMEOUT_MS,
       );
       if (!result.ok) {
-        return res.status(result.httpStatus || 400).json(result);
+        return briefingRouteError(res, result);
       }
       return res.json(result);
     } catch (error) {
       return res.status(500).json({
         ok: false,
         code: "BRIEFING_SEND_FAILED",
+        error: "Could not send briefing.",
         message: "Could not send briefing.",
-        technicalError: error instanceof Error ? error.message : String(error),
       });
     }
   });
@@ -1982,15 +2018,15 @@ export function installCoreWorkflowRoutes(app, deps) {
     try {
       const result = await withOperationTimeout(handlers[action], BRIEFINGS_ROUTE_TIMEOUT_MS);
       if (!result.ok) {
-        return res.status(result.httpStatus || 400).json(result);
+        return briefingRouteError(res, result);
       }
       return res.json(result);
     } catch (error) {
       return res.status(500).json({
         ok: false,
         code: "BRIEFING_ACTION_FAILED",
+        error: "Could not update briefing.",
         message: "Could not update briefing.",
-        technicalError: error instanceof Error ? error.message : String(error),
       });
     }
   }

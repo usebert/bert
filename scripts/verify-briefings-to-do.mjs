@@ -26,6 +26,8 @@ import {
   replyToBriefing,
   recipientNeedsAction,
   validateBriefingCreateInput,
+  actorCanAccessCompanyBriefings,
+  briefingApiFailure,
 } from "../server/briefings-service.mjs";
 import { BRIEFINGS_DRIVE_PATH_PREFIX } from "../shared/briefings.mjs";
 
@@ -86,9 +88,24 @@ assert(coreRoutes.includes("/briefings/tracker"), "API: tracker route");
 assert(coreRoutes.includes('app.post("/api/companies/:companyFolderId/briefings"'), "API: create route");
 assert(coreRoutes.includes("/briefings/:briefingId/open"), "API: open route");
 assert(coreRoutes.includes("/briefings/:briefingId/sign"), "API: sign route");
+assert(coreRoutes.includes("briefingRouteError"), "API: standardized briefing error helper");
+
+const briefingsServiceTs = read("src/services/briefingsService.ts");
+assert(briefingsServiceTs.includes("payload?.error || payload?.message"), "CLIENT: prefers backend error field");
+assert(briefingsServiceTs.includes("payload?.details"), "CLIENT: appends backend details");
+
+const briefingTodoCatch = appTsx.slice(
+  appTsx.indexOf("dashboardBriefingsPreviewKeyRef.current = previewKey"),
+  appTsx.indexOf("dashboardBriefingsPreviewKeyRef.current = previewKey") + 900,
+);
+assert(briefingTodoCatch.includes("catch {"), "SOFT: briefing todo uses bare catch");
+assert(
+  briefingTodoCatch.includes("items: []") && !briefingTodoCatch.includes("loadError:"),
+  "SOFT: dashboard briefing todo fails soft without loadError",
+);
+assert(read("server/incident-evidence-upload.mjs").includes("INCIDENT_EVIDENCE_DRIVE_PATH_PREFIX"), "SAFE: incident evidence path preserved");
 
 assert(appTsx.includes("AuditCentreScreen"), "SAFE: Audit Centre still mounted");
-assert(read("server/incident-evidence-upload.mjs").includes("INCIDENT_EVIDENCE_DRIVE_PATH_PREFIX"), "SAFE: incident evidence path preserved");
 
 const companyFolderId = "folder-briefings-test";
 const masterSheetId = "sheet-briefings-test";
@@ -135,7 +152,13 @@ async function mockPatchTabRowByHeader(_auth, _deps, _sheetId, tabName, _matchHe
 }
 
 async function mockResolveCompanyScheduleContext() {
-  return { ok: true, companyId: companyFolderId, companyFolderId, masterSheetId };
+  return {
+    ok: true,
+    companyId: companyFolderId,
+    companyFolderId,
+    masterSheetId,
+    alternateIds: [companyFolderId],
+  };
 }
 
 async function mockReadUsersTabProfiles() {
@@ -179,8 +202,41 @@ assert(canAccessBriefings(auditorActor), "ROLE: auditor can access");
 assert(canViewBriefingsTracker(managerActor), "ROLE: manager can view tracker");
 assert(!canViewBriefingsTracker(auditorActor), "ROLE: auditor cannot view tracker");
 
+const emptyMine = await listMyBriefings({}, mockDeps, auditorActor, companyFolderId);
+assert(emptyMine.ok && Array.isArray(emptyMine.items) && emptyMine.items.length === 0, "EMPTY: mine returns ok with empty items");
+
+const emptyTodo = await listBriefingsTodoPreview({}, mockDeps, auditorActor, companyFolderId, 5);
+assert(emptyTodo.ok && Array.isArray(emptyTodo.items) && emptyTodo.items.length === 0, "EMPTY: todo returns ok with empty items");
+
+const emptyTracker = await listBriefingsTracker({}, mockDeps, managerActor, companyFolderId);
+assert(emptyTracker.ok && Array.isArray(emptyTracker.items) && emptyTracker.items.length === 0, "EMPTY: tracker returns ok with empty items");
+
+const invalidTarget = validateBriefingCreateInput({
+  title: "Test",
+  type: "Notice",
+  targetMode: "users",
+  targetUserEmails: [],
+});
+assert(!invalidTarget.ok && invalidTarget.error, "ERR: validation includes error field");
+
+const dueValid = validateBriefingCreateInput({
+  title: "T",
+  type: "Notice",
+  targetMode: "everyone",
+  dueDate: "2026-07-15",
+});
+assert(dueValid.ok && dueValid.dueDate === "2026-07-15", "DATE: accepts YYYY-MM-DD");
+
+const dueIso = validateBriefingCreateInput({
+  title: "T",
+  type: "Notice",
+  targetMode: "everyone",
+  dueDate: "2026-07-15T00:00:00.000Z",
+});
+assert(dueIso.ok && dueIso.dueDate === "2026-07-15", "DATE: normalizes ISO due date");
+
 const invalid = validateBriefingCreateInput({ title: "", type: "Notice", targetMode: "everyone" });
-assert(!invalid.ok, "VAL: title required");
+assert(!invalid.ok && invalid.error, "VAL: title required with error field");
 
 const row = buildBriefingRow({
   briefingId: "BRF-2026-1001",
@@ -284,5 +340,69 @@ const replied = await replyToBriefing({}, mockDeps, auditorActor, companyFolderI
   replyText: "Acknowledged in yard",
 });
 assert(replied.ok && replied.recipient.replyText === "Acknowledged in yard" && replied.recipient.replyAt, "FLOW: reply stored");
+
+const rootFolderId = "folder-root-briefings";
+const registryCompanyId = "company-registry-briefings";
+const altMasterSheetId = "sheet-alt-briefings";
+
+async function mockResolveAlternates(_auth, _deps, input = {}) {
+  const hint = input.companyFolderId || input.companyId;
+  return {
+    ok: true,
+    companyId: rootFolderId,
+    companyFolderId: rootFolderId,
+    masterSheetId: altMasterSheetId,
+    alternateIds: [registryCompanyId, rootFolderId, hint].filter(Boolean),
+  };
+}
+
+const altDeps = {
+  ...mockDeps,
+  resolveCompanyScheduleContext: mockResolveAlternates,
+};
+
+const managerAltActor = {
+  kind: "company",
+  role: "Manager",
+  email: "manager@test.co",
+  companyId: registryCompanyId,
+  masterSheetId: altMasterSheetId,
+};
+
+assert(
+  actorCanAccessCompanyBriefings(managerAltActor, rootFolderId, [registryCompanyId, rootFolderId]),
+  "ALT: session registry id matches resolved alternates",
+);
+
+const altMine = await listMyBriefings({}, altDeps, managerAltActor, rootFolderId);
+assert(altMine.ok && Array.isArray(altMine.items), "ALT: mine works with alternate company ids");
+
+const altTracker = await listBriefingsTracker({}, altDeps, managerAltActor, rootFolderId);
+assert(altTracker.ok && Array.isArray(altTracker.items), "ALT: tracker works with alternate company ids");
+
+const everyoneSent = await createAndSendBriefing({}, altDeps, managerAltActor, rootFolderId, {
+  title: "Company-wide notice",
+  type: "Notice",
+  targetMode: "everyone",
+  requiresRead: true,
+});
+assert(everyoneSent.ok, "EVERYONE: manager can create briefing for everyone");
+assert(everyoneSent.recipientCount >= 2, "EVERYONE: expands to company users");
+
+const emptyUsersDeps = {
+  ...mockDeps,
+  readUsersTabProfiles: async () => ({ ok: true, profiles: [] }),
+};
+const noRecipients = await createAndSendBriefing({}, emptyUsersDeps, managerActor, companyFolderId, {
+  title: "Nobody home",
+  type: "Notice",
+  targetMode: "everyone",
+});
+assert(!noRecipients.ok, "ERR: everyone with no users fails");
+assert(noRecipients.error && noRecipients.error.includes("No recipients"), "ERR: clear error message");
+assert(!noRecipients.technicalError, "ERR: no technical leak");
+
+const failureShape = briefingApiFailure("TEST_CODE", "Safe user message", "Optional detail");
+assert(failureShape.ok === false && failureShape.error === "Safe user message", "ERR: briefingApiFailure shape");
 
 console.log(`verify:briefings-to-do — ${caseCount} checks OK`);
