@@ -8417,17 +8417,15 @@ function App() {
           syncItems: syncQueue.length,
         });
       }
-      await submissionQueueService
-        .clearRetryBackoffForSession({
-          companyFolderId: selectedFolderIdRef.current || undefined,
-          userEmail: currentUser.email || currentUser.username,
-        })
-        .catch(() => undefined);
       if (cancelled) {
         return;
       }
+      // Auto-sync respects each item's retry backoff so a just-failed item is not
+      // immediately re-attempted. This prevents the endless queued↔failed loop:
+      // failed items keep their Failed status + reason and only retry after backoff
+      // (or when the user taps Retry / Sync now, which bypass backoff explicitly).
       if (hasOfflineWork && canCompleteAssignedCheck(currentUser.role)) {
-        void syncOfflineSubmissions({ bypassBackoff: true });
+        void syncOfflineSubmissions();
       }
     };
     const timer = window.setTimeout(() => {
@@ -10905,19 +10903,39 @@ function App() {
       return;
     }
     offlineSyncProcessingRef.current = true;
-    if (isDebugUiAllowed()) {
-      console.info("[submission-queue] processing offline completions", {
-        count: offlineQueue.length,
-        bypassBackoff: Boolean(options?.bypassBackoff),
-      });
-    }
-    pushToast("Syncing saved checks", `Syncing ${offlineQueue.length} saved checks`, "neutral");
     try {
-      const sheetId = companySheetSync?.sheetId || extractGoogleResourceId(masterSheetInput);
-      if (!sheetId) {
-        throw new Error("Company master sheet link is required before syncing offline checks.");
-      }
       const queued = [...offlineQueue].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+      // Pre-scan for at least one item actually ready to send. Without this, a
+      // count-driven re-run whose items are all backing off would still fire a
+      // "Syncing saved checks" toast and churn state — the visible symptom of the
+      // endless-queued loop. If nothing is ready, exit quietly.
+      const readiness = await Promise.all(
+        queued.map(async (submission) => {
+          if (submission.syncStatus === "synced") return false;
+          const queueItem = await submissionQueueService
+            .getQueueItem<import("./src/types/submissionQueue").SubmissionQueueItem>(submission.localSubmissionId)
+            .catch(() => null);
+          if (queueItem?.unsyncable) return false;
+          if (!queueItem) return true;
+          if (isLegacyUnsyncableItem(queueItem)) return true;
+          return isSubmissionReadyForRetry(queueItem, Date.now(), { bypassBackoff: options?.bypassBackoff });
+        }),
+      );
+      if (!readiness.some(Boolean)) {
+        if (isDebugUiAllowed()) {
+          console.info("[submission-queue] no offline items ready to sync — respecting retry backoff", {
+            count: queued.length,
+          });
+        }
+        return;
+      }
+      if (isDebugUiAllowed()) {
+        console.info("[submission-queue] processing offline completions", {
+          count: offlineQueue.length,
+          bypassBackoff: Boolean(options?.bypassBackoff),
+        });
+      }
+      pushToast("Syncing saved checks", `Syncing ${offlineQueue.length} saved checks`, "neutral");
       setOfflineSyncProgress({ current: 0, total: queued.length });
       let syncedCount = 0;
       let failedCount = 0;
@@ -10955,56 +10973,141 @@ function App() {
           }
           continue;
         }
+        // Offline replay MUST use the same backend route + payload shape as the
+        // online submit path (completeCheck → POST /api/companies/:id/checks/:scheduleId/complete).
+        // Legacy/malformed items that can never satisfy that route are marked
+        // Unsyncable (a terminal Failed state) instead of looping forever as Queued.
+        const targetCompanyFolderId = String(submission.companyFolderId || selectedFolderId || "").trim();
+        const missingFields: string[] = [];
+        if (!String(submission.checkId || "").trim()) missingFields.push("check id");
+        if (!String(submission.scheduleId || "").trim()) missingFields.push("schedule id");
+        if (!targetCompanyFolderId) missingFields.push("company folder");
+        if (missingFields.length > 0) {
+          const reason = `Server rejected submission: missing ${missingFields.join(", ")}`;
+          if (isDebugUiAllowed()) {
+            console.info("[submission-queue] item unsyncable — missing required fields", {
+              type: "auditCompletion",
+              route: "/api/companies/:companyFolderId/checks/:scheduleId/complete",
+              hasCheckId: Boolean(String(submission.checkId || "").trim()),
+              hasScheduleId: Boolean(String(submission.scheduleId || "").trim()),
+              hasCompanyFolder: Boolean(targetCompanyFolderId),
+            });
+          }
+          await submissionQueueService.markUnsyncable(submission.localSubmissionId, reason).catch(() => undefined);
+          setOfflineQueue((current) =>
+            current.map((item) =>
+              item.localSubmissionId === submission.localSubmissionId
+                ? { ...item, syncStatus: "failed", lastError: reason }
+                : item,
+            ),
+          );
+          failedCount += 1;
+          continue;
+        }
+
         setOfflineSyncProgress({ current: index + 1, total: queued.length });
         setOfflineQueue((current) =>
           current.map((item) => (item.localSubmissionId === submission.localSubmissionId ? { ...item, syncStatus: "syncing" } : item)),
         );
         void tabletOfflineService.upsertSubmission({ ...submission, syncStatus: "syncing" }).catch(() => undefined);
         try {
-          const offlineSubmittedByFallback: User = {
-            username: "offline-sync",
-            password: "",
-            role: "Auditor",
-            name: "Offline submission",
-          };
-          const evidenceMap: Record<string, EvidenceItem[]> = {};
+          const evidenceIds: Record<string, string[]> = {};
           for (const ref of submission.evidenceRefs) {
-            const blob = await tabletOfflineService.getEvidenceBlob(ref.blobKey);
-            const previewUrl = blob ? URL.createObjectURL(blob) : "";
-            evidenceMap[ref.questionId] = [
-              ...(evidenceMap[ref.questionId] ?? []),
-              { id: ref.evidenceId, name: ref.name, previewUrl, addedAt: ref.addedAt, blobKey: ref.blobKey, mimeType: ref.mimeType, size: ref.size },
-            ];
+            evidenceIds[ref.questionId] = [...(evidenceIds[ref.questionId] ?? []), ref.evidenceId];
           }
-          const applied = applyAuditSubmission({
-            audit: submission.audit,
-            responseMap: submission.answers as Record<string, Answer>,
-            noteMap: submission.notes,
-            evidenceMap,
-            submittedBy: submission.submittedBy,
-            submittedByUser:
-              users.find((item) => item.username === submission.userId) ||
-              users.find((item) => item.name === submission.submittedBy) ||
-              offlineSubmittedByFallback,
-            completedAt: submission.createdAt,
-            signatureDataUrl: submission.signatureDataUrl,
-            promptFollowUps: submission.promptFollowUps,
+          const answersPayload = buildCheckAnswersPayload({
+            responses: submission.answers as Record<string, Answer>,
+            notes: submission.notes,
+            promptFollowUps: submission.promptFollowUps ?? {},
+            evidenceIds: Object.keys(evidenceIds).length > 0 ? evidenceIds : undefined,
           });
-          await syncAuditSubmissionToSheet({
-            sheetId,
-            companyFolderId: submission.companyFolderId || selectedFolderId,
-            evidenceFolderId: buildWorkspaceFolderPayload(isoFolderInputSnapshot).evidenceFolderId,
-            submission: applied.syncBundle.payload as import("./src/types/complianceLoop").AuditSubmissionSyncPayload,
-            sheetResult: applied.syncBundle.sheetResult,
-            sheetFindings: applied.syncBundle.sheetFindings,
-            sheetEvidence: applied.syncBundle.sheetEvidence,
-            sheetSyncLog: applied.syncBundle.sheetSyncLog,
+          const promptRuleFindings = buildPromptRuleFindings(
+            submission.audit,
+            submission.answers as Record<string, Answer>,
+            {},
+            submission.promptFollowUps ?? {},
+            submission.notes,
+          );
+          const findings = [
+            ...(submission.audit?.questions ?? [])
+              .filter(
+                (question) =>
+                  submission.answers[question.id] === "fail" || submission.answers[question.id] === "nc",
+              )
+              .map((question) => ({
+                questionId: question.id,
+                questionText: question.text,
+                answer: submission.answers[question.id],
+                note: submission.notes[question.id] || "",
+              })),
+            ...promptRuleFindings.map((finding) => ({
+              questionId: finding.questionId,
+              questionText: finding.questionText,
+              answer: finding.answer,
+              note: finding.note,
+              requiresManagerReview: finding.requiresManagerReview,
+              escalationMessage: finding.escalationMessage,
+              source: finding.source,
+            })),
+          ];
+          const evidenceRefsPayload = submission.evidenceRefs.map((ref) => ({
+            questionId: ref.questionId,
+            evidenceId: ref.evidenceId,
+            name: ref.name,
+            mimeType: ref.mimeType || "application/octet-stream",
+            addedAt: ref.addedAt,
+          }));
+          const evidenceFiles = await buildAuditEvidenceUploadPayload(
+            submission.evidenceRefs.map((ref) => ({
+              questionId: ref.questionId,
+              item: {
+                id: ref.evidenceId,
+                name: ref.name,
+                previewUrl: "",
+                addedAt: ref.addedAt,
+                mimeType: ref.mimeType,
+                size: ref.size,
+                blobKey: ref.blobKey,
+              },
+            })),
+            {},
+            (blobKey) => tabletOfflineService.getEvidenceBlob(blobKey),
+          );
+
+          const result = await completeCheck({
+            companyContext: {
+              companyId: targetCompanyFolderId,
+              companyFolderId: targetCompanyFolderId,
+              companyName: activeCompanyContext.companyName,
+            },
+            scheduleId: String(submission.scheduleId || "").trim(),
+            auditId: submission.checkId,
+            auditName: submission.audit?.name || "",
+            completedBy: submission.submittedBy,
+            status: "completed",
+            answers: answersPayload,
+            findings,
+            evidenceRefs: evidenceRefsPayload,
+            evidenceFiles,
             localSubmissionId: submission.localSubmissionId,
           });
-          if (applied.createdActions.length > 0) {
-            const companyFolderId = submission.companyFolderId || selectedFolderId;
-            await persistActions(companyFolderId, actions.filter((action) => action.companyId === companyFolderId));
+
+          if (isDebugUiAllowed()) {
+            console.info("[submission-queue] offline audit sync attempt", {
+              type: "auditCompletion",
+              route: "/api/companies/:companyFolderId/checks/:scheduleId/complete",
+              ok: result.ok,
+              code: result.code || "",
+              reason: result.ok ? "" : safeSyncErrorMessage(result.error || result.message || ""),
+            });
           }
+
+          if (!result.ok) {
+            // Surface the real backend rejection (mapped to a safe reason) — never
+            // leave the item Queued after the server has answered.
+            throw new Error(result.error || result.message || "Server rejected submission");
+          }
+
           for (const ref of submission.evidenceRefs) {
             void tabletOfflineService.deleteEvidenceBlob(ref.blobKey).catch(() => undefined);
           }

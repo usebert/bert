@@ -273,16 +273,19 @@ export const submissionQueueService = {
   },
 
   async clearRetryBackoffForSession(context: { companyFolderId?: string; userEmail?: string }) {
+    // Clears only the backoff *timer* so a user-initiated retry/sync can attempt
+    // failed items immediately. It intentionally does NOT flip failed → queued:
+    // doing so previously created the endless queued↔failed loop, because every
+    // failed attempt re-triggered a reconnect pass that reset the status and
+    // hid the real failure reason. Failed items stay Failed (with lastError)
+    // until they actually re-sync or the user explicitly retries them.
     const items = await this.listActiveItemsForSession(context);
     let cleared = 0;
     for (const item of items) {
-      if (!item.nextRetryAt && item.status !== "failed") {
+      if (item.unsyncable || !item.nextRetryAt) {
         continue;
       }
-      await this.updateItem(item.id, {
-        status: item.status === "failed" ? "queued" : item.status,
-        nextRetryAt: undefined,
-      });
+      await this.updateItem(item.id, { nextRetryAt: undefined });
       cleared += 1;
     }
     return { cleared };

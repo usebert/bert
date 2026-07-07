@@ -121,6 +121,41 @@ assert(appTsx.includes("syncOfflineSubmissions({ bypassBackoff: true })"), "APP:
 assert(appTsx.includes("canCompleteAssignedCheck"), "APP: assigned-check roles can auto-sync");
 assert(appTsx.includes("[submission-queue]"), "APP: dev queue debug logging");
 
+// --- Offline audit/check queue sync loop fix (queued → synced/failed, never endless queued) ---
+// 1. Offline replay uses the SAME backend route + payload as the online submit path.
+assert(
+  appTsx.includes("route: \"/api/companies/:companyFolderId/checks/:scheduleId/complete\""),
+  "APP: offline sync logs the online completeCheck route (same route as online submit)",
+);
+assert(
+  /completeCheck\(\{[\s\S]*?scheduleId: String\(submission\.scheduleId/.test(appTsx),
+  "APP: offline queued item synced via completeCheck (online route + payload shape)",
+);
+// 2. Offline payload matches online required fields (answers + evidence built the same way).
+assert(appTsx.includes("buildCheckAnswersPayload({"), "APP: offline sync builds answers payload like online");
+assert(appTsx.includes("buildAuditEvidenceUploadPayload("), "APP: offline sync builds evidence files like online");
+// 3. Malformed/legacy offline item → terminal Failed/Unsyncable, not endlessly Queued.
+assert(
+  appTsx.includes("Server rejected submission: missing "),
+  "APP: offline item missing required fields marked unsyncable with safe reason",
+);
+// 4. Backend rejection surfaces the real response and moves item to Failed (never left Queued).
+assert(
+  /if \(!result\.ok\) \{[\s\S]*?throw new Error\(result\.error \|\| result\.message/.test(appTsx),
+  "APP: backend rejection is not swallowed — item throws → markFailed",
+);
+// 5. Auto reconnect respects retry backoff so a just-failed item is not re-attempted forever.
+assert(appTsx.includes("void syncOfflineSubmissions();"), "APP: auto reconnect sync respects retry backoff");
+assert(
+  appTsx.includes("no offline items ready to sync"),
+  "APP: sync exits quietly when all items are backing off (no endless queued loop)",
+);
+// 6. clearRetryBackoffForSession no longer force-flips failed → queued (only clears the timer).
+assert(
+  !/status: item\.status === "failed" \? "queued" : item\.status/.test(submissionQueue),
+  "QUEUE: clearRetryBackoffForSession does not reset failed items back to queued",
+);
+
 assert(bridge.includes("offlineSubmissionToQueueItem"), "BRIDGE: offline submission mapping");
 assert(bridge.includes("syncQueueItemToSubmissionQueueItem"), "BRIDGE: legacy sync queue migration");
 assert(bridge.includes("offlineSubmissionToSyncQueueItem"), "BRIDGE: offline to sync centre view");
