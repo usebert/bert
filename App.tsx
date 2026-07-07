@@ -7814,8 +7814,18 @@ function App() {
   }, [googleConnected]);
 
   useEffect(() => {
-    const handleOnline = () => setOfflineMode(false);
-    const handleOffline = () => setOfflineMode(true);
+    const handleOnline = () => {
+      if (isDebugUiAllowed()) {
+        console.info("[submission-queue] browser online — queue processing will resume");
+      }
+      setOfflineMode(false);
+    };
+    const handleOffline = () => {
+      if (isDebugUiAllowed()) {
+        console.info("[submission-queue] browser offline — queue processing paused");
+      }
+      setOfflineMode(true);
+    };
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
     return () => {
@@ -8384,11 +8394,43 @@ function App() {
   }, [syncQueue, googleConnected, offlineMode, companySheetSync?.sheetId]);
 
   useEffect(() => {
-    if (offlineMode || offlineQueue.length === 0 || currentUser?.role !== "Auditor") {
+    if (offlineMode || !currentUser || !window.navigator.onLine) {
       return;
     }
-    void syncOfflineSubmissions();
-  }, [currentUser?.role, offlineMode, offlineQueue.length, syncOfflineSubmissions]);
+    const hasOfflineWork = offlineQueue.some((item) => item.syncStatus === "queued" || item.syncStatus === "failed");
+    const hasSyncWork = syncQueue.some((item) => item.status === "Pending Sync" || item.status === "Failed" || item.status === "Conflict");
+    if (!hasOfflineWork && !hasSyncWork) {
+      return;
+    }
+    let cancelled = false;
+    const runReconnectSync = async () => {
+      if (isDebugUiAllowed()) {
+        console.info("[submission-queue] reconnect sync starting", {
+          offlineItems: offlineQueue.length,
+          syncItems: syncQueue.length,
+        });
+      }
+      await submissionQueueService
+        .clearRetryBackoffForSession({
+          companyFolderId: selectedFolderIdRef.current || undefined,
+          userEmail: currentUser.email || currentUser.username,
+        })
+        .catch(() => undefined);
+      if (cancelled) {
+        return;
+      }
+      if (hasOfflineWork && canCompleteAssignedCheck(currentUser.role)) {
+        void syncOfflineSubmissions({ bypassBackoff: true });
+      }
+    };
+    const timer = window.setTimeout(() => {
+      void runReconnectSync();
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [currentUser, offlineMode, offlineQueue.length, syncQueue.length, pendingSyncCount, failedSyncCount]);
 
   useEffect(() => {
     if (toasts.length === 0) {
@@ -10851,11 +10893,17 @@ function App() {
   const syncProcessingRef = useRef(false);
   const offlineSyncProcessingRef = useRef(false);
 
-  async function syncOfflineSubmissions() {
-    if (offlineMode || offlineQueue.length === 0 || offlineSyncProcessingRef.current) {
+  async function syncOfflineSubmissions(options?: { bypassBackoff?: boolean }) {
+    if (offlineMode || !window.navigator.onLine || offlineQueue.length === 0 || offlineSyncProcessingRef.current) {
       return;
     }
     offlineSyncProcessingRef.current = true;
+    if (isDebugUiAllowed()) {
+      console.info("[submission-queue] processing offline completions", {
+        count: offlineQueue.length,
+        bypassBackoff: Boolean(options?.bypassBackoff),
+      });
+    }
     pushToast("Syncing saved checks", `Syncing ${offlineQueue.length} saved checks`, "neutral");
     try {
       const sheetId = companySheetSync?.sheetId || extractGoogleResourceId(masterSheetInput);
@@ -10872,7 +10920,13 @@ function App() {
         const queueItem = await submissionQueueService.getQueueItem<import("./src/types/submissionQueue").SubmissionQueueItem>(
           submission.localSubmissionId,
         );
-        if (queueItem && !isSubmissionReadyForRetry(queueItem)) {
+        if (queueItem && !isSubmissionReadyForRetry(queueItem, Date.now(), { bypassBackoff: options?.bypassBackoff })) {
+          if (isDebugUiAllowed()) {
+            console.info("[submission-queue] skipping item — retry backoff active", {
+              id: submission.localSubmissionId,
+              nextRetryAt: queueItem.nextRetryAt,
+            });
+          }
           continue;
         }
         setOfflineSyncProgress({ current: index + 1, total: queued.length });
@@ -10956,12 +11010,18 @@ function App() {
     }
   }
 
-  const processSyncQueueItem = async (item: SyncQueueItem) => {
+  const processSyncQueueItem = async (item: SyncQueueItem, options?: { bypassBackoff?: boolean }) => {
     if (syncProcessingRef.current) {
       return;
     }
     const queueMatch = await submissionQueueService.getQueueItem<import("./src/types/submissionQueue").SubmissionQueueItem>(item.id);
-    if (queueMatch && !isSubmissionReadyForRetry(queueMatch)) {
+    if (queueMatch && !isSubmissionReadyForRetry(queueMatch, Date.now(), { bypassBackoff: options?.bypassBackoff })) {
+      if (isDebugUiAllowed()) {
+        console.info("[submission-queue] skipping sync item — retry backoff active", {
+          id: item.localId,
+          nextRetryAt: queueMatch.nextRetryAt,
+        });
+      }
       return;
     }
     syncProcessingRef.current = true;
@@ -16480,6 +16540,13 @@ function App() {
                     });
                     return next;
                   });
+                  void submissionQueueService
+                    .clearRetryBackoffForSession({
+                      companyFolderId: selectedFolderId || undefined,
+                      userEmail: currentUser.email || currentUser.username,
+                    })
+                    .then(() => syncOfflineSubmissions({ bypassBackoff: true }))
+                    .catch(() => undefined);
                 }}
               />
             )}
@@ -16966,13 +17033,33 @@ function App() {
               <SyncCentreScreen
                 currentUser={currentUser}
                 syncQueue={syncCentreQueue}
-                offlineQueueCount={0}
+                offlineQueueCount={offlineQueue.filter((item) => item.syncStatus !== "synced").length}
+                syncingAll={Boolean(offlineSyncProgress)}
+                onSyncAll={() => {
+                  void submissionQueueService
+                    .clearRetryBackoffForSession({
+                      companyFolderId: selectedFolderId || undefined,
+                      userEmail: currentUser.email || currentUser.username,
+                    })
+                    .then(() => {
+                      const pending = syncQueue.find(
+                        (item) => item.status === "Pending Sync" || item.status === "Failed" || item.status === "Conflict",
+                      );
+                      if (pending) {
+                        void processSyncQueueItem({ ...pending, status: "Pending Sync" }, { bypassBackoff: true });
+                      }
+                      if (offlineQueue.some((item) => item.syncStatus === "queued" || item.syncStatus === "failed")) {
+                        void syncOfflineSubmissions({ bypassBackoff: true });
+                      }
+                    })
+                    .catch(() => undefined);
+                }}
                 onRetryItem={(id) => {
                   const item = syncQueue.find((entry) => entry.localId === id);
                   if (item) {
                     void submissionQueueService.retryItem(item.id).catch(() => undefined);
                     updateSyncItemStatus(id, "Pending Sync");
-                    void processSyncQueueItem({ ...item, status: "Pending Sync" });
+                    void processSyncQueueItem({ ...item, status: "Pending Sync" }, { bypassBackoff: true });
                     return;
                   }
                   const offline = offlineQueue.find((entry) => entry.localSubmissionId === id);
@@ -16986,17 +17073,18 @@ function App() {
                     ),
                   );
                   void tabletOfflineService.upsertSubmission({ ...offline, syncStatus: "queued", lastError: "" }).catch(() => undefined);
+                  void syncOfflineSubmissions({ bypassBackoff: true });
                 }}
                 onForceSyncItem={(id) => {
                   const item = syncQueue.find((entry) => entry.localId === id);
                   if (item) {
-                    void processSyncQueueItem({ ...item, status: "Syncing" });
+                    void processSyncQueueItem({ ...item, status: "Syncing" }, { bypassBackoff: true });
                     return;
                   }
                   const offline = offlineQueue.find((entry) => entry.localSubmissionId === id);
                   if (offline) {
                     void submissionQueueService.retryItem(id).then(() => refreshSubmissionQueueViews()).catch(() => undefined);
-                    void syncOfflineSubmissions();
+                    void syncOfflineSubmissions({ bypassBackoff: true });
                   }
                 }}
               />

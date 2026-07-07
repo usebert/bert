@@ -50,6 +50,7 @@ assert(submissionQueue.includes("migrateLegacyQueues"), "QUEUE: legacy migration
 assert(submissionQueue.includes("filterSubmissionQueueForSession"), "QUEUE: session namespace filter");
 assert(submissionQueue.includes("listActiveItemsForSession"), "QUEUE: session-scoped list");
 assert(submissionQueue.includes("isSubmissionReadyForRetry"), "QUEUE: retry backoff gate");
+assert(submissionQueue.includes("clearRetryBackoffForSession"), "QUEUE: reconnect backoff reset");
 
 assert(messages.includes('"Added to queue"'), "UX: Added to queue");
 assert(messages.includes('"Added to queue. Syncing now…"'), "UX: online syncing copy");
@@ -81,6 +82,11 @@ assert(appTsx.includes('pushToast("Added to queue", queueAddedMessage({ online: 
 assert(appTsx.includes("setSyncQueue([])"), "APP: logout clears in-memory sync queue");
 assert(appTsx.includes("setOfflineQueue([])"), "APP: logout clears in-memory offline queue");
 assert(/addEventListener\("online"/.test(appTsx), "APP: reconnect listener");
+assert(appTsx.includes("clearRetryBackoffForSession"), "APP: reconnect clears retry backoff");
+assert(appTsx.includes("bypassBackoff"), "APP: reconnect bypasses retry backoff");
+assert(appTsx.includes("syncOfflineSubmissions({ bypassBackoff: true })"), "APP: manual reconnect sync");
+assert(appTsx.includes("canCompleteAssignedCheck"), "APP: assigned-check roles can auto-sync");
+assert(appTsx.includes("[submission-queue]"), "APP: dev queue debug logging");
 
 assert(bridge.includes("offlineSubmissionToQueueItem"), "BRIDGE: offline submission mapping");
 assert(bridge.includes("syncQueueItemToSubmissionQueueItem"), "BRIDGE: legacy sync queue migration");
@@ -89,6 +95,8 @@ assert(bridge.includes("offlineSubmissionToSyncQueueItem"), "BRIDGE: offline to 
 assert(read("src/components/animation/OfflineSyncBanner.tsx").includes("queueIndicatorSummary"), "UI: banner uses queue indicator");
 assert(syncCentre.includes("All synced"), "UI: sync centre empty state");
 assert(syncCentre.includes("Retry failed"), "UI: retry failed action label");
+assert(syncCentre.includes("Sync now"), "UI: sync now action for queued items");
+assert(syncCentre.includes("onSyncAll"), "UI: sync all handler");
 assert(syncCentre.includes("queueItemTypeLabel"), "UI: sync centre item type labels");
 assert(syncCentre.includes("queueTimeLabel"), "UI: sync centre timestamps");
 assert(roleNavigation.match(/MASTER_NAV[\s\S]*?id: "sync", label: "Sync Centre"/), "NAV: master sync in primary nav");

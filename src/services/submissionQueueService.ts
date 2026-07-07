@@ -67,9 +67,16 @@ export function filterSubmissionQueueForSession(
   });
 }
 
-export function isSubmissionReadyForRetry(item: SubmissionQueueItem, now = Date.now()) {
+export function isSubmissionReadyForRetry(
+  item: SubmissionQueueItem,
+  now = Date.now(),
+  options?: { bypassBackoff?: boolean },
+) {
   if (item.status === "synced") {
     return false;
+  }
+  if (options?.bypassBackoff || item.status === "queued") {
+    return true;
   }
   if (!item.nextRetryAt) {
     return true;
@@ -222,6 +229,22 @@ export const submissionQueueService = {
       lastError: "",
       nextRetryAt: undefined,
     });
+  },
+
+  async clearRetryBackoffForSession(context: { companyFolderId?: string; userEmail?: string }) {
+    const items = await this.listActiveItemsForSession(context);
+    let cleared = 0;
+    for (const item of items) {
+      if (!item.nextRetryAt && item.status !== "failed") {
+        continue;
+      }
+      await this.updateItem(item.id, {
+        status: item.status === "failed" ? "queued" : item.status,
+        nextRetryAt: undefined,
+      });
+      cleared += 1;
+    }
+    return { cleared };
   },
 
   async saveEvidenceBlob(blobKey: string, blob: Blob) {

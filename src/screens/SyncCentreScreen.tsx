@@ -74,14 +74,23 @@ export function SyncCentreScreen({
   offlineQueueCount,
   onRetryItem,
   onForceSyncItem,
+  onSyncAll,
+  syncingAll,
 }: {
   currentUser: { username: string; password: string; role: Role; name: string };
   syncQueue: SyncQueueItem[];
   offlineQueueCount: number;
   onRetryItem: (localId: string) => void;
   onForceSyncItem: (localId: string) => void;
+  onSyncAll?: () => void;
+  syncingAll?: boolean;
 }) {
   const permissions = getRolePermissions(currentUser.role);
+  const waitingCount = syncQueue.filter((item) => item.status === "Pending Sync" || item.status === "Syncing").length;
+  const failedCount = syncQueue.filter((item) => item.status === "Failed" || item.status === "Conflict").length;
+  const hasWaitingWork = waitingCount > 0 || offlineQueueCount > 0;
+  const hasRetryableWork = hasWaitingWork || failedCount > 0;
+
   return (
     <div className="space-y-4">
       <section className={darkPanelShell}>
@@ -89,18 +98,28 @@ export function SyncCentreScreen({
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-white">
             <SyncCentreAppIcon name="sync" className="h-5 w-5" />
           </div>
-          <div>
+          <div className="flex-1">
             <p className={darkPanelEyebrow}>Operational trust</p>
             <h2 className={darkPanelTitleLg}>Sync Centre</h2>
             <p className={["mt-2", darkPanelBody].join(" ")}>
               Field work, evidence, and admin edits stay visible here until they reach your company sheet in Google Drive—so you always know what still needs the network.
             </p>
+            {hasRetryableWork && onSyncAll ? (
+              <AnimatedButton
+                type="button"
+                onClick={onSyncAll}
+                disabled={syncingAll}
+                className={`mt-4 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 ${slatePrimaryCtaInteract}`}
+              >
+                {syncingAll ? "Syncing…" : failedCount > 0 && waitingCount === 0 ? "Retry all" : "Sync now"}
+              </AnimatedButton>
+            ) : null}
           </div>
         </div>
       </section>
       <section className="grid grid-cols-2 gap-3">
-        <MiniMetric label="Waiting" value={String(syncQueue.filter((item) => item.status === "Pending Sync" || item.status === "Syncing").length)} />
-        <MiniMetric label="Failed" value={String(syncQueue.filter((item) => item.status === "Failed" || item.status === "Conflict").length)} />
+        <MiniMetric label="Waiting" value={String(waitingCount)} />
+        <MiniMetric label="Failed" value={String(failedCount)} />
       </section>
       {syncQueue.length === 0 ? (
         <EmptyPanel
@@ -124,6 +143,11 @@ export function SyncCentreScreen({
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 <div className="rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-500">Retries {item.retryCount}</div>
+                {item.status === "Pending Sync" && (
+                  <AnimatedButton type="button" onClick={() => onRetryItem(item.localId)} className={`rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white ${slatePrimaryCtaInteract}`}>
+                    Sync now
+                  </AnimatedButton>
+                )}
                 {(item.status === "Failed" || item.status === "Conflict") && (
                   <AnimatedButton type="button" onClick={() => onRetryItem(item.localId)} className={`rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white ${slatePrimaryCtaInteract}`}>
                     Retry failed
