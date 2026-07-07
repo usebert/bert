@@ -108,6 +108,7 @@ import { isTabletKioskEnabled } from "./src/utils/tabletKioskStorage";
 import { AuditorTaskDashboard } from "./src/components/dashboard/AuditorTaskDashboard";
 import { CompanyAdminDashboard } from "./src/components/dashboard/CompanyAdminDashboard";
 import { ManagerRoleDashboard } from "./src/components/dashboard/ManagerRoleDashboard";
+import { LiveOperationalDashboard } from "./src/components/dashboard/LiveOperationalDashboard";
 import { MasterPlatformDashboard } from "./src/components/dashboard/MasterPlatformDashboard";
 import {
   formatInviteStatusLabel,
@@ -16693,6 +16694,26 @@ function App() {
             )}
             {screen === "dashboard" && (
               <AnimatedScreen screenKey={`dashboard-${currentUser.role}`}>
+              {currentUser.role !== "Master" &&
+              activeCompanyContext.companyFolderId &&
+              activeCompanyContext.masterSheetId ? (
+                <div className="mb-4">
+                  <LiveOperationalDashboard
+                    companyFolderId={String(activeCompanyContext.companyFolderId || "").trim()}
+                    masterSheetId={String(activeCompanyContext.masterSheetId || "").trim()}
+                    companyName={String(activeCompanyContext.companyName || workspaceName || "").trim()}
+                    userEmail={String(sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser)).trim().toLowerCase()}
+                    role={currentUser.role}
+                    pendingSyncCount={pendingSyncCount}
+                    failedSyncCount={failedSyncCount}
+                    onOpenActions={() => setScreen("actions")}
+                    onOpenIncidents={() => setScreen("incidents")}
+                    onOpenBriefings={() => setScreen("briefings")}
+                    onOpenSchedules={() => setScreen("schedules")}
+                    onOpenSync={() => setScreen("sync")}
+                  />
+                </div>
+              ) : null}
               <DashboardScreen
                 currentUser={currentUser}
                 workspaceName={workspaceName}

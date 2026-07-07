@@ -29,6 +29,7 @@ import {
   saveCompanySchedules,
 } from "./schedule-service.mjs";
 import { getReportsDashboard } from "./reports-dashboard-service.mjs";
+import { getLiveDashboard } from "./live-dashboard-service.mjs";
 import { BACKGROUND_SCHEDULE_SAVED_MESSAGE } from "../shared/background-jobs.mjs";
 import { rejectIfCompanyFolderNotUnderCompaniesRoot } from "./company-folder-placement.mjs";
 import {
@@ -830,6 +831,94 @@ export function installCoreWorkflowRoutes(app, deps) {
         error: "Could not load reports right now. Try again.",
         message: "Could not load reports right now. Try again.",
         technicalError: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.get("/api/companies/:companyFolderId/dashboard/live", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({
+        ok: false,
+        error: "Please connect Google before loading the live dashboard.",
+        message: "Could not load the live dashboard right now. Try again.",
+      });
+    }
+
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || companyFolderId).trim();
+    const masterSheetId = String(req.query.masterSheetId || req.query.sheetId || actor?.masterSheetId || "").trim();
+    const includeDiagnostics =
+      String(req.query.diagnostics || "").trim() === "1" ||
+      String(process.env.BERT_GODMODE_DIAGNOSTICS || "").trim().toLowerCase() === "true";
+
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      sessionCompanyFolderId,
+      String(req.query.companyName || actor?.companyName || "").trim(),
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
+
+    try {
+      const result = await getLiveDashboard(authed, { ...registryDeps, ...scheduleDeps }, {
+        companyId: companyFolderId,
+        companyFolderId: sessionCompanyFolderId,
+        masterSheetId,
+        companyName: String(req.query.companyName || actor?.companyName || "").trim(),
+        includeDiagnostics,
+        forceRefresh: String(req.query.refresh || "").trim() === "1",
+        syncQueue: {
+          queued: parseOptionalPositiveInt(req.query.syncQueued, 0),
+          failed: parseOptionalPositiveInt(req.query.syncFailed, 0),
+          lastStatus: String(req.query.syncStatus || "").trim(),
+          lastSyncAt: String(req.query.lastSyncAt || "").trim(),
+        },
+        actor,
+      });
+
+      if (!result.ok) {
+        return res.status(result.httpStatus || 400).json({
+          ok: false,
+          code: result.code,
+          error: result.error,
+          message: result.message || result.error,
+          details: includeDiagnostics ? result.technicalError : undefined,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        cached: result.cached === true,
+        stale: result.stale === true,
+        generatedAt: result.generatedAt,
+        companyId: result.companyId,
+        companyFolderId: result.companyFolderId,
+        companyName: result.companyName,
+        masterSheetId: result.masterSheetId,
+        metrics: result.metrics,
+        today: result.today,
+        actToday: result.actToday,
+        compliance: result.compliance,
+        riskByArea: result.riskByArea,
+        riskEmptyMessage: result.riskEmptyMessage,
+        sections: result.sections,
+        charts: result.charts,
+        sync: result.sync,
+        warnings: result.warnings,
+        emptyState: result.emptyState,
+        diagnostics: result.diagnostics,
+      });
+    } catch (error) {
+      void error;
+      return res.status(500).json({
+        ok: false,
+        code: "LIVE_DASHBOARD_LOAD_FAILED",
+        error: "Could not load the live dashboard right now. Try again.",
+        message: "Could not load the live dashboard right now. Try again.",
       });
     }
   });

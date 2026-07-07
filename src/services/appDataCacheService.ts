@@ -8,9 +8,14 @@ import {
   fetchBriefingsTracker,
   fetchMyBriefings,
 } from "./briefingsService";
+import { fetchLiveDashboard } from "./liveDashboardService";
+import type { LiveDashboardContext, LiveDashboardPayload, LiveDashboardQuery } from "../types/liveDashboard";
 
 /** Briefings list TTL — stale-while-revalidate window (30–60s). */
 export const APP_DATA_CACHE_TTL_MS = 45_000;
+
+/** Live operational dashboard TTL — short window so "act today" stays current. */
+export const LIVE_DASHBOARD_CACHE_TTL_MS = 30_000;
 
 export type AppDataCacheEntry<T> = {
   data: T;
@@ -41,6 +46,10 @@ export function briefingsTrackerCacheKey(companyFolderId: string): string {
 
 export function briefingsTodoPreviewCacheKey(companyFolderId: string, userEmail: string, limit = 5): string {
   return `briefings-todo:${companyFolderId.trim()}::${userEmail.trim().toLowerCase()}::${limit}`;
+}
+
+export function liveDashboardCacheKey(companyFolderId: string, userEmail: string): string {
+  return `live-dashboard:${companyFolderId.trim()}::${userEmail.trim().toLowerCase()}`;
 }
 
 export function appDataContextKey(companyFolderId: string, userEmail: string): string {
@@ -248,11 +257,12 @@ async function runSwrFetch<T>(input: {
   fetcher: () => Promise<T>;
   options?: SwrOptions;
   persist?: boolean;
+  ttlMs?: number;
 }): Promise<SwrResult<T>> {
-  const { cacheKey, fetcher, options = {}, persist = true } = input;
+  const { cacheKey, fetcher, options = {}, persist = true, ttlMs = APP_DATA_CACHE_TTL_MS } = input;
   const cached = readAppDataCache<T>(cacheKey);
   const hadCache = Boolean(cached);
-  const stale = isAppDataCacheStale(cached);
+  const stale = isAppDataCacheStale(cached, ttlMs);
   const mustAwait =
     !hadCache || options.forceRefresh === true || options.manualRefresh === true || options.refresh === true;
   const shouldBackgroundRefresh = hadCache && stale && !mustAwait;
@@ -342,6 +352,34 @@ export async function loadBriefingsTodoPreviewCached(
     },
     options,
     persist: true,
+  });
+}
+
+/**
+ * Live operational dashboard — stale-while-revalidate. Cached data shows instantly;
+ * a stale entry refreshes in the background. Manual refresh forces an awaited fetch.
+ */
+export async function loadLiveDashboardCached(
+  context: LiveDashboardContext & { userEmail: string },
+  options: SwrOptions & { query?: LiveDashboardQuery } = {},
+): Promise<SwrResult<LiveDashboardPayload>> {
+  const companyFolderId = String(context.companyFolderId || context.companyId || "").trim();
+  return runSwrFetch({
+    cacheKey: liveDashboardCacheKey(companyFolderId, context.userEmail),
+    ttlMs: LIVE_DASHBOARD_CACHE_TTL_MS,
+    fetcher: async () => {
+      const payload = await fetchLiveDashboard(context, {
+        query: {
+          ...options.query,
+          refresh: options.manualRefresh || options.forceRefresh || options.query?.refresh,
+        },
+      });
+      if (!payload.ok) {
+        throw new Error(payload.loadError || "Could not load the live dashboard right now. Try again.");
+      }
+      return payload;
+    },
+    options,
   });
 }
 
