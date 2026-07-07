@@ -74,6 +74,7 @@ export function SyncCentreScreen({
   offlineQueueCount,
   onRetryItem,
   onForceSyncItem,
+  onDismissItem,
   onSyncAll,
   syncingAll,
 }: {
@@ -82,6 +83,7 @@ export function SyncCentreScreen({
   offlineQueueCount: number;
   onRetryItem: (localId: string) => void;
   onForceSyncItem: (localId: string) => void;
+  onDismissItem?: (localId: string) => void;
   onSyncAll?: () => void;
   syncingAll?: boolean;
 }) {
@@ -152,6 +154,15 @@ export function SyncCentreScreen({
                   <AnimatedButton type="button" onClick={() => onRetryItem(item.localId)} className={`rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white ${slatePrimaryCtaInteract}`}>
                     Retry failed
                   </AnimatedButton>
+                )}
+                {(item.status === "Failed" || item.status === "Conflict") && onDismissItem && (
+                  <button
+                    type="button"
+                    onClick={() => onDismissItem(item.localId)}
+                    className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700"
+                  >
+                    Dismiss failed item
+                  </button>
                 )}
                 {permissions.canRepairWorkspace && <button onClick={() => onForceSyncItem(item.localId)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800">Force sync</button>}
               </div>

@@ -51,6 +51,10 @@ assert(submissionQueue.includes("filterSubmissionQueueForSession"), "QUEUE: sess
 assert(submissionQueue.includes("listActiveItemsForSession"), "QUEUE: session-scoped list");
 assert(submissionQueue.includes("isSubmissionReadyForRetry"), "QUEUE: retry backoff gate");
 assert(submissionQueue.includes("clearRetryBackoffForSession"), "QUEUE: reconnect backoff reset");
+assert(submissionQueue.includes("markUnsyncable"), "QUEUE: legacy items marked unsyncable");
+assert(submissionQueue.includes("dismissItem"), "QUEUE: user can dismiss failed item");
+assert(/item\.unsyncable/.test(submissionQueue), "QUEUE: unsyncable items skip auto-retry");
+assert(types.includes("unsyncable"), "TYPE: unsyncable flag on queue item");
 
 assert(messages.includes('"Added to queue"'), "UX: Added to queue");
 assert(messages.includes('"Added to queue. Syncing now…"'), "UX: online syncing copy");
@@ -59,6 +63,26 @@ assert(messages.includes('"Submitted successfully"'), "UX: success only after co
 assert(messages.includes('"Sync failed. Your item is still in the queue. Please retry."'), "UX: failure copy");
 assert(messages.includes('"Evidence added"'), "UX: evidence added");
 assert(messages.includes("All synced"), "UX: all synced indicator");
+
+// Result-aware sync copy: success, failure and partial states must be distinct.
+assert(messages.includes('"Item submitted successfully"'), "UX: per-item success copy");
+assert(messages.includes('"All queued items synced"'), "UX: overall success copy");
+assert(messages.includes('"Some items could not sync"'), "UX: partial failure copy");
+assert(
+  messages.includes(
+    '"This queued item was created by an older app version and cannot be synced automatically."',
+  ),
+  "UX: legacy unsyncable copy",
+);
+
+// Safe failure reasons only — never raw errors / secrets.
+assert(messages.includes("safeSyncErrorMessage"), "SAFE: error mapper exported");
+assert(messages.includes('"Missing company folder"'), "SAFE: missing folder reason");
+assert(messages.includes('"Audit template not found"'), "SAFE: template reason");
+assert(messages.includes('"Network request failed"'), "SAFE: network reason");
+assert(messages.includes('"Server rejected submission"'), "SAFE: server reason");
+assert(messages.includes("isLegacyUnsyncableItem"), "SAFE: legacy item detector exported");
+assert(messages.includes("syncResultToast"), "SAFE: result-aware toast builder");
 
 assert(types.includes("auditCompletion"), "TYPE: audit/check completion");
 assert(types.includes("incidentReport"), "TYPE: incident report");
@@ -70,7 +94,16 @@ assert(appTsx.includes("enqueueOfflineSubmission"), "APP: offline submit queues 
 assert(appTsx.includes("refreshSubmissionQueueViews"), "APP: refresh survives reload");
 assert(appTsx.includes("submissionInFlightKeysRef"), "APP: double-submit guard");
 assert(appTsx.includes("queueAddedMessage"), "APP: queue feedback messages");
-assert(appTsx.includes("SUBMISSION_QUEUE_MESSAGES.success"), "APP: success only after sync");
+assert(appTsx.includes("SUBMISSION_QUEUE_MESSAGES.itemSuccess"), "APP: per-item success only after sync");
+assert(appTsx.includes("syncResultToast"), "APP: result-aware sync toast (no misleading all-success)");
+assert(appTsx.includes("safeSyncErrorMessage"), "APP: failures shown with safe reason");
+assert(appTsx.includes("isLegacyUnsyncableItem"), "APP: legacy items detected during sync");
+assert(appTsx.includes("markUnsyncable"), "APP: legacy items flagged unsyncable");
+assert(appTsx.includes("onDismissItem"), "APP: dismiss failed item wired");
+assert(
+  !/lastError: error instanceof Error \? error\.message/.test(appTsx),
+  "APP: raw error message never persisted as lastError",
+);
 assert(appTsx.includes("listActiveItemsForSession"), "APP: session-scoped queue hydrate");
 assert(appTsx.includes("isSubmissionReadyForRetry"), "APP: respects retry backoff");
 assert(appTsx.includes("offlineSubmissionToSyncQueueItem"), "APP: offline items in Sync Centre");
@@ -97,6 +130,9 @@ assert(syncCentre.includes("All synced"), "UI: sync centre empty state");
 assert(syncCentre.includes("Retry failed"), "UI: retry failed action label");
 assert(syncCentre.includes("Sync now"), "UI: sync now action for queued items");
 assert(syncCentre.includes("onSyncAll"), "UI: sync all handler");
+assert(syncCentre.includes("Dismiss failed item"), "UI: dismiss failed item action");
+assert(syncCentre.includes("onDismissItem"), "UI: dismiss handler prop");
+assert(syncCentre.includes("item.lastError"), "UI: failed item shows safe reason");
 assert(syncCentre.includes("queueItemTypeLabel"), "UI: sync centre item type labels");
 assert(syncCentre.includes("queueTimeLabel"), "UI: sync centre timestamps");
 assert(roleNavigation.match(/MASTER_NAV[\s\S]*?id: "sync", label: "Sync Centre"/), "NAV: master sync in primary nav");

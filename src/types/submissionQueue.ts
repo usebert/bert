@@ -32,6 +32,11 @@ export type SubmissionQueueItem = {
   /** Stable local reference used by Sync Centre retry UI */
   localId: string;
   nextRetryAt?: string;
+  /**
+   * Marks an item that can never be synced automatically (legacy/malformed
+   * payload). It is excluded from auto-retry and must be dismissed manually.
+   */
+  unsyncable?: boolean;
 };
 
 export type SubmissionQueueMeta = {

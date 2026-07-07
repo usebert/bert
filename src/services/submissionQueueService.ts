@@ -75,6 +75,9 @@ export function isSubmissionReadyForRetry(
   if (item.status === "synced") {
     return false;
   }
+  if (item.unsyncable) {
+    return false;
+  }
   if (options?.bypassBackoff || item.status === "queued") {
     return true;
   }
@@ -223,10 +226,48 @@ export const submissionQueueService = {
     return updated;
   },
 
+  async markUnsyncable(id: string, lastError: string) {
+    const current = await tabletOfflineService.getQueueItem<SubmissionQueueItem>(id);
+    if (!current) {
+      return null;
+    }
+    const updated = await this.updateItem(id, {
+      status: "failed",
+      lastError,
+      unsyncable: true,
+      nextRetryAt: undefined,
+    });
+    if (updated?.type === "auditCompletion") {
+      const offline = queueItemToOfflineSubmission(updated);
+      if (offline) {
+        await tabletOfflineService
+          .upsertSubmission({ ...offline, syncStatus: "failed", lastError })
+          .catch(() => undefined);
+      }
+    }
+    return updated;
+  },
+
+  async dismissItem(id: string) {
+    const current = await tabletOfflineService.getQueueItem<SubmissionQueueItem>(id).catch(() => null);
+    if (current?.type === "auditCompletion") {
+      const offline = queueItemToOfflineSubmission(current);
+      if (offline) {
+        await tabletOfflineService.deleteSubmission(offline.localSubmissionId).catch(() => undefined);
+        for (const ref of offline.evidenceRefs) {
+          await tabletOfflineService.deleteEvidenceBlob(ref.blobKey).catch(() => undefined);
+        }
+      }
+    }
+    await tabletOfflineService.deleteQueueItem(id).catch(() => undefined);
+    return { dismissed: true };
+  },
+
   async retryItem(id: string) {
     return this.updateItem(id, {
       status: "queued",
       lastError: "",
+      unsyncable: false,
       nextRetryAt: undefined,
     });
   },
@@ -321,6 +362,7 @@ export const submissionQueueService = {
 
   nextReadyItem(items: SubmissionQueueItem[], now = Date.now()) {
     return items
+      .filter((item) => !item.unsyncable)
       .filter((item) => item.status === "queued" || item.status === "failed")
       .filter((item) => !item.nextRetryAt || Date.parse(item.nextRetryAt) <= now)
       .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))[0];

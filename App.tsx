@@ -486,7 +486,14 @@ import {
 } from "./src/services/tabletOfflineService";
 import { submissionQueueService, isSubmissionReadyForRetry } from "./src/services/submissionQueueService";
 import { offlineSubmissionToSyncQueueItem } from "./src/utils/submissionQueueBridge";
-import { queueAddedMessage, SUBMISSION_QUEUE_MESSAGES, queueIndicatorSummary } from "./src/utils/submissionQueueMessages";
+import {
+  queueAddedMessage,
+  SUBMISSION_QUEUE_MESSAGES,
+  queueIndicatorSummary,
+  safeSyncErrorMessage,
+  isLegacyUnsyncableItem,
+  syncResultToast,
+} from "./src/utils/submissionQueueMessages";
 
 type AuditStatus = "green" | "amber" | "red";
 type Answer = "pass" | "nc" | "fail";
@@ -10912,6 +10919,8 @@ function App() {
       }
       const queued = [...offlineQueue].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
       setOfflineSyncProgress({ current: 0, total: queued.length });
+      let syncedCount = 0;
+      let failedCount = 0;
       for (let index = 0; index < queued.length; index += 1) {
         const submission = queued[index];
         if (submission.syncStatus === "synced") {
@@ -10920,6 +10929,23 @@ function App() {
         const queueItem = await submissionQueueService.getQueueItem<import("./src/types/submissionQueue").SubmissionQueueItem>(
           submission.localSubmissionId,
         );
+        if (queueItem?.unsyncable) {
+          continue;
+        }
+        if (queueItem && isLegacyUnsyncableItem(queueItem)) {
+          await submissionQueueService
+            .markUnsyncable(submission.localSubmissionId, SUBMISSION_QUEUE_MESSAGES.legacyUnsyncable)
+            .catch(() => undefined);
+          setOfflineQueue((current) =>
+            current.map((item) =>
+              item.localSubmissionId === submission.localSubmissionId
+                ? { ...item, syncStatus: "failed", lastError: SUBMISSION_QUEUE_MESSAGES.legacyUnsyncable }
+                : item,
+            ),
+          );
+          failedCount += 1;
+          continue;
+        }
         if (queueItem && !isSubmissionReadyForRetry(queueItem, Date.now(), { bypassBackoff: options?.bypassBackoff })) {
           if (isDebugUiAllowed()) {
             console.info("[submission-queue] skipping item — retry backoff active", {
@@ -10985,23 +11011,27 @@ function App() {
           void tabletOfflineService.deleteSubmission(submission.localSubmissionId).catch(() => undefined);
           void submissionQueueService.markSynced(submission.localSubmissionId).catch(() => undefined);
           setOfflineQueue((current) => current.filter((item) => item.localSubmissionId !== submission.localSubmissionId));
+          syncedCount += 1;
+          pushToast(SUBMISSION_QUEUE_MESSAGES.itemSuccess, SUBMISSION_QUEUE_MESSAGES.itemSuccess, "success");
         } catch (error) {
           const nextRetry = submission.retryCount + 1;
-          const nextError = error instanceof Error ? error.message : "Unable to sync saved check.";
-          const failed: OfflineSubmission = { ...submission, syncStatus: "failed", retryCount: nextRetry, lastError: nextError };
+          const safeError = safeSyncErrorMessage(error);
+          const failed: OfflineSubmission = { ...submission, syncStatus: "failed", retryCount: nextRetry, lastError: safeError };
           void tabletOfflineService.upsertSubmission(failed).catch(() => undefined);
-          void submissionQueueService.markFailed(submission.localSubmissionId, SUBMISSION_QUEUE_MESSAGES.failure).catch(() => undefined);
+          void submissionQueueService.markFailed(submission.localSubmissionId, safeError).catch(() => undefined);
           setOfflineQueue((current) =>
             current.map((item) =>
               item.localSubmissionId === submission.localSubmissionId
-                ? { ...item, syncStatus: "failed", retryCount: nextRetry, lastError: nextError }
+                ? { ...item, syncStatus: "failed", retryCount: nextRetry, lastError: safeError }
                 : item,
             ),
           );
+          failedCount += 1;
         }
       }
-      if (offlineQueue.length > 0) {
-        pushToast(SUBMISSION_QUEUE_MESSAGES.success, SUBMISSION_QUEUE_MESSAGES.success, "success");
+      if (syncedCount > 0 || failedCount > 0) {
+        const result = syncResultToast({ syncedCount, failedCount });
+        pushToast(result.title, result.message, result.tone);
       }
       await refreshSubmissionQueueViews();
     } finally {
@@ -11015,6 +11045,17 @@ function App() {
       return;
     }
     const queueMatch = await submissionQueueService.getQueueItem<import("./src/types/submissionQueue").SubmissionQueueItem>(item.id);
+    if (queueMatch?.unsyncable) {
+      return;
+    }
+    if (queueMatch && isLegacyUnsyncableItem(queueMatch)) {
+      await submissionQueueService
+        .markUnsyncable(queueMatch.id, SUBMISSION_QUEUE_MESSAGES.legacyUnsyncable)
+        .catch(() => undefined);
+      updateSyncItemStatus(item.localId, "Failed", SUBMISSION_QUEUE_MESSAGES.legacyUnsyncable);
+      await refreshSubmissionQueueViews();
+      return;
+    }
     if (queueMatch && !isSubmissionReadyForRetry(queueMatch, Date.now(), { bypassBackoff: options?.bypassBackoff })) {
       if (isDebugUiAllowed()) {
         console.info("[submission-queue] skipping sync item — retry backoff active", {
@@ -11081,14 +11122,11 @@ function App() {
       }
 
       updateSyncItemStatus(item.localId, "Synced");
-      pushToast(SUBMISSION_QUEUE_MESSAGES.success, SUBMISSION_QUEUE_MESSAGES.success, "success");
+      pushToast(SUBMISSION_QUEUE_MESSAGES.itemSuccess, SUBMISSION_QUEUE_MESSAGES.itemSuccess, "success");
     } catch (error) {
-      updateSyncItemStatus(
-        item.localId,
-        "Failed",
-        SUBMISSION_QUEUE_MESSAGES.failure,
-      );
-      pushToast("Sync issue", SUBMISSION_QUEUE_MESSAGES.failure, "warning");
+      const safeError = safeSyncErrorMessage(error);
+      updateSyncItemStatus(item.localId, "Failed", safeError);
+      pushToast(SUBMISSION_QUEUE_MESSAGES.partialFailure, safeError, "warning");
     } finally {
       syncProcessingRef.current = false;
     }
@@ -17086,6 +17124,20 @@ function App() {
                     void submissionQueueService.retryItem(id).then(() => refreshSubmissionQueueViews()).catch(() => undefined);
                     void syncOfflineSubmissions({ bypassBackoff: true });
                   }
+                }}
+                onDismissItem={(id) => {
+                  if (typeof window !== "undefined" && !window.confirm(SUBMISSION_QUEUE_MESSAGES.dismissWarning)) {
+                    return;
+                  }
+                  const item = syncQueue.find((entry) => entry.localId === id);
+                  const queueId = item?.id || id;
+                  setSyncQueue((current) => current.filter((entry) => entry.localId !== id));
+                  setOfflineQueue((current) => current.filter((entry) => entry.localSubmissionId !== id));
+                  void submissionQueueService
+                    .dismissItem(queueId)
+                    .then(() => refreshSubmissionQueueViews())
+                    .catch(() => undefined);
+                  pushToast("Item dismissed", "Removed from your local queue. It will not be synced.", "neutral");
                 }}
               />
             )}
