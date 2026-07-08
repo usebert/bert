@@ -68,6 +68,12 @@ assert(userAuth.includes("candidateMasterSheetIds"), "static: candidate workbook
 assert(userAuth.includes("registryLookupDeps"), "static: registry lookup deps for login fallback");
 assert(userAuth.includes("if (resolvedId)"), "static: folder discovery workbook wins over paired hint");
 assert(userAuth.includes("!trustedFolderIds.length"), "static: auth-index skipped when trusted company folder selected");
+assert(userAuth.includes("collectIgnoredStaleLoginCandidates"), "static: ignored stale login candidates exported");
+assert(userAuth.includes("folderFirstStrict"), "static: folder-first strict skips paired sheet reads");
+assert(userAuth.includes("effectiveAttempts"), "static: trusted folder filters login candidate loop");
+assert(userAuth.includes("companyFolderIdUsed"), "static: login failure diagnostics include companyFolderIdUsed");
+assert(userAuth.includes("trustedMasterSheetId"), "static: login failure diagnostics include trustedMasterSheetId");
+assert(userAuth.includes("staleCandidatesIgnored"), "static: login failure diagnostics include staleCandidatesIgnored");
 assert(read("server/server.mjs").includes("...getCompanyContextResolutionDeps()"), "static: login route receives registry resolution deps");
 assert(userAuth.includes("summarizeUsersTabEmailScanForLoginLog"), "static: USER_NOT_FOUND login logs include live email scan");
 assert(!read("server/server.mjs").includes("/api/diagnostics/dovecote-users-tab"), "static: temporary Users-tab diagnostic route removed");

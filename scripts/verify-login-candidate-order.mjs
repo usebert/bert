@@ -58,14 +58,19 @@ assert(read("server/users-tab-schema.mjs").includes('legacyKey of ["Role"]'), "s
 assert(read("server/users-tab-reader.mjs").includes("sanitizePollutedUsersTabDisplayFields"), "static: schema repair sanitizes polluted Name/Status");
 assert(userAuth.includes("export function collectLoginResolutionAttempts"), "static: collectLoginResolutionAttempts exported");
 assert(userAuth.includes("upsertLoginAuthIndexFromUsersTabRow"), "static: login upserts auth index without full rebuild");
-assert(!userAuth.includes("await rebuildAuthIndexFromUsersTab(auth, deps, companyContext, deps.authIndex, email)"), "static: login success path skips full auth-index rebuild");
+assert(userAuth.includes("collectIgnoredStaleLoginCandidates"), "static: stale candidates tracked when folder known");
+assert(userAuth.includes("folderFirstStrict"), "static: trusted folder skips paired sheet Users-first");
+assert(userAuth.includes("effectiveAttempts"), "static: only trusted folder candidates run when folder known");
+assert(userAuth.includes("staleCandidatesIgnored"), "static: login diagnostics list ignored stale candidates");
+assert(userAuth.includes("skipSheetHint"), "static: folder resolve ignores session sheet hint when folder-first strict");
 
-const staleSheetAfterIndexBlock = userAuth.slice(
-  userAuth.indexOf("Users-first: body/session masterSheetId before slow auth-index"),
-  userAuth.indexOf("if (typeof deps.findMasterSheetIdsForCompanyLoginEmail"),
+const collectAttemptsFn = userAuth.slice(
+  userAuth.indexOf("export function collectLoginResolutionAttempts"),
+  userAuth.indexOf("function scheduleSheetHintFolderResolveRefresh"),
 );
-assert(staleSheetAfterIndexBlock.includes("pushSheet(hintedSheetId)"), "static: session masterSheetId tried before auth-index folder");
-assert(staleSheetAfterIndexBlock.includes("pushFolder(indexFolderId"), "static: auth-index folder follows body sheet hint");
+assert(collectAttemptsFn.includes("pushSheet(hintedSheetId)"), "static: session masterSheetId tried before auth-index folder when no folder selected");
+assert(collectAttemptsFn.includes("pushFolder(indexFolderId"), "static: auth-index folder follows body sheet hint when no folder selected");
+assert(collectAttemptsFn.includes("trustedFolderIds.length ? \"\" : hintedSheetId"), "static: paired sheet omitted when company folder known");
 
 function createMockUsersTabStore(initial = {}) {
   const store = new Map(Object.entries(initial));
@@ -181,10 +186,10 @@ const attempts = collectLoginResolutionAttempts(
 );
 assert(attempts[0]?.type === "folder" && attempts[0]?.companyFolderId === companyFolderId, "runtime: explicit folder candidate is first");
 assert(
-  attempts[0]?.masterSheetId === staleSheetId,
-  "runtime: stale session sheet kept as paired fallback on folder candidate only",
+  !attempts[0]?.masterSheetId,
+  "runtime: stale session sheet not paired on folder candidate when companyFolderId is known",
 );
-assert(attempts.length === 1, "runtime: explicit folder absorbs stale session sheet instead of separate sheet candidate");
+assert(attempts.length === 1, "runtime: explicit folder only — stale sheet/auth-index/invite hints suppressed");
 
 const sessionOnlyAttempts = collectLoginResolutionAttempts(
   { email, masterSheetId: staleSheetId },
@@ -578,7 +583,7 @@ try {
     sessionOnlyAttempts[0]?.type === "folder" && sessionOnlyAttempts[0]?.companyFolderId === companyFolderId,
     "runtime: session company folder collected before stale sheet hints",
   );
-  assert(sessionOnlyAttempts.length === 1, "runtime: session folder absorbs stale session sheet candidate");
+  assert(sessionOnlyAttempts.length === 1, "runtime: session folder only when companyFolderId known — stale sheet suppressed");
 } finally {
   console.info = originalInfo;
 }

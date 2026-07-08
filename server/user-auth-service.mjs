@@ -211,6 +211,7 @@ function buildLoginAuthFailure({
   attemptCount = 0,
   failedStep = "users_tab_auth",
   usersTabDiagnostics = null,
+  folderFirstDiagnostics = null,
 }) {
   const reasonCode = diagnosticReasonCode(authFailureReason);
   const emailNorm = normalizeUserAuthEmail(email);
@@ -221,6 +222,9 @@ function buildLoginAuthFailure({
     attemptCount,
     failedStep,
     candidateMasterSheetIds: usersTabDiagnostics?.candidateMasterSheetIds,
+    companyFolderIdUsed: folderFirstDiagnostics?.companyFolderIdUsed,
+    trustedMasterSheetId: folderFirstDiagnostics?.trustedMasterSheetId,
+    staleCandidatesIgnored: folderFirstDiagnostics?.staleCandidatesIgnored,
   });
   const inactive = authFailureReason === AUTH_FAILURE_REASON.INACTIVE;
   const ambiguous = authFailureReason === AUTH_FAILURE_REASON.AMBIGUOUS_USERS_TAB_ROWS;
@@ -246,6 +250,18 @@ function buildLoginAuthFailure({
       targetEmailExists: lookup.targetEmailExists,
       targetEmailInEmailLikeColumns: lookup.targetEmailInEmailLikeColumns,
     }));
+  }
+  if (folderFirstDiagnostics) {
+    diagnostics.explicitFolderFirst = folderFirstDiagnostics.explicitFolderFirst === true;
+    if (folderFirstDiagnostics.companyFolderIdUsed) {
+      diagnostics.companyFolderIdUsed = folderFirstDiagnostics.companyFolderIdUsed;
+    }
+    if (folderFirstDiagnostics.trustedMasterSheetId) {
+      diagnostics.trustedMasterSheetId = folderFirstDiagnostics.trustedMasterSheetId;
+    }
+    if (folderFirstDiagnostics.staleCandidatesIgnored?.length) {
+      diagnostics.staleCandidatesIgnored = folderFirstDiagnostics.staleCandidatesIgnored;
+    }
   }
   return {
     ok: false,
@@ -557,9 +573,10 @@ function resolveFolderContextFn(deps = {}) {
     : resolveCompanyFromFolder;
 }
 
-async function resolveFolderFirstContext(auth, deps, companyFolderId, masterSheetId = "") {
+async function resolveFolderFirstContext(auth, deps, companyFolderId, masterSheetId = "", options = {}) {
   const resolveFn = resolveFolderContextFn(deps);
-  const sheetHint = sanitizeGoogleSpreadsheetId(masterSheetId);
+  const sheetHint =
+    options.skipSheetHint === true ? "" : sanitizeGoogleSpreadsheetId(masterSheetId);
   return resolveFn(auth, resolverDeps(deps), companyFolderId, {
     ...LIGHT_RESOLVE_OPTS,
     ...(sheetHint ? { masterSheetId: sheetHint, createIfMissing: false } : {}),
@@ -766,6 +783,39 @@ function dedupeLoginAttempts(attempts = []) {
   return out;
 }
 
+/** Stale sheet/auth-index/invite hints suppressed when companyFolderId is already known. */
+export function collectIgnoredStaleLoginCandidates(input = {}, deps = {}, trustedFolderIds = []) {
+  if (!trustedFolderIds.length) {
+    return [];
+  }
+  const ignored = [];
+  const hintedSheetId = sanitizeGoogleSpreadsheetId(input.masterSheetId || input.requestedSheetId);
+  if (hintedSheetId) {
+    ignored.push(`sheet:${hintedSheetId}:session_or_body_masterSheetId`);
+  }
+  const email = normalizeUserAuthEmail(input.email);
+  const indexEntry =
+    typeof deps.authIndex?.lookupByEmail === "function" ? deps.authIndex.lookupByEmail(email) : null;
+  if (indexEntry) {
+    const indexSheetId = sanitizeGoogleSpreadsheetId(indexEntry.masterSheetId);
+    const indexFolderId = sanitizeCompanyFolderId(indexEntry.companyFolderId || indexEntry.companyId);
+    if (indexFolderId && !trustedFolderIds.includes(indexFolderId)) {
+      ignored.push(`folder:${indexFolderId}:auth_index`);
+    } else if (indexSheetId) {
+      ignored.push(`sheet:${indexSheetId}:auth_index`);
+    }
+  }
+  if (typeof deps.findMasterSheetIdsForCompanyLoginEmail === "function") {
+    for (const sheetId of deps.findMasterSheetIdsForCompanyLoginEmail(email) || []) {
+      const sanitized = sanitizeGoogleSpreadsheetId(sheetId);
+      if (sanitized) {
+        ignored.push(`sheet:${sanitized}:invite_hint`);
+      }
+    }
+  }
+  return [...new Set(ignored)];
+}
+
 export function collectLoginResolutionAttempts(input = {}, deps = {}) {
   const attempts = [];
   const pushFolder = (raw, pairedMasterSheetId = "") => {
@@ -790,11 +840,11 @@ export function collectLoginResolutionAttempts(input = {}, deps = {}) {
   const hintedFolderId = sanitizeCompanyFolderId(input.companyFolderId);
   const sessionFolderId = sanitizeCompanyFolderId(input.sessionCompanyFolderId);
   const trustedFolderIds = resolveTrustedFolderIds(input);
-  // Selected company folder is source of truth — cached masterSheetId is only a paired fallback.
+  // Selected company folder is source of truth — when known, only folder candidates are collected.
   if (hintedFolderId) {
-    pushFolder(hintedFolderId, hintedSheetId);
+    pushFolder(hintedFolderId, trustedFolderIds.length ? "" : hintedSheetId);
   } else if (sessionFolderId) {
-    pushFolder(sessionFolderId, hintedSheetId);
+    pushFolder(sessionFolderId, trustedFolderIds.length ? "" : hintedSheetId);
   }
 
   // Users-first: body/session masterSheetId before slow auth-index folder hints.
@@ -1002,10 +1052,21 @@ function buildFolderAttemptCompanyContext(attempt, resolved, masterSheetId, rowO
   };
 }
 
-async function resolveFolderLoginContext(auth, deps, attempt, email, userDeps, timingDeps, candidateIndex) {
+async function resolveFolderLoginContext(
+  auth,
+  deps,
+  attempt,
+  email,
+  userDeps,
+  timingDeps,
+  candidateIndex,
+  options = {},
+) {
   const pairedSheetId = sanitizeGoogleSpreadsheetId(attempt.masterSheetId);
   const tFolder = Date.now();
-  const resolved = await resolveFolderFirstContext(auth, deps, attempt.companyFolderId, pairedSheetId);
+  const resolved = await resolveFolderFirstContext(auth, deps, attempt.companyFolderId, pairedSheetId, {
+    skipSheetHint: options.folderFirstStrict === true,
+  });
   timingDeps.loginTiming?.logPhase?.("folder_company_resolve", tFolder, {
     companyFolderId: attempt.companyFolderId,
     resolved: Boolean(resolved?.masterSheetId || resolved?.companyFolderId),
@@ -1059,8 +1120,9 @@ async function resolveSingleLoginAttempt(
     return sheetResult;
   }
 
+  const folderFirstStrict = options.folderFirstStrict === true;
   const pairedSheetId = sanitizeGoogleSpreadsheetId(attempt.masterSheetId);
-  if (pairedSheetId && !options.skipPairedSheetUsersFirst) {
+  if (pairedSheetId && !options.skipPairedSheetUsersFirst && !folderFirstStrict) {
     const pairedResult = await tryUsersTabSheetHintLogin(
       auth,
       deps,
@@ -1090,6 +1152,7 @@ async function resolveSingleLoginAttempt(
       userDeps,
       timingDeps,
       candidateIndex,
+      { folderFirstStrict },
     );
   }
   if (!folderContext.ok) {
@@ -1147,17 +1210,23 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
   const attempts = collectLoginResolutionAttempts(input, deps);
   const trustedFolderIds = resolveTrustedFolderIds(input);
   const explicitFolderFirst = trustedFolderIds.length > 0;
+  const ignoredStaleCandidates = collectIgnoredStaleLoginCandidates(input, deps, trustedFolderIds);
+  const effectiveAttempts = explicitFolderFirst
+    ? attempts.filter((attempt) => isTrustedFolderCandidate(attempt, trustedFolderIds))
+    : attempts;
   const companyFolderIdSource = resolveLoginCompanyFolderIdSource(input, deps, email);
   loginTiming?.logMark?.("login_resolution_diagnostics", {
     explicitFolderFirst,
     companyFolderIdSource,
-    attemptCount: attempts.length,
-    candidateOrder: attempts.map((attempt, index) => loginCandidateLabel(attempt)).join("|"),
+    attemptCount: effectiveAttempts.length,
+    staleCandidatesIgnored: ignoredStaleCandidates,
+    candidateOrder: effectiveAttempts.map((attempt) => loginCandidateLabel(attempt)).join("|"),
   });
   loginTiming?.logPhase?.("collect_login_candidates", tCandidates, {
     ...loginTimingEmailMeta(email),
-    attemptCount: attempts.length,
-    candidateOrder: attempts.map((attempt, index) => loginCandidateLabel(attempt, index)).join("|"),
+    attemptCount: effectiveAttempts.length,
+    staleCandidatesIgnored: ignoredStaleCandidates,
+    candidateOrder: effectiveAttempts.map((attempt, index) => loginCandidateLabel(attempt, index)).join("|"),
     candidateTimeoutMs: LOGIN_CANDIDATE_TIMEOUT_MS,
   });
 
@@ -1165,8 +1234,17 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
   let trustedInactiveHit = false;
   let lastAuthFailureReason = AUTH_FAILURE_REASON.USER_NOT_FOUND;
   let usersTabDiagnostics = null;
-  for (let candidateIndex = 0; candidateIndex < attempts.length; candidateIndex += 1) {
-    const attempt = attempts[candidateIndex];
+  const buildFolderFirstDiagnostics = (attempt, attemptResult = {}) => ({
+    explicitFolderFirst: true,
+    companyFolderIdUsed: sanitizeCompanyFolderId(attempt?.companyFolderId) || trustedFolderIds[0] || "",
+    trustedMasterSheetId:
+      sanitizeGoogleSpreadsheetId(attemptResult?.companyContext?.masterSheetId) ||
+      sanitizeGoogleSpreadsheetId(attemptResult?.row?.masterSheetId) ||
+      "",
+    staleCandidatesIgnored: ignoredStaleCandidates,
+  });
+  for (let candidateIndex = 0; candidateIndex < effectiveAttempts.length; candidateIndex += 1) {
+    const attempt = effectiveAttempts[candidateIndex];
     const candidateMeta = loginCandidateTimingMeta(attempt, candidateIndex);
     const tAttempt = Date.now();
     loginTiming?.logPhase?.("candidate_attempt_start", tAttempt, {
@@ -1194,6 +1272,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
           userDeps,
           attemptTimingDeps,
           candidateIndex,
+          { folderFirstStrict: explicitFolderFirst && trustedFolder },
         );
       } else if (attempt.type === "folder") {
         loginTiming?.logPhase?.("candidate_attempt_await", tAttempt, {
@@ -1331,6 +1410,14 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
           ...candidateMeta,
           reason: "timeout",
         });
+        if (trustedFolder && explicitFolderFirst) {
+          return buildLoginAuthFailure({
+            email,
+            authFailureReason: AUTH_FAILURE_REASON.COMPANY_WORKBOOK_NOT_RESOLVED,
+            attemptCount: effectiveAttempts.length,
+            folderFirstDiagnostics: buildFolderFirstDiagnostics(attempt),
+          });
+        }
         if (!trustedFolder) {
           lastAuthFailureReason = AUTH_FAILURE_REASON.COMPANY_WORKBOOK_NOT_RESOLVED;
         }
@@ -1340,13 +1427,15 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
     }
 
     if (!attemptResult.ok) {
+      const folderFirstDiag = buildFolderFirstDiagnostics(attempt, attemptResult);
       if (attemptResult.authFailureReason === AUTH_FAILURE_REASON.AMBIGUOUS_USERS_TAB_ROWS) {
         // Ambiguous ACTIVE duplicates on a trusted workbook are final — never silently pick a row.
         if (trustedFolder) {
           return buildLoginAuthFailure({
             email,
             authFailureReason: AUTH_FAILURE_REASON.AMBIGUOUS_USERS_TAB_ROWS,
-            attemptCount: attempts.length,
+            attemptCount: effectiveAttempts.length,
+            folderFirstDiagnostics: explicitFolderFirst ? folderFirstDiag : null,
           });
         }
         lastAuthFailureReason = AUTH_FAILURE_REASON.AMBIGUOUS_USERS_TAB_ROWS;
@@ -1359,6 +1448,14 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
         if (trustedFolder) {
           trustedInactiveHit = true;
           lastAuthFailureReason = AUTH_FAILURE_REASON.INACTIVE;
+          if (explicitFolderFirst) {
+            return buildLoginAuthFailure({
+              email,
+              authFailureReason: AUTH_FAILURE_REASON.INACTIVE,
+              attemptCount: effectiveAttempts.length,
+              folderFirstDiagnostics: folderFirstDiag,
+            });
+          }
         } else {
           inactiveHit = true;
           if (lastAuthFailureReason === AUTH_FAILURE_REASON.USER_NOT_FOUND) {
@@ -1368,12 +1465,23 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
       } else {
         lastAuthFailureReason = attemptResult.authFailureReason || AUTH_FAILURE_REASON.USER_NOT_FOUND;
       }
+      if (explicitFolderFirst && trustedFolder) {
+        return buildLoginAuthFailure({
+          email,
+          authFailureReason: lastAuthFailureReason,
+          attemptCount: effectiveAttempts.length,
+          folderFirstDiagnostics: folderFirstDiag,
+        });
+      }
       continue;
     }
 
     loginTiming?.logPhase?.("candidate_attempt_success", tAttempt, {
       ...candidateMeta,
       folderFirst: attemptResult.folderFirst === true,
+      companyFolderIdUsed: attempt.companyFolderId,
+      trustedMasterSheetId: attemptResult.companyContext?.masterSheetId,
+      staleCandidatesIgnored: explicitFolderFirst ? ignoredStaleCandidates : undefined,
     });
     return {
       ok: true,
@@ -1480,14 +1588,21 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
     return buildLoginAuthFailure({
       email,
       authFailureReason: AUTH_FAILURE_REASON.INACTIVE,
-      attemptCount: attempts.length,
+      attemptCount: effectiveAttempts.length,
+      folderFirstDiagnostics: explicitFolderFirst
+        ? {
+            explicitFolderFirst: true,
+            companyFolderIdUsed: trustedFolderIds[0] || "",
+            staleCandidatesIgnored: ignoredStaleCandidates,
+          }
+        : null,
     });
   }
 
   if (lastAuthFailureReason === AUTH_FAILURE_REASON.USER_NOT_FOUND) {
     try {
       usersTabDiagnostics = await raceLoginCandidateAttempt(
-        () => logLoginUsersTabDiagnostics(auth, userDeps, email, attempts, []),
+        () => logLoginUsersTabDiagnostics(auth, userDeps, email, effectiveAttempts, []),
         LOGIN_CANDIDATE_TIMEOUT_MS,
         "login_failure_diagnostics",
       );
@@ -1501,7 +1616,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
         throw error;
       }
       const sheetIds = new Set();
-      for (const attempt of attempts) {
+      for (const attempt of effectiveAttempts) {
         const sheetId = sanitizeGoogleSpreadsheetId(attempt.masterSheetId);
         if (sheetId) {
           sheetIds.add(sheetId);
@@ -1514,20 +1629,34 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
     }
   }
 
-  if (!attempts.length) {
+  if (!effectiveAttempts.length) {
     return buildLoginAuthFailure({
       email,
       authFailureReason: AUTH_FAILURE_REASON.NO_LOGIN_CANDIDATES,
       failedStep: "collect_attempts",
       attemptCount: 0,
+      folderFirstDiagnostics: explicitFolderFirst
+        ? {
+            explicitFolderFirst: true,
+            companyFolderIdUsed: trustedFolderIds[0] || "",
+            staleCandidatesIgnored: ignoredStaleCandidates,
+          }
+        : null,
     });
   }
 
   return buildLoginAuthFailure({
     email,
     authFailureReason: lastAuthFailureReason,
-    attemptCount: attempts.length,
+    attemptCount: effectiveAttempts.length,
     usersTabDiagnostics,
+    folderFirstDiagnostics: explicitFolderFirst
+      ? {
+          explicitFolderFirst: true,
+          companyFolderIdUsed: trustedFolderIds[0] || "",
+          staleCandidatesIgnored: ignoredStaleCandidates,
+        }
+      : null,
   });
 }
 
