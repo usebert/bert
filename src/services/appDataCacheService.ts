@@ -52,6 +52,41 @@ export function liveDashboardCacheKey(companyFolderId: string, userEmail: string
   return `live-dashboard:${companyFolderId.trim()}::${userEmail.trim().toLowerCase()}`;
 }
 
+/** Drop cached live-dashboard payloads when local sync queue metadata changes. */
+export function invalidateLiveDashboardCache(context: {
+  companyFolderId?: string;
+  userEmail?: string;
+} = {}): void {
+  const companyFolderId = String(context.companyFolderId || "").trim();
+  const userEmail = String(context.userEmail || "").trim().toLowerCase();
+
+  if (companyFolderId && userEmail) {
+    const exact = liveDashboardCacheKey(companyFolderId, userEmail);
+    memoryCache.delete(exact);
+    if (typeof window !== "undefined") {
+      try {
+        const raw = window.localStorage.getItem(storageKeys.appDataCache);
+        if (raw) {
+          const parsed = JSON.parse(raw) as Record<string, AppDataCacheEntry<unknown>>;
+          if (parsed[exact]) {
+            delete parsed[exact];
+            window.localStorage.setItem(storageKeys.appDataCache, JSON.stringify(parsed));
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    return;
+  }
+
+  invalidateAppDataCache({
+    companyFolderId: companyFolderId || undefined,
+    userEmail: userEmail || undefined,
+    all: !companyFolderId && !userEmail,
+  });
+}
+
 export function appDataContextKey(companyFolderId: string, userEmail: string): string {
   return `${companyFolderId.trim()}::${userEmail.trim().toLowerCase()}`;
 }

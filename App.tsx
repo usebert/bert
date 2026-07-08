@@ -395,6 +395,7 @@ import {
 import {
   briefingsTodoPreviewCacheKey,
   ensureAppDataContext,
+  invalidateLiveDashboardCache,
   loadBriefingsTodoPreviewCached,
   preloadAppData,
   readAppDataCache,
@@ -16704,8 +16705,8 @@ function App() {
                     companyName={String(activeCompanyContext.companyName || workspaceName || "").trim()}
                     userEmail={String(sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser)).trim().toLowerCase()}
                     role={currentUser.role}
-                    pendingSyncCount={pendingSyncCount}
-                    failedSyncCount={failedSyncCount}
+                    pendingSyncCount={syncCentreWaitingCount}
+                    failedSyncCount={syncCentreFailedCount}
                     onOpenActions={() => setScreen("actions")}
                     onOpenIncidents={() => setScreen("incidents")}
                     onOpenBriefings={() => setScreen("briefings")}
@@ -17257,6 +17258,14 @@ function App() {
                   const queueId = item?.id || id;
                   setSyncQueue((current) => current.filter((entry) => entry.localId !== id));
                   setOfflineQueue((current) => current.filter((entry) => entry.localSubmissionId !== id));
+                  invalidateLiveDashboardCache({
+                    companyFolderId: String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim(),
+                    userEmail: String(
+                      sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser) || "",
+                    )
+                      .trim()
+                      .toLowerCase(),
+                  });
                   void submissionQueueService
                     .dismissItem(queueId)
                     .then(() => refreshSubmissionQueueViews())

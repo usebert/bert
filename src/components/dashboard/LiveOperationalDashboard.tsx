@@ -1,7 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Role } from "../../permissions";
-import { loadLiveDashboardCached } from "../../services/appDataCacheService";
-import { emptyLiveDashboardPayload } from "../../services/liveDashboardService";
+import {
+  invalidateLiveDashboardCache,
+  loadLiveDashboardCached,
+} from "../../services/appDataCacheService";
+import {
+  applyLocalSyncStatusToLiveDashboard,
+  emptyLiveDashboardPayload,
+} from "../../services/liveDashboardService";
 import type {
   LiveDashboardPayload,
   LiveRiskArea,
@@ -135,11 +141,27 @@ export function LiveOperationalDashboard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyFolderId, masterSheetId, userEmail]);
 
+  // Queue dismissals / retries change client-local counts; drop cached sync warnings immediately.
+  useEffect(() => {
+    if (!contextReady) {
+      return;
+    }
+    invalidateLiveDashboardCache({ companyFolderId, userEmail });
+  }, [companyFolderId, userEmail, pendingSyncCount, failedSyncCount, contextReady]);
+
+  const view = useMemo(
+    () =>
+      applyLocalSyncStatusToLiveDashboard(payload ?? emptyLiveDashboardPayload(), {
+        queued: pendingSyncCount,
+        failed: failedSyncCount,
+      }),
+    [payload, pendingSyncCount, failedSyncCount],
+  );
+
   if (!contextReady) {
     return null;
   }
 
-  const view = payload ?? emptyLiveDashboardPayload();
   const metrics = view.metrics;
   const showFullLoading = loading && !payload;
 

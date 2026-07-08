@@ -37,6 +37,43 @@ export function emptyLiveDashboardPayload(): LiveDashboardPayload {
   };
 }
 
+/**
+ * Offline queue is client-local. Always prefer live Sync Centre counts over cached/server sync warnings.
+ */
+export function applyLocalSyncStatusToLiveDashboard(
+  payload: LiveDashboardPayload,
+  local: { queued?: number; failed?: number; lastSyncAt?: string } = {},
+): LiveDashboardPayload {
+  const queued = Math.max(0, Number(local.queued) || 0);
+  const failed = Math.max(0, Number(local.failed) || 0);
+  const lastSyncAt = String(local.lastSyncAt || payload.sync?.lastSyncAt || "").trim();
+  const hasIssue = queued > 0 || failed > 0;
+  let message = "All work is synced.";
+  if (failed > 0) {
+    message = `${failed} item${failed === 1 ? "" : "s"} failed to sync${queued > 0 ? `, ${queued} queued` : ""}.`;
+  } else if (queued > 0) {
+    message = `${queued} item${queued === 1 ? "" : "s"} waiting to sync.`;
+  }
+  const sync = {
+    queued,
+    failed,
+    lastStatus: failed > 0 ? "error" : queued > 0 ? "pending" : "ok",
+    lastSyncAt,
+    hasIssue,
+    message,
+  };
+  const warnings = (payload.warnings || []).filter((warning) => {
+    if (typeof warning === "string") {
+      return !/failed to sync|waiting to sync/i.test(warning);
+    }
+    return String(warning.source || "").toLowerCase() !== "sync";
+  });
+  if (hasIssue) {
+    warnings.push({ source: "sync", message });
+  }
+  return { ...payload, sync, warnings };
+}
+
 function buildParams(context: LiveDashboardContext, query: LiveDashboardQuery): URLSearchParams {
   const params = new URLSearchParams();
   const masterSheetId = String(context.masterSheetId || "").trim();

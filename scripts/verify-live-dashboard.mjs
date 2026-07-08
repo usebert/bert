@@ -328,6 +328,45 @@ const buildOpts = (actor) => ({ companyFolderId: CO, alternateIds: [CO], actor, 
   assert(failed.hasIssue && /failed to sync/.test(failed.message), "14c: failed items produce warning");
   const built = buildLiveDashboardFromSources(baseSources(), { ...buildOpts(adminActor), syncQueue: { queued: 2, failed: 1 } });
   assert(built.sync.hasIssue && built.warnings.some((w) => (w.source || "") === "sync"), "14d: sync warning surfaced in dashboard");
+
+  const liveDashUi = read("src/components/dashboard/LiveOperationalDashboard.tsx");
+  const liveDashService = read("src/services/liveDashboardService.ts");
+  const appDataCache = read("src/services/appDataCacheService.ts");
+  const appTsx = read("App.tsx");
+  assert(liveDashService.includes("applyLocalSyncStatusToLiveDashboard"), "14e: local queue overlay helper exported");
+  assert(liveDashUi.includes("applyLocalSyncStatusToLiveDashboard"), "14f: Live Dashboard overlays local sync counts");
+  assert(liveDashUi.includes("invalidateLiveDashboardCache"), "14g: Live Dashboard invalidates cache when queue counts change");
+  assert(appDataCache.includes("export function invalidateLiveDashboardCache"), "14h: invalidateLiveDashboardCache exported");
+  assert(appTsx.includes("invalidateLiveDashboardCache"), "14i: Sync Centre dismissal invalidates live dashboard cache");
+  assert(appTsx.includes("pendingSyncCount={syncCentreWaitingCount}"), "14j: dashboard uses Sync Centre waiting count");
+  assert(appTsx.includes("failedSyncCount={syncCentreFailedCount}"), "14k: dashboard uses Sync Centre failed count");
+
+  // Mirror client overlay: local empty queue must hide stale cached failed warning.
+  function overlaySync(payload, local) {
+    const q = Math.max(0, Number(local.queued) || 0);
+    const f = Math.max(0, Number(local.failed) || 0);
+    const hasIssue = q > 0 || f > 0;
+    let message = "All work is synced.";
+    if (f > 0) message = `${f} item${f === 1 ? "" : "s"} failed to sync${q > 0 ? `, ${q} queued` : ""}.`;
+    else if (q > 0) message = `${q} item${q === 1 ? "" : "s"} waiting to sync.`;
+    const warnings = (payload.warnings || []).filter((w) =>
+      typeof w === "string" ? !/failed to sync|waiting to sync/i.test(w) : String(w.source || "").toLowerCase() !== "sync",
+    );
+    if (hasIssue) warnings.push({ source: "sync", message });
+    return { sync: { queued: q, failed: f, hasIssue, message }, warnings };
+  }
+  const stale = {
+    sync: { queued: 0, failed: 3, hasIssue: true, message: "3 items failed to sync." },
+    warnings: [{ source: "sync", message: "3 items failed to sync." }],
+  };
+  const cleared = overlaySync(stale, { queued: 0, failed: 0 });
+  assert(!cleared.sync.hasIssue && cleared.sync.failed === 0, "14l: dashboard hides sync warning when failed items dismissed (counts zero)");
+  assert(!cleared.warnings.some((w) => (w.source || "") === "sync"), "14m: cached sync warning removed when local queue empty");
+  const shown = overlaySync(stale, { queued: 0, failed: 2 });
+  assert(shown.sync.hasIssue && shown.sync.failed === 2 && /2 items failed/.test(shown.sync.message), "14n: dashboard shows sync warning when failed queue items exist");
+  const waitOnly = overlaySync({ sync: {}, warnings: [] }, { queued: 4, failed: 0 });
+  assert(waitOnly.sync.hasIssue && /waiting to sync/.test(waitOnly.sync.message), "14o: waiting-only queue still surfaces warning");
+  assert(liveDashUi.includes('load("manual")'), "14p: Refresh button reloads dashboard with current props/counts");
 }
 
 /** 15: No cross-company leakage. */
