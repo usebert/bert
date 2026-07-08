@@ -157,6 +157,21 @@ export async function updateCompanyUserRecord(auth, spreadsheetId, email, update
       : parseCompanyAreas(updates.companyAreas);
     patch.CompanyAreas = areas.join(", ");
   }
+  if (updates.siteIds !== undefined) {
+    patch.SiteIds = Array.isArray(updates.siteIds)
+      ? updates.siteIds.map((part) => String(part || "").trim()).filter(Boolean).join(", ")
+      : String(updates.siteIds || "").trim();
+  }
+  if (updates.departmentIds !== undefined) {
+    patch.DepartmentIds = Array.isArray(updates.departmentIds)
+      ? updates.departmentIds.map((part) => String(part || "").trim()).filter(Boolean).join(", ")
+      : String(updates.departmentIds || "").trim();
+  }
+  if (updates.areaIds !== undefined) {
+    patch.AreaIds = Array.isArray(updates.areaIds)
+      ? updates.areaIds.map((part) => String(part || "").trim()).filter(Boolean).join(", ")
+      : String(updates.areaIds || "").trim();
+  }
 
   await writeUsersRowPatch(auth, spreadsheetId, match, patch, deps);
 
@@ -265,6 +280,9 @@ async function findCompanyUsersTabRowDirect(auth, spreadsheetId, email, deps) {
       pickField(obj, "AccessLevel", "Access Level", "accessLevel") ||
       defaultAccessLevelForRole(parseRoleFromUsersSheet(roleRaw));
     const companyAreasRaw = pickField(obj, "CompanyAreas", "Company Areas", "companyAreas");
+    const siteIdsRaw = pickField(obj, "SiteIds", "Sites", "siteIds");
+    const departmentIdsRaw = pickField(obj, "DepartmentIds", "Departments", "departmentIds");
+    const areaIdsRaw = pickField(obj, "AreaIds", "areaIds");
     const updatedAtVal = pickField(obj, "UpdatedAt");
     const passwordHash =
       String(updatedAtVal).startsWith("scrypt$") || isPasswordHash(updatedAtVal)
@@ -284,6 +302,9 @@ async function findCompanyUsersTabRowDirect(auth, spreadsheetId, email, deps) {
       accessLevel,
       companyAreas: parseCompanyAreas(companyAreasRaw),
       companyAreasRaw,
+      siteIds: parseCompanyAreas(siteIdsRaw),
+      departmentIds: parseCompanyAreas(departmentIdsRaw),
+      areaIds: parseCompanyAreas(areaIdsRaw),
       passwordHash,
       invitedAt: pickField(obj, "InvitedAt", "Invited At"),
       createdAt: pickField(obj, "CreatedAt", "Created At"),

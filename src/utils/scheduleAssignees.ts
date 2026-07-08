@@ -9,6 +9,9 @@ export type CompanyUsersTabRow = {
   companyId: string;
   companyAreas: string[];
   companyAreasRaw?: string;
+  siteIds?: string[];
+  departmentIds?: string[];
+  areaIds?: string[];
 };
 
 export type ScheduleAssigneeOption = {

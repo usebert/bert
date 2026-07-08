@@ -41,6 +41,9 @@ export function mapUsersTabRecordToProfileRow(record, companyContext = {}) {
   const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
   const filled = backfillRowCompanyFields(record, companyContext);
   const companyAreasRaw = pickRowValue(filled, "CompanyAreas", "Company Areas", "companyAreas");
+  const siteIdsRaw = pickRowValue(filled, "SiteIds", "Sites", "siteIds");
+  const departmentIdsRaw = pickRowValue(filled, "DepartmentIds", "Departments", "departmentIds");
+  const areaIdsRaw = pickRowValue(filled, "AreaIds", "areaIds");
   const rowCompanyId = pickRowCompanyId(filled) || companyFolderId;
   const rowCompanyFolderId = pickRowCompanyFolderId(filled) || rowCompanyId;
   return {
@@ -54,6 +57,9 @@ export function mapUsersTabRecordToProfileRow(record, companyContext = {}) {
     companyFolderId: rowCompanyFolderId,
     companyAreas: parseCompanyAreas(companyAreasRaw),
     companyAreasRaw,
+    siteIds: parseCompanyAreas(siteIdsRaw),
+    departmentIds: parseCompanyAreas(departmentIdsRaw),
+    areaIds: parseCompanyAreas(areaIdsRaw),
   };
 }
 
@@ -89,6 +95,15 @@ export function mapUsersTabProfileMember(row, companyContext = {}) {
   const companyAreas = Array.isArray(row.companyAreas)
     ? row.companyAreas
     : parseCompanyAreas(row.companyAreasRaw || row.CompanyAreas || row.companyAreas || "");
+  const siteIds = Array.isArray(row.siteIds)
+    ? row.siteIds
+    : parseCompanyAreas(row.SiteIds || row.siteIds || "");
+  const departmentIds = Array.isArray(row.departmentIds)
+    ? row.departmentIds
+    : parseCompanyAreas(row.DepartmentIds || row.departmentIds || "");
+  const areaIds = Array.isArray(row.areaIds)
+    ? row.areaIds
+    : parseCompanyAreas(row.AreaIds || row.areaIds || "");
   const resolvedFolderId = resolvedProfileCompanyFolderId(row, companyContext);
   return sanitizeUserRecordForClient({
     email,
@@ -101,6 +116,9 @@ export function mapUsersTabProfileMember(row, companyContext = {}) {
     companyFolderId: resolvedFolderId,
     companyAreas,
     companyAreasRaw: row.companyAreasRaw || String(row.CompanyAreas || ""),
+    siteIds,
+    departmentIds,
+    areaIds,
   });
 }
 

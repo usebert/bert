@@ -9,6 +9,7 @@ export const SETUP_REQUIRED_TABS = [
   "Config",
   "Users",
   "Sites",
+  "Departments",
   "Areas",
   "AuditTemplates",
   "AreaAudits",

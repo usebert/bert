@@ -14,6 +14,9 @@ export const USERS_TAB_MINIMUM_HEADERS = [
   "UpdatedAt",
 ];
 
+/** Access-scope columns — Sites / Departments / Areas (IDs; blank = all). */
+export const USERS_TAB_ACCESS_SCOPE_COLUMNS = ["SiteIds", "DepartmentIds", "AreaIds"];
+
 /** Extended metadata columns (BERT Master Sheet cols J–V). */
 export const USERS_TAB_EXTENDED_COLUMNS = [
   "User ID",
@@ -29,6 +32,7 @@ export const USERS_TAB_EXTENDED_COLUMNS = [
   "Last Sync Error",
   "Remote Row ID",
   "Schema Version",
+  ...USERS_TAB_ACCESS_SCOPE_COLUMNS,
 ];
 
 /** Company context columns appended on wide workbooks (BERT Master Sheet cols W–Y). */

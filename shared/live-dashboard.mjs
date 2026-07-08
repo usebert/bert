@@ -28,6 +28,7 @@ export const LIVE_DASHBOARD_TABS = [
   "BriefingRecipients",
   "Areas",
   "Sites",
+  "Departments",
   "SyncLog",
 ];
 

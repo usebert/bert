@@ -52,6 +52,7 @@ import {
 } from "./users-tab-reader.mjs";
 import { installDocumentDistributionRoutes } from "./document-distribution.mjs";
 import { CONFIG_KEY_AREA_RESTRICTIONS, AREAS_TAB, AREAS_COLUMNS, installCompanyAreasRoutes } from "./company-areas.mjs";
+import { installCompanyStructureRoutes } from "./company-structure.mjs";
 import { CONFIG_KEY_DEFAULT_FORM_LANGUAGE } from "./template-languages.mjs";
 import {
   installCompanyAuditMappingRoutes,
@@ -7333,6 +7334,25 @@ installCompanyFolderPlacementRoutes(app, {
   requireMasterOnlyActor,
   google,
   sharedDriveId: requiredEnv.GOOGLE_SHARED_DRIVE_ID,
+});
+
+installCompanyStructureRoutes(app, {
+  google,
+  getAuthedClient,
+  envConfigured,
+  ensureColumns,
+  getTabValues,
+  rowsToRecords,
+  withSheetsQuotaRetry,
+  requireGoogleWorkspaceSession,
+  requireWorkspaceAdminActor,
+  parseBertActorFromRequest,
+  getCompanyUsersDeps,
+  resolveCompanyFromFolder,
+  ensureRequiredTabs: async (auth, deps, spreadsheetId, options = {}) => {
+    const { ensureRequiredTabs } = await import("./workbook-service.mjs");
+    return ensureRequiredTabs(auth, deps, spreadsheetId, options);
+  },
 });
 
 installCoreWorkflowRoutes(app, {

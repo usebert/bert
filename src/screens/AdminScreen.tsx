@@ -1391,6 +1391,7 @@ export function AdminScreen({
           companyRegistryStatus={canonicalRegistryStatus}
           companyFolderId={companyFolderId}
           companyName={companyName || selectedFolder?.name || ""}
+          masterSheetId={masterSheetIdForInviteContext}
           pilotEditableInput={pilotEditableInput}
           pilotLightSurface={pilotLightSurface}
           pilotLightNested={pilotLightNested}

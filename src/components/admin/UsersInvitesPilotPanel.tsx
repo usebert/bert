@@ -27,8 +27,10 @@ import { ActiveUserCard } from "./ActiveUserCard";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../dashboard/DashboardPrimitives";
 import { canManageCompanyMembers } from "../../permissions";
 import type { CompanyMember } from "../../services/companyUserService";
+import type { StructureEntity } from "../../services/companyStructureService";
 import { InviteStatusLegend } from "../InviteStatusLegend";
 import { WhatHappensNextPanel } from "../WhatHappensNextPanel";
+import { CompanyStructurePanel } from "./CompanyStructurePanel";
 import { SitesAreasPanel } from "./SitesAreasPanel";
 import type { AdminScreenProps, CompanyUserInviteEmailResult, UserInvite } from "../../types/adminScreenProps";
 import { COMPANY_NO_LONGER_AVAILABLE_MESSAGE } from "../../utils/companyFolderContext";
@@ -412,6 +414,7 @@ export type UsersInvitesPilotPanelProps = Pick<
   companyRegistryStatus?: string;
   companyFolderId?: string;
   companyName?: string;
+  masterSheetId?: string;
   pilotEditableInput: string;
   pilotLightSurface: string;
   pilotLightNested: string;
@@ -454,6 +457,7 @@ export function UsersInvitesPilotPanel({
   companyRegistryStatus = "",
   companyFolderId = "",
   companyName = "",
+  masterSheetId = "",
   pilotEditableInput,
   pilotLightSurface,
   pilotLightNested,
@@ -488,8 +492,14 @@ export function UsersInvitesPilotPanel({
   ...healthProps
 }: UsersInvitesPilotPanelProps) {
   const [showHealthSync, setShowHealthSync] = useState(false);
+  const [structureCatalog, setStructureCatalog] = useState<{
+    sites: StructureEntity[];
+    departments: StructureEntity[];
+    areas: StructureEntity[];
+  }>({ sites: [], departments: [], areas: [] });
   const isMasterActor = currentUser.role === "Master";
   const resolvedCompanyId = String(companyFolderId || "").trim();
+  const resolvedMasterSheetId = String(masterSheetId || "").trim();
   const resolvedCompanyName = String(companyName || "").trim();
   const hasCompanyContext = Boolean(resolvedCompanyId && resolvedCompanyName);
   const invitePermissionSession = {
@@ -682,6 +692,17 @@ export function UsersInvitesPilotPanel({
         )}
       </section>
 
+      {resolvedCompanyId && resolvedMasterSheetId ? (
+        <CompanyStructurePanel
+          currentUserRole={currentUser.role}
+          companyFolderId={resolvedCompanyId}
+          masterSheetId={resolvedMasterSheetId}
+          surfaceClass={pilotLightSurface}
+          nestedClass={pilotLightNested}
+          onStructureChange={setStructureCatalog}
+        />
+      ) : null}
+
       <section className={pilotLightSurface}>
         <SectionHeader
           icon="user"
@@ -745,10 +766,14 @@ export function UsersInvitesPilotPanel({
                 member={member}
                 currentUserRole={currentUser.role}
                 currentUserEmail={currentUser.username}
+                companyFolderId={resolvedCompanyId}
+                masterSheetId={resolvedMasterSheetId}
+                structureCatalog={structureCatalog}
                 editing={companyMemberEditing}
                 slatePrimaryCtaInteract={slatePrimaryCtaInteract}
                 onEdit={(target, input) => onUpdateCompanyMember(target, input)}
                 onDeactivate={onDeactivateCompanyMember}
+                onAccessUpdated={() => onResyncUsers()}
                 onRemove={
                   canManageCompanyMembers(currentUser.role)
                     ? (target) =>
