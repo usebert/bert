@@ -42,4 +42,8 @@ export type SubmissionQueueItem = {
 export type SubmissionQueueMeta = {
   lastSyncedAt?: string;
   lastHydratedAt?: string;
+  /** localIds the user dismissed — prevents legacy workspace migration from resurrecting them */
+  dismissedLocalIds?: string[];
+  /** idempotency keys the user dismissed — belt-and-suspenders for migrate/enqueue */
+  dismissedIdempotencyKeys?: string[];
 };

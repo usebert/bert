@@ -112,8 +112,19 @@ assert(submissionQueue.includes("isSubmissionReadyForRetry"), "QUEUE: retry back
 assert(submissionQueue.includes("clearRetryBackoffForSession"), "QUEUE: reconnect backoff reset");
 assert(submissionQueue.includes("markUnsyncable"), "QUEUE: legacy items marked unsyncable");
 assert(submissionQueue.includes("dismissItem"), "QUEUE: user can dismiss failed item");
+assert(submissionQueue.includes("findByIdOrLocalId"), "QUEUE: dismiss resolves id or localId");
+assert(submissionQueue.includes("recordDismissedItem"), "QUEUE: dismissed items recorded in meta");
+assert(submissionQueue.includes("pruneDismissedItems"), "QUEUE: dismissed items pruned from IndexedDB on hydrate");
+assert(submissionQueue.includes("dismissedLocalIds"), "QUEUE: dismissed localIds prevent legacy resurrection");
+assert(submissionQueue.includes("markLegacyUnsyncableOnHydrate"), "QUEUE: legacy unsyncable items flagged on hydrate");
+assert(submissionQueue.includes("isLegacyUnsyncableItem"), "QUEUE: legacy unsyncable skipped on migrate");
 assert(/item\.unsyncable/.test(submissionQueue), "QUEUE: unsyncable items skip auto-retry");
+assert(
+  /if \(current\.unsyncable \|\| isLegacyUnsyncableItem\(current\)\)/.test(submissionQueue),
+  "QUEUE: retryItem does not reset unsyncable legacy items",
+);
 assert(types.includes("unsyncable"), "TYPE: unsyncable flag on queue item");
+assert(types.includes("dismissedLocalIds"), "TYPE: dismissed localIds in queue meta");
 
 assert(messages.includes('"Added to queue"'), "UX: Added to queue");
 assert(messages.includes('"Added to queue. Syncing now…"'), "UX: online syncing copy");
@@ -159,6 +170,19 @@ assert(appTsx.includes("safeSyncErrorMessage"), "APP: failures shown with safe r
 assert(appTsx.includes("isLegacyUnsyncableItem"), "APP: legacy items detected during sync");
 assert(appTsx.includes("markUnsyncable"), "APP: legacy items flagged unsyncable");
 assert(appTsx.includes("onDismissItem"), "APP: dismiss failed item wired");
+assert(appTsx.includes("purgeWorkspaceSyncQueueLocalId"), "APP: dismiss purges stale workspace syncQueue metadata");
+assert(appTsx.includes("pruneDismissedItems"), "APP: hydrate prunes dismissed queue items from IndexedDB");
+assert(appTsx.includes("markLegacyUnsyncableOnHydrate"), "APP: hydrate marks legacy unsyncable action updates");
+assert(appTsx.includes("findByIdOrLocalId"), "APP: retry/dismiss resolve queue item by id or localId");
+assert(appTsx.includes("Could not dismiss item"), "APP: dismiss failure shows clear error");
+assert(
+  /onDismissItem[\s\S]*?await submissionQueueService\.dismissItem/.test(appTsx),
+  "APP: dismiss awaits IndexedDB removal before success toast",
+);
+assert(
+  /onRetryItem[\s\S]*?isLegacyUnsyncableItem/.test(appTsx),
+  "APP: unsyncable legacy action updates cannot be retried from Sync Centre",
+);
 assert(
   !/lastError: error instanceof Error \? error\.message/.test(appTsx),
   "APP: raw error message never persisted as lastError",

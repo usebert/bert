@@ -7,6 +7,7 @@ import {
   syncQueueItemToSubmissionQueueItem,
   syncQueueItemsFromSubmissionQueue,
 } from "../utils/submissionQueueBridge";
+import { isLegacyUnsyncableItem, legacyUnsyncableMessageForItem } from "../utils/submissionQueueMessages";
 import { tabletOfflineService, type TabletEvidenceRef, type TabletOfflineSubmission } from "./tabletOfflineService";
 
 const META_KEY = "bert-submission-queue-meta";
@@ -34,6 +35,22 @@ function writeMeta(meta: SubmissionQueueMeta) {
     return;
   }
   window.localStorage.setItem(META_KEY, JSON.stringify(meta));
+}
+
+function legacySyncQueueIdempotencyKey(item: Pick<SyncQueueItem, "itemType" | "localId">) {
+  return `${item.itemType}::${item.localId}`;
+}
+
+function isDismissedLocalId(localId: string, meta = readMeta()) {
+  return (meta.dismissedLocalIds || []).includes(localId);
+}
+
+function isDismissedIdempotencyKey(idempotencyKey: string, meta = readMeta()) {
+  return (meta.dismissedIdempotencyKeys || []).includes(idempotencyKey);
+}
+
+function isDismissedQueueItem(item: Pick<SubmissionQueueItem, "localId" | "idempotencyKey">, meta = readMeta()) {
+  return isDismissedLocalId(item.localId, meta) || isDismissedIdempotencyKey(item.idempotencyKey, meta);
 }
 
 export function computeSubmissionBackoffMs(attemptCount: number) {
@@ -120,9 +137,68 @@ export const submissionQueueService = {
     return filterSubmissionQueueForSession(items, context);
   },
 
+  async findByIdOrLocalId(idOrLocalId: string): Promise<SubmissionQueueItem | null> {
+    const items = await this.listItems();
+    return items.find((item) => item.id === idOrLocalId || item.localId === idOrLocalId) || null;
+  },
+
+  recordDismissedItem(item: Pick<SubmissionQueueItem, "localId" | "idempotencyKey">) {
+    const meta = readMeta();
+    const dismissedLocalIds = new Set(meta.dismissedLocalIds || []);
+    const dismissedIdempotencyKeys = new Set(meta.dismissedIdempotencyKeys || []);
+    dismissedLocalIds.add(item.localId);
+    dismissedIdempotencyKeys.add(item.idempotencyKey);
+    writeMeta({
+      ...meta,
+      dismissedLocalIds: [...dismissedLocalIds],
+      dismissedIdempotencyKeys: [...dismissedIdempotencyKeys],
+    });
+  },
+
+  clearDismissedForLocalId(localId: string) {
+    const meta = readMeta();
+    const dismissedLocalIds = (meta.dismissedLocalIds || []).filter((entry) => entry !== localId);
+    if (dismissedLocalIds.length === (meta.dismissedLocalIds || []).length) {
+      return;
+    }
+    writeMeta({ ...meta, dismissedLocalIds });
+  },
+
+  async pruneDismissedItems() {
+    if (!tabletOfflineService.canUseIndexedDb()) {
+      return { pruned: 0 };
+    }
+    const items = await this.listItems();
+    let pruned = 0;
+    for (const item of items) {
+      if (!isDismissedQueueItem(item)) {
+        continue;
+      }
+      await tabletOfflineService.deleteQueueItem(item.id).catch(() => undefined);
+      pruned += 1;
+    }
+    return { pruned };
+  },
+
+  async markLegacyUnsyncableOnHydrate(context: { companyFolderId?: string; userEmail?: string }) {
+    const items = await this.listActiveItemsForSession(context);
+    for (const item of items) {
+      if (item.unsyncable || !isLegacyUnsyncableItem(item)) {
+        continue;
+      }
+      await this.markUnsyncable(item.id, legacyUnsyncableMessageForItem(item)).catch(() => undefined);
+    }
+  },
+
   async enqueue(input: EnqueueInput): Promise<SubmissionQueueItem> {
     const now = input.createdAt || new Date().toISOString();
     const idempotencyKey = input.idempotencyKey || buildSubmissionIdempotencyKey(input);
+    if (isDismissedIdempotencyKey(idempotencyKey) || isDismissedLocalId(input.localId)) {
+      this.clearDismissedForLocalId(input.localId);
+      const meta = readMeta();
+      const dismissedIdempotencyKeys = (meta.dismissedIdempotencyKeys || []).filter((entry) => entry !== idempotencyKey);
+      writeMeta({ ...meta, dismissedIdempotencyKeys });
+    }
     const existing = await this.findByIdempotencyKey(idempotencyKey);
     if (existing && existing.status !== "synced") {
       return existing;
@@ -248,9 +324,13 @@ export const submissionQueueService = {
     return updated;
   },
 
-  async dismissItem(id: string) {
-    const current = await tabletOfflineService.getQueueItem<SubmissionQueueItem>(id).catch(() => null);
-    if (current?.type === "auditCompletion") {
+  async dismissItem(idOrLocalId: string) {
+    const current = await this.findByIdOrLocalId(idOrLocalId);
+    if (!current) {
+      throw new Error("Queue item not found");
+    }
+    this.recordDismissedItem(current);
+    if (current.type === "auditCompletion") {
       const offline = queueItemToOfflineSubmission(current);
       if (offline) {
         await tabletOfflineService.deleteSubmission(offline.localSubmissionId).catch(() => undefined);
@@ -259,12 +339,19 @@ export const submissionQueueService = {
         }
       }
     }
-    await tabletOfflineService.deleteQueueItem(id).catch(() => undefined);
-    return { dismissed: true };
+    await tabletOfflineService.deleteQueueItem(current.id);
+    return { dismissed: true, localId: current.localId };
   },
 
-  async retryItem(id: string) {
-    return this.updateItem(id, {
+  async retryItem(idOrLocalId: string) {
+    const current = await this.findByIdOrLocalId(idOrLocalId);
+    if (!current) {
+      throw new Error("Queue item not found");
+    }
+    if (current.unsyncable || isLegacyUnsyncableItem(current)) {
+      return current;
+    }
+    return this.updateItem(current.id, {
       status: "queued",
       lastError: "",
       unsyncable: false,
@@ -320,10 +407,21 @@ export const submissionQueueService = {
     let migrated = 0;
 
     for (const legacy of input.legacySyncQueue || []) {
+      if (isDismissedLocalId(legacy.localId)) {
+        continue;
+      }
+      const legacyIdempotencyKey = legacySyncQueueIdempotencyKey(legacy);
+      if (isDismissedIdempotencyKey(legacyIdempotencyKey)) {
+        continue;
+      }
       const item = syncQueueItemToSubmissionQueueItem(legacy, {
         companyFolderId: input.companyFolderId,
         userEmail: input.userEmail,
+        idempotencyKey: legacyIdempotencyKey,
       });
+      if (isLegacyUnsyncableItem(item) || isDismissedQueueItem(item)) {
+        continue;
+      }
       if (existingKeys.has(item.idempotencyKey)) {
         continue;
       }

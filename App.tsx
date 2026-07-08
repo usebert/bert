@@ -3182,6 +3182,29 @@ function readStoredWorkspaceState() {
   }
 }
 
+function purgeWorkspaceSyncQueueLocalId(localId: string) {
+  if (typeof window === "undefined" || !localId) {
+    return;
+  }
+  try {
+    const raw = window.localStorage.getItem(workspaceStateStorageKey);
+    if (!raw) {
+      return;
+    }
+    const parsed = JSON.parse(raw) as { syncQueue?: SyncQueueItem[] };
+    if (!Array.isArray(parsed.syncQueue)) {
+      return;
+    }
+    const nextQueue = parsed.syncQueue.filter((entry) => entry.localId !== localId);
+    if (nextQueue.length === parsed.syncQueue.length) {
+      return;
+    }
+    window.localStorage.setItem(workspaceStateStorageKey, JSON.stringify({ ...parsed, syncQueue: nextQueue }));
+  } catch {
+    /* ignore */
+  }
+}
+
 function readStoredUserProfilePhotos() {
   try {
     const raw = window.localStorage.getItem(userProfilePhotosStorageKey);
@@ -7594,6 +7617,7 @@ function App() {
       }
       if (!submissionQueueHydratedRef.current) {
         const legacyOffline = await tabletOfflineService.listSubmissions();
+        await submissionQueueService.pruneDismissedItems();
         await submissionQueueService.migrateLegacyQueues({
           legacySyncQueue: storedWorkspaceState?.syncQueue || initialSyncQueue,
           legacyOfflineSubmissions: legacyOffline.filter((item) => item.syncStatus !== "synced"),
@@ -7602,6 +7626,10 @@ function App() {
         });
         submissionQueueHydratedRef.current = true;
       }
+      await submissionQueueService.markLegacyUnsyncableOnHydrate({
+        companyFolderId: storedWorkspaceState?.selectedFolderId || selectedFolderId,
+        userEmail: currentUser?.email || currentUser?.username,
+      });
       const items = await submissionQueueService.listActiveItemsForSession({
         companyFolderId: storedWorkspaceState?.selectedFolderId || selectedFolderId,
         userEmail: currentUser?.email || currentUser?.username,
@@ -17259,25 +17287,39 @@ function App() {
                     .catch(() => undefined);
                 }}
                 onRetryItem={(id) => {
-                  const item = syncQueue.find((entry) => entry.localId === id);
-                  if (item) {
-                    void submissionQueueService.retryItem(item.id).catch(() => undefined);
-                    updateSyncItemStatus(id, "Pending Sync");
-                    void processSyncQueueItem({ ...item, status: "Pending Sync" }, { bypassBackoff: true });
+                  const item = syncCentreQueue.find((entry) => entry.localId === id);
+                  if (!item) {
                     return;
                   }
-                  const offline = offlineQueue.find((entry) => entry.localSubmissionId === id);
-                  if (!offline) {
-                    return;
-                  }
-                  void submissionQueueService.retryItem(id).then(() => refreshSubmissionQueueViews()).catch(() => undefined);
-                  setOfflineQueue((current) =>
-                    current.map((entry) =>
-                      entry.localSubmissionId === id ? { ...entry, syncStatus: "queued" as const, lastError: "" } : entry,
-                    ),
-                  );
-                  void tabletOfflineService.upsertSubmission({ ...offline, syncStatus: "queued", lastError: "" }).catch(() => undefined);
-                  void syncOfflineSubmissions({ bypassBackoff: true });
+                  void (async () => {
+                    const queueMatch = await submissionQueueService.findByIdOrLocalId(item.id || id);
+                    if (queueMatch?.unsyncable || (queueMatch && isLegacyUnsyncableItem(queueMatch))) {
+                      pushToast(
+                        "Cannot retry",
+                        legacyUnsyncableMessageForItem(queueMatch || { type: "actionUpdate" }),
+                        "warning",
+                      );
+                      return;
+                    }
+                    if (syncQueue.some((entry) => entry.localId === id)) {
+                      await submissionQueueService.retryItem(item.id || id).catch(() => undefined);
+                      updateSyncItemStatus(id, "Pending Sync");
+                      void processSyncQueueItem({ ...item, status: "Pending Sync" }, { bypassBackoff: true });
+                      return;
+                    }
+                    const offline = offlineQueue.find((entry) => entry.localSubmissionId === id);
+                    if (!offline) {
+                      return;
+                    }
+                    await submissionQueueService.retryItem(id).then(() => refreshSubmissionQueueViews()).catch(() => undefined);
+                    setOfflineQueue((current) =>
+                      current.map((entry) =>
+                        entry.localSubmissionId === id ? { ...entry, syncStatus: "queued" as const, lastError: "" } : entry,
+                      ),
+                    );
+                    void tabletOfflineService.upsertSubmission({ ...offline, syncStatus: "queued", lastError: "" }).catch(() => undefined);
+                    void syncOfflineSubmissions({ bypassBackoff: true });
+                  })();
                 }}
                 onForceSyncItem={(id) => {
                   const item = syncQueue.find((entry) => entry.localId === id);
@@ -17295,23 +17337,33 @@ function App() {
                   if (typeof window !== "undefined" && !window.confirm(SUBMISSION_QUEUE_MESSAGES.dismissWarning)) {
                     return;
                   }
-                  const item = syncQueue.find((entry) => entry.localId === id);
-                  const queueId = item?.id || id;
-                  setSyncQueue((current) => current.filter((entry) => entry.localId !== id));
-                  setOfflineQueue((current) => current.filter((entry) => entry.localSubmissionId !== id));
-                  invalidateLiveDashboardCache({
-                    companyFolderId: String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim(),
-                    userEmail: String(
-                      sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser) || "",
-                    )
-                      .trim()
-                      .toLowerCase(),
-                  });
-                  void submissionQueueService
-                    .dismissItem(queueId)
-                    .then(() => refreshSubmissionQueueViews())
-                    .catch(() => undefined);
-                  pushToast("Item dismissed", "Removed from your local queue. It will not be synced.", "neutral");
+                  void (async () => {
+                    const item = syncCentreQueue.find((entry) => entry.localId === id);
+                    const queueId = item?.id || id;
+                    setSyncQueue((current) => current.filter((entry) => entry.localId !== id));
+                    setOfflineQueue((current) => current.filter((entry) => entry.localSubmissionId !== id));
+                    purgeWorkspaceSyncQueueLocalId(id);
+                    invalidateLiveDashboardCache({
+                      companyFolderId: String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim(),
+                      userEmail: String(
+                        sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser) || "",
+                      )
+                        .trim()
+                        .toLowerCase(),
+                    });
+                    try {
+                      await submissionQueueService.dismissItem(queueId);
+                      await refreshSubmissionQueueViews();
+                      pushToast("Item dismissed", "Removed from your local queue. It will not be synced.", "neutral");
+                    } catch (error) {
+                      await refreshSubmissionQueueViews();
+                      pushToast(
+                        "Could not dismiss item",
+                        error instanceof Error ? error.message : "Unable to remove this queue item. Try again.",
+                        "warning",
+                      );
+                    }
+                  })();
                 }}
               />
             )}
