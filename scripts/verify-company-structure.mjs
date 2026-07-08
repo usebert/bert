@@ -178,4 +178,29 @@ assert(cardSrc.includes("All sites") && cardSrc.includes("All departments") && c
 assert(serviceSrc.includes("/structure") && serviceSrc.includes("/people/"), "UI: client structure + access API");
 assert(panelSrc.includes("Archive"), "UI: archive not hard delete");
 
+/** Department-create regression checks. */
+assert(structureSrc.includes('"/api/companies/:companyFolderId/structure/departments"'), "D1: manager department route exists");
+assert(structureSrc.includes("requireGoogleWorkspaceSession"), "D1b: department route requires signed-in workspace session");
+assert(
+  structureSrc.includes('"/api/companies/:companyFolderId/structure/departments",\n    requireGoogleWorkspaceSession,\n    async'),
+  "D1c: manager not blocked by admin-only middleware",
+);
+assert(
+  structureSrc.includes('const name = trim(req.body?.name || req.body?.departmentName') ||
+    structureSrc.includes('const name = trim(req.body?.name || req.body?.departmentName || req.body?.title)'),
+  "D3: backend accepts department name payload",
+);
+assert(serviceSrc.includes("departmentName"), "D3b: frontend sends departmentName payload");
+assert(serviceSrc.includes("name: normalizedName"), "D3c: frontend sends normalized name payload");
+assert(ensureTabs.includes('"Departments"') && structureSrc.includes("ensureTabWithHeaders"), "D2: departments tab auto-create + headers");
+assert(structureSrc.includes("hasDuplicateActiveName(structure.departments"), "D4: duplicate department names blocked");
+assert(structureSrc.includes('An active department named "${name}" already exists.'), "D4b: duplicate department clear error");
+assert(canManageCompanyStructure("Auditor") === false, "D5: auditor blocked from department create");
+assert(structureSrc.includes("departments: [...structure.departments, department]"), "D6: create response returns updated departments list");
+assert(structureSrc.includes("departments: dedupe(departments)"), "D7: departments persist in structure reads");
+assert(serviceSrc.includes("safeDetail") && serviceSrc.includes("throw new Error"), "D8: frontend surfaces backend safe error message");
+assert(panelSrc.includes("setError(err instanceof Error ? err.message"), "D8b: UI shows backend department error message");
+assert(panelSrc.includes("createCompanyStructureArea") && panelSrc.includes("departmentId"), "A1: add area still supports optional site/department links");
+assert(panelSrc.includes("createCompanySite"), "S1: site creation path remains wired");
+
 console.log(`\nverify:company-structure passed (${caseCount} checks).`);

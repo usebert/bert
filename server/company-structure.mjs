@@ -458,7 +458,7 @@ export function installCompanyStructureRoutes(app, deps) {
           return;
         }
         await withResolvedWorkbook(req, res, async (authed, resolved) => {
-          const name = trim(req.body?.name || req.body?.departmentName);
+          const name = trim(req.body?.name || req.body?.departmentName || req.body?.title);
           if (!name) {
             return res.status(400).json({ ok: false, error: "Department name is required." });
           }
@@ -493,10 +493,11 @@ export function installCompanyStructureRoutes(app, deps) {
           });
         });
       } catch (error) {
+        const detail = safeErrorMessage(error, "department_create_failed");
         return res.status(500).json({
           ok: false,
-          error: "Unable to create department.",
-          details: safeErrorMessage(error, "department_create_failed"),
+          error: detail && detail !== "department_create_failed" ? detail : "Unable to create department.",
+          details: detail,
         });
       }
     },

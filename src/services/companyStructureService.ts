@@ -60,7 +60,9 @@ function structurePath(companyFolderId: string, suffix = "") {
 async function parseStructureResponse(response: Response): Promise<CompanyStructurePayload> {
   const data = (await response.json().catch(() => ({}))) as CompanyStructurePayload;
   if (!response.ok || data.ok === false) {
-    throw new Error(data.error || "Company structure request failed.");
+    const safeError = String(data.error || "").trim();
+    const safeDetail = String(data.details || "").trim();
+    throw new Error(safeError || safeDetail || "Company structure request failed.");
   }
   return data;
 }
@@ -105,11 +107,16 @@ export async function createCompanyDepartment(
   payload: { name: string; masterSheetId?: string },
 ) {
   const folderId = sanitizeCompanyFolderId(companyFolderId);
+  const normalizedName = payload.name.trim();
   const response = await fetch(apiUrl(structurePath(folderId, "/departments")), {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      ...payload,
+      name: normalizedName,
+      departmentName: normalizedName,
+    }),
   });
   return parseStructureResponse(response);
 }
