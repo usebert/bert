@@ -73,11 +73,12 @@ assert(SITES_COLUMNS.includes("SiteId") && SITES_COLUMNS.includes("SiteName"), "
 assert(DEPARTMENTS_COLUMNS.includes("DepartmentId"), "3e: Departments columns");
 assert(AREAS_STRUCTURE_COLUMNS.includes("AreaName") && AREAS_STRUCTURE_COLUMNS.includes("SiteId"), "3f: Areas structure columns");
 
-/** 4–8: Role gates — Admin/Master yes; Manager only if people-manage (currently no); Auditor no. */
+/** 4–8: Role gates — Admin/Master/Manager yes; Auditor no. */
 assert(canManageCompanyStructure("Admin") === true, "4: Admin can create structure");
 assert(canManageCompanyStructure("Master") === true, "4b: Master can create structure");
-assert(canManageCompanyStructure("Manager") === false, "7: Manager cannot create (current people-manage rules)");
+assert(canManageCompanyStructure("Manager") === true, "7: Manager can create structure");
 assert(canManageCompanyStructure("Auditor") === false, "8: Auditor cannot create/edit structure");
+assert(canEditPersonAccess("Manager") === true, "7b: Manager can edit person access");
 assert(canEditPersonAccess("Admin") === true, "4c: Admin can edit person access");
 assert(canEditPersonAccess("Auditor") === false, "8b: Auditor cannot edit person access");
 assert(structureSrc.includes("rejectIfCannotManage"), "4d: server rejects non-managers");

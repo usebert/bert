@@ -293,7 +293,7 @@ function rejectIfCannotManage(req, res) {
   if (!canManageCompanyStructure(role)) {
     res.status(403).json({
       ok: false,
-      error: "Only Master or Admin can manage company structure and person access.",
+      error: "Only Master, Admin, or Manager can manage company structure and person access.",
     });
     return true;
   }
@@ -397,9 +397,11 @@ export function installCompanyStructureRoutes(app, deps) {
   app.post(
     "/api/companies/:companyFolderId/structure/sites",
     requireGoogleWorkspaceSession,
-    requireWorkspaceAdminActor,
     async (req, res) => {
       try {
+        if (typeof parseBertActorFromRequest === "function") {
+          req.bertActor = parseBertActorFromRequest(req);
+        }
         if (rejectIfCannotManage(req, res)) {
           return;
         }
@@ -447,9 +449,11 @@ export function installCompanyStructureRoutes(app, deps) {
   app.post(
     "/api/companies/:companyFolderId/structure/departments",
     requireGoogleWorkspaceSession,
-    requireWorkspaceAdminActor,
     async (req, res) => {
       try {
+        if (typeof parseBertActorFromRequest === "function") {
+          req.bertActor = parseBertActorFromRequest(req);
+        }
         if (rejectIfCannotManage(req, res)) {
           return;
         }
@@ -501,9 +505,11 @@ export function installCompanyStructureRoutes(app, deps) {
   app.post(
     "/api/companies/:companyFolderId/structure/areas",
     requireGoogleWorkspaceSession,
-    requireWorkspaceAdminActor,
     async (req, res) => {
       try {
+        if (typeof parseBertActorFromRequest === "function") {
+          req.bertActor = parseBertActorFromRequest(req);
+        }
         if (rejectIfCannotManage(req, res)) {
           return;
         }
@@ -564,9 +570,11 @@ export function installCompanyStructureRoutes(app, deps) {
   app.patch(
     "/api/companies/:companyFolderId/structure/sites/:siteId",
     requireGoogleWorkspaceSession,
-    requireWorkspaceAdminActor,
     async (req, res) => {
       try {
+        if (typeof parseBertActorFromRequest === "function") {
+          req.bertActor = parseBertActorFromRequest(req);
+        }
         if (rejectIfCannotManage(req, res)) {
           return;
         }
@@ -620,9 +628,11 @@ export function installCompanyStructureRoutes(app, deps) {
   app.patch(
     "/api/companies/:companyFolderId/structure/departments/:departmentId",
     requireGoogleWorkspaceSession,
-    requireWorkspaceAdminActor,
     async (req, res) => {
       try {
+        if (typeof parseBertActorFromRequest === "function") {
+          req.bertActor = parseBertActorFromRequest(req);
+        }
         if (rejectIfCannotManage(req, res)) {
           return;
         }
@@ -676,9 +686,11 @@ export function installCompanyStructureRoutes(app, deps) {
   app.patch(
     "/api/companies/:companyFolderId/structure/areas/:areaId",
     requireGoogleWorkspaceSession,
-    requireWorkspaceAdminActor,
     async (req, res) => {
       try {
+        if (typeof parseBertActorFromRequest === "function") {
+          req.bertActor = parseBertActorFromRequest(req);
+        }
         if (rejectIfCannotManage(req, res)) {
           return;
         }

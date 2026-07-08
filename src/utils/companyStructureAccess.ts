@@ -253,6 +253,7 @@ export function canManageCompanyStructure(role: string): boolean {
   return (
     normalized === "master" ||
     normalized === "admin" ||
+    normalized === "manager" ||
     normalized === "company admin" ||
     normalized === "administrator"
   );

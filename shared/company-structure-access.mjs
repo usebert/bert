@@ -263,15 +263,15 @@ export function serializeScopeIds(ids, allAccess) {
 }
 
 /**
- * Roles that may create/edit company structure and person access.
- * Matches current canManageCompanyMembers / canManageAreas (Master + Admin).
- * Manager is not elevated here — existing people-manage rules do not allow it.
+ * Roles that may create/edit/archive company structure and person access.
+ * Managers can run day-to-day setup for Sites/Departments/Areas.
  */
 export function canManageCompanyStructure(role) {
   const normalized = normalizeStructureName(role);
   return (
     normalized === "master" ||
     normalized === "admin" ||
+    normalized === "manager" ||
     normalized === "company admin" ||
     normalized === "administrator"
   );
