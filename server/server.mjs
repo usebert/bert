@@ -7381,6 +7381,7 @@ installCoreWorkflowRoutes(app, {
   authIndex: authIndexApi,
   sessionDir,
   rowsToRecords,
+  writeCompanyActions,
 });
 
 installCompanyOnboardingRoutes(app, {

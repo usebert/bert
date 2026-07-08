@@ -34,9 +34,11 @@ export const googleSheetsService = {
       schedules,
     });
   },
-  saveActions<T extends JsonResponse>(sheetId: string, companyFolderId: string, actions: unknown[]) {
-    return postJson<T>(`/api/google-sheet-by-id/${encodeURIComponent(sheetId)}/actions`, {
-      companyFolderId,
+  saveActions<T extends JsonResponse>(companyFolderId: string, actions: unknown[], masterSheetId = "") {
+    const folderId = String(companyFolderId || "").trim();
+    return postJson<T>(`/api/companies/${encodeURIComponent(folderId)}/actions`, {
+      companyFolderId: folderId,
+      ...(masterSheetId ? { masterSheetId } : {}),
       actions,
     });
   },

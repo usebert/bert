@@ -11,6 +11,8 @@ export const SUBMISSION_QUEUE_MESSAGES = {
   failure: "Sync failed. Your item is still in the queue. Please retry.",
   legacyUnsyncable:
     "This queued item was created by an older app version and cannot be synced automatically.",
+  legacyActionUpdateUnsyncable:
+    "This action update was created by an older app version and cannot be synced automatically.",
   dismissWarning:
     "This removes the item from your local queue. It will not be synced. Continue?",
   evidenceAdded: "Evidence added",
@@ -64,13 +66,27 @@ export function safeSyncErrorMessage(error: unknown): SafeSyncErrorReason {
     return SAFE_SYNC_ERROR_REASONS.network;
   }
   if (
-    /\b[45]\d\d\b|status code|rejected|server|sheet|permission|denied|unauthor|forbidden|invalid|bad request|quota/.test(
+    /\b[45]\d\d\b|status code|rejected|server|sheet|permission|denied|unauthor|forbidden|invalid|bad request|quota|legacy_sheet_write_retired|sheet-by-id write routes are retired/.test(
       text,
     )
   ) {
     return SAFE_SYNC_ERROR_REASONS.serverRejected;
   }
   return SAFE_SYNC_ERROR_REASONS.generic;
+}
+
+/** Retired sheet-by-id write routes return a known error — treat as legacy unsyncable for action updates. */
+export function isRetiredSheetByIdWriteError(error: unknown): boolean {
+  const raw =
+    error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  return /legacy_sheet_write_retired|sheet-by-id write routes are retired/i.test(raw);
+}
+
+export function legacyUnsyncableMessageForItem(item: Pick<SubmissionQueueItem, "type">): string {
+  if (item.type === "actionUpdate") {
+    return SUBMISSION_QUEUE_MESSAGES.legacyActionUpdateUnsyncable;
+  }
+  return SUBMISSION_QUEUE_MESSAGES.legacyUnsyncable;
 }
 
 /**
@@ -98,6 +114,10 @@ export function isLegacyUnsyncableItem(item: Pick<SubmissionQueueItem, "type" | 
   if (item.type === "evidenceUpload") {
     const records = payload.evidenceRecords as unknown[] | undefined;
     return !Array.isArray(records);
+  }
+  if (item.type === "actionUpdate") {
+    const companyFolderId = String(payload.companyFolderId || "").trim();
+    return !companyFolderId;
   }
   return false;
 }

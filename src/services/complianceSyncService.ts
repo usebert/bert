@@ -43,8 +43,16 @@ export async function syncAuditSubmissionToSheet(input: {
   });
 }
 
-export async function persistActionsToSheet(sheetId: string, companyFolderId: string, actions: ActionItem[]) {
-  return googleSheetsService.saveActions(sheetId, companyFolderId, actions);
+export async function persistActionsToSheet(companyFolderId: string, actions: ActionItem[], masterSheetId = "") {
+  const folderId = String(companyFolderId || "").trim();
+  if (!folderId) {
+    throw new Error("Company folder ID is required before saving actions.");
+  }
+  return postJson(`/api/companies/${encodeURIComponent(folderId)}/actions`, {
+    companyFolderId: folderId,
+    ...(masterSheetId ? { masterSheetId } : {}),
+    actions,
+  });
 }
 
 export async function persistReportToSheet(

@@ -73,6 +73,7 @@ import {
   replyToBriefing,
   signBriefing,
 } from "./briefings-service.mjs";
+import { saveCompanyActions } from "./actions-service.mjs";
 
 function briefingRouteError(res, result, fallbackStatus = 400) {
   const status = result?.httpStatus || fallbackStatus;
@@ -142,6 +143,7 @@ export function installCoreWorkflowRoutes(app, deps) {
     backgroundJobs,
     sessionDir,
     rowsToRecords,
+    writeCompanyActions,
   } = deps;
 
   const scheduleDeps = {
@@ -1019,6 +1021,80 @@ export function installCoreWorkflowRoutes(app, deps) {
         error: "BERT could not save this schedule. Try again.",
         message: "BERT could not save this schedule. Try again.",
         technicalError: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.post("/api/companies/:companyFolderId/actions", async (req, res) => {
+    const authed = getAuthedClient();
+    const companyFolderId = String(req.params?.companyFolderId || req.body?.companyFolderId || "").trim();
+    const masterSheetId = String(req.body?.masterSheetId || req.query?.masterSheetId || "").trim();
+    const actions = Array.isArray(req.body?.actions) ? req.body.actions : [];
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+
+    if (!companyFolderId) {
+      return res.status(400).json({
+        ok: false,
+        code: "COMPANY_CONTEXT_MISSING",
+        error: "Company folder ID is required before saving actions.",
+        message: "Company folder ID is required before saving actions.",
+      });
+    }
+
+    if (authed) {
+      const folderDenial = await rejectCompanyApiIfFolderInvalid(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        companyFolderId,
+        String(req.body?.companyName || actor?.companyName || "").trim(),
+      );
+      if (folderDenial) {
+        return res.status(403).json(folderDenial);
+      }
+    }
+
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({
+        ok: false,
+        error: "Please connect Google before saving actions.",
+        message: "Please connect Google before saving actions.",
+      });
+    }
+
+    try {
+      const result = await saveCompanyActions(
+        authed,
+        { ...registryDeps, ...scheduleDeps, writeCompanyActions },
+        {
+          companyId: companyFolderId,
+          companyFolderId,
+          masterSheetId,
+          actions,
+        },
+      );
+
+      if (!result.ok) {
+        return res.status(result.httpStatus || 400).json({
+          ok: false,
+          code: result.code,
+          error: result.error,
+          message: result.message || result.error,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        companyId: result.companyFolderId,
+        companyFolderId: result.companyFolderId,
+        masterSheetId: result.masterSheetId,
+        written: result.written,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "ACTIONS_SAVE_FAILED",
+        error: "BERT could not save these actions. Try again.",
+        message: "BERT could not save these actions. Try again.",
       });
     }
   });

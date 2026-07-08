@@ -35,6 +35,57 @@ const manifest = read("public/manifest.webmanifest");
 const mainTsx = read("src/main.tsx");
 const pkg = JSON.parse(read("package.json"));
 
+assert(
+  messages.includes(
+    '"This action update was created by an older app version and cannot be synced automatically."',
+  ),
+  "UX: legacy action update unsyncable copy",
+);
+assert(messages.includes("isRetiredSheetByIdWriteError"), "SAFE: retired sheet-by-id write detector exported");
+assert(messages.includes("legacyUnsyncableMessageForItem"), "SAFE: per-type legacy unsyncable message");
+
+const complianceSync = read("src/services/complianceSyncService.ts");
+const googleSheets = read("src/services/googleSheetsService.ts");
+const coreWorkflow = read("server/core-workflow-routes.mjs");
+const actionsService = read("server/actions-service.mjs");
+
+const persistActionsFn = complianceSync.slice(
+  complianceSync.indexOf("export async function persistActionsToSheet"),
+  complianceSync.indexOf("export async function persistReportToSheet"),
+);
+assert(
+  !persistActionsFn.includes("google-sheet-by-id"),
+  "SYNC: persistActionsToSheet does not call retired sheet-by-id actions route",
+);
+assert(
+  persistActionsFn.includes("/api/companies/${encodeURIComponent(folderId)}/actions"),
+  "SYNC: action updates use folder-first company route",
+);
+const saveActionsFn = googleSheets.slice(
+  googleSheets.indexOf("saveActions"),
+  googleSheets.indexOf("appendActionComments"),
+);
+assert(
+  saveActionsFn.includes("/api/companies/${encodeURIComponent(folderId)}/actions"),
+  "SYNC: googleSheetsService.saveActions uses folder-first route",
+);
+assert(
+  !saveActionsFn.includes("google-sheet-by-id"),
+  "SYNC: saveActions not wired to sheet-by-id",
+);
+assert(coreWorkflow.includes('app.post("/api/companies/:companyFolderId/actions"'), "API: folder-first actions route registered");
+assert(actionsService.includes("resolveCompanyScheduleContext"), "API: actions resolve folder-first workbook");
+assert(actionsService.includes("writeCompanyActions"), "API: actions write delegates to workbook writer");
+
+assert(appTsx.includes('route: "/api/companies/:companyFolderId/actions"'), "APP: action update sync logs folder-first route");
+assert(appTsx.includes("legacyActionUpdateUnsyncable"), "APP: legacy action update unsyncable message");
+assert(appTsx.includes("isRetiredSheetByIdWriteError"), "APP: retired sheet-by-id errors detected on action sync");
+assert(appTsx.includes("legacyUnsyncableMessageForItem"), "APP: per-type legacy unsyncable messages");
+assert(
+  /item\.type === "actionUpdate"[\s\S]*!companyFolderId/.test(messages),
+  "SAFE: action update without companyFolderId is legacy unsyncable",
+);
+
 assert(pkg.scripts["verify:offline-submission-queue"], "PKG: verify script registered");
 
 assert(tabletOffline.includes("submissionQueue"), "IDB: submissionQueue store");
