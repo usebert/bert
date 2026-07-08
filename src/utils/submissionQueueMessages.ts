@@ -89,6 +89,25 @@ export function legacyUnsyncableMessageForItem(item: Pick<SubmissionQueueItem, "
   return SUBMISSION_QUEUE_MESSAGES.legacyUnsyncable;
 }
 
+export function safeActionUpdateSyncErrorMessage(error: unknown): string {
+  const raw =
+    error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  const text = raw.toLowerCase();
+  if (!text) {
+    return SAFE_SYNC_ERROR_REASONS.generic;
+  }
+  if (text.includes("older app version")) {
+    return SUBMISSION_QUEUE_MESSAGES.legacyActionUpdateUnsyncable;
+  }
+  if (text.includes("updated in google sheets while you were offline")) {
+    return "This action was updated in Google Sheets while you were offline. Refresh and try again.";
+  }
+  if (text.includes("could not save these actions")) {
+    return "BERT could not save these actions. Try again.";
+  }
+  return safeSyncErrorMessage(error);
+}
+
 /**
  * Detects queue items whose payload predates the current sync handler and can
  * therefore never be synced automatically (legacy / malformed items left behind
@@ -117,7 +136,8 @@ export function isLegacyUnsyncableItem(item: Pick<SubmissionQueueItem, "type" | 
   }
   if (item.type === "actionUpdate") {
     const companyFolderId = String(payload.companyFolderId || "").trim();
-    return !companyFolderId;
+    const actions = payload.actions as unknown[] | undefined;
+    return !companyFolderId || !Array.isArray(actions);
   }
   return false;
 }

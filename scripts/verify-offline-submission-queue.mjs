@@ -43,6 +43,7 @@ assert(
 );
 assert(messages.includes("isRetiredSheetByIdWriteError"), "SAFE: retired sheet-by-id write detector exported");
 assert(messages.includes("legacyUnsyncableMessageForItem"), "SAFE: per-type legacy unsyncable message");
+assert(messages.includes("safeActionUpdateSyncErrorMessage"), "SAFE: action update error mapper exported");
 
 const complianceSync = read("src/services/complianceSyncService.ts");
 const googleSheets = read("src/services/googleSheetsService.ts");
@@ -81,9 +82,16 @@ assert(appTsx.includes('route: "/api/companies/:companyFolderId/actions"'), "APP
 assert(appTsx.includes("legacyActionUpdateUnsyncable"), "APP: legacy action update unsyncable message");
 assert(appTsx.includes("isRetiredSheetByIdWriteError"), "APP: retired sheet-by-id errors detected on action sync");
 assert(appTsx.includes("legacyUnsyncableMessageForItem"), "APP: per-type legacy unsyncable messages");
+assert(appTsx.includes("safeActionUpdateSyncErrorMessage"), "APP: action update sync uses dedicated safe mapper");
+assert(appTsx.includes("payload: { companyFolderId: selectedFolderId, actions: nextActions }"), "APP: action batch queue persists replay payload");
+assert(appTsx.includes("if (!Array.isArray(payloadActions))"), "APP: missing action replay payload marked legacy unsyncable");
 assert(
-  /item\.type === "actionUpdate"[\s\S]*!companyFolderId/.test(messages),
-  "SAFE: action update without companyFolderId is legacy unsyncable",
+  appTsx.includes("if (existingError !== safeError)"),
+  "APP: action retry avoids duplicate failure toast spam",
+);
+assert(
+  /item\.type === "actionUpdate"[\s\S]*!companyFolderId[\s\S]*!Array\.isArray\(actions\)/.test(messages),
+  "SAFE: action update without folder or replay payload is legacy unsyncable",
 );
 
 assert(pkg.scripts["verify:offline-submission-queue"], "PKG: verify script registered");

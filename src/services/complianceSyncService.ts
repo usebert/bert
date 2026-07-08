@@ -15,7 +15,9 @@ async function postJson<T extends JsonResponse>(path: string, body: Record<strin
   });
   const payload = (await response.json()) as T;
   if (!response.ok || payload.ok === false) {
-    throw new Error(payload.error || "Sync request failed.");
+    const code = String((payload as { code?: unknown }).code || "").trim();
+    const message = String(payload.error || (payload as { message?: unknown }).message || "Sync request failed.").trim();
+    throw new Error(code ? `${code}: ${message}` : message);
   }
   return payload;
 }

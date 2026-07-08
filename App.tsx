@@ -493,6 +493,7 @@ import {
   SUBMISSION_QUEUE_MESSAGES,
   queueIndicatorSummary,
   safeSyncErrorMessage,
+  safeActionUpdateSyncErrorMessage,
   isLegacyUnsyncableItem,
   isRetiredSheetByIdWriteError,
   legacyUnsyncableMessageForItem,
@@ -8383,7 +8384,7 @@ function App() {
       createdAt: formatStamp(),
       retryCount: 0,
       lastError: "",
-      payload: { companyFolderId: selectedFolderId, count: nextActions.length },
+      payload: { companyFolderId: selectedFolderId, actions: nextActions },
     });
     if (!googleConnected || offlineMode) {
       return;
@@ -11214,11 +11215,7 @@ function App() {
         }
       } else if (item.itemType === "actionUpdate") {
         const payloadActions = item.payload.actions as ActionItem[] | undefined;
-        const folderActions =
-          Array.isArray(payloadActions) && payloadActions.length > 0
-            ? payloadActions
-            : actions.filter((action) => action.companyId === companyFolderId);
-        if (folderActions.length === 0) {
+        if (!Array.isArray(payloadActions)) {
           throw new Error(SUBMISSION_QUEUE_MESSAGES.legacyActionUpdateUnsyncable);
         }
         if (isDebugUiAllowed()) {
@@ -11226,10 +11223,10 @@ function App() {
             type: "actionUpdate",
             route: "/api/companies/:companyFolderId/actions",
             companyFolderId,
-            actionCount: folderActions.length,
+            actionCount: payloadActions.length,
           });
         }
-        await persistActions(companyFolderId, folderActions);
+        await persistActions(companyFolderId, payloadActions);
       } else if (item.itemType === "reportExport") {
         if (!sheetId) {
           throw new Error("Your workspace is not linked yet. Ask an administrator to connect Google.");
@@ -11256,20 +11253,26 @@ function App() {
       updateSyncItemStatus(item.localId, "Synced");
       pushToast(SUBMISSION_QUEUE_MESSAGES.itemSuccess, SUBMISSION_QUEUE_MESSAGES.itemSuccess, "success");
     } catch (error) {
-      const legacyActionUpdate =
-        item.itemType === "actionUpdate" &&
+      const legacyActionUpdate = item.itemType === "actionUpdate" &&
         (isRetiredSheetByIdWriteError(error) ||
+          String(error instanceof Error ? error.message : error || "").includes(
+            SUBMISSION_QUEUE_MESSAGES.legacyActionUpdateUnsyncable,
+          ) ||
           (queueMatch && isLegacyUnsyncableItem(queueMatch)));
-      const safeError = legacyActionUpdate
-        ? SUBMISSION_QUEUE_MESSAGES.legacyActionUpdateUnsyncable
-        : safeSyncErrorMessage(error);
+      const safeError =
+        item.itemType === "actionUpdate"
+          ? safeActionUpdateSyncErrorMessage(error)
+          : safeSyncErrorMessage(error);
       if (legacyActionUpdate && queueMatch) {
         await submissionQueueService
           .markUnsyncable(queueMatch.id, SUBMISSION_QUEUE_MESSAGES.legacyActionUpdateUnsyncable)
           .catch(() => undefined);
       }
       updateSyncItemStatus(item.localId, "Failed", safeError);
-      pushToast(SUBMISSION_QUEUE_MESSAGES.partialFailure, safeError, "warning");
+      const existingError = syncQueue.find((entry) => entry.localId === item.localId)?.lastError || "";
+      if (existingError !== safeError) {
+        pushToast(SUBMISSION_QUEUE_MESSAGES.partialFailure, safeError, "warning");
+      }
     } finally {
       syncProcessingRef.current = false;
     }
