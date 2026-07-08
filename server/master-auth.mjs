@@ -294,7 +294,13 @@ export function installMasterAuthRoutes(app, opts) {
     );
 
     if (!result.ok) {
-      return res.status(result.httpStatus || 400).json({ ok: false, error: result.error, timingMs: result.timing });
+      return res.status(result.httpStatus || 400).json({
+        ok: false,
+        error: result.error,
+        code: result.code,
+        reasonCode: result.reasonCode || (result.httpStatus === 401 ? "master_invalid_credentials" : "master_login_failed"),
+        timingMs: result.timing,
+      });
     }
 
     res.cookie(MASTER_SESSION_COOKIE, result.sessionPayload, getSessionCookieOptions({ maxAge: MASTER_SESSION_MS }));

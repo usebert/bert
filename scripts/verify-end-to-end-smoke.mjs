@@ -98,6 +98,8 @@ const testRoles = [
 
 assert(masterAuth.includes('app.post("/api/auth/master/login"'), "A1: master login route");
 assert(serverMain.includes('app.post("/api/auth/company/login"'), "A2: company login route");
+assert(masterAuth.includes("reasonCode"), "A2b: master login failures return safe reasonCode");
+assert(authService.includes('reasonCode: "master_invalid_credentials"'), "A2c: master auth failure reason code wired");
 assert(
   authService.includes("buildCompanySessionPayload") || serverMain.includes("buildCompanySessionPayload"),
   "A3: company session payload builder",
@@ -127,6 +129,8 @@ assert(
 );
 assert(!appTsx.includes("ensureCompanyLiveIfReady"), "A10: client login does not await health checks");
 assert(appTsx.includes("tryServerMasterLogin") && appTsx.includes("tryServerCompanyLogin"), "A11: client uses server login paths");
+assert(serverMain.includes("sessionCompanyFolderId: readDiagnosticCompanySessionFolderId(req)"), "A11b: company login reads stale-cookie folder hint safely");
+assert(authService.includes("sessionCompanyFolderId"), "A11c: auth flow accepts session folder hint without bypassing password check");
 assert(registryActions.includes("makeCompanyUsable"), "A12: godmode make-usable for company workspace");
 assert(isCompanyUsable({ status: "Live", registrySource: "fallback" }), "A13: fallback LIVE company is usable");
 assert(isCompanyRegistryLive({ status: "Live" }), "A14: Live registry unlocks company login context");

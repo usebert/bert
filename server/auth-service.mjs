@@ -256,6 +256,8 @@ export function performMasterLogin(deps = {}, input = {}) {
     return {
       ok: false,
       httpStatus: 401,
+      code: "INVALID_CREDENTIALS",
+      reasonCode: "master_invalid_credentials",
       error: "Sign in failed.",
       timing,
     };

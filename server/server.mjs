@@ -6389,6 +6389,8 @@ app.post("/api/auth/company/login", async (req, res) => {
         });
         return res.status(masterResult.httpStatus || 401).json({
           ok: false,
+          code: masterResult.code || "INVALID_CREDENTIALS",
+          reasonCode: masterResult.reasonCode || "master_invalid_credentials",
           blocker: "invalid_credentials",
           error: masterResult.error || "Sign in failed.",
           timingMs: masterResult.timing,
