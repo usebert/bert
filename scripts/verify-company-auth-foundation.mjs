@@ -504,6 +504,7 @@ try {
     DOVECOTE_MASTER_SHEET_ID,
     DOVECOTE_COMPANY_NAME,
   } = await import("./fixtures/dovecote-users-tab.fixture.mjs");
+  assert(Boolean(DOVECOTE_FOLDER_ID), "runtime: Dovecote folder fixture present for duplicate-row cases");
   const sophieEmail = "7oakcottages@gmail.com";
   const sophiePassword = "Sophie-Dovecote-2026!";
   const sophieHash = hashPassword(sophiePassword);
@@ -711,6 +712,199 @@ try {
   assert(loginEmailScan.rowCount === 3, "runtime: fixture Users tab has three data rows");
   assert(loginEmailScan.targetEmailScan.found === true, "runtime: login email scan finds fixture user");
   assert(!JSON.stringify(loginEmailScan).includes("scrypt$"), "runtime: login email scan never includes hash values");
+
+  const { findCompanyUsersTabRow, selectBestUsersTabLoginRow, scoreUsersTabLoginRowCandidate } =
+    await import("../server/company-users.mjs");
+  const duplicateInactiveFirstHash = hashPassword("ActiveWins-2026!");
+  const duplicateHeaders = ["Email", "Name", "Role", "Status", "PasswordHash", "CompanyFolderId"];
+  const duplicateRows = [
+    duplicateHeaders,
+    ["7oakcottages@gmail.com", "Sophie Inactive", "Manager", "INACTIVE", hashPassword("StaleInactive-99"), DOVECOTE_FOLDER_ID],
+    ["7oakcottages@gmail.com", "Sophie Active", "Manager", "ACTIVE", duplicateInactiveFirstHash, DOVECOTE_FOLDER_ID],
+    ["eddie thomas", "dovecotestudio@icloud.com", "Admin", "BERT Admin", "", "1OtherFolderWrong"],
+  ];
+  const duplicateDeps = {
+    getTabValues: async () => duplicateRows,
+    resolveUsersTab: async () => ({ tabTitle: "Users" }),
+    preferredCompanyFolderId: DOVECOTE_FOLDER_ID,
+  };
+  const activePreferred = await findCompanyUsersTabRow({}, DOVECOTE_MASTER_SHEET_ID, "7oakcottages@gmail.com", duplicateDeps);
+  assert(activePreferred?.status === "ACTIVE", "runtime: ACTIVE duplicate Users row preferred over earlier INACTIVE");
+  assert(
+    activePreferred?.passwordHash === duplicateInactiveFirstHash,
+    "runtime: preferred ACTIVE duplicate preserves PasswordHash",
+  );
+  assert(
+    !(await findCompanyUsersTabRow({}, DOVECOTE_MASTER_SHEET_ID, "dovecotestudio@icloud.com", duplicateDeps)),
+    "runtime: Name-column email on polluted workbook does not match login email",
+  );
+  const scored = selectBestUsersTabLoginRow(
+    [
+      {
+        sheetRowIndex: 1,
+        email: "7oakcottages@gmail.com",
+        status: "INACTIVE",
+        passwordHash: hashPassword("x"),
+        companyFolderId: DOVECOTE_FOLDER_ID,
+        emailColumnMatch: true,
+      },
+      {
+        sheetRowIndex: 2,
+        email: "7oakcottages@gmail.com",
+        status: "ACTIVE",
+        passwordHash: duplicateInactiveFirstHash,
+        companyFolderId: DOVECOTE_FOLDER_ID,
+        emailColumnMatch: true,
+      },
+    ],
+    "7oakcottages@gmail.com",
+    DOVECOTE_FOLDER_ID,
+  );
+  assert(scored?.sheetRowIndex === 2, "runtime: score helper picks ACTIVE duplicate");
+  assert(
+    scoreUsersTabLoginRowCandidate(scored, "7oakcottages@gmail.com", DOVECOTE_FOLDER_ID) >
+      scoreUsersTabLoginRowCandidate(
+        { sheetRowIndex: 1, email: "7oakcottages@gmail.com", status: "INACTIVE", passwordHash: "scrypt$x", emailColumnMatch: true },
+        "7oakcottages@gmail.com",
+        DOVECOTE_FOLDER_ID,
+      ),
+    "runtime: ACTIVE+hash scores above inactive duplicate",
+  );
+
+  const { isAmbiguousUsersTabLoginDuplicateSet } = await import("../server/company-users.mjs");
+  assert(
+    isAmbiguousUsersTabLoginDuplicateSet(
+      [
+        {
+          emailColumnMatch: true,
+          status: "ACTIVE",
+          passwordHash: hashPassword("One-2026!"),
+          companyFolderId: DOVECOTE_FOLDER_ID,
+        },
+        {
+          emailColumnMatch: true,
+          status: "ACTIVE",
+          passwordHash: hashPassword("Two-2026!"),
+          companyFolderId: DOVECOTE_FOLDER_ID,
+        },
+      ],
+      DOVECOTE_FOLDER_ID,
+    ) === true,
+    "runtime: divergent ACTIVE+hash duplicates are ambiguous",
+  );
+  let ambiguousThrown = false;
+  try {
+    selectBestUsersTabLoginRow(
+      [
+        {
+          sheetRowIndex: 1,
+          email: "7oakcottages@gmail.com",
+          status: "ACTIVE",
+          passwordHash: hashPassword("One-2026!"),
+          companyFolderId: DOVECOTE_FOLDER_ID,
+          emailColumnMatch: true,
+        },
+        {
+          sheetRowIndex: 2,
+          email: "7oakcottages@gmail.com",
+          status: "ACTIVE",
+          passwordHash: hashPassword("Two-2026!"),
+          companyFolderId: DOVECOTE_FOLDER_ID,
+          emailColumnMatch: true,
+        },
+      ],
+      "7oakcottages@gmail.com",
+      DOVECOTE_FOLDER_ID,
+    );
+  } catch (error) {
+    ambiguousThrown = error?.reasonCode === "ambiguous_users_tab_rows";
+  }
+  assert(ambiguousThrown, "runtime: selector throws safe ambiguous diagnostic for divergent ACTIVE duplicates");
+
+  const inactiveThenActiveLogin = await authenticateCompanyUserLogin(
+    {},
+    {
+      getCompanyUsersDeps: () => duplicateDeps,
+      resolveCompanyFromFolder: async (_auth, _deps, folderId) => ({
+        ok: folderId === DOVECOTE_FOLDER_ID,
+        companyFolderId: DOVECOTE_FOLDER_ID,
+        companyId: DOVECOTE_FOLDER_ID,
+        companyName: "Dovecote Studio",
+        masterSheetId: DOVECOTE_MASTER_SHEET_ID,
+      }),
+      findMasterSheetIdsForCompanyLoginEmail: () => [],
+    },
+    {
+      email: "7oakcottages@gmail.com",
+      password: "ActiveWins-2026!",
+      companyFolderId: DOVECOTE_FOLDER_ID,
+    },
+  );
+  assert(
+    inactiveThenActiveLogin.ok === true,
+    "runtime: inactive duplicate before ACTIVE still logs in with ACTIVE row",
+  );
+
+  const staleTestcoSheetId = "15fEwp5M_WPaf0_GFHcNoZmget-_HW20xrAAVW_ehrps";
+  const doveUserDepsForStale = {
+    getTabValues: async (_auth, sheetId) => {
+      if (sheetId === staleTestcoSheetId) {
+        return [
+          ["Email", "Name", "Role", "Status", "PasswordHash", "CompanyFolderId"],
+          ["eddie thomas", "dovecotestudio@icloud.com", "Admin", "BERT Admin", "", "1OVn1p0t_ZrsfVy3GINMGV6zM0sH_UUPD"],
+        ];
+      }
+      return [
+        DOVECOTE_USERS_TAB_HEADERS,
+        ...DOVECOTE_USERS_TAB_ROWS.map((row) =>
+          row[0] === "dovecotestudio@icloud.com"
+            ? [row[0], row[1], row[2], row[3], row[4], row[5], hashPassword("Edward-Dovecote-2026!"), ...row.slice(7)]
+            : row,
+        ),
+      ];
+    },
+    getConfig: async () => ({}),
+    updateConfig: async () => null,
+    ensureColumns: async () => ({ addedColumns: [] }),
+    google: {
+      sheets: () => ({
+        spreadsheets: { values: { update: async () => null, append: async () => null } },
+      }),
+    },
+    withSheetsQuotaRetry: (fn) => fn(),
+    resolveUsersTab: async () => ({ tabTitle: "Users" }),
+  };
+  doveUserDepsForStale.findCompanyUsersTabRow = async (auth, sheetId, addr) => {
+    const { findCompanyUsersTabRow: findRow } = await import("../server/company-users.mjs");
+    return findRow(auth, sheetId, addr, doveUserDepsForStale);
+  };
+  doveUserDepsForStale.readCompanyUsersTabRecord = async (auth, sheetId, addr) => {
+    const { readCompanyUsersTabRecord: readRow } = await import("../server/company-users.mjs");
+    return readRow(auth, sheetId, addr, doveUserDepsForStale);
+  };
+  const staleSheetInactiveSkipped = await authenticateCompanyUserLogin(
+    {},
+    {
+      getCompanyUsersDeps: () => doveUserDepsForStale,
+      resolveCompanyFromFolder: async (_auth, _deps, folderId) => ({
+        ok: folderId === DOVECOTE_FOLDER_ID,
+        companyFolderId: DOVECOTE_FOLDER_ID,
+        companyId: DOVECOTE_FOLDER_ID,
+        companyName: "Dovecote Studio",
+        masterSheetId: DOVECOTE_MASTER_SHEET_ID,
+      }),
+      findMasterSheetIdsForCompanyLoginEmail: () => [staleTestcoSheetId],
+    },
+    {
+      email: "dovecotestudio@icloud.com",
+      password: "Edward-Dovecote-2026!",
+      companyFolderId: DOVECOTE_FOLDER_ID,
+    },
+  );
+  assert(
+    staleSheetInactiveSkipped.ok === true,
+    "runtime: trusted Dovecote folder login wins over stale polluted invite sheet inactive match",
+  );
 } finally {
   fs.rmSync(sessionDir, { recursive: true, force: true });
 }

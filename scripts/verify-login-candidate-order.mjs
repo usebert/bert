@@ -47,7 +47,15 @@ assert(userAuth.includes("verifyUsersTabLoginAttempt"), "static: Users tab verif
 assert(userAuth.includes("folderResolveOnlyTimeout"), "static: only folder_company_resolve is race-timed for folder candidates");
 assert(userAuth.includes("sessionCompanyFolderId"), "static: session company folder collected as candidate");
 assert(userAuth.includes("candidate_attempt_await"), "static: trusted folder await phase logged");
-assert(userAuth.includes("candidateOrder"), "static: candidate order logged");
+assert(userAuth.includes("trustedInactiveHit"), "static: only trusted-folder inactive can finalize login as inactive");
+assert(userAuth.includes("stopOnPairedInactive"), "static: paired sheet inactive no longer blocks folder resolve by default");
+assert(userAuth.includes("AMBIGUOUS_USERS_TAB_ROWS"), "static: ambiguous duplicate Users rows get safe diagnostic");
+assert(userAuth.includes("ambiguous_users_tab_rows"), "static: ambiguous diagnostic reasonCode wired");
+assert(read("server/company-users.mjs").includes("selectBestUsersTabLoginRow"), "static: duplicate Users row selector exported");
+assert(read("server/company-users.mjs").includes("scoreUsersTabLoginRowCandidate"), "static: duplicate Users row score helper exported");
+assert(read("server/company-users.mjs").includes("isAmbiguousUsersTabLoginDuplicateSet"), "static: ambiguous duplicate detector exported");
+assert(read("server/users-tab-schema.mjs").includes('legacyKey of ["Role"]'), "static: Name column emails are not login aliases");
+assert(read("server/users-tab-reader.mjs").includes("sanitizePollutedUsersTabDisplayFields"), "static: schema repair sanitizes polluted Name/Status");
 assert(userAuth.includes("export function collectLoginResolutionAttempts"), "static: collectLoginResolutionAttempts exported");
 assert(userAuth.includes("upsertLoginAuthIndexFromUsersTabRow"), "static: login upserts auth index without full rebuild");
 assert(!userAuth.includes("await rebuildAuthIndexFromUsersTab(auth, deps, companyContext, deps.authIndex, email)"), "static: login success path skips full auth-index rebuild");

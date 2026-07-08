@@ -182,6 +182,7 @@ export const AUTH_FAILURE_REASON = {
   WRONG_COMPANY: "WRONG_COMPANY",
   NO_LOGIN_CANDIDATES: "NO_LOGIN_CANDIDATES",
   INACTIVE: "INACTIVE",
+  AMBIGUOUS_USERS_TAB_ROWS: "AMBIGUOUS_USERS_TAB_ROWS",
 };
 
 const AUTH_REASON_TO_DIAGNOSTIC = {
@@ -193,6 +194,7 @@ const AUTH_REASON_TO_DIAGNOSTIC = {
   [AUTH_FAILURE_REASON.WRONG_COMPANY]: "wrong_company",
   [AUTH_FAILURE_REASON.NO_LOGIN_CANDIDATES]: "no_workbook_candidates",
   [AUTH_FAILURE_REASON.INACTIVE]: "inactive",
+  [AUTH_FAILURE_REASON.AMBIGUOUS_USERS_TAB_ROWS]: "ambiguous_users_tab_rows",
 };
 
 function diagnosticReasonCode(authFailureReason) {
@@ -221,6 +223,9 @@ function buildLoginAuthFailure({
     candidateMasterSheetIds: usersTabDiagnostics?.candidateMasterSheetIds,
   });
   const inactive = authFailureReason === AUTH_FAILURE_REASON.INACTIVE;
+  const ambiguous = authFailureReason === AUTH_FAILURE_REASON.AMBIGUOUS_USERS_TAB_ROWS;
+  const ambiguousMessage =
+    "Multiple active Users tab rows match this email. Contact your company administrator.";
   const diagnostics = {
     email: emailNorm,
     reasonCode,
@@ -244,12 +249,20 @@ function buildLoginAuthFailure({
   }
   return {
     ok: false,
-    reason: inactive ? "inactive" : "invalid_credentials",
-    httpStatus: inactive ? 403 : httpStatus,
-    code: inactive ? undefined : code,
-    blocker: inactive ? "inactive" : blocker,
-    error: inactive ? "This account is inactive. Contact your company administrator." : message,
-    message: inactive ? "This account is inactive. Contact your company administrator." : message,
+    reason: inactive ? "inactive" : ambiguous ? "ambiguous_users_tab_rows" : "invalid_credentials",
+    httpStatus: inactive ? 403 : ambiguous ? 409 : httpStatus,
+    code: inactive || ambiguous ? undefined : code,
+    blocker: inactive ? "inactive" : ambiguous ? "ambiguous_users_tab_rows" : blocker,
+    error: inactive
+      ? "This account is inactive. Contact your company administrator."
+      : ambiguous
+        ? ambiguousMessage
+        : message,
+    message: inactive
+      ? "This account is inactive. Contact your company administrator."
+      : ambiguous
+        ? ambiguousMessage
+        : message,
     authFailureReason,
     reasonCode,
     diagnostics,
@@ -257,6 +270,9 @@ function buildLoginAuthFailure({
 }
 
 function classifyVerifyFailure(verifyResult = {}) {
+  if (verifyResult.reason === "ambiguous_users_tab_rows") {
+    return AUTH_FAILURE_REASON.AMBIGUOUS_USERS_TAB_ROWS;
+  }
   if (verifyResult.reason === "wrong_company") {
     return AUTH_FAILURE_REASON.WRONG_COMPANY;
   }
@@ -320,7 +336,21 @@ export async function readUserAuthRowByEmail(auth, companyContext, email, deps) 
   }
   const { readRecord } = resolveUsersTabReaders(deps);
   const tRead = Date.now();
-  const rec = await readRecord(auth, ctx.masterSheetId, emailNorm, deps).catch(() => null);
+  const preferredFolderId = String(ctx.companyFolderId || ctx.companyId || deps.preferredCompanyFolderId || "").trim();
+  let rec;
+  try {
+    rec = await readRecord(
+      auth,
+      ctx.masterSheetId,
+      emailNorm,
+      preferredFolderId ? { ...deps, preferredCompanyFolderId: preferredFolderId } : deps,
+    );
+  } catch (error) {
+    if (error?.reasonCode === "ambiguous_users_tab_rows" || error?.code === "AMBIGUOUS_USERS_TAB_ROWS") {
+      throw error;
+    }
+    rec = null;
+  }
   deps.loginTiming?.logPhase?.("users_tab_read", tRead, {
     masterSheetId: ctx.masterSheetId,
     rowFound: Boolean(rec),
@@ -446,7 +476,17 @@ export async function rebuildAuthIndexFromUsersTab(auth, deps, companyContext, a
 
 export async function verifyUserPasswordFromUsersTab(auth, companyContext, email, plainPassword, deps, existingRow = null) {
   const ctx = resolveUserAuthCompanyContext(companyContext);
-  const row = existingRow || (await readUserAuthRowByEmail(auth, ctx, email, deps));
+  let row = existingRow;
+  if (!row) {
+    try {
+      row = await readUserAuthRowByEmail(auth, ctx, email, deps);
+    } catch (error) {
+      if (error?.reasonCode === "ambiguous_users_tab_rows" || error?.code === "AMBIGUOUS_USERS_TAB_ROWS") {
+        return { ok: false, reason: "ambiguous_users_tab_rows", rowFound: true };
+      }
+      throw error;
+    }
+  }
   if (!row) {
     return { ok: false, reason: "user_not_found", rowFound: false };
   }
@@ -1033,7 +1073,9 @@ async function resolveSingleLoginAttempt(
     if (pairedResult.ok) {
       return { ...pairedResult, folderFirst: true };
     }
-    if (pairedResult.inactive) {
+    // Inactive on a paired sheet hint must not block folder resolve — another workbook
+    // under the trusted company folder may own the ACTIVE login row.
+    if (pairedResult.inactive && options.stopOnPairedInactive === true) {
       return pairedResult;
     }
   }
@@ -1120,6 +1162,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
   });
 
   let inactiveHit = false;
+  let trustedInactiveHit = false;
   let lastAuthFailureReason = AUTH_FAILURE_REASON.USER_NOT_FOUND;
   let usersTabDiagnostics = null;
   for (let candidateIndex = 0; candidateIndex < attempts.length; candidateIndex += 1) {
@@ -1170,9 +1213,8 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
           );
           if (pairedResult.ok) {
             attemptResult = { ...pairedResult, folderFirst: true };
-          } else if (pairedResult.inactive) {
-            attemptResult = pairedResult;
           } else {
+            // Non-trusted paired-sheet miss/inactive is not final; resolve folder workbook next.
             let folderContext;
             try {
               folderContext = await raceLoginCandidateAttempt(
@@ -1298,9 +1340,31 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
     }
 
     if (!attemptResult.ok) {
+      if (attemptResult.authFailureReason === AUTH_FAILURE_REASON.AMBIGUOUS_USERS_TAB_ROWS) {
+        // Ambiguous ACTIVE duplicates on a trusted workbook are final — never silently pick a row.
+        if (trustedFolder) {
+          return buildLoginAuthFailure({
+            email,
+            authFailureReason: AUTH_FAILURE_REASON.AMBIGUOUS_USERS_TAB_ROWS,
+            attemptCount: attempts.length,
+          });
+        }
+        lastAuthFailureReason = AUTH_FAILURE_REASON.AMBIGUOUS_USERS_TAB_ROWS;
+        continue;
+      }
       if (attemptResult.inactive) {
-        inactiveHit = true;
-        lastAuthFailureReason = AUTH_FAILURE_REASON.INACTIVE;
+        // Only trusted company-folder inactivity is final. Stale invite/auth-index sheet
+        // candidates can match emails in Name/Role cells and must not win over a later
+        // ACTIVE Users row under the selected company folder.
+        if (trustedFolder) {
+          trustedInactiveHit = true;
+          lastAuthFailureReason = AUTH_FAILURE_REASON.INACTIVE;
+        } else {
+          inactiveHit = true;
+          if (lastAuthFailureReason === AUTH_FAILURE_REASON.USER_NOT_FOUND) {
+            lastAuthFailureReason = AUTH_FAILURE_REASON.INACTIVE;
+          }
+        }
       } else {
         lastAuthFailureReason = attemptResult.authFailureReason || AUTH_FAILURE_REASON.USER_NOT_FOUND;
       }
@@ -1412,7 +1476,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
     }
   }
 
-  if (inactiveHit) {
+  if (trustedInactiveHit) {
     return buildLoginAuthFailure({
       email,
       authFailureReason: AUTH_FAILURE_REASON.INACTIVE,

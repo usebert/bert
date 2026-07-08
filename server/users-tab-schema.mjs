@@ -302,7 +302,10 @@ export function rowEmailCandidates(obj) {
         candidates.add(variant);
       }
     }
-    for (const legacyKey of ["Role", "Name"]) {
+    // Shifted-legacy recovery places Email under Role. Do not treat Name as a login email
+    // column — polluted workbooks often put someone else's email in Name and that must not
+    // hijack login matching.
+    for (const legacyKey of ["Role"]) {
       for (const variant of loginEmailMatchVariants(pickField(source, legacyKey))) {
         if (isValidCompanyUserEmail(variant)) {
           candidates.add(variant);

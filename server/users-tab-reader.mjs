@@ -30,6 +30,42 @@ function safeLower(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function looksLikeStandaloneEmail(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  return raw.includes("@") && raw.length > 3 && !/\s/.test(raw);
+}
+
+/** Clear polluted Name/Status cells that embed emails (cross-workbook login collision on older builds). */
+function sanitizePollutedUsersTabDisplayFields(repaired = {}, options = {}) {
+  const next = { ...repaired };
+  const name = String(next.Name || "").trim();
+  const status = String(next.Status || "").trim();
+  const email = String(next.Email || "").trim().toLowerCase();
+  let changed = false;
+
+  if (looksLikeStandaloneEmail(name) && name !== email) {
+    next.Name = options.archivedNameLabel || "ARCHIVED_POLLUTED_ROW";
+    next.Status = "INACTIVE";
+    changed = true;
+  } else if (/\(was\s+[^)]+@[^)]+\)/i.test(name)) {
+    next.Name = options.archivedNameLabel || "ARCHIVED_POLLUTED_ROW";
+    next.Status = "INACTIVE";
+    changed = true;
+  }
+
+  const statusNorm = normalizeUserStatus(status);
+  if (
+    status &&
+    !["ACTIVE", "INACTIVE", "INVITED", "DELETED", "REMOVED"].includes(statusNorm) &&
+    (looksLikeStandaloneEmail(status) || /admin|manager|auditor|hall|thomas/i.test(status))
+  ) {
+    next.Status = "INACTIVE";
+    changed = true;
+  }
+
+  return { repaired: next, changed };
+}
+
 function extractGoogleError(error) {
   const apiError = error?.response?.data?.error;
   if (!apiError || typeof apiError !== "object") {
@@ -339,6 +375,7 @@ export async function repairUsersTabSchema(auth, spreadsheetId, deps, options = 
   let rowsRepaired = 0;
   let usersRecovered = 0;
   let passwordHashesPreserved = 0;
+  let pollutedRowsSanitized = 0;
   const nextRows = [canonicalHeaders];
 
   for (let i = 1; i < rows.length; i += 1) {
@@ -357,7 +394,7 @@ export async function repairUsersTabSchema(auth, spreadsheetId, deps, options = 
     const passwordHash = String(remapped.PasswordHash || "").trim();
     const createdAt = String(remapped.CreatedAt || rawObj.CreatedAt || "").trim();
     const role = normalizeRoleForSheetRepair(remapped.Role || rawObj.Role || "");
-    const repaired = {
+    let repaired = {
       ...remapped,
       Email: email,
       Name: String(remapped.Name || email).trim() || email,
@@ -370,8 +407,19 @@ export async function repairUsersTabSchema(auth, spreadsheetId, deps, options = 
       UpdatedAt: String(remapped.UpdatedAt || new Date().toISOString()).trim(),
       ...backfillRowCompanyFields(remapped, options.companyContext || {}),
     };
-    if (shifted) {
+    // Preserve raw Status values that are neither canonical nor normalized ACTIVE blank, then sanitize pollution.
+    if (!["ACTIVE", "INACTIVE", "INVITED", "DELETED", "REMOVED"].includes(String(repaired.Status || "").toUpperCase())) {
+      repaired.Status = String(remapped.Status || rawObj.Status || repaired.Status || "").trim() || repaired.Status;
+    }
+    const sanitized = sanitizePollutedUsersTabDisplayFields(repaired, {
+      archivedNameLabel: `ARCHIVED_POLLUTED_ROW_${i}`,
+    });
+    repaired = sanitized.repaired;
+    if (shifted || sanitized.changed) {
       rowsRepaired += 1;
+    }
+    if (sanitized.changed) {
+      pollutedRowsSanitized += 1;
     }
     if (email && isValidCompanyUserEmail(email)) {
       usersRecovered += 1;
@@ -382,7 +430,7 @@ export async function repairUsersTabSchema(auth, spreadsheetId, deps, options = 
     nextRows.push(canonicalHeaders.map((header) => String(repaired[header] ?? remapped[header] ?? rawObj[header] ?? "").trim()));
   }
 
-  if (rowsRepaired > 0 || canonicalHeaders.length !== existingHeaders.length) {
+  if (rowsRepaired > 0 || pollutedRowsSanitized > 0 || canonicalHeaders.length !== existingHeaders.length) {
     const dataRows = nextRows.slice(1).map((row) =>
       canonicalHeaders.reduce((accumulator, header, index) => {
         accumulator[header] = String(row[index] ?? "").trim();
@@ -404,6 +452,7 @@ export async function repairUsersTabSchema(auth, spreadsheetId, deps, options = 
     ok: true,
     rowsScanned,
     rowsRepaired,
+    pollutedRowsSanitized,
     usersRecovered,
     passwordHashesPreserved,
     tabTitle,

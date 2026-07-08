@@ -136,15 +136,26 @@ const shiftedRow = {
 /** 11: Invite completion writes correct schema. */
 {
   assert(sheetFlow.includes("completeInviteToUserRow"), "11: invite completion exported");
-  assert(sheetFlow.includes("writeCompanyUsers"), "11b: invite uses writeCompanyUsers");
-  assert(sheetFlow.includes("canLoginCompanyUser"), "11c: post-invite login verification");
+  const inviteService = read("server/invite-service.mjs");
+  assert(
+    sheetFlow.includes("writeCompanyUsers") ||
+      sheetFlow.includes("writeUsersTabRecordByHeaders") ||
+      inviteService.includes("writeUsersTabRecordByHeaders"),
+    "11b: invite uses header-aware Users writer",
+  );
+  assert(
+    sheetFlow.includes("canLoginCompanyUser") || inviteService.includes("canLoginCompanyUser"),
+    "11c: post-invite login verification",
+  );
 }
 
 /** 12: Login reads Email and PasswordHash from normalised row. */
 {
   assert(companyUsers.includes("verifyCompanyUserPassword"), "12: login verifies PasswordHash");
   assert(
-    companyUsers.includes('startsWith("scrypt$")') || companyUsers.includes("looksLikePasswordHash"),
+    companyUsers.includes('startsWith("scrypt$")') ||
+      companyUsers.includes("looksLikeLoginPasswordHash") ||
+      companyUsers.includes("looksLikePasswordHash"),
     "12b: hash read from shifted UpdatedAt slot",
   );
 }

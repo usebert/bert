@@ -229,6 +229,165 @@ function rowMatchesLoginEmail(obj, target) {
   return rowEmailCandidates(obj).includes(target);
 }
 
+function loginEmailMatchedOnCanonicalEmailColumn(obj, target) {
+  const emailNorm = normalizeLoginEmailValue(pickUsersTabLoginEmail(obj) || pickField(obj, "Email"));
+  return Boolean(emailNorm && loginEmailMatchVariants(emailNorm).includes(target));
+}
+
+function looksLikeLoginPasswordHash(value) {
+  const raw = String(value || "").trim();
+  return raw.startsWith("scrypt$") || isPasswordHash(raw);
+}
+
+/**
+ * Prefer the loginable Users row when duplicate emails exist:
+ * canonical Email match + ACTIVE + PasswordHash + matching CompanyFolderId.
+ * Incidental Name/Role email matches and inactive/deleted copies score lower.
+ */
+export function scoreUsersTabLoginRowCandidate(candidate = {}, targetEmail = "", preferredFolderId = "") {
+  const target = safeLower(targetEmail);
+  const status = normalizeUserStatus(candidate.status);
+  const folderId = sanitizePreferredFolderId(candidate.companyFolderId || candidate.companyId);
+  const preferred = sanitizePreferredFolderId(preferredFolderId);
+  const hasHash = looksLikeLoginPasswordHash(candidate.passwordHash);
+  const emailColumnMatch = candidate.emailColumnMatch === true;
+  let score = 0;
+  if (emailColumnMatch) {
+    score += 1000;
+  }
+  if (status === "ACTIVE") {
+    score += 400;
+  } else if (status === "INVITED") {
+    score += 40;
+  } else if (status === "INACTIVE" || status === "DELETED" || status === "REMOVED") {
+    score -= 200;
+  } else {
+    score -= 100;
+  }
+  if (hasHash) {
+    score += 200;
+  }
+  if (preferred && folderId && folderId === preferred) {
+    score += 80;
+  }
+  if (target && safeLower(candidate.email) === target && emailColumnMatch) {
+    score += 20;
+  }
+  // Stable tie-break: earlier sheet rows win among equal scores.
+  score -= Number(candidate.sheetRowIndex || 0) * 0.001;
+  return score;
+}
+
+function sanitizePreferredFolderId(value) {
+  return String(value || "").trim();
+}
+
+function buildUsersTabLoginRowMatch(headers, row, sheetRowIndex, target) {
+  const legacyRaw = rowToObject(headers, row);
+  const rawObj = buildUsersTabRowObject(headers, row);
+  const obj = normalizeUsersTabRowObject({ ...legacyRaw, ...rawObj });
+  if (!rowMatchesLoginEmail(obj, target)) {
+    return null;
+  }
+  const rowEmail = pickUsersTabLoginEmail(obj) || pickField(obj, "Email") || target;
+  const roleRaw = pickField(obj, "Role", "role");
+  const fullName = pickField(obj, "Name", "name", "Full Name", "Full name") || rowEmail;
+  const companyId = pickRowCompanyId(obj) || pickField(obj, "Company ID", "companyId");
+  const companyFolderId = pickRowCompanyFolderId(obj) || companyId;
+  const companyName = pickRowCompanyName(obj);
+  const status = normalizeUserStatus(pickField(obj, "Status", "status"));
+  const accessLevel =
+    pickField(obj, "AccessLevel", "Access Level", "accessLevel") ||
+    defaultAccessLevelForRole(parseRoleFromUsersSheet(roleRaw));
+  const companyAreasRaw = pickField(obj, "CompanyAreas", "Company Areas", "companyAreas");
+  const siteIdsRaw = pickField(obj, "SiteIds", "Sites", "siteIds");
+  const departmentIdsRaw = pickField(obj, "DepartmentIds", "Departments", "departmentIds");
+  const areaIdsRaw = pickField(obj, "AreaIds", "areaIds");
+  const updatedAtVal = pickField(obj, "UpdatedAt");
+  const passwordHash = looksLikeLoginPasswordHash(updatedAtVal)
+    ? updatedAtVal
+    : pickField(obj, "PasswordHash", "passwordHash");
+  return {
+    sheetRowIndex,
+    headers,
+    email: safeLower(rowEmail),
+    roleRaw,
+    name: fullName,
+    companyId,
+    companyFolderId,
+    companyName,
+    userId: pickField(obj, "User ID", "userId"),
+    status,
+    accessLevel,
+    companyAreas: parseCompanyAreas(companyAreasRaw),
+    companyAreasRaw,
+    siteIds: parseCompanyAreas(siteIdsRaw),
+    departmentIds: parseCompanyAreas(departmentIdsRaw),
+    areaIds: parseCompanyAreas(areaIdsRaw),
+    passwordHash,
+    invitedAt: pickField(obj, "InvitedAt", "Invited At"),
+    createdAt: pickField(obj, "CreatedAt", "Created At"),
+    updatedAt: pickField(obj, "UpdatedAt", "Updated At"),
+    rowObject: obj,
+    shiftedLegacy: isShiftedLegacyUsersRow(rawObj),
+    emailColumnMatch: loginEmailMatchedOnCanonicalEmailColumn(obj, target),
+  };
+}
+
+/** Valid loginable duplicate rows that must not be chosen silently when scores tie. */
+export function isAmbiguousUsersTabLoginDuplicateSet(matches = [], preferredFolderId = "") {
+  const list = (Array.isArray(matches) ? matches : []).filter(Boolean);
+  const preferred = sanitizePreferredFolderId(preferredFolderId);
+  const competing = list.filter((match) => {
+    if (match.emailColumnMatch !== true) {
+      return false;
+    }
+    if (normalizeUserStatus(match.status) !== "ACTIVE") {
+      return false;
+    }
+    if (!looksLikeLoginPasswordHash(match.passwordHash)) {
+      return false;
+    }
+    const folderId = sanitizePreferredFolderId(match.companyFolderId || match.companyId);
+    if (preferred && folderId && folderId !== preferred) {
+      return false;
+    }
+    return true;
+  });
+  if (competing.length < 2) {
+    return false;
+  }
+  const hashes = new Set(competing.map((match) => String(match.passwordHash || "").trim()));
+  const folders = new Set(
+    competing.map((match) => sanitizePreferredFolderId(match.companyFolderId || match.companyId) || ""),
+  );
+  // Same ACTIVE+hash+folder copies are harmless; divergent credentials/folders are unsafe.
+  return hashes.size > 1 || folders.size > 1;
+}
+
+export function selectBestUsersTabLoginRow(matches = [], targetEmail = "", preferredFolderId = "") {
+  const list = Array.isArray(matches) ? matches.filter(Boolean) : [];
+  if (!list.length) {
+    return null;
+  }
+  if (isAmbiguousUsersTabLoginDuplicateSet(list, preferredFolderId)) {
+    const err = new Error("Ambiguous ACTIVE Users tab rows for email.");
+    err.code = "AMBIGUOUS_USERS_TAB_ROWS";
+    err.reasonCode = "ambiguous_users_tab_rows";
+    throw err;
+  }
+  let best = null;
+  let bestScore = -Infinity;
+  for (const match of list) {
+    const score = scoreUsersTabLoginRowCandidate(match, targetEmail, preferredFolderId);
+    if (!best || score > bestScore) {
+      best = match;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
 async function findCompanyUsersTabRowFromProfiles(auth, spreadsheetId, email, deps) {
   const readFn = deps.readCompanyUsers;
   if (typeof readFn !== "function") {
@@ -260,60 +419,15 @@ async function findCompanyUsersTabRowDirect(auth, spreadsheetId, email, deps) {
   }
   const headers = rows[0].map((cell) => String(cell || "").trim());
   const target = safeLower(email);
+  const preferredFolderId = String(deps.preferredCompanyFolderId || deps.companyFolderId || "").trim();
+  const matches = [];
   for (let i = 1; i < rows.length; i += 1) {
-    const row = rows[i];
-    const legacyRaw = rowToObject(headers, row);
-    const rawObj = buildUsersTabRowObject(headers, row);
-    const obj = normalizeUsersTabRowObject({ ...legacyRaw, ...rawObj });
-    if (!rowMatchesLoginEmail(obj, target)) {
-      continue;
+    const match = buildUsersTabLoginRowMatch(headers, rows[i], i, target);
+    if (match) {
+      matches.push(match);
     }
-    const rowEmail = pickUsersTabLoginEmail(obj) || pickField(obj, "Email") || target;
-    const roleRaw = pickField(obj, "Role", "role");
-    const fullName =
-      pickField(obj, "Name", "name", "Full Name", "Full name") || rowEmail;
-    const companyId = pickRowCompanyId(obj) || pickField(obj, "Company ID", "companyId");
-    const companyFolderId = pickRowCompanyFolderId(obj) || companyId;
-    const companyName = pickRowCompanyName(obj);
-    const status = normalizeUserStatus(pickField(obj, "Status", "status"));
-    const accessLevel =
-      pickField(obj, "AccessLevel", "Access Level", "accessLevel") ||
-      defaultAccessLevelForRole(parseRoleFromUsersSheet(roleRaw));
-    const companyAreasRaw = pickField(obj, "CompanyAreas", "Company Areas", "companyAreas");
-    const siteIdsRaw = pickField(obj, "SiteIds", "Sites", "siteIds");
-    const departmentIdsRaw = pickField(obj, "DepartmentIds", "Departments", "departmentIds");
-    const areaIdsRaw = pickField(obj, "AreaIds", "areaIds");
-    const updatedAtVal = pickField(obj, "UpdatedAt");
-    const passwordHash =
-      String(updatedAtVal).startsWith("scrypt$") || isPasswordHash(updatedAtVal)
-        ? updatedAtVal
-        : pickField(obj, "PasswordHash", "passwordHash");
-    return {
-      sheetRowIndex: i,
-      headers,
-      email: safeLower(rowEmail),
-      roleRaw,
-      name: fullName,
-      companyId,
-      companyFolderId,
-      companyName,
-      userId: pickField(obj, "User ID", "userId"),
-      status,
-      accessLevel,
-      companyAreas: parseCompanyAreas(companyAreasRaw),
-      companyAreasRaw,
-      siteIds: parseCompanyAreas(siteIdsRaw),
-      departmentIds: parseCompanyAreas(departmentIdsRaw),
-      areaIds: parseCompanyAreas(areaIdsRaw),
-      passwordHash,
-      invitedAt: pickField(obj, "InvitedAt", "Invited At"),
-      createdAt: pickField(obj, "CreatedAt", "Created At"),
-      updatedAt: pickField(obj, "UpdatedAt", "Updated At"),
-      rowObject: obj,
-      shiftedLegacy: isShiftedLegacyUsersRow(rawObj),
-    };
   }
-  return null;
+  return selectBestUsersTabLoginRow(matches, target, preferredFolderId);
 }
 
 /** Server-only login diagnostics — never logs passwords or PasswordHash values. */
@@ -373,11 +487,22 @@ export async function collectUsersTabLoginDiagnostics(auth, spreadsheetId, email
 }
 
 export async function findCompanyUsersTabRow(auth, spreadsheetId, email, deps) {
-  const direct = await findCompanyUsersTabRowDirect(auth, spreadsheetId, email, deps).catch(() => null);
-  if (direct) {
-    return direct;
+  try {
+    const direct = await findCompanyUsersTabRowDirect(auth, spreadsheetId, email, deps);
+    if (direct) {
+      return direct;
+    }
+  } catch (error) {
+    if (error?.reasonCode === "ambiguous_users_tab_rows" || error?.code === "AMBIGUOUS_USERS_TAB_ROWS") {
+      throw error;
+    }
   }
-  return findCompanyUsersTabRowFromProfiles(auth, spreadsheetId, email, deps).catch(() => null);
+  return findCompanyUsersTabRowFromProfiles(auth, spreadsheetId, email, deps).catch((error) => {
+    if (error?.reasonCode === "ambiguous_users_tab_rows" || error?.code === "AMBIGUOUS_USERS_TAB_ROWS") {
+      throw error;
+    }
+    return null;
+  });
 }
 
 export async function readCompanyUsersTabRecord(auth, spreadsheetId, email, deps) {
