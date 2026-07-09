@@ -26,6 +26,7 @@ import { DangerActionButton } from "../DangerActionButton";
 import { ActiveUserCard } from "./ActiveUserCard";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../dashboard/DashboardPrimitives";
 import { canManageCompanyMembers } from "../../permissions";
+import { canArchiveCompanyMember } from "../../utils/archivePermissions";
 import type { CompanyMember } from "../../services/companyUserService";
 import type { StructureEntity } from "../../services/companyStructureService";
 import { InviteStatusLegend } from "../InviteStatusLegend";
@@ -468,6 +469,10 @@ export type UsersInvitesPilotPanelProps = Pick<
     slatePrimaryCtaInteract: string;
   }>;
   companyMemberEditing?: boolean;
+  archiveOffline?: boolean;
+  onArchivedCompanyMember?: (member: CompanyMember) => void | Promise<void>;
+  onArchiveError?: (message: string) => void;
+  onArchiveSuccess?: () => void;
 };
 
 export function UsersInvitesPilotPanel({
@@ -516,6 +521,10 @@ export function UsersInvitesPilotPanel({
   onDeactivateCompanyMember,
   onResyncUsers,
   companyMemberEditing = false,
+  archiveOffline = false,
+  onArchivedCompanyMember,
+  onArchiveError,
+  onArchiveSuccess,
   onSelectSite,
   onAddSite,
   onArchiveSite,
@@ -1082,6 +1091,18 @@ export function UsersInvitesPilotPanel({
                     slatePrimaryCtaInteract={slatePrimaryCtaInteract}
                     onEdit={(target, input) => onUpdateCompanyMember(target, input)}
                     onDeactivate={onDeactivateCompanyMember}
+                    canArchive={canArchiveCompanyMember(
+                      member,
+                      currentUser.username,
+                      activeCompanyMembers,
+                      currentUser.role,
+                    )}
+                    archiveCompanyFolderId={resolvedCompanyId}
+                    archiveMasterSheetId={resolvedMasterSheetId}
+                    archiveOffline={archiveOffline}
+                    onArchivedUser={onArchivedCompanyMember}
+                    onArchiveError={onArchiveError}
+                    onArchiveSuccess={onArchiveSuccess}
                     onAccessUpdated={() => onResyncUsers()}
                     onRemove={
                       canManageCompanyMembers(currentUser.role)

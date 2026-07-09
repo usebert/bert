@@ -395,6 +395,18 @@ export type AdminScreenProps = {
     companyId: string;
     companyAreas: string[];
   }) => void | Promise<void>;
+  archiveOffline?: boolean;
+  onArchivedCompanyMember?: (member: {
+    email: string;
+    name: string;
+    role: string;
+    accessLevel: string;
+    status: string;
+    companyId: string;
+    companyAreas: string[];
+  }) => void | Promise<void>;
+  onArchiveError?: (message: string) => void;
+  onArchiveSuccess?: () => void;
   companyMemberEditing?: boolean;
   onResyncUsers: () => void;
   onSelectSite: (siteId: string) => void;

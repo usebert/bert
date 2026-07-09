@@ -1,6 +1,7 @@
 import { EmptyPanel } from "../components/dashboard/DashboardPrimitives";
 import { AuditCentreBackButton } from "../components/auditCentre/AuditCentreBackButton";
 import { SectionIntro } from "../components/SectionIntro";
+import { ArchiveRecordButton } from "../components/archive/ArchiveRecordButton";
 import {
   COMPANY_GOOGLE_FORMS_LOADING_MESSAGE,
   COMPANY_GOOGLE_FORMS_SYNCING_MESSAGE,
@@ -56,6 +57,13 @@ export function GoogleFormsScreen({
   bertCheckCreatedFormIds = [],
   onCreateBertCheck,
   onBackToAuditCentre,
+  archiveCompanyFolderId = "",
+  archiveMasterSheetId,
+  archiveOffline = false,
+  canArchiveForms = false,
+  onFormArchived,
+  onArchiveError,
+  onArchiveSuccess,
 }: GoogleFormsScreenProps) {
   const sortedForms = [...forms].sort((a, b) => a.name.localeCompare(b.name));
   const createdFormIds = new Set(bertCheckCreatedFormIds);
@@ -149,6 +157,20 @@ export function GoogleFormsScreen({
                   >
                     Open form
                   </a>
+                ) : null}
+                {canArchiveForms && archiveCompanyFolderId && onFormArchived ? (
+                  <ArchiveRecordButton
+                    recordType="googleForm"
+                    recordId={form.formId || form.driveFileId}
+                    companyFolderId={archiveCompanyFolderId}
+                    masterSheetId={archiveMasterSheetId}
+                    offlineMode={archiveOffline}
+                    canArchive={canArchiveForms}
+                    label="Archive form"
+                    onArchived={() => onFormArchived(formKey)}
+                    onError={onArchiveError}
+                    onSuccess={onArchiveSuccess}
+                  />
                 ) : null}
               </div>
             </div>

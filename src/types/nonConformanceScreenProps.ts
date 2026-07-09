@@ -49,4 +49,10 @@ export type NonConformanceScreenProps = {
   onComplete: (ncrId: string, payload: NonConformanceInvestigationPayload) => boolean;
   onAddEvidence: (ncrId: string, files: FileList) => void;
   onExportReport: (record: NonConformanceRecord) => void;
+  archiveCompanyFolderId?: string;
+  archiveMasterSheetId?: string;
+  archiveOffline?: boolean;
+  onNcrArchived?: (ncrId: string) => void | Promise<void>;
+  onArchiveError?: (message: string) => void;
+  onArchiveSuccess?: () => void;
 };

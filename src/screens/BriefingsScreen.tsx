@@ -43,6 +43,9 @@ import {
   briefingIsComplete,
   type BriefingActionKind,
 } from "../utils/briefingActions";
+import { ArchiveRecordButton } from "../components/archive/ArchiveRecordButton";
+import { canArchiveRecordFromClient } from "../utils/archivePermissions";
+import { invalidateLiveDashboardCache } from "../services/appDataCacheService";
 
 type BriefingsTab = "mine" | "send" | "tracker";
 
@@ -56,9 +59,13 @@ type BriefingPendingAction = {
 type Props = {
   role: Role;
   companyFolderId: string;
+  masterSheetId?: string;
   userEmail: string;
+  offlineMode?: boolean;
   initialBriefingId?: string;
   onBack?: () => void;
+  onArchiveError?: (message: string) => void;
+  onArchiveSuccess?: () => void;
 };
 
 const BRIEFING_TYPES: BriefingType[] = ["Policy", "Toolbox Talk", "Notice", "Training", "Other"];
@@ -79,8 +86,19 @@ function mergeRecipientUpdate(
   return items.map((item) => (item.briefingId === briefingId ? { ...item, ...patch } : item));
 }
 
-export function BriefingsScreen({ role, companyFolderId, userEmail, initialBriefingId, onBack }: Props) {
+export function BriefingsScreen({
+  role,
+  companyFolderId,
+  masterSheetId,
+  userEmail,
+  offlineMode = false,
+  initialBriefingId,
+  onBack,
+  onArchiveError,
+  onArchiveSuccess,
+}: Props) {
   const canManage = canManageBriefings(role);
+  const canArchiveBriefing = canArchiveRecordFromClient(role, "briefing");
   const normalizedEmail = String(userEmail || "").trim().toLowerCase();
   const [tab, setTab] = useState<BriefingsTab>("mine");
   const [mine, setMine] = useState<BriefingRecipientRecord[]>(() => {
@@ -812,14 +830,39 @@ export function BriefingsScreen({ role, companyFolderId, userEmail, initialBrief
           <ul className="mt-3 space-y-3">
             {tracker.map((entry) => {
               const counts = (entry.counts || {}) as Record<string, number>;
+              const briefingId = String(entry.briefingId || "");
               return (
-                <li key={String(entry.briefingId)} className="rounded-xl border border-slate-200 p-3">
-                  <p className="font-semibold text-slate-900">{String(entry.title || entry.briefingId)}</p>
-                  <p className="mt-1 text-xs text-slate-600">
-                    Sent {counts.sent ?? 0} · Opened {counts.openedCount ?? 0} · Read {counts.readCount ?? 0} · Ack{" "}
-                    {counts.acknowledgedCount ?? 0} · Signed {counts.signedCount ?? 0} · Replies {counts.replyCount ?? 0} · Overdue{" "}
-                    {counts.overdueCount ?? 0}
-                  </p>
+                <li key={briefingId} className="rounded-xl border border-slate-200 p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-slate-900">{String(entry.title || entry.briefingId)}</p>
+                      <p className="mt-1 text-xs text-slate-600">
+                        Sent {counts.sent ?? 0} · Opened {counts.openedCount ?? 0} · Read {counts.readCount ?? 0} · Ack{" "}
+                        {counts.acknowledgedCount ?? 0} · Signed {counts.signedCount ?? 0} · Replies {counts.replyCount ?? 0} · Overdue{" "}
+                        {counts.overdueCount ?? 0}
+                      </p>
+                    </div>
+                    {canArchiveBriefing && companyFolderId && briefingId ? (
+                      <ArchiveRecordButton
+                        recordType="briefing"
+                        recordId={briefingId}
+                        companyFolderId={companyFolderId}
+                        masterSheetId={masterSheetId}
+                        offlineMode={offlineMode}
+                        canArchive={canArchiveBriefing}
+                        label="Archive briefing"
+                        onArchived={() => {
+                          setTracker((current) => current.filter((item) => String(item.briefingId) !== briefingId));
+                          invalidateLiveDashboardCache({
+                            companyFolderId,
+                            userEmail: normalizedEmail,
+                          });
+                        }}
+                        onError={onArchiveError}
+                        onSuccess={onArchiveSuccess}
+                      />
+                    ) : null}
+                  </div>
                 </li>
               );
             })}

@@ -10,6 +10,7 @@ import {
   updatePersonAccess,
 } from "../../services/companyStructureService";
 import { DangerActionButton } from "../DangerActionButton";
+import { ArchiveRecordButton } from "../archive/ArchiveRecordButton";
 import { formatInviteStatusLabel, formatUserRoleLabel } from "../../utils/inviteStatusDisplay";
 import {
   accessScopeFromPersonRecord,
@@ -31,6 +32,13 @@ export type ActiveUserCardProps = {
   };
   onEdit: (member: CompanyMember, input: { name: string; role: string }) => void | Promise<void>;
   onDeactivate: (member: CompanyMember) => void | Promise<void>;
+  canArchive?: boolean;
+  archiveCompanyFolderId?: string;
+  archiveMasterSheetId?: string;
+  archiveOffline?: boolean;
+  onArchivedUser?: (member: CompanyMember) => void | Promise<void>;
+  onArchiveError?: (message: string) => void;
+  onArchiveSuccess?: () => void;
   onRemove?: (member: CompanyMember) => void | Promise<void>;
   onAccessUpdated?: (member: CompanyMember) => void | Promise<void>;
   editing?: boolean;
@@ -125,6 +133,13 @@ export function ActiveUserCard({
   structureCatalog,
   onEdit,
   onDeactivate,
+  canArchive = false,
+  archiveCompanyFolderId = "",
+  archiveMasterSheetId,
+  archiveOffline = false,
+  onArchivedUser,
+  onArchiveError,
+  onArchiveSuccess,
   onRemove,
   onAccessUpdated,
   editing = false,
@@ -284,6 +299,24 @@ export function ActiveUserCard({
                 >
                   Edit user
                 </button>
+                {!isSelf && canArchive && archiveCompanyFolderId ? (
+                  <div className="px-3 py-2">
+                    <ArchiveRecordButton
+                      recordType="user"
+                      recordId={member.email}
+                      companyFolderId={archiveCompanyFolderId}
+                      masterSheetId={archiveMasterSheetId}
+                      offlineMode={archiveOffline}
+                      canArchive={canArchive}
+                      label="Archive user"
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm font-medium text-slate-800 hover:bg-slate-50"
+                      extraMessage="The user can be reactivated from Archive if needed."
+                      onArchived={() => onArchivedUser?.(member)}
+                      onError={onArchiveError}
+                      onSuccess={onArchiveSuccess}
+                    />
+                  </div>
+                ) : null}
                 {!isSelf ? (
                   <button
                     type="button"

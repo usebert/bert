@@ -16,4 +16,11 @@ export type GoogleFormsScreenProps = {
   bertCheckCreatedFormIds?: string[];
   onCreateBertCheck?: (form: CompanyGoogleForm) => void | Promise<void>;
   onBackToAuditCentre?: () => void;
+  archiveCompanyFolderId?: string;
+  archiveMasterSheetId?: string;
+  archiveOffline?: boolean;
+  canArchiveForms?: boolean;
+  onFormArchived?: (formKey: string) => void | Promise<void>;
+  onArchiveError?: (message: string) => void;
+  onArchiveSuccess?: () => void;
 };

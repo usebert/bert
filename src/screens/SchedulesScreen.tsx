@@ -20,6 +20,7 @@ import {
 } from "../utils/assignedCheckCompletion";
 import { formatScheduleCompletionModeLabel, resolveScheduleCompletionMode } from "../utils/scheduleCompletionMode";
 import { darkPanelBody, darkPanelEyebrow, darkPanelShell, darkPanelTitleLg } from "../styles/darkPanel";
+import { ArchiveRecordButton } from "../components/archive/ArchiveRecordButton";
 
 const amberThresholdHours = 2;
 
@@ -236,6 +237,13 @@ export function SchedulesScreen({
   onDelete,
   onPause,
   onResume,
+  archiveCompanyFolderId = "",
+  archiveMasterSheetId,
+  archiveOffline = false,
+  canArchiveSchedules = false,
+  onScheduleArchived,
+  onArchiveError,
+  onArchiveSuccess,
   companyActionsBlocked = false,
   companyActionsBlockedMessage = "",
 }: {
@@ -285,6 +293,13 @@ export function SchedulesScreen({
   onDelete: (scheduleId: string) => void;
   onPause: (scheduleId: string) => void;
   onResume: (scheduleId: string) => void;
+  archiveCompanyFolderId?: string;
+  archiveMasterSheetId?: string;
+  archiveOffline?: boolean;
+  canArchiveSchedules?: boolean;
+  onScheduleArchived?: (scheduleId: string) => void | Promise<void>;
+  onArchiveError?: (message: string) => void;
+  onArchiveSuccess?: () => void;
 }) {
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   const [pendingBuilderScroll, setPendingBuilderScroll] = useState(false);
@@ -438,6 +453,24 @@ export function SchedulesScreen({
                     <button onClick={() => onDelete(schedule.id)} className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
                       Delete
                     </button>
+                    {schedule.lifecycle !== "Archived" &&
+                    canArchiveSchedules &&
+                    archiveCompanyFolderId &&
+                    onScheduleArchived ? (
+                      <ArchiveRecordButton
+                        recordType="schedule"
+                        recordId={schedule.id}
+                        companyFolderId={archiveCompanyFolderId}
+                        masterSheetId={archiveMasterSheetId}
+                        offlineMode={archiveOffline}
+                        canArchive={canArchiveSchedules}
+                        label="Archive"
+                        extraMessage="It will be removed from active and due views and can be restored from Archive."
+                        onArchived={() => onScheduleArchived(schedule.id)}
+                        onError={onArchiveError}
+                        onSuccess={onArchiveSuccess}
+                      />
+                    ) : null}
                     {computeScheduleHealthState(schedule) === "Paused" ? (
                       <button onClick={() => onResume(schedule.id)} className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800">
                         Resume

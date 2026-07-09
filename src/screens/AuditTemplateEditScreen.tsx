@@ -14,6 +14,8 @@ import {
   TEMPLATE_USED_WARNING,
   updateAuditBuilderTemplate,
 } from "../services/auditBuilderService";
+import { ArchiveRecordButton } from "../components/archive/ArchiveRecordButton";
+import { canArchiveRecordFromClient } from "../utils/archivePermissions";
 import type {
   AuditBuilderTemplateDraft,
   AuditBuilderTemplateRecord,
@@ -664,14 +666,31 @@ export function AuditTemplateEditScreen({
           >
             Duplicate
           </button>
-          <button
-            type="button"
-            onClick={() => void handleArchive()}
-            disabled={saving}
-            className="inline-flex h-12 items-center rounded-xl border border-rose-200 bg-rose-50 px-5 text-sm font-semibold text-rose-700"
-          >
-            Archive
-          </button>
+          {canArchiveRecordFromClient(role, "audit") && companyFolderId && recordMeta && !isLocalOnly ? (
+            <ArchiveRecordButton
+              recordType="audit"
+              recordId={recordMeta.id}
+              companyFolderId={companyFolderId}
+              masterSheetId={masterSheetId}
+              canArchive
+              label="Archive"
+              className="inline-flex h-12 items-center rounded-xl border border-rose-200 bg-rose-50 px-5 text-sm font-semibold text-rose-700"
+              onArchived={() => {
+                onTemplateArchived(recordMeta.id);
+                onBack();
+              }}
+              onError={(message) => setError(message)}
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => void handleArchive()}
+              disabled={saving}
+              className="inline-flex h-12 items-center rounded-xl border border-rose-200 bg-rose-50 px-5 text-sm font-semibold text-rose-700"
+            >
+              Archive
+            </button>
+          )}
         </div>
       </section>
     </div>

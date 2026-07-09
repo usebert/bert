@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { canCompleteAuditAsAuditor } from "../permissions";
 import type { NonConformanceScreenProps } from "../types/nonConformanceScreenProps";
+import { ArchiveRecordButton } from "../components/archive/ArchiveRecordButton";
+import { canArchiveRecordFromClient } from "../utils/archivePermissions";
 import { EmptyPanel } from "../components/dashboard/DashboardPrimitives";
 import { darkPanelEyebrow, darkPanelShell, darkPanelTitleLg } from "../styles/darkPanel";
 import { slatePrimaryCtaInteract } from "../styles/interactions";
@@ -21,7 +23,14 @@ export function NonConformanceScreen({
   onComplete,
   onAddEvidence,
   onExportReport,
+  archiveCompanyFolderId = "",
+  archiveMasterSheetId,
+  archiveOffline = false,
+  onNcrArchived,
+  onArchiveError,
+  onArchiveSuccess,
 }: NonConformanceScreenProps) {
+  const canArchiveNcr = canArchiveRecordFromClient(currentUser.role, "ncr");
   const visible = useMemo(() => {
     const byRef = [...nonConformances].sort((a, b) => {
       const left = parseNcrSequence(a.reference) || 0;
@@ -118,6 +127,20 @@ export function NonConformanceScreen({
             ) : null}
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
+            {canArchiveNcr && archiveCompanyFolderId && selected && onNcrArchived ? (
+              <ArchiveRecordButton
+                recordType="ncr"
+                recordId={selected.reference || selected.id}
+                companyFolderId={archiveCompanyFolderId}
+                masterSheetId={archiveMasterSheetId}
+                offlineMode={archiveOffline}
+                canArchive={canArchiveNcr}
+                label="Archive NCR"
+                onArchived={() => onNcrArchived(selected.id)}
+                onError={onArchiveError}
+                onSuccess={onArchiveSuccess}
+              />
+            ) : null}
             <button
               type="button"
               onClick={() =>

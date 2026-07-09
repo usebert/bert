@@ -393,6 +393,10 @@ export function AdminScreen({
   onUpdateCompanyMember,
   onDeactivateCompanyMember,
   companyMemberEditing = false,
+  archiveOffline = false,
+  onArchivedCompanyMember,
+  onArchiveError,
+  onArchiveSuccess,
   onResyncUsers,
   onSelectSite,
   onAddSite,
@@ -1412,6 +1416,10 @@ export function AdminScreen({
           onUpdateCompanyMember={onUpdateCompanyMember}
           onDeactivateCompanyMember={onDeactivateCompanyMember}
           companyMemberEditing={companyMemberEditing}
+          archiveOffline={archiveOffline}
+          onArchivedCompanyMember={onArchivedCompanyMember}
+          onArchiveError={onArchiveError}
+          onArchiveSuccess={onArchiveSuccess}
           onResyncUsers={onResyncUsers}
           areaRestrictionsEnabled={areaRestrictionsEnabled}
           areaSyncLoading={areaSyncLoading}

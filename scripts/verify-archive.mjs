@@ -185,7 +185,38 @@ assert(canArchiveRecordType(adminActor, "user") && !canArchiveRecordType(manager
 assert(read("src/services/archiveService.ts").includes("ARCHIVE_OFFLINE_MESSAGE"), "24: offline archive message");
 assert(read("src/screens/ArchiveScreen.tsx").includes("ARCHIVE_OFFLINE_MESSAGE"), "24b: offline UI message");
 
-assert(read("shared/live-dashboard.mjs").includes("isWorkbookRowArchived"), "26: live dashboard ignores archived rows");
+const archiveButton = read("src/components/archive/ArchiveRecordButton.tsx");
+const archiveDialog = read("src/components/archive/ArchiveConfirmDialog.tsx");
+const archivePerms = read("src/utils/archivePermissions.ts");
+
+assert(archiveDialog.includes("Archive this item?"), "25: archive confirmation title");
+assert(archiveDialog.includes("This will hide it from active views"), "25b: archive confirmation body");
+assert(archiveDialog.includes("Reason for archiving"), "25c: archive reason field");
+assert(archiveButton.includes("archiveCompanyRecord"), "25d: archive button calls folder-first API");
+assert(archiveButton.includes("ARCHIVE_OFFLINE_MESSAGE"), "25e: archive button blocks offline");
+
+const activeScreens = [
+  ["People / Users", read("src/components/admin/ActiveUserCard.tsx"), "ArchiveRecordButton", "user"],
+  ["Actions", read("src/screens/ActionsScreen.tsx"), "ArchiveRecordButton", "action"],
+  ["NCRs", read("src/screens/NonConformanceScreen.tsx"), "ArchiveRecordButton", "ncr"],
+  ["Incidents", read("src/screens/IncidentReportingScreen.tsx"), "ArchiveRecordButton", "incident"],
+  ["Briefings", read("src/screens/BriefingsScreen.tsx"), "ArchiveRecordButton", "briefing"],
+  ["Audits", read("src/screens/AuditTemplateEditScreen.tsx"), "ArchiveRecordButton", "audit"],
+  ["Google Forms", read("src/screens/GoogleFormsScreen.tsx"), "ArchiveRecordButton", "googleForm"],
+  ["Schedules", read("src/screens/SchedulesScreen.tsx"), "ArchiveRecordButton", "schedule"],
+];
+for (const [label, source, component, type] of activeScreens) {
+  assert(source.includes(component) && source.includes(`recordType="${type}"`), `26: ${label} has archive action wired`);
+}
+
+assert(archivePerms.includes("canArchiveCompanyMember"), "27: self/last admin archive guard");
+assert(read("src/components/admin/ActiveUserCard.tsx").includes("reactivated from Archive"), "27b: user archive reactivation hint");
+assert(read("App.tsx").includes("handleActionArchived"), "28: App removes archived action from active list");
+assert(read("App.tsx").includes("invalidateArchiveDashboard"), "28b: App refreshes dashboard after archive");
+assert(read("App.tsx").includes("pushArchiveSuccessToast"), "28c: archive success toast");
+assert(read("App.tsx").includes("pushArchiveErrorToast"), "28d: archive failure toast");
+
+assert(read("shared/live-dashboard.mjs").includes("isWorkbookRowArchived"), "29: live dashboard ignores archived rows");
 assert(!read("src/screens/ArchiveScreen.tsx").includes("PasswordHash"), "21: archive UI does not reference PasswordHash");
 
 const roleNav = read("src/config/roleNavigation.ts");

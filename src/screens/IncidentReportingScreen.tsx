@@ -25,6 +25,8 @@ import {
   recentAssignmentHistory,
 } from "../utils/incidentAssignment";
 import { formatUkTime, getUkTodayKey, isUkOverdue } from "../utils/ukDateTime";
+import { ArchiveRecordButton } from "../components/archive/ArchiveRecordButton";
+import { canArchiveRecordFromClient } from "../utils/archivePermissions";
 
 export function IncidentReportingScreen({
   currentUser,
@@ -37,7 +39,14 @@ export function IncidentReportingScreen({
   onReassignIncident,
   onAddIncidentAction,
   onUpdateIncidentAction,
+  archiveCompanyFolderId = "",
+  archiveMasterSheetId,
+  archiveOffline = false,
+  onIncidentArchived,
+  onArchiveError,
+  onArchiveSuccess,
 }: IncidentReportingScreenProps) {
+  const canArchiveIncident = canArchiveRecordFromClient(currentUser.role, "incident");
   const fieldAuditor = canCompleteAuditAsAuditor(currentUser.role);
   const canManageIncidents = canInvestigateIncidents(currentUser.role);
   const theme = getRoleTheme(currentUser.role);
@@ -548,6 +557,20 @@ export function IncidentReportingScreen({
               <select value={selectedIncident.status} onChange={(event) => onUpdateIncident(selectedIncident.id, { status: event.target.value as IncidentStatus }, { statusNote: "Status updated from register" })} className="h-10 rounded-lg border px-2">
                 <option>Open</option><option>Under Investigation</option><option>Closed</option>
               </select>
+            ) : null}
+            {canManageIncidents && canArchiveIncident && archiveCompanyFolderId && onIncidentArchived ? (
+              <ArchiveRecordButton
+                recordType="incident"
+                recordId={selectedIncident.incidentId}
+                companyFolderId={archiveCompanyFolderId}
+                masterSheetId={archiveMasterSheetId}
+                offlineMode={archiveOffline}
+                canArchive={canArchiveIncident}
+                label="Archive incident"
+                onArchived={() => onIncidentArchived(selectedIncident.id)}
+                onError={onArchiveError}
+                onSuccess={onArchiveSuccess}
+              />
             ) : null}
           </div>
           <div className="mt-3 grid gap-2 md:grid-cols-2">

@@ -158,4 +158,10 @@ export type IncidentReportingScreenProps = {
   ) => Promise<IncidentRecord>;
   onAddIncidentAction: (incidentId: string, payload: { description: string; owner: string; dueDate: string }) => void;
   onUpdateIncidentAction: (actionId: string, patch: Partial<IncidentCorrectiveAction>) => void;
+  archiveCompanyFolderId?: string;
+  archiveMasterSheetId?: string;
+  archiveOffline?: boolean;
+  onIncidentArchived?: (incidentId: string) => void | Promise<void>;
+  onArchiveError?: (message: string) => void;
+  onArchiveSuccess?: () => void;
 };

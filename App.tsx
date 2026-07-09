@@ -430,6 +430,7 @@ import { INCIDENT_NOT_IN_WORKBOOK_MESSAGE } from "./src/utils/incidentId";
 import { prepareSerializableAuditEvidenceFiles, buildAuditEvidenceUploadPayload } from "./src/services/checkEvidenceService";
 import type { AuditResultDetail, AuditResultSummary } from "./src/types/resultsScreenProps";
 import { isEscalated, isOverdue, isStuck } from "./src/utils/managerDashboard";
+import { canArchiveRecordFromClient } from "./src/utils/archivePermissions";
 import { getNextBestAction } from "./src/utils/nextBestAction";
 import type { DashboardSummaryForNextAction, NextBestActionIntent } from "./src/utils/nextBestAction";
 import {
@@ -10623,6 +10624,77 @@ function App() {
     }
   };
 
+  const archiveCompanyFolderId = String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim();
+  const archiveMasterSheetId = String(
+    activeCompanyContext.masterSheetId.trim() ||
+      extractGoogleResourceId(masterSheetInput) ||
+      companySheetSync?.sheetId ||
+      "",
+  ).trim();
+
+  const invalidateArchiveDashboard = () => {
+    if (!currentUser) return;
+    invalidateLiveDashboardCache({
+      companyFolderId: archiveCompanyFolderId,
+      userEmail: String(sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser))
+        .trim()
+        .toLowerCase(),
+    });
+  };
+
+  const pushArchiveSuccessToast = () => {
+    pushToast("Archived", "Item moved to Archive.", "success");
+  };
+
+  const pushArchiveErrorToast = (message: string) => {
+    pushToast("Could not archive item", message || "Try again.", "warning");
+  };
+
+  const handleArchivedCompanyMember = async () => {
+    await refreshActiveCompanyMembers();
+    invalidateArchiveDashboard();
+  };
+
+  const handleActionArchived = (actionId: string) => {
+    setActions((current) => current.filter((item) => item.id !== actionId));
+    invalidateArchiveDashboard();
+  };
+
+  const handleNcrArchived = (ncrId: string) => {
+    setNonConformances((current) => current.filter((item) => item.id !== ncrId));
+    invalidateArchiveDashboard();
+  };
+
+  const handleIncidentArchived = (incidentId: string) => {
+    setIncidents((current) => current.filter((item) => item.id !== incidentId));
+    invalidateArchiveDashboard();
+  };
+
+  const handleGoogleFormArchived = (formKey: string) => {
+    setCompanyGoogleFormsState((current) => ({
+      ...current,
+      forms: current.forms.filter((form) => (form.driveFileId || form.formId) !== formKey),
+    }));
+  };
+
+  const handleScheduleArchived = (scheduleId: string) => {
+    setManagedSchedules((current) =>
+      current.map((item) =>
+        item.id === scheduleId
+          ? {
+              ...item,
+              lifecycle: "Archived" as ScheduleLifecycle,
+              updatedAt: formatStamp(),
+            }
+          : item,
+      ),
+    );
+    if (editingScheduleId === scheduleId) {
+      resetManagedScheduleDraft();
+    }
+    invalidateArchiveDashboard();
+  };
+
   const handleDeleteInvite = async (invite: UserInvite) => {
     if (isActiveCompanyUserInvite(invite)) {
       pushToast(
@@ -17006,9 +17078,13 @@ function App() {
               <BriefingsScreen
                 role={currentUser.role}
                 companyFolderId={String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim()}
+                masterSheetId={archiveMasterSheetId || undefined}
                 userEmail={String(sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser)).trim().toLowerCase()}
+                offlineMode={offlineMode}
                 initialBriefingId={selectedBriefingId || undefined}
                 onBack={() => setScreen("dashboard")}
+                onArchiveError={pushArchiveErrorToast}
+                onArchiveSuccess={pushArchiveSuccessToast}
               />
             )}
 
@@ -17112,6 +17188,13 @@ function App() {
                 bertCheckCreatedFormIds={bertCheckCreatedFormIds}
                 onCreateBertCheck={handleCreateBertCheckFromGoogleForm}
                 onBackToAuditCentre={handleNavigateToAuditCentre}
+                archiveCompanyFolderId={archiveCompanyFolderId}
+                archiveMasterSheetId={archiveMasterSheetId || undefined}
+                archiveOffline={offlineMode}
+                canArchiveForms={canArchiveRecordFromClient(currentUser.role, "googleForm")}
+                onFormArchived={handleGoogleFormArchived}
+                onArchiveError={pushArchiveErrorToast}
+                onArchiveSuccess={pushArchiveSuccessToast}
               />
             )}
 
@@ -17133,6 +17216,12 @@ function App() {
                 onAcceptSuggestion={acceptActionSuggestion}
                 onEditSuggestion={editActionSuggestion}
                 onIgnoreSuggestion={ignoreActionSuggestion}
+                archiveCompanyFolderId={archiveCompanyFolderId}
+                archiveMasterSheetId={archiveMasterSheetId || undefined}
+                archiveOffline={offlineMode}
+                onActionArchived={handleActionArchived}
+                onArchiveError={pushArchiveErrorToast}
+                onArchiveSuccess={pushArchiveSuccessToast}
               />
             )}
 
@@ -17224,6 +17313,12 @@ function App() {
                   }
                   pushToast("NCR report opened", `${ncr.reference} print view is ready to save as PDF.`, "success");
                 }}
+                archiveCompanyFolderId={archiveCompanyFolderId}
+                archiveMasterSheetId={archiveMasterSheetId || undefined}
+                archiveOffline={offlineMode}
+                onNcrArchived={handleNcrArchived}
+                onArchiveError={pushArchiveErrorToast}
+                onArchiveSuccess={pushArchiveSuccessToast}
               />
             )}
 
@@ -17239,6 +17334,12 @@ function App() {
                 onReassignIncident={reassignIncidentRecord}
                 onAddIncidentAction={addIncidentCorrectiveAction}
                 onUpdateIncidentAction={updateIncidentCorrectiveAction}
+                archiveCompanyFolderId={archiveCompanyFolderId}
+                archiveMasterSheetId={archiveMasterSheetId || undefined}
+                archiveOffline={offlineMode}
+                onIncidentArchived={handleIncidentArchived}
+                onArchiveError={pushArchiveErrorToast}
+                onArchiveSuccess={pushArchiveSuccessToast}
               />
             )}
 
@@ -17507,6 +17608,13 @@ function App() {
                 onDelete={handleDeleteSchedule}
                 onPause={handlePauseSchedule}
                 onResume={handleResumeSchedule}
+                archiveCompanyFolderId={archiveCompanyFolderId}
+                archiveMasterSheetId={archiveMasterSheetId || undefined}
+                archiveOffline={offlineMode}
+                canArchiveSchedules={canArchiveRecordFromClient(currentUser.role, "schedule")}
+                onScheduleArchived={handleScheduleArchived}
+                onArchiveError={pushArchiveErrorToast}
+                onArchiveSuccess={pushArchiveSuccessToast}
               />
             )}
 
@@ -17745,6 +17853,10 @@ function App() {
                 onRemoveCompanyUser={handleRemoveCompanyUser}
                 onUpdateCompanyMember={handleUpdateCompanyMember}
                 onDeactivateCompanyMember={handleDeactivateCompanyMember}
+                archiveOffline={offlineMode}
+                onArchivedCompanyMember={handleArchivedCompanyMember}
+                onArchiveError={pushArchiveErrorToast}
+                onArchiveSuccess={pushArchiveSuccessToast}
                 companyMemberEditing={companyMemberEditing}
                 onResyncUsers={handleResyncUsers}
                 areaRestrictionsEnabled={areaRestrictionsEnabled}

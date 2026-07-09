@@ -9,6 +9,8 @@ import type { User } from "../types/dashboardScreenProps";
 import { slatePrimaryCtaInteract } from "../styles/interactions";
 import { getActionPrimaryCTA, getRecordNextStepText } from "../utils/recordNextStep";
 import { EvidenceUploadChoice } from "../components/evidence/EvidenceUploadChoice";
+import { ArchiveRecordButton } from "../components/archive/ArchiveRecordButton";
+import { canArchiveRecordFromClient } from "../utils/archivePermissions";
 
 type ActionFilter = "Open" | "Overdue" | "Awaiting Verification" | "Closed" | "Severity";
 const brandDarkFormControl =
@@ -93,6 +95,13 @@ function ActionDetailPanel({
   onAcceptSuggestion,
   onEditSuggestion,
   onIgnoreSuggestion,
+  archiveCompanyFolderId,
+  archiveMasterSheetId,
+  archiveOffline,
+  canArchiveAction,
+  onActionArchived,
+  onArchiveError,
+  onArchiveSuccess,
 }: {
   action: ActionItem;
   role: Role;
@@ -106,6 +115,13 @@ function ActionDetailPanel({
   onAcceptSuggestion: (actionId: string) => void;
   onEditSuggestion: (actionId: string) => void;
   onIgnoreSuggestion: (actionId: string) => void;
+  archiveCompanyFolderId?: string;
+  archiveMasterSheetId?: string;
+  archiveOffline?: boolean;
+  canArchiveAction?: boolean;
+  onActionArchived?: (actionId: string) => void | Promise<void>;
+  onArchiveError?: (message: string) => void;
+  onArchiveSuccess?: () => void;
 }) {
   const chip = statusChipForAction(action.status);
   const urgency = getActionUrgency(action);
@@ -129,7 +145,24 @@ function ActionDetailPanel({
     <section className="rounded-[1.6rem] border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-4 shadow-[0_16px_30px_rgba(15,23,42,0.06)]">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <StatusChip variant={chip.variant}>{chip.label}</StatusChip>
-        <div className={`rounded-full px-3 py-1 text-xs font-semibold ${urgencyTone}`}>{urgency}</div>
+        <div className="flex flex-wrap items-center gap-2">
+          {canArchiveAction && archiveCompanyFolderId && onActionArchived ? (
+            <ArchiveRecordButton
+              recordType="action"
+              recordId={action.id}
+              companyFolderId={archiveCompanyFolderId}
+              masterSheetId={archiveMasterSheetId}
+              offlineMode={archiveOffline}
+              canArchive={canArchiveAction}
+              label="Archive action"
+              extraMessage="It will be hidden from active views and can be restored from Archive."
+              onArchived={() => onActionArchived(action.id)}
+              onError={onArchiveError}
+              onSuccess={onArchiveSuccess}
+            />
+          ) : null}
+          <div className={`rounded-full px-3 py-1 text-xs font-semibold ${urgencyTone}`}>{urgency}</div>
+        </div>
       </div>
       <div className="min-w-0">
         <p className="mt-1 text-base font-semibold text-slate-900">{action.questionText}</p>
@@ -374,6 +407,12 @@ export function ActionsScreen({
   onAcceptSuggestion,
   onEditSuggestion,
   onIgnoreSuggestion,
+  archiveCompanyFolderId = "",
+  archiveMasterSheetId,
+  archiveOffline = false,
+  onActionArchived,
+  onArchiveError,
+  onArchiveSuccess,
 }: {
   currentUser: User;
   actions: ActionItem[];
@@ -391,7 +430,14 @@ export function ActionsScreen({
   onAcceptSuggestion: (actionId: string) => void;
   onEditSuggestion: (actionId: string) => void;
   onIgnoreSuggestion: (actionId: string) => void;
+  archiveCompanyFolderId?: string;
+  archiveMasterSheetId?: string;
+  archiveOffline?: boolean;
+  onActionArchived?: (actionId: string) => void | Promise<void>;
+  onArchiveError?: (message: string) => void;
+  onArchiveSuccess?: () => void;
 }) {
+  const canArchiveAction = canArchiveRecordFromClient(currentUser.role, "action");
   const canReviewSuggestions = currentUser.role === "Admin" || currentUser.role === "Manager";
   const permissions = getRolePermissions(currentUser.role);
   const [selectedActionId, setSelectedActionId] = useState("");
@@ -522,6 +568,13 @@ export function ActionsScreen({
           onAcceptSuggestion={onAcceptSuggestion}
           onEditSuggestion={onEditSuggestion}
           onIgnoreSuggestion={onIgnoreSuggestion}
+          archiveCompanyFolderId={archiveCompanyFolderId}
+          archiveMasterSheetId={archiveMasterSheetId}
+          archiveOffline={archiveOffline}
+          canArchiveAction={canArchiveAction}
+          onActionArchived={onActionArchived}
+          onArchiveError={onArchiveError}
+          onArchiveSuccess={onArchiveSuccess}
         />
       ) : openActions.length > 0 ? (
         <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center text-sm text-slate-500">
