@@ -544,7 +544,7 @@ export function AdminScreen({
 
   return (
     <div className="space-y-4">
-      {pilotFocus ? (
+      {pilotFocus && !usersInvitesPilotMode ? (
         <section className={pilotHeroLight ? pilotLightSurface : darkPanelShellCompact}>
           <p className={pilotHeroLight ? "text-xs font-semibold uppercase tracking-[0.3em] text-slate-500" : darkPanelEyebrow}>
             {pilotTitles[pilotFocus].title}
@@ -859,7 +859,7 @@ export function AdminScreen({
         </section>
       )}
 
-      {masterOnly && currentUser.role !== "Admin" && (
+      {masterOnly && currentUser.role !== "Admin" && !usersInvitesPilotMode && (
         <section className={darkPanelShellBordered}>
           <SectionHeader
             icon="shield"

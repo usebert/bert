@@ -30,6 +30,20 @@ assert(panel.includes("topView") && panel.includes('"landing"'), "2: Landing vie
 assert(panel.includes("INVITE AREA"), "3: Landing includes INVITE AREA card");
 assert(panel.includes("COMPANY"), "4: Landing includes COMPANY card");
 assert(
+  adminScreen.includes("pilotFocus && !usersInvitesPilotMode"),
+  "4b: Users & Invites hero card hidden on people landing",
+);
+assert(
+  adminScreen.includes("!usersInvitesPilotMode &&"),
+  "4c: Setup account only banner hidden on people landing",
+);
+assert(
+  !panel.includes("Users & Invites") &&
+    !panel.includes("Setup account only") &&
+    !panel.includes("This workspace is managed centrally"),
+  "4d: Landing panel has no setup/workspace heading copy",
+);
+assert(
   panel.includes('topView === "inviteArea"') && panel.includes('topView === "company"'),
   "5: Invite/Company sections are hidden until selected",
 );
