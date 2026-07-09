@@ -38,6 +38,7 @@ export type CompleteCheckResult = {
   ok: boolean;
   resultId?: string;
   scheduleId?: string;
+  masterSheetId?: string;
   error?: string;
   message?: string;
   code?: string;
@@ -89,6 +90,9 @@ export const CHECK_COMPLETION_TIMEOUT_MS = 90_000;
 export const CHECK_COMPLETION_SUBMITTING_MESSAGE = "Submitting your check…";
 export const CHECK_COMPLETION_USER_MESSAGE = "Could not submit this check.";
 export const CHECK_COMPLETION_SUCCESS_MESSAGE = "Check submitted successfully.";
+export const CHECK_COMPLETION_NCR_RECORDED_MESSAGE = "Non-conformance recorded.";
+export const CHECK_COMPLETION_NCR_WRITE_FAILED_MESSAGE =
+  "Check submitted, but the non-conformance could not be recorded.";
 export const CHECK_COMPLETION_TIMEOUT_MESSAGE =
   "Submitting your check timed out before the server finished saving to your company workbook. Try again — if it keeps failing, ask your operator to check your company records.";
 export const CHECK_COMPLETION_NOT_ASSIGNED_MESSAGE = "This check is not assigned to your account.";
@@ -310,6 +314,7 @@ export async function completeCheck(
     evidenceUploadWarning?: string;
     ncrWriteWarning?: string;
     ncrs?: Array<{ ncrId?: string; reference?: string; auditId?: string; questionId?: string; status?: string }>;
+    masterSheetId?: string;
   } = {};
   try {
     payload = (await response.json()) as typeof payload;
@@ -342,6 +347,7 @@ export async function completeCheck(
     ok: true,
     resultId,
     scheduleId: resolvedScheduleId,
+    masterSheetId: String(payload.masterSheetId || "").trim() || undefined,
     evidenceUploadWarning: String(payload.evidenceUploadWarning || "").trim() || undefined,
     ncrWriteWarning: String(payload.ncrWriteWarning || "").trim() || undefined,
     ncrs: Array.isArray(payload.ncrs) ? payload.ncrs : undefined,

@@ -384,6 +384,8 @@ import {
   ASSIGNED_CHECKS_LOAD_TIMEOUT_MS,
   ASSIGNED_CHECKS_USER_MESSAGE,
   CHECK_COMPLETION_SUCCESS_MESSAGE,
+  CHECK_COMPLETION_NCR_RECORDED_MESSAGE,
+  CHECK_COMPLETION_NCR_WRITE_FAILED_MESSAGE,
   CHECK_COMPLETION_TIMEOUT_MESSAGE,
   CHECK_COMPLETION_TIMEOUT_MS,
   CHECK_COMPLETION_USER_MESSAGE,
@@ -477,9 +479,12 @@ import {
 } from "./src/services/complianceSyncService";
 import {
   mergeNonConformancesWithSheet,
+  mergeSheetNcrsIntoState,
   ncrSafeErrorMessage,
   parseCompanySheetNcrs,
   persistNcrsToSheet,
+  resolveNcrCompletionOutcome,
+  type CompletionNcrSummary,
   type PersistNcrInput,
 } from "./src/services/ncrService";
 import { googleSheetsService } from "./src/services/googleSheetsService";
@@ -1265,6 +1270,8 @@ type AuditCompletionSummaryState = {
   syncTone: "green" | "amber" | "red";
   syncLabel: string;
   resultId?: string;
+  ncrsRecorded: number;
+  ncrWriteFailed: boolean;
 };
 
 type ActiveAssignedCheckContext = {
@@ -8943,13 +8950,7 @@ function App() {
         const remaining = current.filter((item) => item.companyId !== folderId);
         return [...remaining, ...parseAuditFindingsFromSheet(payload.data.AuditFindings ?? [], folderId)];
       });
-      setNonConformances((current) => {
-        const fromSheet = parseCompanySheetNcrs(payload.data.NCRs ?? [], folderId);
-        const localForFolder = current.filter(
-          (item) => !fromSheet.some((sheetItem) => sheetItem.reference === item.reference),
-        );
-        return mergeNonConformancesWithSheet(localForFolder, fromSheet);
-      });
+      setNonConformances((current) => mergeSheetNcrsIntoState(current, payload.data.NCRs ?? [], folderId));
 
       return payload;
     } catch (error) {
@@ -9027,6 +9028,7 @@ function App() {
         const remaining = current.filter((item) => item.companyId !== companyFolderId);
         return [...remaining, ...parseAuditFindingsFromSheet(payload.data.AuditFindings ?? [], companyFolderId)];
       });
+      setNonConformances((current) => mergeSheetNcrsIntoState(current, payload.data.NCRs ?? [], companyFolderId));
 
       return payload;
     } catch (error) {
@@ -11242,15 +11244,27 @@ function App() {
               resultId: result.resultId,
               localSubmissionId: submission.localSubmissionId,
               skipWorkbookPersist: true,
+              serverNcrs: result.ncrs,
             });
-            if (syncedNcrs.length > 0) {
+            const syncedNcrOutcome = resolveNcrCompletionOutcome({
+              issuesFound: findings.filter((finding) => finding.answer === "fail" || finding.answer === "nc").length,
+              localCreatedCount: syncedNcrs.length,
+              serverNcrs: result.ncrs,
+              ncrWriteWarning: result.ncrWriteWarning,
+            });
+            if (syncedNcrOutcome.ncrsRecorded > 0) {
               pushToast(
                 "Non-conformance recorded",
-                `${syncedNcrs.length} non-conformance${syncedNcrs.length === 1 ? "" : "s"} synced to the register.`,
+                `${syncedNcrOutcome.ncrsRecorded} non-conformance${syncedNcrOutcome.ncrsRecorded === 1 ? "" : "s"} synced to the register.`,
                 "success",
               );
-            } else if (result.ncrWriteWarning) {
-              pushToast("NCR save warning", result.ncrWriteWarning, "warning");
+            } else if (result.ncrWriteWarning || syncedNcrOutcome.ncrWriteFailed) {
+              pushToast("NCR save warning", result.ncrWriteWarning || CHECK_COMPLETION_NCR_WRITE_FAILED_MESSAGE, "warning");
+            }
+            const syncMasterSheetId =
+              result.masterSheetId || submission.masterSheetId || assignedChecksState.masterSheetId || "";
+            if (syncMasterSheetId && targetCompanyFolderId) {
+              void loadCompanySheetById(syncMasterSheetId, targetCompanyFolderId, { silent: true });
             }
           }
 
@@ -11946,6 +11960,7 @@ function App() {
     resultId,
     localSubmissionId,
     skipWorkbookPersist = false,
+    serverNcrs,
   }: {
     audit: Audit;
     responseMap: Record<string, Answer>;
@@ -11953,6 +11968,7 @@ function App() {
     resultId?: string;
     localSubmissionId?: string;
     skipWorkbookPersist?: boolean;
+    serverNcrs?: CompletionNcrSummary[];
   }) => {
     if (!currentUser) {
       return { created: [] as NonConformanceRecord[], referenceByQuestionId: {} as Record<string, string> };
@@ -11965,18 +11981,30 @@ function App() {
     const created: NonConformanceRecord[] = [];
     const referenceByQuestionId: Record<string, string> = {};
     let nextSequence = getNextNcrSequence(nonConformances);
+    const serverReferencesByQuestion = new Map(
+      (serverNcrs ?? [])
+        .map((entry) => [String(entry.questionId || "").trim(), String(entry.reference || entry.ncrId || "").trim()] as const)
+        .filter(([questionId, reference]) => Boolean(questionId && reference)),
+    );
 
     for (const question of audit.questions) {
       const answer = responseMap[question.id];
       if (answer !== "fail" && answer !== "nc") {
         continue;
       }
-      const existing = nonConformances.find(
-        (item) =>
-          item.auditId === audit.id &&
-          item.auditQuestionId === question.id &&
-          item.status !== "Completed",
-      );
+      const serverReference = serverReferencesByQuestion.get(question.id);
+      if (serverReference) {
+        referenceByQuestionId[question.id] = serverReference;
+        continue;
+      }
+      const existing = resultId
+        ? undefined
+        : nonConformances.find(
+            (item) =>
+              item.auditId === audit.id &&
+              item.auditQuestionId === question.id &&
+              item.status !== "Completed",
+          );
       if (existing) {
         referenceByQuestionId[question.id] = existing.reference;
         continue;
@@ -12007,6 +12035,49 @@ function App() {
       };
       created.push(record);
       referenceByQuestionId[question.id] = reference;
+    }
+
+    for (const entry of serverNcrs ?? []) {
+      const questionId = String(entry.questionId || "").trim();
+      const reference = String(entry.reference || entry.ncrId || "").trim();
+      if (!questionId || !reference) {
+        continue;
+      }
+      referenceByQuestionId[questionId] = reference;
+      if (
+        nonConformances.some((item) => item.reference === reference) ||
+        created.some((item) => item.reference === reference)
+      ) {
+        continue;
+      }
+      const question = audit.questions.find((item) => item.id === questionId);
+      const answer = responseMap[questionId];
+      if (answer !== "fail" && answer !== "nc") {
+        continue;
+      }
+      created.push({
+        id: reference,
+        reference,
+        auditId: String(entry.auditId || audit.id).trim() || audit.id,
+        auditName: audit.name,
+        auditQuestionId: questionId,
+        auditQuestion: question?.text || "",
+        selectedAnswer: answer,
+        auditorName: currentUser.name,
+        auditorUserId: currentUser.username,
+        site: audit.siteArea,
+        raisedAt,
+        status: "Raised",
+        assignedLineManager: assignedManager.name,
+        assignedLineManagerUserId: managerUserId,
+        assignedLineManagerEmail: assignedManager.email || "",
+        investigationIsoClause: "",
+        investigationNotes: noteMap[questionId] || "",
+        rootCause: "",
+        correctiveAction: "",
+        investigationExtraNotes: "",
+        evidence: [],
+      });
     }
 
     if (created.length > 0) {
@@ -12340,6 +12411,8 @@ function App() {
       syncTone: AuditCompletionSummaryState["syncTone"];
       syncLabel: string;
       resultId?: string;
+      ncrsRecorded?: number;
+      ncrWriteFailed?: boolean;
     }) => {
       setDrafts((current) => {
         const nextDrafts = { ...current };
@@ -12356,6 +12429,8 @@ function App() {
         syncTone: input.syncTone,
         syncLabel: input.syncLabel,
         resultId: input.resultId,
+        ncrsRecorded: input.ncrsRecorded ?? 0,
+        ncrWriteFailed: input.ncrWriteFailed ?? false,
       });
       notifySelectedManagersForNonCompliance(activeAudit, currentUser.name, input.issues, input.syncTone !== "green");
       setActiveAuditId(null);
@@ -12424,10 +12499,14 @@ function App() {
         localSubmissionId,
         skipWorkbookPersist: true,
       });
-      if (offlineNcrs.length > 0) {
+      const offlineNcrOutcome = resolveNcrCompletionOutcome({
+        issuesFound,
+        localCreatedCount: offlineNcrs.length,
+      });
+      if (offlineNcrOutcome.ncrsRecorded > 0) {
         pushToast(
           "Non-conformance recorded",
-          `${offlineNcrs.length} non-conformance${offlineNcrs.length === 1 ? "" : "s"} queued with this check.`,
+          `${offlineNcrOutcome.ncrsRecorded} non-conformance${offlineNcrOutcome.ncrsRecorded === 1 ? "" : "s"} queued with this check.`,
           "success",
         );
       }
@@ -12435,6 +12514,8 @@ function App() {
         issues: issuesFound,
         syncTone: "amber",
         syncLabel: queueAddedMessage({ online: false }),
+        ncrsRecorded: offlineNcrOutcome.ncrsRecorded,
+        ncrWriteFailed: offlineNcrOutcome.ncrWriteFailed,
       });
       return;
     }
@@ -12582,11 +12663,18 @@ function App() {
           resultId: result.resultId,
           localSubmissionId: `check-${activeAudit.id}-${Date.now()}`,
           skipWorkbookPersist: true,
+          serverNcrs: result.ncrs,
         });
-        if (recordedNcrs.length > 0) {
+        const ncrOutcome = resolveNcrCompletionOutcome({
+          issuesFound,
+          localCreatedCount: recordedNcrs.length,
+          serverNcrs: result.ncrs,
+          ncrWriteWarning: result.ncrWriteWarning,
+        });
+        if (ncrOutcome.ncrsRecorded > 0) {
           pushToast(
             "Non-conformance recorded",
-            `${recordedNcrs.length} non-conformance${recordedNcrs.length === 1 ? "" : "s"} added to the register.`,
+            `${ncrOutcome.ncrsRecorded} non-conformance${ncrOutcome.ncrsRecorded === 1 ? "" : "s"} added to the register.`,
             "success",
           );
         }
@@ -12599,11 +12687,22 @@ function App() {
           );
         }
 
+        const companyFolderId = assignedContext.companyFolderId;
+        const masterSheetId =
+          result.masterSheetId || assignedChecksState.masterSheetId || companySheetSync?.sheetId || "";
+        if (masterSheetId && companyFolderId) {
+          void loadCompanySheetById(masterSheetId, companyFolderId, { silent: true });
+        } else if (companyFolderId) {
+          void loadCompanySheet(companyFolderId, { silent: true });
+        }
+
         finishCompletionSummary({
           issues: issuesFound,
           syncTone: "green",
           syncLabel: CHECK_COMPLETION_SUCCESS_MESSAGE,
           resultId: result.resultId,
+          ncrsRecorded: ncrOutcome.ncrsRecorded,
+          ncrWriteFailed: ncrOutcome.ncrWriteFailed,
         });
         if (assignedContext) {
           const completedAtIso = new Date().toISOString();
@@ -18576,30 +18675,53 @@ function AuditCompletionSummary({
   const reducedMotion = usePrefersReducedMotion();
   const submittedOnline = summary.syncTone === "green";
   const successMessage = submittedOnline ? CHECK_COMPLETION_SUCCESS_MESSAGE : summary.syncLabel;
+  const showNcrRecorded = summary.ncrsRecorded > 0;
+  const showNcrWriteFailed = summary.ncrWriteFailed;
   return (
     <div className="space-y-4">
       <div
         className={[
           "flex items-start gap-3 rounded-2xl border px-4 py-4",
-          submittedOnline ? "border-emerald-200 bg-emerald-50/80" : "border-amber-200 bg-amber-50/90",
+          showNcrWriteFailed
+            ? "border-amber-300 bg-amber-50/95"
+            : submittedOnline
+              ? "border-emerald-200 bg-emerald-50/80"
+              : "border-amber-200 bg-amber-50/90",
           reducedMotion ? "" : bertSubmitSuccess,
         ].join(" ")}
         role="status"
         aria-live="polite"
       >
-        {submittedOnline ? (
+        {submittedOnline && !showNcrWriteFailed ? (
           <SuccessTick className="h-11 w-11 text-base" label="Submitted" />
         ) : (
           <StatusPulse
-            state={offlineQueueCount > 0 ? "waiting" : "synced"}
-            label={offlineQueueCount > 0 ? `${offlineQueueCount} waiting to sync` : "Saved on tablet"}
+            state={offlineQueueCount > 0 ? "waiting" : showNcrWriteFailed ? "waiting" : "synced"}
+            label={
+              showNcrWriteFailed
+                ? "Partial success"
+                : offlineQueueCount > 0
+                  ? `${offlineQueueCount} waiting to sync`
+                  : "Saved on tablet"
+            }
             className="shrink-0"
           />
         )}
         <div className="min-w-0">
           <p className="text-base font-bold tracking-tight text-slate-900">{successMessage}</p>
+          {showNcrRecorded ? (
+            <p className="mt-1 text-sm font-semibold text-emerald-900">{CHECK_COMPLETION_NCR_RECORDED_MESSAGE}</p>
+          ) : null}
+          {showNcrWriteFailed ? (
+            <p className="mt-1 text-sm font-semibold text-amber-950">{CHECK_COMPLETION_NCR_WRITE_FAILED_MESSAGE}</p>
+          ) : null}
           {summary.auditName ? (
             <p className="mt-1 text-sm font-semibold text-slate-800">{summary.auditName}</p>
+          ) : null}
+          {summary.actionsCreated > 0 ? (
+            <p className="mt-1 text-sm font-semibold text-slate-800">
+              {summary.actionsCreated} action{summary.actionsCreated === 1 ? "" : "s"} created.
+            </p>
           ) : null}
           {!submittedOnline && offlineQueueCount > 0 ? (
             <p className="mt-2 text-xs font-semibold text-amber-900">

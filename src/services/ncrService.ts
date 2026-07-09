@@ -54,7 +54,11 @@ export function parseCompanySheetNcrs(
         return null;
       }
       const archived = pickField(record, ["Archived"]).toLowerCase();
+      const status = pickField(record, ["Status"]).toLowerCase();
       if (archived === "true" || archived === "yes" || archived === "1") {
+        return null;
+      }
+      if (status === "archived") {
         return null;
       }
       const reference = pickField(record, ["Reference", "NCR ID"]);
@@ -87,6 +91,41 @@ export function parseCompanySheetNcrs(
       } satisfies NonConformanceRecord;
     })
     .filter(Boolean) as NonConformanceRecord[];
+}
+
+export type CompletionNcrSummary = {
+  ncrId?: string;
+  reference?: string;
+  auditId?: string;
+  questionId?: string;
+  status?: string;
+};
+
+export function mergeSheetNcrsIntoState(
+  current: NonConformanceRecord[],
+  sheetRecords: Record<string, string>[],
+  companyFolderId: string,
+): NonConformanceRecord[] {
+  const fromSheet = parseCompanySheetNcrs(sheetRecords, companyFolderId);
+  const localForFolder = current.filter(
+    (item) => !fromSheet.some((sheetItem) => sheetItem.reference === item.reference),
+  );
+  return mergeNonConformancesWithSheet(localForFolder, fromSheet);
+}
+
+export function resolveNcrCompletionOutcome(input: {
+  issuesFound: number;
+  localCreatedCount: number;
+  serverNcrs?: CompletionNcrSummary[];
+  ncrWriteWarning?: string;
+}): { ncrsRecorded: number; ncrWriteFailed: boolean } {
+  const serverCount = Array.isArray(input.serverNcrs) ? input.serverNcrs.length : 0;
+  const ncrsRecorded = Math.max(input.localCreatedCount, serverCount);
+  const ncrWriteFailed =
+    input.issuesFound > 0 &&
+    ncrsRecorded === 0 &&
+    (Boolean(String(input.ncrWriteWarning || "").trim()) || serverCount === 0);
+  return { ncrsRecorded, ncrWriteFailed };
 }
 
 export function mergeNonConformancesWithSheet(

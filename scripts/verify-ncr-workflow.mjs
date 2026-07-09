@@ -43,14 +43,30 @@ assert(ncrService.includes("NCR_WRITE_FAILED"), "2b: safe NCR write error code")
 
 const completion = read("server/completion-service.mjs");
 assert(completion.includes("appendNcrsFromCheckCompletion"), "3: completion service writes NCR rows");
+assert(completion.includes("findings: input.findings"), "3b: findings passed to NCR writer");
 
 const routes = read("server/core-workflow-routes.mjs");
 assert(routes.includes('app.post("/api/companies/:companyFolderId/ncrs"'), "4: folder-first NCR save route");
 
 const appTsx = read("App.tsx");
+const checkService = read("src/services/checkService.ts");
+const clientNcrService = read("src/services/ncrService.ts");
+
 assert(appTsx.includes("createNonConformancesFromAudit"), "5: client creates NCRs from audit submit");
 assert(appTsx.includes("parseCompanySheetNcrs"), "6: client loads NCRs from workbook");
-assert(appTsx.includes("Non-conformance recorded"), "7: success message on NCR create");
+assert(appTsx.includes("mergeSheetNcrsIntoState"), "6b: sheet NCR merge helper wired");
+assert(appTsx.includes("loadCompanySheetById") && appTsx.includes("mergeSheetNcrsIntoState(current, payload.data.NCRs"), "6c: load by sheet id merges NCR tab");
+assert(checkService.includes('CHECK_COMPLETION_NCR_RECORDED_MESSAGE = "Non-conformance recorded."'), "7: success screen NCR recorded message");
+assert(
+  checkService.includes("CHECK_COMPLETION_NCR_WRITE_FAILED_MESSAGE"),
+  "7b: partial-success warning when NCR write fails",
+);
+assert(appTsx.includes("CHECK_COMPLETION_NCR_RECORDED_MESSAGE"), "7c: completion summary shows NCR recorded");
+assert(appTsx.includes("CHECK_COMPLETION_NCR_WRITE_FAILED_MESSAGE"), "7d: completion summary shows NCR write failure");
+assert(appTsx.includes("ncrsRecorded"), "7e: completion summary tracks NCR count");
+assert(appTsx.includes("ncrWriteFailed"), "7f: completion summary tracks NCR write failure");
+assert(appTsx.includes("resolveNcrCompletionOutcome"), "7g: NCR outcome resolver used on submit");
+assert(appTsx.includes("serverNcrs: result.ncrs"), "7h: server NCRs merged into client state");
 
 const server = read("server/server.mjs");
 assert(server.includes('"NCRs"'), "8: NCRs tab in company sheet read list");
@@ -75,17 +91,31 @@ assert(isNcrFindingAnswer("nc") && isNcrFindingAnswer("fail"), "10: finding answ
 {
   const openBlankArchived = { "NCR ID": "n1", "Company ID": CO, Status: "Raised" };
   const archived = { "NCR ID": "n2", "Company ID": CO, Status: "Open", Archived: "true" };
+  const statusArchived = { "NCR ID": "n3", "Company ID": CO, Status: "Archived" };
   const built = buildLiveDashboardFromSources(
-    { ncrs: [openBlankArchived, archived], actions: [], schedules: [], auditResults: [], incidents: [], briefings: [], briefingRecipients: [], areas: [], sites: [] },
+    {
+      ncrs: [openBlankArchived, archived, statusArchived],
+      actions: [],
+      schedules: [],
+      auditResults: [],
+      incidents: [],
+      briefings: [],
+      briefingRecipients: [],
+      areas: [],
+      sites: [],
+    },
     { companyFolderId: CO, actor: adminActor, now: new Date("2026-07-09T10:00:00.000Z") },
   );
   assert(built.metrics.openNcrs === 1, "11: blank Archived keeps NCR open in dashboard");
   assert(isWorkbookRowArchived(archived, "ncr"), "12: archived NCR hidden");
+  assert(isWorkbookRowArchived(statusArchived, "ncr"), "12b: status Archived hides NCR");
   assert(ncrWorkbookRowIsOpen(openBlankArchived), "13: missing status treated as open");
 }
 
 assert(read("src/components/dashboard/ManagerRoleDashboard.tsx").includes("Open NCRs"), "14: manager dashboard shows open NCRs");
-assert(read("src/services/ncrService.ts").includes("NCR_SAFE_ERROR_CODES"), "15: safe client NCR error messages");
+assert(clientNcrService.includes("NCR_SAFE_ERROR_CODES"), "15: safe client NCR error messages");
+assert(clientNcrService.includes("resolveNcrCompletionOutcome"), "15b: client NCR outcome resolver");
+assert(clientNcrService.includes('status === "archived"'), "15c: client parser hides status Archived only");
 
 assert(JSON.parse(read("package.json")).scripts["verify:ncr-workflow"], "16: verify script registered");
 

@@ -38,6 +38,7 @@ export const ARCHIVE_RECORD_TYPES = {
     idHeaders: ["NCR ID"],
     labelHeaders: ["Title", "Description", "Reference"],
     restoreLabel: "Restore",
+    statusArchiveValue: "Archived",
   },
   incident: {
     section: "incidents",
