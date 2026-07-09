@@ -475,6 +475,13 @@ import {
   persistReportToSheet,
   syncAuditSubmissionToSheet,
 } from "./src/services/complianceSyncService";
+import {
+  mergeNonConformancesWithSheet,
+  ncrSafeErrorMessage,
+  parseCompanySheetNcrs,
+  persistNcrsToSheet,
+  type PersistNcrInput,
+} from "./src/services/ncrService";
 import { googleSheetsService } from "./src/services/googleSheetsService";
 import { googleFormTemplateFolderService } from "./src/services/googleFormTemplateFolderService";
 import { applyGoogleFormCopyForTemplate } from "./src/utils/createGoogleFormCopyForTemplate";
@@ -8936,6 +8943,13 @@ function App() {
         const remaining = current.filter((item) => item.companyId !== folderId);
         return [...remaining, ...parseAuditFindingsFromSheet(payload.data.AuditFindings ?? [], folderId)];
       });
+      setNonConformances((current) => {
+        const fromSheet = parseCompanySheetNcrs(payload.data.NCRs ?? [], folderId);
+        const localForFolder = current.filter(
+          (item) => !fromSheet.some((sheetItem) => sheetItem.reference === item.reference),
+        );
+        return mergeNonConformancesWithSheet(localForFolder, fromSheet);
+      });
 
       return payload;
     } catch (error) {
@@ -11220,6 +11234,26 @@ function App() {
             throw new Error(result.error || result.message || "Server rejected submission");
           }
 
+          if (submission.audit) {
+            const { created: syncedNcrs } = createNonConformancesFromAudit({
+              audit: submission.audit,
+              responseMap: submission.answers as Record<string, Answer>,
+              noteMap: submission.notes,
+              resultId: result.resultId,
+              localSubmissionId: submission.localSubmissionId,
+              skipWorkbookPersist: true,
+            });
+            if (syncedNcrs.length > 0) {
+              pushToast(
+                "Non-conformance recorded",
+                `${syncedNcrs.length} non-conformance${syncedNcrs.length === 1 ? "" : "s"} synced to the register.`,
+                "success",
+              );
+            } else if (result.ncrWriteWarning) {
+              pushToast("NCR save warning", result.ncrWriteWarning, "warning");
+            }
+          }
+
           for (const ref of submission.evidenceRefs) {
             void tabletOfflineService.deleteEvidenceBlob(ref.blobKey).catch(() => undefined);
           }
@@ -11654,8 +11688,8 @@ function App() {
     evidenceMap: Record<string, EvidenceItem[]>,
     submittedBy: User,
     completedAt: string,
+    ncrReferenceByQuestionId: Record<string, string> = {},
   ) => {
-    let nonConformanceSequence = getNextNonConformanceSequence(actions);
     const actionItems = audit.questions
       .map((question) => ({
         question,
@@ -11703,7 +11737,10 @@ function App() {
           questionText: item.question.text,
           sourceAnswer: item.answer,
           nonConformanceId:
-            item.answer === "fail" || item.answer === "nc" ? formatNonConformanceId(nonConformanceSequence++) : undefined,
+            item.answer === "fail" || item.answer === "nc"
+              ? ncrReferenceByQuestionId[item.question.id] ||
+                formatNcrReference(getNextNcrSequence(nonConformances))
+              : undefined,
           severity,
           owner: audit.owner,
           assignedToUserId: audit.owner.toLowerCase().replace(/\s+/g, "-"),
@@ -11814,7 +11851,7 @@ function App() {
       questionId: question.id,
       questionText: `Resolve failed check: ${question.text}`,
       sourceAnswer: answer,
-      nonConformanceId: answer === "fail" || answer === "nc" ? formatNonConformanceId(getNextNonConformanceSequence(actions)) : undefined,
+      nonConformanceId: answer === "fail" || answer === "nc" ? formatNcrReference(getNextNcrSequence(nonConformances)) : undefined,
       severity: resolvedSeverity,
       owner: audit.owner,
       assignedToUserId: audit.owner.toLowerCase().replace(/\s+/g, "-"),
@@ -11865,6 +11902,145 @@ function App() {
     return 1;
   };
 
+  const persistCreatedNcrs = async (records: NonConformanceRecord[], options?: { resultId?: string; localSubmissionId?: string }) => {
+    if (offlineMode || !window.navigator.onLine) {
+      return;
+    }
+    const companyFolderId = String(selectedFolderId || selectedFolder?.id || activeCompanyContext.companyFolderId || "").trim();
+    const masterSheetId =
+      activeCompanyContext.masterSheetId.trim() ||
+      extractGoogleResourceId(masterSheetInput) ||
+      companySheetSync?.sheetId ||
+      "";
+    if (!companyFolderId || records.length === 0) {
+      return;
+    }
+    const payload: PersistNcrInput[] = records.map((record) => ({
+      reference: record.reference,
+      auditId: record.auditId,
+      auditName: record.auditName,
+      questionId: record.auditQuestionId,
+      questionText: record.auditQuestion,
+      answer: record.selectedAnswer,
+      note: record.investigationNotes,
+      site: record.site,
+      auditorName: record.auditorName,
+      auditorUserId: record.auditorUserId,
+      assignedLineManager: record.assignedLineManager,
+      assignedLineManagerEmail: record.assignedLineManagerEmail,
+      raisedAt: record.raisedAt,
+      resultId: options?.resultId,
+      localSubmissionId: options?.localSubmissionId,
+      status: record.status,
+    }));
+    const result = await persistNcrsToSheet(companyFolderId, payload, masterSheetId);
+    if (!result.ok) {
+      pushToast("NCR save warning", ncrSafeErrorMessage(result.code, result.error), "warning");
+    }
+  };
+
+  const createNonConformancesFromAudit = ({
+    audit,
+    responseMap,
+    noteMap,
+    resultId,
+    localSubmissionId,
+    skipWorkbookPersist = false,
+  }: {
+    audit: Audit;
+    responseMap: Record<string, Answer>;
+    noteMap: Record<string, string>;
+    resultId?: string;
+    localSubmissionId?: string;
+    skipWorkbookPersist?: boolean;
+  }) => {
+    if (!currentUser) {
+      return { created: [] as NonConformanceRecord[], referenceByQuestionId: {} as Record<string, string> };
+    }
+    const selectedManagers = getSelectedManagersForAudit(audit.id);
+    const assignedManager = selectedManagers[0] || { name: audit.owner || "Unassigned manager", email: "" };
+    const managerUser = users.find((user) => user.name === assignedManager.name && user.role === "Manager");
+    const managerUserId = managerUser?.username || assignedManager.name.toLowerCase().replace(/\s+/g, "-");
+    const raisedAt = formatStamp();
+    const created: NonConformanceRecord[] = [];
+    const referenceByQuestionId: Record<string, string> = {};
+    let nextSequence = getNextNcrSequence(nonConformances);
+
+    for (const question of audit.questions) {
+      const answer = responseMap[question.id];
+      if (answer !== "fail" && answer !== "nc") {
+        continue;
+      }
+      const existing = nonConformances.find(
+        (item) =>
+          item.auditId === audit.id &&
+          item.auditQuestionId === question.id &&
+          item.status !== "Completed",
+      );
+      if (existing) {
+        referenceByQuestionId[question.id] = existing.reference;
+        continue;
+      }
+      const reference = formatNcrReference(nextSequence++);
+      const record: NonConformanceRecord = {
+        id: `ncr-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        reference,
+        auditId: audit.id,
+        auditName: audit.name,
+        auditQuestionId: question.id,
+        auditQuestion: question.text,
+        selectedAnswer: answer,
+        auditorName: currentUser.name,
+        auditorUserId: currentUser.username,
+        site: audit.siteArea,
+        raisedAt,
+        status: "Raised",
+        assignedLineManager: assignedManager.name,
+        assignedLineManagerUserId: managerUserId,
+        assignedLineManagerEmail: assignedManager.email || "",
+        investigationIsoClause: "",
+        investigationNotes: noteMap[question.id] || "",
+        rootCause: "",
+        correctiveAction: "",
+        investigationExtraNotes: "",
+        evidence: [],
+      };
+      created.push(record);
+      referenceByQuestionId[question.id] = reference;
+    }
+
+    if (created.length > 0) {
+      setNonConformances((current) => [...created, ...current]);
+      if (!skipWorkbookPersist) {
+        void persistCreatedNcrs(created, { resultId, localSubmissionId });
+      }
+      invalidateArchiveDashboard();
+      for (const record of created) {
+        if (!record.assignedLineManagerEmail) {
+          continue;
+        }
+        const investigationLink = `${window.location.origin}?ncr=${encodeURIComponent(record.reference)}`;
+        void fetch(apiUrl("/api/ncr/escalation-alert"), {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: record.assignedLineManagerEmail,
+            ncrReference: record.reference,
+            auditorName: record.auditorName,
+            site: record.site,
+            raisedAt: record.raisedAt,
+            auditQuestion: record.auditQuestion,
+            selectedAnswer: record.selectedAnswer,
+            investigationLink,
+          }),
+        });
+      }
+    }
+
+    return { created, referenceByQuestionId };
+  };
+
   const createNonConformanceFromIssue = ({
     audit,
     question,
@@ -11876,57 +12052,12 @@ function App() {
     answer: Exclude<Answer, "pass">;
     note: string;
   }) => {
-    if (!currentUser) return null;
-    const selectedManagers = getSelectedManagersForAudit(audit.id);
-    const assignedManager = selectedManagers[0] || { name: audit.owner || "Unassigned manager", email: "" };
-    const managerUser = users.find((user) => user.name === assignedManager.name && user.role === "Manager");
-    const raisedAt = formatStamp();
-    const nextReference = formatNcrReference(getNextNcrSequence(nonConformances));
-    const createdRecord: NonConformanceRecord = {
-      id: `ncr-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      reference: nextReference,
-      auditId: audit.id,
-      auditName: audit.name,
-      auditQuestionId: question.id,
-      auditQuestion: question.text,
-      selectedAnswer: answer,
-      auditorName: currentUser.name,
-      auditorUserId: currentUser.username,
-      site: audit.siteArea,
-      raisedAt,
-      status: "Raised",
-      assignedLineManager: assignedManager.name,
-      assignedLineManagerUserId: managerUser?.username || assignedManager.name.toLowerCase().replace(/\s+/g, "-"),
-      assignedLineManagerEmail: assignedManager.email || "",
-      investigationIsoClause: "",
-      investigationNotes: note,
-      rootCause: "",
-      correctiveAction: "",
-      investigationExtraNotes: "",
-      evidence: [],
-    };
-    setNonConformances((current) => [createdRecord, ...current]);
-
-    if (createdRecord?.assignedLineManagerEmail) {
-      const investigationLink = `${window.location.origin}?ncr=${encodeURIComponent(createdRecord.reference)}`;
-      void fetch(apiUrl("/api/ncr/escalation-alert"), {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: createdRecord.assignedLineManagerEmail,
-          ncrReference: createdRecord.reference,
-          auditorName: createdRecord.auditorName,
-          site: createdRecord.site,
-          raisedAt: createdRecord.raisedAt,
-          auditQuestion: createdRecord.auditQuestion,
-          selectedAnswer: createdRecord.selectedAnswer,
-          investigationLink,
-        }),
-      });
-    }
-
-    return createdRecord;
+    const { created } = createNonConformancesFromAudit({
+      audit,
+      responseMap: { [question.id]: answer },
+      noteMap: { [question.id]: note },
+    });
+    return created[0] || null;
   };
 
   const applyAuditSubmission = ({
@@ -12008,7 +12139,27 @@ function App() {
 
     setAuditFindings((current) => [...findings, ...current]);
     setActions((current) => current.filter((action) => action.auditId !== audit.id || action.status === "Closed"));
-    const createdActions = createActionsFromAudit(audit, responseMap, noteMap, evidenceMap, submittedByUser, completedAt);
+    const { created: createdNcrs, referenceByQuestionId } = createNonConformancesFromAudit({
+      audit,
+      responseMap,
+      noteMap,
+    });
+    const createdActions = createActionsFromAudit(
+      audit,
+      responseMap,
+      noteMap,
+      evidenceMap,
+      submittedByUser,
+      completedAt,
+      referenceByQuestionId,
+    );
+    if (createdNcrs.length > 0) {
+      pushToast(
+        "Non-conformance recorded",
+        `${createdNcrs.length} non-conformance${createdNcrs.length === 1 ? "" : "s"} added to the register.`,
+        "success",
+      );
+    }
 
     return {
       outcomeStatus,
@@ -12266,6 +12417,20 @@ function App() {
         submissionInFlightKeysRef.current.delete(submitKey);
       });
       pushToast("Added to queue", queueAddedMessage({ online: false }), "warning");
+      const { created: offlineNcrs } = createNonConformancesFromAudit({
+        audit: activeAudit,
+        responseMap: syncedResponses,
+        noteMap: mergedNotes,
+        localSubmissionId,
+        skipWorkbookPersist: true,
+      });
+      if (offlineNcrs.length > 0) {
+        pushToast(
+          "Non-conformance recorded",
+          `${offlineNcrs.length} non-conformance${offlineNcrs.length === 1 ? "" : "s"} queued with this check.`,
+          "success",
+        );
+      }
       finishCompletionSummary({
         issues: issuesFound,
         syncTone: "amber",
@@ -12405,6 +12570,25 @@ function App() {
 
         if (result.evidenceUploadWarning) {
           evidenceUploadWarning = result.evidenceUploadWarning;
+        }
+        if (result.ncrWriteWarning) {
+          pushToast("NCR save warning", result.ncrWriteWarning, "warning");
+        }
+
+        const { created: recordedNcrs } = createNonConformancesFromAudit({
+          audit: activeAudit,
+          responseMap: syncedResponses,
+          noteMap: mergedNotes,
+          resultId: result.resultId,
+          localSubmissionId: `check-${activeAudit.id}-${Date.now()}`,
+          skipWorkbookPersist: true,
+        });
+        if (recordedNcrs.length > 0) {
+          pushToast(
+            "Non-conformance recorded",
+            `${recordedNcrs.length} non-conformance${recordedNcrs.length === 1 ? "" : "s"} added to the register.`,
+            "success",
+          );
         }
 
         if (evidenceUploadWarning) {
@@ -12575,6 +12759,15 @@ function App() {
         answer: issuePrompt.answer,
         findingNote: noteValue,
       });
+    }
+    if (issuePrompt.answer === "fail" || issuePrompt.answer === "nc") {
+      createNonConformanceFromIssue({
+        audit: activeAudit,
+        question: issuePrompt.question,
+        answer: issuePrompt.answer,
+        note: noteValue,
+      });
+      pushToast("Non-conformance recorded", "The non-conformance was added to the register.", "success");
     }
     setIssuePrompt(null);
     setAuditModeQuestionIndex((current) => Math.min(current + 1, activeAudit.questions.length - 1));
@@ -16972,6 +17165,7 @@ function App() {
                     groupedAudits={groupedAudits}
                     assignedAudits={assignedAudits}
                     actions={visibleActions}
+                    nonConformances={assignmentFilteredNonConformances}
                     history={assignmentFilteredHistory}
                     pendingSyncCount={pendingSyncCount}
                     failedSyncCount={failedSyncCount}

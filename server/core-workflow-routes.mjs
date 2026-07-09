@@ -19,7 +19,7 @@ import {
   sanitizeCompanyFolderId,
   sanitizeGoogleSpreadsheetId,
 } from "../shared/google-drive-id.mjs";
-import { readTabRecords } from "./workbook-service.mjs";
+import { readTabRecords, appendTabRows } from "./workbook-service.mjs";
 import {
   canListCompanySchedules,
   getCompanySchedule,
@@ -74,6 +74,7 @@ import {
   signBriefing,
 } from "./briefings-service.mjs";
 import { saveCompanyActions } from "./actions-service.mjs";
+import { saveCompanyNcrs } from "./ncr-service.mjs";
 import {
   archiveCompanyRecord,
   listCompanyArchive,
@@ -155,6 +156,7 @@ export function installCoreWorkflowRoutes(app, deps) {
     readCompanySheetById,
     ...getCompanyUsersDeps(),
     readTabRecords,
+    appendTabRows,
     getTabValues,
     ensureTabExists,
     ensureColumns,
@@ -1104,6 +1106,89 @@ export function installCoreWorkflowRoutes(app, deps) {
     }
   });
 
+  app.post("/api/companies/:companyFolderId/ncrs", async (req, res) => {
+    const authed = getAuthedClient();
+    const companyFolderId = String(req.params?.companyFolderId || req.body?.companyFolderId || "").trim();
+    const masterSheetId = String(req.body?.masterSheetId || req.query?.masterSheetId || "").trim();
+    const ncrs = Array.isArray(req.body?.ncrs) ? req.body.ncrs : [];
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+
+    if (!companyFolderId) {
+      return res.status(400).json({
+        ok: false,
+        code: "COMPANY_CONTEXT_MISSING",
+        error: "Company folder ID is required before saving NCRs.",
+        message: "Company folder ID is required before saving NCRs.",
+      });
+    }
+
+    if (!Array.isArray(ncrs) || ncrs.length === 0) {
+      return res.status(400).json({
+        ok: false,
+        code: "NCR_PAYLOAD_INVALID",
+        error: "At least one non-conformance record is required.",
+        message: "At least one non-conformance record is required.",
+      });
+    }
+
+    if (authed) {
+      const folderDenial = await rejectCompanyApiIfFolderInvalid(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        companyFolderId,
+        String(req.body?.companyName || actor?.companyName || "").trim(),
+      );
+      if (folderDenial) {
+        return res.status(403).json(folderDenial);
+      }
+    }
+
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({
+        ok: false,
+        error: "Please connect Google before saving NCRs.",
+        message: "Please connect Google before saving NCRs.",
+      });
+    }
+
+    try {
+      const result = await saveCompanyNcrs(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        {
+          companyId: companyFolderId,
+          companyFolderId,
+          masterSheetId,
+          ncrs,
+        },
+      );
+
+      if (!result.ok) {
+        return res.status(result.httpStatus || 400).json({
+          ok: false,
+          code: result.code,
+          error: result.error,
+          message: result.message || result.error,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        companyId: result.companyFolderId,
+        companyFolderId: result.companyFolderId,
+        masterSheetId: result.masterSheetId,
+        written: result.written,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "NCR_WRITE_FAILED",
+        error: "Could not save non-conformance records. Try again.",
+        message: "Could not save non-conformance records. Try again.",
+      });
+    }
+  });
+
   async function respondWithCompanyAuditResults(req, res, options = {}) {
     const trustClientSheetHints = options.trustClientSheetHints === true;
     const authed = getAuthedClient();
@@ -1486,6 +1571,8 @@ export function installCoreWorkflowRoutes(app, deps) {
         masterSheetId: result.masterSheetId,
         written: result.written,
         evidenceUploadWarning: result.evidenceUploadWarning || "",
+        ncrWriteWarning: result.ncrWriteWarning || "",
+        ncrs: result.ncrs || [],
       });
     } catch (error) {
       clearTimeout(routeTimeout);

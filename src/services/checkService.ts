@@ -42,6 +42,8 @@ export type CompleteCheckResult = {
   message?: string;
   code?: string;
   evidenceUploadWarning?: string;
+  ncrWriteWarning?: string;
+  ncrs?: Array<{ ncrId?: string; reference?: string; auditId?: string; questionId?: string; status?: string }>;
 };
 
 export type FetchAssignedChecksResult = {
@@ -306,6 +308,8 @@ export async function completeCheck(
     error?: string;
     message?: string;
     evidenceUploadWarning?: string;
+    ncrWriteWarning?: string;
+    ncrs?: Array<{ ncrId?: string; reference?: string; auditId?: string; questionId?: string; status?: string }>;
   } = {};
   try {
     payload = (await response.json()) as typeof payload;
@@ -339,6 +343,8 @@ export async function completeCheck(
     resultId,
     scheduleId: resolvedScheduleId,
     evidenceUploadWarning: String(payload.evidenceUploadWarning || "").trim() || undefined,
+    ncrWriteWarning: String(payload.ncrWriteWarning || "").trim() || undefined,
+    ncrs: Array.isArray(payload.ncrs) ? payload.ncrs : undefined,
   };
 }
 

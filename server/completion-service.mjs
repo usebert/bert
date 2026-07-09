@@ -22,6 +22,7 @@ import {
   ensureTabColumns as workbookEnsureTabColumns,
   readTabRecords as workbookReadTabRecords,
 } from "./workbook-service.mjs";
+import { appendNcrsFromCheckCompletion } from "./ncr-service.mjs";
 import {
   normalizeAuditEvidenceUploadFile,
   sanitizeAuditEvidenceRefsForWorkbook,
@@ -561,6 +562,37 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
       row,
     );
     logCheckCompletePhase("write_audit_results_end", { ...traceMeta, durationMs: Date.now() - writeStart });
+
+    const ncrWriteStart = Date.now();
+    logCheckCompletePhase("write_ncrs_start", traceMeta);
+    const ncrResult = await appendNcrsFromCheckCompletion(auth, deps, {
+      companyId: eligibility.companyFolderId,
+      companyFolderId: eligibility.companyFolderId,
+      masterSheetId: eligibility.masterSheetId,
+      resultId: row["Result ID"],
+      auditId,
+      auditName,
+      site: trim(input.site || input.areaId || matchingAudit?.areaId),
+      completedByEmail: email,
+      completedByName: trim(input.completedByName || input.name),
+      completedAt: row["Completed At"],
+      findings: input.findings ?? [],
+      localSubmissionId: input.localSubmissionId,
+      assignedLineManager: trim(input.assignedLineManager),
+      assignedLineManagerEmail: trim(input.assignedLineManagerEmail),
+    });
+    logCheckCompletePhase("write_ncrs_end", {
+      ...traceMeta,
+      durationMs: Date.now() - ncrWriteStart,
+      written: ncrResult.written ?? 0,
+      ok: ncrResult.ok !== false,
+    });
+
+    if (ncrResult.ok === false && ncrResult.code !== "NCR_WRITE_FAILED") {
+      logCheckCompletePhase("response_sent", { ...traceMeta, ok: false, code: ncrResult.code });
+      return ncrResult;
+    }
+
     logCheckCompletePhase("update_schedule_status_end", {
       ...traceMeta,
       skipped: true,
@@ -575,6 +607,9 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
       masterSheetId: eligibility.masterSheetId,
       scheduleId: row["Schedule ID"],
       written,
+      ncrs: ncrResult.ncrs || [],
+      ncrWriteWarning:
+        ncrResult.ok === false && ncrResult.code === "NCR_WRITE_FAILED" ? ncrResult.message || ncrResult.error : "",
       evidenceUploadWarning,
     };
   } catch (error) {

@@ -18,6 +18,7 @@ import {
 type Props = ManagerDashboardProps & {
   workspaceName: string;
   teamCount: number;
+  nonConformances?: Array<{ id: string; reference: string; auditQuestion: string; status: string; site: string }>;
   onNavigate: (screen: NavItemId) => void;
   drafts: Record<string, AuditDraft>;
   assignedCheckScheduleMeta: Record<string, AssignedCheckScheduleMeta>;
@@ -64,6 +65,7 @@ export function ManagerRoleDashboard({
   onViewAllBriefings,
   briefingTodoItems = [],
   briefingTodoLoading = false,
+  nonConformances = [],
   onOpenAudit,
   actions,
   ...managerProps
@@ -92,6 +94,10 @@ export function ManagerRoleDashboard({
           return a.dueHours - b.dueHours;
         }),
     [actions],
+  );
+  const openNcrs = useMemo(
+    () => nonConformances.filter((item) => item.status !== "Completed"),
+    [nonConformances],
   );
 
   const overdueMetric = overdueActions.length === 1 ? "1 action" : `${overdueActions.length} actions`;
@@ -183,6 +189,34 @@ export function ManagerRoleDashboard({
                 />
               );
             })}
+          </ul>
+        )}
+      </AnimatedCard>
+
+      <AnimatedCard as="section" index={5} className={DASHBOARD_CARD}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-black text-slate-900">Open NCRs</h2>
+          {openNcrs.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => onNavigate("nonConformance")}
+              className="text-sm font-semibold text-slate-700 underline-offset-2 hover:underline"
+            >
+              View all
+            </button>
+          ) : null}
+        </div>
+        {openNcrs.length === 0 ? (
+          <p className="mt-4 text-sm text-slate-600">No open non-conformances right now.</p>
+        ) : (
+          <ul className="mt-2 space-y-2">
+            {openNcrs.slice(0, 5).map((ncr) => (
+              <li key={ncr.id} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                <p className="text-sm font-semibold text-slate-900">{ncr.reference}</p>
+                <p className="mt-1 text-xs text-slate-600">{ncr.auditQuestion}</p>
+                <p className="mt-1 text-xs text-slate-500">{ncr.site || ncr.status}</p>
+              </li>
+            ))}
           </ul>
         )}
       </AnimatedCard>

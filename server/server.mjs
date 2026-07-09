@@ -136,6 +136,7 @@ import { installGodmodeRegistryActionRoutes, relinkCompanyRegistryForWorkspace }
 import { createBackgroundJobsService } from "./background-jobs-service.mjs";
 import { BACKGROUND_INVITE_CREATED_MESSAGE } from "../shared/background-jobs.mjs";
 import { SCHEDULES_TAB_COLUMNS } from "../shared/schedule-save.mjs";
+import { NCR_TAB_COLUMNS } from "../shared/ncr.mjs";
 import { isKnownStaleAuthIndexPairing } from "../shared/auth-index-trust.mjs";
 import { installCoreWorkflowRoutes } from "./core-workflow-routes.mjs";
 import { assertCompanyInviteReady } from "./company-invite-readiness.mjs";
@@ -373,6 +374,7 @@ const REQUIRED_TABS = [
   "Schedules",
   "Actions",
   "ActionComments",
+  "NCRs",
   "AuditResults",
   "AuditFindings",
   "Evidence",
@@ -538,6 +540,7 @@ const TAB_COLUMNS = {
     "Remote Updated At",
     "Last Synced At",
   ],
+  NCRs: NCR_TAB_COLUMNS,
   AuditFindings: [
     "Finding ID",
     "Local Submission ID",
