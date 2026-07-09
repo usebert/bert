@@ -15,6 +15,7 @@ import {
 import { parseCompanyScheduleListFromRecords } from "./schedule-list.mjs";
 import { enrichSchedulesWithDueOccurrence } from "./schedule-due.mjs";
 import { getScheduleAssignedEmails } from "./schedule-assignment.mjs";
+import { getUkTodayKey, isUkOverdue, isUkToday, ukDateKeyFromTimestamp } from "./uk-date-time.mjs";
 
 /** Workbook tabs the live dashboard reads. All are existing tabs — no new storage. */
 export const LIVE_DASHBOARD_TABS = [
@@ -73,16 +74,11 @@ function parseDate(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function startOfLocalDay(ms) {
-  const date = new Date(ms);
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-}
-
 function isSameLocalDay(ms, nowMs) {
   if (ms === null) {
     return false;
   }
-  return startOfLocalDay(ms) === startOfLocalDay(nowMs);
+  return isUkToday(ms, nowMs);
 }
 
 function toArray(value) {
@@ -122,7 +118,7 @@ function normalizeActionStatus(rawStatus, dueDate, nowMs) {
   }
   const dueMs = parseDate(dueDate);
   const isOpenish = lower === "open" || lower === "in progress" || lower === "awaiting verification" || lower === "";
-  if (dueMs !== null && dueMs < nowMs && isOpenish) {
+  if ((isUkOverdue(dueDate, nowMs) || (dueMs !== null && dueMs < nowMs)) && isOpenish) {
     return "Overdue";
   }
   if (lower === "in progress" || lower === "awaiting verification") {
@@ -557,7 +553,7 @@ export function buildActToday(input = {}) {
 // ---------------------------------------------------------------------------
 
 function dayLabel(ms) {
-  return new Date(ms).toISOString().slice(0, 10);
+  return ukDateKeyFromTimestamp(ms);
 }
 
 function monthLabel(ms) {
@@ -890,7 +886,7 @@ export function buildLiveDashboardFromSources(sources = {}, options = {}) {
 
   // --- Today panel context --------------------------------------------------
   const today = {
-    dateLabel: new Date(nowMs).toISOString().slice(0, 10),
+    dateLabel: getUkTodayKey(nowMs),
     due: metrics.todayDue,
     completed: metrics.todayCompleted,
     outstanding: metrics.todayOutstanding,

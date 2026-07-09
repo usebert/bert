@@ -6,6 +6,7 @@ import { darkPanelBody, darkPanelEyebrow, darkPanelShell, darkPanelTitleLg } fro
 import { AnimatedButton } from "../components/animation/AnimatedButton";
 import { StatusPulse, type SyncVisualState } from "../components/animation/StatusPulse";
 import { slatePrimaryCtaInteract } from "../styles/interactions";
+import { formatUkDateTime } from "../utils/ukDateTime";
 
 function queueItemVisualState(status: SyncStatus): SyncVisualState {
   if (status === "Syncing") return "syncing";
@@ -39,10 +40,7 @@ function queueTimeLabel(value: string): string {
   if (!Number.isFinite(parsed)) {
     return value;
   }
-  return new Intl.DateTimeFormat("en-GB", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(parsed));
+  return formatUkDateTime(parsed);
 }
 
 function SyncCentreAppIcon({ name, className = "h-5 w-5" }: { name: string; className?: string }) {
@@ -106,6 +104,7 @@ export function SyncCentreScreen({
             <p className={["mt-2", darkPanelBody].join(" ")}>
               Field work, evidence, and admin edits stay visible here until they reach your company sheet in Google Drive—so you always know what still needs the network.
             </p>
+            <p className="mt-1 text-xs text-slate-400">Times shown in UK time.</p>
             {hasRetryableWork && onSyncAll ? (
               <AnimatedButton
                 type="button"

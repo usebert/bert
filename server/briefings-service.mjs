@@ -34,6 +34,7 @@ import {
   DEFAULT_GOOGLE_OPERATION_TIMEOUT_MS,
 } from "./ensure-required-tabs.mjs";
 import { ensureBriefingDocumentFolderId } from "./company-folder-structure.mjs";
+import { isUkOverdue, parseUkDateInput, ukDateKeyFromTimestamp } from "../shared/uk-date-time.mjs";
 
 export {
   BRIEFINGS_TAB,
@@ -84,7 +85,7 @@ function nowIso() {
 }
 
 export function buildBriefingId() {
-  const year = new Date().getFullYear();
+  const year = Number(ukDateKeyFromTimestamp(Date.now()).slice(0, 4)) || new Date().getFullYear();
   const suffix = String(Math.floor(Math.random() * 9000) + 1000);
   return `BRF-${year}-${suffix}`;
 }
@@ -171,18 +172,7 @@ function normalizeDueDate(value) {
   if (!raw) {
     return "";
   }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-    return raw;
-  }
-  const parsed = Date.parse(raw);
-  if (!Number.isFinite(parsed)) {
-    return null;
-  }
-  const date = new Date(parsed);
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(date.getUTCDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return parseUkDateInput(raw);
 }
 
 function isBenignTabReadError(error) {
@@ -281,7 +271,7 @@ export function computeRecipientStatus(recipient, briefing) {
   const overdue =
     dueDate &&
     recipientNeedsAction(recipient, briefing) &&
-    Date.parse(`${dueDate}T23:59:59.999Z`) < Date.now();
+    isUkOverdue(dueDate);
 
   if (overdue) {
     return "Overdue";

@@ -24,6 +24,7 @@ import {
   isEligibleIncidentReassignTarget,
   recentAssignmentHistory,
 } from "../utils/incidentAssignment";
+import { formatUkTime, getUkTodayKey, isUkOverdue } from "../utils/ukDateTime";
 
 export function IncidentReportingScreen({
   currentUser,
@@ -76,8 +77,8 @@ export function IncidentReportingScreen({
   const [form, setForm] = useState({
     incidentType: "Near Miss" as IncidentType,
     severity: "Minor" as IncidentSeverity,
-    incidentDate: new Date().toISOString().slice(0, 10),
-    incidentTime: new Date().toTimeString().slice(0, 5),
+    incidentDate: getUkTodayKey(),
+    incidentTime: formatUkTime(Date.now()).slice(0, 5),
     reporterName: currentUser.name,
     reporterEmail: `${currentUser.username}@usebert.co.uk`,
     department: "",
@@ -126,7 +127,7 @@ export function IncidentReportingScreen({
   const underInvestigation = incidents.filter((item) => item.status === "Under Investigation").length;
   const highSeverityIncidents = incidents.filter((item) => item.priority === "High").length;
   const nearMisses = incidents.filter((item) => item.incidentType === "Near Miss").length;
-  const overdueActions = incidentActions.filter((item) => item.status !== "Complete" && item.dueDate && item.dueDate < new Date().toISOString().slice(0, 10)).length;
+  const overdueActions = incidentActions.filter((item) => item.status !== "Complete" && item.dueDate && isUkOverdue(item.dueDate)).length;
 
   const clearAssigneePending = (incidentId: string) => {
     setAssigneePendingEmails((current) => {
@@ -627,7 +628,7 @@ export function IncidentReportingScreen({
           </div>
           ) : null}
           {canManageIncidents && selectedIncident.status !== "Closed" && (
-            <button type="button" onClick={() => onUpdateIncident(selectedIncident.id, { status: "Closed", closedAt: new Date().toISOString(), closedBy: currentUser.name, completionDate: selectedIncident.completionDate || new Date().toISOString().slice(0, 10) }, { statusNote: "Incident closed" })} className={["mt-3 h-10 rounded-lg px-4 text-sm font-semibold text-white", theme.primaryButton, theme.primaryButtonHover].join(" ")}>Close incident</button>
+            <button type="button" onClick={() => onUpdateIncident(selectedIncident.id, { status: "Closed", closedAt: new Date().toISOString(), closedBy: currentUser.name, completionDate: selectedIncident.completionDate || getUkTodayKey() }, { statusNote: "Incident closed" })} className={["mt-3 h-10 rounded-lg px-4 text-sm font-semibold text-white", theme.primaryButton, theme.primaryButtonHover].join(" ")}>Close incident</button>
           )}
         </section>
       )}

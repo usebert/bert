@@ -2,6 +2,7 @@
  * Schedule due occurrence — mirrors shared/schedule-due.mjs for the client bundle.
  * Option A: scheduled time passed but still inside completion window → due now.
  */
+import { normaliseDateOnlyValue, ukDateKeyFromTimestamp, ukDateTimeToUtcDate, ukStartOfDayUtc } from "./ukDateTime";
 
 export type ScheduleDueRejectReason =
   | "not_due_yet"
@@ -26,28 +27,8 @@ export function parseScheduleDatePart(raw: string): Date | null {
   if (!value) {
     return null;
   }
-
-  const isoMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (isoMatch) {
-    const parsed = new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
-    if (Number.isFinite(parsed.getTime())) {
-      return parsed;
-    }
-  }
-
-  const dmyMatch = value.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
-  if (dmyMatch) {
-    const parsed = new Date(Number(dmyMatch[3]), Number(dmyMatch[2]) - 1, Number(dmyMatch[1]));
-    if (Number.isFinite(parsed.getTime())) {
-      return parsed;
-    }
-  }
-
-  const parsed = new Date(value);
-  if (!Number.isFinite(parsed.getTime())) {
-    return null;
-  }
-  return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+  const normalized = normaliseDateOnlyValue(value);
+  return normalized ? ukStartOfDayUtc(normalized) : null;
 }
 
 export function parseLiveTimeParts(raw: string): { hours: number; minutes: number } {
@@ -64,7 +45,12 @@ export function parseLiveTimeParts(raw: string): { hours: number; minutes: numbe
 
 export function combineLocalDateAndTime(datePart: Date, liveTimeRaw: string): Date {
   const { hours, minutes } = parseLiveTimeParts(liveTimeRaw);
-  return new Date(datePart.getFullYear(), datePart.getMonth(), datePart.getDate(), hours, minutes, 0, 0);
+  const key = ukDateKeyFromTimestamp(datePart);
+  if (!key) {
+    return new Date(Number.NaN);
+  }
+  const [year, month, day] = key.split("-").map((part) => Number(part));
+  return ukDateTimeToUtcDate({ year, month, day, hour: hours, minute: minutes, second: 0 });
 }
 
 export function normalizeScheduleFrequency(raw: string): "daily" | "weekly" | "bi-weekly" | "monthly" {
@@ -82,19 +68,27 @@ export function normalizeScheduleFrequency(raw: string): "daily" | "weekly" | "b
 }
 
 function startOfLocalDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const key = ukDateKeyFromTimestamp(date);
+  return key ? (ukStartOfDayUtc(key) as Date) : new Date(Number.NaN);
 }
 
 function addDays(date: Date, count: number): Date {
-  const next = new Date(date);
-  next.setDate(next.getDate() + count);
+  const next = new Date(date.getTime());
+  next.setUTCDate(next.getUTCDate() + count);
   return next;
 }
 
 function addMonths(date: Date, count: number): Date {
-  const next = new Date(date);
-  next.setMonth(next.getMonth() + count);
+  const next = new Date(date.getTime());
+  next.setUTCMonth(next.getUTCMonth() + count);
   return next;
+}
+
+function ukDayOfWeek(date: Date): number {
+  const key = ukDateKeyFromTimestamp(date);
+  if (!key) return -1;
+  const [year, month, day] = key.split("-").map((part) => Number(part));
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
 }
 
 function dayIndexFromToken(raw: string): number {
@@ -115,10 +109,10 @@ function firstOccurrenceFromStart(
 
   if (freq === "weekly" && days.length > 0) {
     const dayIndexes = days.map(dayIndexFromToken).filter((index) => index >= 0);
-    if (dayIndexes.length > 0 && !dayIndexes.includes(anchorDay.getDay())) {
+    if (dayIndexes.length > 0 && !dayIndexes.includes(ukDayOfWeek(anchorDay))) {
       for (let offset = 0; offset < 7; offset += 1) {
         const candidateDay = addDays(anchorDay, offset);
-        if (dayIndexes.includes(candidateDay.getDay())) {
+        if (dayIndexes.includes(ukDayOfWeek(candidateDay))) {
           return combineLocalDateAndTime(candidateDay, liveTime);
         }
       }
@@ -144,7 +138,7 @@ export function nextOccurrenceAfter(dueAt: Date, frequency: string, liveTime: st
     }
     for (let offset = 1; offset <= step; offset += 1) {
       const candidateDay = addDays(datePart, offset);
-      if (dayIndexes.includes(candidateDay.getDay())) {
+      if (dayIndexes.includes(ukDayOfWeek(candidateDay))) {
         return combineLocalDateAndTime(candidateDay, liveTime);
       }
     }

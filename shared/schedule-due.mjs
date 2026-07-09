@@ -2,6 +2,7 @@
  * Schedule due occurrence — start date, live time, completion window, frequency.
  * Option A: if scheduled time passed but still inside completion window → due now.
  */
+import { parseUkDateInput, ukDateKeyFromTimestamp, ukDateTimeToUtcDate, ukStartOfDayUtc } from "./uk-date-time.mjs";
 
 function trim(value) {
   return String(value ?? "").trim();
@@ -12,28 +13,8 @@ export function parseScheduleDatePart(raw) {
   if (!value) {
     return null;
   }
-
-  const isoMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (isoMatch) {
-    const parsed = new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
-    if (Number.isFinite(parsed.getTime())) {
-      return parsed;
-    }
-  }
-
-  const dmyMatch = value.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
-  if (dmyMatch) {
-    const parsed = new Date(Number(dmyMatch[3]), Number(dmyMatch[2]) - 1, Number(dmyMatch[1]));
-    if (Number.isFinite(parsed.getTime())) {
-      return parsed;
-    }
-  }
-
-  const parsed = new Date(value);
-  if (!Number.isFinite(parsed.getTime())) {
-    return null;
-  }
-  return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+  const normalized = parseUkDateInput(value);
+  return normalized ? ukStartOfDayUtc(normalized) : null;
 }
 
 export function parseLiveTimeParts(raw) {
@@ -50,7 +31,12 @@ export function parseLiveTimeParts(raw) {
 
 export function combineLocalDateAndTime(datePart, liveTimeRaw) {
   const { hours, minutes } = parseLiveTimeParts(liveTimeRaw);
-  return new Date(datePart.getFullYear(), datePart.getMonth(), datePart.getDate(), hours, minutes, 0, 0);
+  const key = ukDateKeyFromTimestamp(datePart);
+  if (!key) {
+    return new Date(Number.NaN);
+  }
+  const [year, month, day] = key.split("-").map((part) => Number(part));
+  return ukDateTimeToUtcDate({ year, month, day, hour: hours, minute: minutes, second: 0 });
 }
 
 export function normalizeScheduleFrequency(raw) {
@@ -68,19 +54,27 @@ export function normalizeScheduleFrequency(raw) {
 }
 
 function startOfLocalDay(date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const key = ukDateKeyFromTimestamp(date);
+  return key ? ukStartOfDayUtc(key) : new Date(Number.NaN);
 }
 
 function addDays(date, count) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + count);
+  const next = new Date(date.getTime());
+  next.setUTCDate(next.getUTCDate() + count);
   return next;
 }
 
 function addMonths(date, count) {
-  const next = new Date(date);
-  next.setMonth(next.getMonth() + count);
+  const next = new Date(date.getTime());
+  next.setUTCMonth(next.getUTCMonth() + count);
   return next;
+}
+
+function ukDayOfWeek(date) {
+  const key = ukDateKeyFromTimestamp(date);
+  if (!key) return -1;
+  const [year, month, day] = key.split("-").map((part) => Number(part));
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
 }
 
 function dayIndexFromToken(raw) {
@@ -96,10 +90,10 @@ function firstOccurrenceFromStart(startDate, liveTime, frequency, days = []) {
 
   if (freq === "weekly" && Array.isArray(days) && days.length > 0) {
     const dayIndexes = days.map(dayIndexFromToken).filter((index) => index >= 0);
-    if (dayIndexes.length > 0 && !dayIndexes.includes(anchorDay.getDay())) {
+    if (dayIndexes.length > 0 && !dayIndexes.includes(ukDayOfWeek(anchorDay))) {
       for (let offset = 0; offset < 7; offset += 1) {
         const candidateDay = addDays(anchorDay, offset);
-        if (dayIndexes.includes(candidateDay.getDay())) {
+        if (dayIndexes.includes(ukDayOfWeek(candidateDay))) {
           return combineLocalDateAndTime(candidateDay, liveTime);
         }
       }
@@ -125,7 +119,7 @@ export function nextOccurrenceAfter(dueAt, frequency, liveTime, days = []) {
     }
     for (let offset = 1; offset <= step; offset += 1) {
       const candidateDay = addDays(datePart, offset);
-      if (dayIndexes.includes(candidateDay.getDay())) {
+      if (dayIndexes.includes(ukDayOfWeek(candidateDay))) {
         return combineLocalDateAndTime(candidateDay, liveTime);
       }
     }

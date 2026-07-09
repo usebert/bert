@@ -7,6 +7,7 @@ import {
   isCompanyInviteActor,
   isGodmodeInviteSession,
 } from "./company-invite-permissions.mjs";
+import { isUkOverdue, ukDateKeyFromTimestamp } from "./uk-date-time.mjs";
 
 export const REPORTS_DASHBOARD_TABS = [
   "Schedules",
@@ -102,7 +103,7 @@ function normalizeActionStatus(raw, dueDate) {
     return "Closed";
   }
   const dueMs = parseIsoDate(dueDate);
-  if (dueMs !== null && dueMs < Date.now() && (lower === "open" || lower === "in progress" || lower === "awaiting verification")) {
+  if ((isUkOverdue(dueDate) || (dueMs !== null && dueMs < Date.now())) && (lower === "open" || lower === "in progress" || lower === "awaiting verification")) {
     return "Overdue";
   }
   if (lower === "in progress" || lower === "awaiting verification") {
@@ -127,8 +128,7 @@ function resultOutcome(record) {
 }
 
 function formatDayLabel(ms) {
-  const date = new Date(ms);
-  return date.toISOString().slice(0, 10);
+  return ukDateKeyFromTimestamp(ms);
 }
 
 function formatMonthLabel(ms) {

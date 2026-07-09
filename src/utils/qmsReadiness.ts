@@ -10,6 +10,7 @@ import type {
 } from "../types/qms";
 import type { HazardReport, SafetyObjective, SafetyRiskAssessment } from "../types/safety";
 import { isOverdue } from "./managerDashboard";
+import { diffUkCalendarDays, getUkTodayKey, isUkOverdue, normaliseDateOnlyValue } from "./ukDateTime";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -19,6 +20,10 @@ function parseDate(value: string): number | null {
 }
 
 function daysUntil(value: string): number | null {
+  const normalized = normaliseDateOnlyValue(value);
+  if (normalized) {
+    return diffUkCalendarDays(normalized);
+  }
   const parsed = parseDate(value);
   if (parsed === null) return null;
   return Math.ceil((parsed - Date.now()) / MS_PER_DAY);
@@ -97,9 +102,9 @@ export function buildQmsReadinessSummary(input: {
 
   const openHazards = hazards.filter((h) => hazardIsOpen(h)).length;
   const openIncidentsAndNearMisses = incidents.filter((i) => incidentIsOpen(i)).length;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getUkTodayKey();
   const overdueIncidentActions = incidentActions.filter(
-    (action) => action.status !== "Complete" && action.dueDate && action.dueDate < today,
+    (action) => action.status !== "Complete" && action.dueDate && (isUkOverdue(action.dueDate) || action.dueDate < today),
   ).length;
   const overdueHsActions = overdueCorrectiveActions + overdueIncidentActions;
   const riskAssessmentsDueReview = safetyRiskAssessments.filter((r) => safetyRiskAssessmentNeedsReview(r)).length;

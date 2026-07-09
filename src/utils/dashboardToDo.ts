@@ -2,6 +2,7 @@ import type { AuditDraft } from "../types/dashboardScreenProps";
 import type { Audit } from "../types/reportsScreenProps";
 import type { BriefingRecipientRecord, DashboardToDoItem } from "../types/briefings";
 import { briefingActionLabel } from "./briefingActions";
+import { compareUkCalendarDates, getUkTodayKey } from "./ukDateTime";
 import {
   filterAssignedChecksForThingsToDo,
   sortAssignedChecksForAction,
@@ -40,11 +41,7 @@ function briefingGroup(item: BriefingRecipientRecord): DashboardToDoItem["group"
   }
   const dueDate = item.briefing?.dueDate;
   if (dueDate) {
-    const dueMs = Date.parse(`${dueDate}T23:59:59.999Z`);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = today.getTime() + 24 * 60 * 60 * 1000;
-    if (Number.isFinite(dueMs) && dueMs < tomorrow && dueMs >= today.getTime()) {
+    if (compareUkCalendarDates(dueDate, getUkTodayKey()) === 0) {
       return "dueToday";
     }
   }
