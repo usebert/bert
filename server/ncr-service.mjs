@@ -114,6 +114,7 @@ export async function appendNcrsFromCheckCompletion(auth, deps, input = {}) {
 
   const rowsToAppend = [];
   const createdNcrs = [];
+  let skippedDuplicates = 0;
   let nextReference = nextNcrReferenceFromRows(companyRows);
 
   for (const finding of ncrFindings) {
@@ -123,6 +124,7 @@ export async function appendNcrsFromCheckCompletion(auth, deps, input = {}) {
     }
     const key = findingKey(auditId, questionId, resultId);
     if (usedKeys.has(key)) {
+      skippedDuplicates += 1;
       continue;
     }
     usedKeys.add(key);
@@ -147,7 +149,7 @@ export async function appendNcrsFromCheckCompletion(auth, deps, input = {}) {
       createdBy: auditorUserId,
       resultId,
       localSubmissionId,
-      status: "Raised",
+      status: "Open",
     });
     rowsToAppend.push(row);
     createdNcrs.push({
@@ -155,8 +157,21 @@ export async function appendNcrsFromCheckCompletion(auth, deps, input = {}) {
       reference,
       auditId,
       questionId,
-      status: "Raised",
+      status: "Open",
     });
+  }
+
+  if (rowsToAppend.length === 0 && skippedDuplicates > 0) {
+    return {
+      ok: true,
+      written: 0,
+      skipped: skippedDuplicates,
+      code: "NCR_DUPLICATE_SKIPPED",
+      message: "Non-conformance already recorded for this check answer.",
+      ncrs: [],
+      companyFolderId,
+      masterSheetId: context.masterSheetId,
+    };
   }
 
   if (rowsToAppend.length === 0) {

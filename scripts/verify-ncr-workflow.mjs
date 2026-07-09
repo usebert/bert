@@ -40,10 +40,12 @@ assert(NCR_TAB_COLUMNS.includes("NCR ID") && NCR_TAB_COLUMNS.includes("Archived"
 const ncrService = read("server/ncr-service.mjs");
 assert(ncrService.includes("appendNcrsFromCheckCompletion"), "2: server appends NCRs on check completion");
 assert(ncrService.includes("NCR_WRITE_FAILED"), "2b: safe NCR write error code");
+assert(ncrService.includes("NCR_DUPLICATE_SKIPPED"), "2c: duplicate NCR protection code");
 
 const completion = read("server/completion-service.mjs");
 assert(completion.includes("appendNcrsFromCheckCompletion"), "3: completion service writes NCR rows");
 assert(completion.includes("findings: input.findings"), "3b: findings passed to NCR writer");
+assert(completion.includes('buildAuditResultRow'), "3c: audit result row written on check completion");
 
 const routes = read("server/core-workflow-routes.mjs");
 assert(routes.includes('app.post("/api/companies/:companyFolderId/ncrs"'), "4: folder-first NCR save route");
@@ -51,16 +53,28 @@ assert(routes.includes('app.post("/api/companies/:companyFolderId/ncrs"'), "4: f
 const appTsx = read("App.tsx");
 const checkService = read("src/services/checkService.ts");
 const clientNcrService = read("src/services/ncrService.ts");
+const nonConformanceScreen = read("src/screens/NonConformanceScreen.tsx");
+const managerDashboard = read("src/components/dashboard/ManagerRoleDashboard.tsx");
 
 assert(appTsx.includes("createNonConformancesFromAudit"), "5: client creates NCRs from audit submit");
 assert(appTsx.includes("parseCompanySheetNcrs"), "6: client loads NCRs from workbook");
 assert(appTsx.includes("mergeSheetNcrsIntoState"), "6b: sheet NCR merge helper wired");
-assert(appTsx.includes("loadCompanySheetById") && appTsx.includes("mergeSheetNcrsIntoState(current, payload.data.NCRs"), "6c: load by sheet id merges NCR tab");
-assert(checkService.includes('CHECK_COMPLETION_NCR_RECORDED_MESSAGE = "Non-conformance recorded."'), "7: success screen NCR recorded message");
 assert(
-  checkService.includes("CHECK_COMPLETION_NCR_WRITE_FAILED_MESSAGE"),
-  "7b: partial-success warning when NCR write fails",
+  appTsx.includes("loadCompanySheetById") && appTsx.includes("mergeSheetNcrsIntoState(current, payload.data.NCRs"),
+  "6c: load by sheet id merges NCR tab",
 );
+assert(
+  appTsx.includes('screen !== "nonConformance"') && appTsx.includes("loadCompanySheetById(masterSheetId, companyFolderId"),
+  "6d: NCR screen refresh loads workbook NCRs",
+);
+assert(
+  appTsx.includes("assignedChecksState.hasLoadedOnce") && appTsx.includes("loadCompanySheetById(masterSheetId, companyFolderId"),
+  "6e: assigned checks hydration loads workbook NCRs",
+);
+assert(!appTsx.includes("issue${issuesFound === 1 ? \"\" : \"s\"} flagged"), "6f: misleading issue-flagged toast removed");
+
+assert(checkService.includes('CHECK_COMPLETION_NCR_RECORDED_MESSAGE = "Non-conformance recorded."'), "7: success screen NCR recorded message");
+assert(checkService.includes("CHECK_COMPLETION_NCR_WRITE_FAILED_MESSAGE"), "7b: partial-success warning when NCR write fails");
 assert(appTsx.includes("CHECK_COMPLETION_NCR_RECORDED_MESSAGE"), "7c: completion summary shows NCR recorded");
 assert(appTsx.includes("CHECK_COMPLETION_NCR_WRITE_FAILED_MESSAGE"), "7d: completion summary shows NCR write failure");
 assert(appTsx.includes("ncrsRecorded"), "7e: completion summary tracks NCR count");
@@ -83,13 +97,14 @@ const row = buildNcrWorkbookRow({
   site: "Yard",
   auditorName: "Alex",
   auditorUserId: "alex@test.co",
-  status: "Raised",
+  status: "Open",
 });
 assert(row["NCR ID"] === "NCR-0001" && row.Archived === "false", "9: NCR row defaults active");
+assert(row.Status === "Open", "9b: NCR row status Open by default");
 assert(isNcrFindingAnswer("nc") && isNcrFindingAnswer("fail"), "10: finding answer detection");
 
 {
-  const openBlankArchived = { "NCR ID": "n1", "Company ID": CO, Status: "Raised" };
+  const openBlankArchived = { "NCR ID": "n1", "Company ID": CO, Status: "Open" };
   const archived = { "NCR ID": "n2", "Company ID": CO, Status: "Open", Archived: "true" };
   const statusArchived = { "NCR ID": "n3", "Company ID": CO, Status: "Archived" };
   const built = buildLiveDashboardFromSources(
@@ -109,14 +124,20 @@ assert(isNcrFindingAnswer("nc") && isNcrFindingAnswer("fail"), "10: finding answ
   assert(built.metrics.openNcrs === 1, "11: blank Archived keeps NCR open in dashboard");
   assert(isWorkbookRowArchived(archived, "ncr"), "12: archived NCR hidden");
   assert(isWorkbookRowArchived(statusArchived, "ncr"), "12b: status Archived hides NCR");
-  assert(ncrWorkbookRowIsOpen(openBlankArchived), "13: missing status treated as open");
+  assert(ncrWorkbookRowIsOpen(openBlankArchived), "13: Open status treated as open");
 }
 
-assert(read("src/components/dashboard/ManagerRoleDashboard.tsx").includes("Open NCRs"), "14: manager dashboard shows open NCRs");
-assert(clientNcrService.includes("NCR_SAFE_ERROR_CODES"), "15: safe client NCR error messages");
-assert(clientNcrService.includes("resolveNcrCompletionOutcome"), "15b: client NCR outcome resolver");
-assert(clientNcrService.includes('status === "archived"'), "15c: client parser hides status Archived only");
+assert(nonConformanceScreen.includes("No NCRs recorded"), "14: NCR screen empty state");
+assert(managerDashboard.includes("Open NCRs"), "15: manager dashboard shows open NCRs");
+assert(clientNcrService.includes("NCR_SAFE_ERROR_CODES"), "16: safe client NCR error messages");
+assert(clientNcrService.includes("resolveNcrCompletionOutcome"), "16b: client NCR outcome resolver");
+assert(clientNcrService.includes('status === "archived"'), "16c: client parser hides status Archived only");
+assert(clientNcrService.includes("NCR_DUPLICATE_SKIPPED"), "16d: duplicate skip safe message");
 
-assert(JSON.parse(read("package.json")).scripts["verify:ncr-workflow"], "16: verify script registered");
+assert(appTsx.includes("skipWorkbookPersist: true"), "17: online submit avoids duplicate client workbook writes");
+assert(appTsx.includes("serverNcrs: result.ncrs"), "18: offline sync merges server NCRs");
+assert(ncrService.includes("findingKey"), "19: server dedupes by audit/question/result");
+
+assert(JSON.parse(read("package.json")).scripts["verify:ncr-workflow"], "20: verify script registered");
 
 console.log(`[verify:ncr-workflow] OK — ${checks} checks passed`);

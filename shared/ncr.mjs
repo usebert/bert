@@ -76,11 +76,11 @@ export function nextNcrReferenceFromRows(rows = []) {
 
 export function normalizeNcrWorkbookStatus(status) {
   const normalized = safeLower(status);
-  if (!normalized || normalized === "open") return "Raised";
+  if (!normalized || normalized === "open") return "Open";
   if (normalized === "raised") return "Raised";
   if (normalized === "in progress" || normalized === "in_progress") return "In Progress";
   if (CLOSED_STATUSES.has(normalized)) return "Completed";
-  return trim(status) || "Raised";
+  return trim(status) || "Open";
 }
 
 export function ncrWorkbookRowIsOpen(record = {}) {
@@ -99,7 +99,7 @@ export function buildNcrWorkbookRow(input = {}) {
   const reference = trim(input.reference) || trim(input.ncrId);
   const ncrId = trim(input.ncrId) || reference;
   const raisedAt = trim(input.raisedAt) || trim(input.createdAt) || new Date().toISOString();
-  const status = normalizeNcrWorkbookStatus(input.status || "Raised");
+  const status = normalizeNcrWorkbookStatus(input.status || "Open");
   const questionText = trim(input.questionText || input.title);
   const note = trim(input.note || input.description);
 

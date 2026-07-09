@@ -6130,6 +6130,56 @@ function App() {
     selectedFolderId,
   ]);
 
+  useEffect(() => {
+    if (!currentUser) {
+      return;
+    }
+    const companyFolderId = String(
+      assignedChecksState.companyFolderId || activeCompanyContext.companyFolderId || selectedFolderId || "",
+    ).trim();
+    const masterSheetId = String(
+      assignedChecksState.masterSheetId || activeCompanyContext.masterSheetId || companySheetSync?.sheetId || "",
+    ).trim();
+    if (!companyFolderId || !masterSheetId || !assignedChecksState.hasLoadedOnce) {
+      return;
+    }
+    void loadCompanySheetById(masterSheetId, companyFolderId, { silent: true });
+  }, [
+    currentUser,
+    assignedChecksState.companyFolderId,
+    assignedChecksState.masterSheetId,
+    assignedChecksState.hasLoadedOnce,
+    activeCompanyContext.companyFolderId,
+    activeCompanyContext.masterSheetId,
+    companySheetSync?.sheetId,
+    selectedFolderId,
+  ]);
+
+  useEffect(() => {
+    if (screen !== "nonConformance" || !currentUser) {
+      return;
+    }
+    const companyFolderId = String(
+      assignedChecksState.companyFolderId || activeCompanyContext.companyFolderId || selectedFolderId || "",
+    ).trim();
+    const masterSheetId = String(
+      assignedChecksState.masterSheetId || activeCompanyContext.masterSheetId || companySheetSync?.sheetId || "",
+    ).trim();
+    if (!companyFolderId || !masterSheetId) {
+      return;
+    }
+    void loadCompanySheetById(masterSheetId, companyFolderId, { silent: true });
+  }, [
+    screen,
+    currentUser,
+    assignedChecksState.companyFolderId,
+    assignedChecksState.masterSheetId,
+    activeCompanyContext.companyFolderId,
+    activeCompanyContext.masterSheetId,
+    companySheetSync?.sheetId,
+    selectedFolderId,
+  ]);
+
   const handleRetryAssignedChecksPreview = useCallback(() => {
     dashboardAssignedChecksPreviewKeyRef.current = null;
     dashboardAssignedChecksPreviewInFlightRef.current = null;
@@ -11920,12 +11970,20 @@ function App() {
     if (offlineMode || !window.navigator.onLine) {
       return;
     }
-    const companyFolderId = String(selectedFolderId || selectedFolder?.id || activeCompanyContext.companyFolderId || "").trim();
-    const masterSheetId =
-      activeCompanyContext.masterSheetId.trim() ||
-      extractGoogleResourceId(masterSheetInput) ||
-      companySheetSync?.sheetId ||
-      "";
+    const companyFolderId = String(
+      assignedChecksState.companyFolderId ||
+        activeCompanyContext.companyFolderId ||
+        selectedFolderId ||
+        selectedFolder?.id ||
+        "",
+    ).trim();
+    const masterSheetId = String(
+      assignedChecksState.masterSheetId ||
+        activeCompanyContext.masterSheetId ||
+        extractGoogleResourceId(masterSheetInput) ||
+        companySheetSync?.sheetId ||
+        "",
+    ).trim();
     if (!companyFolderId || records.length === 0) {
       return;
     }
@@ -12783,13 +12841,6 @@ function App() {
             }
           })
           .catch(() => undefined);
-        pushToast(
-          "Check submitted",
-          issuesFound > 0
-            ? `${activeAudit.name} is recorded. ${issuesFound} issue${issuesFound === 1 ? "" : "s"} flagged.`
-            : `${activeAudit.name} is recorded with no issues found.`,
-          issuesFound > 0 ? "warning" : "success",
-        );
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") {
           const timedOut = error.message.includes("timed out") || error.message === "TimeoutError";
@@ -12860,13 +12911,21 @@ function App() {
       });
     }
     if (issuePrompt.answer === "fail" || issuePrompt.answer === "nc") {
-      createNonConformanceFromIssue({
+      const created = createNonConformanceFromIssue({
         audit: activeAudit,
         question: issuePrompt.question,
         answer: issuePrompt.answer,
         note: noteValue,
       });
-      pushToast("Non-conformance recorded", "The non-conformance was added to the register.", "success");
+      if (created) {
+        pushToast("Non-conformance recorded", CHECK_COMPLETION_NCR_RECORDED_MESSAGE, "success");
+      } else {
+        pushToast(
+          "Non-conformance not saved",
+          CHECK_COMPLETION_NCR_WRITE_FAILED_MESSAGE,
+          "warning",
+        );
+      }
     }
     setIssuePrompt(null);
     setAuditModeQuestionIndex((current) => Math.min(current + 1, activeAudit.questions.length - 1));

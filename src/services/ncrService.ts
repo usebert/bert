@@ -40,6 +40,9 @@ function normalizeClientNcrStatus(status: string): NonConformanceRecord["status"
   if (normalized === "in progress" || normalized === "in_progress") {
     return "In Progress";
   }
+  if (normalized === "open" || normalized === "raised" || normalized === "logged" || normalized === "pending") {
+    return "Raised";
+  }
   return "Raised";
 }
 
@@ -193,6 +196,7 @@ export const NCR_SAFE_ERROR_CODES = {
   NCR_TAB_MISSING_HEADERS: "The company workbook NCR tab needs updating before records can be saved.",
   NCR_PAYLOAD_INVALID: "Non-conformance details were incomplete.",
   COMPANY_WORKBOOK_NOT_FOUND: "Company workbook is not linked.",
+  NCR_DUPLICATE_SKIPPED: "This non-conformance was already recorded for this check.",
 } as const;
 
 export function ncrSafeErrorMessage(code?: string, fallback?: string) {
