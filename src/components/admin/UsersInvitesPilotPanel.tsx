@@ -67,6 +67,7 @@ const ROLE_HELPER: Record<string, string> = {
 
 type InviteView = "inviteUsers" | "pendingInvites" | "sentInvites";
 type CompanyView = "companyStructure" | "people";
+type PeopleCompanyTopView = "landing" | "inviteArea" | "company";
 
 function normalizeText(value: unknown): string {
   return String(value ?? "").trim().toLowerCase();
@@ -535,6 +536,7 @@ export function UsersInvitesPilotPanel({
   ...healthProps
 }: UsersInvitesPilotPanelProps) {
   const [showHealthSync, setShowHealthSync] = useState(false);
+  const [topView, setTopView] = useState<PeopleCompanyTopView>("landing");
   const [inviteView, setInviteView] = useState<InviteView>("inviteUsers");
   const [companyView, setCompanyView] = useState<CompanyView>("people");
   const [pendingInviteSearch, setPendingInviteSearch] = useState("");
@@ -695,37 +697,81 @@ export function UsersInvitesPilotPanel({
         />
       </section>
 
-      <section className={pilotLightSurface}>
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Invite Area</p>
-        <div className="mt-3 grid gap-3 sm:grid-cols-3">
-          {(
-            [
-              ["inviteUsers", "Invite users", "Send a new user invite."],
-              ["pendingInvites", "Pending invites", "View invites that are waiting to be accepted."],
-              ["sentInvites", "Sent Invites", "View historical invite activity."],
-            ] as Array<[InviteView, string, string]>
-          ).map(([viewKey, title, description]) => (
+      {topView === "landing" ? (
+        <section className={pilotLightSurface}>
+          <div className="grid gap-3">
             <button
-              key={viewKey}
               type="button"
-              onClick={() => setInviteView(viewKey)}
-              className={[
-                "min-h-[5.5rem] rounded-2xl border px-4 py-3 text-left",
-                inviteView === viewKey
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-200 bg-white text-slate-900",
-              ].join(" ")}
+              onClick={() => setTopView("inviteArea")}
+              className="min-h-[6.5rem] rounded-2xl border border-slate-200 bg-white px-5 py-4 text-left"
             >
-              <p className="text-base font-semibold">{title}</p>
-              <p className={`mt-1 text-xs ${inviteView === viewKey ? "text-slate-200" : "text-slate-500"}`}>
-                {description}
-              </p>
+              <p className="text-lg font-semibold text-slate-900">INVITE AREA</p>
+              <p className="mt-1 text-sm text-slate-600">Manage new invites and pending invitations.</p>
             </button>
-          ))}
-        </div>
-      </section>
+            <button
+              type="button"
+              onClick={() => setTopView("company")}
+              className="min-h-[6.5rem] rounded-2xl border border-slate-200 bg-white px-5 py-4 text-left"
+            >
+              <p className="text-lg font-semibold text-slate-900">COMPANY</p>
+              <p className="mt-1 text-sm text-slate-600">Manage company structure and people.</p>
+            </button>
+          </div>
+        </section>
+      ) : null}
 
-      {inviteView === "inviteUsers" ? (
+      {topView !== "landing" ? (
+        <section className={pilotLightSurface}>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-slate-700">
+              {topView === "inviteArea"
+                ? "People & Company > Invite Area"
+                : "People & Company > Company"}
+            </p>
+            <button
+              type="button"
+              onClick={() => setTopView("landing")}
+              className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700"
+            >
+              Back
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {topView === "inviteArea" ? (
+        <section className={pilotLightSurface}>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Invite Area</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            {(
+              [
+                ["inviteUsers", "Invite users", "Send a new user invite."],
+                ["pendingInvites", "Pending invites", "View invites that are waiting to be accepted."],
+                ["sentInvites", "Sent Invites", "View historical invite activity."],
+              ] as Array<[InviteView, string, string]>
+            ).map(([viewKey, title, description]) => (
+              <button
+                key={viewKey}
+                type="button"
+                onClick={() => setInviteView(viewKey)}
+                className={[
+                  "min-h-[5.5rem] rounded-2xl border px-4 py-3 text-left",
+                  inviteView === viewKey
+                    ? "border-slate-900 bg-slate-900 text-white"
+                    : "border-slate-200 bg-white text-slate-900",
+                ].join(" ")}
+              >
+                <p className="text-base font-semibold">{title}</p>
+                <p className={`mt-1 text-xs ${inviteView === viewKey ? "text-slate-200" : "text-slate-500"}`}>
+                  {description}
+                </p>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {topView === "inviteArea" && inviteView === "inviteUsers" ? (
       <section className={pilotLightSurface}>
         <SectionHeader
           icon="user"
@@ -816,7 +862,7 @@ export function UsersInvitesPilotPanel({
       </section>
       ) : null}
 
-      {inviteView === "pendingInvites" ? (
+      {topView === "inviteArea" && inviteView === "pendingInvites" ? (
       <section className={pilotLightSurface}>
         <SectionHeader
           icon="spark"
@@ -875,7 +921,7 @@ export function UsersInvitesPilotPanel({
       </section>
       ) : null}
 
-      {inviteView === "sentInvites" ? (
+      {topView === "inviteArea" && inviteView === "sentInvites" ? (
         <section className={pilotLightSurface}>
           <SectionHeader
             icon="spark"
@@ -889,36 +935,38 @@ export function UsersInvitesPilotPanel({
         </section>
       ) : null}
 
-      <section className={pilotLightSurface}>
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Company</p>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          {(
-            [
-              ["companyStructure", "Company structure", "Manage sites, departments, and areas."],
-              ["people", "People", "View and edit company people and access."],
-            ] as Array<[CompanyView, string, string]>
-          ).map(([viewKey, title, description]) => (
-            <button
-              key={viewKey}
-              type="button"
-              onClick={() => setCompanyView(viewKey)}
-              className={[
-                "min-h-[5.5rem] rounded-2xl border px-4 py-3 text-left",
-                companyView === viewKey
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-200 bg-white text-slate-900",
-              ].join(" ")}
-            >
-              <p className="text-base font-semibold">{title}</p>
-              <p className={`mt-1 text-xs ${companyView === viewKey ? "text-slate-200" : "text-slate-500"}`}>
-                {description}
-              </p>
-            </button>
-          ))}
-        </div>
-      </section>
+      {topView === "company" ? (
+        <section className={pilotLightSurface}>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Company</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            {(
+              [
+                ["companyStructure", "Company structure", "Manage sites, departments, and areas."],
+                ["people", "People", "View and edit company people and access."],
+              ] as Array<[CompanyView, string, string]>
+            ).map(([viewKey, title, description]) => (
+              <button
+                key={viewKey}
+                type="button"
+                onClick={() => setCompanyView(viewKey)}
+                className={[
+                  "min-h-[5.5rem] rounded-2xl border px-4 py-3 text-left",
+                  companyView === viewKey
+                    ? "border-slate-900 bg-slate-900 text-white"
+                    : "border-slate-200 bg-white text-slate-900",
+                ].join(" ")}
+              >
+                <p className="text-base font-semibold">{title}</p>
+                <p className={`mt-1 text-xs ${companyView === viewKey ? "text-slate-200" : "text-slate-500"}`}>
+                  {description}
+                </p>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
-      {companyView === "companyStructure" && resolvedCompanyId && resolvedMasterSheetId ? (
+      {topView === "company" && companyView === "companyStructure" && resolvedCompanyId && resolvedMasterSheetId ? (
         <CompanyStructurePanel
           currentUserRole={currentUser.role}
           companyFolderId={resolvedCompanyId}
@@ -929,7 +977,7 @@ export function UsersInvitesPilotPanel({
         />
       ) : null}
 
-      {companyView === "people" ? (
+      {topView === "company" && companyView === "people" ? (
       <section className={pilotLightSurface}>
         <SectionHeader
           icon="user"
@@ -1066,7 +1114,7 @@ export function UsersInvitesPilotPanel({
       </section>
       ) : null}
 
-      {companyView === "companyStructure" ? (
+      {topView === "company" && companyView === "companyStructure" ? (
         <SitesAreasPanel
           currentUserRole={currentUser.role}
           sites={sites}
@@ -1093,13 +1141,16 @@ export function UsersInvitesPilotPanel({
         />
       ) : null}
 
+      {topView === "company" ? (
       <details className={pilotLightSurface}>
         <summary className="cursor-pointer px-1 py-2 text-sm font-semibold text-slate-900">Invite status guide (advanced)</summary>
         <div className="mt-2 border-t border-slate-100 pt-3">
           <InviteStatusLegend />
         </div>
       </details>
+      ) : null}
 
+      {topView === "company" ? (
       <section className={pilotLightSurface}>
         <button
           type="button"
@@ -1125,6 +1176,7 @@ export function UsersInvitesPilotPanel({
           </div>
         ) : null}
       </section>
+      ) : null}
     </div>
   );
 }

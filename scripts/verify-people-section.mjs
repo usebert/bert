@@ -26,30 +26,41 @@ const adminScreen = read("src/screens/AdminScreen.tsx");
 const pkg = JSON.parse(read("package.json"));
 
 assert(panel.includes("People & Company"), "1: People & Company page renders");
-assert(panel.includes("Invite Area"), "2: Invite Area section renders");
-assert(panel.includes("Invite users"), "3: Invite users button renders");
-assert(panel.includes("Pending invites"), "4: Pending invites button/page renders");
+assert(panel.includes("topView") && panel.includes('"landing"'), "2: Landing view state exists");
+assert(panel.includes("INVITE AREA"), "3: Landing includes INVITE AREA card");
+assert(panel.includes("COMPANY"), "4: Landing includes COMPANY card");
+assert(
+  panel.includes('topView === "inviteArea"') && panel.includes('topView === "company"'),
+  "5: Invite/Company sections are hidden until selected",
+);
 assert(
   panel.includes("Sent Invites") && panel.includes("Sent invite history is not available yet."),
-  "5: Sent Invites button and clean empty state render",
+  "6: Sent Invites button and clean empty state render",
 );
-assert(panel.includes("Company"), "6: Company section renders");
-assert(panel.includes("Company structure"), "7: Company structure button renders");
-assert(panel.includes("People"), "8: People button renders");
-assert(panel.includes("Search people by name or email"), "9: People search by name/email input renders");
-assert(panel.includes("Role: All"), "10: Role filter renders");
-assert(panel.includes("Status: All"), "11: Status filter renders");
-assert(panel.includes("Site: All"), "12: Site filter renders");
-assert(panel.includes("Department: All"), "13: Department filter renders");
-assert(panel.includes("Area: All"), "14: Area filter renders");
-assert(panel.includes("All company access"), "15: Blank access displays All company access");
-assert(activeUserCard.includes("allSites ? [] : draftAccess.siteIds"), "16: Editing preserves blank all-site access");
-assert(activeUserCard.includes("allDepartments ? [] : draftAccess.departmentIds"), "17: Editing preserves blank all-department access");
-assert(activeUserCard.includes("allAreas ? [] : draftAccess.areaIds"), "18: Editing preserves blank all-area access");
-assert(adminScreen.includes("UsersInvitesPilotPanel"), "19: Existing users/invites screen wiring remains intact");
-assert(companyUserService.includes("sanitizeCompanyMemberForClient"), "20: PasswordHash is stripped from frontend member data");
-assert(access.includes("siteIds.length === 0"), "21: Blank site access remains unrestricted");
-assert(panel.includes("grid gap-3 sm:grid-cols-3"), "22: Tablet layout uses card grid without overflow-prone table");
-assert(pkg.scripts["verify:people-section"], "23: verify:people-section script registered");
+assert(panel.includes("People & Company > Invite Area"), "7: Invite breadcrumb title renders");
+assert(panel.includes("People & Company > Company"), "8: Company breadcrumb title renders");
+assert(panel.includes("Back"), "9: Back button renders for subviews");
+assert(
+  panel.includes("Invite users") && panel.includes("Pending invites") && panel.includes("Sent Invites"),
+  "10: Invite area second-level options render",
+);
+assert(
+  panel.includes("Company structure") && panel.includes("People"),
+  "11: Company second-level options render",
+);
+assert(panel.includes("Search people by name or email"), "12: People search by name/email input renders");
+assert(panel.includes("Role: All"), "13: Role filter renders");
+assert(panel.includes("Status: All"), "14: Status filter renders");
+assert(panel.includes("Site: All"), "15: Site filter renders");
+assert(panel.includes("Department: All"), "16: Department filter renders");
+assert(panel.includes("Area: All"), "17: Area filter renders");
+assert(panel.includes("All company access"), "18: Blank access displays All company access");
+assert(activeUserCard.includes("allSites ? [] : draftAccess.siteIds"), "19: Editing preserves blank all-site access");
+assert(activeUserCard.includes("allDepartments ? [] : draftAccess.departmentIds"), "20: Editing preserves blank all-department access");
+assert(activeUserCard.includes("allAreas ? [] : draftAccess.areaIds"), "21: Editing preserves blank all-area access");
+assert(adminScreen.includes("UsersInvitesPilotPanel"), "22: Existing users/invites screen wiring remains intact");
+assert(companyUserService.includes("sanitizeCompanyMemberForClient"), "23: PasswordHash is stripped from frontend member data");
+assert(access.includes("siteIds.length === 0"), "24: Blank site access remains unrestricted");
+assert(pkg.scripts["verify:people-section"], "25: verify:people-section script registered");
 
 console.log(`[verify:people-section] ${caseCount} checks OK`);
