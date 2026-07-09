@@ -1452,12 +1452,12 @@ export function installCoreWorkflowRoutes(app, deps) {
       });
       respondJson(504, {
         ok: false,
-        code: "CHECK_SUBMIT_TIMEOUT",
+        code: "CHECK_COMPLETION_TIMEOUT",
         reasonCode: "REQUEST_TIMEOUT",
         error:
-          "Submitting your check timed out before the server finished saving to your company workbook.",
+          "Check submission is taking longer than expected. Please check Sync Centre before retrying.",
         message:
-          "Submitting your check timed out before the server finished saving to your company workbook.",
+          "Check submission is taking longer than expected. Please check Sync Centre before retrying.",
       });
     }, CHECK_COMPLETION_ROUTE_TIMEOUT_MS);
 

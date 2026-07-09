@@ -390,6 +390,7 @@ import {
   CHECK_COMPLETION_TIMEOUT_MS,
   CHECK_COMPLETION_USER_MESSAGE,
   completeCheck,
+  isCheckCompletionTimeoutError,
   DASHBOARD_ASSIGNED_CHECKS_PREVIEW_LIMIT,
   DASHBOARD_ASSIGNED_CHECKS_PREVIEW_TIMEOUT_MS,
   fetchAssignedChecks,
@@ -3668,6 +3669,7 @@ function App() {
   const [offlineSyncProgress, setOfflineSyncProgress] = useState<{ current: number; total: number } | null>(null);
   const [syncQueue, setSyncQueue] = useState<SyncQueueItem[]>(storedWorkspaceState?.syncQueue || initialSyncQueue);
   const submissionInFlightKeysRef = useRef(new Set<string>());
+  const checkCompletionLocalIdRef = useRef<Record<string, string>>({});
   const submissionQueueHydratedRef = useRef(false);
   const selectedFolderIdRef = useRef(storedWorkspaceState?.selectedFolderId || "");
   const refreshSubmissionQueueViews = useCallback(async () => {
@@ -12497,6 +12499,7 @@ function App() {
       setTextResponses({});
       setPromptFollowUps({});
       setAuditEvidenceUploadData({});
+      delete checkCompletionLocalIdRef.current[activeAudit.id];
       setScreen("complete");
     };
 
@@ -12587,6 +12590,20 @@ function App() {
       return;
     }
 
+    const onlineSubmitKey = `check-completion::${assignedContext.companyFolderId}::${activeAudit.id}`;
+    if (submissionInFlightKeysRef.current.has(onlineSubmitKey)) {
+      pushToast(
+        "Submit in progress",
+        "This check is already being submitted. Please wait or check Sync Centre before retrying.",
+        "warning",
+      );
+      return;
+    }
+    submissionInFlightKeysRef.current.add(onlineSubmitKey);
+    const localSubmissionId =
+      checkCompletionLocalIdRef.current[activeAudit.id] || `check-${activeAudit.id}-${Date.now()}`;
+    checkCompletionLocalIdRef.current[activeAudit.id] = localSubmissionId;
+
     const findings = [
       ...activeAudit.questions
         .filter((question) => syncedResponses[question.id] === "fail" || syncedResponses[question.id] === "nc")
@@ -12620,7 +12637,7 @@ function App() {
     setCheckSubmitState({ submitting: true, error: undefined });
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => {
-      controller.abort(new DOMException("Check completion timed out", "TimeoutError"));
+      controller.abort();
     }, CHECK_COMPLETION_TIMEOUT_MS);
 
     void (async () => {
@@ -12695,7 +12712,7 @@ function App() {
             findings,
             evidenceRefs,
             evidenceFiles,
-            localSubmissionId: `check-${activeAudit.id}-${Date.now()}`,
+            localSubmissionId,
           },
           { signal: controller.signal },
         );
@@ -12703,6 +12720,7 @@ function App() {
         if (!result.ok) {
           const message = result.error || CHECK_COMPLETION_USER_MESSAGE;
           setCheckSubmitState({ submitting: false, error: message });
+          submissionInFlightKeysRef.current.delete(onlineSubmitKey);
           pushToast("Could not submit check", message, "warning");
           return;
         }
@@ -12762,6 +12780,8 @@ function App() {
           ncrsRecorded: ncrOutcome.ncrsRecorded,
           ncrWriteFailed: ncrOutcome.ncrWriteFailed,
         });
+        submissionInFlightKeysRef.current.delete(onlineSubmitKey);
+        delete checkCompletionLocalIdRef.current[activeAudit.id];
         if (assignedContext) {
           const completedAtIso = new Date().toISOString();
           const resolvedResultId = String(result.resultId || "").trim();
@@ -12842,17 +12862,15 @@ function App() {
           })
           .catch(() => undefined);
       } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") {
-          const timedOut = error.message.includes("timed out") || error.message === "TimeoutError";
-          const message = timedOut ? CHECK_COMPLETION_TIMEOUT_MESSAGE : CHECK_COMPLETION_USER_MESSAGE;
+        if (isCheckCompletionTimeoutError(error)) {
+          const message = CHECK_COMPLETION_TIMEOUT_MESSAGE;
           setCheckSubmitState({ submitting: false, error: message });
-          if (timedOut) {
-            pushToast("Submit timed out", message, "warning");
-          }
+          pushToast("Submit taking longer", message, "warning");
           return;
         }
         const message = error instanceof Error ? error.message : CHECK_COMPLETION_USER_MESSAGE;
         setCheckSubmitState({ submitting: false, error: message });
+        submissionInFlightKeysRef.current.delete(onlineSubmitKey);
         pushToast("Could not submit check", message, "warning");
       } finally {
         window.clearTimeout(timeoutId);

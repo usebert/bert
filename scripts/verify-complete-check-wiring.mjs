@@ -120,8 +120,17 @@ assert(
   "4c: completeCheck does not send client masterSheetId",
 );
 assert(
-  /respondJson\(504[\s\S]{0,400}CHECK_SUBMIT_TIMEOUT/.test(coreRoutes),
-  "4d: route timeout returns CHECK_SUBMIT_TIMEOUT",
+  /respondJson\(504[\s\S]{0,400}CHECK_COMPLETION_TIMEOUT/.test(coreRoutes),
+  "4d: route timeout returns CHECK_COMPLETION_TIMEOUT",
+);
+assert(
+  completionService.indexOf("write_audit_results_end") < completionService.indexOf("audit_evidence_upload_start"),
+  "4e: audit result written before deferred evidence upload",
+);
+assert(checkService.includes("isCheckCompletionTimeoutError"), "4f: client timeout abort helper");
+assert(
+  Number(checkService.match(/CHECK_COMPLETION_TIMEOUT_MS = ([\d_]+)/)?.[1]?.replace(/_/g, "") || 0) >= 120_000,
+  "4g: client timeout allows server route budget",
 );
 
 console.log(`[verify:complete-check-wiring] OK — ${caseCount} cases passed`);

@@ -41,11 +41,18 @@ const ncrService = read("server/ncr-service.mjs");
 assert(ncrService.includes("appendNcrsFromCheckCompletion"), "2: server appends NCRs on check completion");
 assert(ncrService.includes("NCR_WRITE_FAILED"), "2b: safe NCR write error code");
 assert(ncrService.includes("NCR_DUPLICATE_SKIPPED"), "2c: duplicate NCR protection code");
+assert(ncrService.includes("local::"), "2d: NCR dedupe includes local submission id");
 
 const completion = read("server/completion-service.mjs");
 assert(completion.includes("appendNcrsFromCheckCompletion"), "3: completion service writes NCR rows");
 assert(completion.includes("findings: input.findings"), "3b: findings passed to NCR writer");
 assert(completion.includes('buildAuditResultRow'), "3c: audit result row written on check completion");
+assert(
+  completion.indexOf("write_audit_results_end") < completion.indexOf("audit_evidence_upload_start"),
+  "3d: evidence upload deferred until after audit result write",
+);
+assert(completion.includes("CHECK_COMPLETION_ROUTE_TIMEOUT_MS = 120_000"), "3e: route timeout budget increased");
+assert(completion.includes("ncrWriteWarningFromResult"), "3f: NCR failure returns partial success after audit write");
 
 const routes = read("server/core-workflow-routes.mjs");
 assert(routes.includes('app.post("/api/companies/:companyFolderId/ncrs"'), "4: folder-first NCR save route");
@@ -80,7 +87,9 @@ assert(appTsx.includes("CHECK_COMPLETION_NCR_WRITE_FAILED_MESSAGE"), "7d: comple
 assert(appTsx.includes("ncrsRecorded"), "7e: completion summary tracks NCR count");
 assert(appTsx.includes("ncrWriteFailed"), "7f: completion summary tracks NCR write failure");
 assert(appTsx.includes("resolveNcrCompletionOutcome"), "7g: NCR outcome resolver used on submit");
-assert(appTsx.includes("serverNcrs: result.ncrs"), "7h: server NCRs merged into client state");
+assert(appTsx.includes("checkCompletionLocalIdRef"), "7i: stable local submission id for retry dedupe");
+assert(appTsx.includes("isCheckCompletionTimeoutError"), "7j: timeout abort mapped to sync-centre message");
+assert(checkService.includes("Check submission is taking longer than expected"), "7k: slow submit user message");
 
 const server = read("server/server.mjs");
 assert(server.includes('"NCRs"'), "8: NCRs tab in company sheet read list");

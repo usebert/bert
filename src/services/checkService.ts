@@ -15,6 +15,7 @@ export type SubmitCheckResultInput = {
   companyContext: CheckCompletionCompanyContext;
   scheduleId: string;
   localSubmissionId?: string;
+  resultId?: string;
   auditId: string;
   auditName: string;
   completedBy: string;
@@ -86,7 +87,7 @@ export const ASSIGNED_CHECKS_USER_MESSAGE = "Could not load your assigned checks
 export const ASSIGNED_CHECKS_LOAD_TIMEOUT_MESSAGE =
   "Loading your checks timed out before the server finished reading your company workbook. Try again — if it keeps failing, ask your operator to check the BERT Master Sheet.";
 
-export const CHECK_COMPLETION_TIMEOUT_MS = 90_000;
+export const CHECK_COMPLETION_TIMEOUT_MS = 125_000;
 export const CHECK_COMPLETION_SUBMITTING_MESSAGE = "Submitting your check…";
 export const CHECK_COMPLETION_USER_MESSAGE = "Could not submit this check.";
 export const CHECK_COMPLETION_SUCCESS_MESSAGE = "Check submitted successfully.";
@@ -94,12 +95,28 @@ export const CHECK_COMPLETION_NCR_RECORDED_MESSAGE = "Non-conformance recorded."
 export const CHECK_COMPLETION_NCR_WRITE_FAILED_MESSAGE =
   "Check submitted, but the non-conformance could not be recorded.";
 export const CHECK_COMPLETION_TIMEOUT_MESSAGE =
-  "Submitting your check timed out before the server finished saving to your company workbook. Try again — if it keeps failing, ask your operator to check your company records.";
+  "Check submission is taking longer than expected. Please check Sync Centre before retrying.";
+export const CHECK_COMPLETION_SLOW_SUBMIT_MESSAGE = CHECK_COMPLETION_TIMEOUT_MESSAGE;
 export const CHECK_COMPLETION_NOT_ASSIGNED_MESSAGE = "This check is not assigned to your account.";
 export const CHECK_COMPLETION_WRONG_COMPANY_MESSAGE = "This check does not belong to your company workspace.";
 export const CHECK_COMPLETION_FORBIDDEN_MESSAGE = "You do not have permission to submit this check.";
 export const CHECK_COMPLETION_WORKBOOK_TIMEOUT_MESSAGE =
   "Saving your check timed out while reading or writing the company workbook. Try again in a moment.";
+
+export function isCheckCompletionAbortError(error: unknown): boolean {
+  if (!(error instanceof DOMException)) {
+    return false;
+  }
+  return error.name === "AbortError" || error.name === "TimeoutError";
+}
+
+export function isCheckCompletionTimeoutError(error: unknown): boolean {
+  if (!(error instanceof DOMException)) {
+    return false;
+  }
+  const message = error.message || "";
+  return message.toLowerCase().includes("timed out") || error.name === "TimeoutError";
+}
 
 function completionErrorMessage(payload: {
   code?: string;
@@ -118,8 +135,17 @@ function completionErrorMessage(payload: {
   if (code === "CHECK_NOT_ACTIVE" || code === "AUTH_REQUIRED" || code === "SESSION_REQUIRED") {
     return CHECK_COMPLETION_FORBIDDEN_MESSAGE;
   }
-  if (code === "CHECK_SUBMIT_TIMEOUT" || reasonCode === "REQUEST_TIMEOUT") {
+  if (code === "CHECK_SUBMIT_TIMEOUT" || code === "CHECK_COMPLETION_TIMEOUT" || reasonCode === "REQUEST_TIMEOUT") {
     return CHECK_COMPLETION_TIMEOUT_MESSAGE;
+  }
+  if (code === "CHECK_RESULT_WRITE_FAILED") {
+    return "Could not save completed check to the company workbook.";
+  }
+  if (code === "NCR_WRITE_FAILED") {
+    return CHECK_COMPLETION_NCR_WRITE_FAILED_MESSAGE;
+  }
+  if (code === "EVIDENCE_WRITE_FAILED") {
+    return "Check completed, but photo evidence could not be uploaded.";
   }
   if (reasonCode === "GOOGLE_TIMEOUT") {
     return CHECK_COMPLETION_WORKBOOK_TIMEOUT_MESSAGE;
@@ -298,6 +324,7 @@ export async function completeCheck(
         evidenceRefs: input.evidenceRefs ?? [],
         evidenceFiles: input.evidenceFiles ?? [],
         localSubmissionId: input.localSubmissionId,
+        resultId: input.resultId,
         completedByName: input.completedBy,
       }),
     },

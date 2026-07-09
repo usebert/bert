@@ -31,9 +31,10 @@ import {
 
 export const CHECK_COMPLETION_GOOGLE_TIMEOUT_MS = Math.min(
   DEFAULT_GOOGLE_OPERATION_TIMEOUT_MS,
-  75_000,
+  60_000,
 );
-export const CHECK_COMPLETION_ROUTE_TIMEOUT_MS = 90_000;
+export const CHECK_COMPLETION_EVIDENCE_TIMEOUT_MS = 45_000;
+export const CHECK_COMPLETION_ROUTE_TIMEOUT_MS = 120_000;
 
 function logCheckCompletePhase(phase, meta = {}) {
   const { startedAt, companyId, scheduleId, userEmail, answerCount, ...rest } = meta;
@@ -57,7 +58,7 @@ function completionTimeoutError(operation, error) {
   if (error?.code === "GOOGLE_TIMEOUT") {
     return {
       ok: false,
-      code: "CHECK_SUBMIT_TIMEOUT",
+      code: "CHECK_COMPLETION_TIMEOUT",
       reasonCode: "GOOGLE_TIMEOUT",
       error: "Saving your check timed out while reading or writing the company workbook.",
       message: "Saving your check timed out while reading or writing the company workbook.",
@@ -73,6 +74,16 @@ function completionTimeoutError(operation, error) {
     message: "Could not save completed check to the company workbook.",
     httpStatus: 502,
   };
+}
+
+function ncrWriteWarningFromResult(ncrResult = {}) {
+  if (ncrResult.ok !== false) {
+    return "";
+  }
+  if (ncrResult.code === "NCR_DUPLICATE_SKIPPED") {
+    return "";
+  }
+  return trim(ncrResult.message || ncrResult.error) || "Could not save non-conformance records to the company workbook.";
 }
 
 async function withCheckCompletionTimeout(promise, operation, timeoutMs = CHECK_COMPLETION_GOOGLE_TIMEOUT_MS) {
@@ -477,48 +488,6 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
     evidenceUploadWarning = "Attached evidence could not be uploaded because file data was missing from the request.";
   }
 
-  if (evidenceFiles.length > 0) {
-    const normalizedFiles = evidenceFiles.map((file, index) => normalizeAuditEvidenceUploadFile(file, index));
-    const validDataUrlCount = normalizedFiles.filter((file) => trim(file.dataUrl).startsWith("data:")).length;
-    logCheckCompletePhase("audit_evidence_upload_start", {
-      ...traceMeta,
-      resultId,
-      fileCount: normalizedFiles.length,
-      validDataUrlCount,
-    });
-    const uploaded = await uploadAuditEvidenceToDrive(auth, deps, {
-      companyFolderId: eligibility.companyFolderId,
-      masterSheetId: eligibility.masterSheetId,
-      resultId,
-      files: normalizedFiles,
-    });
-    logCheckCompletePhase("audit_evidence_upload_end", {
-      ...traceMeta,
-      resultId,
-      uploadedCount: uploaded.evidenceRefs?.length || 0,
-      folderId: uploaded.folderId || "",
-      ok: uploaded.ok,
-    });
-    if (uploaded.evidenceRefs?.length > 0) {
-      evidenceUploadWarning = "";
-      const uploadedByEvidenceId = new Map(
-        uploaded.evidenceRefs.map((ref) => [trim(ref.evidenceId), ref]),
-      );
-      evidenceRefs = evidenceRefs.map((ref) => uploadedByEvidenceId.get(trim(ref.evidenceId)) || ref);
-      for (const uploadedRef of uploaded.evidenceRefs) {
-        if (!evidenceRefs.some((ref) => trim(ref.evidenceId) === trim(uploadedRef.evidenceId))) {
-          evidenceRefs.push(uploadedRef);
-        }
-      }
-    }
-    if (!uploaded.ok) {
-      evidenceUploadWarning =
-        uploaded.message || uploaded.error || "Photo evidence could not be uploaded to Google Drive.";
-    } else if (uploaded.warning) {
-      evidenceUploadWarning = uploaded.warning;
-    }
-  }
-
   const row = buildAuditResultRow({
     ...input,
     scheduleId: scheduleId || trim(schedule.id),
@@ -551,10 +520,11 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
   }
 
   const appendTabRows = resolveAppendTabRows(deps);
+  let written = 0;
   try {
     const writeStart = Date.now();
     logCheckCompletePhase("write_audit_results_start", traceMeta);
-    const written = await appendAuditResultRowWithRetry(
+    written = await appendAuditResultRowWithRetry(
       appendTabRows,
       auth,
       deps,
@@ -562,60 +532,10 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
       row,
     );
     logCheckCompletePhase("write_audit_results_end", { ...traceMeta, durationMs: Date.now() - writeStart });
-
-    const ncrWriteStart = Date.now();
-    logCheckCompletePhase("write_ncrs_start", traceMeta);
-    const ncrResult = await appendNcrsFromCheckCompletion(auth, deps, {
-      companyId: eligibility.companyFolderId,
-      companyFolderId: eligibility.companyFolderId,
-      masterSheetId: eligibility.masterSheetId,
-      resultId: row["Result ID"],
-      auditId,
-      auditName,
-      site: trim(input.site || input.areaId || matchingAudit?.areaId),
-      completedByEmail: email,
-      completedByName: trim(input.completedByName || input.name),
-      completedAt: row["Completed At"],
-      findings: input.findings ?? [],
-      localSubmissionId: input.localSubmissionId,
-      assignedLineManager: trim(input.assignedLineManager),
-      assignedLineManagerEmail: trim(input.assignedLineManagerEmail),
-    });
-    logCheckCompletePhase("write_ncrs_end", {
-      ...traceMeta,
-      durationMs: Date.now() - ncrWriteStart,
-      written: ncrResult.written ?? 0,
-      ok: ncrResult.ok !== false,
-    });
-
-    if (ncrResult.ok === false && ncrResult.code !== "NCR_WRITE_FAILED") {
-      logCheckCompletePhase("response_sent", { ...traceMeta, ok: false, code: ncrResult.code });
-      return ncrResult;
-    }
-
-    logCheckCompletePhase("update_schedule_status_end", {
-      ...traceMeta,
-      skipped: true,
-      reason: "completion_derived_from_audit_results",
-    });
-    logCheckCompletePhase("response_sent", { ...traceMeta, ok: true, resultId: row["Result ID"] });
-    return {
-      ok: true,
-      resultId: row["Result ID"],
-      companyId: eligibility.companyFolderId,
-      companyFolderId: eligibility.companyFolderId,
-      masterSheetId: eligibility.masterSheetId,
-      scheduleId: row["Schedule ID"],
-      written,
-      ncrs: ncrResult.ncrs || [],
-      ncrWriteWarning:
-        ncrResult.ok === false && ncrResult.code === "NCR_WRITE_FAILED" ? ncrResult.message || ncrResult.error : "",
-      evidenceUploadWarning,
-    };
   } catch (error) {
     logCheckCompletePhase("catch_error", {
       ...traceMeta,
-      code: error?.code || "CHECK_SUBMIT_FAILED",
+      code: error?.code || "CHECK_RESULT_WRITE_FAILED",
       durationMs: Date.now() - startedAt,
     });
     const timeoutResult = completionTimeoutError("write_audit_results", error);
@@ -623,17 +543,138 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
       logCheckCompletePhase("response_sent", { ...traceMeta, ok: false, code: timeoutResult.code });
       return timeoutResult;
     }
-    const technicalError = error instanceof Error ? error.message : String(error);
-    console.error("[complete-check] write_audit_results failed:", technicalError);
-    logCheckCompletePhase("response_sent", { ...traceMeta, ok: false, code: "CHECK_SUBMIT_FAILED" });
+    logCheckCompletePhase("response_sent", { ...traceMeta, ok: false, code: "CHECK_RESULT_WRITE_FAILED" });
     return {
       ok: false,
-      code: "CHECK_SUBMIT_FAILED",
+      code: "CHECK_RESULT_WRITE_FAILED",
       error: "Could not save completed check to the company workbook.",
       message: "Could not save completed check to the company workbook.",
       httpStatus: 502,
     };
   }
+
+  const ncrWriteStart = Date.now();
+  logCheckCompletePhase("write_ncrs_start", traceMeta);
+  let ncrResult;
+  try {
+    ncrResult = await withCheckCompletionTimeout(
+      appendNcrsFromCheckCompletion(auth, deps, {
+        companyId: eligibility.companyFolderId,
+        companyFolderId: eligibility.companyFolderId,
+        masterSheetId: eligibility.masterSheetId,
+        resultId: row["Result ID"],
+        auditId,
+        auditName,
+        site: trim(input.site || input.areaId || matchingAudit?.areaId),
+        completedByEmail: email,
+        completedByName: trim(input.completedByName || input.name),
+        completedAt: row["Completed At"],
+        findings: input.findings ?? [],
+        localSubmissionId: input.localSubmissionId,
+        assignedLineManager: trim(input.assignedLineManager),
+        assignedLineManagerEmail: trim(input.assignedLineManagerEmail),
+      }),
+      "write_ncrs",
+    );
+  } catch (error) {
+    logCheckCompletePhase("write_ncrs_end", {
+      ...traceMeta,
+      durationMs: Date.now() - ncrWriteStart,
+      ok: false,
+    });
+    ncrResult = {
+      ok: false,
+      code: error?.code === "GOOGLE_TIMEOUT" ? "NCR_WRITE_FAILED" : "NCR_WRITE_FAILED",
+      message: "Could not save non-conformance records to the company workbook.",
+      ncrs: [],
+    };
+  }
+  logCheckCompletePhase("write_ncrs_end", {
+    ...traceMeta,
+    durationMs: Date.now() - ncrWriteStart,
+    written: ncrResult.written ?? 0,
+    ok: ncrResult.ok !== false,
+  });
+
+  const ncrWriteWarning = ncrWriteWarningFromResult(ncrResult);
+
+  if (evidenceFiles.length > 0) {
+    const normalizedFiles = evidenceFiles.map((file, index) => normalizeAuditEvidenceUploadFile(file, index));
+    const validDataUrlCount = normalizedFiles.filter((file) => trim(file.dataUrl).startsWith("data:")).length;
+    logCheckCompletePhase("audit_evidence_upload_start", {
+      ...traceMeta,
+      resultId,
+      fileCount: normalizedFiles.length,
+      validDataUrlCount,
+      deferred: true,
+    });
+    try {
+      const uploaded = await withCheckCompletionTimeout(
+        uploadAuditEvidenceToDrive(auth, deps, {
+          companyFolderId: eligibility.companyFolderId,
+          masterSheetId: eligibility.masterSheetId,
+          resultId,
+          files: normalizedFiles,
+        }),
+        "upload_audit_evidence",
+        CHECK_COMPLETION_EVIDENCE_TIMEOUT_MS,
+      );
+      logCheckCompletePhase("audit_evidence_upload_end", {
+        ...traceMeta,
+        resultId,
+        uploadedCount: uploaded.evidenceRefs?.length || 0,
+        folderId: uploaded.folderId || "",
+        ok: uploaded.ok,
+      });
+      if (uploaded.evidenceRefs?.length > 0) {
+        evidenceUploadWarning = "";
+        const uploadedByEvidenceId = new Map(
+          uploaded.evidenceRefs.map((ref) => [trim(ref.evidenceId), ref]),
+        );
+        evidenceRefs = evidenceRefs.map((ref) => uploadedByEvidenceId.get(trim(ref.evidenceId)) || ref);
+        for (const uploadedRef of uploaded.evidenceRefs) {
+          if (!evidenceRefs.some((ref) => trim(ref.evidenceId) === trim(uploadedRef.evidenceId))) {
+            evidenceRefs.push(uploadedRef);
+          }
+        }
+      }
+      if (!uploaded.ok) {
+        evidenceUploadWarning =
+          uploaded.message || uploaded.error || "Photo evidence could not be uploaded to Google Drive.";
+      } else if (uploaded.warning) {
+        evidenceUploadWarning = uploaded.warning;
+      }
+    } catch (error) {
+      logCheckCompletePhase("audit_evidence_upload_end", {
+        ...traceMeta,
+        resultId,
+        ok: false,
+        code: error?.code || "EVIDENCE_WRITE_FAILED",
+      });
+      evidenceUploadWarning =
+        evidenceUploadWarning ||
+        "Check completed, but photo evidence could not be uploaded before the request finished.";
+    }
+  }
+
+  logCheckCompletePhase("update_schedule_status_end", {
+    ...traceMeta,
+    skipped: true,
+    reason: "completion_derived_from_audit_results",
+  });
+  logCheckCompletePhase("response_sent", { ...traceMeta, ok: true, resultId: row["Result ID"] });
+  return {
+    ok: true,
+    resultId: row["Result ID"],
+    companyId: eligibility.companyFolderId,
+    companyFolderId: eligibility.companyFolderId,
+    masterSheetId: eligibility.masterSheetId,
+    scheduleId: row["Schedule ID"],
+    written,
+    ncrs: ncrResult.ncrs || [],
+    ncrWriteWarning,
+    evidenceUploadWarning,
+  };
 }
 
 /** Read AuditResults from company workbook — filtered by CompanyFolderId. */

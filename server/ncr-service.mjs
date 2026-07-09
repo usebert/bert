@@ -39,7 +39,11 @@ function companyRowMatches(row, companyFolderId) {
   return !rowCompany || rowCompany === companyFolderId;
 }
 
-function findingKey(auditId, questionId, resultId) {
+function findingKey(auditId, questionId, resultId, localSubmissionId = "") {
+  const localId = trim(localSubmissionId);
+  if (localId) {
+    return `local::${localId}::${trim(questionId)}`;
+  }
   return `${auditId}::${questionId}::${resultId}`;
 }
 
@@ -47,10 +51,15 @@ function existingNcrKeys(rows, companyFolderId) {
   const keys = new Set();
   for (const row of rows) {
     if (!companyRowMatches(row, companyFolderId)) continue;
+    const questionId = pickField(row, ["Source Question ID"]);
+    const localSubmissionId = pickField(row, ["Local Submission ID"]);
+    if (localSubmissionId && questionId) {
+      keys.add(findingKey("", questionId, "", localSubmissionId));
+    }
     keys.add(
       findingKey(
         pickField(row, ["Source Audit ID"]),
-        pickField(row, ["Source Question ID"]),
+        questionId,
         pickField(row, ["Result ID"]),
       ),
     );
@@ -122,7 +131,7 @@ export async function appendNcrsFromCheckCompletion(auth, deps, input = {}) {
     if (!questionId || !auditId) {
       continue;
     }
-    const key = findingKey(auditId, questionId, resultId);
+    const key = findingKey(auditId, questionId, resultId, localSubmissionId);
     if (usedKeys.has(key)) {
       skippedDuplicates += 1;
       continue;
