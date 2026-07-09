@@ -16765,6 +16765,7 @@ function App() {
             {screen === "dashboard" && (
               <AnimatedScreen screenKey={`dashboard-${currentUser.role}`}>
               {currentUser.role !== "Master" &&
+              currentUser.role !== "Manager" &&
               activeCompanyContext.companyFolderId &&
               activeCompanyContext.masterSheetId ? (
                 <div className="mb-4">
@@ -16965,6 +16966,26 @@ function App() {
                   />
                 )}
               />
+              {currentUser.role === "Manager" &&
+              activeCompanyContext.companyFolderId &&
+              activeCompanyContext.masterSheetId ? (
+                <div className="mt-4">
+                  <LiveOperationalDashboard
+                    companyFolderId={String(activeCompanyContext.companyFolderId || "").trim()}
+                    masterSheetId={String(activeCompanyContext.masterSheetId || "").trim()}
+                    companyName={String(activeCompanyContext.companyName || workspaceName || "").trim()}
+                    userEmail={String(sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser)).trim().toLowerCase()}
+                    role={currentUser.role}
+                    pendingSyncCount={syncCentreWaitingCount}
+                    failedSyncCount={syncCentreFailedCount}
+                    onOpenActions={() => setScreen("actions")}
+                    onOpenIncidents={() => setScreen("incidents")}
+                    onOpenBriefings={() => setScreen("briefings")}
+                    onOpenSchedules={() => setScreen("schedules")}
+                    onOpenSync={() => setScreen("sync")}
+                  />
+                </div>
+              ) : null}
               </AnimatedScreen>
             )}
 

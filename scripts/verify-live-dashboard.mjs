@@ -392,6 +392,20 @@ const buildOpts = (actor) => ({ companyFolderId: CO, alternateIds: [CO], actor, 
   assert(pkg.scripts["verify:live-dashboard"], "WIRE: npm script registered");
   const appTsx = read("App.tsx");
   assert(appTsx.includes("LiveOperationalDashboard"), "WIRE: dashboard mounted in App");
+  const managerDashboardIdx = appTsx.indexOf("renderManagerDashboard={() => (");
+  const managerLiveDashboardIdx = appTsx.indexOf(
+    "{currentUser.role === \"Manager\" &&\n              activeCompanyContext.companyFolderId &&\n              activeCompanyContext.masterSheetId ? (",
+  );
+  assert(managerDashboardIdx >= 0, "WIRE: manager role dashboard renderer exists");
+  assert(managerLiveDashboardIdx > managerDashboardIdx, "WIRE: manager sees role dashboard before live operational block");
+  const managerLiveDashboardMounts =
+    (
+      appTsx.match(
+        /\{currentUser\.role === "Manager" &&\s+activeCompanyContext\.companyFolderId &&\s+activeCompanyContext\.masterSheetId \? \([\s\S]*?<LiveOperationalDashboard/g,
+      ) || []
+    ).length;
+  assert(managerLiveDashboardMounts === 1, "WIRE: manager live operational dashboard does not duplicate");
+  assert(appTsx.includes('currentUser.role !== "Manager"') && appTsx.includes('renderManagerDashboard={() => ('), "WIRE: pre-dashboard live panel excluded for manager");
   // No sensitive leakage in failure shape
   assert(!coreRoutes.includes("technicalError: error") || coreRoutes.includes("details: includeDiagnostics"), "WIRE: failures do not leak internals to clients");
 }
