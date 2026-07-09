@@ -42,6 +42,7 @@ import {
   isLegacyInviteRowId,
   isStaleOrIncompleteInviteStatus,
 } from "../../utils/inviteStatusDisplay";
+import { accessScopeFromPersonRecord, resolveStructureNames } from "../../utils/companyStructureAccess";
 
 async function copyTextToClipboard(text: string) {
   try {
@@ -63,6 +64,48 @@ const ROLE_HELPER: Record<string, string> = {
   Manager: "Manage checks, actions, and work scoped to assigned sites.",
   Auditor: "Complete assigned checks and submit evidence from the field.",
 };
+
+type InviteView = "inviteUsers" | "pendingInvites" | "sentInvites";
+type CompanyView = "companyStructure" | "people";
+
+function normalizeText(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function toTitleStatus(value: string): string {
+  const normalized = String(value || "").trim().toUpperCase();
+  if (!normalized) return "Unknown";
+  if (normalized === "ACTIVE") return "Active";
+  if (normalized === "INACTIVE") return "Inactive";
+  return normalized.slice(0, 1) + normalized.slice(1).toLowerCase();
+}
+
+function summarizeMemberAccess(
+  member: CompanyMember,
+  catalogs: {
+    sites: StructureEntity[];
+    departments: StructureEntity[];
+    areas: StructureEntity[];
+  },
+): string {
+  const scope = accessScopeFromPersonRecord(member as unknown as Record<string, unknown>);
+  const resolved = resolveStructureNames(scope, catalogs);
+  if (resolved.allSites && resolved.allDepartments && resolved.allAreas) {
+    return "All company access";
+  }
+  const pickOne = (label: string, list: string[], all: boolean) => {
+    if (all) return "";
+    if (list.length === 0) return "";
+    if (list.length === 1) return `${label}: ${list[0]}`;
+    if (list.length === 2 && label === "Site") return `Sites: ${list.join(", ")}`;
+    return `${list.length} ${label.toLowerCase()}${list.length === 1 ? "" : "s"}`;
+  };
+  const siteOne = pickOne("Site", resolved.siteNames, resolved.allSites);
+  const deptOne = pickOne("Department", resolved.departmentNames, resolved.allDepartments);
+  const areaOne = pickOne("Area", resolved.areaNames, resolved.allAreas);
+  const parts = [siteOne, deptOne, areaOne].filter(Boolean);
+  return parts.length > 0 ? parts.join(", ") : "All company access";
+}
 
 function isActiveCompanyUserInvite(invite: { status: string; loginReady?: boolean }) {
   return invite.status === "Active" || invite.loginReady === true;
@@ -492,6 +535,16 @@ export function UsersInvitesPilotPanel({
   ...healthProps
 }: UsersInvitesPilotPanelProps) {
   const [showHealthSync, setShowHealthSync] = useState(false);
+  const [inviteView, setInviteView] = useState<InviteView>("inviteUsers");
+  const [companyView, setCompanyView] = useState<CompanyView>("people");
+  const [pendingInviteSearch, setPendingInviteSearch] = useState("");
+  const [pendingInviteStatusFilter, setPendingInviteStatusFilter] = useState("All");
+  const [peopleSearch, setPeopleSearch] = useState("");
+  const [peopleRoleFilter, setPeopleRoleFilter] = useState("All");
+  const [peopleStatusFilter, setPeopleStatusFilter] = useState("All");
+  const [peopleSiteFilter, setPeopleSiteFilter] = useState("All");
+  const [peopleDepartmentFilter, setPeopleDepartmentFilter] = useState("All");
+  const [peopleAreaFilter, setPeopleAreaFilter] = useState("All");
   const [structureCatalog, setStructureCatalog] = useState<{
     sites: StructureEntity[];
     departments: StructureEntity[];
@@ -545,6 +598,25 @@ export function UsersInvitesPilotPanel({
     }
     return pending;
   }, [invitedUsers, companyFolderId, currentUser.role, currentUser.accessLevel]);
+  const pendingInviteStatuses = useMemo(
+    () => ["All", ...Array.from(new Set(pendingInvites.map((invite) => formatInviteStatusLabel(invite.status)))).sort((a, b) => a.localeCompare(b))],
+    [pendingInvites],
+  );
+  const filteredPendingInvites = useMemo(() => {
+    const query = normalizeText(pendingInviteSearch);
+    return pendingInvites.filter((invite) => {
+      const statusLabel = formatInviteStatusLabel(invite.status);
+      if (pendingInviteStatusFilter !== "All" && statusLabel !== pendingInviteStatusFilter) {
+        return false;
+      }
+      if (!query) return true;
+      return (
+        normalizeText(invite.email).includes(query) ||
+        normalizeText(invite.invitedBy).includes(query) ||
+        normalizeText(invite.senderEmail || "").includes(query)
+      );
+    });
+  }, [pendingInvites, pendingInviteSearch, pendingInviteStatusFilter]);
 
   const activeMembers = useMemo(() => {
     const seen = new Set<string>();
@@ -562,9 +634,98 @@ export function UsersInvitesPilotPanel({
     }
     return members;
   }, [activeCompanyMembers]);
+  const peopleRoleOptions = useMemo(
+    () => ["All", ...Array.from(new Set(activeMembers.map((member) => formatUserRoleLabel(member.role)))).sort((a, b) => a.localeCompare(b))],
+    [activeMembers],
+  );
+  const peopleStatusOptions = useMemo(
+    () => ["All", ...Array.from(new Set(activeMembers.map((member) => toTitleStatus(member.status)))).sort((a, b) => a.localeCompare(b))],
+    [activeMembers],
+  );
+  const peopleSiteOptions = useMemo(
+    () => ["All", ...structureCatalog.sites.filter((item) => item.active !== false).map((item) => item.name)],
+    [structureCatalog.sites],
+  );
+  const peopleDepartmentOptions = useMemo(
+    () => ["All", ...structureCatalog.departments.filter((item) => item.active !== false).map((item) => item.name)],
+    [structureCatalog.departments],
+  );
+  const peopleAreaOptions = useMemo(
+    () => ["All", ...structureCatalog.areas.filter((item) => item.active !== false).map((item) => item.name)],
+    [structureCatalog.areas],
+  );
+  const filteredActiveMembers = useMemo(() => {
+    const query = normalizeText(peopleSearch);
+    return activeMembers.filter((member) => {
+      const roleLabel = formatUserRoleLabel(member.role);
+      const statusLabel = toTitleStatus(member.status);
+      const scope = accessScopeFromPersonRecord(member as unknown as Record<string, unknown>);
+      const resolved = resolveStructureNames(scope, structureCatalog);
+      const matchesSite = peopleSiteFilter === "All" || resolved.allSites || resolved.siteNames.includes(peopleSiteFilter);
+      const matchesDepartment =
+        peopleDepartmentFilter === "All" ||
+        resolved.allDepartments ||
+        resolved.departmentNames.includes(peopleDepartmentFilter);
+      const matchesArea = peopleAreaFilter === "All" || resolved.allAreas || resolved.areaNames.includes(peopleAreaFilter);
+      if (peopleRoleFilter !== "All" && roleLabel !== peopleRoleFilter) return false;
+      if (peopleStatusFilter !== "All" && statusLabel !== peopleStatusFilter) return false;
+      if (!matchesSite || !matchesDepartment || !matchesArea) return false;
+      if (!query) return true;
+      return normalizeText(member.name).includes(query) || normalizeText(member.email).includes(query);
+    });
+  }, [
+    activeMembers,
+    peopleSearch,
+    peopleRoleFilter,
+    peopleStatusFilter,
+    peopleSiteFilter,
+    peopleDepartmentFilter,
+    peopleAreaFilter,
+    structureCatalog,
+  ]);
 
   return (
     <div id="admin-user-management" className="space-y-4">
+      <section className={pilotLightSurface}>
+        <SectionHeader
+          icon="user"
+          eyebrow="People & Company"
+          title="People & Company"
+          subtitle="Manage invites, people, and company structure."
+        />
+      </section>
+
+      <section className={pilotLightSurface}>
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Invite Area</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          {(
+            [
+              ["inviteUsers", "Invite users", "Send a new user invite."],
+              ["pendingInvites", "Pending invites", "View invites that are waiting to be accepted."],
+              ["sentInvites", "Sent Invites", "View historical invite activity."],
+            ] as Array<[InviteView, string, string]>
+          ).map(([viewKey, title, description]) => (
+            <button
+              key={viewKey}
+              type="button"
+              onClick={() => setInviteView(viewKey)}
+              className={[
+                "min-h-[5.5rem] rounded-2xl border px-4 py-3 text-left",
+                inviteView === viewKey
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-200 bg-white text-slate-900",
+              ].join(" ")}
+            >
+              <p className="text-base font-semibold">{title}</p>
+              <p className={`mt-1 text-xs ${inviteView === viewKey ? "text-slate-200" : "text-slate-500"}`}>
+                {description}
+              </p>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {inviteView === "inviteUsers" ? (
       <section className={pilotLightSurface}>
         <SectionHeader
           icon="user"
@@ -653,7 +814,9 @@ export function UsersInvitesPilotPanel({
           </div>
         )}
       </section>
+      ) : null}
 
+      {inviteView === "pendingInvites" ? (
       <section className={pilotLightSurface}>
         <SectionHeader
           icon="spark"
@@ -661,23 +824,42 @@ export function UsersInvitesPilotPanel({
           title="Pending invites"
           subtitle="People who have been invited but have not finished setup yet."
         />
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <input
+            value={pendingInviteSearch}
+            onChange={(event) => setPendingInviteSearch(event.target.value)}
+            placeholder="Search pending invites by email"
+            className={pilotEditableInput}
+          />
+          <select
+            value={pendingInviteStatusFilter}
+            onChange={(event) => setPendingInviteStatusFilter(event.target.value)}
+            className={pilotEditableInput}
+          >
+            {pendingInviteStatuses.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </select>
+        </div>
         {pendingInvitesLoadError && !pendingInvitesLoading ? (
           <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
             <p className="text-sm font-semibold text-rose-900">Could not load pending invites</p>
             <p className="mt-1 text-sm text-rose-800">{pendingInvitesLoadError || COMPANY_INVITES_USER_MESSAGE}</p>
           </div>
         ) : null}
-        {pendingInvitesLoading && pendingInvites.length === 0 ? (
+        {pendingInvitesLoading && filteredPendingInvites.length === 0 ? (
           <div className="mt-3">
             <EmptyPanel title={COMPANY_INVITES_LOADING_MESSAGE} text="Checking for invites that have not finished setup yet." />
           </div>
-        ) : !pendingInvitesLoadError && pendingInvites.length === 0 ? (
+        ) : !pendingInvitesLoadError && filteredPendingInvites.length === 0 ? (
           <div className="mt-3">
-            <EmptyPanel title="No pending invites" text="New invites appear here after you send them." />
+            <EmptyPanel title="No pending invites" text="No pending invites match your search or filter." />
           </div>
-        ) : pendingInvites.length === 0 ? null : (
+        ) : filteredPendingInvites.length === 0 ? null : (
           <div className="mt-3 space-y-2">
-            {pendingInvites.map((invite) => (
+            {filteredPendingInvites.map((invite) => (
               <UserInviteListRow
                 key={invite.id}
                 invite={invite}
@@ -691,8 +873,52 @@ export function UsersInvitesPilotPanel({
           </div>
         )}
       </section>
+      ) : null}
 
-      {resolvedCompanyId && resolvedMasterSheetId ? (
+      {inviteView === "sentInvites" ? (
+        <section className={pilotLightSurface}>
+          <SectionHeader
+            icon="spark"
+            eyebrow="Sent"
+            title="Sent Invites"
+            subtitle="Previously sent invite history."
+          />
+          <div className="mt-3">
+            <EmptyPanel title="Sent Invites" text="Sent invite history is not available yet." />
+          </div>
+        </section>
+      ) : null}
+
+      <section className={pilotLightSurface}>
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Company</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {(
+            [
+              ["companyStructure", "Company structure", "Manage sites, departments, and areas."],
+              ["people", "People", "View and edit company people and access."],
+            ] as Array<[CompanyView, string, string]>
+          ).map(([viewKey, title, description]) => (
+            <button
+              key={viewKey}
+              type="button"
+              onClick={() => setCompanyView(viewKey)}
+              className={[
+                "min-h-[5.5rem] rounded-2xl border px-4 py-3 text-left",
+                companyView === viewKey
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-200 bg-white text-slate-900",
+              ].join(" ")}
+            >
+              <p className="text-base font-semibold">{title}</p>
+              <p className={`mt-1 text-xs ${companyView === viewKey ? "text-slate-200" : "text-slate-500"}`}>
+                {description}
+              </p>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {companyView === "companyStructure" && resolvedCompanyId && resolvedMasterSheetId ? (
         <CompanyStructurePanel
           currentUserRole={currentUser.role}
           companyFolderId={resolvedCompanyId}
@@ -703,6 +929,7 @@ export function UsersInvitesPilotPanel({
         />
       ) : null}
 
+      {companyView === "people" ? (
       <section className={pilotLightSurface}>
         <SectionHeader
           icon="user"
@@ -710,6 +937,31 @@ export function UsersInvitesPilotPanel({
           title="Company people"
           subtitle="Everyone with a profile in this company — active or inactive."
         />
+        <div className="mt-3 space-y-2">
+          <input
+            value={peopleSearch}
+            onChange={(event) => setPeopleSearch(event.target.value)}
+            placeholder="Search people by name or email"
+            className={pilotEditableInput}
+          />
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            <select value={peopleRoleFilter} onChange={(event) => setPeopleRoleFilter(event.target.value)} className={pilotEditableInput}>
+              {peopleRoleOptions.map((option) => <option key={option} value={option}>{option === "All" ? "Role: All" : option}</option>)}
+            </select>
+            <select value={peopleStatusFilter} onChange={(event) => setPeopleStatusFilter(event.target.value)} className={pilotEditableInput}>
+              {peopleStatusOptions.map((option) => <option key={option} value={option}>{option === "All" ? "Status: All" : option}</option>)}
+            </select>
+            <select value={peopleSiteFilter} onChange={(event) => setPeopleSiteFilter(event.target.value)} className={pilotEditableInput}>
+              {peopleSiteOptions.map((option) => <option key={option} value={option}>{option === "All" ? "Site: All" : option}</option>)}
+            </select>
+            <select value={peopleDepartmentFilter} onChange={(event) => setPeopleDepartmentFilter(event.target.value)} className={pilotEditableInput}>
+              {peopleDepartmentOptions.map((option) => <option key={option} value={option}>{option === "All" ? "Department: All" : option}</option>)}
+            </select>
+            <select value={peopleAreaFilter} onChange={(event) => setPeopleAreaFilter(event.target.value)} className={pilotEditableInput}>
+              {peopleAreaOptions.map((option) => <option key={option} value={option}>{option === "All" ? "Area: All" : option}</option>)}
+            </select>
+          </div>
+        </div>
         {activeMembersLoadError && !activeMembersLoading ? (
           <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
             <p className="text-sm font-semibold text-rose-900">Could not load company people</p>
@@ -747,48 +999,59 @@ export function UsersInvitesPilotPanel({
             {activeMembersWarning}
           </p>
         ) : null}
-        {activeMembersLoading && activeMembers.length === 0 ? (
+        {activeMembersLoading && filteredActiveMembers.length === 0 ? (
           <div className="mt-3">
             <EmptyPanel title={COMPANY_MEMBERS_LOADING_MESSAGE} text="Loading company people from your workspace." />
           </div>
-        ) : !activeMembersLoadError && activeMembers.length === 0 ? (
+        ) : !activeMembersLoadError && filteredActiveMembers.length === 0 ? (
           <div className="mt-3">
             <EmptyPanel
-              title="No company people yet"
-              text="Company profiles appear here once someone is invited or added."
+              title="No matching people"
+              text="No people match your search or selected filters."
             />
           </div>
-        ) : activeMembers.length === 0 ? null : (
+        ) : filteredActiveMembers.length === 0 ? null : (
           <div className="mt-3 space-y-2">
-            {activeMembers.map((member) => (
-              <ActiveUserCard
-                key={member.email}
-                member={member}
-                currentUserRole={currentUser.role}
-                currentUserEmail={currentUser.username}
-                companyFolderId={resolvedCompanyId}
-                masterSheetId={resolvedMasterSheetId}
-                structureCatalog={structureCatalog}
-                editing={companyMemberEditing}
-                slatePrimaryCtaInteract={slatePrimaryCtaInteract}
-                onEdit={(target, input) => onUpdateCompanyMember(target, input)}
-                onDeactivate={onDeactivateCompanyMember}
-                onAccessUpdated={() => onResyncUsers()}
-                onRemove={
-                  canManageCompanyMembers(currentUser.role)
-                    ? (target) =>
-                        onRemoveCompanyUser({
-                          id: `active-${target.email}`,
-                          email: target.email,
-                          role: target.role as Role,
-                          status: "Active",
-                          invitedBy: currentUser.name,
-                          sentAt: "",
-                        })
-                    : undefined
-                }
-              />
-            ))}
+            {filteredActiveMembers.map((member) => {
+              const accessSummary = summarizeMemberAccess(member, structureCatalog);
+              return (
+                <div key={member.email} className="space-y-2 rounded-2xl border border-slate-200 bg-white p-3">
+                  <div className="grid gap-1 text-sm text-slate-700">
+                    <p className="font-semibold text-slate-900">{member.name || member.email}</p>
+                    <p>{member.email}</p>
+                    <p>Role: {formatUserRoleLabel(member.role)}</p>
+                    <p>Status: {toTitleStatus(member.status)}</p>
+                    <p>Access: {accessSummary}</p>
+                  </div>
+                  <ActiveUserCard
+                    member={member}
+                    currentUserRole={currentUser.role}
+                    currentUserEmail={currentUser.username}
+                    companyFolderId={resolvedCompanyId}
+                    masterSheetId={resolvedMasterSheetId}
+                    structureCatalog={structureCatalog}
+                    editing={companyMemberEditing}
+                    slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+                    onEdit={(target, input) => onUpdateCompanyMember(target, input)}
+                    onDeactivate={onDeactivateCompanyMember}
+                    onAccessUpdated={() => onResyncUsers()}
+                    onRemove={
+                      canManageCompanyMembers(currentUser.role)
+                        ? (target) =>
+                            onRemoveCompanyUser({
+                              id: `active-${target.email}`,
+                              email: target.email,
+                              role: target.role as Role,
+                              status: "Active",
+                              invitedBy: currentUser.name,
+                              sentAt: "",
+                            })
+                        : undefined
+                    }
+                  />
+                </div>
+              );
+            })}
           </div>
         )}
         {canShowTechnicalUi(currentUser.role) ? (
@@ -801,31 +1064,34 @@ export function UsersInvitesPilotPanel({
           </button>
         ) : null}
       </section>
+      ) : null}
 
-      <SitesAreasPanel
-        currentUserRole={currentUser.role}
-        sites={sites}
-        areaRestrictionsEnabled={areaRestrictionsEnabled}
-        areaSyncLoading={areaSyncLoading}
-        areaSyncError={areaSyncError}
-        googleConnected={googleConnected}
-        selectedSiteId={selectedSiteId}
-        userSiteAssignments={userSiteAssignments}
-        reportUsers={reportUsers}
-        showSiteContext={false}
-        showUserAssignment={false}
-        variant="light"
-        surfaceClass={pilotLightSurface}
-        nestedClass={pilotLightNested}
-        onEnableAreaRestrictions={onEnableAreaRestrictions}
-        onDisableAreaRestrictions={onDisableAreaRestrictions}
-        onAddArea={onAddSite}
-        onRenameArea={onRenameArea}
-        onArchiveArea={onArchiveSite}
-        onReactivateArea={onReactivateArea}
-        onSelectSite={onSelectSite}
-        onToggleUserSiteAssignment={onToggleUserSiteAssignment}
-      />
+      {companyView === "companyStructure" ? (
+        <SitesAreasPanel
+          currentUserRole={currentUser.role}
+          sites={sites}
+          areaRestrictionsEnabled={areaRestrictionsEnabled}
+          areaSyncLoading={areaSyncLoading}
+          areaSyncError={areaSyncError}
+          googleConnected={googleConnected}
+          selectedSiteId={selectedSiteId}
+          userSiteAssignments={userSiteAssignments}
+          reportUsers={reportUsers}
+          showSiteContext={false}
+          showUserAssignment={false}
+          variant="light"
+          surfaceClass={pilotLightSurface}
+          nestedClass={pilotLightNested}
+          onEnableAreaRestrictions={onEnableAreaRestrictions}
+          onDisableAreaRestrictions={onDisableAreaRestrictions}
+          onAddArea={onAddSite}
+          onRenameArea={onRenameArea}
+          onArchiveArea={onArchiveSite}
+          onReactivateArea={onReactivateArea}
+          onSelectSite={onSelectSite}
+          onToggleUserSiteAssignment={onToggleUserSiteAssignment}
+        />
+      ) : null}
 
       <details className={pilotLightSurface}>
         <summary className="cursor-pointer px-1 py-2 text-sm font-semibold text-slate-900">Invite status guide (advanced)</summary>
