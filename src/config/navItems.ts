@@ -20,6 +20,7 @@ export const navItems = [
   { id: "documentTraining", label: "Upload & training", icon: "note" },
   { id: "qmsReadiness", label: "Quality & Safety Hub", icon: "warningTriangle" },
   { id: "sync", label: "Sync Centre", icon: "sync" },
+  { id: "archive", label: "Archive", icon: "clipboard" },
   { id: "admin", label: "Admin tools", icon: "shield" },
   { id: "onboarding", label: "Onboarding", icon: "spark" },
   { id: "emailReminders", label: "Reminders", icon: "clock" },

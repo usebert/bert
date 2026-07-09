@@ -128,4 +128,8 @@ assert(appTsx.includes('setScreen(item.id)') && appTsx.includes('screen === "syn
 assert(appTsx.includes("navLabelForItem") && appTsx.includes("syncCentreBadgeCount"), "sync nav badge when pending/failed");
 assert(roleNav.includes('id: "dashboard"') && roleNav.includes('id: "briefings"') && roleNav.includes('id: "reports"'), "existing nav items remain");
 
+assert(read("src/permissions.ts").includes('if (itemId === "archive") return canAccessArchiveNav(role)'), "archive nav permission wired");
+assert(roleNav.includes('id: "archive", label: "Archive"'), "archive nav item in role navigation");
+assert(appTsx.includes('screen === "archive"'), "archive screen mounted in App");
+
 console.log(`[verify:navigation] ${checks} checks OK`);

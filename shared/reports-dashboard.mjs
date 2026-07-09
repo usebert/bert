@@ -3,6 +3,7 @@
  */
 import { getScheduleAssignedEmails } from "./schedule-assignment.mjs";
 import { parseCompanyScheduleListFromRecords } from "./schedule-list.mjs";
+import { isWorkbookRowArchived } from "./archive.mjs";
 import {
   isCompanyInviteActor,
   isGodmodeInviteSession,
@@ -300,6 +301,7 @@ export function buildReportsDashboardFromTabs(tabData = {}, options = {}) {
 
   const actions = (tabData.Actions || [])
     .filter((row) => rowBelongsToCompany(row, companyFolderId, alternateIds))
+    .filter((row) => !isWorkbookRowArchived(row, "action"))
     .filter((row) => inDateRange(extractField(row, ["created at"]), rangeStart))
     .filter((row) => {
       if (!ownHistoryOnly) {

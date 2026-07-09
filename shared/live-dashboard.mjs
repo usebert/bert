@@ -16,6 +16,7 @@ import { parseCompanyScheduleListFromRecords } from "./schedule-list.mjs";
 import { enrichSchedulesWithDueOccurrence } from "./schedule-due.mjs";
 import { getScheduleAssignedEmails } from "./schedule-assignment.mjs";
 import { getUkTodayKey, isUkOverdue, isUkToday, ukDateKeyFromTimestamp } from "./uk-date-time.mjs";
+import { isWorkbookRowArchived } from "./archive.mjs";
 
 /** Workbook tabs the live dashboard reads. All are existing tabs — no new storage. */
 export const LIVE_DASHBOARD_TABS = [
@@ -658,7 +659,9 @@ export function buildLiveDashboardFromSources(sources = {}, options = {}) {
   const outstandingSchedules = dueTodaySchedules.filter((schedule) => !completedTodayScheduleIds.has(schedule.id));
 
   // --- Actions --------------------------------------------------------------
-  let actions = filterCompanyRows(sources.actions, companyFolderId, alternateIds);
+  let actions = filterCompanyRows(sources.actions, companyFolderId, alternateIds).filter(
+    (row) => !isWorkbookRowArchived(row, "action"),
+  );
   if (ownOnly && actorEmail) {
     actions = actions.filter((row) =>
       actorEmailMatches(row, actorEmail, [
@@ -682,7 +685,9 @@ export function buildLiveDashboardFromSources(sources = {}, options = {}) {
   }
 
   // --- Incidents ------------------------------------------------------------
-  let incidents = filterCompanyRows(sources.incidents, companyFolderId, alternateIds);
+  let incidents = filterCompanyRows(sources.incidents, companyFolderId, alternateIds).filter(
+    (row) => !isWorkbookRowArchived(row, "incident"),
+  );
   if (ownOnly && actorEmail) {
     incidents = incidents.filter((row) =>
       actorEmailMatches(row, actorEmail, [["assigned to email", "assigned to"], ["reporter email"]]),
@@ -695,7 +700,9 @@ export function buildLiveDashboardFromSources(sources = {}, options = {}) {
   });
 
   // --- NCRs -----------------------------------------------------------------
-  const ncrs = filterCompanyRows(sources.ncrs, companyFolderId, alternateIds);
+  const ncrs = filterCompanyRows(sources.ncrs, companyFolderId, alternateIds).filter(
+    (row) => !isWorkbookRowArchived(row, "ncr"),
+  );
   const openNcrs = ncrs.filter((row) => ncrIsOpen(row));
 
   // --- Findings -------------------------------------------------------------
@@ -703,7 +710,9 @@ export function buildLiveDashboardFromSources(sources = {}, options = {}) {
   const openFindings = findings;
 
   // --- Briefings ------------------------------------------------------------
-  const briefingRows = filterCompanyRows(sources.briefings, companyFolderId, alternateIds);
+  const briefingRows = filterCompanyRows(sources.briefings, companyFolderId, alternateIds).filter(
+    (row) => !isWorkbookRowArchived(row, "briefing"),
+  );
   const briefingById = new Map();
   for (const row of briefingRows) {
     const id = extractField(row, ["briefing id", "briefingid"]);
@@ -803,6 +812,7 @@ export function buildLiveDashboardFromSources(sources = {}, options = {}) {
     overdueActions: overdueActionRows.length,
     currentIncidents: openIncidents.length,
     pendingBriefings: pendingBriefingRecipients.length,
+    openNcrs: openNcrs.length,
     complianceScore: 0,
   };
 

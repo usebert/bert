@@ -21,6 +21,7 @@ import {
   isUsableBriefingRecipientStatus,
   pickBriefingRecipientField,
 } from "../shared/briefings.mjs";
+import { isWorkbookRowArchived } from "../shared/archive.mjs";
 import { resolveCompanyScheduleContext } from "./schedule-service.mjs";
 import {
   appendTabRows as workbookAppendTabRows,
@@ -455,7 +456,9 @@ async function readAllBriefings(auth, deps, masterSheetId) {
   const readTabRecords = resolveReadTabRecords(deps);
   await ensureBriefingsTabs(auth, deps, masterSheetId);
   const result = await readTabRecords(auth, deps, masterSheetId, BRIEFINGS_TAB);
-  return (result.records || []).map(mapBriefingRecord);
+  return (result.records || [])
+    .filter((record) => !isWorkbookRowArchived(record, "briefing"))
+    .map(mapBriefingRecord);
 }
 
 async function readAllRecipients(auth, deps, masterSheetId) {

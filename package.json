@@ -99,6 +99,7 @@
     "verify:live-dashboard": "node scripts/verify-live-dashboard.mjs",
     "verify:company-structure": "node scripts/verify-company-structure.mjs",
     "verify:people-section": "node scripts/verify-people-section.mjs",
+    "verify:archive": "node scripts/verify-archive.mjs",
     "verify:uk-timezone": "node scripts/verify-uk-timezone.mjs",
     "verify:core-workflow": "node scripts/verify-core-workflow.mjs",
     "verify:background-jobs": "node scripts/verify-background-jobs.mjs",

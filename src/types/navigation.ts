@@ -35,6 +35,7 @@ export type RoutedScreen =
   | "briefings"
   | "auditBuilder"
   | "auditTemplateEdit"
+  | "archive"
   | "complete";
 
 /** Sidebar / nav-gated screens only — excludes the `"complete"` audit flow route. */

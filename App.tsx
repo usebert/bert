@@ -8,6 +8,7 @@ import {
   canAccessAdminOnboardingWorkspace,
   canAccessAuditsCentre,
   canAccessAuditCentre,
+  canAccessArchiveNav,
   canAccessCompletedNcrReports,
   canAccessControlScreen,
   canAccessDocumentTraining,
@@ -289,6 +290,7 @@ import { CompleteAuditScreen } from "./src/screens/CompleteAuditScreen";
 import { IncidentReportingScreen } from "./src/screens/IncidentReportingScreen";
 import { NonConformanceScreen } from "./src/screens/NonConformanceScreen";
 import { ReportsScreen } from "./src/screens/ReportsScreen";
+import { ArchiveScreen } from "./src/screens/ArchiveScreen";
 import { ResultsScreen } from "./src/screens/ResultsScreen";
 import { GoogleFormsScreen } from "./src/screens/GoogleFormsScreen";
 import { SchedulesScreen } from "./src/screens/SchedulesScreen";
@@ -2833,6 +2835,10 @@ function parseCompanySheetActions(records: Record<string, string>[], companyFold
         return null;
       }
       const actionId = extractByKeys(record, ["action id"]) || `action-row-${index + 1}`;
+      const archived = safeLower(extractByKeys(record, ["archived"]));
+      if (archived === "true" || archived === "yes" || archived === "1") {
+        return null;
+      }
       const auditId = extractByKeys(record, ["source audit id", "audit id"]);
       const auditName = extractByKeys(record, ["source audit name", "audit name"]);
       const questionText = extractByKeys(record, ["source question text", "question text"]);
@@ -15480,6 +15486,9 @@ function App() {
     if (currentUser && !canAccessGoogleForms(currentUser.role) && screen === "googleForms") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
+    if (currentUser && !canAccessArchiveNav(currentUser.role) && screen === "archive") {
+      setScreen(getHomeScreenForRole(currentUser.role));
+    }
     if (currentUser && !canAccessActions(currentUser.role) && screen === "actions") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
@@ -17386,6 +17395,21 @@ function App() {
                     }
                   })();
                 }}
+              />
+            )}
+
+            {screen === "archive" && canAccessArchiveNav(currentUser.role) && (
+              <ArchiveScreen
+                companyFolderId={String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim()}
+                masterSheetId={String(activeCompanyContext.masterSheetId || selectedFolder?.masterSheetId || "").trim()}
+                offlineMode={offlineMode}
+                canManageUsers={currentUser.role === "Master" || canAccessAdmin(currentUser.role)}
+                canManageRecords={
+                  currentUser.role === "Master" ||
+                  currentUser.role === "Admin" ||
+                  currentUser.role === "Manager"
+                }
+                onToast={(title, message, tone) => pushToast(title, message, tone || "neutral")}
               />
             )}
 

@@ -216,6 +216,10 @@ export function canAccessEmailReminders(_role: Role) {
   return true;
 }
 
+export function canAccessArchiveNav(role: Role) {
+  return role === "Master" || role === "Admin" || role === "Manager";
+}
+
 export function canRoleAccessNavItem(role: Role, itemId: NavItemId) {
   if (itemId === "setup") return canAccessPilotSetup(role);
   if (itemId === "setupInitial") return canAccessGodmodeInitialSetup(role);
@@ -245,6 +249,7 @@ export function canRoleAccessNavItem(role: Role, itemId: NavItemId) {
   if (itemId === "sync") {
     return role === "Master" || role === "Admin" || role === "Manager" || role === "Auditor";
   }
+  if (itemId === "archive") return canAccessArchiveNav(role);
   return false;
 }
 

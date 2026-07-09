@@ -42,6 +42,7 @@ const MASTER_NAV: PresentedNavItem[] = [
   { id: "results", label: "Results", icon: "checklist" },
   { id: "reports", label: "Reports / Diagnostics", icon: "chart" },
   { id: "sync", label: "Sync Centre", icon: "sync" },
+  { id: "archive", label: "Archive", icon: "clipboard" },
   { id: "account", label: "Account", icon: "user" },
   { id: "setupInitial", label: "Tablet / Kiosk", icon: "shield" },
 ];
@@ -59,6 +60,7 @@ const COMPANY_ADMIN_NAV: PresentedNavItem[] = [
   { id: "nonConformance", label: "NCRs", icon: "checklist" },
   { id: "reports", label: "Reports", icon: "chart" },
   { id: "sync", label: "Sync Centre", icon: "sync" },
+  { id: "archive", label: "Archive", icon: "clipboard" },
   { id: "account", label: "Account", icon: "user" },
 ];
 
@@ -74,6 +76,7 @@ const MANAGER_NAV: PresentedNavItem[] = [
   { id: "nonConformance", label: "NCRs", icon: "checklist" },
   { id: "reports", label: "Reports", icon: "chart" },
   { id: "sync", label: "Sync Centre", icon: "sync" },
+  { id: "archive", label: "Archive", icon: "clipboard" },
   { id: "account", label: "Account", icon: "user" },
 ];
 
@@ -167,6 +170,11 @@ export function shouldLoadSchedulesResultsEnrichment(screen: RoutedScreen): bool
 /** Screens that should load GET …/users (company members list). */
 export function shouldLoadCompanyMembersScreen(screen: RoutedScreen): boolean {
   return screen === "users" || screen === "invites" || screen === "admin" || screen === "incidents" || screen === "reports";
+}
+
+/** Screens that should load GET …/archive. */
+export function shouldLoadArchiveScreen(screen: RoutedScreen): boolean {
+  return screen === "archive";
 }
 
 /** Screens that should load GET …/google-forms. */

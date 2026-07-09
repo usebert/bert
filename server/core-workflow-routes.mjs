@@ -74,6 +74,11 @@ import {
   signBriefing,
 } from "./briefings-service.mjs";
 import { saveCompanyActions } from "./actions-service.mjs";
+import {
+  archiveCompanyRecord,
+  listCompanyArchive,
+  restoreCompanyRecord,
+} from "./archive-service.mjs";
 
 function briefingRouteError(res, result, fallbackStatus = 400) {
   const status = result?.httpStatus || fallbackStatus;
@@ -2205,4 +2210,100 @@ export function installCoreWorkflowRoutes(app, deps) {
   app.post("/api/companies/:companyFolderId/briefings/:briefingId/acknowledge", (req, res) => handleBriefingAction(req, res, "acknowledge"));
   app.post("/api/companies/:companyFolderId/briefings/:briefingId/sign", (req, res) => handleBriefingAction(req, res, "sign"));
   app.post("/api/companies/:companyFolderId/briefings/:briefingId/reply", (req, res) => handleBriefingAction(req, res, "reply"));
+
+  app.get("/api/companies/:companyFolderId/archive", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, code: "GOOGLE_AUTH_REQUIRED", error: "Please connect Google first." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...getCompanyUsersDeps() },
+      companyFolderId,
+      String(req.query.companyName || actor?.companyName || "").trim(),
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
+    try {
+      const result = await listCompanyArchive(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId);
+      if (!result.ok) {
+        return res.status(result.httpStatus || 400).json(result);
+      }
+      return res.json(result);
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "ARCHIVE_LIST_FAILED",
+        error: "Could not load archived records.",
+        message: "Could not load archived records.",
+      });
+    }
+  });
+
+  app.post("/api/companies/:companyFolderId/archive", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, code: "GOOGLE_AUTH_REQUIRED", error: "Please connect Google first." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...getCompanyUsersDeps() },
+      companyFolderId,
+      String(req.body?.companyName || actor?.companyName || "").trim(),
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
+    try {
+      const result = await archiveCompanyRecord(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, req.body || {});
+      if (!result.ok) {
+        return res.status(result.httpStatus || 400).json(result);
+      }
+      return res.json(result);
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "ARCHIVE_WRITE_FAILED",
+        error: "Could not archive item. Try again.",
+        message: "Could not archive item. Try again.",
+      });
+    }
+  });
+
+  app.post("/api/companies/:companyFolderId/restore", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, code: "GOOGLE_AUTH_REQUIRED", error: "Please connect Google first." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...getCompanyUsersDeps() },
+      companyFolderId,
+      String(req.body?.companyName || actor?.companyName || "").trim(),
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
+    try {
+      const result = await restoreCompanyRecord(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, req.body || {});
+      if (!result.ok) {
+        return res.status(result.httpStatus || 400).json(result);
+      }
+      return res.json(result);
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "RESTORE_WRITE_FAILED",
+        error: "Could not restore item. Try again.",
+        message: "Could not restore item. Try again.",
+      });
+    }
+  });
 }
