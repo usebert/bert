@@ -7,6 +7,10 @@ import { EmptyPanel } from "../components/dashboard/DashboardPrimitives";
 import { darkPanelEyebrow, darkPanelShell, darkPanelTitleLg } from "../styles/darkPanel";
 import { slatePrimaryCtaInteract } from "../styles/interactions";
 import { EvidenceUploadChoice } from "../components/evidence/EvidenceUploadChoice";
+import {
+  NCR_EVIDENCE_FAILED_MESSAGE,
+  NCR_EVIDENCE_PENDING_MESSAGE,
+} from "../services/ncrService";
 
 function parseNcrSequence(reference: string) {
   const match = reference.match(/^NCR-(\d+)$/i);
@@ -17,6 +21,18 @@ function parseNcrSequence(reference: string) {
 
 function normalizeAuditorIdentity(value: string) {
   return value.trim().toLowerCase();
+}
+
+function evidencePreviewUrl(item: { previewUrl?: string; driveLink?: string; driveFileId?: string }) {
+  const preview = String(item.previewUrl || "").trim();
+  if (preview) return preview;
+  const driveLink = String(item.driveLink || "").trim();
+  if (driveLink) return driveLink;
+  const driveFileId = String(item.driveFileId || "").trim();
+  if (driveFileId) {
+    return `https://drive.google.com/file/d/${encodeURIComponent(driveFileId)}/view`;
+  }
+  return "";
 }
 
 export function NonConformanceScreen({
@@ -130,17 +146,43 @@ export function NonConformanceScreen({
               triggerClassName="min-h-[48px] rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white"
               onFiles={(files) => onAddEvidence(selected.id, files)}
             />
-            <p className="mt-1 text-xs text-slate-500">{selected.evidence.length} evidence file(s)</p>
-            {selected.evidence.length > 0 ? (
+            <p className="mt-1 text-xs text-slate-500">
+              {(selected.evidence || []).length} evidence file(s)
+            </p>
+            {selected.evidenceUploadStatus === "pending" ? (
+              <p className="mt-1 text-xs font-semibold text-amber-800">{NCR_EVIDENCE_PENDING_MESSAGE}</p>
+            ) : null}
+            {selected.evidenceUploadStatus === "failed" ? (
+              <p className="mt-1 text-xs font-semibold text-amber-800">{NCR_EVIDENCE_FAILED_MESSAGE}</p>
+            ) : null}
+            {(selected.evidence || []).length > 0 ? (
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                {selected.evidence.map((item) => {
-                  const isImage = /\.(png|jpe?g|webp|gif|bmp|heic|heif)$/i.test(item.name);
+                {(selected.evidence || []).map((item) => {
+                  const url = evidencePreviewUrl(item);
+                  const isImage =
+                    Boolean(url) &&
+                    (/\.(png|jpe?g|webp|gif|bmp|heic|heif)$/i.test(item.name) ||
+                      String(item.mimeType || "").startsWith("image/") ||
+                      url.startsWith("blob:"));
                   return (
-                    <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 p-2">
-                      {isImage ? (
-                        <img src={item.previewUrl} alt={item.name} className="h-24 w-full rounded-lg object-cover" />
+                    <div key={item.id || item.name} className="rounded-xl border border-slate-200 bg-slate-50 p-2">
+                      {isImage && url ? (
+                        <img src={url} alt={item.name} className="h-24 w-full rounded-lg object-cover" />
                       ) : null}
-                      <p className="mt-1 truncate text-xs font-medium text-slate-700">{item.name}</p>
+                      <p className="mt-1 truncate text-xs font-medium text-slate-700">{item.name || "Evidence file"}</p>
+                      {url && !url.startsWith("blob:") ? (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1 inline-block text-[11px] font-semibold text-slate-700 underline"
+                        >
+                          Open evidence
+                        </a>
+                      ) : null}
+                      {!url ? (
+                        <p className="mt-1 text-[11px] font-semibold text-amber-800">{NCR_EVIDENCE_PENDING_MESSAGE}</p>
+                      ) : null}
                     </div>
                   );
                 })}

@@ -45,7 +45,28 @@ export type CompleteCheckResult = {
   code?: string;
   evidenceUploadWarning?: string;
   ncrWriteWarning?: string;
-  ncrs?: Array<{ ncrId?: string; reference?: string; auditId?: string; questionId?: string; status?: string }>;
+  ncrEvidenceLinkWarning?: string;
+  ncrs?: Array<{
+    ncrId?: string;
+    reference?: string;
+    auditId?: string;
+    questionId?: string;
+    status?: string;
+    resultId?: string;
+    evidence?: Array<{
+      id?: string;
+      name?: string;
+      previewUrl?: string;
+      addedAt?: string;
+      driveFileId?: string;
+      driveLink?: string;
+      questionId?: string;
+      uploadStatus?: string;
+    }>;
+    evidenceRefs?: unknown[];
+    evidenceCount?: number;
+  }>;
+  evidenceRefs?: unknown[];
 };
 
 export type FetchAssignedChecksResult = {
@@ -94,6 +115,7 @@ export const CHECK_COMPLETION_SUCCESS_MESSAGE = "Check submitted successfully.";
 export const CHECK_COMPLETION_NCR_RECORDED_MESSAGE = "Non-conformance recorded.";
 export const CHECK_COMPLETION_NCR_WRITE_FAILED_MESSAGE =
   "Check submitted, but the non-conformance could not be recorded.";
+export const CHECK_COMPLETION_EVIDENCE_STILL_UPLOADING_MESSAGE = "Evidence is still uploading.";
 export const CHECK_COMPLETION_TIMEOUT_MESSAGE =
   "Check submission is taking longer than expected. Please check Sync Centre before retrying.";
 export const CHECK_COMPLETION_SLOW_SUBMIT_MESSAGE = CHECK_COMPLETION_TIMEOUT_MESSAGE;
@@ -340,7 +362,19 @@ export async function completeCheck(
     message?: string;
     evidenceUploadWarning?: string;
     ncrWriteWarning?: string;
-    ncrs?: Array<{ ncrId?: string; reference?: string; auditId?: string; questionId?: string; status?: string }>;
+    ncrEvidenceLinkWarning?: string;
+    ncrs?: Array<{
+      ncrId?: string;
+      reference?: string;
+      auditId?: string;
+      questionId?: string;
+      status?: string;
+      resultId?: string;
+      evidence?: CompleteCheckResult["ncrs"] extends Array<infer T> ? T extends { evidence?: infer E } ? E : never : never;
+      evidenceRefs?: unknown[];
+      evidenceCount?: number;
+    }>;
+    evidenceRefs?: unknown[];
     masterSheetId?: string;
   } = {};
   try {
@@ -377,7 +411,9 @@ export async function completeCheck(
     masterSheetId: String(payload.masterSheetId || "").trim() || undefined,
     evidenceUploadWarning: String(payload.evidenceUploadWarning || "").trim() || undefined,
     ncrWriteWarning: String(payload.ncrWriteWarning || "").trim() || undefined,
+    ncrEvidenceLinkWarning: String(payload.ncrEvidenceLinkWarning || "").trim() || undefined,
     ncrs: Array.isArray(payload.ncrs) ? payload.ncrs : undefined,
+    evidenceRefs: Array.isArray(payload.evidenceRefs) ? payload.evidenceRefs : undefined,
   };
 }
 

@@ -156,6 +156,68 @@ assert(appTsx.includes("user.companyAreas.length === 0) return null"), "21e: bla
 assert(appTsx.includes("if (!site) return true"), "21f: blank NCR site stays visible for scoped managers");
 assert(nonConformanceScreen.includes("auditorIdentityTokens"), "21g: auditor NCR list matches email or username");
 assert(routes.includes("ncrs: result.ncrs || []"), "21h: completion route returns ncrs array");
+assert(NCR_TAB_COLUMNS.includes("Evidence Refs"), "21i: NCR tab has Evidence Refs column");
+assert(NCR_TAB_COLUMNS.includes("Evidence Count"), "21j: NCR tab has Evidence Count column");
+assert(ncrService.includes("linkEvidenceRefsToNcrs"), "21k: server backfills NCR evidence after upload");
+assert(completion.includes("linkEvidenceRefsToNcrs"), "21l: completion links evidence to NCRs after Drive upload");
+assert(completion.includes("evidenceRefs,"), "21m: completion passes evidence refs into NCR writer");
+assert(routes.includes("evidenceRefs: result.evidenceRefs"), "21n: completion response returns evidenceRefs");
+assert(clientNcrService.includes("attachEvidenceRefsToNcrs"), "21o: client attaches evidence refs to NCRs");
+assert(clientNcrService.includes("auditEvidenceToNcrEvidence"), "21p: client maps audit evidence to NCR evidence");
+assert(clientNcrService.includes("resolveNcrEvidenceFromAuditResult"), "21q: NCR evidence fallback from audit result");
+assert(appTsx.includes("evidenceMap: evidence"), "21r: online submit passes evidence map into NCR create");
+assert(appTsx.includes("evidenceRefs: result.evidenceRefs"), "21s: online submit merges returned evidence refs");
+assert(nonConformanceScreen.includes("NCR_EVIDENCE_PENDING_MESSAGE"), "21t: NCR detail shows pending evidence state");
+assert(nonConformanceScreen.includes("Open evidence"), "21u: NCR detail links uploaded evidence");
+assert(appTsx.includes("CHECK_EVIDENCE_STILL_UPLOADING_MESSAGE"), "21v: success screen can show evidence still uploading");
+
+{
+  const withEvidence = buildNcrWorkbookRow({
+    reference: "NCR-0200",
+    companyFolderId: CO,
+    auditId: "dc-hs-audit",
+    auditName: "DC H&S Audit",
+    questionId: "q-fail",
+    questionText: "Fire exit clear?",
+    answer: "fail",
+    note: "Blocked",
+    resultId: "result-ev-1",
+    evidenceRefs: [
+      {
+        evidenceId: "ev-1",
+        questionId: "q-fail",
+        name: "photo-1.jpg",
+        driveLink: "https://drive.google.com/file/d/abc/view",
+        driveFileId: "abc",
+      },
+      {
+        evidenceId: "ev-other",
+        questionId: "q-other",
+        name: "other.jpg",
+        driveLink: "https://drive.google.com/file/d/other/view",
+      },
+    ],
+  });
+  assert(withEvidence["Evidence Count"] === "1", "27: NCR row stores only question-scoped evidence count");
+  assert(withEvidence["Evidence Refs"].includes("ev-1"), "27b: NCR Evidence Refs includes matching photo");
+  assert(!withEvidence["Evidence Refs"].includes("ev-other"), "27c: NCR Evidence Refs excludes other question photos");
+  const mappedEvidence = mapNcrWorkbookRowToClient(withEvidence, CO);
+  assert(mappedEvidence.evidence.length === 1, "27d: mapped NCR evidence count > 0");
+  assert(mappedEvidence.evidence[0].previewUrl.includes("drive.google.com"), "27e: mapped NCR evidence has Drive link");
+  assert(mappedEvidence.resultId === "result-ev-1", "27f: mapped NCR keeps source result id");
+
+  const noEvidence = buildNcrWorkbookRow({
+    reference: "NCR-0201",
+    companyFolderId: CO,
+    auditId: "audit-x",
+    auditName: "Walk",
+    questionId: "q1",
+    questionText: "Ok?",
+    answer: "nc",
+  });
+  assert(noEvidence["Evidence Count"] === "0", "28: missing evidence fields mean zero evidence");
+  assert(mapNcrWorkbookRowToClient(noEvidence, CO).evidence.length === 0, "28b: no-evidence NCR still maps cleanly");
+}
 
 {
   const auditRow = buildNcrWorkbookRow({

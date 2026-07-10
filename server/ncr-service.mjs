@@ -5,12 +5,18 @@ import {
   NCR_TAB,
   NCR_TAB_COLUMNS,
   buildNcrWorkbookRow,
+  filterEvidenceRefsForQuestion,
   isNcrFindingAnswer,
   nextNcrReferenceFromRows,
+  ncrEvidenceRefsToClientEvidence,
+  sanitizeNcrEvidenceRefs,
+  serializeNcrEvidenceRefs,
 } from "../shared/ncr.mjs";
 import { resolveCompanyScheduleContext } from "./schedule-service.mjs";
 import {
   appendTabRows as workbookAppendTabRows,
+  ensureTabColumns as workbookEnsureTabColumns,
+  patchTabRowByHeader as workbookPatchTabRowByHeader,
   readTabRecords as workbookReadTabRecords,
 } from "./workbook-service.mjs";
 
@@ -24,6 +30,14 @@ function resolveAppendTabRows(deps) {
 
 function resolveReadTabRecords(deps) {
   return typeof deps?.readTabRecords === "function" ? deps.readTabRecords : workbookReadTabRecords;
+}
+
+function resolveEnsureTabColumns(deps) {
+  return typeof deps?.ensureTabColumns === "function" ? deps.ensureTabColumns : workbookEnsureTabColumns;
+}
+
+function resolvePatchTabRowByHeader(deps) {
+  return typeof deps?.patchTabRowByHeader === "function" ? deps.patchTabRowByHeader : workbookPatchTabRowByHeader;
 }
 
 function pickField(record = {}, keys = []) {
@@ -67,6 +81,22 @@ function existingNcrKeys(rows, companyFolderId) {
   return keys;
 }
 
+function summarizeCreatedNcr(row, evidenceRefs = []) {
+  const questionId = trim(row["Source Question ID"]);
+  const scopedEvidence = filterEvidenceRefsForQuestion(evidenceRefs, questionId);
+  return {
+    ncrId: trim(row["NCR ID"] || row.Reference),
+    reference: trim(row.Reference || row["NCR ID"]),
+    auditId: trim(row["Source Audit ID"]),
+    questionId,
+    status: trim(row.Status) || "Open",
+    resultId: trim(row["Result ID"]),
+    evidence: ncrEvidenceRefsToClientEvidence(scopedEvidence),
+    evidenceRefs: scopedEvidence,
+    evidenceCount: scopedEvidence.length,
+  };
+}
+
 /**
  * Append NCR rows for fail/nc findings after check completion.
  */
@@ -83,6 +113,7 @@ export async function appendNcrsFromCheckCompletion(auth, deps, input = {}) {
     return { ok: true, written: 0, ncrs: [], companyFolderId, masterSheetId: context.masterSheetId };
   }
 
+  const allEvidenceRefs = sanitizeNcrEvidenceRefs(input.evidenceRefs ?? input.evidence ?? []);
   const readTabRecords = resolveReadTabRecords(deps);
   let existingRows = [];
   try {
@@ -139,6 +170,7 @@ export async function appendNcrsFromCheckCompletion(auth, deps, input = {}) {
     usedKeys.add(key);
     const reference = nextReference;
     nextReference = nextNcrReferenceFromRows([...companyRows, ...rowsToAppend, { Reference: reference }]);
+    const evidenceRefs = filterEvidenceRefsForQuestion(allEvidenceRefs, questionId);
     const row = buildNcrWorkbookRow({
       ncrId: reference,
       reference,
@@ -159,15 +191,10 @@ export async function appendNcrsFromCheckCompletion(auth, deps, input = {}) {
       resultId,
       localSubmissionId,
       status: "Open",
+      evidenceRefs,
     });
     rowsToAppend.push(row);
-    createdNcrs.push({
-      ncrId: reference,
-      reference,
-      auditId,
-      questionId,
-      status: "Open",
-    });
+    createdNcrs.push(summarizeCreatedNcr(row, evidenceRefs));
   }
 
   if (rowsToAppend.length === 0 && skippedDuplicates > 0) {
@@ -208,6 +235,105 @@ export async function appendNcrsFromCheckCompletion(auth, deps, input = {}) {
       httpStatus: 502,
     };
   }
+}
+
+/**
+ * After Drive upload, backfill Evidence Refs onto NCR rows created for this result.
+ * Best-effort — does not fail check completion.
+ */
+export async function linkEvidenceRefsToNcrs(auth, deps, input = {}) {
+  const masterSheetId = trim(input.masterSheetId);
+  const resultId = trim(input.resultId);
+  const evidenceRefs = sanitizeNcrEvidenceRefs(input.evidenceRefs ?? []);
+  const ncrs = Array.isArray(input.ncrs) ? input.ncrs : [];
+
+  if (!masterSheetId || !resultId || evidenceRefs.length === 0 || ncrs.length === 0) {
+    return {
+      ok: true,
+      updated: 0,
+      ncrs: ncrs.map((entry) => ({
+        ...entry,
+        evidence: Array.isArray(entry.evidence) ? entry.evidence : [],
+        evidenceRefs: Array.isArray(entry.evidenceRefs) ? entry.evidenceRefs : [],
+      })),
+    };
+  }
+
+  try {
+    const ensureTabColumns = resolveEnsureTabColumns(deps);
+    await ensureTabColumns(auth, deps, masterSheetId, NCR_TAB, NCR_TAB_COLUMNS);
+  } catch {
+    return {
+      ok: false,
+      code: "NCR_EVIDENCE_LINK_FAILED",
+      message: "Could not prepare NCR evidence columns in the company workbook.",
+      updated: 0,
+      ncrs,
+    };
+  }
+
+  const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
+  const updatedNcrs = [];
+  let updated = 0;
+  let linkFailed = false;
+
+  for (const entry of ncrs) {
+    const reference = trim(entry.reference || entry.ncrId);
+    const questionId = trim(entry.questionId);
+    if (!reference) {
+      updatedNcrs.push(entry);
+      continue;
+    }
+    const scopedEvidence = filterEvidenceRefsForQuestion(evidenceRefs, questionId);
+    const nextEntry = {
+      ...entry,
+      evidenceRefs: scopedEvidence,
+      evidence: ncrEvidenceRefsToClientEvidence(scopedEvidence),
+      evidenceCount: scopedEvidence.length,
+    };
+    if (scopedEvidence.length === 0) {
+      updatedNcrs.push(nextEntry);
+      continue;
+    }
+    try {
+      await patchTabRowByHeader(
+        auth,
+        deps,
+        masterSheetId,
+        NCR_TAB,
+        "NCR ID",
+        reference,
+        {
+          "Evidence Refs": serializeNcrEvidenceRefs(scopedEvidence),
+          "Evidence Count": String(scopedEvidence.length),
+          "Updated At": new Date().toISOString(),
+        },
+        { matchHeaderAliases: ["Reference", "NCR ID"] },
+      );
+      updated += 1;
+      updatedNcrs.push(nextEntry);
+    } catch {
+      linkFailed = true;
+      updatedNcrs.push(nextEntry);
+    }
+  }
+
+  if (linkFailed && updated === 0) {
+    return {
+      ok: false,
+      code: "NCR_EVIDENCE_LINK_FAILED",
+      message: "Could not link uploaded evidence to non-conformance records.",
+      updated,
+      ncrs: updatedNcrs,
+    };
+  }
+
+  return {
+    ok: true,
+    updated,
+    warning: linkFailed ? "Some NCR evidence links could not be saved to the workbook." : "",
+    ncrs: updatedNcrs,
+  };
 }
 
 export async function saveCompanyNcrs(auth, deps, input = {}) {

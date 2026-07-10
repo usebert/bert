@@ -444,7 +444,7 @@ import {
   statusStyles,
 } from "./src/utils/dashboardHealth";
 import type { CompanyReportUser, ReportItem, ReportSectionKey, ReportTemplateType } from "./src/types/reports";
-import type { NonConformanceRecord } from "./src/types/nonConformanceScreenProps";
+import type { NonConformanceEvidence, NonConformanceRecord } from "./src/types/nonConformanceScreenProps";
 import type { SyncQueueItem, SyncStatus } from "./src/types/sync";
 import type { AuditFindingRecord, ComplianceScheduleRow } from "./src/types/complianceLoop";
 import type { QMSDocument, QMSRisk, QMSTrainingRecord } from "./src/types/qms";
@@ -479,10 +479,14 @@ import {
   syncAuditSubmissionToSheet,
 } from "./src/services/complianceSyncService";
 import {
+  attachEvidenceRefsToNcrs,
+  auditEvidenceToNcrEvidence,
   buildNonConformanceFromCompletionContext,
+  CHECK_EVIDENCE_STILL_UPLOADING_MESSAGE,
   mergeCompletionNcrsIntoState,
   mergeNonConformancesWithSheet,
   mergeSheetNcrsIntoState,
+  NCR_EVIDENCE_FAILED_MESSAGE,
   ncrSafeErrorMessage,
   parseCompanySheetNcrs,
   persistNcrsToSheet,
@@ -1275,6 +1279,8 @@ type AuditCompletionSummaryState = {
   resultId?: string;
   ncrsRecorded: number;
   ncrWriteFailed: boolean;
+  evidenceStillUploading?: boolean;
+  evidenceUploadFailed?: boolean;
 };
 
 type ActiveAssignedCheckContext = {
@@ -11295,14 +11301,32 @@ function App() {
           }
 
           if (submission.audit) {
+            const groupedEvidence: Record<string, EvidenceItem[]> = {};
+            for (const ref of submission.evidenceRefs || []) {
+              const questionId = String(ref.questionId || "").trim();
+              if (!questionId) continue;
+              if (!groupedEvidence[questionId]) groupedEvidence[questionId] = [];
+              groupedEvidence[questionId].push({
+                id: ref.evidenceId,
+                name: ref.name,
+                previewUrl: "",
+                addedAt: ref.addedAt || "",
+                mimeType: ref.mimeType,
+                blobKey: ref.blobKey,
+                size: ref.size,
+              });
+            }
             const { created: syncedNcrs } = createNonConformancesFromAudit({
               audit: submission.audit,
               responseMap: submission.answers as Record<string, Answer>,
               noteMap: submission.notes,
+              evidenceMap: groupedEvidence,
               resultId: result.resultId,
               localSubmissionId: submission.localSubmissionId,
               skipWorkbookPersist: true,
               serverNcrs: result.ncrs,
+              evidenceRefs: result.evidenceRefs,
+              evidenceUploadFailed: Boolean(result.evidenceUploadWarning),
             });
             const syncedNcrOutcome = resolveNcrCompletionOutcome({
               issuesFound: findings.filter((finding) => finding.answer === "fail" || finding.answer === "nc").length,
@@ -12023,18 +12047,24 @@ function App() {
     audit,
     responseMap,
     noteMap,
+    evidenceMap,
     resultId,
     localSubmissionId,
     skipWorkbookPersist = false,
     serverNcrs,
+    evidenceRefs,
+    evidenceUploadFailed = false,
   }: {
     audit: Audit;
     responseMap: Record<string, Answer>;
     noteMap: Record<string, string>;
+    evidenceMap?: Record<string, EvidenceItem[]>;
     resultId?: string;
     localSubmissionId?: string;
     skipWorkbookPersist?: boolean;
     serverNcrs?: CompletionNcrSummary[];
+    evidenceRefs?: unknown[];
+    evidenceUploadFailed?: boolean;
   }) => {
     if (!currentUser) {
       return { created: [] as NonConformanceRecord[], referenceByQuestionId: {} as Record<string, string> };
@@ -12047,19 +12077,60 @@ function App() {
     const created: NonConformanceRecord[] = [];
     const referenceByQuestionId: Record<string, string> = {};
     let nextSequence = getNextNcrSequence(nonConformances);
-    const serverReferencesByQuestion = new Map(
+    const serverNcrByQuestion = new Map(
       (serverNcrs ?? [])
-        .map((entry) => [String(entry.questionId || "").trim(), String(entry.reference || entry.ncrId || "").trim()] as const)
-        .filter(([questionId, reference]) => Boolean(questionId && reference)),
+        .map((entry) => [String(entry.questionId || "").trim(), entry] as const)
+        .filter(([questionId]) => Boolean(questionId)),
     );
+
+    const evidenceForQuestion = (questionId: string): NonConformanceEvidence[] => {
+      const serverEntry = serverNcrByQuestion.get(questionId);
+      const fromServer = Array.isArray(serverEntry?.evidence)
+        ? (serverEntry.evidence as Array<Record<string, unknown>>).map((item) => ({
+            id: String(item.id || item.name || `evidence-${questionId}`).trim(),
+            name: String(item.name || item.id || "Evidence file").trim(),
+            previewUrl: String(item.previewUrl || item.driveLink || "").trim(),
+            addedAt: String(item.addedAt || "").trim(),
+            driveFileId: String(item.driveFileId || "").trim() || undefined,
+            driveLink: String(item.driveLink || "").trim() || undefined,
+            questionId: String(item.questionId || questionId).trim() || questionId,
+            mimeType: String(item.mimeType || "").trim() || undefined,
+            uploadStatus:
+              item.uploadStatus === "failed" || item.uploadStatus === "pending" || item.uploadStatus === "uploaded"
+                ? (item.uploadStatus as NonConformanceEvidence["uploadStatus"])
+                : String(item.previewUrl || item.driveLink || item.driveFileId || "").trim()
+                  ? ("uploaded" as const)
+                  : ("pending" as const),
+          }))
+        : auditEvidenceToNcrEvidence(serverEntry?.evidenceRefs || evidenceRefs, questionId);
+      const fromPayload = auditEvidenceToNcrEvidence(evidenceRefs, questionId);
+      const localItems: NonConformanceEvidence[] = (evidenceMap?.[questionId] || []).map((item) => ({
+        id: item.id,
+        name: item.name,
+        previewUrl: item.previewUrl,
+        addedAt: item.addedAt,
+        questionId,
+        mimeType: item.mimeType,
+        uploadStatus: item.previewUrl && !item.previewUrl.startsWith("blob:") ? ("uploaded" as const) : ("pending" as const),
+      }));
+      const byId = new Map<string, NonConformanceEvidence>();
+      for (const item of [...fromServer, ...fromPayload, ...localItems]) {
+        const key = String(item.id || "").trim() || `${item.name}::${item.previewUrl || ""}`;
+        if (!key) continue;
+        const existing = byId.get(key);
+        byId.set(key, existing ? { ...existing, ...item, previewUrl: item.previewUrl || existing.previewUrl } : item);
+      }
+      return Array.from(byId.values());
+    };
 
     const buildRecord = (
       reference: string,
       question: AuditQuestion,
       answer: Answer,
       entryAuditId?: string,
-    ): NonConformanceRecord =>
-      buildNonConformanceFromCompletionContext({
+    ): NonConformanceRecord => {
+      const evidence = evidenceForQuestion(question.id);
+      return buildNonConformanceFromCompletionContext({
         reference,
         auditId: audit.id,
         auditName: audit.name,
@@ -12075,13 +12146,32 @@ function App() {
         assignedLineManagerEmail: assignedManager.email || "",
         raisedAt,
         entryAuditId,
+        resultId,
+        evidence,
+        evidenceUploadStatus: evidenceUploadFailed
+          ? "failed"
+          : evidence.some((item) => item.previewUrl || item.driveLink || item.driveFileId)
+            ? evidence.every((item) => item.uploadStatus === "uploaded" || Boolean(item.driveLink || item.driveFileId))
+              ? "uploaded"
+              : "pending"
+            : evidence.length > 0
+              ? "pending"
+              : "none",
       });
+    };
 
     const rememberCreated = (record: NonConformanceRecord) => {
-      if (
-        nonConformances.some((item) => item.reference === record.reference) ||
-        created.some((item) => item.reference === record.reference)
-      ) {
+      const existingIndex = created.findIndex((item) => item.reference === record.reference);
+      if (existingIndex >= 0) {
+        created[existingIndex] = {
+          ...created[existingIndex],
+          ...record,
+          evidence: attachEvidenceRefsToNcrs([record], evidenceRefs, { resultId })[0]?.evidence || record.evidence,
+        };
+        return;
+      }
+      if (nonConformances.some((item) => item.reference === record.reference)) {
+        setNonConformances((current) => mergeCompletionNcrsIntoState(current, [record]));
         return;
       }
       created.push(record);
@@ -12092,11 +12182,17 @@ function App() {
       if (answer !== "fail" && answer !== "nc") {
         continue;
       }
-      const serverReference = serverReferencesByQuestion.get(question.id);
+      const serverEntry = serverNcrByQuestion.get(question.id);
+      const serverReference = String(serverEntry?.reference || serverEntry?.ncrId || "").trim();
       if (serverReference) {
         referenceByQuestionId[question.id] = serverReference;
         rememberCreated(
-          buildRecord(serverReference, question, answer, String(serverNcrs?.find((entry) => entry.questionId === question.id)?.auditId || "").trim() || undefined),
+          buildRecord(
+            serverReference,
+            question,
+            answer,
+            String(serverEntry?.auditId || "").trim() || undefined,
+          ),
         );
         continue;
       }
@@ -12272,6 +12368,7 @@ function App() {
       audit,
       responseMap,
       noteMap,
+      evidenceMap,
     });
     const createdActions = createActionsFromAudit(
       audit,
@@ -12471,6 +12568,8 @@ function App() {
       resultId?: string;
       ncrsRecorded?: number;
       ncrWriteFailed?: boolean;
+      evidenceStillUploading?: boolean;
+      evidenceUploadFailed?: boolean;
     }) => {
       setDrafts((current) => {
         const nextDrafts = { ...current };
@@ -12489,6 +12588,8 @@ function App() {
         resultId: input.resultId,
         ncrsRecorded: input.ncrsRecorded ?? 0,
         ncrWriteFailed: input.ncrWriteFailed ?? false,
+        evidenceStillUploading: input.evidenceStillUploading ?? false,
+        evidenceUploadFailed: input.evidenceUploadFailed ?? false,
       });
       notifySelectedManagersForNonCompliance(activeAudit, currentUser.name, input.issues, input.syncTone !== "green");
       setActiveAuditId(null);
@@ -12555,6 +12656,7 @@ function App() {
         audit: activeAudit,
         responseMap: syncedResponses,
         noteMap: mergedNotes,
+        evidenceMap: evidence,
         localSubmissionId,
         skipWorkbookPersist: true,
       });
@@ -12575,6 +12677,7 @@ function App() {
         syncLabel: queueAddedMessage({ online: false }),
         ncrsRecorded: offlineNcrOutcome.ncrsRecorded,
         ncrWriteFailed: offlineNcrOutcome.ncrWriteFailed,
+        evidenceStillUploading: photosCaptured > 0,
       });
       return;
     }
@@ -12734,10 +12837,13 @@ function App() {
           audit: activeAudit,
           responseMap: syncedResponses,
           noteMap: mergedNotes,
+          evidenceMap: evidence,
           resultId: result.resultId,
           localSubmissionId,
           skipWorkbookPersist: true,
           serverNcrs: result.ncrs,
+          evidenceRefs: result.evidenceRefs,
+          evidenceUploadFailed: Boolean(result.evidenceUploadWarning),
         });
         const ncrOutcome = resolveNcrCompletionOutcome({
           issuesFound,
@@ -12751,6 +12857,9 @@ function App() {
             `${ncrOutcome.ncrsRecorded} non-conformance${ncrOutcome.ncrsRecorded === 1 ? "" : "s"} added to the register.`,
             "success",
           );
+        }
+        if (result.ncrEvidenceLinkWarning) {
+          pushToast("Evidence link warning", result.ncrEvidenceLinkWarning, "warning");
         }
 
         if (evidenceUploadWarning) {
@@ -12770,6 +12879,15 @@ function App() {
           void loadCompanySheet(companyFolderId, { silent: true });
         }
 
+        const evidenceStillUploading =
+          photosCaptured > 0 &&
+          !evidenceUploadWarning &&
+          !(Array.isArray(result.evidenceRefs) && result.evidenceRefs.some((ref) => {
+            if (!ref || typeof ref !== "object") return false;
+            const record = ref as Record<string, unknown>;
+            return Boolean(record.driveLink || record.driveFileId);
+          }));
+
         finishCompletionSummary({
           issues: issuesFound,
           syncTone: "green",
@@ -12777,6 +12895,8 @@ function App() {
           resultId: result.resultId,
           ncrsRecorded: ncrOutcome.ncrsRecorded,
           ncrWriteFailed: ncrOutcome.ncrWriteFailed,
+          evidenceStillUploading,
+          evidenceUploadFailed: Boolean(evidenceUploadWarning),
         });
         submissionInFlightKeysRef.current.delete(onlineSubmitKey);
         delete checkCompletionLocalIdRef.current[activeAudit.id];
@@ -18752,6 +18872,8 @@ function AuditCompletionSummary({
   const successMessage = submittedOnline ? CHECK_COMPLETION_SUCCESS_MESSAGE : summary.syncLabel;
   const showNcrRecorded = summary.ncrsRecorded > 0;
   const showNcrWriteFailed = summary.ncrWriteFailed;
+  const showEvidenceStillUploading = Boolean(summary.evidenceStillUploading);
+  const showEvidenceUploadFailed = Boolean(summary.evidenceUploadFailed);
   return (
     <div className="space-y-4">
       <div
@@ -18789,6 +18911,12 @@ function AuditCompletionSummary({
           ) : null}
           {showNcrWriteFailed ? (
             <p className="mt-1 text-sm font-semibold text-amber-950">{CHECK_COMPLETION_NCR_WRITE_FAILED_MESSAGE}</p>
+          ) : null}
+          {showEvidenceStillUploading ? (
+            <p className="mt-1 text-sm font-semibold text-slate-800">{CHECK_EVIDENCE_STILL_UPLOADING_MESSAGE}</p>
+          ) : null}
+          {showEvidenceUploadFailed ? (
+            <p className="mt-1 text-sm font-semibold text-amber-950">{NCR_EVIDENCE_FAILED_MESSAGE}</p>
           ) : null}
           {summary.auditName ? (
             <p className="mt-1 text-sm font-semibold text-slate-800">{summary.auditName}</p>

@@ -20,9 +20,10 @@ import {
 import {
   appendTabRows as workbookAppendTabRows,
   ensureTabColumns as workbookEnsureTabColumns,
+  patchTabRowByHeader as workbookPatchTabRowByHeader,
   readTabRecords as workbookReadTabRecords,
 } from "./workbook-service.mjs";
-import { appendNcrsFromCheckCompletion } from "./ncr-service.mjs";
+import { appendNcrsFromCheckCompletion, linkEvidenceRefsToNcrs } from "./ncr-service.mjs";
 import {
   normalizeAuditEvidenceUploadFile,
   sanitizeAuditEvidenceRefsForWorkbook,
@@ -176,6 +177,10 @@ function resolveReadTabRecords(deps) {
 
 function resolveEnsureTabColumns(deps) {
   return typeof deps?.ensureTabColumns === "function" ? deps.ensureTabColumns : workbookEnsureTabColumns;
+}
+
+function resolvePatchTabRowByHeader(deps) {
+  return typeof deps?.patchTabRowByHeader === "function" ? deps.patchTabRowByHeader : workbookPatchTabRowByHeader;
 }
 
 function resolveGetTabValues(deps) {
@@ -570,6 +575,7 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
         completedByName: trim(input.completedByName || input.name),
         completedAt: row["Completed At"],
         findings: input.findings ?? [],
+        evidenceRefs,
         localSubmissionId: input.localSubmissionId,
         assignedLineManager: trim(input.assignedLineManager),
         assignedLineManagerEmail: trim(input.assignedLineManagerEmail),
@@ -597,6 +603,8 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
   });
 
   const ncrWriteWarning = ncrWriteWarningFromResult(ncrResult);
+  let ncrEvidenceLinkWarning = "";
+  let createdNcrs = Array.isArray(ncrResult.ncrs) ? ncrResult.ncrs : [];
 
   if (evidenceFiles.length > 0) {
     const normalizedFiles = evidenceFiles.map((file, index) => normalizeAuditEvidenceUploadFile(file, index));
@@ -637,6 +645,62 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
             evidenceRefs.push(uploadedRef);
           }
         }
+
+        // Best-effort: patch AuditResult Evidence Refs with Drive links (source of truth).
+        try {
+          const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
+          await patchTabRowByHeader(
+            auth,
+            deps,
+            eligibility.masterSheetId,
+            AUDIT_RESULTS_TAB,
+            "Result ID",
+            resultId,
+            {
+              "Evidence Refs": jsonString(evidenceRefs, "[]"),
+            },
+            { matchHeaderAliases: ["Result ID", "ResultId"] },
+          );
+        } catch {
+          // Non-blocking — NCR link + response still carry Drive metadata.
+        }
+
+        if (createdNcrs.length > 0) {
+          logCheckCompletePhase("ncr_evidence_link_start", {
+            ...traceMeta,
+            resultId,
+            ncrCount: createdNcrs.length,
+          });
+          try {
+            const linked = await linkEvidenceRefsToNcrs(auth, deps, {
+              masterSheetId: eligibility.masterSheetId,
+              resultId,
+              evidenceRefs,
+              ncrs: createdNcrs,
+            });
+            createdNcrs = linked.ncrs || createdNcrs;
+            if (!linked.ok) {
+              ncrEvidenceLinkWarning =
+                linked.message || "Could not link uploaded evidence to non-conformance records.";
+            } else if (linked.warning) {
+              ncrEvidenceLinkWarning = linked.warning;
+            }
+            logCheckCompletePhase("ncr_evidence_link_end", {
+              ...traceMeta,
+              resultId,
+              updated: linked.updated ?? 0,
+              ok: linked.ok !== false,
+            });
+          } catch {
+            ncrEvidenceLinkWarning = "Could not link uploaded evidence to non-conformance records.";
+            logCheckCompletePhase("ncr_evidence_link_end", {
+              ...traceMeta,
+              resultId,
+              ok: false,
+              code: "NCR_EVIDENCE_LINK_FAILED",
+            });
+          }
+        }
       }
       if (!uploaded.ok) {
         evidenceUploadWarning =
@@ -671,8 +735,10 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
     masterSheetId: eligibility.masterSheetId,
     scheduleId: row["Schedule ID"],
     written,
-    ncrs: ncrResult.ncrs || [],
+    ncrs: createdNcrs,
+    evidenceRefs,
     ncrWriteWarning,
+    ncrEvidenceLinkWarning,
     evidenceUploadWarning,
   };
 }

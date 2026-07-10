@@ -1,7 +1,10 @@
 import { apiUrl } from "../config/apiBase";
 import { fetchJson } from "../utils/fetchJson";
 import type { Answer } from "../types/reportsScreenProps";
-import type { NonConformanceRecord } from "../types/nonConformanceScreenProps";
+import type {
+  NonConformanceEvidence,
+  NonConformanceRecord,
+} from "../types/nonConformanceScreenProps";
 
 export type PersistNcrInput = {
   reference: string;
@@ -20,7 +23,12 @@ export type PersistNcrInput = {
   resultId?: string;
   localSubmissionId?: string;
   status?: string;
+  evidenceRefs?: unknown[];
 };
+
+function trim(value: unknown) {
+  return String(value ?? "").trim();
+}
 
 function pickField(record: Record<string, string>, keys: string[]) {
   for (const key of keys) {
@@ -30,6 +38,101 @@ function pickField(record: Record<string, string>, keys: string[]) {
     if (match && String(match[1] || "").trim()) return String(match[1]).trim();
   }
   return "";
+}
+
+function sanitizeEvidenceRef(item: Record<string, unknown> = {}) {
+  const driveLink = trim(item.driveLink || item.url || item.previewUrl);
+  const safeDriveLink = driveLink.startsWith("data:") ? "" : driveLink;
+  const next: Record<string, string> = {
+    questionId: trim(item.questionId),
+    evidenceId: trim(item.evidenceId || item.id),
+    name: trim(item.name),
+    mimeType: trim(item.mimeType) || "application/octet-stream",
+    addedAt: trim(item.addedAt) || new Date().toISOString(),
+  };
+  const driveFileId = trim(item.driveFileId);
+  if (driveFileId) {
+    next.driveFileId = driveFileId;
+  }
+  if (safeDriveLink) {
+    next.driveLink = safeDriveLink;
+  }
+  return next;
+}
+
+function sanitizeEvidenceRefs(evidenceRefs: unknown) {
+  const items = Array.isArray(evidenceRefs) ? evidenceRefs : [];
+  return items
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+    .map((item) => sanitizeEvidenceRef(item))
+    .filter((item) => item.evidenceId);
+}
+
+function filterEvidenceRefsForQuestion(evidenceRefs: unknown, questionId: string) {
+  const target = trim(questionId);
+  const items = sanitizeEvidenceRefs(evidenceRefs);
+  if (!target) {
+    return items;
+  }
+  const matched = items.filter((item) => trim(item.questionId) === target);
+  return matched.length > 0 ? matched : items.filter((item) => !trim(item.questionId));
+}
+
+function parseEvidenceRefs(raw: unknown) {
+  if (Array.isArray(raw)) {
+    return sanitizeEvidenceRefs(raw);
+  }
+  const text = trim(raw);
+  if (!text) {
+    return [];
+  }
+  try {
+    return sanitizeEvidenceRefs(JSON.parse(text));
+  } catch {
+    return [];
+  }
+}
+
+function evidenceRefsToClientEvidence(evidenceRefs: Record<string, string>[]): NonConformanceEvidence[] {
+  return evidenceRefs.map((ref) => {
+    const driveLink = trim(ref.driveLink);
+    const driveFileId = trim(ref.driveFileId);
+    const previewUrl =
+      driveLink ||
+      (driveFileId ? `https://drive.google.com/file/d/${encodeURIComponent(driveFileId)}/view` : "");
+    return {
+      id: ref.evidenceId,
+      name: ref.name || ref.evidenceId || "Evidence file",
+      previewUrl,
+      addedAt: ref.addedAt || "",
+      driveFileId: driveFileId || undefined,
+      driveLink: driveLink || undefined,
+      questionId: ref.questionId || undefined,
+      mimeType: ref.mimeType || undefined,
+      uploadStatus: previewUrl ? ("uploaded" as const) : ("pending" as const),
+    };
+  });
+}
+
+function mergeEvidenceLists(
+  primary: NonConformanceEvidence[] = [],
+  secondary: NonConformanceEvidence[] = [],
+): NonConformanceEvidence[] {
+  const merged: NonConformanceEvidence[] = [];
+  const seen = new Set<string>();
+  for (const item of [...primary, ...secondary]) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const id = trim(item.id);
+    const key = id || `${trim(item.name)}::${trim(item.previewUrl || item.driveLink)}`;
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    merged.push(item);
+  }
+  return merged;
 }
 
 function normalizeClientNcrStatus(status: string): NonConformanceRecord["status"] {
@@ -73,6 +176,32 @@ function deriveNcrQuestionLabel(
   return trimmedDescription;
 }
 
+function resolveEvidenceUploadStatus(
+  evidence: NonConformanceEvidence[],
+): NonConformanceRecord["evidenceUploadStatus"] {
+  if (!evidence.length) {
+    return "none";
+  }
+  if (evidence.some((item) => item.uploadStatus === "failed")) {
+    return "failed";
+  }
+  if (evidence.every((item) => item.previewUrl || item.driveLink || item.driveFileId)) {
+    return "uploaded";
+  }
+  if (evidence.some((item) => item.uploadStatus === "pending" || !item.previewUrl)) {
+    return "pending";
+  }
+  return "uploaded";
+}
+
+export function auditEvidenceToNcrEvidence(
+  evidenceRefs: unknown[] | null | undefined,
+  questionId = "",
+): NonConformanceEvidence[] {
+  const scoped = filterEvidenceRefsForQuestion(evidenceRefs || [], questionId);
+  return evidenceRefsToClientEvidence(scoped);
+}
+
 export function parseCompanySheetNcrs(
   records: Record<string, string>[],
   companyFolderId: string,
@@ -99,12 +228,17 @@ export function parseCompanySheetNcrs(
       const auditName = pickField(record, ["Source Audit Name", "Audit Name"]);
       const questionText = pickField(record, ["Source Question Text", "Title"]);
       const description = pickField(record, ["Description"]);
+      const questionId = pickField(record, ["Source Question ID", "Question ID"]);
+      const evidence = auditEvidenceToNcrEvidence(
+        parseEvidenceRefs(pickField(record, ["Evidence Refs", "EvidenceRefs"])),
+        questionId,
+      );
       return {
         id: pickField(record, ["NCR ID"]) || reference,
         reference,
         auditId: pickField(record, ["Source Audit ID", "Audit ID"]),
         auditName,
-        auditQuestionId: pickField(record, ["Source Question ID", "Question ID"]),
+        auditQuestionId: questionId,
         auditQuestion: deriveNcrQuestionLabel(record, auditName, questionText, description),
         selectedAnswer: (answer === "fail" || answer === "nc" ? answer : "nc") as Answer,
         auditorName: pickField(record, ["Auditor Name", "Created By"]),
@@ -120,7 +254,9 @@ export function parseCompanySheetNcrs(
         rootCause: "",
         correctiveAction: "",
         investigationExtraNotes: "",
-        evidence: [],
+        evidence,
+        resultId: pickField(record, ["Result ID", "Source Result ID"]) || undefined,
+        evidenceUploadStatus: resolveEvidenceUploadStatus(evidence),
       } satisfies NonConformanceRecord;
     })
     .filter(Boolean) as NonConformanceRecord[];
@@ -132,6 +268,10 @@ export type CompletionNcrSummary = {
   auditId?: string;
   questionId?: string;
   status?: string;
+  resultId?: string;
+  evidence?: unknown[];
+  evidenceRefs?: unknown[];
+  evidenceCount?: number;
 };
 
 export function mergeSheetNcrsIntoState(
@@ -140,10 +280,24 @@ export function mergeSheetNcrsIntoState(
   companyFolderId: string,
 ): NonConformanceRecord[] {
   const fromSheet = parseCompanySheetNcrs(sheetRecords, companyFolderId);
+  const localByReference = new Map(current.map((item) => [item.reference, item]));
+  const mergedFromSheet = fromSheet.map((sheetItem) => {
+    const local = localByReference.get(sheetItem.reference);
+    if (!local) {
+      return sheetItem;
+    }
+    const evidence = mergeEvidenceLists(sheetItem.evidence, local.evidence);
+    return {
+      ...sheetItem,
+      evidence,
+      evidenceUploadStatus: resolveEvidenceUploadStatus(evidence),
+      resultId: sheetItem.resultId || local.resultId,
+    };
+  });
   const localForFolder = current.filter(
     (item) => !fromSheet.some((sheetItem) => sheetItem.reference === item.reference),
   );
-  return mergeNonConformancesWithSheet(localForFolder, fromSheet);
+  return mergeNonConformancesWithSheet(localForFolder, mergedFromSheet);
 }
 
 export type BuildCompletionNcrContext = {
@@ -162,6 +316,9 @@ export type BuildCompletionNcrContext = {
   raisedAt: string;
   reference: string;
   entryAuditId?: string;
+  resultId?: string;
+  evidence?: NonConformanceEvidence[];
+  evidenceUploadStatus?: NonConformanceRecord["evidenceUploadStatus"];
 };
 
 export function buildNonConformanceFromCompletionContext(
@@ -169,6 +326,7 @@ export function buildNonConformanceFromCompletionContext(
 ): NonConformanceRecord {
   const note = String(context.note || "").trim();
   const questionText = String(context.questionText || "").trim();
+  const evidence = Array.isArray(context.evidence) ? context.evidence : [];
   return {
     id: context.reference,
     reference: context.reference,
@@ -191,7 +349,9 @@ export function buildNonConformanceFromCompletionContext(
     rootCause: "",
     correctiveAction: "",
     investigationExtraNotes: "",
-    evidence: [],
+    evidence,
+    resultId: context.resultId,
+    evidenceUploadStatus: context.evidenceUploadStatus || resolveEvidenceUploadStatus(evidence),
   };
 }
 
@@ -202,16 +362,55 @@ export function mergeCompletionNcrsIntoState(
   if (records.length === 0) {
     return current;
   }
-  const existingReferences = new Set(current.map((item) => item.reference));
-  const next = [...current];
+  const byReference = new Map(current.map((item) => [item.reference, item]));
   for (const record of records) {
-    if (!record.reference || existingReferences.has(record.reference)) {
+    if (!record.reference) {
       continue;
     }
-    next.unshift(record);
-    existingReferences.add(record.reference);
+    const existing = byReference.get(record.reference);
+    if (!existing) {
+      byReference.set(record.reference, record);
+      continue;
+    }
+    const evidence = mergeEvidenceLists(record.evidence, existing.evidence);
+    byReference.set(record.reference, {
+      ...existing,
+      ...record,
+      evidence,
+      evidenceUploadStatus: resolveEvidenceUploadStatus(evidence),
+      resultId: record.resultId || existing.resultId,
+    });
   }
-  return next.sort((left, right) => right.raisedAt.localeCompare(left.raisedAt));
+  return Array.from(byReference.values()).sort((left, right) => right.raisedAt.localeCompare(left.raisedAt));
+}
+
+export function attachEvidenceRefsToNcrs(
+  ncrs: NonConformanceRecord[],
+  evidenceRefs: unknown[] | null | undefined,
+  options?: { resultId?: string; evidenceUploadStatus?: NonConformanceRecord["evidenceUploadStatus"] },
+): NonConformanceRecord[] {
+  if (!Array.isArray(ncrs) || ncrs.length === 0) {
+    return ncrs;
+  }
+  return ncrs.map((ncr) => {
+    const fromRefs = auditEvidenceToNcrEvidence(evidenceRefs, ncr.auditQuestionId);
+    const evidence = mergeEvidenceLists(fromRefs, ncr.evidence);
+    return {
+      ...ncr,
+      resultId: options?.resultId || ncr.resultId,
+      evidence,
+      evidenceUploadStatus: options?.evidenceUploadStatus || resolveEvidenceUploadStatus(evidence),
+    };
+  });
+}
+
+export function resolveNcrEvidenceFromAuditResult(input: {
+  ncr: NonConformanceRecord;
+  auditEvidenceRefs?: unknown[] | null;
+}): NonConformanceEvidence[] {
+  const direct = Array.isArray(input.ncr.evidence) ? input.ncr.evidence : [];
+  const fromAudit = auditEvidenceToNcrEvidence(input.auditEvidenceRefs, input.ncr.auditQuestionId);
+  return mergeEvidenceLists(direct, fromAudit);
 }
 
 /** Verifier/dev helper — safe counts only, no row payloads. */
@@ -227,6 +426,7 @@ export function summarizeNcrVisibilityPipeline(input: {
     parsedFromSheetCount: parsedFromSheet.length,
     mergedStateCount: input.merged.length,
     visibleAfterFilterCount: input.visible.length,
+    evidenceLinkedCount: parsedFromSheet.filter((item) => item.evidence.length > 0).length,
   };
 }
 
@@ -311,6 +511,10 @@ export const NCR_SAFE_ERROR_CODES = {
   NCR_PAYLOAD_INVALID: "Non-conformance details were incomplete.",
   COMPANY_WORKBOOK_NOT_FOUND: "Company workbook is not linked.",
   NCR_DUPLICATE_SKIPPED: "This non-conformance was already recorded for this check.",
+  NCR_EVIDENCE_LINK_FAILED: "Non-conformance recorded, but evidence could not be linked yet.",
+  EVIDENCE_UPLOAD_FAILED: "Evidence could not be uploaded. Please add evidence from this NCR.",
+  EVIDENCE_PENDING_UPLOAD: "Evidence upload pending.",
+  EVIDENCE_FILE_NOT_FOUND: "Evidence file could not be found.",
 } as const;
 
 export function ncrSafeErrorMessage(code?: string, fallback?: string) {
@@ -319,3 +523,8 @@ export function ncrSafeErrorMessage(code?: string, fallback?: string) {
   }
   return fallback || NCR_SAFE_ERROR_CODES.NCR_WRITE_FAILED;
 }
+
+export const NCR_EVIDENCE_PENDING_MESSAGE = "Evidence upload pending";
+export const NCR_EVIDENCE_FAILED_MESSAGE =
+  "Evidence could not be uploaded. Please add evidence from this NCR.";
+export const CHECK_EVIDENCE_STILL_UPLOADING_MESSAGE = "Evidence is still uploading.";

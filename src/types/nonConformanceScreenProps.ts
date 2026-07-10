@@ -7,6 +7,11 @@ export type NonConformanceEvidence = {
   previewUrl: string;
   addedAt: string;
   note?: string;
+  driveFileId?: string;
+  driveLink?: string;
+  questionId?: string;
+  mimeType?: string;
+  uploadStatus?: "pending" | "uploaded" | "failed";
 };
 
 export type NonConformanceRecord = {
@@ -31,6 +36,8 @@ export type NonConformanceRecord = {
   correctiveAction: string;
   investigationExtraNotes: string;
   evidence: NonConformanceEvidence[];
+  resultId?: string;
+  evidenceUploadStatus?: "none" | "pending" | "uploaded" | "failed";
   completionDateTime?: string;
   completedByName?: string;
   completedByUserId?: string;

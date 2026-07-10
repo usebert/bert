@@ -32,6 +32,8 @@ export const NCR_TAB_COLUMNS = [
   "Archive Reason",
   "Result ID",
   "Local Submission ID",
+  "Evidence Refs",
+  "Evidence Count",
 ];
 
 const CLOSED_STATUSES = new Set(["closed", "resolved", "complete", "completed", "cancelled", "verified"]);
@@ -94,6 +96,103 @@ export function isNcrFindingAnswer(answer) {
   return normalized === "fail" || normalized === "nc" || normalized === "non conformance" || normalized === "non-conformance";
 }
 
+export function sanitizeNcrEvidenceRef(item = {}) {
+  const driveLink = trim(item.driveLink || item.url || item.previewUrl);
+  const safeDriveLink = driveLink.startsWith("data:") ? "" : driveLink;
+  const next = {
+    questionId: trim(item.questionId),
+    evidenceId: trim(item.evidenceId || item.id),
+    name: trim(item.name),
+    mimeType: trim(item.mimeType) || "application/octet-stream",
+    addedAt: trim(item.addedAt) || new Date().toISOString(),
+  };
+  const driveFileId = trim(item.driveFileId);
+  if (driveFileId) {
+    next.driveFileId = driveFileId;
+  }
+  if (safeDriveLink) {
+    next.driveLink = safeDriveLink;
+  }
+  return next;
+}
+
+export function sanitizeNcrEvidenceRefs(evidenceRefs) {
+  const items = Array.isArray(evidenceRefs) ? evidenceRefs : [];
+  return items
+    .map((item) => sanitizeNcrEvidenceRef(item))
+    .filter((item) => item.evidenceId);
+}
+
+export function filterEvidenceRefsForQuestion(evidenceRefs, questionId) {
+  const target = trim(questionId);
+  const items = sanitizeNcrEvidenceRefs(evidenceRefs);
+  if (!target) {
+    return items;
+  }
+  const matched = items.filter((item) => trim(item.questionId) === target);
+  // If refs exist but none are question-scoped (legacy), keep them for the NCR.
+  return matched.length > 0 ? matched : items.filter((item) => !trim(item.questionId));
+}
+
+export function serializeNcrEvidenceRefs(evidenceRefs) {
+  return JSON.stringify(sanitizeNcrEvidenceRefs(evidenceRefs));
+}
+
+export function parseNcrEvidenceRefs(raw) {
+  if (Array.isArray(raw)) {
+    return sanitizeNcrEvidenceRefs(raw);
+  }
+  const text = trim(raw);
+  if (!text) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(text);
+    return sanitizeNcrEvidenceRefs(parsed);
+  } catch {
+    return [];
+  }
+}
+
+export function ncrEvidenceRefsToClientEvidence(evidenceRefs = []) {
+  return sanitizeNcrEvidenceRefs(evidenceRefs).map((ref) => {
+    const driveLink = trim(ref.driveLink);
+    const driveFileId = trim(ref.driveFileId);
+    const previewUrl =
+      driveLink ||
+      (driveFileId ? `https://drive.google.com/file/d/${encodeURIComponent(driveFileId)}/view` : "");
+    return {
+      id: ref.evidenceId,
+      name: ref.name || ref.evidenceId || "Evidence file",
+      previewUrl,
+      addedAt: ref.addedAt || "",
+      driveFileId: driveFileId || undefined,
+      driveLink: driveLink || undefined,
+      questionId: ref.questionId || undefined,
+      mimeType: ref.mimeType || undefined,
+      uploadStatus: previewUrl ? "uploaded" : "pending",
+    };
+  });
+}
+
+export function mergeNcrEvidenceLists(primary = [], secondary = []) {
+  const merged = [];
+  const seen = new Set();
+  for (const item of [...(Array.isArray(primary) ? primary : []), ...(Array.isArray(secondary) ? secondary : [])]) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const id = trim(item.id || item.evidenceId);
+    const key = id || `${trim(item.name)}::${trim(item.previewUrl || item.driveLink)}`;
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    merged.push(item);
+  }
+  return merged;
+}
+
 export function buildNcrWorkbookRow(input = {}) {
   const companyFolderId = trim(input.companyFolderId || input.companyId);
   const reference = trim(input.reference) || trim(input.ncrId);
@@ -102,6 +201,8 @@ export function buildNcrWorkbookRow(input = {}) {
   const status = normalizeNcrWorkbookStatus(input.status || "Open");
   const questionText = trim(input.questionText || input.title);
   const note = trim(input.note || input.description);
+  const questionId = trim(input.questionId);
+  const evidenceRefs = filterEvidenceRefsForQuestion(input.evidenceRefs ?? input.evidence, questionId);
 
   return {
     "NCR ID": ncrId,
@@ -110,7 +211,7 @@ export function buildNcrWorkbookRow(input = {}) {
     "Company Folder ID": companyFolderId,
     "Source Audit ID": trim(input.auditId),
     "Source Audit Name": trim(input.auditName),
-    "Source Question ID": trim(input.questionId),
+    "Source Question ID": questionId,
     "Source Question Text": questionText,
     "Selected Answer": trim(input.answer),
     Title: questionText,
@@ -131,6 +232,8 @@ export function buildNcrWorkbookRow(input = {}) {
     "Archive Reason": "",
     "Result ID": trim(input.resultId),
     "Local Submission ID": trim(input.localSubmissionId),
+    "Evidence Refs": serializeNcrEvidenceRefs(evidenceRefs),
+    "Evidence Count": String(evidenceRefs.length),
   };
 }
 
@@ -144,12 +247,17 @@ export function mapNcrWorkbookRowToClient(record = {}, companyFolderId = "") {
   const auditQuestion =
     questionText ||
     (auditName && description ? `${auditName} - ${description}` : auditName || description);
+  const questionId = pickField(record, ["Source Question ID", "Question ID"]);
+  const evidenceRefs = filterEvidenceRefsForQuestion(
+    parseNcrEvidenceRefs(pickField(record, ["Evidence Refs", "EvidenceRefs"])),
+    questionId,
+  );
   return {
     id: pickField(record, ["NCR ID"]) || reference || `ncr-${Math.random().toString(36).slice(2, 9)}`,
     reference,
     auditId: pickField(record, ["Source Audit ID", "Audit ID"]),
     auditName,
-    auditQuestionId: pickField(record, ["Source Question ID", "Question ID"]),
+    auditQuestionId: questionId,
     auditQuestion,
     selectedAnswer: (pickField(record, ["Selected Answer", "Answer"]) || "nc").toLowerCase(),
     auditorName: pickField(record, ["Auditor Name", "Created By"]),
@@ -165,7 +273,8 @@ export function mapNcrWorkbookRowToClient(record = {}, companyFolderId = "") {
     rootCause: "",
     correctiveAction: "",
     investigationExtraNotes: "",
-    evidence: [],
+    evidence: ncrEvidenceRefsToClientEvidence(evidenceRefs),
+    resultId: pickField(record, ["Result ID", "Source Result ID"]),
     companyFolderId: pickField(record, ["Company Folder ID", "Company ID"]) || companyFolderId,
   };
 }

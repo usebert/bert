@@ -1572,7 +1572,9 @@ export function installCoreWorkflowRoutes(app, deps) {
         written: result.written,
         evidenceUploadWarning: result.evidenceUploadWarning || "",
         ncrWriteWarning: result.ncrWriteWarning || "",
+        ncrEvidenceLinkWarning: result.ncrEvidenceLinkWarning || "",
         ncrs: result.ncrs || [],
+        evidenceRefs: result.evidenceRefs || [],
       });
     } catch (error) {
       clearTimeout(routeTimeout);
