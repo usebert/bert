@@ -64,8 +64,12 @@ export type AuditsScreenProps = {
   companyGoogleFormsDiagnostics?: CompanyGoogleFormsDiagnostics | null;
   showGoogleFormsDiagnostics?: boolean;
   canCreateTemplates?: boolean;
+  masterSheetId?: string;
   onToggleTemplate?: (templateId: string) => void;
   onEditTemplate?: (templateId: string) => void;
+  onTemplateCopied?: (templateId: string) => void;
+  onTemplateRevised?: (templateId: string) => void;
+  onTemplateArchived?: (templateId: string) => void;
   assignedChecksLoading?: boolean;
   assignedChecksLoadError?: string;
   assignedChecksLoadErrorDetail?: string;

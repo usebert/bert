@@ -17645,8 +17645,12 @@ function App() {
                 companyGoogleFormsDiagnostics={displayCompanyGoogleFormsDiagnostics}
                 showGoogleFormsDiagnostics={canShowTechnicalUi(currentUser.role)}
                 canCreateTemplates={canAccessWorkspaceNav(currentUser.role)}
+                masterSheetId={resolveWorkspaceMasterSheetId() || undefined}
                 onToggleTemplate={handleToggleTemplate}
                 onEditTemplate={canManageTemplates(currentUser.role) ? handleEditTemplate : undefined}
+                onTemplateCopied={canManageTemplates(currentUser.role) ? handleEditTemplate : undefined}
+                onTemplateRevised={canManageTemplates(currentUser.role) ? handleEditTemplate : undefined}
+                onTemplateArchived={handleAuditTemplateArchived}
                 assignedChecksLoading={assignedChecksState.loading}
                 assignedChecksLoadError={assignedChecksState.loadError}
                 assignedChecksLoadErrorDetail={assignedChecksState.loadErrorDetail}

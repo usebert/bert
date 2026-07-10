@@ -192,13 +192,46 @@ const editScreen = read("src/screens/AuditTemplateEditScreen.tsx");
 const panel = read("src/components/forms/FormsChecksTemplatesPanel.tsx");
 const service = read("src/services/auditBuilderService.ts");
 const modal = read("src/components/forms/CopyAuditFormModal.tsx");
+const reviseModal = read("src/components/forms/ReviseAuditFormModal.tsx");
 const mapping = read("server/company-audit-mapping.mjs");
 const serverInstall = read("server/server.mjs");
+const permissions = read("src/permissions.ts");
 
-assert(editScreen.includes("Copy audit") && editScreen.includes(">Revise<") || editScreen.includes("Revise"), "UI: Revise + Copy audit on detail");
-assert(panel.includes(">Copy<") && panel.includes(">Revise<") || (panel.includes("Copy") && panel.includes("Revise")), "UI: Revise + Copy on list");
-assert(modal.includes("Create copy") && modal.includes("New title"), "UI: copy modal fields");
-assert(modal.includes("You are creating a new form based on this one"), "UI: copy explanation");
+assert(panel.includes('data-testid="audit-form-revise-button"'), "1: Audit/form card with Archive also shows Revise");
+assert(panel.includes('data-testid="audit-form-copy-button"'), "2: Audit/form card with Archive also shows Copy");
+assert(panel.includes('recordType="audit"') && panel.includes('label="Archive"'), "1b/2b: Archive still on template cards");
+assert(editScreen.includes('data-testid="audit-form-revise-button"') && editScreen.includes('data-testid="audit-form-copy-button"'), "3: Detail/edit screen shows Revise/Copy");
+assert(editScreen.includes('data-testid="audit-form-revision-actions"'), "3b: Revise/Copy/Archive action group on detail");
+assert(reviseModal.includes("Create new revision"), "4: Revise modal title");
+assert(
+  reviseModal.includes("You are creating a new revision of this controlled form") &&
+    reviseModal.includes("Reason for revision") &&
+    reviseModal.includes("Create revision"),
+  "4b: Revise modal wording and fields",
+);
+assert(modal.includes("Copy form"), "5: Copy modal title");
+assert(
+  modal.includes("You are creating a new form based on this one") &&
+    modal.includes("New title") &&
+    modal.includes("Create copy"),
+  "5b: Copy modal wording and fields",
+);
+assert(panel.includes("Enter a title for the copied form.") && modal.includes("New title"), "6: Copy requires new title");
+assert(service.includes("DUPLICATE_TEMPLATE_TITLE") || service.includes("copyAuditBuilderTemplate"), "7: Duplicate title blocked via copy service");
+assert(reviseKeepsFormNumber() === true, "8: Revise creates same FormNumber next revision");
+assert(copyCreatesNewFormNumber() === true, "9: Copy creates new FormNumber Rev 1");
+assert(panel.includes('role !== "Auditor"') || panel.includes("role !== 'Auditor'"), "10: Auditor does not see Revise/Copy");
+assert(
+  permissions.includes('canManageTemplates: role === "Master" || role === "Admin" || role === "Manager"'),
+  "10b: Master/Admin/Manager can manage templates",
+);
+assert(panel.includes("ArchiveRecordButton") && editScreen.includes("ArchiveRecordButton"), "11: Archive button still works");
+assert(
+  panel.includes('data-testid="audit-form-revision-label"') &&
+    editScreen.includes('data-testid="audit-form-revision-label"'),
+  "12: Form Number / Rev / Status visible",
+);
+assert(panel.includes("templateRevisionLabel") || panel.includes("revisionLabel"), "12b: revision label helper on cards");
 assert(service.includes("copyAuditBuilderTemplate") && service.includes("/audit-templates/"), "client: folder-first copy service");
 assert(mapping.includes("REVISION_CONTROL_COLUMNS") || mapping.includes("Form Number"), "sheet: AuditTemplates revision columns");
 assert(serverInstall.includes("resolveCompanyFromFolder"), "server: resolveCompanyFromFolder passed to audit builder");

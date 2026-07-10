@@ -257,7 +257,7 @@ export function getRolePermissions(role: Role): RoleTaskPermissions {
   return {
     canManageUsers: role === "Master" || role === "Admin",
     canManageSchedules: role === "Master" || role === "Admin" || role === "Manager",
-    canManageTemplates: role === "Master" || role === "Admin",
+    canManageTemplates: role === "Master" || role === "Admin" || role === "Manager",
     canAssignActions: role === "Master" || role === "Admin" || role === "Manager",
     canVerifyActions: role === "Master" || role === "Admin" || role === "Manager",
     canExportReports: role !== "Auditor",

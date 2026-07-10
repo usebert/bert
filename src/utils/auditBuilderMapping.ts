@@ -44,16 +44,26 @@ export function auditBuilderTemplateToBertTemplate(
   record: AuditBuilderTemplateRecord,
 ): AuditTemplate {
   const status = record.status || "active";
+  const revisionNumber = Number(record.revision_number || record.version || 1) || 1;
+  const formNumber = String(record.form_number || "").trim();
+  const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
   return {
     id: record.id,
     name: record.template_name,
-    active: status === "active",
+    active: status === "active" || status === "draft",
     questions: auditBuilderTemplateToBertQuestions(record),
     source: "Built in app",
     category: record.category,
     language: "en",
     defaultLanguage: "en",
     translationStatus: "Original",
+    formNumber,
+    revisionNumber,
+    revisionId: String(record.revision_id || "").trim(),
+    revisionLabel:
+      record.revision_label ||
+      (formNumber ? `${formNumber} · Rev ${revisionNumber} · ${statusLabel}` : `Rev ${revisionNumber} · ${statusLabel}`),
+    status,
   };
 }
 

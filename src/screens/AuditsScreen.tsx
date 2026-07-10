@@ -477,8 +477,12 @@ export function AuditsScreen({
   companyGoogleFormsDiagnostics = null,
   showGoogleFormsDiagnostics = false,
   canCreateTemplates = false,
+  masterSheetId,
   onToggleTemplate,
   onEditTemplate,
+  onTemplateCopied,
+  onTemplateRevised,
+  onTemplateArchived,
   assignedChecksLoading = false,
   assignedChecksLoadError,
   assignedChecksLoadErrorDetail,
@@ -650,6 +654,8 @@ export function AuditsScreen({
         syncState={syncState}
         googleConnected={googleConnected}
         companyFolderId={companyFolderId}
+        masterSheetId={masterSheetId}
+        role={currentUser.role}
         companyGoogleForms={companyGoogleForms}
         companyGoogleFormsStatus={companyGoogleFormsStatus}
         companyGoogleFormsDiagnostics={companyGoogleFormsDiagnostics}
@@ -657,8 +663,9 @@ export function AuditsScreen({
         canCreateTemplates={canCreateTemplates}
         onToggleTemplate={onToggleTemplate}
         onEditTemplate={onEditTemplate}
-        onReviseTemplate={onEditTemplate}
-        onTemplateCopied={onEditTemplate}
+        onTemplateCopied={onTemplateCopied || onEditTemplate}
+        onTemplateRevised={onTemplateRevised || onEditTemplate}
+        onTemplateArchived={onTemplateArchived}
         onGoogleFormUpdated={onGoogleFormUpdated}
       />
 

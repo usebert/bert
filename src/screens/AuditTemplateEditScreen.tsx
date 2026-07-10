@@ -16,7 +16,9 @@ import {
 } from "../services/auditBuilderService";
 import { ArchiveRecordButton } from "../components/archive/ArchiveRecordButton";
 import { CopyAuditFormModal } from "../components/forms/CopyAuditFormModal";
+import { ReviseAuditFormModal } from "../components/forms/ReviseAuditFormModal";
 import { canArchiveRecordFromClient } from "../utils/archivePermissions";
+import { canManageTemplates } from "../permissions";
 import type {
   AuditBuilderTemplateDraft,
   AuditBuilderTemplateRecord,
@@ -107,9 +109,13 @@ export function AuditTemplateEditScreen({
   const [showUsedWarning, setShowUsedWarning] = useState(false);
   const [isLocalOnly, setIsLocalOnly] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
+  const [reviseOpen, setReviseOpen] = useState(false);
   const [copyError, setCopyError] = useState("");
+  const [reviseError, setReviseError] = useState("");
   const [copyBusy, setCopyBusy] = useState(false);
+  const [reviseBusy, setReviseBusy] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
+  const canManageRevisions = canManageTemplates(role);
 
   useEffect(() => {
     let cancelled = false;
@@ -246,7 +252,7 @@ export function AuditTemplateEditScreen({
     reason: string;
     confirmArchivedTitle?: boolean;
   }) => {
-    if (!recordMeta || isLocalOnly) return;
+    if (!recordMeta) return;
     if (!input.title.trim()) {
       setCopyError("Enter a title for the copied form.");
       return;
@@ -254,6 +260,10 @@ export function AuditTemplateEditScreen({
     setCopyBusy(true);
     setCopyError("");
     try {
+      if (isLocalOnly) {
+        await saveAuditBuilderTemplate({ ...draft!, id: recordMeta.id }, requestOptions);
+        setIsLocalOnly(false);
+      }
       const record = await copyAuditBuilderTemplate(
         recordMeta.id,
         {
@@ -270,6 +280,50 @@ export function AuditTemplateEditScreen({
       setCopyError(err instanceof Error ? err.message : "Unable to copy template.");
     } finally {
       setCopyBusy(false);
+    }
+  };
+
+  const handleReviseSubmit = async (input: { reason: string }) => {
+    if (!draft || !recordMeta) return;
+    if (!input.reason.trim()) {
+      setReviseError("Enter a reason for this revision.");
+      return;
+    }
+    const validation = validateTemplateDraft(draft);
+    if (validation) {
+      setReviseError(validation);
+      return;
+    }
+    setReviseBusy(true);
+    setReviseError("");
+    try {
+      if (isLocalOnly) {
+        await saveAuditBuilderTemplate({ ...draft, id: recordMeta.id }, requestOptions);
+        setIsLocalOnly(false);
+      }
+      const record = await createAuditTemplateNewVersion(
+        recordMeta.id,
+        { ...draft, reason: input.reason },
+        requestOptions,
+      );
+      setRecordMeta({
+        id: record.id,
+        version: record.version || record.revision_number || 1,
+        parent_template_id: record.parent_template_id,
+        is_used: record.is_used,
+        form_number: record.form_number,
+        revision_number: record.revision_number || record.version || 1,
+        revision_label: record.revision_label,
+      });
+      setReviseOpen(false);
+      setSuccessMessage("Revision created.");
+      onTemplateUpdated(record, {
+        replacedTemplateId: record.id !== templateId ? templateId : undefined,
+      });
+    } catch (err) {
+      setReviseError(err instanceof Error ? err.message : "Unable to create revision.");
+    } finally {
+      setReviseBusy(false);
     }
   };
 
@@ -334,14 +388,73 @@ export function AuditTemplateEditScreen({
                 className="mt-2"
                 role={role}
               />
-              <p className="mt-2 text-xs text-slate-500">
+              <p className="mt-2 text-xs font-medium text-slate-700" data-testid="audit-form-revision-label">
                 {recordMeta.revision_label ||
-                  `${recordMeta.form_number ? `${recordMeta.form_number} · ` : ""}Rev ${recordMeta.revision_number || recordMeta.version || 1}`}
+                  `${recordMeta.form_number ? `${recordMeta.form_number} · ` : ""}Rev ${recordMeta.revision_number || recordMeta.version || 1} · ${String(draft.status || "active").charAt(0).toUpperCase()}${String(draft.status || "active").slice(1)}`}
                 {recordMeta.is_used ? " · Used in completed or in-progress audits" : " · Not yet used"}
               </p>
               {successMessage ? <p className="mt-2 text-sm font-medium text-emerald-700">{successMessage}</p> : null}
             </div>
           </div>
+          {canManageRevisions ? (
+            <div className="flex shrink-0 flex-wrap items-center gap-2" data-testid="audit-form-revision-actions">
+              <button
+                type="button"
+                data-testid="audit-form-revise-button"
+                onClick={() => {
+                  setReviseError("");
+                  setReviseOpen(true);
+                }}
+                disabled={saving || reviseBusy || copyBusy}
+                title="You are creating a new revision of this controlled form."
+                className={["inline-flex h-11 items-center rounded-xl border px-4 text-sm font-semibold", theme.outlineButton].join(
+                  " ",
+                )}
+              >
+                Revise
+              </button>
+              <button
+                type="button"
+                data-testid="audit-form-copy-button"
+                onClick={() => {
+                  setCopyError("");
+                  setCopyOpen(true);
+                }}
+                disabled={saving || reviseBusy || copyBusy}
+                title="You are creating a new form based on this one. It will get its own form number and start at Rev 1."
+                className={["inline-flex h-11 items-center rounded-xl border px-4 text-sm font-semibold", theme.outlineButton].join(
+                  " ",
+                )}
+              >
+                Copy
+              </button>
+              {canArchiveRecordFromClient(role, "audit") && companyFolderId && recordMeta ? (
+                <ArchiveRecordButton
+                  recordType="audit"
+                  recordId={recordMeta.id}
+                  companyFolderId={companyFolderId}
+                  masterSheetId={masterSheetId}
+                  canArchive
+                  label="Archive"
+                  className="inline-flex h-11 items-center rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700"
+                  onArchived={() => {
+                    onTemplateArchived(recordMeta.id);
+                    onBack();
+                  }}
+                  onError={(message) => setError(message)}
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleArchive()}
+                  disabled={saving}
+                  className="inline-flex h-11 items-center rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700"
+                >
+                  Archive
+                </button>
+              )}
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -689,69 +802,33 @@ export function AuditTemplateEditScreen({
           >
             {saving ? "Saving…" : "Save changes"}
           </button>
-          <button
-            type="button"
-            onClick={() => void persistDraft("new-version")}
-            disabled={saving || isLocalOnly}
-            title="You are creating a new revision of this controlled form."
-            className={["inline-flex h-12 items-center rounded-xl border px-5 text-sm font-semibold", theme.outlineButton].join(
-              " ",
-            )}
-          >
-            Revise
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setCopyError("");
-              setCopyOpen(true);
-            }}
-            disabled={saving || isLocalOnly}
-            title="You are creating a new form based on this one. It will get its own form number and start at Rev 1."
-            className={["inline-flex h-12 items-center rounded-xl border px-5 text-sm font-semibold", theme.outlineButton].join(
-              " ",
-            )}
-          >
-            Copy audit
-          </button>
-          {canArchiveRecordFromClient(role, "audit") && companyFolderId && recordMeta && !isLocalOnly ? (
-            <ArchiveRecordButton
-              recordType="audit"
-              recordId={recordMeta.id}
-              companyFolderId={companyFolderId}
-              masterSheetId={masterSheetId}
-              canArchive
-              label="Archive"
-              className="inline-flex h-12 items-center rounded-xl border border-rose-200 bg-rose-50 px-5 text-sm font-semibold text-rose-700"
-              onArchived={() => {
-                onTemplateArchived(recordMeta.id);
-                onBack();
-              }}
-              onError={(message) => setError(message)}
-            />
-          ) : (
-            <button
-              type="button"
-              onClick={() => void handleArchive()}
-              disabled={saving}
-              className="inline-flex h-12 items-center rounded-xl border border-rose-200 bg-rose-50 px-5 text-sm font-semibold text-rose-700"
-            >
-              Archive
-            </button>
-          )}
         </div>
       </section>
 
       <CopyAuditFormModal
         open={copyOpen}
         sourceTitle={draft.template_name}
-        mode="audit"
+        mode="form"
         busy={copyBusy}
         error={copyError}
         onCancel={() => {
           if (!copyBusy) setCopyOpen(false);
         }}
         onSubmit={(input) => void handleCopySubmit(input)}
+      />
+      <ReviseAuditFormModal
+        open={reviseOpen}
+        sourceTitle={draft.template_name}
+        revisionLabel={
+          recordMeta.revision_label ||
+          `${recordMeta.form_number ? `${recordMeta.form_number} · ` : ""}Rev ${recordMeta.revision_number || recordMeta.version || 1}`
+        }
+        busy={reviseBusy}
+        error={reviseError}
+        onCancel={() => {
+          if (!reviseBusy) setReviseOpen(false);
+        }}
+        onSubmit={(input) => void handleReviseSubmit(input)}
       />
     </div>
   );

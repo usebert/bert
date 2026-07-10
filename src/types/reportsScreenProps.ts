@@ -190,5 +190,10 @@ export type AuditTemplate = {
   language?: string;
   defaultLanguage?: string;
   translationStatus?: string;
+  formNumber?: string;
+  revisionNumber?: number;
+  revisionId?: string;
+  revisionLabel?: string;
+  status?: string;
   googleForm?: AuditTemplateGoogleFormMeta;
 };

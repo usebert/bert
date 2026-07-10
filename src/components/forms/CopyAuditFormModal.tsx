@@ -13,23 +13,23 @@ type CopyAuditFormModalProps = {
 export function CopyAuditFormModal({
   open,
   sourceTitle,
-  mode = "audit",
+  mode: _mode = "audit",
   busy = false,
   error = "",
   onCancel,
   onSubmit,
 }: CopyAuditFormModalProps) {
+  void _mode;
   const [title, setTitle] = useState("");
   const [reason, setReason] = useState("");
   const [confirmArchivedTitle, setConfirmArchivedTitle] = useState(false);
-  const label = mode === "form" ? "form" : "audit";
 
   if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true">
       <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
-        <h3 className="text-lg font-semibold text-slate-900">Copy {label}</h3>
+        <h3 className="text-lg font-semibold text-slate-900">Copy form</h3>
         <p className="mt-2 text-sm text-slate-600">
           You are creating a new form based on this one. It will get its own form number and start at Rev 1.
         </p>
@@ -47,7 +47,7 @@ export function CopyAuditFormModal({
         </label>
 
         <label className="mt-3 block text-sm font-semibold text-slate-700">
-          Copy notes / reason
+          Copy notes
           <textarea
             value={reason}
             onChange={(event) => setReason(event.target.value)}

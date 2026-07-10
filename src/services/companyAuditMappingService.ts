@@ -19,6 +19,13 @@ export type AuditTemplateRow = {
   language?: string;
   defaultLanguage?: string;
   translationStatus?: string;
+  formNumber?: string;
+  revisionNumber?: number;
+  revisionId?: string;
+  supersedesRevisionId?: string;
+  supersededByRevisionId?: string;
+  revisionReason?: string;
+  copyReason?: string;
 };
 
 export type CompanyAuditMappingPayload = {

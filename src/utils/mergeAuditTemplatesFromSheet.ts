@@ -35,6 +35,13 @@ export function mergeAuditTemplatesFromSheet(
         : [];
 
     const language = normalizeFormLanguage(row.language || existing?.language);
+    const statusRaw = String(row.status || (active ? "active" : "inactive")).trim().toLowerCase();
+    const revisionNumber = Number(row.revisionNumber || existing?.revisionNumber || 1) || 1;
+    const formNumber = String(row.formNumber || existing?.formNumber || "").trim();
+    const statusLabel = statusRaw ? statusRaw.charAt(0).toUpperCase() + statusRaw.slice(1) : "Active";
+    const revisionLabel = formNumber
+      ? `${formNumber} · Rev ${revisionNumber} · ${statusLabel}`
+      : `Rev ${revisionNumber} · ${statusLabel}`;
     merged.push({
       id: row.id,
       name: row.name,
@@ -48,6 +55,11 @@ export function mergeAuditTemplatesFromSheet(
         row.translationStatus ||
         existing?.translationStatus ||
         defaultTranslationStatusForLanguage(language),
+      formNumber,
+      revisionNumber,
+      revisionId: String(row.revisionId || existing?.revisionId || "").trim(),
+      revisionLabel,
+      status: statusRaw || (active ? "active" : "inactive"),
       googleForm: googleFormId
         ? {
             formId: googleFormId,

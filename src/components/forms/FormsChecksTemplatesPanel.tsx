@@ -1,9 +1,18 @@
 import { useState } from "react";
 import { EmptyPanel } from "../dashboard/DashboardPrimitives";
 import { GoogleFormTemplatePanel } from "../admin/GoogleFormTemplatePanel";
+import { ArchiveRecordButton } from "../archive/ArchiveRecordButton";
 import { CopyAuditFormModal } from "./CopyAuditFormModal";
+import { ReviseAuditFormModal } from "./ReviseAuditFormModal";
 import { formLanguageLabel } from "../../config/templateLanguages";
-import { copyAuditBuilderTemplate } from "../../services/auditBuilderService";
+import {
+  copyAuditBuilderTemplate,
+  createAuditTemplateNewVersion,
+  getAuditBuilderTemplate,
+} from "../../services/auditBuilderService";
+import { canArchiveRecordFromClient } from "../../utils/archivePermissions";
+import { bertTemplateToEditorDraft } from "../../utils/auditBuilderMapping";
+import type { Role } from "../../permissions";
 import type { AuditTemplate } from "../../types/reportsScreenProps";
 import type {
   CompanyGoogleForm,
@@ -17,6 +26,7 @@ type FormsChecksTemplatesPanelProps = {
   googleConnected: boolean;
   companyFolderId?: string;
   masterSheetId?: string;
+  role?: Role;
   canCreateTemplates: boolean;
   companyGoogleForms?: CompanyGoogleForm[];
   companyGoogleFormsStatus?: CompanyGoogleFormsStatus;
@@ -24,8 +34,9 @@ type FormsChecksTemplatesPanelProps = {
   showGoogleFormsDiagnostics?: boolean;
   onToggleTemplate?: (templateId: string) => void;
   onEditTemplate?: (templateId: string) => void;
-  onReviseTemplate?: (templateId: string) => void;
   onTemplateCopied?: (templateId: string) => void;
+  onTemplateRevised?: (templateId: string) => void;
+  onTemplateArchived?: (templateId: string) => void;
   onGoogleFormUpdated?: (templateId: string, record: { googleFormId?: string; googleFormEditUrl?: string; googleFormResponderUrl?: string; syncStatus?: string; currentDriveFolderName?: string }) => void;
 };
 
@@ -46,6 +57,17 @@ function workspaceGuidance(syncState: string, googleConnected: boolean) {
     title: "No form or check templates yet",
     text: "Create a BERT template here, or sync Google Drive audit forms from Workspace after linking the audit forms folder.",
   };
+}
+
+function templateRevisionLabel(template: AuditTemplate) {
+  if (template.revisionLabel) return template.revisionLabel;
+  const revision = Number(template.revisionNumber || 1) || 1;
+  const status = String(template.status || (template.active ? "active" : "inactive"));
+  const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+  if (template.formNumber) {
+    return `${template.formNumber} · Rev ${revision} · ${statusLabel}`;
+  }
+  return `Rev ${revision} · ${statusLabel}`;
 }
 
 function CompanyGoogleFormsSection({
@@ -147,6 +169,7 @@ export function FormsChecksTemplatesPanel({
   googleConnected,
   companyFolderId,
   masterSheetId,
+  role,
   canCreateTemplates,
   companyGoogleForms = [],
   companyGoogleFormsStatus = "idle",
@@ -154,18 +177,25 @@ export function FormsChecksTemplatesPanel({
   showGoogleFormsDiagnostics = false,
   onToggleTemplate,
   onEditTemplate,
-  onReviseTemplate,
   onTemplateCopied,
+  onTemplateRevised,
+  onTemplateArchived,
   onGoogleFormUpdated,
 }: FormsChecksTemplatesPanelProps) {
   const guidance = workspaceGuidance(syncState, googleConnected);
   const sorted = [...templates].sort((a, b) => a.name.localeCompare(b.name));
   const showGoogleFormsSection =
     companyGoogleFormsStatus !== "idle" && companyGoogleFormsStatus !== "loading";
+  const canManageRevisions = Boolean(canCreateTemplates && role && role !== "Auditor");
+  const canArchive = Boolean(role && canArchiveRecordFromClient(role, "audit") && companyFolderId);
+
   const [copyTarget, setCopyTarget] = useState<AuditTemplate | null>(null);
+  const [reviseTarget, setReviseTarget] = useState<AuditTemplate | null>(null);
   const [copyBusy, setCopyBusy] = useState(false);
+  const [reviseBusy, setReviseBusy] = useState(false);
   const [copyError, setCopyError] = useState("");
-  const [copySuccess, setCopySuccess] = useState("");
+  const [reviseError, setReviseError] = useState("");
+  const [actionSuccess, setActionSuccess] = useState("");
 
   const handleCopySubmit = async (input: {
     title: string;
@@ -190,12 +220,54 @@ export function FormsChecksTemplatesPanel({
         { companyFolderId, masterSheetId },
       );
       setCopyTarget(null);
-      setCopySuccess("Copy created.");
+      setActionSuccess("Copy created.");
       onTemplateCopied?.(record.id);
     } catch (err) {
       setCopyError(err instanceof Error ? err.message : "Unable to copy template.");
     } finally {
       setCopyBusy(false);
+    }
+  };
+
+  const handleReviseSubmit = async (input: { reason: string }) => {
+    if (!reviseTarget) return;
+    if (!input.reason.trim()) {
+      setReviseError("Enter a reason for this revision.");
+      return;
+    }
+    setReviseBusy(true);
+    setReviseError("");
+    try {
+      let draft;
+      try {
+        const loaded = await getAuditBuilderTemplate(reviseTarget.id, { masterSheetId, companyFolderId });
+        draft = {
+          template_name: loaded.template_name,
+          description: loaded.description,
+          category: loaded.category,
+          sections: loaded.sections,
+          status: loaded.status || "active",
+          reason: input.reason,
+        };
+      } catch {
+        const converted = bertTemplateToEditorDraft(reviseTarget);
+        draft = {
+          ...converted,
+          status: reviseTarget.active ? ("active" as const) : ("inactive" as const),
+          reason: input.reason,
+        };
+      }
+      const record = await createAuditTemplateNewVersion(reviseTarget.id, draft, {
+        companyFolderId,
+        masterSheetId,
+      });
+      setReviseTarget(null);
+      setActionSuccess("Revision created.");
+      onTemplateRevised?.(record.id);
+    } catch (err) {
+      setReviseError(err instanceof Error ? err.message : "Unable to create revision.");
+    } finally {
+      setReviseBusy(false);
     }
   };
 
@@ -223,7 +295,7 @@ export function FormsChecksTemplatesPanel({
         />
       ) : null}
 
-      {copySuccess ? <p className="text-sm font-medium text-emerald-700">{copySuccess}</p> : null}
+      {actionSuccess ? <p className="text-sm font-medium text-emerald-700">{actionSuccess}</p> : null}
 
       {sorted.length === 0 ? (
         <EmptyPanel
@@ -244,10 +316,17 @@ export function FormsChecksTemplatesPanel({
             operational system.
           </p>
           {sorted.map((template) => (
-            <div key={template.id} className="rounded-2xl border border-slate-200/90 bg-white px-4 py-3 shadow-sm">
+            <div
+              key={template.id}
+              data-testid="audit-form-template-card"
+              className="rounded-2xl border border-slate-200/90 bg-white px-4 py-3 shadow-sm"
+            >
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-slate-900">{template.name}</p>
+                  <p className="mt-0.5 truncate text-xs font-medium text-slate-700" data-testid="audit-form-revision-label">
+                    {templateRevisionLabel(template)}
+                  </p>
                   <p className="mt-0.5 truncate text-xs text-slate-500">
                     {template.source}
                     {template.category ? ` • ${template.category}` : ""} • {formLanguageLabel(template.language || "en")}
@@ -275,29 +354,47 @@ export function FormsChecksTemplatesPanel({
                       Edit
                     </button>
                   ) : null}
-                  {(onReviseTemplate || onEditTemplate) && canCreateTemplates ? (
+                  {canManageRevisions ? (
                     <button
                       type="button"
-                      onClick={() => (onReviseTemplate || onEditTemplate)?.(template.id)}
+                      data-testid="audit-form-revise-button"
+                      onClick={() => {
+                        setReviseError("");
+                        setActionSuccess("");
+                        setReviseTarget(template);
+                      }}
                       title="You are creating a new revision of this controlled form."
-                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+                      className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-900"
                     >
                       Revise
                     </button>
                   ) : null}
-                  {canCreateTemplates ? (
+                  {canManageRevisions ? (
                     <button
                       type="button"
+                      data-testid="audit-form-copy-button"
                       onClick={() => {
                         setCopyError("");
-                        setCopySuccess("");
+                        setActionSuccess("");
                         setCopyTarget(template);
                       }}
                       title="You are creating a new form based on this one. It will get its own form number and start at Rev 1."
-                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+                      className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-900"
                     >
                       Copy
                     </button>
+                  ) : null}
+                  {canArchive ? (
+                    <ArchiveRecordButton
+                      recordType="audit"
+                      recordId={template.id}
+                      companyFolderId={companyFolderId || ""}
+                      masterSheetId={masterSheetId}
+                      canArchive
+                      label="Archive"
+                      className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700"
+                      onArchived={() => onTemplateArchived?.(template.id)}
+                    />
                   ) : null}
                   {onToggleTemplate ? (
                     <button
@@ -347,6 +444,17 @@ export function FormsChecksTemplatesPanel({
           if (!copyBusy) setCopyTarget(null);
         }}
         onSubmit={(input) => void handleCopySubmit(input)}
+      />
+      <ReviseAuditFormModal
+        open={Boolean(reviseTarget)}
+        sourceTitle={reviseTarget?.name || ""}
+        revisionLabel={reviseTarget ? templateRevisionLabel(reviseTarget) : ""}
+        busy={reviseBusy}
+        error={reviseError}
+        onCancel={() => {
+          if (!reviseBusy) setReviseTarget(null);
+        }}
+        onSubmit={(input) => void handleReviseSubmit(input)}
       />
     </div>
   );
