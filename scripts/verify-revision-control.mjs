@@ -419,6 +419,15 @@ assert(
 );
 assert(read("server/archive-service.mjs").includes("readSessionArchivedAuditRows"), "archive list recovers session superseded audits");
 assert(archiveScreen.includes("archive-view-audit-button") || archiveScreen.includes("View"), "Archive audits expose View");
+assert(
+  read("src/services/archiveService.ts").includes("unwrapArchivePayload") &&
+    read("src/services/archiveService.ts").includes("result.data"),
+  "Archive client unwraps fetchJson so sections/counts reach ArchiveScreen",
+);
+assert(
+  auditBuilder.includes("writeAuditTemplateMetadataRecords"),
+  "revise writes superseded + active revision together to AuditTemplates",
+);
 
 assert(auditBuilder.includes("filterLatestActiveTemplates"), "server filters active list to latest revision");
 assert(auditBuilder.includes("restore-as-revision"), "server restore-as-revision endpoint exists");

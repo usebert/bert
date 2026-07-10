@@ -410,16 +410,11 @@ function sheetStatusForTemplate(templateRecord) {
   return "inactive";
 }
 
-async function writeAuditTemplateMetadata(deps, auth, spreadsheetId, templateRecord) {
-  const { ensureColumns, getTabValues, rowsToRecords, withSheetsQuotaRetry, google } = deps;
-  await ensureColumns(auth, spreadsheetId, AUDIT_TEMPLATES_TAB, AUDIT_TEMPLATES_COLUMNS);
-  const sheets = google.sheets({ version: "v4", auth });
-  const rows = rowsToRecords(await getTabValues(auth, spreadsheetId, AUDIT_TEMPLATES_TAB));
-  const kept = rows.filter((row) => String(row["Audit ID"] || "").trim() !== templateRecord.id);
+function buildAuditTemplateMetadataRow(templateRecord) {
   const status = sheetStatusForTemplate(templateRecord);
   const isHistoric =
     status === "superseded" || status === "archived" || status === "inactive" || templateRecord.archived === true;
-  const nextRow = [
+  return [
     templateRecord.id,
     templateRecord.template_name,
     templateRecord.category,
@@ -446,21 +441,37 @@ async function writeAuditTemplateMetadata(deps, auth, spreadsheetId, templateRec
         (isHistoric ? templateRecord.revision_reason || "Superseded by new revision" : ""),
     ).trim(),
   ];
-  const dataRows = kept.map((row) => AUDIT_TEMPLATES_COLUMNS.map((column) => String(row[column] || "")));
-  dataRows.push(nextRow);
-  const lastCol =
-    AUDIT_TEMPLATES_COLUMNS.length <= 26
-      ? String.fromCharCode(64 + AUDIT_TEMPLATES_COLUMNS.length)
-      : (() => {
-          let remaining = AUDIT_TEMPLATES_COLUMNS.length;
-          let letters = "";
-          while (remaining > 0) {
-            const index = (remaining - 1) % 26;
-            letters = String.fromCharCode(65 + index) + letters;
-            remaining = Math.floor((remaining - 1) / 26);
-          }
-          return letters;
-        })();
+}
+
+function sheetEndColumnLetter(columnCount) {
+  const count = Math.max(Number(columnCount) || 1, 1);
+  if (count <= 26) return String.fromCharCode(64 + count);
+  let remaining = count;
+  let letters = "";
+  while (remaining > 0) {
+    const index = (remaining - 1) % 26;
+    letters = String.fromCharCode(65 + index) + letters;
+    remaining = Math.floor((remaining - 1) / 26);
+  }
+  return letters;
+}
+
+async function writeAuditTemplateMetadataRecords(deps, auth, spreadsheetId, templateRecords = []) {
+  const records = (Array.isArray(templateRecords) ? templateRecords : [templateRecords]).filter(
+    (record) => record && String(record.id || "").trim(),
+  );
+  if (records.length === 0) return;
+  const { ensureColumns, getTabValues, rowsToRecords, withSheetsQuotaRetry, google } = deps;
+  await ensureColumns(auth, spreadsheetId, AUDIT_TEMPLATES_TAB, AUDIT_TEMPLATES_COLUMNS);
+  const sheets = google.sheets({ version: "v4", auth });
+  const rows = rowsToRecords(await getTabValues(auth, spreadsheetId, AUDIT_TEMPLATES_TAB));
+  const replaceIds = new Set(records.map((record) => String(record.id || "").trim()));
+  const kept = rows.filter((row) => !replaceIds.has(String(row["Audit ID"] || "").trim()));
+  const dataRows = [
+    ...kept.map((row) => AUDIT_TEMPLATES_COLUMNS.map((column) => String(row[column] || ""))),
+    ...records.map((record) => buildAuditTemplateMetadataRow(record)),
+  ];
+  const lastCol = sheetEndColumnLetter(AUDIT_TEMPLATES_COLUMNS.length);
   await withSheetsQuotaRetry(() =>
     sheets.spreadsheets.values.clear({
       spreadsheetId,
@@ -477,6 +488,10 @@ async function writeAuditTemplateMetadata(deps, auth, spreadsheetId, templateRec
       },
     }),
   );
+}
+
+async function writeAuditTemplateMetadata(deps, auth, spreadsheetId, templateRecord) {
+  await writeAuditTemplateMetadataRecords(deps, auth, spreadsheetId, [templateRecord]);
 }
 
 async function syncTemplateToSheets(sheetDeps, authed, masterSheetId, templateId, payload, templateRecord, actorEmail) {
@@ -1053,8 +1068,12 @@ export function installAuditBuilderRoutes(app, deps) {
       persistWorkspace(sessionDir, store, key, bucket);
 
       if (envConfigured?.() && authed && masterSheetId && masterSheetId !== "local-dev") {
-        await writeAuditTemplateMetadata(sheetDeps, authed, masterSheetId, bucket.templates[templateId]);
-        await syncTemplateToSheets(sheetDeps, authed, masterSheetId, newTemplateId, payload, record, actor.email);
+        // Write superseded + new active revision in one sheet update so Archive cannot miss Rev 1.
+        await writeAuditTemplateMetadataRecords(sheetDeps, authed, masterSheetId, [
+          bucket.templates[templateId],
+          record,
+        ]);
+        await writeAuditTemplateTranslations(sheetDeps, authed, masterSheetId, newTemplateId, payload, actor.email);
       }
 
       return res.json({

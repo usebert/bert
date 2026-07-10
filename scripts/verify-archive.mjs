@@ -257,11 +257,15 @@ assert(JSON.parse(read("package.json")).scripts["verify:archive"], "verify:archi
     "audit: archive item maps Form Number / Revision / Superseded",
   );
   assert(ARCHIVE_RECORD_TYPES.audit.restoreLabel === "Restore as new revision", "audit: restore label is Restore as new revision");
+  assert(ARCHIVE_RECORD_TYPES.audit.section === "audits", "audit: section key is exactly audits");
+  assert(read("src/screens/ArchiveScreen.tsx").includes('id: "audits"'), "audit: ArchiveScreen uses audits section id");
   assert(read("src/screens/ArchiveScreen.tsx").includes("Restore as new revision"), "audit: Archive UI restore verb");
   assert(read("src/screens/ArchiveScreen.tsx").includes("archive-view-audit-button"), "audit: Archive View button");
   assert(read("server/company-audit-mapping.mjs").includes("preservedHistoric"), "audit: sync preserves historic superseded rows");
   assert(read("server/archive-service.mjs").includes("readSessionArchivedAuditRows"), "audit: archive merges session superseded rows");
+  assert(read("server/archive-service.mjs").includes("readAuditArchiveRows"), "audit: archive reads AuditTemplates via dedicated path");
   assert(read("server/archive-service.mjs").includes("sessionDir"), "audit: folder-first archive uses session/workbook context");
+  assert(read("server/archive-service.mjs").includes('sectionKey: config.section'), "audit: diagnostics use ArchiveScreen section key");
 }
 
 {
@@ -279,6 +283,60 @@ assert(JSON.parse(read("package.json")).scripts["verify:archive"], "verify:archi
   };
   assert(isWorkbookRowArchived(supersededGoogle, "googleForm"), "googleForm: superseded appears in Archive");
   assert(!isWorkbookRowArchived(activeGoogle, "googleForm"), "googleForm: active latest does not appear in Archive");
+}
+
+{
+  // Integration-style: revise leaves superseded row, archive list payload uses section key "audits".
+  const afterReviseWorkbook = [
+    {
+      "Audit ID": "t-rev-1",
+      "Audit Name": "Bay 2 Fire Safety Inspection",
+      Status: "superseded",
+      Archived: "true",
+      "Form Number": "BERT-AUD-001",
+      "Revision Number": "1",
+      "Superseded By Revision ID": "BERT-AUD-001-REV-2",
+      "Revision Reason": "Updated extinguisher checks",
+    },
+    {
+      "Audit ID": "t-rev-2",
+      "Audit Name": "Bay 2 Fire Safety Inspection",
+      Status: "active",
+      Archived: "false",
+      "Form Number": "BERT-AUD-001",
+      "Revision Number": "2",
+    },
+  ];
+  const archivedAfterSync = filterArchivedWorkbookRows(afterReviseWorkbook, "audit");
+  assert(archivedAfterSync.length === 1, "1/5: old Rev 1 remains after active-list style workbook state");
+  const sectionKey = ARCHIVE_RECORD_TYPES.audit.section;
+  assert(sectionKey === "audits", "8: section key is exactly the one ArchiveScreen uses");
+  const apiSections = { [sectionKey]: archivedAfterSync.map((row) => mapArchivedListItem(row, "audit")) };
+  const apiCounts = { [sectionKey]: apiSections[sectionKey].length };
+  assert(apiSections.audits.length === 1 && apiSections.audits[0].id === "t-rev-1", "4: response.audits contains old Rev 1");
+  assert(apiCounts.audits === 1, "5: Archive summary Archived Audits count is 1");
+  assert(!apiSections.audits.some((row) => row.id === "t-rev-2"), "7: active Rev 2 is not in Archive");
+  assert(String(apiSections.audits[0].status).toLowerCase() === "superseded", "6: ArchiveScreen would render Rev 1 as Superseded");
+  assert(apiSections.audits[0].formNumber === "BERT-AUD-001", "6b: Form Number present for Archive row");
+  assert(ARCHIVE_RECORD_TYPES.audit.restoreLabel === "Restore as new revision", "10: Restore as new revision button label");
+  assert(
+    read("src/screens/ArchiveScreen.tsx").includes("if (!query) return activeItems"),
+    "9: search/filter does not hide archived audits by default",
+  );
+}
+
+{
+  // Frontend must unwrap fetchJson { ok, data } or Archive always shows 0.
+  const archiveService = read("src/services/archiveService.ts");
+  assert(archiveService.includes("unwrapArchivePayload"), "client: archive service unwraps fetchJson data payload");
+  assert(archiveService.includes("result.data"), "client: archive list reads result.data sections/counts");
+  assert(
+    read("src/screens/ArchiveScreen.tsx").includes("result.sections") &&
+      archiveService.includes("unwrapArchivePayload"),
+    "client: ArchiveScreen receives unwrapped sections from archive service",
+  );
+  assert(!read("server/archive-service.mjs").includes("stale-test-workbook"), "11: no stale/test workbook shortcut");
+  assert(read("server/archive-service.mjs").includes("resolveCompanyScheduleContext"), "11b: folder-first workbook route");
 }
 
 console.log(`[verify:archive] OK — ${checks} checks passed`);

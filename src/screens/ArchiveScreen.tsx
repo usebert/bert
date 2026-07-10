@@ -70,15 +70,33 @@ export function ArchiveScreen({
     setLoading(true);
     setError("");
     try {
-      const result = await fetchCompanyArchive(companyFolderId, { masterSheetId });
+      const debugArchive =
+        typeof window !== "undefined" &&
+        (window.location.hostname === "localhost" ||
+          window.location.search.includes("debugArchive=1") ||
+          window.localStorage?.getItem("BERT_ARCHIVE_DEBUG") === "1");
+      const result = await fetchCompanyArchive(companyFolderId, { masterSheetId, debugArchive });
       if (!result.ok) {
         setError(result.message || result.error || "Could not load archived records.");
         setSections({});
         setCounts({});
         return;
       }
-      setSections(result.sections || {});
-      setCounts(result.counts || {});
+      const nextSections = result.sections || {};
+      const nextCounts = { ...(result.counts || {}) };
+      // Prefer API counts, but never show stale zeros when sections actually have rows.
+      for (const [sectionId, rows] of Object.entries(nextSections)) {
+        const key = sectionId as ArchiveSectionId;
+        const rowCount = Array.isArray(rows) ? rows.length : 0;
+        if (typeof nextCounts[key] !== "number" || nextCounts[key] !== rowCount) {
+          nextCounts[key] = rowCount;
+        }
+      }
+      setSections(nextSections);
+      setCounts(nextCounts);
+      if (debugArchive && result.diagnostics) {
+        console.info("[archive-diagnostics]", result.diagnostics);
+      }
     } catch {
       setError("Could not load archived records.");
     } finally {
@@ -96,7 +114,18 @@ export function ArchiveScreen({
     const query = search.trim().toLowerCase();
     if (!query) return activeItems;
     return activeItems.filter((item) =>
-      [item.title, item.email, item.status, item.site, item.department, item.role, item.archiveReason]
+      [
+        item.title,
+        item.email,
+        item.status,
+        item.site,
+        item.department,
+        item.role,
+        item.archiveReason,
+        item.formNumber,
+        item.revisionNumber ? `rev ${item.revisionNumber}` : "",
+        item.id,
+      ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(query)),
     );

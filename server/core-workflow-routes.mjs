@@ -2317,11 +2317,15 @@ export function installCoreWorkflowRoutes(app, deps) {
       return res.status(403).json(folderDenial);
     }
     try {
+      const debugArchive =
+        String(req.query?.debugArchive || "").trim() === "1" ||
+        String(req.query?.debug_archive || "").trim() === "1";
       const result = await listCompanyArchive(
         authed,
         { ...registryDeps, ...scheduleDeps, sessionDir },
         actor,
         companyFolderId,
+        { debugArchive },
       );
       if (!result.ok) {
         return res.status(result.httpStatus || 400).json(result);

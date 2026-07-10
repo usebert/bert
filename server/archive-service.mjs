@@ -28,6 +28,7 @@ import {
   patchTabRowByHeader as workbookPatchTabRowByHeader,
   readTabRecords as workbookReadTabRecords,
 } from "./workbook-service.mjs";
+import { readAuditTemplates } from "./company-audit-mapping.mjs";
 
 function trim(value) {
   return String(value ?? "").trim();
@@ -67,28 +68,63 @@ function actorEmail(actor = {}) {
   return safeLower(actor.email || actor.username || "");
 }
 
-function auditBuilderTemplateToSheetRow(template = {}) {
-  const status = safeLower(template.status || "superseded") || "superseded";
+function auditTemplateRowToSheetRow(template = {}) {
+  const status = safeLower(template.status || template.Status || "active") || "active";
   return {
-    "Audit ID": trim(template.id),
-    "Audit Name": trim(template.template_name || template.name),
-    Category: trim(template.category),
+    "Audit ID": trim(template.id || template["Audit ID"]),
+    "Audit Name": trim(template.name || template.template_name || template["Audit Name"]),
+    Category: trim(template.category || template.Category),
     Status: status,
-    "Created At": trim(template.created_at || template.createdAt),
-    "Form Number": trim(template.form_number || template.formNumber),
-    "Revision Number": String(template.revision_number || template.revisionNumber || 1),
-    "Revision ID": trim(template.revision_id || template.revisionId),
-    "Supersedes Revision ID": trim(template.supersedes_revision_id || template.supersedesRevisionId),
-    "Superseded By Revision ID": trim(template.superseded_by_revision_id || template.supersededByRevisionId),
-    "Revision Reason": trim(template.revision_reason || template.revisionReason),
-    "Copy Reason": trim(template.copy_reason || template.copyReason),
-    Archived: template.archived === true || status === "superseded" || status === "archived" ? "true" : "false",
-    ArchivedAt: trim(template.archived_at || template.archivedAt || template.updated_at || template.updatedAt),
-    ArchivedBy: trim(template.archived_by || template.archivedBy || template.created_by || template.createdBy),
+    "Created At": trim(template.createdAt || template.created_at || template["Created At"]),
+    "Form Number": trim(template.formNumber || template.form_number || template["Form Number"]),
+    "Revision Number": String(
+      template.revisionNumber || template.revision_number || template["Revision Number"] || 1,
+    ),
+    "Revision ID": trim(template.revisionId || template.revision_id || template["Revision ID"]),
+    "Supersedes Revision ID": trim(
+      template.supersedesRevisionId || template.supersedes_revision_id || template["Supersedes Revision ID"],
+    ),
+    "Superseded By Revision ID": trim(
+      template.supersededByRevisionId ||
+        template.superseded_by_revision_id ||
+        template["Superseded By Revision ID"],
+    ),
+    "Revision Reason": trim(
+      template.revisionReason || template.revision_reason || template["Revision Reason"],
+    ),
+    "Copy Reason": trim(template.copyReason || template.copy_reason || template["Copy Reason"]),
+    Archived: trim(template.archived || template.Archived) || (status === "superseded" || status === "archived" ? "true" : "false"),
+    ArchivedAt: trim(template.archivedAt || template.archived_at || template.ArchivedAt),
+    ArchivedBy: trim(template.archivedBy || template.archived_by || template.ArchivedBy),
     ArchiveReason: trim(
-      template.archive_reason || template.archiveReason || template.revision_reason || template.revisionReason,
+      template.archiveReason ||
+        template.archive_reason ||
+        template.ArchiveReason ||
+        template.revisionReason ||
+        template.revision_reason,
     ),
   };
+}
+
+function auditBuilderTemplateToSheetRow(template = {}) {
+  return auditTemplateRowToSheetRow({
+    id: template.id,
+    name: template.template_name || template.name,
+    category: template.category,
+    status: template.status,
+    createdAt: template.created_at || template.createdAt,
+    formNumber: template.form_number || template.formNumber,
+    revisionNumber: template.revision_number || template.revisionNumber,
+    revisionId: template.revision_id || template.revisionId,
+    supersedesRevisionId: template.supersedes_revision_id || template.supersedesRevisionId,
+    supersededByRevisionId: template.superseded_by_revision_id || template.supersededByRevisionId,
+    revisionReason: template.revision_reason || template.revisionReason,
+    copyReason: template.copy_reason || template.copyReason,
+    archived: template.archived === true ? "true" : template.archived,
+    archivedAt: template.archived_at || template.archivedAt || template.updated_at,
+    archivedBy: template.archived_by || template.archivedBy || template.created_by,
+    archiveReason: template.archive_reason || template.archiveReason || template.revision_reason,
+  });
 }
 
 /** Recover superseded/archived audit revisions from the audit-builder session store when the sheet was wiped by an active-only sync. */
@@ -100,8 +136,13 @@ function readSessionArchivedAuditRows(sessionDir, masterSheetId) {
     const filePath = path.join(root, "audit-builder", "workspaces.json");
     const raw = fs.readFileSync(filePath, "utf8");
     const data = JSON.parse(raw);
-    const bucket = data?.workspaces?.[sheetId] || data?.workspaces?.[sheetId.trim()];
-    const templates = Object.values(bucket?.templates || {});
+    const workspaces = data?.workspaces && typeof data.workspaces === "object" ? data.workspaces : {};
+    const exact = workspaces[sheetId];
+    const fuzzyKeys = Object.keys(workspaces).filter(
+      (key) => key !== sheetId && (key.includes(sheetId) || sheetId.includes(key)),
+    );
+    const buckets = [exact, ...fuzzyKeys.map((key) => workspaces[key])].filter(Boolean);
+    const templates = buckets.flatMap((bucket) => Object.values(bucket?.templates || {}));
     return templates
       .map((template) => auditBuilderTemplateToSheetRow(template))
       .filter((row) => isWorkbookRowArchived(row, "audit") && trim(row["Audit ID"]) && trim(row["Audit Name"]));
@@ -118,6 +159,28 @@ function mergeArchiveRowsById(primaryRows = [], extraRows = []) {
     if (!byId.has(id)) byId.set(id, row);
   }
   return [...byId.values()];
+}
+
+async function readAuditArchiveRows(auth, deps, masterSheetId) {
+  const sheetId = trim(masterSheetId);
+  let workbookRows = [];
+  try {
+    const mapped = await readAuditTemplates(deps, auth, sheetId);
+    workbookRows = (mapped || []).map((row) => auditTemplateRowToSheetRow(row));
+  } catch {
+    workbookRows = await readTabRows(auth, deps, sheetId, ARCHIVE_RECORD_TYPES.audit.tab);
+  }
+  if (workbookRows.length === 0) {
+    workbookRows = await readTabRows(auth, deps, sheetId, ARCHIVE_RECORD_TYPES.audit.tab);
+  }
+  const sessionRows = readSessionArchivedAuditRows(deps?.sessionDir, sheetId);
+  const merged = mergeArchiveRowsById(workbookRows, sessionRows);
+  return {
+    workbookRows,
+    sessionRows,
+    mergedRows: merged,
+    archivedRows: filterArchivedWorkbookRows(merged, "audit"),
+  };
 }
 
 async function resolveArchiveContext(auth, deps, actor, companyFolderId) {
@@ -191,29 +254,54 @@ async function validateUserArchive(auth, deps, masterSheetId, targetId, actor) {
   return { ok: true, row: target };
 }
 
-export async function listCompanyArchive(auth, deps, actor, companyFolderId) {
+export async function listCompanyArchive(auth, deps, actor, companyFolderId, options = {}) {
   const context = await resolveArchiveContext(auth, deps, actor, companyFolderId);
   if (!context.ok) return context;
 
   const sections = {};
   const counts = {};
+  let auditDiagnostics = null;
+
   for (const [type, config] of Object.entries(ARCHIVE_RECORD_TYPES)) {
-    let rows = await readTabRows(auth, deps, context.masterSheetId, config.tab);
+    let archived;
     if (type === "audit") {
-      const sessionRows = readSessionArchivedAuditRows(deps?.sessionDir, context.masterSheetId);
-      rows = mergeArchiveRowsById(rows, sessionRows);
+      const auditRead = await readAuditArchiveRows(auth, deps, context.masterSheetId);
+      archived = auditRead.archivedRows.map((row) => mapArchivedListItem(row, type));
+      auditDiagnostics = {
+        workbookAuditRows: auditRead.workbookRows.length,
+        sessionAuditRows: auditRead.sessionRows.length,
+        returnedAuditRows: archived.length,
+        sectionKey: config.section,
+        masterSheetIdPresent: Boolean(trim(context.masterSheetId)),
+      };
+    } else {
+      const rows = await readTabRows(auth, deps, context.masterSheetId, config.tab);
+      archived = filterArchivedWorkbookRows(rows, type).map((row) => mapArchivedListItem(row, type));
     }
-    const archived = filterArchivedWorkbookRows(rows, type).map((row) => mapArchivedListItem(row, type));
     sections[config.section] = archived;
     counts[config.section] = archived.length;
   }
-  return {
+
+  const payload = {
     ok: true,
     companyFolderId: context.companyFolderId,
     masterSheetId: context.masterSheetId,
     sections,
     counts,
   };
+
+  const wantDiagnostics =
+    options.debugArchive === true ||
+    String(deps?.debugArchive || "").trim() === "1" ||
+    String(process.env.BERT_ARCHIVE_DEBUG || "").trim() === "1";
+  if (wantDiagnostics && auditDiagnostics) {
+    payload.diagnostics = {
+      audits: auditDiagnostics,
+      // Safe counts only — no tokens, PasswordHash, or row payloads.
+    };
+  }
+
+  return payload;
 }
 
 export async function archiveCompanyRecord(auth, deps, actor, companyFolderId, input = {}) {
