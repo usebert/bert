@@ -416,11 +416,14 @@ async function writeAuditTemplateMetadata(deps, auth, spreadsheetId, templateRec
   const sheets = google.sheets({ version: "v4", auth });
   const rows = rowsToRecords(await getTabValues(auth, spreadsheetId, AUDIT_TEMPLATES_TAB));
   const kept = rows.filter((row) => String(row["Audit ID"] || "").trim() !== templateRecord.id);
+  const status = sheetStatusForTemplate(templateRecord);
+  const isHistoric =
+    status === "superseded" || status === "archived" || status === "inactive" || templateRecord.archived === true;
   const nextRow = [
     templateRecord.id,
     templateRecord.template_name,
     templateRecord.category,
-    sheetStatusForTemplate(templateRecord),
+    status,
     "",
     templateRecord.created_at,
     String(templateRecord.googleFormId || "").trim(),
@@ -435,10 +438,29 @@ async function writeAuditTemplateMetadata(deps, auth, spreadsheetId, templateRec
     String(templateRecord.superseded_by_revision_id || "").trim(),
     String(templateRecord.revision_reason || "").trim(),
     String(templateRecord.copy_reason || "").trim(),
+    isHistoric ? "true" : String(templateRecord.archived === true ? "true" : templateRecord.archived || "false"),
+    String(templateRecord.archived_at || (isHistoric ? templateRecord.updated_at || new Date().toISOString() : "")).trim(),
+    String(templateRecord.archived_by || (isHistoric ? templateRecord.created_by || "" : "")).trim(),
+    String(
+      templateRecord.archive_reason ||
+        (isHistoric ? templateRecord.revision_reason || "Superseded by new revision" : ""),
+    ).trim(),
   ];
   const dataRows = kept.map((row) => AUDIT_TEMPLATES_COLUMNS.map((column) => String(row[column] || "")));
   dataRows.push(nextRow);
-  const lastCol = String.fromCharCode(64 + AUDIT_TEMPLATES_COLUMNS.length);
+  const lastCol =
+    AUDIT_TEMPLATES_COLUMNS.length <= 26
+      ? String.fromCharCode(64 + AUDIT_TEMPLATES_COLUMNS.length)
+      : (() => {
+          let remaining = AUDIT_TEMPLATES_COLUMNS.length;
+          let letters = "";
+          while (remaining > 0) {
+            const index = (remaining - 1) % 26;
+            letters = String.fromCharCode(65 + index) + letters;
+            remaining = Math.floor((remaining - 1) / 26);
+          }
+          return letters;
+        })();
   await withSheetsQuotaRetry(() =>
     sheets.spreadsheets.values.clear({
       spreadsheetId,
@@ -553,16 +575,15 @@ async function loadTemplatesFromSheets(deps, auth, spreadsheetId, sessionDir) {
       copy_reason: row.copyReason || existing.copy_reason || "",
       parent_template_id: existing.parent_template_id || null,
       status:
-        existing.status ||
-        (sheetStatus === "inactive"
-          ? "inactive"
-          : sheetStatus === "archived"
-            ? "archived"
-            : sheetStatus === "superseded"
-              ? "superseded"
-              : sheetStatus === "draft"
-                ? "draft"
-                : "active"),
+        sheetStatus === "superseded" ||
+        sheetStatus === "archived" ||
+        sheetStatus === "inactive" ||
+        sheetStatus === "obsolete"
+          ? sheetStatus === "obsolete"
+            ? "superseded"
+            : sheetStatus
+          : existing.status ||
+            (sheetStatus === "draft" ? "draft" : "active"),
       googleFormId: row.googleFormId || existing.googleFormId || "",
       googleFormTemplateStatus: row.googleFormTemplateStatus || existing.googleFormTemplateStatus || "",
     };
@@ -1216,6 +1237,10 @@ export function installAuditBuilderRoutes(app, deps) {
           status: "superseded",
           superseded_by_revision_id: record.revision_id,
           updated_at: new Date().toISOString(),
+          archived: true,
+          archived_at: new Date().toISOString(),
+          archived_by: actor.email,
+          archive_reason: String(req.body?.reason || "").trim() || "Superseded by new revision",
         };
       } else {
         record = applyRevisionExtras(

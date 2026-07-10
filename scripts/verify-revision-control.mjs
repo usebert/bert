@@ -20,7 +20,7 @@ import {
   titlesMatch,
   validateTemplateTitle,
 } from "../shared/revision-control.mjs";
-import { isAuditArchivedRecord } from "../shared/archive.mjs";
+import { isAuditArchivedRecord, filterArchivedWorkbookRows, mapArchivedListItem } from "../shared/archive.mjs";
 import { buildAuditResultRow, AUDIT_RESULTS_TAB_COLUMNS } from "../server/completion-service.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -306,6 +306,64 @@ assert(
 
 assert(isAuditArchivedRecord(rev1) === true, "RH8a: superseded audits count as archived records");
 assert(
+  isAuditArchivedRecord({
+    "Audit ID": "t-rev-1",
+    "Audit Name": "Bay 2 Fire Safety Inspection",
+    Status: "superseded",
+    Archived: "",
+    "Form Number": "BERT-AUD-001",
+    "Revision Number": "1",
+  }) === true,
+  "RH8a2: Status Superseded with Archived blank still counts as archived",
+);
+assert(
+  isAuditArchivedRecord({
+    "Audit ID": "t-rev-2",
+    "Audit Name": "Bay 2 Fire Safety Inspection",
+    Status: "active",
+    Archived: "false",
+    "Form Number": "BERT-AUD-001",
+    "Revision Number": "2",
+  }) === false,
+  "RH8a3: Active Rev 2 does not appear in Archive > Audits",
+);
+
+const archiveRows = [
+  {
+    "Audit ID": "t-rev-1",
+    "Audit Name": "Bay 2 Fire Safety Inspection",
+    Status: "superseded",
+    Archived: "",
+    "Form Number": "BERT-AUD-001",
+    "Revision Number": "1",
+    "Revision Reason": "Initial issue",
+    "Superseded By Revision ID": "BERT-AUD-001-REV-2",
+  },
+  {
+    "Audit ID": "t-rev-2",
+    "Audit Name": "Bay 2 Fire Safety Inspection",
+    Status: "active",
+    Archived: "false",
+    "Form Number": "BERT-AUD-001",
+    "Revision Number": "2",
+  },
+];
+const archivedAudits = filterArchivedWorkbookRows(archiveRows, "audit").map((row) => mapArchivedListItem(row, "audit"));
+assert(archivedAudits.length === 1 && archivedAudits[0].id === "t-rev-1", "RH8b: Old Rev 1 appears in Archive > Audits");
+assert(archivedAudits.length === 1, "RH8c: Archive summary count for Audits increments (Rev 1 only)");
+assert(!archivedAudits.some((row) => row.id === "t-rev-2"), "RH5b: Active Rev 2 does not appear in Archive > Audits");
+assert(
+  archivedAudits[0].formNumber === "BERT-AUD-001" &&
+    String(archivedAudits[0].revisionNumber) === "1" &&
+    String(archivedAudits[0].status).toLowerCase() === "superseded",
+  "RH6b: Archive > Audits displays FormNumber / Revision / Superseded",
+);
+assert(
+  archiveScreen.includes("archive-audit-revision-meta") && archiveScreen.includes("Superseded"),
+  "RH6c: Archive UI shows FormNumber / Revision / Superseded badge",
+);
+
+assert(
   archiveShared.includes('status === "superseded"') &&
     (archiveScreen.includes('section === "audits"') || archiveScreen.includes('id: "audits"')) &&
     archiveScreen.includes("Superseded"),
@@ -324,6 +382,19 @@ assert(
     panel.includes("Revision History"),
   "RH10: Google Form revision history is present if supported",
 );
+assert(
+  archiveShared.includes("isGoogleFormArchivedRecord") &&
+    archiveShared.includes('status === "superseded"'),
+  "RH10b: Google Forms superseded revisions appear in Archive > Google Forms if supported",
+);
+assert(
+  !isAuditArchivedRecord({
+    Status: "active",
+    Archived: "false",
+    "Superseded By Revision ID": "",
+  }),
+  "RH10c: Active latest Google Form / audit revision does not appear in Archive",
+);
 
 assert(
   auditBuilder.includes("/api/companies/:companyFolderId/audit-templates/:templateId/revisions") &&
@@ -337,6 +408,17 @@ assert(
     !auditBuilder.includes("stale-test-workbook"),
   "RH12: No stale/test workbook is used",
 );
+
+assert(
+  auditBuilder.includes('status: "superseded"') && auditBuilder.includes("archived: true"),
+  "revise creates old Rev with Status Superseded and Archived true",
+);
+assert(
+  mapping.includes("preservedHistoric") && mapping.includes("incomingIds"),
+  "active template sync preserves historic superseded rows",
+);
+assert(read("server/archive-service.mjs").includes("readSessionArchivedAuditRows"), "archive list recovers session superseded audits");
+assert(archiveScreen.includes("archive-view-audit-button") || archiveScreen.includes("View"), "Archive audits expose View");
 
 assert(auditBuilder.includes("filterLatestActiveTemplates"), "server filters active list to latest revision");
 assert(auditBuilder.includes("restore-as-revision"), "server restore-as-revision endpoint exists");

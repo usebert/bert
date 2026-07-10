@@ -15,4 +15,5 @@ export type ArchiveScreenProps = {
   canManageUsers?: boolean;
   canManageRecords?: boolean;
   onToast?: (title: string, message: string, tone?: "success" | "warning" | "neutral") => void;
+  onViewAudit?: (templateId: string) => void;
 };

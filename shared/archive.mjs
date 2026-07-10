@@ -129,13 +129,34 @@ export function isAuditArchivedRecord(record = {}) {
   if (status === "archived" || status === "superseded" || status === "inactive" || status === "obsolete") {
     return true;
   }
-  return archiveTruthy(pickArchiveField(record, "Archived"));
+  if (archiveTruthy(pickArchiveField(record, "Archived"))) {
+    return true;
+  }
+  // Old revisions keep Superseded By Revision ID even when Status/Archived were wiped by an active-only sync.
+  return Boolean(
+    pickField(record, [
+      "Superseded By Revision ID",
+      "supersededByRevisionId",
+      "superseded_by_revision_id",
+    ]),
+  );
 }
 
 export function isGoogleFormArchivedRecord(record = {}) {
   const status = safeLower(pickField(record, ["Status", "status", "Sync Status"]));
-  if (status === "archived") return true;
-  return archiveTruthy(pickArchiveField(record, "Archived"));
+  if (status === "archived" || status === "superseded" || status === "inactive" || status === "obsolete") {
+    return true;
+  }
+  if (archiveTruthy(pickArchiveField(record, "Archived"))) {
+    return true;
+  }
+  return Boolean(
+    pickField(record, [
+      "Superseded By Revision ID",
+      "supersededByRevisionId",
+      "superseded_by_revision_id",
+    ]),
+  );
 }
 
 export function isWorkbookRowArchived(record = {}, type = "") {

@@ -51,6 +51,7 @@ export function ArchiveScreen({
   canManageUsers = false,
   canManageRecords = false,
   onToast,
+  onViewAudit,
 }: ArchiveScreenProps) {
   const [activeSection, setActiveSection] = useState<ArchiveSectionId>("users");
   const [loading, setLoading] = useState(true);
@@ -235,7 +236,14 @@ export function ArchiveScreen({
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="text-lg font-black text-slate-900">{item.title}</h2>
-                    <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-slate-700">
+                    <span
+                      className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-slate-700"
+                      data-testid={
+                        activeSection === "audits" || activeSection === "googleForms"
+                          ? "archive-status-badge"
+                          : undefined
+                      }
+                    >
                       {String(item.status || "").toLowerCase() === "superseded" ? "Superseded" : "Archived"}
                     </span>
                   </div>
@@ -243,25 +251,42 @@ export function ArchiveScreen({
                     {item.email || item.id}
                     {item.role ? ` · ${item.role}` : ""}
                     {item.status ? ` · ${item.status}` : ""}
-                    {item.formNumber ? ` · ${item.formNumber}` : ""}
-                    {item.revisionNumber ? ` · Rev ${item.revisionNumber}` : ""}
                   </p>
+                  {(activeSection === "audits" || activeSection === "googleForms") &&
+                  (item.formNumber || item.revisionNumber) ? (
+                    <p className="mt-1 text-sm font-medium text-slate-700" data-testid="archive-audit-revision-meta">
+                      {item.formNumber || "Form"}
+                      {item.revisionNumber ? ` · Rev ${item.revisionNumber}` : ""}
+                    </p>
+                  ) : null}
                   <div className="mt-3 grid gap-1 text-sm text-slate-600 sm:grid-cols-2">
                     <p>Archived: {formatWhen(item.archivedAt)}</p>
                     <p>By: {item.archivedBy || "—"}</p>
                     <p className="sm:col-span-2">Reason: {item.archiveReason || "—"}</p>
                   </div>
                 </div>
-                {canRestoreSection(activeSection) ? (
-                  <button
-                    type="button"
-                    disabled={busyId === item.id}
-                    onClick={() => void handleRestore(item)}
-                    className="inline-flex min-h-11 items-center justify-center rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm disabled:opacity-60"
-                  >
-                    {visibleSections.find((section) => section.id === activeSection)?.restoreVerb || "Restore"}
-                  </button>
-                ) : null}
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  {(activeSection === "audits" || activeSection === "googleForms") && onViewAudit ? (
+                    <button
+                      type="button"
+                      data-testid="archive-view-audit-button"
+                      onClick={() => onViewAudit(item.id)}
+                      className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800"
+                    >
+                      View
+                    </button>
+                  ) : null}
+                  {canRestoreSection(activeSection) ? (
+                    <button
+                      type="button"
+                      disabled={busyId === item.id}
+                      onClick={() => void handleRestore(item)}
+                      className="inline-flex min-h-11 items-center justify-center rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm disabled:opacity-60"
+                    >
+                      {visibleSections.find((section) => section.id === activeSection)?.restoreVerb || "Restore"}
+                    </button>
+                  ) : null}
+                </div>
               </div>
             </li>
           ))}

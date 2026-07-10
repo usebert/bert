@@ -226,4 +226,59 @@ assert(read("App.tsx").includes('screen === "archive"'), "Archive page opens in 
 
 assert(JSON.parse(read("package.json")).scripts["verify:archive"], "verify:archive script registered");
 
+{
+  const supersededAudit = {
+    "Audit ID": "aud-rev-1",
+    "Audit Name": "Bay 2 Fire Safety Inspection",
+    Status: "superseded",
+    Archived: "",
+    "Form Number": "BERT-AUD-001",
+    "Revision Number": "1",
+    "Superseded By Revision ID": "BERT-AUD-001-REV-2",
+    "Revision Reason": "Updated checks",
+  };
+  const activeAudit = {
+    "Audit ID": "aud-rev-2",
+    "Audit Name": "Bay 2 Fire Safety Inspection",
+    Status: "active",
+    Archived: "false",
+    "Form Number": "BERT-AUD-001",
+    "Revision Number": "2",
+  };
+  assert(isWorkbookRowArchived(supersededAudit, "audit"), "audit: Status Superseded counts as archived even when Archived blank");
+  assert(!isWorkbookRowArchived(activeAudit, "audit"), "audit: active latest revision is not archived");
+  const archived = filterArchivedWorkbookRows([supersededAudit, activeAudit], "audit");
+  assert(archived.length === 1 && archived[0]["Audit ID"] === "aud-rev-1", "audit: archive list includes superseded only");
+  const mapped = mapArchivedListItem(supersededAudit, "audit");
+  assert(
+    mapped.formNumber === "BERT-AUD-001" &&
+      String(mapped.revisionNumber) === "1" &&
+      String(mapped.status).toLowerCase() === "superseded",
+    "audit: archive item maps Form Number / Revision / Superseded",
+  );
+  assert(ARCHIVE_RECORD_TYPES.audit.restoreLabel === "Restore as new revision", "audit: restore label is Restore as new revision");
+  assert(read("src/screens/ArchiveScreen.tsx").includes("Restore as new revision"), "audit: Archive UI restore verb");
+  assert(read("src/screens/ArchiveScreen.tsx").includes("archive-view-audit-button"), "audit: Archive View button");
+  assert(read("server/company-audit-mapping.mjs").includes("preservedHistoric"), "audit: sync preserves historic superseded rows");
+  assert(read("server/archive-service.mjs").includes("readSessionArchivedAuditRows"), "audit: archive merges session superseded rows");
+  assert(read("server/archive-service.mjs").includes("sessionDir"), "audit: folder-first archive uses session/workbook context");
+}
+
+{
+  const supersededGoogle = {
+    "Google Form ID": "gf-1",
+    "Template Name": "Old Google Form",
+    Status: "superseded",
+    Archived: "",
+  };
+  const activeGoogle = {
+    "Google Form ID": "gf-2",
+    "Template Name": "Live Google Form",
+    Status: "active",
+    Archived: "false",
+  };
+  assert(isWorkbookRowArchived(supersededGoogle, "googleForm"), "googleForm: superseded appears in Archive");
+  assert(!isWorkbookRowArchived(activeGoogle, "googleForm"), "googleForm: active latest does not appear in Archive");
+}
+
 console.log(`[verify:archive] OK — ${checks} checks passed`);

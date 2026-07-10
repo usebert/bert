@@ -18024,6 +18024,10 @@ function App() {
                   currentUser.role === "Manager"
                 }
                 onToast={(title, message, tone) => pushToast(title, message, tone || "neutral")}
+                onViewAudit={(templateId) => {
+                  setEditingTemplateId(templateId);
+                  setScreen("auditTemplateEdit");
+                }}
               />
             )}
 

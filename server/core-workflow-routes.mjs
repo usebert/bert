@@ -2317,7 +2317,12 @@ export function installCoreWorkflowRoutes(app, deps) {
       return res.status(403).json(folderDenial);
     }
     try {
-      const result = await listCompanyArchive(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId);
+      const result = await listCompanyArchive(
+        authed,
+        { ...registryDeps, ...scheduleDeps, sessionDir },
+        actor,
+        companyFolderId,
+      );
       if (!result.ok) {
         return res.status(result.httpStatus || 400).json(result);
       }

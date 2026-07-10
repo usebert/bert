@@ -32,6 +32,10 @@ export const AUDIT_TEMPLATES_COLUMNS = [
   "Default Language",
   "Translation Status",
   ...REVISION_CONTROL_COLUMNS,
+  "Archived",
+  "ArchivedAt",
+  "ArchivedBy",
+  "ArchiveReason",
 ];
 
 export const AREA_AUDITS_COLUMNS = [
@@ -99,6 +103,10 @@ function rowToAuditTemplate(row) {
     supersededByRevisionId: String(row["Superseded By Revision ID"] || row.supersededByRevisionId || "").trim(),
     revisionReason: String(row["Revision Reason"] || row.revisionReason || "").trim(),
     copyReason: String(row["Copy Reason"] || row.copyReason || "").trim(),
+    archived: String(row.Archived || row.archived || "").trim(),
+    archivedAt: String(row.ArchivedAt || row.archivedAt || "").trim(),
+    archivedBy: String(row.ArchivedBy || row.archivedBy || "").trim(),
+    archiveReason: String(row.ArchiveReason || row.archiveReason || "").trim(),
   };
 }
 
@@ -149,32 +157,48 @@ function areaAuditsToRows(mappings) {
   ]);
 }
 
+function sheetStatusFromTemplate(template = {}) {
+  const status = String(template.status || "").trim().toLowerCase();
+  if (status === "superseded" || status === "archived" || status === "inactive" || status === "draft") {
+    return status;
+  }
+  if (template.active === false) return "inactive";
+  return "active";
+}
+
 function auditTemplatesToRows(templates) {
-  return templates.map((template) => [
-    template.id,
-    template.name,
-    template.category || "",
-    template.status === "inactive" || template.status === "archived" || template.status === "superseded"
-      ? template.status === "superseded"
-        ? "superseded"
-        : "inactive"
-      : "active",
-    template.defaultFrequency || "",
-    template.createdAt || "",
-    template.googleFormId || "",
-    template.googleFormTemplateStatus || "",
-    normalizeFormLanguage(template.language),
-    normalizeFormLanguage(template.defaultLanguage || DEFAULT_FORM_LANGUAGE),
-    template.translationStatus ||
-      defaultTranslationStatusForLanguage(normalizeFormLanguage(template.language)),
-    template.formNumber || "",
-    String(template.revisionNumber || 1),
-    template.revisionId || "",
-    template.supersedesRevisionId || "",
-    template.supersededByRevisionId || "",
-    template.revisionReason || "",
-    template.copyReason || "",
-  ]);
+  return templates.map((template) => {
+    const status = sheetStatusFromTemplate(template);
+    const archived =
+      status === "superseded" || status === "archived" || status === "inactive"
+        ? "true"
+        : String(template.archived || "").trim() || "false";
+    return [
+      template.id,
+      template.name,
+      template.category || "",
+      status,
+      template.defaultFrequency || "",
+      template.createdAt || "",
+      template.googleFormId || "",
+      template.googleFormTemplateStatus || "",
+      normalizeFormLanguage(template.language),
+      normalizeFormLanguage(template.defaultLanguage || DEFAULT_FORM_LANGUAGE),
+      template.translationStatus ||
+        defaultTranslationStatusForLanguage(normalizeFormLanguage(template.language)),
+      template.formNumber || "",
+      String(template.revisionNumber || 1),
+      template.revisionId || "",
+      template.supersedesRevisionId || "",
+      template.supersededByRevisionId || "",
+      template.revisionReason || "",
+      template.copyReason || "",
+      archived,
+      template.archivedAt || "",
+      template.archivedBy || "",
+      template.archiveReason || template.revisionReason || "",
+    ];
+  });
 }
 
 function userAreaAccessToRows(rows) {
@@ -437,42 +461,101 @@ export function installCompanyAuditMappingRoutes(app, deps) {
     }
 
     try {
+      const existingTemplates = await readAuditTemplates(deps, authed, masterSheetId);
+      const existingById = new Map(existingTemplates.map((row) => [row.id, row]));
+      const incomingIds = new Set();
+
       const normalized = templates
         .map((template) => {
           const id = String(template?.id || "").trim();
           const name = String(template?.name || "").trim();
           if (!id || !name) return null;
+          incomingIds.add(id);
+          const existing = existingById.get(id) || {};
+          const explicitStatus = String(template?.status || "").trim().toLowerCase();
+          const status =
+            explicitStatus === "superseded" ||
+            explicitStatus === "archived" ||
+            explicitStatus === "inactive" ||
+            explicitStatus === "draft"
+              ? explicitStatus
+              : template?.active === false
+                ? "inactive"
+                : "active";
           return {
             id,
             name,
-            category: String(template?.category || template?.source || "").trim(),
-            status: template?.active === false ? "inactive" : "active",
-            defaultFrequency: String(template?.defaultFrequency || "").trim(),
-            createdAt: String(template?.createdAt || new Date().toISOString()).trim(),
-            googleFormId: String(template?.googleFormId || template?.googleForm?.formId || "").trim(),
-            googleFormTemplateStatus: String(
-              template?.googleFormTemplateStatus || template?.googleForm?.syncStatus || "",
+            category: String(template?.category || template?.source || existing.category || "").trim(),
+            status,
+            defaultFrequency: String(template?.defaultFrequency || existing.defaultFrequency || "").trim(),
+            createdAt: String(template?.createdAt || existing.createdAt || new Date().toISOString()).trim(),
+            googleFormId: String(
+              template?.googleFormId || template?.googleForm?.formId || existing.googleFormId || "",
             ).trim(),
-            language: normalizeFormLanguage(template?.language),
+            googleFormTemplateStatus: String(
+              template?.googleFormTemplateStatus ||
+                template?.googleForm?.syncStatus ||
+                existing.googleFormTemplateStatus ||
+                "",
+            ).trim(),
+            language: normalizeFormLanguage(template?.language || existing.language),
             defaultLanguage: normalizeFormLanguage(
-              template?.defaultLanguage || template?.language || DEFAULT_FORM_LANGUAGE,
+              template?.defaultLanguage || template?.language || existing.defaultLanguage || DEFAULT_FORM_LANGUAGE,
             ),
             translationStatus: String(
               template?.translationStatus ||
-                defaultTranslationStatusForLanguage(normalizeFormLanguage(template?.language)),
+                existing.translationStatus ||
+                defaultTranslationStatusForLanguage(normalizeFormLanguage(template?.language || existing.language)),
             ).trim(),
+            formNumber: String(template?.formNumber || template?.form_number || existing.formNumber || "").trim(),
+            revisionNumber:
+              Number(template?.revisionNumber || template?.revision_number || existing.revisionNumber || 1) || 1,
+            revisionId: String(template?.revisionId || template?.revision_id || existing.revisionId || "").trim(),
+            supersedesRevisionId: String(
+              template?.supersedesRevisionId || template?.supersedes_revision_id || existing.supersedesRevisionId || "",
+            ).trim(),
+            supersededByRevisionId: String(
+              template?.supersededByRevisionId ||
+                template?.superseded_by_revision_id ||
+                existing.supersededByRevisionId ||
+                "",
+            ).trim(),
+            revisionReason: String(
+              template?.revisionReason || template?.revision_reason || existing.revisionReason || "",
+            ).trim(),
+            copyReason: String(template?.copyReason || template?.copy_reason || existing.copyReason || "").trim(),
+            archived: String(template?.archived || existing.archived || "").trim(),
+            archivedAt: String(template?.archivedAt || existing.archivedAt || "").trim(),
+            archivedBy: String(template?.archivedBy || existing.archivedBy || "").trim(),
+            archiveReason: String(template?.archiveReason || existing.archiveReason || "").trim(),
           };
         })
         .filter(Boolean);
+
+      // Active-list syncs must not wipe superseded/archived revisions from AuditTemplates.
+      const preservedHistoric = existingTemplates.filter((row) => {
+        if (incomingIds.has(row.id)) return false;
+        const status = String(row.status || "").trim().toLowerCase();
+        return (
+          status === "superseded" ||
+          status === "archived" ||
+          status === "inactive" ||
+          status === "obsolete" ||
+          String(row.archived || "").trim().toLowerCase() === "true" ||
+          Boolean(String(row.supersededByRevisionId || "").trim())
+        );
+      });
+
+      const merged = [...normalized, ...preservedHistoric];
       await writeTab(
         deps,
         authed,
         masterSheetId,
         AUDIT_TEMPLATES_TAB,
         AUDIT_TEMPLATES_COLUMNS,
-        auditTemplatesToRows(normalized),
+        auditTemplatesToRows(merged),
       );
-      return res.json({ ok: true, auditTemplates: normalized });
+      return res.json({ ok: true, auditTemplates: merged });
     } catch (error) {
       return res.status(500).json({
         ok: false,

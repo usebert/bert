@@ -1,6 +1,8 @@
 /**
  * Folder-first archive & restore — workbook rows are never deleted.
  */
+import fs from "node:fs";
+import path from "node:path";
 import { GOOGLE_FORM_TEMPLATES_TAB } from "./google-form-templates.mjs";
 import { INCIDENTS_TAB } from "./incidents-service.mjs";
 import { BRIEFINGS_TAB } from "../shared/briefings.mjs";
@@ -63,6 +65,59 @@ function archiveFailure(code, message, httpStatus = 400, details) {
 
 function actorEmail(actor = {}) {
   return safeLower(actor.email || actor.username || "");
+}
+
+function auditBuilderTemplateToSheetRow(template = {}) {
+  const status = safeLower(template.status || "superseded") || "superseded";
+  return {
+    "Audit ID": trim(template.id),
+    "Audit Name": trim(template.template_name || template.name),
+    Category: trim(template.category),
+    Status: status,
+    "Created At": trim(template.created_at || template.createdAt),
+    "Form Number": trim(template.form_number || template.formNumber),
+    "Revision Number": String(template.revision_number || template.revisionNumber || 1),
+    "Revision ID": trim(template.revision_id || template.revisionId),
+    "Supersedes Revision ID": trim(template.supersedes_revision_id || template.supersedesRevisionId),
+    "Superseded By Revision ID": trim(template.superseded_by_revision_id || template.supersededByRevisionId),
+    "Revision Reason": trim(template.revision_reason || template.revisionReason),
+    "Copy Reason": trim(template.copy_reason || template.copyReason),
+    Archived: template.archived === true || status === "superseded" || status === "archived" ? "true" : "false",
+    ArchivedAt: trim(template.archived_at || template.archivedAt || template.updated_at || template.updatedAt),
+    ArchivedBy: trim(template.archived_by || template.archivedBy || template.created_by || template.createdBy),
+    ArchiveReason: trim(
+      template.archive_reason || template.archiveReason || template.revision_reason || template.revisionReason,
+    ),
+  };
+}
+
+/** Recover superseded/archived audit revisions from the audit-builder session store when the sheet was wiped by an active-only sync. */
+function readSessionArchivedAuditRows(sessionDir, masterSheetId) {
+  const root = trim(sessionDir);
+  const sheetId = trim(masterSheetId);
+  if (!root || !sheetId) return [];
+  try {
+    const filePath = path.join(root, "audit-builder", "workspaces.json");
+    const raw = fs.readFileSync(filePath, "utf8");
+    const data = JSON.parse(raw);
+    const bucket = data?.workspaces?.[sheetId] || data?.workspaces?.[sheetId.trim()];
+    const templates = Object.values(bucket?.templates || {});
+    return templates
+      .map((template) => auditBuilderTemplateToSheetRow(template))
+      .filter((row) => isWorkbookRowArchived(row, "audit") && trim(row["Audit ID"]) && trim(row["Audit Name"]));
+  } catch {
+    return [];
+  }
+}
+
+function mergeArchiveRowsById(primaryRows = [], extraRows = []) {
+  const byId = new Map();
+  for (const row of [...primaryRows, ...extraRows]) {
+    const id = trim(pickField(row, ["Audit ID", "AuditId", "Google Form ID", "FormId", "BERT Template ID", "id"]));
+    if (!id) continue;
+    if (!byId.has(id)) byId.set(id, row);
+  }
+  return [...byId.values()];
 }
 
 async function resolveArchiveContext(auth, deps, actor, companyFolderId) {
@@ -143,7 +198,11 @@ export async function listCompanyArchive(auth, deps, actor, companyFolderId) {
   const sections = {};
   const counts = {};
   for (const [type, config] of Object.entries(ARCHIVE_RECORD_TYPES)) {
-    const rows = await readTabRows(auth, deps, context.masterSheetId, config.tab);
+    let rows = await readTabRows(auth, deps, context.masterSheetId, config.tab);
+    if (type === "audit") {
+      const sessionRows = readSessionArchivedAuditRows(deps?.sessionDir, context.masterSheetId);
+      rows = mergeArchiveRowsById(rows, sessionRows);
+    }
     const archived = filterArchivedWorkbookRows(rows, type).map((row) => mapArchivedListItem(row, type));
     sections[config.section] = archived;
     counts[config.section] = archived.length;
