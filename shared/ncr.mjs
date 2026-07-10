@@ -138,13 +138,19 @@ export function mapNcrWorkbookRowToClient(record = {}, companyFolderId = "") {
   const reference = pickField(record, ["Reference", "NCR ID"]);
   const status = normalizeNcrWorkbookStatus(pickField(record, ["Status", "status"]));
   const clientStatus = status === "Completed" ? "Completed" : status === "In Progress" ? "In Progress" : "Raised";
+  const auditName = pickField(record, ["Source Audit Name", "Audit Name"]);
+  const questionText = pickField(record, ["Source Question Text", "Title"]);
+  const description = pickField(record, ["Description"]);
+  const auditQuestion =
+    questionText ||
+    (auditName && description ? `${auditName} - ${description}` : auditName || description);
   return {
     id: pickField(record, ["NCR ID"]) || reference || `ncr-${Math.random().toString(36).slice(2, 9)}`,
     reference,
     auditId: pickField(record, ["Source Audit ID", "Audit ID"]),
-    auditName: pickField(record, ["Source Audit Name", "Audit Name"]),
+    auditName,
     auditQuestionId: pickField(record, ["Source Question ID", "Question ID"]),
-    auditQuestion: pickField(record, ["Source Question Text", "Title", "Description"]),
+    auditQuestion,
     selectedAnswer: (pickField(record, ["Selected Answer", "Answer"]) || "nc").toLowerCase(),
     auditorName: pickField(record, ["Auditor Name", "Created By"]),
     auditorUserId: pickField(record, ["Auditor User ID", "Created By"]),

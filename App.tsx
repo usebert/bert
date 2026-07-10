@@ -479,6 +479,8 @@ import {
   syncAuditSubmissionToSheet,
 } from "./src/services/complianceSyncService";
 import {
+  buildNonConformanceFromCompletionContext,
+  mergeCompletionNcrsIntoState,
   mergeNonConformancesWithSheet,
   mergeSheetNcrsIntoState,
   ncrSafeErrorMessage,
@@ -2568,7 +2570,7 @@ function getUserAssignedSiteIds(
   if (!user) return null;
   if (role === "Master" || role === "Admin") return null;
   if (Array.isArray(user.companyAreas)) {
-    if (user.companyAreas.length === 0) return new Set();
+    if (user.companyAreas.length === 0) return null;
     return new Set(user.companyAreas);
   }
   if (!areaRestrictionsEnabled) return null;
@@ -2604,7 +2606,11 @@ function filterNonConformancesByAssignedSites(
     sites.filter((s) => allowedSiteIds.has(s.id) && s.active).map((s) => normalizeIdentity(s.name)),
   );
   if (allowedNames.size === 0) return [];
-  return records.filter((r) => allowedNames.has(normalizeIdentity(r.site)));
+  return records.filter((record) => {
+    const site = normalizeIdentity(record.site);
+    if (!site) return true;
+    return allowedNames.has(site);
+  });
 }
 
 function deriveSitesFromWorkspace(audits: Audit[], schedules: ScheduleItem[], managedSchedules: ManagedSchedule[]) {
@@ -12047,6 +12053,40 @@ function App() {
         .filter(([questionId, reference]) => Boolean(questionId && reference)),
     );
 
+    const buildRecord = (
+      reference: string,
+      question: AuditQuestion,
+      answer: Answer,
+      entryAuditId?: string,
+    ): NonConformanceRecord =>
+      buildNonConformanceFromCompletionContext({
+        reference,
+        auditId: audit.id,
+        auditName: audit.name,
+        siteArea: audit.siteArea,
+        questionId: question.id,
+        questionText: question.text,
+        answer,
+        note: noteMap[question.id] || "",
+        auditorName: currentUser.name,
+        auditorUserId: currentUser.username,
+        assignedLineManager: assignedManager.name,
+        assignedLineManagerUserId: managerUserId,
+        assignedLineManagerEmail: assignedManager.email || "",
+        raisedAt,
+        entryAuditId,
+      });
+
+    const rememberCreated = (record: NonConformanceRecord) => {
+      if (
+        nonConformances.some((item) => item.reference === record.reference) ||
+        created.some((item) => item.reference === record.reference)
+      ) {
+        return;
+      }
+      created.push(record);
+    };
+
     for (const question of audit.questions) {
       const answer = responseMap[question.id];
       if (answer !== "fail" && answer !== "nc") {
@@ -12055,6 +12095,9 @@ function App() {
       const serverReference = serverReferencesByQuestion.get(question.id);
       if (serverReference) {
         referenceByQuestionId[question.id] = serverReference;
+        rememberCreated(
+          buildRecord(serverReference, question, answer, String(serverNcrs?.find((entry) => entry.questionId === question.id)?.auditId || "").trim() || undefined),
+        );
         continue;
       }
       const existing = resultId
@@ -12070,30 +12113,8 @@ function App() {
         continue;
       }
       const reference = formatNcrReference(nextSequence++);
-      const record: NonConformanceRecord = {
-        id: `ncr-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        reference,
-        auditId: audit.id,
-        auditName: audit.name,
-        auditQuestionId: question.id,
-        auditQuestion: question.text,
-        selectedAnswer: answer,
-        auditorName: currentUser.name,
-        auditorUserId: currentUser.username,
-        site: audit.siteArea,
-        raisedAt,
-        status: "Raised",
-        assignedLineManager: assignedManager.name,
-        assignedLineManagerUserId: managerUserId,
-        assignedLineManagerEmail: assignedManager.email || "",
-        investigationIsoClause: "",
-        investigationNotes: noteMap[question.id] || "",
-        rootCause: "",
-        correctiveAction: "",
-        investigationExtraNotes: "",
-        evidence: [],
-      };
-      created.push(record);
+      const record = buildRecord(reference, question, answer);
+      rememberCreated(record);
       referenceByQuestionId[question.id] = reference;
     }
 
@@ -12104,44 +12125,21 @@ function App() {
         continue;
       }
       referenceByQuestionId[questionId] = reference;
-      if (
-        nonConformances.some((item) => item.reference === reference) ||
-        created.some((item) => item.reference === reference)
-      ) {
-        continue;
-      }
       const question = audit.questions.find((item) => item.id === questionId);
       const answer = responseMap[questionId];
       if (answer !== "fail" && answer !== "nc") {
         continue;
       }
-      created.push({
-        id: reference,
-        reference,
-        auditId: String(entry.auditId || audit.id).trim() || audit.id,
-        auditName: audit.name,
-        auditQuestionId: questionId,
-        auditQuestion: question?.text || "",
-        selectedAnswer: answer,
-        auditorName: currentUser.name,
-        auditorUserId: currentUser.username,
-        site: audit.siteArea,
-        raisedAt,
-        status: "Raised",
-        assignedLineManager: assignedManager.name,
-        assignedLineManagerUserId: managerUserId,
-        assignedLineManagerEmail: assignedManager.email || "",
-        investigationIsoClause: "",
-        investigationNotes: noteMap[questionId] || "",
-        rootCause: "",
-        correctiveAction: "",
-        investigationExtraNotes: "",
-        evidence: [],
-      });
+      if (!question) {
+        continue;
+      }
+      rememberCreated(
+        buildRecord(reference, question, answer, String(entry.auditId || "").trim() || undefined),
+      );
     }
 
     if (created.length > 0) {
-      setNonConformances((current) => [...created, ...current]);
+      setNonConformances((current) => mergeCompletionNcrsIntoState(current, created));
       if (!skipWorkbookPersist) {
         void persistCreatedNcrs(created, { resultId, localSubmissionId });
       }
@@ -12737,7 +12735,7 @@ function App() {
           responseMap: syncedResponses,
           noteMap: mergedNotes,
           resultId: result.resultId,
-          localSubmissionId: `check-${activeAudit.id}-${Date.now()}`,
+          localSubmissionId,
           skipWorkbookPersist: true,
           serverNcrs: result.ncrs,
         });

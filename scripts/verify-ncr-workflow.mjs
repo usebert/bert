@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import {
   buildNcrWorkbookRow,
   isNcrFindingAnswer,
+  mapNcrWorkbookRowToClient,
   ncrWorkbookRowIsOpen,
   NCR_TAB,
   NCR_TAB_COLUMNS,
@@ -146,6 +147,100 @@ assert(clientNcrService.includes("NCR_DUPLICATE_SKIPPED"), "16d: duplicate skip 
 assert(appTsx.includes("skipWorkbookPersist: true"), "17: online submit avoids duplicate client workbook writes");
 assert(appTsx.includes("serverNcrs: result.ncrs"), "18: offline sync merges server NCRs");
 assert(ncrService.includes("findingKey"), "19: server dedupes by audit/question/result");
+
+assert(clientNcrService.includes("mergeCompletionNcrsIntoState"), "21: immediate post-submit NCR merge helper");
+assert(clientNcrService.includes("buildNonConformanceFromCompletionContext"), "21b: completion NCR record builder");
+assert(clientNcrService.includes("summarizeNcrVisibilityPipeline"), "21c: safe NCR visibility diagnostics");
+assert(appTsx.includes("mergeCompletionNcrsIntoState"), "21d: App merges completion NCRs into state");
+assert(appTsx.includes("user.companyAreas.length === 0) return null"), "21e: blank companyAreas means all-site access");
+assert(appTsx.includes("if (!site) return true"), "21f: blank NCR site stays visible for scoped managers");
+assert(nonConformanceScreen.includes("auditorIdentityTokens"), "21g: auditor NCR list matches email or username");
+assert(routes.includes("ncrs: result.ncrs || []"), "21h: completion route returns ncrs array");
+
+{
+  const auditRow = buildNcrWorkbookRow({
+    reference: "NCR-0042",
+    companyFolderId: CO,
+    auditId: "dc-hs-audit",
+    auditName: "DC H&S Audit",
+    questionId: "q-google-form",
+    questionText: "",
+    answer: "nc",
+    note: "Complete linked Google Form",
+    site: "",
+    auditorName: "Alex",
+    auditorUserId: "alex@test.co",
+    status: "Open",
+    resultId: "result-1",
+    localSubmissionId: "local-1",
+  });
+  assert(auditRow["Source Audit ID"] === "dc-hs-audit", "22: workbook NCR has source audit id");
+  assert(auditRow["Source Question ID"] === "q-google-form", "22b: workbook NCR has source question id");
+  assert(auditRow.Status === "Open", "22c: workbook NCR status Open");
+  assert(auditRow.Archived === "false", "22d: workbook NCR archived false by default");
+
+  const mapped = mapNcrWorkbookRowToClient(auditRow, CO);
+  assert(mapped.reference === "NCR-0042", "23: mapped client NCR has reference");
+  assert(mapped.auditQuestion === "DC H&S Audit - Complete linked Google Form", "23b: title fallback from audit + note");
+  assert(mapped.status === "Raised", "23c: Open maps to Raised for UI");
+
+  const blankStatusRow = buildNcrWorkbookRow({
+    reference: "NCR-0043",
+    companyFolderId: CO,
+    auditId: "audit-2",
+    auditName: "Walk",
+    questionId: "q2",
+    questionText: "Exit clear?",
+    answer: "fail",
+    status: "",
+  });
+  const blankStatusMapped = mapNcrWorkbookRowToClient(blankStatusRow, CO);
+  assert(blankStatusMapped.status === "Raised", "24: blank status defaults to Raised");
+
+  const archivedRow = buildNcrWorkbookRow({
+    reference: "NCR-0099",
+    companyFolderId: CO,
+    auditId: "audit-3",
+    auditName: "Walk",
+    questionId: "q3",
+    questionText: "Old issue",
+    answer: "nc",
+    archived: "true",
+  });
+  assert(isWorkbookRowArchived(archivedRow, "ncr"), "25: archived workbook NCR hidden from active lists");
+}
+
+function filterNcrsLikeApp(records, allowedSiteIds, sites) {
+  if (!allowedSiteIds) return records;
+  const allowedNames = new Set(
+    sites
+      .filter((site) => allowedSiteIds.has(site.id) && site.active)
+      .map((site) => site.name.trim().toLowerCase().replace(/\s+/g, " ")),
+  );
+  if (allowedNames.size === 0) return [];
+  return records.filter((record) => {
+    const site = String(record.site || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+    if (!site) return true;
+    return allowedNames.has(site);
+  });
+}
+
+{
+  const sites = [
+    { id: "site-yard", name: "Yard", active: true },
+    { id: "site-office", name: "Office", active: true },
+  ];
+  const records = [
+    { reference: "NCR-0100", site: "Yard" },
+    { reference: "NCR-0101", site: "" },
+  ];
+  const scoped = filterNcrsLikeApp(records, new Set(["site-yard"]), sites);
+  assert(scoped.length === 2, "26: blank-site NCR visible to scoped manager");
+  assert(scoped.some((item) => item.reference === "NCR-0101"), "26b: blank-site NCR included");
+}
 
 assert(JSON.parse(read("package.json")).scripts["verify:ncr-workflow"], "20: verify script registered");
 

@@ -15,6 +15,10 @@ function parseNcrSequence(reference: string) {
   return Number.isFinite(value) ? value : null;
 }
 
+function normalizeAuditorIdentity(value: string) {
+  return value.trim().toLowerCase();
+}
+
 export function NonConformanceScreen({
   currentUser,
   nonConformances,
@@ -31,6 +35,19 @@ export function NonConformanceScreen({
   onArchiveSuccess,
 }: NonConformanceScreenProps) {
   const canArchiveNcr = canArchiveRecordFromClient(currentUser.role, "ncr");
+  const auditorIdentityTokens = useMemo(() => {
+    const tokens = new Set<string>();
+    [currentUser.username, currentUser.name, currentUser.email].forEach((value) => {
+      const normalized = normalizeAuditorIdentity(String(value || ""));
+      if (normalized) {
+        tokens.add(normalized);
+      }
+      if (normalized.includes("@")) {
+        tokens.add(normalized.split("@")[0] || "");
+      }
+    });
+    return tokens;
+  }, [currentUser.email, currentUser.name, currentUser.username]);
   const visible = useMemo(() => {
     const byRef = [...nonConformances].sort((a, b) => {
       const left = parseNcrSequence(a.reference) || 0;
@@ -38,10 +55,14 @@ export function NonConformanceScreen({
       return left - right;
     });
     if (canCompleteAuditAsAuditor(currentUser.role)) {
-      return byRef.filter((item) => item.auditorUserId === currentUser.username);
+      return byRef.filter((item) => {
+        const auditorId = normalizeAuditorIdentity(item.auditorUserId);
+        const auditorName = normalizeAuditorIdentity(item.auditorName);
+        return auditorIdentityTokens.has(auditorId) || auditorIdentityTokens.has(auditorName);
+      });
     }
     return byRef;
-  }, [nonConformances, currentUser]);
+  }, [auditorIdentityTokens, nonConformances, currentUser.role]);
   const [selectedId, setSelectedId] = useState<string>("");
   const [isoClause, setIsoClause] = useState("");
   const [investigationNotes, setInvestigationNotes] = useState("");

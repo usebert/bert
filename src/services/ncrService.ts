@@ -40,10 +40,37 @@ function normalizeClientNcrStatus(status: string): NonConformanceRecord["status"
   if (normalized === "in progress" || normalized === "in_progress") {
     return "In Progress";
   }
-  if (normalized === "open" || normalized === "raised" || normalized === "logged" || normalized === "pending") {
+  if (
+    !normalized ||
+    normalized === "open" ||
+    normalized === "raised" ||
+    normalized === "logged" ||
+    normalized === "pending"
+  ) {
     return "Raised";
   }
   return "Raised";
+}
+
+function deriveNcrQuestionLabel(
+  record: Record<string, string>,
+  auditName = "",
+  questionText = "",
+  description = "",
+): string {
+  const trimmedQuestion = questionText.trim();
+  if (trimmedQuestion) {
+    return trimmedQuestion;
+  }
+  const trimmedAudit = auditName.trim() || pickField(record, ["Source Audit Name", "Audit Name"]);
+  const trimmedDescription = description.trim() || pickField(record, ["Description"]);
+  if (trimmedAudit && trimmedDescription) {
+    return `${trimmedAudit} - ${trimmedDescription}`;
+  }
+  if (trimmedAudit) {
+    return trimmedAudit;
+  }
+  return trimmedDescription;
 }
 
 export function parseCompanySheetNcrs(
@@ -69,19 +96,22 @@ export function parseCompanySheetNcrs(
         return null;
       }
       const answer = pickField(record, ["Selected Answer", "Answer"]).toLowerCase();
+      const auditName = pickField(record, ["Source Audit Name", "Audit Name"]);
+      const questionText = pickField(record, ["Source Question Text", "Title"]);
+      const description = pickField(record, ["Description"]);
       return {
         id: pickField(record, ["NCR ID"]) || reference,
         reference,
         auditId: pickField(record, ["Source Audit ID", "Audit ID"]),
-        auditName: pickField(record, ["Source Audit Name", "Audit Name"]),
+        auditName,
         auditQuestionId: pickField(record, ["Source Question ID", "Question ID"]),
-        auditQuestion: pickField(record, ["Source Question Text", "Title"]) || pickField(record, ["Description"]),
+        auditQuestion: deriveNcrQuestionLabel(record, auditName, questionText, description),
         selectedAnswer: (answer === "fail" || answer === "nc" ? answer : "nc") as Answer,
         auditorName: pickField(record, ["Auditor Name", "Created By"]),
         auditorUserId: pickField(record, ["Auditor User ID", "Created By"]),
         site: pickField(record, ["Site", "Location"]),
         raisedAt: pickField(record, ["Raised At", "Created At"]),
-        status: normalizeClientNcrStatus(pickField(record, ["Status"]) || "Raised"),
+        status: normalizeClientNcrStatus(pickField(record, ["Status"]) || "Open"),
         assignedLineManager: pickField(record, ["Assigned Line Manager"]),
         assignedLineManagerUserId: pickField(record, ["Assigned Line Manager User ID"]),
         assignedLineManagerEmail: pickField(record, ["Assigned Line Manager Email"]),
@@ -114,6 +144,90 @@ export function mergeSheetNcrsIntoState(
     (item) => !fromSheet.some((sheetItem) => sheetItem.reference === item.reference),
   );
   return mergeNonConformancesWithSheet(localForFolder, fromSheet);
+}
+
+export type BuildCompletionNcrContext = {
+  auditId: string;
+  auditName: string;
+  siteArea?: string;
+  questionId: string;
+  questionText?: string;
+  answer: Answer;
+  note?: string;
+  auditorName: string;
+  auditorUserId: string;
+  assignedLineManager: string;
+  assignedLineManagerUserId: string;
+  assignedLineManagerEmail: string;
+  raisedAt: string;
+  reference: string;
+  entryAuditId?: string;
+};
+
+export function buildNonConformanceFromCompletionContext(
+  context: BuildCompletionNcrContext,
+): NonConformanceRecord {
+  const note = String(context.note || "").trim();
+  const questionText = String(context.questionText || "").trim();
+  return {
+    id: context.reference,
+    reference: context.reference,
+    auditId: String(context.entryAuditId || context.auditId).trim() || context.auditId,
+    auditName: context.auditName,
+    auditQuestionId: context.questionId,
+    auditQuestion:
+      questionText || (context.auditName ? `${context.auditName}${note ? ` - ${note}` : ""}` : note),
+    selectedAnswer: context.answer,
+    auditorName: context.auditorName,
+    auditorUserId: context.auditorUserId,
+    site: context.siteArea || "",
+    raisedAt: context.raisedAt,
+    status: "Raised",
+    assignedLineManager: context.assignedLineManager,
+    assignedLineManagerUserId: context.assignedLineManagerUserId,
+    assignedLineManagerEmail: context.assignedLineManagerEmail,
+    investigationIsoClause: "",
+    investigationNotes: note,
+    rootCause: "",
+    correctiveAction: "",
+    investigationExtraNotes: "",
+    evidence: [],
+  };
+}
+
+export function mergeCompletionNcrsIntoState(
+  current: NonConformanceRecord[],
+  records: NonConformanceRecord[],
+): NonConformanceRecord[] {
+  if (records.length === 0) {
+    return current;
+  }
+  const existingReferences = new Set(current.map((item) => item.reference));
+  const next = [...current];
+  for (const record of records) {
+    if (!record.reference || existingReferences.has(record.reference)) {
+      continue;
+    }
+    next.unshift(record);
+    existingReferences.add(record.reference);
+  }
+  return next.sort((left, right) => right.raisedAt.localeCompare(left.raisedAt));
+}
+
+/** Verifier/dev helper — safe counts only, no row payloads. */
+export function summarizeNcrVisibilityPipeline(input: {
+  sheetRecords: Record<string, string>[];
+  companyFolderId: string;
+  merged: NonConformanceRecord[];
+  visible: NonConformanceRecord[];
+}) {
+  const parsedFromSheet = parseCompanySheetNcrs(input.sheetRecords, input.companyFolderId);
+  return {
+    sheetRowCount: input.sheetRecords.length,
+    parsedFromSheetCount: parsedFromSheet.length,
+    mergedStateCount: input.merged.length,
+    visibleAfterFilterCount: input.visible.length,
+  };
 }
 
 export function resolveNcrCompletionOutcome(input: {
