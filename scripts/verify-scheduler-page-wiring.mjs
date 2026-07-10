@@ -63,24 +63,34 @@ assert(!schedulesScreen.includes("No available auditors"), "4e: no auditor-only 
 assert(!appTsx.includes("findPendingAssigneeInvites"), "5: pending invites not merged into assignees");
 assert(!appTsx.includes("buildAvailableScheduleAuditors("), "5b: no auditor-only assignee builder in App");
 
-/** 6: Edit scrolls to the schedule builder form. */
+/** 6: Edit scrolls to the schedule builder form inside the app scroll stage. */
 assert(schedulesScreen.includes("onOpenSchedule(schedule.id)"), "6: Edit button opens selected schedule");
 assert(
-  /onOpenSchedule\(schedule\.id\);\s*setPendingBuilderScroll\(true\)/.test(schedulesScreen),
-  "6b: Edit action triggers scroll to edit section",
+  /onOpenSchedule\(schedule\.id\);\s*requestScrollToEditPanel\(\)/.test(schedulesScreen),
+  "6b: Edit action sets pending scroll flag via requestScrollToEditPanel",
 );
-assert(schedulesScreen.includes('data-testid="schedule-edit-form"'), "6c: edit form has stable test id");
-assert(schedulesScreen.includes('id="schedule-builder"'), "6d: edit form container has stable id/ref target");
-assert(schedulesScreen.includes("scheduleBuilderRef"), "6e: edit form container has ref");
-assert(schedulesScreen.includes('scrollIntoView({ behavior: "smooth", block: "start" })'), "6f: smooth scroll into view");
-assert(schedulesScreen.includes("onSave") && schedulesScreen.includes("onCancel"), "6g: Save/cancel still wired");
+assert(schedulesScreen.includes("shouldScrollToEditRef"), "6b2: pending scroll uses shouldScrollToEditRef");
+assert(schedulesScreen.includes('data-testid="schedule-edit-panel"'), "6c: visible edit panel has data-testid");
+assert(schedulesScreen.includes('SCHEDULE_EDIT_PANEL_ID = "schedule-edit-panel"'), "6d: stable schedule-edit-panel id");
+assert(schedulesScreen.includes("editPanelRef"), "6e: ref attached to visible edit panel");
+assert(schedulesScreen.includes("ref={editPanelRef}"), "6e2: editPanelRef bound on visible panel");
+assert(schedulesScreen.includes("findScheduleScrollContainer"), "6f: correct scroll container helper used");
+assert(schedulesScreen.includes('closest(".qms-screen-stage")'), "6f2: prefers .qms-screen-stage scroll container");
+assert(schedulesScreen.includes("scrollScheduleEditPanelIntoView"), "6f3: scrolls panel into container view");
+assert(schedulesScreen.includes("container.scrollTo"), "6f4: nested container scrollTo used");
 assert(
-  (schedulesScreen.match(/id="schedule-builder"/g) || []).length === 1,
-  "6h: no duplicate edit form containers",
+  schedulesScreen.includes("editingSchedule?.id") && schedulesScreen.includes("editScrollNonce"),
+  "6g: scroll runs after editing schedule state / scroll request",
+);
+assert(schedulesScreen.includes("focus({ preventScroll: true })"), "6h: focus does not steal scroll");
+assert(schedulesScreen.includes("onSave") && schedulesScreen.includes("onCancel"), "6i: Save/cancel still wired");
+assert(
+  (schedulesScreen.match(/data-testid="schedule-edit-panel"/g) || []).length === 1,
+  "6j: single schedule-edit-panel test id",
 );
 assert(
-  (schedulesScreen.match(/data-testid="schedule-edit-form"/g) || []).length === 1,
-  "6i: single schedule-edit-form test id",
+  (schedulesScreen.match(/id=\{SCHEDULE_EDIT_PANEL_ID\}/g) || []).length === 1,
+  "6k: no duplicate edit panel ids",
 );
 
 console.log(`[verify:scheduler-page-wiring] OK — ${caseCount} cases passed`);

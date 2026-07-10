@@ -23,6 +23,41 @@ import { darkPanelBody, darkPanelEyebrow, darkPanelShell, darkPanelTitleLg } fro
 import { ArchiveRecordButton } from "../components/archive/ArchiveRecordButton";
 
 const amberThresholdHours = 2;
+const SCHEDULE_EDIT_PANEL_ID = "schedule-edit-panel";
+const SCHEDULE_EDIT_SCROLL_OFFSET_PX = 16;
+
+/** App shell scrolls inside `.qms-screen-stage`, not the window — scroll that container. */
+function findScheduleScrollContainer(from: HTMLElement): HTMLElement {
+  const stage = from.closest(".qms-screen-stage");
+  if (stage instanceof HTMLElement) {
+    return stage;
+  }
+  let parent: HTMLElement | null = from.parentElement;
+  while (parent) {
+    const style = window.getComputedStyle(parent);
+    const overflowY = style.overflowY;
+    if (
+      (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") &&
+      parent.scrollHeight > parent.clientHeight + 1
+    ) {
+      return parent;
+    }
+    parent = parent.parentElement;
+  }
+  return (document.scrollingElement as HTMLElement) || document.documentElement;
+}
+
+function scrollScheduleEditPanelIntoView(panel: HTMLElement) {
+  const container = findScheduleScrollContainer(panel);
+  if (container === document.scrollingElement || container === document.documentElement || container === document.body) {
+    panel.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  const containerRect = container.getBoundingClientRect();
+  const panelRect = panel.getBoundingClientRect();
+  const nextTop = container.scrollTop + (panelRect.top - containerRect.top) - SCHEDULE_EDIT_SCROLL_OFFSET_PX;
+  container.scrollTo({ top: Math.max(0, nextTop), behavior: "smooth" });
+}
 
 const scheduleDayOptions: ScheduleDay[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const scheduleFrequencyOptions: ScheduleFrequency[] = ["Daily", "Weekly", "Bi-Weekly", "Monthly"];
@@ -302,53 +337,74 @@ export function SchedulesScreen({
   onArchiveSuccess?: () => void;
 }) {
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
-  const [pendingBuilderScroll, setPendingBuilderScroll] = useState(false);
-  const scheduleBuilderRef = useRef<HTMLElement | null>(null);
+  const [editScrollNonce, setEditScrollNonce] = useState(0);
+  const shouldScrollToEditRef = useRef(false);
+  const editPanelRef = useRef<HTMLElement | null>(null);
   const nameError = validationAttempted && !scheduleName.trim();
   const auditsError = validationAttempted && scheduleAudits.length === 0;
   const startDateError = validationAttempted && !startDate;
   const auditorsError = validationAttempted && selectedAuditors.length === 0;
 
+  const requestScrollToEditPanel = () => {
+    shouldScrollToEditRef.current = true;
+    setEditScrollNonce((value) => value + 1);
+  };
+
   useEffect(() => {
-    if (!editorOpen || !pendingBuilderScroll) {
+    if (!editorOpen || !shouldScrollToEditRef.current) {
       return;
     }
+
     let cancelled = false;
-    let attempts = 0;
-    const scrollToBuilder = () => {
-      if (cancelled) {
-        return;
-      }
-      const element = document.getElementById("schedule-builder") || scheduleBuilderRef.current;
-      if (element) {
-        element.scrollIntoView({ behavior: "smooth", block: "start" });
-        const firstField = document.getElementById("schedule-builder-name");
-        const heading = document.getElementById("schedule-builder-heading");
-        window.setTimeout(() => {
-          if (cancelled) return;
-          if (firstField && typeof firstField.focus === "function") {
-            firstField.focus({ preventScroll: true });
-          } else if (heading && typeof heading.focus === "function") {
-            heading.focus({ preventScroll: true });
-          }
-        }, 120);
-        setPendingBuilderScroll(false);
-        return;
-      }
-      attempts += 1;
-      if (attempts < 8) {
-        requestAnimationFrame(scrollToBuilder);
-      } else {
-        setPendingBuilderScroll(false);
-      }
+    let attempt = 0;
+    const timers: number[] = [];
+
+    const finishFocus = (panel: HTMLElement) => {
+      const firstField = panel.querySelector<HTMLElement>("#schedule-builder-name, input, select, textarea");
+      const heading = panel.querySelector<HTMLElement>("#schedule-edit-panel-heading");
+      window.setTimeout(() => {
+        if (cancelled) return;
+        if (firstField && typeof firstField.focus === "function") {
+          firstField.focus({ preventScroll: true });
+        } else if (heading && typeof heading.focus === "function") {
+          heading.focus({ preventScroll: true });
+        }
+      }, 180);
     };
-    requestAnimationFrame(() => {
-      requestAnimationFrame(scrollToBuilder);
-    });
+
+    const tryScroll = () => {
+      if (cancelled) return;
+      const panel =
+        editPanelRef.current ||
+        (document.getElementById(SCHEDULE_EDIT_PANEL_ID) as HTMLElement | null);
+      if (!panel) {
+        attempt += 1;
+        if (attempt < 12) {
+          timers.push(window.setTimeout(tryScroll, 32));
+        }
+        return;
+      }
+      shouldScrollToEditRef.current = false;
+      scrollScheduleEditPanelIntoView(panel);
+      finishFocus(panel);
+    };
+
+    // Wait for parent edit state + panel mount/layout inside .qms-screen-stage.
+    timers.push(
+      window.setTimeout(() => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(tryScroll);
+        });
+      }, 0),
+    );
+
     return () => {
       cancelled = true;
+      for (const timer of timers) {
+        window.clearTimeout(timer);
+      }
     };
-  }, [editorOpen, pendingBuilderScroll]);
+  }, [editorOpen, editingSchedule?.id, editScrollNonce]);
 
   return (
     <div className="space-y-4">
@@ -369,7 +425,7 @@ export function SchedulesScreen({
           <button
             onClick={() => {
               onOpenNew();
-              setPendingBuilderScroll(true);
+              requestScrollToEditPanel();
             }}
             disabled={companyActionsBlocked}
             title={companyActionsBlocked ? companyActionsBlockedMessage : undefined}
@@ -460,7 +516,7 @@ export function SchedulesScreen({
                     <button
                       onClick={() => {
                         onOpenSchedule(schedule.id);
-                        setPendingBuilderScroll(true);
+                        requestScrollToEditPanel();
                       }}
                       className={`rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white ${slatePrimaryCtaInteract}`}
                     >
@@ -512,14 +568,14 @@ export function SchedulesScreen({
 
       {editorOpen && (
         <section
-          ref={scheduleBuilderRef}
-          id="schedule-builder"
-          data-testid="schedule-edit-form"
+          ref={editPanelRef}
+          id={SCHEDULE_EDIT_PANEL_ID}
+          data-testid="schedule-edit-panel"
           tabIndex={-1}
-          className="scroll-mt-24 rounded-[1.75rem] border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)] outline-none"
+          className="scroll-mt-6 rounded-[1.75rem] border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)] outline-none"
         >
           <h3
-            id="schedule-builder-heading"
+            id="schedule-edit-panel-heading"
             tabIndex={-1}
             className="sr-only outline-none"
           >
