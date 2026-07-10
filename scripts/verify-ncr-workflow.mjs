@@ -169,7 +169,72 @@ assert(appTsx.includes("evidenceMap: evidence"), "21r: online submit passes evid
 assert(appTsx.includes("evidenceRefs: result.evidenceRefs"), "21s: online submit merges returned evidence refs");
 assert(nonConformanceScreen.includes("NCR_EVIDENCE_PENDING_MESSAGE"), "21t: NCR detail shows pending evidence state");
 assert(nonConformanceScreen.includes("Open evidence"), "21u: NCR detail links uploaded evidence");
-assert(appTsx.includes("CHECK_EVIDENCE_STILL_UPLOADING_MESSAGE"), "21v: success screen can show evidence still uploading");
+assert(clientNcrService.includes("collectNcrEvidenceFromSources"), "21w: collect NCR evidence with check-level fallback");
+assert(clientNcrService.includes("fallbackToAll"), "21x: evidence filter supports check-level fallback");
+assert(appTsx.includes("collectNcrEvidenceFromSources"), "21y: App uses shared NCR evidence collector");
+assert(nonConformanceScreen.includes("NCR_EVIDENCE_PENDING_MESSAGE"), "21z: pending evidence visible in NCR detail");
+
+{
+  const pendingOnly = buildNcrWorkbookRow({
+    reference: "NCR-0300",
+    companyFolderId: CO,
+    auditId: "dc-hs-audit",
+    auditName: "DC H&S Audit",
+    questionId: "q-fail",
+    questionText: "Fire exit clear?",
+    answer: "fail",
+    note: "pooppoo",
+    resultId: "result-pending-1",
+    evidenceRefs: [
+      {
+        evidenceId: "ev-pending-1",
+        questionId: "q-other",
+        name: "photo-1.jpg",
+      },
+    ],
+  });
+  assert(pendingOnly["Evidence Count"] === "1", "29: check-level evidence fallback attaches photo to NCR");
+  assert(pendingOnly["Evidence Refs"].includes("ev-pending-1"), "29b: pending evidence metadata stored on NCR row");
+  assert(pendingOnly["Evidence Refs"].startsWith("'"), "29c: Evidence Refs JSON protected from Sheets mangling");
+  const mappedPending = mapNcrWorkbookRowToClient(pendingOnly, CO);
+  assert(mappedPending.evidence.length === 1, "29d: fresh NCR does not render as 0 evidence");
+  assert(mappedPending.evidence[0].uploadStatus === "pending", "29e: NCR detail shows pending before Drive upload");
+  assert(mappedPending.investigationNotes === "pooppoo", "29f: note/description preserved with evidence");
+
+  const uploaded = buildNcrWorkbookRow({
+    reference: "NCR-0301",
+    companyFolderId: CO,
+    auditId: "dc-hs-audit",
+    auditName: "DC H&S Audit",
+    questionId: "q-fail",
+    questionText: "Fire exit clear?",
+    answer: "fail",
+    evidenceRefs: [
+      {
+        evidenceId: "ev-up-1",
+        questionId: "q-fail",
+        name: "photo-1.jpg",
+        driveLink: "https://drive.google.com/file/d/xyz/view",
+        driveFileId: "xyz",
+      },
+    ],
+  });
+  const mappedUploaded = mapNcrWorkbookRowToClient(uploaded, CO);
+  assert(mappedUploaded.evidence[0].previewUrl.includes("drive.google.com"), "30: Drive evidence shown after upload/backfill");
+
+  const countOnly = {
+    "NCR ID": "NCR-0302",
+    Reference: "NCR-0302",
+    "Company Folder ID": CO,
+    Status: "Open",
+    "Evidence Count": "2",
+    "Evidence Refs": "",
+    "Source Question ID": "q1",
+  };
+  const mappedCountOnly = mapNcrWorkbookRowToClient(countOnly, CO);
+  assert(mappedCountOnly.evidence.length === 2, "31: Evidence Count alone creates pending evidence stubs");
+  assert(mappedCountOnly.evidence.every((item) => item.uploadStatus === "pending"), "31b: count-only stubs are pending");
+}
 
 {
   const withEvidence = buildNcrWorkbookRow({
@@ -200,7 +265,7 @@ assert(appTsx.includes("CHECK_EVIDENCE_STILL_UPLOADING_MESSAGE"), "21v: success 
   });
   assert(withEvidence["Evidence Count"] === "1", "27: NCR row stores only question-scoped evidence count");
   assert(withEvidence["Evidence Refs"].includes("ev-1"), "27b: NCR Evidence Refs includes matching photo");
-  assert(!withEvidence["Evidence Refs"].includes("ev-other"), "27c: NCR Evidence Refs excludes other question photos");
+  assert(!withEvidence["Evidence Refs"].includes("ev-other"), "27c: NCR Evidence Refs excludes other question photos when match exists");
   const mappedEvidence = mapNcrWorkbookRowToClient(withEvidence, CO);
   assert(mappedEvidence.evidence.length === 1, "27d: mapped NCR evidence count > 0");
   assert(mappedEvidence.evidence[0].previewUrl.includes("drive.google.com"), "27e: mapped NCR evidence has Drive link");

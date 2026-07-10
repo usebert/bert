@@ -123,28 +123,43 @@ export function sanitizeNcrEvidenceRefs(evidenceRefs) {
     .filter((item) => item.evidenceId);
 }
 
-export function filterEvidenceRefsForQuestion(evidenceRefs, questionId) {
+export function filterEvidenceRefsForQuestion(evidenceRefs, questionId, options = {}) {
   const target = trim(questionId);
   const items = sanitizeNcrEvidenceRefs(evidenceRefs);
   if (!target) {
     return items;
   }
   const matched = items.filter((item) => trim(item.questionId) === target);
-  // If refs exist but none are question-scoped (legacy), keep them for the NCR.
-  return matched.length > 0 ? matched : items.filter((item) => !trim(item.questionId));
+  if (matched.length > 0) {
+    return matched;
+  }
+  const unscoped = items.filter((item) => !trim(item.questionId));
+  if (unscoped.length > 0) {
+    return unscoped;
+  }
+  // Check-level fallback: photo may be on another question or IDs may not match exactly.
+  if (options.fallbackToAll !== false && items.length > 0) {
+    return items;
+  }
+  return [];
 }
 
 export function serializeNcrEvidenceRefs(evidenceRefs) {
-  return JSON.stringify(sanitizeNcrEvidenceRefs(evidenceRefs));
+  const json = JSON.stringify(sanitizeNcrEvidenceRefs(evidenceRefs));
+  // Prefix so Sheets USER_ENTERED does not mangle JSON arrays/objects.
+  return json ? `'${json}` : "'[]";
 }
 
 export function parseNcrEvidenceRefs(raw) {
   if (Array.isArray(raw)) {
     return sanitizeNcrEvidenceRefs(raw);
   }
-  const text = trim(raw);
+  let text = trim(raw);
   if (!text) {
     return [];
+  }
+  if (text.startsWith("'")) {
+    text = text.slice(1);
   }
   try {
     const parsed = JSON.parse(text);
@@ -177,18 +192,43 @@ export function ncrEvidenceRefsToClientEvidence(evidenceRefs = []) {
 
 export function mergeNcrEvidenceLists(primary = [], secondary = []) {
   const merged = [];
-  const seen = new Set();
+  const seen = new Map();
   for (const item of [...(Array.isArray(primary) ? primary : []), ...(Array.isArray(secondary) ? secondary : [])]) {
     if (!item || typeof item !== "object") {
       continue;
     }
     const id = trim(item.id || item.evidenceId);
     const key = id || `${trim(item.name)}::${trim(item.previewUrl || item.driveLink)}`;
-    if (!key || seen.has(key)) {
+    if (!key) {
       continue;
     }
-    seen.add(key);
-    merged.push(item);
+    const existing = seen.get(key);
+    if (!existing) {
+      seen.set(key, item);
+      merged.push(item);
+      continue;
+    }
+    const richer = {
+      ...existing,
+      ...item,
+      previewUrl: trim(item.previewUrl) || trim(existing.previewUrl) || "",
+      driveLink: trim(item.driveLink) || trim(existing.driveLink) || undefined,
+      driveFileId: trim(item.driveFileId) || trim(existing.driveFileId) || undefined,
+      name: trim(item.name) || trim(existing.name) || "Evidence file",
+      uploadStatus:
+        item.uploadStatus === "uploaded" || existing.uploadStatus === "uploaded"
+          ? "uploaded"
+          : item.uploadStatus || existing.uploadStatus || "pending",
+    };
+    seen.set(key, richer);
+    const index = merged.findIndex((entry) => {
+      const entryId = trim(entry.id || entry.evidenceId);
+      const entryKey = entryId || `${trim(entry.name)}::${trim(entry.previewUrl || entry.driveLink)}`;
+      return entryKey === key;
+    });
+    if (index >= 0) {
+      merged[index] = richer;
+    }
   }
   return merged;
 }
@@ -202,7 +242,9 @@ export function buildNcrWorkbookRow(input = {}) {
   const questionText = trim(input.questionText || input.title);
   const note = trim(input.note || input.description);
   const questionId = trim(input.questionId);
-  const evidenceRefs = filterEvidenceRefsForQuestion(input.evidenceRefs ?? input.evidence, questionId);
+  const evidenceRefs = filterEvidenceRefsForQuestion(input.evidenceRefs ?? input.evidence, questionId, {
+    fallbackToAll: input.fallbackEvidenceToAll !== false,
+  });
 
   return {
     "NCR ID": ncrId,
@@ -251,7 +293,19 @@ export function mapNcrWorkbookRowToClient(record = {}, companyFolderId = "") {
   const evidenceRefs = filterEvidenceRefsForQuestion(
     parseNcrEvidenceRefs(pickField(record, ["Evidence Refs", "EvidenceRefs"])),
     questionId,
+    { fallbackToAll: true },
   );
+  let evidence = ncrEvidenceRefsToClientEvidence(evidenceRefs);
+  const evidenceCountRaw = Number(pickField(record, ["Evidence Count", "EvidenceCount"]) || 0);
+  if (evidence.length === 0 && Number.isFinite(evidenceCountRaw) && evidenceCountRaw > 0) {
+    evidence = Array.from({ length: evidenceCountRaw }, (_, index) => ({
+      id: `${reference || "ncr"}-pending-${index + 1}`,
+      name: `Evidence ${index + 1}`,
+      previewUrl: "",
+      addedAt: "",
+      uploadStatus: "pending",
+    }));
+  }
   return {
     id: pickField(record, ["NCR ID"]) || reference || `ncr-${Math.random().toString(36).slice(2, 9)}`,
     reference,
@@ -273,7 +327,14 @@ export function mapNcrWorkbookRowToClient(record = {}, companyFolderId = "") {
     rootCause: "",
     correctiveAction: "",
     investigationExtraNotes: "",
-    evidence: ncrEvidenceRefsToClientEvidence(evidenceRefs),
+    evidence,
+    evidenceUploadStatus: evidence.some((item) => item.uploadStatus === "pending" || !item.previewUrl)
+      ? evidence.every((item) => item.previewUrl || item.driveLink || item.driveFileId)
+        ? "uploaded"
+        : "pending"
+      : evidence.length > 0
+        ? "uploaded"
+        : "none",
     resultId: pickField(record, ["Result ID", "Source Result ID"]),
     companyFolderId: pickField(record, ["Company Folder ID", "Company ID"]) || companyFolderId,
   };

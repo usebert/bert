@@ -149,10 +149,12 @@ export function NonConformanceScreen({
             <p className="mt-1 text-xs text-slate-500">
               {(selected.evidence || []).length} evidence file(s)
             </p>
-            {selected.evidenceUploadStatus === "pending" ? (
+            {selected.evidenceUploadStatus === "pending" ||
+            (selected.evidence || []).some((item) => item.uploadStatus === "pending" || !evidencePreviewUrl(item)) ? (
               <p className="mt-1 text-xs font-semibold text-amber-800">{NCR_EVIDENCE_PENDING_MESSAGE}</p>
             ) : null}
-            {selected.evidenceUploadStatus === "failed" ? (
+            {selected.evidenceUploadStatus === "failed" ||
+            (selected.evidence || []).some((item) => item.uploadStatus === "failed") ? (
               <p className="mt-1 text-xs font-semibold text-amber-800">{NCR_EVIDENCE_FAILED_MESSAGE}</p>
             ) : null}
             {(selected.evidence || []).length > 0 ? (
@@ -164,10 +166,15 @@ export function NonConformanceScreen({
                     (/\.(png|jpe?g|webp|gif|bmp|heic|heif)$/i.test(item.name) ||
                       String(item.mimeType || "").startsWith("image/") ||
                       url.startsWith("blob:"));
+                  const pending = !url || item.uploadStatus === "pending";
                   return (
                     <div key={item.id || item.name} className="rounded-xl border border-slate-200 bg-slate-50 p-2">
                       {isImage && url ? (
                         <img src={url} alt={item.name} className="h-24 w-full rounded-lg object-cover" />
+                      ) : pending ? (
+                        <div className="flex h-24 items-center justify-center rounded-lg bg-amber-50 text-center text-[11px] font-semibold text-amber-900">
+                          {NCR_EVIDENCE_PENDING_MESSAGE}
+                        </div>
                       ) : null}
                       <p className="mt-1 truncate text-xs font-medium text-slate-700">{item.name || "Evidence file"}</p>
                       {url && !url.startsWith("blob:") ? (
@@ -179,9 +186,6 @@ export function NonConformanceScreen({
                         >
                           Open evidence
                         </a>
-                      ) : null}
-                      {!url ? (
-                        <p className="mt-1 text-[11px] font-semibold text-amber-800">{NCR_EVIDENCE_PENDING_MESSAGE}</p>
                       ) : null}
                     </div>
                   );

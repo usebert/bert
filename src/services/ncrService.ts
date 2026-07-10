@@ -68,23 +68,36 @@ function sanitizeEvidenceRefs(evidenceRefs: unknown) {
     .filter((item) => item.evidenceId);
 }
 
-function filterEvidenceRefsForQuestion(evidenceRefs: unknown, questionId: string) {
+function filterEvidenceRefsForQuestion(evidenceRefs: unknown, questionId: string, options?: { fallbackToAll?: boolean }) {
   const target = trim(questionId);
   const items = sanitizeEvidenceRefs(evidenceRefs);
   if (!target) {
     return items;
   }
   const matched = items.filter((item) => trim(item.questionId) === target);
-  return matched.length > 0 ? matched : items.filter((item) => !trim(item.questionId));
+  if (matched.length > 0) {
+    return matched;
+  }
+  const unscoped = items.filter((item) => !trim(item.questionId));
+  if (unscoped.length > 0) {
+    return unscoped;
+  }
+  if (options?.fallbackToAll !== false && items.length > 0) {
+    return items;
+  }
+  return [];
 }
 
 function parseEvidenceRefs(raw: unknown) {
   if (Array.isArray(raw)) {
     return sanitizeEvidenceRefs(raw);
   }
-  const text = trim(raw);
+  let text = trim(raw);
   if (!text) {
     return [];
+  }
+  if (text.startsWith("'")) {
+    text = text.slice(1);
   }
   try {
     return sanitizeEvidenceRefs(JSON.parse(text));
@@ -119,18 +132,42 @@ function mergeEvidenceLists(
   secondary: NonConformanceEvidence[] = [],
 ): NonConformanceEvidence[] {
   const merged: NonConformanceEvidence[] = [];
-  const seen = new Set<string>();
+  const seen = new Map<string, NonConformanceEvidence>();
   for (const item of [...primary, ...secondary]) {
     if (!item || typeof item !== "object") {
       continue;
     }
     const id = trim(item.id);
     const key = id || `${trim(item.name)}::${trim(item.previewUrl || item.driveLink)}`;
-    if (!key || seen.has(key)) {
+    if (!key) {
       continue;
     }
-    seen.add(key);
-    merged.push(item);
+    const existing = seen.get(key);
+    if (!existing) {
+      seen.set(key, item);
+      merged.push(item);
+      continue;
+    }
+    const richer: NonConformanceEvidence = {
+      ...existing,
+      ...item,
+      previewUrl: trim(item.previewUrl) || trim(existing.previewUrl) || "",
+      driveLink: trim(item.driveLink) || trim(existing.driveLink) || undefined,
+      driveFileId: trim(item.driveFileId) || trim(existing.driveFileId) || undefined,
+      name: trim(item.name) || trim(existing.name) || "Evidence file",
+      uploadStatus:
+        item.uploadStatus === "uploaded" || existing.uploadStatus === "uploaded"
+          ? "uploaded"
+          : item.uploadStatus || existing.uploadStatus || "pending",
+    };
+    seen.set(key, richer);
+    const index = merged.findIndex((entry) => {
+      const entryKey = trim(entry.id) || `${trim(entry.name)}::${trim(entry.previewUrl || entry.driveLink)}`;
+      return entryKey === key;
+    });
+    if (index >= 0) {
+      merged[index] = richer;
+    }
   }
   return merged;
 }
@@ -185,20 +222,23 @@ function resolveEvidenceUploadStatus(
   if (evidence.some((item) => item.uploadStatus === "failed")) {
     return "failed";
   }
-  if (evidence.every((item) => item.previewUrl || item.driveLink || item.driveFileId)) {
+  const isUploaded = (item: NonConformanceEvidence) =>
+    Boolean(item.driveLink || item.driveFileId) ||
+    (Boolean(item.previewUrl) &&
+      !item.previewUrl.startsWith("blob:") &&
+      !item.previewUrl.startsWith("data:") &&
+      item.uploadStatus !== "pending");
+  if (evidence.every(isUploaded)) {
     return "uploaded";
   }
-  if (evidence.some((item) => item.uploadStatus === "pending" || !item.previewUrl)) {
-    return "pending";
-  }
-  return "uploaded";
+  return "pending";
 }
 
 export function auditEvidenceToNcrEvidence(
   evidenceRefs: unknown[] | null | undefined,
   questionId = "",
 ): NonConformanceEvidence[] {
-  const scoped = filterEvidenceRefsForQuestion(evidenceRefs || [], questionId);
+  const scoped = filterEvidenceRefsForQuestion(evidenceRefs || [], questionId, { fallbackToAll: true });
   return evidenceRefsToClientEvidence(scoped);
 }
 
@@ -229,10 +269,20 @@ export function parseCompanySheetNcrs(
       const questionText = pickField(record, ["Source Question Text", "Title"]);
       const description = pickField(record, ["Description"]);
       const questionId = pickField(record, ["Source Question ID", "Question ID"]);
-      const evidence = auditEvidenceToNcrEvidence(
+      let evidence = auditEvidenceToNcrEvidence(
         parseEvidenceRefs(pickField(record, ["Evidence Refs", "EvidenceRefs"])),
         questionId,
       );
+      const evidenceCountRaw = Number(pickField(record, ["Evidence Count", "EvidenceCount"]) || 0);
+      if (evidence.length === 0 && Number.isFinite(evidenceCountRaw) && evidenceCountRaw > 0) {
+        evidence = Array.from({ length: evidenceCountRaw }, (_, index) => ({
+          id: `${reference}-pending-${index + 1}`,
+          name: `Evidence ${index + 1}`,
+          previewUrl: "",
+          addedAt: "",
+          uploadStatus: "pending" as const,
+        }));
+      }
       return {
         id: pickField(record, ["NCR ID"]) || reference,
         reference,
@@ -286,18 +336,72 @@ export function mergeSheetNcrsIntoState(
     if (!local) {
       return sheetItem;
     }
-    const evidence = mergeEvidenceLists(sheetItem.evidence, local.evidence);
+    // Prefer richer local evidence (blob previews / pending stubs) over empty sheet rows.
+    const evidence = mergeEvidenceLists(local.evidence, sheetItem.evidence);
     return {
+      ...sheetItem,
+      ...local,
       ...sheetItem,
       evidence,
       evidenceUploadStatus: resolveEvidenceUploadStatus(evidence),
       resultId: sheetItem.resultId || local.resultId,
+      investigationNotes: sheetItem.investigationNotes || local.investigationNotes,
+      auditQuestion: sheetItem.auditQuestion || local.auditQuestion,
     };
   });
   const localForFolder = current.filter(
     (item) => !fromSheet.some((sheetItem) => sheetItem.reference === item.reference),
   );
   return mergeNonConformancesWithSheet(localForFolder, mergedFromSheet);
+}
+
+/** Collect local + server evidence for an NCR, falling back to all check evidence. */
+export function collectNcrEvidenceFromSources(input: {
+  questionId: string;
+  evidenceMap?: Record<string, Array<{ id: string; name: string; previewUrl: string; addedAt: string; mimeType?: string }>>;
+  evidenceRefs?: unknown[];
+  serverEvidence?: unknown[];
+  evidenceUploadFailed?: boolean;
+}): NonConformanceEvidence[] {
+  const questionId = trim(input.questionId);
+  const fromServer = Array.isArray(input.serverEvidence)
+    ? (input.serverEvidence as Array<Record<string, unknown>>).map((item) => ({
+        id: String(item.id || item.name || `evidence-${questionId}`).trim(),
+        name: String(item.name || item.id || "Evidence file").trim(),
+        previewUrl: String(item.previewUrl || item.driveLink || "").trim(),
+        addedAt: String(item.addedAt || "").trim(),
+        driveFileId: String(item.driveFileId || "").trim() || undefined,
+        driveLink: String(item.driveLink || "").trim() || undefined,
+        questionId: String(item.questionId || questionId).trim() || questionId,
+        mimeType: String(item.mimeType || "").trim() || undefined,
+        uploadStatus:
+          item.uploadStatus === "failed" || item.uploadStatus === "pending" || item.uploadStatus === "uploaded"
+            ? (item.uploadStatus as NonConformanceEvidence["uploadStatus"])
+            : String(item.previewUrl || item.driveLink || item.driveFileId || "").trim()
+              ? ("uploaded" as const)
+              : ("pending" as const),
+      }))
+    : auditEvidenceToNcrEvidence(input.evidenceRefs, questionId);
+  const fromPayload = auditEvidenceToNcrEvidence(input.evidenceRefs, questionId);
+  const map = input.evidenceMap || {};
+  const localForQuestion = map[questionId] || [];
+  const localAll = Object.values(map).flat();
+  const localSource = localForQuestion.length > 0 ? localForQuestion : localAll;
+  const localItems: NonConformanceEvidence[] = localSource.map((item) => ({
+    id: item.id,
+    name: item.name,
+    previewUrl: item.previewUrl,
+    addedAt: item.addedAt,
+    questionId,
+    mimeType: item.mimeType,
+    uploadStatus:
+      input.evidenceUploadFailed
+        ? ("failed" as const)
+        : item.previewUrl && !item.previewUrl.startsWith("blob:")
+          ? ("uploaded" as const)
+          : ("pending" as const),
+  }));
+  return mergeEvidenceLists(mergeEvidenceLists(fromServer, fromPayload), localItems);
 }
 
 export type BuildCompletionNcrContext = {

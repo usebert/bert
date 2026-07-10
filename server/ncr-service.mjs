@@ -83,7 +83,7 @@ function existingNcrKeys(rows, companyFolderId) {
 
 function summarizeCreatedNcr(row, evidenceRefs = []) {
   const questionId = trim(row["Source Question ID"]);
-  const scopedEvidence = filterEvidenceRefsForQuestion(evidenceRefs, questionId);
+  const scopedEvidence = filterEvidenceRefsForQuestion(evidenceRefs, questionId, { fallbackToAll: true });
   return {
     ncrId: trim(row["NCR ID"] || row.Reference),
     reference: trim(row.Reference || row["NCR ID"]),
@@ -170,7 +170,7 @@ export async function appendNcrsFromCheckCompletion(auth, deps, input = {}) {
     usedKeys.add(key);
     const reference = nextReference;
     nextReference = nextNcrReferenceFromRows([...companyRows, ...rowsToAppend, { Reference: reference }]);
-    const evidenceRefs = filterEvidenceRefsForQuestion(allEvidenceRefs, questionId);
+    const evidenceRefs = filterEvidenceRefsForQuestion(allEvidenceRefs, questionId, { fallbackToAll: true });
     const row = buildNcrWorkbookRow({
       ncrId: reference,
       reference,
@@ -192,6 +192,7 @@ export async function appendNcrsFromCheckCompletion(auth, deps, input = {}) {
       localSubmissionId,
       status: "Open",
       evidenceRefs,
+      fallbackEvidenceToAll: true,
     });
     rowsToAppend.push(row);
     createdNcrs.push(summarizeCreatedNcr(row, evidenceRefs));
@@ -284,7 +285,7 @@ export async function linkEvidenceRefsToNcrs(auth, deps, input = {}) {
       updatedNcrs.push(entry);
       continue;
     }
-    const scopedEvidence = filterEvidenceRefsForQuestion(evidenceRefs, questionId);
+    const scopedEvidence = filterEvidenceRefsForQuestion(evidenceRefs, questionId, { fallbackToAll: true });
     const nextEntry = {
       ...entry,
       evidenceRefs: scopedEvidence,
