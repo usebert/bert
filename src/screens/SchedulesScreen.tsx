@@ -322,6 +322,16 @@ export function SchedulesScreen({
       const element = document.getElementById("schedule-builder") || scheduleBuilderRef.current;
       if (element) {
         element.scrollIntoView({ behavior: "smooth", block: "start" });
+        const firstField = document.getElementById("schedule-builder-name");
+        const heading = document.getElementById("schedule-builder-heading");
+        window.setTimeout(() => {
+          if (cancelled) return;
+          if (firstField && typeof firstField.focus === "function") {
+            firstField.focus({ preventScroll: true });
+          } else if (heading && typeof heading.focus === "function") {
+            heading.focus({ preventScroll: true });
+          }
+        }, 120);
         setPendingBuilderScroll(false);
         return;
       }
@@ -447,7 +457,13 @@ export function SchedulesScreen({
                     ) : null}
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => onOpenSchedule(schedule.id)} className={`rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white ${slatePrimaryCtaInteract}`}>
+                    <button
+                      onClick={() => {
+                        onOpenSchedule(schedule.id);
+                        setPendingBuilderScroll(true);
+                      }}
+                      className={`rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white ${slatePrimaryCtaInteract}`}
+                    >
                       Edit
                     </button>
                     <button onClick={() => onDelete(schedule.id)} className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
@@ -498,8 +514,17 @@ export function SchedulesScreen({
         <section
           ref={scheduleBuilderRef}
           id="schedule-builder"
-          className="scroll-mt-24 rounded-[1.75rem] border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)]"
+          data-testid="schedule-edit-form"
+          tabIndex={-1}
+          className="scroll-mt-24 rounded-[1.75rem] border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)] outline-none"
         >
+          <h3
+            id="schedule-builder-heading"
+            tabIndex={-1}
+            className="sr-only outline-none"
+          >
+            {editingSchedule ? "Edit schedule" : "Create schedule"}
+          </h3>
           <SectionHeader
             icon="check"
             eyebrow="Schedule builder"
@@ -510,6 +535,7 @@ export function SchedulesScreen({
             <div>
               <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Schedule name or ID</label>
               <input
+                id="schedule-builder-name"
                 value={scheduleName}
                 onChange={(event) => onScheduleNameChange(event.target.value)}
                 className={[

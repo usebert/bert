@@ -63,4 +63,24 @@ assert(!schedulesScreen.includes("No available auditors"), "4e: no auditor-only 
 assert(!appTsx.includes("findPendingAssigneeInvites"), "5: pending invites not merged into assignees");
 assert(!appTsx.includes("buildAvailableScheduleAuditors("), "5b: no auditor-only assignee builder in App");
 
+/** 6: Edit scrolls to the schedule builder form. */
+assert(schedulesScreen.includes("onOpenSchedule(schedule.id)"), "6: Edit button opens selected schedule");
+assert(
+  /onOpenSchedule\(schedule\.id\);\s*setPendingBuilderScroll\(true\)/.test(schedulesScreen),
+  "6b: Edit action triggers scroll to edit section",
+);
+assert(schedulesScreen.includes('data-testid="schedule-edit-form"'), "6c: edit form has stable test id");
+assert(schedulesScreen.includes('id="schedule-builder"'), "6d: edit form container has stable id/ref target");
+assert(schedulesScreen.includes("scheduleBuilderRef"), "6e: edit form container has ref");
+assert(schedulesScreen.includes('scrollIntoView({ behavior: "smooth", block: "start" })'), "6f: smooth scroll into view");
+assert(schedulesScreen.includes("onSave") && schedulesScreen.includes("onCancel"), "6g: Save/cancel still wired");
+assert(
+  (schedulesScreen.match(/id="schedule-builder"/g) || []).length === 1,
+  "6h: no duplicate edit form containers",
+);
+assert(
+  (schedulesScreen.match(/data-testid="schedule-edit-form"/g) || []).length === 1,
+  "6i: single schedule-edit-form test id",
+);
+
 console.log(`[verify:scheduler-page-wiring] OK — ${caseCount} cases passed`);
