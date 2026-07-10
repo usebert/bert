@@ -11,13 +11,16 @@ import {
   COPY_TITLE_REQUIRED_MESSAGE,
   DUPLICATE_TEMPLATE_TITLE_MESSAGE,
   buildRevisionIdentity,
+  collectRevisionsForFormNumber,
   copyCreatesNewFormNumber,
   describeRevisionLabel,
+  filterLatestActiveTemplates,
   nextFormNumberFromRecords,
   reviseKeepsFormNumber,
   titlesMatch,
   validateTemplateTitle,
 } from "../shared/revision-control.mjs";
+import { isAuditArchivedRecord } from "../shared/archive.mjs";
 import { buildAuditResultRow, AUDIT_RESULTS_TAB_COLUMNS } from "../server/completion-service.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -159,9 +162,12 @@ assert(!googleDup.ok, "14: duplicate Google Form title rejected");
 
 // 17: existing active audits continue — list filters superseded/archived appropriately
 assert(
-  auditBuilder.includes('template.status !== "archived"') ||
-    auditBuilder.includes('status !== "archived"'),
-  "17: template list still serves active templates",
+  auditBuilder.includes("filterLatestActiveTemplates") &&
+    (auditBuilder.includes('template.status !== "archived"') ||
+      auditBuilder.includes('status !== "archived"') ||
+      auditBuilder.includes("isLatestActiveTemplateStatus") ||
+      read("shared/revision-control.mjs").includes("isLatestActiveTemplateStatus")),
+  "17: template list still serves active templates (latest active only)",
 );
 
 // 18: AuditResult stores form/revision after copied form is used
@@ -236,5 +242,105 @@ assert(service.includes("copyAuditBuilderTemplate") && service.includes("/audit-
 assert(mapping.includes("REVISION_CONTROL_COLUMNS") || mapping.includes("Form Number"), "sheet: AuditTemplates revision columns");
 assert(serverInstall.includes("resolveCompanyFromFolder"), "server: resolveCompanyFromFolder passed to audit builder");
 assert(describeRevisionLabel({ form_number: "BERT-AUD-001", revision_number: 3, status: "active" }) === "BERT-AUD-001 · Rev 3 · Active", "label format");
+
+// --- Revision History surface (active list + history + archive restore) ---
+const rev1 = {
+  id: "t-rev-1",
+  template_name: "Bay 2 Fire Safety Inspection",
+  status: "superseded",
+  form_number: "BERT-AUD-001",
+  revision_number: 1,
+  revision_id: "BERT-AUD-001-REV-1",
+  revision_reason: "Initial issue",
+};
+const rev2 = {
+  id: "t-rev-2",
+  template_name: "Bay 2 Fire Safety Inspection",
+  status: "active",
+  form_number: "BERT-AUD-001",
+  revision_number: 2,
+  revision_id: "BERT-AUD-001-REV-2",
+  revision_reason: "Updated extinguisher checks",
+};
+const otherFormActive = {
+  id: "t-other",
+  template_name: "Warehouse Walk",
+  status: "active",
+  form_number: "BERT-AUD-010",
+  revision_number: 1,
+};
+const historyChain = [rev1, rev2, otherFormActive];
+const latestActive = filterLatestActiveTemplates(historyChain);
+assert(
+  latestActive.length === 2 &&
+    latestActive.some((row) => row.id === "t-rev-2") &&
+    !latestActive.some((row) => row.id === "t-rev-1"),
+  "RH1: Active list shows newest active revision only",
+);
+assert(!latestActive.some((row) => row.id === "t-rev-1"), "RH2: Old superseded revision is hidden from active list");
+
+const historyModal = read("src/components/forms/RevisionHistoryModal.tsx");
+const archiveScreen = read("src/screens/ArchiveScreen.tsx");
+const archiveShared = read("shared/archive.mjs");
+
+assert(panel.includes('data-testid="audit-form-revision-history-button"'), "RH3: Template card shows Revision History action");
+assert(
+  panel.includes("RevisionHistoryModal") && historyModal.includes("Revision History"),
+  "RH4: Revision History opens for a revised audit",
+);
+
+const collected = collectRevisionsForFormNumber(historyChain, "BERT-AUD-001");
+assert(
+  collected.length === 2 &&
+    collected[0].revision_number === 2 &&
+    collected[1].revision_number === 1,
+  "RH5: History shows Rev 1 and Rev 2",
+);
+assert(collected[0].is_active === true && historyModal.includes("data-active"), "RH6: Active revision is highlighted");
+assert(
+  collected[1].is_superseded === true &&
+    (collected[1].status === "superseded" || collected[1].status === "archived") &&
+    historyModal.includes("Superseded"),
+  "RH7: Superseded revision shows archived/superseded status",
+);
+
+assert(isAuditArchivedRecord(rev1) === true, "RH8a: superseded audits count as archived records");
+assert(
+  archiveShared.includes('status === "superseded"') &&
+    (archiveScreen.includes('section === "audits"') || archiveScreen.includes('id: "audits"')) &&
+    archiveScreen.includes("Superseded"),
+  "RH8: Archive > Audits shows superseded revision",
+);
+
+assert(
+  historyModal.includes("Restore as new revision") &&
+    archiveScreen.includes("Restore as new revision") &&
+    !historyModal.includes("Restore over active"),
+  "RH9: Restore old revision says Restore as new revision, not Restore over active",
+);
+
+assert(
+  auditBuilder.includes("/google-form-templates/:templateId/revisions") &&
+    panel.includes("Revision History"),
+  "RH10: Google Form revision history is present if supported",
+);
+
+assert(
+  auditBuilder.includes("/api/companies/:companyFolderId/audit-templates/:templateId/revisions") &&
+    service.includes("/audit-templates/") &&
+    service.includes("/revisions"),
+  "RH11: Folder-first workbook route is used",
+);
+assert(
+  auditBuilder.includes("resolveCompanyFromFolder") &&
+    auditBuilder.includes("COMPANY_WORKBOOK_NOT_FOUND") &&
+    !auditBuilder.includes("stale-test-workbook"),
+  "RH12: No stale/test workbook is used",
+);
+
+assert(auditBuilder.includes("filterLatestActiveTemplates"), "server filters active list to latest revision");
+assert(auditBuilder.includes("restore-as-revision"), "server restore-as-revision endpoint exists");
+assert(service.includes("listAuditTemplateRevisions") && service.includes("restoreAuditTemplateAsRevision"), "client revision history services");
+assert(editScreen.includes('data-testid="audit-form-revision-history-button"'), "edit screen also exposes Revision History");
 
 console.log(`\nverify:revision-control passed (${checks} checks).`);

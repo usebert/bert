@@ -252,6 +252,84 @@ export async function duplicateAuditBuilderTemplate(
   return data.template;
 }
 
+export type AuditTemplateRevisionSummary = {
+  id: string;
+  template_name: string;
+  form_number: string;
+  revision_number: number;
+  revision_id?: string;
+  status: string;
+  revision_label?: string;
+  revision_reason?: string;
+  copy_reason?: string;
+  created_at?: string;
+  updated_at?: string;
+  created_by?: string;
+  superseded_by_revision_id?: string;
+  supersedes_revision_id?: string;
+  is_active?: boolean;
+  is_superseded?: boolean;
+};
+
+export async function listAuditTemplateRevisions(
+  templateId: string,
+  options: RequestOptions & { formNumber?: string } = {},
+): Promise<{ formNumber: string; revisions: AuditTemplateRevisionSummary[]; activeRevisionId?: string }> {
+  const companyFolderId = String(options.companyFolderId || "").trim();
+  const params = new URLSearchParams();
+  if (options.masterSheetId) params.set("masterSheetId", options.masterSheetId);
+  if (options.formNumber) params.set("formNumber", options.formNumber);
+  const query = params.toString();
+  const path = companyFolderId
+    ? `/api/companies/${encodeURIComponent(companyFolderId)}/audit-templates/${encodeURIComponent(templateId)}/revisions`
+    : `/api/audits/templates/${encodeURIComponent(templateId)}/revisions`;
+  const response = await fetch(apiUrl(`${path}${query ? `?${query}` : ""}`), {
+    credentials: "include",
+    headers: options.devApiHeaders || {},
+  });
+  const data = await parseJsonApiResponse<{
+    ok?: boolean;
+    formNumber?: string;
+    revisions?: AuditTemplateRevisionSummary[];
+    activeRevisionId?: string;
+    error?: string;
+  }>(response);
+  if (!response.ok || !data.ok) {
+    throw new Error(data.error || "Unable to load revision history.");
+  }
+  return {
+    formNumber: data.formNumber || options.formNumber || "",
+    revisions: data.revisions || [],
+    activeRevisionId: data.activeRevisionId,
+  };
+}
+
+export async function restoreAuditTemplateAsRevision(
+  templateId: string,
+  options: RequestOptions & { reason?: string } = {},
+): Promise<AuditBuilderTemplateRecord> {
+  const companyFolderId = String(options.companyFolderId || "").trim();
+  const path = companyFolderId
+    ? `/api/companies/${encodeURIComponent(companyFolderId)}/audit-templates/${encodeURIComponent(templateId)}/restore-as-revision`
+    : `/api/audits/templates/${encodeURIComponent(templateId)}/restore-as-revision`;
+  const response = await fetch(apiUrl(path), {
+    method: "POST",
+    credentials: "include",
+    headers: buildHeaders(options.devApiHeaders),
+    body: JSON.stringify({
+      masterSheetId: options.masterSheetId,
+      reason: options.reason || "",
+    }),
+  });
+  const data = await parseJsonApiResponse<{ ok?: boolean; template?: AuditBuilderTemplateRecord; error?: string }>(
+    response,
+  );
+  if (!response.ok || !data.ok || !data.template) {
+    throw new Error(data.error || "Unable to restore as a new revision.");
+  }
+  return data.template;
+}
+
 export async function archiveAuditBuilderTemplate(
   templateId: string,
   options: RequestOptions = {},

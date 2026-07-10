@@ -173,3 +173,87 @@ export function reviseKeepsFormNumber() {
 export function copyCreatesNewFormNumber() {
   return true;
 }
+
+export function recordFormNumber(record = {}) {
+  return trim(record.form_number || record.formNumber || record["Form Number"] || record.FormNumber);
+}
+
+export function recordRevisionNumber(record = {}) {
+  return normalizeRevisionNumber(
+    record.revision_number || record.revisionNumber || record["Revision Number"] || record.version,
+  );
+}
+
+export function recordTemplateStatus(record = {}) {
+  return trim(record.status || record.Status || "active").toLowerCase();
+}
+
+export function isLatestActiveTemplateStatus(status) {
+  const normalized = trim(status).toLowerCase();
+  return normalized === "active" || normalized === "draft";
+}
+
+/**
+ * Active working list: one row per FormNumber (highest active/draft revision).
+ * Templates without a FormNumber are kept if they are active/draft.
+ */
+export function filterLatestActiveTemplates(records = []) {
+  const list = Array.isArray(records) ? records : [];
+  const byFormNumber = new Map();
+  const withoutFormNumber = [];
+
+  for (const record of list) {
+    const status = recordTemplateStatus(record);
+    if (!isLatestActiveTemplateStatus(status)) continue;
+    const formNumber = recordFormNumber(record);
+    if (!formNumber) {
+      withoutFormNumber.push(record);
+      continue;
+    }
+    const revision = recordRevisionNumber(record);
+    const existing = byFormNumber.get(formNumber);
+    if (!existing || recordRevisionNumber(existing) < revision) {
+      byFormNumber.set(formNumber, record);
+    }
+  }
+
+  return [...byFormNumber.values(), ...withoutFormNumber];
+}
+
+export function collectRevisionsForFormNumber(records = [], formNumberInput = "") {
+  const formNumber = trim(formNumberInput);
+  if (!formNumber) return [];
+  return (Array.isArray(records) ? records : [])
+    .filter((record) => recordFormNumber(record) === formNumber)
+    .sort((left, right) => recordRevisionNumber(right) - recordRevisionNumber(left))
+    .map((record) => {
+      const revisionNumber = recordRevisionNumber(record);
+      const status = recordTemplateStatus(record);
+      return {
+        id: trim(record.id || record.templateId || record["Audit ID"]),
+        template_name: trim(record.template_name || record.name || record["Audit Name"] || record.title),
+        form_number: formNumber,
+        revision_number: revisionNumber,
+        revision_id: trim(record.revision_id || record.revisionId || record["Revision ID"]),
+        status,
+        revision_label: describeRevisionLabel({
+          form_number: formNumber,
+          revision_number: revisionNumber,
+          status,
+        }),
+        revision_reason: trim(record.revision_reason || record.revisionReason || record["Revision Reason"]),
+        copy_reason: trim(record.copy_reason || record.copyReason || record["Copy Reason"]),
+        created_at: trim(record.created_at || record.createdAt || record["Created At"]),
+        updated_at: trim(record.updated_at || record.updatedAt || record["Updated At"]),
+        created_by: trim(record.created_by || record.createdBy || record["Created By"]),
+        superseded_by_revision_id: trim(
+          record.superseded_by_revision_id || record.supersededByRevisionId || record["Superseded By Revision ID"],
+        ),
+        supersedes_revision_id: trim(
+          record.supersedes_revision_id || record.supersedesRevisionId || record["Supersedes Revision ID"],
+        ),
+        is_active: isLatestActiveTemplateStatus(status),
+        is_superseded: status === "superseded" || status === "archived" || status === "inactive",
+      };
+    });
+}

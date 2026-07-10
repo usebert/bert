@@ -8,6 +8,7 @@ import {
   restoreCompanyRecord,
   type ArchivedListItem,
 } from "../services/archiveService";
+import { restoreAuditTemplateAsRevision } from "../services/auditBuilderService";
 import type { ArchiveScreenProps, ArchiveSectionId } from "../types/archive";
 
 const SECTIONS: Array<{ id: ArchiveSectionId; label: string; restoreVerb: string }> = [
@@ -16,7 +17,7 @@ const SECTIONS: Array<{ id: ArchiveSectionId; label: string; restoreVerb: string
   { id: "ncrs", label: "NCRs", restoreVerb: "Restore" },
   { id: "incidents", label: "Incidents", restoreVerb: "Restore" },
   { id: "briefings", label: "Briefings", restoreVerb: "Restore" },
-  { id: "audits", label: "Audits", restoreVerb: "Restore" },
+  { id: "audits", label: "Audits", restoreVerb: "Restore as new revision" },
   { id: "googleForms", label: "Google Forms", restoreVerb: "Restore" },
   { id: "schedules", label: "Schedules", restoreVerb: "Restore" },
 ];
@@ -109,15 +110,30 @@ export function ArchiveScreen({
       return;
     }
     const section = activeSection;
-    const restoreVerb = visibleSections.find((entry) => entry.id === section)?.restoreVerb || "Restore";
     const confirmed = window.confirm(
       section === "users"
         ? "Reactivate this user? They will be able to access BERT again if their login details are valid."
-        : "Restore this item? It will return to active views.",
+        : section === "audits"
+          ? "Restore as a new revision? This creates a new active revision from the old version. It does not overwrite the current active form."
+          : "Restore this item? It will return to active views.",
     );
     if (!confirmed) return;
     setBusyId(item.id);
     try {
+      if (section === "audits") {
+        await restoreAuditTemplateAsRevision(item.id, {
+          companyFolderId,
+          masterSheetId,
+          reason: `Restored as new revision from archived template ${item.title}`,
+        });
+        onToast?.(
+          "Restored as new revision",
+          `${item.title} was restored as a new active revision. The previous active form was superseded.`,
+          "success",
+        );
+        await load();
+        return;
+      }
       const result = await restoreCompanyRecord(companyFolderId, {
         type: TYPE_BY_SECTION[section],
         id: item.id,
@@ -129,8 +145,12 @@ export function ArchiveScreen({
       }
       onToast?.(section === "users" ? "User reactivated" : "Restored", `${item.title} is active again.`, "success");
       await load();
-    } catch {
-      onToast?.("Restore failed", "Could not restore item. Try again.", "warning");
+    } catch (error) {
+      onToast?.(
+        "Restore failed",
+        error instanceof Error ? error.message : "Could not restore item. Try again.",
+        "warning",
+      );
     } finally {
       setBusyId("");
     }
@@ -216,13 +236,15 @@ export function ArchiveScreen({
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="text-lg font-black text-slate-900">{item.title}</h2>
                     <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-slate-700">
-                      Archived
+                      {String(item.status || "").toLowerCase() === "superseded" ? "Superseded" : "Archived"}
                     </span>
                   </div>
                   <p className="mt-1 text-sm text-slate-500">
                     {item.email || item.id}
                     {item.role ? ` · ${item.role}` : ""}
                     {item.status ? ` · ${item.status}` : ""}
+                    {item.formNumber ? ` · ${item.formNumber}` : ""}
+                    {item.revisionNumber ? ` · Rev ${item.revisionNumber}` : ""}
                   </p>
                   <div className="mt-3 grid gap-1 text-sm text-slate-600 sm:grid-cols-2">
                     <p>Archived: {formatWhen(item.archivedAt)}</p>

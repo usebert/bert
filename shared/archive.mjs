@@ -59,7 +59,7 @@ export const ARCHIVE_RECORD_TYPES = {
     tab: "AuditTemplates",
     idHeaders: ["Audit ID", "AuditId"],
     labelHeaders: ["Audit Name", "Category"],
-    restoreLabel: "Restore",
+    restoreLabel: "Restore as new revision",
     statusArchiveValue: "archived",
   },
   googleForm: {
@@ -126,7 +126,9 @@ export function isScheduleArchivedRecord(record = {}) {
 
 export function isAuditArchivedRecord(record = {}) {
   const status = safeLower(pickField(record, ["Status", "status"]));
-  if (status === "archived") return true;
+  if (status === "archived" || status === "superseded" || status === "inactive" || status === "obsolete") {
+    return true;
+  }
   return archiveTruthy(pickArchiveField(record, "Archived"));
 }
 
@@ -181,15 +183,22 @@ export function mapArchivedListItem(record = {}, type = "") {
   const config = ARCHIVE_RECORD_TYPES[type];
   const id = pickField(record, config?.idHeaders || []);
   const title = pickField(record, config?.labelHeaders || []) || id || "Archived record";
+  const formNumber = pickField(record, ["Form Number", "formNumber", "form_number"]);
+  const revisionNumber = pickField(record, ["Revision Number", "revisionNumber", "revision_number"]);
+  const status = pickField(record, ["Status", "status"]);
   return {
     id,
     type,
     title,
     archived: true,
-    archivedAt: pickArchiveField(record, "ArchivedAt"),
-    archivedBy: pickArchiveField(record, "ArchivedBy"),
-    archiveReason: pickArchiveField(record, "ArchiveReason"),
-    status: pickField(record, ["Status", "status"]),
+    archivedAt: pickArchiveField(record, "ArchivedAt") || pickField(record, ["Updated At", "updated_at"]),
+    archivedBy: pickArchiveField(record, "ArchivedBy") || pickField(record, ["Created By", "created_by"]),
+    archiveReason:
+      pickArchiveField(record, "ArchiveReason") ||
+      pickField(record, ["Revision Reason", "revision_reason", "Copy Reason"]),
+    status,
+    formNumber,
+    revisionNumber,
     site: pickField(record, ["Site", "SiteIds", "Area", "Area ID", "Location"]),
     department: pickField(record, ["Department", "DepartmentIds"]),
     email: pickField(record, ["Email", "RecipientEmail", "Assigned To Name"]),

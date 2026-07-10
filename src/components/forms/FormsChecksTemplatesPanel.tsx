@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { EmptyPanel } from "../dashboard/DashboardPrimitives";
 import { GoogleFormTemplatePanel } from "../admin/GoogleFormTemplatePanel";
 import { ArchiveRecordButton } from "../archive/ArchiveRecordButton";
 import { CopyAuditFormModal } from "./CopyAuditFormModal";
 import { ReviseAuditFormModal } from "./ReviseAuditFormModal";
+import { RevisionHistoryModal } from "./RevisionHistoryModal";
 import { formLanguageLabel } from "../../config/templateLanguages";
 import {
   copyAuditBuilderTemplate,
@@ -19,6 +20,32 @@ import type {
   CompanyGoogleFormsDiagnostics,
   CompanyGoogleFormsStatus,
 } from "../../services/companyFormsService";
+
+function isActiveWorkingTemplate(template: AuditTemplate) {
+  const status = String(template.status || (template.active ? "active" : "inactive")).toLowerCase();
+  return status === "active" || status === "draft";
+}
+
+/** Active list shows newest active revision per Form Number only. */
+function filterLatestActiveTemplates(templates: AuditTemplate[]) {
+  const byFormNumber = new Map<string, AuditTemplate>();
+  const withoutFormNumber: AuditTemplate[] = [];
+  for (const template of templates) {
+    if (!isActiveWorkingTemplate(template)) continue;
+    const formNumber = String(template.formNumber || "").trim();
+    if (!formNumber) {
+      withoutFormNumber.push(template);
+      continue;
+    }
+    const revision = Number(template.revisionNumber || 1) || 1;
+    const existing = byFormNumber.get(formNumber);
+    const existingRevision = Number(existing?.revisionNumber || 1) || 1;
+    if (!existing || revision > existingRevision) {
+      byFormNumber.set(formNumber, template);
+    }
+  }
+  return [...byFormNumber.values(), ...withoutFormNumber];
+}
 
 type FormsChecksTemplatesPanelProps = {
   templates: AuditTemplate[];
@@ -183,7 +210,8 @@ export function FormsChecksTemplatesPanel({
   onGoogleFormUpdated,
 }: FormsChecksTemplatesPanelProps) {
   const guidance = workspaceGuidance(syncState, googleConnected);
-  const sorted = [...templates].sort((a, b) => a.name.localeCompare(b.name));
+  const workingTemplates = useMemo(() => filterLatestActiveTemplates(templates), [templates]);
+  const sorted = [...workingTemplates].sort((a, b) => a.name.localeCompare(b.name));
   const showGoogleFormsSection =
     companyGoogleFormsStatus !== "idle" && companyGoogleFormsStatus !== "loading";
   const canManageRevisions = Boolean(canCreateTemplates && role && role !== "Auditor");
@@ -191,6 +219,7 @@ export function FormsChecksTemplatesPanel({
 
   const [copyTarget, setCopyTarget] = useState<AuditTemplate | null>(null);
   const [reviseTarget, setReviseTarget] = useState<AuditTemplate | null>(null);
+  const [historyTarget, setHistoryTarget] = useState<AuditTemplate | null>(null);
   const [copyBusy, setCopyBusy] = useState(false);
   const [reviseBusy, setReviseBusy] = useState(false);
   const [copyError, setCopyError] = useState("");
@@ -309,11 +338,11 @@ export function FormsChecksTemplatesPanel({
       ) : (
         <>
           <p className="text-sm text-slate-600">
-            {templates.filter((item) => item.active).length} active template
-            {templates.filter((item) => item.active).length === 1 ? "" : "s"} in this workspace. Schedules control when checks
-            run. When you create a Google Form copy here, it is stored in this company&apos;s{" "}
-            <span className="font-medium text-slate-800">08 - Audits / Google Forms</span> folder. BERT remains the live
-            operational system.
+            {sorted.length} active template
+            {sorted.length === 1 ? "" : "s"} in this workspace (latest revision only). Use Revision History to view
+            superseded versions. Schedules control when checks run. When you create a Google Form copy here, it is stored
+            in this company&apos;s <span className="font-medium text-slate-800">08 - Audits / Google Forms</span> folder.
+            BERT remains the live operational system.
           </p>
           {sorted.map((template) => (
             <div
@@ -382,6 +411,20 @@ export function FormsChecksTemplatesPanel({
                       className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-900"
                     >
                       Copy
+                    </button>
+                  ) : null}
+                  {template.formNumber || template.revisionNumber ? (
+                    <button
+                      type="button"
+                      data-testid="audit-form-revision-history-button"
+                      onClick={() => {
+                        setActionSuccess("");
+                        setHistoryTarget(template);
+                      }}
+                      title="View all revisions for this form number."
+                      className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-900"
+                    >
+                      Revision History
                     </button>
                   ) : null}
                   {canArchive ? (
@@ -455,6 +498,24 @@ export function FormsChecksTemplatesPanel({
           if (!reviseBusy) setReviseTarget(null);
         }}
         onSubmit={(input) => void handleReviseSubmit(input)}
+      />
+      <RevisionHistoryModal
+        open={Boolean(historyTarget)}
+        templateId={historyTarget?.id || ""}
+        templateName={historyTarget?.name || ""}
+        formNumber={historyTarget?.formNumber || ""}
+        companyFolderId={companyFolderId}
+        masterSheetId={masterSheetId}
+        canRestoreAsRevision={canManageRevisions}
+        onClose={() => setHistoryTarget(null)}
+        onViewRevision={(revisionId) => {
+          setHistoryTarget(null);
+          onEditTemplate?.(revisionId);
+        }}
+        onRestoredAsRevision={(templateId) => {
+          setActionSuccess("Restored as new revision.");
+          onTemplateRevised?.(templateId);
+        }}
       />
     </div>
   );

@@ -15,8 +15,10 @@ import {
 import { parseChecklistText } from "./audit-builder-parser.mjs";
 import {
   buildRevisionIdentity,
+  collectRevisionsForFormNumber,
   COPY_TITLE_REQUIRED_MESSAGE,
   describeRevisionLabel,
+  filterLatestActiveTemplates,
   nextFormNumberFromRecords,
   normalizeRevisionNumber,
   validateTemplateTitle,
@@ -1022,6 +1024,10 @@ export function installAuditBuilderRoutes(app, deps) {
         status: "superseded",
         superseded_by_revision_id: record.revision_id,
         updated_at: new Date().toISOString(),
+        archived: true,
+        archived_at: new Date().toISOString(),
+        archived_by: actor.email,
+        archive_reason: revisionReason || "Superseded by new revision",
       };
       persistWorkspace(sessionDir, store, key, bucket);
 
@@ -1067,15 +1073,15 @@ export function installAuditBuilderRoutes(app, deps) {
       if (envConfigured?.() && authed && masterSheetId && masterSheetId !== "local-dev") {
         await loadTemplatesFromSheets(sheetDeps, authed, masterSheetId, sessionDir);
         const { bucket } = getWorkspaceStore(sessionDir, masterSheetId);
-        const templates = Object.values(bucket.templates)
-          .map((template) => enrichTemplate(template, bucket))
-          .filter((template) => template.status !== "archived");
+        const templates = filterLatestActiveTemplates(
+          Object.values(bucket.templates).map((template) => enrichTemplate(template, bucket)),
+        );
         return res.json({ ok: true, templates });
       }
       const { bucket } = getWorkspaceStore(sessionDir, masterSheetId || "local-dev");
-      const templates = Object.values(bucket.templates)
-        .map((template) => enrichTemplate(template, bucket))
-        .filter((template) => template.status !== "archived");
+      const templates = filterLatestActiveTemplates(
+        Object.values(bucket.templates).map((template) => enrichTemplate(template, bucket)),
+      );
       return res.json({ ok: true, templates });
     } catch (error) {
       return res.status(500).json({
@@ -1295,6 +1301,214 @@ export function installAuditBuilderRoutes(app, deps) {
     },
   );
 
+  async function handleListRevisionsRequest(req, res, options = {}) {
+    try {
+      const actor = req.auditBuilderActor;
+      let masterSheetId = String(req.query?.masterSheetId || req.body?.masterSheetId || actor.masterSheetId || "").trim() || "local-dev";
+      const companyFolderId = String(options.companyFolderId || req.params?.companyFolderId || "").trim();
+      let authed = getAuthedClient?.();
+
+      if (companyFolderId) {
+        const resolved = await resolveFolderWorkbook(req, companyFolderId);
+        if (!resolved.ok) {
+          return res.status(resolved.httpStatus || 404).json({
+            ok: false,
+            code: resolved.code,
+            error: resolved.error,
+            message: resolved.error,
+          });
+        }
+        masterSheetId = resolved.masterSheetId;
+        authed = resolved.authed;
+        if (envConfigured?.() && authed) {
+          await loadTemplatesFromSheets(sheetDeps, authed, masterSheetId, sessionDir);
+        }
+      }
+
+      const templateId = String(req.params.templateId || req.params.id || "").trim();
+      const formNumberQuery = String(req.query?.formNumber || req.query?.form_number || "").trim();
+      const { bucket } = getWorkspaceStore(sessionDir, masterSheetId);
+      const source = templateId ? bucket.templates[templateId] : null;
+      const formNumber =
+        formNumberQuery ||
+        String(source?.form_number || "").trim() ||
+        String(req.params.formNumber || "").trim();
+
+      if (!formNumber) {
+        return res.status(404).json({
+          ok: false,
+          code: "TEMPLATE_NOT_FOUND",
+          error: "Form number could not be resolved for revision history.",
+        });
+      }
+
+      const revisions = collectRevisionsForFormNumber(Object.values(bucket.templates || {}), formNumber);
+      return res.json({
+        ok: true,
+        formNumber,
+        revisions,
+        activeRevisionId: revisions.find((row) => row.is_active)?.id || "",
+      });
+    } catch {
+      return res.status(500).json({
+        ok: false,
+        code: "FORM_REVISIONS_LOAD_FAILED",
+        error: "Unable to load revision history.",
+        message: "Unable to load revision history.",
+      });
+    }
+  }
+
+  async function handleRestoreAsRevisionRequest(req, res, options = {}) {
+    try {
+      const actor = req.auditBuilderActor;
+      let masterSheetId = String(req.body?.masterSheetId || actor.masterSheetId || "").trim() || "local-dev";
+      const companyFolderId = String(options.companyFolderId || req.params?.companyFolderId || "").trim();
+      let authed = getAuthedClient?.();
+
+      if (companyFolderId) {
+        const resolved = await resolveFolderWorkbook(req, companyFolderId);
+        if (!resolved.ok) {
+          return res.status(resolved.httpStatus || 404).json({
+            ok: false,
+            code: resolved.code,
+            error: resolved.error,
+            message: resolved.error,
+          });
+        }
+        masterSheetId = resolved.masterSheetId;
+        authed = resolved.authed;
+        if (envConfigured?.() && authed) {
+          await loadTemplatesFromSheets(sheetDeps, authed, masterSheetId, sessionDir);
+        }
+      }
+
+      const templateId = String(req.params.templateId || req.params.id || "").trim();
+      const { store, bucket, key } = getWorkspaceStore(sessionDir, masterSheetId);
+      const source = bucket.templates[templateId];
+      if (!source) {
+        return res.status(404).json({
+          ok: false,
+          code: "TEMPLATE_NOT_FOUND",
+          error: "Audit template not found.",
+        });
+      }
+
+      const formNumber =
+        String(source.form_number || "").trim() || nextFormNumberFromRecords(templateRecordsForTitleCheck(bucket));
+      const reason =
+        String(req.body?.reason || req.body?.revision_reason || "").trim() ||
+        `Restored as new revision from Rev ${normalizeRevisionNumber(source.revision_number || source.version || 1)}`;
+
+      const currentActive = Object.values(bucket.templates).find((template) => {
+        const sameForm = String(template.form_number || "").trim() === formNumber;
+        const status = normalizeTemplateStatus(template.status);
+        return sameForm && (status === "active" || status === "draft");
+      });
+
+      const payload = {
+        template_name: source.template_name,
+        description: source.description || "",
+        category: source.category || "Audits",
+        sections: Array.isArray(source.sections)
+          ? JSON.parse(JSON.stringify(source.sections))
+          : [{ name: "General", questions: [] }],
+        status: "active",
+      };
+
+      const baseForVersion = currentActive || source;
+      const newTemplateId = newId("ab-template");
+      const previousRevision = normalizeRevisionNumber(baseForVersion.revision_number || baseForVersion.version || 1);
+      const previousRevisionId =
+        String(baseForVersion.revision_id || "").trim() || `${formNumber}-REV-${previousRevision}`;
+      const record = createTemplateVersionRecord(
+        { ...baseForVersion, form_number: formNumber, revision_id: previousRevisionId },
+        payload,
+        actor.email,
+        newTemplateId,
+        { revision_reason: reason },
+      );
+      // Content comes from the restored (old) revision.
+      record.sections = payload.sections;
+      record.template_name = payload.template_name;
+      record.description = payload.description;
+      record.category = payload.category;
+      record.question_count = flattenTemplateQuestions(payload.sections).length;
+
+      bucket.templates[newTemplateId] = record;
+      if (currentActive && currentActive.id !== templateId) {
+        bucket.templates[currentActive.id] = {
+          ...currentActive,
+          status: "superseded",
+          superseded_by_revision_id: record.revision_id,
+          updated_at: new Date().toISOString(),
+          archived: true,
+          archived_at: new Date().toISOString(),
+          archived_by: actor.email,
+          archive_reason: reason,
+        };
+      }
+      // Keep the historical source row superseded/archived — do not reactivate it in place.
+      bucket.templates[templateId] = {
+        ...source,
+        form_number: formNumber,
+        status: source.status === "active" ? "superseded" : source.status || "superseded",
+        updated_at: new Date().toISOString(),
+      };
+      persistWorkspace(sessionDir, store, key, bucket);
+
+      if (envConfigured?.() && authed && masterSheetId && masterSheetId !== "local-dev") {
+        if (currentActive && currentActive.id !== templateId) {
+          await writeAuditTemplateMetadata(sheetDeps, authed, masterSheetId, bucket.templates[currentActive.id]);
+        }
+        await writeAuditTemplateMetadata(sheetDeps, authed, masterSheetId, bucket.templates[templateId]);
+        await syncTemplateToSheets(sheetDeps, authed, masterSheetId, newTemplateId, payload, record, actor.email);
+      }
+
+      return res.json({
+        ok: true,
+        message: "Restored as new revision.",
+        template: enrichTemplate(record, bucket),
+        restoredFromTemplateId: templateId,
+      });
+    } catch {
+      return res.status(500).json({
+        ok: false,
+        code: "FORM_RESTORE_AS_REVISION_FAILED",
+        error: "Unable to restore as a new revision.",
+        message: "Unable to restore as a new revision.",
+      });
+    }
+  }
+
+  app.get("/api/audits/templates/:id/revisions", requireActor, async (req, res) => {
+    return handleListRevisionsRequest(req, res);
+  });
+
+  app.get(
+    "/api/companies/:companyFolderId/audit-templates/:templateId/revisions",
+    requireActor,
+    async (req, res) => {
+      return handleListRevisionsRequest(req, res, { companyFolderId: req.params.companyFolderId });
+    },
+  );
+
+  app.get("/api/companies/:companyFolderId/audit-templates/revisions", requireActor, async (req, res) => {
+    return handleListRevisionsRequest(req, res, { companyFolderId: req.params.companyFolderId });
+  });
+
+  app.post("/api/audits/templates/:id/restore-as-revision", requireActor, async (req, res) => {
+    return handleRestoreAsRevisionRequest(req, res);
+  });
+
+  app.post(
+    "/api/companies/:companyFolderId/audit-templates/:templateId/restore-as-revision",
+    requireActor,
+    async (req, res) => {
+      return handleRestoreAsRevisionRequest(req, res, { companyFolderId: req.params.companyFolderId });
+    },
+  );
+
   app.post(
     "/api/companies/:companyFolderId/google-form-templates/:templateId/copy",
     requireActor,
@@ -1303,6 +1517,14 @@ export function installAuditBuilderRoutes(app, deps) {
         companyFolderId: req.params.companyFolderId,
         googleForm: true,
       });
+    },
+  );
+
+  app.get(
+    "/api/companies/:companyFolderId/google-form-templates/:templateId/revisions",
+    requireActor,
+    async (req, res) => {
+      return handleListRevisionsRequest(req, res, { companyFolderId: req.params.companyFolderId });
     },
   );
 

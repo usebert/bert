@@ -36,6 +36,7 @@ export function mergeAuditTemplatesFromSheet(
 
     const language = normalizeFormLanguage(row.language || existing?.language);
     const statusRaw = String(row.status || (active ? "active" : "inactive")).trim().toLowerCase();
+    const isActiveStatus = statusRaw === "active" || statusRaw === "draft" || (!statusRaw && active);
     const revisionNumber = Number(row.revisionNumber || existing?.revisionNumber || 1) || 1;
     const formNumber = String(row.formNumber || existing?.formNumber || "").trim();
     const statusLabel = statusRaw ? statusRaw.charAt(0).toUpperCase() + statusRaw.slice(1) : "Active";
@@ -45,7 +46,7 @@ export function mergeAuditTemplatesFromSheet(
     merged.push({
       id: row.id,
       name: row.name,
-      active,
+      active: isActiveStatus,
       questions: existing?.questions?.length ? existing.questions : importQuestions,
       source: isGoogleFormImport ? "Google Drive" : existing?.source || "Built in app",
       category: row.category || existing?.category,

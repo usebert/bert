@@ -11,6 +11,8 @@ export type ArchivedListItem = {
   archivedBy?: string;
   archiveReason?: string;
   status?: string;
+  formNumber?: string;
+  revisionNumber?: string;
   site?: string;
   department?: string;
   email?: string;

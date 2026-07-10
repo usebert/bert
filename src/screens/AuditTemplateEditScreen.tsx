@@ -17,6 +17,7 @@ import {
 import { ArchiveRecordButton } from "../components/archive/ArchiveRecordButton";
 import { CopyAuditFormModal } from "../components/forms/CopyAuditFormModal";
 import { ReviseAuditFormModal } from "../components/forms/ReviseAuditFormModal";
+import { RevisionHistoryModal } from "../components/forms/RevisionHistoryModal";
 import { canArchiveRecordFromClient } from "../utils/archivePermissions";
 import { canManageTemplates } from "../permissions";
 import type {
@@ -110,6 +111,7 @@ export function AuditTemplateEditScreen({
   const [isLocalOnly, setIsLocalOnly] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
   const [reviseOpen, setReviseOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [copyError, setCopyError] = useState("");
   const [reviseError, setReviseError] = useState("");
   const [copyBusy, setCopyBusy] = useState(false);
@@ -428,6 +430,19 @@ export function AuditTemplateEditScreen({
               >
                 Copy
               </button>
+              {recordMeta.form_number || recordMeta.revision_number ? (
+                <button
+                  type="button"
+                  data-testid="audit-form-revision-history-button"
+                  onClick={() => setHistoryOpen(true)}
+                  disabled={saving || reviseBusy || copyBusy}
+                  className={["inline-flex h-11 items-center rounded-xl border px-4 text-sm font-semibold", theme.outlineButton].join(
+                    " ",
+                  )}
+                >
+                  Revision History
+                </button>
+              ) : null}
               {canArchiveRecordFromClient(role, "audit") && companyFolderId && recordMeta ? (
                 <ArchiveRecordButton
                   recordType="audit"
@@ -829,6 +844,40 @@ export function AuditTemplateEditScreen({
           if (!reviseBusy) setReviseOpen(false);
         }}
         onSubmit={(input) => void handleReviseSubmit(input)}
+      />
+      <RevisionHistoryModal
+        open={historyOpen}
+        templateId={recordMeta.id}
+        templateName={draft.template_name}
+        formNumber={recordMeta.form_number || ""}
+        companyFolderId={companyFolderId}
+        masterSheetId={masterSheetId}
+        canRestoreAsRevision={canManageRevisions}
+        onClose={() => setHistoryOpen(false)}
+        onViewRevision={(revisionId) => {
+          setHistoryOpen(false);
+          if (revisionId !== recordMeta.id) {
+            onTemplateUpdated({
+              ...draft,
+              id: revisionId,
+              created_at: "",
+              updated_at: "",
+              created_by: "",
+              question_count: questionCount,
+            } as never);
+          }
+        }}
+        onRestoredAsRevision={(templateId) => {
+          setSuccessMessage("Restored as new revision.");
+          onTemplateUpdated({
+            ...draft,
+            id: templateId,
+            created_at: "",
+            updated_at: "",
+            created_by: "",
+            question_count: questionCount,
+          } as never);
+        }}
       />
     </div>
   );
