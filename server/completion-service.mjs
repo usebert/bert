@@ -125,6 +125,9 @@ export const AUDIT_RESULTS_TAB_COLUMNS = [
   "Audit ID",
   "Area ID",
   "Audit Name",
+  "Form Number",
+  "Revision Number",
+  "Revision ID",
   "Completed By",
   "Next Due At",
   "Frequency",
@@ -332,6 +335,9 @@ export function buildAuditResultRow(input = {}) {
     "Audit ID": trim(input.auditId),
     "Area ID": trim(input.areaId) || "area-main",
     "Audit Name": trim(input.auditName),
+    "Form Number": trim(input.formNumber || input.form_number),
+    "Revision Number": trim(input.revisionNumber || input.revision_number) || "",
+    "Revision ID": trim(input.revisionId || input.revision_id),
     "Completed By": completedByEmail,
     "Next Due At": trim(input.nextDueAt),
     Frequency: trim(input.frequency),
@@ -502,6 +508,25 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
     completedByName: trim(input.completedByName || input.name),
     auditId,
     auditName,
+    formNumber:
+      input.formNumber ||
+      input.form_number ||
+      matchingAudit?.formNumber ||
+      matchingAudit?.form_number ||
+      "",
+    revisionNumber:
+      input.revisionNumber ||
+      input.revision_number ||
+      matchingAudit?.revisionNumber ||
+      matchingAudit?.revision_number ||
+      matchingAudit?.version ||
+      "",
+    revisionId:
+      input.revisionId ||
+      input.revision_id ||
+      matchingAudit?.revisionId ||
+      matchingAudit?.revision_id ||
+      "",
     nextDueAt: trim(input.nextDueAt || schedule.nextDueAt),
     frequency: trim(input.frequency || matchingAudit?.frequency || "Weekly"),
     status: trim(input.status || input.result) || "completed",

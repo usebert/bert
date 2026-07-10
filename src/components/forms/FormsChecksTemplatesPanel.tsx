@@ -1,6 +1,9 @@
+import { useState } from "react";
 import { EmptyPanel } from "../dashboard/DashboardPrimitives";
 import { GoogleFormTemplatePanel } from "../admin/GoogleFormTemplatePanel";
+import { CopyAuditFormModal } from "./CopyAuditFormModal";
 import { formLanguageLabel } from "../../config/templateLanguages";
+import { copyAuditBuilderTemplate } from "../../services/auditBuilderService";
 import type { AuditTemplate } from "../../types/reportsScreenProps";
 import type {
   CompanyGoogleForm,
@@ -13,6 +16,7 @@ type FormsChecksTemplatesPanelProps = {
   syncState: string;
   googleConnected: boolean;
   companyFolderId?: string;
+  masterSheetId?: string;
   canCreateTemplates: boolean;
   companyGoogleForms?: CompanyGoogleForm[];
   companyGoogleFormsStatus?: CompanyGoogleFormsStatus;
@@ -20,6 +24,8 @@ type FormsChecksTemplatesPanelProps = {
   showGoogleFormsDiagnostics?: boolean;
   onToggleTemplate?: (templateId: string) => void;
   onEditTemplate?: (templateId: string) => void;
+  onReviseTemplate?: (templateId: string) => void;
+  onTemplateCopied?: (templateId: string) => void;
   onGoogleFormUpdated?: (templateId: string, record: { googleFormId?: string; googleFormEditUrl?: string; googleFormResponderUrl?: string; syncStatus?: string; currentDriveFolderName?: string }) => void;
 };
 
@@ -140,6 +146,7 @@ export function FormsChecksTemplatesPanel({
   syncState,
   googleConnected,
   companyFolderId,
+  masterSheetId,
   canCreateTemplates,
   companyGoogleForms = [],
   companyGoogleFormsStatus = "idle",
@@ -147,12 +154,50 @@ export function FormsChecksTemplatesPanel({
   showGoogleFormsDiagnostics = false,
   onToggleTemplate,
   onEditTemplate,
+  onReviseTemplate,
+  onTemplateCopied,
   onGoogleFormUpdated,
 }: FormsChecksTemplatesPanelProps) {
   const guidance = workspaceGuidance(syncState, googleConnected);
   const sorted = [...templates].sort((a, b) => a.name.localeCompare(b.name));
   const showGoogleFormsSection =
     companyGoogleFormsStatus !== "idle" && companyGoogleFormsStatus !== "loading";
+  const [copyTarget, setCopyTarget] = useState<AuditTemplate | null>(null);
+  const [copyBusy, setCopyBusy] = useState(false);
+  const [copyError, setCopyError] = useState("");
+  const [copySuccess, setCopySuccess] = useState("");
+
+  const handleCopySubmit = async (input: {
+    title: string;
+    reason: string;
+    confirmArchivedTitle?: boolean;
+  }) => {
+    if (!copyTarget) return;
+    if (!input.title.trim()) {
+      setCopyError("Enter a title for the copied form.");
+      return;
+    }
+    setCopyBusy(true);
+    setCopyError("");
+    try {
+      const record = await copyAuditBuilderTemplate(
+        copyTarget.id,
+        {
+          title: input.title,
+          reason: input.reason,
+          confirmArchivedTitle: input.confirmArchivedTitle,
+        },
+        { companyFolderId, masterSheetId },
+      );
+      setCopyTarget(null);
+      setCopySuccess("Copy created.");
+      onTemplateCopied?.(record.id);
+    } catch (err) {
+      setCopyError(err instanceof Error ? err.message : "Unable to copy template.");
+    } finally {
+      setCopyBusy(false);
+    }
+  };
 
   if (sorted.length === 0 && !showGoogleFormsSection) {
     return (
@@ -177,6 +222,8 @@ export function FormsChecksTemplatesPanel({
           showDiagnostics={showGoogleFormsDiagnostics}
         />
       ) : null}
+
+      {copySuccess ? <p className="text-sm font-medium text-emerald-700">{copySuccess}</p> : null}
 
       {sorted.length === 0 ? (
         <EmptyPanel
@@ -228,6 +275,30 @@ export function FormsChecksTemplatesPanel({
                       Edit
                     </button>
                   ) : null}
+                  {(onReviseTemplate || onEditTemplate) && canCreateTemplates ? (
+                    <button
+                      type="button"
+                      onClick={() => (onReviseTemplate || onEditTemplate)?.(template.id)}
+                      title="You are creating a new revision of this controlled form."
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+                    >
+                      Revise
+                    </button>
+                  ) : null}
+                  {canCreateTemplates ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCopyError("");
+                        setCopySuccess("");
+                        setCopyTarget(template);
+                      }}
+                      title="You are creating a new form based on this one. It will get its own form number and start at Rev 1."
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+                    >
+                      Copy
+                    </button>
+                  ) : null}
                   {onToggleTemplate ? (
                     <button
                       type="button"
@@ -265,6 +336,18 @@ export function FormsChecksTemplatesPanel({
           ))}
         </>
       )}
+
+      <CopyAuditFormModal
+        open={Boolean(copyTarget)}
+        sourceTitle={copyTarget?.name || ""}
+        mode="form"
+        busy={copyBusy}
+        error={copyError}
+        onCancel={() => {
+          if (!copyBusy) setCopyTarget(null);
+        }}
+        onSubmit={(input) => void handleCopySubmit(input)}
+      />
     </div>
   );
 }

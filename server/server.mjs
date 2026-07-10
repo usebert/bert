@@ -7434,6 +7434,7 @@ installAuditBuilderRoutes(app, {
   withSheetsQuotaRetry,
   google,
   appendRowObjects,
+  resolveCompanyFromFolder,
 });
 
 app.use((req, res, next) => {

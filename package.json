@@ -100,6 +100,7 @@
     "verify:company-structure": "node scripts/verify-company-structure.mjs",
     "verify:people-section": "node scripts/verify-people-section.mjs",
     "verify:archive": "node scripts/verify-archive.mjs",
+    "verify:revision-control": "node scripts/verify-revision-control.mjs",
     "verify:ncr-workflow": "node scripts/verify-ncr-workflow.mjs",
     "verify:uk-timezone": "node scripts/verify-uk-timezone.mjs",
     "verify:core-workflow": "node scripts/verify-core-workflow.mjs",

@@ -7,14 +7,15 @@ import { AuditCentreBackButton } from "../components/auditCentre/AuditCentreBack
 import { SectionIntro } from "../components/SectionIntro";
 import {
   archiveAuditBuilderTemplate,
+  copyAuditBuilderTemplate,
   createAuditTemplateNewVersion,
-  duplicateAuditBuilderTemplate,
   getAuditBuilderTemplate,
   saveAuditBuilderTemplate,
   TEMPLATE_USED_WARNING,
   updateAuditBuilderTemplate,
 } from "../services/auditBuilderService";
 import { ArchiveRecordButton } from "../components/archive/ArchiveRecordButton";
+import { CopyAuditFormModal } from "../components/forms/CopyAuditFormModal";
 import { canArchiveRecordFromClient } from "../utils/archivePermissions";
 import type {
   AuditBuilderTemplateDraft,
@@ -87,11 +88,17 @@ export function AuditTemplateEditScreen({
   onTemplateArchived,
 }: Props) {
   const theme = getRoleTheme(role);
-  const requestOptions = { masterSheetId, devApiHeaders };
+  const requestOptions = { masterSheetId, companyFolderId, devApiHeaders };
   const [draft, setDraft] = useState<EditorDraft | null>(null);
   const [recordMeta, setRecordMeta] = useState<Pick<
     AuditBuilderTemplateRecord,
-    "id" | "version" | "parent_template_id" | "is_used"
+    | "id"
+    | "version"
+    | "parent_template_id"
+    | "is_used"
+    | "form_number"
+    | "revision_number"
+    | "revision_label"
   > | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -99,6 +106,10 @@ export function AuditTemplateEditScreen({
   const [validationError, setValidationError] = useState("");
   const [showUsedWarning, setShowUsedWarning] = useState(false);
   const [isLocalOnly, setIsLocalOnly] = useState(false);
+  const [copyOpen, setCopyOpen] = useState(false);
+  const [copyError, setCopyError] = useState("");
+  const [copyBusy, setCopyBusy] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -117,9 +128,12 @@ export function AuditTemplateEditScreen({
         });
         setRecordMeta({
           id: record.id,
-          version: record.version || 1,
+          version: record.version || record.revision_number || 1,
           parent_template_id: record.parent_template_id,
           is_used: record.is_used,
+          form_number: record.form_number,
+          revision_number: record.revision_number || record.version || 1,
+          revision_label: record.revision_label,
         });
         setIsLocalOnly(false);
       } catch {
@@ -135,6 +149,9 @@ export function AuditTemplateEditScreen({
             version: 1,
             parent_template_id: null,
             is_used: false,
+            form_number: "",
+            revision_number: 1,
+            revision_label: "Rev 1 · Active",
           });
           setIsLocalOnly(true);
         } else {
@@ -182,11 +199,17 @@ export function AuditTemplateEditScreen({
       }
       setRecordMeta({
         id: record.id,
-        version: record.version || 1,
+        version: record.version || record.revision_number || 1,
         parent_template_id: record.parent_template_id,
         is_used: record.is_used,
+        form_number: record.form_number,
+        revision_number: record.revision_number || record.version || 1,
+        revision_label: record.revision_label,
       });
       setShowUsedWarning(false);
+      if (mode === "new-version") {
+        setSuccessMessage("Revision created.");
+      }
       onTemplateUpdated(record, {
         replacedTemplateId: record.id !== templateId ? templateId : undefined,
         createGoogleFormCopy:
@@ -218,17 +241,35 @@ export function AuditTemplateEditScreen({
     void persistDraft("save", true);
   };
 
-  const handleDuplicate = async () => {
+  const handleCopySubmit = async (input: {
+    title: string;
+    reason: string;
+    confirmArchivedTitle?: boolean;
+  }) => {
     if (!recordMeta || isLocalOnly) return;
-    setSaving(true);
-    setError("");
+    if (!input.title.trim()) {
+      setCopyError("Enter a title for the copied form.");
+      return;
+    }
+    setCopyBusy(true);
+    setCopyError("");
     try {
-      const record = await duplicateAuditBuilderTemplate(recordMeta.id, requestOptions);
+      const record = await copyAuditBuilderTemplate(
+        recordMeta.id,
+        {
+          title: input.title,
+          reason: input.reason,
+          confirmArchivedTitle: input.confirmArchivedTitle,
+        },
+        requestOptions,
+      );
+      setCopyOpen(false);
+      setSuccessMessage("Copy created.");
       onTemplateUpdated(record);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to duplicate template.");
+      setCopyError(err instanceof Error ? err.message : "Unable to copy template.");
     } finally {
-      setSaving(false);
+      setCopyBusy(false);
     }
   };
 
@@ -289,14 +330,16 @@ export function AuditTemplateEditScreen({
             <div>
               <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Edit Audit Template</h2>
               <SectionIntro
-                text="Update sections, questions, and answer settings. Used templates are versioned so completed audits stay unchanged."
+                text="Update sections, questions, and answer settings. Use Revise to create a controlled new revision of this form, or Copy to create a separate form with a new form number."
                 className="mt-2"
                 role={role}
               />
               <p className="mt-2 text-xs text-slate-500">
-                Version {recordMeta.version || 1}
+                {recordMeta.revision_label ||
+                  `${recordMeta.form_number ? `${recordMeta.form_number} · ` : ""}Rev ${recordMeta.revision_number || recordMeta.version || 1}`}
                 {recordMeta.is_used ? " · Used in completed or in-progress audits" : " · Not yet used"}
               </p>
+              {successMessage ? <p className="mt-2 text-sm font-medium text-emerald-700">{successMessage}</p> : null}
             </div>
           </div>
         </div>
@@ -321,7 +364,7 @@ export function AuditTemplateEditScreen({
                 theme.primaryButtonHover,
               ].join(" ")}
             >
-              {saving ? "Saving…" : "Save as new version"}
+              {saving ? "Saving…" : "Save as new revision"}
             </button>
             <button
               type="button"
@@ -650,21 +693,26 @@ export function AuditTemplateEditScreen({
             type="button"
             onClick={() => void persistDraft("new-version")}
             disabled={saving || isLocalOnly}
+            title="You are creating a new revision of this controlled form."
             className={["inline-flex h-12 items-center rounded-xl border px-5 text-sm font-semibold", theme.outlineButton].join(
               " ",
             )}
           >
-            Save as new version
+            Revise
           </button>
           <button
             type="button"
-            onClick={() => void handleDuplicate()}
+            onClick={() => {
+              setCopyError("");
+              setCopyOpen(true);
+            }}
             disabled={saving || isLocalOnly}
+            title="You are creating a new form based on this one. It will get its own form number and start at Rev 1."
             className={["inline-flex h-12 items-center rounded-xl border px-5 text-sm font-semibold", theme.outlineButton].join(
               " ",
             )}
           >
-            Duplicate
+            Copy audit
           </button>
           {canArchiveRecordFromClient(role, "audit") && companyFolderId && recordMeta && !isLocalOnly ? (
             <ArchiveRecordButton
@@ -693,6 +741,18 @@ export function AuditTemplateEditScreen({
           )}
         </div>
       </section>
+
+      <CopyAuditFormModal
+        open={copyOpen}
+        sourceTitle={draft.template_name}
+        mode="audit"
+        busy={copyBusy}
+        error={copyError}
+        onCancel={() => {
+          if (!copyBusy) setCopyOpen(false);
+        }}
+        onSubmit={(input) => void handleCopySubmit(input)}
+      />
     </div>
   );
 }

@@ -13,6 +13,14 @@ import {
   defaultTranslationStatusForLanguage,
 } from "./template-languages.mjs";
 import { parseChecklistText } from "./audit-builder-parser.mjs";
+import {
+  buildRevisionIdentity,
+  COPY_TITLE_REQUIRED_MESSAGE,
+  describeRevisionLabel,
+  nextFormNumberFromRecords,
+  normalizeRevisionNumber,
+  validateTemplateTitle,
+} from "../shared/revision-control.mjs";
 
 const STORE_DIR = "audit-builder";
 const STORE_FILE = "workspaces.json";
@@ -191,14 +199,63 @@ function flattenTemplateQuestions(sections) {
 
 function normalizeTemplateStatus(status = "active") {
   const value = String(status || "active").trim().toLowerCase();
-  if (value === "inactive" || value === "archived") {
+  if (value === "inactive" || value === "archived" || value === "superseded" || value === "draft") {
     return value;
   }
   return "active";
 }
 
+function templateRecordsForTitleCheck(bucket) {
+  return Object.values(bucket?.templates || {}).map((template) => ({
+    id: template.id,
+    template_name: template.template_name,
+    name: template.template_name,
+    status: template.status,
+    form_number: template.form_number,
+    formNumber: template.form_number,
+  }));
+}
+
+function applyRevisionExtras(record, extras = {}) {
+  const revisionNumber = normalizeRevisionNumber(
+    extras.revision_number ?? extras.version ?? record.revision_number ?? record.version ?? 1,
+  );
+  const identity = buildRevisionIdentity({
+    formNumber: extras.form_number || record.form_number,
+    revisionNumber,
+    revisionId: extras.revision_id || record.revision_id,
+  });
+  return {
+    ...record,
+    ...identity,
+    version: identity.revision_number,
+    parent_template_id:
+      extras.parent_template_id !== undefined ? extras.parent_template_id : record.parent_template_id || null,
+    supersedes_revision_id:
+      extras.supersedes_revision_id !== undefined
+        ? String(extras.supersedes_revision_id || "")
+        : String(record.supersedes_revision_id || ""),
+    superseded_by_revision_id:
+      extras.superseded_by_revision_id !== undefined
+        ? String(extras.superseded_by_revision_id || "")
+        : String(record.superseded_by_revision_id || ""),
+    revision_reason:
+      extras.revision_reason !== undefined
+        ? String(extras.revision_reason || "")
+        : String(record.revision_reason || ""),
+    copy_reason:
+      extras.copy_reason !== undefined ? String(extras.copy_reason || "") : String(record.copy_reason || ""),
+  };
+}
+
 function templateToApiRecord(templateId, payload, actorEmail, extras = {}) {
   const now = new Date().toISOString();
+  const revisionNumber = normalizeRevisionNumber(extras.revision_number ?? extras.version ?? 1);
+  const identity = buildRevisionIdentity({
+    formNumber: extras.form_number,
+    revisionNumber,
+    revisionId: extras.revision_id,
+  });
   return {
     id: templateId,
     template_name: payload.template_name,
@@ -209,9 +266,16 @@ function templateToApiRecord(templateId, payload, actorEmail, extras = {}) {
     updated_at: now,
     created_by: actorEmail,
     question_count: flattenTemplateQuestions(payload.sections).length,
-    version: Number(extras.version) > 0 ? Number(extras.version) : 1,
+    version: identity.revision_number,
     parent_template_id: extras.parent_template_id || null,
     status: normalizeTemplateStatus(extras.status || payload.status || "active"),
+    form_number: identity.form_number,
+    revision_number: identity.revision_number,
+    revision_id: identity.revision_id,
+    supersedes_revision_id: String(extras.supersedes_revision_id || ""),
+    superseded_by_revision_id: String(extras.superseded_by_revision_id || ""),
+    revision_reason: String(extras.revision_reason || ""),
+    copy_reason: String(extras.copy_reason || ""),
   };
 }
 
@@ -221,13 +285,35 @@ function templateIsUsed(bucket, templateId) {
 
 function enrichTemplate(template, bucket) {
   if (!template) return null;
-  return {
+  const revisionNumber = normalizeRevisionNumber(template.revision_number || template.version || 1);
+  const enriched = {
     ...template,
-    version: Number(template.version) > 0 ? Number(template.version) : 1,
+    version: revisionNumber,
+    revision_number: revisionNumber,
+    form_number: String(template.form_number || "").trim(),
+    revision_id: String(template.revision_id || "").trim(),
     parent_template_id: template.parent_template_id || null,
+    supersedes_revision_id: String(template.supersedes_revision_id || ""),
+    superseded_by_revision_id: String(template.superseded_by_revision_id || ""),
+    revision_reason: String(template.revision_reason || ""),
+    copy_reason: String(template.copy_reason || ""),
     status: normalizeTemplateStatus(template.status),
     is_used: templateIsUsed(bucket, template.id),
   };
+  return {
+    ...enriched,
+    revision_label: describeRevisionLabel(enriched),
+  };
+}
+
+function titleValidationErrorResponse(res, validation, httpStatus = 409) {
+  return res.status(httpStatus).json({
+    ok: false,
+    code: validation.code || "DUPLICATE_TEMPLATE_TITLE",
+    error: validation.error || validation.message,
+    message: validation.message || validation.error,
+    archivedConflict: validation.archivedConflict === true,
+  });
 }
 
 function resolveActor(req, parseBertActorFromRequest) {
@@ -314,7 +400,12 @@ async function writeAuditTemplateTranslations(deps, auth, spreadsheetId, templat
 
 function sheetStatusForTemplate(templateRecord) {
   const status = normalizeTemplateStatus(templateRecord.status);
-  return status === "active" ? "active" : "inactive";
+  if (status === "active" || status === "draft") {
+    return status === "draft" ? "draft" : "active";
+  }
+  if (status === "superseded") return "superseded";
+  if (status === "archived") return "archived";
+  return "inactive";
 }
 
 async function writeAuditTemplateMetadata(deps, auth, spreadsheetId, templateRecord) {
@@ -335,6 +426,13 @@ async function writeAuditTemplateMetadata(deps, auth, spreadsheetId, templateRec
     DEFAULT_FORM_LANGUAGE,
     DEFAULT_FORM_LANGUAGE,
     defaultTranslationStatusForLanguage(DEFAULT_FORM_LANGUAGE),
+    String(templateRecord.form_number || "").trim(),
+    String(templateRecord.revision_number || templateRecord.version || 1),
+    String(templateRecord.revision_id || "").trim(),
+    String(templateRecord.supersedes_revision_id || "").trim(),
+    String(templateRecord.superseded_by_revision_id || "").trim(),
+    String(templateRecord.revision_reason || "").trim(),
+    String(templateRecord.copy_reason || "").trim(),
   ];
   const dataRows = kept.map((row) => AUDIT_TEMPLATES_COLUMNS.map((column) => String(row[column] || "")));
   dataRows.push(nextRow);
@@ -362,13 +460,25 @@ async function syncTemplateToSheets(sheetDeps, authed, masterSheetId, templateId
   await writeAuditTemplateTranslations(sheetDeps, authed, masterSheetId, templateId, payload, actorEmail);
 }
 
-function createTemplateVersionRecord(sourceTemplate, payload, actorEmail, newTemplateId) {
-  const nextVersion = (Number(sourceTemplate.version) > 0 ? Number(sourceTemplate.version) : 1) + 1;
+function createTemplateVersionRecord(sourceTemplate, payload, actorEmail, newTemplateId, options = {}) {
+  const previousRevision = normalizeRevisionNumber(sourceTemplate.revision_number || sourceTemplate.version || 1);
+  const nextVersion = previousRevision + 1;
+  const formNumber =
+    String(sourceTemplate.form_number || "").trim() ||
+    nextFormNumberFromRecords([{ form_number: sourceTemplate.form_number }]);
+  const previousRevisionId =
+    String(sourceTemplate.revision_id || "").trim() || `${formNumber}-REV-${previousRevision}`;
   const parentId = sourceTemplate.parent_template_id || sourceTemplate.id;
   return templateToApiRecord(newTemplateId, payload, actorEmail, {
     created_at: new Date().toISOString(),
     version: nextVersion,
+    revision_number: nextVersion,
+    form_number: formNumber,
+    revision_id: `${formNumber}-REV-${nextVersion}`,
     parent_template_id: parentId,
+    supersedes_revision_id: previousRevisionId,
+    superseded_by_revision_id: "",
+    revision_reason: String(options.revision_reason || options.reason || "").trim(),
     status: "active",
   });
 }
@@ -431,11 +541,28 @@ async function loadTemplatesFromSheets(deps, auth, spreadsheetId, sessionDir) {
       updated_at: existing.updated_at || row.createdAt || new Date().toISOString(),
       created_by: existing.created_by || "",
       question_count: (existing.sections || sections).reduce((sum, section) => sum + section.questions.length, 0),
-      version: existing.version || 1,
+      version: Number(row.revisionNumber) > 0 ? Number(row.revisionNumber) : existing.version || 1,
+      revision_number: Number(row.revisionNumber) > 0 ? Number(row.revisionNumber) : existing.revision_number || existing.version || 1,
+      form_number: row.formNumber || existing.form_number || "",
+      revision_id: row.revisionId || existing.revision_id || "",
+      supersedes_revision_id: row.supersedesRevisionId || existing.supersedes_revision_id || "",
+      superseded_by_revision_id: row.supersededByRevisionId || existing.superseded_by_revision_id || "",
+      revision_reason: row.revisionReason || existing.revision_reason || "",
+      copy_reason: row.copyReason || existing.copy_reason || "",
       parent_template_id: existing.parent_template_id || null,
       status:
         existing.status ||
-        (sheetStatus === "inactive" ? "inactive" : sheetStatus === "archived" ? "archived" : "active"),
+        (sheetStatus === "inactive"
+          ? "inactive"
+          : sheetStatus === "archived"
+            ? "archived"
+            : sheetStatus === "superseded"
+              ? "superseded"
+              : sheetStatus === "draft"
+                ? "draft"
+                : "active"),
+      googleFormId: row.googleFormId || existing.googleFormId || "",
+      googleFormTemplateStatus: row.googleFormTemplateStatus || existing.googleFormTemplateStatus || "",
     };
   }
   persistWorkspace(sessionDir, store, key, bucket);
@@ -572,7 +699,13 @@ export async function createBertCheckFromSyncedGoogleForm({
   const payload = buildGoogleFormImportTemplatePayload(googleForm);
   const templateId = newId("gf-check");
   const { store, bucket, key } = getWorkspaceStore(sessionDir, sheetId);
-  const record = templateToApiRecord(templateId, payload, actorEmail, { status: "active" });
+  const formNumber = nextFormNumberFromRecords(templateRecordsForTitleCheck(bucket));
+  const record = templateToApiRecord(templateId, payload, actorEmail, {
+    status: "active",
+    form_number: formNumber,
+    revision_number: 1,
+    version: 1,
+  });
   record.googleFormId = formId;
   record.googleFormTemplateStatus = GOOGLE_FORM_IMPORT_STATUS;
   bucket.templates[templateId] = record;
@@ -600,6 +733,7 @@ export function installAuditBuilderRoutes(app, deps) {
     withSheetsQuotaRetry,
     google,
     appendRowObjects,
+    resolveCompanyFromFolder,
   } = deps;
 
   const sheetDeps = {
@@ -611,6 +745,303 @@ export function installAuditBuilderRoutes(app, deps) {
   };
 
   const requireActor = (req, res, next) => requireAuditBuilderActor(req, res, next, parseBertActorFromRequest);
+
+  async function resolveFolderWorkbook(req, companyFolderId) {
+    const authed = getAuthedClient?.();
+    if (!envConfigured?.() || !authed) {
+      return {
+        ok: false,
+        httpStatus: 401,
+        code: "PERMISSION_DENIED",
+        error: "Connect Google Workspace before copying forms.",
+      };
+    }
+    if (typeof resolveCompanyFromFolder !== "function") {
+      return {
+        ok: false,
+        httpStatus: 500,
+        code: "COMPANY_WORKBOOK_NOT_FOUND",
+        error: "Company workbook resolver is unavailable.",
+      };
+    }
+    const resolved = await resolveCompanyFromFolder(authed, sheetDeps, companyFolderId, {
+      masterSheetId: String(req.body?.masterSheetId || req.query?.masterSheetId || "").trim(),
+      companyName: String(req.body?.companyName || "").trim(),
+    });
+    if (!resolved?.ok || !resolved.masterSheetId) {
+      return {
+        ok: false,
+        httpStatus: 404,
+        code: resolved?.reasonCode || "COMPANY_WORKBOOK_NOT_FOUND",
+        error: resolved?.userMessage || "Company workbook could not be found for this folder.",
+      };
+    }
+    return {
+      ok: true,
+      authed,
+      masterSheetId: resolved.masterSheetId,
+      companyFolderId: resolved.companyFolderId,
+    };
+  }
+
+  function copyTemplateFromSource({ bucket, source, title, reason, actorEmail, metadataOnlyGoogleForm = false }) {
+    const validation = validateTemplateTitle({
+      title,
+      records: templateRecordsForTitleCheck(bucket),
+      allowArchivedConflict: Boolean(source._allowArchivedConflict),
+    });
+    if (!validation.ok) {
+      return { ok: false, validation };
+    }
+
+    const formNumber = nextFormNumberFromRecords(templateRecordsForTitleCheck(bucket));
+    if (!formNumber) {
+      return {
+        ok: false,
+        code: "FORM_NUMBER_GENERATION_FAILED",
+        error: "Could not generate a new form number.",
+      };
+    }
+
+    const copyId = newId("ab-template");
+    const payload = {
+      template_name: validation.title,
+      description: source.description || "",
+      category: source.category || "Audits",
+      sections: Array.isArray(source.sections)
+        ? JSON.parse(JSON.stringify(source.sections))
+        : [{ name: "General", questions: [] }],
+      status: "active",
+    };
+    const record = templateToApiRecord(copyId, payload, actorEmail, {
+      version: 1,
+      revision_number: 1,
+      form_number: formNumber,
+      parent_template_id: null,
+      supersedes_revision_id: "",
+      superseded_by_revision_id: "",
+      revision_reason: "",
+      copy_reason: String(reason || "").trim(),
+      status: "active",
+    });
+    if (metadataOnlyGoogleForm || source.googleFormTemplateStatus === GOOGLE_FORM_IMPORT_STATUS) {
+      record.googleFormTemplateStatus = GOOGLE_FORM_IMPORT_STATUS;
+      record.googleFormId = "";
+      record.copy_note =
+        "BERT metadata copied. Google Drive Form file was not duplicated — link a form separately if needed.";
+    } else {
+      record.googleFormTemplateStatus = source.googleFormTemplateStatus || "Audit Builder";
+      record.googleFormId = "";
+    }
+    return { ok: true, copyId, payload, record, formNumber };
+  }
+
+  async function handleCopyTemplateRequest(req, res, options = {}) {
+    try {
+      const actor = req.auditBuilderActor;
+      let masterSheetId = String(req.body?.masterSheetId || actor.masterSheetId || "").trim() || "local-dev";
+      const companyFolderId = String(options.companyFolderId || req.params?.companyFolderId || "").trim();
+      let authed = getAuthedClient?.();
+
+      if (companyFolderId) {
+        const resolved = await resolveFolderWorkbook(req, companyFolderId);
+        if (!resolved.ok) {
+          return res.status(resolved.httpStatus || 404).json({
+            ok: false,
+            code: resolved.code,
+            error: resolved.error,
+            message: resolved.error,
+          });
+        }
+        masterSheetId = resolved.masterSheetId;
+        authed = resolved.authed;
+        if (envConfigured?.() && authed) {
+          await loadTemplatesFromSheets(sheetDeps, authed, masterSheetId, sessionDir);
+        }
+      }
+
+      const templateId = String(req.params.templateId || req.params.id || "").trim();
+      const title = String(req.body?.title || req.body?.template_name || "").trim();
+      const reason = String(req.body?.reason || req.body?.copy_reason || req.body?.notes || "").trim();
+      const allowArchivedConflict =
+        req.body?.confirmArchivedTitle === true || req.body?.allowArchivedConflict === true;
+      const metadataOnlyGoogleForm = options.googleForm === true;
+
+      if (!title) {
+        return res.status(400).json({
+          ok: false,
+          code: "DUPLICATE_TEMPLATE_TITLE",
+          error: COPY_TITLE_REQUIRED_MESSAGE,
+          message: COPY_TITLE_REQUIRED_MESSAGE,
+        });
+      }
+
+      const { store, bucket, key } = getWorkspaceStore(sessionDir, masterSheetId);
+      const existing = bucket.templates[templateId];
+      if (!existing) {
+        return res.status(404).json({
+          ok: false,
+          code: "TEMPLATE_NOT_FOUND",
+          error: "Audit template not found.",
+          message: "Audit template not found.",
+        });
+      }
+
+      const copied = copyTemplateFromSource({
+        bucket,
+        source: { ...existing, _allowArchivedConflict: allowArchivedConflict },
+        title,
+        reason,
+        actorEmail: actor.email,
+        metadataOnlyGoogleForm,
+      });
+      if (!copied.ok) {
+        if (copied.validation) {
+          return titleValidationErrorResponse(res, copied.validation);
+        }
+        return res.status(500).json({
+          ok: false,
+          code: copied.code || "FORM_COPY_WRITE_FAILED",
+          error: copied.error,
+          message: copied.error,
+        });
+      }
+
+      bucket.templates[copied.copyId] = copied.record;
+      persistWorkspace(sessionDir, store, key, bucket);
+
+      try {
+        if (envConfigured?.() && authed && masterSheetId && masterSheetId !== "local-dev") {
+          await syncTemplateToSheets(
+            sheetDeps,
+            authed,
+            masterSheetId,
+            copied.copyId,
+            copied.payload,
+            copied.record,
+            actor.email,
+          );
+        }
+      } catch {
+        return res.status(500).json({
+          ok: false,
+          code: "FORM_COPY_WRITE_FAILED",
+          error: "Could not write the copied form to the company workbook.",
+          message: "Could not write the copied form to the company workbook.",
+        });
+      }
+
+      return res.json({
+        ok: true,
+        message: "Copy created.",
+        template: enrichTemplate(copied.record, bucket),
+        schedulesCopied: false,
+        driveFormCopied: false,
+        copyNote: copied.record.copy_note || undefined,
+      });
+    } catch {
+      return res.status(500).json({
+        ok: false,
+        code: "FORM_COPY_WRITE_FAILED",
+        error: "Unable to copy audit template.",
+        message: "Unable to copy audit template.",
+      });
+    }
+  }
+
+  async function handleReviseTemplateRequest(req, res, options = {}) {
+    try {
+      const actor = req.auditBuilderActor;
+      let masterSheetId = String(req.body?.masterSheetId || actor.masterSheetId || "").trim() || "local-dev";
+      const companyFolderId = String(options.companyFolderId || req.params?.companyFolderId || "").trim();
+      let authed = getAuthedClient?.();
+
+      if (companyFolderId) {
+        const resolved = await resolveFolderWorkbook(req, companyFolderId);
+        if (!resolved.ok) {
+          return res.status(resolved.httpStatus || 404).json({
+            ok: false,
+            code: resolved.code,
+            error: resolved.error,
+            message: resolved.error,
+          });
+        }
+        masterSheetId = resolved.masterSheetId;
+        authed = resolved.authed;
+        if (envConfigured?.() && authed) {
+          await loadTemplatesFromSheets(sheetDeps, authed, masterSheetId, sessionDir);
+        }
+      }
+
+      const templateId = String(req.params.templateId || req.params.id || "").trim();
+      const payload = normalizeTemplatePayload(req.body);
+      const requestedStatus = normalizeTemplateStatus(req.body?.status || "active");
+      const revisionReason = String(req.body?.reason || req.body?.revision_reason || "").trim();
+
+      const { store, bucket, key } = getWorkspaceStore(sessionDir, masterSheetId);
+      const existing = bucket.templates[templateId];
+      if (!existing) {
+        return res.status(404).json({
+          ok: false,
+          code: "TEMPLATE_NOT_FOUND",
+          error: "Audit template not found.",
+        });
+      }
+
+      const formNumber =
+        String(existing.form_number || "").trim() ||
+        nextFormNumberFromRecords(templateRecordsForTitleCheck(bucket));
+      const titleCheck = validateTemplateTitle({
+        title: payload.template_name,
+        records: templateRecordsForTitleCheck(bucket),
+        excludeFormNumber: formNumber,
+        excludeTemplateId: templateId,
+        allowArchivedConflict: true,
+      });
+      if (!titleCheck.ok) {
+        return titleValidationErrorResponse(res, titleCheck);
+      }
+
+      const previousRevision = normalizeRevisionNumber(existing.revision_number || existing.version || 1);
+      const previousRevisionId =
+        String(existing.revision_id || "").trim() || `${formNumber}-REV-${previousRevision}`;
+      const newTemplateId = newId("ab-template");
+      const record = createTemplateVersionRecord(
+        { ...existing, form_number: formNumber, revision_id: previousRevisionId },
+        { ...payload, status: requestedStatus },
+        actor.email,
+        newTemplateId,
+        { revision_reason: revisionReason },
+      );
+      bucket.templates[newTemplateId] = record;
+      bucket.templates[templateId] = {
+        ...existing,
+        form_number: formNumber,
+        revision_number: previousRevision,
+        revision_id: previousRevisionId,
+        status: "superseded",
+        superseded_by_revision_id: record.revision_id,
+        updated_at: new Date().toISOString(),
+      };
+      persistWorkspace(sessionDir, store, key, bucket);
+
+      if (envConfigured?.() && authed && masterSheetId && masterSheetId !== "local-dev") {
+        await writeAuditTemplateMetadata(sheetDeps, authed, masterSheetId, bucket.templates[templateId]);
+        await syncTemplateToSheets(sheetDeps, authed, masterSheetId, newTemplateId, payload, record, actor.email);
+      }
+
+      return res.json({
+        ok: true,
+        template: enrichTemplate(record, bucket),
+        previousTemplate: enrichTemplate(bucket.templates[templateId], bucket),
+      });
+    } catch (error) {
+      return res.status(400).json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Unable to create template revision.",
+      });
+    }
+  }
 
   app.post("/api/audits/templates/generate-from-text", requireActor, (req, res) => {
     try {
@@ -684,8 +1115,20 @@ export function installAuditBuilderRoutes(app, deps) {
       const payload = normalizeTemplatePayload(req.body);
       const templateId = String(req.body?.id || "").trim() || newId("ab-template");
       const { store, bucket, key } = getWorkspaceStore(sessionDir, masterSheetId);
+      const titleCheck = validateTemplateTitle({
+        title: payload.template_name,
+        records: templateRecordsForTitleCheck(bucket),
+        allowArchivedConflict: req.body?.confirmArchivedTitle === true,
+      });
+      if (!titleCheck.ok) {
+        return titleValidationErrorResponse(res, titleCheck);
+      }
+      const formNumber = nextFormNumberFromRecords(templateRecordsForTitleCheck(bucket));
       const record = templateToApiRecord(templateId, payload, actor.email, {
         status: req.body?.status,
+        form_number: formNumber,
+        revision_number: 1,
+        version: 1,
       });
       bucket.templates[templateId] = record;
       persistWorkspace(sessionDir, store, key, bucket);
@@ -719,6 +1162,20 @@ export function installAuditBuilderRoutes(app, deps) {
         return res.status(404).json({ ok: false, error: "Audit template not found." });
       }
 
+      const formNumber =
+        String(existing.form_number || "").trim() ||
+        nextFormNumberFromRecords(templateRecordsForTitleCheck(bucket));
+      const titleCheck = validateTemplateTitle({
+        title: payload.template_name,
+        records: templateRecordsForTitleCheck(bucket),
+        excludeFormNumber: formNumber,
+        excludeTemplateId: templateId,
+        allowArchivedConflict: true,
+      });
+      if (!titleCheck.ok) {
+        return titleValidationErrorResponse(res, titleCheck);
+      }
+
       const isUsed = templateIsUsed(bucket, templateId);
       if (isUsed && !createNewVersion) {
         return res.status(409).json({
@@ -734,21 +1191,43 @@ export function installAuditBuilderRoutes(app, deps) {
       let targetTemplateId = templateId;
       if (isUsed && createNewVersion) {
         targetTemplateId = newId("ab-template");
-        record = createTemplateVersionRecord(existing, { ...payload, status: "active" }, actor.email, targetTemplateId);
+        const previousRevision = normalizeRevisionNumber(existing.revision_number || existing.version || 1);
+        const previousRevisionId =
+          String(existing.revision_id || "").trim() || `${formNumber}-REV-${previousRevision}`;
+        record = createTemplateVersionRecord(
+          { ...existing, form_number: formNumber, revision_id: previousRevisionId },
+          { ...payload, status: "active" },
+          actor.email,
+          targetTemplateId,
+          { revision_reason: String(req.body?.reason || "").trim() },
+        );
         bucket.templates[targetTemplateId] = record;
-        const archivedPrevious = {
+        bucket.templates[templateId] = {
           ...existing,
-          status: "archived",
+          form_number: formNumber,
+          revision_number: previousRevision,
+          revision_id: previousRevisionId,
+          status: "superseded",
+          superseded_by_revision_id: record.revision_id,
           updated_at: new Date().toISOString(),
         };
-        bucket.templates[templateId] = archivedPrevious;
       } else {
-        record = templateToApiRecord(templateId, { ...payload, status: requestedStatus }, actor.email, {
-          created_at: existing.created_at,
-          version: existing.version || 1,
-          parent_template_id: existing.parent_template_id || null,
-          status: requestedStatus,
-        });
+        record = applyRevisionExtras(
+          templateToApiRecord(templateId, { ...payload, status: requestedStatus }, actor.email, {
+            created_at: existing.created_at,
+            version: existing.revision_number || existing.version || 1,
+            revision_number: existing.revision_number || existing.version || 1,
+            form_number: formNumber,
+            revision_id: existing.revision_id,
+            parent_template_id: existing.parent_template_id || null,
+            supersedes_revision_id: existing.supersedes_revision_id || "",
+            superseded_by_revision_id: existing.superseded_by_revision_id || "",
+            revision_reason: existing.revision_reason || "",
+            copy_reason: existing.copy_reason || "",
+            status: requestedStatus,
+          }),
+          {},
+        );
         bucket.templates[templateId] = record;
       }
       persistWorkspace(sessionDir, store, key, bucket);
@@ -773,90 +1252,59 @@ export function installAuditBuilderRoutes(app, deps) {
   });
 
   app.post("/api/audits/templates/:id/new-version", requireActor, async (req, res) => {
-    try {
-      const actor = req.auditBuilderActor;
-      const masterSheetId = String(req.body?.masterSheetId || actor.masterSheetId || "").trim() || "local-dev";
-      const templateId = String(req.params.id || "").trim();
-      const payload = normalizeTemplatePayload(req.body);
-      const requestedStatus = normalizeTemplateStatus(req.body?.status || "active");
+    return handleReviseTemplateRequest(req, res);
+  });
 
-      const { store, bucket, key } = getWorkspaceStore(sessionDir, masterSheetId);
-      const existing = bucket.templates[templateId];
-      if (!existing) {
-        return res.status(404).json({ ok: false, error: "Audit template not found." });
-      }
+  app.post("/api/audits/templates/:id/revise", requireActor, async (req, res) => {
+    return handleReviseTemplateRequest(req, res);
+  });
 
-      const newTemplateId = newId("ab-template");
-      const record = createTemplateVersionRecord(
-        existing,
-        { ...payload, status: requestedStatus },
-        actor.email,
-        newTemplateId,
-      );
-      bucket.templates[newTemplateId] = record;
-      bucket.templates[templateId] = {
-        ...existing,
-        status: "archived",
-        updated_at: new Date().toISOString(),
-      };
-      persistWorkspace(sessionDir, store, key, bucket);
-
-      const authed = getAuthedClient?.();
-      if (envConfigured?.() && authed && masterSheetId && masterSheetId !== "local-dev") {
-        await writeAuditTemplateMetadata(sheetDeps, authed, masterSheetId, bucket.templates[templateId]);
-        await syncTemplateToSheets(sheetDeps, authed, masterSheetId, newTemplateId, payload, record, actor.email);
-      }
-
-      return res.json({ ok: true, template: enrichTemplate(record, bucket) });
-    } catch (error) {
-      return res.status(400).json({
-        ok: false,
-        error: error instanceof Error ? error.message : "Unable to create template version.",
-      });
-    }
+  app.post("/api/audits/templates/:id/copy", requireActor, async (req, res) => {
+    return handleCopyTemplateRequest(req, res);
   });
 
   app.post("/api/audits/templates/:id/duplicate", requireActor, async (req, res) => {
-    try {
-      const actor = req.auditBuilderActor;
-      const masterSheetId = String(req.body?.masterSheetId || actor.masterSheetId || "").trim() || "local-dev";
-      const templateId = String(req.params.id || "").trim();
-
-      const { store, bucket, key } = getWorkspaceStore(sessionDir, masterSheetId);
-      const existing = bucket.templates[templateId];
-      if (!existing) {
-        return res.status(404).json({ ok: false, error: "Audit template not found." });
-      }
-
-      const duplicateId = newId("ab-template");
-      const payload = {
-        template_name: `${existing.template_name} (Copy)`,
-        description: existing.description || "",
-        category: existing.category || "Audits",
-        sections: existing.sections,
-        status: "active",
+    // Legacy alias — prefer /copy with an explicit new title.
+    if (!String(req.body?.title || req.body?.template_name || "").trim()) {
+      const { bucket } = getWorkspaceStore(
+        sessionDir,
+        String(req.body?.masterSheetId || req.auditBuilderActor?.masterSheetId || "").trim() || "local-dev",
+      );
+      const existing = bucket.templates[String(req.params.id || "").trim()];
+      req.body = {
+        ...(req.body || {}),
+        title: existing ? `${existing.template_name} (Copy)` : "",
       };
-      const record = templateToApiRecord(duplicateId, payload, actor.email, {
-        version: 1,
-        parent_template_id: null,
-        status: "active",
-      });
-      bucket.templates[duplicateId] = record;
-      persistWorkspace(sessionDir, store, key, bucket);
-
-      const authed = getAuthedClient?.();
-      if (envConfigured?.() && authed && masterSheetId && masterSheetId !== "local-dev") {
-        await syncTemplateToSheets(sheetDeps, authed, masterSheetId, duplicateId, payload, record, actor.email);
-      }
-
-      return res.json({ ok: true, template: enrichTemplate(record, bucket) });
-    } catch (error) {
-      return res.status(500).json({
-        ok: false,
-        error: error instanceof Error ? error.message : "Unable to duplicate audit template.",
-      });
     }
+    return handleCopyTemplateRequest(req, res);
   });
+
+  app.post(
+    "/api/companies/:companyFolderId/audit-templates/:templateId/copy",
+    requireActor,
+    async (req, res) => {
+      return handleCopyTemplateRequest(req, res, { companyFolderId: req.params.companyFolderId });
+    },
+  );
+
+  app.post(
+    "/api/companies/:companyFolderId/audit-templates/:templateId/revise",
+    requireActor,
+    async (req, res) => {
+      return handleReviseTemplateRequest(req, res, { companyFolderId: req.params.companyFolderId });
+    },
+  );
+
+  app.post(
+    "/api/companies/:companyFolderId/google-form-templates/:templateId/copy",
+    requireActor,
+    async (req, res) => {
+      return handleCopyTemplateRequest(req, res, {
+        companyFolderId: req.params.companyFolderId,
+        googleForm: true,
+      });
+    },
+  );
 
   app.post("/api/audits/templates/:id/archive", requireActor, async (req, res) => {
     try {

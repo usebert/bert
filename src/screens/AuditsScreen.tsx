@@ -657,6 +657,8 @@ export function AuditsScreen({
         canCreateTemplates={canCreateTemplates}
         onToggleTemplate={onToggleTemplate}
         onEditTemplate={onEditTemplate}
+        onReviseTemplate={onEditTemplate}
+        onTemplateCopied={onEditTemplate}
         onGoogleFormUpdated={onGoogleFormUpdated}
       />
 

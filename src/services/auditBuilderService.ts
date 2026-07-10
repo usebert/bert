@@ -9,6 +9,7 @@ import { parseJsonApiResponse } from "../utils/parseJsonApiResponse";
 
 type RequestOptions = {
   masterSheetId?: string;
+  companyFolderId?: string;
   devApiHeaders?: Record<string, string>;
 };
 
@@ -133,10 +134,14 @@ export async function updateAuditBuilderTemplate(
 
 export async function createAuditTemplateNewVersion(
   templateId: string,
-  template: AuditBuilderTemplateDraft & { status?: AuditBuilderTemplateStatus },
+  template: AuditBuilderTemplateDraft & { status?: AuditBuilderTemplateStatus; reason?: string },
   options: RequestOptions = {},
 ): Promise<AuditBuilderTemplateRecord> {
-  const response = await fetch(apiUrl(`/api/audits/templates/${encodeURIComponent(templateId)}/new-version`), {
+  const companyFolderId = String(options.companyFolderId || "").trim();
+  const path = companyFolderId
+    ? `/api/companies/${encodeURIComponent(companyFolderId)}/audit-templates/${encodeURIComponent(templateId)}/revise`
+    : `/api/audits/templates/${encodeURIComponent(templateId)}/new-version`;
+  const response = await fetch(apiUrl(path), {
     method: "POST",
     credentials: "include",
     headers: buildHeaders(options.devApiHeaders),
@@ -151,6 +156,83 @@ export async function createAuditTemplateNewVersion(
   return data.template;
 }
 
+export async function copyAuditBuilderTemplate(
+  templateId: string,
+  input: { title: string; reason?: string; confirmArchivedTitle?: boolean },
+  options: RequestOptions = {},
+): Promise<AuditBuilderTemplateRecord> {
+  const companyFolderId = String(options.companyFolderId || "").trim();
+  const path = companyFolderId
+    ? `/api/companies/${encodeURIComponent(companyFolderId)}/audit-templates/${encodeURIComponent(templateId)}/copy`
+    : `/api/audits/templates/${encodeURIComponent(templateId)}/copy`;
+  const response = await fetch(apiUrl(path), {
+    method: "POST",
+    credentials: "include",
+    headers: buildHeaders(options.devApiHeaders),
+    body: JSON.stringify({
+      title: input.title,
+      reason: input.reason || "",
+      confirmArchivedTitle: input.confirmArchivedTitle === true,
+      masterSheetId: options.masterSheetId,
+    }),
+  });
+  const data = await parseJsonApiResponse<{
+    ok?: boolean;
+    template?: AuditBuilderTemplateRecord;
+    error?: string;
+    message?: string;
+    archivedConflict?: boolean;
+  }>(response);
+  if (!response.ok || !data.ok || !data.template) {
+    const error = new Error(data.error || data.message || "Unable to copy audit template.") as Error & {
+      archivedConflict?: boolean;
+      code?: string;
+    };
+    error.archivedConflict = data.archivedConflict === true;
+    throw error;
+  }
+  return data.template;
+}
+
+export async function copyGoogleFormTemplateMetadata(
+  templateId: string,
+  input: { title: string; reason?: string; confirmArchivedTitle?: boolean },
+  options: RequestOptions = {},
+): Promise<AuditBuilderTemplateRecord> {
+  const companyFolderId = String(options.companyFolderId || "").trim();
+  if (!companyFolderId) {
+    throw new Error("Company folder is required to copy a Google Form template.");
+  }
+  const response = await fetch(
+    apiUrl(
+      `/api/companies/${encodeURIComponent(companyFolderId)}/google-form-templates/${encodeURIComponent(templateId)}/copy`,
+    ),
+    {
+      method: "POST",
+      credentials: "include",
+      headers: buildHeaders(options.devApiHeaders),
+      body: JSON.stringify({
+        title: input.title,
+        reason: input.reason || "",
+        confirmArchivedTitle: input.confirmArchivedTitle === true,
+        masterSheetId: options.masterSheetId,
+      }),
+    },
+  );
+  const data = await parseJsonApiResponse<{
+    ok?: boolean;
+    template?: AuditBuilderTemplateRecord;
+    error?: string;
+    message?: string;
+    copyNote?: string;
+  }>(response);
+  if (!response.ok || !data.ok || !data.template) {
+    throw new Error(data.error || data.message || "Unable to copy Google Form template.");
+  }
+  return data.template;
+}
+
+/** @deprecated Prefer copyAuditBuilderTemplate with an explicit new title. */
 export async function duplicateAuditBuilderTemplate(
   templateId: string,
   options: RequestOptions = {},

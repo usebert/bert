@@ -10,6 +10,7 @@ import {
   defaultTranslationStatusForLanguage,
   normalizeFormLanguage,
 } from "./template-languages.mjs";
+import { REVISION_CONTROL_COLUMNS } from "../shared/revision-control.mjs";
 
 export { AUDIT_TEMPLATE_TRANSLATIONS_TAB, AUDIT_TEMPLATE_TRANSLATIONS_COLUMNS };
 
@@ -30,6 +31,7 @@ export const AUDIT_TEMPLATES_COLUMNS = [
   "Language",
   "Default Language",
   "Translation Status",
+  ...REVISION_CONTROL_COLUMNS,
 ];
 
 export const AREA_AUDITS_COLUMNS = [
@@ -90,6 +92,13 @@ function rowToAuditTemplate(row) {
     language: normalizeFormLanguage(row.Language || row.language),
     defaultLanguage: normalizeFormLanguage(row["Default Language"] || row.defaultLanguage || DEFAULT_FORM_LANGUAGE),
     translationStatus: String(row["Translation Status"] || row.translationStatus || "").trim(),
+    formNumber: String(row["Form Number"] || row.formNumber || row.form_number || "").trim(),
+    revisionNumber: Number(row["Revision Number"] || row.revisionNumber || row.revision_number || 1) || 1,
+    revisionId: String(row["Revision ID"] || row.revisionId || row.revision_id || "").trim(),
+    supersedesRevisionId: String(row["Supersedes Revision ID"] || row.supersedesRevisionId || "").trim(),
+    supersededByRevisionId: String(row["Superseded By Revision ID"] || row.supersededByRevisionId || "").trim(),
+    revisionReason: String(row["Revision Reason"] || row.revisionReason || "").trim(),
+    copyReason: String(row["Copy Reason"] || row.copyReason || "").trim(),
   };
 }
 
@@ -145,7 +154,11 @@ function auditTemplatesToRows(templates) {
     template.id,
     template.name,
     template.category || "",
-    template.status === "inactive" ? "inactive" : "active",
+    template.status === "inactive" || template.status === "archived" || template.status === "superseded"
+      ? template.status === "superseded"
+        ? "superseded"
+        : "inactive"
+      : "active",
     template.defaultFrequency || "",
     template.createdAt || "",
     template.googleFormId || "",
@@ -154,6 +167,13 @@ function auditTemplatesToRows(templates) {
     normalizeFormLanguage(template.defaultLanguage || DEFAULT_FORM_LANGUAGE),
     template.translationStatus ||
       defaultTranslationStatusForLanguage(normalizeFormLanguage(template.language)),
+    template.formNumber || "",
+    String(template.revisionNumber || 1),
+    template.revisionId || "",
+    template.supersedesRevisionId || "",
+    template.supersededByRevisionId || "",
+    template.revisionReason || "",
+    template.copyReason || "",
   ]);
 }
 

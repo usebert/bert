@@ -22,7 +22,7 @@ export type AuditBuilderTemplateDraft = {
   sections: AuditBuilderSection[];
 };
 
-export type AuditBuilderTemplateStatus = "active" | "inactive" | "archived";
+export type AuditBuilderTemplateStatus = "active" | "inactive" | "archived" | "superseded" | "draft";
 
 export type AuditBuilderTemplateRecord = AuditBuilderTemplateDraft & {
   id: string;
@@ -34,6 +34,15 @@ export type AuditBuilderTemplateRecord = AuditBuilderTemplateDraft & {
   parent_template_id?: string | null;
   status?: AuditBuilderTemplateStatus;
   is_used?: boolean;
+  form_number?: string;
+  revision_number?: number;
+  revision_id?: string;
+  supersedes_revision_id?: string;
+  superseded_by_revision_id?: string;
+  revision_reason?: string;
+  copy_reason?: string;
+  revision_label?: string;
+  copy_note?: string;
 };
 
 export type AuditBuilderInstance = {
