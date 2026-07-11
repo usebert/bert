@@ -7,6 +7,7 @@ dist/
 scripts/live-path-secrets.local.json
 public/build-meta.json
 .sessions/
+demo-company-seed-report.json
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts

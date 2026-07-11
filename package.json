@@ -33,6 +33,8 @@
     "verify:live-ui-paths": "node scripts/verify-live-ui-paths.mjs",
     "check:server": "node --check server/server.mjs",
     "seed:master": "node scripts/seed-master.mjs",
+    "seed:demo-company": "node scripts/seed-demo-company.mjs",
+    "verify:demo-company": "node scripts/verify-demo-company.mjs",
     "migrate:userauth": "node scripts/migrate-userauth-passwords.mjs",
     "verify:auth": "node scripts/verify-auth-hardening.mjs",
     "verify:godmode-login": "node scripts/verify-godmode-login.mjs",
