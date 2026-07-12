@@ -282,7 +282,7 @@ if (live) {
   } catch (error) {
     liveNote = `Live apply failed: ${error instanceof Error ? error.message : String(error)}`;
     mode = "local-snapshot-live-failed";
-    console.error(`WARNING: ${liveNote}`);
+    console.error("WARNING: Live apply failed:", error?.stack || error);
     console.error("Continuing with local snapshot + report.");
   }
 }
