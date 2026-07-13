@@ -510,12 +510,10 @@ export async function readCompanyUsersTabRecord(auth, spreadsheetId, email, deps
   if (!row) {
     return null;
   }
+  // Role is post-login authorization only — blank/unrecognized roles must not hide the user from login.
   let role = parseRoleFromUsersSheet(row.roleRaw);
-  if (!role && String(row.roleRaw || "").trim()) {
-    role = "User";
-  }
   if (!role) {
-    return null;
+    role = String(row.roleRaw || "").trim() || "User";
   }
   return {
     role,
@@ -903,16 +901,25 @@ export async function resolveCompanyContextForUser(auth, email, deps) {
   const candidates = [...candidateBySheet.values()].sort((a, b) => a.priority - b.priority);
   for (const candidate of candidates) {
     try {
+      // Schema migration is best-effort and must never block or skip login discovery.
+      // A thrown migrate (missing getConfig, quota, etc.) previously swallowed the whole candidate.
       if (typeof migrateColumns === "function") {
-        await migrateColumns(auth, candidate.masterSheetId, deps);
+        await migrateColumns(auth, candidate.masterSheetId, deps).catch((error) => {
+          console.warn(
+            `[company-users] migrateUsersTabColumns skipped during login resolve for ${candidate.masterSheetId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        });
       }
       const rec =
         typeof readUsersRecord === "function"
           ? await readUsersRecord(auth, candidate.masterSheetId, emailNorm, deps)
           : null;
-      if (!rec || rec.status !== "ACTIVE") {
+      if (!rec || String(rec.status || "").toUpperCase() !== "ACTIVE") {
         continue;
       }
+      // Role is informational for post-login permissions — never required to discover the workbook.
       const companyFolderId =
         pickRowCompanyFolderId(rec) ||
         candidate.companyFolderId ||
@@ -924,13 +931,18 @@ export async function resolveCompanyContextForUser(auth, email, deps) {
         companyName,
         companyFolderId,
         masterSheetId: candidate.masterSheetId,
-        role: rec.role,
+        role: rec.role || "User",
         accessLevel: rec.accessLevel,
         companyAreas: rec.companyAreas,
         registryStatus: candidate.registryStatus,
         registrySource: candidate.registrySource,
       };
-    } catch {
+    } catch (error) {
+      console.warn(
+        `[company-users] login resolve candidate failed sheet=${candidate.masterSheetId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
       continue;
     }
   }

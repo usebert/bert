@@ -33,12 +33,16 @@ import {
   ensureTabColumns,
   ensureTabExists,
   getTabValues,
+  rowsToRecords,
 } from "../server/workbook-service.mjs";
 import {
   getCanonicalCompanyRegistryRecord,
   persistAndVerifyCompanyLive,
 } from "../server/company-workspace-registry.mjs";
 import { persistFallbackCompanyLive } from "../server/company-registry-fallback.mjs";
+import { createAuthIndexApi } from "../server/auth-index.mjs";
+import { isPasswordHash, parseRoleFromUsersSheet, normalizeUserStatus } from "../server/users-tab-schema.mjs";
+import { defaultAccessLevelForRole } from "../server/company-users.mjs";
 
 dotenv.config();
 
@@ -51,6 +55,57 @@ const masterSheetId = String(process.env[DEMO_COMPANY_WORKBOOK_ENV] || "").trim(
 const confirm = String(process.env[DEMO_COMPANY_SEED_CONFIRM_ENV] || "").trim().toLowerCase();
 const sharedDriveId = String(process.env.GOOGLE_SHARED_DRIVE_ID || "").trim();
 const platformRegistrySheetId = String(process.env.BERT_PLATFORM_REGISTRY_SHEET_ID || "").trim();
+
+function pickField(row, ...keys) {
+  for (const key of keys) {
+    if (row[key] !== undefined && row[key] !== null && String(row[key]).trim()) {
+      return String(row[key]).trim();
+    }
+  }
+  return "";
+}
+
+async function rebuildDemoAuthIndex(auth, deps) {
+  const authIndex = createAuthIndexApi(path.join(sessionsRoot, "auth-index.json"));
+  const values = await getTabValues(auth, deps, masterSheetId, "Users");
+  const records = rowsToRecords(values);
+  let upserted = 0;
+  for (const row of records) {
+    const email = pickField(row, "Email", "email").toLowerCase();
+    if (!email.includes("@")) {
+      continue;
+    }
+    const status = normalizeUserStatus(pickField(row, "Status", "status"));
+    if (status !== "ACTIVE") {
+      continue;
+    }
+    const passwordHash = pickField(row, "PasswordHash", "passwordHash");
+    if (!isPasswordHash(passwordHash)) {
+      continue;
+    }
+    const roleRaw = pickField(row, "Role", "role");
+    const role = parseRoleFromUsersSheet(roleRaw) || roleRaw || "User";
+    authIndex.upsertEntry({
+      email,
+      name: pickField(row, "Name", "Full Name", "name") || email,
+      role,
+      accessLevel: pickField(row, "AccessLevel", "accessLevel") || defaultAccessLevelForRole(role),
+      companyId: companyFolderId,
+      companyFolderId,
+      companyName: DEMO_COMPANY_NAME,
+      masterSheetId,
+      status: "ACTIVE",
+      passwordHash,
+      companyAreas: String(pickField(row, "CompanyAreas", "companyAreas") || "")
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean),
+      indexedAt: Date.now(),
+    });
+    upserted += 1;
+  }
+  return upserted;
+}
 
 function loadGoogleAuth() {
   const sessionCandidates = [
@@ -250,7 +305,15 @@ async function main() {
           `Registry Live row incomplete after write (companyName=${verified.companyName || "(blank)"}, status=${verified.status || "(blank)"}, masterSheetId=${verified.masterSheetId || "(blank)"})`,
         );
       }
-      console.log("\nNext: rebuild auth-index in Godmode (or retry login with companyFolderId), then sign in as bert.demo+mr.important@usebert.co.uk");
+      try {
+        const upserted = await rebuildDemoAuthIndex(auth, deps);
+        console.log(`\nAuth-index rebuilt for demo Users tab: ${upserted} ACTIVE accounts indexed.`);
+      } catch (error) {
+        console.error(
+          `Auth-index rebuild warning: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      console.log("\nNext: sign in as any ACTIVE demo user with BertDemo123! (Admin/Manager/Auditor).");
       return;
     }
   }

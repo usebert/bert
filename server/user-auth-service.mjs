@@ -40,6 +40,8 @@ const LIGHT_RESOLVE_OPTS = {
 
 /** Per-candidate Google read budget for stale/wrong workbook hints — not applied to trusted folder candidates. */
 export const LOGIN_CANDIDATE_TIMEOUT_MS = 5000;
+/** Registry fallback does a LIVE Companies scan + Users tab read; allow more time than folder/sheet hints. */
+export const LOGIN_REGISTRY_FALLBACK_TIMEOUT_MS = 20000;
 
 /** Body or session companyFolderId — folder resolve must complete before login rejects or tries registry fallback. */
 function resolveTrustedFolderIds(input = {}) {
@@ -557,6 +559,8 @@ function registryLookupDeps(deps = {}, userDeps = {}) {
   return {
     ...userDeps,
     ...resolver,
+    // Login discovery must not await Users-tab schema migration (slow / can throw and skip candidates).
+    migrateUsersTabColumns: undefined,
     findMasterSheetIdsForCompanyLoginEmail: deps.findMasterSheetIdsForCompanyLoginEmail,
     readCompanyUsersTabRecord: userDeps.readCompanyUsersTabRecord || readCompanyUsersTabRecord,
     readCanonicalCompanyWorkspaceRegistryMap:
@@ -1555,7 +1559,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
           }
           return { ok: true, email, row, companyContext, entry };
         },
-        LOGIN_CANDIDATE_TIMEOUT_MS,
+        LOGIN_REGISTRY_FALLBACK_TIMEOUT_MS,
         "registry_login_fallback",
       );
       if (registryResult.ok) {
@@ -1571,7 +1575,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
       if (String(error?.message || "").includes("_timeout")) {
         loginTiming?.logPhase?.("candidate_attempt_timeout", Date.now(), {
           candidateType: "registry_fallback",
-          candidateTimeoutMs: LOGIN_CANDIDATE_TIMEOUT_MS,
+          candidateTimeoutMs: LOGIN_REGISTRY_FALLBACK_TIMEOUT_MS,
         });
         loginTiming?.logPhase?.("candidate_attempt_skipped", Date.now(), {
           candidateType: "registry_fallback",
