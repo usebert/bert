@@ -37,7 +37,7 @@ import {
   rowsToRecords,
   writeTabRecords,
 } from "../server/workbook-service.mjs";
-import { writeUsersTabRecordByHeaders } from "../server/company-users.mjs";
+import { USERS_TAB_COLUMNS } from "../server/users-tab-constants.mjs";
 import { INCIDENTS_TAB, INCIDENTS_TAB_COLUMNS } from "../server/incidents-service.mjs";
 import { AUDIT_TEMPLATES_COLUMNS } from "../server/company-audit-mapping.mjs";
 import { SCHEDULES_TAB_COLUMNS } from "../shared/schedule-save.mjs";
@@ -143,14 +143,25 @@ function loadGoogleAuth() {
 }
 
 function buildDeps() {
-  return {
+  const deps = {
     google,
     withSheetsQuotaRetry: async (fn) => fn(),
     safeLower: (value = "") => String(value || "").trim().toLowerCase(),
-    ensureColumns: (auth, spreadsheetId, tab, columns) => ensureTabColumns(auth, buildDeps(), spreadsheetId, tab, columns),
-    getTabValues: (auth, deps, sheetId, tab) => getTabValues(auth, deps, sheetId, tab),
     rowsToRecords,
   };
+
+  deps.ensureColumns = (auth, spreadsheetId, tab, columns) =>
+    ensureTabColumns(auth, deps, spreadsheetId, tab, columns);
+
+  deps.getTabValues = (auth, maybeDepsOrSheetId, maybeSheetIdOrTab, maybeTab) => {
+    if (maybeDepsOrSheetId && typeof maybeDepsOrSheetId === "object" && maybeDepsOrSheetId.google) {
+      return getTabValues(auth, maybeDepsOrSheetId, maybeSheetIdOrTab, maybeTab);
+    }
+
+    return getTabValues(auth, deps, maybeDepsOrSheetId, maybeSheetIdOrTab);
+  };
+
+  return deps;
 }
 
 async function readExistingRows(auth, deps, sheetId, tab) {
@@ -250,19 +261,15 @@ async function applyLiveSeed(seedPayload) {
     seedPayload.googleForms,
     ["BERT Template ID"],
   );
-
-  for (const user of seedPayload.users) {
-    const write = await writeUsersTabRecordByHeaders(auth, masterSheetId, user, deps, {
-      companyContext: {
-        companyFolderId,
-        companyId: companyFolderId,
-        companyName: DEMO_COMPANY_NAME,
-      },
-    });
-    if (!write.ok) {
-      throw new Error(write.error || `Failed to upsert user ${user.Email}`);
-    }
-  }
+  await writeMergedTab(
+    auth,
+    deps,
+    masterSheetId,
+    "Users",
+    USERS_TAB_COLUMNS,
+    seedPayload.users,
+    ["Email"],
+  );
 
   return { companyFolderId, masterSheetId };
 }
