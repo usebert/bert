@@ -36,6 +36,7 @@
     "seed:demo-company": "node scripts/seed-demo-company.mjs",
     "verify:demo-company": "node scripts/verify-demo-company.mjs",
     "verify:demo-company-login": "node scripts/verify-demo-company-login.mjs",
+    "verify:demo-accounts": "node scripts/verify-demo-accounts.mjs",
     "register:demo-company": "node scripts/register-demo-company.mjs",
     "migrate:userauth": "node scripts/migrate-userauth-passwords.mjs",
     "verify:auth": "node scripts/verify-auth-hardening.mjs",
