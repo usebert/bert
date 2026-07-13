@@ -121,6 +121,16 @@ async function main() {
   line("Company name expected", DEMO_COMPANY_NAME);
   line("Company folder ID used", companyFolderId);
   line("Workbook used", masterSheetId);
+  line("GOOGLE_SHARED_DRIVE_ID", String(process.env.GOOGLE_SHARED_DRIVE_ID || "(blank)"));
+  line("BERT_PLATFORM_REGISTRY_SHEET_ID", String(process.env.BERT_PLATFORM_REGISTRY_SHEET_ID || "(blank)"));
+  if (
+    companyFolderId &&
+    String(process.env.GOOGLE_SHARED_DRIVE_ID || "").trim() === companyFolderId
+  ) {
+    console.log(
+      "WARNING: GOOGLE_SHARED_DRIVE_ID equals the demo company folder. Main registry lookup looks under the wrong root.",
+    );
+  }
   console.log("");
 
   const auth = loadGoogleAuth();
@@ -209,10 +219,22 @@ async function main() {
     const live = isCompanyRegistryLive(registryRecord);
     line("Registry record", "found");
     line("Registry source", String(registryRecord.registrySource || "unknown"));
-    line("Registry status", registryStatus || "(blank)");
     line("Registry LIVE", live ? "yes" : "no");
-    line("Registry masterSheetId", String(registryRecord.masterSheetId || "(blank)"));
-    line("Registry rootFolderId", String(registryRecord.rootFolderId || registryRecord.companyFolderId || "(blank)"));
+    console.log("Registry fields read:");
+    line("  status", String(registryRecord.status ?? "(undefined)"));
+    line("  Status", String(registryRecord.Status ?? "(undefined)"));
+    line("  lifecycleStatus", String(registryRecord.lifecycleStatus ?? "(undefined)"));
+    line("  isLive", String(registryRecord.isLive ?? "(undefined)"));
+    line("  active", String(registryRecord.active ?? "(undefined)"));
+    line("  masterSheetId", String(registryRecord.masterSheetId ?? "(undefined)"));
+    line("  workbookId", String(registryRecord.workbookId ?? "(undefined)"));
+    line("  rootFolderId", String(registryRecord.rootFolderId ?? "(undefined)"));
+    line("  companyFolderId", String(registryRecord.companyFolderId ?? "(undefined)"));
+    line("  companyId", String(registryRecord.companyId ?? "(undefined)"));
+    line("  registryStatus", String(registryRecord.registryStatus ?? "(undefined)"));
+    line("  liveCompaniesMissing", String(registryRecord.liveCompaniesMissing ?? "(undefined)"));
+    line("  folderPlacementOk", String(registryRecord.folderPlacementOk ?? "(undefined)"));
+    line("  unlinkReason", String(registryRecord.unlinkReason ?? "(undefined)"));
     if (!live) {
       reasons.push(`registry_not_live (${registryStatus || "blank"})`);
     }

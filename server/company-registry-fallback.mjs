@@ -71,18 +71,35 @@ export function writeFallbackRegistryStore(sessionDir, store) {
 export function normalizeFallbackRegistryRecord(record = {}) {
   const companyId = String(record.companyId || record.companyFolderId || "").trim();
   const companyFolderId = String(record.companyFolderId || record.rootFolderId || companyId).trim();
-  const masterSheetId = String(record.masterSheetId || "").trim();
+  const rootFolderId = String(record.rootFolderId || companyFolderId || companyId).trim();
+  const masterSheetId = String(record.masterSheetId || record.workbookId || "").trim();
+  const workbookId = String(record.workbookId || masterSheetId).trim();
   const companyName = String(record.companyName || "").trim();
-  const status = String(record.status || COMPANY_REGISTRY_STATUS_LIVE).trim() || COMPANY_REGISTRY_STATUS_LIVE;
+  const status = String(record.status || record.Status || COMPANY_REGISTRY_STATUS_LIVE).trim() || COMPANY_REGISTRY_STATUS_LIVE;
   const liveAt = String(record.liveAt || "").trim();
   const updatedAt = String(record.updatedAt || liveAt || "").trim();
+  const isLive =
+    record.isLive === true ||
+    String(record.isLive || "").trim().toLowerCase() === "true" ||
+    status.toLowerCase() === "live";
+  const active =
+    record.active === true ||
+    String(record.active || "").trim().toLowerCase() === "true" ||
+    isLive;
+  const lifecycleStatus = String(record.lifecycleStatus || (isLive ? "LIVE" : status)).trim() || (isLive ? "LIVE" : status);
   return {
     companyId,
     companyName,
     status,
-    rootFolderId: companyFolderId,
+    Status: status,
+    lifecycleStatus,
+    isLive,
+    active,
+    rootFolderId,
     companyFolderId,
     masterSheetId,
+    workbookId,
+    registryStatus: status,
     liveAt,
     updatedAt,
     registrySource: "fallback",
@@ -142,8 +159,15 @@ export function persistFallbackCompanyLive(sessionDir, input = {}) {
     companyId,
     companyName,
     companyFolderId,
+    rootFolderId: companyFolderId,
     masterSheetId,
+    workbookId: masterSheetId,
     status: COMPANY_REGISTRY_STATUS_LIVE,
+    Status: COMPANY_REGISTRY_STATUS_LIVE,
+    lifecycleStatus: "LIVE",
+    isLive: true,
+    active: true,
+    registryStatus: COMPANY_REGISTRY_STATUS_LIVE,
     liveAt: now,
     updatedAt: now,
   };

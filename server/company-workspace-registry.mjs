@@ -481,7 +481,20 @@ export async function annotateRegistryRecordFolderPlacement(auth, deps, record =
   }
   const placement = await validateCompanyFolderUnderCompaniesRoot(auth, deps, rootFolderId, {
     companyFolderName: String(record.companyName || "").trim(),
-  }).catch(() => ({ ok: false, reasonCode: FOLDER_NOT_IN_COMPANIES_ROOT }));
+  }).catch(() => ({
+    ok: false,
+    reasonCode: FOLDER_NOT_IN_COMPANIES_ROOT,
+    liveCompaniesMissing: true,
+  }));
+  // Only demote when Live Companies exists and the folder is confirmed outside it.
+  // If Live Companies can't be resolved (bad GOOGLE_SHARED_DRIVE_ID / setup), preserve Status.
+  if (placement?.liveCompaniesMissing) {
+    return {
+      ...record,
+      liveCompaniesMissing: true,
+      folderPlacementOk: record.folderPlacementOk,
+    };
+  }
   return invalidateRegistryRecordOutsideCompaniesRoot(record, placement);
 }
 
