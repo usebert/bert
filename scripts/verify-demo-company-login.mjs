@@ -238,12 +238,22 @@ async function main() {
     if (!live) {
       reasons.push(`registry_not_live (${registryStatus || "blank"})`);
     }
-    if (
-      registryRecord.masterSheetId &&
-      String(registryRecord.masterSheetId).trim() !== masterSheetId
-    ) {
+    const expectedName = DEMO_COMPANY_NAME;
+    const nameOk = String(registryRecord.companyName || "").trim() === expectedName;
+    const statusLiveOk = live;
+    const masterOk = String(registryRecord.masterSheetId || "").trim() === masterSheetId;
+    line("  readback Company Name ok", nameOk ? "yes" : `no (got ${registryRecord.companyName || "(blank)"})`);
+    line("  readback Status Live ok", statusLiveOk ? "yes" : `no (got ${registryStatus || "(blank)"})`);
+    line(
+      "  readback Master Sheet ID ok",
+      masterOk ? "yes" : `no (got ${registryRecord.masterSheetId || "(blank)"})`,
+    );
+    if (!nameOk) {
+      reasons.push(`registry_company_name_mismatch (got=${registryRecord.companyName || "blank"})`);
+    }
+    if (!masterOk) {
       reasons.push(
-        `registry_workbook_mismatch (registry=${registryRecord.masterSheetId}, expected=${masterSheetId})`,
+        `registry_workbook_mismatch (registry=${registryRecord.masterSheetId || "blank"}, expected=${masterSheetId})`,
       );
     }
   }

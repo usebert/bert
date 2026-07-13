@@ -177,12 +177,18 @@ async function main() {
     companyName: DEMO_COMPANY_NAME,
     masterSheetId,
     workbookId: masterSheetId,
+    workbookFolderId: companyFolderId,
     status: COMPANY_REGISTRY_STATUS_LIVE,
     Status: COMPANY_REGISTRY_STATUS_LIVE,
     lifecycleStatus: "LIVE",
     isLive: true,
     active: true,
+    companyFoldersMappingStatus: "Synced",
+    firstAdminStatus: "Ready",
+    healthStatus: "Good",
+    needsAttention: "false",
     markLive: true,
+    markSetupComplete: true,
   };
 
   console.log("Registering demo company:");
@@ -221,6 +227,9 @@ async function main() {
 
     const verified = await getCanonicalCompanyRegistryRecord(auth, deps, companyFolderId).catch(() => null);
     if (verified && isCompanyRegistryLive(verified)) {
+      const nameOk = String(verified.companyName || "").trim() === DEMO_COMPANY_NAME;
+      const statusOk = isCompanyRegistryLive(verified);
+      const sheetOk = String(verified.masterSheetId || "").trim() === masterSheetId;
       console.log("\nCanonical registry check: LIVE");
       console.log(`  source: ${verified.registrySource || "main"}`);
       console.log(`  status: ${verified.status || ""}`);
@@ -228,10 +237,19 @@ async function main() {
       console.log(`  lifecycleStatus: ${verified.lifecycleStatus || ""}`);
       console.log(`  isLive: ${verified.isLive}`);
       console.log(`  active: ${verified.active}`);
+      console.log(`  companyName: ${verified.companyName || ""}`);
       console.log(`  masterSheetId: ${verified.masterSheetId || ""}`);
       console.log(`  workbookId: ${verified.workbookId || verified.masterSheetId || ""}`);
       console.log(`  rootFolderId: ${verified.rootFolderId || ""}`);
       console.log(`  companyFolderId: ${verified.companyFolderId || ""}`);
+      console.log(`  readback Company Name ok: ${nameOk ? "yes" : "no"}`);
+      console.log(`  readback Status Live ok: ${statusOk ? "yes" : "no"}`);
+      console.log(`  readback Master Sheet ID ok: ${sheetOk ? "yes" : "no"}`);
+      if (!nameOk || !statusOk || !sheetOk) {
+        throw new Error(
+          `Registry Live row incomplete after write (companyName=${verified.companyName || "(blank)"}, status=${verified.status || "(blank)"}, masterSheetId=${verified.masterSheetId || "(blank)"})`,
+        );
+      }
       console.log("\nNext: rebuild auth-index in Godmode (or retry login with companyFolderId), then sign in as bert.demo+mr.important@usebert.co.uk");
       return;
     }

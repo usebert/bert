@@ -337,7 +337,9 @@ export function normalizeCompanyWorkspaceRecord(rowObject = {}, headerRow = COMP
   }
   const companyId =
     String(rowObject["Company ID"] || rowObject["Company Folder ID"] || rowObject.companyId || "").trim();
-  const rootFolderId = String(rowObject["Root Folder ID"] || companyId || "").trim();
+  const rootFolderId = String(
+    rowObject["Root Folder ID"] || rowObject.rootFolderId || companyId || "",
+  ).trim();
   const masterSheetId = String(rowObject["Master Sheet ID"] || rowObject.masterSheetId || "").trim();
   const workbookFolderId = String(rowObject["Workbook Folder ID"] || rowObject.workbookFolderId || "").trim();
   const companyName = String(rowObject["Company Name"] || rowObject.companyName || "").trim();
@@ -393,7 +395,7 @@ export function rowObjectFromCompanyWorkspaceRecord(record, headerRow = COMPANIE
   const masterSheetId = String(record.masterSheetId || "").trim();
   const workbookFolderId = String(record.workbookFolderId || "").trim();
   const status = String(record.status || deriveCompanyWorkspaceStatus(record)).trim();
-  const row = {
+  const canonical = {
     "Company ID": companyId,
     "Company Name": String(record.companyName || "").trim(),
     Status: status,
@@ -413,12 +415,24 @@ export function rowObjectFromCompanyWorkspaceRecord(record, headerRow = COMPANIE
     "Setup Blockers": String(record.setupBlockers || "").trim(),
     "Created At": String(record.createdAt || "").trim(),
     "Updated At": String(record.updatedAt || record.lastSetupAt || "").trim(),
-    ...(record.byHeader || {}),
-    ...(record.extraHeaders || {}),
   };
+
+  // Map onto the sheet's exact headers (case-insensitive). Never let blank byHeader
+  // values wipe canonical fields when the caller passed camelCase records.
+  const byLower = new Map();
+  for (const source of [record.byHeader || {}, record.extraHeaders || {}, canonical]) {
+    for (const [key, value] of Object.entries(source)) {
+      const trimmed = String(value ?? "").trim();
+      if (!trimmed) {
+        continue;
+      }
+      byLower.set(safeLower(key), trimmed);
+    }
+  }
+
   const mapped = {};
   for (const header of headerRow) {
-    mapped[header] = String(row[header] ?? "").trim();
+    mapped[header] = byLower.get(safeLower(header)) || "";
   }
   return mapped;
 }
@@ -764,35 +778,40 @@ export async function upsertCompanyWorkspaceRegistryRecords(
       continue;
     }
     const now = nowIso();
-    const incoming = rowObjectFromCompanyWorkspaceRecord(
-      {
-        ...normalized,
-        companyId,
-        rootFolderId: normalized.rootFolderId || companyId,
-        status: normalized.status || deriveCompanyWorkspaceStatus(normalized),
-        createdAt: normalized.createdAt || now,
-        updatedAt: normalized.updatedAt || normalized.lastSetupAt || now,
-      },
-      headerRow,
-    );
-    const rowIndex = findRegistryRowIndex(headerRow, nextRows, {
+    const incomingNormalized = {
+      ...normalized,
       companyId,
       rootFolderId: normalized.rootFolderId || companyId,
-      masterSheetId: normalized.masterSheetId,
-      companyName: normalized.companyName,
+      status: normalized.status || deriveCompanyWorkspaceStatus(normalized),
+      createdAt: normalized.createdAt || now,
+      updatedAt: normalized.updatedAt || normalized.lastSetupAt || now,
+      byHeader: undefined,
+    };
+    const incoming = rowObjectFromCompanyWorkspaceRecord(incomingNormalized, headerRow);
+    const rowIndex = findRegistryRowIndex(headerRow, nextRows, {
+      companyId,
+      rootFolderId: incomingNormalized.rootFolderId || companyId,
+      masterSheetId: incomingNormalized.masterSheetId,
+      companyName: incomingNormalized.companyName,
     });
     if (rowIndex === -1) {
       const mapped = headerRow.map((header) => String(incoming[header] ?? "").trim());
-      if (idIndex >= 0) {
+      if (idIndex >= 0 && isBlank(mapped[idIndex])) {
         mapped[idIndex] = companyId;
       }
       const legacyFolderIndex = headerIndex(headerRow, ["company folder id", "companyfolderid"]);
-      if (legacyFolderIndex >= 0 && legacyFolderIndex !== idIndex) {
-        mapped[legacyFolderIndex] = normalized.rootFolderId || companyId;
+      if (legacyFolderIndex >= 0 && legacyFolderIndex !== idIndex && isBlank(mapped[legacyFolderIndex])) {
+        mapped[legacyFolderIndex] = incomingNormalized.rootFolderId || companyId;
       }
-      if (rootFolderIndex >= 0 && rootFolderIndex !== idIndex && rootFolderIndex !== legacyFolderIndex) {
-        mapped[rootFolderIndex] = normalized.rootFolderId || companyId;
+      if (
+        rootFolderIndex >= 0 &&
+        rootFolderIndex !== idIndex &&
+        rootFolderIndex !== legacyFolderIndex &&
+        isBlank(mapped[rootFolderIndex])
+      ) {
+        mapped[rootFolderIndex] = incomingNormalized.rootFolderId || companyId;
       }
+      console.log("[company-registry] writing new Companies row:", JSON.stringify(incoming, null, 2));
       nextRows.push(mapped);
       continue;
     }
@@ -806,31 +825,32 @@ export async function upsertCompanyWorkspaceRegistryRecords(
       ? {
           ...existingNormalized,
           ...Object.fromEntries(
-            Object.entries(incoming).filter(([, value]) => !isBlank(value)),
+            Object.entries(incomingNormalized).filter(
+              ([key, value]) => key !== "byHeader" && key !== "extraHeaders" && !isBlank(value),
+            ),
           ),
           companyId: canonicalCompanyId,
           rootFolderId:
-            incoming["Root Folder ID"] ||
-            existingRowObject["Root Folder ID"] ||
-            normalized.rootFolderId ||
+            incomingNormalized.rootFolderId ||
+            existingNormalized.rootFolderId ||
             companyId,
-          masterSheetId:
-            incoming["Master Sheet ID"] || existingRowObject["Master Sheet ID"] || existingNormalized.masterSheetId || "",
+          masterSheetId: incomingNormalized.masterSheetId || existingNormalized.masterSheetId || "",
           workbookFolderId:
-            incoming["Workbook Folder ID"] ||
-            existingRowObject["Workbook Folder ID"] ||
-            existingNormalized.workbookFolderId ||
-            "",
-          createdAt: existingNormalized.createdAt || incoming["Created At"] || now,
-          updatedAt: incoming["Updated At"] || now,
+            incomingNormalized.workbookFolderId || existingNormalized.workbookFolderId || "",
+          createdAt: existingNormalized.createdAt || incomingNormalized.createdAt || now,
+          updatedAt: incomingNormalized.updatedAt || now,
+          byHeader: undefined,
         }
       : normalizeCompanyWorkspaceRecord({ ...existingRowObject, ...incoming }, headerRow);
-    const mergedRow = mergeRegistryRowCells(
-      nextRows[rowIndex],
-      headerRow,
-      rowObjectFromCompanyWorkspaceRecord(mergedRecord, headerRow),
-      { allowClear, forceClearHeaders },
+    const incomingMerged = rowObjectFromCompanyWorkspaceRecord(mergedRecord, headerRow);
+    console.log(
+      "[company-registry] writing updated Companies row:",
+      JSON.stringify(incomingMerged, null, 2),
     );
+    const mergedRow = mergeRegistryRowCells(nextRows[rowIndex], headerRow, incomingMerged, {
+      allowClear,
+      forceClearHeaders,
+    });
     nextRows[rowIndex] = mergedRow;
   }
 
@@ -1017,19 +1037,22 @@ export async function persistAndVerifyCompanyLive(auth, deps, canonicalCompany =
     companyName: companyName || registryRecord.companyName || "",
     rootFolderId: resolvedRootFolderId,
     masterSheetId: resolvedMasterSheetId,
-    workbookFolderId: registryRecord.workbookFolderId,
+    workbookFolderId:
+      String(canonicalCompany.workbookFolderId || registryRecord.workbookFolderId || resolvedRootFolderId).trim(),
     companyFoldersMappingStatus:
       String(canonicalCompany.companyFoldersMappingStatus || "").trim() ||
-      resolveMappingStatusFromChecks(checks, registryRecord.companyFoldersMappingStatus),
+      resolveMappingStatusFromChecks(checks, registryRecord.companyFoldersMappingStatus) ||
+      "Synced",
     firstAdminStatus:
       String(canonicalCompany.firstAdminStatus || "").trim() ||
-      resolveFirstAdminStatusFromChecks(checks, registryRecord.firstAdminStatus),
+      resolveFirstAdminStatusFromChecks(checks, registryRecord.firstAdminStatus) ||
+      "Ready",
     status: COMPANY_REGISTRY_STATUS_LIVE,
     setupCompletedAt: registryRecord.setupCompletedAt || now,
     liveAt: now,
     lastSetupAt: now,
     lastHealthCheckAt: String(canonicalCompany.lastHealthCheckAt || registryRecord.lastHealthCheckAt || "").trim(),
-    healthStatus: String(canonicalCompany.healthStatus || "HEALTHY").trim(),
+    healthStatus: String(canonicalCompany.healthStatus || registryRecord.healthStatus || "Good").trim() || "Good",
     needsAttention: "false",
     setupBlockers: "",
     unlinkReason: "",
