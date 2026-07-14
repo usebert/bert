@@ -30,9 +30,13 @@ import {
   isLoginEmailIdentity,
   normalizeLoginIdentity,
   normalizeUsername,
+  resolveUsernameFromUserFields,
 } from "../shared/login-username.mjs";
 import { resolveCompanyFromFolder } from "./company-service.mjs";
-import { readCanonicalCompanyWorkspaceRegistryMap } from "./company-workspace-registry.mjs";
+import {
+  getCanonicalCompanyRegistryRecord,
+  readCanonicalCompanyWorkspaceRegistryMap,
+} from "./company-workspace-registry.mjs";
 import { loginTimingEmailMeta } from "./login-timing.mjs";
 
 const LIGHT_RESOLVE_OPTS = {
@@ -219,6 +223,7 @@ function buildLoginAuthFailure({
   failedStep = "users_tab_auth",
   usersTabDiagnostics = null,
   folderFirstDiagnostics = null,
+  identityDiagnostics = null,
 }) {
   const reasonCode = diagnosticReasonCode(authFailureReason);
   const emailNorm = normalizeUserAuthEmail(email);
@@ -289,6 +294,7 @@ function buildLoginAuthFailure({
     authFailureReason,
     reasonCode,
     diagnostics,
+    identityDiagnostics: identityDiagnostics || null,
   };
 }
 
@@ -346,14 +352,22 @@ export function normalizeUserAuthEmail(email) {
  * Company-scoped username lookup preferred when companyFolderId/masterSheetId known.
  * Auth-index username aliases used for cold login; ambiguous cross-company usernames
  * return no match unless company scope uniquely selects one candidate.
+ * Does not rely only on local auth-index byUsername — also derives usernames from
+ * indexed emails and searches company Users tabs / LIVE registry when needed.
  */
 export async function resolveCompanyLoginIdentity(auth, deps = {}, input = {}) {
-  const identity = normalizeLoginIdentity(input.email || input.username || input.identity || "");
+  const identity = normalizeLoginIdentity(
+    input.email || input.username || input.identity || input.identifier || input.emailOrUsername || "",
+  );
   const companyFolderId = sanitizeCompanyFolderId(input.companyFolderId || input.sessionCompanyFolderId || "");
   const masterSheetId = sanitizeGoogleSpreadsheetId(input.masterSheetId || "");
+  const diagnostics = {
+    authIndexUsernameMatch: false,
+    companyScopedUsersTabMatch: false,
+  };
 
   if (!identity) {
-    return { ok: false, reason: "missing_identity", email: "", username: "" };
+    return { ok: false, reason: "missing_identity", email: "", username: "", diagnostics };
   }
 
   if (isLoginEmailIdentity(identity)) {
@@ -362,17 +376,19 @@ export async function resolveCompanyLoginIdentity(auth, deps = {}, input = {}) {
       email: normalizeUserAuthEmail(identity),
       username: "",
       source: "email",
+      diagnostics,
     };
   }
 
   const username = normalizeUsername(identity);
   if (!username) {
-    return { ok: false, reason: "missing_identity", email: "", username: "" };
+    return { ok: false, reason: "missing_identity", email: "", username: "", diagnostics };
   }
 
   if (typeof deps.authIndex?.lookupByUsername === "function") {
     const indexed = deps.authIndex.lookupByUsername(username, { companyFolderId });
     if (indexed?.email) {
+      diagnostics.authIndexUsernameMatch = true;
       return {
         ok: true,
         email: normalizeUserAuthEmail(indexed.email),
@@ -380,6 +396,44 @@ export async function resolveCompanyLoginIdentity(auth, deps = {}, input = {}) {
         source: "auth_index_username",
         companyFolderId: indexed.companyFolderId || "",
         masterSheetId: indexed.masterSheetId || "",
+        diagnostics,
+      };
+    }
+  }
+
+  // Fallback when byUsername aliases are missing/stale: derive from indexed emails.
+  if (typeof deps.authIndex?.readAllEntries === "function") {
+    const derivedMatches = [];
+    for (const entry of deps.authIndex.readAllEntries()) {
+      const derived = resolveUsernameFromUserFields({
+        username: entry.username,
+        email: entry.email,
+      });
+      if (derived !== username) {
+        continue;
+      }
+      const entryFolder = sanitizeCompanyFolderId(entry.companyFolderId || entry.companyId || "");
+      if (companyFolderId && entryFolder && entryFolder !== companyFolderId) {
+        continue;
+      }
+      derivedMatches.push(entry);
+    }
+    const scoped =
+      companyFolderId && derivedMatches.length > 1
+        ? derivedMatches.filter(
+            (entry) => sanitizeCompanyFolderId(entry.companyFolderId || entry.companyId || "") === companyFolderId,
+          )
+        : derivedMatches;
+    if (scoped.length === 1 && scoped[0]?.email) {
+      diagnostics.authIndexUsernameMatch = true;
+      return {
+        ok: true,
+        email: normalizeUserAuthEmail(scoped[0].email),
+        username,
+        source: "auth_index_derived_username",
+        companyFolderId: scoped[0].companyFolderId || companyFolderId || "",
+        masterSheetId: scoped[0].masterSheetId || "",
+        diagnostics,
       };
     }
   }
@@ -388,6 +442,18 @@ export async function resolveCompanyLoginIdentity(auth, deps = {}, input = {}) {
   const sheetCandidates = [];
   if (masterSheetId) {
     sheetCandidates.push(masterSheetId);
+  }
+
+  if (!sheetCandidates.length && companyFolderId) {
+    const getRegistryRecord =
+      typeof deps.getCanonicalCompanyRegistryRecord === "function"
+        ? deps.getCanonicalCompanyRegistryRecord
+        : getCanonicalCompanyRegistryRecord;
+    const record = await getRegistryRecord(auth, deps, companyFolderId).catch(() => null);
+    const registrySheet = sanitizeGoogleSpreadsheetId(record?.masterSheetId || "");
+    if (registrySheet) {
+      sheetCandidates.push(registrySheet);
+    }
   }
 
   if (!sheetCandidates.length && companyFolderId && typeof deps.resolveCompanyFromFolder === "function") {
@@ -408,6 +474,7 @@ export async function resolveCompanyLoginIdentity(auth, deps = {}, input = {}) {
       companyFolderId,
     }).catch(() => null);
     if (row?.email) {
+      diagnostics.companyScopedUsersTabMatch = true;
       return {
         ok: true,
         email: normalizeUserAuthEmail(row.email),
@@ -415,11 +482,57 @@ export async function resolveCompanyLoginIdentity(auth, deps = {}, input = {}) {
         source: "users_tab_username",
         companyFolderId: row.companyFolderId || companyFolderId,
         masterSheetId: sheetId,
+        diagnostics,
       };
     }
   }
 
-  return { ok: false, reason: "username_not_found", email: "", username };
+  // Cold username login: LIVE registry fallback when folder/sheet hints are absent.
+  if (!companyFolderId && !uniqueSheets.length) {
+    const readRegistryMap =
+      typeof deps.readCanonicalCompanyWorkspaceRegistryMap === "function"
+        ? deps.readCanonicalCompanyWorkspaceRegistryMap
+        : readCanonicalCompanyWorkspaceRegistryMap;
+    const registryMap = await readRegistryMap(auth, deps).catch(() => null);
+    const liveEntries = Object.values(registryMap || {}).filter(
+      (entry) =>
+        isCompanyRegistryLive(entry) && sanitizeGoogleSpreadsheetId(entry?.masterSheetId || ""),
+    );
+    const registryMatches = [];
+    for (const entry of liveEntries) {
+      const sheetId = sanitizeGoogleSpreadsheetId(entry.masterSheetId);
+      const row = await findCompanyUsersTabRow(auth, sheetId, username, {
+        ...userDeps,
+        preferredCompanyFolderId: sanitizeCompanyFolderId(entry.companyFolderId || entry.companyId || ""),
+        companyFolderId: sanitizeCompanyFolderId(entry.companyFolderId || entry.companyId || ""),
+      }).catch(() => null);
+      if (row?.email) {
+        registryMatches.push({
+          email: normalizeUserAuthEmail(row.email),
+          companyFolderId: sanitizeCompanyFolderId(row.companyFolderId || entry.companyFolderId || entry.companyId || ""),
+          masterSheetId: sheetId,
+        });
+      }
+    }
+    if (registryMatches.length === 1) {
+      diagnostics.companyScopedUsersTabMatch = true;
+      return {
+        ok: true,
+        email: registryMatches[0].email,
+        username,
+        source: "registry_users_tab_username",
+        companyFolderId: registryMatches[0].companyFolderId,
+        masterSheetId: registryMatches[0].masterSheetId,
+        diagnostics,
+      };
+    }
+  }
+
+  if (uniqueSheets.length || companyFolderId) {
+    diagnostics.companyScopedUsersTabMatch = false;
+  }
+
+  return { ok: false, reason: "username_not_found", email: "", username, diagnostics };
 }
 
 export function resolveUserAuthCompanyContext(companyContext = {}) {
@@ -1302,17 +1415,33 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
       blocker: "user_not_found",
       message: "Email, username, or password is incorrect.",
       failedStep: "identity_resolve",
+      identityDiagnostics: resolvedIdentity.diagnostics || null,
     });
   }
 
   const email = normalizeUserAuthEmail(resolvedIdentity.email);
   // Resolve username → email only; leave workbook discovery to collectLoginResolutionAttempts
   // (auth-index by email / hints), same as a normal email login. Do not force folder-first
-  // from identity aliases — that can stall on Drive folder resolve during cold login.
+  // from identity aliases alone — that can stall on Drive folder resolve during cold login.
+  // When username was resolved via company Users tab / LIVE registry, keep sheet/folder hints.
   const resolvedInput = {
     ...input,
     email,
   };
+  if (
+    resolvedIdentity.masterSheetId &&
+    !sanitizeGoogleSpreadsheetId(input.masterSheetId || "")
+  ) {
+    resolvedInput.masterSheetId = resolvedIdentity.masterSheetId;
+  }
+  if (
+    (resolvedIdentity.source === "users_tab_username" ||
+      resolvedIdentity.source === "registry_users_tab_username") &&
+    resolvedIdentity.companyFolderId &&
+    !sanitizeCompanyFolderId(input.companyFolderId || input.sessionCompanyFolderId || "")
+  ) {
+    resolvedInput.companyFolderId = resolvedIdentity.companyFolderId;
+  }
 
   if (!auth || !email || !password) {
     return buildLoginAuthFailure({

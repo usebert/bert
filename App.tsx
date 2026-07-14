@@ -9648,7 +9648,16 @@ function App() {
           username: identity.includes("@") ? undefined : identity,
           password: pwd,
           masterSheetId: persistedCompanyLoginHints.masterSheetId || undefined,
-          companyFolderId: persistedCompanyLoginHints.companyFolderId || undefined,
+          companyFolderId:
+            (() => {
+              try {
+                return new URLSearchParams(window.location.search).get("companyFolderId") || "";
+              } catch {
+                return "";
+              }
+            })().trim() ||
+            persistedCompanyLoginHints.companyFolderId ||
+            undefined,
         });
         loginTrace.mark("login_response_received", {
           flow: "company",

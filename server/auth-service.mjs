@@ -574,9 +574,6 @@ export async function performCompanyLogin(auth, deps, input = {}) {
   console.log("[login] start");
 
   const {
-    email: rawEmail,
-    password,
-    masterSheetId: requestedSheetId = "",
     authIndex,
     sessionRevocation,
     getCompanyUsersDeps,
@@ -585,9 +582,31 @@ export async function performCompanyLogin(auth, deps, input = {}) {
   } = deps;
 
   const tNormalize = Date.now();
-  const identity = normalizeLoginIdentity(rawEmail || input.email || input.username || "");
-  const email = identity;
-  const pwd = String(password || input.password || "");
+  // Browser route historically put credentials on deps; prefer explicit input when provided.
+  const identity = normalizeLoginIdentity(
+    input.email ||
+      input.username ||
+      input.identity ||
+      input.identifier ||
+      input.emailOrUsername ||
+      deps.email ||
+      deps.username ||
+      deps.identity ||
+      deps.identifier ||
+      deps.emailOrUsername ||
+      "",
+  );
+  let email = identity;
+  const pwd = String(input.password || deps.password || "");
+  const requested = sanitizeGoogleSpreadsheetId(
+    input.masterSheetId || deps.masterSheetId || "",
+  );
+  const requestedCompanyFolderId = sanitizeCompanyFolderId(
+    input.companyFolderId || deps.companyFolderId || "",
+  );
+  const sessionCompanyFolderId = sanitizeCompanyFolderId(
+    input.sessionCompanyFolderId || deps.sessionCompanyFolderId || "",
+  );
   timing.normalise_email = logLoginPhase("email_normalised", tNormalize, loginTiming, loginTimingEmailMeta(email));
 
   if (!email || !pwd) {
@@ -630,8 +649,6 @@ export async function performCompanyLogin(auth, deps, input = {}) {
   }
   timing.platform_auth_check = logLoginPhase("platform_auth_check", tPlatform, loginTiming, { blocked: false });
 
-  const requested = sanitizeGoogleSpreadsheetId(requestedSheetId);
-
   if (!auth) {
     timing.total = logLoginPhase("total_login_duration", loginStarted, loginTiming, {
       ok: false,
@@ -647,14 +664,22 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     };
   }
 
-  const explicitFolderFirst = Boolean(
-    sanitizeCompanyFolderId(input.companyFolderId || "") ||
-      sanitizeCompanyFolderId(input.sessionCompanyFolderId || ""),
-  );
+  const loginInput = {
+    email,
+    username: identity.includes("@") ? "" : identity,
+    identity,
+    password: pwd,
+    masterSheetId: requested,
+    companyFolderId: requestedCompanyFolderId,
+    sessionCompanyFolderId,
+  };
+
+  const explicitFolderFirst = Boolean(requestedCompanyFolderId || sessionCompanyFolderId);
   loginTiming.logMark("company_login_input_hints", {
     explicitFolderFirst,
-    companyFolderIdSource: resolveLoginCompanyFolderIdSource(input, { authIndex, ...deps }, email),
+    companyFolderIdSource: resolveLoginCompanyFolderIdSource(loginInput, { authIndex, ...deps }, email),
     hasMasterSheetIdHint: Boolean(requested),
+    identifierIsUsername: !identity.includes("@"),
   });
 
   loginTiming.logMark("users_tab_auth_start", loginTimingEmailMeta(email));
@@ -668,17 +693,37 @@ export async function performCompanyLogin(auth, deps, input = {}) {
       findMasterSheetIdsForCompanyLoginEmail,
       loginTiming,
     },
-    {
-      email,
-      username: identity.includes("@") ? "" : identity,
-      password: pwd,
-      masterSheetId: requested,
-      companyFolderId: sanitizeCompanyFolderId(input.companyFolderId || ""),
-      sessionCompanyFolderId: sanitizeCompanyFolderId(input.sessionCompanyFolderId || ""),
-    },
+    loginInput,
   );
   timing.users_tab_auth = logLoginPhase("users_tab_auth", tAuth, loginTiming, { ok: authResult.ok === true });
   loginTiming.logMark("users_tab_auth_end", { ok: authResult.ok === true });
+
+  if (!authResult.ok && !identity.includes("@")) {
+    const identityDiag = authResult.identityDiagnostics || {};
+    const bodyKeys = [
+      ...new Set([
+        ...Object.keys(input || {}),
+        ...Object.keys(deps || {}).filter((key) =>
+          ["email", "username", "identity", "identifier", "emailOrUsername", "password", "companyFolderId", "masterSheetId", "sessionCompanyFolderId"].includes(
+            key,
+          ),
+        ),
+      ]),
+    ].filter((key) => key !== "password");
+    console.warn("[company-auth] username login failed", {
+      bodyKeys,
+      chosenIdentifier: identity,
+      normalizedIdentifier: identity,
+      companyFolderIdSupplied: Boolean(requestedCompanyFolderId || sessionCompanyFolderId),
+      authIndexUsernameMatch: Boolean(
+        identityDiag.authIndexUsernameMatch ??
+          (typeof authIndex?.lookupByUsername === "function" &&
+            authIndex.lookupByUsername(identity, { companyFolderId: requestedCompanyFolderId })),
+      ),
+      companyScopedUsersTabMatch: Boolean(identityDiag.companyScopedUsersTabMatch),
+      failureReason: authResult.authFailureReason || authResult.blocker || authResult.code || authResult.reason || "",
+    });
+  }
 
   if (!authResult.ok) {
     logLoginPhase("login_response_ready", loginStarted, loginTiming, {
@@ -718,6 +763,10 @@ export async function performCompanyLogin(auth, deps, input = {}) {
   }
 
   const { row: usersTabRec, companyContext, entry: indexEntry } = authResult;
+  email = normalizeLoginIdentity(authResult.email || identity);
+  if (!email || !email.includes("@")) {
+    return buildInvalidCredentialsFailure(timing, loginStarted, loginTiming);
+  }
   const sessionCompanyId = sanitizeCompanyFolderId(
     companyContext.companyFolderId || companyContext.companyId || indexEntry.companyFolderId || "",
   );

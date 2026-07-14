@@ -47,3 +47,36 @@ export function resolveUsernameFromUserFields({ username = "", email = "" } = {}
   }
   return deriveUsernameFromEmail(email);
 }
+
+/**
+ * Browser/API body identity fields — prefer explicit email-like keys, then username aliases.
+ */
+export function pickLoginIdentityFromBody(body = {}) {
+  const source =
+    body?.email ||
+    body?.identity ||
+    body?.identifier ||
+    body?.username ||
+    body?.emailOrUsername ||
+    "";
+  return normalizeLoginIdentity(source);
+}
+
+/**
+ * Map POST /api/auth/company/login body (+ optional session folder) into performCompanyLogin input.
+ * Browser client and route handler must stay aligned with these fields.
+ */
+export function buildCompanyLoginInputFromRequestBody(body = {}, sessionCompanyFolderId = "") {
+  const loginIdentity = pickLoginIdentityFromBody(body);
+  return {
+    email: loginIdentity,
+    username: loginIdentity && !loginIdentity.includes("@") ? loginIdentity : "",
+    identity: loginIdentity,
+    identifier: loginIdentity,
+    emailOrUsername: loginIdentity,
+    password: String(body?.password || ""),
+    masterSheetId: String(body?.masterSheetId || "").trim(),
+    companyFolderId: String(body?.companyFolderId || "").trim(),
+    sessionCompanyFolderId: String(sessionCompanyFolderId || "").trim(),
+  };
+}

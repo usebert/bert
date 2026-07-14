@@ -161,6 +161,7 @@ import {
   logLoginTimingMark,
   safeLoginRequestHintMeta,
 } from "./login-timing.mjs";
+import { buildCompanyLoginInputFromRequestBody } from "../shared/login-username.mjs";
 import { debugVerifyUserPassword } from "./user-auth-service.mjs";
 import { createAuthIndexApi, syncAuthIndexAfterUsersRead } from "./auth-index.mjs";
 import { completeInviteToUserRow } from "./company-user-sheet-flow.mjs";
@@ -6366,11 +6367,17 @@ app.post("/api/auth/company/login", async (req, res) => {
   routeTiming.mark("login_request_hints", safeLoginRequestHintMeta(req.body));
   try {
     const tParse = Date.now();
-    const loginIdentity = String(req.body?.email || req.body?.username || "").trim();
-    const loginPassword = String(req.body?.password || "");
+    const loginInput = buildCompanyLoginInputFromRequestBody(
+      req.body || {},
+      readDiagnosticCompanySessionFolderId(req),
+    );
+    const loginIdentity = loginInput.email || loginInput.username || "";
+    const loginPassword = loginInput.password;
     routeTiming.phase("request_parsed", tParse, {
       ...loginTimingEmailMeta(loginIdentity.includes("@") ? loginIdentity : ""),
       hasPassword: Boolean(loginPassword),
+      hasCompanyFolderId: Boolean(loginInput.companyFolderId || loginInput.sessionCompanyFolderId),
+      identityIsUsername: Boolean(loginIdentity) && !loginIdentity.includes("@"),
     });
 
     if (loginIdentity.includes("@") && isPlatformOwnerEmail(loginIdentity, process.env)) {
@@ -6412,23 +6419,22 @@ app.post("/api/auth/company/login", async (req, res) => {
     }
 
     const auth = getAuthedClient();
-    const result = await performCompanyLogin(auth, {
-      ...getCompanyContextResolutionDeps(),
-      authIndex: authIndexApi,
-      getCompanyUsersDeps,
-      getCompanyResolverDeps: () => ({ google, ...getCompanyWorkspaceRegistryDeps() }),
-      resolveCompanyFromFolder,
-      findMasterSheetIdsForCompanyLoginEmail,
-      sessionRevocation: companySessionRevocationApi,
-      isPlatformOwner: isPlatformOwnerEmail,
-      masterSheetCache: masterSheetCacheApi,
-      loginTiming: routeTiming,
-      email: loginIdentity,
-      password: loginPassword,
-      masterSheetId: String(req.body?.masterSheetId || "").trim(),
-      companyFolderId: String(req.body?.companyFolderId || "").trim(),
-      sessionCompanyFolderId: readDiagnosticCompanySessionFolderId(req),
-    });
+    const result = await performCompanyLogin(
+      auth,
+      {
+        ...getCompanyContextResolutionDeps(),
+        authIndex: authIndexApi,
+        getCompanyUsersDeps,
+        getCompanyResolverDeps: () => ({ google, ...getCompanyWorkspaceRegistryDeps() }),
+        resolveCompanyFromFolder,
+        findMasterSheetIdsForCompanyLoginEmail,
+        sessionRevocation: companySessionRevocationApi,
+        isPlatformOwner: isPlatformOwnerEmail,
+        masterSheetCache: masterSheetCacheApi,
+        loginTiming: routeTiming,
+      },
+      loginInput,
+    );
 
     if (!result.ok) {
       const invalidCredentials =
