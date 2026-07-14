@@ -14,6 +14,7 @@ import type {
   LiveRiskLevel,
 } from "../../types/liveDashboard";
 import { EmptyPanel, MiniMetric, SectionHeader } from "./DashboardPrimitives";
+import { DashboardLayoutBoard } from "../dashboard-layout/DashboardLayoutBoard";
 
 type Props = {
   companyFolderId: string;
@@ -230,7 +231,13 @@ export function LiveOperationalDashboard({
         </div>
       ) : null}
 
-      {/* KPI cards */}
+      <DashboardLayoutBoard
+        catalogId="live-operations"
+        companyFolderId={companyFolderId}
+        userIdentity={userEmail}
+        listClassName="space-y-4"
+        cards={{
+          "kpi-metrics": (
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         <MiniMetric label="DUE TODAY" value={String(metrics.todayDue)} icon="clock" tone="sky" />
         <MiniMetric label="COMPLETED TODAY" value={String(metrics.todayCompleted)} icon="check" tone="green" />
@@ -241,10 +248,9 @@ export function LiveOperationalDashboard({
         <MiniMetric label="CURRENT INCIDENTS" value={String(metrics.currentIncidents)} icon="shield" tone={metrics.currentIncidents ? "red" : "green"} />
         <MiniMetric label="PENDING BRIEFINGS" value={String(metrics.pendingBriefings)} icon="note" tone={metrics.pendingBriefings ? "amber" : "green"} />
       </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        {/* Act Today */}
-        <div className={[CARD, "lg:col-span-2"].join(" ")}>
+          ),
+          "act-today": (
+        <div className={CARD}>
           <SectionHeader icon="warningTriangle" eyebrow="Priority" title="Act today" subtitle="Ranked by urgency — overdue and high risk first." />
           {view.actToday.length === 0 ? (
             <EmptyPanel title="Nothing needs action right now" text="New due checks, overdue actions, incidents, and briefings will appear here." />
@@ -273,8 +279,8 @@ export function LiveOperationalDashboard({
             </ol>
           )}
         </div>
-
-        {/* Compliance score */}
+          ),
+          "compliance-score": (
         <div className={CARD}>
           <SectionHeader icon="shield" eyebrow="Score" title="Operational compliance score" subtitle="100 minus penalties for open risk items." />
           <div className="flex items-center gap-4">
@@ -301,8 +307,8 @@ export function LiveOperationalDashboard({
             </div>
           </div>
         </div>
-
-        {/* Risk by site / department heat map */}
+          ),
+          "risk-by-area": (
         <div className={CARD}>
           <SectionHeader icon="grid" eyebrow="Hotspots" title="Highest-risk sites / departments" subtitle="Ranked by open risk. Colour shows severity." />
           {view.riskByArea.length === 0 ? (
@@ -326,8 +332,8 @@ export function LiveOperationalDashboard({
             </div>
           )}
         </div>
-
-        {/* Overdue inspections */}
+          ),
+          "overdue-inspections": (
         <div className={CARD}>
           <div className="mb-1 flex items-center justify-between">
             <SectionHeader icon="clock" eyebrow="Late" title="Overdue inspections" subtitle="How late, where, and who owns it." />
@@ -348,8 +354,8 @@ export function LiveOperationalDashboard({
             </ul>
           )}
         </div>
-
-        {/* Outstanding actions */}
+          ),
+          "outstanding-actions": (
         <div className={CARD}>
           <div className="mb-1 flex items-center justify-between">
             <SectionHeader icon="clipboard" eyebrow="Work" title="Outstanding actions" subtitle="Open, overdue and high-risk actions." />
@@ -373,8 +379,8 @@ export function LiveOperationalDashboard({
             </ul>
           )}
         </div>
-
-        {/* Current incidents */}
+          ),
+          "current-incidents": (
         <div className={CARD}>
           <div className="mb-1 flex items-center justify-between">
             <SectionHeader icon="warningTriangle" eyebrow="Safety" title="Current incidents" subtitle="Open incidents and near misses." />
@@ -398,8 +404,8 @@ export function LiveOperationalDashboard({
             </ul>
           )}
         </div>
-
-        {/* Briefings needing attention */}
+          ),
+          "briefings": (
         <div className={CARD}>
           <div className="mb-1 flex items-center justify-between">
             <SectionHeader icon="note" eyebrow="Sign-off" title="Briefings needing attention" subtitle="Unread, unacknowledged, or unsigned." />
@@ -423,8 +429,8 @@ export function LiveOperationalDashboard({
             </ul>
           )}
         </div>
-
-        {/* Sync / offline */}
+          ),
+          "sync-status": (
         <div className={CARD}>
           <SectionHeader icon="sync" eyebrow="Offline" title="Sync status" subtitle="Queued and failed items waiting to reach the workbook." />
           <div className="grid grid-cols-2 gap-3">
@@ -439,8 +445,9 @@ export function LiveOperationalDashboard({
             <button type="button" onClick={onOpenSync} className="mt-2 text-xs font-semibold text-sky-700">Open Sync Centre →</button>
           ) : null}
         </div>
-      </div>
-
+          ),
+        }}
+      />
     </section>
   );
 }

@@ -17506,6 +17506,8 @@ function App() {
                   <AuditorTaskDashboard
                     workspaceName={workspaceName}
                     currentUser={currentUser}
+                    companyFolderId={String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim()}
+                    userIdentity={String(sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser)).trim().toLowerCase()}
                     groupedAudits={groupedAudits}
                     assignedAudits={assignedAudits}
                     drafts={drafts}
@@ -17533,6 +17535,8 @@ function App() {
                   <ManagerRoleDashboard
                     workspaceName={workspaceName}
                     teamCount={companyReportUsers.length}
+                    companyFolderId={String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim()}
+                    userIdentity={String(sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser)).trim().toLowerCase()}
                     onNavigate={(nextScreen) => setScreen(nextScreen)}
                     currentUser={currentUser}
                     groupedAudits={groupedAudits}
@@ -17590,6 +17594,8 @@ function App() {
                 renderAdminDashboard={() => (
                   <CompanyAdminDashboard
                     workspaceName={workspaceName}
+                    companyFolderId={String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim()}
+                    userIdentity={String(sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser)).trim().toLowerCase()}
                     invitedUsers={invitedUsers}
                     assignedAudits={assignedAudits}
                     drafts={drafts}

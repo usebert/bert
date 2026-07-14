@@ -15,6 +15,7 @@ import {
   SetupChecklistRow,
   TodayMetricBlock,
 } from "./RoleDashboardPrimitives";
+import { DashboardLayoutBoard } from "../dashboard-layout/DashboardLayoutBoard";
 
 const SETUP_STEPS: Array<{
   id: string;
@@ -71,6 +72,8 @@ type SetupContext = {
 
 type Props = {
   workspaceName: string;
+  companyFolderId?: string;
+  userIdentity?: string;
   invitedUsers: UserInvite[];
   assignedAudits: Audit[];
   drafts: Record<string, AuditDraft>;
@@ -96,6 +99,8 @@ type Props = {
 
 export function CompanyAdminDashboard({
   workspaceName,
+  companyFolderId = "",
+  userIdentity = "",
   invitedUsers,
   assignedAudits,
   drafts,
@@ -140,6 +145,13 @@ export function CompanyAdminDashboard({
       subtitle="One simple checklist to get the company working: users, areas, checks, schedules, reports."
       primaryAction={{ label: "Invite user", onClick: () => onNavigate("users"), icon: "invite" }}
     >
+      <DashboardLayoutBoard
+        catalogId="company-admin"
+        companyFolderId={companyFolderId}
+        userIdentity={userIdentity}
+        listClassName="space-y-6"
+        cards={{
+          "things-to-do": (
       <DashboardToDoSection
         assignedAudits={assignedAudits}
         drafts={drafts}
@@ -161,8 +173,8 @@ export function CompanyAdminDashboard({
           unreadBriefings: briefingTodoItems.filter((item) => item.needsAction !== false).length,
         }}
       />
-
-      <div className="grid gap-6 lg:grid-cols-3">
+          ),
+          "next-steps": (
         <AnimatedCard as="section" index={0} className={[DASHBOARD_CARD, "lg:col-span-2"].join(" ")}>
           <h2 className="text-lg font-black text-slate-900">Next steps</h2>
           <p className="mt-1 text-sm text-slate-600">Finish these in order. BERT will keep the complex setup underneath.</p>
@@ -182,8 +194,8 @@ export function CompanyAdminDashboard({
             })}
           </ol>
         </AnimatedCard>
-
-        <aside>
+          ),
+          "today-panel": (
           <AnimatedCard as="section" index={1} className={DASHBOARD_CARD}>
             <h2 className="text-lg font-black text-slate-900">Today</h2>
             <div className="mt-4 space-y-3">
@@ -192,10 +204,8 @@ export function CompanyAdminDashboard({
               <TodayMetricBlock value={String(syncIssueCount)} label="sync issues" tone="green" />
             </div>
           </AnimatedCard>
-        </aside>
-      </div>
-
-      {qmsSummary ? (
+          ),
+          "qms-summary": qmsSummary ? (
         <AnimatedCard index={3}>
         <QmsReadinessSummaryWidget
           summary={qmsSummary}
@@ -205,7 +215,9 @@ export function CompanyAdminDashboard({
           onOpenReviewPack={() => onNavigate("reports")}
         />
         </AnimatedCard>
-      ) : null}
+      ) : null,
+        }}
+      />
     </RoleDashboardShell>
   );
 }

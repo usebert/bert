@@ -14,10 +14,13 @@ import {
   OpenActionRow,
   RoleDashboardShell,
 } from "./RoleDashboardPrimitives";
+import { DashboardLayoutBoard } from "../dashboard-layout/DashboardLayoutBoard";
 
 type Props = ManagerDashboardProps & {
   workspaceName: string;
   teamCount: number;
+  companyFolderId?: string;
+  userIdentity?: string;
   nonConformances?: Array<{ id: string; reference: string; auditQuestion: string; status: string; site: string }>;
   onNavigate: (screen: NavItemId) => void;
   drafts: Record<string, AuditDraft>;
@@ -53,6 +56,8 @@ function closedThisWeek(actions: ActionItem[]): number {
 export function ManagerRoleDashboard({
   workspaceName,
   teamCount,
+  companyFolderId = "",
+  userIdentity = "",
   onNavigate,
   assignedAudits,
   drafts,
@@ -104,14 +109,8 @@ export function ManagerRoleDashboard({
   const evidenceMetric = evidenceNeededActions.length === 1 ? "1 action" : `${evidenceNeededActions.length} actions`;
   const closedMetric = `${closedWeekCount} this week`;
 
-  return (
-    <RoleDashboardShell
-      role="Manager"
-      eyebrow="Manager"
-      title="What needs fixing?"
-      subtitle="Failed checks, open actions, and evidence waiting for review. No setup clutter."
-      primaryAction={{ label: "View actions", onClick: () => onNavigate("actions"), icon: "alert" }}
-    >
+  const layoutCards = {
+    "things-to-do": (
       <DashboardToDoSection
         assignedAudits={assignedAudits}
         drafts={drafts}
@@ -133,7 +132,8 @@ export function ManagerRoleDashboard({
           unreadBriefings: briefingTodoItems.filter((item) => item.needsAction !== false).length,
         }}
       />
-
+    ),
+    "summary-metrics": (
       <div className="grid gap-4 sm:grid-cols-3">
         <AnimatedCard index={0}>
           <ManagerSummaryCard
@@ -167,7 +167,8 @@ export function ManagerRoleDashboard({
           />
         </AnimatedCard>
       </div>
-
+    ),
+    "open-actions": (
       <AnimatedCard as="section" index={4} className={DASHBOARD_CARD}>
         <h2 className="text-lg font-black text-slate-900">Open actions</h2>
         {openActions.length === 0 ? (
@@ -192,7 +193,8 @@ export function ManagerRoleDashboard({
           </ul>
         )}
       </AnimatedCard>
-
+    ),
+    "open-ncrs": (
       <AnimatedCard as="section" index={5} className={DASHBOARD_CARD}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-black text-slate-900">Open NCRs</h2>
@@ -220,6 +222,24 @@ export function ManagerRoleDashboard({
           </ul>
         )}
       </AnimatedCard>
+    ),
+  };
+
+  return (
+    <RoleDashboardShell
+      role="Manager"
+      eyebrow="Manager"
+      title="What needs fixing?"
+      subtitle="Failed checks, open actions, and evidence waiting for review. No setup clutter."
+      primaryAction={{ label: "View actions", onClick: () => onNavigate("actions"), icon: "alert" }}
+    >
+      <DashboardLayoutBoard
+        catalogId="manager-role"
+        companyFolderId={companyFolderId}
+        userIdentity={userIdentity}
+        cards={layoutCards}
+        listClassName="space-y-6"
+      />
     </RoleDashboardShell>
   );
 }

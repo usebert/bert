@@ -20,9 +20,12 @@ import {
   SecondaryButton,
   TodayMetricBlock,
 } from "./RoleDashboardPrimitives";
+import { DashboardLayoutBoard } from "../dashboard-layout/DashboardLayoutBoard";
 
 type Props = AuditorTaskDashboardProps & {
   workspaceName: string;
+  companyFolderId?: string;
+  userIdentity?: string;
   assignedCheckScheduleMeta?: Record<string, AssignedCheckScheduleMeta>;
   assignedChecksLoading?: boolean;
   assignedChecksLoadError?: string;
@@ -94,6 +97,8 @@ function ActionPriorityRow({
 
 export function AuditorTaskDashboard({
   currentUser,
+  companyFolderId = "",
+  userIdentity = "",
   assignedAudits,
   drafts,
   actions,
@@ -158,13 +163,21 @@ export function AuditorTaskDashboard({
 
   return (
     <RoleDashboardShell role="Auditor" title="My work today" subtitle="What you need to do next.">
-      <div className="grid grid-cols-2 gap-3">
-        <TodayMetricBlock value={String(dueTodayChecks.length)} label="Due today" tone="blue" />
-        <TodayMetricBlock value={String(overdueChecks.length)} label="Overdue" tone="orange" />
-        <TodayMetricBlock value={String(openActions.length)} label="Open actions" tone="green" />
-        <TodayMetricBlock value={String(pendingBriefings.length)} label="Briefings" tone="blue" />
-      </div>
-
+      <DashboardLayoutBoard
+        catalogId="auditor-task"
+        companyFolderId={companyFolderId}
+        userIdentity={userIdentity}
+        listClassName="space-y-6"
+        cards={{
+          "today-metrics": (
+            <div className="grid grid-cols-2 gap-3">
+              <TodayMetricBlock value={String(dueTodayChecks.length)} label="Due today" tone="blue" />
+              <TodayMetricBlock value={String(overdueChecks.length)} label="Overdue" tone="orange" />
+              <TodayMetricBlock value={String(openActions.length)} label="Open actions" tone="green" />
+              <TodayMetricBlock value={String(pendingBriefings.length)} label="Briefings" tone="blue" />
+            </div>
+          ),
+          "priority-list": (
       <AnimatedCard as="section" index={0} className={[DASHBOARD_CARD, "space-y-5"].join(" ")}>
         <div>
           <h2 className="text-xl font-black text-slate-900">Priority list</h2>
@@ -302,6 +315,9 @@ export function AuditorTaskDashboard({
           </div>
         )}
       </AnimatedCard>
+          ),
+        }}
+      />
 
       <section aria-label="Quick actions" className="grid grid-cols-2 gap-3">
         <PrimaryButton
