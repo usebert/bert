@@ -60,6 +60,15 @@ export function demoEmail(slug) {
   return `${DEMO_COMPANY_EMAIL_PREFIX}+${local}@${DEMO_COMPANY_EMAIL_DOMAIN}`;
 }
 
+/** Demo login username = emailSlug (e.g. joe.jones). */
+export function demoUsername(slug) {
+  return String(slug || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9.+-]+/g, ".")
+    .replace(/^\.+|\.+$/g, "");
+}
+
 export function isDemoCompanyName(name = "") {
   return String(name || "").trim().toLowerCase() === DEMO_COMPANY_NAME.toLowerCase();
 }
@@ -420,10 +429,12 @@ export function buildDemoCompanySeed({ now = new Date(), passwordHash = "" } = {
 
   const users = [...DEMO_PEOPLE, DEMO_ARCHIVED_USER].map((person) => {
     const email = demoEmail(person.emailSlug);
+    const username = demoUsername(person.emailSlug);
     const archived = person.archived === true;
     return {
       "User ID": person.id,
       Email: email,
+      Username: username,
       Name: person.name,
       "Full Name": person.name,
       Role: person.role,

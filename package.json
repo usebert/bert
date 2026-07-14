@@ -38,6 +38,7 @@
     "verify:demo-company-login": "node scripts/verify-demo-company-login.mjs",
     "verify:demo-accounts": "node scripts/verify-demo-accounts.mjs",
     "verify:demo-login-roles": "node scripts/verify-demo-login-roles.mjs",
+    "verify:demo-username-logins": "node scripts/verify-demo-username-logins.mjs",
     "register:demo-company": "node scripts/register-demo-company.mjs",
     "migrate:userauth": "node scripts/migrate-userauth-passwords.mjs",
     "verify:auth": "node scripts/verify-auth-hardening.mjs",

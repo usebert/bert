@@ -9455,11 +9455,21 @@ function App() {
     const platformOwnerLogin =
       loginIdentity.includes("@") && isPlatformOwnerEmail(loginIdentity, import.meta.env);
     const persistedCompanyLoginHints = (() => {
-      if (!loginIdentity.includes("@")) {
+      const hint = readCompanyLoginHint();
+      if (!hint) {
         return { masterSheetId: "", companyFolderId: "" };
       }
-      const hint = readCompanyLoginHint();
-      if (!hint || hint.email !== loginIdentity) {
+      const hintEmail = String(hint.email || "").trim().toLowerCase();
+      const hintUsername = hintEmail.includes("+")
+        ? hintEmail.split("@")[0].split("+").slice(1).join("+")
+        : hintEmail.includes("@")
+          ? hintEmail.split("@")[0]
+          : "";
+      if (loginIdentity.includes("@")) {
+        if (hintEmail !== loginIdentity) {
+          return { masterSheetId: "", companyFolderId: "" };
+        }
+      } else if (hintUsername !== loginIdentity.replace(/\s+/g, "") && hintEmail !== loginIdentity) {
         return { masterSheetId: "", companyFolderId: "" };
       }
       return {
@@ -9623,14 +9633,15 @@ function App() {
       | undefined;
 
     const tryServerCompanyLogin = async (): Promise<boolean> => {
-      if (!pwd || !loginIdentity.includes("@")) {
+      if (!pwd || !loginIdentity) {
         return false;
       }
-      const email = loginIdentity.trim().toLowerCase();
+      const identity = loginIdentity.trim().toLowerCase();
       try {
         loginTrace.mark("login_request_started", { flow: "company" });
         const loginResult = await companyLogin({
-          email,
+          email: identity.includes("@") ? identity : undefined,
+          username: identity.includes("@") ? undefined : identity,
           password: pwd,
           masterSheetId: persistedCompanyLoginHints.masterSheetId || undefined,
           companyFolderId: persistedCompanyLoginHints.companyFolderId || undefined,
@@ -16303,7 +16314,7 @@ function App() {
                       ) : null}
                       <form className="mt-3 space-y-2.5 sm:mt-4 sm:space-y-3" onSubmit={(event) => { event.preventDefault(); void handleLogin(); }}>
                         <div>
-                          <label className="mb-1 block text-xs font-medium text-slate-100 sm:text-sm">Username or email</label>
+                          <label className="mb-1 block text-xs font-medium text-slate-100 sm:text-sm">Email or username</label>
                           <div className="relative">
                             <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 fill-none stroke-slate-400 sm:left-3.5 sm:h-5 sm:w-5" strokeWidth="2">
                               <path d="M20 21a8 8 0 0 0-16 0" />
@@ -16312,7 +16323,7 @@ function App() {
                             <input
                               value={username}
                               onChange={(event) => setUsername(event.target.value)}
-                              placeholder="Email or username"
+                              placeholder="you@example.com or joe.jones"
                               className="h-11 w-full rounded-xl border border-white/10 bg-slate-950/45 pl-10 pr-3 text-sm text-white outline-none transition placeholder:text-slate-400 focus:border-orange-400 focus:ring-2 focus:ring-orange-400/15 sm:h-12 sm:rounded-2xl sm:pl-11 sm:pr-4 sm:text-base"
                             />
                           </div>
@@ -16544,7 +16555,7 @@ function App() {
                     ) : (
                     <form className="mt-3 space-y-2.5 sm:mt-4 sm:space-y-3" onSubmit={(event) => { event.preventDefault(); void handleLogin(); }}>
                       <div>
-                        <label className="mb-1 block text-xs font-medium text-slate-100 sm:text-sm">Username or email</label>
+                        <label className="mb-1 block text-xs font-medium text-slate-100 sm:text-sm">Email or username</label>
                         <div className="relative">
                           <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 fill-none stroke-slate-400 sm:left-3.5 sm:h-5 sm:w-5" strokeWidth="2">
                             <path d="M20 21a8 8 0 0 0-16 0" />
@@ -16553,7 +16564,7 @@ function App() {
                           <input
                             value={username}
                             onChange={(event) => setUsername(event.target.value)}
-                            placeholder="Enter username or email"
+                            placeholder="you@example.com or joe.jones"
                             className="h-11 w-full rounded-xl border border-white/10 bg-slate-950/45 pl-10 pr-3 text-sm text-white outline-none transition placeholder:text-slate-400 focus:border-orange-400 focus:ring-2 focus:ring-orange-400/15 sm:h-12 sm:rounded-2xl sm:pl-11 sm:pr-4 sm:text-base"
                           />
                         </div>

@@ -80,11 +80,16 @@ export type AppSessionResult = {
 
 /** Fast company login — workbook Users tab company columns; live Drive validation runs after response. */
 export async function companyLogin(input: {
-  email: string;
+  email?: string;
+  username?: string;
   password: string;
   masterSheetId?: string;
   companyFolderId?: string;
 }): Promise<CompanyLoginResult> {
+  const identity = String(input.email || input.username || "")
+    .trim()
+    .toLowerCase();
+  const isEmail = identity.includes("@");
   const result = await fetchJson<{
     ok?: boolean;
     user?: CompanyLoginUser;
@@ -103,7 +108,7 @@ export async function companyLogin(input: {
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      email: input.email.trim().toLowerCase(),
+      ...(isEmail ? { email: identity } : { username: identity, email: identity }),
       password: input.password,
       ...(input.masterSheetId?.trim() ? { masterSheetId: input.masterSheetId.trim() } : {}),
       ...(input.companyFolderId?.trim() ? { companyFolderId: input.companyFolderId.trim() } : {}),

@@ -35,6 +35,7 @@ import {
   logLoginTimingMark,
   logLoginTimingPhase,
 } from "./login-timing.mjs";
+import { isLoginEmailIdentity, normalizeLoginIdentity } from "../shared/login-username.mjs";
 
 export { COMPANY_CONTEXT_INVALID, COMPANY_NO_LONGER_AVAILABLE_MESSAGE, FOLDER_NOT_IN_COMPANIES_ROOT, validateLiveCompanyContext };
 
@@ -584,7 +585,8 @@ export async function performCompanyLogin(auth, deps, input = {}) {
   } = deps;
 
   const tNormalize = Date.now();
-  const email = String(rawEmail || input.email || "").trim().toLowerCase();
+  const identity = normalizeLoginIdentity(rawEmail || input.email || input.username || "");
+  const email = identity;
   const pwd = String(password || input.password || "");
   timing.normalise_email = logLoginPhase("email_normalised", tNormalize, loginTiming, loginTimingEmailMeta(email));
 
@@ -595,20 +597,20 @@ export async function performCompanyLogin(auth, deps, input = {}) {
       httpStatus: 400,
       code: "MISSING_FIELDS",
       blocker: "missing_fields",
-      error: "Email and password are required.",
-      message: "Email and password are required.",
+      error: "Email or username and password are required.",
+      message: "Email or username and password are required.",
       timing,
     };
   }
-  if (!email.includes("@")) {
+  if (identity.includes("@") && !isLoginEmailIdentity(identity)) {
     timing.total = logLoginPhase("total_login_duration", loginStarted, loginTiming, { ok: false });
     return {
       ok: false,
       httpStatus: 400,
       code: "INVALID_EMAIL",
       blocker: "invalid_email",
-      error: "A valid email address is required.",
-      message: "A valid email address is required.",
+      error: "A valid email address or username is required.",
+      message: "A valid email address or username is required.",
       timing,
     };
   }
@@ -668,6 +670,7 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     },
     {
       email,
+      username: identity.includes("@") ? "" : identity,
       password: pwd,
       masterSheetId: requested,
       companyFolderId: sanitizeCompanyFolderId(input.companyFolderId || ""),

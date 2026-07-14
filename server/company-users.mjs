@@ -25,6 +25,7 @@ import {
   pickUsersTabLoginEmail,
   remapShiftedLegacyUsersRow,
   rowEmailCandidates,
+  rowMatchesLoginUsername,
   loginEmailMatchVariants,
   normalizeLoginEmailValue,
   USERS_TAB_LOGIN_EMAIL_ALIASES,
@@ -226,7 +227,14 @@ async function resolveUsersTabTitle(auth, spreadsheetId, deps, options = {}) {
 }
 
 function rowMatchesLoginEmail(obj, target) {
-  return rowEmailCandidates(obj).includes(target);
+  const identity = String(target || "").trim().toLowerCase();
+  if (!identity) {
+    return false;
+  }
+  if (identity.includes("@")) {
+    return rowEmailCandidates(obj).includes(identity);
+  }
+  return rowMatchesLoginUsername(obj, identity);
 }
 
 function loginEmailMatchedOnCanonicalEmailColumn(obj, target) {
@@ -289,7 +297,10 @@ function buildUsersTabLoginRowMatch(headers, row, sheetRowIndex, target) {
   if (!rowMatchesLoginEmail(obj, target)) {
     return null;
   }
-  const rowEmail = pickUsersTabLoginEmail(obj) || pickField(obj, "Email") || target;
+  const rowEmail = pickUsersTabLoginEmail(obj) || pickField(obj, "Email");
+  if (!isValidCompanyUserEmail(rowEmail)) {
+    return null;
+  }
   const roleRaw = pickField(obj, "Role", "role");
   const fullName = pickField(obj, "Name", "name", "Full Name", "Full name") || rowEmail;
   const companyId = pickRowCompanyId(obj) || pickField(obj, "Company ID", "companyId");

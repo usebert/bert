@@ -19,6 +19,7 @@ export const USERS_TAB_ACCESS_SCOPE_COLUMNS = ["SiteIds", "DepartmentIds", "Area
 
 /** Extended metadata columns (BERT Master Sheet cols J–V). */
 export const USERS_TAB_EXTENDED_COLUMNS = [
+  "Username",
   "User ID",
   "Company ID",
   "PasswordUpdatedAt",

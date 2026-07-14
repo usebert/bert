@@ -85,8 +85,15 @@ async function rebuildDemoAuthIndex(auth, deps) {
     }
     const roleRaw = pickField(row, "Role", "role");
     const role = parseRoleFromUsersSheet(roleRaw) || roleRaw || "User";
+    const username =
+      String(pickField(row, "Username", "username") || "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, "") ||
+      (email.includes("+") ? email.split("@")[0].split("+").slice(1).join("+") : email.split("@")[0]);
     authIndex.upsertEntry({
       email,
+      username,
       name: pickField(row, "Name", "Full Name", "name") || email,
       role,
       accessLevel: pickField(row, "AccessLevel", "accessLevel") || defaultAccessLevelForRole(role),

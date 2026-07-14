@@ -3,6 +3,13 @@
  * Kept separate from company-users.mjs to avoid circular imports with users-tab-reader.
  */
 import { isUserAuthScryptHash } from "./userauth-password.mjs";
+import {
+  deriveUsernameFromEmail,
+  isLoginEmailIdentity,
+  normalizeLoginIdentity,
+  normalizeUsername,
+  resolveUsernameFromUserFields,
+} from "../shared/login-username.mjs";
 
 function safeLower(value) {
   return String(value || "").trim().toLowerCase();
@@ -86,21 +93,30 @@ function companyNamesMatch(left, right) {
   return Boolean(a && b && a === b);
 }
 
-/** Header aliases for login/profile email resolution (canonical Email first). */
-export const USERS_TAB_LOGIN_EMAIL_ALIASES = [
+/** Headers that always hold an email address. */
+export const USERS_TAB_EMAIL_ONLY_ALIASES = [
   "Email",
   "email",
   "Email Address",
   "email address",
   "UserEmail",
   "userEmail",
-  "Username",
-  "username",
-  "User",
-  "user",
-  "Login",
-  "login",
 ];
+
+/**
+ * Legacy headers that sometimes hold an email (old sheets).
+ * Only accepted as Email when the cell value looks like an email —
+ * non-email Username values are login usernames, not Email.
+ */
+export const USERS_TAB_LEGACY_EMAIL_HEADER_ALIASES = ["Username", "username", "User", "user", "Login", "login"];
+
+/** Header aliases for login/profile email resolution (canonical Email first). */
+export const USERS_TAB_LOGIN_EMAIL_ALIASES = [
+  ...USERS_TAB_EMAIL_ONLY_ALIASES,
+  ...USERS_TAB_LEGACY_EMAIL_HEADER_ALIASES,
+];
+
+export const USERS_TAB_USERNAME_ALIASES = ["Username", "username", "Login Username", "loginUsername"];
 
 export function normalizeLoginEmailValue(value) {
   return String(value || "")
@@ -123,8 +139,77 @@ export function loginEmailMatchVariants(value) {
   return [...variants];
 }
 
+function firstValidEmailFromAliases(obj, aliases) {
+  if (!obj || typeof obj !== "object") {
+    return "";
+  }
+  for (const key of aliases) {
+    for (const variant of loginEmailMatchVariants(pickField(obj, key))) {
+      if (isValidCompanyUserEmail(variant) || isLoginEmailIdentity(variant)) {
+        return normalizeLoginEmailValue(variant);
+      }
+    }
+  }
+  return "";
+}
+
+function firstValidEmailFromHeaderRow(headers, row, aliases) {
+  const headerRow = Array.isArray(headers) ? headers : [];
+  const dataRow = Array.isArray(row) ? row : [];
+  for (const alias of aliases) {
+    const value = cellAt(headerRow, dataRow, firstHeaderIndex(headerRow, alias));
+    for (const variant of loginEmailMatchVariants(value)) {
+      if (isValidCompanyUserEmail(variant) || isLoginEmailIdentity(variant)) {
+        return normalizeLoginEmailValue(variant);
+      }
+    }
+  }
+  return "";
+}
+
 export function pickUsersTabLoginEmail(obj) {
-  return pickField(obj, ...USERS_TAB_LOGIN_EMAIL_ALIASES);
+  return (
+    firstValidEmailFromAliases(obj, USERS_TAB_EMAIL_ONLY_ALIASES) ||
+    firstValidEmailFromAliases(obj, USERS_TAB_LEGACY_EMAIL_HEADER_ALIASES)
+  );
+}
+
+/** Explicit Username column value when it is not an email address. */
+export function pickUsersTabUsername(obj) {
+  for (const key of USERS_TAB_USERNAME_ALIASES) {
+    const raw = normalizeUsername(pickField(obj, key));
+    if (raw && !raw.includes("@")) {
+      return raw;
+    }
+  }
+  return "";
+}
+
+/** Stored Username, or derive from Email when blank. */
+export function resolveUsersTabUsername(obj) {
+  return resolveUsernameFromUserFields({
+    username: pickUsersTabUsername(obj),
+    email: pickUsersTabLoginEmail(obj) || pickField(obj, "Email"),
+  });
+}
+
+export function rowMatchesLoginUsername(obj, username) {
+  const target = normalizeUsername(username);
+  if (!target || target.includes("@")) {
+    return false;
+  }
+  return resolveUsersTabUsername(obj) === target;
+}
+
+export function rowMatchesLoginIdentity(obj, identity) {
+  const target = normalizeLoginIdentity(identity);
+  if (!target) {
+    return false;
+  }
+  if (target.includes("@")) {
+    return rowEmailCandidates(obj).includes(normalizeLoginEmailValue(target));
+  }
+  return rowMatchesLoginUsername(obj, target);
 }
 
 /**
@@ -149,7 +234,19 @@ export function buildUsersTabRowObject(headers, row) {
 
   return {
     ...raw,
-    Email: pickFirstByHeaders(headerRow, dataRow, ...USERS_TAB_LOGIN_EMAIL_ALIASES),
+    Email:
+      firstValidEmailFromHeaderRow(headerRow, dataRow, USERS_TAB_EMAIL_ONLY_ALIASES) ||
+      firstValidEmailFromHeaderRow(headerRow, dataRow, USERS_TAB_LEGACY_EMAIL_HEADER_ALIASES),
+    Username: (() => {
+      const stored = normalizeUsername(pickFirstByHeaders(headerRow, dataRow, ...USERS_TAB_USERNAME_ALIASES));
+      if (stored && !stored.includes("@")) {
+        return stored;
+      }
+      const email =
+        firstValidEmailFromHeaderRow(headerRow, dataRow, USERS_TAB_EMAIL_ONLY_ALIASES) ||
+        firstValidEmailFromHeaderRow(headerRow, dataRow, USERS_TAB_LEGACY_EMAIL_HEADER_ALIASES);
+      return deriveUsernameFromEmail(email);
+    })(),
     Name:
       pickFirstByHeaders(headerRow, dataRow, "Name", "name") ||
       pickFirstByHeaders(headerRow, dataRow, "Full Name", "Full name"),

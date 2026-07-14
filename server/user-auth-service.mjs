@@ -26,6 +26,11 @@ import {
 } from "../shared/google-drive-id.mjs";
 import { isKnownStaleAuthIndexPairing } from "../shared/auth-index-trust.mjs";
 import { isCompanyRegistryLive } from "../shared/company-invite-permissions.mjs";
+import {
+  isLoginEmailIdentity,
+  normalizeLoginIdentity,
+  normalizeUsername,
+} from "../shared/login-username.mjs";
 import { resolveCompanyFromFolder } from "./company-service.mjs";
 import { readCanonicalCompanyWorkspaceRegistryMap } from "./company-workspace-registry.mjs";
 import { loginTimingEmailMeta } from "./login-timing.mjs";
@@ -334,6 +339,87 @@ export { hashPassword, verifyPassword };
 
 export function normalizeUserAuthEmail(email) {
   return String(email || "").trim().toLowerCase();
+}
+
+/**
+ * Resolve login identity (email or username) to a canonical company email.
+ * Company-scoped username lookup preferred when companyFolderId/masterSheetId known.
+ * Auth-index username aliases used for cold login; ambiguous cross-company usernames
+ * return no match unless company scope uniquely selects one candidate.
+ */
+export async function resolveCompanyLoginIdentity(auth, deps = {}, input = {}) {
+  const identity = normalizeLoginIdentity(input.email || input.username || input.identity || "");
+  const companyFolderId = sanitizeCompanyFolderId(input.companyFolderId || input.sessionCompanyFolderId || "");
+  const masterSheetId = sanitizeGoogleSpreadsheetId(input.masterSheetId || "");
+
+  if (!identity) {
+    return { ok: false, reason: "missing_identity", email: "", username: "" };
+  }
+
+  if (isLoginEmailIdentity(identity)) {
+    return {
+      ok: true,
+      email: normalizeUserAuthEmail(identity),
+      username: "",
+      source: "email",
+    };
+  }
+
+  const username = normalizeUsername(identity);
+  if (!username) {
+    return { ok: false, reason: "missing_identity", email: "", username: "" };
+  }
+
+  if (typeof deps.authIndex?.lookupByUsername === "function") {
+    const indexed = deps.authIndex.lookupByUsername(username, { companyFolderId });
+    if (indexed?.email) {
+      return {
+        ok: true,
+        email: normalizeUserAuthEmail(indexed.email),
+        username,
+        source: "auth_index_username",
+        companyFolderId: indexed.companyFolderId || "",
+        masterSheetId: indexed.masterSheetId || "",
+      };
+    }
+  }
+
+  const userDeps = typeof deps.getCompanyUsersDeps === "function" ? deps.getCompanyUsersDeps() : deps;
+  const sheetCandidates = [];
+  if (masterSheetId) {
+    sheetCandidates.push(masterSheetId);
+  }
+
+  if (!sheetCandidates.length && companyFolderId && typeof deps.resolveCompanyFromFolder === "function") {
+    const resolved = await deps
+      .resolveCompanyFromFolder(auth, deps, companyFolderId, { createIfMissing: false })
+      .catch(() => null);
+    const resolvedSheet = sanitizeGoogleSpreadsheetId(resolved?.masterSheetId || "");
+    if (resolvedSheet) {
+      sheetCandidates.push(resolvedSheet);
+    }
+  }
+
+  const uniqueSheets = [...new Set(sheetCandidates.filter(Boolean))];
+  for (const sheetId of uniqueSheets) {
+    const row = await findCompanyUsersTabRow(auth, sheetId, username, {
+      ...userDeps,
+      preferredCompanyFolderId: companyFolderId,
+      companyFolderId,
+    }).catch(() => null);
+    if (row?.email) {
+      return {
+        ok: true,
+        email: normalizeUserAuthEmail(row.email),
+        username,
+        source: "users_tab_username",
+        companyFolderId: row.companyFolderId || companyFolderId,
+        masterSheetId: sheetId,
+      };
+    }
+  }
+
+  return { ok: false, reason: "username_not_found", email: "", username };
 }
 
 export function resolveUserAuthCompanyContext(companyContext = {}) {
@@ -1191,8 +1277,43 @@ async function resolveSingleLoginAttempt(
  * folder candidates: folder resolve then Users tab verify. Auth index only narrows candidates.
  */
 export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) {
-  const email = normalizeUserAuthEmail(input.email);
   const password = String(input.password || "");
+  if (!auth || !password) {
+    return buildLoginAuthFailure({
+      email: normalizeUserAuthEmail(input.email || input.username || ""),
+      authFailureReason: !password
+        ? AUTH_FAILURE_REASON.PASSWORD_MISSING
+        : AUTH_FAILURE_REASON.COMPANY_WORKBOOK_NOT_RESOLVED,
+      httpStatus: 400,
+      code: "MISSING_FIELDS",
+      blocker: "missing_fields",
+      message: "Email or username and password are required.",
+      failedStep: "input_validation",
+    });
+  }
+
+  const resolvedIdentity = await resolveCompanyLoginIdentity(auth, deps, input);
+  if (!resolvedIdentity.ok || !resolvedIdentity.email) {
+    return buildLoginAuthFailure({
+      email: normalizeUserAuthEmail(input.email || input.username || ""),
+      authFailureReason: AUTH_FAILURE_REASON.USER_NOT_FOUND,
+      httpStatus: 401,
+      code: "USER_NOT_FOUND",
+      blocker: "user_not_found",
+      message: "Email, username, or password is incorrect.",
+      failedStep: "identity_resolve",
+    });
+  }
+
+  const email = normalizeUserAuthEmail(resolvedIdentity.email);
+  // Resolve username → email only; leave workbook discovery to collectLoginResolutionAttempts
+  // (auth-index by email / hints), same as a normal email login. Do not force folder-first
+  // from identity aliases — that can stall on Drive folder resolve during cold login.
+  const resolvedInput = {
+    ...input,
+    email,
+  };
+
   if (!auth || !email || !password) {
     return buildLoginAuthFailure({
       email,
@@ -1202,7 +1323,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
       httpStatus: 400,
       code: "MISSING_FIELDS",
       blocker: "missing_fields",
-      message: "Email and password are required.",
+      message: "Email or username and password are required.",
       failedStep: "input_validation",
     });
   }
@@ -1211,14 +1332,14 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
   const loginTiming = deps.loginTiming;
   const timingDeps = loginTiming ? { ...userDeps, loginTiming } : userDeps;
   const tCandidates = Date.now();
-  const attempts = collectLoginResolutionAttempts(input, deps);
-  const trustedFolderIds = resolveTrustedFolderIds(input);
+  const attempts = collectLoginResolutionAttempts(resolvedInput, deps);
+  const trustedFolderIds = resolveTrustedFolderIds(resolvedInput);
   const explicitFolderFirst = trustedFolderIds.length > 0;
-  const ignoredStaleCandidates = collectIgnoredStaleLoginCandidates(input, deps, trustedFolderIds);
+  const ignoredStaleCandidates = collectIgnoredStaleLoginCandidates(resolvedInput, deps, trustedFolderIds);
   const effectiveAttempts = explicitFolderFirst
     ? attempts.filter((attempt) => isTrustedFolderCandidate(attempt, trustedFolderIds))
     : attempts;
-  const companyFolderIdSource = resolveLoginCompanyFolderIdSource(input, deps, email);
+  const companyFolderIdSource = resolveLoginCompanyFolderIdSource(resolvedInput, deps, email);
   loginTiming?.logMark?.("login_resolution_diagnostics", {
     explicitFolderFirst,
     companyFolderIdSource,

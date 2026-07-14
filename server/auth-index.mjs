@@ -26,6 +26,12 @@ import {
 } from "./users-tab-schema.mjs";
 import { isCompanyRegistryLive } from "../shared/company-invite-permissions.mjs";
 import { sanitizeCompanyFolderId, sanitizeGoogleSpreadsheetId } from "../shared/google-drive-id.mjs";
+import {
+  deriveUsernameFromEmail,
+  normalizeUsername,
+  resolveUsernameFromUserFields,
+} from "../shared/login-username.mjs";
+import { pickUsersTabUsername } from "./users-tab-schema.mjs";
 
 const DEFAULT_STALE_MS = Math.max(
   60_000,
@@ -129,14 +135,17 @@ export function createAuthIndexApi(indexPath) {
       const raw = fs.readFileSync(indexPath, "utf8");
       const parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== "object") {
-        return { version: 1, byEmail: {}, rebuiltAt: null };
+        return { version: 1, byEmail: {}, byUsername: {}, rebuiltAt: null };
       }
       if (!parsed.byEmail || typeof parsed.byEmail !== "object") {
         parsed.byEmail = {};
       }
+      if (!parsed.byUsername || typeof parsed.byUsername !== "object") {
+        parsed.byUsername = {};
+      }
       return parsed;
     } catch {
-      return { version: 1, byEmail: {}, rebuiltAt: null };
+      return { version: 1, byEmail: {}, byUsername: {}, rebuiltAt: null };
     }
   }
 
@@ -162,6 +171,171 @@ export function createAuthIndexApi(indexPath) {
       return null;
     }
     return { ...entry, email: key };
+  }
+
+  function usernameAliasMatchesCompany(alias, companyFolderId) {
+    const folderId = String(companyFolderId || "").trim();
+    if (!folderId || !alias) {
+      return true;
+    }
+    const aliasFolder = String(alias.companyFolderId || alias.companyId || "").trim();
+    return !aliasFolder || aliasFolder === folderId;
+  }
+
+  /**
+   * Resolve username → auth-index email entry.
+   * When duplicate usernames exist across companies, only return a match if
+   * companyFolderId is provided and uniquely selects one candidate.
+   */
+  function lookupByUsername(username, options = {}) {
+    const key = normalizeUsername(username);
+    if (!key || key.includes("@")) {
+      return null;
+    }
+    const store = readStore();
+    const alias = store.byUsername?.[key];
+    if (!alias || typeof alias !== "object") {
+      return null;
+    }
+    const preferredFolderId = String(options.companyFolderId || options.companyId || "").trim();
+
+    if (alias.ambiguous === true && Array.isArray(alias.candidates)) {
+      const scoped = preferredFolderId
+        ? alias.candidates.filter((candidate) => usernameAliasMatchesCompany(candidate, preferredFolderId))
+        : [];
+      if (scoped.length !== 1) {
+        return null;
+      }
+      return lookupByEmail(scoped[0].email);
+    }
+
+    if (!usernameAliasMatchesCompany(alias, preferredFolderId)) {
+      return null;
+    }
+    return lookupByEmail(alias.email);
+  }
+
+  function lookupByIdentity(identity, options = {}) {
+    const raw = String(identity || "").trim().toLowerCase();
+    if (!raw) {
+      return null;
+    }
+    if (raw.includes("@")) {
+      return lookupByEmail(raw);
+    }
+    return lookupByUsername(raw, options);
+  }
+
+  function writeUsernameAlias(store, username, aliasPayload) {
+    const key = normalizeUsername(username);
+    if (!key || key.includes("@") || !aliasPayload?.email) {
+      return;
+    }
+    if (!store.byUsername || typeof store.byUsername !== "object") {
+      store.byUsername = {};
+    }
+    const existing = store.byUsername[key];
+    const nextAlias = {
+      email: normalizeEmail(aliasPayload.email),
+      companyId: String(aliasPayload.companyId || aliasPayload.companyFolderId || "").trim(),
+      companyFolderId: String(aliasPayload.companyFolderId || aliasPayload.companyId || "").trim(),
+      companyName: String(aliasPayload.companyName || "").trim(),
+      masterSheetId: String(aliasPayload.masterSheetId || "").trim(),
+    };
+    if (!existing || typeof existing !== "object") {
+      store.byUsername[key] = nextAlias;
+      return;
+    }
+    if (existing.ambiguous === true && Array.isArray(existing.candidates)) {
+      const withoutSameEmail = existing.candidates.filter(
+        (candidate) => normalizeEmail(candidate.email) !== nextAlias.email,
+      );
+      const sameCompany = withoutSameEmail.find(
+        (candidate) =>
+          candidate.companyFolderId &&
+          nextAlias.companyFolderId &&
+          candidate.companyFolderId === nextAlias.companyFolderId,
+      );
+      if (sameCompany) {
+        store.byUsername[key] = {
+          ambiguous: true,
+          candidates: [
+            ...withoutSameEmail.filter((candidate) => candidate !== sameCompany),
+            nextAlias,
+          ],
+        };
+        return;
+      }
+      const otherCompany = withoutSameEmail.find(
+        (candidate) =>
+          candidate.companyFolderId &&
+          nextAlias.companyFolderId &&
+          candidate.companyFolderId !== nextAlias.companyFolderId,
+      );
+      if (otherCompany || withoutSameEmail.length > 0) {
+        store.byUsername[key] = {
+          ambiguous: true,
+          candidates: [...withoutSameEmail, nextAlias],
+        };
+        return;
+      }
+      store.byUsername[key] = nextAlias;
+      return;
+    }
+
+    const existingEmail = normalizeEmail(existing.email);
+    if (existingEmail === nextAlias.email) {
+      store.byUsername[key] = nextAlias;
+      return;
+    }
+    const existingFolder = String(existing.companyFolderId || existing.companyId || "").trim();
+    if (existingFolder && nextAlias.companyFolderId && existingFolder === nextAlias.companyFolderId) {
+      store.byUsername[key] = nextAlias;
+      return;
+    }
+    if (existingFolder && nextAlias.companyFolderId && existingFolder !== nextAlias.companyFolderId) {
+      store.byUsername[key] = {
+        ambiguous: true,
+        candidates: [
+          {
+            email: existingEmail,
+            companyId: existingFolder,
+            companyFolderId: existingFolder,
+            companyName: String(existing.companyName || "").trim(),
+            masterSheetId: String(existing.masterSheetId || "").trim(),
+          },
+          nextAlias,
+        ],
+      };
+      return;
+    }
+    store.byUsername[key] = nextAlias;
+  }
+
+  function removeUsernameAliasesForEmail(store, email) {
+    const key = normalizeEmail(email);
+    if (!key || !store.byUsername) {
+      return;
+    }
+    for (const [username, alias] of Object.entries(store.byUsername)) {
+      if (!alias || typeof alias !== "object") {
+        continue;
+      }
+      if (alias.ambiguous === true && Array.isArray(alias.candidates)) {
+        const remaining = alias.candidates.filter((candidate) => normalizeEmail(candidate.email) !== key);
+        if (remaining.length === 0) {
+          delete store.byUsername[username];
+        } else if (remaining.length === 1) {
+          store.byUsername[username] = remaining[0];
+        } else {
+          store.byUsername[username] = { ambiguous: true, candidates: remaining };
+        }
+        continue;
+      }
+      if (normalizeEmail(alias.email) === key) {
+        delete store.byUsername[username];
+      }
+    }
   }
 
   /**
@@ -198,8 +372,13 @@ export function createAuthIndexApi(indexPath) {
       return null;
     }
     const store = readStore();
+    const username = resolveUsernameFromUserFields({
+      username: entry.username || "",
+      email,
+    });
     const next = {
       email,
+      username,
       name: String(entry.name || email).trim() || email,
       role: String(entry.role || "User").trim() || "User",
       accessLevel: String(entry.accessLevel || "").trim(),
@@ -213,7 +392,11 @@ export function createAuthIndexApi(indexPath) {
       companyAreas: Array.isArray(entry.companyAreas) ? entry.companyAreas : parseCompanyAreas(entry.companyAreas || ""),
       indexedAt: Date.now(),
     };
+    removeUsernameAliasesForEmail(store, email);
     store.byEmail[email] = next;
+    if (username) {
+      writeUsernameAlias(store, username, next);
+    }
     writeStore(store);
     return next;
   }
@@ -228,6 +411,7 @@ export function createAuthIndexApi(indexPath) {
       return false;
     }
     delete store.byEmail[key];
+    removeUsernameAliasesForEmail(store, key);
     writeStore(store);
     return true;
   }
@@ -278,6 +462,10 @@ export function createAuthIndexApi(indexPath) {
     const masterSheetId = sanitizeGoogleSpreadsheetId(meta.masterSheetId || "") || "";
     return {
       email,
+      username: resolveUsernameFromUserFields({
+        username: pickUsersTabUsername(row?.rowObject || row) || row.username || "",
+        email,
+      }),
       name: String(row.name || email).trim() || email,
       role,
       accessLevel: String(row.accessLevel || defaultAccessLevelForRole(role)).trim(),
@@ -319,38 +507,53 @@ export function createAuthIndexApi(indexPath) {
     const key = normalizeEmail(email);
     const existing = store.byEmail[key];
     const { companyLive: _incomingLiveFlag, ...storedIncoming } = incoming;
+    const username =
+      normalizeUsername(storedIncoming.username) ||
+      deriveUsernameFromEmail(key) ||
+      "";
+    if (username) {
+      storedIncoming.username = username;
+    }
+    let outcome = { upserted: false, replaced: false };
     if (!existing) {
       store.byEmail[key] = storedIncoming;
-      return { upserted: true, replaced: false };
-    }
-    const existingSheet = String(existing.masterSheetId || "").trim();
-    const incomingSheet = String(storedIncoming.masterSheetId || "").trim();
-    if (existingSheet === incomingSheet) {
-      store.byEmail[key] = storedIncoming;
-      return { upserted: true, replaced: false };
-    }
-    const existingLive = Boolean(existing.companyLive);
-    if (shouldPreferIncomingEntry(existing, storedIncoming, existingLive, incomingLive)) {
-      if (conflicts) {
-        conflicts.push({
-          email: key,
-          kept: incoming.companyName || incoming.masterSheetId,
-          dropped: existing.companyName || existing.masterSheetId,
-        });
+      outcome = { upserted: true, replaced: false };
+    } else {
+      const existingSheet = String(existing.masterSheetId || "").trim();
+      const incomingSheet = String(storedIncoming.masterSheetId || "").trim();
+      if (existingSheet === incomingSheet) {
+        store.byEmail[key] = storedIncoming;
+        outcome = { upserted: true, replaced: false };
+      } else {
+        const existingLive = Boolean(existing.companyLive);
+        if (shouldPreferIncomingEntry(existing, storedIncoming, existingLive, incomingLive)) {
+          if (conflicts) {
+            conflicts.push({
+              email: key,
+              kept: incoming.companyName || incoming.masterSheetId,
+              dropped: existing.companyName || existing.masterSheetId,
+            });
+          }
+          logAuthIndexConflict(key, storedIncoming, existing);
+          store.byEmail[key] = storedIncoming;
+          outcome = { upserted: true, replaced: true };
+        } else {
+          if (conflicts) {
+            conflicts.push({
+              email: key,
+              kept: existing.companyName || existing.masterSheetId,
+              dropped: storedIncoming.companyName || storedIncoming.masterSheetId,
+            });
+          }
+          logAuthIndexConflict(key, existing, storedIncoming);
+          outcome = { upserted: false, replaced: false };
+        }
       }
-      logAuthIndexConflict(key, storedIncoming, existing);
-      store.byEmail[key] = storedIncoming;
-      return { upserted: true, replaced: true };
     }
-    if (conflicts) {
-      conflicts.push({
-        email: key,
-        kept: existing.companyName || existing.masterSheetId,
-        dropped: storedIncoming.companyName || storedIncoming.masterSheetId,
-      });
+    if (outcome.upserted && username) {
+      writeUsernameAlias(store, username, store.byEmail[key]);
     }
-    logAuthIndexConflict(key, existing, storedIncoming);
-    return { upserted: false, replaced: false };
+    return outcome;
   }
 
   async function rebuildCompanyAuthIndexFromSheet(auth, deps, companyContext = {}) {
@@ -489,6 +692,7 @@ export function createAuthIndexApi(indexPath) {
         (entryFolder && companyFolderId && entryFolder === companyFolderId);
       if (sameCompany && !seenEmails.has(normalizeEmail(email))) {
         delete store.byEmail[email];
+        removeUsernameAliasesForEmail(store, email);
         removed += 1;
       }
     }
@@ -524,6 +728,7 @@ export function createAuthIndexApi(indexPath) {
 
     const store = readStore();
     store.byEmail = {};
+    store.byUsername = {};
     store.rebuiltAt = Date.now();
     writeStore(store);
     const conflicts = [];
@@ -628,6 +833,7 @@ export function createAuthIndexApi(indexPath) {
         (sheetId && entrySheet === sheetId) || (folderId && entryFolder && entryFolder === folderId);
       if (sameCompany) {
         delete store.byEmail[email];
+        removeUsernameAliasesForEmail(store, email);
         removedEmails.push(normalizeEmail(email));
       }
     }
@@ -644,8 +850,10 @@ export function createAuthIndexApi(indexPath) {
         continue;
       }
       delete store.byEmail[email];
+      removeUsernameAliasesForEmail(store, email);
       removedEmails.push(normalizeEmail(email));
     }
+    store.byUsername = {};
     store.rebuiltAt = Date.now();
     writeStore(store);
     return { authIndexEntriesRemoved: removedEmails.length, removedEmails };
@@ -835,6 +1043,8 @@ export function createAuthIndexApi(indexPath) {
   return {
     lookupByEmail,
     lookupByEmailValidated,
+    lookupByUsername,
+    lookupByIdentity,
     upsertEntry,
     removeEntry,
     isEntryStale,
