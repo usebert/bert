@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Role } from "../../permissions";
+import { shouldRenderLiveOperationalDashboard, type Role } from "../../permissions";
 import {
   invalidateLiveDashboardCache,
   loadLiveDashboardCached,
@@ -159,6 +159,10 @@ export function LiveOperationalDashboard({
   );
 
   if (!contextReady) {
+    return null;
+  }
+
+  if (!shouldRenderLiveOperationalDashboard(role)) {
     return null;
   }
 
@@ -437,9 +441,6 @@ export function LiveOperationalDashboard({
         </div>
       </div>
 
-      {role === "Auditor" ? (
-        <p className="px-1 text-xs text-slate-400">Showing your assigned and personal outstanding work.</p>
-      ) : null}
     </section>
   );
 }

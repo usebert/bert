@@ -32,6 +32,7 @@ import {
   canAccessQmsReadinessFull,
   canAccessQmsReadinessNav,
   canCompleteAuditAsAuditor,
+  shouldRenderLiveOperationalDashboard,
   canCompleteAssignedCheck,
   usesAssignedChecksCompletionFlow,
   canEditLegalName,
@@ -17353,7 +17354,9 @@ function App() {
             )}
             {screen === "dashboard" && (
               <AnimatedScreen screenKey={`dashboard-${currentUser.role}`}>
-              {currentUser.role === "Admin" &&
+              {shouldRenderLiveOperationalDashboard(currentUser.role) &&
+              currentUser.role === "Admin" &&
+              !canCompleteAuditAsAuditor(currentUser.role) &&
               activeCompanyContext.companyFolderId &&
               activeCompanyContext.masterSheetId ? (
                 <div className="mb-4">
@@ -17555,7 +17558,9 @@ function App() {
                   />
                 )}
               />
-              {currentUser.role === "Manager" &&
+              {shouldRenderLiveOperationalDashboard(currentUser.role) &&
+              currentUser.role === "Manager" &&
+              !canCompleteAuditAsAuditor(currentUser.role) &&
               activeCompanyContext.companyFolderId &&
               activeCompanyContext.masterSheetId ? (
                 <div className="mt-4">

@@ -394,18 +394,18 @@ const buildOpts = (actor) => ({ companyFolderId: CO, alternateIds: [CO], actor, 
   assert(appTsx.includes("LiveOperationalDashboard"), "WIRE: dashboard mounted in App");
   const managerDashboardIdx = appTsx.indexOf("renderManagerDashboard={() => (");
   const managerLiveDashboardIdx = appTsx.indexOf(
-    "{currentUser.role === \"Manager\" &&\n              activeCompanyContext.companyFolderId &&\n              activeCompanyContext.masterSheetId ? (",
+    "{shouldRenderLiveOperationalDashboard(currentUser.role) &&\n              currentUser.role === \"Manager\" &&",
   );
   assert(managerDashboardIdx >= 0, "WIRE: manager role dashboard renderer exists");
   assert(managerLiveDashboardIdx > managerDashboardIdx, "WIRE: manager sees role dashboard before live operational block");
   const managerLiveDashboardMounts =
     (
       appTsx.match(
-        /\{currentUser\.role === "Manager" &&\s+activeCompanyContext\.companyFolderId &&\s+activeCompanyContext\.masterSheetId \? \([\s\S]*?<LiveOperationalDashboard/g,
+        /\{shouldRenderLiveOperationalDashboard\(currentUser\.role\) &&\s+currentUser\.role === "Manager" &&[\s\S]*?<LiveOperationalDashboard/g,
       ) || []
     ).length;
   assert(managerLiveDashboardMounts === 1, "WIRE: manager live operational dashboard does not duplicate");
-  assert(appTsx.includes('currentUser.role === "Admin"') && appTsx.includes('renderManagerDashboard={() => ('), "WIRE: pre-dashboard live panel is admin-only (manager uses post-dashboard block)");
+  assert(appTsx.includes("shouldRenderLiveOperationalDashboard") && appTsx.includes('renderManagerDashboard={() => ('), "WIRE: pre-dashboard live panel uses render guard (manager uses post-dashboard block)");
   // No sensitive leakage in failure shape
   assert(!coreRoutes.includes("technicalError: error") || coreRoutes.includes("details: includeDiagnostics"), "WIRE: failures do not leak internals to clients");
 }

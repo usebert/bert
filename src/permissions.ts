@@ -291,6 +291,11 @@ export function canCompleteAuditAsAuditor(role: Role) {
   return role === "Auditor";
 }
 
+/** Live operational dashboard — Admin and Manager home only; never Auditor. */
+export function shouldRenderLiveOperationalDashboard(role: Role) {
+  return role === "Admin" || role === "Manager";
+}
+
 /** Any assignable company role may complete a check they are scheduled on. */
 export function canCompleteAssignedCheck(role: Role) {
   return role === "Master" || role === "Admin" || role === "Manager" || role === "Auditor";

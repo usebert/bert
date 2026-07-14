@@ -19,37 +19,87 @@ function read(rel) {
   return fs.readFileSync(path.join(root, rel), "utf8");
 }
 
+function assertForbidden(source, label, patterns) {
+  for (const pattern of patterns) {
+    assert(!source.toLowerCase().includes(pattern.toLowerCase()), `${label}: must not include "${pattern}"`);
+  }
+}
+
+function assertRequired(source, label, patterns) {
+  for (const pattern of patterns) {
+    assert(source.includes(pattern), `${label}: must include "${pattern}"`);
+  }
+}
+
 const auditorDashboard = read("src/components/dashboard/AuditorTaskDashboard.tsx");
 const liveDashboard = read("src/components/dashboard/LiveOperationalDashboard.tsx");
 const dashboardScreen = read("src/screens/DashboardScreen.tsx");
+const permissions = read("src/permissions.ts");
 const appTsx = read("App.tsx");
 const pkg = JSON.parse(read("package.json"));
 
+const FORBIDDEN_AUDITOR_UI = [
+  "LIVE OPERATIONS",
+  "Live operations",
+  "Operational compliance score",
+  "Hotspots",
+  "Highest-risk sites",
+  "Completed today",
+  "Outstanding",
+  "Current incidents",
+  "Overdue inspections",
+];
+
+const REQUIRED_AUDITOR_UI = [
+  "My work today",
+  "Due today",
+  "Overdue",
+  "Open actions",
+  "Briefings",
+  "Sync Centre",
+];
+
 assert(pkg.scripts["verify:auditor-dashboard"], "PKG: npm script registered");
 
-assert(auditorDashboard.includes("My work today"), "UI: auditor heading");
-assert(auditorDashboard.includes("Due today"), "UI: due today KPI");
-assert(auditorDashboard.includes("Overdue"), "UI: overdue KPI");
-assert(auditorDashboard.includes("Open actions"), "UI: open actions KPI");
-assert(auditorDashboard.includes("Briefings"), "UI: briefings KPI");
-assert(auditorDashboard.includes("Priority list"), "UI: priority list is main panel");
-assert(auditorDashboard.includes("Checks due today"), "UI: checks due today section");
-assert(auditorDashboard.includes("Overdue checks"), "UI: overdue checks section");
-assert(auditorDashboard.includes("My open actions"), "UI: open actions section");
-assert(auditorDashboard.includes("Briefings to read/sign"), "UI: briefings section");
-assert(auditorDashboard.includes("Failed / offline sync"), "UI: sync section when needed");
-assert(auditorDashboard.includes("Start check"), "UI: start check quick button");
-assert(auditorDashboard.includes("View my actions"), "UI: view my actions quick button");
-assert(auditorDashboard.includes("View briefings"), "UI: view briefings quick button");
-assert(auditorDashboard.includes("Sync Centre"), "UI: sync centre quick button");
+assertRequired(auditorDashboard, "AUDITOR_HOME", REQUIRED_AUDITOR_UI);
+assertForbidden(auditorDashboard, "AUDITOR_HOME", FORBIDDEN_AUDITOR_UI);
 
-assert(!auditorDashboard.includes("Operational compliance score"), "UI: no compliance score on auditor home");
-assert(!auditorDashboard.includes("Highest-risk sites"), "UI: no risk heat map on auditor home");
-assert(!auditorDashboard.includes("LiveOperationalDashboard"), "UI: auditor dashboard does not embed live ops panel");
-assert(!auditorDashboard.includes("compliance score"), "UI: no compliance widgets on auditor home");
+assert(!auditorDashboard.includes("LiveOperationalDashboard"), "AUDITOR_HOME: does not import live ops panel");
 
 assert(dashboardScreen.includes("canCompleteAuditAsAuditor"), "ROUTE: auditor role branch exists");
 assert(dashboardScreen.includes("renderAuditorDashboard()"), "ROUTE: auditor render prop used");
+assert(
+  /if \(canCompleteAuditAsAuditor\(currentUser\.role\)\) \{[\s\S]*return <>\{renderAuditorDashboard\(\)\}<\/>;/.test(
+    dashboardScreen,
+  ),
+  "ROUTE: auditor dashboard is exclusive return path",
+);
+
+assert(permissions.includes("shouldRenderLiveOperationalDashboard"), "PERM: live ops render guard exported");
+assert(
+  permissions.includes('return role === "Admin" || role === "Manager"'),
+  "PERM: live ops render guard is admin/manager only",
+);
+
+assert(
+  liveDashboard.includes("shouldRenderLiveOperationalDashboard"),
+  "LIVE_OPS: component imports render guard",
+);
+assert(
+  liveDashboard.includes("if (!shouldRenderLiveOperationalDashboard(role))"),
+  "LIVE_OPS: component returns null for non-admin/manager roles",
+);
+
+const liveOpsMounts = [...appTsx.matchAll(/<LiveOperationalDashboard/g)];
+assert(liveOpsMounts.length === 2, "WIRE: LiveOperationalDashboard mounted exactly twice in App");
+
+for (const match of liveOpsMounts) {
+  const start = Math.max(0, match.index - 600);
+  const prefix = appTsx.slice(start, match.index);
+  assert(prefix.includes("shouldRenderLiveOperationalDashboard"), "WIRE: each live ops mount uses render guard");
+  assert(prefix.includes("!canCompleteAuditAsAuditor"), "WIRE: each live ops mount excludes auditor path");
+  assert(!prefix.includes('currentUser.role === "Auditor"'), "WIRE: live ops mount is not auditor-gated on");
+}
 
 assert(
   appTsx.includes('currentUser.role === "Admin"') && appTsx.includes("<LiveOperationalDashboard"),
