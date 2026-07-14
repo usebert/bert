@@ -9446,12 +9446,16 @@ function App() {
     if (loginSubmitting) {
       return;
     }
+    const loginIdentity = username.trim().toLowerCase();
+    const pwd = password;
+    if (!loginIdentity || !pwd) {
+      pushToast("Sign in failed", "Enter your email or username and password.", "warning");
+      return;
+    }
     const loginTrace = createClientLoginTimingTrace();
     loginTrace.mark("login_button_clicked");
     setLoginSubmitting(true);
     try {
-    const loginIdentity = username.trim().toLowerCase();
-    const pwd = password;
     const platformOwnerLogin =
       loginIdentity.includes("@") && isPlatformOwnerEmail(loginIdentity, import.meta.env);
     const persistedCompanyLoginHints = (() => {
@@ -9681,7 +9685,7 @@ function App() {
           companyLoginFailure = {
             blocker: "invalid_credentials",
             code: loginResult.code,
-            message: "Email or password is incorrect.",
+            message: "Email, username, or password is incorrect.",
             diagnostics: loginResult.diagnostics,
           };
           return false;
@@ -9925,7 +9929,7 @@ function App() {
         return;
       }
       if (blocker === "invalid_credentials") {
-        pushToast("Sign in failed", "Email or password is incorrect.", "warning");
+        pushToast("Sign in failed", "Email, username, or password is incorrect.", "warning");
         return;
       }
       if (blocker === "network_unreachable" || companyLoginFailure.code === "NETWORK_UNREACHABLE") {
@@ -9966,7 +9970,7 @@ function App() {
       return;
     }
 
-    pushToast("Sign in failed", "Email or password is incorrect.", "warning");
+    pushToast("Sign in failed", "Email, username, or password is incorrect.", "warning");
     } finally {
       setLoginSubmitting(false);
     }
@@ -16313,7 +16317,14 @@ function App() {
                           email or username and password.
                         </p>
                       ) : null}
-                      <form className="mt-3 space-y-2.5 sm:mt-4 sm:space-y-3" onSubmit={(event) => { event.preventDefault(); void handleLogin(); }}>
+                      <form
+                        className="mt-3 space-y-2.5 sm:mt-4 sm:space-y-3"
+                        noValidate
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void handleLogin();
+                        }}
+                      >
                         <div>
                           <label className="mb-1 block text-xs font-medium text-slate-100 sm:text-sm">Email or username</label>
                           <div className="relative">
@@ -16322,6 +16333,10 @@ function App() {
                               <circle cx="12" cy="7" r="4" />
                             </svg>
                             <input
+                              type="text"
+                              name="username"
+                              autoComplete="username"
+                              inputMode="text"
                               value={username}
                               onChange={(event) => setUsername(event.target.value)}
                               placeholder="you@example.com or joe.jones"
@@ -16554,7 +16569,14 @@ function App() {
                         </button>
                       </form>
                     ) : (
-                    <form className="mt-3 space-y-2.5 sm:mt-4 sm:space-y-3" onSubmit={(event) => { event.preventDefault(); void handleLogin(); }}>
+                    <form
+                      className="mt-3 space-y-2.5 sm:mt-4 sm:space-y-3"
+                      noValidate
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void handleLogin();
+                      }}
+                    >
                       <div>
                         <label className="mb-1 block text-xs font-medium text-slate-100 sm:text-sm">Email or username</label>
                         <div className="relative">
@@ -16563,6 +16585,10 @@ function App() {
                             <circle cx="12" cy="7" r="4" />
                           </svg>
                           <input
+                            type="text"
+                            name="username"
+                            autoComplete="username"
+                            inputMode="text"
                             value={username}
                             onChange={(event) => setUsername(event.target.value)}
                             placeholder="you@example.com or joe.jones"
