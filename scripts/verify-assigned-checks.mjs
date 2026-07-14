@@ -136,7 +136,7 @@ assert(read("src/utils/auditAccess.ts").includes("resolveAssignedCheckAuditId"),
 assert(read("src/screens/AuditsScreen.tsx").includes("My assigned checks"), "4g5: Admin/Manager assigned checks UI");
 assert(read("src/components/dashboard/ManagerRoleDashboard.tsx").includes("DashboardThingsToDoSection"), "4g5a: manager dashboard Things to do section");
 assert(read("src/components/dashboard/CompanyAdminDashboard.tsx").includes("DashboardThingsToDoSection"), "4g5a2: admin dashboard Things to do section");
-assert(read("src/components/dashboard/AuditorTaskDashboard.tsx").includes("DashboardThingsToDoSection"), "4g5a3: auditor dashboard Things to do section");
+assert(read("src/components/dashboard/AuditorTaskDashboard.tsx").includes("Briefings to read/sign"), "4g5a3: auditor dashboard briefings priority section");
 assert(read("src/components/dashboard/MasterPlatformDashboard.tsx").includes("DashboardThingsToDoSection"), "4g5a4: master dashboard Things to do section when company linked");
 assert(read("src/permissions.ts").includes('role === "Master"'), "4g5a5: Master role uses assigned-check completion flow");
 assert(read("src/components/dashboard/DashboardThingsToDoSection.tsx").includes("Things to do"), "4g5a1: Things to do section title");

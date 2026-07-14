@@ -73,7 +73,7 @@ assert(thingsToDoSection.includes("Things to do"), "1e0f: dashboard Things to do
 assert(thingsToDoSection.includes("No checks due right now."), "1e0g: dashboard Things to do empty state");
 assert(managerDashboard.includes("DashboardThingsToDoSection"), "1e0h: manager dashboard renders Things to do section");
 assert(read("src/components/dashboard/CompanyAdminDashboard.tsx").includes("DashboardThingsToDoSection"), "1e0h1: admin dashboard renders Things to do section");
-assert(read("src/components/dashboard/AuditorTaskDashboard.tsx").includes("DashboardThingsToDoSection"), "1e0h1b: auditor dashboard renders Things to do section");
+assert(read("src/components/dashboard/AuditorTaskDashboard.tsx").includes("Checks due today"), "1e0h1b: auditor dashboard renders checks priority section");
 assert(read("src/components/dashboard/MasterPlatformDashboard.tsx").includes("DashboardThingsToDoSection"), "1e0h1c: master dashboard renders Things to do when company linked");
 assert(read("src/components/dashboard/CompanyAdminDashboard.tsx").includes("DashboardThingsToDoSection"), "1e0h1: admin dashboard renders Things to do section");
 assert(read("src/components/dashboard/MasterPlatformDashboard.tsx").includes("DashboardThingsToDoSection"), "1e0h1b: master dashboard renders Things to do section");

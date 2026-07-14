@@ -405,7 +405,7 @@ const buildOpts = (actor) => ({ companyFolderId: CO, alternateIds: [CO], actor, 
       ) || []
     ).length;
   assert(managerLiveDashboardMounts === 1, "WIRE: manager live operational dashboard does not duplicate");
-  assert(appTsx.includes('currentUser.role !== "Manager"') && appTsx.includes('renderManagerDashboard={() => ('), "WIRE: pre-dashboard live panel excluded for manager");
+  assert(appTsx.includes('currentUser.role === "Admin"') && appTsx.includes('renderManagerDashboard={() => ('), "WIRE: pre-dashboard live panel is admin-only (manager uses post-dashboard block)");
   // No sensitive leakage in failure shape
   assert(!coreRoutes.includes("technicalError: error") || coreRoutes.includes("details: includeDiagnostics"), "WIRE: failures do not leak internals to clients");
 }

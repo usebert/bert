@@ -66,7 +66,7 @@ assert(permissions.includes('if (itemId === "briefings")'), "PERM: briefings nav
 
 assert(read("src/components/dashboard/DashboardToDoSection.tsx").includes("To Do"), "UI: dashboard To Do section title");
 assert(read("src/components/dashboard/DashboardToDoSection.tsx").includes("all caught up"), "UI: To Do empty state");
-assert(read("src/components/dashboard/AuditorTaskDashboard.tsx").includes("DashboardToDoSection"), "APP: DashboardToDoSection wired");
+assert(read("src/components/dashboard/AuditorTaskDashboard.tsx").includes("My work today"), "APP: auditor simplified dashboard wired");
 assert(appTsx.includes("BriefingsScreen"), "APP: BriefingsScreen wired");
 assert(appTsx.includes('screen === "briefings"'), "APP: briefings route mounted");
 assert(

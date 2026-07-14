@@ -17353,8 +17353,7 @@ function App() {
             )}
             {screen === "dashboard" && (
               <AnimatedScreen screenKey={`dashboard-${currentUser.role}`}>
-              {currentUser.role !== "Master" &&
-              currentUser.role !== "Manager" &&
+              {currentUser.role === "Admin" &&
               activeCompanyContext.companyFolderId &&
               activeCompanyContext.masterSheetId ? (
                 <div className="mb-4">

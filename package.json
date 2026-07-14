@@ -103,6 +103,7 @@
     "verify:godmode-company-schedules": "node scripts/verify-godmode-company-schedules.mjs",
     "verify:reports-dashboard": "node scripts/verify-reports-dashboard.mjs",
     "verify:live-dashboard": "node scripts/verify-live-dashboard.mjs",
+    "verify:auditor-dashboard": "node scripts/verify-auditor-dashboard.mjs",
     "verify:company-structure": "node scripts/verify-company-structure.mjs",
     "verify:people-section": "node scripts/verify-people-section.mjs",
     "verify:archive": "node scripts/verify-archive.mjs",
