@@ -49,17 +49,22 @@ export function resolveUsernameFromUserFields({ username = "", email = "" } = {}
 }
 
 /**
- * Browser/API body identity fields — prefer explicit email-like keys, then username aliases.
+ * Browser/API body identity fields.
+ * Prefer a real email when present; otherwise treat non-email values as usernames
+ * (browser may send both username and email set to the same username string).
  */
 export function pickLoginIdentityFromBody(body = {}) {
-  const source =
-    body?.email ||
-    body?.identity ||
-    body?.identifier ||
-    body?.username ||
-    body?.emailOrUsername ||
-    "";
-  return normalizeLoginIdentity(source);
+  const emailField = normalizeLoginIdentity(body?.email || "");
+  if (emailField && emailField.includes("@")) {
+    return emailField;
+  }
+  const usernameField = normalizeLoginIdentity(
+    body?.username || body?.identity || body?.identifier || body?.emailOrUsername || "",
+  );
+  if (usernameField) {
+    return usernameField;
+  }
+  return emailField;
 }
 
 /**
@@ -68,9 +73,10 @@ export function pickLoginIdentityFromBody(body = {}) {
  */
 export function buildCompanyLoginInputFromRequestBody(body = {}, sessionCompanyFolderId = "") {
   const loginIdentity = pickLoginIdentityFromBody(body);
+  const isUsername = Boolean(loginIdentity) && !loginIdentity.includes("@");
   return {
-    email: loginIdentity,
-    username: loginIdentity && !loginIdentity.includes("@") ? loginIdentity : "",
+    email: isUsername ? "" : loginIdentity,
+    username: isUsername ? loginIdentity : "",
     identity: loginIdentity,
     identifier: loginIdentity,
     emailOrUsername: loginIdentity,

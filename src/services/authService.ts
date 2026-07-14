@@ -108,7 +108,7 @@ export async function companyLogin(input: {
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      ...(isEmail ? { email: identity } : { username: identity, email: identity }),
+      ...(isEmail ? { email: identity } : { username: identity }),
       password: input.password,
       ...(input.masterSheetId?.trim() ? { masterSheetId: input.masterSheetId.trim() } : {}),
       ...(input.companyFolderId?.trim() ? { companyFolderId: input.companyFolderId.trim() } : {}),

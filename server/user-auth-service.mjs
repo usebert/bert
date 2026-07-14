@@ -349,11 +349,10 @@ export function normalizeUserAuthEmail(email) {
 
 /**
  * Resolve login identity (email or username) to a canonical company email.
- * Company-scoped username lookup preferred when companyFolderId/masterSheetId known.
- * Auth-index username aliases used for cold login; ambiguous cross-company usernames
- * return no match unless company scope uniquely selects one candidate.
- * Does not rely only on local auth-index byUsername — also derives usernames from
- * indexed emails and searches company Users tabs / LIVE registry when needed.
+ * When companyFolderId/masterSheetId is known, search that workbook Users tab first
+ * (Username column + derived username from Email). Auth-index username aliases are
+ * used only when they point at a real email, and never as a substitute for invalid
+ * identities like "joe.jones".
  */
 export async function resolveCompanyLoginIdentity(auth, deps = {}, input = {}) {
   const identity = normalizeLoginIdentity(
@@ -362,8 +361,10 @@ export async function resolveCompanyLoginIdentity(auth, deps = {}, input = {}) {
   const companyFolderId = sanitizeCompanyFolderId(input.companyFolderId || input.sessionCompanyFolderId || "");
   const masterSheetId = sanitizeGoogleSpreadsheetId(input.masterSheetId || "");
   const diagnostics = {
+    usernameLookupAttempted: false,
     authIndexUsernameMatch: false,
     companyScopedUsersTabMatch: false,
+    companyScopedMatchCount: 0,
   };
 
   if (!identity) {
@@ -384,10 +385,89 @@ export async function resolveCompanyLoginIdentity(auth, deps = {}, input = {}) {
   if (!username) {
     return { ok: false, reason: "missing_identity", email: "", username: "", diagnostics };
   }
+  diagnostics.usernameLookupAttempted = true;
+
+  const userDeps = typeof deps.getCompanyUsersDeps === "function" ? deps.getCompanyUsersDeps() : deps;
+
+  async function collectCompanySheetCandidates() {
+    const sheetCandidates = [];
+    if (masterSheetId) {
+      sheetCandidates.push(masterSheetId);
+    }
+    if (!sheetCandidates.length && companyFolderId) {
+      const getRegistryRecord =
+        typeof deps.getCanonicalCompanyRegistryRecord === "function"
+          ? deps.getCanonicalCompanyRegistryRecord
+          : getCanonicalCompanyRegistryRecord;
+      const record = await getRegistryRecord(auth, deps, companyFolderId).catch(() => null);
+      const registrySheet = sanitizeGoogleSpreadsheetId(record?.masterSheetId || "");
+      if (registrySheet) {
+        sheetCandidates.push(registrySheet);
+      }
+    }
+    if (!sheetCandidates.length && companyFolderId && typeof deps.masterSheetCache?.getEntry === "function") {
+      const cached = deps.masterSheetCache.getEntry(companyFolderId);
+      const cachedSheet = sanitizeGoogleSpreadsheetId(cached?.masterSheetId || "");
+      if (cachedSheet) {
+        sheetCandidates.push(cachedSheet);
+      }
+    }
+    if (!sheetCandidates.length && companyFolderId && typeof deps.resolveCompanyFromFolder === "function") {
+      const resolved = await deps
+        .resolveCompanyFromFolder(auth, deps, companyFolderId, { createIfMissing: false })
+        .catch(() => null);
+      const resolvedSheet = sanitizeGoogleSpreadsheetId(resolved?.masterSheetId || "");
+      if (resolvedSheet) {
+        sheetCandidates.push(resolvedSheet);
+      }
+    }
+    return [...new Set(sheetCandidates.filter(Boolean))];
+  }
+
+  async function matchUsernameInSheets(sheetIds) {
+    const matches = [];
+    for (const sheetId of sheetIds) {
+      const row = await findCompanyUsersTabRow(auth, sheetId, username, {
+        ...userDeps,
+        preferredCompanyFolderId: companyFolderId,
+        companyFolderId,
+      }).catch(() => null);
+      if (row?.email && isLoginEmailIdentity(row.email)) {
+        matches.push({
+          email: normalizeUserAuthEmail(row.email),
+          companyFolderId: sanitizeCompanyFolderId(row.companyFolderId || companyFolderId || ""),
+          masterSheetId: sheetId,
+        });
+      }
+    }
+    return matches;
+  }
+
+  // Company-scoped Users tab first when folder/sheet is known — do not trust auth-index alone.
+  if (companyFolderId || masterSheetId) {
+    const uniqueSheets = await collectCompanySheetCandidates();
+    const matches = await matchUsernameInSheets(uniqueSheets);
+    diagnostics.companyScopedMatchCount = matches.length;
+    if (matches.length === 1) {
+      diagnostics.companyScopedUsersTabMatch = true;
+      return {
+        ok: true,
+        email: matches[0].email,
+        username,
+        source: "users_tab_username",
+        companyFolderId: matches[0].companyFolderId || companyFolderId,
+        masterSheetId: matches[0].masterSheetId,
+        diagnostics,
+      };
+    }
+    if (matches.length > 1) {
+      return { ok: false, reason: "username_ambiguous", email: "", username, diagnostics };
+    }
+  }
 
   if (typeof deps.authIndex?.lookupByUsername === "function") {
     const indexed = deps.authIndex.lookupByUsername(username, { companyFolderId });
-    if (indexed?.email) {
+    if (indexed?.email && isLoginEmailIdentity(indexed.email)) {
       diagnostics.authIndexUsernameMatch = true;
       return {
         ok: true,
@@ -405,6 +485,9 @@ export async function resolveCompanyLoginIdentity(auth, deps = {}, input = {}) {
   if (typeof deps.authIndex?.readAllEntries === "function") {
     const derivedMatches = [];
     for (const entry of deps.authIndex.readAllEntries()) {
+      if (!isLoginEmailIdentity(entry.email)) {
+        continue;
+      }
       const derived = resolveUsernameFromUserFields({
         username: entry.username,
         email: entry.email,
@@ -424,7 +507,7 @@ export async function resolveCompanyLoginIdentity(auth, deps = {}, input = {}) {
             (entry) => sanitizeCompanyFolderId(entry.companyFolderId || entry.companyId || "") === companyFolderId,
           )
         : derivedMatches;
-    if (scoped.length === 1 && scoped[0]?.email) {
+    if (scoped.length === 1 && isLoginEmailIdentity(scoped[0]?.email)) {
       diagnostics.authIndexUsernameMatch = true;
       return {
         ok: true,
@@ -438,57 +521,8 @@ export async function resolveCompanyLoginIdentity(auth, deps = {}, input = {}) {
     }
   }
 
-  const userDeps = typeof deps.getCompanyUsersDeps === "function" ? deps.getCompanyUsersDeps() : deps;
-  const sheetCandidates = [];
-  if (masterSheetId) {
-    sheetCandidates.push(masterSheetId);
-  }
-
-  if (!sheetCandidates.length && companyFolderId) {
-    const getRegistryRecord =
-      typeof deps.getCanonicalCompanyRegistryRecord === "function"
-        ? deps.getCanonicalCompanyRegistryRecord
-        : getCanonicalCompanyRegistryRecord;
-    const record = await getRegistryRecord(auth, deps, companyFolderId).catch(() => null);
-    const registrySheet = sanitizeGoogleSpreadsheetId(record?.masterSheetId || "");
-    if (registrySheet) {
-      sheetCandidates.push(registrySheet);
-    }
-  }
-
-  if (!sheetCandidates.length && companyFolderId && typeof deps.resolveCompanyFromFolder === "function") {
-    const resolved = await deps
-      .resolveCompanyFromFolder(auth, deps, companyFolderId, { createIfMissing: false })
-      .catch(() => null);
-    const resolvedSheet = sanitizeGoogleSpreadsheetId(resolved?.masterSheetId || "");
-    if (resolvedSheet) {
-      sheetCandidates.push(resolvedSheet);
-    }
-  }
-
-  const uniqueSheets = [...new Set(sheetCandidates.filter(Boolean))];
-  for (const sheetId of uniqueSheets) {
-    const row = await findCompanyUsersTabRow(auth, sheetId, username, {
-      ...userDeps,
-      preferredCompanyFolderId: companyFolderId,
-      companyFolderId,
-    }).catch(() => null);
-    if (row?.email) {
-      diagnostics.companyScopedUsersTabMatch = true;
-      return {
-        ok: true,
-        email: normalizeUserAuthEmail(row.email),
-        username,
-        source: "users_tab_username",
-        companyFolderId: row.companyFolderId || companyFolderId,
-        masterSheetId: sheetId,
-        diagnostics,
-      };
-    }
-  }
-
   // Cold username login: LIVE registry fallback when folder/sheet hints are absent.
-  if (!companyFolderId && !uniqueSheets.length) {
+  if (!companyFolderId && !masterSheetId) {
     const readRegistryMap =
       typeof deps.readCanonicalCompanyWorkspaceRegistryMap === "function"
         ? deps.readCanonicalCompanyWorkspaceRegistryMap
@@ -506,7 +540,7 @@ export async function resolveCompanyLoginIdentity(auth, deps = {}, input = {}) {
         preferredCompanyFolderId: sanitizeCompanyFolderId(entry.companyFolderId || entry.companyId || ""),
         companyFolderId: sanitizeCompanyFolderId(entry.companyFolderId || entry.companyId || ""),
       }).catch(() => null);
-      if (row?.email) {
+      if (row?.email && isLoginEmailIdentity(row.email)) {
         registryMatches.push({
           email: normalizeUserAuthEmail(row.email),
           companyFolderId: sanitizeCompanyFolderId(row.companyFolderId || entry.companyFolderId || entry.companyId || ""),
@@ -514,6 +548,7 @@ export async function resolveCompanyLoginIdentity(auth, deps = {}, input = {}) {
         });
       }
     }
+    diagnostics.companyScopedMatchCount = registryMatches.length;
     if (registryMatches.length === 1) {
       diagnostics.companyScopedUsersTabMatch = true;
       return {
@@ -526,10 +561,6 @@ export async function resolveCompanyLoginIdentity(auth, deps = {}, input = {}) {
         diagnostics,
       };
     }
-  }
-
-  if (uniqueSheets.length || companyFolderId) {
-    diagnostics.companyScopedUsersTabMatch = false;
   }
 
   return { ok: false, reason: "username_not_found", email: "", username, diagnostics };
@@ -1406,7 +1437,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
   }
 
   const resolvedIdentity = await resolveCompanyLoginIdentity(auth, deps, input);
-  if (!resolvedIdentity.ok || !resolvedIdentity.email) {
+  if (!resolvedIdentity.ok || !isLoginEmailIdentity(resolvedIdentity.email)) {
     return buildLoginAuthFailure({
       email: normalizeUserAuthEmail(input.email || input.username || ""),
       authFailureReason: AUTH_FAILURE_REASON.USER_NOT_FOUND,

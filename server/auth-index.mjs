@@ -206,13 +206,21 @@ export function createAuthIndexApi(indexPath) {
       if (scoped.length !== 1) {
         return null;
       }
-      return lookupByEmail(scoped[0].email);
+      const email = normalizeEmail(scoped[0]?.email);
+      if (!email || !email.includes("@")) {
+        return null;
+      }
+      return lookupByEmail(email);
     }
 
     if (!usernameAliasMatchesCompany(alias, preferredFolderId)) {
       return null;
     }
-    return lookupByEmail(alias.email);
+    const email = normalizeEmail(alias.email);
+    if (!email || !email.includes("@")) {
+      return null;
+    }
+    return lookupByEmail(email);
   }
 
   function lookupByIdentity(identity, options = {}) {

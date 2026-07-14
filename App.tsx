@@ -9647,7 +9647,16 @@ function App() {
           email: identity.includes("@") ? identity : undefined,
           username: identity.includes("@") ? undefined : identity,
           password: pwd,
-          masterSheetId: persistedCompanyLoginHints.masterSheetId || undefined,
+          masterSheetId:
+            (() => {
+              try {
+                return new URLSearchParams(window.location.search).get("masterSheetId") || "";
+              } catch {
+                return "";
+              }
+            })().trim() ||
+            persistedCompanyLoginHints.masterSheetId ||
+            undefined,
           companyFolderId:
             (() => {
               try {

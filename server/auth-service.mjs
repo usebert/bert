@@ -598,7 +598,7 @@ export async function performCompanyLogin(auth, deps, input = {}) {
   );
   let email = identity;
   const pwd = String(input.password || deps.password || "");
-  const requested = sanitizeGoogleSpreadsheetId(
+  let requested = sanitizeGoogleSpreadsheetId(
     input.masterSheetId || deps.masterSheetId || "",
   );
   const requestedCompanyFolderId = sanitizeCompanyFolderId(
@@ -607,6 +607,14 @@ export async function performCompanyLogin(auth, deps, input = {}) {
   const sessionCompanyFolderId = sanitizeCompanyFolderId(
     input.sessionCompanyFolderId || deps.sessionCompanyFolderId || "",
   );
+  if (!requested && (requestedCompanyFolderId || sessionCompanyFolderId)) {
+    const folderForCache = requestedCompanyFolderId || sessionCompanyFolderId;
+    const cached = deps.masterSheetCache?.getEntry?.(folderForCache);
+    const cachedSheet = sanitizeGoogleSpreadsheetId(cached?.masterSheetId || "");
+    if (cachedSheet) {
+      requested = cachedSheet;
+    }
+  }
   timing.normalise_email = logLoginPhase("email_normalised", tNormalize, loginTiming, loginTimingEmailMeta(email));
 
   if (!email || !pwd) {
@@ -712,16 +720,18 @@ export async function performCompanyLogin(auth, deps, input = {}) {
     ].filter((key) => key !== "password");
     console.warn("[company-auth] username login failed", {
       bodyKeys,
-      chosenIdentifier: identity,
-      normalizedIdentifier: identity,
+      selectedIdentifier: identity,
+      normalizedUsername: identity,
+      usernameLookupAttempted: identityDiag.usernameLookupAttempted !== false,
       companyFolderIdSupplied: Boolean(requestedCompanyFolderId || sessionCompanyFolderId),
+      companyScopedMatchCount: Number(identityDiag.companyScopedMatchCount || 0),
+      companyScopedUsersTabMatch: Boolean(identityDiag.companyScopedUsersTabMatch),
       authIndexUsernameMatch: Boolean(
         identityDiag.authIndexUsernameMatch ??
           (typeof authIndex?.lookupByUsername === "function" &&
             authIndex.lookupByUsername(identity, { companyFolderId: requestedCompanyFolderId })),
       ),
-      companyScopedUsersTabMatch: Boolean(identityDiag.companyScopedUsersTabMatch),
-      failureReason: authResult.authFailureReason || authResult.blocker || authResult.code || authResult.reason || "",
+      finalReason: authResult.authFailureReason || authResult.blocker || authResult.code || authResult.reason || "",
     });
   }
 
