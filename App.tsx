@@ -9691,7 +9691,7 @@ function App() {
           loginResult.companyContextValid === false ||
           loginResult.code === "COMPANY_CONTEXT_INVALID"
         ) {
-          clearStaleCompanyLocalStorage(email);
+          clearStaleCompanyLocalStorage(identity.includes("@") ? identity : undefined);
           companyLoginFailure = {
             blocker: "login_context_failed",
             code: loginResult.code,
@@ -9711,11 +9711,12 @@ function App() {
         }
         const loggedInUser = loginResult.user;
         const loggedInCompany = loginResult.company;
+        const loggedInEmail = String(loggedInUser.email).toLowerCase();
         if (
           !loggedInCompany?.companyId ||
-          isKnownStaleAuthIndexPairing(loggedInUser.email, loggedInCompany?.companyName)
+          isKnownStaleAuthIndexPairing(loggedInEmail, loggedInCompany?.companyName)
         ) {
-          clearStaleCompanyLocalStorage(email);
+          clearStaleCompanyLocalStorage(loggedInEmail);
           companyLoginFailure = {
             blocker: "login_context_failed",
             code: "LOGIN_CONTEXT_FAILED",
@@ -9729,7 +9730,7 @@ function App() {
           masterSheetId: loginResult.masterSheetId || loggedInCompany?.masterSheetId,
         });
         if (!resolvedSheetIds) {
-          clearStaleCompanyLocalStorage(email);
+          clearStaleCompanyLocalStorage(loggedInEmail);
           companyLoginFailure = {
             blocker: "login_context_failed",
             code: "COMPANY_CONTEXT_INVALID",
@@ -9738,7 +9739,7 @@ function App() {
           };
           return false;
         }
-        clearStaleCompanyLocalStorage(email);
+        clearStaleCompanyLocalStorage(loggedInEmail);
         applyLinkedCompanyContext({
           email: String(loggedInUser.email).toLowerCase(),
           company: {
