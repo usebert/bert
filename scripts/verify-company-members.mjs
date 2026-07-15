@@ -181,9 +181,9 @@ const pendingInvite = {
   assert(service.includes("COMPANY_MEMBERS_LOAD_TIMEOUT_MS"), "8c: load timeout");
   assert(service.includes("fetchJson"), "8c2: safe fetchJson used");
   assert(fetchJson.includes("NON_JSON_RESPONSE"), "8c3: NON_JSON_RESPONSE handled");
-  assert(appSrc.includes("/api/companies/") && appSrc.includes("fetchCompanyMembers"), "8d: App uses company users API");
-  assert(!appSrc.includes("readCompanyMembersCache"), "8e: App does not read members localStorage cache");
-  assert(!appSrc.includes("writeCompanyMembersCache"), "8f: App does not write members localStorage cache");
+  assert(appSrc.includes("loadCompanyMembersCached"), "8d: App uses people SWR members loader");
+  assert(!appSrc.includes("readCompanyMembersCache"), "8e: App does not read legacy members bag cache");
+  assert(!appSrc.includes("writeCompanyMembersCache"), "8f: App does not write legacy members bag cache");
 }
 
 /** 9: Users panel — active from /users, pending invites separate, godmode-only workbook hint. */

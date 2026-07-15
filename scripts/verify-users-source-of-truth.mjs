@@ -109,7 +109,7 @@ assert(read("server/company-users-cache.mjs").includes("rebuildCompanyUsersCache
 
 /** 10: Frontend loads members from canonical API. */
 assert(read("src/services/companyUserService.ts").includes("fetchCompanyMembers"), "10: fetchCompanyMembers");
-assert(appTsx.includes("fetchCompanyMembers"), "10b: App loads company members API");
+assert(appTsx.includes("loadCompanyMembersCached"), "10b: App loads company members via people SWR cache");
 
 /** 11: Invite completion writes sheet before marking used. */
 assert(serverMain.includes("completeInviteToUserRow"), "11: invite completion uses sheet write helper");

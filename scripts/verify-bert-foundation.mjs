@@ -77,8 +77,8 @@ function runStaticGuards() {
     "1e: client uses syncAndListActiveUsers + resolveCompanyMembersLoadContext",
   );
   assert(
-    /refreshActiveCompanyMembers[\s\S]{0,1500}fetchCompanyMembers/.test(appTsx),
-    "1f: page load and re-sync share fetchCompanyMembers",
+    /refreshActiveCompanyMembers[\s\S]{0,1500}loadCompanyMembersCached/.test(appTsx),
+    "1f: page load and re-sync share loadCompanyMembersCached",
   );
 
   /* 2: Schedule assignees === People users */

@@ -252,7 +252,7 @@ assert(
   "F7: users tab read failure handled",
 );
 assert(!appTsx.includes("findPendingAssigneeInvites"), "F8: App does not merge pending invites into assignees");
-assert(appTsx.includes("fetchScheduleAssignees"), "F9: App loads assignees from schedule-assignees API");
+assert(appTsx.includes("loadScheduleAssigneesCached"), "F9: App loads assignees via people SWR cache");
 assert(
   scheduleAssigneesUtil.includes("activeUsersFound") && scheduleAssigneesUtil.includes("loadError"),
   "F10: empty assignee message distinguishes load failure from zero users",
@@ -370,7 +370,7 @@ assert(pkg.scripts["verify:foundation-cleanup"], "PKG: foundation cleanup verify
 assert(serverMain.includes("installFoundationVerifyCleanupRoutes"), "PKG: foundation cleanup route on server");
 assert(serverMain.includes("installCoreWorkflowRoutes"), "X1: core workflow routes installed");
 assert(!appTsx.includes("buildAvailableScheduleAssignees("), "X2: App does not filter assignees locally (empty when API has users)");
-assert(appTsx.includes("fetchScheduleAssignees"), "X3: assignees load via schedule-assignees API with timeout");
+assert(appTsx.includes("loadScheduleAssigneesCached"), "X3: assignees load via people SWR cache with timeout");
 assert(appTsx.includes("SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS"), "X3b: assignee load timeout prevents endless spinner");
 assert(pkg.scripts["verify:app-paths"] && pkg.scripts["verify:login-performance"], "X4: path and login-performance verify scripts registered");
 assert(coreRoutes.includes("/api/companies/:companyId/reports/dashboard"), "X5: reports dashboard API route");

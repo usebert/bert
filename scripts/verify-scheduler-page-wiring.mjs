@@ -30,14 +30,14 @@ assert(pkg.scripts["verify:scheduler-page-wiring"], "PKG: npm script registered"
 /** 1: Assignees — canonical GET /schedule-assignees only. */
 assert(scheduleService.includes("fetchScheduleAssignees"), "1: client fetchScheduleAssignees");
 assert(scheduleService.includes("/schedule-assignees"), "1b: schedule-assignees API path");
-assert(appTsx.includes("fetchScheduleAssignees"), "1c: App loads assignees via fetchScheduleAssignees");
+assert(appTsx.includes("loadScheduleAssigneesCached"), "1c: App loads assignees via people SWR cache");
 assert(
-  /shouldLoadScheduleAssigneesScreen\(screen\)[\s\S]{0,6000}fetchScheduleAssignees/.test(appTsx),
-  "1d: schedules/actions screen gate before fetchScheduleAssignees",
+  /shouldLoadScheduleAssigneesScreen\(screen\)[\s\S]{0,6000}loadScheduleAssigneesCached/.test(appTsx),
+  "1d: schedules/actions screen gate before loadScheduleAssigneesCached",
 );
 assert(!appTsx.includes("deriveScheduleAssigneesFromCompanyMembers"), "1e: App does not derive assignees locally");
-assert(appTsx.includes("readScheduleAssigneesCache"), "1f: assignee localStorage cache used while loading");
-assert(appTsx.includes("writeScheduleAssigneesCache"), "1f2: assignee localStorage cache updated after load");
+assert(appTsx.includes("readPeopleCache"), "1f: assignee people cache used while loading");
+assert(appTsx.includes("loadScheduleAssigneesCached"), "1f2: assignee people cache updated via SWR loader");
 assert(!appTsx.includes("buildAvailableScheduleAssignees("), "1g: no local assignee filtering in App");
 
 /** 2: Schedules list + save — company API routes. */

@@ -297,7 +297,7 @@ const schedulesScreenSrc = read("src/screens/SchedulesScreen.tsx");
 assert(scheduleAssigneesSrc.includes("CompanyUsersTabRow"), "14h: scheduleAssignees defines CompanyUsersTabRow");
 assert(scheduleAssigneesSrc.includes("canCompleteAuditUser"), "14i: canCompleteAuditUser helper exists");
 assert(appSrc.includes("/api/companies/"), "14j: App loads company members from company API");
-assert(appSrc.includes("fetchScheduleAssignees"), "14k: App loads assignees from schedule-assignees API");
+assert(appSrc.includes("loadScheduleAssigneesCached"), "14k: App loads assignees via people SWR cache");
 assert(schedulesScreenSrc.includes("Advanced diagnostics"), "14l: schedule UI exposes advanced diagnostics for godmode");
 assert(schedulesScreenSrc.includes("Assign users to this schedule"), "14m: schedule UI uses assignee wording");
 assert(schedulesScreenSrc.includes("companyAreas"), "14n: schedule UI shows company areas");
@@ -315,7 +315,7 @@ assert(schedulesScreenSrc.includes("companyAreas"), "14n: schedule UI shows comp
     scheduleAssigneesSrc.includes("activeUsersFound") && scheduleAssigneesSrc.includes("loadError"),
     "15g: empty message distinguishes read failure from zero active users",
   );
-  assert(appSrc.includes("fetchScheduleAssignees"), "15h: schedule assignees load via schedule-assignees API");
+  assert(appSrc.includes("loadScheduleAssigneesCached"), "15h: schedule assignees load via people SWR cache");
   const managerScenario = buildAvailableScheduleAssigneesFromUsers(
     [
       {
@@ -407,8 +407,8 @@ assert(
     /if \(context\.loading\)[\s\S]{0,120}Loading assignable users/.test(scheduleAssigneesSrc),
   "17d: loading message takes precedence over stale load errors",
 );
-assert(appSrc.includes("readScheduleAssigneesCache"), "17e: App warms assignees from localStorage cache");
-assert(appSrc.includes("writeScheduleAssigneesCache"), "17f: App persists assignees cache after successful load");
+assert(appSrc.includes("readPeopleCache"), "17e: App warms assignees from people cache");
+assert(appSrc.includes("loadScheduleAssigneesCached"), "17f: App persists assignees via people SWR cache");
 assert(
   frontendScheduleService.includes("SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS = 90_000"),
   "17g: frontend assignee timeout allows slow workbook reads",

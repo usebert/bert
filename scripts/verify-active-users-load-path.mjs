@@ -59,15 +59,16 @@ assert(
   "4a: linked session folder preferred over stale picker selection",
 );
 assert(appSrc.includes("resolveCompanyMembersLoadContext"), "4b: App uses shared resolver");
-assert(!appSrc.includes("readCompanyMembersCache"), "4c: App does not read members localStorage cache");
+assert(appSrc.includes("loadCompanyMembersCached"), "4c: App uses people SWR cache for members");
+assert(appSrc.includes("readPeopleCache"), "4c2: App seeds members from people cache");
 assert(!appSrc.includes("applySignedInMemberFallback"), "4d: App does not silently fall back to signed-in user only");
 assert(
   /!activeCompanyContext\.masterSheetId\.trim\(\)/.test(appSrc),
   "4d: full-screen block only when workbook context missing",
 );
 assert(
-  /useEffect\([\s\S]{0,2500}resolveCompanyMembersLoadContext[\s\S]{0,2500}fetchCompanyMembers/.test(appSrc),
-  "4c: page load effect uses shared resolver + fetchCompanyMembers",
+  /useEffect\([\s\S]{0,2500}resolveCompanyMembersLoadContext[\s\S]{0,2500}loadCompanyMembersCached/.test(appSrc),
+  "4c: page load effect uses shared resolver + loadCompanyMembersCached",
 );
 assert(appSrc.includes("refreshActiveCompanyMembers"), "4d: shared refresh helper exists");
 assert(
@@ -84,7 +85,7 @@ assert(
 assert(!appSrc.includes("companyUsersTabRows"), "5c: App does not keep parallel sheet users tab rows");
 
 /** 6: Empty state only when sheet read succeeded with zero ACTIVE rows. */
-assert(panel.includes("!activeMembersLoadError && activeMembers.length === 0"), "6: panel empty only without load error");
+assert(panel.includes("!activeMembersLoadError && filteredActiveMembers.length === 0"), "6: panel empty only without load error");
 assert(godmodePanel.includes("!activeMembersLoadError && activeCompanyMembers.length === 0"), "6b: godmode empty only without load error");
 assert(panel.includes("activeMembersLoadError"), "6c: load error surfaced in panel");
 

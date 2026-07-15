@@ -156,13 +156,21 @@ import {
   COMPANY_MEMBERS_LOAD_TIMEOUT_MS,
   COMPANY_MEMBERS_LOAD_TIMEOUT_MESSAGE,
   COMPANY_MEMBERS_USER_MESSAGE,
-  fetchCompanyMembers,
-  readCompanyMembersCache,
-  writeCompanyMembersCache,
   updateCompanyMember,
   type CompanyMember,
   type CompanyMembersDiagnostics,
 } from "./src/services/companyUserService";
+import {
+  companyMembersPeopleScope,
+  loadCompanyMembersCached,
+  loadScheduleAssigneesCached,
+  peopleCacheStorageKey,
+  preloadPeople,
+  readPeopleCache,
+  scheduleAssigneesPeopleScope,
+  type CompanyMembersCachedPayload,
+  type ScheduleAssigneesCachedPayload,
+} from "./src/services/peopleCache";
 import {
   COMPANY_INVITES_LOAD_TIMEOUT_MS,
   COMPANY_INVITES_LOAD_TIMEOUT_MESSAGE,
@@ -351,8 +359,6 @@ import {
   normalizeScheduleAssigneeIds,
   resolveScheduleAssigneeLabels,
   resolveScheduleAssigneeEmptyMessage,
-  readScheduleAssigneesCache,
-  writeScheduleAssigneesCache,
   type ScheduleAssigneeDiagnostics,
   type ScheduleAssigneeOption,
 } from "./src/utils/scheduleAssignees";
@@ -373,7 +379,6 @@ import {
 } from "./src/utils/loginNetworkMessages";
 import {
   COMPANY_SCHEDULES_LOAD_TIMEOUT_MS,
-  fetchScheduleAssignees,
   listCompanySchedules,
   saveCompanySchedule,
   SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MESSAGE,
@@ -5740,23 +5745,29 @@ function App() {
     const controller = new AbortController();
     let cancelled = false;
     const selectedArea = scheduleBuilderAreaFilter.trim();
-    const cachedAssignees = readScheduleAssigneesCache(storageKeys.scheduleAssigneesCache, companyId, selectedArea);
+    const cachedAssignees = readPeopleCache<ScheduleAssigneesCachedPayload>(
+      peopleCacheStorageKey(companyId, scheduleAssigneesPeopleScope(selectedArea)),
+    );
+    const cachedSeed = cachedAssignees?.data.assignees?.length ? cachedAssignees.data.assignees : [];
     const timeoutId = window.setTimeout(() => {
       controller.abort(new DOMException("Schedule assignees load timed out", "TimeoutError"));
     }, SCHEDULE_ASSIGNEES_LOAD_TIMEOUT_MS);
-    setScheduleAssigneesState({
-      assignees: cachedAssignees?.assignees?.length ? cachedAssignees.assignees : [],
-      diagnostics: cachedAssignees?.diagnostics,
-      warning: cachedAssignees?.warning,
-      loading: true,
-      loadError: undefined,
+    setScheduleAssigneesState((previous) => {
+      const assignees = cachedSeed.length > 0 ? cachedSeed : previous.assignees;
+      return {
+        assignees,
+        diagnostics: cachedAssignees?.data.diagnostics || previous.diagnostics,
+        warning: cachedAssignees?.data.warning || previous.warning,
+        loading: assignees.length === 0,
+        loadError: undefined,
+      };
     });
 
     void (async () => {
       try {
         const includeDiagnostics =
           isDebugUiAllowed() || (currentUser ? canShowTechnicalUi(currentUser.role) : false);
-        const result = await fetchScheduleAssignees(
+        const swr = await loadScheduleAssigneesCached(
           {
             companyId,
             companyFolderId: companyId,
@@ -5773,36 +5784,46 @@ function App() {
         if (cancelled) {
           return;
         }
-        if (!result.ok) {
+
+        setScheduleAssigneesState({
+          assignees: swr.data.assignees,
+          warning: swr.refreshWarning || swr.data.warning,
+          diagnostics: swr.data.diagnostics,
+          loading: false,
+          loadError: undefined,
+        });
+
+        if (swr.revalidatePromise) {
+          const fresh = await swr.revalidatePromise;
+          if (cancelled || !fresh || !("assignees" in fresh)) {
+            return;
+          }
+          setScheduleAssigneesState({
+            assignees: fresh.assignees,
+            warning: fresh.warning,
+            diagnostics: fresh.diagnostics,
+            loading: false,
+            loadError: undefined,
+          });
+        }
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        const fetchResult = (error as Error & { fetchResult?: { loadError?: string; loadErrorDetail?: string } })
+          .fetchResult;
+        if (fetchResult) {
           setScheduleAssigneesState((previous) => ({
             assignees: previous.assignees.length > 0 ? previous.assignees : [],
-            loadError: result.loadError || SCHEDULE_ASSIGNEES_USER_MESSAGE,
-            loadErrorDetail: result.loadErrorDetail,
+            loadError:
+              previous.assignees.length > 0
+                ? undefined
+                : fetchResult.loadError || SCHEDULE_ASSIGNEES_USER_MESSAGE,
+            loadErrorDetail: previous.assignees.length > 0 ? undefined : fetchResult.loadErrorDetail,
             diagnostics: previous.diagnostics,
             warning: previous.warning,
             loading: false,
           }));
-          return;
-        }
-
-        writeScheduleAssigneesCache(storageKeys.scheduleAssigneesCache, {
-          companyId,
-          area: selectedArea,
-          assignees: result.assignees,
-          diagnostics: result.diagnostics,
-          warning: result.warning,
-          cachedAt: Date.now(),
-        });
-
-        setScheduleAssigneesState({
-          assignees: result.assignees,
-          warning: result.warning,
-          diagnostics: result.diagnostics,
-          loading: false,
-          loadError: undefined,
-        });
-      } catch (error) {
-        if (cancelled) {
           return;
         }
         if (error instanceof DOMException && error.name === "AbortError") {
@@ -6302,12 +6323,32 @@ function App() {
       userEmail,
       role: currentUser.role,
     });
+    const { masterSheetId, companyName } = resolveCompanyMembersLoadContext({
+      activeCompanyContext,
+      selectedFolderId: selectedFolderId || selectedFolder?.id,
+      folderIdInput,
+      masterSheetInput,
+      companySheetSyncSheetId: companySheetSync?.sheetId,
+    });
+    preloadPeople({
+      companyFolderId,
+      masterSheetId: masterSheetId || activeCompanyContext.masterSheetId,
+      companyName: companyName || activeCompanyContext.companyName,
+      apiUrl,
+      userIdentity: userEmail,
+    });
   }, [
     currentUser,
     sessionSignedInEmail,
     masterCompanyWorkspaceDataMatchesSelection,
     activeCompanyContext.companyFolderId,
+    activeCompanyContext.masterSheetId,
+    activeCompanyContext.companyName,
     selectedFolderId,
+    selectedFolder?.id,
+    folderIdInput,
+    masterSheetInput,
+    companySheetSync?.sheetId,
   ]);
 
   useEffect(() => {
@@ -6341,61 +6382,84 @@ function App() {
     const timeoutId = window.setTimeout(() => {
       controller.abort(new DOMException("Company members load timed out", "TimeoutError"));
     }, COMPANY_MEMBERS_LOAD_TIMEOUT_MS);
-    const cachedMembers = readCompanyMembersCache(storageKeys.companyMembersCache, companyId);
-    const cachedSeed = cachedMembers?.members?.length ? cachedMembers.members : [];
+    const cachedMembers = readPeopleCache<CompanyMembersCachedPayload>(
+      peopleCacheStorageKey(companyId, companyMembersPeopleScope()),
+    );
+    const cachedSeed = cachedMembers?.data.members?.length ? cachedMembers.data.members : [];
     setCompanyMembersState((previous) => {
       const members = cachedSeed.length > 0 ? cachedSeed : previous.members;
       return {
         members,
         loading: members.length === 0,
         loadError: undefined,
-        warning: previous.warning || cachedMembers?.warning,
+        warning: previous.warning || cachedMembers?.data.warning,
       };
     });
 
     void (async () => {
       try {
-        const result = await fetchCompanyMembers(apiUrl, {
-          companyId,
-          masterSheetId,
-          companyName,
-          signal: controller.signal,
-        });
-
-        if (!result.ok) {
-          if (cancelled) {
-            return;
-          }
-          setCompanyMembersState((previous) => ({
-            members: previous.members,
-            loadError: result.loadError || COMPANY_MEMBERS_USER_MESSAGE,
-            loadErrorDetail: result.loadErrorDetail,
-            loadReasonCode: result.reasonCode,
-            loadFailedStep: result.failedStep,
-            loadDiagnostics: result.diagnostics,
-            loading: false,
-          }));
-          return;
-        }
+        const swr = await loadCompanyMembersCached(
+          apiUrl,
+          {
+            companyId,
+            masterSheetId,
+            companyName,
+          },
+          { signal: controller.signal },
+        );
 
         if (cancelled) {
           return;
         }
-        writeCompanyMembersCache(storageKeys.companyMembersCache, {
-          companyId,
-          members: result.members,
-          cachedAt: Date.now(),
-          warning: result.warning,
-        });
         setCompanyMembersState({
-          members: result.members,
-          warning: result.warning,
-          loadFailedStep: result.failedStep,
-          loadDiagnostics: result.diagnostics,
+          members: swr.data.members,
+          warning: swr.refreshWarning || swr.data.warning,
+          loadFailedStep: swr.data.failedStep,
+          loadDiagnostics: swr.data.diagnostics,
+          loadReasonCode: swr.data.reasonCode,
           loading: false,
         });
+
+        if (swr.revalidatePromise) {
+          const fresh = await swr.revalidatePromise;
+          if (cancelled || !fresh || !("members" in fresh)) {
+            return;
+          }
+          setCompanyMembersState({
+            members: fresh.members,
+            warning: fresh.warning,
+            loadFailedStep: fresh.failedStep,
+            loadDiagnostics: fresh.diagnostics,
+            loadReasonCode: fresh.reasonCode,
+            loading: false,
+          });
+        }
       } catch (error) {
         if (cancelled) {
+          return;
+        }
+        const fetchResult = (error as Error & {
+          fetchResult?: {
+            loadError?: string;
+            loadErrorDetail?: string;
+            reasonCode?: string;
+            failedStep?: string;
+            diagnostics?: CompanyMembersDiagnostics;
+          };
+        }).fetchResult;
+        if (fetchResult) {
+          setCompanyMembersState((previous) => ({
+            members: previous.members,
+            loadError:
+              previous.members.length > 0
+                ? undefined
+                : fetchResult.loadError || COMPANY_MEMBERS_USER_MESSAGE,
+            loadErrorDetail: previous.members.length > 0 ? undefined : fetchResult.loadErrorDetail,
+            loadReasonCode: fetchResult.reasonCode,
+            loadFailedStep: fetchResult.failedStep,
+            loadDiagnostics: fetchResult.diagnostics,
+            loading: false,
+          }));
           return;
         }
         if (error instanceof DOMException && error.name === "AbortError") {
@@ -10583,31 +10647,40 @@ function App() {
     }
     const includeDiagnostics =
       isDebugUiAllowed() || (currentUser ? canShowTechnicalUi(currentUser.role) : false);
-    const result = await fetchScheduleAssignees(
-      {
-        companyId: companyFolderId,
-        companyFolderId,
-        masterSheetId,
-        companyName,
-      },
-      {
-        selectedArea: options?.selectedArea ?? scheduleBuilderAreaFilter.trim(),
-        includeDiagnostics,
-        signal: options?.signal,
-      },
-    );
-    if (!result.ok) {
-      throw new Error(result.loadErrorDetail || result.loadError || SCHEDULE_ASSIGNEES_USER_MESSAGE);
+    const selectedArea = options?.selectedArea ?? scheduleBuilderAreaFilter.trim();
+    try {
+      const swr = await loadScheduleAssigneesCached(
+        {
+          companyId: companyFolderId,
+          companyFolderId,
+          masterSheetId,
+          companyName,
+        },
+        {
+          selectedArea,
+          includeDiagnostics,
+          signal: options?.signal,
+          forceRefresh: true,
+        },
+      );
+      setScheduleAssigneesState({
+        assignees: swr.data.assignees,
+        warning: swr.data.warning,
+        diagnostics: swr.data.diagnostics,
+        loading: false,
+        loadError: undefined,
+        loadErrorDetail: undefined,
+      });
+      return { ok: true as const, ...swr.data };
+    } catch (error) {
+      const fetchResult = (error as Error & { fetchResult?: { loadError?: string; loadErrorDetail?: string } })
+        .fetchResult;
+      throw new Error(
+        fetchResult?.loadErrorDetail ||
+          fetchResult?.loadError ||
+          (error instanceof Error ? error.message : SCHEDULE_ASSIGNEES_USER_MESSAGE),
+      );
     }
-    setScheduleAssigneesState({
-      assignees: result.assignees,
-      warning: result.warning,
-      diagnostics: result.diagnostics,
-      loading: false,
-      loadError: undefined,
-      loadErrorDetail: undefined,
-    });
-    return result;
   };
 
   const refreshActiveCompanyMembers = async (options?: { signal?: AbortSignal }) => {
@@ -10622,32 +10695,37 @@ function App() {
     if (!companyFolderId) {
       return;
     }
-    const membersResult = await fetchCompanyMembers(apiUrl, {
-      companyId: companyFolderId,
-      masterSheetId: manualMasterSheetId,
-      companyName,
-      signal: options?.signal,
-    });
-    if (!membersResult.ok) {
-      throw new Error(membersResult.loadErrorDetail || membersResult.loadError || COMPANY_MEMBERS_USER_MESSAGE);
+    try {
+      const swr = await loadCompanyMembersCached(
+        apiUrl,
+        {
+          companyId: companyFolderId,
+          masterSheetId: manualMasterSheetId,
+          companyName,
+        },
+        { signal: options?.signal, forceRefresh: true },
+      );
+      setCompanyMembersState({
+        members: swr.data.members,
+        warning: swr.data.warning,
+        loading: false,
+        loadError: undefined,
+        loadErrorDetail: undefined,
+        loadReasonCode: swr.data.reasonCode,
+        loadFailedStep: swr.data.failedStep,
+        loadDiagnostics: swr.data.diagnostics,
+      });
+      return { ok: true as const, ...swr.data };
+    } catch (error) {
+      const fetchResult = (error as Error & {
+        fetchResult?: { loadError?: string; loadErrorDetail?: string };
+      }).fetchResult;
+      throw new Error(
+        fetchResult?.loadErrorDetail ||
+          fetchResult?.loadError ||
+          (error instanceof Error ? error.message : COMPANY_MEMBERS_USER_MESSAGE),
+      );
     }
-    writeCompanyMembersCache(storageKeys.companyMembersCache, {
-      companyId: companyFolderId,
-      members: membersResult.members,
-      cachedAt: Date.now(),
-      warning: membersResult.warning,
-    });
-    setCompanyMembersState({
-      members: membersResult.members,
-      warning: membersResult.warning,
-      loading: false,
-      loadError: undefined,
-      loadErrorDetail: undefined,
-      loadReasonCode: membersResult.reasonCode,
-      loadFailedStep: membersResult.failedStep,
-      loadDiagnostics: membersResult.diagnostics,
-    });
-    return membersResult;
   };
 
   const handleUpdateCompanyMember = async (member: CompanyMember, input: { name: string; role: string }) => {
@@ -11055,17 +11133,19 @@ function App() {
     setCompanyMembersState({ members: [], loading: false, loadError: undefined });
     if (companyFolderId && sheetId) {
       try {
-        const membersResult = await fetchCompanyMembers(apiUrl, {
-          companyId: companyFolderId,
-          masterSheetId: sheetId,
-          companyName: selectedFolder?.name || activeCompanyContext.companyName,
+        const swr = await loadCompanyMembersCached(
+          apiUrl,
+          {
+            companyId: companyFolderId,
+            masterSheetId: sheetId,
+            companyName: selectedFolder?.name || activeCompanyContext.companyName,
+          },
+          { forceRefresh: true },
+        );
+        setCompanyMembersState({
+          members: swr.data.members,
+          loading: false,
         });
-        if (membersResult.ok) {
-          setCompanyMembersState({
-            members: membersResult.members,
-            loading: false,
-          });
-        }
         await refreshPendingCompanyInvites();
       } catch {
         /* refetch best-effort */

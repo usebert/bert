@@ -148,10 +148,10 @@ assert(read("src/utils/assignedCheckDisplay.ts").includes('"Not due yet"'), "4g5
 assert(read("src/utils/assignedCheckDisplay.ts").includes("assignedCheckStatusLabel"), "4g5g: assigned check status label helper");
 assert(read("server/bert-cors.mjs").includes("PUT"), "9: CORS preflight allows PUT for audit-templates");
 assert(read("src/utils/scheduleAssignees.ts").includes("deriveScheduleAssigneesFromCompanyMembers"), "4h: assignees helper retained for diagnostics");
-assert(appSrc.includes("readScheduleAssigneesCache"), "4i: App reads assignee localStorage cache while loading");
-assert(appSrc.includes("writeScheduleAssigneesCache"), "4i1: App writes assignee localStorage cache after load");
+assert(appSrc.includes("loadScheduleAssigneesCached"), "4i: App loads assignees via people SWR cache");
+assert(appSrc.includes("readPeopleCache"), "4i1: App seeds assignees from people cache");
 assert(!appSrc.includes("readCompanyMembersCache"), "4i2: App does not read company members localStorage cache");
-assert(appSrc.includes("fetchScheduleAssignees"), "4i3: App loads schedule assignees from schedule-assignees API");
+assert(appSrc.includes("loadScheduleAssigneesCached"), "4i3: App loads schedule assignees through shared people cache");
 assert(appSrc.includes("listCompanySchedules"), "4j: App loads company schedules via shared list service");
 assert(read("src/screens/SchedulesScreen.tsx").includes("schedulesLoadError"), "4k: schedules UI surfaces list read failures");
 

@@ -41,10 +41,10 @@ assert(pkg.scripts["verify:people-page-wiring"], "PKG: npm script registered");
 assert(userService.includes("fetchCompanyMembers"), "1: client fetchCompanyMembers");
 assert(userService.includes("/api/companies/"), "1b: users API path");
 assert(userService.includes("sanitizeCompanyMembersForClient"), "1c: PasswordHash stripped client-side");
-assert(appTsx.includes("fetchCompanyMembers"), "1d: App loads active users via fetchCompanyMembers");
+assert(appTsx.includes("loadCompanyMembersCached"), "1d: App loads active users via people SWR cache");
 assert(
-  /useEffect\([\s\S]{0,3500}resolveCompanyMembersLoadContext[\s\S]{0,3500}fetchCompanyMembers/.test(appTsx),
-  "1e: page load uses session company context + fetchCompanyMembers",
+  /useEffect\([\s\S]{0,3500}resolveCompanyMembersLoadContext[\s\S]{0,3500}loadCompanyMembersCached/.test(appTsx),
+  "1e: page load uses session company context + loadCompanyMembersCached",
 );
 assert(appTsx.includes("activeCompanyMembers={companyMembersState.members}"), "1f: People panel gets API members");
 
@@ -72,9 +72,9 @@ assert(!appTsx.includes("parseCompanySheetUsers"), "3: no sheet-to-invite parser
 assert(panel.includes("!isActiveCompanyUserInvite(invite)"), "3c: pending list excludes active invite rows");
 assert(!panel.includes("activeInvites.map"), "3d: active list not driven by invite rows");
 
-/** 4: No localStorage/cache/sheet merge for People lists. */
-assert(!appTsx.includes("readCompanyMembersCache"), "4: App does not read members localStorage cache");
-assert(!appTsx.includes("writeCompanyMembersCache"), "4b: App does not write members localStorage cache");
+/** 4: People lists use shared people SWR cache (not legacy bag keys / sheet merge). */
+assert(appTsx.includes("loadCompanyMembersCached"), "4: App uses people SWR members loader");
+assert(!appTsx.includes("writeCompanyMembersCache"), "4b: App does not write legacy members bag cache");
 assert(!appTsx.includes("companyUsersTabRows"), "4c: App does not keep parallel sheet users tab rows");
 
 /** 5: Session company context for both loads. */
@@ -91,7 +91,10 @@ assert(
 /** 6: No PasswordHash in People UI path. */
 assert(!/PasswordHash/.test(panel), "6: panel omits PasswordHash");
 assert(userService.includes("sanitizeCompanyMemberForClient"), "6b: client sanitizes members");
-assert(userService.includes('PASSWORD_HASH_FIELD_NAMES = ["PasswordHash", "passwordHash"]'), "6c: hash fields stripped");
+assert(
+  userService.includes("PASSWORD_HASH_FIELD_NAMES") && userService.includes("credentialHashKey"),
+  "6c: hash fields stripped",
+);
 
 /** 7: Friendly states — loading, error, empty; no endless loading. */
 assert(panel.includes("COMPANY_MEMBERS_LOADING_MESSAGE"), "7: active loading message");

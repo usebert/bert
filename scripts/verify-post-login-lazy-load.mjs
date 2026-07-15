@@ -46,11 +46,11 @@ assert(roleNavigation.includes("shouldLoadFullAssignedChecksScreen"), "1d2: full
 
 /** 2: Heavy fetches are screen-gated in App.tsx useEffects. */
 assert(
-  /useEffect\([\s\S]{0,800}shouldLoadScheduleAssigneesScreen\(screen\)[\s\S]{0,8000}fetchScheduleAssignees/.test(appTsx),
+  /useEffect\([\s\S]{0,800}shouldLoadScheduleAssigneesScreen\(screen\)[\s\S]{0,8000}loadScheduleAssigneesCached/.test(appTsx),
   "2a: schedule-assignees fetch only when schedules/actions gate passes",
 );
 assert(
-  /useEffect\([\s\S]{0,800}shouldLoadCompanyMembersScreen\(screen\)[\s\S]{0,8000}fetchCompanyMembers/.test(appTsx),
+  /useEffect\([\s\S]{0,800}shouldLoadCompanyMembersScreen\(screen\)[\s\S]{0,8000}loadCompanyMembersCached/.test(appTsx),
   "2b: users fetch only when users/invites/admin gate passes",
 );
 assert(
