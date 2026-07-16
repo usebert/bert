@@ -61,6 +61,10 @@ import {
 import { installEmailReminderRoutes, startEmailReminderScheduler } from "./email-reminders.mjs";
 import { installAuditBuilderRoutes } from "./audit-builder.mjs";
 import { createGoogleOAuthSessionStore } from "./google-oauth-session.mjs";
+import {
+  buildGoogleCredentialDiagnostics,
+  probeGoogleSheetsWorkbookMetadata,
+} from "./google-auth-diagnostics.mjs";
 import { installSetupStatusRoutes } from "./setup-status.mjs";
 import {
   isArchiveOrNonLiveWorkspaceName,
@@ -228,12 +232,15 @@ const sessionDir = googleOAuthStore.sessionDir;
 let backgroundJobs = null;
 
 const requiredEnv = {
-  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || "",
-  GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || "",
-  GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI || "http://127.0.0.1:8787/auth/google/callback",
-  GOOGLE_SHARED_DRIVE_ID: process.env.GOOGLE_SHARED_DRIVE_ID || "",
-  GOOGLE_ONBOARDING_FORM_ID: process.env.GOOGLE_ONBOARDING_FORM_ID || "",
-  GOOGLE_ONBOARDING_SHEET_ID: process.env.GOOGLE_ONBOARDING_SHEET_ID || "",
+  // Trim Google OAuth env values — Render/env pastes often introduce trailing newlines that cause invalid_grant.
+  GOOGLE_CLIENT_ID: String(process.env.GOOGLE_CLIENT_ID || "").trim(),
+  GOOGLE_CLIENT_SECRET: String(process.env.GOOGLE_CLIENT_SECRET || "").trim(),
+  GOOGLE_REDIRECT_URI: String(
+    process.env.GOOGLE_REDIRECT_URI || "http://127.0.0.1:8787/auth/google/callback",
+  ).trim(),
+  GOOGLE_SHARED_DRIVE_ID: String(process.env.GOOGLE_SHARED_DRIVE_ID || "").trim(),
+  GOOGLE_ONBOARDING_FORM_ID: String(process.env.GOOGLE_ONBOARDING_FORM_ID || "").trim(),
+  GOOGLE_ONBOARDING_SHEET_ID: String(process.env.GOOGLE_ONBOARDING_SHEET_ID || "").trim(),
   /** Public origin of the SPA (must match where users open the app). Default matches Vite dev (`npm run dev`). Set in .env for real emails, e.g. https://app.example.com */
   FRONTEND_URL: process.env.FRONTEND_URL || "http://127.0.0.1:5173",
   SESSION_SECRET: process.env.SESSION_SECRET || "qms-local-dev-secret",
@@ -4254,6 +4261,22 @@ async function readCompanyMasterSheet(auth, folderId) {
   return readCompanySheetById(auth, inspection.masterSheet.id);
 }
 
+function resolveGoogleSheetsProbeWorkbookId() {
+  return (
+    String(process.env.BERT_GOOGLE_SHEETS_HEALTH_WORKBOOK_ID || "").trim() ||
+    String(process.env.BERT_DEMO_COMPANY_WORKBOOK_ID || "").trim() ||
+    String(requiredEnv.GOOGLE_ONBOARDING_SHEET_ID || "").trim()
+  );
+}
+
+function getGoogleCredentialDiagnosticsPayload() {
+  return buildGoogleCredentialDiagnostics({
+    requiredEnv,
+    processEnv: process.env,
+    oauthStore: googleOAuthStore,
+  });
+}
+
 app.get("/api/google/status", async (_req, res) => {
   const authed = getAuthedClient();
   const oauthConnected = googleOAuthStore.hasTokens();
@@ -4314,6 +4337,57 @@ app.get("/api/google/status", async (_req, res) => {
     companiesCount: companies.length,
     companies,
     onboardingSource,
+    googleAuth: getGoogleCredentialDiagnosticsPayload(),
+  });
+});
+
+/**
+ * Standalone Google OAuth + Sheets metadata health check.
+ * Forces a live workbook metadata read so refresh-token failures surface as invalid_grant.
+ * Never returns secrets or tokens.
+ */
+app.get("/api/google/auth-health", async (req, res) => {
+  const diagnostics = getGoogleCredentialDiagnosticsPayload();
+  const requestedWorkbookId = String(req.query?.spreadsheetId || req.query?.workbookId || "").trim();
+  const spreadsheetId = requestedWorkbookId || resolveGoogleSheetsProbeWorkbookId();
+  const authed = getAuthedClient();
+
+  let sheetsProbe = null;
+  if (!envConfigured()) {
+    sheetsProbe = {
+      ok: false,
+      reason: "google_env_not_configured",
+      message: "Google workspace environment variables are incomplete.",
+      missingKeys: collectMissingGoogleEnvKeys(),
+    };
+  } else if (!authed) {
+    sheetsProbe = {
+      ok: false,
+      reason: "google_oauth_not_connected",
+      message: "No stored Google OAuth refresh token on this API host.",
+    };
+  } else if (!spreadsheetId) {
+    sheetsProbe = {
+      ok: false,
+      reason: "missing_spreadsheet_id",
+      message:
+        "Set BERT_GOOGLE_SHEETS_HEALTH_WORKBOOK_ID or BERT_DEMO_COMPANY_WORKBOOK_ID, or pass ?spreadsheetId=...",
+    };
+  } else {
+    sheetsProbe = await probeGoogleSheetsWorkbookMetadata(authed, spreadsheetId, {
+      google,
+      withSheetsQuotaRetry,
+    });
+  }
+
+  const ok = Boolean(sheetsProbe?.ok);
+  return res.status(ok ? 200 : 503).json({
+    ok,
+    service: "bert-api-google-auth-health",
+    authMode: diagnostics.authMode,
+    selectedCredentialPath: diagnostics.selectedCredentialPath,
+    googleAuth: diagnostics,
+    sheetsProbe,
   });
 });
 
@@ -7485,6 +7559,35 @@ assertSafeProductionBoot();
 
 const httpServer = app.listen(port, "0.0.0.0", () => {
   googleOAuthStore.logStorageState("startup");
+  const googleCreds = getGoogleCredentialDiagnosticsPayload();
+  console.log("[google-auth] startup", {
+    authMode: googleCreds.authMode,
+    selectedCredentialPath: googleCreds.selectedCredentialPath,
+    serviceAccountConfigured: googleCreds.serviceAccountConfigured,
+    env: {
+      GOOGLE_CLIENT_ID: { set: googleCreds.env.GOOGLE_CLIENT_ID.set },
+      GOOGLE_CLIENT_SECRET: {
+        set: googleCreds.env.GOOGLE_CLIENT_SECRET.set,
+        hasLeadingOrTrailingWhitespace: googleCreds.env.GOOGLE_CLIENT_SECRET.hasLeadingOrTrailingWhitespace,
+        hasEmbeddedNewline: googleCreds.env.GOOGLE_CLIENT_SECRET.hasEmbeddedNewline,
+      },
+      GOOGLE_REDIRECT_URI: { set: googleCreds.env.GOOGLE_REDIRECT_URI.set },
+      GOOGLE_SHARED_DRIVE_ID: { set: googleCreds.env.GOOGLE_SHARED_DRIVE_ID.set },
+      BERT_SESSIONS_DIR: googleCreds.env.BERT_SESSIONS_DIR,
+    },
+    tokenStore: {
+      sessionsDirConfigured: googleCreds.tokenStore.sessionsDirConfigured,
+      tokenFilePresent: googleCreds.tokenStore.tokenFilePresent,
+      hasRefreshToken: googleCreds.tokenStore.hasRefreshToken,
+      hasAccessToken: googleCreds.tokenStore.hasAccessToken,
+      accessTokenExpired: googleCreds.tokenStore.accessTokenExpired,
+      profileEmailSet: googleCreds.tokenStore.profileEmailSet,
+    },
+    warningCount: googleCreds.warnings.length,
+  });
+  for (const warning of googleCreds.warnings) {
+    console.warn(`[google-auth] ${warning}`);
+  }
   console.log(
     `[api] listening on http://127.0.0.1:${port} (NODE_ENV=${nodeEnvLabel()}, googleEnvConfigured=${envConfigured()}, googleOAuthConnected=${googleOAuthStore.hasTokens()}, sessionStoreWritable=${sessionStoreWritable()})`,
   );
