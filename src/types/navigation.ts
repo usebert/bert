@@ -23,6 +23,7 @@ export type RoutedScreen =
   | "actions"
   | "nonConformance"
   | "incidents"
+  | "loler"
   | "reports"
   | "sync"
   | "schedules"

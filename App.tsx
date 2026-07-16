@@ -294,6 +294,7 @@ import { DashboardScreen } from "./src/screens/DashboardScreen";
 import { AuditsScreen } from "./src/screens/AuditsScreen";
 import { AuditCentreScreen } from "./src/screens/AuditCentreScreen";
 import { BriefingsScreen } from "./src/screens/BriefingsScreen";
+import { LolerScreen } from "./src/screens/LolerScreen";
 import { CheckCompletionWizard } from "./src/components/checks/CheckCompletionWizard";
 import { CompleteAuditScreen } from "./src/screens/CompleteAuditScreen";
 import { IncidentReportingScreen } from "./src/screens/IncidentReportingScreen";
@@ -17740,6 +17741,17 @@ function App() {
                 onBack={() => setScreen("dashboard")}
                 onArchiveError={pushArchiveErrorToast}
                 onArchiveSuccess={pushArchiveSuccessToast}
+              />
+            )}
+
+            {screen === "loler" && canRoleAccessNavItem(currentUser.role, "loler") && (
+              <LolerScreen
+                role={currentUser.role}
+                companyFolderId={String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim()}
+                masterSheetId={archiveMasterSheetId || undefined}
+                userEmail={String(sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser)).trim().toLowerCase()}
+                offlineMode={offlineMode}
+                onBack={() => setScreen("dashboard")}
               />
             )}
 

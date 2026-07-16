@@ -16,6 +16,7 @@ import {
   TodayMetricBlock,
 } from "./RoleDashboardPrimitives";
 import { DashboardLayoutBoard } from "../dashboard-layout/DashboardLayoutBoard";
+import { LolerSummaryCard } from "./LolerSummaryCard";
 
 const SETUP_STEPS: Array<{
   id: string;
@@ -216,6 +217,11 @@ export function CompanyAdminDashboard({
         />
         </AnimatedCard>
       ) : null,
+          "loler-summary": (
+          <AnimatedCard index={4}>
+            <LolerSummaryCard companyFolderId={companyFolderId} onNavigate={onNavigate} />
+          </AnimatedCard>
+          ),
         }}
       />
     </RoleDashboardShell>

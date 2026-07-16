@@ -201,6 +201,16 @@ export function canSubmitIncidents(_role: Role) {
   return true;
 }
 
+/** LOLER equipment compliance — all roles may view (Auditor sees assigned equipment only). */
+export function canAccessLoler(_role: Role) {
+  return true;
+}
+
+/** Add / edit / assign / archive LOLER equipment — Master, Admin, Manager. */
+export function canManageLoler(role: Role) {
+  return role === "Master" || role === "Admin" || role === "Manager";
+}
+
 export function canInvestigateIncidents(role: Role) {
   return role === "Master" || role === "Admin" || role === "Manager";
 }
@@ -244,6 +254,7 @@ export function canRoleAccessNavItem(role: Role, itemId: NavItemId) {
   if (itemId === "auditCentre") return canAccessAuditCentre(role);
   if (itemId === "googleForms") return canAccessGoogleForms(role);
   if (itemId === "incidents") return canSubmitIncidents(role);
+  if (itemId === "loler") return canAccessLoler(role);
   if (itemId === "actions" || itemId === "nonConformance") return canAccessActions(role);
   if (itemId === "audits") return canAccessAuditsCentre(role) || canAccessFormsChecksNav(role) || role === "Auditor";
   if (itemId === "sync") {

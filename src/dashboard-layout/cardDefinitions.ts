@@ -6,6 +6,7 @@ export const MANAGER_ROLE_DASHBOARD_CARDS: DashboardCardDefinition[] = [
   { id: "summary-metrics", label: "Summary metrics", defaultOrder: 1, hideable: true },
   { id: "open-actions", label: "Open actions", defaultOrder: 2, hideable: true },
   { id: "open-ncrs", label: "Open NCRs", defaultOrder: 3, hideable: true },
+  { id: "loler-summary", label: "LOLER examinations", defaultOrder: 4, hideable: true },
 ];
 
 /** Auditor home — priority list is essential. */
@@ -20,6 +21,7 @@ export const COMPANY_ADMIN_DASHBOARD_CARDS: DashboardCardDefinition[] = [
   { id: "next-steps", label: "Next steps", defaultOrder: 1, hideable: true },
   { id: "today-panel", label: "Today", defaultOrder: 2, hideable: true },
   { id: "qms-summary", label: "QMS readiness", defaultOrder: 3, hideable: true },
+  { id: "loler-summary", label: "LOLER examinations", defaultOrder: 4, hideable: true },
 ];
 
 /** Live operations panel (Manager). Act today + current incidents stay unhideable. */

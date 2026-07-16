@@ -15,6 +15,7 @@ import {
   RoleDashboardShell,
 } from "./RoleDashboardPrimitives";
 import { DashboardLayoutBoard } from "../dashboard-layout/DashboardLayoutBoard";
+import { LolerSummaryCard } from "./LolerSummaryCard";
 
 type Props = ManagerDashboardProps & {
   workspaceName: string;
@@ -221,6 +222,11 @@ export function ManagerRoleDashboard({
             ))}
           </ul>
         )}
+      </AnimatedCard>
+    ),
+    "loler-summary": (
+      <AnimatedCard index={6}>
+        <LolerSummaryCard companyFolderId={companyFolderId} onNavigate={onNavigate} />
       </AnimatedCard>
     ),
   };

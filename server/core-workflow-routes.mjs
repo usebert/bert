@@ -59,6 +59,20 @@ import {
 } from "./incidents-service.mjs";
 import { uploadIncidentEvidenceToDrive } from "./incident-evidence-upload.mjs";
 import {
+  actorCanAccessCompanyLoler,
+  archiveLolerEquipment,
+  canManageLoler,
+  canViewLoler,
+  createLolerEquipment,
+  getLolerEquipment,
+  listLolerEquipment,
+  listLolerSchedules,
+  LOLER_ROUTE_TIMEOUT_MS,
+  markLolerEquipmentOutOfService,
+  returnLolerEquipmentToService,
+  updateLolerEquipment,
+} from "./loler-service.mjs";
+import {
   acknowledgeBriefing,
   BRIEFINGS_ROUTE_TIMEOUT_MS,
   canAccessBriefings,
@@ -2120,6 +2134,244 @@ export function installCoreWorkflowRoutes(app, deps) {
         technicalError: error instanceof Error ? error.message : String(error),
       });
     }
+  });
+
+  /**
+   * LOLER equipment compliance — dedicated LOLEREquipment/LOLERSchedules tabs.
+   * Same auth pattern as incidents: Google client + actor session + folder check + resolved context.
+   */
+  const resolveLolerRouteContext = async (req, res, options = {}) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      res.status(401).json({
+        ok: false,
+        error: "Please connect Google before using LOLER equipment.",
+        message: "Could not load LOLER equipment.",
+      });
+      return null;
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    if (!canViewLoler(actor) || (options.manage && !canManageLoler(actor))) {
+      res.status(403).json({
+        ok: false,
+        code: "LOLER_FORBIDDEN",
+        error: "You do not have permission to use LOLER equipment.",
+        message: "You do not have permission to use LOLER equipment.",
+      });
+      return null;
+    }
+    const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || companyFolderId).trim();
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      sessionCompanyFolderId,
+      String(req.body?.companyName || actor?.companyName || "").trim(),
+    );
+    if (folderDenial) {
+      res.status(403).json(folderDenial);
+      return null;
+    }
+    const resolved = await resolveCompanyScheduleContext(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      {
+        companyId: sessionCompanyFolderId,
+        companyFolderId: sessionCompanyFolderId,
+        masterSheetId: String(req.body?.masterSheetId || req.query?.masterSheetId || "").trim(),
+        companyName: String(req.body?.companyName || actor?.companyName || "").trim(),
+      },
+    );
+    if (!resolved.ok) {
+      res.status(resolved.httpStatus || 400).json({
+        ok: false,
+        code: resolved.code,
+        error: resolved.error,
+        message: resolved.message || resolved.error,
+      });
+      return null;
+    }
+    if (
+      !actorCanAccessCompanyLoler(actor, resolved.companyFolderId, [
+        companyFolderId,
+        resolved.companyId,
+        ...(resolved.alternateIds || []),
+      ])
+    ) {
+      res.status(403).json({
+        ok: false,
+        code: "LOLER_COMPANY_MISMATCH",
+        error: "Your session does not belong to this company.",
+        message: "Your session does not belong to this company.",
+      });
+      return null;
+    }
+    return { authed, actor, resolved };
+  };
+
+  const lolerRouteError = (res, result, fallbackCode) => {
+    return res.status(result?.httpStatus || 400).json({
+      ok: false,
+      code: result?.code || fallbackCode,
+      error: result?.error || result?.message || "Request failed.",
+      message: result?.message || result?.error || "Request failed.",
+      details: result?.details || undefined,
+    });
+  };
+
+  const runLolerRoute = async (req, res, options, run, failure) => {
+    const routeContext = await resolveLolerRouteContext(req, res, options);
+    if (!routeContext) {
+      return undefined;
+    }
+    try {
+      const result = await withOperationTimeout(
+        run(routeContext),
+        failure.operation,
+        LOLER_ROUTE_TIMEOUT_MS,
+      );
+      if (!result.ok) {
+        return lolerRouteError(res, result, failure.code);
+      }
+      return res.json(result);
+    } catch (error) {
+      console.info("[loler]", {
+        phase: failure.operation,
+        companyId: String(req.params?.companyFolderId || "").trim(),
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({
+        ok: false,
+        code: failure.code,
+        error: failure.message,
+        message: failure.message,
+      });
+    }
+  };
+
+  app.get("/api/companies/:companyFolderId/loler/equipment", async (req, res) => {
+    return runLolerRoute(
+      req,
+      res,
+      {},
+      ({ authed, actor, resolved }) =>
+        listLolerEquipment(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor),
+      { operation: "loler_equipment_list", code: "LOLER_LIST_FAILED", message: "Could not load LOLER equipment." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/loler/equipment", async (req, res) => {
+    return runLolerRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        createLolerEquipment(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor, req.body || {}),
+      { operation: "loler_equipment_create", code: "LOLER_CREATE_FAILED", message: "Could not add LOLER equipment." },
+    );
+  });
+
+  app.get("/api/companies/:companyFolderId/loler/equipment/:equipmentId", async (req, res) => {
+    return runLolerRoute(
+      req,
+      res,
+      {},
+      ({ authed, actor, resolved }) =>
+        getLolerEquipment(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor, String(req.params?.equipmentId || "").trim()),
+      { operation: "loler_equipment_get", code: "LOLER_GET_FAILED", message: "Could not load LOLER equipment." },
+    );
+  });
+
+  app.patch("/api/companies/:companyFolderId/loler/equipment/:equipmentId", async (req, res) => {
+    return runLolerRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        updateLolerEquipment(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.equipmentId || "").trim(),
+          req.body || {},
+        ),
+      { operation: "loler_equipment_update", code: "LOLER_UPDATE_FAILED", message: "Could not update LOLER equipment." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/loler/equipment/:equipmentId/archive", async (req, res) => {
+    return runLolerRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        archiveLolerEquipment(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.equipmentId || "").trim(),
+        ),
+      { operation: "loler_equipment_archive", code: "LOLER_ARCHIVE_FAILED", message: "Could not archive LOLER equipment." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/loler/equipment/:equipmentId/out-of-service", async (req, res) => {
+    return runLolerRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        markLolerEquipmentOutOfService(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.equipmentId || "").trim(),
+        ),
+      {
+        operation: "loler_equipment_out_of_service",
+        code: "LOLER_OUT_OF_SERVICE_FAILED",
+        message: "Could not mark LOLER equipment out of service.",
+      },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/loler/equipment/:equipmentId/return-to-service", async (req, res) => {
+    return runLolerRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        returnLolerEquipmentToService(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.equipmentId || "").trim(),
+          {
+            nextExaminationDueDate: req.body?.nextExaminationDueDate,
+            lastExaminationDate: req.body?.lastExaminationDate,
+          },
+        ),
+      {
+        operation: "loler_equipment_return_to_service",
+        code: "LOLER_RETURN_TO_SERVICE_FAILED",
+        message: "Could not return LOLER equipment to service.",
+      },
+    );
+  });
+
+  app.get("/api/companies/:companyFolderId/loler/schedules", async (req, res) => {
+    return runLolerRoute(
+      req,
+      res,
+      {},
+      ({ authed, actor, resolved }) =>
+        listLolerSchedules(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor),
+      { operation: "loler_schedules_list", code: "LOLER_SCHEDULES_FAILED", message: "Could not load LOLER examinations." },
+    );
   });
 
   app.get("/api/companies/:companyFolderId/briefings/mine", async (req, res) => {

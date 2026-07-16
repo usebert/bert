@@ -58,6 +58,7 @@
     "verify:briefings-to-do": "node scripts/verify-briefings-to-do.mjs",
     "verify:app-data-cache": "node scripts/verify-app-data-cache.mjs",
     "verify:people-cache": "node scripts/verify-people-cache.mjs",
+    "verify:loler": "node scripts/verify-loler.mjs",
     "verify:pilot-readiness": "node scripts/verify-pilot-readiness.mjs",
     "verify:godmode-company-context": "node scripts/verify-godmode-company-context.mjs",
     "verify:google-form-templates": "node scripts/verify-google-form-templates.mjs",

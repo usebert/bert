@@ -39,6 +39,7 @@ const MASTER_NAV: PresentedNavItem[] = [
   { id: "schedules", label: "Templates", icon: "clock" },
   { id: "auditCentre", label: "Audit Centre", icon: "clipboard" },
   { id: "briefings", label: "Briefings", icon: "note" },
+  { id: "loler", label: "LOLER", icon: "checklist" },
   { id: "results", label: "Results", icon: "checklist" },
   { id: "reports", label: "Reports / Diagnostics", icon: "chart" },
   { id: "sync", label: "Sync Centre", icon: "sync" },
@@ -58,6 +59,7 @@ const COMPANY_ADMIN_NAV: PresentedNavItem[] = [
   { id: "actions", label: "Actions", icon: "warningTriangle" },
   { id: "incidents", label: "Incidents", icon: "warningTriangle" },
   { id: "nonConformance", label: "NCRs", icon: "checklist" },
+  { id: "loler", label: "LOLER", icon: "checklist" },
   { id: "reports", label: "Reports", icon: "chart" },
   { id: "sync", label: "Sync Centre", icon: "sync" },
   { id: "archive", label: "Archive", icon: "clipboard" },
@@ -74,6 +76,7 @@ const MANAGER_NAV: PresentedNavItem[] = [
   { id: "actions", label: "Actions", icon: "warningTriangle" },
   { id: "incidents", label: "Incidents", icon: "warningTriangle" },
   { id: "nonConformance", label: "NCRs", icon: "checklist" },
+  { id: "loler", label: "LOLER", icon: "checklist" },
   { id: "reports", label: "Reports", icon: "chart" },
   { id: "sync", label: "Sync Centre", icon: "sync" },
   { id: "archive", label: "Archive", icon: "clipboard" },
@@ -85,6 +88,7 @@ const AUDITOR_NAV: PresentedNavItem[] = [
   { id: "auditCentre", label: "Audit Centre", icon: "clipboard" },
   { id: "briefings", label: "Briefings", icon: "note" },
   { id: "incidents", label: "Incidents", icon: "warningTriangle" },
+  { id: "loler", label: "LOLER", icon: "checklist" },
   { id: "sync", label: "Sync Centre", icon: "sync" },
   { id: "account", label: "Account", icon: "user" },
 ];
@@ -311,6 +315,7 @@ const MASTER_COMPANY_SCOPED_SCREENS: NavItemId[] = [
   "googleForms",
   "results",
   "qmsReadiness",
+  "loler",
 ];
 
 /** Master Godmode screens that require an active live company workspace context. */
