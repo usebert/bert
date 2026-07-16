@@ -479,6 +479,13 @@ export async function resolveCompanyLoginIdentity(auth, deps = {}, input = {}) {
         diagnostics,
       };
     }
+    if (
+      !companyFolderId &&
+      typeof deps.authIndex.isUsernameAmbiguous === "function" &&
+      deps.authIndex.isUsernameAmbiguous(username)
+    ) {
+      return { ok: false, reason: "username_ambiguous", email: "", username, diagnostics };
+    }
   }
 
   // Fallback when byUsername aliases are missing/stale: derive from indexed emails.
@@ -519,31 +526,44 @@ export async function resolveCompanyLoginIdentity(auth, deps = {}, input = {}) {
         diagnostics,
       };
     }
+    if (scoped.length > 1 && !companyFolderId) {
+      return { ok: false, reason: "username_ambiguous", email: "", username, diagnostics };
+    }
   }
 
-  // Cold username login: LIVE registry fallback when folder/sheet hints are absent.
+  // Cold username login: LIVE registry Users-tab fallback when folder/sheet hints are absent
+  // and the auth index has no unique candidate (empty after redeploy, or stale aliases).
   if (!companyFolderId && !masterSheetId) {
     const readRegistryMap =
       typeof deps.readCanonicalCompanyWorkspaceRegistryMap === "function"
         ? deps.readCanonicalCompanyWorkspaceRegistryMap
         : readCanonicalCompanyWorkspaceRegistryMap;
-    const registryMap = await readRegistryMap(auth, deps).catch(() => null);
-    const liveEntries = Object.values(registryMap || {}).filter(
+    const registryResult = await readRegistryMap(auth, deps).catch(() => ({ map: new Map() }));
+    // Canonical registry returns `{ map: Map }`, not a plain company-record object.
+    const companiesMap = registryResult?.map instanceof Map ? registryResult.map : new Map();
+    const liveEntries = [...companiesMap.values()].filter(
       (entry) =>
         isCompanyRegistryLive(entry) && sanitizeGoogleSpreadsheetId(entry?.masterSheetId || ""),
     );
+    diagnostics.registryLiveCompanyCount = liveEntries.length;
     const registryMatches = [];
+    const seenSheets = new Set();
     for (const entry of liveEntries) {
       const sheetId = sanitizeGoogleSpreadsheetId(entry.masterSheetId);
+      if (!sheetId || seenSheets.has(sheetId)) {
+        continue;
+      }
+      seenSheets.add(sheetId);
+      const folderId = sanitizeCompanyFolderId(entry.companyFolderId || entry.companyId || "");
       const row = await findCompanyUsersTabRow(auth, sheetId, username, {
         ...userDeps,
-        preferredCompanyFolderId: sanitizeCompanyFolderId(entry.companyFolderId || entry.companyId || ""),
-        companyFolderId: sanitizeCompanyFolderId(entry.companyFolderId || entry.companyId || ""),
+        preferredCompanyFolderId: folderId,
+        companyFolderId: folderId,
       }).catch(() => null);
       if (row?.email && isLoginEmailIdentity(row.email)) {
         registryMatches.push({
           email: normalizeUserAuthEmail(row.email),
-          companyFolderId: sanitizeCompanyFolderId(row.companyFolderId || entry.companyFolderId || entry.companyId || ""),
+          companyFolderId: sanitizeCompanyFolderId(row.companyFolderId || folderId),
           masterSheetId: sheetId,
         });
       }
@@ -560,6 +580,9 @@ export async function resolveCompanyLoginIdentity(auth, deps = {}, input = {}) {
         masterSheetId: registryMatches[0].masterSheetId,
         diagnostics,
       };
+    }
+    if (registryMatches.length > 1) {
+      return { ok: false, reason: "username_ambiguous", email: "", username, diagnostics };
     }
   }
 

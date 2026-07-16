@@ -6,7 +6,7 @@ import fs from "node:fs";
 import { verifyPassword } from "./master-auth.mjs";
 import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
 import { isKnownStaleAuthIndexPairing } from "../shared/auth-index-trust.mjs";
-import { validateLiveCompanyContext } from "./company-context-service.mjs";
+import { validateLiveCompanyContext as defaultValidateLiveCompanyContext } from "./company-context-service.mjs";
 import { readUserAuthRowByEmail } from "./user-auth-service.mjs";
 import {
   defaultAccessLevelForRole,
@@ -32,6 +32,12 @@ import {
   resolveUsernameFromUserFields,
 } from "../shared/login-username.mjs";
 import { pickUsersTabUsername } from "./users-tab-schema.mjs";
+
+function resolveValidateLiveCompanyContext(deps = {}) {
+  return typeof deps.validateLiveCompanyContext === "function"
+    ? deps.validateLiveCompanyContext
+    : defaultValidateLiveCompanyContext;
+}
 
 const DEFAULT_STALE_MS = Math.max(
   60_000,
@@ -355,7 +361,7 @@ export function createAuthIndexApi(indexPath) {
     if (!auth || !key || !entry?.masterSheetId) {
       return entry;
     }
-    const validation = await validateLiveCompanyContext(auth, deps, {
+    const validation = await resolveValidateLiveCompanyContext(deps)(auth, deps, {
       masterSheetId: entry.masterSheetId,
       companyFolderId: entry.companyFolderId || entry.companyId,
       companyName: entry.companyName,
@@ -576,7 +582,7 @@ export function createAuthIndexApi(indexPath) {
       return { ok: false, reason: "missing_context", upserted: 0, removed: 0 };
     }
 
-    const liveValidation = await validateLiveCompanyContext(auth, deps, {
+    const liveValidation = await resolveValidateLiveCompanyContext(deps)(auth, deps, {
       masterSheetId,
       companyFolderId,
       companyName,
@@ -747,7 +753,7 @@ export function createAuthIndexApi(indexPath) {
       const masterSheetId = String(record?.masterSheetId || "").trim();
       const companyFolderId = String(record?.companyFolderId || record?.companyId || "").trim();
       const companyName = String(record?.companyName || "").trim();
-      const liveValidation = await validateLiveCompanyContext(auth, deps, {
+      const liveValidation = await resolveValidateLiveCompanyContext(deps)(auth, deps, {
         masterSheetId,
         companyFolderId,
         companyName,
@@ -821,6 +827,66 @@ export function createAuthIndexApi(indexPath) {
   function readAllEntries() {
     const store = readStore();
     return Object.values(store.byEmail || {});
+  }
+
+  /**
+   * Safe startup/diagnostic snapshot — counts only; never includes emails, hashes, or identities.
+   */
+  function getAuthIndexSnapshot() {
+    const store = readStore();
+    const byEmail = store.byEmail && typeof store.byEmail === "object" ? store.byEmail : {};
+    const byUsername = store.byUsername && typeof store.byUsername === "object" ? store.byUsername : {};
+    let ambiguousUsernameCount = 0;
+    for (const alias of Object.values(byUsername)) {
+      if (alias?.ambiguous === true && Array.isArray(alias.candidates) && alias.candidates.length > 1) {
+        ambiguousUsernameCount += 1;
+      }
+    }
+    const emailCount = Object.keys(byEmail).length;
+    const usernameCount = Object.keys(byUsername).length;
+    return {
+      indexPath,
+      emailCount,
+      usernameCount,
+      ambiguousUsernameCount,
+      rebuiltAt: store.rebuiltAt || null,
+      empty: emailCount === 0 && usernameCount === 0,
+    };
+  }
+
+  function isUsernameAmbiguous(username) {
+    const key = normalizeUsername(username);
+    if (!key || key.includes("@")) {
+      return false;
+    }
+    const alias = readStore().byUsername?.[key];
+    return Boolean(alias?.ambiguous === true && Array.isArray(alias.candidates) && alias.candidates.length > 1);
+  }
+
+  /**
+   * Rebuild the file-backed auth index when empty (common after ephemeral redeploy).
+   * No-op when the index already has entries. Never logs passwords or hashes.
+   */
+  async function bootstrapAuthIndexIfEmpty(auth, deps, options = {}) {
+    const before = getAuthIndexSnapshot();
+    if (!before.empty && options.force !== true) {
+      return { ok: true, rebuilt: false, skipped: true, reason: "index_not_empty", ...before };
+    }
+    const startedAt = Date.now();
+    const rebuilt = await rebuildAuthIndex(auth, deps, options);
+    const after = getAuthIndexSnapshot();
+    return {
+      ok: Boolean(rebuilt?.ok),
+      rebuilt: true,
+      skipped: false,
+      reason: rebuilt?.ok ? "rebuilt" : rebuilt?.reason || "rebuild_failed",
+      durationMs: Date.now() - startedAt,
+      companies: rebuilt?.companies || 0,
+      upserted: rebuilt?.upserted || 0,
+      authIndexEntriesRemoved: rebuilt?.authIndexEntriesRemoved || 0,
+      before,
+      after,
+    };
   }
 
   function clearCompanyAuthIndexEntries({ companyFolderId = "", masterSheetId = "" } = {}) {
@@ -952,7 +1018,7 @@ export function createAuthIndexApi(indexPath) {
       return { ok: false, reason: "user_not_in_workbook", removeEntry: true };
     }
 
-    const validation = await validateLiveCompanyContext(auth, deps, {
+    const validation = await resolveValidateLiveCompanyContext(deps)(auth, deps, {
       masterSheetId,
       companyFolderId: entry.companyFolderId || entry.companyId,
       companyName: entry.companyName,
@@ -989,7 +1055,7 @@ export function createAuthIndexApi(indexPath) {
     if (!auth || !key || !entry?.masterSheetId) {
       return { ok: false, removed: false, reason: "missing_context" };
     }
-    const validation = await validateLiveCompanyContext(auth, deps, {
+    const validation = await resolveValidateLiveCompanyContext(deps)(auth, deps, {
       masterSheetId: entry.masterSheetId,
       companyFolderId: entry.companyFolderId || entry.companyId,
       companyName: entry.companyName,
@@ -1053,6 +1119,7 @@ export function createAuthIndexApi(indexPath) {
     lookupByEmailValidated,
     lookupByUsername,
     lookupByIdentity,
+    isUsernameAmbiguous,
     upsertEntry,
     removeEntry,
     isEntryStale,
@@ -1060,6 +1127,8 @@ export function createAuthIndexApi(indexPath) {
     entryFromUsersTabRow,
     rebuildCompanyAuthIndexFromSheet,
     rebuildAuthIndex,
+    bootstrapAuthIndexIfEmpty,
+    getAuthIndexSnapshot,
     verifyAuthIndexEntryFromSheet,
     reconcileLoginEntryFromUsersTab,
     isIndexEntryStaleVsUsersTab,

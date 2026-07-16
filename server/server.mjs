@@ -7504,7 +7504,43 @@ const httpServer = app.listen(port, "0.0.0.0", () => {
     }
     const auth = getAuthedClient();
     if (!auth) {
+      console.warn("[auth-index] startup skipped: Google OAuth not connected");
       return;
+    }
+    const rebuildDeps = {
+      ...getCompanyContextEnrichmentDeps(),
+      readCanonicalCompanyWorkspaceRegistryMap,
+      getCompanyUsersDeps,
+    };
+    try {
+      const snapshot = typeof authIndexApi.getAuthIndexSnapshot === "function"
+        ? authIndexApi.getAuthIndexSnapshot()
+        : { empty: true, emailCount: 0, usernameCount: 0, ambiguousUsernameCount: 0 };
+      console.log("[auth-index] startup", {
+        empty: snapshot.empty === true,
+        emailCount: Number(snapshot.emailCount || 0),
+        usernameCount: Number(snapshot.usernameCount || 0),
+        ambiguousUsernameCount: Number(snapshot.ambiguousUsernameCount || 0),
+        rebuiltAt: snapshot.rebuiltAt || null,
+      });
+      if (snapshot.empty === true && typeof authIndexApi.bootstrapAuthIndexIfEmpty === "function") {
+        const boot = await authIndexApi.bootstrapAuthIndexIfEmpty(auth, rebuildDeps);
+        console.log("[auth-index] startup rebuild", {
+          ok: boot?.ok === true,
+          rebuilt: boot?.rebuilt === true,
+          reason: boot?.reason || "",
+          companies: Number(boot?.companies || 0),
+          upserted: Number(boot?.upserted || 0),
+          emailCount: Number(boot?.after?.emailCount || 0),
+          usernameCount: Number(boot?.after?.usernameCount || 0),
+          durationMs: Number(boot?.durationMs || 0),
+        });
+      }
+    } catch (error) {
+      console.warn(
+        "[auth-index] startup bootstrap failed:",
+        error instanceof Error ? error.message : String(error),
+      );
     }
     try {
       const pruned = await authIndexApi.pruneAuthIndexGhostEntries(auth, getCompanyContextEnrichmentDeps());

@@ -43,6 +43,7 @@
     "register:demo-company": "node scripts/register-demo-company.mjs",
     "migrate:userauth": "node scripts/migrate-userauth-passwords.mjs",
     "verify:auth": "node scripts/verify-auth-hardening.mjs",
+    "verify:auth-index-bootstrap": "node scripts/verify-auth-index-bootstrap.mjs",
     "verify:godmode-login": "node scripts/verify-godmode-login.mjs",
     "verify:password-reset": "node scripts/verify-password-reset.mjs",
     "verify:password-reset-login": "node scripts/verify-password-reset-login.mjs",
