@@ -198,6 +198,11 @@ function buildCalendarRow(itemId, normalized, actor, timestamps = {}) {
     UpdatedBy: actorEmail,
     ArchivedAt: timestamps.archivedAt || "",
     ArchivedBy: timestamps.archivedBy || "",
+    RelatedModule: normalized.relatedModule || "",
+    RelatedRecordId: normalized.relatedRecordId || "",
+    RelatedEquipmentId: normalized.relatedEquipmentId || "",
+    RelatedExaminationId: normalized.relatedExaminationId || "",
+    RelatedScheduleId: normalized.relatedScheduleId || "",
   };
 }
 

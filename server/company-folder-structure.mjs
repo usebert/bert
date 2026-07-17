@@ -333,6 +333,28 @@ export async function ensureBriefingDocumentFolderId(drive, companyRootFolderId,
   };
 }
 
+/** Drive path prefix for LOLER examination certificates (under company root). */
+export const LOLER_EXAMINATIONS_DRIVE_PATH_PREFIX = "LOLER/Equipment";
+
+/**
+ * Ensures LOLER/Equipment/{assetId}/Examinations exists under the company root folder.
+ */
+export async function ensureLolerExaminationFolderId(drive, companyRootFolderId, assetId) {
+  const rootId = String(companyRootFolderId || "").trim();
+  const safeAssetId = String(assetId || "").trim().replace(/[\\/]+/g, "-") || "unknown-asset";
+  if (!rootId) {
+    throw new Error("Company root folder is required for LOLER examination uploads.");
+  }
+  const lolerFolder = await ensureNamedFolder(drive, "LOLER", rootId);
+  const equipmentFolder = await ensureNamedFolder(drive, "Equipment", lolerFolder.folder.id);
+  const assetFolder = await ensureNamedFolder(drive, safeAssetId, equipmentFolder.folder.id);
+  const examinationsFolder = await ensureNamedFolder(drive, "Examinations", assetFolder.folder.id);
+  return {
+    folderId: examinationsFolder.folder.id,
+    path: `${LOLER_EXAMINATIONS_DRIVE_PATH_PREFIX}/${safeAssetId}/Examinations`,
+  };
+}
+
 function sheetEndColumnLetter(columnCount) {
   const count = Math.max(Number(columnCount) || 1, 1);
   if (count <= 26) {

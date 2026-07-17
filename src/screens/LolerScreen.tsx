@@ -5,23 +5,31 @@ import type {
   LolerEquipment,
   LolerEquipmentInput,
   LolerEquipmentSummary,
+  LolerExamination,
+  LolerExaminationInput,
   LolerSchedule,
 } from "../types/loler";
 import {
   archiveLolerEquipment,
   createLolerEquipment,
   fetchLolerEquipment,
+  fetchLolerExaminations,
   fetchLolerSchedules,
   LOLER_OFFLINE_WRITE_MESSAGE,
   markLolerEquipmentOutOfService,
   readCachedLolerEquipment,
+  readCachedLolerExaminations,
   readCachedLolerSchedules,
+  recordLolerExamination,
   returnLolerEquipmentToService,
   updateLolerEquipment,
 } from "../services/lolerService";
 import { fetchCompanyStructure, type StructureEntity } from "../services/companyStructureService";
 import { loadScheduleAssigneesCached } from "../services/peopleCache";
 import type { ScheduleAssigneeOption } from "../utils/scheduleAssignees";
+import { LolerRecordExaminationForm } from "../components/loler/LolerRecordExaminationForm";
+import { LolerExaminationHistory } from "../components/loler/LolerExaminationHistory";
+import { OperationalMessagesPanel } from "../components/loler/OperationalMessagesPanel";
 
 type Props = {
   role: Role;
@@ -32,7 +40,7 @@ type Props = {
   onBack?: () => void;
 };
 
-type LolerTab = "register" | "examinations";
+type LolerTab = "register" | "examinations" | "messages";
 
 type StatusFilter = "active_register" | "active" | "due_soon" | "overdue" | "out_of_service" | "archived" | "all";
 
@@ -151,11 +159,18 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
     () => readCachedLolerEquipment(folderId)?.summary || EMPTY_SUMMARY,
   );
   const [schedules, setSchedules] = useState<LolerSchedule[]>(() => readCachedLolerSchedules(folderId)?.schedules || []);
+  const [examinations, setExaminations] = useState<LolerExamination[]>(
+    () => readCachedLolerExaminations(folderId)?.examinations || [],
+  );
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [actionError, setActionError] = useState("");
   const [actionNotice, setActionNotice] = useState("");
   const [busyEquipmentId, setBusyEquipmentId] = useState("");
+  const [recordTarget, setRecordTarget] = useState<{ equipment: LolerEquipment; schedule?: LolerSchedule | null } | null>(
+    null,
+  );
+  const [recording, setRecording] = useState(false);
 
   const [search, setSearch] = useState("");
   const [siteFilter, setSiteFilter] = useState("");
@@ -191,13 +206,15 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
       }
       setLoadError("");
       try {
-        const [equipmentResult, schedulesResult] = await Promise.all([
+        const [equipmentResult, schedulesResult, examinationsResult] = await Promise.all([
           fetchLolerEquipment(folderId, { refresh: options.refresh }),
           fetchLolerSchedules(folderId, { refresh: options.refresh }),
+          fetchLolerExaminations(folderId, { refresh: options.refresh }),
         ]);
         setEquipment(equipmentResult.equipment || []);
         setSummary(equipmentResult.summary || EMPTY_SUMMARY);
         setSchedules(schedulesResult.schedules || []);
+        setExaminations(examinationsResult.examinations || []);
       } catch (error) {
         // Keep previously loaded data visible; only surface the load problem.
         setLoadError(error instanceof Error ? error.message : "Could not load LOLER equipment.");
@@ -214,7 +231,7 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
   }, [loadData]);
 
   useEffect(() => {
-    if (!folderId || !canManage) {
+    if (!folderId) {
       return;
     }
     let cancelled = false;
@@ -246,7 +263,7 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
     return () => {
       cancelled = true;
     };
-  }, [folderId, masterSheetId, canManage]);
+  }, [folderId, masterSheetId]);
 
   const equipmentTypes = useMemo(() => {
     const types = new Set<string>();
@@ -323,6 +340,10 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
   );
 
   const viewingEquipment = viewingId ? equipment.find((item) => item.id === viewingId) : undefined;
+  const viewingHistory = useMemo(
+    () => (viewingId ? examinations.filter((item) => item.equipmentId === viewingId) : []),
+    [examinations, viewingId],
+  );
 
   const guardWrite = useCallback((): boolean => {
     if (isWriteBlocked) {
@@ -331,6 +352,48 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
     }
     return true;
   }, [isWriteBlocked]);
+
+  const canRecordForEquipment = useCallback(
+    (item: LolerEquipment) => {
+      if (item.status === "archived") {
+        return false;
+      }
+      if (canManage) {
+        return true;
+      }
+      return (
+        role === "Auditor" &&
+        String(item.assignedPersonId || "").toLowerCase() === String(userEmail || "").toLowerCase()
+      );
+    },
+    [canManage, role, userEmail],
+  );
+
+  const saveRecordedExamination = async (input: LolerExaminationInput) => {
+    if (!guardWrite()) {
+      return;
+    }
+    setRecording(true);
+    setActionError("");
+    setActionNotice("");
+    try {
+      const result = await recordLolerExamination(folderId, input);
+      setRecordTarget(null);
+      setActionNotice(
+        result.requiresAttention
+          ? "Examination recorded. Equipment requires attention after a failed result."
+          : "Examination recorded.",
+      );
+      await loadData({ refresh: true });
+      if (input.equipmentId) {
+        setViewingId(input.equipmentId);
+      }
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Could not record examination.");
+    } finally {
+      setRecording(false);
+    }
+  };
 
   const openAddForm = () => {
     setEditingId("");
@@ -539,7 +602,7 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
         ))}
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <button
           type="button"
           onClick={() => setTab("register")}
@@ -558,7 +621,27 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
         >
           Examinations
         </button>
+        <button
+          type="button"
+          onClick={() => setTab("messages")}
+          className={`rounded-xl px-4 py-2 text-sm font-bold ${
+            tab === "messages" ? "bg-slate-900 text-white" : "border border-slate-300 bg-white text-slate-700"
+          }`}
+        >
+          Messages
+        </button>
       </div>
+
+      {tab === "messages" ? (
+        <OperationalMessagesPanel
+          companyFolderId={folderId}
+          offlineMode={offlineMode}
+          onOpenLolerEquipment={(equipmentId) => {
+            setViewingId(equipmentId);
+            setTab("register");
+          }}
+        />
+      ) : null}
 
       {tab === "register" ? (
         <div className="space-y-4">
@@ -710,6 +793,19 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
                             >
                               View
                             </button>
+                            {canRecordForEquipment(item) ? (
+                              <button
+                                type="button"
+                                disabled={busy || isWriteBlocked}
+                                onClick={() => {
+                                  setActionError("");
+                                  setRecordTarget({ equipment: item, schedule: null });
+                                }}
+                                className="rounded-lg border border-sky-300 bg-sky-50 px-2 py-1 text-xs font-bold text-sky-800 disabled:opacity-50"
+                              >
+                                Record examination
+                              </button>
+                            ) : null}
                             {canManage && item.status !== "archived" ? (
                               <>
                                 <button
@@ -814,10 +910,25 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
               {viewingEquipment.notes ? (
                 <p className="mt-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">{viewingEquipment.notes}</p>
               ) : null}
+              <div className="mt-4">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-sm font-black uppercase tracking-wide text-slate-700">Examination history</h3>
+                  {canRecordForEquipment(viewingEquipment) ? (
+                    <button
+                      type="button"
+                      className="rounded-lg border border-sky-300 bg-sky-50 px-2 py-1 text-xs font-bold text-sky-800"
+                      onClick={() => setRecordTarget({ equipment: viewingEquipment, schedule: null })}
+                    >
+                      Record examination
+                    </button>
+                  ) : null}
+                </div>
+                <LolerExaminationHistory examinations={viewingHistory} />
+              </div>
             </div>
           ) : null}
         </div>
-      ) : (
+      ) : tab === "examinations" ? (
         <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
           <table className="min-w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -829,18 +940,22 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
                 <th className="px-4 py-3">Area</th>
                 <th className="px-4 py-3">Assigned person</th>
                 <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {openExaminations.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
                     No upcoming or overdue LOLER examinations.
                   </td>
                 </tr>
               ) : (
                 openExaminations.map((schedule) => {
                   const badge = statusBadge(schedule.scheduleStatus);
+                  const linkedEquipment = equipment.find((item) => item.id === schedule.equipmentId);
+                  const canRecord =
+                    linkedEquipment && canRecordForEquipment(linkedEquipment);
                   return (
                     <tr key={schedule.lolerScheduleId}>
                       <td className="px-4 py-3 font-semibold text-slate-800">{formatDate(schedule.dueDate)}</td>
@@ -854,6 +969,23 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
                           {badge.label}
                         </span>
                       </td>
+                      <td className="px-4 py-3">
+                        {canRecord && linkedEquipment ? (
+                          <button
+                            type="button"
+                            disabled={isWriteBlocked}
+                            onClick={() => {
+                              setActionError("");
+                              setRecordTarget({ equipment: linkedEquipment, schedule });
+                            }}
+                            className="rounded-lg border border-sky-300 bg-sky-50 px-2 py-1 text-xs font-bold text-sky-800 disabled:opacity-50"
+                          >
+                            Record examination
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
+                      </td>
                     </tr>
                   );
                 })
@@ -861,7 +993,7 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
             </tbody>
           </table>
         </div>
-      )}
+      ) : null}
 
       {returnServiceId ? (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
@@ -1160,6 +1292,18 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
             </button>
           </div>
         </div>
+      ) : null}
+
+      {recordTarget ? (
+        <LolerRecordExaminationForm
+          equipment={recordTarget.equipment}
+          schedule={recordTarget.schedule}
+          assignees={assignees}
+          userEmail={userEmail}
+          saving={recording}
+          onCancel={() => setRecordTarget(null)}
+          onSave={(input) => void saveRecordedExamination(input)}
+        />
       ) : null}
 
       {role === "Auditor" ? (

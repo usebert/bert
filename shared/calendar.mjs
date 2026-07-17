@@ -33,6 +33,11 @@ export const CALENDAR_ITEMS_TAB_COLUMNS = [
   "UpdatedBy",
   "ArchivedAt",
   "ArchivedBy",
+  "RelatedModule",
+  "RelatedRecordId",
+  "RelatedEquipmentId",
+  "RelatedExaminationId",
+  "RelatedScheduleId",
 ];
 
 export const CALENDAR_ITEM_TYPES = ["event", "reminder"];
@@ -233,6 +238,11 @@ export function validateCalendarItemInput(input = {}) {
       areaName: trim(input.areaName || input.AreaName),
       department: trim(input.department || input.Department),
       priority,
+      relatedModule: trim(input.relatedModule || input.RelatedModule).toLowerCase(),
+      relatedRecordId: trim(input.relatedRecordId || input.RelatedRecordId),
+      relatedEquipmentId: trim(input.relatedEquipmentId || input.RelatedEquipmentId),
+      relatedExaminationId: trim(input.relatedExaminationId || input.RelatedExaminationId),
+      relatedScheduleId: trim(input.relatedScheduleId || input.RelatedScheduleId),
     },
   };
 }
@@ -295,6 +305,11 @@ export function mapCalendarItemRecord(record = {}) {
     updatedBy: pickField(record, "UpdatedBy"),
     archivedAt: pickField(record, "ArchivedAt") || undefined,
     archivedBy: pickField(record, "ArchivedBy") || undefined,
+    relatedModule: pickField(record, "RelatedModule").toLowerCase() || undefined,
+    relatedRecordId: pickField(record, "RelatedRecordId") || undefined,
+    relatedEquipmentId: pickField(record, "RelatedEquipmentId") || undefined,
+    relatedExaminationId: pickField(record, "RelatedExaminationId") || undefined,
+    relatedScheduleId: pickField(record, "RelatedScheduleId") || undefined,
   };
 }
 

@@ -62,16 +62,31 @@ import {
   actorCanAccessCompanyLoler,
   archiveLolerEquipment,
   canManageLoler,
+  canRecordLolerExamination,
   canViewLoler,
   createLolerEquipment,
   getLolerEquipment,
+  getLolerExamination,
   listLolerEquipment,
+  listLolerExaminations,
   listLolerSchedules,
   LOLER_ROUTE_TIMEOUT_MS,
   markLolerEquipmentOutOfService,
+  recordLolerExamination,
   returnLolerEquipmentToService,
   updateLolerEquipment,
+  updateLolerExamination,
 } from "./loler-service.mjs";
+import {
+  actorCanAccessCompanyMessages,
+  archiveOperationalMessage,
+  canSendMessages,
+  canViewMessages,
+  createOperationalMessage,
+  listOperationalMessages,
+  markOperationalMessageRead,
+  MESSAGES_ROUTE_TIMEOUT_MS,
+} from "./operational-messages-service.mjs";
 import {
   actorCanAccessCompanyCalendar,
   archiveCalendarItem,
@@ -2383,6 +2398,241 @@ export function installCoreWorkflowRoutes(app, deps) {
       ({ authed, actor, resolved }) =>
         listLolerSchedules(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor),
       { operation: "loler_schedules_list", code: "LOLER_SCHEDULES_FAILED", message: "Could not load LOLER examinations." },
+    );
+  });
+
+  app.get("/api/companies/:companyFolderId/loler/examinations", async (req, res) => {
+    return runLolerRoute(
+      req,
+      res,
+      {},
+      ({ authed, actor, resolved }) =>
+        listLolerExaminations(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor, {
+          equipmentId: String(req.query?.equipmentId || "").trim(),
+        }),
+      { operation: "loler_examinations_list", code: "LOLER_EXAMINATIONS_FAILED", message: "Could not load examination records." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/loler/examinations", async (req, res) => {
+    return runLolerRoute(
+      req,
+      res,
+      {},
+      async ({ authed, actor, resolved }) => {
+        // Permission enforced inside recordLolerExamination (managers + assigned auditors).
+        void canRecordLolerExamination;
+        return recordLolerExamination(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          req.body || {},
+        );
+      },
+      { operation: "loler_examination_record", code: "LOLER_EXAMINATION_FAILED", message: "Could not record examination." },
+    );
+  });
+
+  app.get("/api/companies/:companyFolderId/loler/examinations/:examinationId", async (req, res) => {
+    return runLolerRoute(
+      req,
+      res,
+      {},
+      ({ authed, actor, resolved }) =>
+        getLolerExamination(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.examinationId || "").trim(),
+        ),
+      { operation: "loler_examination_get", code: "LOLER_EXAMINATION_GET_FAILED", message: "Could not load examination." },
+    );
+  });
+
+  app.patch("/api/companies/:companyFolderId/loler/examinations/:examinationId", async (req, res) => {
+    return runLolerRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        updateLolerExamination(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.examinationId || "").trim(),
+          req.body || {},
+        ),
+      { operation: "loler_examination_update", code: "LOLER_EXAMINATION_UPDATE_FAILED", message: "Could not update examination." },
+    );
+  });
+
+  /**
+   * Operational messages — company-scoped inbox (LOLER-linked first).
+   * Not loaded during login/authentication.
+   */
+  const resolveMessagesRouteContext = async (req, res, options = {}) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      res.status(401).json({
+        ok: false,
+        error: "Please connect Google before using messages.",
+        message: "Could not load messages.",
+      });
+      return null;
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    if (!canViewMessages(actor) || (options.send && !canSendMessages(actor))) {
+      res.status(403).json({
+        ok: false,
+        code: "MESSAGES_FORBIDDEN",
+        error: "You do not have permission to use messages.",
+        message: "You do not have permission to use messages.",
+      });
+      return null;
+    }
+    const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || companyFolderId).trim();
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      sessionCompanyFolderId,
+      String(req.body?.companyName || actor?.companyName || "").trim(),
+    );
+    if (folderDenial) {
+      res.status(403).json(folderDenial);
+      return null;
+    }
+    const resolved = await resolveCompanyScheduleContext(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      {
+        companyId: sessionCompanyFolderId,
+        companyFolderId: sessionCompanyFolderId,
+        masterSheetId: String(req.body?.masterSheetId || req.query?.masterSheetId || "").trim(),
+        companyName: String(req.body?.companyName || actor?.companyName || "").trim(),
+      },
+    );
+    if (!resolved.ok) {
+      res.status(resolved.httpStatus || 400).json({
+        ok: false,
+        code: resolved.code,
+        error: resolved.error,
+        message: resolved.message || resolved.error,
+      });
+      return null;
+    }
+    if (
+      !actorCanAccessCompanyMessages(actor, resolved.companyFolderId, [
+        companyFolderId,
+        resolved.companyId,
+        ...(resolved.alternateIds || []),
+      ])
+    ) {
+      res.status(403).json({
+        ok: false,
+        code: "MESSAGES_COMPANY_MISMATCH",
+        error: "Your session does not belong to this company.",
+        message: "Your session does not belong to this company.",
+      });
+      return null;
+    }
+    return { authed, actor, resolved };
+  };
+
+  const messagesRouteError = (res, result, fallbackCode) => {
+    return res.status(result?.httpStatus || 400).json({
+      ok: false,
+      code: result?.code || fallbackCode,
+      error: result?.error || result?.message || "Request failed.",
+      message: result?.message || result?.error || "Request failed.",
+      details: result?.details || undefined,
+    });
+  };
+
+  const runMessagesRoute = async (req, res, options, run, failure) => {
+    const routeContext = await resolveMessagesRouteContext(req, res, options);
+    if (!routeContext) {
+      return undefined;
+    }
+    try {
+      const result = await withOperationTimeout(run(routeContext), failure.operation, MESSAGES_ROUTE_TIMEOUT_MS);
+      if (!result.ok) {
+        return messagesRouteError(res, result, failure.code);
+      }
+      return res.json(result);
+    } catch (error) {
+      console.info("[messages]", {
+        phase: failure.operation,
+        companyId: String(req.params?.companyFolderId || "").trim(),
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({
+        ok: false,
+        code: failure.code,
+        error: failure.message,
+        message: failure.message,
+      });
+    }
+  };
+
+  app.get("/api/companies/:companyFolderId/messages", async (req, res) => {
+    return runMessagesRoute(
+      req,
+      res,
+      {},
+      ({ authed, actor, resolved }) =>
+        listOperationalMessages(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor, {
+          includeArchived: String(req.query?.includeArchived || "").trim() === "1",
+        }),
+      { operation: "messages_list", code: "MESSAGES_LIST_FAILED", message: "Could not load messages." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/messages", async (req, res) => {
+    return runMessagesRoute(
+      req,
+      res,
+      { send: true },
+      ({ authed, actor, resolved }) =>
+        createOperationalMessage(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor, req.body || {}),
+      { operation: "messages_create", code: "MESSAGES_CREATE_FAILED", message: "Could not send message." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/messages/:messageId/read", async (req, res) => {
+    return runMessagesRoute(
+      req,
+      res,
+      {},
+      ({ authed, actor, resolved }) =>
+        markOperationalMessageRead(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.messageId || "").trim(),
+        ),
+      { operation: "messages_read", code: "MESSAGES_READ_FAILED", message: "Could not mark message read." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/messages/:messageId/archive", async (req, res) => {
+    return runMessagesRoute(
+      req,
+      res,
+      {},
+      ({ authed, actor, resolved }) =>
+        archiveOperationalMessage(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.messageId || "").trim(),
+        ),
+      { operation: "messages_archive", code: "MESSAGES_ARCHIVE_FAILED", message: "Could not archive message." },
     );
   });
 

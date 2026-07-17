@@ -61,6 +61,7 @@
     "verify:app-data-cache": "node scripts/verify-app-data-cache.mjs",
     "verify:people-cache": "node scripts/verify-people-cache.mjs",
     "verify:loler": "node scripts/verify-loler.mjs",
+    "verify:loler-phase2": "node scripts/verify-loler-phase2.mjs",
     "verify:calendar": "node scripts/verify-calendar.mjs",
     "verify:pilot-readiness": "node scripts/verify-pilot-readiness.mjs",
     "verify:godmode-company-context": "node scripts/verify-godmode-company-context.mjs",

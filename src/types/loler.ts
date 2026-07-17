@@ -69,6 +69,65 @@ export type LolerEquipmentSummary = {
   archived: number;
 };
 
+export type LolerExaminationResult = "passed" | "passed_with_observations" | "failed";
+
+export type LolerExamination = {
+  examinationId: string;
+  equipmentId: string;
+  assetId: string;
+  equipmentName: string;
+  examinationDate: string;
+  examinerPersonId?: string;
+  examinerName?: string;
+  examinerEmail?: string;
+  examinationResult: LolerExaminationResult;
+  observations?: string;
+  defectsFound?: string;
+  reportFileId?: string;
+  reportFileName?: string;
+  reportFileUrl?: string;
+  nextExaminationDueDate?: string;
+  currentScheduleId?: string;
+  recordedAt: string;
+  recordedBy: string;
+  updatedAt: string;
+  updatedBy: string;
+};
+
+export type LolerReminderOption = "none" | "at_datetime" | "1" | "7" | "30" | "custom";
+
+export type LolerExaminationInput = {
+  equipmentId: string;
+  examinationDate: string;
+  examinerPersonId?: string;
+  examinerName?: string;
+  examinerEmail?: string;
+  examinationResult: LolerExaminationResult;
+  observations?: string;
+  defectsFound?: string;
+  nextExaminationDueDate: string;
+  currentScheduleId?: string;
+  markOutOfService?: boolean;
+  reportFile?: {
+    name?: string;
+    mimeType?: string;
+    dataUrl?: string;
+    base64?: string;
+    size?: number;
+  };
+  messageRecipientPersonId?: string;
+  messageRecipientName?: string;
+  messageRecipientEmail?: string;
+  messageSubject?: string;
+  messageBody?: string;
+  reminderOption?: LolerReminderOption;
+  reminderDate?: string;
+  reminderTime?: string;
+  reminderDaysBefore?: number;
+  reminderAssigneeEmail?: string;
+  reminderAssigneeName?: string;
+};
+
 export type LolerEquipmentInput = {
   assetId: string;
   equipmentName: string;

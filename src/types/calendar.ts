@@ -40,6 +40,11 @@ export type CalendarItem = {
   updatedBy: string;
   archivedAt?: string;
   archivedBy?: string;
+  relatedModule?: string;
+  relatedRecordId?: string;
+  relatedEquipmentId?: string;
+  relatedExaminationId?: string;
+  relatedScheduleId?: string;
 };
 
 export type CalendarItemsSummary = {
@@ -71,4 +76,9 @@ export type CalendarItemInput = {
   areaName?: string;
   department?: string;
   priority?: CalendarPriority;
+  relatedModule?: string;
+  relatedRecordId?: string;
+  relatedEquipmentId?: string;
+  relatedExaminationId?: string;
+  relatedScheduleId?: string;
 };

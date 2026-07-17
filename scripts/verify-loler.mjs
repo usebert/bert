@@ -12,6 +12,7 @@ import {
   LOLER_DUE_SOON_DAYS,
   LOLER_EQUIPMENT_TAB,
   LOLER_EQUIPMENT_TAB_COLUMNS,
+  LOLER_EXAMINATIONS_TAB,
   LOLER_SCHEDULES_TAB,
   LOLER_SCHEDULES_TAB_COLUMNS,
   addMonthsToDateKey,
@@ -369,8 +370,10 @@ assert(
 );
 const touchedTabs = Array.from(mock.tabs.keys()).map((key) => key.split(":")[1]);
 assert(
-  touchedTabs.every((tab) => tab === LOLER_EQUIPMENT_TAB || tab === LOLER_SCHEDULES_TAB),
-  "isolation: only LOLEREquipment and LOLERSchedules tabs were written",
+  touchedTabs.every(
+    (tab) => tab === LOLER_EQUIPMENT_TAB || tab === LOLER_SCHEDULES_TAB || tab === LOLER_EXAMINATIONS_TAB,
+  ),
+  "isolation: only LOLER equipment/schedules/examinations tabs were written",
 );
 
 /* Sheet schema */
