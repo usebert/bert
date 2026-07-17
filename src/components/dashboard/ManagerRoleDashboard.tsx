@@ -16,6 +16,7 @@ import {
 } from "./RoleDashboardPrimitives";
 import { DashboardLayoutBoard } from "../dashboard-layout/DashboardLayoutBoard";
 import { LolerSummaryCard } from "./LolerSummaryCard";
+import { CalendarSummaryCard } from "./CalendarSummaryCard";
 
 type Props = ManagerDashboardProps & {
   workspaceName: string;
@@ -227,6 +228,11 @@ export function ManagerRoleDashboard({
     "loler-summary": (
       <AnimatedCard index={6}>
         <LolerSummaryCard companyFolderId={companyFolderId} onNavigate={onNavigate} />
+      </AnimatedCard>
+    ),
+    "calendar-summary": (
+      <AnimatedCard index={7}>
+        <CalendarSummaryCard companyFolderId={companyFolderId} onNavigate={onNavigate} />
       </AnimatedCard>
     ),
   };

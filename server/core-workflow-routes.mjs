@@ -73,6 +73,18 @@ import {
   updateLolerEquipment,
 } from "./loler-service.mjs";
 import {
+  actorCanAccessCompanyCalendar,
+  archiveCalendarItem,
+  CALENDAR_ROUTE_TIMEOUT_MS,
+  canManageCalendar,
+  canViewCalendar,
+  completeCalendarItem,
+  createCalendarItem,
+  getCalendarItem,
+  listCalendarItems,
+  updateCalendarItem,
+} from "./calendar-service.mjs";
+import {
   acknowledgeBriefing,
   BRIEFINGS_ROUTE_TIMEOUT_MS,
   canAccessBriefings,
@@ -2371,6 +2383,204 @@ export function installCoreWorkflowRoutes(app, deps) {
       ({ authed, actor, resolved }) =>
         listLolerSchedules(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor),
       { operation: "loler_schedules_list", code: "LOLER_SCHEDULES_FAILED", message: "Could not load LOLER examinations." },
+    );
+  });
+
+  /**
+   * Calendar — dedicated CalendarItems tab (events + reminders).
+   * Same auth pattern as LOLER/incidents. Does not touch Schedules or LOLERSchedules.
+   */
+  const resolveCalendarRouteContext = async (req, res, options = {}) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      res.status(401).json({
+        ok: false,
+        error: "Please connect Google before using Calendar.",
+        message: "Could not load Calendar.",
+      });
+      return null;
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    if (!canViewCalendar(actor) || (options.manage && !canManageCalendar(actor))) {
+      res.status(403).json({
+        ok: false,
+        code: "CALENDAR_FORBIDDEN",
+        error: "You do not have permission to use Calendar.",
+        message: "You do not have permission to use Calendar.",
+      });
+      return null;
+    }
+    const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || companyFolderId).trim();
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      sessionCompanyFolderId,
+      String(req.body?.companyName || actor?.companyName || "").trim(),
+    );
+    if (folderDenial) {
+      res.status(403).json(folderDenial);
+      return null;
+    }
+    const resolved = await resolveCompanyScheduleContext(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      {
+        companyId: sessionCompanyFolderId,
+        companyFolderId: sessionCompanyFolderId,
+        masterSheetId: String(req.body?.masterSheetId || req.query?.masterSheetId || "").trim(),
+        companyName: String(req.body?.companyName || actor?.companyName || "").trim(),
+      },
+    );
+    if (!resolved.ok) {
+      res.status(resolved.httpStatus || 400).json({
+        ok: false,
+        code: resolved.code,
+        error: resolved.error,
+        message: resolved.message || resolved.error,
+      });
+      return null;
+    }
+    if (
+      !actorCanAccessCompanyCalendar(actor, resolved.companyFolderId, [
+        companyFolderId,
+        resolved.companyId,
+        ...(resolved.alternateIds || []),
+      ])
+    ) {
+      res.status(403).json({
+        ok: false,
+        code: "CALENDAR_COMPANY_MISMATCH",
+        error: "Your session does not belong to this company.",
+        message: "Your session does not belong to this company.",
+      });
+      return null;
+    }
+    return { authed, actor, resolved };
+  };
+
+  const calendarRouteError = (res, result, fallbackCode) => {
+    return res.status(result?.httpStatus || 400).json({
+      ok: false,
+      code: result?.code || fallbackCode,
+      error: result?.error || result?.message || "Request failed.",
+      message: result?.message || result?.error || "Request failed.",
+      details: result?.details || undefined,
+    });
+  };
+
+  const runCalendarRoute = async (req, res, options, run, failure) => {
+    const routeContext = await resolveCalendarRouteContext(req, res, options);
+    if (!routeContext) {
+      return undefined;
+    }
+    try {
+      const result = await withOperationTimeout(
+        run(routeContext),
+        failure.operation,
+        CALENDAR_ROUTE_TIMEOUT_MS,
+      );
+      if (!result.ok) {
+        return calendarRouteError(res, result, failure.code);
+      }
+      return res.json(result);
+    } catch (error) {
+      console.info("[calendar]", {
+        phase: failure.operation,
+        companyId: String(req.params?.companyFolderId || "").trim(),
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({
+        ok: false,
+        code: failure.code,
+        error: failure.message,
+        message: failure.message,
+      });
+    }
+  };
+
+  app.get("/api/companies/:companyFolderId/calendar/items", async (req, res) => {
+    return runCalendarRoute(
+      req,
+      res,
+      {},
+      ({ authed, actor, resolved }) =>
+        listCalendarItems(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor),
+      { operation: "calendar_items_list", code: "CALENDAR_LIST_FAILED", message: "Could not load calendar items." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/calendar/items", async (req, res) => {
+    return runCalendarRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        createCalendarItem(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor, req.body || {}),
+      { operation: "calendar_items_create", code: "CALENDAR_CREATE_FAILED", message: "Could not create calendar item." },
+    );
+  });
+
+  app.get("/api/companies/:companyFolderId/calendar/items/:itemId", async (req, res) => {
+    return runCalendarRoute(
+      req,
+      res,
+      {},
+      ({ authed, actor, resolved }) =>
+        getCalendarItem(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor, String(req.params?.itemId || "").trim()),
+      { operation: "calendar_items_get", code: "CALENDAR_GET_FAILED", message: "Could not load calendar item." },
+    );
+  });
+
+  app.patch("/api/companies/:companyFolderId/calendar/items/:itemId", async (req, res) => {
+    return runCalendarRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        updateCalendarItem(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.itemId || "").trim(),
+          req.body || {},
+        ),
+      { operation: "calendar_items_update", code: "CALENDAR_UPDATE_FAILED", message: "Could not update calendar item." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/calendar/items/:itemId/complete", async (req, res) => {
+    return runCalendarRoute(
+      req,
+      res,
+      {},
+      ({ authed, actor, resolved }) =>
+        completeCalendarItem(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.itemId || "").trim(),
+        ),
+      { operation: "calendar_items_complete", code: "CALENDAR_COMPLETE_FAILED", message: "Could not complete reminder." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/calendar/items/:itemId/archive", async (req, res) => {
+    return runCalendarRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        archiveCalendarItem(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.itemId || "").trim(),
+        ),
+      { operation: "calendar_items_archive", code: "CALENDAR_ARCHIVE_FAILED", message: "Could not archive calendar item." },
     );
   });
 

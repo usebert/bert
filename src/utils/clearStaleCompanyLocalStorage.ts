@@ -2,6 +2,7 @@ import { storageKeys } from "../config/storageKeys";
 import { invalidateAppDataCache } from "../services/appDataCacheService";
 import { invalidatePeopleCache } from "../services/peopleCache";
 import { invalidateLolerCache } from "../services/lolerService";
+import { invalidateCalendarCache } from "../services/calendarService";
 import { clearCompanyLoginHintForEmail } from "../lib/companyLoginHint";
 import { clearGodmodeSelectedCompanyFolderId } from "./godmodeCompanyContext";
 import { clearedCompanyWorkspaceOperationalFields } from "./clearCompanyWorkspaceLocalState";
@@ -60,6 +61,7 @@ export function clearStaleCompanyLocalStorage(email?: string) {
   invalidateAppDataCache({ all: true });
   invalidatePeopleCache({ all: true });
   invalidateLolerCache();
+  invalidateCalendarCache();
   clearStoredFolderLinkCompanyFields();
 
   try {

@@ -211,6 +211,16 @@ export function canManageLoler(role: Role) {
   return role === "Master" || role === "Admin" || role === "Manager";
 }
 
+/** Calendar events & reminders — all roles may view (Auditor sees assigned items only). */
+export function canAccessCalendar(_role: Role) {
+  return true;
+}
+
+/** Create / edit / archive calendar items — Master, Admin, Manager. */
+export function canManageCalendar(role: Role) {
+  return role === "Master" || role === "Admin" || role === "Manager";
+}
+
 export function canInvestigateIncidents(role: Role) {
   return role === "Master" || role === "Admin" || role === "Manager";
 }
@@ -255,6 +265,7 @@ export function canRoleAccessNavItem(role: Role, itemId: NavItemId) {
   if (itemId === "googleForms") return canAccessGoogleForms(role);
   if (itemId === "incidents") return canSubmitIncidents(role);
   if (itemId === "loler") return canAccessLoler(role);
+  if (itemId === "calendar") return canAccessCalendar(role);
   if (itemId === "actions" || itemId === "nonConformance") return canAccessActions(role);
   if (itemId === "audits") return canAccessAuditsCentre(role) || canAccessFormsChecksNav(role) || role === "Auditor";
   if (itemId === "sync") {

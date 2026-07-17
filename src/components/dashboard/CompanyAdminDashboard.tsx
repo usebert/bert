@@ -17,6 +17,7 @@ import {
 } from "./RoleDashboardPrimitives";
 import { DashboardLayoutBoard } from "../dashboard-layout/DashboardLayoutBoard";
 import { LolerSummaryCard } from "./LolerSummaryCard";
+import { CalendarSummaryCard } from "./CalendarSummaryCard";
 
 const SETUP_STEPS: Array<{
   id: string;
@@ -220,6 +221,11 @@ export function CompanyAdminDashboard({
           "loler-summary": (
           <AnimatedCard index={4}>
             <LolerSummaryCard companyFolderId={companyFolderId} onNavigate={onNavigate} />
+          </AnimatedCard>
+          ),
+          "calendar-summary": (
+          <AnimatedCard index={5}>
+            <CalendarSummaryCard companyFolderId={companyFolderId} onNavigate={onNavigate} />
           </AnimatedCard>
           ),
         }}
