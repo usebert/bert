@@ -1,6 +1,14 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { BertLogo } from "./src/components/BertLogo";
 import { AndroidPilotBuildBadge } from "./src/components/AndroidPilotBuildBadge";
+import { LanguageSelector } from "./src/components/i18n/LanguageSelector";
+import {
+  readLanguagePreference,
+  writeLanguagePreference,
+} from "./src/i18n/languagePreference";
+import { translateNavLabel } from "./src/i18n/navLabels";
+import type { SupportedLanguage } from "./src/i18n/types";
 import type { NavItemId, Role, RoutedScreen } from "./src/permissions";
 import {
   canAccessActions,
@@ -3574,8 +3582,10 @@ function DataFlowBackground({ className = "", showBase = true }: { className?: s
 }
 
 function App() {
+  const { t, i18n: i18nInstance } = useTranslation();
   const actionsPersistReadyRef = useRef(false);
   const [themeMode, setThemeMode] = useState<ThemeMode>("light");
+  const [uiLanguage, setUiLanguage] = useState<SupportedLanguage>(() => readLanguagePreference());
   const [helpPanelOpen, setHelpPanelOpen] = useState(false);
   const [previewOrientation, setPreviewOrientation] = useState<PreviewOrientation>(() => readStoredPreviewOrientation());
   const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState<boolean>(() => {
@@ -4500,6 +4510,30 @@ function App() {
     [currentUser, linkedCompanyContext, selectedFolder, companyRegistryStatus],
   );
 
+  const uiLanguageIdentity = useMemo(() => {
+    if (!currentUser) {
+      return "";
+    }
+    return resolveUserEmail(currentUser) || String(currentUser.username || "").trim().toLowerCase();
+  }, [currentUser]);
+
+  const handleUiLanguageChange = useCallback(
+    (language: SupportedLanguage) => {
+      writeLanguagePreference(language, activeCompanyContext.companyFolderId, uiLanguageIdentity);
+      setUiLanguage(language);
+      void i18nInstance.changeLanguage(language);
+    },
+    [activeCompanyContext.companyFolderId, i18nInstance, uiLanguageIdentity],
+  );
+
+  useEffect(() => {
+    const next = readLanguagePreference(activeCompanyContext.companyFolderId, uiLanguageIdentity);
+    setUiLanguage(next);
+    if (i18nInstance.language !== next) {
+      void i18nInstance.changeLanguage(next);
+    }
+  }, [activeCompanyContext.companyFolderId, i18nInstance, uiLanguageIdentity]);
+
   useEffect(() => {
     if (!currentUser?.email || currentUser.role === "Master") {
       return;
@@ -5022,12 +5056,8 @@ function App() {
     }
     return getMobileBottomNavForRole(currentUser.role);
   }, [currentUser]);
-  const navLabelForItem = (item: { id: string; label: string }) => {
-    if (item.id !== "sync") {
-      return item.label;
-    }
-    return syncCentreBadgeCount > 0 ? `Sync Centre (${syncCentreBadgeCount})` : "Sync Centre";
-  };
+  const navLabelForItem = (item: { id: string; label: string }) =>
+    translateNavLabel(t, item, { syncBadgeCount: syncCentreBadgeCount });
 
   const showSiteSelectorForRole = currentUser ? (roleSiteSelectorVisibility[currentUser.role] ?? true) : true;
   const showHeaderSiteSelector =
@@ -16579,20 +16609,27 @@ function App() {
                     className="w-full"
                   />
                   <h2 className="text-xl font-semibold tracking-tight !text-white [text-shadow:0_1px_12px_rgba(2,6,23,0.45)] sm:text-2xl">
-                    {LOGIN_HERO_HEADING}
+                    {t("login.heroHeading")}
                   </h2>
                   <p className="max-w-md text-sm leading-relaxed !text-slate-200 [text-shadow:0_1px_8px_rgba(2,6,23,0.35)] sm:text-base">
-                    {LOGIN_HERO_BODY}
+                    {t("login.heroBody")}
                   </p>
                   <p className="text-xs font-medium tracking-wide !text-slate-300 sm:text-sm">
-                    {PRODUCT_TAGLINE}
+                    {t("login.tagline")}
                   </p>
                 </div>
 
                 <div className="flex min-h-0 items-center">
                   <div className="w-full rounded-2xl border border-white/10 bg-white/[0.06] p-3 shadow-[0_16px_40px_rgba(2,6,23,0.4)] backdrop-blur-xl sm:rounded-[1.5rem] sm:p-4">
+                    <div className="mb-2 flex justify-end">
+                      <LanguageSelector
+                        compact
+                        value={uiLanguage}
+                        onChange={handleUiLanguageChange}
+                      />
+                    </div>
                     <h2 className="text-center text-base font-semibold text-white sm:text-lg">
-                      {showForgotPassword ? "Reset password" : "Sign in"}
+                      {showForgotPassword ? t("login.resetPassword") : t("login.signIn")}
                     </h2>
                     {!showForgotPassword && isDemoLoginEnabled ? (
                       <p className="mt-2 rounded-xl border border-white/10 bg-slate-950/35 px-3 py-2 text-xs text-slate-300 sm:text-sm">
@@ -16605,11 +16642,11 @@ function App() {
                       </p>
                     ) : !showForgotPassword ? (
                       <p className="mt-2 text-center text-xs leading-relaxed text-slate-300 sm:text-sm">
-                        Use your BERT invite email and password to continue.
+                        {t("login.inviteHint")}
                       </p>
                     ) : (
                       <p className="mt-2 text-center text-xs leading-relaxed text-slate-300 sm:text-sm">
-                        Enter your account email and we will send reset instructions if the account exists.
+                        {t("login.resetHint")}
                       </p>
                     )}
                     {!showForgotPassword && !isDemoLoginEnabled && loginUsers.length === 0 && isDebugUiAllowed() ? (
@@ -16629,12 +16666,12 @@ function App() {
                         }}
                       >
                         <div>
-                          <label className="mb-1 block text-xs font-medium text-slate-100 sm:text-sm">Email</label>
+                          <label className="mb-1 block text-xs font-medium text-slate-100 sm:text-sm">{t("login.email")}</label>
                           <input
                             type="email"
                             value={forgotPasswordEmail}
                             onChange={(event) => setForgotPasswordEmail(event.target.value)}
-                            placeholder="you@company.com"
+                            placeholder={t("login.emailPlaceholder")}
                             autoComplete="email"
                             className="h-11 w-full rounded-xl border border-white/10 bg-slate-950/45 px-3 text-sm text-white outline-none transition placeholder:text-slate-400 focus:border-orange-400 focus:ring-2 focus:ring-orange-400/15 sm:h-12 sm:rounded-2xl sm:px-4 sm:text-base"
                           />
@@ -16654,7 +16691,7 @@ function App() {
                           disabled={forgotPasswordSubmitting}
                           className={`h-11 w-full rounded-xl bg-gradient-to-r from-orange-400 to-orange-600 text-sm font-semibold text-slate-950 shadow-[0_10px_22px_rgba(249,115,22,0.22)] active:scale-[0.99] disabled:opacity-60 sm:h-12 sm:rounded-2xl sm:text-base ${slatePrimaryCtaInteract}`}
                         >
-                          {forgotPasswordSubmitting ? "Sending…" : "Send reset instructions"}
+                          {forgotPasswordSubmitting ? t("login.sending") : t("login.sendReset")}
                         </button>
                         <button
                           type="button"
@@ -16665,7 +16702,7 @@ function App() {
                           }}
                           className="w-full text-xs font-medium text-blue-400 transition hover:text-orange-200 sm:text-sm"
                         >
-                          ← Back to sign in
+                          {t("login.backToSignIn")}
                         </button>
                       </form>
                     ) : (
@@ -16678,7 +16715,7 @@ function App() {
                       }}
                     >
                       <div>
-                        <label className="mb-1 block text-xs font-medium text-slate-100 sm:text-sm">Email or username</label>
+                        <label className="mb-1 block text-xs font-medium text-slate-100 sm:text-sm">{t("login.emailOrUsername")}</label>
                         <div className="relative">
                           <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 fill-none stroke-slate-400 sm:left-3.5 sm:h-5 sm:w-5" strokeWidth="2">
                             <path d="M20 21a8 8 0 0 0-16 0" />
@@ -16691,14 +16728,14 @@ function App() {
                             inputMode="text"
                             value={username}
                             onChange={(event) => setUsername(event.target.value)}
-                            placeholder="you@example.com or joe.jones"
+                            placeholder={t("login.usernamePlaceholder")}
                             className="h-11 w-full rounded-xl border border-white/10 bg-slate-950/45 pl-10 pr-3 text-sm text-white outline-none transition placeholder:text-slate-400 focus:border-orange-400 focus:ring-2 focus:ring-orange-400/15 sm:h-12 sm:rounded-2xl sm:pl-11 sm:pr-4 sm:text-base"
                           />
                         </div>
                       </div>
 
                       <div>
-                        <label className="mb-1 block text-xs font-medium text-slate-100 sm:text-sm">Password</label>
+                        <label className="mb-1 block text-xs font-medium text-slate-100 sm:text-sm">{t("login.password")}</label>
                         <div className="relative">
                           <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 fill-none stroke-slate-400 sm:left-3.5 sm:h-5 sm:w-5" strokeWidth="2">
                             <rect x="4" y="11" width="16" height="10" rx="2" />
@@ -16713,14 +16750,14 @@ function App() {
                                 void handleLogin();
                               }
                             }}
-                            placeholder="Enter password"
+                            placeholder={t("login.passwordPlaceholder")}
                             className="h-11 w-full rounded-xl border border-white/10 bg-slate-950/45 pl-10 pr-11 text-sm text-white outline-none transition placeholder:text-slate-400 focus:border-orange-400 focus:ring-2 focus:ring-orange-400/15 sm:h-12 sm:rounded-2xl sm:pl-11 sm:pr-12 sm:text-base"
                           />
                           <button
                             type="button"
                             onClick={() => setShowPassword((current) => !current)}
                             className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-blue-400 sm:right-3.5"
-                            aria-label={showPassword ? "Hide password" : "Show password"}
+                            aria-label={showPassword ? t("login.hidePassword") : t("login.showPassword")}
                           >
                             {showPassword ? (
                               <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-current" strokeWidth="2">
@@ -16750,7 +16787,7 @@ function App() {
                           }}
                           className="text-xs font-medium text-blue-400 transition hover:text-orange-200 sm:text-sm"
                         >
-                          Forgot password?
+                          {t("login.forgotPassword")}
                         </button>
                       </div>
 
@@ -16762,10 +16799,10 @@ function App() {
                         {loginSubmitting ? (
                           <span className="inline-flex items-center justify-center gap-2">
                             <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-950/30 border-t-slate-950" />
-                            Signing in…
+                            {t("login.signingIn")}
                           </span>
                         ) : (
-                          "Sign in"
+                          t("login.signIn")
                         )}
                       </button>
                     </form>
@@ -17053,10 +17090,10 @@ function App() {
                       ? "border-rose-500/40 bg-rose-500/15 text-rose-100"
                       : "border-rose-200 bg-rose-50 text-rose-800",
                   ].join(" ")}
-                  aria-label="Log out"
+                  aria-label={t("common.logOut")}
                 >
                   <AppIcon name="logOut" className="h-3.5 w-3.5" />
-                  Log out
+                  {t("common.logOut")}
                 </button>
               </div>
             ) : (
@@ -17126,7 +17163,7 @@ function App() {
                         : roleTheme?.navHover ?? "text-slate-200 hover:bg-white/8 hover:text-white",
                       desktopSidebarCollapsed ? "justify-center px-2" : "",
                     ].join(" ")}
-                    title={item.label}
+                    title={navLabelForItem(item)}
                   >
                     <AppIcon name={item.icon} className="h-4 w-4 shrink-0 opacity-95" />
                     {!desktopSidebarCollapsed && <span className="truncate">{navLabelForItem(item)}</span>}
@@ -17148,7 +17185,7 @@ function App() {
                     aria-expanded={shellMoreExpanded}
                   >
                     <AppIcon name="grid" className="h-4 w-4 shrink-0" />
-                    {!desktopSidebarCollapsed && <span>More</span>}
+                    {!desktopSidebarCollapsed && <span>{t("common.more")}</span>}
                   </button>
                   {shellMoreExpanded && (
                     <div className="mt-1 space-y-1 pl-1">
@@ -17192,11 +17229,11 @@ function App() {
                   "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold text-rose-200 transition hover:bg-rose-500/15 hover:text-white",
                   desktopSidebarCollapsed ? "justify-center px-2" : "",
                 ].join(" ")}
-                aria-label="Log out"
-                title="Log out"
+                aria-label={t("common.logOut")}
+                title={t("common.logOut")}
               >
                 <AppIcon name="logOut" className="h-4 w-4 shrink-0 opacity-95" />
-                {!desktopSidebarCollapsed && <span className="truncate">Log out</span>}
+                {!desktopSidebarCollapsed && <span className="truncate">{t("common.logOut")}</span>}
               </button>
               <div
                 className={[
@@ -18653,6 +18690,7 @@ function App() {
                 accountNameInput={accountNameInput}
                 accountPhotoUrl={accountPhotoUrl}
                 themeMode={themeMode}
+                uiLanguage={uiLanguage}
                 companyName={activeCompanyContext.companyName}
                 actingCompanyName={
                   currentUser.role === "Master" ? activeCompanyContext.companyName : undefined
@@ -18661,6 +18699,7 @@ function App() {
                 onAccountNameChange={setAccountNameInput}
                 onAccountPhotoChange={handleAccountPhotoChange}
                 onThemeModeChange={setThemeMode}
+                onUiLanguageChange={handleUiLanguageChange}
                 onSave={handleSaveAccountSettings}
                 workspaceSetupLimitedShell={godCompanySetupOnlyShell}
                 onOpenFullAppNavigation={godCompanySetupOnlyShell ? handleLeaveMasterWorkspaceSetupOnly : undefined}
@@ -18836,9 +18875,9 @@ function App() {
                   onClick={(event) => event.stopPropagation()}
                   role="dialog"
                   aria-modal="true"
-                  aria-label="More navigation"
+                  aria-label={t("common.more")}
                 >
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">More</p>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{t("common.more")}</p>
                   <div className="grid max-h-[46vh] gap-2 overflow-y-auto">
                     {mobileMoreDestinations.map((item) => (
                       <button
@@ -18873,10 +18912,10 @@ function App() {
                         setMobileMoreOpen(false);
                       }}
                       className="flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-semibold text-rose-600"
-                      aria-label="Log out"
+                      aria-label={t("common.logOut")}
                     >
                       <AppIcon name="logOut" className="h-5 w-5" />
-                      Log out
+                      {t("common.logOut")}
                     </button>
                   );
                 }
@@ -18894,7 +18933,7 @@ function App() {
                       ].join(" ")}
                     >
                       <AppIcon name="grid" className="h-5 w-5" />
-                      More
+                      {t("common.more")}
                     </button>
                   );
                 }
@@ -18914,7 +18953,7 @@ function App() {
                     ].join(" ")}
                   >
                     <AppIcon name={entry.icon} className="h-5 w-5" />
-                    {entry.label}
+                    {translateNavLabel(t, entry)}
                   </button>
                 );
               })}

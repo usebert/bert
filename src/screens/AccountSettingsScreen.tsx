@@ -1,25 +1,29 @@
 import { canCompleteAuditAsAuditor } from "../permissions";
 import { getRoleTheme } from "../config/roleTheme";
 import { AccountIdentitySummary } from "../components/AccountIdentitySummary";
+import { LanguageSelector } from "../components/i18n/LanguageSelector";
 import type { AccountSettingsScreenProps } from "../types/accountScreenProps";
 import { darkPanelDescription, darkPanelEyebrow, darkPanelShellCompact, darkPanelTitleSm } from "../styles/darkPanel";
-import { UX_STATUS } from "../utils/uxDeclutter";
+import { useTranslation } from "react-i18next";
 
 export function AccountSettingsScreen({
   currentUser,
   accountNameInput,
   accountPhotoUrl,
   themeMode,
+  uiLanguage,
   companyName,
   actingCompanyName,
   slatePrimaryCtaInteract,
   onAccountNameChange,
   onAccountPhotoChange,
   onThemeModeChange,
+  onUiLanguageChange,
   onSave,
   workspaceSetupLimitedShell,
   onOpenFullAppNavigation,
 }: AccountSettingsScreenProps) {
+  const { t } = useTranslation();
   const godMode = currentUser.role === "Master";
   const fieldAuditor = canCompleteAuditAsAuditor(currentUser.role);
   const theme = getRoleTheme(currentUser.role);
@@ -34,38 +38,36 @@ export function AccountSettingsScreen({
         ].join(" ")}
       >
         <p className={fieldAuditor ? "text-xs font-semibold uppercase tracking-[0.3em] text-violet-700" : darkPanelEyebrow}>
-          Account
+          {t("account.section")}
         </p>
         <h2 className={fieldAuditor ? "mt-1 text-xl font-semibold tracking-tight text-slate-900" : darkPanelTitleSm}>
-          {godMode ? "Device settings" : fieldAuditor ? "Your profile" : "Manage your profile"}
+          {godMode ? t("account.deviceSettings") : fieldAuditor ? t("account.yourProfile") : t("account.manageProfile")}
         </h2>
         <p className={["mt-1", fieldAuditor ? "text-sm leading-5 text-slate-600" : darkPanelDescription].join(" ")}>
           {godMode
-            ? "Control the appearance and device-level settings used for platform setup."
+            ? t("account.deviceSettingsBody")
             : fieldAuditor
-              ? `Update how you appear on this tablet at ${companyName}.`
-              : "Update your display name, profile photo, and appearance for this device."}
+              ? t("account.profileBodyTablet", { companyName })
+              : t("account.profileBody")}
         </p>
       </section>
 
       {workspaceSetupLimitedShell && onOpenFullAppNavigation ? (
         <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-sm font-semibold text-slate-900">Workspace setup</p>
-          <p className="mt-1 text-sm text-slate-500">
-            You are in setup-only mode (onboarding only). Open the full app when you need the rest of BERT on this device.
-          </p>
+          <p className="text-sm font-semibold text-slate-900">{t("account.workspaceSetup")}</p>
+          <p className="mt-1 text-sm text-slate-500">{t("account.workspaceSetupBody")}</p>
           <button
             type="button"
             onClick={onOpenFullAppNavigation}
             className={`mt-4 h-12 w-full rounded-2xl border border-slate-300 bg-slate-50 text-sm font-semibold text-slate-900 ${slatePrimaryCtaInteract}`}
           >
-            Open full BERT navigation
+            {t("account.openFullNav")}
           </button>
         </section>
       ) : null}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Signed in as</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{t("account.signedInAs")}</p>
         <div className="mt-3">
           <AccountIdentitySummary
             name={accountNameInput || currentUser.name}
@@ -99,7 +101,7 @@ export function AccountSettingsScreen({
                   slatePrimaryCtaInteract,
                 ].join(" ")}
               >
-                Upload photo
+                {t("account.uploadPhoto")}
                 <input
                   type="file"
                   accept="image/*"
@@ -120,8 +122,8 @@ export function AccountSettingsScreen({
 
       {!fieldAuditor && (
         <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-sm font-semibold text-slate-900">Appearance</p>
-          <p className="mt-1 text-sm text-slate-500">Choose how {companyName} looks on this tablet.</p>
+          <p className="text-sm font-semibold text-slate-900">{t("account.appearance")}</p>
+          <p className="mt-1 text-sm text-slate-500">{t("account.appearanceHint", { companyName })}</p>
           <div className="mt-4 grid grid-cols-2 gap-3">
             {(["light", "dark"] as const).map((mode) => {
               const selected = themeMode === mode;
@@ -136,9 +138,9 @@ export function AccountSettingsScreen({
                       : "border-slate-200 bg-slate-50 text-slate-700",
                   ].join(" ")}
                 >
-                  <p className="text-sm font-semibold">{mode === "light" ? "Light mode" : "Dark mode"}</p>
+                  <p className="text-sm font-semibold">{mode === "light" ? t("account.lightMode") : t("account.darkMode")}</p>
                   <p className={["mt-1 text-xs leading-5", selected ? "text-slate-300" : "text-slate-500"].join(" ")}>
-                    {mode === "light" ? "Bright interface for daylight and site trials." : "Lower-glare interface for darker settings and a sharper look."}
+                    {mode === "light" ? t("account.lightModeHint") : t("account.darkModeHint")}
                   </p>
                 </button>
               );
@@ -147,14 +149,16 @@ export function AccountSettingsScreen({
         </section>
       )}
 
+      <LanguageSelector value={uiLanguage} onChange={onUiLanguageChange} />
+
       {!godMode && (
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <label className="mb-2 block text-sm font-medium text-slate-700">Display name</label>
+          <label className="mb-2 block text-sm font-medium text-slate-700">{t("account.displayName")}</label>
           <input
             value={accountNameInput}
             onChange={(event) => onAccountNameChange(event.target.value)}
             className="min-h-[3rem] w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-base text-slate-900 outline-none transition focus:border-violet-400 focus:bg-white"
-            placeholder="Enter your name"
+            placeholder={t("account.displayNamePlaceholder")}
           />
           <button
             onClick={onSave}
@@ -165,7 +169,7 @@ export function AccountSettingsScreen({
               slatePrimaryCtaInteract,
             ].join(" ")}
           >
-            {UX_STATUS.saved}
+            {t("common.saved")}
           </button>
         </section>
       )}

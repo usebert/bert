@@ -1,4 +1,5 @@
 import { useMemo, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import type { NavItemId } from "../../types/navigation";
 import type { BriefingRecipientRecord } from "../../types/briefings";
 import type { ActionItem } from "../../types/reportsScreenProps";
@@ -117,6 +118,7 @@ export function AuditorTaskDashboard({
   onNavigate,
 }: Props) {
   void currentUser;
+  const { t } = useTranslation();
 
   const sortedChecks = useMemo(
     () =>
@@ -162,7 +164,7 @@ export function AuditorTaskDashboard({
     (syncIssueCount > 0 ? 1 : 0);
 
   return (
-    <RoleDashboardShell role="Auditor" title="My work today" subtitle="What you need to do next.">
+    <RoleDashboardShell role="Auditor" title={t("dashboard.auditorTitle")} subtitle={t("dashboard.auditorSubtitle")}>
       <DashboardLayoutBoard
         catalogId="auditor-task"
         companyFolderId={companyFolderId}
@@ -213,7 +215,7 @@ export function AuditorTaskDashboard({
           </p>
         ) : (
           <div className="space-y-5">
-            <PrioritySection title="Checks due today" count={dueTodayChecks.length}>
+            <PrioritySection title={t("dashboard.checksDueToday")} count={dueTodayChecks.length}>
               <ul className="space-y-2">
                 {dueTodayChecks.slice(0, 6).map((audit) => (
                   <AssignedCheckActionRow
@@ -228,7 +230,7 @@ export function AuditorTaskDashboard({
               </ul>
             </PrioritySection>
 
-            <PrioritySection title="Overdue checks" count={overdueChecks.length}>
+            <PrioritySection title={t("dashboard.overdueChecks")} count={overdueChecks.length}>
               <ul className="space-y-2">
                 {overdueChecks.slice(0, 6).map((audit) => (
                   <AssignedCheckActionRow
@@ -243,7 +245,7 @@ export function AuditorTaskDashboard({
               </ul>
             </PrioritySection>
 
-            <PrioritySection title="My open actions" count={openActions.length}>
+            <PrioritySection title={t("dashboard.myOpenActions")} count={openActions.length}>
               <ul className="space-y-2">
                 {openActions.slice(0, 6).map((action: ActionItem) => (
                   <ActionPriorityRow
@@ -257,7 +259,7 @@ export function AuditorTaskDashboard({
               </ul>
             </PrioritySection>
 
-            <PrioritySection title="Briefings to read/sign" count={pendingBriefings.length}>
+            <PrioritySection title={t("dashboard.briefingsToRead")} count={pendingBriefings.length}>
               <ul className="space-y-2">
                 {pendingBriefings.slice(0, 6).map((item) => (
                   <ActionPriorityRow
@@ -288,7 +290,7 @@ export function AuditorTaskDashboard({
 
             {syncIssueCount > 0 ? (
               <PrioritySection
-                title="Failed / offline sync"
+                title={t("dashboard.failedOfflineSync")}
                 count={syncIssueCount}
                 emptyText="All work is synced."
               >

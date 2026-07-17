@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import type { NavItemId } from "../../types/navigation";
 import type { ActionItem } from "../../types/reportsScreenProps";
 import type { AuditDraft } from "../../types/dashboardScreenProps";
@@ -37,12 +38,15 @@ type Props = ManagerDashboardProps & {
   onViewAllBriefings?: () => void;
 };
 
-function actionStatusLabel(action: ActionItem): { label: string; tone: "danger" | "warning" | "info" | "neutral" } {
-  if (isOverdue(action)) return { label: "Overdue", tone: "danger" };
+function actionStatusLabel(
+  action: ActionItem,
+  labels: { overdue: string; evidenceNeeded: string; open: string },
+): { label: string; tone: "danger" | "warning" | "info" | "neutral" } {
+  if (isOverdue(action)) return { label: labels.overdue, tone: "danger" };
   if (action.status !== "Closed" && action.evidenceRequired && action.evidenceCount === 0) {
-    return { label: "Evidence needed", tone: "warning" };
+    return { label: labels.evidenceNeeded, tone: "warning" };
   }
-  if (action.status === "Open") return { label: "Open", tone: "info" };
+  if (action.status === "Open") return { label: labels.open, tone: "info" };
   return { label: action.status, tone: "neutral" };
 }
 
@@ -80,6 +84,12 @@ export function ManagerRoleDashboard({
   void workspaceName;
   void teamCount;
   void managerProps;
+  const { t } = useTranslation();
+  const statusLabels = {
+    overdue: t("common.overdue"),
+    evidenceNeeded: t("common.evidenceNeeded"),
+    open: t("common.openStatus"),
+  };
 
   const overdueActions = useMemo(() => actions.filter((action) => isOverdue(action)), [actions]);
   const evidenceNeededActions = useMemo(
@@ -178,7 +188,7 @@ export function ManagerRoleDashboard({
         ) : (
           <ul className="mt-2">
             {openActions.slice(0, 8).map((action) => {
-              const { label, tone } = actionStatusLabel(action);
+              const { label, tone } = actionStatusLabel(action, statusLabels);
               const title = action.suggestedActionTitle || action.auditName || action.questionText;
               const area = action.siteArea || action.owner;
               return (
@@ -240,10 +250,10 @@ export function ManagerRoleDashboard({
   return (
     <RoleDashboardShell
       role="Manager"
-      eyebrow="Manager"
-      title="What needs fixing?"
-      subtitle="Failed checks, open actions, and evidence waiting for review. No setup clutter."
-      primaryAction={{ label: "View actions", onClick: () => onNavigate("actions"), icon: "alert" }}
+      eyebrow={t("dashboard.managerEyebrow")}
+      title={t("dashboard.managerTitle")}
+      subtitle={t("dashboard.managerSubtitle")}
+      primaryAction={{ label: t("dashboard.openActions"), onClick: () => onNavigate("actions"), icon: "alert" }}
     >
       <DashboardLayoutBoard
         catalogId="manager-role"

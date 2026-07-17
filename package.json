@@ -62,6 +62,7 @@
     "verify:people-cache": "node scripts/verify-people-cache.mjs",
     "verify:loler": "node scripts/verify-loler.mjs",
     "verify:loler-phase-2": "node scripts/verify-loler-phase-2.mjs",
+    "verify:ui-i18n-stage1": "node scripts/verify-ui-i18n-stage1.mjs",
     "verify:calendar": "node scripts/verify-calendar.mjs",
     "verify:pilot-readiness": "node scripts/verify-pilot-readiness.mjs",
     "verify:godmode-company-context": "node scripts/verify-godmode-company-context.mjs",
@@ -171,9 +172,11 @@
     "dotenv": "^16.5.0",
     "express": "^4.21.2",
     "googleapis": "^144.0.0",
+    "i18next": "^26.3.6",
     "nodemailer": "^8.0.7",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "react-i18next": "^17.0.10",
     "recharts": "^2.15.4"
   },
   "devDependencies": {

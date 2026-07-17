@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "../App";
 import { migrateLegacyStorageKeysOnce } from "./config/storageKeys";
 import { runAppContextBootstrap } from "./utils/clearStaleCompanyLocalStorage";
+import "./i18n";
 import "./index.css";
 
 migrateLegacyStorageKeysOnce();
