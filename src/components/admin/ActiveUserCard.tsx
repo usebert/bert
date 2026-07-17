@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { Role } from "../../permissions";
+import { translateRoleLabel } from "../../i18n/statusLabels";
 import { getEditableCompanyMemberRoles } from "../../permissions";
 import type { CompanyMember } from "../../services/companyUserService";
 import type { StructureEntity } from "../../services/companyStructureService";
@@ -11,7 +13,7 @@ import {
 } from "../../services/companyStructureService";
 import { DangerActionButton } from "../DangerActionButton";
 import { ArchiveRecordButton } from "../archive/ArchiveRecordButton";
-import { formatInviteStatusLabel, formatUserRoleLabel } from "../../utils/inviteStatusDisplay";
+import { formatInviteStatusLabel } from "../../utils/inviteStatusDisplay";
 import {
   accessScopeFromPersonRecord,
   canEditPersonAccess,
@@ -45,13 +47,16 @@ export type ActiveUserCardProps = {
   slatePrimaryCtaInteract: string;
 };
 
-function formatMemberStatus(status: string): string {
+function formatMemberStatus(t: ReturnType<typeof useTranslation>["t"], status: string): string {
   const normalized = String(status || "ACTIVE").trim().toUpperCase();
   if (normalized === "ACTIVE") {
-    return "Active";
+    return t("people.active");
   }
   if (normalized === "INACTIVE") {
-    return "Inactive";
+    return t("people.inactive");
+  }
+  if (normalized === "PENDING") {
+    return t("people.pending");
   }
   return formatInviteStatusLabel(status);
 }
@@ -145,6 +150,7 @@ export function ActiveUserCard({
   editing = false,
   slatePrimaryCtaInteract,
 }: ActiveUserCardProps) {
+  const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [accessOpen, setAccessOpen] = useState(false);
@@ -253,14 +259,14 @@ export function ActiveUserCard({
           <p className="mt-0.5 truncate text-xs text-slate-500">{member.email}</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <span className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-xs font-semibold text-slate-700">
-              {formatUserRoleLabel(member.role)}
+              {translateRoleLabel(t, member.role)}
             </span>
             <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
-              {formatMemberStatus(member.status)}
+              {formatMemberStatus(t, member.status)}
             </span>
           </div>
           <p className="mt-2 text-xs text-slate-500">
-            <span className="font-semibold text-slate-600">Access:</span>{" "}
+            <span className="font-semibold text-slate-600">{t("people.access")}:</span>{" "}
             {accessSummary.replace(/^Access:\s*/, "")}
           </p>
           {canEditAccess ? (
@@ -273,7 +279,7 @@ export function ActiveUserCard({
               }}
               className="mt-2 h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700"
             >
-              {accessOpen ? "Close access" : "Edit Access"}
+              {accessOpen ? t("people.closeAccess") : t("people.editAccess")}
             </button>
           ) : null}
         </div>
@@ -297,7 +303,7 @@ export function ActiveUserCard({
                   }}
                   className="block w-full px-3 py-2 text-left text-sm font-medium text-slate-800 hover:bg-slate-50"
                 >
-                  Edit user
+                  {t("people.editUser")}
                 </button>
                 {!isSelf && canArchive && archiveCompanyFolderId ? (
                   <div className="px-3 py-2">
@@ -308,7 +314,7 @@ export function ActiveUserCard({
                       masterSheetId={archiveMasterSheetId}
                       offlineMode={archiveOffline}
                       canArchive={canArchive}
-                      label="Archive user"
+                      label={t("people.archiveUser")}
                       className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm font-medium text-slate-800 hover:bg-slate-50"
                       extraMessage="The user can be reactivated from Archive if needed."
                       onArchived={() => onArchivedUser?.(member)}
@@ -326,7 +332,7 @@ export function ActiveUserCard({
                     }}
                     className="block w-full px-3 py-2 text-left text-sm font-medium text-amber-900 hover:bg-amber-50"
                   >
-                    Deactivate
+                    {t("people.deactivate")}
                   </button>
                 ) : null}
                 {!isSelf && onRemove ? (
@@ -338,7 +344,7 @@ export function ActiveUserCard({
                     }}
                     className="block w-full rounded-none border-0 px-3 py-2 text-left text-sm font-medium"
                   >
-                    Remove user
+                    {t("people.removeUser")}
                   </DangerActionButton>
                 ) : null}
               </div>
@@ -350,12 +356,12 @@ export function ActiveUserCard({
       {accessOpen ? (
         <div className="mt-3 space-y-3 rounded-xl border border-slate-200 bg-white p-3">
           <ScopeMultiSelect
-            label="Site access"
-            allLabel="All sites"
+            label={t("people.siteAccess")}
+            allLabel={t("common.allSites")}
             allSelected={draftAccess.allSites}
             options={catalogs.sites}
             selectedIds={draftAccess.siteIds}
-            addNewLabel="+ Add new site"
+            addNewLabel={t("people.addNewSite")}
             onToggleAll={() =>
               setDraftAccess((prev) => ({ ...prev, allSites: true, siteIds: [] }))
             }
@@ -390,12 +396,12 @@ export function ActiveUserCard({
             }}
           />
           <ScopeMultiSelect
-            label="Department access"
-            allLabel="All departments"
+            label={t("people.departmentAccess")}
+            allLabel={t("people.allDepartments")}
             allSelected={draftAccess.allDepartments}
             options={catalogs.departments}
             selectedIds={draftAccess.departmentIds}
-            addNewLabel="+ Add new department"
+            addNewLabel={t("people.addNewDepartment")}
             onToggleAll={() =>
               setDraftAccess((prev) => ({ ...prev, allDepartments: true, departmentIds: [] }))
             }
@@ -433,12 +439,12 @@ export function ActiveUserCard({
             }}
           />
           <ScopeMultiSelect
-            label="Area access"
-            allLabel="All areas"
+            label={t("sites.areaAccess")}
+            allLabel={t("common.allAreas")}
             allSelected={draftAccess.allAreas}
             options={catalogs.areas}
             selectedIds={draftAccess.areaIds}
-            addNewLabel="+ Add new area"
+            addNewLabel={t("people.addNewArea")}
             onToggleAll={() =>
               setDraftAccess((prev) => ({ ...prev, allAreas: true, areaIds: [] }))
             }
@@ -480,14 +486,14 @@ export function ActiveUserCard({
               onClick={() => void saveAccess()}
               className={`h-10 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:opacity-60 ${slatePrimaryCtaInteract}`}
             >
-              {accessSaving ? "Saving…" : "Save access"}
+              {accessSaving ? t("common.saving") : t("people.saveAccess")}
             </button>
             <button
               type="button"
               onClick={() => setAccessOpen(false)}
               className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700"
             >
-              Cancel
+              {t("common.cancel")}
             </button>
           </div>
         </div>
@@ -496,7 +502,7 @@ export function ActiveUserCard({
       {editOpen ? (
         <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
           <label className="block">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Display name</span>
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("people.displayName")}</span>
             <input
               value={draftName}
               onChange={(event) => setDraftName(event.target.value)}
@@ -504,7 +510,7 @@ export function ActiveUserCard({
             />
           </label>
           <label className="mt-3 block">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Role</span>
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("people.role")}</span>
             <select
               value={draftRole}
               onChange={(event) => setDraftRole(event.target.value)}
@@ -513,7 +519,7 @@ export function ActiveUserCard({
             >
               {editableRoles.map((role) => (
                 <option key={role} value={role}>
-                  {formatUserRoleLabel(role)}
+                  {translateRoleLabel(t, role)}
                 </option>
               ))}
             </select>
@@ -525,14 +531,14 @@ export function ActiveUserCard({
               onClick={() => void saveEdit()}
               className={`h-10 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:opacity-60 ${slatePrimaryCtaInteract}`}
             >
-              {editing ? "Saving…" : "Save changes"}
+              {editing ? t("common.saving") : t("templates.saveChanges")}
             </button>
             <button
               type="button"
               onClick={() => setEditOpen(false)}
               className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700"
             >
-              Cancel
+              {t("common.cancel")}
             </button>
           </div>
         </div>

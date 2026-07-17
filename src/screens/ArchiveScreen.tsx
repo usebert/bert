@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { EmptyPanel, SectionHeader } from "../components/dashboard/DashboardPrimitives";
 import {
   ARCHIVE_OFFLINE_MESSAGE,
@@ -11,16 +13,45 @@ import {
 import { restoreAuditTemplateAsRevision } from "../services/auditBuilderService";
 import type { ArchiveScreenProps, ArchiveSectionId } from "../types/archive";
 
-const SECTIONS: Array<{ id: ArchiveSectionId; label: string; restoreVerb: string }> = [
-  { id: "users", label: "Users", restoreVerb: "Reactivate" },
-  { id: "actions", label: "Actions", restoreVerb: "Restore" },
-  { id: "ncrs", label: "NCRs", restoreVerb: "Restore" },
-  { id: "incidents", label: "Incidents", restoreVerb: "Restore" },
-  { id: "briefings", label: "Briefings", restoreVerb: "Restore" },
-  { id: "audits", label: "Audits", restoreVerb: "Restore as new revision" },
-  { id: "googleForms", label: "Google Forms", restoreVerb: "Restore" },
-  { id: "schedules", label: "Schedules", restoreVerb: "Restore" },
+const SECTION_IDS: ArchiveSectionId[] = [
+  "users",
+  "actions",
+  "ncrs",
+  "incidents",
+  "briefings",
+  "audits",
+  "googleForms",
+  "schedules",
 ];
+
+function archiveSectionLabel(t: TFunction, sectionId: ArchiveSectionId): string {
+  switch (sectionId) {
+    case "users":
+      return t("nav.users");
+    case "actions":
+      return t("nav.actions");
+    case "ncrs":
+      return t("nav.nonConformance");
+    case "incidents":
+      return t("nav.incidents");
+    case "briefings":
+      return t("nav.briefings");
+    case "audits":
+      return t("nav.audits");
+    case "googleForms":
+      return t("nav.googleForms");
+    case "schedules":
+      return t("nav.schedules");
+    default:
+      return sectionId;
+  }
+}
+
+function archiveRestoreVerb(t: TFunction, sectionId: ArchiveSectionId): string {
+  if (sectionId === "users") return t("archiveCentre.reactivate");
+  if (sectionId === "audits") return t("archiveCentre.restoreAsRevision");
+  return t("archiveCentre.restore");
+}
 
 const TYPE_BY_SECTION: Record<ArchiveSectionId, string> = {
   users: "user",
@@ -53,6 +84,7 @@ export function ArchiveScreen({
   onToast,
   onViewAudit,
 }: ArchiveScreenProps) {
+  const { t } = useTranslation();
   const [activeSection, setActiveSection] = useState<ArchiveSectionId>("users");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -108,7 +140,8 @@ export function ArchiveScreen({
     void load();
   }, [load]);
 
-  const visibleSections = useMemo(() => SECTIONS, []);
+  const visibleSections = useMemo(() => SECTION_IDS, []);
+  const activeSectionLabel = archiveSectionLabel(t, activeSection);
   const activeItems = sections[activeSection] || [];
   const filteredItems = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -142,10 +175,10 @@ export function ArchiveScreen({
     const section = activeSection;
     const confirmed = window.confirm(
       section === "users"
-        ? "Reactivate this user? They will be able to access BERT again if their login details are valid."
+        ? t("archiveCentre.confirmReactivateUser")
         : section === "audits"
-          ? "Restore as a new revision? This creates a new active revision from the old version. It does not overwrite the current active form."
-          : "Restore this item? It will return to active views.",
+          ? t("archiveCentre.confirmRestoreAsRevision")
+          : t("archiveCentre.confirmRestore"),
     );
     if (!confirmed) return;
     setBusyId(item.id);
@@ -157,8 +190,8 @@ export function ArchiveScreen({
           reason: `Restored as new revision from archived template ${item.title}`,
         });
         onToast?.(
-          "Restored as new revision",
-          `${item.title} was restored as a new active revision. The previous active form was superseded.`,
+          t("archiveCentre.restoredAsRevision"),
+          t("archiveCentre.restoredAsRevisionBody", { title: item.title }),
           "success",
         );
         await load();
@@ -170,15 +203,19 @@ export function ArchiveScreen({
         masterSheetId,
       });
       if (!result.ok) {
-        onToast?.("Restore failed", result.message || result.error || "Could not restore item. Try again.", "warning");
+        onToast?.(t("archiveCentre.restoreFailed"), result.message || result.error || t("archiveCentre.restoreFailedBody"), "warning");
         return;
       }
-      onToast?.(section === "users" ? "User reactivated" : "Restored", `${item.title} is active again.`, "success");
+      onToast?.(
+        section === "users" ? t("archiveCentre.userReactivated") : t("archiveCentre.restored"),
+        t("archiveCentre.restoredActiveBody", { title: item.title }),
+        "success",
+      );
       await load();
     } catch (error) {
       onToast?.(
-        "Restore failed",
-        error instanceof Error ? error.message : "Could not restore item. Try again.",
+        t("archiveCentre.restoreFailed"),
+        error instanceof Error ? error.message : t("archiveCentre.restoreFailedBody"),
         "warning",
       );
     } finally {
@@ -190,53 +227,53 @@ export function ArchiveScreen({
     <div className="space-y-6">
       <SectionHeader
         icon="clipboard"
-        eyebrow="Company records"
-        title="Archive"
-        subtitle="View, restore, or reactivate archived records across the company."
+        eyebrow={t("archiveCentre.companyRecords")}
+        title={t("archiveCentre.title")}
+        subtitle={t("archiveCentre.subtitle")}
       />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {visibleSections.map((section) => (
+        {visibleSections.map((sectionId) => (
           <button
-            key={section.id}
+            key={sectionId}
             type="button"
-            onClick={() => setActiveSection(section.id)}
+            onClick={() => setActiveSection(sectionId)}
             className={[
               "rounded-2xl border px-4 py-4 text-left shadow-sm transition",
-              activeSection === section.id ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white hover:border-slate-300",
+              activeSection === sectionId ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white hover:border-slate-300",
             ].join(" ")}
           >
-            <p className={activeSection === section.id ? "text-xs font-semibold uppercase tracking-[0.14em] text-slate-300" : "text-xs font-semibold uppercase tracking-[0.14em] text-slate-500"}>
-              Archived {section.label}
+            <p className={activeSection === sectionId ? "text-xs font-semibold uppercase tracking-[0.14em] text-slate-300" : "text-xs font-semibold uppercase tracking-[0.14em] text-slate-500"}>
+              {t("archiveCentre.archivedSection", { section: archiveSectionLabel(t, sectionId) })}
             </p>
-            <p className="mt-2 text-3xl font-black">{counts[section.id] ?? 0}</p>
+            <p className="mt-2 text-3xl font-black">{counts[sectionId] ?? 0}</p>
           </button>
         ))}
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {visibleSections.map((section) => (
+        {visibleSections.map((sectionId) => (
           <button
-            key={`tab-${section.id}`}
+            key={`tab-${sectionId}`}
             type="button"
-            onClick={() => setActiveSection(section.id)}
+            onClick={() => setActiveSection(sectionId)}
             className={[
               "rounded-full px-4 py-2 text-sm font-semibold",
-              activeSection === section.id ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700",
+              activeSection === sectionId ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700",
             ].join(" ")}
           >
-            {section.label}
+            {archiveSectionLabel(t, sectionId)}
           </button>
         ))}
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <label className="block text-sm font-semibold text-slate-700">
-          Search archived {visibleSections.find((section) => section.id === activeSection)?.label.toLowerCase()}
+          {t("archiveCentre.searchSection", { section: activeSectionLabel })}
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by title, email, status, site, or reason"
+            placeholder={t("archiveCentre.searchPlaceholder")}
             className="mt-2 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
           />
         </label>
@@ -249,13 +286,13 @@ export function ArchiveScreen({
       ) : null}
 
       {loading ? (
-        <p className="text-sm text-slate-500">Loading archived records…</p>
+        <p className="text-sm text-slate-500">{t("archiveCentre.loading")}</p>
       ) : error ? (
-        <EmptyPanel title="Archive unavailable" text={error} />
+        <EmptyPanel title={t("archiveCentre.archiveUnavailable")} text={error} />
       ) : filteredItems.length === 0 ? (
         <EmptyPanel
-          title={`No archived ${visibleSections.find((section) => section.id === activeSection)?.label.toLowerCase()}`}
-          text="Archived records for this section will appear here."
+          title={t("archiveCentre.noArchivedSection", { section: activeSectionLabel })}
+          text={t("archiveCentre.emptySection")}
         />
       ) : (
         <ul className="space-y-3">
@@ -273,7 +310,7 @@ export function ArchiveScreen({
                           : undefined
                       }
                     >
-                      {String(item.status || "").toLowerCase() === "superseded" ? "Superseded" : "Archived"}
+                      {String(item.status || "").toLowerCase() === "superseded" ? t("archiveCentre.superseded") : t("archiveCentre.archived")}
                     </span>
                   </div>
                   <p className="mt-1 text-sm text-slate-500">
@@ -312,7 +349,7 @@ export function ArchiveScreen({
                       onClick={() => void handleRestore(item)}
                       className="inline-flex min-h-11 items-center justify-center rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm disabled:opacity-60"
                     >
-                      {visibleSections.find((section) => section.id === activeSection)?.restoreVerb || "Restore"}
+                      {archiveRestoreVerb(t, activeSection)}
                     </button>
                   ) : null}
                 </div>

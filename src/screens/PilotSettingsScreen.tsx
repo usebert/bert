@@ -1,4 +1,5 @@
 import type { NavItemId } from "../types/navigation";
+import { useTranslation } from "react-i18next";
 import type { User } from "../types/dashboardScreenProps";
 import { SECTION_INTROS } from "../config/sectionIntros";
 import { getRoleDisplayName } from "../permissions";
@@ -39,14 +40,15 @@ export function PilotSettingsScreen({
   onOpenAccount,
   slatePrimaryCtaInteract,
 }: Props) {
+  const { t } = useTranslation();
   return (
     <div className="space-y-4">
       <section className={[darkPanelShellCompact, themeMode === "dark" ? "!bg-slate-900" : ""].join(" ")}>
         <p className={darkPanelEyebrow}>
-          {currentUser.role === "Admin" ? "Tablet / Kiosk" : "Settings"}
+          {currentUser.role === "Admin" ? t("nav.tabletKiosk") : t("nav.settings")}
         </p>
         <h2 className={darkPanelTitleSm}>
-          {currentUser.role === "Admin" ? "Tablet / Kiosk" : "Account & advanced tools"}
+          {currentUser.role === "Admin" ? t("nav.tabletKiosk") : "Account & advanced tools"}
         </h2>
         {currentUser.role === "Admin" ? (
           <SectionIntro text={SECTION_INTROS.tabletKiosk} className="mt-2" tone="onDark" />
@@ -79,14 +81,14 @@ export function PilotSettingsScreen({
       ) : null}
 
       <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-sm">
-        <p className="text-sm font-semibold text-slate-900">Your account</p>
+        <p className="text-sm font-semibold text-slate-900">{t("nav.account")}</p>
         <p className="mt-1 text-sm text-slate-600">Update your display name, photo, and appearance.</p>
         <button
           type="button"
           onClick={onOpenAccount}
           className={`mt-3 h-11 rounded-2xl bg-slate-900 px-4 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}
         >
-          Open account settings
+          {t("account.manageProfile")}
         </button>
       </section>
 

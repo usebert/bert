@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 type Props = {
   open: boolean;
@@ -9,6 +10,7 @@ type Props = {
 };
 
 export function ArchiveConfirmDialog({ open, extraMessage, submitting = false, onCancel, onConfirm }: Props) {
+  const { t } = useTranslation();
   const [reason, setReason] = useState("");
 
   useEffect(() => {
@@ -30,18 +32,16 @@ export function ArchiveConfirmDialog({ open, extraMessage, submitting = false, o
         className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl"
       >
         <h2 id="archive-dialog-title" className="text-lg font-black text-slate-900">
-          Archive this item?
+          {t("archiveCentre.archiveThisItem")}
         </h2>
-        <p className="mt-2 text-sm leading-relaxed text-slate-600">
-          This will hide it from active views. You can restore it from Archive later.
-        </p>
+        <p className="mt-2 text-sm leading-relaxed text-slate-600">{t("archiveCentre.archiveConfirmBody")}</p>
         {extraMessage ? <p className="mt-2 text-sm text-slate-600">{extraMessage}</p> : null}
         <label className="mt-4 block text-sm font-semibold text-slate-700">
-          Reason for archiving
+          {t("archiveCentre.archiveReason")}
           <textarea
             value={reason}
             onChange={(event) => setReason(event.target.value)}
-            placeholder="Optional"
+            placeholder={t("archiveCentre.optional")}
             className="mt-2 min-h-[5rem] w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-slate-400"
           />
         </label>
@@ -52,7 +52,7 @@ export function ArchiveConfirmDialog({ open, extraMessage, submitting = false, o
             disabled={submitting}
             className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800"
           >
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             type="button"
@@ -60,7 +60,7 @@ export function ArchiveConfirmDialog({ open, extraMessage, submitting = false, o
             onClick={() => void onConfirm(reason.trim())}
             className="inline-flex min-h-11 items-center justify-center rounded-xl bg-slate-900 px-4 text-sm font-black text-white disabled:opacity-60"
           >
-            Archive
+            {t("nav.archive")}
           </button>
         </div>
       </div>

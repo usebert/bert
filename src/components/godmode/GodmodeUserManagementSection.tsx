@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import { useTranslation } from "react-i18next";
 import type { Role } from "../../permissions";
 import { ActiveUserCard } from "../admin/ActiveUserCard";
 import { canManageCompanyMembers } from "../../permissions";
@@ -120,16 +121,17 @@ export function GodmodeUserManagementSection({
   CompanyUserInviteEmailResultPanel,
   slatePrimaryCtaInteract,
 }: GodmodeUserManagementSectionProps) {
+  const { t } = useTranslation();
   return (
     <div className="space-y-4">
       <p className="text-xs text-slate-500">
         Send a company user invite. The recipient sets their name and password from the email link.
       </p>
       <div className={pilotLightNested}>
-        <p className="text-sm font-semibold text-slate-900">Invite users</p>
+        <p className="text-sm font-semibold text-slate-900">{t("people.inviteUsers")}</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className="block sm:col-span-2">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">User email</span>
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("godmode.userEmail")}</span>
             <input
               value={inviteEmailInput}
               onChange={(event) => onInviteEmailChange(event.target.value)}
@@ -138,7 +140,7 @@ export function GodmodeUserManagementSection({
             />
           </label>
           <label className="block">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Role</span>
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("people.role")}</span>
             <select
               value={inviteRoleInput}
               onChange={(event) => onInviteRoleChange(event.target.value as Role)}
@@ -158,7 +160,7 @@ export function GodmodeUserManagementSection({
           disabled={companyUserInviteEmailSending}
           className={`mt-3 h-11 w-full rounded-xl bg-slate-900 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 ${slatePrimaryCtaInteract}`}
         >
-          {companyUserInviteEmailSending ? "Sending…" : "Send invite link"}
+          {companyUserInviteEmailSending ? t("people.sending") : t("godmode.sendInviteLink")}
         </button>
         {companyUserInviteEmailResult ? (
           <>
@@ -268,7 +270,7 @@ export function GodmodeUserManagementSection({
       </div>
 
       <div className={pilotLightNested}>
-        <p className="text-sm font-semibold text-slate-900">Company people</p>
+        <p className="text-sm font-semibold text-slate-900">{t("people.companyPeople")}</p>
         {activeMembersLoadError ? (
           <div className="mt-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
             <p className="font-semibold">Could not load company people from the company workbook.</p>

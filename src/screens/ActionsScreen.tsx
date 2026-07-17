@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { SECTION_INTROS } from "../config/sectionIntros";
 import { SectionIntro } from "../components/SectionIntro";
 import { canCompleteAuditAsAuditor, getRolePermissions, type Role } from "../permissions";
@@ -123,6 +124,7 @@ function ActionDetailPanel({
   onArchiveError?: (message: string) => void;
   onArchiveSuccess?: () => void;
 }) {
+  const { t } = useTranslation();
   const chip = statusChipForAction(action.status);
   const urgency = getActionUrgency(action);
   const urgencyTone =
@@ -154,7 +156,7 @@ function ActionDetailPanel({
               masterSheetId={archiveMasterSheetId}
               offlineMode={archiveOffline}
               canArchive={canArchiveAction}
-              label="Archive action"
+              label={t("actions.archiveAction")}
               extraMessage="It will be hidden from active views and can be restored from Archive."
               onArchived={() => onActionArchived(action.id)}
               onError={onArchiveError}
@@ -186,11 +188,11 @@ function ActionDetailPanel({
             label={
               action.evidenceRequired
                 ? action.evidenceCount === 0
-                  ? "Evidence required"
+                  ? t("actions.evidenceRequired")
                   : `${action.evidenceCount} photos`
                 : action.evidenceCount > 0
                   ? `${action.evidenceCount} photos`
-                  : "Evidence optional"
+                  : t("actions.evidenceOptional")
             }
           />
           {action.siteArea ? <MetaPill icon="clipboard" label={action.siteArea} /> : null}
@@ -237,7 +239,7 @@ function ActionDetailPanel({
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
           {cta.kind === "uploadEvidence" ? (
             <EvidenceUploadChoice
-              triggerLabel="Upload evidence"
+              triggerLabel={t("actions.uploadEvidence")}
               triggerClassName={`min-h-[48px] rounded-2xl bg-[var(--bert-signal-orange)] px-5 text-sm font-semibold text-[var(--qms-navy-950)] shadow-sm focus-visible:outline focus-visible:ring-2 focus-visible:ring-orange-300 ${slatePrimaryCtaInteract}`}
               onFiles={(files) => onAddEvidence(action.id, files)}
             />
@@ -274,7 +276,7 @@ function ActionDetailPanel({
               onClick={() => onAdvanceAction(action.id, "Awaiting Verification")}
               className="min-h-[44px] rounded-2xl border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-800 focus-visible:outline focus-visible:ring-2 focus-visible:ring-slate-300"
             >
-              Mark ready for review
+              {t("actions.markReadyForReview")}
             </button>
           ) : null}
           {permissions.canVerifyActions && action.status === "Awaiting Verification" ? (
@@ -289,7 +291,7 @@ function ActionDetailPanel({
         </div>
         {action.status !== "Closed" && cta.kind !== "uploadEvidence" ? (
           <EvidenceUploadChoice
-            triggerLabel="Upload evidence"
+            triggerLabel={t("actions.uploadEvidence")}
             triggerClassName="min-h-[48px] w-full max-w-xs rounded-2xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-slate-300"
             onFiles={(files) => onAddEvidence(action.id, files)}
           />
@@ -437,6 +439,7 @@ export function ActionsScreen({
   onArchiveError?: (message: string) => void;
   onArchiveSuccess?: () => void;
 }) {
+  const { t } = useTranslation();
   const canArchiveAction = canArchiveRecordFromClient(currentUser.role, "action");
   const canReviewSuggestions = currentUser.role === "Admin" || currentUser.role === "Manager";
   const permissions = getRolePermissions(currentUser.role);
@@ -479,7 +482,7 @@ export function ActionsScreen({
           </div>
           <div>
             <h2 className="text-2xl font-semibold tracking-tight text-slate-900">
-              {canCompleteAuditAsAuditor(currentUser.role) ? "My actions" : "Corrective actions"}
+              {canCompleteAuditAsAuditor(currentUser.role) ? t("actions.myActions") : t("actions.title")}
             </h2>
             <SectionIntro
               text={SECTION_INTROS.correctiveActions}
@@ -491,7 +494,7 @@ export function ActionsScreen({
       </section>
 
       <details className="rounded-[1.75rem] border border-slate-200/90 bg-white p-4 shadow-sm">
-        <summary className="cursor-pointer text-sm font-semibold text-slate-900">Filter list (advanced)</summary>
+        <summary className="cursor-pointer text-sm font-semibold text-slate-900">{t("actions.filterAdvanced")}</summary>
         <div className="mt-3 grid gap-3 sm:grid-cols-3">
           <select
             value={actionFilter}
@@ -531,12 +534,12 @@ export function ActionsScreen({
       </details>
 
       <section className="rounded-[1.75rem] border border-slate-200/90 bg-white p-4 shadow-sm">
-        <label className="mb-2 block text-sm font-semibold text-slate-900">Open corrective action</label>
-        <p className="mb-3 text-sm text-slate-500">Choose an open action to view details and update it.</p>
+        <label className="mb-2 block text-sm font-semibold text-slate-900">{t("actions.openCorrectiveAction")}</label>
+        <p className="mb-3 text-sm text-slate-500">{t("actions.chooseOpenAction")}</p>
         {openActions.length === 0 ? (
           <EmptyPanel
-            title="No open actions"
-            text="Nothing needs follow-up here right now. Failed or flagged answers from audits can create actions automatically."
+            title={t("actions.noOpenActions")}
+            text={t("actions.noOpenActionsBody")}
           />
         ) : (
           <select
@@ -544,7 +547,7 @@ export function ActionsScreen({
             onChange={(event) => handleSelectAction(event.target.value)}
             className={`h-12 w-full rounded-2xl px-4 text-sm ${filterControl}`}
           >
-            <option value="">Select an open corrective action…</option>
+            <option value="">{t("actions.selectOpenAction")}</option>
             {openActions.map((action) => (
               <option key={action.id} value={action.id}>
                 {formatOpenActionOptionLabel(action)}
@@ -578,7 +581,7 @@ export function ActionsScreen({
         />
       ) : openActions.length > 0 ? (
         <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center text-sm text-slate-500">
-          Select an open corrective action above to see what to do next.
+          {t("actions.selectActionAbove")}
         </p>
       ) : null}
     </div>

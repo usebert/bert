@@ -1,4 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { apiUrl } from "../config/apiBase";
 import { parseJsonApiResponse } from "../utils/parseJsonApiResponse";
 import { darkPanelDescription, darkPanelEyebrow, darkPanelShellCompact, darkPanelTitleSm } from "../styles/darkPanel";
@@ -39,6 +40,7 @@ function defaultRemindAtLocal() {
 }
 
 export function EmailRemindersScreen({ userEmail, themeMode, slatePrimaryCtaInteract, devApiHeaders }: Props) {
+  const { t } = useTranslation();
   const [reminders, setReminders] = useState<EmailReminderRow[]>([]);
   const [smtpConfigured, setSmtpConfigured] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -138,8 +140,8 @@ export function EmailRemindersScreen({ userEmail, themeMode, slatePrimaryCtaInte
   return (
     <div className="space-y-4">
       <section className={[darkPanelShellCompact, themeMode === "dark" ? "!bg-slate-900" : ""].join(" ")}>
-        <p className={darkPanelEyebrow}>Email reminders</p>
-        <h2 className={darkPanelTitleSm}>Remind me by email</h2>
+        <p className={darkPanelEyebrow}>{t("reminders.eyebrow")}</p>
+        <h2 className={darkPanelTitleSm}>{t("reminders.title")}</h2>
         <p className={["mt-1", darkPanelDescription].join(" ")}>
           Schedule notes like “phone Ed today” or “insurance due next week”. We email{" "}
           <span className="font-semibold text-white">{userEmail}</span> at the time you choose.
@@ -183,7 +185,7 @@ export function EmailRemindersScreen({ userEmail, themeMode, slatePrimaryCtaInte
             disabled={saving || !smtpConfigured}
             className={`h-12 w-full rounded-2xl bg-[#ea580c] text-sm font-semibold text-white disabled:opacity-50 ${slatePrimaryCtaInteract}`}
           >
-            {saving ? "Saving…" : "Schedule email reminder"}
+            {saving ? t("reminders.saving") : t("reminders.scheduleReminder")}
           </button>
         </form>
       </section>
@@ -191,7 +193,7 @@ export function EmailRemindersScreen({ userEmail, themeMode, slatePrimaryCtaInte
       <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-sm">
         <p className="text-sm font-semibold text-slate-900">Upcoming</p>
         {loading ? (
-          <p className="mt-2 text-sm text-slate-500">Loading…</p>
+          <p className="mt-2 text-sm text-slate-500">{t("common.loading")}</p>
         ) : pending.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500">No pending reminders.</p>
         ) : (
@@ -205,7 +207,7 @@ export function EmailRemindersScreen({ userEmail, themeMode, slatePrimaryCtaInte
                   onClick={() => void handleCancel(row.id)}
                   className="mt-2 text-xs font-semibold text-slate-600 underline"
                 >
-                  Cancel
+                  {t("reminders.cancel")}
                 </button>
               </li>
             ))}

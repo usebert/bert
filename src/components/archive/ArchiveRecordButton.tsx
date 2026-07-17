@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ARCHIVE_OFFLINE_MESSAGE, archiveCompanyRecord } from "../../services/archiveService";
 import type { ClientArchiveRecordType } from "../../utils/archivePermissions";
 import { ArchiveConfirmDialog } from "./ArchiveConfirmDialog";
@@ -25,13 +26,14 @@ export function ArchiveRecordButton({
   masterSheetId,
   offlineMode = false,
   canArchive = true,
-  label = "Archive",
+  label,
   className = "rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:border-slate-300",
   extraMessage,
   onArchived,
   onError,
   onSuccess,
 }: Props) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -85,7 +87,7 @@ export function ArchiveRecordButton({
         }}
         className={[className, offlineMode ? "cursor-not-allowed opacity-60" : ""].join(" ")}
       >
-        {label}
+        {label ?? t("nav.archive")}
       </button>
       <ArchiveConfirmDialog
         open={open}

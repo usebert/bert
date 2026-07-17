@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { Role } from "../../permissions";
 import { SectionHeader } from "../dashboard/DashboardPrimitives";
 import {
@@ -34,6 +35,9 @@ function StructureList({
   addLabel,
   canManage,
   busy,
+  archiveLabel,
+  noneYetLabel,
+  activeCountLabel,
 }: {
   title: string;
   items: StructureEntity[];
@@ -42,6 +46,9 @@ function StructureList({
   addLabel: string;
   canManage: boolean;
   busy: boolean;
+  archiveLabel: string;
+  noneYetLabel: string;
+  activeCountLabel: (count: number) => string;
 }) {
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -67,12 +74,12 @@ function StructureList({
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{title}</p>
         <span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-semibold text-slate-600">
-          {active.length} active
+          {activeCountLabel(active.length)}
         </span>
       </div>
       <ul className="mt-3 space-y-2">
         {active.length === 0 ? (
-          <li className="text-sm text-slate-500">None yet.</li>
+          <li className="text-sm text-slate-500">{noneYetLabel}</li>
         ) : (
           active.map((item) => (
             <li
@@ -87,7 +94,7 @@ function StructureList({
                   onClick={() => void onArchive(item.id)}
                   className="h-9 shrink-0 rounded-lg border border-slate-300 px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
                 >
-                  Archive
+                  {archiveLabel}
                 </button>
               ) : null}
             </li>
@@ -125,6 +132,7 @@ export function CompanyStructurePanel({
   nestedClass = "",
   onStructureChange,
 }: CompanyStructurePanelProps) {
+  const { t } = useTranslation();
   const canManage = canManageCompanyStructure(currentUserRole);
   const [sites, setSites] = useState<StructureEntity[]>([]);
   const [departments, setDepartments] = useState<StructureEntity[]>([]);
@@ -188,9 +196,9 @@ export function CompanyStructurePanel({
     <section className={surfaceClass}>
       <SectionHeader
         icon="grid"
-        eyebrow="Company"
-        title="Company Structure"
-        subtitle="Sites, departments, and areas control where people can work. Role still controls what they can do."
+        eyebrow={t("onboarding.company")}
+        title={t("sites.structureTitle")}
+        subtitle={t("sites.structureSubtitle")}
         tone="onLight"
       />
 
@@ -199,15 +207,18 @@ export function CompanyStructurePanel({
           {loadError}
         </p>
       ) : null}
-      {loading ? <p className="mt-3 text-sm text-slate-500">Loading structure…</p> : null}
+      {loading ? <p className="mt-3 text-sm text-slate-500">{t("sites.loadingStructure")}</p> : null}
 
       <div className={`mt-4 grid gap-4 lg:grid-cols-3 ${nestedClass}`}>
         <StructureList
-          title="Sites"
+          title={t("sites.title")}
           items={sites}
           canManage={canManage}
           busy={busy}
-          addLabel="Add site"
+          addLabel={t("sites.addSite")}
+          archiveLabel={t("sites.archive")}
+          noneYetLabel={t("sites.noneYet")}
+          activeCountLabel={(count) => t("sites.activeCount", { count })}
           onAdd={async (name) => {
             setBusy(true);
             try {
@@ -233,11 +244,14 @@ export function CompanyStructurePanel({
         />
 
         <StructureList
-          title="Departments"
+          title={t("sites.departments")}
           items={departments}
           canManage={canManage}
           busy={busy}
-          addLabel="Add department"
+          addLabel={t("sites.addDepartment")}
+          archiveLabel={t("sites.archive")}
+          noneYetLabel={t("sites.noneYet")}
+          activeCountLabel={(count) => t("sites.activeCount", { count })}
           onAdd={async (name) => {
             setBusy(true);
             try {
@@ -264,14 +278,16 @@ export function CompanyStructurePanel({
 
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Areas</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{t("sites.areas")}</p>
             <span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-semibold text-slate-600">
-              {areas.filter((item) => item.active !== false && item.status !== "inactive").length} active
+              {t("sites.activeCount", {
+                count: areas.filter((item) => item.active !== false && item.status !== "inactive").length,
+              })}
             </span>
           </div>
           <ul className="mt-3 space-y-2">
             {areas.filter((item) => item.active !== false && item.status !== "inactive").length === 0 ? (
-              <li className="text-sm text-slate-500">None yet.</li>
+              <li className="text-sm text-slate-500">{t("sites.noneYet")}</li>
             ) : (
               areas
                 .filter((item) => item.active !== false && item.status !== "inactive")
@@ -307,7 +323,7 @@ export function CompanyStructurePanel({
                         }}
                         className="h-9 shrink-0 rounded-lg border border-slate-300 px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
                       >
-                        Archive
+                        {t("sites.archive")}
                       </button>
                     ) : null}
                   </li>
@@ -319,7 +335,7 @@ export function CompanyStructurePanel({
               <input
                 value={areaDraft.name}
                 onChange={(event) => setAreaDraft((prev) => ({ ...prev, name: event.target.value }))}
-                placeholder="New area name"
+                placeholder={t("sites.newAreaNamePlaceholder")}
                 className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
               />
               <select
@@ -327,7 +343,7 @@ export function CompanyStructurePanel({
                 onChange={(event) => setAreaDraft((prev) => ({ ...prev, siteId: event.target.value }))}
                 className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
               >
-                <option value="">Site (optional)</option>
+                <option value="">{t("sites.siteOptional")}</option>
                 {activeSites.map((site) => (
                   <option key={site.id} value={site.id}>
                     {site.name}
@@ -341,7 +357,7 @@ export function CompanyStructurePanel({
                 }
                 className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
               >
-                <option value="">Department (optional)</option>
+                <option value="">{t("sites.departmentOptional")}</option>
                 {activeDepartments.map((department) => (
                   <option key={department.id} value={department.id}>
                     {department.name}
@@ -380,7 +396,7 @@ export function CompanyStructurePanel({
                 }}
                 className="h-11 w-full rounded-xl bg-orange-500 px-4 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-60"
               >
-                Add area
+                {t("sites.addArea")}
               </button>
               {areaError ? <p className="text-sm text-rose-700">{areaError}</p> : null}
             </div>

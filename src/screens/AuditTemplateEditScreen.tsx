@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { FormLanguageCode } from "../config/templateLanguages";
 import { getRoleTheme } from "../config/roleTheme";
 import { CreateGoogleFormCopyOption } from "../components/forms/CreateGoogleFormCopyOption";
@@ -90,6 +91,7 @@ export function AuditTemplateEditScreen({
   onTemplateUpdated,
   onTemplateArchived,
 }: Props) {
+  const { t } = useTranslation();
   const theme = getRoleTheme(role);
   const requestOptions = { masterSheetId, companyFolderId, devApiHeaders };
   const [draft, setDraft] = useState<EditorDraft | null>(null);
@@ -163,7 +165,7 @@ export function AuditTemplateEditScreen({
           });
           setIsLocalOnly(true);
         } else {
-          setError("Template not found.");
+          setError(t("auditBuilder.templateNotFound"));
         }
       } finally {
         if (!cancelled) {
@@ -355,7 +357,7 @@ export function AuditTemplateEditScreen({
   if (loading) {
     return (
       <section className="rounded-[1.75rem] border border-slate-200/90 bg-white p-5 shadow-sm">
-        <p className="text-sm text-slate-600">Loading template…</p>
+        <p className="text-sm text-slate-600">{t("auditBuilder.loadingTemplate")}</p>
       </section>
     );
   }
@@ -363,7 +365,7 @@ export function AuditTemplateEditScreen({
   if (!draft || !recordMeta) {
     return (
       <section className="rounded-[1.75rem] border border-slate-200/90 bg-white p-5 shadow-sm">
-        <p className="text-sm font-medium text-rose-700">{error || "Template not found."}</p>
+        <p className="text-sm font-medium text-rose-700">{error || t("auditBuilder.templateNotFound")}</p>
         <button
           type="button"
           onClick={onBack}
@@ -384,7 +386,7 @@ export function AuditTemplateEditScreen({
           <div className="min-w-0 flex-1 space-y-3">
             <AuditCentreBackButton onClick={onBack} />
             <div>
-              <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Edit Audit Template</h2>
+              <h2 className="text-2xl font-semibold tracking-tight text-slate-900">{t("auditBuilder.editAuditTemplate")}</h2>
               <SectionIntro
                 text="Update sections, questions, and answer settings. Use Revise to create a controlled new revision of this form, or Copy to create a separate form with a new form number."
                 className="mt-2"
@@ -413,7 +415,7 @@ export function AuditTemplateEditScreen({
                   " ",
                 )}
               >
-                Revise
+                {t("auditBuilder.revise")}
               </button>
               <button
                 type="button"
@@ -428,7 +430,7 @@ export function AuditTemplateEditScreen({
                   " ",
                 )}
               >
-                Copy
+                {t("auditBuilder.copy")}
               </button>
               {recordMeta.form_number || recordMeta.revision_number ? (
                 <button
@@ -440,7 +442,7 @@ export function AuditTemplateEditScreen({
                     " ",
                   )}
                 >
-                  Revision History
+                  {t("auditBuilder.revisionHistory")}
                 </button>
               ) : null}
               {canArchiveRecordFromClient(role, "audit") && companyFolderId && recordMeta ? (
@@ -450,7 +452,7 @@ export function AuditTemplateEditScreen({
                   companyFolderId={companyFolderId}
                   masterSheetId={masterSheetId}
                   canArchive
-                  label="Archive"
+                  label={t("auditBuilder.archive")}
                   className="inline-flex h-11 items-center rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700"
                   onArchived={() => {
                     onTemplateArchived(recordMeta.id);
@@ -465,7 +467,7 @@ export function AuditTemplateEditScreen({
                   disabled={saving}
                   className="inline-flex h-11 items-center rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700"
                 >
-                  Archive
+                  {t("auditBuilder.archive")}
                 </button>
               )}
             </div>
@@ -475,7 +477,7 @@ export function AuditTemplateEditScreen({
 
       {showUsedWarning ? (
         <section className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <p className="font-semibold">Template already used</p>
+          <p className="font-semibold">{t("auditBuilder.templateAlreadyUsed")}</p>
           <p className="mt-1">{TEMPLATE_USED_WARNING}</p>
           <p className="mt-2 text-xs text-amber-800">
             Existing schedules keep the version they were created with. A future &quot;Update to latest version&quot; option
@@ -492,7 +494,7 @@ export function AuditTemplateEditScreen({
                 theme.primaryButtonHover,
               ].join(" ")}
             >
-              {saving ? "Saving…" : "Save as new revision"}
+              {saving ? t("auditBuilder.saving") : t("auditBuilder.saveAsNewRevision")}
             </button>
             <button
               type="button"
@@ -501,7 +503,7 @@ export function AuditTemplateEditScreen({
                 " ",
               )}
             >
-              Keep editing
+              {t("auditBuilder.keepEditing")}
             </button>
           </div>
         </section>
@@ -510,7 +512,7 @@ export function AuditTemplateEditScreen({
       <section className="space-y-4 rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block text-sm font-semibold text-slate-700">
-            Template name
+            {t("auditBuilder.templateName")}
             <input
               value={draft.template_name}
               onChange={(event) => setDraft({ ...draft, template_name: event.target.value })}
@@ -518,7 +520,7 @@ export function AuditTemplateEditScreen({
             />
           </label>
           <label className="block text-sm font-semibold text-slate-700">
-            Category
+            {t("auditBuilder.category")}
             <select
               value={draft.category}
               onChange={(event) => setDraft({ ...draft, category: event.target.value })}
@@ -533,7 +535,7 @@ export function AuditTemplateEditScreen({
           </label>
         </div>
         <label className="block text-sm font-semibold text-slate-700">
-          Description
+          {t("auditBuilder.description")}
           <textarea
             value={draft.description}
             onChange={(event) => setDraft({ ...draft, description: event.target.value })}
@@ -785,7 +787,7 @@ export function AuditTemplateEditScreen({
                   " ",
                 )}
               >
-                Add question
+                {t("auditBuilder.addQuestion")}
               </button>
             </div>
           ))}
@@ -798,7 +800,7 @@ export function AuditTemplateEditScreen({
             " ",
           )}
         >
-          Add section
+          {t("auditBuilder.addSection")}
         </button>
 
         {validationError ? <p className="text-sm font-medium text-rose-700">{validationError}</p> : null}
@@ -815,7 +817,7 @@ export function AuditTemplateEditScreen({
               theme.primaryButtonHover,
             ].join(" ")}
           >
-            {saving ? "Saving…" : "Save changes"}
+            {saving ? t("auditBuilder.saving") : t("auditBuilder.saveChanges")}
           </button>
         </div>
       </section>

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { translateScheduleFrequency } from "../i18n/statusLabels";
 import type { CompanyFolder, ScheduleAssigneeOption, ScheduleListFilter } from "../types/schedulesScreenProps";
 import type { ScheduleAssigneeDiagnostics } from "../utils/scheduleAssignees";
 import { formatUserRoleLabel } from "../utils/inviteStatusDisplay";
@@ -227,6 +229,22 @@ function scheduleLifecycleStatusChip(schedule: ManagedSchedule) {
   return resolveScheduleListStatusChip(schedule);
 }
 
+function scheduleListFilterLabel(
+  t: (key: string) => string,
+  filter: ScheduleListFilter,
+): string {
+  switch (filter) {
+    case "Live":
+      return t("schedules.live");
+    case "Archived":
+      return t("schedules.archivedFilter");
+    case "All schedules":
+      return t("schedules.allSchedules");
+    default:
+      return filter;
+  }
+}
+
 export function SchedulesScreen({
   selectedFolder,
   schedules,
@@ -336,6 +354,7 @@ export function SchedulesScreen({
   onArchiveError?: (message: string) => void;
   onArchiveSuccess?: () => void;
 }) {
+  const { t } = useTranslation();
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   const [editScrollNonce, setEditScrollNonce] = useState(0);
   const shouldScrollToEditRef = useRef(false);
@@ -415,8 +434,8 @@ export function SchedulesScreen({
               <SchedulesScreenIcon name="clock" className="h-5 w-5" />
             </div>
             <div>
-              <p className={darkPanelEyebrow}>Schedules</p>
-              <h2 className={darkPanelTitleLg}>Live schedules</h2>
+              <p className={darkPanelEyebrow}>{t("schedules.title")}</p>
+              <h2 className={darkPanelTitleLg}>{t("schedules.liveSchedules")}</h2>
               <p className={["mt-2", darkPanelBody].join(" ")}>
                 Create, edit, archive, and reactivate company audit schedules for {selectedFolder?.name || "the live workspace"}.
               </p>
@@ -431,7 +450,7 @@ export function SchedulesScreen({
             title={companyActionsBlocked ? companyActionsBlockedMessage : undefined}
             className={`h-12 rounded-2xl px-5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${brandAccentFormField} ${slatePrimaryCtaInteract}`}
           >
-            Add new schedule
+            {t("schedules.addNew")}
           </button>
         </div>
       </section>
@@ -440,31 +459,31 @@ export function SchedulesScreen({
         <div className="flex items-end justify-between gap-3">
           <SectionHeader
             icon="clock"
-            eyebrow="Schedule list"
-            title={filter}
+            eyebrow={t("schedules.scheduleList")}
+            title={scheduleListFilterLabel(t, filter)}
             subtitle="Open a schedule to edit its timings, audits, assigned users, and revision history."
           />
           <div className="w-full max-w-[18rem]">
-            <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Schedule view</label>
+            <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">{t("schedules.scheduleView")}</label>
             <select
               value={filter}
               onChange={(event) => onFilterChange(event.target.value as ScheduleListFilter)}
               className={`h-12 w-full rounded-2xl px-4 text-sm ${brandAccentFormField}`}
             >
-              <option value="Live">Live</option>
-              <option value="Archived">Archived</option>
-              <option value="All schedules">All schedules</option>
+              <option value="Live">{t("schedules.live")}</option>
+              <option value="Archived">{t("schedules.archivedFilter")}</option>
+              <option value="All schedules">{t("schedules.allSchedules")}</option>
             </select>
           </div>
         </div>
         <div className="mt-4 space-y-3">
           {schedulesLoadError ? (
-            <EmptyPanel title="Schedules unavailable" text={schedulesLoadError} />
+            <EmptyPanel title={t("schedules.unavailable")} text={schedulesLoadError} />
           ) : schedulesLoading && schedules.length === 0 ? (
-            <EmptyPanel title="Loading schedules" text="Pulling live schedules for this company…" />
+            <EmptyPanel title={t("schedules.loading")} text={t("schedules.loading")} />
           ) : schedules.length === 0 ? (
             <EmptyPanel
-              title="No schedules found"
+              title={t("schedules.noSchedules")}
               text="Nothing listed — add a schedule or switch Live / Archived so saved schedules can appear here."
             />
           ) : (
@@ -498,7 +517,9 @@ export function SchedulesScreen({
                     </p>
                     <p className="mt-2 text-xs text-slate-500">
                       Start {schedule.startDate} {schedule.endDate ? `• End ${schedule.endDate}` : "• No end date"}
-                      {schedule.audits[0]?.frequency ? ` • ${schedule.audits[0].frequency}` : ""}
+                      {schedule.audits[0]?.frequency
+                        ? ` • ${translateScheduleFrequency(t, schedule.audits[0].frequency.toLowerCase())}`
+                        : ""}
                     </p>
                     {schedule.createdBy || schedule.createdAt ? (
                       <p className="mt-1 text-xs text-slate-400">
@@ -520,7 +541,7 @@ export function SchedulesScreen({
                       }}
                       className={`rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white ${slatePrimaryCtaInteract}`}
                     >
-                      Edit
+                      {t("common.edit")}
                     </button>
                     <button onClick={() => onDelete(schedule.id)} className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
                       Delete
@@ -536,7 +557,7 @@ export function SchedulesScreen({
                         masterSheetId={archiveMasterSheetId}
                         offlineMode={archiveOffline}
                         canArchive={canArchiveSchedules}
-                        label="Archive"
+                        label={t("auditBuilder.archive")}
                         extraMessage="It will be removed from active and due views and can be restored from Archive."
                         onArchived={() => onScheduleArchived(schedule.id)}
                         onError={onArchiveError}
@@ -545,16 +566,16 @@ export function SchedulesScreen({
                     ) : null}
                     {computeScheduleHealthState(schedule) === "Paused" ? (
                       <button onClick={() => onResume(schedule.id)} className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800">
-                        Resume
+                        {t("schedules.resume")}
                       </button>
                     ) : (
                       <button onClick={() => onPause(schedule.id)} className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
-                        Pause
+                        {t("schedules.pause")}
                       </button>
                     )}
                     {schedule.lifecycle === "Archived" && (
                       <button onClick={() => onReactivate(schedule.id)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800">
-                        Reactivate
+                        {t("schedules.reactivate")}
                       </button>
                     )}
                   </div>
@@ -579,17 +600,17 @@ export function SchedulesScreen({
             tabIndex={-1}
             className="sr-only outline-none"
           >
-            {editingSchedule ? "Edit schedule" : "Create schedule"}
+            {editingSchedule ? t("schedules.editSchedule") : t("schedules.createSchedule")}
           </h3>
           <SectionHeader
             icon="check"
             eyebrow="Schedule builder"
-            title={editingSchedule ? "Edit schedule" : "Create schedule"}
+            title={editingSchedule ? t("schedules.editSchedule") : t("schedules.createSchedule")}
             subtitle="Choose audits, set timings, assign users, and save the live or archived revision."
           />
           <div className="mt-4 space-y-4">
             <div>
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Schedule name or ID</label>
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">{t("schedules.scheduleName")}</label>
               <input
                 id="schedule-builder-name"
                 value={scheduleName}
@@ -599,19 +620,19 @@ export function SchedulesScreen({
                   brandAccentFormField,
                   nameError ? "border-rose-400 ring-1 ring-rose-400" : "",
                 ].join(" ")}
-                placeholder="Enter the schedule name"
+                placeholder={t("schedules.scheduleNamePlaceholder")}
               />
             </div>
 
             <div>
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Completion mode</label>
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">{t("schedules.completionMode")}</label>
               <select
                 value={completionMode}
                 onChange={(event) => onCompletionModeChange(event.target.value as ScheduleCompletionMode)}
                 className={`h-12 w-full rounded-2xl px-4 text-sm ${brandAccentFormField}`}
               >
-                <option value="repeatable">Repeatable</option>
-                <option value="once-per-period">Once per due period</option>
+                <option value="repeatable">{t("schedules.repeatable")}</option>
+                <option value="once-per-period">{t("schedules.oncePerDuePeriod")}</option>
               </select>
               <p className="mt-2 text-xs text-slate-500">
                 Repeatable checks stay available after completion. Once per due period hides the check until the next due window.
@@ -701,7 +722,9 @@ export function SchedulesScreen({
                       className={`h-12 rounded-2xl px-4 text-sm ${brandAccentFormField}`}
                     >
                       {scheduleFrequencyOptions.map((frequency) => (
-                        <option key={frequency} value={frequency}>{frequency}</option>
+                        <option key={frequency} value={frequency}>
+                          {translateScheduleFrequency(t, frequency.toLowerCase())}
+                        </option>
                       ))}
                     </select>
                     <select
@@ -719,7 +742,7 @@ export function SchedulesScreen({
                       className={`h-12 rounded-2xl px-4 text-sm ${brandAccentFormField}`}
                     >
                       {scheduleDurationOptions.map((hours) => (
-                        <option key={hours} value={hours}>{hours} hours to complete</option>
+                        <option key={hours} value={hours}>{t("schedules.hoursToComplete", { count: hours })}</option>
                       ))}
                     </select>
                   </div>
@@ -729,7 +752,7 @@ export function SchedulesScreen({
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Start date</label>
+                <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">{t("schedules.startDate")}</label>
                 <input
                   type="date"
                   value={startDate}
@@ -742,7 +765,7 @@ export function SchedulesScreen({
                 />
               </div>
               <div>
-                <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">End date</label>
+                <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">{t("schedules.endDate")}</label>
                 <label className="mb-2 flex items-center gap-2 text-sm text-slate-600">
                   <input
                     type="checkbox"
@@ -755,7 +778,7 @@ export function SchedulesScreen({
                     }}
                     className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400"
                   />
-                  Continuous until an end date is given
+                  {t("schedules.continuousUntilEnd")}
                 </label>
                 <input
                   type="date"
@@ -778,7 +801,7 @@ export function SchedulesScreen({
             </div>
 
             <div className={["rounded-[1.5rem] border p-4", auditorsError ? "border-rose-300 bg-rose-50/50" : "border-slate-200 bg-slate-50"].join(" ")}>
-              <p className="text-sm font-semibold text-slate-900">Assign users to this schedule</p>
+              <p className="text-sm font-semibold text-slate-900">{t("schedules.assignUsers")}</p>
               {assigneeWarning ? (
                 <p className="mt-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
                   {assigneeWarning}
@@ -906,10 +929,10 @@ export function SchedulesScreen({
                 disabled={saving}
                 className={`h-12 rounded-2xl bg-slate-900 px-5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 ${slatePrimaryCtaInteract}`}
               >
-                {saving ? "Saving schedule…" : "Save schedule"}
+                {saving ? t("schedules.savingSchedule") : t("schedules.saveSchedule")}
               </button>
               <button onClick={onCancel} className="h-12 rounded-2xl bg-slate-100 px-5 text-sm font-semibold text-slate-700">
-                Cancel
+                {t("schedules.cancelSchedule")}
               </button>
             </div>
           </div>

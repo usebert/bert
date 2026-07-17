@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { AuditBuilderQuestion } from "../../types/auditBuilder";
 import type { PromptRule, PromptRuleFollowUpAction } from "../../types/promptRules";
 import { createEmptyPromptRule } from "../../utils/auditBuilderPromptRules";
@@ -77,6 +78,7 @@ function rebuildRule(rule: PromptRule, patch: {
 }
 
 export function QuestionPromptRulesEditor({ question, onChange }: Props) {
+  const { t } = useTranslation();
   const rules = question.prompt_rules ?? [];
   const optionChoices =
     question.answer_type === "yes_no"
@@ -91,13 +93,13 @@ export function QuestionPromptRulesEditor({ question, onChange }: Props) {
   return (
     <div className="mt-3 space-y-3 rounded-xl border border-slate-200 bg-white p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Prompt rules</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{t("auditBuilder.promptRules")}</p>
         <button
           type="button"
           onClick={() => onChange([...rules, createEmptyPromptRule(optionChoices[0] || "Yes")])}
           className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700"
         >
-          Add rule
+          {t("auditBuilder.addRule")}
         </button>
       </div>
       {rules.length === 0 ? (
@@ -109,7 +111,7 @@ export function QuestionPromptRulesEditor({ question, onChange }: Props) {
         return (
           <div key={`prompt-rule-${index}`} className="space-y-2 rounded-lg border border-slate-100 bg-slate-50 p-3">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-xs font-semibold text-slate-700">When answer is</p>
+              <p className="text-xs font-semibold text-slate-700">{t("auditBuilder.whenAnswerIs")}</p>
               <button
                 type="button"
                 onClick={() => onChange(rules.filter((_, ruleIndex) => ruleIndex !== index))}
@@ -130,7 +132,7 @@ export function QuestionPromptRulesEditor({ question, onChange }: Props) {
               ))}
             </select>
             <label className="block text-xs font-semibold text-slate-700">
-              Follow-up question
+              {t("auditBuilder.followUpQuestion")}
               <input
                 value={followUp.label}
                 onChange={(event) => updateRule(index, { followUpLabel: event.target.value })}
@@ -140,7 +142,7 @@ export function QuestionPromptRulesEditor({ question, onChange }: Props) {
             </label>
             <div className="grid gap-2 sm:grid-cols-2">
               <label className="block text-xs font-semibold text-slate-700">
-                Input type
+                {t("auditBuilder.inputType")}
                 <select
                   value={followUp.inputType}
                   onChange={(event) =>
@@ -213,7 +215,7 @@ export function QuestionPromptRulesEditor({ question, onChange }: Props) {
                   checked={Boolean(escalate.managerReview)}
                   onChange={(event) => updateRule(index, { managerReview: event.target.checked })}
                 />
-                Manager review flag
+                {t("auditBuilder.managerReviewFlag")}
               </label>
               <label className="inline-flex items-center gap-2">
                 <input
@@ -221,7 +223,7 @@ export function QuestionPromptRulesEditor({ question, onChange }: Props) {
                   checked={Boolean(escalate.evidenceRequired)}
                   onChange={(event) => updateRule(index, { evidenceRequired: event.target.checked })}
                 />
-                Evidence required
+                {t("auditBuilder.evidenceRequired")}
               </label>
             </div>
           </div>

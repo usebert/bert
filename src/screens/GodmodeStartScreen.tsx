@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { NavItemId } from "../types/navigation";
 import type { CompanyFolder } from "../types/dashboardScreenProps";
 import { AnimatedButton } from "../components/animation/AnimatedButton";
@@ -32,13 +33,13 @@ type QuickLink = {
   screen: NavItemId;
 };
 
-const QUICK_LINKS: QuickLink[] = [
-  { label: "People", screen: "users" },
-  { label: "Areas", screen: "companies" },
-  { label: "Audit Centre", screen: "auditCentre" },
-  { label: "Schedules", screen: "schedules" },
-  { label: "Quality & Safety", screen: "qmsReadiness" },
-  { label: "Reports", screen: "reports" },
+const QUICK_LINK_SCREENS: Array<{ screen: NavItemId; labelKey: string }> = [
+  { labelKey: "nav.people", screen: "users" },
+  { labelKey: "sites.areas", screen: "companies" },
+  { labelKey: "nav.auditCentre", screen: "auditCentre" },
+  { labelKey: "nav.schedules", screen: "schedules" },
+  { labelKey: "nav.qmsReadiness", screen: "qmsReadiness" },
+  { labelKey: "nav.reports", screen: "reports" },
 ];
 
 type View = "landing" | "picker" | "hub";
@@ -129,14 +130,13 @@ function CompanyPickerRow({
   onContinueSetup?: () => void;
   onRepairSetup?: () => void;
 }) {
+  const { t } = useTranslation();
   const ready = isGodmodeCompanyPickerReady({
     setupStatus: company.setupStatus,
     setupStatusLabel: company.setupStatusLabel,
     masterSheetId: company.masterSheetId,
   });
-  const helperCopy = ready
-    ? "This company is ready to open."
-    : "This company needs setup finishing before it can be used.";
+  const helperCopy = ready ? t("godmode.companyReadyHelper") : t("godmode.companyNeedsSetupHelper");
 
   return (
     <li
@@ -156,7 +156,7 @@ function CompanyPickerRow({
               ready ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900",
             ].join(" ")}
           >
-            {ready ? "Ready" : "Setup not finished"}
+            {ready ? t("godmode.ready") : t("godmode.setupNotFinished")}
           </span>
           <p className={`mt-3 ${bertLightMuted(onDark)}`}>{helperCopy}</p>
         </div>
@@ -170,7 +170,7 @@ function CompanyPickerRow({
                 onDark ? "bg-orange-500 text-slate-950 hover:bg-orange-400" : "bg-orange-500 text-white hover:bg-orange-600",
               ].join(" ")}
             >
-              Open company
+              {t("godmode.openCompany")}
             </button>
           ) : onContinueSetup ? (
             <>
@@ -182,7 +182,7 @@ function CompanyPickerRow({
                   onDark ? "bg-orange-500 text-slate-950 hover:bg-orange-400" : "bg-orange-500 text-white hover:bg-orange-600",
                 ].join(" ")}
               >
-                Continue setup
+                {t("godmode.continueSetup")}
               </AnimatedButton>
               {onRepairSetup ? (
                 <button
@@ -195,7 +195,7 @@ function CompanyPickerRow({
                       : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50",
                   ].join(" ")}
                 >
-                  Repair setup
+                  {t("godmode.repairSetup")}
                 </button>
               ) : null}
             </>
@@ -205,19 +205,19 @@ function CompanyPickerRow({
               onClick={onOpen}
               className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800"
             >
-                Open company
+                {t("godmode.openCompany")}
             </button>
           )}
         </div>
       </div>
       <details className="mt-3">
         <summary className={`cursor-pointer text-xs font-semibold ${onDark ? "text-slate-400" : "text-slate-600"}`}>
-          Technical details
+          {t("godmode.technicalDetails")}
         </summary>
         <p className={`mt-2 ${bertLightTechnical(onDark)}`}>
-          Folder ID: {company.id}
+          {t("godmode.folderIdLabel")}: {company.id}
           <br />
-          Sheet ID: {company.masterSheetId || "Not linked yet"}
+          {t("godmode.sheetId")}: {company.masterSheetId || t("godmode.notLinkedYet")}
         </p>
       </details>
     </li>
@@ -245,9 +245,15 @@ export function GodmodeStartScreen({
   onRepairCompany,
   currentScreen = "godmodeHome",
 }: Props) {
+  const { t } = useTranslation();
   const onDark = themeMode === "dark";
   const [view, setView] = useState<View>("landing");
   const [search, setSearch] = useState("");
+
+  const quickLinks: QuickLink[] = useMemo(
+    () => QUICK_LINK_SCREENS.map((item) => ({ screen: item.screen, label: t(item.labelKey) })),
+    [t],
+  );
 
   const filteredCompanies = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -291,53 +297,56 @@ export function GodmodeStartScreen({
     openHub();
   };
 
-  const landingCards: Array<LandingCard & { iconTone: "orange" | "blue" | "grey" | "green" }> = [
-    {
-      id: "existing",
-      title: "Work on existing company",
-      description: "Pick a live company workspace before viewing users, checks, actions, or reports.",
-      actionLabel: "Select company",
-      iconTone: "orange",
-      onAction: () => {
-        logNavTrace("open-select-company", "godmodeHome.select-company", { view: "landing" });
-        onOpenSelectCompany?.();
-        setView("picker");
+  const landingCards: Array<LandingCard & { iconTone: "orange" | "blue" | "grey" | "green" }> = useMemo(
+    () => [
+      {
+        id: "existing",
+        title: t("godmode.workOnExisting"),
+        description: t("godmode.workOnExistingDesc"),
+        actionLabel: t("godmode.selectCompany"),
+        iconTone: "orange" as const,
+        onAction: () => {
+          logNavTrace("open-select-company", "godmodeHome.select-company", { view: "landing" });
+          onOpenSelectCompany?.();
+          setView("picker");
+        },
       },
-    },
-    {
-      id: "new",
-      title: "Connect company folder",
-      description: "Bootstrap a clean company from a Google Drive folder. No registry or old user data required.",
-      actionLabel: "Connect folder +",
-      iconTone: "blue",
-      onAction: () => {
-        logNavTrace("create-company", "onboarding", { view: "landing" });
-        onCreateCompany();
+      {
+        id: "new",
+        title: t("godmode.connectCompanyFolder"),
+        description: t("godmode.connectFolderDesc"),
+        actionLabel: t("godmode.connectFolderAction"),
+        iconTone: "blue" as const,
+        onAction: () => {
+          logNavTrace("create-company", "onboarding", { view: "landing" });
+          onCreateCompany();
+        },
       },
-    },
-    {
-      id: "platform",
-      title: "Platform setup",
-      description: "Google, Shared Drive, email, and platform readiness in one place.",
-      actionLabel: "Open setup",
-      iconTone: "grey",
-      onAction: () => {
-        logNavTrace("open-platform-setup", "setup", { view: "landing" });
-        onOpenPlatformSetup();
+      {
+        id: "platform",
+        title: t("godmode.platformSetup"),
+        description: t("godmode.platformSetupCardDesc"),
+        actionLabel: t("godmode.openSetup"),
+        iconTone: "grey" as const,
+        onAction: () => {
+          logNavTrace("open-platform-setup", "setup", { view: "landing" });
+          onOpenPlatformSetup();
+        },
       },
-    },
-    {
-      id: "diagnostics",
-      title: "Reports / Diagnostics",
-      description: "Check platform health and readiness without entering a company workspace.",
-      actionLabel: "Open diagnostics",
-      iconTone: "green",
-      onAction: () => {
-        logNavTrace("open-diagnostics", "reports", { view: "landing" });
-        onOpenDiagnostics();
+      {
+        id: "diagnostics",
+        title: t("nav.reportsDiagnostics"),
+        description: t("godmode.diagnosticsCardDesc"),
+        actionLabel: t("godmode.openDiagnostics"),
+        iconTone: "green" as const,
+        onAction: () => {
+          logNavTrace("open-diagnostics", "reports", { view: "landing" });
+          onOpenDiagnostics();
+        },
       },
-    },
-  ];
+    ],
+    [logNavTrace, onCreateCompany, onOpenDiagnostics, onOpenPlatformSetup, onOpenSelectCompany, t],
+  );
 
   const pageShell = onDark ? "text-slate-100" : "text-slate-900";
   const muted = onDark ? "text-slate-400" : "text-slate-600";
@@ -355,12 +364,12 @@ export function GodmodeStartScreen({
             onClick={() => setView("landing")}
             className={["mb-3 text-sm font-semibold", onDark ? "text-orange-300 hover:text-orange-200" : "text-orange-700 hover:text-orange-800"].join(" ")}
           >
-            ← Back
+            ← {t("common.back")}
           </button>
-          <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">{selectedFolderName || "No company linked"}</h2>
-          <p className={`mt-2 max-w-2xl text-sm leading-relaxed ${muted}`}>
-            Choose what to do for this company.
-          </p>
+          <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">
+            {selectedFolderName || t("godmode.noCompanyLinked")}
+          </h2>
+          <p className={`mt-2 max-w-2xl text-sm leading-relaxed ${muted}`}>{t("godmode.hubSubtitle")}</p>
         </header>
 
         <GodmodeCompanyContextSelector
@@ -380,7 +389,7 @@ export function GodmodeStartScreen({
         />
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          {QUICK_LINKS.slice(0, 4).map((link) => (
+          {quickLinks.slice(0, 4).map((link) => (
             <button
               key={link.screen + link.label}
               type="button"
@@ -401,9 +410,9 @@ export function GodmodeStartScreen({
         </div>
 
         <details className={["mt-4 rounded-2xl border px-4 py-3", onDark ? "border-white/10 bg-slate-900/40" : "border-slate-200 bg-slate-50"].join(" ")}>
-          <summary className="cursor-pointer text-sm font-semibold">More for this company</summary>
+          <summary className="cursor-pointer text-sm font-semibold">{t("godmode.moreForCompany")}</summary>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            {QUICK_LINKS.slice(4).map((link) => (
+            {quickLinks.slice(4).map((link) => (
               <button
                 key={link.screen + link.label}
                 type="button"
@@ -424,7 +433,7 @@ export function GodmodeStartScreen({
                 onDark ? "border-slate-700 text-slate-300" : "border-slate-200 bg-white text-slate-600",
               ].join(" ")}
             >
-              Tablet / Kiosk setup
+              {t("godmode.tabletKioskSetup")}
             </button>
           </div>
         </details>
@@ -446,14 +455,14 @@ export function GodmodeStartScreen({
             }}
             className={["mb-3 text-sm font-semibold", onDark ? "text-orange-300 hover:text-orange-200" : "text-orange-700 hover:text-orange-800"].join(" ")}
           >
-            ← Back
+            ← {t("common.back")}
           </button>
-          <h2 className="text-2xl font-semibold tracking-tight">Select company</h2>
-          <p className={`mt-2 text-sm ${muted}`}>Search by name and choose whether to open the company or continue setup.</p>
+          <h2 className="text-2xl font-semibold tracking-tight">{t("godmode.selectCompany")}</h2>
+          <p className={`mt-2 text-sm ${muted}`}>{t("godmode.pickerHelper")}</p>
         </header>
 
         <label className="block">
-          <span className="sr-only">Search companies</span>
+          <span className="sr-only">{t("godmode.searchCompanies")}</span>
           <input
             type="search"
             value={search}
@@ -465,7 +474,7 @@ export function GodmodeStartScreen({
 
         {companies.length === 0 ? (
           <div className={`mt-6 rounded-2xl border px-4 py-6 text-sm ${onDark ? "border-white/10 bg-slate-900/50 text-slate-300" : "border-slate-200 bg-slate-50 text-slate-700"}`}>
-            <p>{liveCompaniesWarning || "No company workspaces yet."}</p>
+            <p>{liveCompaniesWarning || t("godmode.noCompanyWorkspaces")}</p>
             <button
               type="button"
               onClick={onCreateCompany}
@@ -474,7 +483,7 @@ export function GodmodeStartScreen({
                 onDark ? "bg-orange-500 text-slate-950" : "bg-orange-500 text-white hover:bg-orange-600",
               ].join(" ")}
             >
-              Create company
+              {t("godmode.createCompany")}
             </button>
             {liveCompaniesWarning && onRepairLiveCompanies ? (
               <button
@@ -485,12 +494,12 @@ export function GodmodeStartScreen({
                   onDark ? "text-amber-200" : "text-amber-800",
                 ].join(" ")}
               >
-                Open platform setup
+                {t("godmode.platformSetup")}
               </button>
             ) : null}
           </div>
         ) : filteredCompanies.length === 0 ? (
-          <p className={`mt-6 text-sm ${muted}`}>No companies match your search.</p>
+          <p className={`mt-6 text-sm ${muted}`}>{t("godmode.noSearchMatch")}</p>
         ) : (
           <ul className="mt-4 space-y-3">
             {filteredCompanies.map((company) => (
@@ -530,9 +539,7 @@ export function GodmodeStartScreen({
     return (
       <AnimatedScreen screenKey="godmode-landing">
       <div className={pageShell}>
-        <p className={`max-w-2xl text-sm leading-relaxed md:text-base ${muted}`}>
-          Manage the platform, onboard companies, or open a company workspace.
-        </p>
+        <p className={`max-w-2xl text-sm leading-relaxed md:text-base ${muted}`}>{t("godmode.managePlatformLead")}</p>
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           {landingCards.map((card, index) => (
             <AnimatedCard key={card.id} index={index}>
@@ -553,11 +560,11 @@ export function GodmodeStartScreen({
     <div className="space-y-6">
       <PageHeader
         role="Master"
-        eyebrow="Platform control"
-        title="Godmode"
-        subtitle="Choose what you want to do. No company is loaded until you select one."
+        eyebrow={t("godmode.platformControl")}
+        title={t("godmode.title")}
+        subtitle={t("godmode.landingSubtitle")}
         primaryAction={{
-          label: "Select company",
+          label: t("godmode.selectCompany"),
           icon: "search",
           onClick: () => {
             logNavTrace("open-select-company", "godmodeHome.select-company", { view: "landing" });

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { SECTION_INTROS } from "../config/sectionIntros";
 import { fetchSetupStatus } from "../services/setupStatusService";
 import { SectionIntro } from "../components/SectionIntro";
@@ -15,6 +16,7 @@ export function PilotSetupScreen({
   onOpenInitialSetup,
   slatePrimaryCtaInteract: ctaClass = slatePrimaryCtaInteract,
 }: Props) {
+  const { t } = useTranslation();
   const [readyForPilot, setReadyForPilot] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -33,8 +35,8 @@ export function PilotSetupScreen({
   return (
     <div className="space-y-4">
       <section className={darkPanelShellCompact}>
-        <p className={darkPanelEyebrow}>Platform Setup</p>
-        <h2 className={darkPanelTitleSm}>Platform Setup</h2>
+        <p className={darkPanelEyebrow}>{t("nav.platformSetup")}</p>
+        <h2 className={darkPanelTitleSm}>{t("nav.platformSetup")}</h2>
         <SectionIntro text={SECTION_INTROS.platformSetup} className="mt-2" tone="onDark" />
         <p className={["mt-2", darkPanelBody].join(" ")}>
           {readyForPilot === true

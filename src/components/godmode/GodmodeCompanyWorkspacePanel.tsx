@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { Role } from "../../permissions";
 import { canManageAreas } from "../../permissions";
 import { apiUrl } from "../../config/apiBase";
@@ -54,6 +55,7 @@ function folderMasterSheetId(folder: CompanyFolder): string {
 }
 
 function SetupChecklistRow({ label, ok, hint }: { label: string; ok: boolean; hint?: string }) {
+  const { t } = useTranslation();
   return (
     <div className="bert-light-surface flex items-start justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
       <div className="min-w-0">
@@ -66,7 +68,7 @@ function SetupChecklistRow({ label, ok, hint }: { label: string; ok: boolean; hi
           ok ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900",
         ].join(" ")}
       >
-        {ok ? "Ready" : "Pending"}
+        {ok ? t("godmode.ready") : t("status.pending")}
       </span>
     </div>
   );
@@ -249,6 +251,7 @@ export function GodmodeCompanyWorkspacePanel({
   slatePrimaryCtaInteract,
   userManagement,
 }: GodmodeCompanyWorkspacePanelProps) {
+  const { t } = useTranslation();
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   const runMakeUsable = onMakeCompanyUsable || onCompleteSetup || onOneClickGoogleOnboarding;
   const [inviteTargetDiagnostic, setInviteTargetDiagnostic] = useState("");
@@ -971,8 +974,8 @@ export function GodmodeCompanyWorkspacePanel({
         <SectionHeader
           icon="clipboard"
           eyebrow="Workspaces"
-          title="Select company"
-          subtitle="Choose which company workspace you are setting up."
+          title={t("godmode.selectCompany")}
+          subtitle={t("godmode.selectCompanySubtitle")}
         />
         {folders.length === 0 ? (
           <EmptyPanel
@@ -1042,7 +1045,7 @@ export function GodmodeCompanyWorkspacePanel({
               icon="clipboard"
               eyebrow="Setup"
               title={selectedFolder.name}
-              subtitle="Select the company folder, resolve the workbook, then invite users."
+              subtitle={t("godmode.setupFlowSubtitle")}
             />
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <span
@@ -1124,14 +1127,14 @@ export function GodmodeCompanyWorkspacePanel({
               onClick={() => setShowTechnicalDetails((open) => !open)}
               className="mt-4 text-xs font-semibold text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline"
             >
-              {showTechnicalDetails ? "Hide advanced diagnostics" : "Advanced diagnostics"}
+              {showTechnicalDetails ? t("schedules.hideAdvancedDiagnostics") : t("schedules.advancedDiagnostics")}
             </button>
             {showTechnicalDetails ? (
               <div className="mt-4 space-y-4 border-t border-slate-100 pt-4">
                 <div className="space-y-2">
-                  <SetupChecklistRow label="Company folder" ok={Boolean(selectedFolder)} />
+                  <SetupChecklistRow label={t("godmode.checklistCompanyFolder")} ok={Boolean(selectedFolder)} />
                   <SetupChecklistRow
-                    label="Under Live Companies"
+                    label={t("godmode.checklistLiveCompanies")}
                     ok={folderPlacementOk && !folderPlacementLoading}
                     hint={
                       folderPlacementLoading
@@ -1152,11 +1155,11 @@ export function GodmodeCompanyWorkspacePanel({
                     </p>
                   ) : null}
                   <SetupChecklistRow
-                    label="Folder structure"
+                    label={t("godmode.checklistFolderStructure")}
                     ok={folderStructureOk}
                     hint="ISO 01–06 folders under the company root"
                   />
-                  <SetupChecklistRow label="Company master sheet" ok={masterSheetOk} />
+                  <SetupChecklistRow label={t("godmode.checklistMasterSheet")} ok={masterSheetOk} />
                   <SetupChecklistRow
                     label="Required tabs"
                     ok={Boolean(requiredTabsOk)}
@@ -1166,9 +1169,9 @@ export function GodmodeCompanyWorkspacePanel({
                         : undefined
                     }
                   />
-                  <SetupChecklistRow label="CompanyFolders mapping" ok={companyFoldersMappingOk} />
-                  <SetupChecklistRow label="First admin" ok={firstAdminReady} />
-                  <SetupChecklistRow label="Workspace health checked" ok={healthCheckRun && workspaceHealthOk} />
+                  <SetupChecklistRow label={t("godmode.checklistRegistryMapping")} ok={companyFoldersMappingOk} />
+                  <SetupChecklistRow label={t("godmode.checklistFirstAdmin")} ok={firstAdminReady} />
+                  <SetupChecklistRow label={t("godmode.checklistWorkspaceHealth")} ok={healthCheckRun && workspaceHealthOk} />
                   <SetupChecklistRow
                     label="Company live"
                     ok={companyLive}
@@ -1367,7 +1370,7 @@ export function GodmodeCompanyWorkspacePanel({
                     disabled={masterCompanyContextBlocked || workspaceValidationLoading}
                     className="inline-flex h-10 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {workspaceValidationLoading ? "Checking…" : "Re-check workspace"}
+                    {workspaceValidationLoading ? t("godmode.checking") : t("godmode.recheckWorkspace")}
                   </button>
                   {onRepairCompanyFolderStructure ? (
                     <button
@@ -1376,7 +1379,7 @@ export function GodmodeCompanyWorkspacePanel({
                       disabled={masterCompanyContextBlocked || companyFolderStructureRepairing}
                       className="inline-flex h-10 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      {companyFolderStructureRepairing ? "Repairing…" : "Repair folder structure"}
+                      {companyFolderStructureRepairing ? t("godmode.repairSetup") : t("godmode.repairFolderStructure")}
                     </button>
                   ) : null}
                   <button
@@ -1513,8 +1516,8 @@ export function GodmodeCompanyWorkspacePanel({
               <SectionHeader
                 icon="user"
                 eyebrow="People"
-                title="User management"
-                subtitle="Invite users by email. They complete name and password from the link."
+                title={t("godmode.userManagement")}
+                subtitle={t("godmode.inviteUsersSubtitle")}
               />
               {!canShowUserInvites ? (
                 <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">

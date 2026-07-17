@@ -1,5 +1,8 @@
 import { useMemo, useState, type ComponentType } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import type { Role } from "../../permissions";
+import { translateRoleLabel } from "../../i18n/statusLabels";
 import {
   COMPANY_INVITES_LOADING_MESSAGE,
   COMPANY_INVITES_USER_MESSAGE,
@@ -37,7 +40,6 @@ import type { AdminScreenProps, CompanyUserInviteEmailResult, UserInvite } from 
 import { COMPANY_NO_LONGER_AVAILABLE_MESSAGE } from "../../utils/companyFolderContext";
 import {
   formatInviteStatusLabel,
-  formatUserRoleLabel,
   getInviteStatusHelp,
   inviteStatusBadgeClass,
   isLegacyInviteRowId,
@@ -80,6 +82,18 @@ function toTitleStatus(value: string): string {
   if (normalized === "ACTIVE") return "Active";
   if (normalized === "INACTIVE") return "Inactive";
   return normalized.slice(0, 1) + normalized.slice(1).toLowerCase();
+}
+
+function displayMemberStatus(t: TFunction, status: string): string {
+  const normalized = String(status || "").trim().toUpperCase();
+  if (normalized === "ACTIVE") return t("people.active");
+  if (normalized === "INACTIVE") return t("people.inactive");
+  if (normalized === "PENDING") return t("people.pending");
+  return toTitleStatus(status);
+}
+
+function filterAllLabel(t: TFunction, prefixKey: "people.role" | "common.status" | "sites.title" | "people.department" | "sites.areas") {
+  return `${t(prefixKey)}: ${t("people.all")}`;
 }
 
 function summarizeMemberAccess(
@@ -128,6 +142,7 @@ function UserInviteListRow({
   slatePrimaryCtaInteract: string;
   canRevoke?: boolean;
 }) {
+  const { t } = useTranslation();
   const [copyLinkDone, setCopyLinkDone] = useState(false);
   const active = isActiveCompanyUserInvite(invite);
   const staleOrIncomplete =
@@ -142,7 +157,7 @@ function UserInviteListRow({
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <span className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-xs font-semibold text-slate-700">
-            {formatUserRoleLabel(invite.role)}
+            {translateRoleLabel(t, invite.role)}
           </span>
           <span className={inviteStatusBadgeClass(invite.status)} title={getInviteStatusHelp(invite.status)}>
             {formatInviteStatusLabel(invite.status)}
@@ -171,7 +186,7 @@ function UserInviteListRow({
               }}
               className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
             >
-              {copyLinkDone ? "Copied" : "Copy link"}
+              {copyLinkDone ? t("people.copied") : t("people.copyLink")}
             </button>
           </>
         ) : null}
@@ -189,7 +204,7 @@ function UserInviteListRow({
           title={staleOrIncomplete ? "Send a fresh invite link" : "Resend invite email"}
           className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
         >
-          {staleOrIncomplete ? "Send fresh invite" : "Resend"}
+          {t("people.resend")}
         </button>
         {active ? (
           <DangerActionButton
@@ -198,7 +213,7 @@ function UserInviteListRow({
             title="Remove this user from the company Users tab and UserAuth so they can no longer sign in"
             className="rounded-xl px-3 py-2 text-xs"
           >
-            Remove user
+            {t("people.removeUser")}
           </DangerActionButton>
         ) : canRevoke ? (
           <DangerActionButton
@@ -207,7 +222,7 @@ function UserInviteListRow({
             title={staleOrIncomplete ? "Revoke stale or incomplete invite" : "Revoke invite link"}
             className="rounded-xl px-3 py-2 text-xs"
           >
-            {staleOrIncomplete ? "Revoke" : "Delete"}
+            {staleOrIncomplete ? t("people.revoke") : t("common.delete")}
           </DangerActionButton>
         ) : null}
       </div>
@@ -544,6 +559,7 @@ export function UsersInvitesPilotPanel({
   workspaceValidation,
   ...healthProps
 }: UsersInvitesPilotPanelProps) {
+  const { t } = useTranslation();
   const [showHealthSync, setShowHealthSync] = useState(false);
   const [topView, setTopView] = useState<PeopleCompanyTopView>("landing");
   const [inviteView, setInviteView] = useState<InviteView>("inviteUsers");
@@ -646,11 +662,11 @@ export function UsersInvitesPilotPanel({
     return members;
   }, [activeCompanyMembers]);
   const peopleRoleOptions = useMemo(
-    () => ["All", ...Array.from(new Set(activeMembers.map((member) => formatUserRoleLabel(member.role)))).sort((a, b) => a.localeCompare(b))],
+    () => ["All", ...Array.from(new Set(activeMembers.map((member) => member.role))).sort((a, b) => a.localeCompare(b))],
     [activeMembers],
   );
   const peopleStatusOptions = useMemo(
-    () => ["All", ...Array.from(new Set(activeMembers.map((member) => toTitleStatus(member.status)))).sort((a, b) => a.localeCompare(b))],
+    () => ["All", ...Array.from(new Set(activeMembers.map((member) => String(member.status || "").trim().toUpperCase()))).filter(Boolean).sort((a, b) => a.localeCompare(b))],
     [activeMembers],
   );
   const peopleSiteOptions = useMemo(
@@ -668,8 +684,7 @@ export function UsersInvitesPilotPanel({
   const filteredActiveMembers = useMemo(() => {
     const query = normalizeText(peopleSearch);
     return activeMembers.filter((member) => {
-      const roleLabel = formatUserRoleLabel(member.role);
-      const statusLabel = toTitleStatus(member.status);
+      const statusKey = String(member.status || "").trim().toUpperCase();
       const scope = accessScopeFromPersonRecord(member as unknown as Record<string, unknown>);
       const resolved = resolveStructureNames(scope, structureCatalog);
       const matchesSite = peopleSiteFilter === "All" || resolved.allSites || resolved.siteNames.includes(peopleSiteFilter);
@@ -678,8 +693,8 @@ export function UsersInvitesPilotPanel({
         resolved.allDepartments ||
         resolved.departmentNames.includes(peopleDepartmentFilter);
       const matchesArea = peopleAreaFilter === "All" || resolved.allAreas || resolved.areaNames.includes(peopleAreaFilter);
-      if (peopleRoleFilter !== "All" && roleLabel !== peopleRoleFilter) return false;
-      if (peopleStatusFilter !== "All" && statusLabel !== peopleStatusFilter) return false;
+      if (peopleRoleFilter !== "All" && member.role !== peopleRoleFilter) return false;
+      if (peopleStatusFilter !== "All" && statusKey !== peopleStatusFilter) return false;
       if (!matchesSite || !matchesDepartment || !matchesArea) return false;
       if (!query) return true;
       return normalizeText(member.name).includes(query) || normalizeText(member.email).includes(query);
@@ -700,8 +715,8 @@ export function UsersInvitesPilotPanel({
       <section className={pilotLightSurface}>
         <SectionHeader
           icon="user"
-          eyebrow="People & Company"
-          title="People & Company"
+          eyebrow={t("people.peopleAndCompany")}
+          title={t("people.peopleAndCompany")}
           subtitle="Manage invites, people, and company structure."
         />
       </section>
@@ -742,7 +757,7 @@ export function UsersInvitesPilotPanel({
               onClick={() => setTopView("landing")}
               className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700"
             >
-              Back
+              {t("common.back")}
             </button>
           </div>
         </section>
@@ -754,9 +769,9 @@ export function UsersInvitesPilotPanel({
           <div className="mt-3 grid gap-3 sm:grid-cols-3">
             {(
               [
-                ["inviteUsers", "Invite users", "Send a new user invite."],
-                ["pendingInvites", "Pending invites", "View invites that are waiting to be accepted."],
-                ["sentInvites", "Sent Invites", "View historical invite activity."],
+                ["inviteUsers", t("people.inviteUsers"), "Send a new user invite."],
+                ["pendingInvites", t("people.pendingInvites"), "View invites that are waiting to be accepted."],
+                ["sentInvites", t("people.sentInvites"), "View historical invite activity."],
               ] as Array<[InviteView, string, string]>
             ).map(([viewKey, title, description]) => (
               <button
@@ -784,8 +799,8 @@ export function UsersInvitesPilotPanel({
       <section className={pilotLightSurface}>
         <SectionHeader
           icon="user"
-          eyebrow="Invite"
-          title="Invite user"
+          eyebrow={t("people.inviteUser")}
+          title={t("people.inviteUser")}
           subtitle="Send a secure setup link by email. The recipient completes name and password before they can sign in."
         />
         {inviteWorkspaceBanner ? (
@@ -807,7 +822,7 @@ export function UsersInvitesPilotPanel({
               </p>
             ) : null}
             <label htmlFor="pilot-invite-email" className="mb-1 block text-sm font-semibold text-slate-900">
-              Email
+              {t("people.email")}
             </label>
             <input
               id="pilot-invite-email"
@@ -817,7 +832,7 @@ export function UsersInvitesPilotPanel({
               className={pilotEditableInput}
             />
             <label htmlFor="pilot-invite-role" className="mb-1 mt-3 block text-sm font-semibold text-slate-900">
-              Role
+              {t("people.role")}
             </label>
             <select
               id="pilot-invite-role"
@@ -827,7 +842,7 @@ export function UsersInvitesPilotPanel({
             >
               {creatableRoles.map((role) => (
                 <option key={role} value={role}>
-                  {role}
+                  {translateRoleLabel(t, role)}
                 </option>
               ))}
             </select>
@@ -854,7 +869,7 @@ export function UsersInvitesPilotPanel({
               }
               className={`mt-4 h-12 w-full rounded-2xl bg-slate-900 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 ${slatePrimaryCtaInteract}`}
             >
-              {companyUserInviteEmailSending ? "Sending…" : "Send invite"}
+              {companyUserInviteEmailSending ? t("people.sending") : t("people.sendInvite")}
             </button>
             {companyUserInviteEmailResult ? (
               <>
@@ -875,8 +890,8 @@ export function UsersInvitesPilotPanel({
       <section className={pilotLightSurface}>
         <SectionHeader
           icon="spark"
-          eyebrow="Pending"
-          title="Pending invites"
+          eyebrow={t("people.pending")}
+          title={t("people.pendingInvites")}
           subtitle="People who have been invited but have not finished setup yet."
         />
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -934,12 +949,12 @@ export function UsersInvitesPilotPanel({
         <section className={pilotLightSurface}>
           <SectionHeader
             icon="spark"
-            eyebrow="Sent"
-            title="Sent Invites"
+            eyebrow={t("people.sentInvites")}
+            title={t("people.sentInvites")}
             subtitle="Previously sent invite history."
           />
           <div className="mt-3">
-            <EmptyPanel title="Sent Invites" text="Sent invite history is not available yet." />
+            <EmptyPanel title={t("people.sentInvites")} text="Sent invite history is not available yet." />
           </div>
         </section>
       ) : null}
@@ -950,8 +965,8 @@ export function UsersInvitesPilotPanel({
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             {(
               [
-                ["companyStructure", "Company structure", "Manage sites, departments, and areas."],
-                ["people", "People", "View and edit company people and access."],
+                ["companyStructure", t("people.companyStructure"), "Manage sites, departments, and areas."],
+                ["people", t("people.title"), "View and edit company people and access."],
               ] as Array<[CompanyView, string, string]>
             ).map(([viewKey, title, description]) => (
               <button
@@ -990,8 +1005,8 @@ export function UsersInvitesPilotPanel({
       <section className={pilotLightSurface}>
         <SectionHeader
           icon="user"
-          eyebrow="Company"
-          title="Company people"
+          eyebrow={t("onboarding.company")}
+          title={t("people.companyPeople")}
           subtitle="Everyone with a profile in this company — active or inactive."
         />
         <div className="mt-3 space-y-2">
@@ -1003,19 +1018,39 @@ export function UsersInvitesPilotPanel({
           />
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
             <select value={peopleRoleFilter} onChange={(event) => setPeopleRoleFilter(event.target.value)} className={pilotEditableInput}>
-              {peopleRoleOptions.map((option) => <option key={option} value={option}>{option === "All" ? "Role: All" : option}</option>)}
+              {peopleRoleOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option === "All" ? filterAllLabel(t, "people.role") : translateRoleLabel(t, option)}
+                </option>
+              ))}
             </select>
             <select value={peopleStatusFilter} onChange={(event) => setPeopleStatusFilter(event.target.value)} className={pilotEditableInput}>
-              {peopleStatusOptions.map((option) => <option key={option} value={option}>{option === "All" ? "Status: All" : option}</option>)}
+              {peopleStatusOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option === "All" ? filterAllLabel(t, "common.status") : displayMemberStatus(t, option)}
+                </option>
+              ))}
             </select>
             <select value={peopleSiteFilter} onChange={(event) => setPeopleSiteFilter(event.target.value)} className={pilotEditableInput}>
-              {peopleSiteOptions.map((option) => <option key={option} value={option}>{option === "All" ? "Site: All" : option}</option>)}
+              {peopleSiteOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option === "All" ? filterAllLabel(t, "sites.title") : option}
+                </option>
+              ))}
             </select>
             <select value={peopleDepartmentFilter} onChange={(event) => setPeopleDepartmentFilter(event.target.value)} className={pilotEditableInput}>
-              {peopleDepartmentOptions.map((option) => <option key={option} value={option}>{option === "All" ? "Department: All" : option}</option>)}
+              {peopleDepartmentOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option === "All" ? filterAllLabel(t, "people.department") : option}
+                </option>
+              ))}
             </select>
             <select value={peopleAreaFilter} onChange={(event) => setPeopleAreaFilter(event.target.value)} className={pilotEditableInput}>
-              {peopleAreaOptions.map((option) => <option key={option} value={option}>{option === "All" ? "Area: All" : option}</option>)}
+              {peopleAreaOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option === "All" ? filterAllLabel(t, "sites.areas") : option}
+                </option>
+              ))}
             </select>
           </div>
         </div>
@@ -1063,8 +1098,8 @@ export function UsersInvitesPilotPanel({
         ) : !activeMembersLoadError && filteredActiveMembers.length === 0 ? (
           <div className="mt-3">
             <EmptyPanel
-              title="No matching people"
-              text="No people match your search or selected filters."
+              title={t("people.noMatchingPeople")}
+              text={t("people.noMatchingPeopleHint")}
             />
           </div>
         ) : filteredActiveMembers.length === 0 ? null : (
@@ -1076,9 +1111,15 @@ export function UsersInvitesPilotPanel({
                   <div className="grid gap-1 text-sm text-slate-700">
                     <p className="font-semibold text-slate-900">{member.name || member.email}</p>
                     <p>{member.email}</p>
-                    <p>Role: {formatUserRoleLabel(member.role)}</p>
-                    <p>Status: {toTitleStatus(member.status)}</p>
-                    <p>Access: {accessSummary}</p>
+                    <p>
+                      {t("people.role")}: {translateRoleLabel(t, member.role)}
+                    </p>
+                    <p>
+                      {t("common.status")}: {displayMemberStatus(t, member.status)}
+                    </p>
+                    <p>
+                      {t("people.access")}: {accessSummary}
+                    </p>
                   </div>
                   <ActiveUserCard
                     member={member}

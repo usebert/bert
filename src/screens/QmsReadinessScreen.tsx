@@ -1,4 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { SECTION_INTROS } from "../config/sectionIntros";
 import { QmsReadinessSummaryWidget } from "../components/qms/QmsReadinessSummaryWidget";
 import type { AuditFindingRecord } from "../types/complianceLoop";
@@ -115,6 +116,7 @@ export function QmsReadinessScreen({
   onSaveSafetyObservations,
   onSaveSafetyObjectives,
 }: QmsReadinessScreenProps) {
+  const { t } = useTranslation();
   const [section, setSection] = useState<HubSection>("hub");
   const hubGridRef = useRef<HTMLDivElement>(null);
   const pendingHubScrollRef = useRef(false);
@@ -151,21 +153,21 @@ export function QmsReadinessScreen({
     const operational = [
       {
         id: "ncr" as const,
-        title: "Quality issues",
+        title: t("qms.qualityIssues"),
         description: "Track non-conformances and serious quality problems.",
         metric: openNcrCount > 0 ? `${openNcrCount} open` : undefined,
         onClick: () => onNavigate("nonConformance"),
       },
       {
         id: "actions" as const,
-        title: "Corrective actions",
+        title: t("qms.correctiveActions"),
         description: "Assign ownership, add evidence, and verify closure.",
         metric: summary.overdueHsActions > 0 ? `${summary.overdueHsActions} overdue` : undefined,
         onClick: () => onNavigate("actions"),
       },
       {
         id: "hazards-op" as const,
-        title: "Safety hazards",
+        title: t("qms.safetyHazards"),
         description: "Record hazards and follow-up actions.",
         metric: summary.openHazards > 0 ? `${summary.openHazards} open` : undefined,
         onClick: () => onNavigate("incidents"),
@@ -173,7 +175,7 @@ export function QmsReadinessScreen({
       },
       {
         id: "incidents-op" as const,
-        title: "Incidents & near misses",
+        title: t("qms.incidentsAndNearMisses"),
         description: "Capture reports, investigations, and corrective actions.",
         metric:
           summary.openIncidentsAndNearMisses > 0 ? `${summary.openIncidentsAndNearMisses} open` : undefined,
@@ -186,14 +188,14 @@ export function QmsReadinessScreen({
         ...operational,
         {
           id: "reports" as const,
-          title: "Reports & evidence",
+          title: t("qms.reportsAndEvidence"),
           description: "Review completed checks and shared report packs.",
           metric: openReportsCount > 0 ? `${openReportsCount} open reports` : undefined,
           onClick: () => onNavigate("reports"),
         },
         {
           id: "checks" as const,
-          title: "Forms & checks",
+          title: t("audits.formsAndChecks"),
           description: "Operational checks that feed your quality and safety records.",
           metric: undefined,
           onClick: () => onNavigate("audits"),
@@ -203,14 +205,14 @@ export function QmsReadinessScreen({
     return [
       {
         id: "documents" as const,
-        title: "Document control",
+        title: t("qms.documentControl"),
         description: "Controlled documents, versions, owners, and review dates.",
         metric: summary.documentsNeedingReview > 0 ? `${summary.documentsNeedingReview} need review` : undefined,
         onClick: () => setSection("documents"),
       },
       {
         id: "training" as const,
-        title: "Training records",
+        title: t("qms.trainingRecords"),
         description: "Training status, expiry dates, and evidence.",
         metric: summary.trainingExpiringSoon > 0 ? `${summary.trainingExpiringSoon} expiring soon` : undefined,
         onClick: () => setSection("training"),
@@ -218,14 +220,14 @@ export function QmsReadinessScreen({
       ...operational,
       {
         id: "risks" as const,
-        title: "Risks",
+        title: t("qms.risks"),
         description: "Review quality and safety risks before they become problems.",
         metric: summary.risksNeedingReview > 0 ? `${summary.risksNeedingReview} need review` : undefined,
         onClick: () => setSection("risks"),
       },
       {
         id: "hazards" as const,
-        title: "Safety hazards",
+        title: t("qms.safetyHazards"),
         description: "Record hazards and follow-up actions.",
         metric: summary.openHazards > 0 ? `${summary.openHazards} open` : undefined,
         onClick: () => setSection("hazards"),
@@ -233,7 +235,7 @@ export function QmsReadinessScreen({
       },
       {
         id: "incidents" as const,
-        title: "Incidents & near misses",
+        title: t("qms.incidentsAndNearMisses"),
         description: "Capture reports, investigations, and corrective actions.",
         metric:
           summary.openIncidentsAndNearMisses > 0 ? `${summary.openIncidentsAndNearMisses} open` : undefined,
@@ -242,7 +244,7 @@ export function QmsReadinessScreen({
       },
       {
         id: "safetyRisks" as const,
-        title: "Safety risks",
+        title: t("qms.safetyRisks"),
         description: "Activity-based assessments with controls and review dates.",
         metric:
           summary.riskAssessmentsDueReview > 0 ? `${summary.riskAssessmentsDueReview} need review` : undefined,
@@ -251,7 +253,7 @@ export function QmsReadinessScreen({
       },
       {
         id: "emergency" as const,
-        title: "Emergency preparedness",
+        title: t("qms.emergencyPreparedness"),
         description: "Fire exits, spill kits, and drills — use your existing check templates.",
         metric: undefined,
         onClick: () => onNavigate("audits"),
@@ -259,7 +261,7 @@ export function QmsReadinessScreen({
       },
       {
         id: "observations" as const,
-        title: "Safety observations",
+        title: t("qms.safetyObservations"),
         description: "Positive or improvement observations from the floor.",
         metric: undefined,
         onClick: () => setSection("observations"),
@@ -267,7 +269,7 @@ export function QmsReadinessScreen({
       },
       {
         id: "objectives" as const,
-        title: "Safety objectives",
+        title: t("qms.safetyObjectives"),
         description: "Targets, owners, and progress for health and safety goals.",
         metric: summary.safetyObjectivesAtRisk > 0 ? `${summary.safetyObjectivesAtRisk} need attention` : undefined,
         onClick: () => setSection("objectives"),
@@ -275,21 +277,21 @@ export function QmsReadinessScreen({
       },
       {
         id: "review" as const,
-        title: "Review pack",
+        title: t("qms.reviewPack"),
         description: "Prepare a management review from real records.",
         metric: summary.managementReviewDetail,
         onClick: () => setSection("managementReview"),
       },
     ];
-  }, [accessLevel, onNavigate, openNcrCount, openReportsCount, summary]);
+  }, [accessLevel, onNavigate, openNcrCount, openReportsCount, summary, t]);
 
   return (
     <div className="space-y-6">
       {section === "hub" ? (
         <PageHeader
           role={accessLevel === "full" ? "Admin" : "Manager"}
-          eyebrow="Quality & safety"
-          title={accessLevel === "full" ? "Quality & Safety Hub" : "Quality & safety operations"}
+          eyebrow={t("qms.qualityAndSafety")}
+          title={accessLevel === "full" ? t("qms.title") : t("qms.operationsTitle")}
           subtitle={SECTION_INTROS.qmsReadiness}
         />
       ) : null}
@@ -321,7 +323,7 @@ export function QmsReadinessScreen({
             onClick={openHub}
             className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
           >
-            Back to hub
+            {t("qms.backToHub")}
           </button>
         </div>
       ) : null}

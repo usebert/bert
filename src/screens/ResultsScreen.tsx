@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { EmptyPanel } from "../components/dashboard/DashboardPrimitives";
 import { AuditCentreBackButton } from "../components/auditCentre/AuditCentreBackButton";
 import { AuditEvidencePanel } from "../components/evidence/AuditEvidencePanel";
@@ -133,6 +134,7 @@ function ResultDetailHeader({
   enriched: EnrichedAuditResult;
   onClear: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="flex items-start justify-between gap-3">
       <div>
@@ -162,7 +164,7 @@ function ResultDetailHeader({
         onClick={onClear}
         className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
       >
-        Close
+        {t("common.close")}
       </button>
     </div>
   );
@@ -185,13 +187,14 @@ function ResultsFiltersPanel({
   onChange: (next: typeof EMPTY_RESULTS_FILTERS) => void;
   onClear: () => void;
 }) {
+  const { t } = useTranslation();
   const active = hasActiveResultsFilters(filters);
 
   return (
     <div className="rounded-[1.35rem] border border-slate-200/80 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-slate-900">Filter results</p>
+          <p className="text-sm font-semibold text-slate-900">{t("results.filterResults")}</p>
           <p className="mt-1 text-xs text-slate-500">
             Showing {filteredCount} of {totalCount} completed checks
           </p>
@@ -202,7 +205,7 @@ function ResultsFiltersPanel({
             onClick={onClear}
             className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
           >
-            Clear filters
+            {t("results.clearFilters")}
           </button>
         ) : null}
       </div>
@@ -303,6 +306,7 @@ export function ResultsScreen({
   onClearSelectedResult,
   onBackToAuditCentre,
 }: ResultsScreenProps) {
+  const { t } = useTranslation();
   const [filters, setFilters] = useState(createInitialResultsFilters);
 
   const basicResults = useMemo(
@@ -334,8 +338,8 @@ export function ResultsScreen({
           <ResultsScreenIcon />
         </div>
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Results</h1>
-          <p className="text-sm text-slate-500">Completed checks saved to your company workbook.</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t("results.title")}</h1>
+          <p className="text-sm text-slate-500">{t("results.subtitle")}</p>
         </div>
       </div>
 
@@ -355,7 +359,7 @@ export function ResultsScreen({
             disabled={resultsLoading || resultsLoadingMore}
             className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {resultsLoading ? "Refreshing…" : "Refresh"}
+            {resultsLoading ? t("results.refreshing") : t("results.refresh")}
           </button>
         ) : null}
         {resultsHasMore && onLoadMoreResults ? (
@@ -365,19 +369,19 @@ export function ResultsScreen({
             disabled={resultsLoading || resultsLoadingMore}
             className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {resultsLoadingMore ? "Loading more…" : "Load more"}
+            {resultsLoadingMore ? t("results.loadingMore") : t("results.loadMore")}
           </button>
         ) : null}
       </div>
 
       {resultsLoading && basicResults.length === 0 ? (
-        <EmptyPanel title={COMPANY_RESULTS_LOADING_MESSAGE} text="Reading your company workbook…" />
+        <EmptyPanel title={COMPANY_RESULTS_LOADING_MESSAGE} text={t("results.readingWorkbook")} />
       ) : resultsLoadError && basicResults.length === 0 ? (
-        <EmptyPanel title="Could not load results" text={resultsLoadError} />
+        <EmptyPanel title={t("results.couldNotLoad")} text={resultsLoadError} />
       ) : basicResults.length === 0 ? (
         <EmptyPanel
-          title="No completed checks yet"
-          text="When someone completes a check, it will appear here from your company workbook."
+          title={t("results.noCompletedChecks")}
+          text={t("results.emptyBody")}
         />
       ) : (
         <>
@@ -393,8 +397,8 @@ export function ResultsScreen({
 
           {filteredResults.length === 0 ? (
             <EmptyPanel
-              title="No results match these filters."
-              text="Try clearing filters or widening the date range."
+              title={t("results.noMatchFiltersTitle")}
+              text={t("results.noMatchFiltersBody")}
             />
           ) : (
             <div className="grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
@@ -453,16 +457,16 @@ export function ResultsScreen({
               <div className="space-y-4">
                 {!selectedResultId ? (
                   <EmptyPanel
-                    title="Select a completed check"
-                    text="Choose a result to review completion metadata and saved answers."
+                    title={t("results.selectCheck")}
+                    text={t("results.selectCheckBody")}
                   />
                 ) : selectedResultLoading ? (
                   <EmptyPanel
                     title={COMPANY_RESULT_DETAIL_LOADING_MESSAGE}
-                    text="Reading saved answers…"
+                    text={t("results.readingSavedAnswers")}
                   />
                 ) : selectedResultLoadError ? (
-                  <EmptyPanel title="Could not load check details" text={selectedResultLoadError} />
+                  <EmptyPanel title={t("results.couldNotLoadDetails")} text={selectedResultLoadError} />
                 ) : selectedResult && selectedEnriched ? (
                   <>
                     <ResultDetailHeader
@@ -508,14 +512,14 @@ export function ResultsScreen({
                       ) : null}
                     </div>
 
-                    <JsonPanel title="Answers" body={selectedResult.answersDisplay} />
-                    <JsonPanel title="Findings" body={selectedResult.findingsDisplay} />
+                    <JsonPanel title={t("results.answers")} body={selectedResult.answersDisplay} />
+                    <JsonPanel title={t("results.findings")} body={selectedResult.findingsDisplay} />
                     <AuditEvidencePanel result={selectedResult} />
                   </>
                 ) : (
                   <EmptyPanel
-                    title="Check details unavailable"
-                    text="This completed check could not be shown."
+                    title={t("results.detailUnavailable")}
+                    text={t("results.detailUnavailableBody")}
                   />
                 )}
               </div>

@@ -1,4 +1,5 @@
 import { FormEvent, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { FormLanguageCode } from "../config/templateLanguages";
 import { getRoleTheme } from "../config/roleTheme";
 import { CreateGoogleFormCopyOption } from "../components/forms/CreateGoogleFormCopyOption";
@@ -131,6 +132,7 @@ export function AuditBuilderScreen({
   onTemplateSaved,
   onStartAudit,
 }: Props) {
+  const { t } = useTranslation();
   const theme = getRoleTheme(role);
   const [step, setStep] = useState<Step>("paste");
   const [checklistText, setChecklistText] = useState("");
@@ -186,7 +188,7 @@ export function AuditBuilderScreen({
           <div className="min-w-0 flex-1 space-y-3">
             <AuditCentreBackButton onClick={onBack} />
             <div>
-              <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Audit Builder</h2>
+              <h2 className="text-2xl font-semibold tracking-tight text-slate-900">{t("auditBuilder.title")}</h2>
               <SectionIntro
                 text="Paste a checklist to generate a reusable audit template with compliance answer options."
                 className="mt-2"
@@ -207,7 +209,7 @@ export function AuditBuilderScreen({
               theme.outlineButton,
             ].join(" ")}
           >
-            Paste checklist
+            {t("auditBuilder.pasteChecklist")}
           </button>
           <button
             type="button"
@@ -221,7 +223,7 @@ export function AuditBuilderScreen({
               theme.outlineButton,
             ].join(" ")}
           >
-            Paste fridge example
+            {t("auditBuilder.pasteFridgeExample")}
           </button>
           <form onSubmit={handleGenerate} className="space-y-4">
             <label className="block text-sm font-semibold text-slate-900" htmlFor="audit-builder-text">
@@ -244,7 +246,7 @@ export function AuditBuilderScreen({
                 theme.primaryButtonHover,
               ].join(" ")}
             >
-              {loading ? "Generating…" : "Generate Audit Template"}
+              {loading ? t("auditBuilder.generating") : t("auditBuilder.generateTemplate")}
             </button>
           </form>
         </section>
@@ -254,7 +256,7 @@ export function AuditBuilderScreen({
         <section className="space-y-4 rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm font-semibold text-slate-700">
-              Template name
+              {t("auditBuilder.templateName")}
               <input
                 value={draft.template_name}
                 onChange={(event) => setDraft({ ...draft, template_name: event.target.value })}
@@ -262,7 +264,7 @@ export function AuditBuilderScreen({
               />
             </label>
             <label className="block text-sm font-semibold text-slate-700">
-              Category
+              {t("auditBuilder.category")}
               <select
                 value={draft.category}
                 onChange={(event) => setDraft({ ...draft, category: event.target.value })}
@@ -278,7 +280,7 @@ export function AuditBuilderScreen({
             </label>
           </div>
         <label className="block text-sm font-semibold text-slate-700">
-          Description
+          {t("auditBuilder.description")}
           <textarea
             value={draft.description}
             onChange={(event) => setDraft({ ...draft, description: event.target.value })}
@@ -383,7 +385,7 @@ export function AuditBuilderScreen({
                 theme.outlineButton,
               ].join(" ")}
             >
-              Back
+              {t("common.back")}
             </button>
             <button
               type="button"
@@ -395,7 +397,7 @@ export function AuditBuilderScreen({
                 theme.primaryButtonHover,
               ].join(" ")}
             >
-              {saving ? "Saving…" : "Save Template"}
+              {saving ? t("auditBuilder.saving") : t("auditBuilder.saveTemplate")}
             </button>
             {savedTemplate ? (
               <button
@@ -406,7 +408,7 @@ export function AuditBuilderScreen({
                   theme.outlineButton,
                 ].join(" ")}
               >
-                Start Audit Now
+                {t("auditBuilder.startAuditNow")}
               </button>
             ) : null}
           </div>

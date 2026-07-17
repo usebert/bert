@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   backgroundJobsService,
   type BackgroundJobRecord,
@@ -28,6 +29,7 @@ export function GodmodeBackgroundJobsPanel({
   surfaceClass?: string;
   viewerRole?: Role;
 }) {
+  const { t } = useTranslation();
   const technical = canShowTechnicalUi(viewerRole);
   const [jobs, setJobs] = useState<BackgroundJobRecord[]>([]);
   const [loading, setLoading] = useState(false);
@@ -64,7 +66,7 @@ export function GodmodeBackgroundJobsPanel({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold text-slate-900">
-            {technical ? "Background jobs" : "Updates"}
+            {technical ? t("godmode.backgroundJobs") : t("godmode.updates")}
           </p>
           <p className="text-xs text-slate-500">
             {technical
@@ -78,7 +80,7 @@ export function GodmodeBackgroundJobsPanel({
           disabled={loading}
           className="h-9 rounded-xl border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 disabled:opacity-60"
         >
-          {loading ? "Refreshing…" : "Refresh"}
+          {loading ? t("results.refreshing") : t("common.refresh")}
         </button>
       </div>
 

@@ -1,4 +1,5 @@
 import { EmptyPanel } from "../components/dashboard/DashboardPrimitives";
+import { useTranslation } from "react-i18next";
 import { AuditCentreBackButton } from "../components/auditCentre/AuditCentreBackButton";
 import { SectionIntro } from "../components/SectionIntro";
 import { ArchiveRecordButton } from "../components/archive/ArchiveRecordButton";
@@ -65,6 +66,7 @@ export function GoogleFormsScreen({
   onArchiveError,
   onArchiveSuccess,
 }: GoogleFormsScreenProps) {
+  const { t } = useTranslation();
   const sortedForms = [...forms].sort((a, b) => a.name.localeCompare(b.name));
   const createdFormIds = new Set(bertCheckCreatedFormIds);
 
@@ -77,8 +79,8 @@ export function GoogleFormsScreen({
             <GoogleFormsScreenIcon />
           </div>
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Google Forms</h1>
-            <p className="text-sm text-slate-500">Live forms stored in this company&apos;s Google Forms folder.</p>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t("nav.googleForms")}</h1>
+            <p className="text-sm text-slate-500">{t("googleForms.liveFormsSubtitle")}</p>
           </div>
         </div>
         {canSync ? (
@@ -88,7 +90,7 @@ export function GoogleFormsScreen({
             disabled={loading || syncing || !googleConnected}
             className="rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
           >
-            {syncing ? "Syncing…" : "Sync to workbook"}
+            {syncing ? t("common.syncing") : t("googleForms.syncToWorkbook")}
           </button>
         ) : (
           <p className="max-w-xs text-sm text-slate-500">Sync is available to company admins when Google is connected.</p>
@@ -134,7 +136,7 @@ export function GoogleFormsScreen({
                   {form.modifiedTime ? `Updated ${formatModifiedTime(form.modifiedTime)}` : "Google Form"}
                 </p>
                 {created ? (
-                  <p className="mt-1 text-xs font-medium text-emerald-700">BERT check created</p>
+                  <p className="mt-1 text-xs font-medium text-emerald-700">{t("googleForms.bertCheckCreated")}</p>
                 ) : null}
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -145,7 +147,7 @@ export function GoogleFormsScreen({
                     disabled={loading || syncing || creating || created}
                     className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
-                    {creating ? "Creating…" : created ? "BERT check created" : "Create BERT check"}
+                    {creating ? t("googleForms.creating") : created ? t("googleForms.bertCheckCreated") : t("googleForms.createBertCheck")}
                   </button>
                 ) : null}
                 {form.webViewLink ? (
@@ -166,7 +168,7 @@ export function GoogleFormsScreen({
                     masterSheetId={archiveMasterSheetId}
                     offlineMode={archiveOffline}
                     canArchive={canArchiveForms}
-                    label="Archive form"
+                    label={t("googleForms.archiveForm")}
                     onArchived={() => onFormArchived(formKey)}
                     onError={onArchiveError}
                     onSuccess={onArchiveSuccess}

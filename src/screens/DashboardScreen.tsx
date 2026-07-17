@@ -11,6 +11,7 @@
  */
 
 import { ReactNode, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   canAccessAdmin,
   canCompleteAuditAsAuditor,
@@ -219,6 +220,7 @@ export function DashboardScreen({
   renderAdminDashboard: () => ReactNode;
   renderMasterDashboard: () => ReactNode;
 }) {
+  const { t } = useTranslation();
   const [showDashboardOptions, setShowDashboardOptions] = useState(false);
   void workspaceName;
   void awaitingVerificationActions;
@@ -299,7 +301,7 @@ export function DashboardScreen({
         <section key={section} className="rounded-2xl border border-sky-200/80 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
           <SectionHeader icon="chart" eyebrow="Ready to report" title="Key numbers" subtitle="Compliance, completion, open actions, and queue in one place." />
           <div className="mt-2 grid grid-cols-2 gap-2">
-            <KpiCard title="Open actions" value={String(openActions.length)} tone={openActions.length ? "amber" : "green"} subtitle={`${overdueActions.length} overdue`} dark={themeMode === "dark"} />
+            <KpiCard title={t("dashboard.openActions")} value={String(openActions.length)} tone={openActions.length ? "amber" : "green"} subtitle={`${overdueActions.length} overdue`} dark={themeMode === "dark"} />
             <KpiCard title="Compliance" value={`${compliance}%`} tone="green" subtitle={complianceDelta >= 0 ? `Up ${complianceDelta}%` : `Down ${Math.abs(complianceDelta)}%`} dark={themeMode === "dark"} />
             <KpiCard title="Completion" value={`${auditCompletionRate}%`} tone={auditCompletionRate > 79 ? "green" : "amber"} subtitle={`${completedToday} today`} dark={themeMode === "dark"} />
             <KpiCard title="Work waiting to sync" value={String(offlineQueueCount)} tone={offlineQueueCount ? "amber" : "green"} subtitle={`${evidenceCount} evidence`} dark={themeMode === "dark"} />
@@ -310,7 +312,7 @@ export function DashboardScreen({
     if (section === "upcomingAudits") {
       return (
         <section key={section} className="rounded-2xl border border-sky-200/80 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
-          <SectionHeader icon="clipboard" eyebrow="Due today" title="Upcoming audits" subtitle="What to plan or open next from your assigned work." />
+          <SectionHeader icon="clipboard" eyebrow={t("dashboard.today")} title={t("dashboard.checksDueToday")} subtitle="What to plan or open next from your assigned work." />
           <div className="mt-2 space-y-2">
             {assignedAudits.slice(0, 4).map((audit) => (
               <button key={audit.id} onClick={() => onOpenAudit(audit.id)} className="w-full rounded-xl border border-sky-200/70 bg-slate-50 px-3 py-2.5 text-left transition hover:bg-white">
@@ -331,7 +333,7 @@ export function DashboardScreen({
     if (section === "openActions") {
       return (
         <section key={section} className="rounded-2xl border border-sky-200/80 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
-          <SectionHeader icon="warningTriangle" eyebrow="Open work" title="Open actions" subtitle="Items needing progress or verification." />
+          <SectionHeader icon="warningTriangle" eyebrow={t("dashboard.openActions")} title={t("dashboard.openActions")} subtitle="Items needing progress or verification." />
           <div className="mt-2 space-y-2">
             {actions.slice(0, 4).map((action) => (
               <button key={action.id} onClick={() => onAdvanceAction(action.id)} className="w-full rounded-xl border border-sky-200/70 bg-slate-50 px-3 py-2.5 text-left transition hover:bg-white">

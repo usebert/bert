@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { Role } from "../../permissions";
+import { translateRoleLabel } from "../../i18n/statusLabels";
 import { canManageAreas } from "../../permissions";
 import { SectionHeader } from "../dashboard/DashboardPrimitives";
 import {
@@ -60,6 +62,7 @@ export function SitesAreasPanel({
   onSelectSite,
   onToggleUserSiteAssignment,
 }: SitesAreasPanelProps) {
+  const { t } = useTranslation();
   const manage = canManageAreas(currentUserRole);
   const [manageAccessOpen, setManageAccessOpen] = useState(false);
   const active = useMemo(() => activeAreas(sites), [sites]);
@@ -86,8 +89,8 @@ export function SitesAreasPanel({
     <section className={surfaceClass}>
       <SectionHeader
         icon="grid"
-        eyebrow="Sites / Areas"
-        title={manage ? "Areas" : "Area access"}
+        eyebrow={t("sites.sitesAndAreasEyebrow")}
+        title={manage ? t("sites.areas") : t("sites.areaAccess")}
         subtitle={
           singleWorkspace
             ? "Everyone can access this workspace."
@@ -104,14 +107,14 @@ export function SitesAreasPanel({
       ) : null}
 
       {areaSyncLoading ? (
-        <p className={`mt-3 text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Syncing areas…</p>
+        <p className={`mt-3 text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>{t("sites.syncingAreas")}</p>
       ) : null}
 
       <div className={`mt-4 space-y-4 ${nestedClass}`}>
         {manage ? (
           <div className={`rounded-2xl border p-4 ${isDark ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-slate-50"}`}>
             <p className={`text-xs font-semibold uppercase tracking-[0.16em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-              Restriction mode
+              {t("sites.restrictionMode")}
             </p>
             {singleWorkspace ? (
               <p className={`mt-2 text-sm leading-6 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
@@ -130,7 +133,7 @@ export function SitesAreasPanel({
                   onClick={onEnableAreaRestrictions}
                   className={`h-11 rounded-xl px-5 text-sm font-semibold ${isDark ? "bg-orange-500 text-slate-950" : "bg-orange-500 text-white hover:bg-orange-600"}`}
                 >
-                  Enable area restrictions
+                  {t("sites.enableAreaRestrictions")}
                 </button>
               ) : (
                 <button
@@ -138,7 +141,7 @@ export function SitesAreasPanel({
                   onClick={onAddArea}
                   className={`h-11 rounded-xl px-5 text-sm font-semibold ${isDark ? "bg-orange-500 text-slate-950" : "bg-orange-500 text-white hover:bg-orange-600"}`}
                 >
-                  Add area
+                  {t("sites.addArea")}
                 </button>
               )}
               {areaRestrictionsEnabled ? (
@@ -147,7 +150,7 @@ export function SitesAreasPanel({
                   onClick={onDisableAreaRestrictions}
                   className={`h-11 rounded-xl border px-4 text-sm font-semibold ${isDark ? "border-slate-700 text-slate-200" : "border-slate-300 bg-white text-slate-700"}`}
                 >
-                  Turn off restrictions
+                  {t("sites.turnOffRestrictions")}
                 </button>
               ) : (
                 <button
@@ -155,7 +158,7 @@ export function SitesAreasPanel({
                   onClick={onAddArea}
                   className={`h-11 rounded-xl border px-4 text-sm font-semibold ${isDark ? "border-slate-600 text-slate-200" : "border-slate-300 bg-white text-slate-800"}`}
                 >
-                  Add area
+                  {t("sites.addArea")}
                 </button>
               )}
               {shouldShowAreaAssignment(areaRestrictionsEnabled, sites) ? (
@@ -164,7 +167,7 @@ export function SitesAreasPanel({
                   onClick={() => setManageAccessOpen((open) => !open)}
                   className={`h-11 rounded-xl border px-4 text-sm font-semibold ${isDark ? "border-slate-600 text-slate-200" : "border-slate-300 bg-white text-slate-700"}`}
                 >
-                  {manageAccessOpen ? "Hide access" : "Manage access"}
+                  {manageAccessOpen ? t("sites.hideAccess") : t("sites.manageAccess")}
                 </button>
               ) : null}
             </div>
@@ -174,7 +177,7 @@ export function SitesAreasPanel({
         {manage || showSiteContext ? (
           <div>
             <p className={`text-xs font-semibold uppercase tracking-[0.16em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-              {showSiteContext ? "Company site context" : "Active areas"}
+              {showSiteContext ? t("sites.companySiteContext") : t("sites.activeAreas")}
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
               {showSiteContext && onSelectSite ? (
@@ -183,7 +186,7 @@ export function SitesAreasPanel({
                   onClick={() => onSelectSite("")}
                   className={[chipBase, selectedSiteId === "" ? chipActive : chipIdle].join(" ")}
                 >
-                  All sites
+                  {t("sites.allSites")}
                 </button>
               ) : null}
               {active.map((site) =>
@@ -201,7 +204,7 @@ export function SitesAreasPanel({
                         type="button"
                         onClick={() => onArchiveArea(site.id)}
                         className="rounded-full px-1.5 text-xs font-semibold text-slate-400 hover:text-rose-600"
-                        title="Archive area"
+                        title={t("sites.archiveAreaTitle")}
                       >
                         ×
                       </button>
@@ -219,7 +222,7 @@ export function SitesAreasPanel({
                         onClick={() => onRenameArea(site.id, site.name)}
                         className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 hover:text-slate-700"
                       >
-                        Rename
+                        {t("sites.rename")}
                       </button>
                     ) : null}
                     {manage && onArchiveArea ? (
@@ -228,7 +231,7 @@ export function SitesAreasPanel({
                         onClick={() => onArchiveArea(site.id)}
                         className="text-[10px] font-semibold uppercase tracking-wide text-rose-500 hover:text-rose-700"
                       >
-                        Archive
+                        {t("sites.archive")}
                       </button>
                     ) : null}
                   </span>
@@ -236,11 +239,11 @@ export function SitesAreasPanel({
               )}
               {manage && onAddArea && !showSiteContext ? (
                 <button type="button" onClick={onAddArea} className={[chipBase, "border-dashed", chipIdle].join(" ")}>
-                  Add area
+                  {t("sites.addArea")}
                 </button>
               ) : null}
               {active.length === 0 ? (
-                <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>No custom areas yet.</p>
+                <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>{t("sites.noCustomAreas")}</p>
               ) : null}
             </div>
           </div>
@@ -248,7 +251,7 @@ export function SitesAreasPanel({
 
         {sites.some((site) => !site.active) ? (
           <div className={`rounded-2xl border p-3 ${isDark ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-slate-50"}`}>
-            <p className={`text-xs font-semibold ${isDark ? "text-slate-400" : "text-slate-600"}`}>Archived areas</p>
+            <p className={`text-xs font-semibold ${isDark ? "text-slate-400" : "text-slate-600"}`}>{t("sites.archivedAreas")}</p>
             <div className="mt-2 flex flex-wrap gap-2">
               {sites
                 .filter((site) => !site.active)
@@ -265,7 +268,7 @@ export function SitesAreasPanel({
                         onClick={() => onReactivateArea(site.id)}
                         className="text-xs font-semibold text-sky-600 hover:underline"
                       >
-                        Reactivate
+                        {t("sites.reactivate")}
                       </button>
                     ) : null}
                   </span>
@@ -277,7 +280,7 @@ export function SitesAreasPanel({
         {showAssignment ? (
           <div>
             <p className={`text-xs font-semibold uppercase tracking-[0.16em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-              Assign users to areas
+              {t("sites.assignUsersToAreas")}
             </p>
             <p className={`mt-1 text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>
               {areaAssignmentHelpText(areaRestrictionsEnabled, sites)}
@@ -296,7 +299,7 @@ export function SitesAreasPanel({
                       <div className="flex flex-wrap items-baseline justify-between gap-2">
                         <p className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>{user.email}</p>
                         <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                          {user.role}
+                          {translateRoleLabel(t, user.role)}
                         </span>
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">

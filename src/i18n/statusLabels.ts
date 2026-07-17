@@ -75,3 +75,73 @@ export function translatePriority(t: TFunction, priority: string): string {
       return priority || "—";
   }
 }
+
+export function translateRoleLabel(t: TFunction, role: string): string {
+  switch (String(role || "").toLowerCase()) {
+    case "master":
+      return t("roles.master");
+    case "admin":
+    case "companyadmin":
+    case "company_admin":
+      return t("roles.admin");
+    case "manager":
+      return t("roles.manager");
+    case "auditor":
+      return t("roles.auditor");
+    case "viewer":
+      return t("roles.viewer");
+    default:
+      return role || "—";
+  }
+}
+
+export function translateScheduleFrequency(t: TFunction, frequency: string): string {
+  switch (String(frequency || "").toLowerCase()) {
+    case "daily":
+      return t("schedules.frequencyDaily");
+    case "weekly":
+      return t("schedules.frequencyWeekly");
+    case "monthly":
+      return t("schedules.frequencyMonthly");
+    case "custom":
+      return t("schedules.frequencyCustom");
+    default:
+      return frequency || "—";
+  }
+}
+
+export function translateSyncQueueStatus(t: TFunction, status: string): string {
+  switch (String(status || "")) {
+    case "Pending Sync":
+      return t("syncCentre.queued");
+    case "Syncing":
+      return t("syncCentre.syncing");
+    case "Synced":
+      return t("syncCentre.synced");
+    case "Failed":
+      return t("syncCentre.failed");
+    case "Conflict":
+      return t("syncCentre.failedConflict");
+    default:
+      return status || "—";
+  }
+}
+
+export function translateSyncItemType(t: TFunction, itemType: string): string {
+  switch (String(itemType || "")) {
+    case "auditCompletion":
+      return t("syncCentre.checkCompletion");
+    case "auditSubmission":
+      return t("syncCentre.auditSubmission");
+    case "incidentReport":
+      return t("syncCentre.incidentReport");
+    case "actionUpdate":
+      return t("syncCentre.actionUpdate");
+    case "briefingCreate":
+      return t("syncCentre.briefingCreated");
+    case "briefingAck":
+      return t("syncCentre.briefingAck");
+    default:
+      return t("syncCentre.queuedItem");
+  }
+}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { SECTION_INTROS } from "../config/sectionIntros";
 import { canAccessAdmin, canAccessAdminOnboardingWorkspace, canManageAreas, getRoleDisplayName } from "../permissions";
 import { getCanonicalCompanyStatus } from "../utils/companyWorkspaceInvite";
@@ -79,6 +80,7 @@ function CompanyUserInviteEmailResultPanel({
   onDismiss: () => void;
   slatePrimaryCtaInteract: string;
 }) {
+  const { t } = useTranslation();
   const [copyLinkDone, setCopyLinkDone] = useState(false);
   const [copyDraftDone, setCopyDraftDone] = useState(false);
   const senderEmail = result.senderEmail || "admin@usebert.co.uk";
@@ -108,7 +110,7 @@ function CompanyUserInviteEmailResultPanel({
           </div>
         </dl>
         <button type="button" onClick={onDismiss} className={`mt-3 text-xs font-semibold text-emerald-200 underline-offset-2 hover:underline ${slatePrimaryCtaInteract}`}>
-          Dismiss
+          {t("common.close")}
         </button>
       </div>
     );
@@ -149,7 +151,7 @@ function CompanyUserInviteEmailResultPanel({
           }}
           className="h-10 rounded-xl border border-white/15 bg-white/10 px-4 text-xs font-semibold text-white hover:bg-white/15"
         >
-          {copyLinkDone ? "Link copied" : "Copy invite link"}
+          {copyLinkDone ? t("people.linkCopied") : t("people.copyInviteLink")}
         </button>
         {draftText ? (
           <button
@@ -176,7 +178,7 @@ function CompanyUserInviteEmailResultPanel({
         ) : null}
       </div>
       <button type="button" onClick={onDismiss} className={`mt-3 text-xs font-semibold text-amber-200 underline-offset-2 hover:underline ${slatePrimaryCtaInteract}`}>
-        Dismiss
+        {t("common.close")}
       </button>
     </div>
   );
@@ -431,6 +433,7 @@ export function AdminScreen({
   AppIcon,
   slatePrimaryCtaInteract,
 }: AdminScreenProps) {
+  const { t } = useTranslation();
   const adminOnly = !canAccessAdmin(currentUser.role);
   const masterOnly = currentUser.role !== "Master";
   const canInviteNewCompany = currentUser.role === "Master";
@@ -525,26 +528,29 @@ export function AdminScreen({
     }
   }, [pendingAdminScrollTarget, onboardingMode, adminView, godModeFullVisibility]);
 
-  const pilotTitles: Record<"companies" | "onboarding" | "users" | "invites", { title: string; intro: string }> = {
-    companies: {
-      title: "Companies",
-      intro: SECTION_INTROS.companies,
-    },
-    onboarding: {
-      title: godmodeNewCompanyOnboarding ? "Create new company" : "Company Onboarding",
-      intro: godmodeNewCompanyOnboarding
-        ? "Start with a clean company workspace. No previous company data will be used."
-        : SECTION_INTROS.companyOnboarding,
-    },
-    users: {
-      title: "Users & Invites",
-      intro: SECTION_INTROS.usersInvites,
-    },
-    invites: {
-      title: "Team",
-      intro: SECTION_INTROS.team,
-    },
-  };
+  const pilotTitles: Record<"companies" | "onboarding" | "users" | "invites", { title: string; intro: string }> = useMemo(
+    () => ({
+      companies: {
+        title: t("godmode.companies"),
+        intro: SECTION_INTROS.companies,
+      },
+      onboarding: {
+        title: godmodeNewCompanyOnboarding ? t("godmode.createNewCompany") : t("nav.companyOnboarding"),
+        intro: godmodeNewCompanyOnboarding
+          ? "Start with a clean company workspace. No previous company data will be used."
+          : SECTION_INTROS.companyOnboarding,
+      },
+      users: {
+        title: t("people.usersAndInvites"),
+        intro: SECTION_INTROS.usersInvites,
+      },
+      invites: {
+        title: t("people.team"),
+        intro: SECTION_INTROS.team,
+      },
+    }),
+    [t, godmodeNewCompanyOnboarding],
+  );
 
   return (
     <div className="space-y-4">
@@ -1004,7 +1010,7 @@ export function AdminScreen({
                 onClick={() => setAdminView("overview")}
                 className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/10"
               >
-                Back to admin overview
+                {t("godmode.backToAdminOverview")}
               </button>
             </div>
           )}
@@ -1013,10 +1019,10 @@ export function AdminScreen({
               <AppIcon name="shield" className="h-5 w-5" />
             </div>
             <div>
-              <p className={darkPanelEyebrow}>Workspace setup</p>
+              <p className={darkPanelEyebrow}>{t("account.workspaceSetup")}</p>
               <h2 className={darkPanelTitleLg}>
                 {godmodeNewCompanyOnboarding
-                  ? "Create new company"
+                  ? t("godmode.createNewCompany")
                   : godmodeIncompleteCompanySetup && selectedFolder
                     ? `Continue setup for ${selectedFolder.name}`
                     : "Set up a new company workspace"}
@@ -1446,9 +1452,9 @@ export function AdminScreen({
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
                 <p className={["text-xs font-semibold uppercase tracking-[0.2em]", onboardingEyebrowClass].join(" ")}>
-                  {currentUser.role === "Master" ? "Workspace" : "Company admin"}
+                  {currentUser.role === "Master" ? t("godmode.workspace") : t("godmode.companyAdmin")}
                 </p>
-                <h3 className={["mt-1 text-base font-semibold", onboardingHeadingClass].join(" ")}>Company setup</h3>
+                <h3 className={["mt-1 text-base font-semibold", onboardingHeadingClass].join(" ")}>{t("onboarding.companySetup")}</h3>
                 <p className={["text-sm", onboardingBodyClass].join(" ")}>
                   One-time workspace setup — use Company Onboarding or Companies for Drive linking; this block is for the legacy admin workspace view.
                 </p>

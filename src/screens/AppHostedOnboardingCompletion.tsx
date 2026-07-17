@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { BertLogo } from "../components/BertLogo";
 import { saveCompanyLoginHint } from "../lib/companyLoginHint";
 import type { Role } from "../permissions";
@@ -130,6 +131,7 @@ function applyInviteAcceptanceSuccess(
   payload: InviteAcceptancePayload | undefined,
   fallbackDetails: CompanyUserInviteDetails | null,
   setSubmitSuccess: (message: string) => void,
+  successMessage: string,
 ) {
   const { email, masterSheetId, companyFolderId, companyName } = resolveInviteAcceptanceContext(
     payload,
@@ -143,7 +145,7 @@ function applyInviteAcceptanceSuccess(
       companyName,
     });
   }
-  setSubmitSuccess("Account created. You can now sign in.");
+  setSubmitSuccess(successMessage);
   window.setTimeout(() => {
     window.location.assign("/");
   }, INVITE_SUCCESS_REDIRECT_MS);
@@ -170,6 +172,7 @@ type AppHostedOnboardingCompletionProps = {
 };
 
 export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardingCompletionProps) {
+  const { t } = useTranslation();
   const [details, setDetails] = useState<CompanyUserInviteDetails | null>(null);
   const [loadError, setLoadError] = useState("");
   const [fullName, setFullName] = useState("");
@@ -216,15 +219,15 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
     event.preventDefault();
     setSubmitError("");
     if (password.length < 8) {
-      setSubmitError("Password must be at least 8 characters.");
+      setSubmitError(t("onboarding.passwordMinLength"));
       return;
     }
     if (password !== confirmPassword) {
-      setSubmitError("Passwords do not match.");
+      setSubmitError(t("onboarding.passwordsMismatch"));
       return;
     }
     if (!fullName.trim()) {
-      setSubmitError("Full name is required.");
+      setSubmitError(t("onboarding.fullNameRequired"));
       return;
     }
     setSubmitting(true);
@@ -269,16 +272,16 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
       }
 
       const payload = result.data;
-      applyInviteAcceptanceSuccess(payload, details, setSubmitSuccess);
+      applyInviteAcceptanceSuccess(payload, details, setSubmitSuccess, t("onboarding.accountCreated"));
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
         const recoveredPayload = await pollInviteAcceptanceAfterAbort(inviteToken);
         if (recoveredPayload) {
-          applyInviteAcceptanceSuccess(recoveredPayload, details, setSubmitSuccess);
+          applyInviteAcceptanceSuccess(recoveredPayload, details, setSubmitSuccess, t("onboarding.accountCreated"));
           return;
         }
 
-        applyInviteAcceptanceSuccess(undefined, details, setSubmitSuccess);
+        applyInviteAcceptanceSuccess(undefined, details, setSubmitSuccess, t("onboarding.accountCreated"));
       } else {
         setSubmitError(inviteCompletionNetworkError());
       }
@@ -327,7 +330,7 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
             ) : null}
             <p className="text-xs text-slate-500">Sign-in email: {details.email}</p>
             <div>
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Your name</label>
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">{t("onboarding.yourName")}</label>
               <input
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
@@ -337,18 +340,18 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
               />
             </div>
             <div>
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Password</label>
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">{t("onboarding.password")}</label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="h-12 w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 text-sm text-white outline-none focus:border-orange-400/60"
-                placeholder="At least 8 characters"
+                placeholder={t("onboarding.passwordMinPlaceholder")}
                 autoComplete="new-password"
               />
             </div>
             <div>
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Confirm password</label>
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">{t("onboarding.confirmPassword")}</label>
               <input
                 type="password"
                 value={confirmPassword}
@@ -364,7 +367,7 @@ export function AppHostedOnboardingCompletion({ inviteToken }: AppHostedOnboardi
               disabled={submitting || Boolean(submitSuccess)}
               className="h-12 w-full rounded-2xl bg-orange-400 text-sm font-semibold text-slate-950 disabled:opacity-50"
             >
-              {submitSuccess ? "Redirecting to sign in…" : submitting ? "Creating account…" : "Create account"}
+              {submitSuccess ? t("onboarding.redirectingToSignIn") : submitting ? t("onboarding.creatingAccount") : t("onboarding.createAccount")}
             </button>
           </form>
         )}

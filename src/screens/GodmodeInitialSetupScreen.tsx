@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { googleWorkspaceService } from "../services/googleWorkspaceService";
 import {
   googleFormTemplateFolderService,
@@ -42,6 +43,7 @@ function buildSections(
   googleConnected: boolean,
   sharedDriveVerified: boolean,
   sharedDriveId: string,
+  t: (key: string) => string,
 ): Section[] {
   const masterConfigured = status?.masterConfigured === true;
   const googleConfigured = status?.googleConfigured === true;
@@ -52,7 +54,7 @@ function buildSections(
   return [
     {
       id: "master",
-      title: "Master Account",
+      title: t("godmode.masterAccount"),
       ok: masterConfigured,
       detail: masterConfigured
         ? "Master account is configured"
@@ -60,7 +62,7 @@ function buildSections(
     },
     {
       id: "google",
-      title: "Google Workspace",
+      title: t("godmode.googleWorkspace"),
       ok: googleConfigured && googleConnected,
       detail:
         googleConfigured && googleConnected
@@ -69,7 +71,7 @@ function buildSections(
     },
     {
       id: "drive",
-      title: "Drive root",
+      title: t("godmode.driveRoot"),
       ok: sharedDriveConfigured && sharedDriveVerified,
       detail: !sharedDriveId
         ? "Drive root ID is missing on the API server"
@@ -81,13 +83,13 @@ function buildSections(
     },
     {
       id: "sessions",
-      title: "Session Storage",
+      title: t("godmode.sessionStorage"),
       ok: sessionStoreWritable,
       detail: sessionStoreWritable ? "Session storage is working" : "Session storage needs attention",
     },
     {
       id: "smtp",
-      title: "Invite Email",
+      title: t("godmode.inviteEmail"),
       ok: smtpConfigured,
       detail: smtpConfigured
         ? "Invite email is configured"
@@ -97,57 +99,63 @@ function buildSections(
     },
     {
       id: "pilot",
-      title: "Ready for Pilot",
+      title: t("godmode.readyForPilot"),
       ok: status?.readyForPilot === true,
       detail: status?.readyForPilot ? "BERT is ready for pilot" : "BERT needs setup",
     },
   ];
 }
 
-function sharedDriveStatusText(input: {
-  sharedDriveId: string;
-  googleConnected: boolean;
-  sharedDriveVerified: boolean;
-  sharedDriveVerifyError: string;
-  sharedDriveWarning: string;
-  verifying: boolean;
-}): { label: string; tone: "ok" | "warn" | "error" } {
+function sharedDriveStatusText(
+  input: {
+    sharedDriveId: string;
+    googleConnected: boolean;
+    sharedDriveVerified: boolean;
+    sharedDriveVerifyError: string;
+    sharedDriveWarning: string;
+    verifying: boolean;
+  },
+  t: (key: string) => string,
+): { label: string; tone: "ok" | "warn" | "error" } {
   if (input.verifying) {
-    return { label: "Verifying…", tone: "warn" };
+    return { label: t("godmode.verifying"), tone: "warn" };
   }
   if (!input.sharedDriveId) {
-    return { label: "Missing", tone: "error" };
+    return { label: t("godmode.missing"), tone: "error" };
   }
   if (!input.googleConnected) {
-    return { label: "Configured (not verified)", tone: "warn" };
+    return { label: t("godmode.configured"), tone: "warn" };
   }
   if (input.sharedDriveVerified) {
     return {
-      label: "Verified",
+      label: t("godmode.verified"),
       tone: "ok",
     };
   }
   if (input.sharedDriveVerifyError) {
-    return { label: "Invalid / inaccessible", tone: "error" };
+    return { label: t("godmode.invalid"), tone: "error" };
   }
-  return { label: "Not verified", tone: "warn" };
+  return { label: t("godmode.notVerified"), tone: "warn" };
 }
 
-function templateFolderStatusText(input: {
-  status?: string;
-  verifying: boolean;
-  repairing: boolean;
-}): { label: string; tone: "ok" | "warn" | "error" } {
+function templateFolderStatusText(
+  input: {
+    status?: string;
+    verifying: boolean;
+    repairing: boolean;
+  },
+  t: (key: string) => string,
+): { label: string; tone: "ok" | "warn" | "error" } {
   if (input.verifying || input.repairing) {
-    return { label: input.repairing ? "Repairing…" : "Verifying…", tone: "warn" };
+    return { label: input.repairing ? t("godmode.repairSetup") : t("godmode.verifying"), tone: "warn" };
   }
   if (input.status === "connected") {
-    return { label: "Connected", tone: "ok" };
+    return { label: t("common.synced"), tone: "ok" };
   }
   if (input.status === "permission_issue") {
-    return { label: "Permission issue", tone: "error" };
+    return { label: t("godmode.invalid"), tone: "error" };
   }
-  return { label: "Missing", tone: "error" };
+  return { label: t("godmode.missing"), tone: "error" };
 }
 
 export function GodmodeInitialSetupScreen({
@@ -158,6 +166,7 @@ export function GodmodeInitialSetupScreen({
   slatePrimaryCtaInteract,
   onTabletKioskChange,
 }: Props) {
+  const { t } = useTranslation();
   const [status, setStatus] = useState<SetupStatusPayload | null>(null);
   const [googleStatus, setGoogleStatus] = useState<GoogleStatusPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -237,23 +246,32 @@ export function GodmodeInitialSetupScreen({
     sharedDriveWarning && !isFolderRootVerified ? sharedDriveWarning : "";
   const companiesCount =
     googleStatus?.companiesCount ?? googleStatus?.companies?.length ?? 0;
-  const driveStatus = sharedDriveStatusText({
-    sharedDriveId,
-    googleConnected,
-    sharedDriveVerified,
-    sharedDriveVerifyError,
-    sharedDriveWarning,
-    verifying: verifyingDrive,
-  });
+  const driveStatus = sharedDriveStatusText(
+    {
+      sharedDriveId,
+      googleConnected,
+      sharedDriveVerified,
+      sharedDriveVerifyError,
+      sharedDriveWarning,
+      verifying: verifyingDrive,
+    },
+    t,
+  );
 
-  const sections = buildSections(status, googleConnected, sharedDriveVerified, sharedDriveId);
+  const sections = useMemo(
+    () => buildSections(status, googleConnected, sharedDriveVerified, sharedDriveId, t),
+    [status, googleConnected, sharedDriveVerified, sharedDriveId, t],
+  );
 
   const templateFolderId = String(templateFolderStatus?.folderId || "").trim();
-  const templateFolderBadge = templateFolderStatusText({
-    status: templateFolderStatus?.status,
-    verifying: verifyingTemplateFolder,
-    repairing: repairingTemplateFolder,
-  });
+  const templateFolderBadge = templateFolderStatusText(
+    {
+      status: templateFolderStatus?.status,
+      verifying: verifyingTemplateFolder,
+      repairing: repairingTemplateFolder,
+    },
+    t,
+  );
 
   const handleVerifyTemplateFolder = async () => {
     if (!googleConnected) {
@@ -342,20 +360,20 @@ export function GodmodeInitialSetupScreen({
     <div className="space-y-4">
       <nav className="text-xs font-medium text-slate-500">
         <button type="button" onClick={onBackToSetup} className="text-slate-600 underline-offset-2 hover:underline">
-          Setup
+          {t("nav.platformSetup")}
         </button>
         <span className="mx-2">/</span>
-        <span className="text-slate-900">Godmode</span>
+        <span className="text-slate-900">{t("godmode.title")}</span>
       </nav>
 
       <header className={darkPanelShellCompact}>
-        <p className={darkPanelEyebrow}>Godmode</p>
-        <h1 className={darkPanelTitleSm}>Godmode</h1>
+        <p className={darkPanelEyebrow}>{t("godmode.title")}</p>
+        <h1 className={darkPanelTitleSm}>{t("godmode.title")}</h1>
         <SectionIntro text={SECTION_INTROS.platformSetup} className="mt-2" tone="onDark" />
       </header>
 
       <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-sm">
-        <p className="text-sm font-semibold text-slate-900">Google Workspace</p>
+        <p className="text-sm font-semibold text-slate-900">{t("godmode.googleWorkspace")}</p>
         <p className="mt-1 text-sm text-slate-600">
           {googleConnected ? "Connected on this server." : "Connect the Google account used for company workspaces."}
         </p>
@@ -383,7 +401,7 @@ export function GodmodeInitialSetupScreen({
       </section>
 
       <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-sm">
-        <p className="text-sm font-semibold text-slate-900">Google Drive root</p>
+        <p className="text-sm font-semibold text-slate-900">{t("godmode.googleDriveRoot")}</p>
         <p className="mt-1 text-sm text-slate-600">
           This is the Google Drive root BERT uses for company workspaces.
         </p>
@@ -450,7 +468,7 @@ export function GodmodeInitialSetupScreen({
             disabled={!sharedDriveId || !googleConnected || verifyingDrive || googleLoading}
             className={`h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-50 ${slatePrimaryCtaInteract}`}
           >
-            {verifyingDrive ? "Verifying…" : "Verify Drive root"}
+            {verifyingDrive ? t("godmode.verifying") : t("godmode.verifyDriveRoot")}
           </button>
           <button
             type="button"
@@ -458,7 +476,7 @@ export function GodmodeInitialSetupScreen({
             disabled={googleLoading}
             className="h-11 rounded-2xl border border-slate-200 px-4 text-sm font-semibold text-slate-800"
           >
-            {googleLoading ? "Refreshing…" : "Refresh status"}
+            {googleLoading ? t("godmode.refreshing") : t("godmode.refreshStatus")}
           </button>
         </div>
         {!googleConnected && sharedDriveId ? (
@@ -543,7 +561,7 @@ export function GodmodeInitialSetupScreen({
             disabled={!templateFolderId || !googleConnected || verifyingTemplateFolder || templateFolderLoading}
             className={`h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 disabled:cursor-not-allowed disabled:opacity-50 ${slatePrimaryCtaInteract}`}
           >
-            {verifyingTemplateFolder ? "Verifying…" : "Verify template folder"}
+            {verifyingTemplateFolder ? t("godmode.verifying") : "Verify template folder"}
           </button>
           <button
             type="button"
@@ -559,7 +577,7 @@ export function GodmodeInitialSetupScreen({
             disabled={templateFolderLoading}
             className="h-11 rounded-2xl border border-slate-200 px-4 text-sm font-semibold text-slate-800"
           >
-            {templateFolderLoading ? "Refreshing…" : "Refresh status"}
+            {templateFolderLoading ? t("godmode.refreshing") : t("godmode.refreshStatus")}
           </button>
         </div>
         {!googleConnected && templateFolderId ? (
@@ -573,9 +591,9 @@ export function GodmodeInitialSetupScreen({
       />
 
       <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-sm">
-        <p className="mb-3 text-sm font-semibold text-slate-900">Setup status</p>
+        <p className="mb-3 text-sm font-semibold text-slate-900">{t("godmode.setupStatus")}</p>
         {loading ? (
-          <p className="text-sm text-slate-500">Loading…</p>
+          <p className="text-sm text-slate-500">{t("common.loading")}</p>
         ) : (
           <ul className="space-y-2">
             {sections.map((section) => (
@@ -599,7 +617,7 @@ export function GodmodeInitialSetupScreen({
         }}
         className="h-11 rounded-2xl border border-slate-200 px-4 text-sm font-semibold text-slate-800"
       >
-        Back to Setup
+        {t("godmode.backToSetup")}
       </button>
     </div>
   );

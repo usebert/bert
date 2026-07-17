@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { connectGodmodeCompanyFolder, type ConnectedCompanyFolder } from "../../services/godmodeService";
 import { BERT_LIGHT_SURFACE } from "../../styles/bertText";
 
@@ -21,6 +22,7 @@ type Props = {
 };
 
 export function GodmodeConnectCompanyFolderPanel({ googleConnected, onConnected }: Props) {
+  const { t } = useTranslation();
   const [folderInput, setFolderInput] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
@@ -72,7 +74,7 @@ export function GodmodeConnectCompanyFolderPanel({ googleConnected, onConnected 
     <section className={`${BERT_LIGHT_SURFACE} space-y-4 rounded-2xl border border-slate-200 p-5`}>
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Folder-first bootstrap</p>
-        <h3 className="mt-1 text-lg font-semibold text-slate-900">Connect company folder</h3>
+        <h3 className="mt-1 text-lg font-semibold text-slate-900">{t("godmode.connectCompanyFolder")}</h3>
         <p className="mt-2 text-sm leading-relaxed text-slate-600">
           Point BERT at a Google Drive company folder. BERT creates or links the workbook inside the folder, prepares
           required tabs, and can seed the first active admin in the Users tab.
@@ -88,7 +90,7 @@ export function GodmodeConnectCompanyFolderPanel({ googleConnected, onConnected 
       <form className="space-y-3" onSubmit={(event) => void handleSubmit(event)}>
         <div>
           <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-            Company folder link or ID
+            {t("godmode.companyFolderLink")}
           </label>
           <input
             value={folderInput}
@@ -100,7 +102,7 @@ export function GodmodeConnectCompanyFolderPanel({ googleConnected, onConnected 
         </div>
         <div>
           <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-            Company name (optional)
+            {t("godmode.companyNameOptional")}
           </label>
           <input
             value={companyName}
@@ -113,7 +115,7 @@ export function GodmodeConnectCompanyFolderPanel({ googleConnected, onConnected 
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-              First admin email
+              {t("godmode.firstAdminEmail")}
             </label>
             <input
               type="email"
@@ -127,7 +129,7 @@ export function GodmodeConnectCompanyFolderPanel({ googleConnected, onConnected 
           </div>
           <div>
             <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-              First admin name
+              {t("godmode.firstAdminName")}
             </label>
             <input
               value={adminName}
@@ -140,7 +142,7 @@ export function GodmodeConnectCompanyFolderPanel({ googleConnected, onConnected 
         </div>
         <div>
           <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-            First admin password
+            {t("godmode.firstAdminPassword")}
           </label>
           <input
             type="password"
@@ -155,7 +157,7 @@ export function GodmodeConnectCompanyFolderPanel({ googleConnected, onConnected 
         {error ? <p className="text-sm text-rose-700">{error}</p> : null}
         {result ? (
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-900">
-            <p className="font-semibold">Company usable</p>
+            <p className="font-semibold">{t("godmode.companyUsable")}</p>
             <p className="mt-1 break-all text-xs">
               {result.companyName || "Company"} · folder {result.companyFolderId} · workbook {result.workbookId}
             </p>
@@ -166,7 +168,7 @@ export function GodmodeConnectCompanyFolderPanel({ googleConnected, onConnected 
           disabled={!googleConnected || submitting}
           className="h-11 rounded-xl bg-orange-500 px-4 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-slate-300"
         >
-          {submitting ? "Connecting…" : "Connect company folder"}
+          {submitting ? t("godmode.connecting") : t("godmode.connectCompanyFolder")}
         </button>
       </form>
     </section>

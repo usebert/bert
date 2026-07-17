@@ -1,4 +1,5 @@
 import { FormEvent, useCallback, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { DocumentDistribution, ExternalEmployee } from "../types/documentTraining";
 import type { DocumentTrainingScreenProps } from "../types/documentTrainingScreenProps";
 
@@ -28,6 +29,7 @@ export function DocumentTrainingScreen({
   onSendDistribution,
   onRefreshFromServer,
 }: DocumentTrainingScreenProps) {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<TabId>("send");
   const [title, setTitle] = useState("");
   const [fileName, setFileName] = useState("");
@@ -245,7 +247,7 @@ export function DocumentTrainingScreen({
   return (
     <div className="space-y-4">
       <header className="rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm">
-        <h1 className="text-lg font-semibold text-slate-900">Upload &amp; training</h1>
+        <h1 className="text-lg font-semibold text-slate-900">{t("documentTraining.title")}</h1>
         <p className="mt-1 text-sm text-slate-600">
           Send policy updates, toolbox talks, and training PDFs. Recipients confirm read via email.
         </p>
@@ -262,7 +264,11 @@ export function DocumentTrainingScreen({
                   : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
               ].join(" ")}
             >
-              {item === "send" ? "Send document" : item === "tracking" ? "Tracking" : "Employee directory"}
+              {item === "send"
+                ? t("documentTraining.sendDocument")
+                : item === "tracking"
+                  ? t("documentTraining.tracking")
+                  : t("documentTraining.employeeDirectory")}
             </button>
           ))}
         </div>
@@ -278,7 +284,7 @@ export function DocumentTrainingScreen({
       {tab === "send" ? (
         <form onSubmit={handleSend} className="space-y-4">
           <section className="rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm">
-            <label className="block text-sm font-semibold text-slate-800">Name of document</label>
+            <label className="block text-sm font-semibold text-slate-800">{t("documentTraining.nameOfDocument")}</label>
             <input
               value={title}
               onChange={(event) => setTitle(event.target.value)}
@@ -288,7 +294,7 @@ export function DocumentTrainingScreen({
           </section>
 
           <section className="rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm">
-            <p className="text-sm font-semibold text-slate-800">Add PDF document</p>
+            <p className="text-sm font-semibold text-slate-800">{t("documentTraining.uploadDocument")}</p>
             <div
               className="mt-3 flex min-h-[120px] flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/80 px-4 py-6 text-center"
               onDragOver={(event) => {
@@ -306,7 +312,7 @@ export function DocumentTrainingScreen({
                 onClick={() => fileInputRef.current?.click()}
                 className="mt-3 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
               >
-                Choose PDF
+                {t("documentTraining.addPdf")}
               </button>
               <input
                 ref={fileInputRef}
@@ -381,7 +387,7 @@ export function DocumentTrainingScreen({
               </button>
             </div>
 
-            <p className="text-sm font-semibold text-slate-800">Onboarded users</p>
+            <p className="text-sm font-semibold text-slate-800">{t("documentTraining.onboardedUsers")}</p>
             <ul className="max-h-48 space-y-1 overflow-y-auto rounded-xl border border-slate-100 bg-slate-50/50 p-2">
               {filteredOnboarded.length === 0 ? (
                 <li className="text-xs text-slate-500">No onboarded users match filters.</li>
@@ -403,7 +409,7 @@ export function DocumentTrainingScreen({
               )}
             </ul>
 
-            <p className="text-sm font-semibold text-slate-800">Employee directory (not onboarded)</p>
+            <p className="text-sm font-semibold text-slate-800">{t("documentTraining.notOnboarded")}</p>
             <ul className="max-h-48 space-y-1 overflow-y-auto rounded-xl border border-slate-100 bg-slate-50/50 p-2">
               {filteredExternal.length === 0 ? (
                 <li className="text-xs text-slate-500">No active directory employees match filters. Add them under Employee directory.</li>
@@ -432,7 +438,7 @@ export function DocumentTrainingScreen({
             disabled={sending}
             className="w-full rounded-xl bg-[var(--bert-signal-orange)] py-3 text-sm font-semibold text-white disabled:opacity-60"
           >
-            {sending ? "Sending…" : "Send document and emails"}
+            {sending ? t("documentTraining.sending") : t("documentTraining.sendDocumentAndEmails")}
           </button>
         </form>
       ) : null}
@@ -480,8 +486,8 @@ export function DocumentTrainingScreen({
                           </span>
                           <span className={recipient.acknowledgedAt ? "text-emerald-700" : "text-amber-700"}>
                             {recipient.acknowledgedAt
-                              ? `Read ${new Date(recipient.acknowledgedAt).toLocaleDateString("en-GB")}`
-                              : "Pending"}
+                              ? `${t("documentTraining.acknowledged")} ${new Date(recipient.acknowledgedAt).toLocaleDateString("en-GB")}`
+                              : t("documentTraining.pending")}
                           </span>
                         </li>
                       ))}
@@ -562,7 +568,7 @@ export function DocumentTrainingScreen({
                       onClick={() => void toggleEmployeeActive(row)}
                       className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold"
                     >
-                      {row.active ? "Deactivate" : "Activate"}
+                      {row.active ? t("documentTraining.deactivate") : t("documentTraining.activate")}
                     </button>
                   </li>
                 ))
