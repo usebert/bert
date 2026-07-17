@@ -8,10 +8,16 @@ import type {
   LolerEquipment,
   LolerEquipmentInput,
   LolerEquipmentSummary,
-  LolerExamination,
   LolerExaminationInput,
   LolerSchedule,
 } from "../types/loler";
+import {
+  fetchLolerExaminations,
+  invalidateLolerExaminationsCache,
+  readCachedLolerExaminations,
+  recordLolerExamination as recordLolerExaminationCore,
+  type LolerExaminationsResponse,
+} from "./lolerExaminationService";
 
 export const LOLER_LOAD_USER_MESSAGE = "Could not load LOLER equipment.";
 export const LOLER_OFFLINE_WRITE_MESSAGE =
@@ -32,12 +38,9 @@ export type LolerSchedulesResponse = {
   message?: string;
 };
 
-export type LolerExaminationsResponse = {
-  ok: boolean;
-  companyFolderId?: string;
-  examinations?: LolerExamination[];
-  message?: string;
-};
+/** Temporary re-exports — examination APIs live in lolerExaminationService.ts. */
+export type { LolerExaminationsResponse };
+export { fetchLolerExaminations, invalidateLolerExaminationsCache, readCachedLolerExaminations };
 
 async function lolerRequest(path: string, init?: RequestInit) {
   const response = await fetch(apiUrl(path), {
@@ -61,7 +64,6 @@ type CachedList<T> = { companyFolderId: string; data: T };
 
 const equipmentCache = new Map<string, CachedList<LolerEquipmentListResponse>>();
 const schedulesCache = new Map<string, CachedList<LolerSchedulesResponse>>();
-const examinationsCache = new Map<string, CachedList<LolerExaminationsResponse>>();
 
 function cacheKey(companyFolderId: string) {
   return String(companyFolderId || "").trim();
@@ -78,21 +80,16 @@ export function readCachedLolerSchedules(companyFolderId: string): LolerSchedule
   return entry && entry.companyFolderId === cacheKey(companyFolderId) ? entry.data : null;
 }
 
-export function readCachedLolerExaminations(companyFolderId: string): LolerExaminationsResponse | null {
-  const entry = examinationsCache.get(cacheKey(companyFolderId));
-  return entry && entry.companyFolderId === cacheKey(companyFolderId) ? entry.data : null;
-}
-
 export function invalidateLolerCache(companyFolderId?: string) {
   if (companyFolderId === undefined) {
     equipmentCache.clear();
     schedulesCache.clear();
-    examinationsCache.clear();
+    invalidateLolerExaminationsCache();
     return;
   }
   equipmentCache.delete(cacheKey(companyFolderId));
   schedulesCache.delete(cacheKey(companyFolderId));
-  examinationsCache.delete(cacheKey(companyFolderId));
+  invalidateLolerExaminationsCache(companyFolderId);
 }
 
 export async function fetchLolerEquipment(
@@ -129,40 +126,11 @@ export async function fetchLolerSchedules(
   return dedupeInFlight(requestDedupeKey("GET", path), run) as Promise<LolerSchedulesResponse>;
 }
 
-export async function fetchLolerExaminations(
-  companyFolderId: string,
-  options: { signal?: AbortSignal; refresh?: boolean; equipmentId?: string } = {},
-): Promise<LolerExaminationsResponse> {
-  const folderId = cacheKey(companyFolderId);
-  const query = options.equipmentId
-    ? `?equipmentId=${encodeURIComponent(options.equipmentId)}`
-    : "";
-  const path = `/api/companies/${encodeURIComponent(folderId)}/loler/examinations${query}`;
-  const run = async () => {
-    const payload = (await lolerRequest(path, { signal: options.signal })) as LolerExaminationsResponse;
-    if (!options.equipmentId) {
-      examinationsCache.set(folderId, { companyFolderId: folderId, data: payload });
-    }
-    return payload;
-  };
-  if (options.signal || options.refresh || options.equipmentId) {
-    return run();
-  }
-  return dedupeInFlight(requestDedupeKey("GET", path), run) as Promise<LolerExaminationsResponse>;
-}
-
+/** Invalidates equipment + schedule caches after a successful examination write. */
 export async function recordLolerExamination(companyFolderId: string, input: LolerExaminationInput) {
-  const result = (await lolerRequest(`/api/companies/${encodeURIComponent(companyFolderId)}/loler/examinations`, {
-    method: "POST",
-    body: JSON.stringify(input),
-  })) as {
-    ok: boolean;
-    examination?: LolerExamination;
-    equipment?: LolerEquipment;
-    requiresAttention?: boolean;
-    message?: string;
-  };
-  invalidateLolerCache(companyFolderId);
+  const result = await recordLolerExaminationCore(companyFolderId, input);
+  equipmentCache.delete(cacheKey(companyFolderId));
+  schedulesCache.delete(cacheKey(companyFolderId));
   return result;
 }
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * verify:loler-phase2 — examination recording, operational messages, timed reminders.
+ * verify:loler-phase-2 — examination recording, operational messages, timed reminders.
  * Asserts auth/login/Schedules/Phase 1 invariants remain intact.
  */
 import { readFileSync } from "node:fs";
@@ -14,7 +14,7 @@ import {
   resolveLolerReminderSchedule,
   subtractDaysFromDateKey,
   validateLolerExaminationInput,
-} from "../shared/loler.mjs";
+} from "../shared/loler-examinations.mjs";
 import {
   OPERATIONAL_MESSAGES_TAB,
   validateOperationalMessageInput,
@@ -22,13 +22,16 @@ import {
 import { CALENDAR_ITEMS_TAB_COLUMNS } from "../shared/calendar.mjs";
 import {
   canManageLoler,
-  canRecordLolerExamination,
   createLolerEquipment,
   listLolerEquipment,
-  listLolerExaminations,
   listLolerSchedules,
-  recordLolerExamination,
 } from "../server/loler-service.mjs";
+import {
+  canRecordLolerExamination,
+  listLolerExaminations,
+  recordLolerExamination,
+} from "../server/loler-examination-service.mjs";
+import { createLolerLinkedReminder } from "../server/calendar-loler-reminder.mjs";
 import {
   createOperationalMessage,
   listOperationalMessages,
@@ -404,9 +407,23 @@ assert(routes.includes("recordLolerExamination"), "record examination wired");
 
 const screen = read("src/screens/LolerScreen.tsx");
 assert(screen.includes("Record examination"), "UI has Record examination");
-assert(screen.includes("LolerRecordExaminationForm"), "record form composed");
-assert(screen.includes("OperationalMessagesPanel"), "messages panel composed");
-assert(screen.includes("LolerExaminationHistory"), "examination history composed");
+assert(screen.includes("RecordExaminationForm"), "record form composed");
+assert(screen.includes("MessagesScreen"), "messages screen composed");
+assert(screen.includes("ExaminationHistory"), "examination history composed");
+
+// Module boundaries — examination logic lives in dedicated modules, not merged.
+assert(typeof createLolerLinkedReminder === "function", "calendar reminder helper extracted");
+const examService = read("server/loler-examination-service.mjs");
+assert(examService.includes("recordLolerExamination"), "examination server logic in dedicated service");
+assert(examService.includes("syncOpenLolerSchedule"), "examination service reuses narrow schedule sync");
+const lolerService = read("server/loler-service.mjs");
+assert(lolerService.includes("export async function syncOpenLolerSchedule"), "syncOpenLolerSchedule narrowly exported");
+const messageList = read("src/components/messages/MessageList.tsx");
+assert(messageList.includes("MessageDetails"), "message list composes message details");
+const messagesScreen = read("src/screens/MessagesScreen.tsx");
+assert(messagesScreen.includes("MessageList"), "messages screen composes message list");
+const navItems = read("src/config/navItems.ts");
+assert(!navItems.includes("\"messages\"") && !navItems.includes("'messages'"), "no dedicated messages nav item");
 
 const authIndex = read("server/auth-index.mjs");
 assert(!authIndex.includes("LOLERExaminations") && !authIndex.includes("OperationalMessages"), "25. auth-index untouched");
@@ -418,6 +435,6 @@ const scheduleService = read("server/schedule-service.mjs");
 assert(!scheduleService.includes("LOLERExaminations"), "23b. schedule-service untouched");
 
 const packageJson = read("package.json");
-assert(packageJson.includes("verify:loler-phase2"), "package script present");
+assert(packageJson.includes("verify:loler-phase-2"), "package script present");
 
-console.log(`verify:loler-phase2 passed (${caseCount} checks).`);
+console.log(`verify:loler-phase-2 passed (${caseCount} checks).`);

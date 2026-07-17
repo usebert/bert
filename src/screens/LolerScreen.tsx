@@ -27,9 +27,9 @@ import {
 import { fetchCompanyStructure, type StructureEntity } from "../services/companyStructureService";
 import { loadScheduleAssigneesCached } from "../services/peopleCache";
 import type { ScheduleAssigneeOption } from "../utils/scheduleAssignees";
-import { LolerRecordExaminationForm } from "../components/loler/LolerRecordExaminationForm";
-import { LolerExaminationHistory } from "../components/loler/LolerExaminationHistory";
-import { OperationalMessagesPanel } from "../components/loler/OperationalMessagesPanel";
+import { RecordExaminationForm } from "../components/loler/RecordExaminationForm";
+import { ExaminationHistory } from "../components/loler/ExaminationHistory";
+import { MessagesScreen } from "./MessagesScreen";
 
 type Props = {
   role: Role;
@@ -633,7 +633,7 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
       </div>
 
       {tab === "messages" ? (
-        <OperationalMessagesPanel
+        <MessagesScreen
           companyFolderId={folderId}
           offlineMode={offlineMode}
           onOpenLolerEquipment={(equipmentId) => {
@@ -923,7 +923,7 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
                     </button>
                   ) : null}
                 </div>
-                <LolerExaminationHistory examinations={viewingHistory} />
+                <ExaminationHistory examinations={viewingHistory} />
               </div>
             </div>
           ) : null}
@@ -1295,7 +1295,7 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
       ) : null}
 
       {recordTarget ? (
-        <LolerRecordExaminationForm
+        <RecordExaminationForm
           equipment={recordTarget.equipment}
           schedule={recordTarget.schedule}
           assignees={assignees}

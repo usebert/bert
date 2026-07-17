@@ -62,21 +62,23 @@ import {
   actorCanAccessCompanyLoler,
   archiveLolerEquipment,
   canManageLoler,
-  canRecordLolerExamination,
   canViewLoler,
   createLolerEquipment,
   getLolerEquipment,
-  getLolerExamination,
   listLolerEquipment,
-  listLolerExaminations,
   listLolerSchedules,
   LOLER_ROUTE_TIMEOUT_MS,
   markLolerEquipmentOutOfService,
-  recordLolerExamination,
   returnLolerEquipmentToService,
   updateLolerEquipment,
-  updateLolerExamination,
 } from "./loler-service.mjs";
+import {
+  canRecordLolerExamination,
+  getLolerExamination,
+  listLolerExaminations,
+  recordLolerExamination,
+  updateLolerExamination,
+} from "./loler-examination-service.mjs";
 import {
   actorCanAccessCompanyMessages,
   archiveOperationalMessage,
