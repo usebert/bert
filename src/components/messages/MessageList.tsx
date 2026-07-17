@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { OperationalMessage } from "../../types/operationalMessages";
 import { MessageDetails } from "./MessageDetails";
 
@@ -10,10 +11,12 @@ type Props = {
 };
 
 export function MessageList({ messages, busyId = "", onRead, onArchive, onOpenLolerEquipment }: Props) {
+  const { t } = useTranslation();
+
   if (messages.length === 0) {
     return (
       <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
-        No messages yet.
+        {t("messages.noMessages")}
       </p>
     );
   }

@@ -1,4 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { MiniMetric } from "../components/dashboard/DashboardPrimitives";
 import { IncidentReassignModal } from "../components/incidents/IncidentReassignModal";
 import { IncidentAssigneeSelect } from "../components/incidents/IncidentAssigneeSelect";
@@ -46,6 +47,7 @@ export function IncidentReportingScreen({
   onArchiveError,
   onArchiveSuccess,
 }: IncidentReportingScreenProps) {
+  const { t } = useTranslation();
   const canArchiveIncident = canArchiveRecordFromClient(currentUser.role, "incident");
   const fieldAuditor = canCompleteAuditAsAuditor(currentUser.role);
   const canManageIncidents = canInvestigateIncidents(currentUser.role);
@@ -361,8 +363,8 @@ export function IncidentReportingScreen({
     <div className="space-y-4">
       {fieldAuditor ? (
         <section className="rounded-2xl border border-violet-200/80 bg-violet-50/60 px-5 py-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-violet-700">Submit</p>
-          <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">Report an incident or near miss</h2>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-violet-700">{t("incidents.submitSection")}</p>
+          <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">{t("incidents.title")}</h2>
           <SectionIntro text={SECTION_INTROS.auditorSubmit} className="mt-2" role="Auditor" />
           <p className="mt-2 text-sm leading-relaxed text-slate-600">
             Fill in what happened, where, and any immediate action taken. Add photos or files if you have them.
@@ -372,14 +374,14 @@ export function IncidentReportingScreen({
         <section className={darkPanelShell}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className={darkPanelEyebrow}>Accident / Near miss</p>
-              <h2 className={darkPanelTitleLg}>Incident reporting module</h2>
+              <p className={darkPanelEyebrow}>{t("incidents.nearMiss")}</p>
+              <h2 className={darkPanelTitleLg}>{t("incidents.module")}</h2>
               <p className={["mt-2", darkPanelBody].join(" ")}>Mobile-first reporting plus register, investigation workflow, corrective actions, and dashboard.</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => setView("report")} className={`bert-tab-trigger rounded-xl border px-3 py-2 text-xs font-semibold ${view === "report" ? theme.tabActiveOnDark : theme.tabInactiveOnDark}`}>Report form</button>
-              <button type="button" onClick={() => setView("register")} className={`bert-tab-trigger rounded-xl border px-3 py-2 text-xs font-semibold ${view === "register" ? theme.tabActiveOnDark : theme.tabInactiveOnDark}`}>Incident register</button>
-              <button type="button" onClick={() => setView("dashboard")} className={`bert-tab-trigger rounded-xl border px-3 py-2 text-xs font-semibold ${view === "dashboard" ? theme.tabActiveOnDark : theme.tabInactiveOnDark}`}>Dashboard</button>
+              <button type="button" onClick={() => setView("report")} className={`bert-tab-trigger rounded-xl border px-3 py-2 text-xs font-semibold ${view === "report" ? theme.tabActiveOnDark : theme.tabInactiveOnDark}`}>{t("incidents.reportForm")}</button>
+              <button type="button" onClick={() => setView("register")} className={`bert-tab-trigger rounded-xl border px-3 py-2 text-xs font-semibold ${view === "register" ? theme.tabActiveOnDark : theme.tabInactiveOnDark}`}>{t("incidents.register")}</button>
+              <button type="button" onClick={() => setView("dashboard")} className={`bert-tab-trigger rounded-xl border px-3 py-2 text-xs font-semibold ${view === "dashboard" ? theme.tabActiveOnDark : theme.tabInactiveOnDark}`}>{t("incidents.dashboard")}</button>
             </div>
           </div>
           <p className="mt-3 text-xs text-slate-400">QR reporting link: <span className="font-semibold text-slate-200">{`${window.location.origin}/?screen=incidents`}</span></p>
@@ -408,7 +410,7 @@ export function IncidentReportingScreen({
         >
           <form className="grid gap-4 md:grid-cols-2" onSubmit={onSubmit}>
             <select value={form.incidentType} onChange={(event) => setForm((current) => ({ ...current, incidentType: event.target.value as IncidentType }))} className={fieldInputClass}><option>Accident</option><option>Near Miss</option><option>Dangerous Occurrence</option><option>Property Damage</option><option>Environmental</option></select>
-            <select value={form.severity} onChange={(event) => setForm((current) => ({ ...current, severity: event.target.value as IncidentSeverity }))} className={fieldInputClass}><option>Minor</option><option>Medical Treatment</option><option>Lost Time Injury</option><option>Major Incident</option><option>Fatality</option></select>
+            <select value={form.severity} onChange={(event) => setForm((current) => ({ ...current, severity: event.target.value as IncidentSeverity }))} className={fieldInputClass}><option value="Minor">{t("incidents.minor")}</option><option value="Medical Treatment">Medical Treatment</option><option value="Lost Time Injury">Lost Time Injury</option><option value="Major Incident">Major Incident</option><option value="Fatality">{t("incidents.fatality")}</option></select>
             <input type="date" value={form.incidentDate} onChange={(event) => setForm((current) => ({ ...current, incidentDate: event.target.value }))} className={fieldInputClass} />
             <input type="time" value={form.incidentTime} onChange={(event) => setForm((current) => ({ ...current, incidentTime: event.target.value }))} className={fieldInputClass} />
             <input value={form.reporterName} onChange={(event) => setForm((current) => ({ ...current, reporterName: event.target.value }))} placeholder="Your name (required)" required className={fieldInputClass} />
@@ -445,7 +447,7 @@ export function IncidentReportingScreen({
                 theme.primaryButtonHover,
               ].join(" ")}
             >
-              {isSubmitting ? (submitPhase || "Submitting…") : "Submit report"}
+              {isSubmitting ? (submitPhase || t("login.sending")) : t("incidents.submitReport")}
             </button>
           </form>
         </section>
@@ -454,10 +456,10 @@ export function IncidentReportingScreen({
       {view === "register" && canManageIncidents && (
         <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4">
           <div className="grid gap-2 md:grid-cols-6">
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as IncidentStatus | "All")} className="h-10 rounded-lg border px-2"><option value="All">All status</option><option>Open</option><option>Under Investigation</option><option>Closed</option></select>
-            <select value={severityFilter} onChange={(event) => setSeverityFilter(event.target.value as IncidentSeverity | "All")} className="h-10 rounded-lg border px-2"><option value="All">All severity</option><option>Minor</option><option>Medical Treatment</option><option>Lost Time Injury</option><option>Major Incident</option><option>Fatality</option></select>
-            <select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} className="h-10 rounded-lg border px-2"><option value="All">All departments</option>{departments.map((item) => <option key={item} value={item}>{item}</option>)}</select>
-            <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as IncidentType | "All")} className="h-10 rounded-lg border px-2"><option value="All">All types</option><option>Accident</option><option>Near Miss</option><option>Dangerous Occurrence</option><option>Property Damage</option><option>Environmental</option></select>
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as IncidentStatus | "All")} className="h-10 rounded-lg border px-2"><option value="All">{t("incidents.allStatus")}</option><option value="Open">{t("common.openStatus")}</option><option value="Under Investigation">{t("incidents.underInvestigation")}</option><option value="Closed">{t("common.closed")}</option></select>
+            <select value={severityFilter} onChange={(event) => setSeverityFilter(event.target.value as IncidentSeverity | "All")} className="h-10 rounded-lg border px-2"><option value="All">{t("incidents.allSeverity")}</option><option value="Minor">{t("incidents.minor")}</option><option value="Medical Treatment">Medical Treatment</option><option value="Lost Time Injury">Lost Time Injury</option><option value="Major Incident">Major Incident</option><option value="Fatality">{t("incidents.fatality")}</option></select>
+            <select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} className="h-10 rounded-lg border px-2"><option value="All">{t("incidents.allDepartments")}</option>{departments.map((item) => <option key={item} value={item}>{item}</option>)}</select>
+            <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as IncidentType | "All")} className="h-10 rounded-lg border px-2"><option value="All">{t("incidents.allTypes")}</option><option value="Accident">{t("incidents.accident")}</option><option value="Near Miss">{t("incidents.nearMiss")}</option><option value="Dangerous Occurrence">Dangerous Occurrence</option><option value="Property Damage">Property Damage</option><option value="Environmental">Environmental</option></select>
             <input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} className="h-10 rounded-lg border px-2" />
             <input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} className="h-10 rounded-lg border px-2" />
           </div>
@@ -505,7 +507,7 @@ export function IncidentReportingScreen({
                             }}
                             className="bert-btn-interactive rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white"
                           >
-                            {item.status === "Open" ? "Start investigation" : "Continue"}
+                            {item.status === "Open" ? t("incidents.startInvestigation") : t("common.continue")}
                           </button>
                         )}
                       </td>
@@ -651,7 +653,7 @@ export function IncidentReportingScreen({
           </div>
           ) : null}
           {canManageIncidents && selectedIncident.status !== "Closed" && (
-            <button type="button" onClick={() => onUpdateIncident(selectedIncident.id, { status: "Closed", closedAt: new Date().toISOString(), closedBy: currentUser.name, completionDate: selectedIncident.completionDate || getUkTodayKey() }, { statusNote: "Incident closed" })} className={["mt-3 h-10 rounded-lg px-4 text-sm font-semibold text-white", theme.primaryButton, theme.primaryButtonHover].join(" ")}>Close incident</button>
+            <button type="button" onClick={() => onUpdateIncident(selectedIncident.id, { status: "Closed", closedAt: new Date().toISOString(), closedBy: currentUser.name, completionDate: selectedIncident.completionDate || getUkTodayKey() }, { statusNote: "Incident closed" })} className={["mt-3 h-10 rounded-lg px-4 text-sm font-semibold text-white", theme.primaryButton, theme.primaryButtonHover].join(" ")}>{t("incidents.closeIncident")}</button>
           )}
         </section>
       )}

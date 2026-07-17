@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { useTranslation } from "react-i18next";
 import type { IncidentReassignTarget, IncidentRecord } from "../../types/incidentsScreenProps";
 import {
   formatIncidentAssignee,
@@ -25,6 +26,7 @@ function IncidentAssigneeSelectComponent({
   onSelectPerson,
   className = "",
 }: IncidentAssigneeSelectProps) {
+  const { t } = useTranslation();
   if (!canEdit) {
     return <span className={className}>{formatIncidentAssignee(incident)}</span>;
   }
@@ -41,16 +43,16 @@ function IncidentAssigneeSelectComponent({
 
   if (showLoading) {
     return (
-      <select disabled className={selectClassName} aria-label="Assigned handler">
-        <option>Loading...</option>
+      <select disabled className={selectClassName} aria-label={t("incidents.assignedHandler")}>
+        <option>{t("common.loading")}</option>
       </select>
     );
   }
 
   if (targets.length === 0) {
     return (
-      <select disabled className={selectClassName} aria-label="Assigned handler">
-        <option>No eligible handlers</option>
+      <select disabled className={selectClassName} aria-label={t("incidents.assignedHandler")}>
+        <option>{t("incidents.noEligibleHandlers")}</option>
       </select>
     );
   }
@@ -69,7 +71,7 @@ function IncidentAssigneeSelectComponent({
       className={selectClassName}
       aria-label={`Assign handler for ${incident.incidentId}`}
     >
-      <option value="">Unassigned</option>
+      <option value="">{t("common.unassigned")}</option>
       {targets.map((target) => (
         <option key={target.email} value={target.email}>
           {target.name}

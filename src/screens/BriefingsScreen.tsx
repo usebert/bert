@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   bertBtnInteractive,
   bertRowInteractive,
@@ -97,6 +98,7 @@ export function BriefingsScreen({
   onArchiveError,
   onArchiveSuccess,
 }: Props) {
+  const { t } = useTranslation();
   const canManage = canManageBriefings(role);
   const canArchiveBriefing = canArchiveRecordFromClient(role, "briefing");
   const normalizedEmail = String(userEmail || "").trim().toLowerCase();
@@ -419,19 +421,22 @@ export function BriefingsScreen({
     return selectedPending?.action === action && selectedPending.phase === "failed";
   }
 
-  function actionButtonLabel(action: BriefingActionKind, defaultLabel: string): string {
+  function actionButtonLabel(action: BriefingActionKind, labelKey: string): string {
     if (isActionFailed(action)) {
-      return "Retry";
+      return t("common.retry");
     }
     if (isActionPending(action)) {
-      return selectedPending?.phase === "syncing" ? "Syncing…" : "Saving…";
+      return selectedPending?.phase === "syncing" ? t("common.syncing") : t("common.saving");
     }
-    return defaultLabel;
+    return t(labelKey);
   }
 
   function listStatusLabel(item: BriefingRecipientRecord): string {
     const pending = pendingActions[item.briefingId];
     if (!pending) {
+      if (String(item.status || "").toLowerCase() === "pending") {
+        return t("briefings.pending");
+      }
       return item.status;
     }
     if (pending.phase === "failed") {
@@ -485,7 +490,7 @@ export function BriefingsScreen({
             ← Back
           </button>
         ) : null}
-        <h1 className="text-2xl font-black text-slate-900">Briefings</h1>
+        <h1 className="text-2xl font-black text-slate-900">{t("briefings.title")}</h1>
         <p className="text-sm text-slate-600">Policies, toolbox talks, notices, and messages with read and sign tracking.</p>
       </header>
 
@@ -499,7 +504,7 @@ export function BriefingsScreen({
             tab === "mine" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700",
           ].join(" ")}
         >
-          My briefings
+          {t("briefings.assignedToYou")}
         </button>
         {canManage ? (
           <>
@@ -512,7 +517,7 @@ export function BriefingsScreen({
                 tab === "send" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700",
               ].join(" ")}
             >
-              Send briefing
+              {t("briefings.sendBriefing")}
             </button>
             <button
               type="button"
@@ -523,7 +528,7 @@ export function BriefingsScreen({
                 tab === "tracker" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700",
               ].join(" ")}
             >
-              Tracker
+              {t("briefings.tracker")}
             </button>
           </>
         ) : null}
@@ -538,17 +543,17 @@ export function BriefingsScreen({
         <div key="mine" className={["grid gap-4 lg:grid-cols-2", bertTabPanel].join(" ")}>
           <section className="rounded-2xl border border-slate-200 bg-white p-4">
             <div className="flex items-center justify-between gap-2">
-              <h2 className="text-lg font-bold text-slate-900">Assigned to you</h2>
+              <h2 className="text-lg font-bold text-slate-900">{t("briefings.assignedToYou")}</h2>
               <button
                 type="button"
                 onClick={() => void loadMine({ manualRefresh: true })}
                 className="text-xs font-semibold text-slate-600 underline"
               >
-                Refresh
+                {t("common.refresh")}
               </button>
             </div>
-            {loading && mine.length === 0 ? <p className="mt-3 text-sm text-slate-600">Loading…</p> : null}
-            {!loading && mine.length === 0 ? <p className="mt-3 text-sm text-slate-600">No briefings assigned yet.</p> : null}
+            {loading && mine.length === 0 ? <p className="mt-3 text-sm text-slate-600">{t("common.loading")}</p> : null}
+            {!loading && mine.length === 0 ? <p className="mt-3 text-sm text-slate-600">{t("briefings.noAssigned")}</p> : null}
             <ul className="mt-3 space-y-2">
               {mine.map((item) => (
                 <li key={item.briefingId}>
@@ -573,8 +578,8 @@ export function BriefingsScreen({
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-4">
-            <h2 className="text-lg font-bold text-slate-900">Details</h2>
-            {!selectedItem ? <p className="mt-3 text-sm text-slate-600">Select a briefing to open it.</p> : null}
+            <h2 className="text-lg font-bold text-slate-900">{t("briefings.details")}</h2>
+            {!selectedItem ? <p className="mt-3 text-sm text-slate-600">{t("briefings.selectToOpen")}</p> : null}
             {selectedItem ? (
               <div className="mt-3 space-y-3">
                 <p className="text-sm text-slate-700">{selectedItem.briefing?.message || "No message provided."}</p>
@@ -606,7 +611,7 @@ export function BriefingsScreen({
                       onClick={() => runAction("open")}
                       className={["rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white", bertBtnInteractive].join(" ")}
                     >
-                      {actionButtonLabel("open", "Open")}
+                      {actionButtonLabel("open", "common.open")}
                     </button>
                   ) : null}
                   {selectedItem && briefingActionPending(selectedItem, "read") ? (
@@ -616,7 +621,7 @@ export function BriefingsScreen({
                       onClick={() => runAction("read")}
                       className="rounded-xl border px-3 py-2 text-xs font-semibold"
                     >
-                      {actionButtonLabel("read", "Read")}
+                      {actionButtonLabel("read", "briefings.read")}
                     </button>
                   ) : null}
                   {selectedItem && briefingActionPending(selectedItem, "acknowledge") ? (
@@ -626,7 +631,7 @@ export function BriefingsScreen({
                       onClick={() => runAction("acknowledge")}
                       className="rounded-xl border px-3 py-2 text-xs font-semibold"
                     >
-                      {actionButtonLabel("acknowledge", "Acknowledge")}
+                      {actionButtonLabel("acknowledge", "briefings.acknowledge")}
                     </button>
                   ) : null}
                   {selectedItem && briefingActionPending(selectedItem, "sign") ? (
@@ -644,7 +649,7 @@ export function BriefingsScreen({
                         onClick={() => runAction("sign")}
                         className="rounded-xl border px-3 py-2 text-xs font-semibold"
                       >
-                        {actionButtonLabel("sign", "Sign")}
+                        {actionButtonLabel("sign", "briefings.sign")}
                       </button>
                     </>
                   ) : null}
@@ -663,7 +668,7 @@ export function BriefingsScreen({
                         onClick={() => runAction("reply")}
                         className="rounded-xl border px-3 py-2 text-xs font-semibold"
                       >
-                        {actionButtonLabel("reply", "Reply")}
+                        {actionButtonLabel("reply", "briefings.reply")}
                       </button>
                     </>
                   ) : null}
@@ -691,7 +696,7 @@ export function BriefingsScreen({
 
       {tab === "send" && canManage ? (
         <form key="send" onSubmit={handleSendBriefing} className={["space-y-4 rounded-2xl border border-slate-200 bg-white p-4", bertTabPanel].join(" ")}>
-          <h2 className="text-lg font-bold text-slate-900">Send briefing</h2>
+          <h2 className="text-lg font-bold text-slate-900">{t("briefings.sendBriefing")}</h2>
           <label className="block space-y-1">
             <span className="text-sm font-semibold">Title</span>
             <input
@@ -817,16 +822,16 @@ export function BriefingsScreen({
             />
           </label>
           <button type="submit" disabled={sendBusy} className={["rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white", bertBtnInteractive].join(" ")}>
-            {sendBusy ? "Sending…" : "Send briefing"}
+            {sendBusy ? t("login.sending") : t("briefings.sendBriefing")}
           </button>
         </form>
       ) : null}
 
       {tab === "tracker" && canManage ? (
         <section key="tracker" className={["rounded-2xl border border-slate-200 bg-white p-4", bertTabPanel].join(" ")}>
-          <h2 className="text-lg font-bold text-slate-900">Tracker</h2>
-          {loading && tracker.length === 0 ? <p className="mt-3 text-sm text-slate-600">Loading…</p> : null}
-          {!loading && tracker.length === 0 ? <p className="mt-3 text-sm text-slate-600">No briefings sent yet.</p> : null}
+          <h2 className="text-lg font-bold text-slate-900">{t("briefings.tracker")}</h2>
+          {loading && tracker.length === 0 ? <p className="mt-3 text-sm text-slate-600">{t("common.loading")}</p> : null}
+          {!loading && tracker.length === 0 ? <p className="mt-3 text-sm text-slate-600">{t("briefings.noSent")}</p> : null}
           <ul className="mt-3 space-y-3">
             {tracker.map((entry) => {
               const counts = (entry.counts || {}) as Record<string, number>;

@@ -1,4 +1,6 @@
 import type { Role } from "../permissions";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import {
   canAccessGoogleForms,
   canAccessResults,
@@ -25,15 +27,15 @@ type Props = {
   onNavigate: (screen: NavItemId) => void;
 };
 
-function buildCards(role: Role): AuditCentreCard[] {
+function buildCards(role: Role, t: TFunction): AuditCentreCard[] {
   const cards: AuditCentreCard[] = [];
 
   if (canAccessWorkspaceNav(role)) {
     cards.push({
       id: "build",
-      title: "Build audits/checks",
+      title: t("audits.buildAudits"),
       description: "Create reusable audit templates with the Audit Builder and publish checks your team can schedule.",
-      actionLabel: "Open Audit Builder",
+      actionLabel: t("audits.openAuditBuilder"),
       screen: "auditBuilder",
     });
   }
@@ -41,9 +43,9 @@ function buildCards(role: Role): AuditCentreCard[] {
   if (usesAssignedChecksCompletionFlow(role) || canAccessFormsChecksNav(role)) {
     cards.push({
       id: "assigned",
-      title: "Complete assigned work",
+      title: t("audits.completeAssigned"),
       description: "Start or continue checks assigned to you from live schedules.",
-      actionLabel: role === "Auditor" ? "Open My Checks" : "Open assigned work",
+      actionLabel: role === "Auditor" ? t("audits.openMyChecks") : t("audits.openMyChecks"),
       screen: "audits",
     });
   }
@@ -51,9 +53,9 @@ function buildCards(role: Role): AuditCentreCard[] {
   if (canAccessGoogleForms(role)) {
     cards.push({
       id: "forms",
-      title: "Manage forms",
+      title: t("audits.manageForms"),
       description: "View live Google Forms in your company folder, sync them to BERT, and import forms as check templates.",
-      actionLabel: "Open Google Forms",
+      actionLabel: t("nav.googleForms"),
       screen: "googleForms",
     });
   }
@@ -61,9 +63,9 @@ function buildCards(role: Role): AuditCentreCard[] {
   if (canAccessResults(role)) {
     cards.push({
       id: "completed",
-      title: "Completed work",
+      title: t("audits.completedWork"),
       description: "Review submitted check results and drill into answers, findings, and evidence references.",
-      actionLabel: "Open results",
+      actionLabel: t("nav.results"),
       screen: "results",
     });
   }
@@ -72,13 +74,14 @@ function buildCards(role: Role): AuditCentreCard[] {
 }
 
 export function AuditCentreScreen({ role, onNavigate }: Props) {
+  const { t } = useTranslation();
   const theme = getRoleTheme(role);
-  const cards = buildCards(role);
+  const cards = buildCards(role, t);
 
   return (
     <div className={["space-y-4", bertSectionEnter].join(" ")}>
       <section className="rounded-[1.75rem] border border-slate-200/90 bg-white p-5 shadow-sm">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Audit Centre</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t("audits.centre")}</h1>
         <SectionIntro
           role={role}
           className="mt-2"

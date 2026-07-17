@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { OperationalMessage } from "../../types/operationalMessages";
 
 type Props = {
@@ -21,6 +22,8 @@ function formatSentAt(value?: string): string {
 }
 
 export function MessageDetails({ message, busy = false, onRead, onArchive, onOpenLolerEquipment }: Props) {
+  const { t } = useTranslation();
+
   return (
     <article
       className={`rounded-xl border p-3 ${
@@ -31,8 +34,8 @@ export function MessageDetails({ message, busy = false, onRead, onArchive, onOpe
         <div>
           <p className="text-sm font-semibold text-slate-900">{message.subject}</p>
           <p className="mt-0.5 text-xs text-slate-500">
-            From {message.senderName || message.senderEmail || "—"} · {formatSentAt(message.sentAt)}
-            {message.status === "unread" ? " · Unread" : ""}
+            {t("messages.from")} {message.senderName || message.senderEmail || "—"} · {formatSentAt(message.sentAt)}
+            {message.status === "unread" ? ` · ${t("messages.unread")}` : ""}
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -43,7 +46,7 @@ export function MessageDetails({ message, busy = false, onRead, onArchive, onOpe
               disabled={busy}
               onClick={() => onRead(message)}
             >
-              Mark read
+              {t("messages.markRead")}
             </button>
           ) : null}
           {message.relatedEquipmentId && onOpenLolerEquipment ? (
@@ -52,7 +55,7 @@ export function MessageDetails({ message, busy = false, onRead, onArchive, onOpe
               className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
               onClick={() => onOpenLolerEquipment(message.relatedEquipmentId || "")}
             >
-              Open LOLER
+              {t("messages.openLoler")}
             </button>
           ) : null}
           {message.status !== "archived" ? (
@@ -62,14 +65,16 @@ export function MessageDetails({ message, busy = false, onRead, onArchive, onOpe
               disabled={busy}
               onClick={() => onArchive(message)}
             >
-              Archive
+              {t("messages.archive")}
             </button>
           ) : null}
         </div>
       </div>
       <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{message.messageBody}</p>
       {message.relatedEquipmentId ? (
-        <p className="mt-1 text-xs text-slate-500">Linked LOLER equipment: {message.relatedEquipmentId}</p>
+        <p className="mt-1 text-xs text-slate-500">
+          {t("messages.linkedEquipment")} {message.relatedEquipmentId}
+        </p>
       ) : null}
     </article>
   );

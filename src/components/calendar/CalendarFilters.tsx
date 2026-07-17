@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { StructureEntity } from "../../services/companyStructureService";
 import type { ScheduleAssigneeOption } from "../../utils/scheduleAssignees";
 import { formatCalendarDate, type CalendarView, type StatusFilter, type TypeFilter } from "./calendarPresentation";
@@ -37,6 +38,7 @@ export function CalendarFilters({
   selectedDateKey,
   onClearDay,
 }: Props) {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-wrap items-center gap-2">
       <div className="inline-flex rounded-md border border-slate-300 bg-white p-0.5">
@@ -45,47 +47,47 @@ export function CalendarFilters({
           className={`rounded px-3 py-1.5 text-sm ${view === "month" ? "bg-slate-900 text-white" : "text-slate-700"}`}
           onClick={() => onViewChange("month")}
         >
-          Month
+          {t("calendar.month")}
         </button>
         <button
           type="button"
           className={`rounded px-3 py-1.5 text-sm ${view === "agenda" ? "bg-slate-900 text-white" : "text-slate-700"}`}
           onClick={() => onViewChange("agenda")}
         >
-          Agenda
+          {t("calendar.agenda")}
         </button>
       </div>
       <select
         className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
         value={typeFilter}
         onChange={(event) => onTypeChange(event.target.value as TypeFilter)}
-        aria-label="Filter by type"
+        aria-label={t("calendar.type")}
       >
-        <option value="all">All types</option>
-        <option value="event">Events</option>
-        <option value="reminder">Reminders</option>
+        <option value="all">{t("calendar.allTypes")}</option>
+        <option value="event">{t("calendar.events")}</option>
+        <option value="reminder">{t("calendar.reminders")}</option>
       </select>
       <select
         className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
         value={statusFilter}
         onChange={(event) => onStatusChange(event.target.value as StatusFilter)}
-        aria-label="Filter by status"
+        aria-label={t("common.status")}
       >
-        <option value="open">Open</option>
-        <option value="upcoming">Upcoming</option>
-        <option value="due_soon">Due soon</option>
-        <option value="overdue">Overdue</option>
-        <option value="completed">Completed</option>
-        <option value="archived">Archived</option>
-        <option value="all">All</option>
+        <option value="open">{t("common.openStatus")}</option>
+        <option value="upcoming">{t("status.upcoming")}</option>
+        <option value="due_soon">{t("status.dueSoonLabel")}</option>
+        <option value="overdue">{t("status.overdueLabel")}</option>
+        <option value="completed">{t("status.completed")}</option>
+        <option value="archived">{t("status.archived")}</option>
+        <option value="all">{t("loler.everything")}</option>
       </select>
       <select
         className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
         value={siteFilter}
         onChange={(event) => onSiteChange(event.target.value)}
-        aria-label="Filter by site"
+        aria-label={t("common.allSites")}
       >
-        <option value="">All sites</option>
+        <option value="">{t("common.allSites")}</option>
         {sites.map((site) => (
           <option key={site.id} value={site.id}>
             {site.name}
@@ -96,10 +98,10 @@ export function CalendarFilters({
         className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
         value={assigneeFilter}
         onChange={(event) => onAssigneeChange(event.target.value)}
-        aria-label="Filter by assignee"
+        aria-label={t("common.assignedTo")}
       >
-        <option value="">All assignees</option>
-        <option value={userEmail}>Assigned to me</option>
+        <option value="">{t("common.anyone")}</option>
+        <option value={userEmail}>{t("calendar.assignedToMe")}</option>
         {assignees.map((person) => (
           <option key={person.email} value={person.email}>
             {person.name || person.email}
@@ -112,7 +114,7 @@ export function CalendarFilters({
           className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
           onClick={onClearDay}
         >
-          Clear day filter ({formatCalendarDate(selectedDateKey)})
+          {t("calendar.clearDayFilter")} ({formatCalendarDate(selectedDateKey)})
         </button>
       ) : null}
     </div>

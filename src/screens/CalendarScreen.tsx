@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { Role } from "../permissions";
 import { canAccessCalendar, canManageCalendar } from "../permissions";
 import type { CalendarItem, CalendarItemInput, CalendarItemStatus } from "../types/calendar";
@@ -50,6 +51,7 @@ export function CalendarScreen({
   offlineMode = false,
   onBack,
 }: Props) {
+  const { t } = useTranslation();
   const folderId = String(companyFolderId || "").trim();
   const canManage = canManageCalendar(role);
   const canView = canAccessCalendar(role);
@@ -312,7 +314,7 @@ export function CalendarScreen({
   if (!canView) {
     return (
       <div className="p-6">
-        <p className="text-sm text-slate-600">You do not have access to Calendar.</p>
+        <p className="text-sm text-slate-600">{t("calendar.noAccess")}</p>
       </div>
     );
   }
@@ -323,8 +325,8 @@ export function CalendarScreen({
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Calendar</p>
-          <h1 className="text-2xl font-semibold text-slate-900">Events & reminders</h1>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("nav.calendar")}</p>
+          <h1 className="text-2xl font-semibold text-slate-900">{t("calendar.title")}</h1>
           <p className="mt-1 text-sm text-slate-600">
             One-off meetings, visits, and follow-ups — separate from audit schedules and LOLER.
           </p>
@@ -336,7 +338,7 @@ export function CalendarScreen({
               className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
               onClick={onBack}
             >
-              Back
+              {t("common.back")}
             </button>
           ) : null}
           <button
@@ -345,7 +347,7 @@ export function CalendarScreen({
             onClick={() => void refresh()}
             disabled={loading}
           >
-            Refresh
+            {t("common.refresh")}
           </button>
           {canManage ? (
             <button
@@ -353,7 +355,7 @@ export function CalendarScreen({
               className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white"
               onClick={() => openCreate()}
             >
-              Add item
+              {t("calendar.addItem")}
             </button>
           ) : null}
         </div>
@@ -361,19 +363,19 @@ export function CalendarScreen({
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <div className="rounded-lg border border-slate-200 bg-white p-3">
-          <p className="text-xs text-slate-500">Open</p>
+          <p className="text-xs text-slate-500">{t("common.openStatus")}</p>
           <p className="text-xl font-semibold text-slate-900">{openCount}</p>
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-3">
-          <p className="text-xs text-slate-500">Due soon</p>
+          <p className="text-xs text-slate-500">{t("status.dueSoonLabel")}</p>
           <p className="text-xl font-semibold text-amber-700">{summary.dueSoon}</p>
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-3">
-          <p className="text-xs text-slate-500">Overdue</p>
+          <p className="text-xs text-slate-500">{t("status.overdueLabel")}</p>
           <p className="text-xl font-semibold text-red-700">{summary.overdue}</p>
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-3">
-          <p className="text-xs text-slate-500">Completed</p>
+          <p className="text-xs text-slate-500">{t("status.completed")}</p>
           <p className="text-xl font-semibold text-emerald-700">{summary.completed}</p>
         </div>
       </div>
@@ -399,7 +401,7 @@ export function CalendarScreen({
       {error ? (
         <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</div>
       ) : null}
-      {loading ? <p className="text-sm text-slate-500">Loading calendar…</p> : null}
+      {loading ? <p className="text-sm text-slate-500">{t("calendar.loading")}</p> : null}
 
       {view === "month" ? (
         <CalendarMonthView

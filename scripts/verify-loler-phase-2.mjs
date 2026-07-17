@@ -406,7 +406,10 @@ assert(routes.includes("/messages/:messageId/read"), "messages read route regist
 assert(routes.includes("recordLolerExamination"), "record examination wired");
 
 const screen = read("src/screens/LolerScreen.tsx");
-assert(screen.includes("Record examination"), "UI has Record examination");
+assert(
+  screen.includes("Record examination") || screen.includes('t("loler.recordExamination")'),
+  "UI has Record examination",
+);
 assert(screen.includes("RecordExaminationForm"), "record form composed");
 assert(screen.includes("MessagesScreen"), "messages screen composed");
 assert(screen.includes("ExaminationHistory"), "examination history composed");

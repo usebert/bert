@@ -373,11 +373,22 @@ assert(monthView.includes("buildCalendarMonthCells"), "month view builds grid ce
 const agendaView = read("src/components/calendar/CalendarAgendaView.tsx");
 assert(agendaView.includes("CalendarItemDetails"), "agenda view uses item details");
 const itemForm = read("src/components/calendar/CalendarItemForm.tsx");
-assert(itemForm.includes("Priority") && itemForm.includes("All day"), "item form has fields");
+assert(
+  (itemForm.includes("Priority") || itemForm.includes('t("common.priority")') || itemForm.includes("translatePriority")) &&
+    (itemForm.includes("All day") || itemForm.includes('t("calendar.allDay")')),
+  "item form has fields",
+);
 const filters = read("src/components/calendar/CalendarFilters.tsx");
-assert(filters.includes("Month") && filters.includes("Agenda"), "filters expose view toggle");
+assert(
+  (filters.includes("Month") && filters.includes("Agenda")) ||
+    (filters.includes('t("calendar.month")') && filters.includes('t("calendar.agenda")')),
+  "filters expose view toggle",
+);
 const details = read("src/components/calendar/CalendarItemDetails.tsx");
-assert(details.includes("Mark complete"), "complete action lives in item details");
+assert(
+  details.includes("Mark complete") || details.includes('t("calendar.markComplete")'),
+  "complete action lives in item details",
+);
 const presentation = read("src/components/calendar/calendarPresentation.ts");
 assert(presentation.includes("calendarStatusBadge") && presentation.includes("buildCalendarMonthCells"), "shared helpers extracted");
 const summaryCard = read("src/components/dashboard/CalendarSummaryCard.tsx");

@@ -50,20 +50,24 @@ export const EMPTY_CALENDAR_FORM: CalendarFormState = {
   priority: "normal",
 };
 
-export function calendarStatusBadge(status: string): { label: string; className: string } {
+export function calendarStatusBadge(
+  status: string,
+  translate?: (key: string) => string,
+): { label: string; className: string } {
+  const t = translate || ((key: string) => key);
   switch (status) {
     case "upcoming":
-      return { label: "Upcoming", className: "bg-sky-100 text-sky-800" };
+      return { label: t("status.upcoming"), className: "bg-sky-100 text-sky-800" };
     case "due_soon":
-      return { label: "Due soon", className: "bg-amber-100 text-amber-800" };
+      return { label: t("status.dueSoonLabel"), className: "bg-amber-100 text-amber-800" };
     case "overdue":
-      return { label: "Overdue", className: "bg-red-100 text-red-800" };
+      return { label: t("status.overdueLabel"), className: "bg-red-100 text-red-800" };
     case "completed":
-      return { label: "Completed", className: "bg-emerald-100 text-emerald-800" };
+      return { label: t("status.completed"), className: "bg-emerald-100 text-emerald-800" };
     case "archived":
-      return { label: "Archived", className: "bg-slate-100 text-slate-500" };
+      return { label: t("status.archived"), className: "bg-slate-100 text-slate-500" };
     case "cancelled":
-      return { label: "Cancelled", className: "bg-slate-100 text-slate-500" };
+      return { label: t("status.cancelled"), className: "bg-slate-100 text-slate-500" };
     default:
       return { label: status || "—", className: "bg-slate-100 text-slate-600" };
   }

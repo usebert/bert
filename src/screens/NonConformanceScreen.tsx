@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { canCompleteAuditAsAuditor } from "../permissions";
 import type { NonConformanceScreenProps } from "../types/nonConformanceScreenProps";
 import { ArchiveRecordButton } from "../components/archive/ArchiveRecordButton";
@@ -50,6 +51,7 @@ export function NonConformanceScreen({
   onArchiveError,
   onArchiveSuccess,
 }: NonConformanceScreenProps) {
+  const { t } = useTranslation();
   const canArchiveNcr = canArchiveRecordFromClient(currentUser.role, "ncr");
   const auditorIdentityTokens = useMemo(() => {
     const tokens = new Set<string>();
@@ -105,15 +107,15 @@ export function NonConformanceScreen({
   return (
     <div className="space-y-4">
       <section className={darkPanelShell}>
-        <p className={darkPanelEyebrow}>Non-conformance register</p>
-        <h2 className={darkPanelTitleLg}>Escalation and investigation</h2>
+        <p className={darkPanelEyebrow}>{t("ncrs.title")}</p>
+        <h2 className={darkPanelTitleLg}>{t("ncrs.subtitle")}</h2>
       </section>
       <section className="rounded-[1.6rem] border border-slate-200 bg-white p-4 shadow-sm">
         <div className="grid gap-2">
           {visible.length === 0 ? (
             <EmptyPanel
-              title="No NCRs recorded"
-              text="Nothing in the register yet. NCRs appear when raised from audits or other quality work so you can investigate and close them out."
+              title={t("ncrs.noNcrs")}
+              text={t("ncrs.emptyRegisterBody")}
             />
           ) : (
             visible.map((item) => (
@@ -131,24 +133,22 @@ export function NonConformanceScreen({
       </section>
       {selected && (
         <section className="rounded-[1.6rem] border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="text-base font-semibold text-slate-900">Investigation form - {selected.reference}</h3>
+          <h3 className="text-base font-semibold text-slate-900">{t("ncrs.investigationFormTitle", { reference: selected.reference })}</h3>
           <p className="mt-1 text-xs text-slate-500">{selected.auditQuestion}</p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            <input value={isoClause} onChange={(event) => setIsoClause(event.target.value)} placeholder="ISO clause" className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm" />
-            <textarea value={investigationNotes} onChange={(event) => setInvestigationNotes(event.target.value)} placeholder="Investigation notes" className="min-h-[6rem] rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm" />
-            <textarea value={rootCause} onChange={(event) => setRootCause(event.target.value)} placeholder="Root cause" className="min-h-[6rem] rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm" />
-            <textarea value={correctiveAction} onChange={(event) => setCorrectiveAction(event.target.value)} placeholder="Corrective action" className="min-h-[6rem] rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm" />
+            <input value={isoClause} onChange={(event) => setIsoClause(event.target.value)} placeholder={t("ncrs.isoClause")} className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm" />
+            <textarea value={investigationNotes} onChange={(event) => setInvestigationNotes(event.target.value)} placeholder={t("ncrs.investigationNotes")} className="min-h-[6rem] rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm" />
+            <textarea value={rootCause} onChange={(event) => setRootCause(event.target.value)} placeholder={t("ncrs.rootCause")} className="min-h-[6rem] rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm" />
+            <textarea value={correctiveAction} onChange={(event) => setCorrectiveAction(event.target.value)} placeholder={t("ncrs.correctiveAction")} className="min-h-[6rem] rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm" />
           </div>
-          <textarea value={extraNotes} onChange={(event) => setExtraNotes(event.target.value)} placeholder="Extra notes" className="mt-2 min-h-[5rem] w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm" />
+          <textarea value={extraNotes} onChange={(event) => setExtraNotes(event.target.value)} placeholder={t("ncrs.extraNotes")} className="mt-2 min-h-[5rem] w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm" />
           <div className="mt-2">
             <EvidenceUploadChoice
-              triggerLabel="Upload evidence"
+              triggerLabel={t("ncrs.uploadEvidence")}
               triggerClassName="min-h-[48px] rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white"
               onFiles={(files) => onAddEvidence(selected.id, files)}
             />
-            <p className="mt-1 text-xs text-slate-500">
-              {(selected.evidence || []).length} evidence file(s)
-            </p>
+            <p className="mt-1 text-xs text-slate-500">{t("ncrs.evidenceFileCount", { count: (selected.evidence || []).length })}</p>
             {selected.evidenceUploadStatus === "pending" ||
             (selected.evidence || []).some((item) => item.uploadStatus === "pending" || !evidencePreviewUrl(item)) ? (
               <p className="mt-1 text-xs font-semibold text-amber-800">{NCR_EVIDENCE_PENDING_MESSAGE}</p>
@@ -176,7 +176,7 @@ export function NonConformanceScreen({
                           {NCR_EVIDENCE_PENDING_MESSAGE}
                         </div>
                       ) : null}
-                      <p className="mt-1 truncate text-xs font-medium text-slate-700">{item.name || "Evidence file"}</p>
+                      <p className="mt-1 truncate text-xs font-medium text-slate-700">{item.name || t("ncrs.evidenceFile")}</p>
                       {url && !url.startsWith("blob:") ? (
                         <a
                           href={url}
@@ -184,7 +184,7 @@ export function NonConformanceScreen({
                           rel="noreferrer"
                           className="mt-1 inline-block text-[11px] font-semibold text-slate-700 underline"
                         >
-                          Open evidence
+                          {t("ncrs.openEvidence")}
                         </a>
                       ) : null}
                     </div>
@@ -202,7 +202,7 @@ export function NonConformanceScreen({
                 masterSheetId={archiveMasterSheetId}
                 offlineMode={archiveOffline}
                 canArchive={canArchiveNcr}
-                label="Archive NCR"
+                label={t("ncrs.archiveNcr")}
                 onArchived={() => onNcrArchived(selected.id)}
                 onError={onArchiveError}
                 onSuccess={onArchiveSuccess}
@@ -221,7 +221,7 @@ export function NonConformanceScreen({
               }
               className={`h-11 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 ${slatePrimaryCtaInteract}`}
             >
-              Save progress
+              {t("ncrs.saveProgress")}
             </button>
             <button
               type="button"
@@ -239,25 +239,25 @@ export function NonConformanceScreen({
               }}
               className={`h-11 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}
             >
-              NCR complete
+              {t("ncrs.ncrComplete")}
             </button>
           </div>
         </section>
       )}
       {canViewCompletedReports && (
         <section className="rounded-[1.6rem] border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="text-base font-semibold text-slate-900">Completed NCR reports</h3>
+          <h3 className="text-base font-semibold text-slate-900">{t("ncrs.completedReportsTitle")}</h3>
           <div className="mt-2 space-y-2">
             {completed.length === 0 ? (
               <EmptyPanel
-                title="No completed NCRs yet"
-                text="Finished reports show here after you mark an NCR complete from the list above."
+                title={t("ncrs.noCompleted")}
+                text={t("ncrs.completedReportsEmpty")}
               />
             ) : (
               completed.map((item) => (
                 <div key={item.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                   <p className="text-sm text-slate-700">{item.reference} - {item.site} - {item.completedByName || "-"}</p>
-                  <button type="button" onClick={() => onExportReport(item)} className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white">Print / export PDF</button>
+                  <button type="button" onClick={() => onExportReport(item)} className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white">{t("ncrs.printExport")}</button>
                 </div>
               ))
             )}

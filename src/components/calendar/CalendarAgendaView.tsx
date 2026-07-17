@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { CalendarItem } from "../../types/calendar";
 import { CalendarItemDetails } from "./CalendarItemDetails";
 
@@ -12,10 +13,11 @@ type Props = {
 };
 
 export function CalendarAgendaView({ items, canManage, userEmail, saving, onEdit, onComplete, onArchive }: Props) {
+  const { t } = useTranslation();
   if (items.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-500">
-        No calendar items match the current filters.
+        {t("calendar.noItems")}
       </div>
     );
   }

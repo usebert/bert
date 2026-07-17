@@ -1,4 +1,6 @@
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import type { HistoryEntry } from "../types/reportsScreenProps";
 import type { IncidentRecord } from "../types/incidentsScreenProps";
 import { EmptyPanel } from "../components/dashboard/DashboardPrimitives";
@@ -13,6 +15,8 @@ export type AuditorHistoryScreenProps = {
   syncSummary: string;
   syncNeedsAttention: boolean;
 };
+
+type SyncTone = "synced" | "pending" | "needsAttention";
 
 function formatDisplayDate(isoOrDisplay: string): string {
   const parsed = Date.parse(isoOrDisplay);
@@ -32,26 +36,32 @@ function formatDisplayDate(isoOrDisplay: string): string {
   }
 }
 
-function submissionSyncLabel(auditId: string, unsyncedAuditIds: Set<string>): "Synced" | "Pending" | "Needs attention" {
+function submissionSyncTone(auditId: string, unsyncedAuditIds: Set<string>): SyncTone {
   if (!unsyncedAuditIds.has(auditId)) {
-    return "Synced";
+    return "synced";
   }
-  return "Pending";
+  return "pending";
 }
 
-function incidentSyncLabel(status: string): "Synced" | "Pending" | "Needs attention" {
+function incidentSyncTone(status: string): SyncTone {
   if (status === "Failed" || status.includes("fail")) {
-    return "Needs attention";
+    return "needsAttention";
   }
   if (status === "Pending" || status === "Queued") {
-    return "Pending";
+    return "pending";
   }
-  return "Synced";
+  return "synced";
 }
 
-function syncBadgeClasses(tone: "Synced" | "Pending" | "Needs attention"): string {
-  if (tone === "Synced") return "bg-emerald-50 text-emerald-800 ring-emerald-200";
-  if (tone === "Needs attention") return "bg-rose-50 text-rose-800 ring-rose-200";
+function syncLabel(t: TFunction, tone: SyncTone): string {
+  if (tone === "synced") return t("common.synced");
+  if (tone === "needsAttention") return t("common.needsAttention");
+  return t("status.pending");
+}
+
+function syncBadgeClasses(tone: SyncTone): string {
+  if (tone === "synced") return "bg-emerald-50 text-emerald-800 ring-emerald-200";
+  if (tone === "needsAttention") return "bg-rose-50 text-rose-800 ring-rose-200";
   return "bg-amber-50 text-amber-900 ring-amber-200";
 }
 
@@ -63,6 +73,7 @@ export function AuditorHistoryScreen({
   syncSummary,
   syncNeedsAttention,
 }: AuditorHistoryScreenProps) {
+  const { t } = useTranslation();
   const myHistory = useMemo(
     () =>
       history
@@ -88,7 +99,7 @@ export function AuditorHistoryScreen({
   return (
     <div className="space-y-5">
       <section className="rounded-2xl border border-violet-200/80 bg-violet-50/60 px-4 py-4 shadow-sm">
-        <h2 className="text-2xl font-semibold tracking-tight text-slate-900">History</h2>
+        <h2 className="text-2xl font-semibold tracking-tight text-slate-900">{t("audits.history")}</h2>
         <SectionIntro text={SECTION_INTROS.auditorHistory} className="mt-2" role="Auditor" />
       </section>
 
@@ -98,23 +109,23 @@ export function AuditorHistoryScreen({
           syncNeedsAttention ? "border-rose-200 bg-rose-50/80" : "border-slate-200/90 bg-white",
         ].join(" ")}
       >
-        <p className="text-sm font-semibold text-slate-900">Sending status</p>
+        <p className="text-sm font-semibold text-slate-900">{t("audits.sendingStatus")}</p>
         <p className="mt-1 text-sm text-slate-600">{syncSummary}</p>
       </section>
 
       {!hasSubmissions ? (
         <EmptyPanel
-          title="No submissions yet"
-          text="Completed checks and incident reports you submit will appear here with their date and sync status."
+          title={t("audits.noSubmissionsYet")}
+          text={t("audits.noSubmissionsBody")}
         />
       ) : (
         <div className="space-y-4">
           {myHistory.length > 0 ? (
             <section className="space-y-3">
-              <p className="text-sm font-semibold text-slate-900">Completed checks</p>
+              <p className="text-sm font-semibold text-slate-900">{t("audits.completedChecks")}</p>
               <ul className="space-y-2">
                 {myHistory.map((entry) => {
-                  const sync = submissionSyncLabel(entry.auditId, unsyncedAuditIds);
+                  const tone = submissionSyncTone(entry.auditId, unsyncedAuditIds);
                   return (
                     <li
                       key={entry.id}
@@ -128,10 +139,10 @@ export function AuditorHistoryScreen({
                         <span
                           className={[
                             "shrink-0 rounded-full px-3 py-1 text-xs font-semibold ring-1",
-                            syncBadgeClasses(sync),
+                            syncBadgeClasses(tone),
                           ].join(" ")}
                         >
-                          {sync}
+                          {syncLabel(t, tone)}
                         </span>
                       </div>
                     </li>
@@ -143,10 +154,10 @@ export function AuditorHistoryScreen({
 
           {myIncidents.length > 0 ? (
             <section className="space-y-3">
-              <p className="text-sm font-semibold text-slate-900">Incident reports</p>
+              <p className="text-sm font-semibold text-slate-900">{t("audits.incidentReports")}</p>
               <ul className="space-y-2">
                 {myIncidents.map((item) => {
-                  const sync = incidentSyncLabel(item.notificationStatus || "Synced");
+                  const tone = incidentSyncTone(item.notificationStatus || "Synced");
                   return (
                     <li
                       key={item.id}
@@ -164,10 +175,10 @@ export function AuditorHistoryScreen({
                         <span
                           className={[
                             "shrink-0 rounded-full px-3 py-1 text-xs font-semibold ring-1",
-                            syncBadgeClasses(sync),
+                            syncBadgeClasses(tone),
                           ].join(" ")}
                         >
-                          {sync}
+                          {syncLabel(t, tone)}
                         </span>
                       </div>
                     </li>
@@ -180,7 +191,9 @@ export function AuditorHistoryScreen({
       )}
 
       <p className="text-sm text-slate-500">
-        Need help? Tap <span className="font-semibold text-slate-700">Help</span> in the top bar or contact your manager.
+        {t("audits.historyHelpBefore")}{" "}
+        <span className="font-semibold text-slate-700">{t("common.help")}</span>{" "}
+        {t("audits.historyHelpAfter")}
       </p>
     </div>
   );

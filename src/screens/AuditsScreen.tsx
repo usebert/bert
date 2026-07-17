@@ -3,6 +3,8 @@ import {
   canSubmitAuditForReview,
   usesAssignedChecksCompletionFlow,
 } from "../permissions";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { getRoleTheme } from "../config/roleTheme";
 import { rankAuditorAudit } from "../utils/auditorDashboard";
 import { SECTION_INTROS } from "../config/sectionIntros";
@@ -23,6 +25,14 @@ import type {
 import type { Audit, AuditStatus } from "../types/reportsScreenProps";
 import type { AuditDraft } from "../types/dashboardScreenProps";
 
+function accessLevelLabel(t: TFunction, access: AuditAccessLevel | "Can complete"): string {
+  if (access === "Full access") return t("audits.fullAccess");
+  if (access === "Oversight") return t("audits.oversight");
+  if (access === "Can complete" || access === "Complete") return t("audits.canComplete");
+  if (access === "No access") return t("audits.noAccess");
+  return access;
+}
+
 function AssignedChecksLoadingState({
   message,
   className = "rounded-2xl border border-violet-200/80 bg-white px-5 py-6 text-sm text-slate-600",
@@ -40,9 +50,10 @@ function AssignedChecksLoadError({
   loadError: string;
   loadErrorDetail?: string;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-6">
-      <p className="text-sm font-semibold text-rose-900">Could not load your checks</p>
+      <p className="text-sm font-semibold text-rose-900">{t("audits.couldNotLoad")}</p>
       <p className="mt-2 text-sm text-rose-800">{loadError}</p>
       {loadErrorDetail ? (
         <p className="mt-2 break-all font-mono text-xs text-rose-700">{loadErrorDetail}</p>
@@ -135,6 +146,7 @@ function AccessMatrixTable({
   users: AuditsScreenProps["users"];
   onToggleAuditAccess: (email: string, auditId: string, currentAccess: AuditAccessLevel) => void;
 }) {
+  const { t } = useTranslation();
   const matrixAuditColumns = auditAccessMatrix[0]?.cells ?? [];
   const visibleMatrixAuditColumns = matrixAuditColumns;
   const filteredMatrixRows = auditAccessMatrix;
@@ -155,8 +167,8 @@ function AccessMatrixTable({
       {filteredMatrixRows.length === 0 || visibleMatrixAuditColumns.length === 0 ? (
         <div className="mt-4">
           <EmptyPanel
-            title="Nothing to show here yet"
-            text="When users and live audits exist in this workspace, you can manage who can open each audit from this matrix."
+            title={t("audits.nothingToShow")}
+            text={t("audits.matrixEmptyBody")}
           />
         </div>
       ) : (
@@ -165,7 +177,7 @@ function AccessMatrixTable({
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50">
                 <th className="w-[11rem] bg-slate-50 px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                  User
+                  {t("common.user")}
                 </th>
                 {visibleMatrixAuditColumns.map((audit) => (
                   <th
@@ -196,7 +208,7 @@ function AccessMatrixTable({
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold leading-4 text-slate-900">{user.name}</p>
                         <p className="mt-1 text-[10px] font-semibold text-slate-400">
-                          {user.accessibleCount} audit{user.accessibleCount === 1 ? "" : "s"} accessible
+                          {t("audits.accessibleCount", { count: user.accessibleCount })}
                         </p>
                       </div>
                     </div>
@@ -211,9 +223,9 @@ function AccessMatrixTable({
                         className={["w-full rounded-lg border px-2 py-1.5 text-left transition", "cursor-pointer", chip.button].join(" ")}
                       >
                         <p className={["text-[10px] font-semibold uppercase tracking-[0.12em]", chip.label].join(" ")}>
-                          {cell.access === "Complete" ? "Can complete" : cell.access}
+                          {accessLevelLabel(t, cell.access === "Complete" ? "Can complete" : cell.access)}
                         </p>
-                        <p className="mt-0.5 text-[9px] font-semibold text-slate-400">Tap to change</p>
+                        <p className="mt-0.5 text-[9px] font-semibold text-slate-400">{t("audits.tapToChange")}</p>
                       </button>
                     </td>
                   );
@@ -223,21 +235,19 @@ function AccessMatrixTable({
             </tbody>
           </table>
           <div className="border-t border-slate-200 bg-slate-50 p-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Access levels</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{t("audits.accessLevels")}</p>
             <ul className="mt-2 space-y-1 text-xs text-slate-600">
               <li>
-                <span className="font-semibold text-slate-800">No access</span> — cannot open this check in My Checks.
+                <span className="font-semibold text-slate-800">{t("audits.noAccess")}</span> — {t("audits.accessNoAccessDesc")}
               </li>
               <li>
-                <span className="font-semibold text-slate-800">Can complete</span> — can run and submit this check when it is
-                due or listed as available.
+                <span className="font-semibold text-slate-800">{t("audits.canComplete")}</span> — {t("audits.accessCanCompleteDesc")}
               </li>
               <li>
-                <span className="font-semibold text-slate-800">Full access</span> — same as Can complete for field checks;
-                includes full visibility for this audit.
+                <span className="font-semibold text-slate-800">{t("audits.fullAccess")}</span> — {t("audits.accessFullAccessDesc")}
               </li>
             </ul>
-            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Schedule mapping</p>
+            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{t("audits.scheduleMapping")}</p>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               {visibleMatrixAuditColumns.map((audit) => {
                 const schedule = auditScheduleMatrix[audit.auditId];
@@ -247,7 +257,7 @@ function AccessMatrixTable({
                     <p className="mt-1 text-xs text-slate-500">
                       {schedule
                         ? `${schedule.frequency} • ${schedule.days.join(", ")} • ${schedule.liveTime} • ${schedule.completionHours}h`
-                        : "Not scheduled"}
+                        : t("audits.notScheduled")}
                     </p>
                   </div>
                 );
@@ -258,12 +268,12 @@ function AccessMatrixTable({
       )}
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <QuickActionTile title="Users" value={String(filteredMatrixRows.length)} caption="Included in matrix" />
-        <QuickActionTile title="Audits" value={String(visibleMatrixAuditColumns.length)} caption="Available on this workspace" />
+        <QuickActionTile title={t("audits.usersTile")} value={String(filteredMatrixRows.length)} caption={t("audits.includedInMatrix")} />
+        <QuickActionTile title={t("audits.auditsTile")} value={String(visibleMatrixAuditColumns.length)} caption={t("audits.availableOnWorkspace")} />
         <QuickActionTile
-          title="Assigned access"
+          title={t("audits.assignedAccess")}
           value={String(filteredMatrixRows.reduce((sum, row) => sum + row.accessibleCount, 0))}
-          caption="User-to-audit links"
+          caption={t("audits.userToAuditLinks")}
         />
       </div>
     </>
@@ -289,6 +299,7 @@ function TrafficLane({
   drafts?: Record<string, AuditDraft>;
   unsyncedAuditIds?: Set<string>;
 }) {
+  const { t } = useTranslation();
   const compact = !expanded;
   const visibleAudits = compact ? audits.slice(0, 1) : audits;
   const hiddenCount = Math.max(0, audits.length - visibleAudits.length);
@@ -317,14 +328,16 @@ function TrafficLane({
               <div className="min-w-0">
                 <p className="text-xs font-semibold text-slate-900">{audit.name}</p>
                 <p className="mt-0.5 text-[10px] text-slate-500">
-                  {audit.siteArea} • {audit.priority} • Owner {audit.owner}
+                  {audit.siteArea} • {audit.priority} • {t("audits.ownerLabel", { name: audit.owner })}
                 </p>
                 <p className="mt-1 text-[10px] font-medium text-slate-600">{getDueWarning(audit.dueHours)}</p>
                 <p className="mt-0.5 text-[10px] text-slate-400">
-                  {drafts[audit.id] ? `In progress ${drafts[audit.id].updatedAt}` : `Last completed ${audit.lastCompletedAt}`}
+                  {drafts[audit.id]
+                    ? t("audits.inProgressAt", { time: drafts[audit.id].updatedAt })
+                    : t("audits.lastCompletedAt", { time: audit.lastCompletedAt })}
                 </p>
                 {unsyncedAuditIds.has(audit.id) && (
-                  <p className="mt-0.5 text-[10px] font-semibold text-amber-700">Audit complete / not synced</p>
+                  <p className="mt-0.5 text-[10px] font-semibold text-amber-700">{t("audits.auditCompleteNotSynced")}</p>
                 )}
               </div>
               <div className="shrink-0 space-y-1 text-right">
@@ -334,11 +347,11 @@ function TrafficLane({
             </div>
           </button>
         ))}
-        {hiddenCount > 0 && <div className="px-1 text-[10px] font-semibold text-slate-500">+{hiddenCount} more</div>}
+        {hiddenCount > 0 && <div className="px-1 text-[10px] font-semibold text-slate-500">{t("audits.moreCount", { count: hiddenCount })}</div>}
         {audits.length === 0 && (
           <div className="rounded-xl bg-white/85 px-3 py-2 text-xs text-slate-500 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.04)]">
-            <p className="font-semibold text-slate-700">Nothing in this due window</p>
-            <p className="mt-0.5">Audits appear here when assigned and they match this lane.</p>
+            <p className="font-semibold text-slate-700">{t("audits.nothingInWindow")}</p>
+            <p className="mt-0.5">{t("audits.nothingInWindowHint")}</p>
           </div>
         )}
       </div>
@@ -361,6 +374,7 @@ function AuditorChecksList({
   onNavigateToToday?: () => void;
   onNavigateToSubmit?: () => void;
 }) {
+  const { t } = useTranslation();
   const theme = getRoleTheme("Auditor");
   const sorted = [...audits].sort((a, b) => {
     const rankDiff = rankAuditorAudit(a, Boolean(drafts[a.id])) - rankAuditorAudit(b, Boolean(drafts[b.id]));
@@ -371,10 +385,8 @@ function AuditorChecksList({
   if (sorted.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-violet-200 bg-violet-50/50 px-5 py-6">
-        <p className="text-lg font-semibold text-slate-900">No checks assigned</p>
-        <p className="mt-2 text-sm leading-relaxed text-slate-600">
-          Your manager will assign checks here. You can open Today to see what is due, or submit a record if something needs reporting now.
-        </p>
+        <p className="text-lg font-semibold text-slate-900">{t("audits.noChecksAssigned")}</p>
+        <p className="mt-2 text-sm leading-relaxed text-slate-600">{t("audits.noChecksAssignedBody")}</p>
         <div className="mt-4 flex flex-wrap gap-3">
           {onNavigateToToday ? (
             <button
@@ -386,7 +398,7 @@ function AuditorChecksList({
                 theme.primaryButtonHover,
               ].join(" ")}
             >
-              Go to Today
+              {t("audits.goToToday")}
             </button>
           ) : null}
           {onNavigateToSubmit ? (
@@ -398,7 +410,7 @@ function AuditorChecksList({
                 theme.outlineButton,
               ].join(" ")}
             >
-              Submit record
+              {t("audits.submitRecord")}
             </button>
           ) : null}
         </div>
@@ -427,20 +439,20 @@ function AuditorChecksList({
     <div className="space-y-5">
       {dueToday.length > 0 ? (
         <section>
-          <p className="text-sm font-semibold text-slate-900">Due today</p>
+          <p className="text-sm font-semibold text-slate-900">{t("audits.dueToday")}</p>
           <ul className="mt-3 space-y-3">{dueToday.map(renderAuditRow)}</ul>
         </section>
       ) : null}
       {availableChecks.length > 0 ? (
         <section>
-          <p className="text-sm font-semibold text-slate-900">Available checks</p>
-          <p className="mt-1 text-xs text-slate-500">Granted by your admin — start when you are ready.</p>
+          <p className="text-sm font-semibold text-slate-900">{t("audits.availableChecks")}</p>
+          <p className="mt-1 text-xs text-slate-500">{t("audits.availableChecksHint")}</p>
           <ul className="mt-3 space-y-3">{availableChecks.map(renderAuditRow)}</ul>
         </section>
       ) : null}
       {otherChecks.length > 0 ? (
         <section>
-          <p className="text-sm font-semibold text-slate-900">Other assigned checks</p>
+          <p className="text-sm font-semibold text-slate-900">{t("audits.otherAssignedChecks")}</p>
           <ul className="mt-3 space-y-3">{otherChecks.map(renderAuditRow)}</ul>
         </section>
       ) : null}
@@ -489,13 +501,14 @@ export function AuditsScreen({
   onGoogleFormUpdated,
   onBackToAuditCentre,
 }: AuditsScreenProps) {
+  const { t } = useTranslation();
   if (canCompleteAuditAsAuditor(currentUser.role)) {
     const theme = getRoleTheme("Auditor");
     return (
       <div className="space-y-4">
         {onBackToAuditCentre ? <AuditCentreBackButton onClick={onBackToAuditCentre} /> : null}
         <section className="rounded-2xl border border-violet-200/80 bg-violet-50/60 px-5 py-4 shadow-sm">
-          <h2 className="text-2xl font-semibold tracking-tight text-slate-900">My checks</h2>
+          <h2 className="text-2xl font-semibold tracking-tight text-slate-900">{t("audits.myChecks")}</h2>
           <SectionIntro text={SECTION_INTROS.auditorChecks} className="mt-2" role="Auditor" />
           {onNavigateToToday ? (
             <button
@@ -507,7 +520,7 @@ export function AuditsScreen({
                 theme.primaryButtonHover,
               ].join(" ")}
             >
-              Go to Today
+              {t("audits.goToToday")}
             </button>
           ) : null}
         </section>
@@ -554,9 +567,9 @@ export function AuditsScreen({
             <AuditsScreenIcon className="h-5 w-5" />
           </div>
           <div className="min-w-0 flex-1">
-            <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Forms & checks</h2>
+            <h2 className="text-2xl font-semibold tracking-tight text-slate-900">{t("audits.formsAndChecks")}</h2>
             <SectionIntro
-              text="Build and manage form/check templates here. Schedules control when checks run."
+              text={t("audits.formsAndChecksIntro")}
               className="mt-2"
               role={currentUser.role}
             />
@@ -571,7 +584,7 @@ export function AuditsScreen({
                     theme.primaryButtonHover,
                   ].join(" ")}
                 >
-                  Create Audit Template
+                  {t("audits.createAuditTemplate")}
                 </button>
               ) : null}
               {onNavigateToTemplateBuilder ? (
@@ -583,7 +596,7 @@ export function AuditsScreen({
                     theme.outlineButton,
                   ].join(" ")}
                 >
-                  Advanced template builder
+                  {t("audits.advancedTemplateBuilder")}
                 </button>
               ) : null}
               {onNavigateToSchedules ? (
@@ -595,7 +608,7 @@ export function AuditsScreen({
                     theme.outlineButton,
                   ].join(" ")}
                 >
-                  Manage schedules
+                  {t("audits.manageSchedules")}
                 </button>
               ) : null}
               {!googleConnected && onNavigateToWorkspace ? (
@@ -607,7 +620,7 @@ export function AuditsScreen({
                     theme.outlineButton,
                   ].join(" ")}
                 >
-                  Open Workspace
+                  {t("audits.openWorkspace")}
                 </button>
               ) : null}
             </div>
@@ -617,10 +630,8 @@ export function AuditsScreen({
 
       {usesAssignedChecksCompletionFlow(currentUser.role) && !canCompleteAuditAsAuditor(currentUser.role) ? (
         <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
-          <h3 className="text-xl font-semibold tracking-tight text-slate-900">My assigned checks</h3>
-          <p className="mt-2 text-sm text-slate-600">
-            Checks scheduled for you. Start or continue when you are ready — submissions save to AuditResults.
-          </p>
+          <h3 className="text-xl font-semibold tracking-tight text-slate-900">{t("audits.myAssignedChecks")}</h3>
+          <p className="mt-2 text-sm text-slate-600">{t("audits.myAssignedChecksBody")}</p>
           <div className="mt-4">
             {assignedChecksLoading && myAssignedChecks.length === 0 ? (
               <AssignedChecksLoadingState
@@ -671,10 +682,8 @@ export function AuditsScreen({
 
       {canSubmitAuditForReview(currentUser.role) && auditAccessMatrix.length > 0 ? (
         <details className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
-          <summary className="cursor-pointer text-sm font-semibold text-slate-900">Manage who can open each check (advanced)</summary>
-          <p className="mt-2 text-sm text-slate-600">
-            Choose access per person. Area access is under Workspace; due dates are under Schedules.
-          </p>
+          <summary className="cursor-pointer text-sm font-semibold text-slate-900">{t("audits.manageAccessAdvanced")}</summary>
+          <p className="mt-2 text-sm text-slate-600">{t("audits.manageAccessBody")}</p>
           <div className="mt-4 overflow-x-auto">
             <AccessMatrixTable
               auditAccessMatrix={auditAccessMatrix}

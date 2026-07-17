@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { bertSecondaryButtonInteract } from "../../styles/interactions";
 
 type Props = {
@@ -7,6 +8,7 @@ type Props = {
 };
 
 export function AuditCentreBackButton({ onClick, variant = "light", className = "" }: Props) {
+  const { t } = useTranslation();
   const toneClass =
     variant === "dark"
       ? "border-white/25 bg-white/10 text-white hover:bg-white/15"
@@ -23,7 +25,7 @@ export function AuditCentreBackButton({ onClick, variant = "light", className = 
         className,
       ].join(" ")}
     >
-      Back to Audit Centre
+      {t("audits.backToCentre")}
     </button>
   );
 }

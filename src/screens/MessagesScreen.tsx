@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { OperationalMessage } from "../types/operationalMessages";
 import {
   archiveOperationalMessage,
@@ -20,6 +21,7 @@ type Props = {
  * Embedded from LOLER (messages tab); no dedicated nav item.
  */
 export function MessagesScreen({ companyFolderId, offlineMode = false, onOpenLolerEquipment }: Props) {
+  const { t } = useTranslation();
   const folderId = String(companyFolderId || "").trim();
   const cached = readCachedOperationalMessages(folderId);
   const [messages, setMessages] = useState<OperationalMessage[]>(cached?.messages || []);
@@ -39,11 +41,11 @@ export function MessagesScreen({ companyFolderId, offlineMode = false, onOpenLol
       setMessages(payload.messages || []);
       setUnread(payload.summary?.unread || 0);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load messages.");
+      setError(err instanceof Error ? err.message : t("errors.tryAgain"));
     } finally {
       setLoading(false);
     }
-  }, [folderId]);
+  }, [folderId, t]);
 
   useEffect(() => {
     void refresh();
@@ -66,7 +68,7 @@ export function MessagesScreen({ companyFolderId, offlineMode = false, onOpenLol
       await markOperationalMessageRead(folderId, message.messageId);
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not mark message read.");
+      setError(err instanceof Error ? err.message : t("errors.tryAgain"));
     } finally {
       setBusyId("");
     }
@@ -81,7 +83,7 @@ export function MessagesScreen({ companyFolderId, offlineMode = false, onOpenLol
       await archiveOperationalMessage(folderId, message.messageId);
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not archive message.");
+      setError(err instanceof Error ? err.message : t("errors.tryAgain"));
     } finally {
       setBusyId("");
     }
@@ -91,9 +93,11 @@ export function MessagesScreen({ companyFolderId, offlineMode = false, onOpenLol
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h2 className="text-base font-black text-slate-900">Messages</h2>
+          <h2 className="text-base font-black text-slate-900">{t("messages.title")}</h2>
           <p className="text-sm text-slate-600">
-            {unread > 0 ? `${unread} unread operational message${unread === 1 ? "" : "s"}` : "No unread messages"}
+            {unread > 0
+              ? t(unread === 1 ? "messages.unreadCount" : "messages.unreadCount_plural", { count: unread })
+              : t("messages.noUnread")}
           </p>
         </div>
         <button
@@ -102,11 +106,11 @@ export function MessagesScreen({ companyFolderId, offlineMode = false, onOpenLol
           onClick={() => void refresh()}
           disabled={loading}
         >
-          Refresh
+          {t("common.refresh")}
         </button>
       </div>
       {error ? <p className="mt-2 text-sm text-red-700">{error}</p> : null}
-      {loading ? <p className="mt-3 text-sm text-slate-500">Loading messages…</p> : null}
+      {loading ? <p className="mt-3 text-sm text-slate-500">{t("messages.loading")}</p> : null}
       <div className="mt-3">
         {!loading || messages.length > 0 ? (
           <MessageList

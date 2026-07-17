@@ -1,6 +1,8 @@
+import { useTranslation } from "react-i18next";
 import type { StructureEntity } from "../../services/companyStructureService";
 import type { ScheduleAssigneeOption } from "../../utils/scheduleAssignees";
 import type { CalendarItemType, CalendarPriority } from "../../types/calendar";
+import { translatePriority } from "../../i18n/statusLabels";
 import type { CalendarFormState } from "./calendarPresentation";
 
 type Props = {
@@ -26,24 +28,25 @@ export function CalendarItemForm({
   onCancel,
   onSave,
 }: Props) {
+  const { t } = useTranslation();
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-slate-900/40 p-4 sm:items-center">
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-4 shadow-xl">
-        <h2 className="text-lg font-semibold text-slate-900">{editing ? "Edit item" : "Add item"}</h2>
+        <h2 className="text-lg font-semibold text-slate-900">{editing ? t("calendar.editItem") : t("calendar.addItem")}</h2>
         <div className="mt-3 grid gap-3">
           <label className="text-sm text-slate-700">
-            Type
+            {t("calendar.type")}
             <select
               className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5"
               value={form.itemType}
               onChange={(event) => onChange({ itemType: event.target.value as CalendarItemType })}
             >
-              <option value="event">Event</option>
-              <option value="reminder">Reminder</option>
+              <option value="event">{t("calendar.events")}</option>
+              <option value="reminder">{t("calendar.reminders")}</option>
             </select>
           </label>
           <label className="text-sm text-slate-700">
-            Title
+            {t("calendar.titleLabel")}
             <input
               className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5"
               value={form.title}
@@ -51,7 +54,7 @@ export function CalendarItemForm({
             />
           </label>
           <label className="text-sm text-slate-700">
-            Description
+            {t("calendar.description")}
             <textarea
               className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5"
               rows={3}
@@ -61,7 +64,7 @@ export function CalendarItemForm({
           </label>
           <div className="grid grid-cols-2 gap-3">
             <label className="text-sm text-slate-700">
-              Start date
+              {t("calendar.startDate")}
               <input
                 type="date"
                 className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5"
@@ -72,7 +75,7 @@ export function CalendarItemForm({
               />
             </label>
             <label className="text-sm text-slate-700">
-              End date
+              {t("calendar.endDate")}
               <input
                 type="date"
                 className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5"
@@ -87,12 +90,12 @@ export function CalendarItemForm({
               checked={form.allDay}
               onChange={(event) => onChange({ allDay: event.target.checked })}
             />
-            All day
+            {t("calendar.allDay")}
           </label>
           {!form.allDay ? (
             <div className="grid grid-cols-2 gap-3">
               <label className="text-sm text-slate-700">
-                Start time
+                {t("calendar.startTime")}
                 <input
                   type="time"
                   className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5"
@@ -101,7 +104,7 @@ export function CalendarItemForm({
                 />
               </label>
               <label className="text-sm text-slate-700">
-                End time
+                {t("calendar.endTime")}
                 <input
                   type="time"
                   className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5"
@@ -112,13 +115,13 @@ export function CalendarItemForm({
             </div>
           ) : null}
           <label className="text-sm text-slate-700">
-            Assigned to
+            {t("common.assignedTo")}
             <select
               className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5"
               value={form.assignedPersonId}
               onChange={(event) => onChange({ assignedPersonId: event.target.value })}
             >
-              <option value="">Unassigned</option>
+              <option value="">{t("common.unassigned")}</option>
               {assignees.map((person) => (
                 <option key={person.email} value={person.email}>
                   {person.name || person.email}
@@ -165,15 +168,15 @@ export function CalendarItemForm({
             />
           </label>
           <label className="text-sm text-slate-700">
-            Priority
+            {t("common.priority")}
             <select
               className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5"
               value={form.priority}
               onChange={(event) => onChange({ priority: event.target.value as CalendarPriority })}
             >
-              <option value="low">Low</option>
-              <option value="normal">Normal</option>
-              <option value="high">High</option>
+              <option value="low">{translatePriority(t, "low")}</option>
+              <option value="normal">{translatePriority(t, "normal")}</option>
+              <option value="high">{translatePriority(t, "high")}</option>
             </select>
           </label>
         </div>
@@ -184,7 +187,7 @@ export function CalendarItemForm({
             onClick={onCancel}
             disabled={saving}
           >
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             type="button"
@@ -192,7 +195,7 @@ export function CalendarItemForm({
             onClick={onSave}
             disabled={saving}
           >
-            {saving ? "Saving…" : "Save"}
+            {saving ? t("common.saving") : t("common.save")}
           </button>
         </div>
       </div>

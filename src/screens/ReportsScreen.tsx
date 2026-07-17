@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import type {
   CompanyReportUser,
   ReportItem,
@@ -77,6 +79,23 @@ const reportSectionOptions: {
   { key: "templates", title: "Audit templates", description: "Active templates included in the workspace." },
   { key: "offlineQueue", title: "Work waiting to sync", description: "Queued submissions still waiting to sync." },
 ];
+
+function localizedReportPackTitle(t: TFunction, type: ReportTemplateType): string {
+  switch (type) {
+    case "Executive summary":
+      return t("reports.executiveSummary");
+    case "Overdue audit pack":
+      return t("reports.overdueAuditPack");
+    case "Corrective action pack":
+      return t("reports.correctiveActionPack");
+    case "Evidence pack":
+      return t("reports.evidencePack");
+    case "Full report":
+      return t("reports.fullReport");
+    default:
+      return type;
+  }
+}
 
 function ReportsScreenIcon({ name, className = "h-5 w-5" }: { name: string; className?: string }) {
   const shared = {
@@ -433,6 +452,7 @@ export function ReportsScreen({
   onExportAuditPackPdf: () => void;
   onEmailAuditPackPdf: () => void;
 }) {
+  const { t } = useTranslation();
   const [showReportCreator, setShowReportCreator] = useState(false);
   const [showAuditPackOptions, setShowAuditPackOptions] = useState(false);
   const [selectedReportGraphType, setSelectedReportGraphType] = useState<"column" | "line" | "area" | "bar">("column");
@@ -557,7 +577,7 @@ export function ReportsScreen({
           <SectionHeader
             icon="chart"
             eyebrow="Create"
-            title="Create report"
+            title={t("reports.createReport")}
             subtitle={`Build a pack for ${workspaceName}.`}
           />
           {currentUserRole === "Master" && offlineQueueCount > 0 ? (
@@ -574,7 +594,7 @@ export function ReportsScreen({
             onClick={() => setShowReportCreator(true)}
             className={`h-12 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}
           >
-            Create report
+            {t("reports.createReport")}
           </button>
         ) : (
           <>
@@ -589,7 +609,7 @@ export function ReportsScreen({
                 onClick={() => onSelectReportTemplate("Evidence pack")}
                 className="h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 transition-colors duration-200 ease-in-out hover:bg-slate-900/25 hover:text-white"
               >
-                Evidence pack
+                {t("reports.evidencePack")}
               </button>
             </div>
             <div className="mb-4 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
@@ -607,7 +627,7 @@ export function ReportsScreen({
                         selected ? `border-slate-900 bg-slate-900 text-white shadow-[0_14px_28px_rgba(15,23,42,0.14)] ${slatePrimaryCtaInteract}` : "border-slate-200 bg-white hover:bg-slate-900/25 hover:text-white",
                       ].join(" ")}
                     >
-                      <p className="text-sm font-semibold">{template.title}</p>
+                      <p className="text-sm font-semibold">{localizedReportPackTitle(t, template.type)}</p>
                       <p className={["mt-1 text-xs leading-5", selected ? "text-slate-300" : "text-slate-500"].join(" ")}>{template.subtitle}</p>
                     </button>
                   );
@@ -658,7 +678,7 @@ export function ReportsScreen({
                           selected ? "bg-blue-500/12 text-blue-800" : "bg-slate-100 text-slate-500",
                         ].join(" ")}
                       >
-                        {selected ? "Can view" : "Select"}
+                        {selected ? t("reports.canView") : t("reports.select")}
                       </div>
                     </button>
                   );
@@ -698,7 +718,7 @@ export function ReportsScreen({
                           selected ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-500",
                         ].join(" ")}
                       >
-                        {selected ? "Included" : "Exclude"}
+                        {selected ? t("reports.included") : t("reports.exclude")}
                       </div>
                     </button>
                   );
@@ -747,13 +767,13 @@ export function ReportsScreen({
         <SectionHeader
           icon="dashboard"
           eyebrow="Recent"
-          title="Recent reports"
+          title={t("reports.recentReports")}
           subtitle="Reports shared with your team."
         />
         <div className="mt-4 space-y-3">
           {reportInbox.length === 0 ? (
             <EmptyPanel
-              title="No reports yet"
+              title={t("reports.noReports")}
               text="Nothing shared here until someone generates a pack. Reports can build from audits, actions, and NCRs as that history grows."
             />
           ) : (

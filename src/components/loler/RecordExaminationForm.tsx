@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { LolerEquipment, LolerExaminationInput, LolerExaminationResult, LolerReminderOption, LolerSchedule } from "../../types/loler";
 import type { ScheduleAssigneeOption } from "../../utils/scheduleAssignees";
+import { translateLolerExaminationResult } from "../../i18n/statusLabels";
 
 type Props = {
   equipment: LolerEquipment;
@@ -12,19 +14,15 @@ type Props = {
   onSave: (input: LolerExaminationInput) => void;
 };
 
-const RESULT_OPTIONS: Array<{ value: LolerExaminationResult; label: string }> = [
-  { value: "passed", label: "Passed" },
-  { value: "passed_with_observations", label: "Passed with observations" },
-  { value: "failed", label: "Failed" },
-];
+const RESULT_VALUES: LolerExaminationResult[] = ["passed", "passed_with_observations", "failed"];
 
-const REMINDER_OPTIONS: Array<{ value: LolerReminderOption; label: string }> = [
-  { value: "none", label: "No reminder" },
-  { value: "at_datetime", label: "At a selected date and time" },
-  { value: "1", label: "1 day before due date" },
-  { value: "7", label: "7 days before due date" },
-  { value: "30", label: "30 days before due date" },
-  { value: "custom", label: "Custom days before due date" },
+const REMINDER_VALUE_KEYS: Array<{ value: LolerReminderOption; key: string }> = [
+  { value: "none", key: "loler.noReminder" },
+  { value: "at_datetime", key: "loler.reminderAtDateTime" },
+  { value: "1", key: "loler.reminder1Day" },
+  { value: "7", key: "loler.reminder7Days" },
+  { value: "30", key: "loler.reminder30Days" },
+  { value: "custom", key: "loler.reminderCustom" },
 ];
 
 function fileToDataUrl(file: File): Promise<{ name: string; mimeType: string; dataUrl: string; size: number }> {
@@ -52,6 +50,7 @@ export function RecordExaminationForm({
   onCancel,
   onSave,
 }: Props) {
+  const { t } = useTranslation();
   const defaultExaminer = useMemo(() => {
     const assigned = assignees.find(
       (person) => String(person.email || "").toLowerCase() === String(equipment.assignedPersonId || "").toLowerCase(),
@@ -121,7 +120,7 @@ export function RecordExaminationForm({
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-slate-900/40 p-4 sm:items-center">
       <div className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
-        <h2 className="text-lg font-black text-slate-900">Record examination</h2>
+        <h2 className="text-lg font-black text-slate-900">{t("loler.recordExamination")}</h2>
         <p className="mt-1 text-sm text-slate-600">
           {equipment.assetId} — {equipment.equipmentName}
           {schedule?.dueDate ? ` · Schedule due ${schedule.dueDate}` : ""}
@@ -129,7 +128,7 @@ export function RecordExaminationForm({
 
         <div className="mt-4 grid gap-3">
           <label className="text-sm font-semibold text-slate-700">
-            Examination date *
+            {t("loler.examinationDate")} *
             <input
               type="date"
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal"
@@ -138,13 +137,13 @@ export function RecordExaminationForm({
             />
           </label>
           <label className="text-sm font-semibold text-slate-700">
-            Examiner *
+            {t("loler.examiner")} *
             <select
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal"
               value={examinerPersonId}
               onChange={(event) => setExaminerPersonId(event.target.value)}
             >
-              <option value="">Select examiner</option>
+              <option value="">{t("loler.examiner")}</option>
               {assignees.map((person) => (
                 <option key={person.email} value={person.email}>
                   {person.name || person.email}
@@ -153,21 +152,21 @@ export function RecordExaminationForm({
             </select>
           </label>
           <label className="text-sm font-semibold text-slate-700">
-            Result *
+            {t("loler.examinationResult")} *
             <select
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal"
               value={examinationResult}
               onChange={(event) => setExaminationResult(event.target.value as LolerExaminationResult)}
             >
-              {RESULT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
+              {RESULT_VALUES.map((value) => (
+                <option key={value} value={value}>
+                  {translateLolerExaminationResult(t, value)}
                 </option>
               ))}
             </select>
           </label>
           <label className="text-sm font-semibold text-slate-700">
-            Next examination due date *
+            {t("loler.nextExaminationDue")} *
             <input
               type="date"
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal"
@@ -176,7 +175,7 @@ export function RecordExaminationForm({
             />
           </label>
           <label className="text-sm font-semibold text-slate-700">
-            Observations
+            {t("loler.observations")}
             <textarea
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal"
               rows={2}
@@ -185,7 +184,7 @@ export function RecordExaminationForm({
             />
           </label>
           <label className="text-sm font-semibold text-slate-700">
-            Defects found
+            {t("loler.defects")}
             <textarea
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal"
               rows={2}
@@ -194,7 +193,7 @@ export function RecordExaminationForm({
             />
           </label>
           <label className="text-sm font-semibold text-slate-700">
-            Report / certificate (PDF, JPG, PNG)
+            {t("loler.certificateReport")} (PDF, JPG, PNG)
             <input
               type="file"
               accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png"
@@ -215,14 +214,14 @@ export function RecordExaminationForm({
 
           {examinationResult === "failed" ? (
             <div className="rounded-xl border border-red-200 bg-red-50 p-3">
-              <p className="text-sm font-semibold text-red-800">Failed examination — equipment requires attention.</p>
+              <p className="text-sm font-semibold text-red-800">{t("loler.failedRequiresAttention")}</p>
               <label className="mt-2 flex items-center gap-2 text-sm text-red-900">
                 <input
                   type="checkbox"
                   checked={markOutOfService}
                   onChange={(event) => setMarkOutOfService(event.target.checked)}
                 />
-                Mark equipment out of service now
+                {t("loler.markOutOfService")}
               </label>
             </div>
           ) : null}
@@ -230,18 +229,18 @@ export function RecordExaminationForm({
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
             <label className="flex items-center gap-2 text-sm font-semibold text-slate-800">
               <input type="checkbox" checked={sendMessage} onChange={(event) => setSendMessage(event.target.checked)} />
-              Send linked message
+              {t("loler.sendMessage")}
             </label>
             {sendMessage ? (
               <div className="mt-3 grid gap-2">
                 <label className="text-sm text-slate-700">
-                  Recipient
+                  {t("loler.messageRecipient")}
                   <select
                     className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5"
                     value={messageRecipient}
                     onChange={(event) => setMessageRecipient(event.target.value)}
                   >
-                    <option value="">Select recipient</option>
+                    <option value="">{t("loler.messageRecipient")}</option>
                     {assignees.map((person) => (
                       <option key={person.email} value={person.email}>
                         {person.name || person.email}
@@ -250,7 +249,7 @@ export function RecordExaminationForm({
                   </select>
                 </label>
                 <label className="text-sm text-slate-700">
-                  Subject
+                  {t("loler.messageSubject")}
                   <input
                     className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5"
                     value={messageSubject}
@@ -258,7 +257,7 @@ export function RecordExaminationForm({
                   />
                 </label>
                 <label className="text-sm text-slate-700">
-                  Message
+                  {t("loler.messageBody")}
                   <textarea
                     className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5"
                     rows={3}
@@ -272,15 +271,15 @@ export function RecordExaminationForm({
 
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
             <label className="text-sm font-semibold text-slate-800">
-              Timed reminder
+              {t("loler.reminder")}
               <select
                 className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 font-normal"
                 value={reminderOption}
                 onChange={(event) => setReminderOption(event.target.value as LolerReminderOption)}
               >
-                {REMINDER_OPTIONS.map((option) => (
+                {REMINDER_VALUE_KEYS.map((option) => (
                   <option key={option.value} value={option.value}>
-                    {option.label}
+                    {t(option.key)}
                   </option>
                 ))}
               </select>
@@ -323,7 +322,7 @@ export function RecordExaminationForm({
             onClick={onCancel}
             disabled={saving}
           >
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             type="button"
@@ -331,7 +330,7 @@ export function RecordExaminationForm({
             onClick={() => void submit()}
             disabled={saving}
           >
-            {saving ? "Saving…" : "Save examination"}
+            {saving ? t("common.saving") : t("loler.saveExamination")}
           </button>
         </div>
       </div>

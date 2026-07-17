@@ -1,4 +1,5 @@
 import { useEffect, useRef, type PointerEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { AnimatedButton } from "../components/animation/AnimatedButton";
 import { AnimatedScreen } from "../components/animation/AnimatedScreen";
 import { MetaPill, SectionHeader, StatusBadge } from "../components/dashboard/DashboardPrimitives";
@@ -29,6 +30,7 @@ export function CompleteAuditScreen({
   AppIcon,
   slatePrimaryCtaInteract,
 }: CompleteAuditScreenProps) {
+  const { t } = useTranslation();
   const answered = audit.questions.filter((question) => responses[question.id]).length;
   const evidenceTotal = audit.questions.reduce((total, question) => total + (evidence[question.id]?.length ?? 0), 0);
 
@@ -59,7 +61,7 @@ export function CompleteAuditScreen({
           <StatusBadge status={getAuditTrafficStatus(audit.dueHours)} dark />
         </div>
         <div className="mt-4 rounded-2xl bg-white/10 px-4 py-3">
-          <p className="text-xs text-slate-300">Progress</p>
+          <p className="text-xs text-slate-300">{t("audits.progress")}</p>
           <div className="mt-2 flex items-center justify-between">
             <div className="h-2 flex-1 rounded-full bg-white/10">
               <div className="h-2 rounded-full bg-white transition-all" style={{ width: `${(answered / audit.questions.length) * 100}%` }} />
@@ -69,10 +71,10 @@ export function CompleteAuditScreen({
             </p>
           </div>
           <p className="mt-2 text-xs text-slate-300">
-            {evidenceTotal} evidence item{evidenceTotal === 1 ? "" : "s"} attached
+            {t("audits.evidenceItemsAttached", { count: evidenceTotal })}
           </p>
-          {offlineMode && <p className="mt-2 text-xs font-semibold text-amber-300">Offline mode active. Submission will queue until the device reconnects.</p>}
-          {savedAt && <p className="mt-2 text-xs text-slate-300">Last saved {savedAt}</p>}
+          {offlineMode && <p className="mt-2 text-xs font-semibold text-amber-300">{t("audits.offlineModeActive")}</p>}
+          {savedAt && <p className="mt-2 text-xs text-slate-300">{t("audits.lastSaved", { time: savedAt })}</p>}
         </div>
       </section>
 
@@ -83,39 +85,37 @@ export function CompleteAuditScreen({
           return (
             <div key={question.id} className="rounded-[1.6rem] border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-4 shadow-[0_16px_30px_rgba(15,23,42,0.06)]">
               <div className="flex items-center justify-between gap-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Question {index + 1}</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">{t("audits.question", { number: index + 1 })}</p>
                 <div className="flex flex-wrap gap-2">
-                  <MetaPill icon="note" label={notes[question.id] ? "Notes added" : "No notes"} />
-                  <MetaPill icon="camera" label={`${questionEvidence.length} photos`} />
+                  <MetaPill icon="note" label={notes[question.id] ? t("audits.notesAdded") : t("audits.noNotes")} />
+                  <MetaPill icon="camera" label={t("audits.photosCount", { count: questionEvidence.length })} />
                 </div>
               </div>
               <p className="mt-3 text-[15px] font-semibold leading-6 text-slate-900">{question.text}</p>
               <div className="mt-4 grid grid-cols-3 gap-2">
-                <AnswerButton label="Pass" selected={current === "pass"} tone="green" onClick={() => onSelect(question.id, "pass")} />
+                <AnswerButton label={t("audits.pass")} selected={current === "pass"} tone="green" onClick={() => onSelect(question.id, "pass")} />
                 <AnswerButton
-                  label="No Conformance"
+                  label={t("audits.noConformance")}
                   selected={current === "nc"}
                   tone="amber"
                   onClick={() => onSelect(question.id, "nc")}
                 />
-                <AnswerButton label="Fail" selected={current === "fail"} tone="red" onClick={() => onSelect(question.id, "fail")} />
+                <AnswerButton label={t("audits.fail")} selected={current === "fail"} tone="red" onClick={() => onSelect(question.id, "fail")} />
               </div>
               <textarea
                 value={notes[question.id] ?? ""}
                 onChange={(event) => onNoteChange(question.id, event.target.value)}
-                placeholder="Add notes or evidence summary"
+                placeholder={t("audits.notesPlaceholder")}
                 className="mt-3 min-h-[4.75rem] w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-slate-400"
               />
               <div className="mt-3 rounded-[1.35rem] border border-dashed border-slate-200 bg-slate-50 p-3">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-slate-900">Evidence</p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Capture live photos or choose files from the device.
-                    </p>
+                    <p className="text-sm font-semibold text-slate-900">{t("audits.evidence")}</p>
+                    <p className="mt-1 text-xs text-slate-500">{t("audits.evidenceCaptureHint")}</p>
                   </div>
                   <EvidenceUploadChoice
-                    triggerLabel="Upload evidence"
+                    triggerLabel={t("audits.uploadEvidence")}
                     triggerClassName="min-h-[48px] rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white"
                     onFiles={(files) => onAddEvidence(question.id, files)}
                   />
@@ -138,7 +138,7 @@ export function CompleteAuditScreen({
                             onClick={() => onRemoveEvidence(question.id, item.id)}
                             className="mt-2 text-[11px] font-semibold text-rose-600"
                           >
-                            Remove
+                            {t("common.remove")}
                           </button>
                         </div>
                       </div>
@@ -154,15 +154,15 @@ export function CompleteAuditScreen({
       <section className="rounded-[1.6rem] border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-4 shadow-[0_16px_30px_rgba(15,23,42,0.06)]">
         <SectionHeader
           icon="check"
-          eyebrow="Final approval"
-          title="Inspector sign-off"
-          subtitle="Add a signature before submitting this audit."
+          eyebrow={t("audits.finalApproval")}
+          title={t("audits.inspectorSignOff")}
+          subtitle={t("audits.inspectorSignOffSubtitle")}
         />
         <div className="mt-4">
-          <SignaturePad value={signatureDataUrl} onChange={onSignatureChange} />
+          <SignaturePad value={signatureDataUrl} onChange={onSignatureChange} clearLabel={t("audits.clearSignature")} />
         </div>
         <p className="mt-2 text-xs text-slate-500">
-          {signatureDataUrl ? `Signed ${signatureSignedAt}` : "No signature captured yet"}
+          {signatureDataUrl ? t("audits.signedAt", { time: signatureSignedAt }) : t("audits.noSignatureYet")}
         </p>
       </section>
 
@@ -172,14 +172,14 @@ export function CompleteAuditScreen({
           onClick={onCancel}
           className={`h-14 rounded-2xl bg-slate-100 text-sm font-semibold text-slate-700 ${bertSecondaryButtonInteract}`}
         >
-          Cancel
+          {t("common.cancel")}
         </AnimatedButton>
         <AnimatedButton
           type="button"
           onClick={onSaveDraft}
           className={`h-14 rounded-2xl bg-slate-200 text-sm font-semibold text-slate-800 ${bertSecondaryButtonInteract}`}
         >
-          Save
+          {t("common.save")}
         </AnimatedButton>
         <AnimatedButton
           type="button"
@@ -190,7 +190,7 @@ export function CompleteAuditScreen({
             canSubmit ? `bg-slate-900 ${slatePrimaryCtaInteract}` : "bg-slate-300",
           ].join(" ")}
         >
-          Submit
+          {t("common.submit")}
         </AnimatedButton>
       </section>
     </div>
@@ -198,7 +198,7 @@ export function CompleteAuditScreen({
   );
 }
 
-function SignaturePad({ value, onChange }: { value: string; onChange: (dataUrl: string) => void }) {
+function SignaturePad({ value, onChange, clearLabel }: { value: string; onChange: (dataUrl: string) => void; clearLabel: string }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
 
@@ -286,7 +286,7 @@ function SignaturePad({ value, onChange }: { value: string; onChange: (dataUrl: 
       />
       <div className="mt-3 flex justify-end">
         <button onClick={clear} className="rounded-xl bg-slate-200 px-3 py-2 text-xs font-semibold text-slate-700">
-          Clear signature
+          {clearLabel}
         </button>
       </div>
     </div>

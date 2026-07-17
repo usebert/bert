@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { Role } from "../permissions";
 import { canManageLoler } from "../permissions";
 import type {
@@ -30,6 +31,8 @@ import type { ScheduleAssigneeOption } from "../utils/scheduleAssignees";
 import { RecordExaminationForm } from "../components/loler/RecordExaminationForm";
 import { ExaminationHistory } from "../components/loler/ExaminationHistory";
 import { MessagesScreen } from "./MessagesScreen";
+import { translateLolerComplianceStatus } from "../i18n/statusLabels";
+import type { TFunction } from "i18next";
 
 type Props = {
   role: Role;
@@ -91,27 +94,34 @@ const EMPTY_FORM: FormState = {
   notes: "",
 };
 
-function statusBadge(status: string): { label: string; className: string } {
+function statusBadgeClass(status: string): string {
   switch (status) {
     case "compliant":
-      return { label: "Compliant", className: "bg-emerald-100 text-emerald-800" };
+      return "bg-emerald-100 text-emerald-800";
     case "due_soon":
-      return { label: "Due soon", className: "bg-amber-100 text-amber-800" };
+      return "bg-amber-100 text-amber-800";
     case "overdue":
-      return { label: "Overdue", className: "bg-red-100 text-red-800" };
+      return "bg-red-100 text-red-800";
     case "out_of_service":
-      return { label: "Out of service", className: "bg-slate-200 text-slate-700" };
+      return "bg-slate-200 text-slate-700";
     case "archived":
-      return { label: "Archived", className: "bg-slate-100 text-slate-500" };
+      return "bg-slate-100 text-slate-500";
     case "upcoming":
-      return { label: "Upcoming", className: "bg-sky-100 text-sky-800" };
+      return "bg-sky-100 text-sky-800";
     case "completed":
-      return { label: "Completed", className: "bg-emerald-100 text-emerald-800" };
+      return "bg-emerald-100 text-emerald-800";
     case "cancelled":
-      return { label: "Cancelled", className: "bg-slate-100 text-slate-500" };
+      return "bg-slate-100 text-slate-500";
     default:
-      return { label: status || "—", className: "bg-slate-100 text-slate-600" };
+      return "bg-slate-100 text-slate-600";
   }
+}
+
+function statusBadge(t: TFunction, status: string): { label: string; className: string } {
+  return {
+    label: translateLolerComplianceStatus(t, status),
+    className: statusBadgeClass(status),
+  };
 }
 
 function formatDate(dateKey?: string): string {
@@ -150,6 +160,7 @@ const inputClass =
 const labelClass = "block text-xs font-semibold uppercase tracking-wide text-slate-500";
 
 export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, offlineMode = false, onBack }: Props) {
+  const { t } = useTranslation();
   const canManage = canManageLoler(role);
   const folderId = String(companyFolderId || "").trim();
 
@@ -538,20 +549,23 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
     setReturnLastExamDate("");
   };
 
-  const summaryCards: Array<{ label: string; value: number; className: string }> = [
-    { label: "Total active", value: summary.totalActive, className: "text-slate-900" },
-    { label: "Compliant", value: summary.compliant, className: "text-emerald-700" },
-    { label: "Due soon", value: summary.dueSoon, className: "text-amber-700" },
-    { label: "Overdue", value: summary.overdue, className: "text-red-700" },
-    { label: "Out of service", value: summary.outOfService, className: "text-slate-600" },
-  ];
+  const summaryCards: Array<{ label: string; value: number; className: string }> = useMemo(
+    () => [
+      { label: t("loler.totalActive"), value: summary.totalActive, className: "text-slate-900" },
+      { label: t("loler.compliant"), value: summary.compliant, className: "text-emerald-700" },
+      { label: t("status.dueSoonLabel"), value: summary.dueSoon, className: "text-amber-700" },
+      { label: t("status.overdueLabel"), value: summary.overdue, className: "text-red-700" },
+      { label: t("status.outOfService"), value: summary.outOfService, className: "text-slate-600" },
+    ],
+    [summary, t],
+  );
 
   return (
     <section className="space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Equipment compliance</p>
-          <h1 className="text-2xl font-black text-slate-900">LOLER</h1>
+          <p className="text-xs font-bold uppercase tracking-widest text-slate-500">{t("loler.equipmentCompliance")}</p>
+          <h1 className="text-2xl font-black text-slate-900">{t("loler.title")}</h1>
           <p className="mt-1 text-sm text-slate-600">
             Lifting equipment register and thorough examination scheduling.
           </p>
@@ -563,7 +577,7 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
               onClick={onBack}
               className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
             >
-              Back
+              {t("common.back")}
             </button>
           ) : null}
           {canManage ? (
@@ -572,7 +586,7 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
               onClick={openAddForm}
               className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white hover:bg-slate-700"
             >
-              Add equipment
+              {t("loler.addEquipment")}
             </button>
           ) : null}
         </div>
@@ -582,7 +596,7 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           {loadError}
           <button type="button" onClick={() => void loadData({ refresh: true })} className="ml-3 font-semibold underline">
-            Retry
+            {t("common.retry")}
           </button>
         </div>
       ) : null}
@@ -610,7 +624,7 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
             tab === "register" ? "bg-slate-900 text-white" : "border border-slate-300 bg-white text-slate-700"
           }`}
         >
-          Equipment register
+          {t("loler.equipmentRegister")}
         </button>
         <button
           type="button"
@@ -619,7 +633,7 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
             tab === "examinations" ? "bg-slate-900 text-white" : "border border-slate-300 bg-white text-slate-700"
           }`}
         >
-          Examinations
+          {t("loler.examinations")}
         </button>
         <button
           type="button"
@@ -628,7 +642,7 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
             tab === "messages" ? "bg-slate-900 text-white" : "border border-slate-300 bg-white text-slate-700"
           }`}
         >
-          Messages
+          {t("loler.messages")}
         </button>
       </div>
 
@@ -648,7 +662,7 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
           <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-3 lg:grid-cols-6">
             <div className="sm:col-span-3 lg:col-span-2">
               <label className={labelClass} htmlFor="loler-search">
-                Search
+                {t("common.search")}
               </label>
               <input
                 id="loler-search"
@@ -663,7 +677,7 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
                 Site
               </label>
               <select id="loler-filter-site" value={siteFilter} onChange={(event) => setSiteFilter(event.target.value)} className={inputClass}>
-                <option value="">All sites</option>
+                <option value="">{t("common.allSites")}</option>
                 {sites.map((site) => (
                   <option key={site.id} value={site.id}>
                     {site.name}
@@ -676,7 +690,7 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
                 Area
               </label>
               <select id="loler-filter-area" value={areaFilter} onChange={(event) => setAreaFilter(event.target.value)} className={inputClass}>
-                <option value="">All areas</option>
+                <option value="">{t("common.allAreas")}</option>
                 {areas.map((area) => (
                   <option key={area.id} value={area.id}>
                     {area.name}
@@ -689,7 +703,7 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
                 Type
               </label>
               <select id="loler-filter-type" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} className={inputClass}>
-                <option value="">All types</option>
+                <option value="">{t("loler.allTypes")}</option>
                 {equipmentTypes.map((type) => (
                   <option key={type} value={type}>
                     {type}
@@ -699,7 +713,7 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
             </div>
             <div>
               <label className={labelClass} htmlFor="loler-filter-status">
-                Status
+                {t("common.status")}
               </label>
               <select
                 id="loler-filter-status"
@@ -707,18 +721,18 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
                 onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
                 className={inputClass}
               >
-                <option value="active_register">Register (not archived)</option>
-                <option value="active">Active only</option>
-                <option value="due_soon">Due soon</option>
-                <option value="overdue">Overdue</option>
-                <option value="out_of_service">Out of service</option>
-                <option value="archived">Archived</option>
-                <option value="all">Everything</option>
+                <option value="active_register">{t("loler.registerNotArchived")}</option>
+                <option value="active">{t("loler.activeOnly")}</option>
+                <option value="due_soon">{t("status.dueSoonLabel")}</option>
+                <option value="overdue">{t("status.overdueLabel")}</option>
+                <option value="out_of_service">{t("status.outOfService")}</option>
+                <option value="archived">{t("status.archived")}</option>
+                <option value="all">{t("loler.everything")}</option>
               </select>
             </div>
             <div>
               <label className={labelClass} htmlFor="loler-filter-assignee">
-                Assigned person
+                {t("loler.assignedPerson")}
               </label>
               <select
                 id="loler-filter-assignee"
@@ -726,7 +740,7 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
                 onChange={(event) => setAssigneeFilter(event.target.value)}
                 className={inputClass}
               >
-                <option value="">Anyone</option>
+                <option value="">{t("common.anyone")}</option>
                 {assigneeOptions.map(([email, name]) => (
                   <option key={email} value={email}>
                     {name}
@@ -740,15 +754,15 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
             <table className="min-w-full divide-y divide-slate-200 text-sm">
               <thead className="bg-slate-50 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                 <tr>
-                  <th className="px-4 py-3">Asset ID</th>
-                  <th className="px-4 py-3">Equipment</th>
-                  <th className="px-4 py-3">Type</th>
+                  <th className="px-4 py-3">{t("loler.assetId")}</th>
+                  <th className="px-4 py-3">{t("loler.equipment")}</th>
+                  <th className="px-4 py-3">{t("calendar.type")}</th>
                   <th className="px-4 py-3">Site</th>
                   <th className="px-4 py-3">Area</th>
-                  <th className="px-4 py-3">Last examination</th>
-                  <th className="px-4 py-3">Next due</th>
-                  <th className="px-4 py-3">Assigned person</th>
-                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">{t("loler.lastExamination")}</th>
+                  <th className="px-4 py-3">{t("loler.nextDue")}</th>
+                  <th className="px-4 py-3">{t("loler.assignedPerson")}</th>
+                  <th className="px-4 py-3">{t("common.status")}</th>
                   <th className="px-4 py-3">Actions</th>
                 </tr>
               </thead>
@@ -767,7 +781,7 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
                   </tr>
                 ) : (
                   filteredEquipment.map((item) => {
-                    const badge = statusBadge(item.complianceStatus);
+                    const badge = statusBadge(t, item.complianceStatus);
                     const busy = busyEquipmentId === item.id;
                     return (
                       <tr key={item.id} className="align-top">
@@ -803,7 +817,7 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
                                 }}
                                 className="rounded-lg border border-sky-300 bg-sky-50 px-2 py-1 text-xs font-bold text-sky-800 disabled:opacity-50"
                               >
-                                Record examination
+                                {t("loler.recordExamination")}
                               </button>
                             ) : null}
                             {canManage && item.status !== "archived" ? (
@@ -912,14 +926,14 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
               ) : null}
               <div className="mt-4">
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="text-sm font-black uppercase tracking-wide text-slate-700">Examination history</h3>
+                  <h3 className="text-sm font-black uppercase tracking-wide text-slate-700">{t("loler.examinationHistory")}</h3>
                   {canRecordForEquipment(viewingEquipment) ? (
                     <button
                       type="button"
                       className="rounded-lg border border-sky-300 bg-sky-50 px-2 py-1 text-xs font-bold text-sky-800"
                       onClick={() => setRecordTarget({ equipment: viewingEquipment, schedule: null })}
                     >
-                      Record examination
+                      {t("loler.recordExamination")}
                     </button>
                   ) : null}
                 </div>
@@ -947,12 +961,12 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
               {openExaminations.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
-                    No upcoming or overdue LOLER examinations.
+                    {t("loler.noUpcoming")}
                   </td>
                 </tr>
               ) : (
                 openExaminations.map((schedule) => {
-                  const badge = statusBadge(schedule.scheduleStatus);
+                  const badge = statusBadge(t, schedule.scheduleStatus);
                   const linkedEquipment = equipment.find((item) => item.id === schedule.equipmentId);
                   const canRecord =
                     linkedEquipment && canRecordForEquipment(linkedEquipment);
@@ -980,7 +994,7 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
                             }}
                             className="rounded-lg border border-sky-300 bg-sky-50 px-2 py-1 text-xs font-bold text-sky-800 disabled:opacity-50"
                           >
-                            Record examination
+                            {t("loler.recordExamination")}
                           </button>
                         ) : (
                           <span className="text-xs text-slate-400">—</span>
