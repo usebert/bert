@@ -15,6 +15,20 @@ function formatDate(dateKey?: string): string {
   return `${match[3]}/${match[2]}/${match[1]}`;
 }
 
+/** Display revision for the register — never blank for first draft. */
+export function formatDocumentRevisionLabel(doc: ControlledDocument): string {
+  const rev =
+    String(doc.currentRevision || "").trim() ||
+    (doc.documentStatus === "draft" || doc.documentStatus === "awaiting_approval" ? "1" : "");
+  if (!rev) {
+    return "—";
+  }
+  if (doc.documentStatus === "draft" || doc.documentStatus === "awaiting_approval") {
+    return `${rev} (Draft)`;
+  }
+  return rev;
+}
+
 function statusClass(status: string): string {
   switch (status) {
     case "current":
@@ -62,7 +76,7 @@ export function DocumentRegister({ documents, selectedId, onSelect }: Props) {
               <td className="px-3 py-2 text-slate-700">{doc.title}</td>
               <td className="px-3 py-2 text-slate-600">{doc.documentType.replace(/_/g, " ")}</td>
               <td className="px-3 py-2 text-slate-600">{doc.primaryStandard}</td>
-              <td className="px-3 py-2 text-slate-600">{doc.currentRevision || "—"}</td>
+              <td className="px-3 py-2 text-slate-600">{formatDocumentRevisionLabel(doc)}</td>
               <td className="px-3 py-2">
                 <span className={`rounded px-2 py-0.5 text-xs font-medium ${statusClass(doc.documentStatus)}`}>
                   {doc.documentStatus.replace(/_/g, " ")}

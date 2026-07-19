@@ -20,7 +20,21 @@ export const DOCUMENT_CONTROL_LOAD_USER_MESSAGE = "Could not load controlled doc
 export const DOCUMENT_CONTROL_OFFLINE_WRITE_MESSAGE =
   "You appear to be offline. Document Control changes need a connection — please try again when you are back online.";
 
+function isDevTimingEnabled() {
+  return Boolean(import.meta.env?.DEV);
+}
+
+function logTiming(label: string, startedAt: number) {
+  if (!isDevTimingEnabled()) {
+    return;
+  }
+  const ms = Math.round(performance.now() - startedAt);
+  console.info(`[document-control] ${label} ${ms}ms`);
+}
+
 async function documentControlRequest(path: string, init?: RequestInit) {
+  const startedAt = performance.now();
+  const method = String(init?.method || "GET").toUpperCase();
   const response = await fetch(apiUrl(path), {
     credentials: "include",
     ...init,
@@ -30,6 +44,7 @@ async function documentControlRequest(path: string, init?: RequestInit) {
     },
   });
   const payload = await response.json().catch(() => ({}));
+  logTiming(`${method} ${path}`, startedAt);
   if (!response.ok || payload?.ok === false) {
     const baseMessage = String(payload?.error || payload?.message || "Request failed.");
     const details = String(payload?.details || "").trim();
@@ -82,6 +97,11 @@ export function readCachedDocumentControlDocuments(companyFolderId: string): Doc
   return entry && entry.companyFolderId === cacheKey(companyFolderId) ? entry.data : null;
 }
 
+export function readCachedDocumentControlIndex(companyFolderId: string): DocumentControlIndexResponse | null {
+  const entry = indexCache.get(cacheKey(companyFolderId));
+  return entry && entry.companyFolderId === cacheKey(companyFolderId) ? entry.data : null;
+}
+
 export function invalidateDocumentControlCache(companyFolderId?: string) {
   if (companyFolderId === undefined) {
     documentsCache.clear();
@@ -91,6 +111,31 @@ export function invalidateDocumentControlCache(companyFolderId?: string) {
   const key = cacheKey(companyFolderId);
   documentsCache.delete(key);
   indexCache.delete(key);
+}
+
+/**
+ * Upsert a document into the company list cache after a write so the register
+ * can update immediately without waiting for a full reload.
+ */
+export function upsertCachedDocumentControlDocument(
+  companyFolderId: string,
+  document: NonNullable<DocumentControlDocumentResponse["document"]>,
+) {
+  const folderId = cacheKey(companyFolderId);
+  const existing = readCachedDocumentControlDocuments(folderId);
+  const documents = [...(existing?.documents || []).filter((row) => row.documentId !== document.documentId), document];
+  const payload: DocumentControlDocumentsListResponse = {
+    ok: true,
+    companyFolderId: folderId,
+    documents,
+    summary: existing?.summary,
+    clauseGroups: existing?.clauseGroups,
+    canManage: existing?.canManage,
+    canApprove: existing?.canApprove,
+    canViewSuperseded: existing?.canViewSuperseded,
+  };
+  documentsCache.set(folderId, { companyFolderId: folderId, data: payload });
+  return payload;
 }
 
 export async function fetchDocumentControlDocuments(
@@ -112,9 +157,7 @@ export async function fetchDocumentControlDocuments(
     documentsCache.set(folderId, { companyFolderId: folderId, data: payload });
     return payload;
   };
-  if (options.signal || options.refresh) {
-    return run();
-  }
+  // Always dedupe simultaneous GETs (including refresh / Strict Mode double-mount).
   return dedupeInFlight(requestDedupeKey("GET", path), run) as Promise<DocumentControlDocumentsListResponse>;
 }
 
@@ -122,8 +165,9 @@ export async function fetchDocumentControlDocument(
   companyFolderId: string,
   documentId: string,
 ): Promise<DocumentControlDocumentResponse> {
-  return documentControlRequest(
-    `/api/companies/${encodeURIComponent(companyFolderId)}/document-control/documents/${encodeURIComponent(documentId)}`,
+  const path = `/api/companies/${encodeURIComponent(companyFolderId)}/document-control/documents/${encodeURIComponent(documentId)}`;
+  return dedupeInFlight(requestDedupeKey("GET", path), () =>
+    documentControlRequest(path),
   ) as Promise<DocumentControlDocumentResponse>;
 }
 
@@ -132,7 +176,11 @@ export async function createControlledDocument(companyFolderId: string, input: C
     `/api/companies/${encodeURIComponent(companyFolderId)}/document-control/documents`,
     { method: "POST", body: JSON.stringify(input) },
   )) as DocumentControlDocumentResponse;
-  invalidateDocumentControlCache(companyFolderId);
+  if (result.document) {
+    upsertCachedDocumentControlDocument(companyFolderId, result.document);
+  } else {
+    invalidateDocumentControlCache(companyFolderId);
+  }
   return result;
 }
 
@@ -145,7 +193,11 @@ export async function updateControlledDocument(
     `/api/companies/${encodeURIComponent(companyFolderId)}/document-control/documents/${encodeURIComponent(documentId)}`,
     { method: "PATCH", body: JSON.stringify(input) },
   )) as DocumentControlDocumentResponse;
-  invalidateDocumentControlCache(companyFolderId);
+  if (result.document) {
+    upsertCachedDocumentControlDocument(companyFolderId, result.document);
+  } else {
+    invalidateDocumentControlCache(companyFolderId);
+  }
   return result;
 }
 
@@ -239,9 +291,6 @@ export async function fetchDocumentControlIndex(
     indexCache.set(folderId, { companyFolderId: folderId, data: mapped });
     return mapped;
   };
-  if (options.signal || options.refresh) {
-    return run();
-  }
   return dedupeInFlight(requestDedupeKey("GET", path), run) as Promise<DocumentControlIndexResponse>;
 }
 
@@ -254,7 +303,6 @@ export async function rebuildDocumentControlIndex(companyFolderId: string) {
     ...payload,
     index: (payload.index || []).map((row) => mapIndexRow(row)),
   };
-  invalidateDocumentControlCache(companyFolderId);
   indexCache.set(cacheKey(companyFolderId), { companyFolderId: cacheKey(companyFolderId), data: mapped });
   return mapped;
 }

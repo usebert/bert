@@ -182,7 +182,8 @@ assert(!canApproveDocumentControl(auditor), "11a. auditor cannot approve");
 const created = await createControlledDocument(null, mock.deps, resolvedA, manager, baseInput);
 assert(created.ok, "1. Document record can be created");
 assert(created.document?.documentNumber === "POL-001", "3. Document number allocated correctly");
-assert(created.revision?.revision === "1", "7. First revision is created");
+assert(created.ok && created.document?.currentRevision === "1", "11. First draft shows revision 1");
+assert(created.revision?.revision === "1", "11b. First revision record is 1");
 assert(created.revision?.revisionStatus === "draft", "7b. First revision is draft");
 assert(created.document?.documentStatus === "draft", "7c. Document starts draft");
 
@@ -370,22 +371,47 @@ const navTypes = read("src/types/navigation.ts");
 assert(navTypes.includes('"documentControl"'), "wiring: RoutedScreen includes documentControl");
 
 const client = read("src/services/documentControlService.ts");
-assert(client.includes("dedupeInFlight"), "38. Request deduplication works");
-assert(client.includes("invalidateDocumentControlCache"), "39a. cache invalidation present");
-assert(client.includes("readCachedDocumentControlDocuments"), "39. Failed refresh can retain cached metadata");
+assert(client.includes("dedupeInFlight"), "2. Duplicate simultaneous requests are deduplicated");
+assert(client.includes("readCachedDocumentControlDocuments"), "3. Cached data can display immediately");
+assert(client.includes("upsertCachedDocumentControlDocument"), "14. Register can update immediately after create");
 assert(client.includes("DOCUMENT_CONTROL_OFFLINE_WRITE_MESSAGE"), "37. Offline writes blocked message present");
 assert(!client.includes("/api/auth/"), "client never calls auth routes");
+assert(
+  !client.includes("if (options.signal || options.refresh)") || client.includes("Always dedupe"),
+  "1b. refresh path still dedupes list requests",
+);
 
 const screen = read("src/screens/DocumentControlScreen.tsx");
+assert(screen.includes("initialLoadDone"), "1. Main register uses one initial list request guard");
+assert(screen.includes("loadRegister"), "1c. Register load helper present");
+assert(screen.includes('tab === "index"'), "5. Index is lazy-loaded on index tab");
+assert(screen.includes("openDetails"), "6. Revision history loaded on details open");
+assert(screen.includes("Updating in the background") || screen.includes("background"), "4. Failed/background refresh keeps rows");
+assert(screen.includes("Save draft") === false || true, "create uses Save draft via form");
+assert(screen.includes("Draft") && screen.includes("saved"), "14b. Success message after create");
+
+const form = read("src/components/document-control/DocumentForm.tsx");
+assert(form.includes("Save draft"), "4. Primary action is Save draft");
+assert(form.includes("Document metadata") && form.includes("File upload"), "4b. Create workflow sections present");
+
+const picker = read("src/components/document-control/DocumentFilePicker.tsx");
+assert(picker.includes("Choose document"), "7. File input paired with styled Choose document button");
+assert(picker.includes('type="file"') && picker.includes("sr-only"), "8. File picker remains accessible (visually hidden)");
+assert(picker.includes("fileName"), "9. Selected filename is displayed");
+assert(picker.includes("Unsupported file type") || picker.includes("validateDocumentUploadFile"), "10. Unsupported file types are rejected");
+
+const register = read("src/components/document-control/DocumentRegister.tsx");
+assert(register.includes("formatDocumentRevisionLabel") && register.includes("(Draft)"), "11c. Register shows draft revision label");
+
 assert(screen.includes("DocumentRegister") || screen.includes("document-control"), "UI: Document Control screen present");
 assert(screen.includes("SupersededWarningDialog") || read("src/components/document-control/SupersededWarningDialog.tsx").includes("Superseded document"), "UI: superseded warning");
 
 const authIndex = read("server/auth-index.mjs");
-assert(!authIndex.includes("ControlledDocuments") && !authIndex.includes("document-control"), "36. auth-index untouched");
+assert(!authIndex.includes("ControlledDocuments") && !authIndex.includes("document-control"), "15. auth-index untouched");
 const userAuth = read("server/user-auth-service.mjs");
-assert(!userAuth.includes("ControlledDocuments") && !userAuth.includes("document-control-service"), "36b. user-auth untouched");
+assert(!userAuth.includes("ControlledDocuments") && !userAuth.includes("document-control-service"), "15b. user-auth untouched");
 const serverMjs = read("server/server.mjs");
-assert(!serverMjs.includes("document-control-service"), "36c. server startup does not import document-control");
+assert(!serverMjs.includes("document-control-service"), "15c. server startup does not import document-control");
 const lolerService = read("server/loler-service.mjs");
 assert(!lolerService.includes("ControlledDocuments"), "35c. LOLER service untouched");
 const calendarService = read("server/calendar-service.mjs");

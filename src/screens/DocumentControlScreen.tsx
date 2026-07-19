@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Role } from "../permissions";
 import {
@@ -10,6 +10,7 @@ import type {
   ControlledDocument,
   DocumentControlClauseGroup,
   DocumentControlIndexRow,
+  DocumentControlSummary as SummaryType,
   DocumentRevision,
   SupersededWarningPayload,
 } from "../types/documentControl";
@@ -25,10 +26,12 @@ import {
   fetchDocumentControlIndex,
   fetchDocumentRevisionFile,
   readCachedDocumentControlDocuments,
+  readCachedDocumentControlIndex,
   rebuildDocumentControlIndex,
   rejectDocumentRevision,
   restoreControlledDocument,
   submitDocumentRevision,
+  upsertCachedDocumentControlDocument,
 } from "../services/documentControlService";
 import { DOCUMENT_STATUSES, DOCUMENT_STANDARDS, DOCUMENT_TYPES } from "../types/documentControl";
 import { DocumentControlSummary } from "../components/document-control/DocumentControlSummary";
@@ -51,6 +54,27 @@ type Props = {
 
 type TabId = "register" | "clause" | "index" | "awaiting" | "archived" | "mine";
 
+function deriveSummary(documents: ControlledDocument[]): SummaryType {
+  let current = 0;
+  let awaitingApproval = 0;
+  let drafts = 0;
+  let archived = 0;
+  let reviewsDue = 0;
+  for (const doc of documents) {
+    if (doc.documentStatus === "current") current += 1;
+    else if (doc.documentStatus === "awaiting_approval") awaitingApproval += 1;
+    else if (doc.documentStatus === "draft") drafts += 1;
+    else if (doc.documentStatus === "archived") archived += 1;
+    if (
+      doc.documentStatus !== "archived" &&
+      (doc.reviewStatus === "review_overdue" || doc.reviewStatus === "review_due_soon")
+    ) {
+      reviewsDue += 1;
+    }
+  }
+  return { current, awaitingApproval, drafts, reviewsDue, archived, total: documents.length };
+}
+
 export function DocumentControlScreen({
   role,
   companyFolderId,
@@ -68,11 +92,16 @@ export function DocumentControlScreen({
   const [documents, setDocuments] = useState<ControlledDocument[]>(cached?.documents || []);
   const [summary, setSummary] = useState(cached?.summary || EMPTY_DOCUMENT_CONTROL_SUMMARY);
   const [clauseGroups, setClauseGroups] = useState<DocumentControlClauseGroup[]>(cached?.clauseGroups || []);
-  const [indexRows, setIndexRows] = useState<DocumentControlIndexRow[]>([]);
+  const [indexRows, setIndexRows] = useState<DocumentControlIndexRow[]>(
+    () => readCachedDocumentControlIndex(folderId)?.index || [],
+  );
   const [loading, setLoading] = useState(!cached);
+  const [refreshing, setRefreshing] = useState(false);
   const [indexLoading, setIndexLoading] = useState(false);
+  const [indexLoaded, setIndexLoaded] = useState(Boolean(readCachedDocumentControlIndex(folderId)?.index?.length));
   const [rebuilding, setRebuilding] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [tab, setTab] = useState<TabId>("register");
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
@@ -90,50 +119,88 @@ export function DocumentControlScreen({
   const [supersededWarning, setSupersededWarning] = useState<SupersededWarningPayload | null>(null);
   const [pendingRevisionOpen, setPendingRevisionOpen] = useState<DocumentRevision | null>(null);
   const [openingFile, setOpeningFile] = useState(false);
+  const initialLoadDone = useRef(false);
 
-  const refresh = useCallback(async () => {
-    if (!folderId || !canView) {
-      return;
-    }
-    setLoading(true);
-    setError("");
-    try {
-      const payload = await fetchDocumentControlDocuments(folderId, {
-        refresh: true,
-        includeArchived: tab === "archived" || canManage,
-      });
-      setDocuments(payload.documents || []);
-      setSummary(payload.summary || EMPTY_DOCUMENT_CONTROL_SUMMARY);
-      setClauseGroups(payload.clauseGroups || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load controlled documents.");
-    } finally {
-      setLoading(false);
-    }
-  }, [folderId, canView, tab, canManage]);
+  const applyListPayload = useCallback((payload: {
+    documents?: ControlledDocument[];
+    summary?: SummaryType;
+    clauseGroups?: DocumentControlClauseGroup[];
+  }) => {
+    const nextDocs = payload.documents || [];
+    setDocuments(nextDocs);
+    setSummary(payload.summary || deriveSummary(nextDocs));
+    setClauseGroups(payload.clauseGroups || []);
+  }, []);
+
+  /** One register list request; never blanks existing rows; always uses deduped fetch. */
+  const loadRegister = useCallback(
+    async (options: { background?: boolean } = {}) => {
+      if (!folderId || !canView) {
+        return;
+      }
+      const hasRows = documents.length > 0 || Boolean(readCachedDocumentControlDocuments(folderId)?.documents?.length);
+      if (options.background || hasRows) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+      setError("");
+      try {
+        const payload = await fetchDocumentControlDocuments(folderId, {
+          includeArchived: canManage,
+        });
+        applyListPayload(payload);
+      } catch (err) {
+        // Keep cached/register rows on failed refresh.
+        if (!hasRows) {
+          setError(err instanceof Error ? err.message : "Could not load controlled documents.");
+        }
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [folderId, canView, canManage, documents.length, applyListPayload],
+  );
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (!folderId || !canView || initialLoadDone.current) {
+      return;
+    }
+    initialLoadDone.current = true;
+    void loadRegister({ background: Boolean(cached) });
+    // Initial open only — tab changes must not re-fetch the register.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folderId, canView]);
 
   const loadIndex = useCallback(async () => {
     if (!folderId || tab !== "index") {
       return;
     }
-    setIndexLoading(true);
+    const cachedIndex = readCachedDocumentControlIndex(folderId);
+    if (cachedIndex?.index?.length) {
+      setIndexRows(cachedIndex.index);
+      setIndexLoaded(true);
+    }
+    setIndexLoading(!cachedIndex?.index?.length);
     try {
-      const payload = await fetchDocumentControlIndex(folderId, { refresh: true });
+      const payload = await fetchDocumentControlIndex(folderId);
       setIndexRows(payload.index || []);
+      setIndexLoaded(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load document control index.");
+      if (!cachedIndex?.index?.length) {
+        setError(err instanceof Error ? err.message : "Could not load document control index.");
+      }
     } finally {
       setIndexLoading(false);
     }
   }, [folderId, tab]);
 
   useEffect(() => {
-    void loadIndex();
-  }, [loadIndex]);
+    if (tab === "index") {
+      void loadIndex();
+    }
+  }, [tab, loadIndex]);
 
   const guardWrite = () => {
     if (offlineMode) {
@@ -235,12 +302,20 @@ export function DocumentControlScreen({
     }
     setSaving(true);
     setError("");
+    setSuccess("");
     try {
       const { clausesText: _c, fileMode: _m, ...input } = form;
-      await createControlledDocument(folderId, input);
+      const result = await createControlledDocument(folderId, input);
+      if (result.document) {
+        upsertCachedDocumentControlDocument(folderId, result.document);
+        setDocuments((prev) => [result.document!, ...prev.filter((row) => row.documentId !== result.document!.documentId)]);
+        setSummary((prev) => deriveSummary([result.document!, ...documents.filter((row) => row.documentId !== result.document!.documentId)]));
+      }
       setFormOpen(false);
       setForm({ ...EMPTY_DOCUMENT_FORM, ownerEmail: userEmail });
-      await refresh();
+      setSuccess(`Draft ${result.document?.documentNumber || ""} saved.`);
+      setTab("register");
+      void loadRegister({ background: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create document.");
     } finally {
@@ -259,8 +334,8 @@ export function DocumentControlScreen({
       await createDocumentRevision(folderId, selectedDoc.documentId, input);
       setShowNewRevision(false);
       setRevisionForm(EMPTY_REVISION_FORM);
-      await refresh();
       await openDetails(selectedDoc);
+      void loadRegister({ background: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create revision.");
     } finally {
@@ -276,7 +351,7 @@ export function DocumentControlScreen({
     try {
       await archiveControlledDocument(folderId, selectedDoc.documentId);
       setSelectedDoc(null);
-      await refresh();
+      void loadRegister({ background: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not archive document.");
     } finally {
@@ -292,7 +367,7 @@ export function DocumentControlScreen({
     try {
       await restoreControlledDocument(folderId, selectedDoc.documentId);
       await openDetails(selectedDoc);
-      await refresh();
+      void loadRegister({ background: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not restore document.");
     } finally {
@@ -316,7 +391,7 @@ export function DocumentControlScreen({
       if (selectedDoc) {
         await openDetails(selectedDoc);
       }
-      await refresh();
+      void loadRegister({ background: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Revision action failed.");
     } finally {
@@ -332,6 +407,7 @@ export function DocumentControlScreen({
     try {
       const payload = await rebuildDocumentControlIndex(folderId);
       setIndexRows(payload.index || []);
+      setIndexLoaded(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not rebuild index.");
     } finally {
@@ -379,10 +455,10 @@ export function DocumentControlScreen({
           <button
             type="button"
             className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
-            onClick={() => void refresh()}
-            disabled={loading}
+            onClick={() => void loadRegister({ background: true })}
+            disabled={loading || refreshing}
           >
-            {t("common.refresh")}
+            {refreshing ? "Refreshing…" : t("common.refresh")}
           </button>
           {canManage ? (
             <button
@@ -391,6 +467,7 @@ export function DocumentControlScreen({
               onClick={() => {
                 setForm({ ...EMPTY_DOCUMENT_FORM, ownerEmail: userEmail });
                 setFormOpen(true);
+                setSuccess("");
               }}
             >
               New document
@@ -463,11 +540,21 @@ export function DocumentControlScreen({
         </div>
       ) : null}
 
+      {success ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{success}</div>
+      ) : null}
       {error ? (
         <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</div>
       ) : null}
-      {loading && tab !== "index" ? <p className="text-sm text-slate-500">Loading documents…</p> : null}
-      {indexLoading && tab === "index" ? <p className="text-sm text-slate-500">Loading index…</p> : null}
+      {loading && !documents.length && tab !== "index" ? (
+        <p className="text-sm text-slate-500">Loading documents…</p>
+      ) : null}
+      {refreshing && documents.length > 0 ? (
+        <p className="text-xs text-slate-400">Updating in the background…</p>
+      ) : null}
+      {indexLoading && tab === "index" && !indexLoaded ? (
+        <p className="text-sm text-slate-500">Loading index…</p>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-5">
         <div className={`${selectedDoc ? "lg:col-span-2" : "lg:col-span-5"}`}>

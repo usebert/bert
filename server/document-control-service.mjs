@@ -504,7 +504,13 @@ export async function createControlledDocument(auth, deps, resolved, actor, inpu
     revisionId,
     revisionLabel,
     documentStatus,
-    { createdAt, createdBy: actorEmail },
+    {
+      createdAt,
+      createdBy: actorEmail,
+      // Drafts still show working revision "1" in the register (not blank).
+      currentRevisionId: revisionId,
+      currentRevision: revisionLabel,
+    },
   );
   const revisionRow = buildRevisionRow(
     revisionId,

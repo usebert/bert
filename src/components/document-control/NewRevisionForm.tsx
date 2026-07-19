@@ -1,4 +1,5 @@
 import type { CreateDocumentRevisionInput } from "../../types/documentControl";
+import { DocumentFilePicker } from "./DocumentFilePicker";
 
 export type NewRevisionFormState = CreateDocumentRevisionInput & {
   fileMode: "upload" | "reference";
@@ -11,7 +12,7 @@ export const EMPTY_REVISION_FORM: NewRevisionFormState = {
   fileName: "",
   fileUrl: "",
   fileId: "",
-  fileMode: "reference",
+  fileMode: "upload",
 };
 
 type Props = {
@@ -33,11 +34,15 @@ function readFileAsDataUrl(file: File): Promise<string> {
 }
 
 export function NewRevisionForm({ documentTitle, form, onChange, saving, onCancel, onSave }: Props) {
-  const onFilePick = async (file: File | null) => {
-    if (!file) {
-      return;
-    }
-    onChange({ fileName: file.name, mimeType: file.type, fileSize: String(file.size) });
+  const onFilePick = async (file: File) => {
+    onChange({
+      fileName: file.name,
+      mimeType: file.type,
+      fileSize: String(file.size),
+      fileMode: "upload",
+      fileUrl: "",
+      fileId: "",
+    });
     try {
       const fileDataUrl = await readFileAsDataUrl(file);
       onChange({ fileDataUrl, fileMode: "upload" });
@@ -82,18 +87,18 @@ export function NewRevisionForm({ documentTitle, form, onChange, saving, onCance
             <label className="flex items-center gap-1">
               <input
                 type="radio"
-                checked={form.fileMode === "reference"}
-                onChange={() => onChange({ fileMode: "reference", fileDataUrl: undefined })}
-              />
-              Reference
-            </label>
-            <label className="flex items-center gap-1">
-              <input
-                type="radio"
                 checked={form.fileMode === "upload"}
                 onChange={() => onChange({ fileMode: "upload" })}
               />
               Upload
+            </label>
+            <label className="flex items-center gap-1">
+              <input
+                type="radio"
+                checked={form.fileMode === "reference"}
+                onChange={() => onChange({ fileMode: "reference", fileDataUrl: undefined })}
+              />
+              Reference
             </label>
           </div>
           {form.fileMode === "reference" ? (
@@ -112,18 +117,30 @@ export function NewRevisionForm({ documentTitle, form, onChange, saving, onCance
               />
             </div>
           ) : (
-            <input
-              type="file"
-              className="mt-2 block w-full text-sm"
-              onChange={(e) => void onFilePick(e.target.files?.[0] || null)}
-            />
+            <div className="mt-2">
+              <DocumentFilePicker
+                fileName={form.fileName}
+                disabled={saving}
+                onFileSelected={onFilePick}
+                onClear={() =>
+                  onChange({
+                    fileName: "",
+                    fileDataUrl: undefined,
+                    fileSize: "",
+                    mimeType: "",
+                    fileId: "",
+                    fileUrl: "",
+                  })
+                }
+              />
+            </div>
           )}
         </div>
       </div>
       <div className="mt-3 flex justify-end gap-2">
         <button
           type="button"
-          className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+          className="min-h-11 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
           onClick={onCancel}
           disabled={saving}
         >
@@ -131,11 +148,11 @@ export function NewRevisionForm({ documentTitle, form, onChange, saving, onCance
         </button>
         <button
           type="button"
-          className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="min-h-11 rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
           onClick={onSave}
           disabled={saving}
         >
-          {saving ? "Saving…" : "Create revision"}
+          {saving ? "Saving…" : "Save draft revision"}
         </button>
       </div>
     </div>
