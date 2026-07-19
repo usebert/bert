@@ -4,6 +4,7 @@ import { invalidatePeopleCache } from "../services/peopleCache";
 import { invalidateLolerCache } from "../services/lolerService";
 import { invalidateLolerExaminationsCache } from "../services/lolerExaminationService";
 import { invalidateCalendarCache } from "../services/calendarService";
+import { invalidateDocumentControlCache } from "../services/documentControlService";
 import { invalidateOperationalMessagesCache } from "../services/operationalMessagesService";
 import { clearCompanyLoginHintForEmail } from "../lib/companyLoginHint";
 import { clearGodmodeSelectedCompanyFolderId } from "./godmodeCompanyContext";
@@ -65,6 +66,7 @@ export function clearStaleCompanyLocalStorage(email?: string) {
   invalidateLolerCache();
   invalidateLolerExaminationsCache();
   invalidateCalendarCache();
+  invalidateDocumentControlCache();
   invalidateOperationalMessagesCache();
   clearStoredFolderLinkCompanyFields();
 

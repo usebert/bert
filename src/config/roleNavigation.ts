@@ -41,6 +41,7 @@ const MASTER_NAV: PresentedNavItem[] = [
   { id: "briefings", label: "Briefings", icon: "note" },
   { id: "loler", label: "LOLER", icon: "checklist" },
   { id: "calendar", label: "Calendar", icon: "clock" },
+  { id: "documentControl", label: "Document Control", icon: "note" },
   { id: "results", label: "Results", icon: "checklist" },
   { id: "reports", label: "Reports / Diagnostics", icon: "chart" },
   { id: "sync", label: "Sync Centre", icon: "sync" },
@@ -62,6 +63,7 @@ const COMPANY_ADMIN_NAV: PresentedNavItem[] = [
   { id: "nonConformance", label: "NCRs", icon: "checklist" },
   { id: "loler", label: "LOLER", icon: "checklist" },
   { id: "calendar", label: "Calendar", icon: "clock" },
+  { id: "documentControl", label: "Document Control", icon: "note" },
   { id: "reports", label: "Reports", icon: "chart" },
   { id: "sync", label: "Sync Centre", icon: "sync" },
   { id: "archive", label: "Archive", icon: "clipboard" },
@@ -80,6 +82,7 @@ const MANAGER_NAV: PresentedNavItem[] = [
   { id: "nonConformance", label: "NCRs", icon: "checklist" },
   { id: "loler", label: "LOLER", icon: "checklist" },
   { id: "calendar", label: "Calendar", icon: "clock" },
+  { id: "documentControl", label: "Document Control", icon: "note" },
   { id: "reports", label: "Reports", icon: "chart" },
   { id: "sync", label: "Sync Centre", icon: "sync" },
   { id: "archive", label: "Archive", icon: "clipboard" },
@@ -93,6 +96,7 @@ const AUDITOR_NAV: PresentedNavItem[] = [
   { id: "incidents", label: "Incidents", icon: "warningTriangle" },
   { id: "loler", label: "LOLER", icon: "checklist" },
   { id: "calendar", label: "Calendar", icon: "clock" },
+  { id: "documentControl", label: "Document Control", icon: "note" },
   { id: "sync", label: "Sync Centre", icon: "sync" },
   { id: "account", label: "Account", icon: "user" },
 ];
@@ -321,6 +325,7 @@ const MASTER_COMPANY_SCOPED_SCREENS: NavItemId[] = [
   "qmsReadiness",
   "loler",
   "calendar",
+  "documentControl",
 ];
 
 /** Master Godmode screens that require an active live company workspace context. */

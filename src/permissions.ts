@@ -221,6 +221,21 @@ export function canManageCalendar(role: Role) {
   return role === "Master" || role === "Admin" || role === "Manager";
 }
 
+/** Document Control — all signed-in company roles may view (Auditor sees current only). */
+export function canAccessDocumentControl(_role: Role) {
+  return true;
+}
+
+/** Create / revise / archive controlled documents — Master, Admin, Manager. */
+export function canManageDocumentControl(role: Role) {
+  return role === "Master" || role === "Admin" || role === "Manager";
+}
+
+/** Approve / reject document revisions — Master, Admin, Manager. */
+export function canApproveDocumentControl(role: Role) {
+  return role === "Master" || role === "Admin" || role === "Manager";
+}
+
 export function canInvestigateIncidents(role: Role) {
   return role === "Master" || role === "Admin" || role === "Manager";
 }
@@ -266,6 +281,7 @@ export function canRoleAccessNavItem(role: Role, itemId: NavItemId) {
   if (itemId === "incidents") return canSubmitIncidents(role);
   if (itemId === "loler") return canAccessLoler(role);
   if (itemId === "calendar") return canAccessCalendar(role);
+  if (itemId === "documentControl") return canAccessDocumentControl(role);
   if (itemId === "actions" || itemId === "nonConformance") return canAccessActions(role);
   if (itemId === "audits") return canAccessAuditsCentre(role) || canAccessFormsChecksNav(role) || role === "Auditor";
   if (itemId === "sync") {

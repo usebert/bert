@@ -304,6 +304,7 @@ import { AuditCentreScreen } from "./src/screens/AuditCentreScreen";
 import { BriefingsScreen } from "./src/screens/BriefingsScreen";
 import { LolerScreen } from "./src/screens/LolerScreen";
 import { CalendarScreen } from "./src/screens/CalendarScreen";
+import { DocumentControlScreen } from "./src/screens/DocumentControlScreen";
 import { CheckCompletionWizard } from "./src/components/checks/CheckCompletionWizard";
 import { CompleteAuditScreen } from "./src/screens/CompleteAuditScreen";
 import { IncidentReportingScreen } from "./src/screens/IncidentReportingScreen";
@@ -17795,6 +17796,17 @@ function App() {
 
             {screen === "calendar" && canRoleAccessNavItem(currentUser.role, "calendar") && (
               <CalendarScreen
+                role={currentUser.role}
+                companyFolderId={String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim()}
+                masterSheetId={archiveMasterSheetId || undefined}
+                userEmail={String(sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser)).trim().toLowerCase()}
+                offlineMode={offlineMode}
+                onBack={() => setScreen("dashboard")}
+              />
+            )}
+
+            {screen === "documentControl" && canRoleAccessNavItem(currentUser.role, "documentControl") && (
+              <DocumentControlScreen
                 role={currentUser.role}
                 companyFolderId={String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim()}
                 masterSheetId={archiveMasterSheetId || undefined}

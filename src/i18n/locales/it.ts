@@ -136,6 +136,7 @@ export const it: UiTranslationSchema = {
     incidents: "Incidenti",
     loler: "LOLER",
     calendar: "Calendario",
+    documentControl: "Controllo documenti",
     briefings: "Comunicazioni",
     schedules: "Pianificazioni",
     templates: "Modelli",

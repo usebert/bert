@@ -102,6 +102,26 @@ import {
   updateCalendarItem,
 } from "./calendar-service.mjs";
 import {
+  actorCanAccessCompanyDocumentControl,
+  archiveControlledDocument,
+  approveDocumentRevision,
+  canApproveDocumentControl,
+  canManageDocumentControl,
+  canViewDocumentControl,
+  createControlledDocument,
+  createDocumentRevision,
+  DOCUMENT_CONTROL_ROUTE_TIMEOUT_MS,
+  getDocumentControlDocument,
+  getDocumentRevisionFile,
+  listDocumentControlDocuments,
+  listDocumentControlIndex,
+  rebuildDocumentControlIndex,
+  rejectDocumentRevision,
+  restoreControlledDocument,
+  submitDocumentRevision,
+  updateControlledDocument,
+} from "./document-control-service.mjs";
+import {
   acknowledgeBriefing,
   BRIEFINGS_ROUTE_TIMEOUT_MS,
   canAccessBriefings,
@@ -2833,6 +2853,365 @@ export function installCoreWorkflowRoutes(app, deps) {
           String(req.params?.itemId || "").trim(),
         ),
       { operation: "calendar_items_archive", code: "CALENDAR_ARCHIVE_FAILED", message: "Could not archive calendar item." },
+    );
+  });
+
+  const resolveDocumentControlRouteContext = async (req, res, options = {}) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      res.status(401).json({
+        ok: false,
+        code: "DOCUMENT_CONTROL_UNAUTHENTICATED",
+        error: "Sign in required.",
+        message: "Sign in required.",
+      });
+      return null;
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    if (!canViewDocumentControl(actor)) {
+      res.status(403).json({
+        ok: false,
+        code: "DOCUMENT_CONTROL_FORBIDDEN",
+        error: "You do not have access to Document Control.",
+        message: "You do not have access to Document Control.",
+      });
+      return null;
+    }
+    if (options.manage && !canManageDocumentControl(actor)) {
+      res.status(403).json({
+        ok: false,
+        code: "DOCUMENT_CONTROL_FORBIDDEN",
+        error: "You do not have permission to manage Document Control.",
+        message: "You do not have permission to manage Document Control.",
+      });
+      return null;
+    }
+    if (options.approve && !canApproveDocumentControl(actor)) {
+      res.status(403).json({
+        ok: false,
+        code: "DOCUMENT_CONTROL_FORBIDDEN",
+        error: "You do not have permission to approve controlled documents.",
+        message: "You do not have permission to approve controlled documents.",
+      });
+      return null;
+    }
+    const sessionCompanyFolderId = actor?.companyFolderId || actor?.companyId || companyFolderId;
+    const folderReject = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      sessionCompanyFolderId,
+      actor?.companyName || "",
+    );
+    if (folderReject) {
+      res.status(folderReject.httpStatus || 400).json(folderReject);
+      return null;
+    }
+    const resolved = await resolveCompanyScheduleContext(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      {
+        companyId: sessionCompanyFolderId,
+        companyFolderId: sessionCompanyFolderId,
+        masterSheetId: String(req.body?.masterSheetId || req.query?.masterSheetId || "").trim(),
+        companyName: String(req.body?.companyName || actor?.companyName || "").trim(),
+      },
+    );
+    if (!resolved.ok) {
+      res.status(resolved.httpStatus || 400).json({
+        ok: false,
+        code: resolved.code,
+        error: resolved.error,
+        message: resolved.message || resolved.error,
+      });
+      return null;
+    }
+    if (
+      !actorCanAccessCompanyDocumentControl(actor, resolved.companyFolderId, [
+        companyFolderId,
+        resolved.companyId,
+        ...(resolved.alternateIds || []),
+      ])
+    ) {
+      res.status(403).json({
+        ok: false,
+        code: "DOCUMENT_CONTROL_COMPANY_MISMATCH",
+        error: "Your session does not belong to this company.",
+        message: "Your session does not belong to this company.",
+      });
+      return null;
+    }
+    return { authed, actor, resolved };
+  };
+
+  const documentControlRouteError = (res, result, fallbackCode) => {
+    return res.status(result?.httpStatus || 400).json({
+      ok: false,
+      code: result?.code || fallbackCode,
+      error: result?.error || result?.message || "Request failed.",
+      message: result?.message || result?.error || "Request failed.",
+      details: result?.details || undefined,
+      warning: result?.warning || undefined,
+    });
+  };
+
+  const runDocumentControlRoute = async (req, res, options, run, failure) => {
+    const routeContext = await resolveDocumentControlRouteContext(req, res, options);
+    if (!routeContext) {
+      return undefined;
+    }
+    try {
+      const result = await withOperationTimeout(
+        run(routeContext),
+        failure.operation,
+        DOCUMENT_CONTROL_ROUTE_TIMEOUT_MS,
+      );
+      if (!result.ok) {
+        return documentControlRouteError(res, result, failure.code);
+      }
+      return res.json(result);
+    } catch (error) {
+      console.info("[document-control]", {
+        phase: failure.operation,
+        companyId: String(req.params?.companyFolderId || "").trim(),
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return res.status(500).json({
+        ok: false,
+        code: failure.code,
+        error: failure.message,
+        message: failure.message,
+      });
+    }
+  };
+
+  app.get("/api/companies/:companyFolderId/document-control/documents", async (req, res) => {
+    return runDocumentControlRoute(
+      req,
+      res,
+      {},
+      ({ authed, actor, resolved }) =>
+        listDocumentControlDocuments(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor, {
+          status: String(req.query?.status || "").trim(),
+          includeArchived: String(req.query?.includeArchived || "") === "1",
+        }),
+      { operation: "document_control_list", code: "DOCUMENT_CONTROL_LIST_FAILED", message: "Could not load controlled documents." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/document-control/documents", async (req, res) => {
+    return runDocumentControlRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        createControlledDocument(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor, req.body || {}),
+      { operation: "document_control_create", code: "DOCUMENT_CONTROL_CREATE_FAILED", message: "Could not create controlled document." },
+    );
+  });
+
+  app.get("/api/companies/:companyFolderId/document-control/documents/:documentId", async (req, res) => {
+    return runDocumentControlRoute(
+      req,
+      res,
+      {},
+      ({ authed, actor, resolved }) =>
+        getDocumentControlDocument(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.documentId || "").trim(),
+        ),
+      { operation: "document_control_get", code: "DOCUMENT_CONTROL_GET_FAILED", message: "Could not load controlled document." },
+    );
+  });
+
+  app.patch("/api/companies/:companyFolderId/document-control/documents/:documentId", async (req, res) => {
+    return runDocumentControlRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        updateControlledDocument(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.documentId || "").trim(),
+          req.body || {},
+        ),
+      { operation: "document_control_update", code: "DOCUMENT_CONTROL_UPDATE_FAILED", message: "Could not update controlled document." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/document-control/documents/:documentId/archive", async (req, res) => {
+    return runDocumentControlRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        archiveControlledDocument(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.documentId || "").trim(),
+        ),
+      { operation: "document_control_archive", code: "DOCUMENT_CONTROL_ARCHIVE_FAILED", message: "Could not archive controlled document." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/document-control/documents/:documentId/restore", async (req, res) => {
+    return runDocumentControlRoute(
+      req,
+      res,
+      { approve: true },
+      ({ authed, actor, resolved }) =>
+        restoreControlledDocument(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.documentId || "").trim(),
+        ),
+      { operation: "document_control_restore", code: "DOCUMENT_CONTROL_RESTORE_FAILED", message: "Could not restore controlled document." },
+    );
+  });
+
+  app.get("/api/companies/:companyFolderId/document-control/documents/:documentId/revisions", async (req, res) => {
+    return runDocumentControlRoute(
+      req,
+      res,
+      {},
+      async ({ authed, actor, resolved }) => {
+        const result = await getDocumentControlDocument(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.documentId || "").trim(),
+        );
+        if (!result.ok) {
+          return result;
+        }
+        return { ok: true, revisions: result.revisions || [], document: result.document };
+      },
+      { operation: "document_control_revisions", code: "DOCUMENT_CONTROL_REVISIONS_FAILED", message: "Could not load revisions." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/document-control/documents/:documentId/revisions", async (req, res) => {
+    return runDocumentControlRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        createDocumentRevision(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.documentId || "").trim(),
+          req.body || {},
+        ),
+      { operation: "document_control_revision_create", code: "DOCUMENT_CONTROL_REVISION_FAILED", message: "Could not create revision." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/document-control/revisions/:revisionId/submit", async (req, res) => {
+    return runDocumentControlRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        submitDocumentRevision(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.revisionId || "").trim(),
+        ),
+      { operation: "document_control_revision_submit", code: "DOCUMENT_CONTROL_SUBMIT_FAILED", message: "Could not submit revision." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/document-control/revisions/:revisionId/approve", async (req, res) => {
+    return runDocumentControlRoute(
+      req,
+      res,
+      { approve: true },
+      ({ authed, actor, resolved }) =>
+        approveDocumentRevision(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.revisionId || "").trim(),
+        ),
+      { operation: "document_control_revision_approve", code: "DOCUMENT_CONTROL_APPROVE_FAILED", message: "Could not approve revision." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/document-control/revisions/:revisionId/reject", async (req, res) => {
+    return runDocumentControlRoute(
+      req,
+      res,
+      { approve: true },
+      ({ authed, actor, resolved }) =>
+        rejectDocumentRevision(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.revisionId || "").trim(),
+          req.body || {},
+        ),
+      { operation: "document_control_revision_reject", code: "DOCUMENT_CONTROL_REJECT_FAILED", message: "Could not reject revision." },
+    );
+  });
+
+  app.get("/api/companies/:companyFolderId/document-control/revisions/:revisionId/file", async (req, res) => {
+    return runDocumentControlRoute(
+      req,
+      res,
+      {},
+      ({ authed, actor, resolved }) =>
+        getDocumentRevisionFile(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.revisionId || "").trim(),
+          {
+            acknowledgedSupersededWarning:
+              String(req.query?.acknowledge || req.query?.acknowledged || "") === "1" ||
+              req.body?.acknowledgedSupersededWarning === true,
+          },
+        ),
+      { operation: "document_control_revision_file", code: "DOCUMENT_CONTROL_FILE_FAILED", message: "Could not open revision file." },
+    );
+  });
+
+  app.get("/api/companies/:companyFolderId/document-control/index", async (req, res) => {
+    return runDocumentControlRoute(
+      req,
+      res,
+      {},
+      ({ authed, actor, resolved }) =>
+        listDocumentControlIndex(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor),
+      { operation: "document_control_index", code: "DOCUMENT_CONTROL_INDEX_FAILED", message: "Could not load document control index." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/document-control/index/rebuild", async (req, res) => {
+    return runDocumentControlRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        rebuildDocumentControlIndex(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor),
+      { operation: "document_control_index_rebuild", code: "DOCUMENT_CONTROL_INDEX_REBUILD_FAILED", message: "Could not rebuild document control index." },
     );
   });
 

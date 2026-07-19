@@ -66,6 +66,7 @@
     "verify:ui-i18n-stage2": "node scripts/verify-ui-i18n-stage2.mjs",
     "verify:ui-i18n-stage3": "node scripts/verify-ui-i18n-stage3.mjs",
     "verify:calendar": "node scripts/verify-calendar.mjs",
+    "verify:document-control": "node scripts/verify-document-control.mjs",
     "verify:pilot-readiness": "node scripts/verify-pilot-readiness.mjs",
     "verify:godmode-company-context": "node scripts/verify-godmode-company-context.mjs",
     "verify:google-form-templates": "node scripts/verify-google-form-templates.mjs",

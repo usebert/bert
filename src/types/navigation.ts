@@ -25,6 +25,7 @@ export type RoutedScreen =
   | "incidents"
   | "loler"
   | "calendar"
+  | "documentControl"
   | "reports"
   | "sync"
   | "schedules"
