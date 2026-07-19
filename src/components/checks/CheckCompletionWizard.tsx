@@ -1,13 +1,18 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatedButton } from "../animation/AnimatedButton";
 import { AnimatedScreen } from "../animation/AnimatedScreen";
 import { StatusBadge } from "../dashboard/DashboardPrimitives";
 import { bertScreenEnter } from "../animation/animationClasses";
 import { usePrefersReducedMotion } from "../animation/usePrefersReducedMotion";
 import type { CheckCompletionPhase, CheckCompletionWizardProps } from "../../types/checkCompletion";
+import type { Answer } from "../../types/reportsScreenProps";
 import { getAuditTrafficStatus, getDueWarning } from "../../utils/dashboardHealth";
 import { getPlainEnglishSyncStatus } from "../../utils/plainEnglishSync";
-import { canSubmitCheck, getCompletionStats } from "../../utils/checkCompletionHelpers";
+import {
+  canRapidAdvanceAfterAnswer,
+  canSubmitCheck,
+  getCompletionStats,
+} from "../../utils/checkCompletionHelpers";
 import { darkPanelDescription, darkPanelEyebrow, darkPanelShell, darkPanelTitleLg } from "../../styles/darkPanel";
 import { bertSecondaryButtonInteract } from "../../styles/interactions";
 import { CheckQuestionControls } from "./CheckQuestionControls";
@@ -42,6 +47,7 @@ export function CheckCompletionWizard({
 }: CheckCompletionWizardProps) {
   const reducedMotion = usePrefersReducedMotion();
   const [phase, setPhase] = useState<CheckCompletionPhase>("questions");
+  const rapidAnswerLockRef = useRef(false);
   const safeIndex = Math.max(0, Math.min(questionIndex, Math.max(audit.questions.length - 1, 0)));
   const currentQuestion = audit.questions[safeIndex];
   const draftSlice = useMemo(
@@ -49,6 +55,46 @@ export function CheckCompletionWizard({
     [responses, textResponses, notes, evidence, promptFollowUps],
   );
   const stats = getCompletionStats(audit, draftSlice);
+
+  // Release after the question index transition has been applied (or after Back/Next).
+  useEffect(() => {
+    rapidAnswerLockRef.current = false;
+  }, [questionIndex]);
+
+  const handleAnswerChange = (questionId: string, answer: Answer) => {
+    if (rapidAnswerLockRef.current) return;
+    rapidAnswerLockRef.current = true;
+
+    // Capture before any index change so the answer cannot land on the next question.
+    const answeredQuestionId = questionId;
+    const answeredIndex = safeIndex;
+    const answeredQuestion = currentQuestion;
+
+    onAnswerChange(answeredQuestionId, answer);
+
+    if (!answeredQuestion || answeredQuestionId !== answeredQuestion.id || answer === "fail") {
+      rapidAnswerLockRef.current = false;
+      return;
+    }
+
+    const nextDraft = {
+      ...draftSlice,
+      responses: { ...draftSlice.responses, [answeredQuestionId]: answer },
+    };
+    if (!canRapidAdvanceAfterAnswer(answeredQuestion, answer, nextDraft)) {
+      rapidAnswerLockRef.current = false;
+      return;
+    }
+
+    const nextIndex = Math.min(answeredIndex + 1, audit.questions.length - 1);
+    if (nextIndex === answeredIndex) {
+      rapidAnswerLockRef.current = false;
+      return;
+    }
+
+    onQuestionIndexChange(nextIndex);
+    // Lock stays set until questionIndex updates (see effect above).
+  };
   const syncPlain = getPlainEnglishSyncStatus({ offlineQueueCount: 0, pendingSyncCount, failedSyncCount });
   const syncBadgeClass =
     syncPlain.tone === "problem"
@@ -151,7 +197,7 @@ export function CheckCompletionWizard({
             evidence={evidence}
             promptFollowUps={promptFollowUps}
             slatePrimaryCtaInteract={slatePrimaryCtaInteract}
-            onAnswerChange={onAnswerChange}
+            onAnswerChange={handleAnswerChange}
             onTextResponseChange={onTextResponseChange}
             onNoteChange={onNoteChange}
             onPromptFollowUpChange={onPromptFollowUpChange}

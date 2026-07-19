@@ -59,10 +59,8 @@ export function CheckQuestionControls({
         answer={answer}
         textValue={textResponses[question.id] ?? ""}
         evidenceCount={questionEvidence.length}
-        slatePrimaryCtaInteract={slatePrimaryCtaInteract}
         onAnswerChange={onAnswerChange}
         onTextResponseChange={onTextResponseChange}
-        onAddEvidence={onAddEvidence}
       />
 
       {activePromptRules.length > 0 ? (
@@ -113,14 +111,9 @@ export function CheckQuestionControls({
           {promptEvidenceRequired ? (
             <div className="rounded-xl border border-sky-200 bg-white p-3">
               <p className="text-xs font-semibold text-sky-900">Evidence required for this prompt</p>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <EvidenceUploadChoice
-                  triggerLabel="Add photo"
-                  triggerClassName={`min-h-[48px] rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}
-                  onFiles={(files) => onAddEvidence(question.id, files)}
-                />
-                <span className="text-xs text-sky-800">{questionEvidence.length} photo(s)</span>
-              </div>
+              <p className="mt-1 text-xs text-sky-800">
+                Use Add photo below. {questionEvidence.length} photo(s) attached.
+              </p>
             </div>
           ) : null}
         </div>
@@ -139,11 +132,6 @@ export function CheckQuestionControls({
             className="mt-3 min-h-[5rem] w-full rounded-xl border border-rose-200 bg-white px-3 py-3 text-sm text-slate-900 outline-none focus:border-rose-400"
           />
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <EvidenceUploadChoice
-              triggerLabel="Add photo"
-              triggerClassName={`min-h-[48px] rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}
-              onFiles={(files) => onAddEvidence(question.id, files)}
-            />
             <span className="text-xs text-rose-800">{questionEvidence.length} photo(s)</span>
             {question.autoActionRequired ? (
               <span className="rounded-full bg-rose-100 px-2 py-1 text-[11px] font-semibold text-rose-800">
@@ -154,15 +142,13 @@ export function CheckQuestionControls({
         </div>
       ) : null}
 
-      {!showFailedFollowUp && (fieldType === "Photo evidence" || question.requiresPhotoEvidence) ? (
-        <EvidencePanel
-          questionId={question.id}
-          items={questionEvidence}
-          slatePrimaryCtaInteract={slatePrimaryCtaInteract}
-          onAddEvidence={onAddEvidence}
-          onRemoveEvidence={onRemoveEvidence}
-        />
-      ) : null}
+      <EvidencePanel
+        questionId={question.id}
+        items={questionEvidence}
+        slatePrimaryCtaInteract={slatePrimaryCtaInteract}
+        onAddEvidence={onAddEvidence}
+        onRemoveEvidence={onRemoveEvidence}
+      />
     </div>
   );
 }
@@ -173,20 +159,16 @@ function AnswerControls({
   answer,
   textValue,
   evidenceCount,
-  slatePrimaryCtaInteract,
   onAnswerChange,
   onTextResponseChange,
-  onAddEvidence,
 }: {
   fieldType: ReturnType<typeof resolveCheckFieldType>;
   question: CheckQuestionControlsProps["question"];
   answer: Answer | undefined;
   textValue: string;
   evidenceCount: number;
-  slatePrimaryCtaInteract: string;
   onAnswerChange: (questionId: string, answer: Answer) => void;
   onTextResponseChange: (questionId: string, value: string) => void;
-  onAddEvidence: (questionId: string, files: FileList) => void;
 }) {
   const markNa = () => onAnswerChange(question.id, "nc");
 
@@ -315,11 +297,6 @@ function AnswerControls({
         <p className="text-sm font-semibold text-slate-900">Photo or file evidence</p>
         <p className="mt-1 text-xs text-slate-500">{evidenceCount} file(s) attached</p>
         <div className="mt-3 flex flex-wrap gap-2">
-          <EvidenceUploadChoice
-            triggerLabel="Add photo"
-            triggerClassName={`min-h-[48px] rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white ${slatePrimaryCtaInteract}`}
-            onFiles={(files) => onAddEvidence(question.id, files)}
-          />
           <NaButton onClick={markNa} selected={answer === "nc"} />
         </div>
       </div>

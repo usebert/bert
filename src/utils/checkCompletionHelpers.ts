@@ -69,6 +69,24 @@ export function mapChoiceToAnswer(question: AuditQuestion, choice: string): Answ
   return "pass";
 }
 
+/** Whether Pass / N/A may auto-advance after a local save (Fail never advances). */
+export function canRapidAdvanceAfterAnswer(
+  question: AuditQuestion,
+  answer: Answer,
+  draft: CheckCompletionDraftSlice,
+): boolean {
+  if (answer === "fail") return false;
+  // Preserve existing required-photo rules for Pass; N/A ("nc") remains answered without photos.
+  if (
+    answer === "pass" &&
+    question.requiresPhotoEvidence &&
+    (draft.evidence[question.id]?.length ?? 0) === 0
+  ) {
+    return false;
+  }
+  return isQuestionAnswered(question, draft);
+}
+
 export function isQuestionAnswered(
   question: AuditQuestion,
   draft: CheckCompletionDraftSlice,

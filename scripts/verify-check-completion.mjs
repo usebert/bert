@@ -82,9 +82,20 @@ assertContains("src/components/checks/CheckCompletionWizard.tsx", [
   "Back",
   "Next",
   "Review",
+  "canRapidAdvanceAfterAnswer",
+  "handleAnswerChange",
+  "rapidAnswerLockRef",
+]);
+assertContains("src/utils/checkCompletionHelpers.ts", [
+  "canRapidAdvanceAfterAnswer",
+  'if (answer === "fail") return false',
 ]);
 assertContains("src/components/checks/CheckCompletionReview.tsx", ["Submit check", "Jump"]);
-assertContains("src/components/checks/CheckQuestionControls.tsx", ["Mark N/A", "Add note", "Add photo"]);
+assertContains("src/components/checks/CheckQuestionControls.tsx", ["Mark N/A", "Add note", "Add photo", "EvidencePanel"]);
 assertContains("src/screens/CompleteAuditScreen.tsx", ["Submit"]);
+assert(
+  !fs.readFileSync(path.join(root, "src/components/checks/CheckCompletionWizard.tsx"), "utf8").includes("setTimeout"),
+  "rapid answer must not use setTimeout locks",
+);
 
 console.log("[verify:check-completion] wizard flow OK");
