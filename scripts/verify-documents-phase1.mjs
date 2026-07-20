@@ -214,6 +214,20 @@ async function run() {
 
   assert(read("server/document-routes.mjs").includes("/api/companies/:companyFolderId/documents"), "documents list route");
   assert(read("server/document-routes.mjs").includes("document-folders/provision"), "provision route");
+  assert(
+    read("server/document-routes.mjs").includes("DOCUMENTS_ROUTE_DEPS_MISSING"),
+    "document routes assert required deps at install time",
+  );
+  assert(
+    read("server/core-workflow-routes.mjs").includes(
+      'import { readTabRecords, appendTabRows } from "./workbook-service.mjs"',
+    ),
+    "core-workflow-routes imports readTabRecords/appendTabRows from workbook-service",
+  );
+  assert(
+    read("server/core-workflow-routes.mjs").includes("CORE_WORKFLOW_WORKBOOK_HELPERS_MISSING"),
+    "core-workflow-routes guards workbook helpers before scheduleDeps",
+  );
   assert(read("server/document-folder-service.mjs").includes("document_folder_provision_timings"), "provision timings logged");
   assert(read("server/document-service.mjs").includes("document_list_timings"), "list timings logged");
   assert(read("server/document-service.mjs").includes("document_upload_timings"), "upload timings logged");
@@ -383,6 +397,42 @@ async function run() {
 
   assert(DEFAULT_DOCUMENT_SETTINGS.documentsEnabled === "true", "default settings include documentsEnabled");
   assert(DOCUMENT_SETTINGS_TAB_COLUMNS.includes("SettingKey"), "DocumentSettings columns");
+
+  const { installDocumentRoutes } = await import("../server/document-routes.mjs");
+  let missingDepsCaught = false;
+  try {
+    installDocumentRoutes(
+      { get() {}, post() {}, put() {} },
+      {
+        getAuthedClient: () => null,
+        envConfigured: () => false,
+        parseBertActorFromRequest: () => null,
+        google: { drive: () => ({}) },
+        scheduleDeps: {},
+      },
+    );
+  } catch (error) {
+    missingDepsCaught = String(error?.message || "").includes("DOCUMENTS_ROUTE_DEPS_MISSING");
+  }
+  assert(missingDepsCaught, "installDocumentRoutes rejects missing scheduleDeps.readTabRecords");
+
+  installDocumentRoutes(
+    { get() {}, post() {}, put() {} },
+    {
+      getAuthedClient: () => null,
+      envConfigured: () => false,
+      parseBertActorFromRequest: () => null,
+      google: { drive: () => ({}) },
+      scheduleDeps: {
+        readTabRecords: async () => ({ records: [] }),
+        appendTabRows: async () => ({ ok: true }),
+      },
+    },
+  );
+  assert(true, "installDocumentRoutes accepts defined workbook helpers");
+
+  const { installCoreWorkflowRoutes } = await import("../server/core-workflow-routes.mjs");
+  assert(typeof installCoreWorkflowRoutes === "function", "installCoreWorkflowRoutes imports without ReferenceError");
 
   console.log(`\nAll ${caseCount} documents phase 1 checks passed.`);
 }

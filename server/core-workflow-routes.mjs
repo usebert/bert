@@ -240,6 +240,12 @@ export function installCoreWorkflowRoutes(app, deps) {
     writeCompanyActions,
   } = deps;
 
+  if (typeof readTabRecords !== "function" || typeof appendTabRows !== "function") {
+    throw new Error(
+      "CORE_WORKFLOW_WORKBOOK_HELPERS_MISSING: import readTabRecords and appendTabRows from workbook-service.mjs before installing routes.",
+    );
+  }
+
   const scheduleDeps = {
     readCompanySheetById,
     ...getCompanyUsersDeps(),

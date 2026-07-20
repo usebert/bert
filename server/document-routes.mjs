@@ -30,6 +30,19 @@ export function installDocumentRoutes(app, deps = {}) {
     rejectCompanyApiIfFolderInvalid,
   } = deps;
 
+  const missing = [];
+  if (typeof getAuthedClient !== "function") missing.push("getAuthedClient");
+  if (typeof envConfigured !== "function") missing.push("envConfigured");
+  if (typeof parseBertActorFromRequest !== "function") missing.push("parseBertActorFromRequest");
+  if (!google || typeof google.drive !== "function") missing.push("google");
+  if (typeof scheduleDeps.readTabRecords !== "function") missing.push("scheduleDeps.readTabRecords");
+  if (typeof scheduleDeps.appendTabRows !== "function") missing.push("scheduleDeps.appendTabRows");
+  if (missing.length > 0) {
+    throw new Error(
+      `DOCUMENTS_ROUTE_DEPS_MISSING: ${missing.join(", ")} must be defined before installDocumentRoutes.`,
+    );
+  }
+
   const resolveDocumentsRouteContext = async (req, res, options = {}) => {
     const authed = getAuthedClient();
     if (!envConfigured() || !authed) {
