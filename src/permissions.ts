@@ -226,6 +226,16 @@ export function canAccessDocumentControl(_role: Role) {
   return true;
 }
 
+/** Controlled Documents (ISO 9001) — all authenticated roles may open the module. */
+export function canAccessDocuments(_role: Role) {
+  return true;
+}
+
+/** Create / register controlled ISO documents — Master, Admin, Manager. */
+export function canManageDocuments(role: Role) {
+  return role === "Master" || role === "Admin" || role === "Manager";
+}
+
 /** Create / revise / archive controlled documents — Master, Admin, Manager. */
 export function canManageDocumentControl(role: Role) {
   return role === "Master" || role === "Admin" || role === "Manager";
@@ -282,6 +292,7 @@ export function canRoleAccessNavItem(role: Role, itemId: NavItemId) {
   if (itemId === "loler") return canAccessLoler(role);
   if (itemId === "calendar") return canAccessCalendar(role);
   if (itemId === "documentControl") return canAccessDocumentControl(role);
+  if (itemId === "documents") return canAccessDocuments(role);
   if (itemId === "actions" || itemId === "nonConformance") return canAccessActions(role);
   if (itemId === "audits") return canAccessAuditsCentre(role) || canAccessFormsChecksNav(role) || role === "Auditor";
   if (itemId === "sync") {

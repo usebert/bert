@@ -305,6 +305,8 @@ import { BriefingsScreen } from "./src/screens/BriefingsScreen";
 import { LolerScreen } from "./src/screens/LolerScreen";
 import { CalendarScreen } from "./src/screens/CalendarScreen";
 import { DocumentControlScreen } from "./src/screens/DocumentControlScreen";
+import { DocumentsScreen } from "./src/screens/DocumentsScreen";
+import { DocumentDetailScreen } from "./src/screens/DocumentDetailScreen";
 import { CheckCompletionWizard } from "./src/components/checks/CheckCompletionWizard";
 import { CompleteAuditScreen } from "./src/screens/CompleteAuditScreen";
 import { IncidentReportingScreen } from "./src/screens/IncidentReportingScreen";
@@ -3616,6 +3618,7 @@ function App() {
   }
   const storedWorkspaceState = workspaceBootstrapRef.current;
   const [screen, setScreenState] = useState<Screen>("dashboard");
+  const [activeDocumentId, setActiveDocumentId] = useState("");
   const previousScreenRef = useRef<Screen>("dashboard");
   const pendingScreenTraceRef = useRef<ScreenTraceMeta | null>(null);
   /** Prevents auth-session bootstrap from re-homing Master when loginUsers refreshes. */
@@ -17813,6 +17816,30 @@ function App() {
                 userEmail={String(sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser)).trim().toLowerCase()}
                 offlineMode={offlineMode}
                 onBack={() => setScreen("dashboard")}
+              />
+            )}
+
+            {screen === "documents" && canRoleAccessNavItem(currentUser.role, "documents") && (
+              <DocumentsScreen
+                role={currentUser.role}
+                companyFolderId={String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim()}
+                userEmail={String(sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser)).trim().toLowerCase()}
+                offlineMode={offlineMode}
+                onBack={() => setScreen("dashboard")}
+                onOpenDocument={(documentId) => {
+                  setActiveDocumentId(documentId);
+                  setScreen("documentDetail");
+                }}
+              />
+            )}
+
+            {screen === "documentDetail" && canRoleAccessNavItem(currentUser.role, "documents") && activeDocumentId && (
+              <DocumentDetailScreen
+                role={currentUser.role}
+                companyFolderId={String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim()}
+                documentId={activeDocumentId}
+                offlineMode={offlineMode}
+                onBack={() => setScreen("documents")}
               />
             )}
 

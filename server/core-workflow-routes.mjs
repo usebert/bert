@@ -19,7 +19,7 @@ import {
   sanitizeCompanyFolderId,
   sanitizeGoogleSpreadsheetId,
 } from "../shared/google-drive-id.mjs";
-import { readTabRecords, appendTabRows } from "./workbook-service.mjs";
+import { installDocumentRoutes } from "./document-routes.mjs";
 import {
   canListCompanySchedules,
   getCompanySchedule,
@@ -3599,5 +3599,15 @@ export function installCoreWorkflowRoutes(app, deps) {
         message: "Could not restore item. Try again.",
       });
     }
+  });
+
+  installDocumentRoutes(app, {
+    getAuthedClient,
+    envConfigured,
+    parseBertActorFromRequest,
+    registryDeps,
+    scheduleDeps,
+    google,
+    rejectCompanyApiIfFolderInvalid,
   });
 }

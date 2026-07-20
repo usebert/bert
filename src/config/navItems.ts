@@ -17,6 +17,7 @@ export const navItems = [
   { id: "loler", label: "LOLER", icon: "checklist" },
   { id: "calendar", label: "Calendar", icon: "clock" },
   { id: "documentControl", label: "Document Control", icon: "note" },
+  { id: "documents", label: "Documents", icon: "note" },
   { id: "briefings", label: "Briefings", icon: "note" },
   { id: "schedules", label: "Schedules", icon: "clock" },
   { id: "reports", label: "Reports", icon: "chart" },
