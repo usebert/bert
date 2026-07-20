@@ -212,6 +212,17 @@ async function run() {
   assert(documentControlScreenSource.includes("Awaiting approval"), "legacy Document Control still has approval tabs");
   assert(documentControlScreenSource.includes("By clause"), "legacy Document Control still has By clause");
 
+  const addDialogSource = read("src/components/documents/AddDocumentDialog.tsx");
+  assert(addDialogSource.includes("fixed inset-0"), "Add Document modal overlay is fixed to viewport");
+  assert(addDialogSource.includes("calc(100vh - 32px)"), "Add Document modal caps height to viewport");
+  assert(addDialogSource.includes("overflow-hidden"), "Add Document modal shell hides outer overflow");
+  assert(addDialogSource.includes("overflow-y-auto") && addDialogSource.includes("min-h-0"), "Add Document form body scrolls internally");
+  assert(addDialogSource.includes("<header") && addDialogSource.includes("<footer"), "Add Document modal has sticky header and footer");
+  assert(addDialogSource.includes('document.body.style.overflow = "hidden"'), "Add Document locks background scroll while open");
+  assert(addDialogSource.includes("scrollTop = 0"), "Add Document resets body scroll on open");
+  assert(addDialogSource.includes("firstFieldRef") && addDialogSource.includes(".focus("), "Add Document focuses first field on open");
+  assert(addDialogSource.includes("grid-cols-1") && addDialogSource.includes("md:grid-cols-2"), "Add Document uses single column below tablet landscape");
+
   assert(read("server/document-routes.mjs").includes("/api/companies/:companyFolderId/documents"), "documents list route");
   assert(read("server/document-routes.mjs").includes("document-folders/provision"), "provision route");
   assert(
