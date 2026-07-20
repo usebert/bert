@@ -269,6 +269,204 @@ export async function connectGodmodeCompanyFolder(input: {
   };
 }
 
+export const COMPANY_PROVISION_STAGES = [
+  { id: "creating_company_folder", label: "Creating company folder" },
+  { id: "creating_workbook", label: "Creating workbook" },
+  { id: "preparing_workbook_tabs", label: "Preparing workbook tabs" },
+  { id: "creating_first_administrator", label: "Creating first administrator" },
+  { id: "creating_bert_folders", label: "Creating BERT folders" },
+  { id: "creating_iso_document_structure", label: "Creating ISO 9001 document structure" },
+  { id: "registering_company", label: "Registering company" },
+  { id: "finishing_setup", label: "Finishing setup" },
+] as const;
+
+export const COMPANY_TYPES = [
+  "Construction",
+  "Manufacturing",
+  "Healthcare",
+  "Education",
+  "Hospitality",
+  "Logistics",
+  "Professional Services",
+  "Other",
+] as const;
+
+export type CompanyProvisionStageEvent = {
+  type: "stage" | "complete" | "error";
+  operationId?: string;
+  stage?: string;
+  label?: string;
+  status?: "running" | "done" | "pending" | "error";
+  error?: string;
+  company?: ConnectedCompanyFolder & {
+    adminUsername?: string;
+    adminEmail?: string;
+    adminName?: string;
+  };
+};
+
+export type CreateGodmodeCompanyInput = {
+  companyName: string;
+  companyType?: string;
+  logoDataUrl?: string;
+  logoFileName?: string;
+  firstAdminName: string;
+  firstAdminEmail: string;
+  firstAdminUsername: string;
+  adminPassword: string;
+  confirmPassword: string;
+  operationId?: string;
+};
+
+export async function createGodmodeCompany(
+  input: CreateGodmodeCompanyInput,
+  onEvent?: (event: CompanyProvisionStageEvent) => void,
+): Promise<{
+  ok: boolean;
+  company?: ConnectedCompanyFolder & { adminUsername?: string; adminEmail?: string };
+  operationId?: string;
+  error?: string;
+  errors?: string[];
+  failedStage?: string;
+  completedStages?: string[];
+}> {
+  const response = await fetch(apiUrl("/api/godmode/companies/create?stream=1"), {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/x-ndjson",
+    },
+    body: JSON.stringify({
+      companyName: input.companyName,
+      companyType: input.companyType,
+      logoDataUrl: input.logoDataUrl,
+      logoFileName: input.logoFileName,
+      firstAdminName: input.firstAdminName,
+      firstAdminEmail: input.firstAdminEmail,
+      firstAdminUsername: input.firstAdminUsername,
+      adminPassword: input.adminPassword,
+      confirmPassword: input.confirmPassword,
+      operationId: input.operationId,
+      stream: "1",
+    }),
+  });
+
+  if (!response.ok && !response.body) {
+    const text = await response.text().catch(() => "");
+    return { ok: false, error: text || `Could not create company (${response.status}).` };
+  }
+
+  const contentType = String(response.headers.get("content-type") || "");
+  if (!contentType.includes("ndjson") && !contentType.includes("json")) {
+    return { ok: false, error: "Unexpected response from company creation." };
+  }
+
+  if (!response.body || !contentType.includes("ndjson")) {
+    const payload = (await response.json().catch(() => null)) as {
+      ok?: boolean;
+      company?: ConnectedCompanyFolder & { adminUsername?: string };
+      operationId?: string;
+      error?: string;
+      errors?: string[];
+      failedStage?: string;
+      completedStages?: string[];
+    } | null;
+    if (!payload) {
+      return { ok: false, error: "Could not create company." };
+    }
+    if (payload.ok === false) {
+      return {
+        ok: false,
+        error: payload.error || payload.errors?.[0] || "Could not create company.",
+        errors: payload.errors,
+        failedStage: payload.failedStage,
+        operationId: payload.operationId,
+        completedStages: payload.completedStages,
+      };
+    }
+    if (payload.company) {
+      onEvent?.({ type: "complete", operationId: payload.operationId, company: payload.company });
+    }
+    return {
+      ok: true,
+      company: payload.company,
+      operationId: payload.operationId,
+      completedStages: payload.completedStages,
+    };
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalCompany: (ConnectedCompanyFolder & { adminUsername?: string }) | undefined;
+  let operationId = input.operationId || "";
+  let failedStage = "";
+  let errorMessage = "";
+  let completedStages: string[] = [];
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let event: CompanyProvisionStageEvent;
+      try {
+        event = JSON.parse(trimmed) as CompanyProvisionStageEvent;
+      } catch {
+        continue;
+      }
+      if (event.operationId) {
+        operationId = event.operationId;
+      }
+      onEvent?.(event);
+      if (event.type === "complete" && event.company) {
+        finalCompany = event.company;
+      }
+      if (event.type === "error") {
+        failedStage = event.stage || "";
+        errorMessage = event.error || "Company creation failed.";
+      }
+      if (event.type === "stage" && event.status === "done" && event.stage) {
+        completedStages = [...new Set([...completedStages, event.stage])];
+      }
+    }
+  }
+
+  if (buffer.trim()) {
+    try {
+      const event = JSON.parse(buffer.trim()) as CompanyProvisionStageEvent;
+      onEvent?.(event);
+      if (event.type === "complete" && event.company) {
+        finalCompany = event.company;
+      }
+      if (event.type === "error") {
+        failedStage = event.stage || "";
+        errorMessage = event.error || "Company creation failed.";
+      }
+    } catch {
+      // ignore trailing partial
+    }
+  }
+
+  if (finalCompany) {
+    return { ok: true, company: finalCompany, operationId, completedStages };
+  }
+  return {
+    ok: false,
+    error: errorMessage || "Could not create company.",
+    failedStage,
+    operationId,
+    completedStages,
+  };
+}
+
 export async function listGodmodeLiveCompanies(): Promise<{
   ok: boolean;
   companies: GodmodeLiveCompany[];

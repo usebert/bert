@@ -11137,7 +11137,7 @@ function App() {
       });
       await loadGodmodeLiveCompanies({ silent: true });
       await loadCompanySheetById(masterSheetId, companyFolderId, { silent: true }).catch(() => null);
-      pushToast("Company usable", `${companyName} is ready from folder-first bootstrap.`, "success");
+      pushToast("Company usable", `${companyName} is ready.`, "success");
       setScreen("godmodeHome");
     },
     [loadCompanySheetById, loadGodmodeLiveCompanies, pushToast],
@@ -18445,6 +18445,7 @@ function App() {
                 standaloneOnboarding={screen === "onboarding"}
                 godmodeNewCompanyOnboarding={godmodeNewCompanyOnboarding}
                 onCompanyFolderConnected={(payload) => void handleGodmodeCompanyFolderConnected(payload)}
+                onBackToCompanies={() => setScreen("companies")}
                 godmodeIncompleteCompanySetup={godmodeIncompleteCompanySetup}
                 pilotShellScreen={
                   screen === "companies" || screen === "onboarding" ? screen : undefined

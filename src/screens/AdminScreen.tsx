@@ -14,7 +14,7 @@ import {
   type FormLanguageCode,
 } from "../config/templateLanguages";
 import { CompanyOnboardingInvitePanel } from "../components/admin/CompanyOnboardingInvitePanel";
-import { GodmodeConnectCompanyFolderPanel } from "../components/godmode/GodmodeConnectCompanyFolderPanel";
+import { GodmodeCreateCompanyPanel } from "../components/godmode/GodmodeCreateCompanyPanel";
 import { SitesAreasPanel } from "../components/admin/SitesAreasPanel";
 import { EmptyPanel, MiniMetric, SectionHeader } from "../components/dashboard/DashboardPrimitives";
 import {
@@ -406,6 +406,7 @@ export function AdminScreen({
   standaloneOnboarding = false,
   godmodeNewCompanyOnboarding = false,
   onCompanyFolderConnected,
+  onBackToCompanies,
   godmodeIncompleteCompanySetup = false,
   pilotFocus = undefined,
   pilotShellScreen = undefined,
@@ -537,7 +538,7 @@ export function AdminScreen({
       onboarding: {
         title: godmodeNewCompanyOnboarding ? t("godmode.createNewCompany") : t("nav.companyOnboarding"),
         intro: godmodeNewCompanyOnboarding
-          ? "Start with a clean company workspace. No previous company data will be used."
+          ? "Create a complete BERT company workspace. BERT will create the Google Drive structure, workbook, users, document folders and required records automatically."
           : SECTION_INTROS.companyOnboarding,
       },
       users: {
@@ -888,9 +889,10 @@ export function AdminScreen({
       )}
 
       {godmodeNewCompanyOnboarding ? (
-        <GodmodeConnectCompanyFolderPanel
+        <GodmodeCreateCompanyPanel
           googleConnected={googleConnected}
-          onConnected={(company) =>
+          onBackToCompanies={onBackToCompanies}
+          onCreated={(company) =>
             onCompanyFolderConnected?.({
               companyId: company.companyId,
               companyFolderId: company.companyFolderId,

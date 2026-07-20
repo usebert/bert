@@ -130,6 +130,7 @@ import {
   installCompanyFolderConnectRoutes,
   resolveCompanyFromFolder,
 } from "./company-service.mjs";
+import { installCompanyProvisioningRoutes } from "./company-provisioning-routes.mjs";
 import {
   rowsToRecords as workbookRowsToRecords,
   getTabValues as workbookGetTabValues,
@@ -7498,6 +7499,29 @@ installCompanyFolderConnectRoutes(app, {
   currentSchemaVersion: CURRENT_SCHEMA_VERSION,
   authIndex: authIndexApi,
   getCompanyWorkspaceRegistryDeps,
+  ...getWorkbookServiceDeps(),
+});
+
+installCompanyProvisioningRoutes(app, {
+  getAuthedClient,
+  envConfigured,
+  requireGoogleWorkspaceSession,
+  requireMasterOnlyActor,
+  google,
+  resolveLiveCompaniesFolder,
+  getCompanyUsersDeps,
+  getCompanyWorkspaceRegistryDeps,
+  authIndex: authIndexApi,
+  ensureTabExists,
+  ensureColumns,
+  getWorkbook,
+  getTabValues,
+  withSheetsQuotaRetry,
+  safeLower,
+  getConfig,
+  updateConfig,
+  ensureTabsAndColumns,
+  currentSchemaVersion: CURRENT_SCHEMA_VERSION,
   ...getWorkbookServiceDeps(),
 });
 

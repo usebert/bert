@@ -423,6 +423,8 @@ export type AdminScreenProps = {
     masterSheetId: string;
     workbookId: string;
   }) => void;
+  /** Master Godmode: return to Companies list after create-company success. */
+  onBackToCompanies?: () => void;
   /** Master Godmode: resume setup for a selected company without a linked master sheet. */
   godmodeIncompleteCompanySetup?: boolean;
   /** Paid-pilot nav: focus Companies / Users / Invites content. */
