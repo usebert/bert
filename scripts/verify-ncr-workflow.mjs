@@ -15,6 +15,10 @@ import {
 } from "../shared/ncr.mjs";
 import { buildLiveDashboardFromSources } from "../shared/live-dashboard.mjs";
 import { isWorkbookRowArchived } from "../shared/archive.mjs";
+import {
+  appendNcrsFromCheckCompletion,
+  isValidNcrResolvedContext,
+} from "../server/ncr-service.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 let checks = 0;
@@ -40,11 +44,17 @@ assert(NCR_TAB_COLUMNS.includes("NCR ID") && NCR_TAB_COLUMNS.includes("Archived"
 
 const ncrService = read("server/ncr-service.mjs");
 assert(ncrService.includes("appendNcrsFromCheckCompletion"), "2: server appends NCRs on check completion");
+assert(ncrService.includes("isValidNcrResolvedContext"), "2a: NCR writer validates resolvedContext");
+assert(ncrService.includes("resolveNcrWriteContext"), "2a1: NCR writer coalesces resolvedContext vs resolve");
 assert(ncrService.includes("NCR_WRITE_FAILED"), "2b: safe NCR write error code");
 assert(ncrService.includes("NCR_DUPLICATE_SKIPPED"), "2c: duplicate NCR protection code");
 assert(ncrService.includes("local::"), "2d: NCR dedupe includes local submission id");
 
 const completion = read("server/completion-service.mjs");
+assert(
+  completion.includes("resolvedContext: eligibility.resolvedContext"),
+  "2a2: completion passes server-resolved context to NCR writer",
+);
 assert(completion.includes("appendNcrsFromCheckCompletion"), "3: completion service writes NCR rows");
 assert(completion.includes("findings: input.findings"), "3b: findings passed to NCR writer");
 assert(completion.includes('buildAuditResultRow'), "3c: audit result row written on check completion");
@@ -54,6 +64,74 @@ assert(
 );
 assert(completion.includes("CHECK_COMPLETION_ROUTE_TIMEOUT_MS = 120_000"), "3e: route timeout budget increased");
 assert(completion.includes("ncrWriteWarningFromResult"), "3f: NCR failure returns partial success after audit write");
+
+{
+  assert(
+    isValidNcrResolvedContext({
+      ok: true,
+      companyFolderId: CO,
+      masterSheetId: "sheet-ncr-test",
+    }),
+    "3g: valid resolvedContext accepted for NCR writes",
+  );
+  assert(
+    !isValidNcrResolvedContext({
+      ok: true,
+      companyFolderId: CO,
+    }),
+    "3h: resolvedContext without masterSheetId rejected",
+  );
+  assert(
+    !isValidNcrResolvedContext(
+      { ok: true, companyFolderId: CO, masterSheetId: "sheet-a" },
+      { companyFolderId: CO, masterSheetId: "sheet-b" },
+    ),
+    "3i: resolvedContext must match input masterSheetId when both provided",
+  );
+
+  let resolveCallCount = 0;
+  const ncrRows = [];
+  const mockDeps = {
+    resolveCompanyScheduleContext: async () => {
+      resolveCallCount += 1;
+      return { ok: true, companyFolderId: CO, masterSheetId: "sheet-should-not-resolve" };
+    },
+    readTabRecords: async () => ({ records: [] }),
+    appendTabRows: async (_auth, _deps, _sheetId, tabName, _columns, rows = []) => {
+      if (tabName === NCR_TAB) {
+        ncrRows.push(...rows);
+      }
+      return { ok: true, written: rows.length };
+    },
+  };
+
+  const withResolved = await appendNcrsFromCheckCompletion({}, mockDeps, {
+    companyFolderId: CO,
+    masterSheetId: "sheet-ncr-test",
+    resolvedContext: {
+      ok: true,
+      companyFolderId: CO,
+      masterSheetId: "sheet-ncr-test",
+    },
+    auditId: "audit-resolved",
+    resultId: "result-resolved",
+    findings: [{ questionId: "q1", questionText: "Test?", answer: "nc" }],
+  });
+  assert(withResolved.ok && withResolved.written === 1, "3j: NCR append succeeds with resolvedContext");
+  assert(resolveCallCount === 0, "3k: resolveCompanyScheduleContext skipped when resolvedContext valid");
+  assert(ncrRows.length === 1 && ncrRows[0]["Source Question ID"] === "q1", "3l: NCR row written via resolved context");
+
+  resolveCallCount = 0;
+  ncrRows.length = 0;
+  const withoutResolved = await appendNcrsFromCheckCompletion({}, mockDeps, {
+    companyFolderId: CO,
+    auditId: "audit-fallback",
+    resultId: "result-fallback",
+    findings: [{ questionId: "q2", questionText: "Test?", answer: "fail" }],
+  });
+  assert(withoutResolved.ok && withoutResolved.written === 1, "3m: NCR append succeeds without resolvedContext");
+  assert(resolveCallCount === 1, "3n: resolveCompanyScheduleContext used when resolvedContext absent");
+}
 
 const routes = read("server/core-workflow-routes.mjs");
 assert(routes.includes('app.post("/api/companies/:companyFolderId/ncrs"'), "4: folder-first NCR save route");

@@ -97,11 +97,52 @@ function summarizeCreatedNcr(row, evidenceRefs = []) {
   };
 }
 
+/** True when server-resolved context has the fields required for NCR writes. */
+export function isValidNcrResolvedContext(resolvedContext, input = {}) {
+  if (!resolvedContext || resolvedContext.ok !== true) {
+    return false;
+  }
+  const companyFolderId = trim(resolvedContext.companyFolderId || resolvedContext.companyId);
+  const masterSheetId = trim(resolvedContext.masterSheetId);
+  if (!companyFolderId || !masterSheetId) {
+    return false;
+  }
+  const inputFolderId = trim(input.companyFolderId || input.companyId);
+  if (inputFolderId && inputFolderId !== companyFolderId) {
+    return false;
+  }
+  const inputMasterSheetId = trim(input.masterSheetId);
+  if (inputMasterSheetId && inputMasterSheetId !== masterSheetId) {
+    return false;
+  }
+  return true;
+}
+
+async function resolveNcrWriteContext(auth, deps, input = {}) {
+  if (isValidNcrResolvedContext(input.resolvedContext, input)) {
+    const resolved = input.resolvedContext;
+    return {
+      ok: true,
+      companyId: trim(resolved.companyFolderId || resolved.companyId),
+      companyFolderId: trim(resolved.companyFolderId || resolved.companyId),
+      companyName: trim(resolved.companyName),
+      masterSheetId: trim(resolved.masterSheetId),
+      alternateIds: resolved.alternateIds,
+      registryRecord: resolved.registryRecord ?? null,
+    };
+  }
+  const resolveFn =
+    typeof deps?.resolveCompanyScheduleContext === "function"
+      ? deps.resolveCompanyScheduleContext
+      : resolveCompanyScheduleContext;
+  return resolveFn(auth, deps, input);
+}
+
 /**
  * Append NCR rows for fail/nc findings after check completion.
  */
 export async function appendNcrsFromCheckCompletion(auth, deps, input = {}) {
-  const context = await resolveCompanyScheduleContext(auth, deps, input);
+  const context = await resolveNcrWriteContext(auth, deps, input);
   if (!context.ok) {
     return context;
   }

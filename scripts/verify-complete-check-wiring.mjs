@@ -133,4 +133,20 @@ assert(
   "4g: client timeout allows server route budget",
 );
 
+const ncrService = read("server/ncr-service.mjs");
+assert(
+  completionService.includes("resolvedContext: eligibility.resolvedContext"),
+  "4h: complete-check passes server-resolved context into NCR creation",
+);
+assert(ncrService.includes("isValidNcrResolvedContext"), "4i: NCR writer validates resolvedContext before reuse");
+assert(ncrService.includes("resolveNcrWriteContext"), "4j: NCR writer coalesces resolvedContext vs resolve fallback");
+assert(
+  /appendNcrsFromCheckCompletion[\s\S]{0,1200}resolveNcrWriteContext/.test(ncrService),
+  "4k: appendNcrsFromCheckCompletion uses resolveNcrWriteContext",
+);
+assert(
+  /resolveNcrWriteContext[\s\S]{0,600}resolveCompanyScheduleContext/.test(ncrService),
+  "4l: NCR writer falls back to resolveCompanyScheduleContext when resolvedContext absent",
+);
+
 console.log(`[verify:complete-check-wiring] OK — ${caseCount} cases passed`);

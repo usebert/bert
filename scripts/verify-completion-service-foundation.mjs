@@ -40,6 +40,7 @@ const godmodeService = read("server/godmode-service.mjs");
 assert(pkg.scripts["verify:completion-service-foundation"], "1: npm script registered");
 assert(completionService.includes("verifyScheduleCompletionEligibility"), "2: verifyScheduleCompletionEligibility exported");
 assert(completionService.includes("submitCompletedCheck"), "3: submitCompletedCheck exported");
+assert(completionService.includes("resolvedContext: context"), "3b: eligibility exposes server-resolved context for NCR reuse");
 assert(completionService.includes("listAuditResults"), "4: listAuditResults exported");
 assert(completionService.includes("buildAuditResultRow"), "5: buildAuditResultRow exported");
 assert(completionService.includes("readTabRecords"), "6: reads AuditResults via workbookService readTabRecords");

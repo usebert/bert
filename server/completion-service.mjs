@@ -442,6 +442,7 @@ export async function verifyScheduleCompletionEligibility(auth, deps, input = {}
     companyFolderId: context.companyFolderId,
     masterSheetId: context.masterSheetId,
     email,
+    resolvedContext: context,
   };
 }
 
@@ -635,6 +636,7 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
           companyId: eligibility.companyFolderId,
           companyFolderId: eligibility.companyFolderId,
           masterSheetId: eligibility.masterSheetId,
+          resolvedContext: eligibility.resolvedContext,
           resultId: row["Result ID"],
           auditId,
           auditName,
