@@ -10,7 +10,9 @@ import {
   isActiveMyCheckScheduleStatus,
   listMyChecks,
   listSchedulerAssignees,
+  resolveCompanyScheduleContext,
   scheduleMatchesCompanyFolder,
+  tryResolveTrustedCompanyScheduleContext,
 } from "../server/schedule-service.mjs";
 import { buildAvailableScheduleAssigneesFromUsers } from "../shared/schedule-assignees.mjs";
 import { isScheduleAssignedToUser } from "../shared/schedule-assignment.mjs";
@@ -58,6 +60,11 @@ assert(serverMain.includes("listSchedulerAssignees"), "13: legacy assignee route
 assert(!assigneeService.includes("session-fallback"), "14: no session-fallback assignee path");
 assert(!assigneeService.includes("auth-index"), "15: no auth-index assignee path");
 assert(!scheduleService.includes("isAuditorUser"), "16: no Auditor-only filter helper");
+assert(scheduleService.includes("tryResolveTrustedCompanyScheduleContext"), "17b: trusted schedule context fast path exported");
+assert(scheduleService.includes("logCompanyScheduleContextResolve"), "17c: schedule context resolve logging");
+assert(scheduleService.includes("skippedFolderDiscovery"), "17d: folder discovery skip flag logged");
+assert(read("server/completion-service.mjs").includes("trustSessionContext"), "17e: completion passes trustSessionContext");
+assert(read("server/briefings-service.mjs").includes("trustSessionContext"), "17f: briefings passes trustSessionContext");
 assert(!scheduleService.includes("buildSessionActorAssignee"), "17: no session actor assignee fallback");
 
 const companyFolderId = "folder-company-a";
@@ -208,5 +215,78 @@ const assigneeResult = await listSchedulerAssignees(
 assert(assigneeResult.ok, "37: listSchedulerAssignees succeeds with mock listActiveUsers");
 assert(assigneeResult.assignees.length === activeUsers.length, "38: mock assignees include all ACTIVE roles");
 assert(userService.includes("listActiveUsers"), "39: userService exports listActiveUsers");
+
+{
+  let folderResolveCalls = 0;
+  const mockDeps = {
+    masterSheetCache: {
+      getEntry: (id) =>
+        id === companyFolderId
+          ? { masterSheetId: "sheet-123", companyName: "Test Co", cachedAt: Date.now() }
+          : null,
+    },
+    resolveCompanyFromFolder: async () => {
+      folderResolveCalls += 1;
+      return { ok: true, companyFolderId, masterSheetId: "sheet-should-not-resolve" };
+    },
+    resolveCompanyScheduleContext: undefined,
+  };
+
+  const trusted = await tryResolveTrustedCompanyScheduleContext({}, mockDeps, {
+    companyFolderId,
+    masterSheetId: "sheet-123",
+    trustSessionContext: true,
+  });
+  assert(trusted?.ok && trusted.masterSheetId === "sheet-123", "40: session-trusted context resolves");
+  assert(trusted.contextSource === "session", "40b: session context source");
+  assert(trusted.skippedFolderDiscovery === true, "40c: folder discovery skipped on session path");
+
+  folderResolveCalls = 0;
+  const cached = await tryResolveTrustedCompanyScheduleContext({}, mockDeps, {
+    companyFolderId,
+  });
+  assert(cached?.ok && cached.masterSheetId === "sheet-123", "41: cache-backed context resolves");
+  assert(cached.contextSource === "cache", "41b: cache context source");
+
+  const mismatch = await tryResolveTrustedCompanyScheduleContext({}, mockDeps, {
+    companyFolderId,
+    masterSheetId: "sheet-other",
+  });
+  assert(mismatch === null, "41c: mismatched client masterSheetId rejected without session trust");
+
+  folderResolveCalls = 0;
+  const resolved = await resolveCompanyScheduleContext(
+    {},
+    {
+      ...mockDeps,
+      resolveCompanyFromFolder: mockDeps.resolveCompanyFromFolder,
+      resolveCompanyById: async () => null,
+    },
+    {
+      companyFolderId,
+      masterSheetId: "sheet-123",
+      trustSessionContext: true,
+    },
+  );
+  assert(resolved.ok && resolved.masterSheetId === "sheet-123", "42: resolveCompanyScheduleContext uses trusted fast path");
+  assert(folderResolveCalls === 0, "42b: resolveCompanyFromFolder skipped on trusted fast path");
+
+  folderResolveCalls = 0;
+  const mockAuth = { credentials: { access_token: "test-token" } };
+  const fallback = await resolveCompanyScheduleContext(
+    mockAuth,
+    {
+      resolveCompanyFromFolder: async () => {
+        folderResolveCalls += 1;
+        return { ok: true, companyFolderId, masterSheetId: "sheet-fallback" };
+      },
+      resolveCompanyById: async () => null,
+      masterSheetCache: { getEntry: () => null },
+    },
+    { companyFolderId },
+  );
+  assert(fallback.ok && fallback.masterSheetId === "sheet-fallback", "43: missing trusted context falls back to folder resolve");
+  assert(folderResolveCalls === 1, "43b: folder resolve used when trusted context unavailable");
+}
 
 console.log(`[verify:schedule-service-foundation] OK — ${caseCount} cases passed`);

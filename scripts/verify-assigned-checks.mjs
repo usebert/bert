@@ -1168,6 +1168,8 @@ assert(read("src/utils/auditAccess.ts").includes("buildCompleteWorkAssignedAudit
   assert(read("shared/schedule-due.mjs").includes("isDueNow"), "17k: shared schedule due module exists");
   assert(read("src/utils/scheduleDue.ts").includes("resolveScheduleDueOccurrence"), "17l: client schedule due mirror exists");
   assert(read("server/schedule-service.mjs").includes("enrichSchedulesWithDueOccurrence"), "17m: listMyChecks enriches computed due");
+  assert(read("server/schedule-service.mjs").includes("tryResolveTrustedCompanyScheduleContext"), "17n: assigned-checks can use trusted workbook fast path");
+  assert(read("server/core-workflow-routes.mjs").includes("trustSessionContext"), "17o: assigned-checks route forwards session trust flag");
 }
 
 console.log("[verify:assigned-checks] OK: assigned-check contract verified");

@@ -651,10 +651,16 @@ async function resolveCompanyContext(auth, deps, actor, companyFolderId) {
     typeof deps?.resolveCompanyScheduleContext === "function"
       ? deps.resolveCompanyScheduleContext
       : resolveCompanyScheduleContext;
+  const actorFolderId = trim(actor?.companyFolderId || actor?.companyId);
+  const sessionMasterSheetId = trim(actor?.masterSheetId);
+  const trustSessionContext =
+    Boolean(actorFolderId) && actorFolderId === trim(companyFolderId) && Boolean(sessionMasterSheetId);
   return resolver(auth, deps, {
     companyFolderId,
     companyId: companyFolderId,
-    masterSheetId: trim(actor?.masterSheetId),
+    masterSheetId: trustSessionContext ? sessionMasterSheetId : "",
+    trustSessionContext,
+    companyName: trim(actor?.companyName),
   });
 }
 

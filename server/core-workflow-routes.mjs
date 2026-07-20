@@ -1585,6 +1585,13 @@ export function installCoreWorkflowRoutes(app, deps) {
     }
 
     try {
+      const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || "").trim();
+      const sessionMasterSheetId = String(actor?.masterSheetId || "").trim();
+      const trustSessionContext =
+        actor?.kind === "company" &&
+        Boolean(sessionMasterSheetId) &&
+        sessionCompanyFolderId === companyFolderId;
+
       const result = await submitCompletedCheck(
         authed,
         { ...registryDeps, ...scheduleDeps },
@@ -1596,6 +1603,8 @@ export function installCoreWorkflowRoutes(app, deps) {
           companyId: companyFolderId,
           companyFolderId,
           companyName: String(req.body?.companyName || actor?.companyName || "").trim(),
+          masterSheetId: trustSessionContext ? sessionMasterSheetId : "",
+          trustSessionContext,
           auditId: req.body?.auditId,
           auditName: req.body?.auditName,
           areaId: req.body?.areaId,

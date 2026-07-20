@@ -148,5 +148,17 @@ assert(
   /resolveNcrWriteContext[\s\S]{0,600}resolveCompanyScheduleContext/.test(ncrService),
   "4l: NCR writer falls back to resolveCompanyScheduleContext when resolvedContext absent",
 );
+assert(
+  completionService.includes("trustSessionContext: input.trustSessionContext === true"),
+  "4m: completion eligibility forwards session-trusted context flag",
+);
+assert(
+  coreRoutes.includes("trustSessionContext") && coreRoutes.includes("sessionMasterSheetId"),
+  "4n: complete-check route derives session-trusted workbook context",
+);
+assert(
+  read("server/schedule-service.mjs").includes("tryResolveTrustedCompanyScheduleContext"),
+  "4o: schedule service exposes trusted workbook context fast path",
+);
 
 console.log(`[verify:complete-check-wiring] OK — ${caseCount} cases passed`);

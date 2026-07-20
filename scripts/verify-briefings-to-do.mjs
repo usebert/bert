@@ -508,4 +508,13 @@ assert(mapRecordToBriefingRecipientProfile({ Name: "No Email", Status: "active" 
 const failureShape = briefingApiFailure("TEST_CODE", "Safe user message", "Optional detail");
 assert(failureShape.ok === false && failureShape.error === "Safe user message", "ERR: briefingApiFailure shape");
 
+assert(
+  read("server/briefings-service.mjs").includes("trustSessionContext"),
+  "CTX: briefings resolver forwards session-trusted workbook context",
+);
+assert(
+  read("server/schedule-service.mjs").includes("tryResolveTrustedCompanyScheduleContext"),
+  "CTX: schedule service trusted workbook fast path exists",
+);
+
 console.log(`verify:briefings-to-do — ${caseCount} checks OK`);

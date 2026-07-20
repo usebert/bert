@@ -238,6 +238,125 @@ function readCachedMasterSheetId(deps, companyFolderId) {
   return String(entry?.masterSheetId || "").trim();
 }
 
+function logCompanyScheduleContextResolve(meta = {}) {
+  console.info("[company-schedule-context]", meta);
+}
+
+function enrichScheduleContextWithRegistry(base, registryRecord) {
+  if (!base?.ok || !registryRecord) {
+    return base;
+  }
+  const extraIds = [
+    registryRecord.companyId,
+    registryRecord.rootFolderId,
+    registryRecord.companyFolderId,
+  ]
+    .map((entry) => String(entry || "").trim())
+    .filter(Boolean);
+  const alternateIds = [...new Set([...(base.alternateIds || []), ...extraIds])].filter(
+    (entry, index, all) => all.indexOf(entry) === index,
+  );
+  const resolvedCompanyFolderId = String(
+    registryRecord.rootFolderId ||
+      registryRecord.companyFolderId ||
+      registryRecord.companyId ||
+      base.companyFolderId,
+  ).trim();
+  const companyName =
+    base.companyName ||
+    String(registryRecord.companyName || registryRecord.name || registryRecord.companyFolderName || "").trim();
+  return {
+    ...base,
+    companyId: resolvedCompanyFolderId || base.companyId,
+    companyFolderId: resolvedCompanyFolderId || base.companyFolderId,
+    companyName,
+    alternateIds,
+    registryRecord,
+  };
+}
+
+/**
+ * Trusted fast path — skip Drive folder discovery when server-side folder + sheet are known.
+ * Returns null when context cannot be trusted and full resolve should run.
+ */
+export async function tryResolveTrustedCompanyScheduleContext(auth, deps, input = {}) {
+  const companyFolderIdHint = String(input.companyFolderId || input.companyId || "").trim();
+  const companyIdHint = String(input.companyId || companyFolderIdHint).trim();
+  if (!companyFolderIdHint) {
+    return null;
+  }
+
+  let masterSheetId = String(input.masterSheetId || "").trim();
+  let companyName = String(input.companyName || "").trim();
+  let contextSource = "";
+  let registryRecord = null;
+
+  const cacheEntry =
+    deps?.masterSheetCache && typeof deps.masterSheetCache.getEntry === "function"
+      ? deps.masterSheetCache.getEntry(companyFolderIdHint)
+      : null;
+  const cachedMasterSheetId = readCachedMasterSheetId(deps, companyFolderIdHint);
+
+  if (input.trustSessionContext === true && masterSheetId) {
+    contextSource = "session";
+  } else if (cachedMasterSheetId) {
+    if (masterSheetId && masterSheetId !== cachedMasterSheetId) {
+      return null;
+    }
+    masterSheetId = cachedMasterSheetId;
+    contextSource = "cache";
+    companyName = companyName || String(cacheEntry?.companyName || "").trim();
+  } else if (masterSheetId) {
+    return null;
+  }
+
+  if (!masterSheetId && (companyIdHint || companyFolderIdHint) && hasUsableGoogleAuth(auth)) {
+    registryRecord = await resolveCompanyById(auth, deps, companyIdHint || companyFolderIdHint).catch(() => null);
+    const registryMasterSheetId = String(registryRecord?.masterSheetId || "").trim();
+    if (registryMasterSheetId) {
+      masterSheetId = registryMasterSheetId;
+      companyName =
+        companyName ||
+        String(registryRecord.companyName || registryRecord.name || registryRecord.companyFolderName || "").trim();
+      contextSource = "registry";
+    }
+  }
+
+  if (!masterSheetId) {
+    return null;
+  }
+
+  const base = buildSessionScheduleContext(
+    {
+      companyFolderId: companyFolderIdHint,
+      companyId: companyIdHint,
+      masterSheetId,
+      companyName: companyName || String(cacheEntry?.companyName || "").trim(),
+    },
+    deps,
+  );
+  if (!base.ok) {
+    return null;
+  }
+
+  let context = {
+    ...base,
+    contextSource: contextSource || base.contextSource || "session",
+    skippedFolderDiscovery: true,
+  };
+
+  if (registryRecord) {
+    context = enrichScheduleContextWithRegistry(context, registryRecord);
+  } else if (input.trustSessionContext === true && (companyIdHint || companyFolderIdHint)) {
+    registryRecord = await resolveCompanyById(auth, deps, companyIdHint || companyFolderIdHint).catch(() => null);
+    if (registryRecord) {
+      context = enrichScheduleContextWithRegistry(context, registryRecord);
+    }
+  }
+
+  return context;
+}
+
 /** Fast path — trust signed-in session company folder + master sheet (skip Drive folder resolve). */
 export function buildSessionScheduleContext(input = {}, deps = {}) {
   const companyFolderId = String(input.companyFolderId || input.companyId || "").trim();
@@ -306,6 +425,19 @@ function resolveFolderContextFn(deps) {
 }
 
 export async function resolveCompanyScheduleContext(auth, deps, input = {}) {
+  const resolveStartedAt = Date.now();
+  const trusted = await tryResolveTrustedCompanyScheduleContext(auth, deps, input);
+  if (trusted?.ok) {
+    logCompanyScheduleContextResolve({
+      companyFolderId: trusted.companyFolderId,
+      masterSheetId: trusted.masterSheetId,
+      contextSource: trusted.contextSource || "session",
+      skippedFolderDiscovery: trusted.skippedFolderDiscovery === true,
+      durationMs: Date.now() - resolveStartedAt,
+    });
+    return trusted;
+  }
+
   const companyIdHint = String(input.companyId || "").trim();
   const companyFolderIdHint = String(input.companyFolderId || companyIdHint).trim();
   let companyName = String(input.companyName || "").trim();
@@ -363,6 +495,13 @@ export async function resolveCompanyScheduleContext(auth, deps, input = {}) {
     .filter((entry, index, all) => all.indexOf(entry) === index);
 
   if (!resolvedCompanyFolderId || !masterSheetId) {
+    logCompanyScheduleContextResolve({
+      companyFolderId: companyFolderIdHint,
+      contextSource: "full_resolve",
+      skippedFolderDiscovery: false,
+      ok: false,
+      durationMs: Date.now() - resolveStartedAt,
+    });
     return {
       ok: false,
       code: "COMPANY_CONTEXT_MISSING",
@@ -372,6 +511,14 @@ export async function resolveCompanyScheduleContext(auth, deps, input = {}) {
     };
   }
 
+  logCompanyScheduleContextResolve({
+    companyFolderId: resolvedCompanyFolderId,
+    masterSheetId,
+    contextSource: "full_resolve",
+    skippedFolderDiscovery: false,
+    durationMs: Date.now() - resolveStartedAt,
+  });
+
   return {
     ok: true,
     companyId: resolvedCompanyFolderId,
@@ -380,6 +527,8 @@ export async function resolveCompanyScheduleContext(auth, deps, input = {}) {
     masterSheetId,
     alternateIds,
     registryRecord,
+    contextSource: "full_resolve",
+    skippedFolderDiscovery: false,
   };
 }
 
@@ -541,35 +690,6 @@ async function readCanonicalScheduleRecords(auth, deps, masterSheetId) {
 }
 
 async function resolveScheduleReadContext(auth, deps, input = {}) {
-  if (
-    input.trustSessionContext === true &&
-    String(input.companyFolderId || input.companyId || "").trim() &&
-    String(input.masterSheetId || "").trim()
-  ) {
-    const base = buildSessionScheduleContext(input, deps);
-    if (!base.ok) {
-      return base;
-    }
-    const registryRecord = await resolveCompanyById(
-      auth,
-      deps,
-      String(input.companyFolderId || input.companyId || "").trim(),
-    ).catch(() => null);
-    if (registryRecord) {
-      const extraIds = [
-        registryRecord.companyId,
-        registryRecord.rootFolderId,
-        registryRecord.companyFolderId,
-      ]
-        .map((entry) => String(entry || "").trim())
-        .filter(Boolean);
-      base.alternateIds = [...new Set([...(base.alternateIds || []), ...extraIds])].filter(
-        (entry, index, all) => all.indexOf(entry) === index,
-      );
-      base.registryRecord = registryRecord;
-    }
-    return base;
-  }
   return resolveCompanyScheduleContext(auth, deps, input);
 }
 

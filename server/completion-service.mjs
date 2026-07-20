@@ -372,6 +372,8 @@ export async function verifyScheduleCompletionEligibility(auth, deps, input = {}
         companyId: companyFolderId,
         companyFolderId,
         companyName: input.companyName,
+        masterSheetId: input.masterSheetId,
+        trustSessionContext: input.trustSessionContext === true,
       }),
       "resolve_company_schedule_context",
     );
@@ -501,6 +503,8 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
       email,
       companyFolderId,
       companyName: input.companyName,
+      masterSheetId: input.masterSheetId,
+      trustSessionContext: input.trustSessionContext === true,
       startedAt,
     });
     stageMs.eligibility = Date.now() - validateStart;
