@@ -19,6 +19,7 @@ import {
   sanitizeCompanyFolderId,
   sanitizeGoogleSpreadsheetId,
 } from "../shared/google-drive-id.mjs";
+import { readTabRecords, appendTabRows } from "./workbook-service.mjs";
 import { installDocumentRoutes } from "./document-routes.mjs";
 import {
   canListCompanySchedules,
