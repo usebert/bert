@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { CompanyDocumentUser, CreateDocumentInput, DocumentFolder } from "../../types/documents";
 import {
   DOCUMENT_STATUSES,
   DOCUMENT_VISIBILITY_OPTIONS,
   EMPTY_DOCUMENT_FORM,
 } from "../../types/documents";
+import {
+  evaluateAddDocumentDialogViewportLayout,
+  type LayoutRect,
+} from "./addDocumentDialogLayout";
 
 type Props = {
   open: boolean;
@@ -16,6 +21,7 @@ type Props = {
 };
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
+const OVERLAY_Z_INDEX = 10000;
 
 async function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -26,10 +32,28 @@ async function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
+function toLayoutRect(domRect: DOMRect): LayoutRect {
+  return {
+    top: domRect.top,
+    bottom: domRect.bottom,
+    left: domRect.left,
+    right: domRect.right,
+    width: domRect.width,
+    height: domRect.height,
+  };
+}
+
+function isDevDiagnosticsEnabled() {
+  return Boolean(import.meta.env?.DEV) && String(import.meta.env?.VITE_DOCUMENTS_MODAL_DEBUG || "") === "1";
+}
+
 export function AddDocumentDialog({ open, folders, users, saving = false, onClose, onSubmit }: Props) {
   const [form, setForm] = useState<CreateDocumentInput>({ ...EMPTY_DOCUMENT_FORM });
   const [error, setError] = useState("");
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const headerRef = useRef<HTMLElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
+  const footerRef = useRef<HTMLElement | null>(null);
   const firstFieldRef = useRef<HTMLInputElement | null>(null);
 
   const folderOptions = useMemo(
@@ -38,24 +62,84 @@ export function AddDocumentDialog({ open, folders, users, saving = false, onClos
   );
 
   useEffect(() => {
-    if (!open) {
+    if (!open || typeof document === "undefined") {
       return;
     }
-    const previousOverflow = document.body.style.overflow;
+
+    const previousBody = {
+      overflow: document.body.style.overflow,
+      position: document.body.style.position,
+      top: document.body.style.top,
+      width: document.body.style.width,
+    };
+    const windowScrollY = window.scrollY;
+    const stage = document.querySelector(".qms-screen-stage") as HTMLElement | null;
+    const previousStageOverflow = stage?.style.overflow || "";
+    const stageScrollTop = stage?.scrollTop || 0;
+
     document.body.style.overflow = "hidden";
-    if (bodyRef.current) {
-      bodyRef.current.scrollTop = 0;
+    document.body.style.position = "fixed";
+    document.body.style.top = `-${windowScrollY}px`;
+    document.body.style.width = "100%";
+    if (stage) {
+      stage.style.overflow = "hidden";
     }
-    const focusTimer = window.setTimeout(() => {
-      firstFieldRef.current?.focus({ preventScroll: true });
-    }, 0);
+
+    let cancelled = false;
+    const frame = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        if (cancelled) {
+          return;
+        }
+        if (bodyRef.current) {
+          bodyRef.current.scrollTop = 0;
+        }
+        const field = firstFieldRef.current;
+        if (field) {
+          field.scrollIntoView({ block: "nearest", inline: "nearest" });
+          field.focus({ preventScroll: true });
+        }
+
+        if (
+          isDevDiagnosticsEnabled() &&
+          dialogRef.current &&
+          headerRef.current &&
+          footerRef.current &&
+          bodyRef.current &&
+          firstFieldRef.current
+        ) {
+          const snapshot = {
+            viewportWidth: window.innerWidth,
+            viewportHeight: window.innerHeight,
+            dialog: toLayoutRect(dialogRef.current.getBoundingClientRect()),
+            header: toLayoutRect(headerRef.current.getBoundingClientRect()),
+            footer: toLayoutRect(footerRef.current.getBoundingClientRect()),
+            firstField: toLayoutRect(firstFieldRef.current.getBoundingClientRect()),
+            bodyScrollHeight: bodyRef.current.scrollHeight,
+            bodyClientHeight: bodyRef.current.clientHeight,
+          };
+          const layout = evaluateAddDocumentDialogViewportLayout(snapshot);
+          console.info("[documents-modal-layout]", { snapshot, layout });
+        }
+      });
+    });
+
     return () => {
-      document.body.style.overflow = previousOverflow;
-      window.clearTimeout(focusTimer);
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+      document.body.style.overflow = previousBody.overflow;
+      document.body.style.position = previousBody.position;
+      document.body.style.top = previousBody.top;
+      document.body.style.width = previousBody.width;
+      window.scrollTo(0, windowScrollY);
+      if (stage) {
+        stage.style.overflow = previousStageOverflow;
+        stage.scrollTop = stageScrollTop;
+      }
     };
   }, [open]);
 
-  if (!open) {
+  if (!open || typeof document === "undefined") {
     return null;
   }
 
@@ -99,10 +183,21 @@ export function AddDocumentDialog({ open, folders, users, saving = false, onClos
     }
   };
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      data-testid="add-document-overlay"
       role="presentation"
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: OVERLAY_Z_INDEX,
+        overflow: "hidden",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+        backgroundColor: "rgba(15, 23, 42, 0.4)",
+      }}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
           onClose();
@@ -110,14 +205,37 @@ export function AddDocumentDialog({ open, folders, users, saving = false, onClos
       }}
     >
       <div
+        ref={dialogRef}
+        data-testid="add-document-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="add-document-dialog-title"
-        className="flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"
-        style={{ maxHeight: "calc(100vh - 32px)", width: "min(100%, 42rem)" }}
+        className="rounded-2xl border border-slate-200 bg-white shadow-xl"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          width: "min(42rem, calc(100vw - 32px))",
+          maxHeight: "calc(100dvh - 32px)",
+          minHeight: 0,
+          overflow: "hidden",
+        }}
       >
-        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-          <header className="shrink-0 border-b border-slate-200 px-5 py-4 sm:px-6">
+        <form
+          onSubmit={handleSubmit}
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            flex: "1 1 auto",
+            minHeight: 0,
+            overflow: "hidden",
+          }}
+        >
+          <header
+            ref={headerRef}
+            data-testid="add-document-header"
+            className="border-b border-slate-200 px-5 py-4 sm:px-6"
+            style={{ flex: "0 0 auto" }}
+          >
             <div className="flex items-start justify-between gap-4">
               <h2 id="add-document-dialog-title" className="text-lg font-semibold text-slate-900">
                 Add controlled document
@@ -129,12 +247,23 @@ export function AddDocumentDialog({ open, folders, users, saving = false, onClos
             {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
           </header>
 
-          <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-6">
+          <div
+            ref={bodyRef}
+            data-testid="add-document-body"
+            className="px-5 py-4 sm:px-6"
+            style={{
+              flex: "1 1 auto",
+              minHeight: 0,
+              overflowY: "auto",
+              overscrollBehavior: "contain",
+            }}
+          >
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <label className="text-sm">
                 <span className="mb-1 block text-slate-600">Document Number *</span>
                 <input
                   ref={firstFieldRef}
+                  data-testid="add-document-first-field"
                   required
                   value={form.documentNumber}
                   onChange={(e) => update({ documentNumber: e.target.value })}
@@ -307,7 +436,12 @@ export function AddDocumentDialog({ open, folders, users, saving = false, onClos
             </div>
           </div>
 
-          <footer className="shrink-0 border-t border-slate-200 bg-white px-5 py-4 sm:px-6">
+          <footer
+            ref={footerRef}
+            data-testid="add-document-footer"
+            className="border-t border-slate-200 bg-white px-5 py-4 sm:px-6"
+            style={{ flex: "0 0 auto" }}
+          >
             <div className="flex justify-end gap-3">
               <button type="button" className="rounded-lg border border-slate-200 px-4 py-2 text-sm" onClick={onClose}>
                 Cancel
@@ -323,6 +457,7 @@ export function AddDocumentDialog({ open, folders, users, saving = false, onClos
           </footer>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -213,15 +213,64 @@ async function run() {
   assert(documentControlScreenSource.includes("By clause"), "legacy Document Control still has By clause");
 
   const addDialogSource = read("src/components/documents/AddDocumentDialog.tsx");
-  assert(addDialogSource.includes("fixed inset-0"), "Add Document modal overlay is fixed to viewport");
-  assert(addDialogSource.includes("calc(100vh - 32px)"), "Add Document modal caps height to viewport");
-  assert(addDialogSource.includes("overflow-hidden"), "Add Document modal shell hides outer overflow");
-  assert(addDialogSource.includes("overflow-y-auto") && addDialogSource.includes("min-h-0"), "Add Document form body scrolls internally");
-  assert(addDialogSource.includes("<header") && addDialogSource.includes("<footer"), "Add Document modal has sticky header and footer");
-  assert(addDialogSource.includes('document.body.style.overflow = "hidden"'), "Add Document locks background scroll while open");
+  assert(addDialogSource.includes("createPortal"), "Add Document modal uses createPortal");
+  assert(addDialogSource.includes("document.body"), "Add Document modal portals into document.body");
+  assert(addDialogSource.includes('position: "fixed"') || addDialogSource.includes("position: 'fixed'"), "Add Document overlay is position fixed");
+  assert(addDialogSource.includes("calc(100dvh - 32px)"), "Add Document modal uses 100dvh max-height");
+  assert(addDialogSource.includes('flexDirection: "column"') || addDialogSource.includes("flexDirection: 'column'"), "Add Document shell is column flex");
+  assert(addDialogSource.includes('minHeight: 0') || addDialogSource.includes("minHeight: 0"), "Add Document shell/body use minHeight 0");
+  assert(addDialogSource.includes("overflowY: \"auto\"") || addDialogSource.includes("overflowY: 'auto'"), "Add Document body scrolls internally");
+  assert(addDialogSource.includes("overscrollBehavior"), "Add Document body uses overscroll-behavior contain");
+  assert(addDialogSource.includes("requestAnimationFrame"), "Add Document focuses after layout via rAF");
   assert(addDialogSource.includes("scrollTop = 0"), "Add Document resets body scroll on open");
-  assert(addDialogSource.includes("firstFieldRef") && addDialogSource.includes(".focus("), "Add Document focuses first field on open");
+  assert(addDialogSource.includes('document.body.style.position = "fixed"'), "Add Document locks and preserves background scroll");
+  assert(addDialogSource.includes(".qms-screen-stage"), "Add Document also locks qms-screen-stage scroll");
   assert(addDialogSource.includes("grid-cols-1") && addDialogSource.includes("md:grid-cols-2"), "Add Document uses single column below tablet landscape");
+  assert(addDialogSource.includes("isDevDiagnosticsEnabled"), "Add Document layout diagnostics are gated");
+  assert(read("App.tsx").includes("qmsFadeSlideUp") && read("App.tsx").includes("transform: translateY"), "known transformed ancestor qms-screen-stage animation exists");
+  assert(read("src/index.css").includes("bert-section-reveal") && read("src/index.css").includes("transform: translateY"), "known transformed ancestor bert-section-enter exists");
+
+  const { evaluateAddDocumentDialogViewportLayout, rectFromValues } = await import(
+    "../shared/add-document-dialog-layout.mjs"
+  );
+
+  function assertViewportCase(label, viewportWidth, viewportHeight) {
+    const dialogWidth = Math.min(672, viewportWidth - 32);
+    const dialogHeight = Math.min(720, viewportHeight - 32);
+    const dialogTop = (viewportHeight - dialogHeight) / 2;
+    const dialogLeft = (viewportWidth - dialogWidth) / 2;
+    const headerHeight = 72;
+    const footerHeight = 72;
+    const firstFieldHeight = 56;
+    const result = evaluateAddDocumentDialogViewportLayout({
+      viewportWidth,
+      viewportHeight,
+      dialog: rectFromValues(dialogTop, dialogLeft, dialogWidth, dialogHeight),
+      header: rectFromValues(dialogTop, dialogLeft, dialogWidth, headerHeight),
+      footer: rectFromValues(dialogTop + dialogHeight - footerHeight, dialogLeft, dialogWidth, footerHeight),
+      firstField: rectFromValues(dialogTop + headerHeight + 16, dialogLeft + 20, dialogWidth - 40, firstFieldHeight),
+      bodyScrollHeight: 1400,
+      bodyClientHeight: dialogHeight - headerHeight - footerHeight,
+    });
+    assert(result.ok, `layout case ${label}: ${result.failures.join("; ") || "ok"}`);
+  }
+
+  assertViewportCase("desktop", 1440, 900);
+  assertViewportCase("1024x768", 1024, 768);
+  assertViewportCase("tablet-portrait", 768, 1024);
+  assertViewportCase("desktop-zoom-125", Math.round(1440 / 1.25), Math.round(900 / 1.25));
+
+  const offScreen = evaluateAddDocumentDialogViewportLayout({
+    viewportWidth: 1024,
+    viewportHeight: 768,
+    dialog: rectFromValues(-120, 100, 600, 700),
+    header: rectFromValues(-120, 100, 600, 72),
+    footer: rectFromValues(508, 100, 600, 72),
+    firstField: rectFromValues(-40, 120, 560, 56),
+    bodyScrollHeight: 1400,
+    bodyClientHeight: 500,
+  });
+  assert(!offScreen.ok, "layout helper rejects off-screen dialog top");
 
   assert(read("server/document-routes.mjs").includes("/api/companies/:companyFolderId/documents"), "documents list route");
   assert(read("server/document-routes.mjs").includes("document-folders/provision"), "provision route");
