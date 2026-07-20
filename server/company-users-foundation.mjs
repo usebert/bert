@@ -16,6 +16,10 @@ import {
   isValidCompanyFolderId,
   isValidGoogleSpreadsheetId,
 } from "../shared/google-drive-id.mjs";
+import {
+  dedupeCompanyProfileLoad,
+  resolveProfileLoadDedupeKey,
+} from "./company-users-profile-dedupe.mjs";
 
 const COMPANY_USERS_LOAD_FAILED = "COMPANY_USERS_LOAD_FAILED";
 const COMPANY_USERS_USER_MESSAGE = "Could not load company users.";
@@ -234,12 +238,43 @@ function logCompanyUsersTimings(stage, stageStartMs, meta = {}) {
   }
 }
 
+export function resolveTrustedWorkbookForProfiles(companyContext = {}, deps = {}) {
+  const companyFolderId = trim(companyContext.companyFolderId || companyContext.companyId);
+  const inputMasterSheetId = trim(companyContext.masterSheetId);
+  const actorFolderId = trim(companyContext.sessionActor?.companyFolderId || companyContext.sessionActor?.companyId);
+
+  if (companyContext.trustSessionContext === true && inputMasterSheetId) {
+    if (actorFolderId && actorFolderId !== companyFolderId) {
+      return { trusted: false, reason: "session_folder_mismatch" };
+    }
+    return { trusted: true, masterSheetId: inputMasterSheetId, source: "session" };
+  }
+
+  const cache = deps?.masterSheetCache;
+  const cacheEntry = cache && typeof cache.getEntry === "function" ? cache.getEntry(companyFolderId) : null;
+  const cachedMasterSheetId = trim(cacheEntry?.masterSheetId);
+  if (cachedMasterSheetId) {
+    if (inputMasterSheetId && inputMasterSheetId !== cachedMasterSheetId) {
+      return { trusted: false, reason: "untrusted_sheet_mismatch" };
+    }
+    return { trusted: true, masterSheetId: cachedMasterSheetId, source: "cache" };
+  }
+
+  if (inputMasterSheetId) {
+    return { trusted: false, reason: "untrusted_client_sheet" };
+  }
+
+  return { trusted: false, reason: "missing_trusted_sheet" };
+}
+
 async function resolveMasterSheetFromCompanyFolder(auth, deps, companyFolderId, companyName, options = {}) {
   const preferFolderResolution = options.preferFolderResolution !== false;
   const createIfMissing = options.createIfMissing === true;
   const skipRecursiveDiscovery = options.skipRecursiveDiscovery === true;
+  const resolveFolderContextFn =
+    typeof deps?.resolveCompanyFromFolder === "function" ? deps.resolveCompanyFromFolder : resolveCompanyFromFolder;
   try {
-    const resolved = await resolveCompanyFromFolder(auth, deps, companyFolderId, {
+    const resolved = await resolveFolderContextFn(auth, deps, companyFolderId, {
       companyName,
       skipFolderPlacementCheck: true,
       preferFolderResolution,
@@ -456,6 +491,26 @@ export function syncCompanyUsersCache(deps, companyContext = {}, profiles = []) 
  * Never falls back to cache/session/auth index as active-user truth.
  */
 export async function listCompanyProfiles(auth, deps, companyContext = {}) {
+  const companyFolderId = trim(companyContext.companyFolderId || companyContext.companyId);
+  const dedupeKey = resolveProfileLoadDedupeKey(companyContext, deps);
+  const trustedSheetForMeta =
+    companyContext.trustSessionContext === true ? trim(companyContext.masterSheetId) : "";
+  const cacheSheet =
+    deps?.masterSheetCache && typeof deps.masterSheetCache.getEntry === "function"
+      ? trim(deps.masterSheetCache.getEntry(companyFolderId)?.masterSheetId)
+      : "";
+  return dedupeCompanyProfileLoad(
+    dedupeKey,
+    () => listCompanyProfilesCore(auth, deps, companyContext),
+    {
+      companyFolderId: companyFolderId || undefined,
+      masterSheetId: trustedSheetForMeta || cacheSheet || undefined,
+      dedupeKey: dedupeKey || undefined,
+    },
+  );
+}
+
+async function listCompanyProfilesCore(auth, deps, companyContext = {}) {
   const startedAt = Date.now();
   const sessionActor = companyContext.sessionActor || null;
   const signedInEmail = normalizeEmail(sessionActor?.email || "");
@@ -524,30 +579,46 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
   }).catch(() => ({ ok: false, reasonCode: "FOLDER_NOT_IN_COMPANIES_ROOT" }));
 
   const masterSheetResolveStart = Date.now();
-  folderResolved = await resolveMasterSheetFromCompanyFolder(auth, deps, companyFolderId, companyName, {
-    preferFolderResolution: true,
-    createIfMissing: false,
-    skipRecursiveDiscovery: false,
-  });
-  logCompanyUsersTimings("master_sheet_resolve", masterSheetResolveStart, {
-    companyFolderId,
-    ok: folderResolved?.ok === true,
-    masterSheetId: trim(folderResolved?.masterSheetId) || undefined,
-    source: trim(folderResolved?.source) || undefined,
-  });
-  const folderSheetId = trim(folderResolved?.masterSheetId);
-  resolvedMasterSheet = folderResolved?.resolved?.masterSheet || folderResolved?.masterSheet;
-  nonNativeWorkbookName =
-    trim(resolvedMasterSheet?.source) === "non_native_workbook"
-      ? trim(resolvedMasterSheet?.masterSheetName)
-      : "";
+  const trustedWorkbook = resolveTrustedWorkbookForProfiles(companyContext, deps);
+  if (trustedWorkbook.trusted) {
+    masterSheetId = trustedWorkbook.masterSheetId;
+    masterSheetResolutionSource = trustedWorkbook.source;
+    masterSheetIdsTried.push(masterSheetId);
+    logCompanyUsersTimings("master_sheet_resolve", masterSheetResolveStart, {
+      companyFolderId,
+      ok: true,
+      masterSheetId,
+      source: trustedWorkbook.source,
+      skippedFolderDiscovery: true,
+    });
+  } else {
+    folderResolved = await resolveMasterSheetFromCompanyFolder(auth, deps, companyFolderId, companyName, {
+      preferFolderResolution: true,
+      createIfMissing: false,
+      skipRecursiveDiscovery: false,
+    });
+    logCompanyUsersTimings("master_sheet_resolve", masterSheetResolveStart, {
+      companyFolderId,
+      ok: folderResolved?.ok === true,
+      masterSheetId: trim(folderResolved?.masterSheetId) || undefined,
+      source: trim(folderResolved?.source) || undefined,
+      skippedFolderDiscovery: false,
+      fallbackReason: trustedWorkbook.reason || undefined,
+    });
+    const folderSheetId = trim(folderResolved?.masterSheetId);
+    resolvedMasterSheet = folderResolved?.resolved?.masterSheet || folderResolved?.masterSheet;
+    nonNativeWorkbookName =
+      trim(resolvedMasterSheet?.source) === "non_native_workbook"
+        ? trim(resolvedMasterSheet?.masterSheetName)
+        : "";
 
-  masterSheetId = "";
-  if (folderResolved?.ok && folderSheetId) {
-    masterSheetResolutionSource = trim(folderResolved.source) || "company_folder";
-    masterSheetId = folderSheetId;
-    companyName = trim(folderResolved.companyName) || companyName;
-    masterSheetIdsTried.push(folderSheetId);
+    masterSheetId = "";
+    if (folderResolved?.ok && folderSheetId) {
+      masterSheetResolutionSource = trim(folderResolved.source) || "company_folder";
+      masterSheetId = folderSheetId;
+      companyName = trim(folderResolved.companyName) || companyName;
+      masterSheetIdsTried.push(folderSheetId);
+    }
   }
 
   if (!masterSheetId) {

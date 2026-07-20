@@ -32,6 +32,10 @@ import {
   resolveUsernameFromUserFields,
 } from "../shared/login-username.mjs";
 import { pickUsersTabUsername } from "./users-tab-schema.mjs";
+import {
+  buildAuthIndexSyncKey,
+  dedupeAuthIndexSync,
+} from "./company-users-profile-dedupe.mjs";
 
 function resolveValidateLiveCompanyContext(deps = {}) {
   return typeof deps.validateLiveCompanyContext === "function"
@@ -1147,9 +1151,22 @@ export function createAuthIndexApi(indexPath) {
 }
 
 export async function syncAuthIndexAfterUsersRead(auth, deps, companyContext = {}) {
-  const api = deps.authIndex;
-  if (!api || typeof api.rebuildCompanyAuthIndexFromSheet !== "function") {
-    return { ok: false, skipped: true };
-  }
-  return api.rebuildCompanyAuthIndexFromSheet(auth, deps, companyContext);
+  const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
+  const masterSheetId = String(companyContext.masterSheetId || "").trim();
+  const dedupeKey = buildAuthIndexSyncKey(companyFolderId, masterSheetId);
+  return dedupeAuthIndexSync(
+    dedupeKey,
+    async () => {
+      const api = deps.authIndex;
+      if (!api || typeof api.rebuildCompanyAuthIndexFromSheet !== "function") {
+        return { ok: false, skipped: true };
+      }
+      return api.rebuildCompanyAuthIndexFromSheet(auth, deps, companyContext);
+    },
+    {
+      companyFolderId: companyFolderId || undefined,
+      masterSheetId: masterSheetId || undefined,
+      dedupeKey: dedupeKey || undefined,
+    },
+  );
 }

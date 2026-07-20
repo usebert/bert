@@ -564,6 +564,12 @@ export function installCoreWorkflowRoutes(app, deps) {
           status: "active",
         }
       : null;
+    const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || "").trim();
+    const sessionMasterSheetId = String(actor?.masterSheetId || "").trim();
+    const trustSessionContext =
+      actor?.kind === "company" &&
+      Boolean(sessionMasterSheetId) &&
+      sessionCompanyFolderId === companyFolderId;
 
     if (!envConfigured() || !authed) {
       return res.status(401).json({
@@ -589,7 +595,8 @@ export function installCoreWorkflowRoutes(app, deps) {
       const result = await listCompanyProfiles(authed, { ...registryDeps, ...getCompanyUsersDeps(), getConfig: deps.getConfig }, {
         companyId: companyFolderId,
         companyFolderId,
-        masterSheetId,
+        masterSheetId: trustSessionContext ? sessionMasterSheetId : "",
+        trustSessionContext,
         companyName,
         sessionActor,
       });
@@ -688,20 +695,28 @@ export function installCoreWorkflowRoutes(app, deps) {
     }
 
     const companyId = String(req.params?.companyId || "").trim();
-    const masterSheetId = String(req.query.masterSheetId || req.query.sheetId || "").trim();
+    const queryMasterSheetId = String(req.query.masterSheetId || req.query.sheetId || "").trim();
     const selectedArea = String(req.query.area || "").trim();
     const includeDiagnostics =
       String(req.query.diagnostics || "").trim() === "1" ||
       String(process.env.BERT_GODMODE_DIAGNOSTICS || "").trim().toLowerCase() === "true";
     const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
     const companyFolderId = String(req.query.companyFolderId || actor?.companyFolderId || companyId).trim();
+    const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || "").trim();
+    const sessionMasterSheetId = String(actor?.masterSheetId || "").trim();
+    const trustSessionContext =
+      actor?.kind === "company" &&
+      Boolean(sessionMasterSheetId) &&
+      sessionCompanyFolderId === companyFolderId;
+    const masterSheetId = trustSessionContext ? sessionMasterSheetId : queryMasterSheetId;
 
     try {
       const assigneesStart = Date.now();
       const result = await listSchedulerAssignees(authed, { ...registryDeps, ...scheduleDeps }, {
         companyId,
         companyFolderId,
-        masterSheetId,
+        masterSheetId: trustSessionContext ? sessionMasterSheetId : "",
+        trustSessionContext,
         companyName: String(req.query.companyName || "").trim(),
         selectedArea,
         includeDiagnostics,

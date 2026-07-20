@@ -154,6 +154,7 @@ async function loadSchedulerAssigneeProfiles(auth, deps, companyContext = {}) {
     masterSheetId,
     companyName,
     sessionActor: companyContext.sessionActor,
+    trustSessionContext: companyContext.trustSessionContext === true,
     includeDiagnostics: true,
   });
   logScheduleAssigneesTimings("list_active_users", listActiveUsersStart, {
@@ -1145,6 +1146,7 @@ export async function listSchedulerAssignees(auth, deps, companyContext = {}) {
       masterSheetId,
       companyName,
       sessionActor,
+      trustSessionContext: companyContext.trustSessionContext === true,
     });
     logScheduleAssigneesTimings("users_read", profilesStart, {
       companyFolderId,
