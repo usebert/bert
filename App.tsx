@@ -16256,6 +16256,7 @@ function App() {
       screen !== "complete" &&
       screen !== "auditBuilder" &&
       screen !== "auditTemplateEdit" &&
+      screen !== "documentDetail" &&
       screen !== "setupInitial" &&
       !visibleNavItems.some((item) => item.id === screen) &&
       !canRoleAccessNavItem(currentUser.role, screen)
@@ -17808,17 +17809,7 @@ function App() {
               />
             )}
 
-            {screen === "documentControl" && canRoleAccessNavItem(currentUser.role, "documentControl") && (
-              <DocumentControlScreen
-                role={currentUser.role}
-                companyFolderId={String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim()}
-                masterSheetId={archiveMasterSheetId || undefined}
-                userEmail={String(sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser)).trim().toLowerCase()}
-                offlineMode={offlineMode}
-                onBack={() => setScreen("dashboard")}
-              />
-            )}
-
+            {/* Phase 1 Controlled Documents — route key `documents` → DocumentsScreen (not legacy Document Control). */}
             {screen === "documents" && canRoleAccessNavItem(currentUser.role, "documents") && (
               <DocumentsScreen
                 role={currentUser.role}
@@ -17840,6 +17831,18 @@ function App() {
                 documentId={activeDocumentId}
                 offlineMode={offlineMode}
                 onBack={() => setScreen("documents")}
+              />
+            )}
+
+            {/* Legacy Document Control — route key `documentControl` → DocumentControlScreen. Kept separate from Phase 1 Documents. */}
+            {screen === "documentControl" && canRoleAccessNavItem(currentUser.role, "documentControl") && (
+              <DocumentControlScreen
+                role={currentUser.role}
+                companyFolderId={String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim()}
+                masterSheetId={archiveMasterSheetId || undefined}
+                userEmail={String(sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser)).trim().toLowerCase()}
+                offlineMode={offlineMode}
+                onBack={() => setScreen("dashboard")}
               />
             )}
 

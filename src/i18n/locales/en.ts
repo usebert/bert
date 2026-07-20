@@ -134,6 +134,7 @@ export const en = {
     incidents: "Incidents",
     loler: "LOLER",
     calendar: "Calendar",
+    documents: "Documents",
     documentControl: "Document Control",
     briefings: "Briefings",
     schedules: "Schedules",

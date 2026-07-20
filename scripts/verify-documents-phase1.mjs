@@ -158,10 +158,60 @@ async function run() {
   assert(DOCUMENT_MODULE_REVISIONS_TAB_COLUMNS.includes("RevisionID"), "DocumentRevisions columns include RevisionID");
 
   const appSource = read("App.tsx");
-  assert(appSource.includes('screen === "documents"'), "Documents screen wired in App");
-  assert(appSource.includes("DocumentsScreen"), "DocumentsScreen imported");
-  assert(read("src/permissions.ts").includes("canAccessDocuments"), "permissions include canAccessDocuments");
-  assert(read("src/config/navItems.ts").includes('"documents"'), "nav item documents exists");
+  const navItemsSource = read("src/config/navItems.ts");
+  const roleNavSource = read("src/config/roleNavigation.ts");
+  const permissionsSource = read("src/permissions.ts");
+  const navTypesSource = read("src/types/navigation.ts");
+  const documentsScreenSource = read("src/screens/DocumentsScreen.tsx");
+  const documentControlScreenSource = read("src/screens/DocumentControlScreen.tsx");
+
+  assert(navTypesSource.includes('"documents"'), "RoutedScreen includes documents");
+  assert(navTypesSource.includes('"documentControl"'), "RoutedScreen includes documentControl");
+  assert(navTypesSource.includes('"documentDetail"'), "RoutedScreen includes documentDetail");
+  assert(
+    navTypesSource.includes('Exclude<RoutedScreen, "complete" | "documentDetail">') ||
+      navTypesSource.includes("documentDetail"),
+    "documentDetail excluded from sidebar NavItemId",
+  );
+  assert(navItemsSource.includes('id: "documents"') && navItemsSource.includes('label: "Documents"'), "navItems Documents entry");
+  assert(navItemsSource.includes('id: "documentControl"') && navItemsSource.includes('label: "Document Control"'), "navItems Document Control entry");
+  assert(!navItemsSource.includes("controlled-documents") && !navItemsSource.includes("controlledDocuments"), "no controlled-documents nav id");
+  assert(!roleNavSource.includes("controlled-documents") && !roleNavSource.includes("controlledDocuments"), "no controlled-documents role nav id");
+  assert((roleNavSource.match(/id: "documents"/g) || []).length >= 4, "documents in all role nav buckets");
+  assert((roleNavSource.match(/id: "documentControl"/g) || []).length >= 4, "documentControl remains in all role nav buckets");
+  assert(permissionsSource.includes('itemId === "documents"'), "permissions gate documents");
+  assert(permissionsSource.includes('itemId === "documentControl"'), "permissions gate documentControl");
+  assert(permissionsSource.includes("canAccessDocuments"), "permissions include canAccessDocuments");
+
+  assert(appSource.includes('import { DocumentsScreen }'), "DocumentsScreen imported in App");
+  assert(appSource.includes('import { DocumentControlScreen }'), "DocumentControlScreen imported in App");
+  assert(appSource.includes('screen === "documents"'), "App maps documents screen");
+  assert(appSource.includes("<DocumentsScreen"), "documents route renders DocumentsScreen");
+  assert(appSource.includes('screen === "documentControl"'), "App maps documentControl screen");
+  assert(appSource.includes("<DocumentControlScreen"), "documentControl route renders DocumentControlScreen");
+
+  const documentsBlockMatch = appSource.match(
+    /screen === "documents"[\s\S]*?<DocumentsScreen[\s\S]*?\/>/,
+  );
+  assert(Boolean(documentsBlockMatch), "documents block uses DocumentsScreen");
+  assert(!documentsBlockMatch?.[0]?.includes("DocumentControlScreen"), "documents block does not render DocumentControlScreen");
+
+  const documentControlBlockMatch = appSource.match(
+    /screen === "documentControl"[\s\S]*?<DocumentControlScreen[\s\S]*?\/>/,
+  );
+  assert(Boolean(documentControlBlockMatch), "documentControl block uses DocumentControlScreen");
+  assert(!documentControlBlockMatch?.[0]?.includes("DocumentsScreen"), "documentControl block does not render DocumentsScreen");
+
+  assert(documentsScreenSource.includes("Provision folders"), "DocumentsScreen has provision action");
+  assert(documentsScreenSource.includes("Add document"), "DocumentsScreen has add document");
+  assert(documentsScreenSource.includes("Master Document Control Index"), "DocumentsScreen has master index");
+  assert(documentsScreenSource.includes("DocumentFolderTree"), "DocumentsScreen has folder browsing");
+  assert(documentsScreenSource.includes("DocumentSearch"), "DocumentsScreen has search");
+  assert(!documentsScreenSource.includes("Awaiting approval"), "DocumentsScreen is not legacy Document Control");
+  assert(!documentsScreenSource.includes("By clause"), "DocumentsScreen is not legacy clause browser");
+  assert(documentControlScreenSource.includes("Awaiting approval"), "legacy Document Control still has approval tabs");
+  assert(documentControlScreenSource.includes("By clause"), "legacy Document Control still has By clause");
+
   assert(read("server/document-routes.mjs").includes("/api/companies/:companyFolderId/documents"), "documents list route");
   assert(read("server/document-routes.mjs").includes("document-folders/provision"), "provision route");
   assert(read("server/document-folder-service.mjs").includes("document_folder_provision_timings"), "provision timings logged");

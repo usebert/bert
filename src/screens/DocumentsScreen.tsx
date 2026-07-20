@@ -152,8 +152,11 @@ export function DocumentsScreen({
               ← Back
             </button>
           ) : null}
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Documents</p>
           <h1 className="text-2xl font-semibold text-slate-900">Documents</h1>
-          <p className="text-sm text-slate-500 mt-1">ISO 9001 controlled document register</p>
+          <p className="text-sm text-slate-500 mt-1">
+            ISO 9001 controlled document library — browse folders, search, and open registered files.
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           {canManage ? (

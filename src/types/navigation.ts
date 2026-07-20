@@ -43,5 +43,9 @@ export type RoutedScreen =
   | "archive"
   | "complete";
 
-/** Sidebar / nav-gated screens only — excludes the `"complete"` audit flow route. */
-export type NavItemId = Exclude<RoutedScreen, "complete">;
+/**
+ * Sidebar / nav-gated screens only.
+ * Excludes `"complete"` (audit flow) and `"documentDetail"` (opened from Documents, not a sidebar item).
+ * Keep `documents` (Phase 1 Controlled Documents) distinct from legacy `documentControl`.
+ */
+export type NavItemId = Exclude<RoutedScreen, "complete" | "documentDetail">;
