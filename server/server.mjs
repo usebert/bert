@@ -360,6 +360,18 @@ async function withSheetsQuotaRetry(fn, { maxRetries = 8 } = {}) {
           delayMs = Math.max(delayMs, Math.min(120_000, secs * 1000));
         }
       }
+      try {
+        console.info("sheets_quota_retry", {
+          attempt: attempt + 1,
+          maxRetries: cap,
+          delayMs,
+          status: err?.response?.status,
+          code: err?.code,
+          reason: err?.errors?.[0]?.reason || err?.response?.data?.error?.status,
+        });
+      } catch {
+        /* retry log must never affect request */
+      }
       await sleep(delayMs);
     }
   }
@@ -4183,14 +4195,32 @@ async function validateWorkspace(auth, input) {
   return validation;
 }
 
+function logCompanySheetLoadTimings(stage, stageStartMs, meta = {}) {
+  try {
+    console.info("company_sheet_load_timings", {
+      stage,
+      durationMs: Date.now() - stageStartMs,
+      ...meta,
+    });
+  } catch {
+    /* timing log must never affect request */
+  }
+}
+
 async function readCompanySheetById(auth, spreadsheetId) {
+  const totalStart = Date.now();
   const sheets = google.sheets({ version: "v4", auth });
+  const metadataStart = Date.now();
   const workbook = await withSheetsQuotaRetry(() =>
     sheets.spreadsheets.get({
       spreadsheetId,
       fields: "properties(title),sheets(properties(title))",
     }),
   );
+  logCompanySheetLoadTimings("spreadsheet_metadata", metadataStart, {
+    spreadsheetId,
+    tabCount: workbook.data.sheets?.length || 0,
+  });
 
   const availableTabs = workbook.data.sheets?.map((sheet) => sheet.properties?.title).filter(Boolean) || [];
   const tabData = {};
@@ -4200,8 +4230,15 @@ async function readCompanySheetById(auth, spreadsheetId) {
   for (let tabIndex = 0; tabIndex < REQUIRED_TABS.length; tabIndex += 1) {
     const tab = REQUIRED_TABS[tabIndex];
     if (tabIndex > 0) {
+      const gapStart = Date.now();
       await sleep(SHEETS_READ_GAP_MS);
+      logCompanySheetLoadTimings("inter_tab_gap", gapStart, {
+        spreadsheetId,
+        tab,
+        gapMs: SHEETS_READ_GAP_MS,
+      });
     }
+    const tabReadStart = Date.now();
     if (safeLower(tab) === "users") {
       try {
         const usersRead = await workbookReadCompanyUsers(auth, spreadsheetId, getCompanyUsersDeps(), {
@@ -4213,12 +4250,24 @@ async function readCompanySheetById(auth, spreadsheetId) {
         tabData[tab] = [];
         headerRowByTab[tab] = [];
       }
+      logCompanySheetLoadTimings("tab_read", tabReadStart, {
+        spreadsheetId,
+        tab,
+        via: "workbookReadCompanyUsers",
+        rowCount: Array.isArray(tabData[tab]) ? tabData[tab].length : 0,
+      });
       continue;
     }
 
     if (!availableTabs.some((name) => safeLower(name) === safeLower(tab))) {
       tabData[tab] = [];
       headerRowByTab[tab] = [];
+      logCompanySheetLoadTimings("tab_read", tabReadStart, {
+        spreadsheetId,
+        tab,
+        skipped: true,
+        reason: "tab_missing",
+      });
       continue;
     }
 
@@ -4230,6 +4279,7 @@ async function readCompanySheetById(auth, spreadsheetId) {
     );
     const rawValues = response.data.values || [];
     headerRowByTab[tab] = rawValues[0] || [];
+    const mapStart = Date.now();
     let records = rowsToRecords(rawValues);
     if (safeLower(tab) === "config") {
       records = records.map((row) => {
@@ -4241,9 +4291,21 @@ async function readCompanySheetById(auth, spreadsheetId) {
       });
     }
     tabData[tab] = records;
+    logCompanySheetLoadTimings("tab_read", tabReadStart, {
+      spreadsheetId,
+      tab,
+      via: "values_get",
+      rawRowCount: rawValues.length,
+    });
+    logCompanySheetLoadTimings("row_mapping", mapStart, {
+      spreadsheetId,
+      tab,
+      recordCount: records.length,
+    });
   }
 
-  return {
+  const responsePrepStart = Date.now();
+  const payload = {
     ok: true,
     sheetId: spreadsheetId,
     sheetName: workbook.data.properties?.title || "Company Master Sheet",
@@ -4251,6 +4313,17 @@ async function readCompanySheetById(auth, spreadsheetId) {
     data: tabData,
     headerRowByTab,
   };
+  logCompanySheetLoadTimings("response_preparation", responsePrepStart, {
+    spreadsheetId,
+    requiredTabCount: REQUIRED_TABS.length,
+    loadedTabCount: Object.keys(tabData).length,
+  });
+  logCompanySheetLoadTimings("total", totalStart, {
+    spreadsheetId,
+    requiredTabCount: REQUIRED_TABS.length,
+    availableTabCount: availableTabs.length,
+  });
+  return payload;
 }
 
 async function readCompanyMasterSheet(auth, folderId) {
@@ -4708,6 +4781,7 @@ function respondLegacySheetByIdWriteRetired(res, tab = "") {
 }
 
 app.get("/api/google-sheet-by-id/:sheetId", async (req, res) => {
+  const routeStart = Date.now();
   const authed = getAuthedClient();
 
   if (!envConfigured() || !authed) {
@@ -4718,9 +4792,24 @@ app.get("/api/google-sheet-by-id/:sheetId", async (req, res) => {
   }
 
   try {
-    const payload = await readCompanySheetById(authed, req.params.sheetId);
+    const validationStart = Date.now();
+    const sheetId = String(req.params.sheetId || "").trim();
+    logCompanySheetLoadTimings("context_permission_validation", validationStart, {
+      spreadsheetId: sheetId,
+      authenticated: true,
+    });
+    const payload = await readCompanySheetById(authed, sheetId);
+    logCompanySheetLoadTimings("route_total", routeStart, {
+      spreadsheetId: sheetId,
+      ok: payload?.ok === true,
+    });
     return res.json(payload);
   } catch (error) {
+    logCompanySheetLoadTimings("route_total", routeStart, {
+      spreadsheetId: String(req.params.sheetId || "").trim(),
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return res.status(500).json({
       ok: false,
       error: error instanceof Error ? error.message : "Unable to read the company master sheet.",

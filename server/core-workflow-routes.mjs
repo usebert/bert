@@ -189,6 +189,30 @@ function buildInvitePermissionSession(actor) {
   };
 }
 
+function logCompanyUsersRouteTimings(stage, stageStartMs, meta = {}) {
+  try {
+    console.info("company_users_timings", {
+      stage,
+      durationMs: Date.now() - stageStartMs,
+      ...meta,
+    });
+  } catch {
+    /* timing log must never affect request */
+  }
+}
+
+function logScheduleAssigneesRouteTimings(stage, stageStartMs, meta = {}) {
+  try {
+    console.info("schedule_assignees_timings", {
+      stage,
+      durationMs: Date.now() - stageStartMs,
+      ...meta,
+    });
+  } catch {
+    /* timing log must never affect request */
+  }
+}
+
 export function installCoreWorkflowRoutes(app, deps) {
   const {
     getAuthedClient,
@@ -516,6 +540,7 @@ export function installCoreWorkflowRoutes(app, deps) {
   });
 
   app.get("/api/companies/:companyId/users", async (req, res) => {
+    const routeStart = Date.now();
     const authed = getAuthedClient();
     const companyId = sanitizeCompanyFolderId(String(req.params?.companyId || "").trim());
     const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
@@ -560,6 +585,7 @@ export function installCoreWorkflowRoutes(app, deps) {
     }
 
     try {
+      const listProfilesStart = Date.now();
       const result = await listCompanyProfiles(authed, { ...registryDeps, ...getCompanyUsersDeps(), getConfig: deps.getConfig }, {
         companyId: companyFolderId,
         companyFolderId,
@@ -567,8 +593,19 @@ export function installCoreWorkflowRoutes(app, deps) {
         companyName,
         sessionActor,
       });
+      logCompanyUsersRouteTimings("list_company_profiles", listProfilesStart, {
+        companyFolderId,
+        masterSheetId: String(result?.masterSheetId || masterSheetId).trim() || undefined,
+        ok: result?.ok === true,
+        userCount: Array.isArray(result?.users) ? result.users.length : 0,
+      });
 
       if (!result.ok) {
+        logCompanyUsersRouteTimings("route_total", routeStart, {
+          companyFolderId,
+          ok: false,
+          code: result.code,
+        });
         return res.status(result.httpStatus || 400).json({
           ok: false,
           code: result.code || "COMPANY_USERS_LOAD_FAILED",
@@ -580,12 +617,24 @@ export function installCoreWorkflowRoutes(app, deps) {
         });
       }
 
+      const authIndexSyncStart = Date.now();
       await syncAuthIndexAfterUsersRead(authed, { ...registryDeps, ...getCompanyUsersDeps(), authIndex: deps.authIndex, getCompanyUsersDeps }, {
         companyId: result.companyFolderId || companyFolderId,
         companyFolderId: result.companyFolderId || companyFolderId,
         masterSheetId: result.masterSheetId || masterSheetId,
         companyName: result.companyName || companyName,
       }).catch(() => null);
+      logCompanyUsersRouteTimings("auth_index_sync", authIndexSyncStart, {
+        companyFolderId: result.companyFolderId || companyFolderId,
+        masterSheetId: result.masterSheetId || masterSheetId,
+      });
+
+      logCompanyUsersRouteTimings("route_total", routeStart, {
+        companyFolderId: result.companyFolderId || companyFolderId,
+        masterSheetId: result.masterSheetId || masterSheetId,
+        ok: true,
+        userCount: Array.isArray(result.users) ? result.users.length : 0,
+      });
 
       return res.json({
         ok: true,
@@ -602,6 +651,11 @@ export function installCoreWorkflowRoutes(app, deps) {
       });
     } catch (error) {
       const upstreamMessage = error instanceof Error ? error.message : String(error);
+      logCompanyUsersRouteTimings("route_total", routeStart, {
+        companyFolderId,
+        ok: false,
+        error: upstreamMessage,
+      });
       return res.status(500).json({
         ok: false,
         code: "COMPANY_USERS_LOAD_FAILED",
@@ -624,6 +678,7 @@ export function installCoreWorkflowRoutes(app, deps) {
   });
 
   app.get("/api/companies/:companyId/schedule-assignees", async (req, res) => {
+    const routeStart = Date.now();
     const authed = getAuthedClient();
     if (!envConfigured() || !authed) {
       return res.status(401).json({
@@ -642,6 +697,7 @@ export function installCoreWorkflowRoutes(app, deps) {
     const companyFolderId = String(req.query.companyFolderId || actor?.companyFolderId || companyId).trim();
 
     try {
+      const assigneesStart = Date.now();
       const result = await listSchedulerAssignees(authed, { ...registryDeps, ...scheduleDeps }, {
         companyId,
         companyFolderId,
@@ -662,8 +718,19 @@ export function installCoreWorkflowRoutes(app, deps) {
           : null,
         signedInEmail: actor?.email,
       });
+      logScheduleAssigneesRouteTimings("list_scheduler_assignees", assigneesStart, {
+        companyFolderId,
+        masterSheetId: masterSheetId || undefined,
+        ok: result?.ok === true,
+        assigneeCount: Array.isArray(result?.assignees) ? result.assignees.length : 0,
+      });
 
       if (!result.ok) {
+        logScheduleAssigneesRouteTimings("route_total", routeStart, {
+          companyFolderId,
+          ok: false,
+          code: result.code,
+        });
         console.warn(
           "[schedule-assignees]",
           JSON.stringify({
@@ -684,6 +751,13 @@ export function installCoreWorkflowRoutes(app, deps) {
         });
       }
 
+      logScheduleAssigneesRouteTimings("route_total", routeStart, {
+        companyFolderId,
+        masterSheetId: result.masterSheetId || masterSheetId || undefined,
+        ok: true,
+        assigneeCount: Array.isArray(result.assignees) ? result.assignees.length : 0,
+      });
+
       return res.json({
         ok: true,
         companyId: result.companyId,
@@ -696,6 +770,11 @@ export function installCoreWorkflowRoutes(app, deps) {
       });
     } catch (error) {
       const safeMessage = error instanceof Error ? error.message : "Unable to load schedule assignees.";
+      logScheduleAssigneesRouteTimings("route_total", routeStart, {
+        companyFolderId,
+        ok: false,
+        error: safeMessage,
+      });
       console.warn(
         "[schedule-assignees]",
         JSON.stringify({

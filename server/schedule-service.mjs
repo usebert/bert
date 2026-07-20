@@ -72,6 +72,18 @@ function logSchedulerAssigneeLoadIssue(context, error, extra = {}) {
   );
 }
 
+function logScheduleAssigneesTimings(stage, stageStartMs, meta = {}) {
+  try {
+    console.info("schedule_assignees_timings", {
+      stage,
+      durationMs: Date.now() - stageStartMs,
+      ...meta,
+    });
+  } catch {
+    /* timing log must never affect request */
+  }
+}
+
 function mapProfileRowForScheduleAssignees(row, resolvedCompanyId) {
   const companyFolderId = String(resolvedCompanyId || row.companyFolderId || row.companyId || "").trim();
   return {
@@ -94,6 +106,7 @@ async function loadSchedulerAssigneeProfiles(auth, deps, companyContext = {}) {
   let companyName = String(companyContext.companyName || "").trim();
 
   if (companyFolderId) {
+    const cacheCheckStart = Date.now();
     const cache = deps?.companyUsersCache;
     const cached = typeof cache?.getEntry === "function" ? cache.getEntry(companyFolderId) : null;
     const cacheMasterSheetId = String(cached?.masterSheetId || "").trim();
@@ -105,6 +118,13 @@ async function loadSchedulerAssigneeProfiles(auth, deps, companyContext = {}) {
       cached.users.length > 0 &&
       (!masterSheetId || !cacheMasterSheetId || cacheMasterSheetId === masterSheetId) &&
       cacheAgeMs <= SCHEDULER_ASSIGNEE_CACHE_MAX_AGE_MS;
+
+    logScheduleAssigneesTimings("company_users_cache_check", cacheCheckStart, {
+      companyFolderId,
+      masterSheetId: masterSheetId || cacheMasterSheetId || undefined,
+      cacheHit: cacheMatches === true,
+      cacheUserCount: Array.isArray(cached?.users) ? cached.users.length : 0,
+    });
 
     if (cacheMatches) {
       return {
@@ -127,6 +147,7 @@ async function loadSchedulerAssigneeProfiles(auth, deps, companyContext = {}) {
   }
 
   const listActiveUsers = resolveListActiveUsers(deps);
+  const listActiveUsersStart = Date.now();
   const listed = await listActiveUsers(auth, deps, {
     companyId,
     companyFolderId,
@@ -134,6 +155,13 @@ async function loadSchedulerAssigneeProfiles(auth, deps, companyContext = {}) {
     companyName,
     sessionActor: companyContext.sessionActor,
     includeDiagnostics: true,
+  });
+  logScheduleAssigneesTimings("list_active_users", listActiveUsersStart, {
+    companyFolderId,
+    masterSheetId: String(listed?.masterSheetId || masterSheetId).trim() || undefined,
+    ok: listed?.ok === true,
+    userCount: Array.isArray(listed?.users) ? listed.users.length : 0,
+    dataSource: listed?.diagnostics?.dataSource || listed?.dataSource,
   });
   if (!listed.ok) {
     logSchedulerAssigneeLoadIssue(
@@ -1080,6 +1108,7 @@ export async function saveCompanySchedule(auth, deps, input = {}) {
 
 /** Scheduler assignees — same ACTIVE Users tab rows as People (listActiveUsers). */
 export async function listSchedulerAssignees(auth, deps, companyContext = {}) {
+  const totalStart = Date.now();
   const companyFolderId = String(companyContext.companyFolderId || companyContext.companyId || "").trim();
   const companyId = String(companyContext.companyId || companyFolderId).trim();
   let masterSheetId = String(companyContext.masterSheetId || "").trim();
@@ -1088,6 +1117,13 @@ export async function listSchedulerAssignees(auth, deps, companyContext = {}) {
   const includeDiagnostics = companyContext.includeDiagnostics === true;
   const sessionActor = companyContext.sessionActor || null;
   const signedInEmail = normalizeEmail(sessionActor?.email || companyContext.signedInEmail || "");
+
+  logScheduleAssigneesTimings("context_resolution", totalStart, {
+    companyFolderId,
+    masterSheetId: masterSheetId || undefined,
+    selectedArea: selectedArea || undefined,
+    skippedFolderValidation: true,
+  });
 
   if (!companyFolderId) {
     return {
@@ -1102,12 +1138,20 @@ export async function listSchedulerAssignees(auth, deps, companyContext = {}) {
   const dataSource = masterSheetId ? `company-workbook-users:${masterSheetId}` : "users_tab";
 
   try {
+    const profilesStart = Date.now();
     const listed = await loadSchedulerAssigneeProfiles(auth, deps, {
       companyId,
       companyFolderId,
       masterSheetId,
       companyName,
       sessionActor,
+    });
+    logScheduleAssigneesTimings("users_read", profilesStart, {
+      companyFolderId,
+      masterSheetId: String(listed?.masterSheetId || masterSheetId).trim() || undefined,
+      ok: listed?.ok === true,
+      dataSource: listed?.dataSource || listed?.diagnostics?.dataSource,
+      userCount: Array.isArray(listed?.users) ? listed.users.length : 0,
     });
 
     if (!listed.ok) {
@@ -1136,11 +1180,20 @@ export async function listSchedulerAssignees(auth, deps, companyContext = {}) {
 
     const mapped = (listed.users || []).map((row) => mapProfileRowForScheduleAssignees(row, resolvedCompanyId));
 
+    const mergeFilterStart = Date.now();
     const result = buildAvailableScheduleAssigneesFromUsers(mapped, {
       companyId: resolvedCompanyId,
       masterSheetId,
       selectedArea,
       includeDiagnostics,
+    });
+    logScheduleAssigneesTimings("merge_filter", mergeFilterStart, {
+      companyFolderId: resolvedCompanyId,
+      masterSheetId,
+      selectedArea: selectedArea || undefined,
+      inputUserCount: mapped.length,
+      assigneesReturned: result.assignees.length,
+      scheduleAreasSitesReads: false,
     });
 
     const diagnostics = includeDiagnostics
@@ -1155,6 +1208,13 @@ export async function listSchedulerAssignees(auth, deps, companyContext = {}) {
           dataSource: listed.dataSource || dataSource,
         }
       : undefined;
+
+    logScheduleAssigneesTimings("total", totalStart, {
+      companyFolderId: resolvedCompanyId,
+      masterSheetId,
+      assigneesReturned: result.assignees.length,
+      ok: true,
+    });
 
     return {
       ok: true,

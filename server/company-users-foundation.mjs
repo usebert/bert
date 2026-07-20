@@ -222,6 +222,18 @@ function driveAccessUserMessage(companyFolderId, deps) {
   return appendShareFolderHint(GOOGLE_SHEET_ACCESS_DENIED_MESSAGE, companyFolderId, deps);
 }
 
+function logCompanyUsersTimings(stage, stageStartMs, meta = {}) {
+  try {
+    console.info("company_users_timings", {
+      stage,
+      durationMs: Date.now() - stageStartMs,
+      ...meta,
+    });
+  } catch {
+    /* timing log must never affect request */
+  }
+}
+
 async function resolveMasterSheetFromCompanyFolder(auth, deps, companyFolderId, companyName, options = {}) {
   const preferFolderResolution = options.preferFolderResolution !== false;
   const createIfMissing = options.createIfMissing === true;
@@ -383,17 +395,39 @@ export async function readUsersTabProfiles(auth, deps, companyContext = {}) {
     companyName,
   };
 
+  const usersTabReadStart = Date.now();
   let records = await readUsersTabRecordsForCompany(auth, deps, companyCtx, {
     skipUsersTabColumnMigration: true,
   });
+  logCompanyUsersTimings("users_tab_records_read", usersTabReadStart, {
+    companyFolderId,
+    masterSheetId,
+    rowCount: Array.isArray(records) ? records.length : 0,
+  });
+
+  const profileMapStart = Date.now();
   let result = activeProfilesFromUsersTabRecords(records, companyCtx);
 
   if (result.members.length === 0 && result.totalSheetRows === 0) {
+    const retryReadStart = Date.now();
     records = await readUsersTabRecordsForCompany(auth, deps, companyCtx, {
       skipUsersTabColumnMigration: false,
     });
+    logCompanyUsersTimings("users_tab_records_read_retry", retryReadStart, {
+      companyFolderId,
+      masterSheetId,
+      rowCount: Array.isArray(records) ? records.length : 0,
+      withColumnMigration: true,
+    });
     result = activeProfilesFromUsersTabRecords(records, companyCtx);
   }
+  logCompanyUsersTimings("member_profile_mapping", profileMapStart, {
+    companyFolderId,
+    masterSheetId,
+    totalSheetRows: result.totalSheetRows,
+    profilesReturned: result.members.length,
+    activeOnlyCount: result.activeOnlyCount,
+  });
 
   return result;
 }
@@ -475,21 +509,31 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
     );
   }
 
+  const driveFolderNameStart = Date.now();
   companyName = (await readCompanyNameFromDriveFolder(auth, deps, companyFolderId)) || companyName;
+  logCompanyUsersTimings("drive_folder_name", driveFolderNameStart, { companyFolderId });
 
   let folderResolved = null;
   let resolvedMasterSheet = null;
   let nonNativeWorkbookName = "";
   masterSheetResolutionSource = "company_folder";
 
+  const folderValidationStart = Date.now();
   const folderPlacementPromise = validateCompanyFolderUnderCompaniesRoot(auth, deps, companyFolderId, {
     companyFolderName: companyName,
   }).catch(() => ({ ok: false, reasonCode: "FOLDER_NOT_IN_COMPANIES_ROOT" }));
 
+  const masterSheetResolveStart = Date.now();
   folderResolved = await resolveMasterSheetFromCompanyFolder(auth, deps, companyFolderId, companyName, {
     preferFolderResolution: true,
     createIfMissing: false,
     skipRecursiveDiscovery: false,
+  });
+  logCompanyUsersTimings("master_sheet_resolve", masterSheetResolveStart, {
+    companyFolderId,
+    ok: folderResolved?.ok === true,
+    masterSheetId: trim(folderResolved?.masterSheetId) || undefined,
+    source: trim(folderResolved?.source) || undefined,
   });
   const folderSheetId = trim(folderResolved?.masterSheetId);
   resolvedMasterSheet = folderResolved?.resolved?.masterSheet || folderResolved?.masterSheet;
@@ -547,9 +591,15 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
   };
 
   try {
+    const usersTabReadStart = Date.now();
     const readAttempt = await readUsersTabProfilesWithRetry(auth, deps, companyCtx, {
       masterSheetIdsTried,
       allowFolderRetry: true,
+    });
+    logCompanyUsersTimings("users_tab_read", usersTabReadStart, {
+      companyFolderId: resolvedCompanyId,
+      masterSheetId: trim(readAttempt.companyCtx?.masterSheetId) || masterSheetId,
+      resolutionSource: readAttempt.resolutionSource || masterSheetResolutionSource,
     });
     const sheetResult = readAttempt.sheetResult;
     const resolvedCtx = readAttempt.companyCtx;
@@ -560,8 +610,21 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
     }
     const triedIds = uniqueIds(readAttempt.masterSheetIdsTried || masterSheetIdsTried);
     const members = sheetResult.members;
+    const cacheSyncStart = Date.now();
     const cacheStats = syncCompanyUsersCache(deps, resolvedCtx, members);
+    logCompanyUsersTimings("cache_sync", cacheSyncStart, {
+      companyFolderId: resolvedCompanyId,
+      masterSheetId,
+      cacheUsersBefore: cacheStats.cacheUsersBefore,
+      cacheOnlyUsersRemoved: cacheStats.cacheOnlyUsersRemoved,
+      profilesReturned: members.length,
+    });
     const folderPlacement = await folderPlacementPromise;
+    logCompanyUsersTimings("folder_validation", folderValidationStart, {
+      companyFolderId: resolvedCompanyId,
+      ok: folderPlacement?.ok === true,
+      reasonCode: trim(folderPlacement?.reasonCode) || undefined,
+    });
     const folderPlacementWarning =
       folderPlacement?.ok === false
         ? trim(folderPlacement.userMessage || folderPlacement.reasonCode || "FOLDER_NOT_IN_COMPANIES_ROOT")
@@ -579,6 +642,13 @@ export async function listCompanyProfiles(auth, deps, companyContext = {}) {
       activeOnlyCount: sheetResult.activeOnlyCount,
       cacheUsersBefore: cacheStats.cacheUsersBefore,
       cacheOnlyUsersRemoved: cacheStats.cacheOnlyUsersRemoved,
+    });
+    logCompanyUsersTimings("total", startedAt, {
+      companyFolderId: resolvedCompanyId,
+      masterSheetId,
+      profilesReturned: members.length,
+      activeOnlyCount: sheetResult.activeOnlyCount,
+      masterSheetResolutionSource,
     });
 
     return {
