@@ -96,6 +96,7 @@ export type ActionsWorkspaceProps = {
   onArchiveSuccess?: () => void;
   onNavigateToArchive?: () => void;
   onCreateAction?: () => void;
+  initialActionId?: string;
 };
 
 export type ActionsRole = Role;

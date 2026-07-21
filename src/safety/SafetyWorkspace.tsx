@@ -65,6 +65,7 @@ export function SafetyWorkspace({
   onArchiveError,
   onArchiveSuccess,
   offlineMode = false,
+  initialIncidentId,
 }: SafetyWorkspaceProps) {
   const { t } = useTranslation();
   const canArchiveIncident = canArchiveRecordFromClient(currentUser.role, "incident");
@@ -90,7 +91,16 @@ export function SafetyWorkspace({
       setActiveTab("report");
     }
   }, [fieldAuditor, activeTab]);
-  const [selectedIncidentId, setSelectedIncidentId] = useState("");
+  const [selectedIncidentId, setSelectedIncidentId] = useState(initialIncidentId || "");
+
+  useEffect(() => {
+    if (initialIncidentId) {
+      setSelectedIncidentId(initialIncidentId);
+      if (canManageIncidents) {
+        setActiveTab("incidents");
+      }
+    }
+  }, [initialIncidentId, canManageIncidents]);
   const [actionDescription, setActionDescription] = useState("");
   const [actionOwner, setActionOwner] = useState("");
   const [actionDueDate, setActionDueDate] = useState("");

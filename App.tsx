@@ -309,6 +309,9 @@ import { DocumentDetailScreen } from "./src/screens/DocumentDetailScreen";
 import { CheckCompletionWizard } from "./src/components/checks/CheckCompletionWizard";
 import { CompleteAuditScreen } from "./src/screens/CompleteAuditScreen";
 import { IncidentReportingScreen } from "./src/screens/IncidentReportingScreen";
+import { useGlobalSearchControls } from "./src/components/search/GlobalSearch";
+import type { SearchNavigateTarget } from "./src/presentation/searchPresentation";
+import type { GlobalSearchSources } from "./src/services/searchAdapters/globalSearchAdapters";
 import { NonConformanceScreen } from "./src/screens/NonConformanceScreen";
 import { ReportsScreen } from "./src/screens/ReportsScreen";
 import { ArchiveScreen } from "./src/screens/ArchiveScreen";
@@ -3882,6 +3885,9 @@ function App() {
     loadError?: string;
   }>({ items: [], loading: false });
   const [selectedBriefingId, setSelectedBriefingId] = useState("");
+  const [searchFocusActionId, setSearchFocusActionId] = useState("");
+  const [searchFocusNcrId, setSearchFocusNcrId] = useState("");
+  const [searchFocusIncidentId, setSearchFocusIncidentId] = useState("");
   const [companyResultsState, setCompanyResultsState] = useState<{
     results: AuditResultSummary[];
     loading: boolean;
@@ -15792,6 +15798,110 @@ function App() {
     setScheduleEditorOpen(true);
   };
 
+  const globalSearchCompanySchedules = useMemo(() => {
+    if (!selectedFolderId) {
+      return managedSchedules;
+    }
+    return managedSchedules.filter((schedule) => schedule.companyFolderId === selectedFolderId);
+  }, [managedSchedules, selectedFolderId]);
+
+  const globalSearchSources = useMemo((): GlobalSearchSources | null => {
+    if (!currentUser) {
+      return null;
+    }
+    return {
+      role: currentUser.role,
+      currentUser,
+      companyFolderId: archiveCompanyFolderId,
+      actions: visibleActions,
+      audits: assignedAudits,
+      auditHistory: assignmentFilteredHistory,
+      incidents,
+      incidentActions,
+      ncrs: assignmentFilteredNonConformances,
+      sites,
+      areaAudits,
+      managedSchedules: globalSearchCompanySchedules,
+      briefingItems: briefingTodoState.items,
+      members: companyMembersState.members,
+      pendingOfflineActionIds,
+    };
+  }, [
+    currentUser,
+    archiveCompanyFolderId,
+    visibleActions,
+    assignedAudits,
+    assignmentFilteredHistory,
+    incidents,
+    incidentActions,
+    assignmentFilteredNonConformances,
+    sites,
+    areaAudits,
+    globalSearchCompanySchedules,
+    briefingTodoState.items,
+    companyMembersState.members,
+    pendingOfflineActionIds,
+  ]);
+
+  const emptyGlobalSearchSources = useMemo(
+    (): GlobalSearchSources => ({
+      role: "Auditor",
+      currentUser: { username: "", password: "", role: "Auditor", name: "" },
+      companyFolderId: "",
+      actions: [],
+      audits: [],
+      auditHistory: [],
+      incidents: [],
+      incidentActions: [],
+      ncrs: [],
+      sites: [],
+      areaAudits: [],
+      managedSchedules: [],
+      briefingItems: [],
+      members: [],
+    }),
+    [],
+  );
+
+  const handleGlobalSearchNavigate = useCallback(
+    (target: SearchNavigateTarget) => {
+      if (target.openAudit && target.auditId) {
+        startAudit(target.auditId);
+        return;
+      }
+      if (target.scheduleId) {
+        setScreen("schedules");
+        handleOpenSchedule(target.scheduleId);
+        return;
+      }
+      if (target.actionId) {
+        setSearchFocusActionId(target.actionId);
+      }
+      if (target.ncrId) {
+        setSearchFocusNcrId(target.ncrId);
+      }
+      if (target.incidentId) {
+        setSearchFocusIncidentId(target.incidentId);
+      }
+      if (target.briefingId) {
+        setSelectedBriefingId(target.briefingId);
+      }
+      if (target.documentId) {
+        setActiveDocumentId(target.documentId);
+      }
+      if (target.siteId && target.screen === "admin") {
+        setAdminScrollTarget(`site-${target.siteId}`);
+      }
+      setScreen(target.screen);
+    },
+    [handleOpenSchedule, setScreen, startAudit],
+  );
+
+  const globalSearchControls = useGlobalSearchControls(
+    globalSearchSources ?? emptyGlobalSearchSources,
+    handleGlobalSearchNavigate,
+  );
+
   const handleToggleScheduleAudit = (auditId: string, auditName: string) => {
     setScheduleDraftSelectedAuditIds((current) =>
       current.includes(auditId) ? current.filter((item) => item !== auditId) : [...current, auditId],
@@ -17053,6 +17163,28 @@ function App() {
                 {!godCompanySetupOnlyShell ? (
                   <button
                     type="button"
+                    onClick={globalSearchControls.openSearch}
+                    className={[
+                      "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold",
+                      themeMode === "dark"
+                        ? "border-slate-600 bg-slate-900 text-slate-200 hover:bg-slate-800"
+                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+                    ].join(" ")}
+                    aria-label="Search"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="2" aria-hidden>
+                      <circle cx="11" cy="11" r="7" />
+                      <path d="m20 20-3.5-3.5" />
+                    </svg>
+                    <span className="hidden sm:inline">Search</span>
+                    <kbd className="hidden rounded border border-current/20 px-1.5 py-0.5 text-[10px] font-medium opacity-70 md:inline">
+                      ⌘K
+                    </kbd>
+                  </button>
+                ) : null}
+                {!godCompanySetupOnlyShell ? (
+                  <button
+                    type="button"
                     onClick={() => setHelpPanelOpen(true)}
                     className={[
                       "hidden items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold sm:inline-flex",
@@ -17983,6 +18115,7 @@ function App() {
                 onNavigateToArchive={
                   canAccessArchiveNav(currentUser.role) ? () => setScreen("archive") : undefined
                 }
+                initialActionId={searchFocusActionId || undefined}
               />
             )}
 
@@ -18080,6 +18213,7 @@ function App() {
                 onNcrArchived={handleNcrArchived}
                 onArchiveError={pushArchiveErrorToast}
                 onArchiveSuccess={pushArchiveSuccessToast}
+                initialNcrId={searchFocusNcrId || undefined}
               />
             )}
 
@@ -18102,6 +18236,7 @@ function App() {
                 onArchiveError={pushArchiveErrorToast}
                 onArchiveSuccess={pushArchiveSuccessToast}
                 offlineMode={offlineMode}
+                initialIncidentId={searchFocusIncidentId || undefined}
               />
             )}
 
@@ -19011,6 +19146,8 @@ function App() {
 
         </div>
       )}
+
+      {globalSearchControls.dialog}
 
       {helpPanelOpen ? (
         <div

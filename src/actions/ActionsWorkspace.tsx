@@ -64,12 +64,19 @@ export function ActionsWorkspace({
   onArchiveSuccess,
   onNavigateToArchive,
   onCreateAction,
+  initialActionId,
 }: ActionsWorkspaceProps) {
   const { t } = useTranslation();
   const role = currentUser.role;
   const canArchive = canAccessArchiveNav(role);
   const [activeTab, setActiveTab] = useState<ActionsWorkspaceTab>(() => actionFilterToTab(actionFilter, role));
-  const [selectedActionId, setSelectedActionId] = useState("");
+  const [selectedActionId, setSelectedActionId] = useState(initialActionId || "");
+
+  useEffect(() => {
+    if (initialActionId) {
+      setSelectedActionId(initialActionId);
+    }
+  }, [initialActionId]);
   const [filters, setFilters] = useState<ActionFilterState>({
     query: "",
     status: "",

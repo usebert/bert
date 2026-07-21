@@ -77,6 +77,7 @@
     "verify:ncr-ui": "node scripts/verify-ncr-ui.mjs",
     "verify:loler-ui": "node scripts/verify-loler-ui.mjs",
     "verify:reports-ui": "node scripts/verify-reports-ui.mjs",
+    "verify:global-search": "node scripts/verify-global-search.mjs",
     "verify:pilot-readiness": "node scripts/verify-pilot-readiness.mjs",
     "verify:godmode-company-context": "node scripts/verify-godmode-company-context.mjs",
     "verify:google-form-templates": "node scripts/verify-google-form-templates.mjs",

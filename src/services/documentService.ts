@@ -37,6 +37,15 @@ export function invalidateDocumentsCache(companyFolderId: string) {
   cache.delete(companyKey(companyFolderId));
 }
 
+export function readCachedDocuments(companyFolderId: string): DocumentsListResponse | null {
+  const key = companyKey(companyFolderId);
+  const cached = cache.get(key);
+  if (!cached || Date.now() - cached.at >= CACHE_TTL_MS) {
+    return null;
+  }
+  return cached.data;
+}
+
 export async function fetchDocuments(
   companyFolderId: string,
   options: { folderRecordId?: string; includeArchived?: boolean; force?: boolean } = {},

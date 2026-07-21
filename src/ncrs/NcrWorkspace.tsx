@@ -49,6 +49,7 @@ export function NcrWorkspace({
   onNcrArchived,
   onArchiveError,
   onArchiveSuccess,
+  initialNcrId,
 }: NcrWorkspaceProps) {
   const { t } = useTranslation();
   const canArchiveNcr = canArchiveRecordFromClient(currentUser.role, "ncr");
@@ -105,7 +106,13 @@ export function NcrWorkspace({
     }
     return byRef;
   }, [auditorIdentityTokens, nonConformances, currentUser.role]);
-  const [selectedId, setSelectedId] = useState<string>("");
+  const [selectedId, setSelectedId] = useState<string>(initialNcrId || "");
+
+  useEffect(() => {
+    if (initialNcrId) {
+      setSelectedId(initialNcrId);
+    }
+  }, [initialNcrId]);
   const [isoClause, setIsoClause] = useState("");
   const [investigationNotes, setInvestigationNotes] = useState("");
   const [rootCause, setRootCause] = useState("");

@@ -1,7 +1,9 @@
 import type { NonConformanceScreenProps } from "../types/nonConformanceScreenProps";
 import type { NonConformanceRecord } from "../types/nonConformanceScreenProps";
 
-export type NcrWorkspaceProps = NonConformanceScreenProps;
+export type NcrWorkspaceProps = NonConformanceScreenProps & {
+  initialNcrId?: string;
+};
 
 export type NcrWorkspaceTab = "open" | "overdue" | "awaiting-verification" | "closed" | "archived";
 
