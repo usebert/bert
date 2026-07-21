@@ -17957,12 +17957,14 @@ function App() {
             {screen === "actions" && canAccessActions(currentUser.role) && (
               <ActionsScreen
                 currentUser={currentUser}
-                actions={filteredActions}
+                actions={visibleActions}
                 actionFilter={actionFilter}
                 actionSeverityFilter={actionSeverityFilter}
                 actionNcFilter={actionNcFilter}
                 availableNonConformanceIds={availableNonConformanceIds}
                 availableAuditors={availableActionAuditors}
+                pendingOfflineActionIds={pendingOfflineActionIds}
+                offlineMode={offlineMode}
                 onFilterChange={setActionFilter}
                 onSeverityFilterChange={setActionSeverityFilter}
                 onNcFilterChange={setActionNcFilter}
@@ -17978,6 +17980,9 @@ function App() {
                 onActionArchived={handleActionArchived}
                 onArchiveError={pushArchiveErrorToast}
                 onArchiveSuccess={pushArchiveSuccessToast}
+                onNavigateToArchive={
+                  canAccessArchiveNav(currentUser.role) ? () => setScreen("archive") : undefined
+                }
               />
             )}
 

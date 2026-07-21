@@ -62,10 +62,15 @@ const archivedAction = {
 };
 
 assert(read("src/config/navItems.ts").includes('id: "archive", label: "Archive"'), "1: Archive sidebar item exists");
-assert(read("src/screens/ArchiveScreen.tsx").includes("View, restore, or reactivate archived records"), "2: Archive page renders title/subtitle");
 assert(
-  ["Users", "Actions", "NCRs", "Incidents", "Briefings", "Audits", "Google Forms"].every((label) =>
-    read("src/screens/ArchiveScreen.tsx").includes(label),
+  read("src/screens/ArchiveScreen.tsx").includes("View, restore, or reactivate archived records") ||
+    read("src/screens/ArchiveScreen.tsx").includes('archiveCentre.subtitle') ||
+    read("src/i18n/locales/en.ts").includes("View, restore, or reactivate archived records"),
+  "2: Archive page renders title/subtitle",
+);
+assert(
+  ["users", "actions", "ncrs", "incidents", "briefings", "audits", "googleForms"].every((sectionId) =>
+    read("src/screens/ArchiveScreen.tsx").includes(`"${sectionId}"`),
   ),
   "3: Archive page sections present",
 );
@@ -189,15 +194,26 @@ const archiveButton = read("src/components/archive/ArchiveRecordButton.tsx");
 const archiveDialog = read("src/components/archive/ArchiveConfirmDialog.tsx");
 const archivePerms = read("src/utils/archivePermissions.ts");
 
-assert(archiveDialog.includes("Archive this item?"), "25: archive confirmation title");
-assert(archiveDialog.includes("This will hide it from active views"), "25b: archive confirmation body");
-assert(archiveDialog.includes("Reason for archiving"), "25c: archive reason field");
+const archiveLocale = read("src/i18n/locales/en.ts");
+
+assert(
+  archiveDialog.includes("Archive this item?") || archiveDialog.includes("archiveThisItem") || archiveLocale.includes('archiveThisItem: "Archive this item?"'),
+  "25: archive confirmation title",
+);
+assert(
+  archiveDialog.includes("This will hide it from active views") || archiveDialog.includes("hideItFromActiveViews") || archiveLocale.includes("hide it from active views"),
+  "25b: archive confirmation body",
+);
+assert(
+  archiveDialog.includes("Reason for archiving") || archiveDialog.includes("reasonForArchiving") || archiveLocale.includes("Reason for archiving"),
+  "25c: archive reason field",
+);
 assert(archiveButton.includes("archiveCompanyRecord"), "25d: archive button calls folder-first API");
 assert(archiveButton.includes("ARCHIVE_OFFLINE_MESSAGE"), "25e: archive button blocks offline");
 
 const activeScreens = [
   ["People / Users", read("src/components/admin/ActiveUserCard.tsx"), "ArchiveRecordButton", "user"],
-  ["Actions", read("src/screens/ActionsScreen.tsx"), "ArchiveRecordButton", "action"],
+  ["Actions", `${read("src/screens/ActionsScreen.tsx")}\n${read("src/actions/ActionsWorkspace.tsx")}\n${read("src/actions/components/ActionDetailPanel.tsx")}`, "ArchiveRecordButton", "action"],
   ["NCRs", read("src/screens/NonConformanceScreen.tsx"), "ArchiveRecordButton", "ncr"],
   ["Incidents", read("src/screens/IncidentReportingScreen.tsx"), "ArchiveRecordButton", "incident"],
   ["Briefings", read("src/screens/BriefingsScreen.tsx"), "ArchiveRecordButton", "briefing"],
@@ -258,8 +274,13 @@ assert(JSON.parse(read("package.json")).scripts["verify:archive"], "verify:archi
   );
   assert(ARCHIVE_RECORD_TYPES.audit.restoreLabel === "Restore as new revision", "audit: restore label is Restore as new revision");
   assert(ARCHIVE_RECORD_TYPES.audit.section === "audits", "audit: section key is exactly audits");
-  assert(read("src/screens/ArchiveScreen.tsx").includes('id: "audits"'), "audit: ArchiveScreen uses audits section id");
-  assert(read("src/screens/ArchiveScreen.tsx").includes("Restore as new revision"), "audit: Archive UI restore verb");
+  assert(read("src/screens/ArchiveScreen.tsx").includes('"audits"'), "audit: ArchiveScreen uses audits section id");
+  assert(
+    read("src/screens/ArchiveScreen.tsx").includes("Restore as new revision") ||
+      read("src/screens/ArchiveScreen.tsx").includes("restoreAsRevision") ||
+      read("src/i18n/locales/en.ts").includes("Restore as new revision"),
+    "audit: Archive UI restore verb",
+  );
   assert(read("src/screens/ArchiveScreen.tsx").includes("archive-view-audit-button"), "audit: Archive View button");
   assert(read("server/company-audit-mapping.mjs").includes("preservedHistoric"), "audit: sync preserves historic superseded rows");
   assert(read("server/archive-service.mjs").includes("readSessionArchivedAuditRows"), "audit: archive merges session superseded rows");

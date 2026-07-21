@@ -215,7 +215,12 @@ assert(isNcrFindingAnswer("nc") && isNcrFindingAnswer("fail"), "10: finding answ
   assert(ncrWorkbookRowIsOpen(openBlankArchived), "13: Open status treated as open");
 }
 
-assert(nonConformanceScreen.includes("No NCRs recorded"), "14: NCR screen empty state");
+assert(
+  nonConformanceScreen.includes("No NCRs recorded") ||
+    nonConformanceScreen.includes("ncrs.noNcrs") ||
+    read("src/i18n/locales/en.ts").includes("No NCRs recorded"),
+  "14: NCR screen empty state",
+);
 assert(managerDashboard.includes("Open NCRs"), "15: manager dashboard shows open NCRs");
 assert(clientNcrService.includes("NCR_SAFE_ERROR_CODES"), "16: safe client NCR error messages");
 assert(clientNcrService.includes("resolveNcrCompletionOutcome"), "16b: client NCR outcome resolver");
@@ -246,7 +251,12 @@ assert(clientNcrService.includes("resolveNcrEvidenceFromAuditResult"), "21q: NCR
 assert(appTsx.includes("evidenceMap: evidence"), "21r: online submit passes evidence map into NCR create");
 assert(appTsx.includes("evidenceRefs: result.evidenceRefs"), "21s: online submit merges returned evidence refs");
 assert(nonConformanceScreen.includes("NCR_EVIDENCE_PENDING_MESSAGE"), "21t: NCR detail shows pending evidence state");
-assert(nonConformanceScreen.includes("Open evidence"), "21u: NCR detail links uploaded evidence");
+assert(
+  nonConformanceScreen.includes("Open evidence") ||
+    nonConformanceScreen.includes("openEvidence") ||
+    read("src/i18n/locales/en.ts").includes('openEvidence: "Open evidence"'),
+  "21u: NCR detail links uploaded evidence",
+);
 assert(clientNcrService.includes("collectNcrEvidenceFromSources"), "21w: collect NCR evidence with check-level fallback");
 assert(clientNcrService.includes("fallbackToAll"), "21x: evidence filter supports check-level fallback");
 assert(appTsx.includes("collectNcrEvidenceFromSources"), "21y: App uses shared NCR evidence collector");

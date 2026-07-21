@@ -391,21 +391,16 @@ const buildOpts = (actor) => ({ companyFolderId: CO, alternateIds: [CO], actor, 
   const pkg = JSON.parse(read("package.json"));
   assert(pkg.scripts["verify:live-dashboard"], "WIRE: npm script registered");
   const appTsx = read("App.tsx");
-  assert(appTsx.includes("LiveOperationalDashboard"), "WIRE: dashboard mounted in App");
-  const managerDashboardIdx = appTsx.indexOf("renderManagerDashboard={() => (");
-  const managerLiveDashboardIdx = appTsx.indexOf(
-    "{shouldRenderLiveOperationalDashboard(currentUser.role) &&\n              currentUser.role === \"Manager\" &&",
+  const managerDashboard = read("src/components/dashboard/ManagerRoleDashboard.tsx");
+  assert(
+    appTsx.includes("RoleUnifiedDashboard") || managerDashboard.includes("RoleUnifiedDashboard"),
+    "WIRE: unified operational dashboard mounted for roles",
   );
+  const managerDashboardIdx = appTsx.indexOf("renderManagerDashboard={() => (");
   assert(managerDashboardIdx >= 0, "WIRE: manager role dashboard renderer exists");
-  assert(managerLiveDashboardIdx > managerDashboardIdx, "WIRE: manager sees role dashboard before live operational block");
-  const managerLiveDashboardMounts =
-    (
-      appTsx.match(
-        /\{shouldRenderLiveOperationalDashboard\(currentUser\.role\) &&\s+currentUser\.role === "Manager" &&[\s\S]*?<LiveOperationalDashboard/g,
-      ) || []
-    ).length;
-  assert(managerLiveDashboardMounts === 1, "WIRE: manager live operational dashboard does not duplicate");
-  assert(appTsx.includes("shouldRenderLiveOperationalDashboard") && appTsx.includes('renderManagerDashboard={() => ('), "WIRE: pre-dashboard live panel uses render guard (manager uses post-dashboard block)");
+  assert(managerDashboard.includes("RoleUnifiedDashboard"), "WIRE: manager dashboard uses unified operational layout");
+  assert(!appTsx.includes("<LiveOperationalDashboard"), "WIRE: legacy LiveOperationalDashboard blocks removed from App");
+  assert(appTsx.includes('renderManagerDashboard={() => ('), "WIRE: manager dashboard renderer preserved");
   // No sensitive leakage in failure shape
   assert(!coreRoutes.includes("technicalError: error") || coreRoutes.includes("details: includeDiagnostics"), "WIRE: failures do not leak internals to clients");
 }

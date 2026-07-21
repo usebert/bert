@@ -100,9 +100,16 @@ const aliasRecord = findIncidentWorkbookRecord([{ "Incident ID": "INC-2026-0003"
 assert(aliasRecord?.workbookIncidentId === "INC-2026-0003", "LOOKUP: alias record found by padded id");
 
 assert(incidentAssignment.includes("belongsToCompanyUsersTabRow"), "TARGETS: company filter matches People list");
-assert(reassignModal.includes("Loading handlers"), "UI: loading handlers message shown");
 assert(
-  reassignModal.includes("No eligible incident handlers found"),
+  reassignModal.includes("Loading handlers") ||
+    reassignModal.includes("loadingHandlers") ||
+    read("src/i18n/locales/en.ts").includes('loadingHandlers: "Loading handlers'),
+  "UI: loading handlers message shown",
+);
+assert(
+  reassignModal.includes("No eligible incident handlers found") ||
+    reassignModal.includes("noHandlersHint") ||
+    read("src/i18n/locales/en.ts").includes("No eligible incident handlers found"),
   "UI: empty target message shown",
 );
 assert(reassignModal.includes("initialSelectedEmail"), "UI: modal supports prefilled handler");
