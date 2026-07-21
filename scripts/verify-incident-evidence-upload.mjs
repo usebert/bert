@@ -36,6 +36,8 @@ const coreRoutes = read("server/core-workflow-routes.mjs");
 const incidentsClient = read("src/services/incidentsService.ts");
 const appTsx = read("App.tsx");
 const screen = read("src/screens/IncidentReportingScreen.tsx");
+const safetyWorkspace = read("src/safety/SafetyWorkspace.tsx");
+const incidentUi = screen + safetyWorkspace;
 
 assert(pkg.scripts["verify:incident-evidence-upload"], "PKG: npm script registered");
 
@@ -99,8 +101,8 @@ assert(appTsx.includes("prepareSerializableEvidenceUploadFiles"), "APP: serialis
 assert(appTsx.includes("Incident saved, but evidence upload failed"), "APP: evidence upload failure shows warning");
 assert(incidentsClient.includes("prepareSerializableEvidenceUploadFiles"), "CLIENT: strips non-serialisable File payloads");
 assert(incidentsClient.includes("pickEvidenceUrls"), "CLIENT: parses evidenceUrls arrays from API");
-assert(screen.includes("evidenceUploadData"), "UI: stores dataUrl when file is selected");
-assert(screen.includes("evidenceUploadFiles"), "UI: submits serialisable evidence payloads");
+assert(incidentUi.includes("evidenceUploadData"), "UI: stores dataUrl when file is selected");
+assert(incidentUi.includes("evidenceUploadFiles"), "UI: submits serialisable evidence payloads");
 assert(appTsx.includes("Uploading evidence"), "UI: shows uploading evidence phase");
 
 console.log(`PASS: verify-incident-evidence-upload (${caseCount} checks)`);

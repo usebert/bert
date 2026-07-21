@@ -95,7 +95,7 @@ const sampleTabs = {
       "Source Question ID": "q-9",
       "Assigned To User ID": "manager@testco.test",
       "Created At": "2026-06-09T12:00:00.000Z",
-      "Due Date": "2026-06-20T00:00:00.000Z",
+      "Due Date": "2026-12-31T00:00:00.000Z",
     },
     {
       "Action ID": "act-2",

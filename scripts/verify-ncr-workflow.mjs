@@ -140,6 +140,8 @@ const appTsx = read("App.tsx");
 const checkService = read("src/services/checkService.ts");
 const clientNcrService = read("src/services/ncrService.ts");
 const nonConformanceScreen = read("src/screens/NonConformanceScreen.tsx");
+const ncrWorkspace = read("src/ncrs/NcrWorkspace.tsx");
+const ncrUi = nonConformanceScreen + ncrWorkspace;
 const managerDashboard = read("src/components/dashboard/ManagerRoleDashboard.tsx");
 
 assert(appTsx.includes("createNonConformancesFromAudit"), "5: client creates NCRs from audit submit");
@@ -216,8 +218,8 @@ assert(isNcrFindingAnswer("nc") && isNcrFindingAnswer("fail"), "10: finding answ
 }
 
 assert(
-  nonConformanceScreen.includes("No NCRs recorded") ||
-    nonConformanceScreen.includes("ncrs.noNcrs") ||
+  ncrUi.includes("No NCRs recorded") ||
+    ncrUi.includes("ncrs.noNcrs") ||
     read("src/i18n/locales/en.ts").includes("No NCRs recorded"),
   "14: NCR screen empty state",
 );
@@ -237,7 +239,7 @@ assert(clientNcrService.includes("summarizeNcrVisibilityPipeline"), "21c: safe N
 assert(appTsx.includes("mergeCompletionNcrsIntoState"), "21d: App merges completion NCRs into state");
 assert(appTsx.includes("user.companyAreas.length === 0) return null"), "21e: blank companyAreas means all-site access");
 assert(appTsx.includes("if (!site) return true"), "21f: blank NCR site stays visible for scoped managers");
-assert(nonConformanceScreen.includes("auditorIdentityTokens"), "21g: auditor NCR list matches email or username");
+assert(ncrUi.includes("auditorIdentityTokens"), "21g: auditor NCR list matches email or username");
 assert(routes.includes("ncrs: result.ncrs || []"), "21h: completion route returns ncrs array");
 assert(NCR_TAB_COLUMNS.includes("Evidence Refs"), "21i: NCR tab has Evidence Refs column");
 assert(NCR_TAB_COLUMNS.includes("Evidence Count"), "21j: NCR tab has Evidence Count column");
@@ -250,17 +252,17 @@ assert(clientNcrService.includes("auditEvidenceToNcrEvidence"), "21p: client map
 assert(clientNcrService.includes("resolveNcrEvidenceFromAuditResult"), "21q: NCR evidence fallback from audit result");
 assert(appTsx.includes("evidenceMap: evidence"), "21r: online submit passes evidence map into NCR create");
 assert(appTsx.includes("evidenceRefs: result.evidenceRefs"), "21s: online submit merges returned evidence refs");
-assert(nonConformanceScreen.includes("NCR_EVIDENCE_PENDING_MESSAGE"), "21t: NCR detail shows pending evidence state");
+assert(ncrUi.includes("NCR_EVIDENCE_PENDING_MESSAGE"), "21t: NCR detail shows pending evidence state");
 assert(
-  nonConformanceScreen.includes("Open evidence") ||
-    nonConformanceScreen.includes("openEvidence") ||
+  ncrUi.includes("Open evidence") ||
+    ncrUi.includes("openEvidence") ||
     read("src/i18n/locales/en.ts").includes('openEvidence: "Open evidence"'),
   "21u: NCR detail links uploaded evidence",
 );
 assert(clientNcrService.includes("collectNcrEvidenceFromSources"), "21w: collect NCR evidence with check-level fallback");
 assert(clientNcrService.includes("fallbackToAll"), "21x: evidence filter supports check-level fallback");
 assert(appTsx.includes("collectNcrEvidenceFromSources"), "21y: App uses shared NCR evidence collector");
-assert(nonConformanceScreen.includes("NCR_EVIDENCE_PENDING_MESSAGE"), "21z: pending evidence visible in NCR detail");
+assert(ncrUi.includes("NCR_EVIDENCE_PENDING_MESSAGE"), "21z: pending evidence visible in NCR detail");
 
 {
   const pendingOnly = buildNcrWorkbookRow({

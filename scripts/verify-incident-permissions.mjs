@@ -44,6 +44,8 @@ const incidentsService = read("server/incidents-service.mjs");
 const coreRoutes = read("server/core-workflow-routes.mjs");
 const incidentsClient = read("src/services/incidentsService.ts");
 const screen = read("src/screens/IncidentReportingScreen.tsx");
+const safetyWorkspace = read("src/safety/SafetyWorkspace.tsx");
+const incidentUi = screen + safetyWorkspace;
 const roleNavigation = read("src/config/roleNavigation.ts");
 const incidentAssignment = read("src/utils/incidentAssignment.ts");
 const reassignModal = read("src/components/incidents/IncidentReassignModal.tsx");
@@ -59,15 +61,15 @@ assert(
   "API: reassign route registered",
 );
 assert(incidentsClient.includes("reassignCompanyIncident"), "CLIENT: reassign API helper");
-assert(screen.includes("IncidentReassignModal"), "UI: reassign modal wired");
-assert(screen.includes("IncidentAssigneeSelect"), "UI: inline assignee dropdown wired");
-assert(screen.includes("openReassignForIncident"), "UI: table assignment opens reassign flow");
-assert(screen.includes("openInvestigationWorkflow"), "UI: Continue opens investigation workflow");
-assert(screen.includes("investigation-workflow-"), "UI: investigation workflow scroll target id");
+assert(incidentUi.includes("IncidentReassignModal"), "UI: reassign modal wired");
+assert(incidentUi.includes("IncidentAssigneeSelect"), "UI: inline assignee dropdown wired");
+assert(incidentUi.includes("openReassignForIncident"), "UI: table assignment opens reassign flow");
+assert(incidentUi.includes("openInvestigationWorkflow"), "UI: Continue opens investigation workflow");
+assert(incidentUi.includes("investigation-workflow-"), "UI: investigation workflow scroll target id");
 assert(appTsx.includes("incidentReassignTargetsLoading"), "LOAD: assignee loading only when targets empty");
 assert(appTsx.includes("cachedSeed"), "LOAD: company members use cache seed without blocking UI");
-assert(!screen.includes(">Reassign</button>"), "UI: duplicate Reassign button removed");
-assert(screen.includes("Assignment history"), "UI: assignment history shown");
+assert(!incidentUi.includes(">Reassign</button>"), "UI: duplicate Reassign button removed");
+assert(incidentUi.includes("Assignment history"), "UI: assignment history shown");
 assert(appTsx.includes("onReassignIncident={reassignIncidentRecord}"), "APP: reassign handler wired");
 assert(appTsx.includes("reassignTargets={incidentReassignTargets}"), "APP: reassign targets passed");
 assert(

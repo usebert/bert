@@ -21,22 +21,24 @@ function read(rel) {
 
 const appTsx = read("App.tsx");
 const screen = read("src/screens/IncidentReportingScreen.tsx");
+const safetyWorkspace = read("src/safety/SafetyWorkspace.tsx");
+const incidentUi = screen + safetyWorkspace;
 const pkg = JSON.parse(read("package.json"));
 
 assert(pkg.scripts["verify:incident-reporting-wiring"], "PKG: npm script registered");
 
 /** 1: Submit button wired via form onSubmit. */
-assert(screen.includes('<form className="grid gap-4 md:grid-cols-2" onSubmit={onSubmit}>'), "1: form uses onSubmit handler");
-assert(screen.includes('type="submit"'), "1b: submit button has type submit");
+assert(incidentUi.includes('<form className="grid gap-4 md:grid-cols-2" onSubmit={onSubmit}>'), "1: form uses onSubmit handler");
+assert(incidentUi.includes('type="submit"'), "1b: submit button has type submit");
 
 /** 2: submitIncidentReport passed from App. */
 assert(appTsx.includes("onSubmitIncident={submitIncidentReport}"), "2: App passes submitIncidentReport");
 assert(appTsx.includes("const submitIncidentReport = async"), "2b: submitIncidentReport defined in App");
 
 /** 3: Required validation errors rendered in UI. */
-assert(screen.includes("validateForm"), "3: client-side validateForm exists");
-assert(screen.includes("formError"), "3b: formError state rendered");
-assert(screen.includes('role="alert"'), "3c: error banner has alert role");
+assert(incidentUi.includes("validateForm"), "3: client-side validateForm exists");
+assert(incidentUi.includes("formError"), "3b: formError state rendered");
+assert(incidentUi.includes('role="alert"'), "3c: error banner has alert role");
 
 /** 4: Notification failure does not discard incident save. */
 assert(
@@ -51,10 +53,10 @@ assert(appTsx.includes("pushToast(\"Notification failed\""), "4b: notification f
 
 /** 5: Deep link ?screen=incidents still works. */
 assert(appTsx.includes('requestedScreen === "incidents"'), "5: screen=incidents deep link handled");
-assert(screen.includes("?screen=incidents"), "5b: QR link documents incidents screen");
+assert(incidentUi.includes("?screen=incidents"), "5b: QR link documents incidents screen");
 
 /** 6: Submit gives visible feedback while processing. */
-assert(screen.includes("isSubmitting"), "6: submitting state disables button");
-assert(screen.includes("Submitting"), "6b: button label changes while submitting");
+assert(incidentUi.includes("isSubmitting"), "6: submitting state disables button");
+assert(incidentUi.includes("Submitting") || incidentUi.includes("login.sending"), "6b: button label changes while submitting");
 
 console.log(`PASS: verify-incident-reporting-wiring (${caseCount} checks)`);

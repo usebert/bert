@@ -18101,6 +18101,7 @@ function App() {
                 onIncidentArchived={handleIncidentArchived}
                 onArchiveError={pushArchiveErrorToast}
                 onArchiveSuccess={pushArchiveSuccessToast}
+                offlineMode={offlineMode}
               />
             )}
 

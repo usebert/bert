@@ -214,8 +214,8 @@ assert(archiveButton.includes("ARCHIVE_OFFLINE_MESSAGE"), "25e: archive button b
 const activeScreens = [
   ["People / Users", read("src/components/admin/ActiveUserCard.tsx"), "ArchiveRecordButton", "user"],
   ["Actions", `${read("src/screens/ActionsScreen.tsx")}\n${read("src/actions/ActionsWorkspace.tsx")}\n${read("src/actions/components/ActionDetailPanel.tsx")}`, "ArchiveRecordButton", "action"],
-  ["NCRs", read("src/screens/NonConformanceScreen.tsx"), "ArchiveRecordButton", "ncr"],
-  ["Incidents", read("src/screens/IncidentReportingScreen.tsx"), "ArchiveRecordButton", "incident"],
+  ["NCRs", `${read("src/screens/NonConformanceScreen.tsx")}\n${read("src/ncrs/NcrWorkspace.tsx")}`, "ArchiveRecordButton", "ncr"],
+  ["Incidents", `${read("src/screens/IncidentReportingScreen.tsx")}\n${read("src/safety/SafetyWorkspace.tsx")}`, "ArchiveRecordButton", "incident"],
   ["Briefings", read("src/screens/BriefingsScreen.tsx"), "ArchiveRecordButton", "briefing"],
   ["Audits", read("src/screens/AuditTemplateEditScreen.tsx"), "ArchiveRecordButton", "audit"],
   ["Google Forms", read("src/screens/GoogleFormsScreen.tsx"), "ArchiveRecordButton", "googleForm"],

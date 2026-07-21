@@ -1,3 +1,5 @@
+import { EquipmentWorkspace } from "../loler/EquipmentWorkspace";
+import type { ComponentProps } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Role } from "../permissions";
@@ -159,7 +161,7 @@ const inputClass =
   "w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none";
 const labelClass = "block text-xs font-semibold uppercase tracking-wide text-slate-500";
 
-export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, offlineMode = false, onBack }: Props) {
+export function LolerWorkspaceBody({ role, companyFolderId, masterSheetId, userEmail, offlineMode = false, onBack }: Props) {
   const { t } = useTranslation();
   const canManage = canManageLoler(role);
   const folderId = String(companyFolderId || "").trim();
@@ -1326,5 +1328,14 @@ export function LolerScreen({ role, companyFolderId, masterSheetId, userEmail, o
         </p>
       ) : null}
     </section>
+  );
+}
+
+/** LOLER screen — Release 6 workspace shell. */
+export function LolerScreen(props: ComponentProps<typeof LolerWorkspaceBody>) {
+  return (
+    <EquipmentWorkspace>
+      <LolerWorkspaceBody {...props} />
+    </EquipmentWorkspace>
   );
 }

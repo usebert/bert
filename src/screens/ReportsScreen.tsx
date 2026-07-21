@@ -1,3 +1,5 @@
+import { ReportsWorkspace } from "../reports/ReportsWorkspace";
+import type { ComponentProps } from "react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -378,7 +380,7 @@ function FlowItem({ number, title, text, icon }: { number: string; title: string
   );
 }
 
-export function ReportsScreen({
+export function ReportsWorkspaceBody({
   currentUserRole,
   companyContext,
   buildMarker,
@@ -822,5 +824,14 @@ export function ReportsScreen({
         </section>
       )}
     </div>
+  );
+}
+
+/** Reports screen — Release 6 workspace shell. */
+export function ReportsScreen(props: ComponentProps<typeof ReportsWorkspaceBody>) {
+  return (
+    <ReportsWorkspace>
+      <ReportsWorkspaceBody {...props} />
+    </ReportsWorkspace>
   );
 }
