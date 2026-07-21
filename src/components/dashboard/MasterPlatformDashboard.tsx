@@ -1,4 +1,5 @@
 import type { NavItemId } from "../../types/navigation";
+import type { ReactNode } from "react";
 import type { AuditDraft } from "../../types/dashboardScreenProps";
 import type { Audit } from "../../types/reportsScreenProps";
 import type { AssignedCheckScheduleMeta } from "../../utils/assignedCheckDisplay";
@@ -29,6 +30,7 @@ type Props = {
   onViewAllBriefings?: () => void;
   pendingSyncCount?: number;
   failedSyncCount?: number;
+  onboardingSlot?: React.ReactNode;
 };
 
 /** Master platform home with unified operational layout. */
@@ -52,6 +54,7 @@ export function MasterPlatformDashboard({
   onOpenBriefing,
   pendingSyncCount = 0,
   failedSyncCount = 0,
+  onboardingSlot,
 }: Props) {
   void companiesCount;
 
@@ -125,6 +128,7 @@ export function MasterPlatformDashboard({
       onOpenAudit={onOpenAudit ?? (() => undefined)}
       onOpenBriefing={onOpenBriefing}
       secondaryContent={secondaryContent}
+      topSlot={companyWorkspaceLinked ? onboardingSlot : null}
     />
   );
 }

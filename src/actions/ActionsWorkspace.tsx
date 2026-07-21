@@ -6,6 +6,8 @@ import {
   getRolePermissions,
 } from "../permissions";
 import { Button } from "../components/ui/Button";
+import { ContextualHelp } from "../components/help/ContextualHelp";
+import { EMPTY_STATE_COPY } from "../presentation/emptyStates";
 import { EmptyState } from "../components/ui/LoadingStates";
 import { PageContainer, PageHeader, Section } from "../components/ui/PageLayout";
 import {
@@ -208,15 +210,19 @@ export function ActionsWorkspace({
             ? "No verification work"
             : activeTab === "completed"
               ? "No completed actions"
-              : "No actions to show";
+              : activeTab === "all-open"
+                ? EMPTY_STATE_COPY.actions.title
+                : "No actions to show";
       const emptyDescription =
-        activeTab === "overdue"
-          ? "Everything is up to date."
-          : activeTab === "awaiting-verification"
-            ? "There are no completed actions waiting for review."
-            : offlineMode
-              ? "You are offline. Updates will be saved on this device and queued for sync."
-              : "Nothing matches your filters right now.";
+        activeTab === "all-open"
+          ? EMPTY_STATE_COPY.actions.description
+          : activeTab === "overdue"
+            ? "Everything is up to date."
+            : activeTab === "awaiting-verification"
+              ? "There are no completed actions waiting for review."
+              : offlineMode
+                ? "You are offline. Updates will be saved on this device and queued for sync."
+                : "Nothing matches your filters right now.";
       return <EmptyState title={emptyTitle} description={emptyDescription} />;
     }
 
@@ -236,6 +242,8 @@ export function ActionsWorkspace({
           ) : undefined
         }
       />
+
+      <ContextualHelp screen="actions" userId={currentUser.username} />
 
       <nav aria-label="Actions views" className="flex flex-wrap gap-2">
         {tabs.map((tab) => (

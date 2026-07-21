@@ -13,6 +13,8 @@ import {
   NCR_EVIDENCE_PENDING_MESSAGE,
 } from "../services/ncrService";
 import { Button } from "../components/ui/Button";
+import { ContextualHelp } from "../components/help/ContextualHelp";
+import { EMPTY_STATE_COPY } from "../presentation/emptyStates";
 import { EmptyState } from "../components/ui/LoadingStates";
 import { PageContainer, PageHeader, Section } from "../components/ui/PageLayout";
 import {
@@ -170,6 +172,8 @@ export function NcrWorkspace({
         }
       />
 
+      <ContextualHelp screen="nonConformance" userId={currentUser.username} />
+
       <Section>
         <NcrSummaryCards metrics={summaryMetrics} />
       </Section>
@@ -178,7 +182,7 @@ export function NcrWorkspace({
         <NcrFilters filters={filters} onChange={(patch) => setFilters((current) => ({ ...current, ...patch }))} />
         <div className="mt-4">
           {listItems.length === 0 ? (
-            <EmptyState title={t("ncrs.noNcrs")} description={t("ncrs.emptyRegisterBody")} />
+            <EmptyState title={EMPTY_STATE_COPY.ncrs.title} description={EMPTY_STATE_COPY.ncrs.description} />
           ) : (
             <NcrList items={listItems} selectedId={selectedId} onSelect={setSelectedId} />
           )}

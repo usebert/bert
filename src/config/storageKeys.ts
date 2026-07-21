@@ -11,6 +11,8 @@ export const storageKeys = {
   desktopSidebarCollapsed: "bert-desktop-sidebar-collapsed",
   dashboardPreferences: "bert-dashboard-preferences",
   dashboardSectionOrder: "bert-dashboard-section-order",
+  onboardingDismissed: "bert-onboarding-dismissed",
+  contextualHelpDismissed: "bert-contextual-help-dismissed",
   folderLinks: "bert-folder-links",
   workspaceState: "bert-workspace-state",
   /** Master Godmode: active live company folder id (validated on load). */

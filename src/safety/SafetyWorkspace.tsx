@@ -4,8 +4,10 @@ import { IncidentReassignModal } from "../components/incidents/IncidentReassignM
 import { IncidentAssigneeSelect } from "../components/incidents/IncidentAssigneeSelect";
 import { canCompleteAuditAsAuditor, canInvestigateIncidents, canReassignIncident } from "../permissions";
 import { getRoleTheme } from "../config/roleTheme";
-import { SECTION_INTROS } from "../config/sectionIntros";
 import { SectionIntro } from "../components/SectionIntro";
+import { SECTION_INTROS } from "../config/sectionIntros";
+import { ContextualHelp } from "../components/help/ContextualHelp";
+import { EMPTY_STATE_COPY } from "../presentation/emptyStates";
 import type {
   IncidentCorrectiveAction,
   IncidentEvidenceItem,
@@ -436,6 +438,8 @@ export function SafetyWorkspace({
         </Section>
       ) : null}
 
+      {!fieldAuditor ? <ContextualHelp screen="incidents" userId={currentUser.username} /> : null}
+
       {successMessage && (
         <section className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-900">
           {successMessage}
@@ -511,10 +515,10 @@ export function SafetyWorkspace({
           <div className="mt-4">
             {safetyListItems.length === 0 ? (
               <EmptyState
-                title={incidents.length === 0 ? "No incidents recorded" : "No incidents or near misses match these filters."}
+                title={incidents.length === 0 ? EMPTY_STATE_COPY.incidents.title : "No incidents or near misses match these filters."}
                 description={
                   incidents.length === 0
-                    ? "Use the Report tab to log the first incident."
+                    ? EMPTY_STATE_COPY.incidents.description
                     : "Try clearing filters or switching tabs."
                 }
               />

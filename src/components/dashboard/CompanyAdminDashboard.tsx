@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { NavItemId } from "../../types/navigation";
 import type { ActionItem, Audit, HistoryEntry } from "../../types/reportsScreenProps";
@@ -103,6 +104,7 @@ type Props = {
   onNavigate: (screen: NavItemId) => void;
   onNavigateWithFilter?: (screen: NavItemId, actionFilter?: string) => void;
   onOpenAudit: (auditId: string) => void;
+  onboardingSlot?: React.ReactNode;
 };
 
 export function CompanyAdminDashboard({
@@ -134,6 +136,7 @@ export function CompanyAdminDashboard({
   onNavigate,
   onNavigateWithFilter,
   onOpenAudit,
+  onboardingSlot,
 }: Props) {
   void workspaceName;
   const { t } = useTranslation();
@@ -238,6 +241,7 @@ export function CompanyAdminDashboard({
       onOpenAudit={onOpenAudit}
       onOpenBriefing={onOpenBriefing}
       secondaryContent={secondaryContent}
+      topSlot={onboardingSlot}
     />
   );
 }

@@ -33,6 +33,7 @@ export type UnifiedDashboardCommonProps = {
   onOpenAudit: (auditId: string) => void;
   onOpenBriefing?: (briefingId: string) => void;
   secondaryContent?: ReactNode;
+  topSlot?: ReactNode;
 };
 
 export function RoleUnifiedDashboard(props: UnifiedDashboardCommonProps) {
@@ -63,6 +64,7 @@ export function RoleUnifiedDashboard(props: UnifiedDashboardCommonProps) {
       onOpenAudit={props.onOpenAudit}
       onOpenBriefing={props.onOpenBriefing}
       secondaryContent={props.secondaryContent}
+      topSlot={props.topSlot}
     />
   );
 }

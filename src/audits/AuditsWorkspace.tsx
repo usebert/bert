@@ -11,6 +11,8 @@ import { FormsChecksTemplatesPanel } from "../components/forms/FormsChecksTempla
 import { AssignedCheckActionRow } from "../components/checks/AssignedCheckActionRow";
 import { Button } from "../components/ui/Button";
 import { EmptyState, SkeletonCard } from "../components/ui/LoadingStates";
+import { ContextualHelp } from "../components/help/ContextualHelp";
+import { EMPTY_STATE_COPY } from "../presentation/emptyStates";
 import { PageContainer, PageHeader, Section } from "../components/ui/PageLayout";
 import {
   buildAuditListItems,
@@ -225,12 +227,25 @@ export function AuditsWorkspace(props: AuditsWorkspaceProps) {
         activeTab === "in-progress"
           ? "No audits in progress"
           : activeTab === "scheduled"
-            ? "No scheduled audits"
+            ? EMPTY_STATE_COPY.audits.title
             : "No audits to show";
-      const emptyDescription = offlineMode
-        ? "You are offline. Audit progress will be saved on this device and queued for sync."
-        : "Nothing matches your filters right now.";
-      return <EmptyState title={emptyTitle} description={emptyDescription} />;
+      const emptyDescription =
+        activeTab === "scheduled"
+          ? EMPTY_STATE_COPY.audits.description
+          : offlineMode
+            ? "You are offline. Audit progress will be saved on this device and queued for sync."
+            : "Nothing matches your filters right now.";
+      return (
+        <EmptyState
+          title={emptyTitle}
+          description={emptyDescription}
+          primaryAction={
+            activeTab === "scheduled" && onNavigateToAuditBuilder
+              ? { label: EMPTY_STATE_COPY.audits.action || "Create audit", onClick: onNavigateToAuditBuilder }
+              : undefined
+          }
+        />
+      );
     }
 
     return (
@@ -259,6 +274,8 @@ export function AuditsWorkspace(props: AuditsWorkspaceProps) {
           ) : undefined
         }
       />
+
+      <ContextualHelp screen="audits" companyId={companyFolderId} userId={currentUser.username} />
 
       <nav aria-label="Audits views" className="flex flex-wrap gap-2">
         {tabs.map((tab) => (

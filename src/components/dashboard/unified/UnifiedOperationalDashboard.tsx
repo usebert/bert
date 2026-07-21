@@ -42,6 +42,7 @@ type Props = {
   onOpenAudit: (auditId: string) => void;
   onOpenBriefing?: (briefingId: string) => void;
   secondaryContent?: React.ReactNode;
+  topSlot?: React.ReactNode;
 };
 
 function priorityVariant(priority: string) {
@@ -115,6 +116,7 @@ export function UnifiedOperationalDashboard({
   onOpenAudit,
   onOpenBriefing,
   secondaryContent,
+  topSlot,
 }: Props) {
   const live = useUnifiedLiveDashboard({
     companyFolderId,
@@ -168,6 +170,7 @@ export function UnifiedOperationalDashboard({
   return (
     <PageContainer className="max-w-none space-y-6 overflow-x-hidden">
       <PageHeader title={greetingTitle} description={getRoleDashboardSubtitle(role)} />
+      {topSlot}
 
       <Section
         title="Needs attention"

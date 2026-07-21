@@ -315,6 +315,9 @@ import { AppShell } from "./src/components/app-shell/AppShell";
 import { HeaderSearchButton } from "./src/components/app-shell/AppHeader";
 import { confirmDiscardShellUnsavedWork, hasShellUnsavedWork } from "./src/components/app-shell/shellUnsavedGuard";
 import { getPageTitle } from "./src/presentation/pageTitles";
+import { getContextualHelp } from "./src/presentation/contextualHelp";
+import { OnboardingHost } from "./src/components/onboarding/OnboardingHost";
+import type { OnboardingInput } from "./src/onboarding/onboardingChecklist";
 import type { SearchNavigateTarget } from "./src/presentation/searchPresentation";
 import type { GlobalSearchSources } from "./src/services/searchAdapters/globalSearchAdapters";
 import type { NotificationSources } from "./src/services/notificationAdapters/notificationAdapters";
@@ -3036,6 +3039,8 @@ function isAuditCompleted(audit: Audit) {
 }
 
 function resolveHelpIntro(screen: string, role: Role): string {
+  const contextual = getContextualHelp(screen);
+  if (contextual) return contextual;
   const keyByScreen: Partial<Record<string, SectionIntroKey>> = {
     reports: role === "Master" ? "diagnostics" : "reports",
     schedules: "formsChecks",
@@ -5119,6 +5124,58 @@ function App() {
   );
 
   const showCompanySwitcher = companySwitcherOptions.length > 1;
+
+  const onboardingInput = useMemo((): OnboardingInput => {
+    const briefingIds = new Set(briefingTodoState.items.map((item) => item.briefingId).filter(Boolean));
+    return {
+      companyFolderId: activeCompanyContext.companyFolderId || selectedFolderId || "",
+      companyName: activeCompanyContext.companyName || workspaceName || "",
+      invitedUsers,
+      memberCount: companyMembersState.members.length,
+      sites,
+      areaAudits,
+      templates,
+      schedules,
+      managedSchedules,
+      briefingCount: briefingIds.size,
+      audits,
+      history: assignmentFilteredHistory,
+    };
+  }, [
+    activeCompanyContext.companyFolderId,
+    activeCompanyContext.companyName,
+    selectedFolderId,
+    workspaceName,
+    invitedUsers,
+    companyMembersState.members.length,
+    sites,
+    areaAudits,
+    templates,
+    schedules,
+    managedSchedules,
+    briefingTodoState.items,
+    audits,
+    assignmentFilteredHistory,
+  ]);
+
+  const onboardingSlot =
+    currentUser && !godCompanySetupOnlyShell ? (
+      <OnboardingHost
+        role={currentUser.role}
+        userId={currentUser.username || resolveUserEmail(currentUser) || currentUser.name}
+        setupOnlyShell={false}
+        input={onboardingInput}
+        onNavigate={(nextScreen) => setScreen(nextScreen as Screen)}
+      />
+    ) : godCompanySetupOnlyShell && currentUser ? (
+      <OnboardingHost
+        role={currentUser.role}
+        userId={currentUser.username || resolveUserEmail(currentUser) || currentUser.name}
+        setupOnlyShell
+        input={onboardingInput}
+        onNavigate={(nextScreen) => setScreen(nextScreen as Screen)}
+      />
+    ) : null;
 
   const headerWorkingOn = useMemo(() => {
     if (!currentUser || godCompanySetupOnlyShell) {
@@ -17677,6 +17734,7 @@ function App() {
                     onViewAllBriefings={handleViewAllBriefings}
                     pendingSyncCount={syncCentreWaitingCount}
                     failedSyncCount={syncCentreFailedCount}
+                    onboardingSlot={onboardingSlot}
                   />
                 )}
                 renderAuditorDashboard={() => (
@@ -17809,6 +17867,7 @@ function App() {
                     briefingTodoLoading={briefingTodoState.loading}
                     onOpenBriefing={handleOpenBriefingFromTodo}
                     onViewAllBriefings={handleViewAllBriefings}
+                    onboardingSlot={onboardingSlot}
                   />
                 )}
               />
@@ -18987,8 +19046,9 @@ function App() {
             <h3 className="text-xl font-semibold text-slate-950">Help</h3>
             <p className="mt-2 text-sm leading-relaxed text-slate-600">
               {currentUser
-                ? resolveHelpIntro(screen, currentUser.role)
-                : "Sign in with your company email and password. If you were invited, use the link from your invite email."}
+                ? getContextualHelp(screen) || resolveHelpIntro(screen, currentUser.role)
+                : getContextualHelp("login") ||
+                  "Sign in with your company username to access checks, actions and documents assigned to you."}
             </p>
             <p className="mt-3 text-sm text-slate-500">
               For access or company setup issues, contact your company admin or manager.
