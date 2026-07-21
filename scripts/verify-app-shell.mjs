@@ -103,6 +103,10 @@ function main() {
   assert(accountMenu.includes("triggerRef.current?.focus()"), "focus returns after closing account menu");
   assert(accountMenu.includes('event.key === "Escape"'), "Escape closes account menu");
   assert(accountMenu.includes("createPortal") && accountMenu.includes("document.body"), "account menu portals above shell clipping");
+  assert(
+    accountMenu.includes("window.innerWidth - menuWidth - VIEWPORT_PADDING"),
+    "account menu clamps horizontal position against window.innerWidth",
+  );
   assert(appShell.includes("motion-reduce") || appSidebar.includes("motion-reduce"), "reduced motion supported");
   assert(appShell.includes("h-[100dvh]"), "mobile drawer uses 100dvh-safe layout");
 

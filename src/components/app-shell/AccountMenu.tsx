@@ -18,6 +18,28 @@ type Props = {
   onSignOut: () => void;
 };
 
+const VIEWPORT_PADDING = 12;
+const MENU_GAP = 8;
+const DEFAULT_MENU_WIDTH = 288;
+
+function buildMeasureStyle(trigger: DOMRect): CSSProperties {
+  return {
+    position: "fixed",
+    visibility: "hidden",
+    top: trigger.bottom + MENU_GAP,
+    left: Math.max(
+      VIEWPORT_PADDING,
+      Math.min(
+        trigger.right - DEFAULT_MENU_WIDTH,
+        window.innerWidth - DEFAULT_MENU_WIDTH - VIEWPORT_PADDING,
+      ),
+    ),
+    maxWidth: "calc(100vw - 24px)",
+    maxHeight: "calc(100dvh - 24px)",
+    overflowY: "auto",
+  };
+}
+
 function useAccountMenuPosition(
   open: boolean,
   triggerRef: RefObject<HTMLButtonElement | null>,
@@ -26,37 +48,87 @@ function useAccountMenuPosition(
   const [style, setStyle] = useState<CSSProperties | null>(null);
 
   useLayoutEffect(() => {
-    if (!open || !triggerRef.current) {
+    if (!open) {
       setStyle(null);
       return;
     }
 
+    let raf = 0;
+
     const update = () => {
       const trigger = triggerRef.current?.getBoundingClientRect();
-      const menu = menuRef.current?.getBoundingClientRect();
+      const menuEl = menuRef.current;
       if (!trigger) return;
 
-      const menuWidth = Math.min(288, window.innerWidth - 16);
-      const left = Math.min(Math.max(8, trigger.right - menuWidth), window.innerWidth - menuWidth - 8);
-      const gap = 8;
-      let top = trigger.bottom + gap;
-      if (menu && top + menu.height > window.innerHeight - gap) {
-        top = Math.max(gap, trigger.top - menu.height - gap);
+      if (!menuEl) {
+        setStyle(buildMeasureStyle(trigger));
+        return;
       }
+
+      const menuWidth = menuEl.getBoundingClientRect().width;
+      if (menuWidth <= 0) {
+        setStyle(buildMeasureStyle(trigger));
+        return;
+      }
+
+      const menuHeight = menuEl.getBoundingClientRect().height;
+
+      let left = trigger.right - menuWidth;
+      left = Math.max(
+        VIEWPORT_PADDING,
+        Math.min(left, window.innerWidth - menuWidth - VIEWPORT_PADDING),
+      );
+
+      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+      let top = trigger.bottom + MENU_GAP;
+      const fitsBelow = top + menuHeight <= viewportHeight - VIEWPORT_PADDING;
+      if (!fitsBelow && menuHeight > 0) {
+        const aboveTop = trigger.top - menuHeight - MENU_GAP;
+        if (aboveTop >= VIEWPORT_PADDING) {
+          top = aboveTop;
+        } else {
+          top = Math.max(
+            VIEWPORT_PADDING,
+            Math.min(top, viewportHeight - menuHeight - VIEWPORT_PADDING),
+          );
+        }
+      }
+
       setStyle({
         position: "fixed",
         top,
         left,
-        width: menuWidth,
+        visibility: "visible",
+        maxWidth: "calc(100vw - 24px)",
+        maxHeight: "calc(100dvh - 24px)",
+        overflowY: "auto",
       });
     };
 
     update();
+    raf = window.requestAnimationFrame(update);
+
     window.addEventListener("resize", update);
     window.addEventListener("scroll", update, true);
+    const viewport = window.visualViewport;
+    viewport?.addEventListener("resize", update);
+    viewport?.addEventListener("scroll", update);
+
+    const resizeObserver =
+      menuRef.current && typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => update())
+        : null;
+    if (menuRef.current && resizeObserver) {
+      resizeObserver.observe(menuRef.current);
+    }
+
     return () => {
+      window.cancelAnimationFrame(raf);
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
+      viewport?.removeEventListener("resize", update);
+      viewport?.removeEventListener("scroll", update);
+      resizeObserver?.disconnect();
     };
   }, [open, triggerRef, menuRef]);
 
@@ -80,6 +152,11 @@ export function AccountMenu({
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const menuStyle = useAccountMenuPosition(open, triggerRef, menuRef);
+  const resolvedMenuStyle =
+    menuStyle ??
+    (open && triggerRef.current
+      ? buildMeasureStyle(triggerRef.current.getBoundingClientRect())
+      : undefined);
 
   useEffect(() => {
     if (!open) return;
@@ -106,50 +183,50 @@ export function AccountMenu({
         <div
           ref={menuRef}
           role="menu"
-          style={menuStyle ?? { position: "fixed", top: -9999, left: -9999, width: Math.min(288, window.innerWidth - 16) }}
-          className="z-[71] rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-bg-surface)] p-2 shadow-xl motion-reduce:transition-none"
+          style={resolvedMenuStyle}
+          className="z-[71] w-[min(18rem,calc(100vw-24px))] rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-bg-surface)] p-2 shadow-xl motion-reduce:transition-none"
         >
-            <div className="border-b border-[var(--ui-border)] px-3 py-3">
-              <p className="truncate text-sm font-semibold text-[var(--ui-text-primary)]">{displayName}</p>
-              {email ? <p className="truncate text-xs text-[var(--ui-text-secondary)]">{email}</p> : null}
-              <p className="mt-1 text-[11px] font-medium text-[var(--ui-text-muted)]">{resolveHeaderRoleLabel(role)}</p>
-              {companyName ? <p className="truncate text-xs text-[var(--ui-text-secondary)]">{companyName}</p> : null}
-            </div>
-            <div className="py-1">
-              {onOpenAccount ? (
-                <button type="button" role="menuitem" className="flex min-h-11 w-full items-center rounded-xl px-3 text-sm font-medium hover:bg-[var(--ui-bg-muted)]" onClick={() => { setOpen(false); onOpenAccount(); }}>
-                  Account
-                </button>
-              ) : null}
-              {showCompanySwitcher && onOpenCompanySwitcher ? (
-                <button type="button" role="menuitem" className="flex min-h-11 w-full items-center rounded-xl px-3 text-sm font-medium hover:bg-[var(--ui-bg-muted)]" onClick={() => { setOpen(false); onOpenCompanySwitcher(); }}>
-                  Switch company
-                </button>
-              ) : null}
-              {onHelp ? (
-                <button type="button" role="menuitem" className="flex min-h-11 w-full items-center rounded-xl px-3 text-sm font-medium hover:bg-[var(--ui-bg-muted)]" onClick={() => { setOpen(false); onHelp(); }}>
-                  Help
-                </button>
-              ) : null}
-            </div>
-            <div className="border-t border-[var(--ui-border)] pt-1">
-              <button
-                type="button"
-                role="menuitem"
-                className="flex min-h-11 w-full items-center gap-2 rounded-xl px-3 text-sm font-semibold text-rose-700 hover:bg-rose-50"
-                onClick={() => {
-                  setOpen(false);
-                  onSignOut();
-                }}
-              >
-                <Icon size="sm" aria-hidden>
-                  <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
-                </Icon>
-                Sign out
-              </button>
-            </div>
+          <div className="border-b border-[var(--ui-border)] px-3 py-3">
+            <p className="truncate text-sm font-semibold text-[var(--ui-text-primary)]">{displayName}</p>
+            {email ? <p className="truncate text-xs text-[var(--ui-text-secondary)]">{email}</p> : null}
+            <p className="mt-1 text-[11px] font-medium text-[var(--ui-text-muted)]">{resolveHeaderRoleLabel(role)}</p>
+            {companyName ? <p className="truncate text-xs text-[var(--ui-text-secondary)]">{companyName}</p> : null}
           </div>
-        </>
+          <div className="py-1">
+            {onOpenAccount ? (
+              <button type="button" role="menuitem" className="flex min-h-11 w-full items-center rounded-xl px-3 text-sm font-medium hover:bg-[var(--ui-bg-muted)]" onClick={() => { setOpen(false); onOpenAccount(); }}>
+                Account
+              </button>
+            ) : null}
+            {showCompanySwitcher && onOpenCompanySwitcher ? (
+              <button type="button" role="menuitem" className="flex min-h-11 w-full items-center rounded-xl px-3 text-sm font-medium hover:bg-[var(--ui-bg-muted)]" onClick={() => { setOpen(false); onOpenCompanySwitcher(); }}>
+                Switch company
+              </button>
+            ) : null}
+            {onHelp ? (
+              <button type="button" role="menuitem" className="flex min-h-11 w-full items-center rounded-xl px-3 text-sm font-medium hover:bg-[var(--ui-bg-muted)]" onClick={() => { setOpen(false); onHelp(); }}>
+                Help
+              </button>
+            ) : null}
+          </div>
+          <div className="border-t border-[var(--ui-border)] pt-1">
+            <button
+              type="button"
+              role="menuitem"
+              className="flex min-h-11 w-full items-center gap-2 rounded-xl px-3 text-sm font-semibold text-rose-700 hover:bg-rose-50"
+              onClick={() => {
+                setOpen(false);
+                onSignOut();
+              }}
+            >
+              <Icon size="sm" aria-hidden>
+                <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
+              </Icon>
+              Sign out
+            </button>
+          </div>
+        </div>
+      </>
     ) : null;
 
   return (
