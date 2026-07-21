@@ -6,6 +6,7 @@ import type { TFunction } from "i18next";
 
 const LABEL_TO_KEY: Record<string, string> = {
   Dashboard: "nav.dashboard",
+  Home: "nav.dashboard",
   Godmode: "nav.godmode",
   "Platform Setup": "nav.platformSetup",
   Companies: "nav.companies",
@@ -33,6 +34,7 @@ const LABEL_TO_KEY: Record<string, string> = {
   "Upload & training": "nav.documentTraining",
   "Quality & Safety Hub": "nav.qmsReadiness",
   "Sync Centre": "nav.syncCentre",
+  "Sync / Offline Uploads": "nav.syncCentre",
   Archive: "nav.archive",
   "Admin tools": "nav.adminTools",
   Onboarding: "nav.onboarding",

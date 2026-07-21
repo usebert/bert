@@ -1,8 +1,9 @@
 import type { DashboardCardDefinition, DashboardLayoutCatalogId } from "./types";
 
-/** Manager role home cards. Things to do stays visible for safety. */
+/** Manager role home — unified core sections are always visible above this board. */
 export const MANAGER_ROLE_DASHBOARD_CARDS: DashboardCardDefinition[] = [
-  { id: "things-to-do", label: "Things to do", defaultOrder: 0, hideable: false },
+  { id: "needs-attention", label: "Needs attention", defaultOrder: 0, hideable: false },
+  { id: "todays-work", label: "Today's work", defaultOrder: 1, hideable: false },
   { id: "summary-metrics", label: "Summary metrics", defaultOrder: 1, hideable: true },
   { id: "open-actions", label: "Open actions", defaultOrder: 2, hideable: true },
   { id: "open-ncrs", label: "Open NCRs", defaultOrder: 3, hideable: true },
@@ -10,15 +11,16 @@ export const MANAGER_ROLE_DASHBOARD_CARDS: DashboardCardDefinition[] = [
   { id: "calendar-summary", label: "Calendar", defaultOrder: 5, hideable: true },
 ];
 
-/** Auditor home — priority list is essential. */
+/** Auditor home — unified core sections are always visible above this board. */
 export const AUDITOR_TASK_DASHBOARD_CARDS: DashboardCardDefinition[] = [
-  { id: "today-metrics", label: "Today metrics", defaultOrder: 0, hideable: true },
-  { id: "priority-list", label: "Priority list", defaultOrder: 1, hideable: false },
+  { id: "needs-attention", label: "Needs attention", defaultOrder: 0, hideable: false },
+  { id: "todays-work", label: "Today's work", defaultOrder: 1, hideable: false },
 ];
 
-/** Company Admin home. */
+/** Company Admin home — unified core sections are always visible above this board. */
 export const COMPANY_ADMIN_DASHBOARD_CARDS: DashboardCardDefinition[] = [
-  { id: "things-to-do", label: "Things to do", defaultOrder: 0, hideable: false },
+  { id: "needs-attention", label: "Needs attention", defaultOrder: 0, hideable: false },
+  { id: "todays-work", label: "Today's work", defaultOrder: 1, hideable: false },
   { id: "next-steps", label: "Next steps", defaultOrder: 1, hideable: true },
   { id: "today-panel", label: "Today", defaultOrder: 2, hideable: true },
   { id: "qms-summary", label: "QMS readiness", defaultOrder: 3, hideable: true },

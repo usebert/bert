@@ -53,55 +53,55 @@ const MASTER_NAV: PresentedNavItem[] = [
 
 /** Product flow: Dashboard → People → Scheduling → Complete Work → Actions/NCRs → Reports */
 const COMPANY_ADMIN_NAV: PresentedNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: "dashboard" },
+  { id: "dashboard", label: "Home", icon: "dashboard" },
   { id: "users", label: "People", icon: "user", adminPilotFocus: "users" },
-  { id: "schedules", label: "Schedules", icon: "clock" },
-  { id: "auditCentre", label: "Audit Centre", icon: "clipboard" },
+  { id: "schedules", label: "Schedule", icon: "clock" },
+  { id: "auditCentre", label: "Audits", icon: "clipboard" },
   { id: "briefings", label: "Briefings", icon: "note" },
   { id: "results", label: "Results", icon: "checklist" },
   { id: "actions", label: "Actions", icon: "warningTriangle" },
-  { id: "incidents", label: "Incidents", icon: "warningTriangle" },
-  { id: "nonConformance", label: "NCRs", icon: "checklist" },
-  { id: "loler", label: "LOLER", icon: "checklist" },
+  { id: "incidents", label: "Safety", icon: "warningTriangle" },
+  { id: "nonConformance", label: "Safety", icon: "checklist" },
+  { id: "loler", label: "Equipment", icon: "checklist" },
   { id: "calendar", label: "Calendar", icon: "clock" },
   { id: "documents", label: "Documents", icon: "note" },
-  { id: "documentControl", label: "Document Control", icon: "note" },
+  { id: "documentControl", label: "Documents", icon: "note" },
   { id: "reports", label: "Reports", icon: "chart" },
-  { id: "sync", label: "Sync Centre", icon: "sync" },
+  { id: "sync", label: "Sync / Offline Uploads", icon: "sync" },
   { id: "archive", label: "Archive", icon: "clipboard" },
   { id: "account", label: "Account", icon: "user" },
 ];
 
 const MANAGER_NAV: PresentedNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: "dashboard" },
+  { id: "dashboard", label: "Home", icon: "dashboard" },
   { id: "invites", label: "People", icon: "user", adminPilotFocus: "invites" },
-  { id: "schedules", label: "Schedules", icon: "clock" },
-  { id: "auditCentre", label: "Audit Centre", icon: "clipboard" },
+  { id: "schedules", label: "Schedule", icon: "clock" },
+  { id: "auditCentre", label: "Audits", icon: "clipboard" },
   { id: "briefings", label: "Briefings", icon: "note" },
   { id: "results", label: "Results", icon: "checklist" },
   { id: "actions", label: "Actions", icon: "warningTriangle" },
-  { id: "incidents", label: "Incidents", icon: "warningTriangle" },
-  { id: "nonConformance", label: "NCRs", icon: "checklist" },
-  { id: "loler", label: "LOLER", icon: "checklist" },
+  { id: "incidents", label: "Safety", icon: "warningTriangle" },
+  { id: "nonConformance", label: "Safety", icon: "checklist" },
+  { id: "loler", label: "Equipment", icon: "checklist" },
   { id: "calendar", label: "Calendar", icon: "clock" },
   { id: "documents", label: "Documents", icon: "note" },
-  { id: "documentControl", label: "Document Control", icon: "note" },
+  { id: "documentControl", label: "Documents", icon: "note" },
   { id: "reports", label: "Reports", icon: "chart" },
-  { id: "sync", label: "Sync Centre", icon: "sync" },
+  { id: "sync", label: "Sync / Offline Uploads", icon: "sync" },
   { id: "archive", label: "Archive", icon: "clipboard" },
   { id: "account", label: "Account", icon: "user" },
 ];
 
 const AUDITOR_NAV: PresentedNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: "dashboard" },
-  { id: "auditCentre", label: "Audit Centre", icon: "clipboard" },
+  { id: "dashboard", label: "Home", icon: "dashboard" },
+  { id: "auditCentre", label: "Audits", icon: "clipboard" },
   { id: "briefings", label: "Briefings", icon: "note" },
-  { id: "incidents", label: "Incidents", icon: "warningTriangle" },
-  { id: "loler", label: "LOLER", icon: "checklist" },
+  { id: "incidents", label: "Safety", icon: "warningTriangle" },
+  { id: "loler", label: "Equipment", icon: "checklist" },
   { id: "calendar", label: "Calendar", icon: "clock" },
   { id: "documents", label: "Documents", icon: "note" },
-  { id: "documentControl", label: "Document Control", icon: "note" },
-  { id: "sync", label: "Sync Centre", icon: "sync" },
+  { id: "documentControl", label: "Documents", icon: "note" },
+  { id: "sync", label: "Sync / Offline Uploads", icon: "sync" },
   { id: "account", label: "Account", icon: "user" },
 ];
 
@@ -230,7 +230,7 @@ function canPresentNavItem(role: Role, item: PresentedNavItem): boolean {
   }
   if (item.id === "admin") return canAccessWorkspaceNav(role);
   if (item.id === "schedules" && item.label === "Templates") return canAccessMasterTemplatesNav(role);
-  if (item.id === "schedules" && item.label === "Schedules") {
+  if (item.id === "schedules" && (item.label === "Schedules" || item.label === "Schedule")) {
     return canAccessSchedules(role);
   }
   if (item.id === "reports" && item.label.includes("Diagnostics")) return canAccessPlatformDiagnosticsNav(role);

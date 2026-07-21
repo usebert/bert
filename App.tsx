@@ -40,7 +40,6 @@ import {
   canAccessQmsReadinessFull,
   canAccessQmsReadinessNav,
   canCompleteAuditAsAuditor,
-  shouldRenderLiveOperationalDashboard,
   canCompleteAssignedCheck,
   usesAssignedChecksCompletionFlow,
   canEditLegalName,
@@ -89,6 +88,7 @@ import {
   shouldLoadSchedulesResultsEnrichment,
   shouldLoadScheduleAssigneesScreen,
 } from "./src/config/roleNavigation";
+import { getFriendlyPresentedNav, groupPresentedNav } from "./src/config/navPresentation";
 import { MOBILE_BOTTOM_NAV_IDS, MORE_MENU_NAV_IDS, PILOT_PRIMARY_NAV_IDS, PRIMARY_NAV_IDS } from "./src/config/navStructure";
 import { RoleContextBanner } from "./src/components/RoleContextBanner";
 import { getRoleTheme } from "./src/config/roleTheme";
@@ -118,7 +118,6 @@ import { isTabletKioskEnabled } from "./src/utils/tabletKioskStorage";
 import { AuditorTaskDashboard } from "./src/components/dashboard/AuditorTaskDashboard";
 import { CompanyAdminDashboard } from "./src/components/dashboard/CompanyAdminDashboard";
 import { ManagerRoleDashboard } from "./src/components/dashboard/ManagerRoleDashboard";
-import { LiveOperationalDashboard } from "./src/components/dashboard/LiveOperationalDashboard";
 import { MasterPlatformDashboard } from "./src/components/dashboard/MasterPlatformDashboard";
 import {
   formatInviteStatusLabel,
@@ -4963,8 +4962,15 @@ function App() {
     if (!currentUser) {
       return [];
     }
-    return getPresentedNavForRole(currentUser.role);
+    return getFriendlyPresentedNav(currentUser.role);
   }, [currentUser]);
+
+  const groupedSidebarNav = useMemo(() => {
+    if (!currentUser) {
+      return [];
+    }
+    return groupPresentedNav(currentUser.role, presentedNav);
+  }, [currentUser, presentedNav]);
 
   const visibleNavItems = useMemo(() => {
     if (!currentUser) {
@@ -11666,13 +11672,17 @@ function App() {
     }
   };
 
+  const applyDashboardNavWithFilter = useCallback((nextScreen: import("./src/types/navigation").NavItemId, actionFilter?: string) => {
+    if (actionFilter) {
+      setActionFilter(actionFilter as "Open" | "Overdue" | "Awaiting Verification" | "Closed" | "Severity");
+    }
+    setScreen(nextScreen);
+  }, []);
+
   const applyNextBestDashboardIntent = useCallback((intent: NextBestActionIntent) => {
     if (intent.type !== "screen") return;
-    if (intent.actionFilter) {
-      setActionFilter(intent.actionFilter);
-    }
-    setScreen(intent.screen);
-  }, []);
+    applyDashboardNavWithFilter(intent.screen, intent.actionFilter);
+  }, [applyDashboardNavWithFilter]);
 
   const handleLeaveMasterWorkspaceSetupOnly = () => {
     try {
@@ -17150,32 +17160,39 @@ function App() {
               />
             </div>
             <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 pb-2" aria-label="Primary">
-              {primaryNavItems.map((item) => {
-                const selected =
-                  screen === item.id || (isAuditCentreNavActive(screen) && item.id === "auditCentre");
-                return (
-                  <button
-                    key={`sidebar-${item.id}`}
-                    type="button"
-                    onClick={() => {
-                      setShellMoreExpanded(false);
-                      setMobileMoreOpen(false);
-                      setScreen(item.id);
-                    }}
-                    className={[
-                      "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold bert-nav-item transition",
-                      selected
-                        ? roleTheme?.navActive ?? "bg-[var(--bert-signal-orange)] text-[var(--qms-navy-950)]"
-                        : roleTheme?.navHover ?? "text-slate-200 hover:bg-white/8 hover:text-white",
-                      desktopSidebarCollapsed ? "justify-center px-2" : "",
-                    ].join(" ")}
-                    title={navLabelForItem(item)}
-                  >
-                    <AppIcon name={item.icon} className="h-4 w-4 shrink-0 opacity-95" />
-                    {!desktopSidebarCollapsed && <span className="truncate">{navLabelForItem(item)}</span>}
-                  </button>
-                );
-              })}
+              {groupedSidebarNav.map((group) => (
+                <div key={`nav-group-${group.id}`} className="space-y-0.5">
+                  {!desktopSidebarCollapsed && group.label !== "Home" ? (
+                    <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{group.label}</p>
+                  ) : null}
+                  {group.items.map((item) => {
+                    const selected =
+                      screen === item.id || (isAuditCentreNavActive(screen) && item.id === "auditCentre");
+                    return (
+                      <button
+                        key={`sidebar-${item.id}`}
+                        type="button"
+                        onClick={() => {
+                          setShellMoreExpanded(false);
+                          setMobileMoreOpen(false);
+                          setScreen(item.id);
+                        }}
+                        className={[
+                          "flex min-h-[44px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold bert-nav-item transition",
+                          selected
+                            ? roleTheme?.navActive ?? "bg-[var(--bert-signal-orange)] text-[var(--qms-navy-950)]"
+                            : roleTheme?.navHover ?? "text-slate-200 hover:bg-white/8 hover:text-white",
+                          desktopSidebarCollapsed ? "justify-center px-2" : "",
+                        ].join(" ")}
+                        title={navLabelForItem(item)}
+                      >
+                        <AppIcon name={item.icon} className="h-4 w-4 shrink-0 opacity-95" />
+                        {!desktopSidebarCollapsed && <span className="truncate">{navLabelForItem(item)}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
               {moreNavItems.length > 0 ? (
                 <div className="mt-1 border-t border-white/10 pt-2">
                   <button
@@ -17535,28 +17552,6 @@ function App() {
             )}
             {screen === "dashboard" && (
               <AnimatedScreen screenKey={`dashboard-${currentUser.role}`}>
-              {shouldRenderLiveOperationalDashboard(currentUser.role) &&
-              currentUser.role === "Admin" &&
-              !canCompleteAuditAsAuditor(currentUser.role) &&
-              activeCompanyContext.companyFolderId &&
-              activeCompanyContext.masterSheetId ? (
-                <div className="mb-4">
-                  <LiveOperationalDashboard
-                    companyFolderId={String(activeCompanyContext.companyFolderId || "").trim()}
-                    masterSheetId={String(activeCompanyContext.masterSheetId || "").trim()}
-                    companyName={String(activeCompanyContext.companyName || workspaceName || "").trim()}
-                    userEmail={String(sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser)).trim().toLowerCase()}
-                    role={currentUser.role}
-                    pendingSyncCount={syncCentreWaitingCount}
-                    failedSyncCount={syncCentreFailedCount}
-                    onOpenActions={() => setScreen("actions")}
-                    onOpenIncidents={() => setScreen("incidents")}
-                    onOpenBriefings={() => setScreen("briefings")}
-                    onOpenSchedules={() => setScreen("schedules")}
-                    onOpenSync={() => setScreen("sync")}
-                  />
-                </div>
-              ) : null}
               <DashboardScreen
                 currentUser={currentUser}
                 workspaceName={workspaceName}
@@ -17605,6 +17600,7 @@ function App() {
                 demoModeActive={demoModeActive}
                 renderMasterDashboard={() => (
                   <MasterPlatformDashboard
+                    displayName={currentUserAppName}
                     companiesCount={folders.length}
                     pendingOnboardingCount={onboardingRecords.length}
                     onNavigate={(nextScreen) => setScreen(nextScreen)}
@@ -17625,18 +17621,24 @@ function App() {
                     briefingTodoLoading={briefingTodoState.loading}
                     onOpenBriefing={handleOpenBriefingFromTodo}
                     onViewAllBriefings={handleViewAllBriefings}
+                    pendingSyncCount={syncCentreWaitingCount}
+                    failedSyncCount={syncCentreFailedCount}
                   />
                 )}
                 renderAuditorDashboard={() => (
                   <AuditorTaskDashboard
+                    displayName={currentUserAppName}
                     workspaceName={workspaceName}
                     currentUser={currentUser}
                     companyFolderId={String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim()}
+                    masterSheetId={String(activeCompanyContext.masterSheetId || "").trim()}
+                    companyName={String(activeCompanyContext.companyName || workspaceName || "").trim()}
                     userIdentity={String(sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser)).trim().toLowerCase()}
                     groupedAudits={groupedAudits}
                     assignedAudits={assignedAudits}
                     drafts={drafts}
                     actions={visibleActions}
+                    history={assignmentFilteredHistory}
                     pendingSyncCount={pendingSyncCount}
                     failedSyncCount={failedSyncCount}
                     showStartHereCard={showAuditorStartHereCard}
@@ -17644,6 +17646,7 @@ function App() {
                     recentCompletionsCount={assignmentFilteredHistory.length}
                     onOpenAudit={startAudit}
                     onNavigate={(nextScreen) => setScreen(nextScreen)}
+                    onNavigateWithFilter={applyDashboardNavWithFilter}
                     assignedCheckScheduleMeta={assignedCheckScheduleMeta}
                     assignedChecksLoading={assignedChecksState.loading}
                     assignedChecksLoadError={assignedChecksState.loadError}
@@ -17658,11 +17661,15 @@ function App() {
                 )}
                 renderManagerDashboard={() => (
                   <ManagerRoleDashboard
+                    displayName={currentUserAppName}
+                    masterSheetId={String(activeCompanyContext.masterSheetId || "").trim()}
+                    companyName={String(activeCompanyContext.companyName || workspaceName || "").trim()}
                     workspaceName={workspaceName}
                     teamCount={companyReportUsers.length}
                     companyFolderId={String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim()}
                     userIdentity={String(sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser)).trim().toLowerCase()}
                     onNavigate={(nextScreen) => setScreen(nextScreen)}
+                    onNavigateWithFilter={applyDashboardNavWithFilter}
                     currentUser={currentUser}
                     groupedAudits={groupedAudits}
                     assignedAudits={assignedAudits}
@@ -17718,6 +17725,9 @@ function App() {
                 )}
                 renderAdminDashboard={() => (
                   <CompanyAdminDashboard
+                    displayName={currentUserAppName}
+                    masterSheetId={String(activeCompanyContext.masterSheetId || "").trim()}
+                    companyName={String(activeCompanyContext.companyName || workspaceName || "").trim()}
                     workspaceName={workspaceName}
                     companyFolderId={String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim()}
                     userIdentity={String(sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser)).trim().toLowerCase()}
@@ -17735,8 +17745,11 @@ function App() {
                     history={assignmentFilteredHistory}
                     openReportsCount={reportInbox.length}
                     syncIssueCount={failedSyncCount + pendingSyncCount}
+                    pendingSyncCount={syncCentreWaitingCount}
+                    failedSyncCount={syncCentreFailedCount}
                     qmsSummary={canAccessQmsReadinessNav(currentUser.role) ? qmsReadinessSummary : null}
                     onNavigate={(nextScreen) => setScreen(nextScreen)}
+                    onNavigateWithFilter={applyDashboardNavWithFilter}
                     onOpenAudit={startAudit}
                     briefingTodoItems={briefingTodoState.items}
                     briefingTodoLoading={briefingTodoState.loading}
@@ -17745,28 +17758,6 @@ function App() {
                   />
                 )}
               />
-              {shouldRenderLiveOperationalDashboard(currentUser.role) &&
-              currentUser.role === "Manager" &&
-              !canCompleteAuditAsAuditor(currentUser.role) &&
-              activeCompanyContext.companyFolderId &&
-              activeCompanyContext.masterSheetId ? (
-                <div className="mt-4">
-                  <LiveOperationalDashboard
-                    companyFolderId={String(activeCompanyContext.companyFolderId || "").trim()}
-                    masterSheetId={String(activeCompanyContext.masterSheetId || "").trim()}
-                    companyName={String(activeCompanyContext.companyName || workspaceName || "").trim()}
-                    userEmail={String(sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser)).trim().toLowerCase()}
-                    role={currentUser.role}
-                    pendingSyncCount={syncCentreWaitingCount}
-                    failedSyncCount={syncCentreFailedCount}
-                    onOpenActions={() => setScreen("actions")}
-                    onOpenIncidents={() => setScreen("incidents")}
-                    onOpenBriefings={() => setScreen("briefings")}
-                    onOpenSchedules={() => setScreen("schedules")}
-                    onOpenSync={() => setScreen("sync")}
-                  />
-                </div>
-              ) : null}
               </AnimatedScreen>
             )}
 
