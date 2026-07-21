@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { resolveHeaderRoleLabel } from "../../utils/headerCompanyContext";
 import type { Role } from "../../permissions";
 import { Icon } from "../ui/Icon";
@@ -17,6 +18,51 @@ type Props = {
   onSignOut: () => void;
 };
 
+function useAccountMenuPosition(
+  open: boolean,
+  triggerRef: RefObject<HTMLButtonElement | null>,
+  menuRef: RefObject<HTMLDivElement | null>,
+) {
+  const [style, setStyle] = useState<CSSProperties | null>(null);
+
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current) {
+      setStyle(null);
+      return;
+    }
+
+    const update = () => {
+      const trigger = triggerRef.current?.getBoundingClientRect();
+      const menu = menuRef.current?.getBoundingClientRect();
+      if (!trigger) return;
+
+      const menuWidth = Math.min(288, window.innerWidth - 16);
+      const left = Math.min(Math.max(8, trigger.right - menuWidth), window.innerWidth - menuWidth - 8);
+      const gap = 8;
+      let top = trigger.bottom + gap;
+      if (menu && top + menu.height > window.innerHeight - gap) {
+        top = Math.max(gap, trigger.top - menu.height - gap);
+      }
+      setStyle({
+        position: "fixed",
+        top,
+        left,
+        width: menuWidth,
+      });
+    };
+
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open, triggerRef, menuRef]);
+
+  return style;
+}
+
 export function AccountMenu({
   displayName,
   email,
@@ -32,6 +78,8 @@ export function AccountMenu({
 }: Props) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const menuStyle = useAccountMenuPosition(open, triggerRef, menuRef);
 
   useEffect(() => {
     if (!open) return;
@@ -46,32 +94,21 @@ export function AccountMenu({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [open]);
 
-  return (
-    <div className="relative">
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => setOpen((current) => !current)}
-        className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full ring-2 ring-white"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={`Account menu for ${displayName}`}
-      >
-        {photoUrl ? (
-          <img src={photoUrl} alt="" className="h-full w-full object-cover" />
-        ) : (
-          <span className="flex h-full w-full items-center justify-center bg-[var(--bert-signal-orange)] text-[10px] font-semibold text-[var(--qms-navy-950)]">
-            {initials}
-          </span>
-        )}
-      </button>
-      {open ? (
-        <>
-          <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close account menu" onClick={() => setOpen(false)} />
-          <div
-            role="menu"
-            className="absolute right-0 z-50 mt-2 w-[min(18rem,calc(100vw-2rem))] rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-bg-surface)] p-2 shadow-xl motion-reduce:transition-none"
-          >
+  const menu =
+    open && typeof document !== "undefined" ? (
+      <>
+        <button
+          type="button"
+          className="fixed inset-0 z-[70] cursor-default"
+          aria-label="Close account menu"
+          onClick={() => setOpen(false)}
+        />
+        <div
+          ref={menuRef}
+          role="menu"
+          style={menuStyle ?? { position: "fixed", top: -9999, left: -9999, width: Math.min(288, window.innerWidth - 16) }}
+          className="z-[71] rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-bg-surface)] p-2 shadow-xl motion-reduce:transition-none"
+        >
             <div className="border-b border-[var(--ui-border)] px-3 py-3">
               <p className="truncate text-sm font-semibold text-[var(--ui-text-primary)]">{displayName}</p>
               {email ? <p className="truncate text-xs text-[var(--ui-text-secondary)]">{email}</p> : null}
@@ -113,7 +150,28 @@ export function AccountMenu({
             </div>
           </div>
         </>
-      ) : null}
+    ) : null;
+
+  return (
+    <div className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full ring-2 ring-white"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Account menu for ${displayName}`}
+      >
+        {photoUrl ? (
+          <img src={photoUrl} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <span className="flex h-full w-full items-center justify-center bg-[var(--bert-signal-orange)] text-[10px] font-semibold text-[var(--qms-navy-950)]">
+            {initials}
+          </span>
+        )}
+      </button>
+      {menu ? createPortal(menu, document.body) : null}
     </div>
   );
 }
