@@ -78,6 +78,7 @@
     "verify:loler-ui": "node scripts/verify-loler-ui.mjs",
     "verify:reports-ui": "node scripts/verify-reports-ui.mjs",
     "verify:global-search": "node scripts/verify-global-search.mjs",
+    "verify:notification-centre": "node scripts/verify-notification-centre.mjs",
     "verify:pilot-readiness": "node scripts/verify-pilot-readiness.mjs",
     "verify:godmode-company-context": "node scripts/verify-godmode-company-context.mjs",
     "verify:google-form-templates": "node scripts/verify-google-form-templates.mjs",

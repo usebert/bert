@@ -67,3 +67,12 @@ export function IconInbox(props: Omit<IconProps, "children">) {
     </Icon>
   );
 }
+
+export function IconBell(props: Omit<IconProps, "children">) {
+  return (
+    <Icon {...props}>
+      <path d="M12 3a5 5 0 0 0-5 5v2.2c0 .8-.3 1.6-.8 2.2L4.5 15.5A1 1 0 0 0 5.4 17H18.6a1 1 0 0 0 .9-1.5l-1.7-3.1a4 4 0 0 1-.8-2.2V8a5 5 0 0 0-5-5z" />
+      <path d="M10 18.5a2 2 0 0 0 4 0" />
+    </Icon>
+  );
+}

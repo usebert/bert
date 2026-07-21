@@ -13,7 +13,7 @@ export {
   Textarea,
   Toggle,
 } from "./FormField";
-export { Icon, IconAlert, IconCheck, IconInbox, IconSearch, type IconSize } from "./Icon";
+export { Icon, IconAlert, IconBell, IconCheck, IconInbox, IconSearch, type IconSize } from "./Icon";
 export {
   EmptyState,
   InlineLoading,

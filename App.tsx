@@ -310,8 +310,10 @@ import { CheckCompletionWizard } from "./src/components/checks/CheckCompletionWi
 import { CompleteAuditScreen } from "./src/screens/CompleteAuditScreen";
 import { IncidentReportingScreen } from "./src/screens/IncidentReportingScreen";
 import { useGlobalSearchControls } from "./src/components/search/GlobalSearch";
+import { useNotificationControls } from "./src/components/notifications/NotificationsHost";
 import type { SearchNavigateTarget } from "./src/presentation/searchPresentation";
 import type { GlobalSearchSources } from "./src/services/searchAdapters/globalSearchAdapters";
+import type { NotificationSources } from "./src/services/notificationAdapters/notificationAdapters";
 import { NonConformanceScreen } from "./src/screens/NonConformanceScreen";
 import { ReportsScreen } from "./src/screens/ReportsScreen";
 import { ArchiveScreen } from "./src/screens/ArchiveScreen";
@@ -15902,6 +15904,52 @@ function App() {
     handleGlobalSearchNavigate,
   );
 
+  const notificationSources = useMemo((): NotificationSources | null => {
+    if (!currentUser) {
+      return null;
+    }
+    return {
+      role: currentUser.role,
+      currentUser,
+      companyFolderId: archiveCompanyFolderId,
+      actions: visibleActions,
+      audits: assignedAudits,
+      drafts,
+      unsyncedAuditIds: unsyncedSubmittedAuditIds,
+      incidents,
+      incidentActions,
+      ncrs: assignmentFilteredNonConformances,
+      briefingItems: briefingTodoState.items,
+      briefingLoading: briefingTodoState.loading,
+      pendingSyncCount,
+      failedSyncCount,
+      syncCentreWaitingCount,
+      syncCentreFailedCount,
+      pendingOnboardingCount: onboardingRecords.length,
+      godmodeIncompleteCompanySetup,
+    };
+  }, [
+    currentUser,
+    archiveCompanyFolderId,
+    visibleActions,
+    assignedAudits,
+    drafts,
+    unsyncedSubmittedAuditIds,
+    incidents,
+    incidentActions,
+    assignmentFilteredNonConformances,
+    briefingTodoState.items,
+    briefingTodoState.loading,
+    pendingSyncCount,
+    failedSyncCount,
+    syncCentreWaitingCount,
+    syncCentreFailedCount,
+    onboardingRecords.length,
+    godmodeIncompleteCompanySetup,
+  ]);
+
+  const notificationControls = useNotificationControls(notificationSources, handleGlobalSearchNavigate);
+
   const handleToggleScheduleAudit = (auditId: string, auditName: string) => {
     setScheduleDraftSelectedAuditIds((current) =>
       current.includes(auditId) ? current.filter((item) => item !== auditId) : [...current, auditId],
@@ -17182,6 +17230,7 @@ function App() {
                     </kbd>
                   </button>
                 ) : null}
+                {!godCompanySetupOnlyShell ? notificationControls.button : null}
                 {!godCompanySetupOnlyShell ? (
                   <button
                     type="button"
@@ -19148,6 +19197,7 @@ function App() {
       )}
 
       {globalSearchControls.dialog}
+      {notificationControls.panel}
 
       {helpPanelOpen ? (
         <div
