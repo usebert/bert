@@ -55,7 +55,7 @@ assert(
   "2e1: activeAudit resolves API assigned-check audits for wizard",
 );
 assert(
-  /renderManagerDashboard[\s\S]{0,1600}onOpenAudit=\{startAudit\}/.test(appTsx),
+  /renderManagerDashboard=\{\(\)\s*=>\s*\(\s*<ManagerRoleDashboard[\s\S]*?onOpenAudit=\{startAudit\}/.test(appTsx),
   "2e2: dashboard Things to do uses same startAudit handler as Complete Work",
 );
 assert(

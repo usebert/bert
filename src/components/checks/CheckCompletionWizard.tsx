@@ -18,6 +18,8 @@ import { bertSecondaryButtonInteract } from "../../styles/interactions";
 import { CheckQuestionControls } from "./CheckQuestionControls";
 import { CheckCompletionReview } from "./CheckCompletionReview";
 import { AuditCentreBackButton } from "../auditCentre/AuditCentreBackButton";
+import { AuditProgress } from "../../audits/components/AuditProgress";
+import { AuditQuestionNavigator } from "../../audits/components/AuditQuestionNavigator";
 
 export function CheckCompletionWizard({
   audit,
@@ -47,6 +49,7 @@ export function CheckCompletionWizard({
 }: CheckCompletionWizardProps) {
   const reducedMotion = usePrefersReducedMotion();
   const [phase, setPhase] = useState<CheckCompletionPhase>("questions");
+  const [navigatorOpen, setNavigatorOpen] = useState(false);
   const rapidAnswerLockRef = useRef(false);
   const safeIndex = Math.max(0, Math.min(questionIndex, Math.max(audit.questions.length - 1, 0)));
   const currentQuestion = audit.questions[safeIndex];
@@ -96,12 +99,6 @@ export function CheckCompletionWizard({
     // Lock stays set until questionIndex updates (see effect above).
   };
   const syncPlain = getPlainEnglishSyncStatus({ offlineQueueCount: 0, pendingSyncCount, failedSyncCount });
-  const syncBadgeClass =
-    syncPlain.tone === "problem"
-      ? "bg-rose-100 text-rose-800"
-      : syncPlain.tone === "waiting"
-        ? "bg-amber-100 text-amber-800"
-        : "bg-emerald-50 text-emerald-900";
 
   if (audit.questions.length === 0) {
     return (
@@ -156,34 +153,35 @@ export function CheckCompletionWizard({
       <div className={reducedMotion ? "space-y-4 pb-28" : ["space-y-4 pb-28", bertScreenEnter].join(" ")}>
         {onBackToAuditCentre ? <AuditCentreBackButton onClick={onBackToAuditCentre} /> : null}
         <section className={darkPanelShell}>
-          <div className="flex items-center justify-between gap-3">
-            <div>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
               <p className={darkPanelEyebrow}>Check completion</p>
               <h2 className={darkPanelTitleLg}>{audit.name}</h2>
-              <p className={["mt-1", darkPanelDescription].join(" ")}>{getDueWarning(audit.dueHours)}</p>
-            </div>
-            <StatusBadge status={getAuditTrafficStatus(audit.dueHours)} dark />
-          </div>
-          <div className="mt-4 rounded-2xl bg-white/10 px-4 py-3">
-            <p className="text-sm font-semibold">
-              Question {safeIndex + 1} of {audit.questions.length}
-            </p>
-            <div className="mt-2 h-2 rounded-full bg-white/15">
-              <div
-                className="h-2 rounded-full bg-white transition-all duration-200"
-                style={{ width: `${(stats.answeredCount / audit.questions.length) * 100}%` }}
-              />
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-300">
-              <span>{stats.answeredCount} answered</span>
-              {savedAt ? <span>• Saved {savedAt}</span> : null}
-              <span className={`rounded-full px-2 py-0.5 font-semibold ${syncBadgeClass}`}>{syncPlain.summary}</span>
-            </div>
-            {offlineMode ? (
-              <p className="mt-2 text-xs font-semibold text-amber-300">
-                Saved on this tablet. It will sync when online.
+              <p className={["mt-1", darkPanelDescription].join(" ")}>
+                {[audit.siteArea, getDueWarning(audit.dueHours)].filter(Boolean).join(" • ")}
               </p>
-            ) : null}
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <AuditQuestionNavigator
+                audit={audit}
+                draft={{ responses, textResponses, notes, evidence, promptFollowUps }}
+                currentIndex={safeIndex}
+                open={navigatorOpen}
+                onToggle={() => setNavigatorOpen((current) => !current)}
+                onJump={onQuestionIndexChange}
+              />
+              <StatusBadge status={getAuditTrafficStatus(audit.dueHours)} dark />
+            </div>
+          </div>
+          <div className="mt-4">
+            <AuditProgress
+              current={safeIndex + 1}
+              total={audit.questions.length}
+              answered={stats.answeredCount}
+              savedAt={savedAt ?? undefined}
+              syncLabel={syncPlain.summary}
+              offlineMode={offlineMode}
+            />
           </div>
         </section>
 

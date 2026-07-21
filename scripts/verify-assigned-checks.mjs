@@ -129,18 +129,19 @@ assert(read("src/permissions.ts").includes("usesAssignedChecksCompletionFlow"), 
 assert(appSrc.includes("usesAssignedChecksCompletionFlow"), "4g2: App uses assigned-check completion flow");
 assert(appSrc.includes("assignedChecksRequestRef"), "4g2a: assigned-check fetch guarded against stale responses");
 assert(appSrc.includes("hasLoadedOnce"), "4g2b: assigned-check state tracks settled load");
-assert(read("src/components/dashboard/DashboardThingsToDoSection.tsx").includes("Things to do"), "4g2c: dashboard Things to do section retained");
+assert(read("src/components/dashboard/DashboardThingsToDoSection.tsx").includes("Things to do"), "4g2c: legacy Things to do section retained");
+assert(read("src/components/dashboard/unified/UnifiedOperationalDashboard.tsx").includes("Today's work"), "4g2c1: unified dashboard Today's work section");
 assert(read("src/utils/auditAccess.ts").includes("buildAuditFromAssignedSchedule"), "4g3: audit builder for assigned schedules");
 assert(read("src/utils/auditAccess.ts").includes("buildCompleteWorkAssignedAudits"), "4g3b: Complete Work audits built from assigned-checks API only");
 assert(read("src/utils/auditAccess.ts").includes("resolveAssignedCheckAuditId"), "4g4: stable audit id for assigned schedules");
-assert(read("src/screens/AuditsScreen.tsx").includes("My assigned checks"), "4g5: Admin/Manager assigned checks UI");
-assert(read("src/components/dashboard/ManagerRoleDashboard.tsx").includes("DashboardThingsToDoSection"), "4g5a: manager dashboard Things to do section");
-assert(read("src/components/dashboard/CompanyAdminDashboard.tsx").includes("DashboardThingsToDoSection"), "4g5a2: admin dashboard Things to do section");
-assert(read("src/components/dashboard/AuditorTaskDashboard.tsx").includes("Briefings to read/sign"), "4g5a3: auditor dashboard briefings priority section");
-assert(read("src/components/dashboard/MasterPlatformDashboard.tsx").includes("DashboardThingsToDoSection"), "4g5a4: master dashboard Things to do section when company linked");
+assert(read("src/screens/AuditsScreen.tsx").includes("AssignedCheckActionRow") || read("src/audits/AuditsWorkspace.tsx").includes("AssignedCheckActionRow"), "4g5: Admin/Manager assigned checks UI");
+assert(read("src/components/dashboard/ManagerRoleDashboard.tsx").includes("RoleUnifiedDashboard"), "4g5a: manager dashboard unified operational layout");
+assert(read("src/components/dashboard/CompanyAdminDashboard.tsx").includes("RoleUnifiedDashboard"), "4g5a2: admin dashboard unified operational layout");
+assert(read("src/components/dashboard/AuditorTaskDashboard.tsx").includes("RoleUnifiedDashboard"), "4g5a3: auditor dashboard unified operational layout");
+assert(read("src/components/dashboard/MasterPlatformDashboard.tsx").includes("RoleUnifiedDashboard"), "4g5a4: master dashboard unified layout when company linked");
 assert(read("src/permissions.ts").includes('role === "Master"'), "4g5a5: Master role uses assigned-check completion flow");
-assert(read("src/components/dashboard/DashboardThingsToDoSection.tsx").includes("Things to do"), "4g5a1: Things to do section title");
-assert(read("src/components/dashboard/DashboardThingsToDoSection.tsx").includes("No checks due right now."), "4g5b: dashboard empty state for assigned checks");
+assert(read("src/components/dashboard/unified/UnifiedOperationalDashboard.tsx").includes("Today's work"), "4g5a1: unified dashboard Today's work title");
+assert(read("src/components/dashboard/unified/UnifiedOperationalDashboard.tsx").includes("No assigned work right now"), "4g5b: unified dashboard empty state for assigned checks");
 assert(read("src/components/checks/AssignedCheckActionRow.tsx").includes('"Start check"'), "4g5c: dashboard assigned-check row Start check");
 assert(read("src/components/checks/AssignedCheckActionRow.tsx").includes('"Continue check"'), "4g5d: dashboard assigned-check row Continue check");
 assert(read("src/utils/assignedCheckDisplay.ts").includes('"Overdue"'), "4g5e: assigned check status includes Overdue");
@@ -367,7 +368,11 @@ assert(read("src/utils/auditAccess.ts").includes("buildAuditFromAssignedSchedule
     cards.some((card) => card.name === "DC H&S Audit" && card.id.startsWith("gf-check")),
     "10m: Complete Work renders DC H&S Audit card with Start/Continue id",
   );
-  assert(read("src/screens/AuditsScreen.tsx").includes("AssignedCheckActionRow"), "10n: Complete Work UI uses shared Start row");
+  assert(
+    read("src/screens/AuditsScreen.tsx").includes("AssignedCheckActionRow") ||
+      read("src/audits/AuditsWorkspace.tsx").includes("AssignedCheckActionRow"),
+    "10n: Complete Work UI uses shared Start row",
+  );
   assert(read("src/components/checks/AssignedCheckActionRow.tsx").includes('"Start check"'), "10n1: Complete Work UI exposes Start check");
   assert(read("src/components/checks/AssignedCheckActionRow.tsx").includes('"Continue check"'), "10o: Complete Work UI exposes Continue check");
 }
@@ -628,7 +633,7 @@ assert(read("src/utils/assignedCheckCompletion.ts").includes('"Completed for per
 assert(read("src/utils/assignedCheckCompletion.ts").includes('"Active"'), "12m3b: schedule list status includes Active");
 assert(read("src/utils/assignedCheckCompletion.ts").includes('"Due soon"'), "12m3c: schedule list status includes Due soon");
 assert(read("src/utils/assignedCheckCompletion.ts").includes("formatScheduleLastCompletedLabel"), "12m4: schedule last completed label helper exists");
-assert(read("src/components/dashboard/DashboardThingsToDoSection.tsx").includes("AssignedCheckActionRow"), "12n: dashboard Things to do still uses assigned-check row");
+assert(read("src/components/dashboard/unified/UnifiedOperationalDashboard.tsx").includes('target.kind === "audit"'), "12n: unified dashboard opens audits through onOpenAudit");
 assert(read("src/utils/auditAccess.ts").includes("buildCompleteWorkAssignedAudits"), "12o: Complete Work still builds from assigned-checks API");
 
 /** 13: Schedule list completion polish — labels + enrichment from AuditResults. */

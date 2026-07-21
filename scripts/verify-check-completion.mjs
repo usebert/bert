@@ -224,14 +224,17 @@ assertContains("App.tsx", [
   "completeAuditModeFlow",
 ]);
 assertContains("src/components/checks/CheckCompletionWizard.tsx", [
-  "Question",
-  " of ",
   "Back",
   "Next",
   "Review",
   "handleAnswerChange",
   "rapidAnswerLockRef",
 ]);
+assert(
+  fs.readFileSync(path.join(root, "src/components/checks/CheckCompletionWizard.tsx"), "utf8").includes(" of ") ||
+    fs.readFileSync(path.join(root, "src/audits/components/AuditProgress.tsx"), "utf8").includes(" of "),
+  "wizard progress shows question X of Y",
+);
 assertContains("src/utils/checkCompletionHelpers.ts", ["canRapidAdvanceAfterAnswer"]);
 assertContains("src/components/checks/CheckCompletionReview.tsx", ["Submit check", "Jump"]);
 assertContains("src/components/checks/CheckQuestionControls.tsx", ["Mark N/A", "Add note", "Add photo", "EvidencePanel"]);

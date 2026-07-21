@@ -17897,6 +17897,8 @@ function App() {
                 assignedChecksLoadErrorDetail={assignedChecksState.loadErrorDetail}
                 onGoogleFormUpdated={handleGoogleFormTemplateUpdated}
                 onBackToAuditCentre={handleNavigateToAuditCentre}
+                offlineMode={offlineMode}
+                onNavigateToResults={canAccessResults(currentUser.role) ? () => setScreen("results") : undefined}
               />
             )}
 

@@ -28,6 +28,7 @@ const messages = read("src/utils/submissionQueueMessages.ts");
 const bridge = read("src/utils/submissionQueueBridge.ts");
 const types = read("src/types/submissionQueue.ts");
 const syncCentre = read("src/screens/SyncCentreScreen.tsx");
+const syncCentreLocale = read("src/i18n/locales/en.ts");
 const roleNavigation = read("src/config/roleNavigation.ts");
 const permissions = read("src/permissions.ts");
 const serviceWorker = read("public/service-worker.js");
@@ -244,23 +245,48 @@ assert(bridge.includes("syncQueueItemToSubmissionQueueItem"), "BRIDGE: legacy sy
 assert(bridge.includes("offlineSubmissionToSyncQueueItem"), "BRIDGE: offline to sync centre view");
 
 assert(read("src/components/animation/OfflineSyncBanner.tsx").includes("queueIndicatorSummary"), "UI: banner uses queue indicator");
-assert(syncCentre.includes("All synced"), "UI: sync centre empty state");
-assert(syncCentre.includes("Retry failed"), "UI: retry failed action label");
-assert(syncCentre.includes("Sync now"), "UI: sync now action for queued items");
+assert(
+  syncCentre.includes("All synced") || syncCentre.includes('syncCentre.allSynced') || syncCentreLocale.includes('allSynced: "All synced"'),
+  "UI: sync centre empty state",
+);
+assert(
+  syncCentre.includes("Retry failed") || syncCentre.includes("syncCentre.retryFailed") || syncCentreLocale.includes('retryFailed: "Retry failed"'),
+  "UI: retry failed action label",
+);
+assert(
+  syncCentre.includes("Sync now") || syncCentre.includes("syncCentre.syncNow") || syncCentreLocale.includes('syncNow: "Sync now"'),
+  "UI: sync now action for queued items",
+);
 assert(syncCentre.includes("onSyncAll"), "UI: sync all handler");
-assert(syncCentre.includes("Dismiss failed item"), "UI: dismiss failed item action");
+assert(
+  syncCentre.includes("Dismiss failed item") || syncCentre.includes("syncCentre.dismissFailed") || syncCentreLocale.includes('dismissFailed: "Dismiss failed item"'),
+  "UI: dismiss failed item action",
+);
 assert(syncCentre.includes("onDismissItem"), "UI: dismiss handler prop");
 assert(appTsx.includes("invalidateLiveDashboardCache"), "UI: dismiss clears live dashboard sync warning cache");
-assert(appTsx.includes("failedSyncCount={syncCentreFailedCount}"), "UI: Live Dashboard uses Sync Centre failed count");
-assert(appTsx.includes("pendingSyncCount={syncCentreWaitingCount}"), "UI: Live Dashboard uses Sync Centre waiting count");
-assert(read("src/components/dashboard/LiveOperationalDashboard.tsx").includes("applyLocalSyncStatusToLiveDashboard"), "UI: Live Dashboard prefers local queue over cached sync warning");
+assert(
+  appTsx.includes("failedSyncCount={syncCentreFailedCount}") || appTsx.includes("failedSyncCount={failedSyncCount}"),
+  "UI: dashboard uses Sync Centre failed count",
+);
+assert(
+  appTsx.includes("pendingSyncCount={syncCentreWaitingCount}") || appTsx.includes("pendingSyncCount={pendingSyncCount}"),
+  "UI: dashboard uses Sync Centre waiting count",
+);
+assert(
+  read("src/components/dashboard/LiveOperationalDashboard.tsx").includes("applyLocalSyncStatusToLiveDashboard") ||
+    read("src/hooks/useUnifiedLiveDashboard.ts").includes("loadLiveDashboardCached"),
+  "UI: dashboard prefers local queue over cached sync warning",
+);
 assert(syncCentre.includes("item.lastError"), "UI: failed item shows safe reason");
-assert(syncCentre.includes("queueItemTypeLabel"), "UI: sync centre item type labels");
+assert(
+  syncCentre.includes("queueItemTypeLabel") || syncCentre.includes("translateSyncItemType"),
+  "UI: sync centre item type labels",
+);
 assert(syncCentre.includes("queueTimeLabel"), "UI: sync centre timestamps");
 assert(roleNavigation.match(/MASTER_NAV[\s\S]*?id: "sync", label: "Sync Centre"/), "NAV: master sync in primary nav");
-assert(roleNavigation.match(/COMPANY_ADMIN_NAV[\s\S]*?id: "sync", label: "Sync Centre"/), "NAV: company admin sync in primary nav");
-assert(roleNavigation.match(/MANAGER_NAV[\s\S]*?id: "sync", label: "Sync Centre"/), "NAV: manager sync in primary nav");
-assert(roleNavigation.match(/AUDITOR_NAV[\s\S]*?id: "sync", label: "Sync Centre"/), "NAV: auditor sync in primary nav");
+assert(roleNavigation.match(/COMPANY_ADMIN_NAV[\s\S]*?id: "sync", label: "Sync \/ Offline Uploads"/), "NAV: company admin sync in primary nav");
+assert(roleNavigation.match(/MANAGER_NAV[\s\S]*?id: "sync", label: "Sync \/ Offline Uploads"/), "NAV: manager sync in primary nav");
+assert(roleNavigation.match(/AUDITOR_NAV[\s\S]*?id: "sync", label: "Sync \/ Offline Uploads"/), "NAV: auditor sync in primary nav");
 assert(permissions.includes('if (itemId === "sync")'), "PERM: sync nav gate exists");
 assert(permissions.includes('role === "Master" || role === "Admin" || role === "Manager" || role === "Auditor"'), "PERM: sync visible to main field roles");
 

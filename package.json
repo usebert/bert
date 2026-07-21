@@ -71,6 +71,7 @@
     "verify:company-provisioning": "node scripts/verify-company-provisioning.mjs",
     "verify:ui-foundation": "node scripts/verify-ui-foundation.mjs",
     "verify:dashboard-ui": "node scripts/verify-dashboard-ui.mjs",
+    "verify:audits-ui": "node scripts/verify-audits-ui.mjs",
     "verify:pilot-readiness": "node scripts/verify-pilot-readiness.mjs",
     "verify:godmode-company-context": "node scripts/verify-godmode-company-context.mjs",
     "verify:google-form-templates": "node scripts/verify-google-form-templates.mjs",

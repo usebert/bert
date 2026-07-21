@@ -32,6 +32,9 @@ function assertRequired(source, label, patterns) {
 }
 
 const auditorDashboard = read("src/components/dashboard/AuditorTaskDashboard.tsx");
+const unifiedDashboard = read("src/components/dashboard/unified/UnifiedOperationalDashboard.tsx");
+const roleConfig = read("src/dashboard/unified/roleConfig.ts");
+const performanceKpis = read("src/dashboard/unified/buildPerformanceKpis.ts");
 const liveDashboard = read("src/components/dashboard/LiveOperationalDashboard.tsx");
 const dashboardScreen = read("src/screens/DashboardScreen.tsx");
 const permissions = read("src/permissions.ts");
@@ -44,25 +47,33 @@ const FORBIDDEN_AUDITOR_UI = [
   "Operational compliance score",
   "Hotspots",
   "Highest-risk sites",
+  'title="Overdue inspections"',
   "Completed today",
   "Outstanding",
   "Current incidents",
-  "Overdue inspections",
 ];
 
 const REQUIRED_AUDITOR_UI = [
-  "My work today",
+  "Needs attention",
+  "Today's work",
+];
+
+const REQUIRED_AUDITOR_METRICS = [
   "Due today",
-  "Overdue",
+  "Overdue actions",
   "Open actions",
-  "Briefings",
-  "Sync Centre",
+  "Outstanding briefings",
 ];
 
 assert(pkg.scripts["verify:auditor-dashboard"], "PKG: npm script registered");
 
-assertRequired(auditorDashboard, "AUDITOR_HOME", REQUIRED_AUDITOR_UI);
-assertForbidden(auditorDashboard, "AUDITOR_HOME", FORBIDDEN_AUDITOR_UI);
+assert(auditorDashboard.includes("RoleUnifiedDashboard"), "AUDITOR_HOME: uses unified operational layout");
+assertRequired(unifiedDashboard, "AUDITOR_UNIFIED", REQUIRED_AUDITOR_UI);
+assertRequired(performanceKpis, "AUDITOR_METRICS", REQUIRED_AUDITOR_METRICS);
+assertForbidden(unifiedDashboard, "AUDITOR_UNIFIED", FORBIDDEN_AUDITOR_UI);
+assert(roleConfig.includes('role === "Auditor"') || roleConfig.includes("Auditor:"), "AUDITOR_UNIFIED: auditor role config present");
+assert(roleConfig.includes('screen: "briefings"'), "AUDITOR_UNIFIED: briefings shortcut retained");
+assert(roleConfig.includes('screen: "sync"') || roleConfig.includes("sync-queued"), "AUDITOR_UNIFIED: sync shortcut retained");
 
 assert(!auditorDashboard.includes("LiveOperationalDashboard"), "AUDITOR_HOME: does not import live ops panel");
 
@@ -90,32 +101,10 @@ assert(
   "LIVE_OPS: component returns null for non-admin/manager roles",
 );
 
-const liveOpsMounts = [...appTsx.matchAll(/<LiveOperationalDashboard/g)];
-assert(liveOpsMounts.length === 2, "WIRE: LiveOperationalDashboard mounted exactly twice in App");
-
-for (const match of liveOpsMounts) {
-  const start = Math.max(0, match.index - 600);
-  const prefix = appTsx.slice(start, match.index);
-  assert(prefix.includes("shouldRenderLiveOperationalDashboard"), "WIRE: each live ops mount uses render guard");
-  assert(prefix.includes("!canCompleteAuditAsAuditor"), "WIRE: each live ops mount excludes auditor path");
-  assert(!prefix.includes('currentUser.role === "Auditor"'), "WIRE: live ops mount is not auditor-gated on");
-}
-
-assert(
-  appTsx.includes('currentUser.role === "Admin"') && appTsx.includes("<LiveOperationalDashboard"),
-  "WIRE: admin still mounts live operational dashboard",
-);
-assert(
-  appTsx.includes('currentUser.role === "Manager"') && appTsx.includes("<LiveOperationalDashboard"),
-  "WIRE: manager still mounts live operational dashboard",
-);
+assert(!appTsx.includes("<LiveOperationalDashboard"), "WIRE: App no longer mounts legacy LiveOperationalDashboard blocks");
 assert(
   !/\{currentUser\.role === "Auditor"[\s\S]{0,400}<LiveOperationalDashboard/.test(appTsx),
   "WIRE: auditor does not mount live operational dashboard",
-);
-assert(
-  !/\{currentUser\.role !== "Master" &&\s+currentUser\.role !== "Manager"[\s\S]{0,400}<LiveOperationalDashboard/.test(appTsx),
-  "WIRE: pre-dashboard live panel is not shown to all non-manager roles",
 );
 
 assert(canViewFullOperationalDashboard({ role: "Admin" }), "ROLE: admin gets full operational dashboard");

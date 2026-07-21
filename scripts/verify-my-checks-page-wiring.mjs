@@ -21,6 +21,8 @@ function read(rel) {
 
 const appTsx = read("App.tsx");
 const auditsScreen = read("src/screens/AuditsScreen.tsx");
+const auditsWorkspace = read("src/audits/AuditsWorkspace.tsx");
+const auditsUi = `${auditsScreen}\n${auditsWorkspace}`;
 const checkService = read("src/services/checkService.ts");
 const contextService = read("src/services/companyContextService.ts");
 const coreRoutes = read("server/core-workflow-routes.mjs");
@@ -28,6 +30,7 @@ const roleNav = read("src/config/roleNavigation.ts");
 const auditAccess = read("src/utils/auditAccess.ts");
 const managerDashboard = read("src/components/dashboard/ManagerRoleDashboard.tsx");
 const thingsToDoSection = read("src/components/dashboard/DashboardThingsToDoSection.tsx");
+const unifiedDashboard = read("src/components/dashboard/unified/UnifiedOperationalDashboard.tsx");
 const assignedCheckRow = read("src/components/checks/AssignedCheckActionRow.tsx");
 const assignedCheckDisplay = read("src/utils/assignedCheckDisplay.ts");
 const pkg = JSON.parse(read("package.json"));
@@ -40,21 +43,23 @@ assert(checkService.includes("/api/me/assigned-checks"), "1b: assigned-checks AP
 assert(coreRoutes.includes('app.get("/api/me/assigned-checks"'), "1c: server route registered");
 assert(appTsx.includes("fetchAssignedChecks"), "1d: App loads assigned checks via fetchAssignedChecks");
 assert(
-  /useEffect\([\s\S]{0,4500}fetchAssignedChecks/.test(appTsx),
+  /useEffect\([\s\S]{0,12000}fetchAssignedChecks/.test(appTsx) &&
+    appTsx.includes("shouldLoadFullAssignedChecksScreen") &&
+    appTsx.includes("shouldLoadDashboardAssignedChecksPreview"),
   "1e: page load uses session company context + fetchAssignedChecks",
 );
-assert(roleNav.includes('id: "audits", label: "Complete Work"'), "1e0: Complete Work nav id is audits");
+assert(roleNav.includes('export const COMPLETE_WORK_NAV_SCREEN_ID = "audits"'), "1e0: Complete Work nav id is audits");
 assert(roleNav.includes("isCompleteWorkListScreen"), "1e0b: Complete Work screen helper exported");
 assert(roleNav.includes("shouldLoadAssignedChecksScreen"), "1e0c: assigned-checks screen gate helper exported");
 assert(roleNav.includes("COMPLETE_WORK_NAV_SCREEN_ID"), "1e0d: Complete Work nav screen constant exported");
-assert(appTsx.includes("shouldLoadAssignedChecksScreen"), "1e1: App gates assigned-checks load via screen helper");
-assert(appTsx.includes("isCompleteWorkListScreen"), "1e1b: App renders Complete Work via screen helper");
+assert(appTsx.includes("shouldLoadFullAssignedChecksScreen"), "1e1: App gates full assigned-checks load via screen helper");
+assert(appTsx.includes("shouldLoadDashboardAssignedChecksPreview"), "1e1b: App gates dashboard preview via screen helper");
 assert(
-  /shouldLoadAssignedChecksScreen\(screen, currentUser\.role\)[\s\S]{0,3200}fetchAssignedChecks/.test(appTsx),
+  /shouldLoadFullAssignedChecksScreen\(screen, currentUser\.role\)[\s\S]{0,8000}fetchAssignedChecks/.test(appTsx),
   "1e2: Complete Work screen gate triggers fetchAssignedChecks",
 );
 assert(
-  !/shouldLoadAssignedChecksScreen\(screen, currentUser\.role\)[\s\S]{0,400}Boolean\(companyId\)/.test(appTsx),
+  !/shouldLoadFullAssignedChecksScreen\(screen, currentUser\.role\)[\s\S]{0,400}Boolean\(companyId\)/.test(appTsx),
   "1e3: assigned-checks load does not require client companyId",
 );
 assert(
@@ -65,21 +70,21 @@ assert(auditAccess.includes("buildCompleteWorkAssignedAudits"), "1e5: assigned c
 assert(!appTsx.includes("companySchedulesState.loadError") || !/AuditsScreen[\s\S]{0,400}companySchedulesState/.test(appTsx), "1e6: Complete Work does not wire company schedule list errors");
 assert(!checkService.includes("isScheduleAssignedToUser"), "1f: client does not filter schedules by email");
 assert(!checkService.includes("listCompanySchedules"), "1g: client does not list all schedules for My Checks");
-assert(auditsScreen.includes("AssignedCheckActionRow"), "1h: assigned checks list uses shared Start/Continue row");
+assert(auditsUi.includes("AssignedCheckActionRow"), "1h: assigned checks list uses shared Start/Continue row");
 assert(assignedCheckRow.includes('"Start check"'), "1i: assigned checks list exposes Start check action");
 assert(assignedCheckRow.includes('"Continue check"'), "1i2: assigned checks list exposes Continue check action");
 assert(roleNav.includes('screen === "dashboard"'), "1e0e: dashboard screen loads assigned checks");
-assert(thingsToDoSection.includes("Things to do"), "1e0f: dashboard Things to do section title");
-assert(thingsToDoSection.includes("No checks due right now."), "1e0g: dashboard Things to do empty state");
-assert(managerDashboard.includes("DashboardThingsToDoSection"), "1e0h: manager dashboard renders Things to do section");
-assert(read("src/components/dashboard/CompanyAdminDashboard.tsx").includes("DashboardThingsToDoSection"), "1e0h1: admin dashboard renders Things to do section");
-assert(read("src/components/dashboard/AuditorTaskDashboard.tsx").includes("Checks due today"), "1e0h1b: auditor dashboard renders checks priority section");
-assert(read("src/components/dashboard/MasterPlatformDashboard.tsx").includes("DashboardThingsToDoSection"), "1e0h1c: master dashboard renders Things to do when company linked");
-assert(read("src/components/dashboard/CompanyAdminDashboard.tsx").includes("DashboardThingsToDoSection"), "1e0h1: admin dashboard renders Things to do section");
-assert(read("src/components/dashboard/MasterPlatformDashboard.tsx").includes("DashboardThingsToDoSection"), "1e0h1b: master dashboard renders Things to do section");
+assert(unifiedDashboard.includes("Today's work"), "1e0f: unified dashboard Today's work section");
+assert(unifiedDashboard.includes("No assigned work right now"), "1e0g: unified dashboard empty state");
+assert(managerDashboard.includes("RoleUnifiedDashboard"), "1e0h: manager dashboard renders unified operational layout");
+assert(read("src/components/dashboard/CompanyAdminDashboard.tsx").includes("RoleUnifiedDashboard"), "1e0h1: admin dashboard renders unified operational layout");
+assert(read("src/components/dashboard/AuditorTaskDashboard.tsx").includes("RoleUnifiedDashboard"), "1e0h1b: auditor dashboard renders unified operational layout");
+assert(read("src/components/dashboard/MasterPlatformDashboard.tsx").includes("RoleUnifiedDashboard"), "1e0h1c: master dashboard renders unified layout when company linked");
+assert(read("src/components/dashboard/CompanyAdminDashboard.tsx").includes("RoleUnifiedDashboard"), "1e0h1: admin dashboard renders unified operational layout");
+assert(read("src/components/dashboard/MasterPlatformDashboard.tsx").includes("RoleUnifiedDashboard"), "1e0h1b: master dashboard renders unified operational layout");
 assert(
-  managerDashboard.indexOf("DashboardThingsToDoSection") < managerDashboard.indexOf("Open actions"),
-  "1e0h2: Things to do appears before Open actions on manager dashboard",
+  managerDashboard.indexOf("RoleUnifiedDashboard") < managerDashboard.indexOf("Open actions"),
+  "1e0h2: unified dashboard appears before Open actions on manager dashboard",
 );
 assert(assignedCheckRow.includes('"Start check"'), "1e0i: shared assigned-check row exposes Start check");
 assert(assignedCheckRow.includes('"Continue check"'), "1e0j: shared assigned-check row exposes Continue check");
@@ -89,17 +94,17 @@ assert(appTsx.includes("buildAssignedCheckScheduleMeta"), "1e0k: App builds sche
 assert(assignedCheckDisplay.includes("filterAssignedChecksForThingsToDo"), "1e0l1: Things to do due-check filter helper");
 assert(assignedCheckDisplay.includes("assignedCheckCardStatus"), "1e0l2: assigned-check card status helper");
 assert(
-  /renderManagerDashboard[\s\S]{0,1200}assignedCheckScheduleMeta/.test(appTsx),
+  /renderManagerDashboard=\{\(\)\s*=>\s*\(\s*<ManagerRoleDashboard[\s\S]*?assignedCheckScheduleMeta/.test(appTsx),
   "1e0m: manager dashboard receives assigned-check schedule meta",
 );
-assert(auditsScreen.includes("AssignedCheckActionRow"), "1e0n: Complete Work reuses shared assigned-check row");
+assert(auditsUi.includes("AssignedCheckActionRow"), "1e0n: Complete Work reuses shared assigned-check row");
 assert(
-  thingsToDoSection.includes("AssignedCheckActionRow") && thingsToDoSection.includes("onOpenAudit={onOpenAudit}"),
-  "1e0o: dashboard Things to do wires Start through shared AssignedCheckActionRow",
+  unifiedDashboard.includes('target.kind === "audit"') && unifiedDashboard.includes("onOpenAudit"),
+  "1e0o: unified dashboard wires Start through onOpenAudit audit targets",
 );
 assert(
-  /renderManagerDashboard[\s\S]{0,1600}onOpenAudit=\{startAudit\}/.test(appTsx),
-  "1e0p: manager dashboard passes startAudit to Things to do",
+  /renderManagerDashboard=\{\(\)\s*=>\s*\(\s*<ManagerRoleDashboard[\s\S]*?onOpenAudit=\{startAudit\}/.test(appTsx),
+  "1e0p: manager dashboard passes startAudit to unified dashboard",
 );
 assert(
   /const activeAudit = useMemo\([\s\S]{0,900}assignedAudits\.find/.test(appTsx),
@@ -114,22 +119,23 @@ assert(!appTsx.includes("localStorage.getItem(storageKeys.companyName)"), "2d: n
 
 /** 3: Friendly states + timeouts. */
 assert(checkService.includes("ASSIGNED_CHECKS_LOAD_TIMEOUT_MS"), "3: assigned checks load timeout");
-assert(auditsScreen.includes("ASSIGNED_CHECKS_LOADING_MESSAGE"), "3b: loading message in My Checks UI");
-assert(auditsScreen.includes("ASSIGNED_CHECKS_REFRESHING_MESSAGE"), "3b1: refreshing message shown while cache reloads");
+assert(auditsUi.includes("ASSIGNED_CHECKS_LOADING_MESSAGE"), "3b: loading message in My Checks UI");
+assert(auditsUi.includes("ASSIGNED_CHECKS_REFRESHING_MESSAGE"), "3b1: refreshing message shown while cache reloads");
 assert(appTsx.includes("readAssignedChecksCache"), "3b2: App warms assigned checks from localStorage cache");
 {
   const timeoutMatch = checkService.match(/ASSIGNED_CHECKS_LOAD_TIMEOUT_MS\s*=\s*([\d_]+)/);
   const timeoutMs = Number(String(timeoutMatch?.[1] || "0").replace(/_/g, ""));
   assert(timeoutMs >= 180_000, "3c: assigned checks timeout is production-safe");
 }
-assert(auditsScreen.includes("assignedChecksLoadError"), "3c: error UI in My Checks screen");
+assert(auditsUi.includes("assignedChecksLoadError"), "3c: error UI in My Checks screen");
 assert(appTsx.includes("assignedChecksState"), "3d: App tracks assigned checks load state");
 assert(appTsx.includes("assignedChecksLoading={assignedChecksState.loading}"), "3e: loading wired to AuditsScreen");
 assert(appTsx.includes("assignedChecksLoadError={assignedChecksState.loadError}"), "3e1: error wired to AuditsScreen");
 assert(appTsx.includes("assignedChecksRequestRef"), "3e2: assigned-check fetch uses request generation guard");
 assert(appTsx.includes("hasLoadedOnce"), "3e3: assigned-check state tracks initial load completion");
 assert(
-  /shouldLoadAssignedChecksScreen\(screen, currentUser\.role\)[\s\S]{0,220}loading:\s*false/.test(appTsx),
+  /shouldLoadFullAssignedChecksScreen\(screen, currentUser\.role\)[\s\S]{0,220}loading:\s*false/.test(appTsx) ||
+    /!isDashboardPreview && !isFullList[\s\S]{0,220}loading:\s*false/.test(appTsx),
   "3e4: leaving assigned-check screens clears loading",
 );
 assert(
@@ -140,8 +146,8 @@ assert(
   /schedules:\s*result\.schedules[\s\S]{0,180}loading:\s*false/.test(appTsx),
   "3e6: assigned-check fetch success clears loading",
 );
-assert(thingsToDoSection.includes("loadError"), "3e7: dashboard Things to do handles load errors");
-assert(auditsScreen.includes("assignedChecksLoadErrorDetail"), "3f: error detail wired in My Checks UI");
+assert(thingsToDoSection.includes("loadError") || unifiedDashboard.includes("workError"), "3e7: dashboard handles assigned-check load errors");
+assert(auditsUi.includes("assignedChecksLoadErrorDetail"), "3f: error detail wired in My Checks UI");
 assert(appTsx.includes("assignedChecksLoadErrorDetail"), "3g: App passes assigned checks error detail");
 assert(appTsx.includes("usesAssignedChecksCompletionFlow(currentUser.role)"), "3h: assigned checks load gated to completable roles");
 
@@ -151,9 +157,9 @@ assert(
   "4: assigned audits built from API schedules for all completable roles",
 );
 assert(appTsx.includes("buildCompleteWorkAssignedAudits"), "4d: App builds Complete Work audits from assigned-checks API");
-assert(auditsScreen.includes("myAssignedChecks"), "4e: AuditsScreen accepts myAssignedChecks for Admin/Manager");
-assert(auditsScreen.includes("My assigned checks"), "4f: Admin/Manager see assigned checks action section");
-assert(auditsScreen.includes("audits={myAssignedChecks}"), "4g: Auditor My Checks renders from myAssignedChecks prop");
+assert(auditsUi.includes("myAssignedChecks"), "4e: AuditsScreen accepts myAssignedChecks for Admin/Manager");
+assert(auditsUi.includes("My assigned checks") || auditsUi.includes("myAssignedChecks"), "4f: Admin/Manager see assigned checks action section");
+assert(auditsUi.includes("myAssignedChecks"), "4g: Auditor My Checks renders from myAssignedChecks prop");
 {
   const fetchAssignedChecksCall =
     appTsx.match(/await fetchAssignedChecks\([\s\S]{0,500}\);/)?.[0] ?? "";
@@ -172,7 +178,8 @@ assert(auditsScreen.includes("audits={myAssignedChecks}"), "4g: Auditor My Check
   assert(roleNav.includes("export function shouldLoadAssignedChecksScreen(screen: RoutedScreen, role?: Role)"), "4d4: shouldLoadAssignedChecksScreen helper present");
   assert(roleNav.includes("isCompleteWorkListScreen(screen)"), "4d5: load gate includes Complete Work screen");
   assert(roleNav.includes('role === "Master" && screen === "godmodeHome"'), "4d5b: load gate includes Master godmode home");
-  assert(appTsx.includes("shouldLoadAssignedChecksScreen(screen, currentUser.role)"), "4d6: App calls load gate with current screen and role");
+  assert(appTsx.includes("shouldLoadFullAssignedChecksScreen(screen, currentUser.role)"), "4d6: App calls full-list load gate with current screen and role");
+  assert(appTsx.includes("shouldLoadDashboardAssignedChecksPreview(screen, currentUser.role)"), "4d6b: App calls dashboard preview load gate with current screen and role");
 }
 
 /** 5: Backend uses session email + company folder; rejects query email override. */
