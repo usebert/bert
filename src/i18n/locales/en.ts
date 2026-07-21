@@ -135,6 +135,7 @@ export const en = {
     loler: "LOLER",
     calendar: "Calendar",
     documents: "Documents",
+    documentLibrary: "Document Library",
     documentControl: "Document Control",
     briefings: "Briefings",
     schedules: "Schedules",

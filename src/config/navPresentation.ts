@@ -20,7 +20,7 @@ const DISPLAY_LABELS: Partial<Record<NavItemId, string>> = {
   briefings: "Briefings",
   incidents: "Safety",
   nonConformance: "Safety",
-  documents: "Documents",
+  documents: "Document Library",
   documentControl: "Documents",
   loler: "Equipment",
   reports: "Reports",
