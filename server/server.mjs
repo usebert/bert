@@ -17,6 +17,7 @@ import {
   MASTER_SESSION_COOKIE,
   MASTER_SESSION_MS,
 } from "./master-auth.mjs";
+import { bootstrapMasterOperatorFromEnv } from "./master-operator-bootstrap.mjs";
 import { getSessionCookieOptions } from "./session-cookie-options.mjs";
 import {
   isUserAuthScryptHash,
@@ -7705,6 +7706,22 @@ const httpServer = app.listen(port, "0.0.0.0", () => {
     `[api] listening on http://127.0.0.1:${port} (NODE_ENV=${nodeEnvLabel()}, googleEnvConfigured=${envConfigured()}, googleOAuthConnected=${googleOAuthStore.hasTokens()}, sessionStoreWritable=${sessionStoreWritable()})`,
   );
   console.log(`[api] PORT env: ${process.env.PORT || "(unset, using 8787)"}`);
+  try {
+    const masterBootstrap = bootstrapMasterOperatorFromEnv(sessionDir);
+    if (masterBootstrap.ran) {
+      console.log("[master-bootstrap] startup complete", {
+        email: masterBootstrap.email,
+        username: masterBootstrap.username,
+        created: masterBootstrap.created === true,
+        updated: masterBootstrap.updated === true,
+      });
+    }
+  } catch (error) {
+    console.error(
+      "[master-bootstrap] startup failed:",
+      error instanceof Error ? error.message : error,
+    );
+  }
   if (
     isProductionRuntime() &&
     (!process.env.APP_AUTH_MODE || APP_AUTH_MODE === "demo" || APP_AUTH_MODE === "local")

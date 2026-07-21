@@ -95,7 +95,7 @@ import { getRoleTheme } from "./src/config/roleTheme";
 import { storageKeys } from "./src/config/storageKeys";
 import { SECTION_INTROS, type SectionIntroKey } from "./src/config/sectionIntros";
 import { API_BASE_URL, apiUrl } from "./src/config/apiBase";
-import { isPlatformOwnerEmail } from "./src/config/platformOwner";
+import { isPlatformOwnerEmail, resolvePlatformOwnerEmail } from "./src/config/platformOwner";
 import { slatePrimaryCtaInteract } from "./src/styles/interactions";
 import { OfflineSyncBanner } from "./src/components/animation/OfflineSyncBanner";
 import { AnimatedScreen } from "./src/components/animation/AnimatedScreen";
@@ -1353,17 +1353,12 @@ const ACTION_DUE_DAYS_BY_SEVERITY: Record<RiskLevel, number> = {
 
 /** When true, static demo login users and related UI are included (dev or `VITE_ENABLE_DEMO_LOGIN=true`). */
 const isDemoLoginEnabled = import.meta.env.DEV === true || import.meta.env.VITE_ENABLE_DEMO_LOGIN === "true";
-const GOD_MODE_USERNAME = (import.meta.env.VITE_GODMODE_USERNAME || "master").trim().toLowerCase();
 
 /** Demo passwords come only from env — never hard-coded — so production bundles stay clean. Set in `.env.local` for dev. */
 const DEMO_USER_PASSWORD = String(import.meta.env.VITE_DEMO_USER_PASSWORD ?? "").trim();
-const GODMODE_PASSWORD = String(import.meta.env.VITE_GODMODE_PASSWORD ?? "").trim();
 
 const users: User[] = isDemoLoginEnabled
   ? [
-      ...(GODMODE_PASSWORD
-        ? [{ username: GOD_MODE_USERNAME, password: GODMODE_PASSWORD, role: "Master" as const, name: "System Setup" }]
-        : []),
       ...(DEMO_USER_PASSWORD
         ? [
             { username: "admin", password: DEMO_USER_PASSWORD, role: "Admin" as const, name: "Audit Control" },
@@ -10171,10 +10166,10 @@ function App() {
       return;
     }
 
-    if (isDemoLoginEnabled && users.length === 0 && !DEMO_USER_PASSWORD && !GODMODE_PASSWORD) {
+    if (isDemoLoginEnabled && users.length === 0 && !DEMO_USER_PASSWORD) {
       pushToast(
         "Test sign-in not configured",
-        "Add VITE_DEMO_USER_PASSWORD (and optional VITE_GODMODE_PASSWORD) to .env.local, then restart npm run dev. Or sign in with a seeded Master email via npm run dev:full.",
+        "Add VITE_DEMO_USER_PASSWORD to .env.local for admin/manager/tom demo users, or sign in with a server Master account via npm run dev:full.",
         "warning",
       );
       return;
@@ -16703,9 +16698,11 @@ function App() {
                           </>
                         ) : (
                           <>
-                            Dev test sign-in: use username <span className="font-semibold text-white">{GOD_MODE_USERNAME}</span> with{" "}
-                            <span className="font-semibold text-white">VITE_GODMODE_PASSWORD</span>, or a seeded Master email with server
-                            login.
+                            Dev test sign-in: use <span className="font-semibold text-white">admin</span>,{" "}
+                            <span className="font-semibold text-white">manager</span>, or{" "}
+                            <span className="font-semibold text-white">tom</span> with{" "}
+                            <span className="font-semibold text-white">VITE_DEMO_USER_PASSWORD</span>. Master sign-in uses the server at{" "}
+                            <span className="font-semibold text-white">{resolvePlatformOwnerEmail(import.meta.env)}</span>.
                           </>
                         )}
                       </p>
@@ -16903,10 +16900,10 @@ function App() {
                       <p className="mt-2 rounded-xl border border-white/10 bg-slate-950/35 px-3 py-2 text-xs text-slate-300 sm:text-sm">
                         Test accounts: <span className="font-semibold text-white">admin</span>,{" "}
                         <span className="font-semibold text-white">manager</span>,{" "}
-                        <span className="font-semibold text-white">tom</span>,{" "}
-                        <span className="font-semibold text-white">{GOD_MODE_USERNAME}</span> — set passwords in{" "}
-                        <span className="font-semibold text-white">VITE_DEMO_USER_PASSWORD</span> and{" "}
-                        <span className="font-semibold text-white">VITE_GODMODE_PASSWORD</span> (see <span className="font-semibold text-white">.env.example</span>).
+                        <span className="font-semibold text-white">tom</span> — set{" "}
+                        <span className="font-semibold text-white">VITE_DEMO_USER_PASSWORD</span> in{" "}
+                        <span className="font-semibold text-white">.env.local</span>. Master uses server auth (
+                        <span className="font-semibold text-white">{resolvePlatformOwnerEmail(import.meta.env)}</span>).
                       </p>
                     ) : !showForgotPassword ? (
                       <p className="mt-2 text-center text-xs leading-relaxed text-slate-300 sm:text-sm">

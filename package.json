@@ -33,6 +33,7 @@
     "verify:live-ui-paths": "node scripts/verify-live-ui-paths.mjs",
     "check:server": "node --check server/server.mjs",
     "seed:master": "node scripts/seed-master.mjs",
+    "reset:master-password": "node scripts/reset-master-password.mjs",
     "seed:demo-company": "node scripts/seed-demo-company.mjs",
     "verify:demo-company": "node scripts/verify-demo-company.mjs",
     "verify:demo-company-login": "node scripts/verify-demo-company-login.mjs",

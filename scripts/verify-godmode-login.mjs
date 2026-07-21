@@ -19,6 +19,7 @@ import {
 } from "../server/master-auth.mjs";
 import { createAuthIndexApi } from "../server/auth-index.mjs";
 import { performCompanyLogin, performMasterLogin } from "../server/auth-service.mjs";
+import { bootstrapMasterOperatorFromEnv } from "../server/master-operator-bootstrap.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 let caseCount = 0;
@@ -85,9 +86,14 @@ function runStaticGuards() {
   assert(resetModule.includes("isPlatformOwnerEmail"), "user reset skips platform owner");
   assert(!resetModule.includes("master-operators"), "user reset does not touch master-operators.json");
   assert(appTsx.includes("platformOwnerLogin") && appTsx.includes("tryServerMasterLogin"), "client routes platform owner to master login");
-  assert(appTsx.includes("!isPlatformOwnerEmail(cp.user.email"), "client skips company session restore for platform owner");
+  assert(appTsx.includes("!isPlatformOwnerEmail(session.user.email"), "client skips company session restore for platform owner");
   assert(permissions.includes("BERT Platform Owner"), "Master role displays as BERT Platform Owner");
   assert(roleBanners.includes("Signed in as BERT Platform Owner"), "role banner copy for Godmode");
+  assert(appTsx.includes("/api/auth/master/login"), "client calls server master login API");
+  assert(!appTsx.includes("VITE_GODMODE_PASSWORD"), "client bundle does not reference VITE_GODMODE_PASSWORD");
+  assert(read("server/master-operator-bootstrap.mjs").includes("BERT_MASTER_BOOTSTRAP_ENABLED"), "master bootstrap env gate exists");
+  assert(serverMain.includes("bootstrapMasterOperatorFromEnv"), "server startup runs master bootstrap");
+  assert(pkg.scripts["reset:master-password"], "reset:master-password script registered");
 }
 
 async function runUnitChecks() {
@@ -128,6 +134,18 @@ async function runUnitChecks() {
     { email: platformEmail, password: "wrong-password-12" },
   );
   assert(masterBad.ok === false && masterBad.httpStatus === 401, "wrong master password rejected");
+
+  const disabledBootstrap = bootstrapMasterOperatorFromEnv(sessionDir, { BERT_MASTER_BOOTSTRAP_ENABLED: "false" });
+  assert(disabledBootstrap.ran === false, "bootstrap skipped when disabled");
+
+  const enabledBootstrap = bootstrapMasterOperatorFromEnv(sessionDir, {
+    BERT_MASTER_BOOTSTRAP_ENABLED: "true",
+    BERT_MASTER_EMAIL: platformEmail,
+    BERT_MASTER_USERNAME: "bootstrap-user",
+    BERT_MASTER_PASSWORD: "bootstrap-password-12",
+  });
+  assert(enabledBootstrap.ran === true, "bootstrap runs when explicitly enabled");
+  assert(enabledBootstrap.email === platformEmail, "bootstrap uses configured email");
 
   const companyBlocked = await performCompanyLogin(null, {
     email: platformEmail,

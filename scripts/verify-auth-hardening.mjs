@@ -362,7 +362,7 @@ if (serverSrc.includes("isPlatformOwnerEmail(loginIdentity") && serverSrc.includ
   failed = true;
 }
 
-if (appSrc.includes("!isPlatformOwnerEmail(cp.user.email")) {
+if (appSrc.includes("!isPlatformOwnerEmail(session.user.email")) {
   console.log("[verify:auth] OK: auth bootstrap ignores stale company session for platform owner");
 } else {
   console.error("[verify:auth] FAIL: App.tsx must skip company session restore for platform owner");

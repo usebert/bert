@@ -19,7 +19,7 @@ fi
 
 export VITE_API_BASE_URL="${VITE_API_BASE_URL:-https://api.usebert.co.uk}"
 # Explicitly clear client demo/debug flags so a local .env cannot leak into the APK bundle.
-unset VITE_SHOW_DEBUG_UI VITE_ENABLE_DEMO_LOGIN VITE_GODMODE_PASSWORD VITE_DEMO_USER_PASSWORD
+unset VITE_SHOW_DEBUG_UI VITE_ENABLE_DEMO_LOGIN VITE_DEMO_USER_PASSWORD
 
 echo "==> Building web app (VITE_API_BASE_URL=${VITE_API_BASE_URL}, no debug/demo flags)"
 npm run build

@@ -18,7 +18,7 @@ if ! command -v java >/dev/null 2>&1 || ! java -version >/dev/null 2>&1; then
 fi
 
 export VITE_API_BASE_URL="${VITE_API_BASE_URL:-https://api.usebert.co.uk}"
-unset VITE_SHOW_DEBUG_UI VITE_ENABLE_DEMO_LOGIN VITE_GODMODE_PASSWORD VITE_DEMO_USER_PASSWORD
+unset VITE_SHOW_DEBUG_UI VITE_ENABLE_DEMO_LOGIN VITE_DEMO_USER_PASSWORD
 
 echo "==> Building web app (VITE_API_BASE_URL=${VITE_API_BASE_URL}, no debug/demo flags)"
 npm run build
