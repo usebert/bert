@@ -80,6 +80,7 @@
     "verify:global-search": "node scripts/verify-global-search.mjs",
     "verify:notification-centre": "node scripts/verify-notification-centre.mjs",
     "verify:app-shell": "node scripts/verify-app-shell.mjs",
+    "test:e2e:account-menu": "playwright test e2e/account-menu.spec.mjs",
     "verify:onboarding-ui": "node scripts/verify-onboarding-ui.mjs",
     "verify:product-polish": "node scripts/verify-product-polish.mjs",
     "verify:pilot-readiness": "node scripts/verify-pilot-readiness.mjs",
@@ -198,6 +199,7 @@
     "recharts": "^2.15.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.52.0",
     "@tailwindcss/vite": "^4.1.4",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",

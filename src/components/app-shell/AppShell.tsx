@@ -172,6 +172,16 @@ export function AppShell({
                   )),
                 )}
               </nav>
+              <div className="shrink-0 border-t border-white/10 px-2 py-3">
+                <button
+                  type="button"
+                  data-testid="shell-sign-out-fallback"
+                  onClick={onSignOut}
+                  className="flex min-h-11 w-full items-center justify-center rounded-xl border border-rose-300/35 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-100 transition hover:bg-rose-500/20"
+                >
+                  Sign out
+                </button>
+              </div>
             </div>
           </div>
         ) : null}

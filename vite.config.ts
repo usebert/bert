@@ -81,6 +81,14 @@ export default defineConfig(({ mode }) => {
       "import.meta.env.VITE_APP_NAME": JSON.stringify(sanitizedViteAppName),
       "import.meta.env.VITE_BUILD_GIT_SHA": JSON.stringify(buildGitSha),
     },
+    build: {
+      rollupOptions: {
+        input: {
+          main: path.resolve(process.cwd(), "index.html"),
+          accountMenuHarness: path.resolve(process.cwd(), "e2e/account-menu.harness.html"),
+        },
+      },
+    },
     server: {
       allowedHosts: true,
       host: viteDevHost(),

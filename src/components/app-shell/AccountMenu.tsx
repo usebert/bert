@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { resolveHeaderRoleLabel } from "../../utils/headerCompanyContext";
 import type { Role } from "../../permissions";
@@ -18,121 +18,18 @@ type Props = {
   onSignOut: () => void;
 };
 
-const VIEWPORT_PADDING = 12;
 const MENU_GAP = 8;
-const DEFAULT_MENU_WIDTH = 288;
+const VIEWPORT_PADDING = 12;
 
-function buildMeasureStyle(trigger: DOMRect): CSSProperties {
+function buildMenuStyle(trigger: DOMRect): CSSProperties {
   return {
     position: "fixed",
-    visibility: "hidden",
     top: trigger.bottom + MENU_GAP,
-    left: Math.max(
-      VIEWPORT_PADDING,
-      Math.min(
-        trigger.right - DEFAULT_MENU_WIDTH,
-        window.innerWidth - DEFAULT_MENU_WIDTH - VIEWPORT_PADDING,
-      ),
-    ),
-    maxWidth: "calc(100vw - 24px)",
+    right: Math.max(VIEWPORT_PADDING, window.innerWidth - trigger.right),
+    width: "min(320px, calc(100vw - 24px))",
     maxHeight: "calc(100dvh - 24px)",
     overflowY: "auto",
   };
-}
-
-function useAccountMenuPosition(
-  open: boolean,
-  triggerRef: RefObject<HTMLButtonElement | null>,
-  menuRef: RefObject<HTMLDivElement | null>,
-) {
-  const [style, setStyle] = useState<CSSProperties | null>(null);
-
-  useLayoutEffect(() => {
-    if (!open) {
-      setStyle(null);
-      return;
-    }
-
-    let raf = 0;
-
-    const update = () => {
-      const trigger = triggerRef.current?.getBoundingClientRect();
-      const menuEl = menuRef.current;
-      if (!trigger) return;
-
-      if (!menuEl) {
-        setStyle(buildMeasureStyle(trigger));
-        return;
-      }
-
-      const menuWidth = menuEl.getBoundingClientRect().width;
-      if (menuWidth <= 0) {
-        setStyle(buildMeasureStyle(trigger));
-        return;
-      }
-
-      const menuHeight = menuEl.getBoundingClientRect().height;
-
-      let left = trigger.right - menuWidth;
-      left = Math.max(
-        VIEWPORT_PADDING,
-        Math.min(left, window.innerWidth - menuWidth - VIEWPORT_PADDING),
-      );
-
-      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-      let top = trigger.bottom + MENU_GAP;
-      const fitsBelow = top + menuHeight <= viewportHeight - VIEWPORT_PADDING;
-      if (!fitsBelow && menuHeight > 0) {
-        const aboveTop = trigger.top - menuHeight - MENU_GAP;
-        if (aboveTop >= VIEWPORT_PADDING) {
-          top = aboveTop;
-        } else {
-          top = Math.max(
-            VIEWPORT_PADDING,
-            Math.min(top, viewportHeight - menuHeight - VIEWPORT_PADDING),
-          );
-        }
-      }
-
-      setStyle({
-        position: "fixed",
-        top,
-        left,
-        visibility: "visible",
-        maxWidth: "calc(100vw - 24px)",
-        maxHeight: "calc(100dvh - 24px)",
-        overflowY: "auto",
-      });
-    };
-
-    update();
-    raf = window.requestAnimationFrame(update);
-
-    window.addEventListener("resize", update);
-    window.addEventListener("scroll", update, true);
-    const viewport = window.visualViewport;
-    viewport?.addEventListener("resize", update);
-    viewport?.addEventListener("scroll", update);
-
-    const resizeObserver =
-      menuRef.current && typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(() => update())
-        : null;
-    if (menuRef.current && resizeObserver) {
-      resizeObserver.observe(menuRef.current);
-    }
-
-    return () => {
-      window.cancelAnimationFrame(raf);
-      window.removeEventListener("resize", update);
-      window.removeEventListener("scroll", update, true);
-      viewport?.removeEventListener("resize", update);
-      viewport?.removeEventListener("scroll", update);
-      resizeObserver?.disconnect();
-    };
-  }, [open, triggerRef, menuRef]);
-
-  return style;
 }
 
 export function AccountMenu({
@@ -149,42 +46,113 @@ export function AccountMenu({
   onSignOut,
 }: Props) {
   const [open, setOpen] = useState(false);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const menuStyle = useAccountMenuPosition(open, triggerRef, menuRef);
-  const resolvedMenuStyle =
-    menuStyle ??
-    (open && triggerRef.current
-      ? buildMeasureStyle(triggerRef.current.getBoundingClientRect())
-      : undefined);
+  const ignoreOutsideCloseRef = useRef(false);
+
+  const updatePosition = useCallback(() => {
+    const trigger = triggerRef.current?.getBoundingClientRect();
+    if (!trigger) return;
+    setMenuStyle(buildMenuStyle(trigger));
+  }, []);
+
+  const closeMenu = useCallback(() => {
+    setOpen(false);
+    setMenuStyle(null);
+    triggerRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    const viewport = window.visualViewport;
+    viewport?.addEventListener("resize", updatePosition);
+    viewport?.addEventListener("scroll", updatePosition);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+      viewport?.removeEventListener("resize", updatePosition);
+      viewport?.removeEventListener("scroll", updatePosition);
+    };
+  }, [open, updatePosition]);
 
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        setOpen(false);
-        triggerRef.current?.focus();
+        closeMenu();
       }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
+  }, [closeMenu, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (ignoreOutsideCloseRef.current) return;
+      const target = event.target as Node;
+      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) {
+        return;
+      }
+      setOpen(false);
+      setMenuStyle(null);
+    };
+    const timer = window.setTimeout(() => {
+      document.addEventListener("pointerdown", onPointerDown);
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
   }, [open]);
 
+  const handleTriggerClick = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    ignoreOutsideCloseRef.current = true;
+    window.setTimeout(() => {
+      ignoreOutsideCloseRef.current = false;
+    }, 0);
+    setOpen((current) => {
+      const next = !current;
+      if (next) {
+        const trigger = triggerRef.current?.getBoundingClientRect();
+        if (trigger) {
+          setMenuStyle(buildMenuStyle(trigger));
+        }
+      } else {
+        setMenuStyle(null);
+      }
+      return next;
+    });
+  };
+
+  const stopPanelPropagation = (event: MouseEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+  };
+
   const menu =
-    open && typeof document !== "undefined" ? (
+    open && menuStyle && typeof document !== "undefined" ? (
       <>
         <button
           type="button"
-          className="fixed inset-0 z-[70] cursor-default"
+          className="fixed inset-0 z-[100] cursor-default bg-transparent"
           aria-label="Close account menu"
-          onClick={() => setOpen(false)}
+          tabIndex={-1}
+          onClick={closeMenu}
         />
         <div
           ref={menuRef}
           role="menu"
-          style={resolvedMenuStyle}
-          className="z-[71] w-[min(18rem,calc(100vw-24px))] rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-bg-surface)] p-2 shadow-xl motion-reduce:transition-none"
+          data-testid="account-menu-panel"
+          style={menuStyle}
+          className="z-[101] rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-bg-surface)] p-2 shadow-xl motion-reduce:transition-none"
+          onClick={stopPanelPropagation}
+          onMouseDown={stopPanelPropagation}
         >
           <div className="border-b border-[var(--ui-border)] px-3 py-3">
             <p className="truncate text-sm font-semibold text-[var(--ui-text-primary)]">{displayName}</p>
@@ -194,17 +162,41 @@ export function AccountMenu({
           </div>
           <div className="py-1">
             {onOpenAccount ? (
-              <button type="button" role="menuitem" className="flex min-h-11 w-full items-center rounded-xl px-3 text-sm font-medium hover:bg-[var(--ui-bg-muted)]" onClick={() => { setOpen(false); onOpenAccount(); }}>
+              <button
+                type="button"
+                role="menuitem"
+                className="flex min-h-11 w-full items-center rounded-xl px-3 text-sm font-medium hover:bg-[var(--ui-bg-muted)]"
+                onClick={() => {
+                  closeMenu();
+                  onOpenAccount();
+                }}
+              >
                 Account
               </button>
             ) : null}
             {showCompanySwitcher && onOpenCompanySwitcher ? (
-              <button type="button" role="menuitem" className="flex min-h-11 w-full items-center rounded-xl px-3 text-sm font-medium hover:bg-[var(--ui-bg-muted)]" onClick={() => { setOpen(false); onOpenCompanySwitcher(); }}>
+              <button
+                type="button"
+                role="menuitem"
+                className="flex min-h-11 w-full items-center rounded-xl px-3 text-sm font-medium hover:bg-[var(--ui-bg-muted)]"
+                onClick={() => {
+                  closeMenu();
+                  onOpenCompanySwitcher();
+                }}
+              >
                 Switch company
               </button>
             ) : null}
             {onHelp ? (
-              <button type="button" role="menuitem" className="flex min-h-11 w-full items-center rounded-xl px-3 text-sm font-medium hover:bg-[var(--ui-bg-muted)]" onClick={() => { setOpen(false); onHelp(); }}>
+              <button
+                type="button"
+                role="menuitem"
+                className="flex min-h-11 w-full items-center rounded-xl px-3 text-sm font-medium hover:bg-[var(--ui-bg-muted)]"
+                onClick={() => {
+                  closeMenu();
+                  onHelp();
+                }}
+              >
                 Help
               </button>
             ) : null}
@@ -213,9 +205,10 @@ export function AccountMenu({
             <button
               type="button"
               role="menuitem"
+              data-testid="account-menu-sign-out"
               className="flex min-h-11 w-full items-center gap-2 rounded-xl px-3 text-sm font-semibold text-rose-700 hover:bg-rose-50"
               onClick={() => {
-                setOpen(false);
+                closeMenu();
                 onSignOut();
               }}
             >
@@ -234,7 +227,9 @@ export function AccountMenu({
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => setOpen((current) => !current)}
+        data-testid="account-menu-trigger"
+        onClick={handleTriggerClick}
+        onMouseDown={(event) => event.stopPropagation()}
         className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full ring-2 ring-white"
         aria-haspopup="menu"
         aria-expanded={open}

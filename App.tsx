@@ -17269,6 +17269,14 @@ function App() {
       </div>
       <button
         type="button"
+        data-testid="shell-sign-out-fallback"
+        onClick={() => handleLogout()}
+        className="flex min-h-11 w-full items-center justify-center rounded-xl border border-rose-300/35 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-100 transition hover:bg-rose-500/20"
+      >
+        Sign out
+      </button>
+      <button
+        type="button"
         onClick={() => setDesktopSidebarCollapsed((current) => !current)}
         className="flex min-h-11 w-full items-center justify-center rounded-xl border border-white/12 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
         aria-label={desktopSidebarCollapsed ? "Expand menu" : "Collapse menu"}

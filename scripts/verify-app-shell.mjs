@@ -104,9 +104,14 @@ function main() {
   assert(accountMenu.includes('event.key === "Escape"'), "Escape closes account menu");
   assert(accountMenu.includes("createPortal") && accountMenu.includes("document.body"), "account menu portals above shell clipping");
   assert(
-    accountMenu.includes("window.innerWidth - menuWidth - VIEWPORT_PADDING"),
-    "account menu clamps horizontal position against window.innerWidth",
+    accountMenu.includes("window.innerWidth - trigger.right") && accountMenu.includes("z-[101]"),
+    "account menu anchors from trigger right edge with shell-safe z-index",
   );
+  assert(
+    appShell.includes('data-testid="shell-sign-out-fallback"') || app.includes('data-testid="shell-sign-out-fallback"'),
+    "temporary shell sign out fallback is visible",
+  );
+  assert(pkg.scripts["test:e2e:account-menu"], "account menu browser test script registered");
   assert(appShell.includes("motion-reduce") || appSidebar.includes("motion-reduce"), "reduced motion supported");
   assert(appShell.includes("h-[100dvh]"), "mobile drawer uses 100dvh-safe layout");
 
