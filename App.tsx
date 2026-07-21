@@ -311,6 +311,10 @@ import { CompleteAuditScreen } from "./src/screens/CompleteAuditScreen";
 import { IncidentReportingScreen } from "./src/screens/IncidentReportingScreen";
 import { useGlobalSearchControls } from "./src/components/search/GlobalSearch";
 import { useNotificationControls } from "./src/components/notifications/NotificationsHost";
+import { AppShell } from "./src/components/app-shell/AppShell";
+import { HeaderSearchButton } from "./src/components/app-shell/AppHeader";
+import { confirmDiscardShellUnsavedWork, hasShellUnsavedWork } from "./src/components/app-shell/shellUnsavedGuard";
+import { getPageTitle } from "./src/presentation/pageTitles";
 import type { SearchNavigateTarget } from "./src/presentation/searchPresentation";
 import type { GlobalSearchSources } from "./src/services/searchAdapters/globalSearchAdapters";
 import type { NotificationSources } from "./src/services/notificationAdapters/notificationAdapters";
@@ -3642,6 +3646,7 @@ function App() {
   const postLoginTimingRef = useRef<number | null>(null);
   const [shellMoreExpanded, setShellMoreExpanded] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [dashboardPreferences, setDashboardPreferences] = useState<DashboardPreferences>(() =>
     readStoredDashboardPreferences(),
   );
@@ -5098,6 +5103,22 @@ function App() {
     }
     return workspaceName;
   }, [currentUser, godCompanySetupOnlyShell, masterPlatformHeaderScope, selectedFolder, workspaceName]);
+
+  const pageTitle = useMemo(
+    () => getPageTitle(screen as RoutedScreen, { setupOnlyShell: godCompanySetupOnlyShell }),
+    [screen, godCompanySetupOnlyShell],
+  );
+
+  const companySwitcherOptions = useMemo(
+    () =>
+      (currentUser?.role === "Master" ? selectableGodmodeFolders : folders).map((folder) => ({
+        id: folder.id,
+        name: folder.name,
+      })),
+    [currentUser?.role, selectableGodmodeFolders, folders],
+  );
+
+  const showCompanySwitcher = companySwitcherOptions.length > 1;
 
   const headerWorkingOn = useMemo(() => {
     if (!currentUser || godCompanySetupOnlyShell) {
@@ -13835,6 +13856,22 @@ function App() {
     }
   };
 
+  const requestCompanySwitch = useCallback(
+    (folderId: string) => {
+      const switchingAway = folderId !== selectedFolderId;
+      const unsaved = hasShellUnsavedWork({
+        onAuditCompletionScreen: screen === "complete" && Boolean(activeAuditId),
+        hasActiveAuditDraft: screen === "complete" && Boolean(activeAuditId),
+        scheduleEditorOpen,
+      });
+      if (switchingAway && unsaved && !confirmDiscardShellUnsavedWork()) {
+        return;
+      }
+      void handleSelectFolder(folderId);
+    },
+    [activeAuditId, handleSelectFolder, scheduleEditorOpen, screen, selectedFolderId],
+  );
+
   const resolveWorkspaceMasterSheetId = () => {
     const { masterSheetId } = resolveCompanyMembersLoadContext({
       activeCompanyContext,
@@ -17061,38 +17098,44 @@ function App() {
         : "border-slate-200/90 bg-white/95",
   ].join(" ");
 
-  return (
-    <div className={loggedInRootClass}>
-      <style>{appMotionStyles}</style>
-      {wrapLoggedInTabletChrome(
-          <div data-qms-theme={themeMode} className={appShellSurfaceClass}>
-        <DataFlowBackground className="z-20 opacity-10" showBase={false} />
-        <header className={["qms-app-header relative z-10 border-b px-3 pb-1 pt-1 backdrop-blur", themeMode === "dark" ? "border-white/10 bg-slate-950/58" : "border-slate-200/80 bg-white/72"].join(" ")}>
-          <div className="mb-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[9px] font-semibold uppercase tracking-[0.16em]">
-            {godCompanySetupOnlyShell ? (
-              <div
-                className={[
-                  "rounded-full px-2.5 py-0.5",
-                  themeMode === "dark" ? "bg-slate-900 text-slate-400" : "border border-[var(--bert-signal-orange)] bg-white font-semibold text-[var(--qms-navy-900)]",
-                ].join(" ")}
-              >
-                Workspace setup (Master)
-              </div>
-            ) : isDebugUiAllowed() ? (
-              <div
-                className={[
-                  "rounded-full px-2.5 py-0.5",
-                  themeMode === "dark" ? "bg-slate-900 text-slate-400" : "border border-[var(--bert-signal-orange)] bg-white font-semibold text-[var(--qms-navy-900)]",
-                ].join(" ")}
-              >
-                Tablet workspace
-              </div>
-            ) : (
-              <span className="sr-only">Status</span>
-            )}
-            <div className="flex items-center gap-1">
-              {isDebugUiAllowed() && demoRoleSwitchEnabled && !godCompanySetupOnlyShell && <div className="hidden items-center gap-1 lg:flex">
-                {currentUser.role !== "Admin" && (
+  const shellSyncWaitingCount =
+    pendingSyncCount + offlineQueue.filter((item) => item.syncStatus !== "failed").length;
+  const shellSyncFailedCount =
+    failedSyncCount + offlineQueue.filter((item) => item.syncStatus === "failed").length;
+  const shellSyncSyncing =
+    offlineQueue.some((item) => item.syncStatus === "syncing") ||
+    syncQueue.some((item) => item.status === "Syncing");
+  const shellCompanyDisplayName = masterPlatformHeaderScope
+    ? "All workspaces"
+    : godCompanySetupOnlyShell
+      ? "Workspace setup"
+      : activeCompanyContext.companyName || workspaceName;
+  const shellPageSubtitle = godCompanySetupOnlyShell
+    ? "Master"
+    : masterPlatformHeaderScope
+      ? "Platform scope"
+      : undefined;
+  const shellContentClassName = [
+    themeMode === "dark"
+      ? "[&_section.border]:border-slate-800 [&_section.bg-white]:bg-slate-900 [&_section.bg-slate-50]:bg-slate-900 [&_section_.text-slate-900]:text-slate-100 [&_section_.text-slate-800]:text-slate-200 [&_section_.text-slate-700]:text-slate-300 [&_section_.text-slate-600]:text-slate-400 [&_section_.text-slate-500]:text-slate-400 [&_section_.text-slate-400]:text-slate-500 [&_section_input]:border-slate-700 [&_section_input]:bg-slate-950 [&_section_input]:text-slate-100 [&_section_input:focus]:border-[var(--bert-signal-orange)] [&_section_input:focus]:bg-slate-950 [&_section_textarea]:border-slate-700 [&_section_textarea]:bg-slate-950 [&_section_textarea]:text-slate-100 [&_section_textarea:focus]:border-[var(--bert-signal-orange)] [&_section_select]:border-slate-700 [&_section_select]:bg-slate-950 [&_section_select]:text-slate-100 [&_section_select:focus]:border-[var(--bert-signal-orange)] [&_section_select:focus]:bg-slate-950 [&_.bg-gradient-to-b]:from-slate-900 [&_.bg-gradient-to-b]:to-slate-950 [&_.bg-slate-100]:bg-slate-800 [&_.bg-slate-200]:bg-slate-800 [&_.bg-white]:bg-slate-900 [&_.text-slate-900]:text-slate-100 [&_.text-slate-800]:text-slate-200 [&_.text-slate-700]:text-slate-300 [&_.text-slate-600]:text-slate-400 [&_.text-slate-500]:text-slate-400 [&_input[type=file]]:border-[rgba(249,115,22,0.45)] [&_input[type=file]]:bg-slate-950 [&_input[type=file]]:text-slate-300 [&_input[type=file]]:file:text-slate-200"
+      : roleTheme?.pageBackground ?? "bg-slate-100",
+  ].join(" ");
+
+  const shellDebugStrip =
+    isDebugUiAllowed() && !godCompanySetupOnlyShell ? (
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[9px] font-semibold uppercase tracking-[0.16em]">
+        <div
+          className={[
+            "rounded-full px-2.5 py-0.5",
+            themeMode === "dark" ? "bg-slate-900 text-slate-400" : "border border-[var(--bert-signal-orange)] bg-white font-semibold text-[var(--qms-navy-900)]",
+          ].join(" ")}
+        >
+          Tablet workspace
+        </div>
+        <div className="flex items-center gap-1">
+          {demoRoleSwitchEnabled ? (
+            <div className="hidden items-center gap-1 lg:flex">
+              {currentUser.role !== "Admin" ? (
                 <button
                   type="button"
                   title={roles[0]}
@@ -17101,390 +17144,220 @@ function App() {
                 >
                   OWNER
                 </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => handleQuickRoleSwitch("Admin", "Admin")}
-                  className={["rounded-full border px-2 py-0.5 text-[8px] font-semibold", themeMode === "dark" ? "border-[var(--bert-signal-orange)]/50 bg-slate-900 text-[var(--bert-chrome-accent)]" : "border-[var(--bert-signal-orange)] bg-white text-[var(--qms-navy-900)] hover:bg-orange-50"].join(" ")}
-                >
-                  ADMIN
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickRoleSwitch("Manager", "Manager")}
-                  className={["rounded-full border px-2 py-0.5 text-[8px] font-semibold", themeMode === "dark" ? "border-[var(--bert-signal-orange)]/50 bg-slate-900 text-[var(--bert-chrome-accent)]" : "border-[var(--bert-signal-orange)] bg-white text-[var(--qms-navy-900)] hover:bg-orange-50"].join(" ")}
-                >
-                  MANAGER
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickRoleSwitch("Auditor", "Auditor")}
-                  className={["rounded-full border px-2 py-0.5 text-[8px] font-semibold", themeMode === "dark" ? "border-[var(--bert-signal-orange)]/50 bg-slate-900 text-[var(--bert-chrome-accent)]" : "border-[var(--bert-signal-orange)] bg-white text-[var(--qms-navy-900)] hover:bg-orange-50"].join(" ")}
-                >
-                  AUDITOR
-                </button>
-              </div>}
-              {isDebugUiAllowed() && !godCompanySetupOnlyShell && (
-              <button
-                type="button"
-                onClick={() => setScreen(getHomeScreenForRole(currentUser.role))}
-                className={["rounded-full border px-1.5 py-0 text-[8px]", themeMode === "dark" ? `border-slate-700 bg-slate-900 text-slate-300 ${slatePrimaryCtaInteract}` : "border-[var(--bert-signal-orange)] bg-white text-[var(--qms-navy-900)] transition-colors hover:bg-orange-50"].join(" ")}
-              >
-                Layout options
-              </button>
-              )}
-              {isDebugUiAllowed() && !godCompanySetupOnlyShell && (
-              <button
-                onClick={() => setPreviewOrientation(previewOrientation === "landscape" ? "portrait" : "landscape")}
-                className={["rounded-full border px-2 py-0.5 text-[8px]", themeMode === "dark" ? `border-slate-700 bg-slate-900 text-slate-300 ${slatePrimaryCtaInteract}` : "border-[var(--bert-signal-orange)] bg-white text-[var(--qms-navy-900)] transition-colors hover:bg-orange-50"].join(" ")}
-              >
-                {previewOrientation === "landscape" ? "Portrait preview" : "Landscape preview"}
-              </button>
-              )}
-              {currentUser.role === "Auditor" ? (
-                <div className={["rounded-full px-2 py-0.5", offlineMode ? "bg-amber-500/15 text-amber-700" : "bg-emerald-500/15 text-emerald-700"].join(" ")}>
-                  {offlineMode
-                    ? "You are offline. Checks will be saved on this tablet and synced when internet returns."
-                    : "Online"}
-                </div>
-              ) : (
-                <div className={["rounded-full px-2 py-0.5", offlineMode ? "bg-amber-500/15 text-amber-600" : "bg-blue-500/12 text-blue-800"].join(" ")}>
-                  {offlineMode ? "Offline" : "Online"}
-                </div>
-              )}
-              <StatusPulse state={headerSyncVisualState} label={syncPlainSummary} className="text-[10px]" />
-              <div className={["rounded-full border px-2 py-0.5 text-[8px]", themeMode === "dark" ? "border-slate-700 bg-slate-900 text-slate-300" : "border-[var(--bert-signal-orange)] bg-white text-[var(--qms-navy-900)]"].join(" ")}>
-                {deviceTimeLabel}
-              </div>
-            </div>
-          </div>
-          <div className="qms-app-header-main">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="min-w-0 flex-1">
-                {godCompanySetupOnlyShell ? (
-                  <p className={["text-sm font-semibold", themeMode === "dark" ? "text-white" : "text-slate-900"].join(" ")}>
-                    Workspace setup (Master)
-                  </p>
-                ) : roleTheme ? (
-                  <p className={["truncate text-base font-semibold tracking-tight sm:text-lg", roleTheme.headerTitleColor].join(" ")}>
-                    {roleHeaderTitle}
-                  </p>
-                ) : (
-                  <p className={["truncate text-sm font-semibold", themeMode === "dark" ? "text-white" : "text-slate-900"].join(" ")}>
-                    {workspaceName}
-                  </p>
-                )}
-                {!godCompanySetupOnlyShell && showHeaderSiteSelector ? (
-                  <div className="mt-1 md:hidden">
-                    <select
-                      value={selectedSiteId}
-                      onChange={(event) => setSelectedSiteId(event.target.value)}
-                      className={["h-7 max-w-[12rem] rounded-md border px-2 text-[10px] font-semibold", themeMode === "dark" ? "border-slate-700 bg-slate-900 text-slate-200" : "border-slate-200 bg-white text-slate-800"].join(" ")}
-                    >
-                      <option value="">All sites</option>
-                      {headerSelectableSites.map((site) => (
-                        <option key={site.id} value={site.id}>
-                          {site.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : masterPlatformHeaderScope ? (
-                  <p className={["mt-0.5 text-[11px] font-medium", themeMode === "dark" ? "text-slate-400" : "text-slate-500"].join(" ")}>All workspaces</p>
-                ) : headerWorkingOn ? (
-                  <p className={["mt-0.5 text-[11px] font-medium", themeMode === "dark" ? "text-slate-400" : "text-slate-500"].join(" ")}>
-                    {headerWorkingOn.hasCompany ? (
-                      <>
-                        Working on:{" "}
-                        <span className={["font-semibold", themeMode === "dark" ? "text-slate-200" : "text-slate-700"].join(" ")}>
-                          {headerWorkingOn.companyLabel}
-                        </span>
-                      </>
-                    ) : (
-                      headerWorkingOn.workingOnLine
-                    )}
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="flex shrink-0 items-center gap-2">
-                {!godCompanySetupOnlyShell ? (
-                  <button
-                    type="button"
-                    onClick={globalSearchControls.openSearch}
-                    className={[
-                      "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold",
-                      themeMode === "dark"
-                        ? "border-slate-600 bg-slate-900 text-slate-200 hover:bg-slate-800"
-                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
-                    ].join(" ")}
-                    aria-label="Search"
-                  >
-                    <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="2" aria-hidden>
-                      <circle cx="11" cy="11" r="7" />
-                      <path d="m20 20-3.5-3.5" />
-                    </svg>
-                    <span className="hidden sm:inline">Search</span>
-                    <kbd className="hidden rounded border border-current/20 px-1.5 py-0.5 text-[10px] font-medium opacity-70 md:inline">
-                      ⌘K
-                    </kbd>
-                  </button>
-                ) : null}
-                {!godCompanySetupOnlyShell ? notificationControls.button : null}
-                {!godCompanySetupOnlyShell ? (
-                  <button
-                    type="button"
-                    onClick={() => setHelpPanelOpen(true)}
-                    className={[
-                      "hidden items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold sm:inline-flex",
-                      themeMode === "dark"
-                        ? "border-slate-600 bg-slate-900 text-slate-200 hover:bg-slate-800"
-                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
-                    ].join(" ")}
-                    aria-label="Help"
-                  >
-                    <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="2" aria-hidden>
-                      <circle cx="12" cy="12" r="9" />
-                      <path d="M9.5 9a2.5 2.5 0 1 1 4.2 1.8c-.8.7-1.7 1.2-1.7 2.2" />
-                      <circle cx="12" cy="16.8" r="0.8" fill="currentColor" stroke="none" />
-                    </svg>
-                    Help
-                  </button>
-                ) : null}
-                <div className="min-w-0 text-right">
-                  <p className={["truncate text-sm font-semibold", themeMode === "dark" ? "text-white" : "text-slate-900"].join(" ")}>
-                    {currentUserAppName || currentUser.name}
-                  </p>
-                  {resolveUserEmail(currentUser) ? (
-                    <p className={["truncate text-xs", themeMode === "dark" ? "text-slate-400" : "text-slate-500"].join(" ")}>
-                      {resolveUserEmail(currentUser)}
-                    </p>
-                  ) : null}
-                  {roleTheme ? (
-                    <span className={["mt-0.5 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold", roleTheme.badge].join(" ")}>
-                      {resolveHeaderRoleLabel(currentUser.role)}
-                    </span>
-                  ) : null}
-                </div>
-                <div className={["relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-2 ring-white", roleTheme?.avatarBg ?? "bg-[var(--bert-signal-orange)]", roleTheme?.avatarText ?? "text-[var(--qms-navy-950)]", "text-[10px] font-semibold"].join(" ")}>
-                  {accountPhotoUrl ? (
-                    <img src={accountPhotoUrl} alt={currentUser.name} className="h-full w-full object-cover" />
-                  ) : (
-                    getUserInitials(currentUser.name, currentUser.username)
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {godCompanySetupOnlyShell ? (
-              <div className="mt-2 flex justify-end md:hidden">
-                <button
-                  type="button"
-                  onClick={() => handleLogout()}
-                  className={[
-                    "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold",
-                    themeMode === "dark"
-                      ? "border-rose-500/40 bg-rose-500/15 text-rose-100"
-                      : "border-rose-200 bg-rose-50 text-rose-800",
-                  ].join(" ")}
-                  aria-label={t("common.logOut")}
-                >
-                  <AppIcon name="logOut" className="h-3.5 w-3.5" />
-                  {t("common.logOut")}
-                </button>
-              </div>
-            ) : (
-              <div className={["mt-1.5 hidden flex-wrap items-center gap-2 text-[10px] md:flex", themeMode === "dark" ? "text-slate-400" : "text-slate-500"].join(" ")}>
-                {masterPlatformHeaderScope ? (
-                  <span className={["font-medium", themeMode === "dark" ? "text-slate-300" : "text-slate-600"].join(" ")}>Platform · All workspaces</span>
-                ) : headerWorkingOn ? (
-                  <span className={["font-medium", themeMode === "dark" ? "text-slate-300" : "text-slate-600"].join(" ")}>
-                    {headerWorkingOn.workingOnLine}
-                  </span>
-                ) : null}
-                {showHeaderSiteSelector ? (
-                  <select
-                    value={selectedSiteId}
-                    onChange={(event) => setSelectedSiteId(event.target.value)}
-                    className={["h-6 max-w-[10rem] rounded-md border px-2 text-[10px] font-semibold", themeMode === "dark" ? "border-slate-700 bg-slate-900 text-slate-200" : "border-slate-200 bg-white text-slate-700"].join(" ")}
-                  >
-                    <option value="">All sites</option>
-                    {headerSelectableSites.map((site) => (
-                      <option key={site.id} value={site.id}>
-                        {site.name}
-                      </option>
-                    ))}
-                  </select>
-                ) : null}
-                {isDebugUiAllowed() && demoModeActive ? (
-                  <span className="rounded-full bg-sky-500/12 px-2 py-0.5 font-semibold text-sky-700">Training</span>
-                ) : null}
-                <span className="sr-only">{roleLabel}</span>
-              </div>
-            )}
-          </div>
-        </header>
-
-        <main className="relative z-10 flex min-h-0 flex-1 overflow-hidden">
-          <aside
-            className={[
-              "hidden min-h-0 flex-col border-r border-white/10 bg-gradient-to-b from-[#071525] via-[#0c1f36] to-[#050b14] text-slate-100 md:flex",
-              desktopSidebarCollapsed ? "w-[4.75rem]" : "w-[15.5rem]",
-            ].join(" ")}
-          >
-            <div className={`shrink-0 ${desktopSidebarCollapsed ? "px-2 py-3" : "px-3 py-4"}`}>
-              <BertLogo
-                variant={tabletChromeLogoVariant}
-                tone="onDark"
-                size="sm"
-                className={desktopSidebarCollapsed ? "scale-90" : ""}
-              />
-            </div>
-            <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 pb-2" aria-label="Primary">
-              {groupedSidebarNav.map((group) => (
-                <div key={`nav-group-${group.id}`} className="space-y-0.5">
-                  {!desktopSidebarCollapsed && group.label !== "Home" ? (
-                    <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{group.label}</p>
-                  ) : null}
-                  {group.items.map((item) => {
-                    const selected =
-                      screen === item.id || (isAuditCentreNavActive(screen) && item.id === "auditCentre");
-                    return (
-                      <button
-                        key={`sidebar-${item.id}`}
-                        type="button"
-                        onClick={() => {
-                          setShellMoreExpanded(false);
-                          setMobileMoreOpen(false);
-                          setScreen(item.id);
-                        }}
-                        className={[
-                          "flex min-h-[44px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold bert-nav-item transition",
-                          selected
-                            ? roleTheme?.navActive ?? "bg-[var(--bert-signal-orange)] text-[var(--qms-navy-950)]"
-                            : roleTheme?.navHover ?? "text-slate-200 hover:bg-white/8 hover:text-white",
-                          desktopSidebarCollapsed ? "justify-center px-2" : "",
-                        ].join(" ")}
-                        title={navLabelForItem(item)}
-                      >
-                        <AppIcon name={item.icon} className="h-4 w-4 shrink-0 opacity-95" />
-                        {!desktopSidebarCollapsed && <span className="truncate">{navLabelForItem(item)}</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
-              {moreNavItems.length > 0 ? (
-                <div className="mt-1 border-t border-white/10 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShellMoreExpanded((current) => !current)}
-                    className={[
-                      "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold bert-nav-item transition",
-                      shellMoreExpanded || moreNavItems.some((item) => item.id === screen)
-                        ? roleTheme?.navMoreActive ?? "border border-orange-400/40 bg-orange-500/15 text-orange-100"
-                        : roleTheme?.navHover ?? "text-slate-300 hover:bg-white/8 hover:text-white",
-                      desktopSidebarCollapsed ? "justify-center px-2" : "",
-                    ].join(" ")}
-                    aria-expanded={shellMoreExpanded}
-                  >
-                    <AppIcon name="grid" className="h-4 w-4 shrink-0" />
-                    {!desktopSidebarCollapsed && <span>{t("common.more")}</span>}
-                  </button>
-                  {shellMoreExpanded && (
-                    <div className="mt-1 space-y-1 pl-1">
-                      {moreNavItems.map((item) => {
-                        const selected = screen === item.id;
-                        return (
-                          <button
-                            key={`sidebar-more-${item.id}`}
-                            type="button"
-                            onClick={() => {
-                              setScreen(item.id);
-                              setShellMoreExpanded(false);
-                              setMobileMoreOpen(false);
-                            }}
-                            className={[
-                              "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold bert-nav-item transition",
-                              selected
-                                ? roleTheme?.navSubActive ?? "bg-sky-500/20 text-sky-100"
-                                : roleTheme?.navSubHover ?? "text-slate-400 hover:bg-white/6 hover:text-slate-100",
-                            ].join(" ")}
-                          >
-                            <AppIcon name={item.icon} className="h-3.5 w-3.5 shrink-0 opacity-90" />
-                            <span className="truncate">{navLabelForItem(item)}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
               ) : null}
-            </nav>
-            <div className="mt-auto shrink-0 space-y-2 border-t border-white/10 px-2 py-3">
+              <button type="button" onClick={() => handleQuickRoleSwitch("Admin", "Admin")} className={["rounded-full border px-2 py-0.5 text-[8px] font-semibold", themeMode === "dark" ? "border-[var(--bert-signal-orange)]/50 bg-slate-900 text-[var(--bert-chrome-accent)]" : "border-[var(--bert-signal-orange)] bg-white text-[var(--qms-navy-900)] hover:bg-orange-50"].join(" ")}>
+                ADMIN
+              </button>
+              <button type="button" onClick={() => handleQuickRoleSwitch("Manager", "Manager")} className={["rounded-full border px-2 py-0.5 text-[8px] font-semibold", themeMode === "dark" ? "border-[var(--bert-signal-orange)]/50 bg-slate-900 text-[var(--bert-chrome-accent)]" : "border-[var(--bert-signal-orange)] bg-white text-[var(--qms-navy-900)] hover:bg-orange-50"].join(" ")}>
+                MANAGER
+              </button>
+              <button type="button" onClick={() => handleQuickRoleSwitch("Auditor", "Auditor")} className={["rounded-full border px-2 py-0.5 text-[8px] font-semibold", themeMode === "dark" ? "border-[var(--bert-signal-orange)]/50 bg-slate-900 text-[var(--bert-chrome-accent)]" : "border-[var(--bert-signal-orange)] bg-white text-[var(--qms-navy-900)] hover:bg-orange-50"].join(" ")}>
+                AUDITOR
+              </button>
+            </div>
+          ) : null}
+          <button type="button" onClick={() => setScreen(getHomeScreenForRole(currentUser.role))} className={["rounded-full border px-1.5 py-0 text-[8px]", themeMode === "dark" ? `border-slate-700 bg-slate-900 text-slate-300 ${slatePrimaryCtaInteract}` : "border-[var(--bert-signal-orange)] bg-white text-[var(--qms-navy-900)] transition-colors hover:bg-orange-50"].join(" ")}>
+            Layout options
+          </button>
+          <button onClick={() => setPreviewOrientation(previewOrientation === "landscape" ? "portrait" : "landscape")} className={["rounded-full border px-2 py-0.5 text-[8px]", themeMode === "dark" ? `border-slate-700 bg-slate-900 text-slate-300 ${slatePrimaryCtaInteract}` : "border-[var(--bert-signal-orange)] bg-white text-[var(--qms-navy-900)] transition-colors hover:bg-orange-50"].join(" ")}>
+            {previewOrientation === "landscape" ? "Portrait preview" : "Landscape preview"}
+          </button>
+          {demoModeActive ? <span className="rounded-full bg-sky-500/12 px-2 py-0.5 font-semibold text-sky-700">Training</span> : null}
+          <div className={["rounded-full border px-2 py-0.5 text-[8px]", themeMode === "dark" ? "border-slate-700 bg-slate-900 text-slate-300" : "border-[var(--bert-signal-orange)] bg-white text-[var(--qms-navy-900)]"].join(" ")}>
+            {deviceTimeLabel}
+          </div>
+        </div>
+      </div>
+    ) : null;
+
+  const shellSiteSelector =
+    !godCompanySetupOnlyShell && showHeaderSiteSelector ? (
+      <select
+        value={selectedSiteId}
+        onChange={(event) => setSelectedSiteId(event.target.value)}
+        className={["mt-1 h-7 max-w-[12rem] rounded-md border px-2 text-[10px] font-semibold md:mt-0 md:h-6 md:max-w-[10rem]", themeMode === "dark" ? "border-slate-700 bg-slate-900 text-slate-200" : "border-slate-200 bg-white text-slate-800"].join(" ")}
+        aria-label="Filter by site"
+      >
+        <option value="">All sites</option>
+        {headerSelectableSites.map((site) => (
+          <option key={site.id} value={site.id}>
+            {site.name}
+          </option>
+        ))}
+      </select>
+    ) : null;
+
+  const shellSidebarFooter = (
+    <>
+      <div
+        className={["flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left", desktopSidebarCollapsed ? "justify-center" : ""].join(" ")}
+        role="group"
+        aria-label="Signed-in user"
+      >
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/15 text-xs font-semibold text-white ring-1 ring-white/20">
+          {getUserInitials(currentUser.name, currentUser.username)}
+        </span>
+        {!desktopSidebarCollapsed ? (
+          <AccountIdentitySummary
+            name={currentUserAppName || currentUser.name}
+            username={currentUser.username}
+            email={currentUser.email}
+            role={currentUser.role}
+            companyName={currentUser.role === "Master" ? undefined : activeCompanyContext.companyName}
+            actingCompanyName={currentUser.role === "Master" ? activeCompanyContext.companyName : undefined}
+            compact
+            tone="onDark"
+          />
+        ) : null}
+      </div>
+      <button
+        type="button"
+        onClick={() => setDesktopSidebarCollapsed((current) => !current)}
+        className="flex min-h-11 w-full items-center justify-center rounded-xl border border-white/12 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
+        aria-label={desktopSidebarCollapsed ? "Expand menu" : "Collapse menu"}
+        title={desktopSidebarCollapsed ? "Expand menu" : "Collapse menu"}
+      >
+        <span>{desktopSidebarCollapsed ? "»" : "«"}</span>
+      </button>
+    </>
+  );
+
+  const shellMobileBottomNav = !godCompanySetupOnlyShell ? (
+    <>
+      {mobileMoreOpen ? (
+        <div className="absolute inset-0 z-40 flex items-end justify-center bg-slate-950/50 p-3 md:hidden" onClick={() => setMobileMoreOpen(false)} role="presentation">
+          <div className="mb-14 w-full max-w-md rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label={t("common.more")}>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{t("common.more")}</p>
+            <div className="grid max-h-[46vh] gap-2 overflow-y-auto">
+              {mobileMoreDestinations.map((item) => (
+                <button
+                  key={`mobile-more-${item.id}`}
+                  type="button"
+                  onClick={() => {
+                    setScreen(item.id);
+                    setMobileMoreOpen(false);
+                  }}
+                  className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-left text-sm font-semibold text-slate-800"
+                >
+                  <AppIcon name={item.icon} className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{navLabelForItem(item)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+      <nav className="absolute bottom-0 left-0 right-0 z-30 flex border-t border-slate-200/90 bg-white/95 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-1 backdrop-blur md:hidden" aria-label="Primary navigation">
+        {mobileBottomNavEntries.map((entry) => {
+          if (entry.id === "__logout__") {
+            return (
               <button
+                key="mobile-nav-logout"
                 type="button"
                 onClick={() => {
                   handleLogout();
-                  setShellMoreExpanded(false);
                   setMobileMoreOpen(false);
                 }}
-                className={[
-                  "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold text-rose-200 transition hover:bg-rose-500/15 hover:text-white",
-                  desktopSidebarCollapsed ? "justify-center px-2" : "",
-                ].join(" ")}
+                className="flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-semibold text-rose-600"
                 aria-label={t("common.logOut")}
-                title={t("common.logOut")}
               >
-                <AppIcon name="logOut" className="h-4 w-4 shrink-0 opacity-95" />
-                {!desktopSidebarCollapsed && <span className="truncate">{t("common.logOut")}</span>}
+                <AppIcon name="logOut" className="h-5 w-5" />
+                {t("common.logOut")}
               </button>
-              <div
-                className={[
-                  "flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left",
-                  desktopSidebarCollapsed ? "justify-center" : "",
-                ].join(" ")}
-                role="group"
-                aria-label="Signed-in user"
-              >
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/15 text-xs font-semibold text-white ring-1 ring-white/20">
-                  {getUserInitials(currentUser.name, currentUser.username)}
-                </span>
-                {!desktopSidebarCollapsed && (
-                  <AccountIdentitySummary
-                    name={currentUserAppName || currentUser.name}
-                    username={currentUser.username}
-                    email={currentUser.email}
-                    role={currentUser.role}
-                    companyName={currentUser.role === "Master" ? undefined : activeCompanyContext.companyName}
-                    actingCompanyName={
-                      currentUser.role === "Master" ? activeCompanyContext.companyName : undefined
-                    }
-                    compact
-                    tone="onDark"
-                  />
-                )}
-              </div>
+            );
+          }
+          if (entry.id === "__more__") {
+            const moreActive = mobileMoreOpen || mobileMoreDestinations.some((item) => item.id === screen);
+            return (
               <button
+                key="mobile-nav-more"
                 type="button"
-                onClick={() => setDesktopSidebarCollapsed((current) => !current)}
-                className="flex w-full items-center justify-center rounded-xl border border-white/12 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
-                aria-label={desktopSidebarCollapsed ? "Expand menu" : "Collapse menu"}
-                title={desktopSidebarCollapsed ? "Expand menu" : "Collapse menu"}
+                onClick={() => setMobileMoreOpen((current) => !current)}
+                className={["flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-semibold", moreActive ? roleTheme?.mobileNavActive ?? "text-[var(--bert-signal-orange)]" : "text-slate-500"].join(" ")}
               >
-                <span>{desktopSidebarCollapsed ? "»" : "«"}</span>
+                <AppIcon name="grid" className="h-5 w-5" />
+                {t("common.more")}
               </button>
-            </div>
-          </aside>
-          <div
-            className={[
-              "qms-screen-stage h-full min-w-0 flex-1 overflow-y-auto px-4 pb-24 pt-4 md:pb-10",
-              themeMode === "dark"
-                ? "[&_section.border]:border-slate-800 [&_section.bg-white]:bg-slate-900 [&_section.bg-slate-50]:bg-slate-900 [&_section_.text-slate-900]:text-slate-100 [&_section_.text-slate-800]:text-slate-200 [&_section_.text-slate-700]:text-slate-300 [&_section_.text-slate-600]:text-slate-400 [&_section_.text-slate-500]:text-slate-400 [&_section_.text-slate-400]:text-slate-500 [&_section_input]:border-slate-700 [&_section_input]:bg-slate-950 [&_section_input]:text-slate-100 [&_section_input:focus]:border-[var(--bert-signal-orange)] [&_section_input:focus]:bg-slate-950 [&_section_textarea]:border-slate-700 [&_section_textarea]:bg-slate-950 [&_section_textarea]:text-slate-100 [&_section_textarea:focus]:border-[var(--bert-signal-orange)] [&_section_select]:border-slate-700 [&_section_select]:bg-slate-950 [&_section_select]:text-slate-100 [&_section_select:focus]:border-[var(--bert-signal-orange)] [&_section_select:focus]:bg-slate-950 [&_.bg-gradient-to-b]:from-slate-900 [&_.bg-gradient-to-b]:to-slate-950 [&_.bg-slate-100]:bg-slate-800 [&_.bg-slate-200]:bg-slate-800 [&_.bg-white]:bg-slate-900 [&_.text-slate-900]:text-slate-100 [&_.text-slate-800]:text-slate-200 [&_.text-slate-700]:text-slate-300 [&_.text-slate-600]:text-slate-400 [&_.text-slate-500]:text-slate-400 [&_input[type=file]]:border-[rgba(249,115,22,0.45)] [&_input[type=file]]:bg-slate-950 [&_input[type=file]]:text-slate-300 [&_input[type=file]]:file:text-slate-200"
-                : roleTheme?.pageBackground ?? "bg-slate-100",
-            ].join(" ")}
-          >
-            {currentUser && !godCompanySetupOnlyShell ? (
+            );
+          }
+          const selected = screen === entry.id || (isAuditCentreNavActive(screen) && entry.id === "auditCentre");
+          return (
+            <button
+              key={`mobile-nav-${entry.id}`}
+              type="button"
+              onClick={() => {
+                setMobileMoreOpen(false);
+                setScreen(entry.id as Screen);
+              }}
+              className={["flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-semibold", selected ? roleTheme?.mobileNavActive ?? "text-[var(--bert-signal-orange)]" : "text-slate-500"].join(" ")}
+            >
+              <AppIcon name={entry.icon} className="h-5 w-5" />
+              {translateNavLabel(t, entry)}
+            </button>
+          );
+        })}
+      </nav>
+    </>
+  ) : null;
+
+  return (
+    <div className={loggedInRootClass}>
+      <style>{appMotionStyles}</style>
+      {wrapLoggedInTabletChrome(
+          <div data-qms-theme={themeMode} className={appShellSurfaceClass}>
+        <DataFlowBackground className="z-20 opacity-10" showBase={false} />
+        <AppShell
+          themeMode={themeMode}
+          pageTitle={pageTitle}
+          pageSubtitle={shellPageSubtitle}
+          screen={screen}
+          setupOnlyShell={godCompanySetupOnlyShell}
+          mobileNavOpen={mobileNavOpen}
+          onCloseMobileNav={() => setMobileNavOpen(false)}
+          onOpenMobileNav={() => setMobileNavOpen(true)}
+          sidebarCollapsed={desktopSidebarCollapsed}
+          onToggleSidebarCollapsed={() => setDesktopSidebarCollapsed((current) => !current)}
+          groupedNav={groupedSidebarNav}
+          moreNavItems={moreNavItems}
+          isAuditCentreNavActive={isAuditCentreNavActive(screen)}
+          labelForItem={navLabelForItem}
+          renderNavIcon={(name) => <AppIcon name={name} className="h-4 w-4 shrink-0 opacity-95" />}
+          moreExpanded={shellMoreExpanded}
+          onToggleMore={() => setShellMoreExpanded((current) => !current)}
+          onNavigate={(nextScreen) => {
+            setShellMoreExpanded(false);
+            setMobileMoreOpen(false);
+            setScreen(nextScreen as Screen);
+          }}
+          sidebarFooter={shellSidebarFooter}
+          searchControl={<HeaderSearchButton onClick={globalSearchControls.openSearch} />}
+          notificationControl={notificationControls.button}
+          companyName={shellCompanyDisplayName}
+          platformScope={masterPlatformHeaderScope}
+          showCompanySwitcher={showCompanySwitcher}
+          companyOptions={companySwitcherOptions}
+          selectedCompanyId={selectedFolderId}
+          onSelectCompany={requestCompanySwitch}
+          offline={offlineMode}
+          syncWaitingCount={shellSyncWaitingCount}
+          syncFailedCount={shellSyncFailedCount}
+          syncSyncing={shellSyncSyncing}
+          onOpenSync={() => setScreen("sync")}
+          accountName={currentUserAppName || currentUser.name}
+          accountEmail={resolveUserEmail(currentUser) || undefined}
+          accountRole={currentUser.role}
+          accountPhotoUrl={accountPhotoUrl}
+          accountInitials={getUserInitials(currentUser.name, currentUser.username)}
+          onOpenAccount={() => setScreen("account")}
+          onHelp={() => setHelpPanelOpen(true)}
+          onSignOut={() => handleLogout()}
+          siteSelector={shellSiteSelector}
+          debugStrip={shellDebugStrip}
+          mobileBottomNav={shellMobileBottomNav}
+          logoVariant={tabletChromeLogoVariant}
+          contentClassName={shellContentClassName}
+        >
+                        {currentUser && !godCompanySetupOnlyShell ? (
               <div className="mb-4">
                 <RoleContextBanner
                   role={currentUser.role}
@@ -17500,7 +17373,7 @@ function App() {
                 folders={selectableGodmodeFolders}
                 selectedFolderId={selectedFolderId}
                 selectedFolderName={selectedFolder?.name}
-                onSelectFolder={(folderId) => void handleSelectFolder(folderId)}
+                onSelectFolder={(folderId) => requestCompanySwitch(folderId)}
                 onNewCompany={handleGodmodeNewCompany}
                 themeMode={themeMode}
               />
@@ -19091,108 +18964,7 @@ function App() {
                 }}
               />
             )}
-          </div>
-        </main>
-
-        {!godCompanySetupOnlyShell && (
-          <>
-            {mobileMoreOpen ? (
-              <div
-                className="absolute inset-0 z-40 flex items-end justify-center bg-slate-950/50 p-3 md:hidden"
-                onClick={() => setMobileMoreOpen(false)}
-                role="presentation"
-              >
-                <div
-                  className="mb-14 w-full max-w-md rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl"
-                  onClick={(event) => event.stopPropagation()}
-                  role="dialog"
-                  aria-modal="true"
-                  aria-label={t("common.more")}
-                >
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{t("common.more")}</p>
-                  <div className="grid max-h-[46vh] gap-2 overflow-y-auto">
-                    {mobileMoreDestinations.map((item) => (
-                      <button
-                        key={`mobile-more-${item.id}`}
-                        type="button"
-                        onClick={() => {
-                          setScreen(item.id);
-                          setMobileMoreOpen(false);
-                        }}
-                        className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-left text-sm font-semibold text-slate-800"
-                      >
-                        <AppIcon name={item.icon} className="h-4 w-4 shrink-0" />
-                        <span className="truncate">{navLabelForItem(item)}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            ) : null}
-            <nav
-              className="absolute bottom-0 left-0 right-0 z-30 flex border-t border-slate-200/90 bg-white/95 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-1 backdrop-blur md:hidden"
-              aria-label="Primary navigation"
-            >
-              {mobileBottomNavEntries.map((entry) => {
-                if (entry.id === "__logout__") {
-                  return (
-                    <button
-                      key="mobile-nav-logout"
-                      type="button"
-                      onClick={() => {
-                        handleLogout();
-                        setMobileMoreOpen(false);
-                      }}
-                      className="flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-semibold text-rose-600"
-                      aria-label={t("common.logOut")}
-                    >
-                      <AppIcon name="logOut" className="h-5 w-5" />
-                      {t("common.logOut")}
-                    </button>
-                  );
-                }
-                if (entry.id === "__more__") {
-                  const moreActive =
-                    mobileMoreOpen || mobileMoreDestinations.some((item) => item.id === screen);
-                  return (
-                    <button
-                      key="mobile-nav-more"
-                      type="button"
-                      onClick={() => setMobileMoreOpen((current) => !current)}
-                      className={[
-                        "flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-semibold",
-                        moreActive ? roleTheme?.mobileNavActive ?? "text-[var(--bert-signal-orange)]" : "text-slate-500",
-                      ].join(" ")}
-                    >
-                      <AppIcon name="grid" className="h-5 w-5" />
-                      {t("common.more")}
-                    </button>
-                  );
-                }
-                const selected =
-                  screen === entry.id || (isAuditCentreNavActive(screen) && entry.id === "auditCentre");
-                return (
-                  <button
-                    key={`mobile-nav-${entry.id}`}
-                    type="button"
-                    onClick={() => {
-                      setMobileMoreOpen(false);
-                      setScreen(entry.id as Screen);
-                    }}
-                    className={[
-                      "flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-semibold",
-                      selected ? roleTheme?.mobileNavActive ?? "text-[var(--bert-signal-orange)]" : "text-slate-500",
-                    ].join(" ")}
-                  >
-                    <AppIcon name={entry.icon} className="h-5 w-5" />
-                    {translateNavLabel(t, entry)}
-                  </button>
-                );
-              })}
-            </nav>
-          </>
-        )}
-
+        </AppShell>
         </div>
       )}
 

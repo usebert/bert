@@ -48,10 +48,10 @@ assert(roleNav.includes("isAuditCentreNavActive"), "Audit Centre nav active help
 assert(roleNav.includes('"googleForms"'), "googleForms remains an internal child route");
 
 assertContains("src/screens/AuditCentreScreen.tsx", [
-  "Build audits/checks",
-  "Complete assigned work",
-  "Manage forms",
-  "Completed work",
+  't("audits.buildAudits")',
+  't("audits.completeAssigned")',
+  't("audits.manageForms")',
+  't("audits.completedWork")',
   'screen: "auditBuilder"',
   'screen: "audits"',
   'screen: "googleForms"',
@@ -80,7 +80,7 @@ assert(read("src/config/navStructure.ts").includes('MOBILE_BOTTOM_NAV_IDS = ["da
 assertContains("package.json", ["verify:navigation"]);
 
 assertContains("src/components/auditCentre/AuditCentreBackButton.tsx", [
-  "Back to Audit Centre",
+  't("audits.backToCentre")',
   "min-h-[44px]",
 ]);
 
@@ -91,7 +91,7 @@ assertContains("src/screens/GoogleFormsScreen.tsx", [
   "onBackToAuditCentre",
 ]);
 
-assertContains("src/screens/AuditsScreen.tsx", [
+assertContains("src/audits/AuditsWorkspace.tsx", [
   "AuditCentreBackButton",
   "onBackToAuditCentre",
 ]);

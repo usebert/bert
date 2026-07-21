@@ -66,7 +66,7 @@ assert(permissions.includes('if (itemId === "briefings")'), "PERM: briefings nav
 
 assert(read("src/components/dashboard/DashboardToDoSection.tsx").includes("To Do"), "UI: dashboard To Do section title");
 assert(read("src/components/dashboard/DashboardToDoSection.tsx").includes("all caught up"), "UI: To Do empty state");
-assert(read("src/components/dashboard/AuditorTaskDashboard.tsx").includes("My work today"), "APP: auditor simplified dashboard wired");
+assert(read("src/components/dashboard/AuditorTaskDashboard.tsx").includes("RoleUnifiedDashboard"), "APP: auditor simplified dashboard wired");
 assert(appTsx.includes("BriefingsScreen"), "APP: BriefingsScreen wired");
 assert(appTsx.includes('screen === "briefings"'), "APP: briefings route mounted");
 assert(
@@ -74,11 +74,10 @@ assert(
   "APP: lazy briefing todo preview",
 );
 assert(appTsx.includes("shouldLoadDashboardBriefingsPreview"), "APP: dashboard briefing preview gate");
-assert(read("src/components/dashboard/ManagerRoleDashboard.tsx").includes("DashboardToDoSection"), "UI: manager dashboard uses To Do");
+assert(read("src/components/dashboard/ManagerRoleDashboard.tsx").includes("RoleUnifiedDashboard"), "UI: manager dashboard uses unified layout");
 assert(
-  read("src/components/dashboard/CompanyAdminDashboard.tsx").indexOf("DashboardToDoSection") <
-    read("src/components/dashboard/CompanyAdminDashboard.tsx").indexOf("Next steps"),
-  "UI: admin To Do before other cards",
+  read("src/components/dashboard/unified/UnifiedOperationalDashboard.tsx").includes("Today's work"),
+  "UI: unified dashboard includes today's work section",
 );
 
 assert(ensureTabs.includes('"Briefings"') && ensureTabs.includes('"BriefingRecipients"'), "WB: required tabs registered");

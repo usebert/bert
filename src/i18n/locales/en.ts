@@ -144,7 +144,7 @@ export const en = {
     reportsDiagnostics: "Reports / Diagnostics",
     documentTraining: "Upload & training",
     qmsReadiness: "Quality & Safety Hub",
-    syncCentre: "Sync / Offline Uploads",
+    syncCentre: "Sync Centre",
     archive: "Archive",
     adminTools: "Admin tools",
     onboarding: "Onboarding",

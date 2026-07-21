@@ -79,7 +79,7 @@ function main() {
 
   // 6. Navigation refresh
   assert(navPresentation.includes('dashboard: "Home"'), "nav presentation maps dashboard to Home");
-  assert(navPresentation.includes("Sync / Offline Uploads"), "nav presentation friendly sync label");
+  assert(navPresentation.includes('sync: "Sync Centre"'), "nav presentation friendly sync label");
   assert(roleNavigation.includes('label: "Audits"'), "role navigation uses Audits label");
   assert(roleNavigation.includes('label: "Equipment"'), "role navigation uses Equipment label");
   assert(app.includes("groupPresentedNav"), "App sidebar uses grouped navigation");
