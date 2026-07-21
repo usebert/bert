@@ -336,6 +336,7 @@ import {
 } from "./src/utils/setupRoute";
 import { PilotSettingsScreen } from "./src/screens/PilotSettingsScreen";
 import { SyncCentreScreen } from "./src/screens/SyncCentreScreen";
+import { UiFoundationShowcase } from "./src/screens/UiFoundationShowcase";
 import { AuditorHistoryScreen } from "./src/screens/AuditorHistoryScreen";
 import { resolveWorkspaceDisplayName } from "./src/utils/workspaceDisplay";
 import type { DocumentDistribution, ExternalEmployee } from "./src/types/documentTraining";
@@ -1389,8 +1390,7 @@ const brandDarkFormControl =
   "border border-[rgba(249,115,22,0.45)] bg-slate-950 text-slate-100 outline-none focus:border-[var(--bert-signal-orange)]";
 const qmsDarkShellGradient =
   "bg-[radial-gradient(circle_at_top,var(--qms-shell-dark-radial),_transparent_35%),linear-gradient(180deg,var(--qms-shell-dark-start)_0%,var(--qms-shell-dark-mid)_45%,var(--qms-shell-dark-end)_100%)]";
-const qmsLightShellGradient =
-  "bg-[radial-gradient(circle_at_top,var(--qms-shell-light-radial),_transparent_35%),linear-gradient(180deg,var(--qms-shell-light-start)_0%,var(--qms-shell-light-mid)_45%,var(--qms-shell-light-end)_100%)]";
+const qmsLightShellGradient = "bg-[var(--ui-bg-app)]";
 
 const appMotionStyles = `
   @keyframes qmsFadeSlideUp {
@@ -16258,6 +16258,7 @@ function App() {
       screen !== "auditTemplateEdit" &&
       screen !== "documentDetail" &&
       screen !== "setupInitial" &&
+      screen !== "uiFoundation" &&
       !visibleNavItems.some((item) => item.id === screen) &&
       !canRoleAccessNavItem(currentUser.role, screen)
     ) {
@@ -18727,6 +18728,10 @@ function App() {
               />
             )}
 
+            {screen === "uiFoundation" && isDebugUiAllowed() && (
+              <UiFoundationShowcase onBack={() => setScreen("account")} />
+            )}
+
             {screen === "account" && (
               <AccountSettingsScreen
                 currentUser={currentUser}
@@ -18746,6 +18751,7 @@ function App() {
                 onSave={handleSaveAccountSettings}
                 workspaceSetupLimitedShell={godCompanySetupOnlyShell}
                 onOpenFullAppNavigation={godCompanySetupOnlyShell ? handleLeaveMasterWorkspaceSetupOnly : undefined}
+                onOpenUiFoundation={isDebugUiAllowed() ? () => setScreen("uiFoundation") : undefined}
               />
             )}
 

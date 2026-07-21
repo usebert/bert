@@ -1,0 +1,164 @@
+/**
+ * BERT UI Foundation — semantic design tokens (Release 1).
+ * Maps to existing brand variables in :root; prefer these in new UI work.
+ */
+:root {
+  /* Background */
+  --ui-bg-app: #f1f5f9;
+  --ui-bg-surface: var(--bert-white);
+  --ui-bg-elevated: var(--bert-white);
+  --ui-bg-muted: #f8fafc;
+
+  /* Text */
+  --ui-text-primary: #0f172a;
+  --ui-text-secondary: #475569;
+  --ui-text-muted: #64748b;
+  --ui-text-inverse: #ffffff;
+
+  /* Brand */
+  --ui-brand: #1e40af;
+  --ui-brand-hover: var(--bert-cobalt);
+  --ui-accent: var(--bert-signal-orange);
+  --ui-accent-hover: #ea580c;
+  --ui-accent-subtle: #fff7ed;
+
+  /* Borders */
+  --ui-border: var(--bert-border);
+  --ui-border-strong: rgba(100, 116, 139, 0.45);
+  --ui-border-focus: var(--bert-signal-orange);
+
+  /* Status — success */
+  --ui-success-fg: #047857;
+  --ui-success-bg: #ecfdf5;
+  --ui-success-border: #a7f3d0;
+
+  /* Status — warning */
+  --ui-warning-fg: #b45309;
+  --ui-warning-bg: #fffbeb;
+  --ui-warning-border: #fde68a;
+
+  /* Status — danger */
+  --ui-danger-fg: #be123c;
+  --ui-danger-bg: #fff1f2;
+  --ui-danger-border: #fecdd3;
+
+  /* Status — info */
+  --ui-info-fg: #1d4ed8;
+  --ui-info-bg: #eff6ff;
+  --ui-info-border: #bfdbfe;
+
+  /* Status — neutral */
+  --ui-neutral-fg: #475569;
+  --ui-neutral-bg: #f1f5f9;
+  --ui-neutral-border: #e2e8f0;
+
+  /* Radius */
+  --ui-radius-sm: 8px;
+  --ui-radius-md: 12px;
+  --ui-radius-lg: 16px;
+
+  /* Shadows */
+  --ui-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --ui-shadow-md: 0 4px 14px rgba(15, 23, 42, 0.08);
+  --ui-shadow-lg: 0 10px 24px rgba(15, 23, 42, 0.1);
+
+  /* Spacing scale (reference) */
+  --ui-space-1: 0.25rem;
+  --ui-space-2: 0.5rem;
+  --ui-space-3: 0.75rem;
+  --ui-space-4: 1rem;
+  --ui-space-5: 1.25rem;
+  --ui-space-6: 1.5rem;
+
+  /* Control heights — tablet-first touch targets */
+  --ui-control-height-sm: 2.25rem;
+  --ui-control-height: 2.75rem;
+  --ui-control-height-lg: 3rem;
+
+  /* Layout */
+  --ui-page-max-width: 72rem;
+  --ui-page-padding-x: 1rem;
+  --ui-page-padding-y: 0.75rem;
+
+  /* Motion */
+  --ui-transition-fast: 160ms;
+  --ui-transition: 180ms;
+  --ui-transition-slow: 220ms;
+  --ui-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Z-index layers */
+  --ui-z-sticky: 40;
+  --ui-z-dropdown: 50;
+  --ui-z-overlay: 90;
+  --ui-z-dialog: 10000;
+  --ui-z-toast: 11000;
+
+  /* Icon sizes */
+  --ui-icon-sm: 16px;
+  --ui-icon-md: 20px;
+  --ui-icon-lg: 24px;
+}
+
+/* App shell foundation — visual only */
+.qms-app-shell {
+  color: var(--ui-text-primary);
+}
+
+.qms-app-shell[data-qms-theme="light"] {
+  background-color: color-mix(in srgb, var(--ui-bg-surface) 95%, var(--ui-bg-app));
+  border-color: var(--ui-border);
+}
+
+.qms-app-shell .qms-screen-stage {
+  color: var(--ui-text-primary);
+}
+
+.qms-app-shell[data-qms-theme="light"] .qms-app-header {
+  border-color: var(--ui-border);
+  background-color: color-mix(in srgb, var(--ui-bg-surface) 88%, transparent);
+}
+
+.qms-app-shell .qms-screen-stage :focus-visible {
+  outline: 2px solid var(--ui-border-focus);
+  outline-offset: 2px;
+}
+
+/* Foundation utility classes */
+.bert-ui-surface {
+  background: var(--ui-bg-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  box-shadow: var(--ui-shadow-sm);
+  color: var(--ui-text-primary);
+}
+
+.bert-ui-muted-surface {
+  background: var(--ui-bg-muted);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  color: var(--ui-text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bert-ui-motion,
+  .bert-ui-dialog-enter,
+  .bert-ui-toast-enter {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@keyframes bert-ui-dialog-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.bert-ui-dialog-enter {
+  animation: bert-ui-dialog-enter var(--ui-transition-slow) var(--ui-ease) both;
+}

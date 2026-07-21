@@ -1,23 +1,23 @@
-/** Shared readable text + light-surface classes (BERT brand tokens in index.css). */
+/** Shared readable text + light-surface classes (BERT brand tokens in index.css / design-tokens.css). */
 
 export const BERT_LIGHT_SURFACE =
-  "bert-light-surface rounded-3xl border border-slate-200/90 bg-white p-4 shadow-sm";
+  "bert-light-surface bert-ui-surface rounded-[var(--ui-radius-lg)] p-4";
 
 export const BERT_LIGHT_NESTED =
-  "bert-light-surface rounded-2xl border border-slate-200 bg-slate-50 p-4";
+  "bert-light-surface bert-ui-muted-surface rounded-[var(--ui-radius-md)] p-4";
 
-export const BERT_CARD_TITLE = "font-semibold text-slate-900";
+export const BERT_CARD_TITLE = "font-semibold text-[var(--ui-text-primary)]";
 
-export const BERT_CARD_BODY = "text-sm text-slate-700";
+export const BERT_CARD_BODY = "text-sm text-[var(--ui-text-secondary)]";
 
-export const BERT_CARD_MUTED = "text-xs text-slate-600";
+export const BERT_CARD_MUTED = "text-xs text-[var(--ui-text-muted)]";
 
-export const BERT_CARD_META = "text-[11px] font-semibold text-slate-500";
+export const BERT_CARD_META = "text-[11px] font-semibold text-[var(--ui-text-muted)]";
 
-export const BERT_FORM_LABEL = "text-xs font-semibold text-slate-700";
+export const BERT_FORM_LABEL = "text-xs font-semibold text-[var(--ui-text-secondary)]";
 
 export const BERT_INPUT =
-  "rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400";
+  "min-h-[var(--ui-control-height)] rounded-[var(--ui-radius-sm)] border border-[var(--ui-border)] bg-[var(--ui-bg-surface)] px-3 text-sm text-[var(--ui-text-primary)] placeholder:text-[var(--ui-text-muted)]";
 
 /** Primary title on a light card row (company name, etc.). */
 export function bertLightTitle(onDark: boolean): string {

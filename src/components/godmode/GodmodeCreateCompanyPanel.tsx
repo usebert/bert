@@ -9,6 +9,7 @@ import {
 } from "../../services/godmodeService";
 import { BERT_LIGHT_SURFACE } from "../../styles/bertText";
 import { GodmodeConnectCompanyFolderPanel } from "./GodmodeConnectCompanyFolderPanel";
+import { Button, FormField, Input, PageHeader } from "../ui";
 
 type Props = {
   googleConnected: boolean;
@@ -313,14 +314,11 @@ export function GodmodeCreateCompanyPanel({ googleConnected, onCreated, onBackTo
   }
 
   return (
-    <section className={`${BERT_LIGHT_SURFACE} space-y-4 rounded-2xl border border-slate-200 p-5`}>
-      <div>
-        <h3 className="text-lg font-semibold text-slate-900">{t("godmode.createNewCompany")}</h3>
-        <p className="mt-2 text-sm leading-relaxed text-slate-600">
-          Create a complete BERT company workspace. BERT will create the Google Drive structure, workbook, users,
-          document folders and required records automatically.
-        </p>
-      </div>
+    <section className={`${BERT_LIGHT_SURFACE} space-y-4`}>
+      <PageHeader
+        title={t("godmode.createNewCompany")}
+        description="Create a complete BERT company workspace. BERT will create the Google Drive structure, workbook, users, document folders and required records automatically."
+      />
 
       {!googleConnected ? (
         <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -329,17 +327,14 @@ export function GodmodeCreateCompanyPanel({ googleConnected, onCreated, onBackTo
       ) : null}
 
       <form className="space-y-3" onSubmit={(event) => void handleSubmit(event)}>
-        <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-            Company name
-          </label>
-          <input
+        <FormField id="create-company-name" label="Company name" required>
+          <Input
+            id="create-company-name"
             value={companyName}
             onChange={(event) => setCompanyName(event.target.value)}
-            className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-orange-300"
             required
           />
-        </div>
+        </FormField>
 
         <div>
           <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
@@ -456,13 +451,9 @@ export function GodmodeCreateCompanyPanel({ googleConnected, onCreated, onBackTo
           </ul>
         ) : null}
 
-        <button
-          type="submit"
-          disabled={!googleConnected}
-          className="h-11 rounded-xl bg-orange-500 px-4 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-slate-300"
-        >
+        <Button type="submit" variant="primary" disabled={!googleConnected} className="w-full sm:w-auto">
           {t("godmode.createCompany")}
-        </button>
+        </Button>
       </form>
 
       <details className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">

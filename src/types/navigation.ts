@@ -41,11 +41,12 @@ export type RoutedScreen =
   | "auditBuilder"
   | "auditTemplateEdit"
   | "archive"
-  | "complete";
+  | "complete"
+  | "uiFoundation";
 
 /**
  * Sidebar / nav-gated screens only.
  * Excludes `"complete"` (audit flow) and `"documentDetail"` (opened from Documents, not a sidebar item).
  * Keep `documents` (Phase 1 Controlled Documents) distinct from legacy `documentControl`.
  */
-export type NavItemId = Exclude<RoutedScreen, "complete" | "documentDetail">;
+export type NavItemId = Exclude<RoutedScreen, "complete" | "documentDetail" | "uiFoundation">;

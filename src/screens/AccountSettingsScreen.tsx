@@ -22,6 +22,7 @@ export function AccountSettingsScreen({
   onSave,
   workspaceSetupLimitedShell,
   onOpenFullAppNavigation,
+  onOpenUiFoundation,
 }: AccountSettingsScreenProps) {
   const { t } = useTranslation();
   const godMode = currentUser.role === "Master";
@@ -150,6 +151,20 @@ export function AccountSettingsScreen({
       )}
 
       <LanguageSelector value={uiLanguage} onChange={onUiLanguageChange} />
+
+      {onOpenUiFoundation ? (
+        <section className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Developer tools</p>
+          <p className="mt-1 text-sm text-slate-600">Preview shared UI foundation components (not shown in production).</p>
+          <button
+            type="button"
+            onClick={onOpenUiFoundation}
+            className={`mt-3 h-11 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 ${slatePrimaryCtaInteract}`}
+          >
+            Open UI foundation showcase
+          </button>
+        </section>
+      ) : null}
 
       {!godMode && (
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

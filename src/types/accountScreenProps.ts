@@ -29,4 +29,6 @@ export type AccountSettingsScreenProps = {
   workspaceSetupLimitedShell?: boolean;
   /** Leave setup-only shell and show full Master navigation. */
   onOpenFullAppNavigation?: () => void;
+  /** Development-only UI foundation showcase. */
+  onOpenUiFoundation?: () => void;
 };

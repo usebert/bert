@@ -1,4 +1,5 @@
 import { DashboardAuditStatus, statusStyles } from "../../utils/dashboardHealth";
+import { EmptyState } from "../ui/LoadingStates";
 
 function DashboardAppIcon({ name, className = "h-5 w-5" }: { name: string; className?: string }) {
   const shared = {
@@ -229,12 +230,7 @@ export function KpiCard({
 }
 
 export function EmptyPanel({ title, text }: { title: string; text: string }) {
-  return (
-    <div className="rounded-[1.5rem] border border-dashed border-slate-300 bg-gradient-to-b from-slate-50 to-white px-4 py-5">
-      <p className="text-sm font-semibold text-slate-900">{title}</p>
-      <p className="mt-2 text-sm leading-6 text-slate-600">{text}</p>
-    </div>
-  );
+  return <EmptyState title={title} description={text} />;
 }
 
 export function StartHereCard() {
