@@ -2,7 +2,7 @@
  * LOLER equipment client service — company-scoped reads with in-flight dedupe
  * and a small in-memory cache preserved during background refresh.
  */
-import { apiUrl } from "../config/apiBase";
+import { logApiFetchFailure, normalizeApiFetchError, resolveApiRequestUrl } from "../utils/apiFetchDiagnostics";
 import { dedupeInFlight, requestDedupeKey } from "../utils/requestDedupe";
 import type {
   LolerEquipment,
@@ -19,7 +19,7 @@ import {
   type LolerExaminationsResponse,
 } from "./lolerExaminationService";
 
-export const LOLER_LOAD_USER_MESSAGE = "Could not load LOLER equipment.";
+export const LOLER_LOAD_USER_MESSAGE = "Equipment data could not be loaded. Check your connection and try again.";
 export const LOLER_OFFLINE_WRITE_MESSAGE =
   "You appear to be offline. LOLER changes need a connection — please try again when you are back online.";
 
@@ -42,22 +42,29 @@ export type LolerSchedulesResponse = {
 export type { LolerExaminationsResponse };
 export { fetchLolerExaminations, invalidateLolerExaminationsCache, readCachedLolerExaminations };
 
-async function lolerRequest(path: string, init?: RequestInit) {
-  const response = await fetch(apiUrl(path), {
-    credentials: "include",
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload?.ok === false) {
-    const baseMessage = String(payload?.error || payload?.message || "Request failed.");
-    const details = String(payload?.details || "").trim();
-    throw new Error(details ? `${baseMessage} ${details}` : baseMessage);
+async function lolerRequest(path: string, init?: RequestInit, context: { companyFolderId?: string } = {}) {
+  const method = String(init?.method || "GET").toUpperCase();
+  const url = resolveApiRequestUrl(path);
+  try {
+    const response = await fetch(url, {
+      credentials: "include",
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.headers || {}),
+      },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload?.ok === false) {
+      const baseMessage = String(payload?.error || payload?.message || "Request failed.");
+      const details = String(payload?.details || "").trim();
+      throw new Error(details ? `${baseMessage} ${details}` : baseMessage);
+    }
+    return payload;
+  } catch (error) {
+    logApiFetchFailure({ url, method, companyFolderId: context.companyFolderId, error });
+    throw normalizeApiFetchError(error, LOLER_LOAD_USER_MESSAGE);
   }
-  return payload;
 }
 
 type CachedList<T> = { companyFolderId: string; data: T };
@@ -99,7 +106,7 @@ export async function fetchLolerEquipment(
   const folderId = cacheKey(companyFolderId);
   const path = `/api/companies/${encodeURIComponent(folderId)}/loler/equipment`;
   const run = async () => {
-    const payload = (await lolerRequest(path, { signal: options.signal })) as LolerEquipmentListResponse;
+    const payload = (await lolerRequest(path, { signal: options.signal }, { companyFolderId: folderId })) as LolerEquipmentListResponse;
     equipmentCache.set(folderId, { companyFolderId: folderId, data: payload });
     return payload;
   };
@@ -116,7 +123,7 @@ export async function fetchLolerSchedules(
   const folderId = cacheKey(companyFolderId);
   const path = `/api/companies/${encodeURIComponent(folderId)}/loler/schedules`;
   const run = async () => {
-    const payload = (await lolerRequest(path, { signal: options.signal })) as LolerSchedulesResponse;
+    const payload = (await lolerRequest(path, { signal: options.signal }, { companyFolderId: folderId })) as LolerSchedulesResponse;
     schedulesCache.set(folderId, { companyFolderId: folderId, data: payload });
     return payload;
   };
@@ -135,10 +142,14 @@ export async function recordLolerExamination(companyFolderId: string, input: Lol
 }
 
 export async function createLolerEquipment(companyFolderId: string, input: LolerEquipmentInput) {
-  const result = (await lolerRequest(`/api/companies/${encodeURIComponent(companyFolderId)}/loler/equipment`, {
-    method: "POST",
-    body: JSON.stringify(input),
-  })) as { ok: boolean; equipment?: LolerEquipment };
+  const result = (await lolerRequest(
+    `/api/companies/${encodeURIComponent(companyFolderId)}/loler/equipment`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+    { companyFolderId },
+  )) as { ok: boolean; equipment?: LolerEquipment };
   invalidateLolerCache(companyFolderId);
   return result;
 }
@@ -151,6 +162,7 @@ export async function updateLolerEquipment(
   const result = (await lolerRequest(
     `/api/companies/${encodeURIComponent(companyFolderId)}/loler/equipment/${encodeURIComponent(equipmentId)}`,
     { method: "PATCH", body: JSON.stringify(input) },
+    { companyFolderId },
   )) as { ok: boolean; equipment?: LolerEquipment };
   invalidateLolerCache(companyFolderId);
   return result;
@@ -165,6 +177,7 @@ async function postLolerEquipmentAction(
   const result = (await lolerRequest(
     `/api/companies/${encodeURIComponent(companyFolderId)}/loler/equipment/${encodeURIComponent(equipmentId)}/${action}`,
     { method: "POST", body: JSON.stringify(body || {}) },
+    { companyFolderId },
   )) as { ok: boolean; equipment?: LolerEquipment };
   invalidateLolerCache(companyFolderId);
   return result;

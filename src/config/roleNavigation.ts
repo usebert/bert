@@ -42,7 +42,7 @@ const MASTER_NAV: PresentedNavItem[] = [
   { id: "healthSafety", label: "Overview", icon: "warningTriangle" },
   { id: "healthSafetyRiddor", label: "RIDDOR", icon: "warningTriangle" },
   { id: "healthSafetyCoshh", label: "COSHH", icon: "checklist" },
-  { id: "loler", label: "LOLER", icon: "checklist" },
+  { id: "loler", label: "Equipment", icon: "checklist" },
   { id: "calendar", label: "Calendar", icon: "clock" },
   { id: "documents", label: "Documents", icon: "note" },
   { id: "documentControl", label: "Document Control", icon: "note" },

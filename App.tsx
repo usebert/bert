@@ -115,6 +115,7 @@ import {
 } from "./src/utils/headerCompanyContext";
 import { useTabletKiosk } from "./src/hooks/useTabletKiosk";
 import { isTabletKioskEnabled } from "./src/utils/tabletKioskStorage";
+import { warnIfFrontendApiBuildMismatch } from "./src/utils/buildVersionDiagnostics";
 import { AuditorTaskDashboard } from "./src/components/dashboard/AuditorTaskDashboard";
 import { CompanyAdminDashboard } from "./src/components/dashboard/CompanyAdminDashboard";
 import { ManagerRoleDashboard } from "./src/components/dashboard/ManagerRoleDashboard";
@@ -4029,6 +4030,13 @@ function App() {
     selectedFolderIdRef.current = selectedFolderId;
     void refreshSubmissionQueueViews().catch(() => undefined);
   }, [selectedFolderId, refreshSubmissionQueueViews]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      return;
+    }
+    void warnIfFrontendApiBuildMismatch();
+  }, [currentUser?.username]);
 
   useEffect(() => {
     if (currentUser?.role === "Master") {

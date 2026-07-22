@@ -75,10 +75,10 @@ assert(coreRoutes.includes("installHealthSafetyRoutes"), "wiring: health safety 
 
 const navPresentation = read("src/config/navPresentation.ts");
 assert(navPresentation.includes('id: "healthSafety"'), "nav: Health & Safety group defined");
-assert(
-  navPresentation.includes('"healthSafety", "incidents", "healthSafetyRiddor", "healthSafetyCoshh", "loler"'),
+assert(navPresentation.includes('"healthSafety", "incidents", "healthSafetyRiddor", "healthSafetyCoshh", "loler"'),
   "nav: company roles group Incidents and Equipment under Health & Safety",
 );
+assert(navPresentation.includes('loler: "Equipment"'), "nav: loler display label is Equipment");
 const complianceBlocks = navPresentation.match(/id: "compliance"[\s\S]*?itemIds: \[([^\]]+)\]/g) || [];
 for (const block of complianceBlocks) {
   assert(!block.includes('"incidents"'), "nav: Incidents not duplicated in Compliance group");
@@ -101,6 +101,23 @@ assert(safetyWorkspace.includes("RiddorAssessmentPanel"), "incidents: RIDDOR ass
 
 const riddorPanel = read("src/health-safety/components/RiddorAssessmentPanel.tsx");
 assert(riddorPanel.includes("RIDDOR_DISCLAIMER"), "riddor: legal disclaimer visible in panel");
+
+const navItemsSource = read("src/config/navItems.ts");
+assert(navItemsSource.includes('{ id: "loler", label: "Equipment"'), "nav: catalog labels Equipment for loler route");
+
+const enLocale = read("src/i18n/locales/en.ts");
+assert(enLocale.includes('loler: "Equipment"'), "i18n: nav.loler displays Equipment");
+
+const lolerService = read("src/services/lolerService.ts");
+assert(
+  lolerService.includes("/api/companies/${encodeURIComponent(folderId)}/loler/equipment"),
+  "client: LOLER equipment list path unchanged",
+);
+assert(lolerService.includes("logApiFetchFailure"), "client: LOLER fetch failures log diagnostics");
+assert(lolerService.includes("Equipment data could not be loaded"), "client: friendly equipment load message");
+
+const coreWorkflowRoutes = read("server/core-workflow-routes.mjs");
+assert(coreWorkflowRoutes.includes('app.get("/api/companies/:companyFolderId/loler/equipment"'), "server: LOLER equipment route registered");
 
 const pkg = JSON.parse(read("package.json"));
 assert(Boolean(pkg.scripts?.["verify:health-safety"]), "package.json defines verify:health-safety");

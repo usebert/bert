@@ -132,7 +132,7 @@ export const en = {
     actions: "Actions",
     nonConformance: "NCRs",
     incidents: "Incidents",
-    loler: "LOLER",
+    loler: "Equipment",
     calendar: "Calendar",
     documents: "Documents",
     documentLibrary: "Document Library",

@@ -3,6 +3,8 @@
  * Internal English labels used by permission checks stay unchanged.
  */
 import type { TFunction } from "i18next";
+import { getNavDisplayLabel } from "../config/navPresentation";
+import type { NavItemId } from "../types/navigation";
 
 const LABEL_TO_KEY: Record<string, string> = {
   Dashboard: "nav.dashboard",
@@ -22,6 +24,7 @@ const LABEL_TO_KEY: Record<string, string> = {
   Actions: "nav.actions",
   NCRs: "nav.nonConformance",
   Incidents: "nav.incidents",
+  Equipment: "nav.loler",
   LOLER: "nav.loler",
   Calendar: "nav.calendar",
   Documents: "nav.documents",
@@ -95,6 +98,13 @@ export function translateNavLabel(
   }
   if (item.id === "incidents" && item.label === "Incident") {
     return t("nav.mobileIncident");
+  }
+  if (item.id) {
+    const canonicalLabel = getNavDisplayLabel({ id: item.id as NavItemId, label: item.label, icon: "" });
+    const canonicalKey = LABEL_TO_KEY[canonicalLabel];
+    if (canonicalKey) {
+      return t(canonicalKey);
+    }
   }
   const fromLabel = LABEL_TO_KEY[item.label];
   if (fromLabel) {

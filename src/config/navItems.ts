@@ -17,7 +17,7 @@ export const navItems = [
   { id: "healthSafety", label: "Health & Safety", icon: "warningTriangle" },
   { id: "healthSafetyCoshh", label: "COSHH", icon: "checklist" },
   { id: "healthSafetyRiddor", label: "RIDDOR", icon: "warningTriangle" },
-  { id: "loler", label: "LOLER", icon: "checklist" },
+  { id: "loler", label: "Equipment", icon: "checklist" },
   { id: "calendar", label: "Calendar", icon: "clock" },
   { id: "documents", label: "Documents", icon: "note" },
   { id: "documentControl", label: "Document Control", icon: "note" },

@@ -420,16 +420,32 @@ assert(
 );
 
 const navItemsSource = read("src/config/navItems.ts");
-assert(navItemsSource.includes('{ id: "loler", label: "LOLER"'), "wiring: nav catalog contains LOLER entry");
+assert(navItemsSource.includes('{ id: "loler", label: "Equipment"'), "wiring: nav catalog contains Equipment entry");
 
 const roleNav = read("src/config/roleNavigation.ts");
 assert(
   (roleNav.match(/id: "loler"/g) || []).length >= 4,
   "wiring: LOLER present in Master, Admin, Manager, and Auditor nav buckets",
 );
+assert(roleNav.includes('label: "Equipment"'), "wiring: role nav uses Equipment label for loler");
 
 const navigationTypes = read("src/types/navigation.ts");
 assert(navigationTypes.includes('| "loler"'), "wiring: RoutedScreen includes loler");
+
+const navPresentation = read("src/config/navPresentation.ts");
+assert(navPresentation.includes('loler: "Equipment"'), "wiring: nav presentation maps loler to Equipment");
+
+const enLocale = read("src/i18n/locales/en.ts");
+assert(enLocale.includes('loler: "Equipment"'), "wiring: i18n nav.loler is Equipment");
+
+const lolerClient = read("src/services/lolerService.ts");
+assert(
+  lolerClient.includes("dedupeInFlight") && lolerClient.includes("readCachedLolerEquipment"),
+  "wiring: LOLER client dedupes requests and preserves cached data during refresh",
+);
+assert(lolerClient.includes('app.get("/api/companies/:companyFolderId/loler/equipment"') === false, "client: uses relative API path not server route string");
+assert(lolerClient.includes("/loler/equipment"), "client: equipment request path preserved");
+assert(lolerClient.includes("logApiFetchFailure"), "wiring: equipment fetch diagnostics logged in dev");
 
 const cardDefinitions = read("src/dashboard-layout/cardDefinitions.ts");
 assert(
@@ -446,11 +462,6 @@ assert(
   lolerScreen.includes("fetchCompanyStructure") && lolerScreen.includes("loadScheduleAssigneesCached"),
   "wiring: site/area/person pickers use existing company data sources",
 );
-
-const lolerClient = read("src/services/lolerService.ts");
-assert(
-  lolerClient.includes("dedupeInFlight") && lolerClient.includes("readCachedLolerEquipment"),
-  "wiring: LOLER client dedupes requests and preserves cached data during refresh",
-);
+assert(lolerScreen.includes("LOLER_LOAD_USER_MESSAGE"), "wiring: equipment screen uses friendly load error");
 
 console.log(`verify:loler passed (${caseCount} checks).`);

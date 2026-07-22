@@ -520,7 +520,7 @@ export async function buildHealthSafetyOverview(auth, deps, resolved, actor) {
   const [coshh, riddor, incidentsResult, lolerResult] = await Promise.all([
     listCompanyCoshh(auth, deps, resolved, actor, { includeArchived: false }),
     listCompanyRiddor(auth, deps, resolved, actor, { includeArchived: false }),
-    listCompanyIncidents(authed, deps, {
+    listCompanyIncidents(auth, deps, {
       companyFolderId: resolved.companyFolderId,
       masterSheetId: resolved.masterSheetId,
     }, { resolvedContext: resolved }),

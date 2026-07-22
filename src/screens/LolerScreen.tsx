@@ -18,6 +18,7 @@ import {
   fetchLolerEquipment,
   fetchLolerExaminations,
   fetchLolerSchedules,
+  LOLER_LOAD_USER_MESSAGE,
   LOLER_OFFLINE_WRITE_MESSAGE,
   markLolerEquipmentOutOfService,
   readCachedLolerEquipment,
@@ -230,7 +231,7 @@ export function LolerWorkspaceBody({ role, companyFolderId, masterSheetId, userE
         setExaminations(examinationsResult.examinations || []);
       } catch (error) {
         // Keep previously loaded data visible; only surface the load problem.
-        setLoadError(error instanceof Error ? error.message : "Could not load LOLER equipment.");
+        setLoadError(error instanceof Error ? error.message : LOLER_LOAD_USER_MESSAGE);
       } finally {
         setLoading(false);
       }

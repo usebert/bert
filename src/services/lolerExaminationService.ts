@@ -2,9 +2,12 @@
  * LOLER examination client service — company-scoped examination list / record.
  * Extracted from lolerService.ts; API paths and payload fields unchanged.
  */
-import { apiUrl } from "../config/apiBase";
+import { logApiFetchFailure, normalizeApiFetchError, resolveApiRequestUrl } from "../utils/apiFetchDiagnostics";
 import { dedupeInFlight, requestDedupeKey } from "../utils/requestDedupe";
 import type { LolerEquipment, LolerExamination, LolerExaminationInput } from "../types/loler";
+
+export const LOLER_EXAMINATIONS_LOAD_USER_MESSAGE =
+  "Equipment data could not be loaded. Check your connection and try again.";
 
 export type LolerExaminationsResponse = {
   ok: boolean;
@@ -13,22 +16,29 @@ export type LolerExaminationsResponse = {
   message?: string;
 };
 
-async function examinationRequest(path: string, init?: RequestInit) {
-  const response = await fetch(apiUrl(path), {
-    credentials: "include",
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload?.ok === false) {
-    const baseMessage = String(payload?.error || payload?.message || "Request failed.");
-    const details = String(payload?.details || "").trim();
-    throw new Error(details ? `${baseMessage} ${details}` : baseMessage);
+async function examinationRequest(path: string, init?: RequestInit, context: { companyFolderId?: string } = {}) {
+  const method = String(init?.method || "GET").toUpperCase();
+  const url = resolveApiRequestUrl(path);
+  try {
+    const response = await fetch(url, {
+      credentials: "include",
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.headers || {}),
+      },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload?.ok === false) {
+      const baseMessage = String(payload?.error || payload?.message || "Request failed.");
+      const details = String(payload?.details || "").trim();
+      throw new Error(details ? `${baseMessage} ${details}` : baseMessage);
+    }
+    return payload;
+  } catch (error) {
+    logApiFetchFailure({ url, method, companyFolderId: context.companyFolderId, error });
+    throw normalizeApiFetchError(error, LOLER_EXAMINATIONS_LOAD_USER_MESSAGE);
   }
-  return payload;
 }
 
 type CachedList<T> = { companyFolderId: string; data: T };
@@ -63,7 +73,7 @@ export async function fetchLolerExaminations(
     : "";
   const path = `/api/companies/${encodeURIComponent(folderId)}/loler/examinations${query}`;
   const run = async () => {
-    const payload = (await examinationRequest(path, { signal: options.signal })) as LolerExaminationsResponse;
+    const payload = (await examinationRequest(path, { signal: options.signal }, { companyFolderId: folderId })) as LolerExaminationsResponse;
     if (!options.equipmentId) {
       examinationsCache.set(folderId, { companyFolderId: folderId, data: payload });
     }
@@ -76,10 +86,14 @@ export async function fetchLolerExaminations(
 }
 
 export async function recordLolerExamination(companyFolderId: string, input: LolerExaminationInput) {
-  const result = (await examinationRequest(`/api/companies/${encodeURIComponent(companyFolderId)}/loler/examinations`, {
-    method: "POST",
-    body: JSON.stringify(input),
-  })) as {
+  const result = (await examinationRequest(
+    `/api/companies/${encodeURIComponent(companyFolderId)}/loler/examinations`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+    { companyFolderId },
+  )) as {
     ok: boolean;
     examination?: LolerExamination;
     equipment?: LolerEquipment;
