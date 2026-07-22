@@ -58,6 +58,11 @@ export type RiddorItemResponse = {
 
 export type HealthSafetyOverviewResponse = {
   ok: boolean;
+  updatedAt?: string;
+  statusSummary?: HealthSafetyOverview["statusSummary"];
+  metrics?: HealthSafetyOverview["metrics"];
+  attentionItems?: HealthSafetyOverview["attentionItems"];
+  recentActivity?: HealthSafetyOverview["recentActivity"];
   summary?: HealthSafetyOverview["summary"];
   attention?: HealthSafetyOverview["attention"];
   message?: string;

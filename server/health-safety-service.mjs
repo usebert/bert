@@ -30,7 +30,12 @@ import {
 } from "./workbook-service.mjs";
 import { listCompanyIncidents } from "./incidents-service.mjs";
 import { listLolerEquipment } from "./loler-service.mjs";
-import { lolerEquipmentComplianceStatus } from "../shared/loler.mjs";
+import {
+  buildHealthSafetyOverviewPayload,
+  mapExaminationActivityRecord,
+  mapIncidentActionRecord,
+} from "../shared/health-safety-overview.mjs";
+import { LOLER_EXAMINATIONS_TAB, LOLER_EXAMINATIONS_TAB_COLUMNS } from "../shared/loler-examinations.mjs";
 
 export const HEALTH_SAFETY_ROUTE_TIMEOUT_MS = 90_000;
 
@@ -513,102 +518,68 @@ export async function assessIncidentRiddor(auth, deps, resolved, actor, incident
   return { ok: true, item: result.item, evaluation };
 }
 
+const INCIDENT_ACTIONS_TAB = "IncidentActions";
+
+const INCIDENT_ACTIONS_TAB_COLUMNS = [
+  "Action ID",
+  "Incident Record ID",
+  "Incident ID",
+  "Company ID",
+  "Description",
+  "Owner",
+  "Due Date",
+  "Status",
+  "Completed At",
+  "Completed By",
+  "Created At",
+  "Created By",
+  "Updated At",
+  "Updated By",
+];
+
 export async function buildHealthSafetyOverview(auth, deps, resolved, actor) {
   if (!actorCanAccessCompanyHealthSafety(actor, resolved.companyFolderId, resolved.alternateCompanyIds)) {
     return healthSafetyApiFailure("HEALTH_SAFETY_FORBIDDEN", "You do not have access to this company.", 403);
   }
-  const [coshh, riddor, incidentsResult, lolerResult] = await Promise.all([
-    listCompanyCoshh(auth, deps, resolved, actor, { includeArchived: false }),
-    listCompanyRiddor(auth, deps, resolved, actor, { includeArchived: false }),
-    listCompanyIncidents(auth, deps, {
-      companyFolderId: resolved.companyFolderId,
-      masterSheetId: resolved.masterSheetId,
-    }, { resolvedContext: resolved }),
-    listLolerEquipment(auth, deps, resolved, actor),
-  ]);
+  const [coshh, riddor, incidentsResult, lolerResult, incidentActionsRecords, assessmentRecords, examinationRecords] =
+    await Promise.all([
+      listCompanyCoshh(auth, deps, resolved, actor, { includeArchived: false }),
+      listCompanyRiddor(auth, deps, resolved, actor, { includeArchived: false }),
+      listCompanyIncidents(
+        auth,
+        deps,
+        {
+          companyFolderId: resolved.companyFolderId,
+          masterSheetId: resolved.masterSheetId,
+        },
+        { resolvedContext: resolved },
+      ),
+      listLolerEquipment(auth, deps, resolved, actor),
+      readTab(auth, deps, resolved.masterSheetId, INCIDENT_ACTIONS_TAB, INCIDENT_ACTIONS_TAB_COLUMNS).catch(() => []),
+      readTab(auth, deps, resolved.masterSheetId, COSHH_ASSESSMENTS_TAB, COSHH_ASSESSMENTS_TAB_COLUMNS).catch(() => []),
+      readTab(auth, deps, resolved.masterSheetId, LOLER_EXAMINATIONS_TAB, LOLER_EXAMINATIONS_TAB_COLUMNS).catch(() => []),
+    ]);
   if (!coshh.ok) return coshh;
   if (!riddor.ok) return riddor;
   const incidents = incidentsResult?.ok ? incidentsResult.items || incidentsResult.incidents || [] : [];
   const equipment = lolerResult?.ok ? lolerResult.equipment || lolerResult.items || [] : [];
-  const today = getUkTodayKey();
-  const openIncidents = incidents.filter((item) => trim(item.status).toLowerCase() !== "closed");
-  const highRiskIncidents = openIncidents.filter((item) => trim(item.priority || item.severity).toLowerCase() === "high");
-  const riddorDecisionsRequired = riddor.items.filter((item) =>
-    ["decision_required", "information_required", "likely_reportable"].includes(item.decisionStatus),
-  );
-  const openRiddorReports = riddor.items.filter((item) => item.submissionStatus !== "closed");
-  const coshhOverdue = coshh.items.filter((item) => item.status === "overdue" || item.status === "review_due");
-  const missingSds = coshh.items.filter((item) => item.status === "missing_sds");
-  const equipmentOverdue = equipment.filter((item) => lolerEquipmentComplianceStatus(item, today) === "overdue");
-  const attention = [
-    ...openIncidents
-      .filter((item) => trim(item.status).toLowerCase() === "investigation")
-      .map((item) => ({
-        id: `incident-${item.id}`,
-        kind: "incident_investigation",
-        title: item.title || item.description || "Incident awaiting investigation",
-        status: item.status,
-        site: item.location || item.department || "",
-        dueDate: "",
-        navigate: { screen: "incidents", incidentId: item.id },
-        rank: 1,
-      })),
-    ...riddorDecisionsRequired.map((item) => ({
-      id: `riddor-${item.id}`,
-      kind: "riddor_decision",
-      title: `RIDDOR decision required (${item.incidentId || item.id})`,
-      status: item.decisionStatus,
-      site: "",
-      dueDate: item.followUpDate || item.decisionDate || "",
-      navigate: { screen: "healthSafetyRiddor", riddorId: item.id },
-      rank: 2,
-    })),
-    ...coshhOverdue.map((item) => ({
-      id: `coshh-${item.id}`,
-      kind: "coshh_review",
-      title: `${item.productName} review ${item.status === "overdue" ? "overdue" : "due"}`,
-      status: item.status,
-      site: item.siteId || "",
-      dueDate: item.reviewDate || "",
-      navigate: { screen: "healthSafetyCoshh", coshhId: item.id },
-      rank: 3,
-    })),
-    ...missingSds.map((item) => ({
-      id: `sds-${item.id}`,
-      kind: "missing_sds",
-      title: `${item.productName} missing SDS`,
-      status: "missing_sds",
-      site: item.siteId || "",
-      dueDate: "",
-      navigate: { screen: "healthSafetyCoshh", coshhId: item.id },
-      rank: 4,
-    })),
-    ...equipmentOverdue.map((item) => ({
-      id: `equipment-${item.id}`,
-      kind: "equipment_overdue",
-      title: `${item.equipmentName || item.assetId} inspection overdue`,
-      status: "overdue",
-      site: item.siteName || item.siteId || "",
-      dueDate: item.nextExaminationDueDate || "",
-      navigate: { screen: "loler", equipmentId: item.id },
-      rank: 5,
-    })),
-  ].sort((left, right) => left.rank - right.rank);
+  const incidentActions = (incidentActionsRecords || []).map((record) => mapIncidentActionRecord(record));
+  const assessments = (assessmentRecords || [])
+    .map((record) => mapCoshhAssessmentRecord(record))
+    .filter((item) => item.id && !item.archivedAt);
+  const examinations = (examinationRecords || []).map((record) => mapExaminationActivityRecord(record));
 
-  return {
-    ok: true,
-    summary: {
-      openIncidents: openIncidents.length,
-      highRiskIncidents: highRiskIncidents.length,
-      riddorDecisionsRequired: riddorDecisionsRequired.length,
-      openRiddorReports: openRiddorReports.length,
-      coshhAssessmentsOverdue: coshhOverdue.length,
-      chemicalsMissingSds: missingSds.length,
-      equipmentInspectionsOverdue: equipmentOverdue.length,
-      openHealthSafetyActions: 0,
-    },
-    attention,
-  };
+  return buildHealthSafetyOverviewPayload({
+    todayKey: getUkTodayKey(),
+    updatedAt: nowIso(),
+    incidents,
+    riddor: riddor.items,
+    coshh: coshh.items,
+    equipment,
+    incidentActions,
+    assessments,
+    examinations,
+  });
 }
 
 export { resolveCompanyScheduleContext };

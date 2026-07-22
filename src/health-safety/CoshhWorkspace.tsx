@@ -36,6 +36,7 @@ export type CoshhWorkspaceProps = {
   masterSheetId?: string;
   offlineMode?: boolean;
   initialCoshhId?: string;
+  initialOpenCreateForm?: boolean;
   onBack?: () => void;
 };
 
@@ -162,6 +163,7 @@ export function CoshhWorkspace({
   masterSheetId,
   offlineMode = false,
   initialCoshhId,
+  initialOpenCreateForm = false,
   onBack,
 }: CoshhWorkspaceProps) {
   const folderId = String(companyFolderId || "").trim();
@@ -277,6 +279,12 @@ export function CoshhWorkspace({
     setFormErrors([]);
     setFormOpen(true);
   };
+
+  useEffect(() => {
+    if (initialOpenCreateForm && canManage) {
+      openAddForm();
+    }
+  }, [initialOpenCreateForm, canManage]);
 
   const openEditForm = (record: CoshhRecord) => {
     setEditingId(record.id);

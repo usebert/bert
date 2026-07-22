@@ -9,6 +9,7 @@ import type {
 export type SafetyWorkspaceProps = IncidentReportingScreenProps & {
   offlineMode?: boolean;
   initialIncidentId?: string;
+  initialSafetyTab?: SafetyWorkspaceTab;
 };
 
 export type SafetyWorkspaceTab = "incidents" | "near-misses" | "investigations" | "closed" | "report";

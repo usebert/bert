@@ -228,6 +228,77 @@ export type RiddorEvaluation = {
   likelyReportable: boolean;
 };
 
+export type HealthSafetyStatusLevel = "good" | "attention" | "urgent";
+
+export type HealthSafetyStatusSummary = {
+  level: HealthSafetyStatusLevel;
+  urgentCount: number;
+  attentionCount: number;
+  explanation: string;
+  updatedAt: string;
+};
+
+export type HealthSafetyOverviewMetrics = {
+  openIncidents: number;
+  highRiskIncidents: number;
+  incidentsAwaitingInvestigation: number;
+  riddorDecisionsRequired: number;
+  openRiddorReports: number;
+  riddorFollowUpsDue: number;
+  riddorReportableActionsDue: number;
+  coshhReviewsOverdue: number;
+  coshhReviewsDueSoon: number;
+  chemicalsMissingSds: number;
+  coshhAssessmentsDue: number;
+  equipmentInspectionsOverdue: number;
+  equipmentInspectionsDueSoon: number;
+  equipmentOutOfService: number;
+  overdueHealthSafetyActions: number;
+  highPriorityOverdueActions: number;
+};
+
+export type HealthSafetyAttentionItemType =
+  | "high_risk_incident_investigation"
+  | "riddor_reportable_action"
+  | "riddor_decision"
+  | "equipment_overdue"
+  | "coshh_review_overdue"
+  | "missing_sds"
+  | "hs_action_overdue"
+  | "equipment_due_soon"
+  | "coshh_review_due_soon";
+
+export type HealthSafetyAttentionItemSeverity = "urgent" | "attention";
+
+export type HealthSafetyAttentionItemDetail = {
+  id: string;
+  type: HealthSafetyAttentionItemType;
+  title: string;
+  reason: string;
+  priority: number;
+  severity: HealthSafetyAttentionItemSeverity;
+  siteId: string;
+  siteName: string;
+  areaId: string;
+  areaName: string;
+  dueDate: string;
+  route: string;
+  recordId: string;
+  actionLabel: string;
+};
+
+export type HealthSafetyRecentActivityItem = {
+  id: string;
+  type: string;
+  summary: string;
+  actorName: string;
+  occurredAt: string;
+  siteName: string;
+  areaName: string;
+  route: string;
+  recordId: string;
+};
+
 export type HealthSafetyOverviewSummary = {
   openIncidents: number;
   highRiskIncidents: number;
@@ -244,7 +315,8 @@ export type HealthSafetyAttentionKind =
   | "riddor_decision"
   | "coshh_review"
   | "missing_sds"
-  | "equipment_overdue";
+  | "equipment_overdue"
+  | "hs_action_overdue";
 
 export type HealthSafetyAttentionItem = {
   id: string;
@@ -264,6 +336,11 @@ export type HealthSafetyAttentionItem = {
 };
 
 export type HealthSafetyOverview = {
+  updatedAt?: string;
+  statusSummary?: HealthSafetyStatusSummary;
+  metrics?: HealthSafetyOverviewMetrics;
+  attentionItems?: HealthSafetyAttentionItemDetail[];
+  recentActivity?: HealthSafetyRecentActivityItem[];
   summary: HealthSafetyOverviewSummary;
   attention: HealthSafetyAttentionItem[];
 };

@@ -20,6 +20,14 @@ import {
   mapRiddorReportRecord,
   RIDDOR_DISCLAIMER,
 } from "../shared/health-safety.mjs";
+import {
+  buildHealthSafetyAttentionItems,
+  buildHealthSafetyMetrics,
+  buildHealthSafetyOverviewPayload,
+  buildHealthSafetyRecentActivity,
+  buildHealthSafetyStatusSummary,
+  isHighRiskIncident,
+} from "../shared/health-safety-overview.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
@@ -121,5 +129,107 @@ assert(coreWorkflowRoutes.includes('app.get("/api/companies/:companyFolderId/lol
 
 const pkg = JSON.parse(read("package.json"));
 assert(Boolean(pkg.scripts?.["verify:health-safety"]), "package.json defines verify:health-safety");
+
+const overviewScreen = read("src/screens/HealthSafetyOverviewScreen.tsx");
+assert(overviewScreen.includes("Requires attention"), "overview ui: requires attention section");
+assert(overviewScreen.includes("Module health"), "overview ui: module health section");
+assert(overviewScreen.includes("Recent activity"), "overview ui: recent activity section");
+assert(overviewScreen.includes("Quick actions"), "overview ui: quick actions section");
+assert(overviewScreen.includes("Equipment inspections overdue") === false, "overview ui: no LOLER wording in screen");
+assert(overviewScreen.includes("inspections overdue"), "overview ui: equipment inspections wording");
+assert(overviewScreen.includes("does not replace competent Health & Safety review"), "overview ui: disclaimer note");
+assert(overviewScreen.includes('aria-label="Refresh Health and Safety overview"'), "overview ui: accessible refresh");
+
+const overviewShared = read("shared/health-safety-overview.mjs");
+assert(overviewShared.includes("buildHealthSafetyStatusSummary"), "overview shared: status summary builder");
+assert(overviewShared.includes("buildHealthSafetyAttentionItems"), "overview shared: attention builder");
+assert(overviewShared.includes("buildHealthSafetyRecentActivity"), "overview shared: activity builder");
+
+const service = read("server/health-safety-service.mjs");
+assert(service.includes("buildHealthSafetyOverviewPayload"), "service: overview uses shared payload builder");
+assert(service.includes("IncidentActions"), "service: reads incident actions for overview");
+assert(service.includes("LOLER_EXAMINATIONS_TAB"), "service: reads examinations for activity");
+assert(service.includes("COSHH_ASSESSMENTS_TAB"), "service: reads assessments for activity");
+
+const highRisk = { id: "inc-1", status: "Under Investigation", severity: "Major Incident" };
+assert(isHighRiskIncident(highRisk), "overview logic: major incident is high risk");
+const metrics = buildHealthSafetyMetrics({
+  todayKey: "2026-07-21",
+  incidents: [
+    { id: "inc-1", status: "Open" },
+    { id: "inc-2", status: "Under Investigation", severity: "Minor" },
+  ],
+  riddor: [{ id: "rid-1", decisionStatus: "decision_required", submissionStatus: "not_started" }],
+  coshh: [{ id: "cosh-1", status: "missing_sds", productName: "Acetone" }],
+  equipment: [{ id: "eq-1", status: "active", nextExaminationDueDate: "2026-01-01" }],
+  incidentActions: [],
+});
+assert(metrics.openIncidents === 2, "overview logic: open incidents counted");
+assert(metrics.riddorDecisionsRequired === 1, "overview logic: riddor decisions counted");
+assert(metrics.chemicalsMissingSds === 1, "overview logic: missing sds counted");
+assert(metrics.equipmentInspectionsOverdue === 1, "overview logic: overdue equipment counted");
+
+const attention = buildHealthSafetyAttentionItems({
+  todayKey: "2026-07-21",
+  incidents: [{ id: "inc-1", status: "Under Investigation", severity: "Fatality", description: "Fall" }],
+  riddor: [
+    { id: "rid-1", incidentId: "INC-1", decisionStatus: "decision_required" },
+    { id: "rid-1", incidentId: "INC-1", decisionStatus: "decision_required" },
+  ],
+  coshh: [],
+  equipment: [],
+  incidentActions: [],
+});
+assert(attention.length === 2, "overview logic: high-risk investigation and riddor decision");
+assert(attention[0].priority < attention[1].priority, "overview logic: attention ranking");
+assert(new Set(attention.map((item) => `${item.type}::${item.recordId}`)).size === attention.length, "overview logic: no duplicate attention");
+
+const urgentSummary = buildHealthSafetyStatusSummary(
+  { ...metrics, highRiskIncidents: 1, equipmentInspectionsOverdue: 1, highPriorityOverdueActions: 0, riddorReportableActionsDue: 0 },
+  attention,
+);
+assert(urgentSummary.level === "urgent", "overview logic: urgent status when drivers present");
+
+const goodSummary = buildHealthSafetyStatusSummary(
+  {
+    openIncidents: 0,
+    highRiskIncidents: 0,
+    riddorDecisionsRequired: 0,
+    coshhReviewsOverdue: 0,
+    chemicalsMissingSds: 0,
+    equipmentInspectionsDueSoon: 0,
+    overdueHealthSafetyActions: 0,
+    highPriorityOverdueActions: 0,
+    riddorReportableActionsDue: 0,
+    coshhReviewsDueSoon: 0,
+  },
+  [],
+);
+assert(goodSummary.level === "good", "overview logic: good status when clear");
+
+const activity = buildHealthSafetyRecentActivity({
+  incidents: [{ id: "inc-1", createdAt: "2026-07-21T10:00:00.000Z", incidentType: "Near Miss", reporterName: "Alex" }],
+  riddor: [],
+  coshh: [],
+  assessments: [],
+  equipment: [],
+  examinations: [],
+  incidentActions: [],
+});
+assert(activity.length === 1 && activity[0].type === "incident_created", "overview logic: recent activity from incidents");
+
+const payload = buildHealthSafetyOverviewPayload({
+  todayKey: "2026-07-21",
+  incidents: [],
+  riddor: [],
+  coshh: [],
+  equipment: [],
+  incidentActions: [],
+  assessments: [],
+  examinations: [],
+});
+assert(payload.statusSummary && payload.metrics && Array.isArray(payload.attentionItems), "overview payload: extended response shape");
+assert(payload.summary && Array.isArray(payload.attention), "overview payload: legacy fields retained");
+assert(typeof payload.summary.equipmentInspectionsOverdue === "number", "overview payload: legacy summary equipment metric");
 
 console.log(`verify:health-safety passed (${caseCount} checks).`);

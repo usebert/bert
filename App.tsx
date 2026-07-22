@@ -3901,6 +3901,10 @@ function App() {
   const [searchFocusIncidentId, setSearchFocusIncidentId] = useState("");
   const [searchFocusCoshhId, setSearchFocusCoshhId] = useState("");
   const [searchFocusRiddorId, setSearchFocusRiddorId] = useState("");
+  const [healthSafetyFocusEquipmentId, setHealthSafetyFocusEquipmentId] = useState("");
+  const [healthSafetyOpenCoshhCreate, setHealthSafetyOpenCoshhCreate] = useState(false);
+  const [healthSafetyOpenLolerCreate, setHealthSafetyOpenLolerCreate] = useState(false);
+  const [healthSafetyOpenIncidentReport, setHealthSafetyOpenIncidentReport] = useState(false);
   const [companyResultsState, setCompanyResultsState] = useState<{
     results: AuditResultSummary[];
     loading: boolean;
@@ -11778,6 +11782,12 @@ function App() {
       if (params?.incidentId) setSearchFocusIncidentId(params.incidentId);
       if (params?.coshhId) setSearchFocusCoshhId(params.coshhId);
       if (params?.riddorId) setSearchFocusRiddorId(params.riddorId);
+      if (params?.equipmentId) setHealthSafetyFocusEquipmentId(params.equipmentId);
+      if (params?.openCreate === "true") {
+        if (nextScreen === "healthSafetyCoshh") setHealthSafetyOpenCoshhCreate(true);
+        if (nextScreen === "loler") setHealthSafetyOpenLolerCreate(true);
+      }
+      if (params?.openReport === "true") setHealthSafetyOpenIncidentReport(true);
       setScreen(nextScreen);
     },
     [],
@@ -17933,12 +17943,15 @@ function App() {
                 masterSheetId={archiveMasterSheetId || undefined}
                 userEmail={String(sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser)).trim().toLowerCase()}
                 offlineMode={offlineMode}
+                initialViewingId={healthSafetyFocusEquipmentId || undefined}
+                initialOpenAddForm={healthSafetyOpenLolerCreate}
                 onBack={() => setScreen("dashboard")}
               />
             )}
 
             {screen === "healthSafety" && canRoleAccessNavItem(currentUser.role, "healthSafety") && (
               <HealthSafetyOverviewScreen
+                role={currentUser.role}
                 companyFolderId={String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim()}
                 onNavigate={handleHealthSafetyNavigate}
                 onBack={() => setScreen("dashboard")}
@@ -17952,6 +17965,7 @@ function App() {
                 masterSheetId={archiveMasterSheetId || undefined}
                 offlineMode={offlineMode}
                 initialCoshhId={searchFocusCoshhId || undefined}
+                initialOpenCreateForm={healthSafetyOpenCoshhCreate}
                 onBack={() => setScreen("healthSafety")}
               />
             )}
@@ -18281,6 +18295,7 @@ function App() {
                 onArchiveSuccess={pushArchiveSuccessToast}
                 offlineMode={offlineMode}
                 initialIncidentId={searchFocusIncidentId || undefined}
+                initialSafetyTab={healthSafetyOpenIncidentReport ? "report" : undefined}
               />
             )}
 

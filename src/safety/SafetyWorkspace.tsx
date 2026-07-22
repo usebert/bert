@@ -69,6 +69,7 @@ export function SafetyWorkspace({
   onArchiveSuccess,
   offlineMode = false,
   initialIncidentId,
+  initialSafetyTab,
 }: SafetyWorkspaceProps) {
   const { t } = useTranslation();
   const canArchiveIncident = canArchiveRecordFromClient(currentUser.role, "incident");
@@ -76,7 +77,9 @@ export function SafetyWorkspace({
   const canManageIncidents = canInvestigateIncidents(currentUser.role);
   const theme = getRoleTheme(currentUser.role);
   const tabs = visibleTabsForRole(canManageIncidents, fieldAuditor);
-  const [activeTab, setActiveTab] = useState<SafetyWorkspaceTab>(fieldAuditor ? "report" : "incidents");
+  const [activeTab, setActiveTab] = useState<SafetyWorkspaceTab>(
+    initialSafetyTab || (fieldAuditor ? "report" : "incidents"),
+  );
   const [safetyFilters, setSafetyFilters] = useState<SafetyFilterState>({
     query: "",
     status: "",

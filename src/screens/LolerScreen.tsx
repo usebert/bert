@@ -43,6 +43,8 @@ type Props = {
   masterSheetId?: string;
   userEmail: string;
   offlineMode?: boolean;
+  initialViewingId?: string;
+  initialOpenAddForm?: boolean;
   onBack?: () => void;
 };
 
@@ -162,7 +164,16 @@ const inputClass =
   "w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none";
 const labelClass = "block text-xs font-semibold uppercase tracking-wide text-slate-500";
 
-export function LolerWorkspaceBody({ role, companyFolderId, masterSheetId, userEmail, offlineMode = false, onBack }: Props) {
+export function LolerWorkspaceBody({
+  role,
+  companyFolderId,
+  masterSheetId,
+  userEmail,
+  offlineMode = false,
+  initialViewingId,
+  initialOpenAddForm = false,
+  onBack,
+}: Props) {
   const { t } = useTranslation();
   const canManage = canManageLoler(role);
   const folderId = String(companyFolderId || "").trim();
@@ -202,7 +213,7 @@ export function LolerWorkspaceBody({ role, companyFolderId, masterSheetId, userE
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [formErrors, setFormErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
-  const [viewingId, setViewingId] = useState("");
+  const [viewingId, setViewingId] = useState(initialViewingId || "");
   const [returnServiceId, setReturnServiceId] = useState("");
   const [returnDueDate, setReturnDueDate] = useState("");
   const [returnLastExamDate, setReturnLastExamDate] = useState("");
@@ -415,6 +426,18 @@ export function LolerWorkspaceBody({ role, companyFolderId, masterSheetId, userE
     setFormErrors([]);
     setFormOpen(true);
   };
+
+  useEffect(() => {
+    if (initialViewingId) {
+      setViewingId(initialViewingId);
+    }
+  }, [initialViewingId]);
+
+  useEffect(() => {
+    if (initialOpenAddForm && canManage) {
+      openAddForm();
+    }
+  }, [initialOpenAddForm, canManage]);
 
   const openEditForm = (item: LolerEquipment) => {
     setEditingId(item.id);
