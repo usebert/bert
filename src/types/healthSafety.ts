@@ -255,6 +255,13 @@ export type HealthSafetyOverviewMetrics = {
   equipmentOutOfService: number;
   overdueHealthSafetyActions: number;
   highPriorityOverdueActions: number;
+  activeRiskAssessments: number;
+  draftRiskAssessments: number;
+  awaitingApprovalRiskAssessments: number;
+  reviewDueRiskAssessments: number;
+  overdueRiskAssessments: number;
+  highResidualRiskAssessments: number;
+  veryHighResidualRiskAssessments: number;
 };
 
 export type HealthSafetyAttentionItemType =
@@ -266,7 +273,13 @@ export type HealthSafetyAttentionItemType =
   | "missing_sds"
   | "hs_action_overdue"
   | "equipment_due_soon"
-  | "coshh_review_due_soon";
+  | "coshh_review_due_soon"
+  | "risk_assessment_very_high"
+  | "risk_assessment_overdue_high"
+  | "risk_assessment_overdue"
+  | "risk_assessment_awaiting_approval"
+  | "risk_assessment_review_due_soon"
+  | "risk_assessment_control_action_overdue";
 
 export type HealthSafetyAttentionItemSeverity = "urgent" | "attention";
 
@@ -308,6 +321,9 @@ export type HealthSafetyOverviewSummary = {
   chemicalsMissingSds: number;
   equipmentInspectionsOverdue: number;
   openHealthSafetyActions: number;
+  overdueRiskAssessments: number;
+  awaitingApprovalRiskAssessments: number;
+  highResidualRiskAssessments: number;
 };
 
 export type HealthSafetyAttentionKind =
@@ -316,7 +332,8 @@ export type HealthSafetyAttentionKind =
   | "coshh_review"
   | "missing_sds"
   | "equipment_overdue"
-  | "hs_action_overdue";
+  | "hs_action_overdue"
+  | "risk_assessment";
 
 export type HealthSafetyAttentionItem = {
   id: string;
@@ -331,6 +348,7 @@ export type HealthSafetyAttentionItem = {
     riddorId?: string;
     coshhId?: string;
     equipmentId?: string;
+    riskAssessmentId?: string;
   };
   rank: number;
 };

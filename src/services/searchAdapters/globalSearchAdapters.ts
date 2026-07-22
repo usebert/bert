@@ -7,6 +7,7 @@ import {
   canAccessDocuments,
   canAccessLoler,
   canAccessRiddor,
+  canAccessRiskAssessments,
   canAccessSchedulesScreen,
   canAccessUsersInvitesNav,
   canAccessWorkspaceNav,
@@ -38,6 +39,7 @@ import {
 import { readCachedDocumentControlDocuments } from "../documentControlService";
 import { readCachedDocuments } from "../documentService";
 import { readCachedCoshhAssessments, readCachedCoshhList, readCachedRiddorList } from "../healthSafetyService";
+import { readCachedRiskAssessmentList } from "../riskAssessmentService";
 import { readCachedLolerEquipment } from "../lolerService";
 import type { CompanyMember } from "../companyUserService";
 
@@ -278,6 +280,44 @@ export function buildGlobalSearchIndex(sources: GlobalSearchSources): SearchResu
           record.decisionStatus,
           record.submissionStatus,
           record.submissionReference,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      });
+    }
+  }
+
+  if (canAccessRiskAssessments(role) && companyFolderId) {
+    const cached = readCachedRiskAssessmentList(companyFolderId);
+    for (const record of cached?.items || []) {
+      if (record.archivedAt) continue;
+      pushItem(items, {
+        id: `risk-assessment-${record.id}`,
+        kind: "risk-assessment",
+        title: record.title || record.assessmentNumber,
+        typeLabel: SEARCH_TYPE_LABELS["risk-assessment"],
+        status: record.status,
+        site: record.siteId || undefined,
+        description: [
+          record.assessmentNumber,
+          record.assessmentType,
+          record.activity,
+          record.ownerName,
+          record.assessorName,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        navigate: { screen: "riskAssessments", riskAssessmentId: record.id },
+        searchText: [
+          record.assessmentNumber,
+          record.title,
+          record.activity,
+          record.department,
+          record.siteId,
+          record.areaId,
+          record.ownerName,
+          record.assessorName,
+          record.assessmentType,
         ]
           .filter(Boolean)
           .join(" "),

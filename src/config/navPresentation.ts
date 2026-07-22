@@ -25,6 +25,7 @@ const DISPLAY_LABELS: Partial<Record<NavItemId, string>> = {
   healthSafety: "Overview",
   healthSafetyCoshh: "COSHH",
   healthSafetyRiddor: "RIDDOR",
+  riskAssessments: "Risk Assessments",
   loler: "Equipment",
   reports: "Reports",
   sync: "Sync Centre",
@@ -57,7 +58,7 @@ const GROUPS_BY_BUCKET: Record<ReturnType<typeof getRoleNavBucket>, NavPresentat
     {
       id: "healthSafety",
       label: "Health & Safety",
-      itemIds: ["healthSafety", "healthSafetyRiddor", "healthSafetyCoshh", "loler"],
+      itemIds: ["healthSafety", "healthSafetyRiddor", "healthSafetyCoshh", "riskAssessments", "loler"],
     },
     {
       id: "compliance",
@@ -71,7 +72,7 @@ const GROUPS_BY_BUCKET: Record<ReturnType<typeof getRoleNavBucket>, NavPresentat
     {
       id: "healthSafety",
       label: "Health & Safety",
-      itemIds: ["healthSafety", "incidents", "healthSafetyRiddor", "healthSafetyCoshh", "loler"],
+      itemIds: ["healthSafety", "incidents", "healthSafetyRiddor", "healthSafetyCoshh", "riskAssessments", "loler"],
     },
     {
       id: "compliance",
@@ -91,7 +92,7 @@ const GROUPS_BY_BUCKET: Record<ReturnType<typeof getRoleNavBucket>, NavPresentat
     {
       id: "healthSafety",
       label: "Health & Safety",
-      itemIds: ["healthSafety", "incidents", "healthSafetyRiddor", "healthSafetyCoshh", "loler"],
+      itemIds: ["healthSafety", "incidents", "healthSafetyRiddor", "healthSafetyCoshh", "riskAssessments", "loler"],
     },
     {
       id: "compliance",
@@ -111,7 +112,7 @@ const GROUPS_BY_BUCKET: Record<ReturnType<typeof getRoleNavBucket>, NavPresentat
     {
       id: "healthSafety",
       label: "Health & Safety",
-      itemIds: ["healthSafety", "incidents", "healthSafetyRiddor", "healthSafetyCoshh", "loler"],
+      itemIds: ["healthSafety", "incidents", "healthSafetyRiddor", "healthSafetyCoshh", "riskAssessments", "loler"],
     },
     {
       id: "compliance",

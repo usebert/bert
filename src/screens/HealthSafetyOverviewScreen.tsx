@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Role } from "../permissions";
 import {
   canAccessRiddor,
+  canCreateRiskAssessments,
   canManageCoshh,
   canManageLoler,
   canSubmitIncidents,
@@ -47,6 +48,13 @@ const EMPTY_METRICS: HealthSafetyOverviewMetrics = {
   equipmentOutOfService: 0,
   overdueHealthSafetyActions: 0,
   highPriorityOverdueActions: 0,
+  activeRiskAssessments: 0,
+  draftRiskAssessments: 0,
+  awaitingApprovalRiskAssessments: 0,
+  reviewDueRiskAssessments: 0,
+  overdueRiskAssessments: 0,
+  highResidualRiskAssessments: 0,
+  veryHighResidualRiskAssessments: 0,
 };
 
 const CARD = "rounded-2xl border border-[var(--ui-border)] bg-white p-4 shadow-sm";
@@ -140,6 +148,14 @@ function ModuleIcon({ name, className = "h-5 w-5" }: { name: string; className?:
           <path d="M8 10V7a4 4 0 0 1 8 0v3" />
         </svg>
       );
+    case "risk":
+      return (
+        <svg {...shared}>
+          <path d="M12 3 3 20h18L12 3z" />
+          <path d="M12 9v4" />
+          <circle cx="12" cy="16.5" r="1" fill="currentColor" stroke="none" />
+        </svg>
+      );
     case "check":
       return (
         <svg {...shared}>
@@ -161,6 +177,7 @@ function openAttentionTarget(
   if (item.route === "healthSafetyRiddor") params.riddorId = item.recordId;
   if (item.route === "healthSafetyCoshh") params.coshhId = item.recordId;
   if (item.route === "loler") params.equipmentId = item.recordId;
+  if (item.route === "riskAssessments") params.riskAssessmentId = item.recordId;
   onNavigate(item.route as NavItemId, params);
 }
 
@@ -323,6 +340,9 @@ export function HealthSafetyOverviewScreen({ role, companyFolderId, onNavigate, 
     if (canAccessRiddor(role)) {
       actions.push({ id: "open-riddor", label: "Open RIDDOR workspace", screen: "healthSafetyRiddor" });
     }
+    if (canCreateRiskAssessments(role)) {
+      actions.push({ id: "create-risk-assessment", label: "Create risk assessment", screen: "riskAssessments" });
+    }
     return actions;
   }, [role]);
 
@@ -382,6 +402,31 @@ export function HealthSafetyOverviewScreen({ role, companyFolderId, onNavigate, 
           { label: "Assessments due", value: metrics.coshhAssessmentsDue },
         ],
         screen: "healthSafetyCoshh" as const,
+      },
+      {
+        key: "risk-assessments",
+        icon: "risk",
+        title: "Risk Assessments",
+        mainCount: metrics.activeRiskAssessments,
+        mainLabel: "active",
+        badge:
+          metrics.overdueRiskAssessments > 0
+            ? { label: "Overdue", variant: "danger" as const }
+            : metrics.awaitingApprovalRiskAssessments > 0
+              ? { label: "Awaiting approval", variant: "warning" as const }
+              : metrics.veryHighResidualRiskAssessments > 0
+                ? { label: "Very High risk", variant: "danger" as const }
+                : { label: "Current", variant: "success" as const },
+        accent:
+          metrics.overdueRiskAssessments > 0 || metrics.veryHighResidualRiskAssessments > 0
+            ? "border-red-100 bg-red-50/40"
+            : "border-slate-200",
+        metrics: [
+          { label: "Awaiting approval", value: metrics.awaitingApprovalRiskAssessments, tone: metrics.awaitingApprovalRiskAssessments ? ("warning" as const) : undefined },
+          { label: "Review due", value: metrics.reviewDueRiskAssessments },
+          { label: "Overdue", value: metrics.overdueRiskAssessments, tone: metrics.overdueRiskAssessments ? ("danger" as const) : undefined },
+        ],
+        screen: "riskAssessments" as const,
       },
       {
         key: "equipment",

@@ -226,6 +226,34 @@ export function canManageRiddor(role: Role) {
   return role === "Master" || canInvestigateIncidents(role);
 }
 
+export function canAccessRiskAssessments(role: Role) {
+  return role === "Master" || role === "Admin" || role === "Manager" || role === "Auditor";
+}
+
+export function canCreateRiskAssessments(role: Role) {
+  return canAccessRiskAssessments(role);
+}
+
+export function canEditRiskAssessments(role: Role) {
+  return role === "Master" || role === "Admin" || role === "Manager" || role === "Auditor";
+}
+
+export function canSubmitRiskAssessments(role: Role) {
+  return canEditRiskAssessments(role);
+}
+
+export function canApproveRiskAssessments(role: Role) {
+  return role === "Master" || role === "Admin" || role === "Manager";
+}
+
+export function canReviewRiskAssessments(role: Role) {
+  return role === "Master" || role === "Admin" || role === "Manager";
+}
+
+export function canArchiveRiskAssessments(role: Role) {
+  return role === "Master" || role === "Admin" || role === "Manager";
+}
+
 /** Add / edit / assign / archive LOLER equipment — Master, Admin, Manager. */
 export function canManageLoler(role: Role) {
   return role === "Master" || role === "Admin" || role === "Manager";
@@ -312,6 +340,7 @@ export function canRoleAccessNavItem(role: Role, itemId: NavItemId) {
   if (itemId === "healthSafety") return canAccessHealthSafetyOverview(role);
   if (itemId === "healthSafetyCoshh") return canAccessCoshh(role);
   if (itemId === "healthSafetyRiddor") return canAccessRiddor(role);
+  if (itemId === "riskAssessments") return canAccessRiskAssessments(role);
   if (itemId === "loler") return canAccessLoler(role);
   if (itemId === "calendar") return canAccessCalendar(role);
   if (itemId === "documentControl") return canAccessDocumentControl(role);

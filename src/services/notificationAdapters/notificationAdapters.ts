@@ -7,6 +7,7 @@ import {
   canAccessLoler,
   canAccessPilotSetup,
   canAccessRiddor,
+  canAccessRiskAssessments,
   canSubmitIncidents,
   canViewIncidents,
   canViewSyncCentre,
@@ -35,6 +36,7 @@ import {
 } from "../../presentation/notificationPresentation";
 import { readCachedDocumentControlDocuments } from "../documentControlService";
 import { readCachedCoshhList, readCachedRiddorList } from "../healthSafetyService";
+import { readCachedRiskAssessmentList } from "../riskAssessmentService";
 import { readCachedLolerEquipment } from "../lolerService";
 import { coshhStatusLabel } from "../../health-safety/adapters/coshhListAdapter";
 import { riddorDecisionLabel, riddorSubmissionLabel } from "../../health-safety/adapters/riddorListAdapter";
@@ -533,6 +535,74 @@ export function buildNotificationIndex(sources: NotificationSources): BertNotifi
           sourceRecordKey: record.id,
           priority: NOTIFICATION_PRIORITY.AWAITING_VERIFICATION,
           group: groupForNotification("safety", NOTIFICATION_PRIORITY.AWAITING_VERIFICATION, "Follow-up required"),
+        });
+      }
+    }
+  }
+
+  if (canAccessRiskAssessments(role) && companyFolderId) {
+    const cached = readCachedRiskAssessmentList(companyFolderId);
+    for (const record of cached?.items || []) {
+      if (record.archivedAt) continue;
+      if (record.status === "Submitted") {
+        pushNotification(items, {
+          key: `risk-assessment-submitted:${record.id}`,
+          type: "safety",
+          title: `Risk assessment awaiting approval — ${record.title || record.assessmentNumber}`,
+          description: record.assessmentNumber,
+          status: record.status,
+          severity: "warning",
+          destination: { screen: "riskAssessments", riskAssessmentId: record.id },
+          sourceRecordKey: record.id,
+          priority: NOTIFICATION_PRIORITY.AWAITING_VERIFICATION,
+          group: groupForNotification("safety", NOTIFICATION_PRIORITY.AWAITING_VERIFICATION, "Awaiting approval"),
+        });
+      }
+      if (record.status === "Rejected") {
+        pushNotification(items, {
+          key: `risk-assessment-rejected:${record.id}`,
+          type: "safety",
+          title: `Risk assessment rejected — ${record.title || record.assessmentNumber}`,
+          description: record.rejectionReason || record.assessmentNumber,
+          status: record.status,
+          severity: "warning",
+          destination: { screen: "riskAssessments", riskAssessmentId: record.id },
+          sourceRecordKey: record.id,
+          priority: NOTIFICATION_PRIORITY.AWAITING_VERIFICATION,
+          group: groupForNotification("safety", NOTIFICATION_PRIORITY.AWAITING_VERIFICATION, "Rejected"),
+        });
+      }
+      if (record.status === "Overdue" || record.status === "Review Due") {
+        pushNotification(items, {
+          key: `risk-assessment-review:${record.id}`,
+          type: "safety",
+          title: `Risk assessment review ${record.status === "Overdue" ? "overdue" : "due soon"} — ${record.title || record.assessmentNumber}`,
+          description: record.assessmentNumber,
+          status: record.status,
+          severity: record.status === "Overdue" ? "high" : "warning",
+          dueAt: record.reviewDate,
+          destination: { screen: "riskAssessments", riskAssessmentId: record.id },
+          sourceRecordKey: record.id,
+          priority: record.status === "Overdue" ? NOTIFICATION_PRIORITY.NCR_OVERDUE : NOTIFICATION_PRIORITY.DUE_TODAY,
+          group: groupForNotification(
+            "safety",
+            record.status === "Overdue" ? NOTIFICATION_PRIORITY.NCR_OVERDUE : NOTIFICATION_PRIORITY.DUE_TODAY,
+            record.status,
+          ),
+        });
+      }
+      if (Number(record.highestResidualRiskScore) >= 10 && (record.status === "Active" || record.status === "Approved")) {
+        pushNotification(items, {
+          key: `risk-assessment-high-risk:${record.id}`,
+          type: "safety",
+          title: `High residual risk — ${record.title || record.assessmentNumber}`,
+          description: `Residual score ${record.highestResidualRiskScore}`,
+          status: record.status,
+          severity: Number(record.highestResidualRiskScore) >= 17 ? "high" : "warning",
+          destination: { screen: "riskAssessments", riskAssessmentId: record.id },
+          sourceRecordKey: record.id,
+          priority: NOTIFICATION_PRIORITY.SAFETY_CRITICAL,
+          group: groupForNotification("safety", NOTIFICATION_PRIORITY.SAFETY_CRITICAL, "High residual risk"),
         });
       }
     }

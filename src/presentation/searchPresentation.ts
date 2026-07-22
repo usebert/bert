@@ -13,6 +13,7 @@ export type SearchResultKind =
   | "coshh"
   | "coshh-assessment"
   | "riddor"
+  | "risk-assessment"
   | "person"
   | "site"
   | "area"
@@ -33,6 +34,7 @@ export type SearchNavigateTarget = {
   coshhId?: string;
   assessmentId?: string;
   riddorId?: string;
+  riskAssessmentId?: string;
 };
 
 export type SearchResultItem = {
@@ -58,7 +60,7 @@ export const SEARCH_GROUP_ORDER: Array<{ id: string; label: string; kinds: Searc
   { id: "audits", label: "Audits", kinds: ["audit", "completed-audit"] },
   { id: "documents", label: "Documents", kinds: ["document", "document-library"] },
   { id: "equipment", label: "Equipment", kinds: ["equipment"] },
-  { id: "health-safety", label: "Health & Safety", kinds: ["coshh", "coshh-assessment", "riddor"] },
+  { id: "health-safety", label: "Health & Safety", kinds: ["coshh", "coshh-assessment", "riddor", "risk-assessment"] },
   { id: "people", label: "People", kinds: ["person"] },
   { id: "incidents", label: "Incidents", kinds: ["incident", "near-miss"] },
   { id: "ncrs", label: "NCRs", kinds: ["ncr"] },
@@ -81,6 +83,7 @@ export const SEARCH_TYPE_LABELS: Record<SearchResultKind, string> = {
   coshh: "COSHH product",
   "coshh-assessment": "COSHH assessment",
   riddor: "RIDDOR record",
+  "risk-assessment": "Risk assessment",
   person: "Person",
   site: "Site",
   area: "Area",

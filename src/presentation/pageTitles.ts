@@ -18,6 +18,7 @@ const PAGE_TITLES: Partial<Record<RoutedScreen, string>> = {
   healthSafety: "Health & Safety",
   healthSafetyCoshh: "COSHH",
   healthSafetyRiddor: "RIDDOR",
+  riskAssessments: "Risk Assessments",
   loler: "Equipment",
   reports: "Reports",
   sync: "Sync Centre",

@@ -304,6 +304,7 @@ import { AuditCentreScreen } from "./src/screens/AuditCentreScreen";
 import { BriefingsScreen } from "./src/screens/BriefingsScreen";
 import { LolerScreen } from "./src/screens/LolerScreen";
 import { HealthSafetyOverviewScreen } from "./src/screens/HealthSafetyOverviewScreen";
+import { RiskAssessmentsScreen } from "./src/screens/RiskAssessmentsScreen";
 import { CoshhScreen } from "./src/screens/CoshhScreen";
 import { RiddorScreen } from "./src/screens/RiddorScreen";
 import { CalendarScreen } from "./src/screens/CalendarScreen";
@@ -3901,6 +3902,7 @@ function App() {
   const [searchFocusIncidentId, setSearchFocusIncidentId] = useState("");
   const [searchFocusCoshhId, setSearchFocusCoshhId] = useState("");
   const [searchFocusRiddorId, setSearchFocusRiddorId] = useState("");
+  const [searchFocusRiskAssessmentId, setSearchFocusRiskAssessmentId] = useState("");
   const [healthSafetyFocusEquipmentId, setHealthSafetyFocusEquipmentId] = useState("");
   const [healthSafetyOpenCoshhCreate, setHealthSafetyOpenCoshhCreate] = useState(false);
   const [healthSafetyOpenLolerCreate, setHealthSafetyOpenLolerCreate] = useState(false);
@@ -11782,6 +11784,7 @@ function App() {
       if (params?.incidentId) setSearchFocusIncidentId(params.incidentId);
       if (params?.coshhId) setSearchFocusCoshhId(params.coshhId);
       if (params?.riddorId) setSearchFocusRiddorId(params.riddorId);
+      if (params?.riskAssessmentId) setSearchFocusRiskAssessmentId(params.riskAssessmentId);
       if (params?.equipmentId) setHealthSafetyFocusEquipmentId(params.equipmentId);
       if (params?.openCreate === "true") {
         if (nextScreen === "healthSafetyCoshh") setHealthSafetyOpenCoshhCreate(true);
@@ -16013,6 +16016,9 @@ function App() {
       if (target.riddorId) {
         setSearchFocusRiddorId(target.riddorId);
       }
+      if (target.riskAssessmentId) {
+        setSearchFocusRiskAssessmentId(target.riskAssessmentId);
+      }
       if (target.briefingId) {
         setSelectedBriefingId(target.briefingId);
       }
@@ -17966,6 +17972,17 @@ function App() {
                 offlineMode={offlineMode}
                 initialCoshhId={searchFocusCoshhId || undefined}
                 initialOpenCreateForm={healthSafetyOpenCoshhCreate}
+                onBack={() => setScreen("healthSafety")}
+              />
+            )}
+
+            {screen === "riskAssessments" && canRoleAccessNavItem(currentUser.role, "riskAssessments") && (
+              <RiskAssessmentsScreen
+                role={currentUser.role}
+                companyFolderId={String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim()}
+                masterSheetId={archiveMasterSheetId || undefined}
+                offlineMode={offlineMode}
+                initialRiskAssessmentId={searchFocusRiskAssessmentId || undefined}
                 onBack={() => setScreen("healthSafety")}
               />
             )}

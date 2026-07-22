@@ -20,6 +20,9 @@ const EMPTY_SUMMARY: HealthSafetyOverviewSummary = {
   chemicalsMissingSds: 0,
   equipmentInspectionsOverdue: 0,
   openHealthSafetyActions: 0,
+  overdueRiskAssessments: 0,
+  awaitingApprovalRiskAssessments: 0,
+  highResidualRiskAssessments: 0,
 };
 
 /**
@@ -52,7 +55,11 @@ export function HealthSafetySummaryCard({ companyFolderId, onNavigate }: Props) 
 
   const display = summary || EMPTY_SUMMARY;
   const attentionCount =
-    display.riddorDecisionsRequired + display.coshhAssessmentsOverdue + display.chemicalsMissingSds;
+    display.riddorDecisionsRequired +
+    display.coshhAssessmentsOverdue +
+    display.chemicalsMissingSds +
+    display.overdueRiskAssessments +
+    display.awaitingApprovalRiskAssessments;
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -65,6 +72,15 @@ export function HealthSafetySummaryCard({ companyFolderId, onNavigate }: Props) 
         >
           Open overview
         </button>
+        {(display.overdueRiskAssessments > 0 || display.awaitingApprovalRiskAssessments > 0 || display.highResidualRiskAssessments > 0) ? (
+          <button
+            type="button"
+            onClick={() => onNavigate("riskAssessments")}
+            className="text-sm font-semibold text-slate-700 underline-offset-2 hover:underline"
+          >
+            Risk assessments
+          </button>
+        ) : null}
       </div>
       {summary || !loadFailed ? (
         <div className="mt-3 grid grid-cols-2 gap-3">
@@ -84,6 +100,20 @@ export function HealthSafetySummaryCard({ companyFolderId, onNavigate }: Props) 
             <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">Missing SDS</p>
             <p className="mt-1 text-2xl font-black text-violet-800">{display.chemicalsMissingSds}</p>
           </div>
+          {display.overdueRiskAssessments > 0 || display.awaitingApprovalRiskAssessments > 0 || display.highResidualRiskAssessments > 0 ? (
+            <div className="col-span-2 rounded-xl border border-rose-100 bg-rose-50 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-rose-700">Risk assessments</p>
+              <p className="mt-1 text-sm text-rose-900">
+                {[
+                  display.overdueRiskAssessments > 0 ? `${display.overdueRiskAssessments} overdue` : "",
+                  display.awaitingApprovalRiskAssessments > 0 ? `${display.awaitingApprovalRiskAssessments} awaiting approval` : "",
+                  display.highResidualRiskAssessments > 0 ? `${display.highResidualRiskAssessments} high residual risk` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            </div>
+          ) : null}
         </div>
       ) : (
         <p className="mt-3 text-sm text-slate-500">Health & Safety summary is unavailable right now.</p>

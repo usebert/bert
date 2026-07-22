@@ -83,8 +83,8 @@ assert(coreRoutes.includes("installHealthSafetyRoutes"), "wiring: health safety 
 
 const navPresentation = read("src/config/navPresentation.ts");
 assert(navPresentation.includes('id: "healthSafety"'), "nav: Health & Safety group defined");
-assert(navPresentation.includes('"healthSafety", "incidents", "healthSafetyRiddor", "healthSafetyCoshh", "loler"'),
-  "nav: company roles group Incidents and Equipment under Health & Safety",
+assert(navPresentation.includes('"healthSafety", "incidents", "healthSafetyRiddor", "healthSafetyCoshh", "riskAssessments", "loler"'),
+  "nav: company roles group includes Risk Assessments between COSHH and Equipment",
 );
 assert(navPresentation.includes('loler: "Equipment"'), "nav: loler display label is Equipment");
 const complianceBlocks = navPresentation.match(/id: "compliance"[\s\S]*?itemIds: \[([^\]]+)\]/g) || [];
@@ -102,6 +102,7 @@ const appSource = read("App.tsx");
 assert(appSource.includes('screen === "healthSafety"'), "App: overview screen routed");
 assert(appSource.includes('screen === "healthSafetyCoshh"'), "App: COSHH screen routed");
 assert(appSource.includes('screen === "healthSafetyRiddor"'), "App: RIDDOR screen routed");
+assert(appSource.includes('screen === "riskAssessments"'), "App: Risk Assessments screen routed");
 assert(!appSource.includes("VITE_GODMODE"), "security: no VITE secret usage in App");
 
 const safetyWorkspace = read("src/safety/SafetyWorkspace.tsx");
@@ -149,7 +150,9 @@ const service = read("server/health-safety-service.mjs");
 assert(service.includes("buildHealthSafetyOverviewPayload"), "service: overview uses shared payload builder");
 assert(service.includes("IncidentActions"), "service: reads incident actions for overview");
 assert(service.includes("LOLER_EXAMINATIONS_TAB"), "service: reads examinations for activity");
+assert(overviewShared.includes("activeRiskAssessments"), "overview shared: risk assessment metrics");
 assert(service.includes("COSHH_ASSESSMENTS_TAB"), "service: reads assessments for activity");
+assert(service.includes("listCompanyRiskAssessments"), "service: overview loads risk assessments");
 
 const highRisk = { id: "inc-1", status: "Under Investigation", severity: "Major Incident" };
 assert(isHighRiskIncident(highRisk), "overview logic: major incident is high risk");

@@ -27,6 +27,7 @@ export type RoutedScreen =
   | "healthSafety"
   | "healthSafetyCoshh"
   | "healthSafetyRiddor"
+  | "riskAssessments"
   | "calendar"
   | "documentControl"
   | "documents"

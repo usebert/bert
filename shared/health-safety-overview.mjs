@@ -4,6 +4,7 @@
  */
 import { lolerEquipmentComplianceStatus } from "./loler.mjs";
 import { isUkOverdue } from "./uk-date-time.mjs";
+import { isHighOrVeryHighRisk } from "./risk-assessments.mjs";
 
 const HIGH_RISK_SEVERITIES = new Set(["fatality", "major incident", "lost time injury"]);
 const RIDDOR_DECISION_REQUIRED = new Set(["decision_required", "information_required"]);
@@ -155,19 +156,34 @@ function dedupeAttentionItems(items) {
 }
 
 const ATTENTION_PRIORITY = {
-  high_risk_incident_investigation: 1,
-  riddor_reportable_action: 2,
-  riddor_decision: 3,
-  equipment_overdue: 4,
-  coshh_review_overdue: 5,
-  missing_sds: 6,
-  hs_action_overdue: 7,
-  equipment_due_soon: 8,
-  coshh_review_due_soon: 9,
+  risk_assessment_very_high: 0,
+  risk_assessment_overdue_high: 1,
+  high_risk_incident_investigation: 2,
+  risk_assessment_overdue: 3,
+  risk_assessment_awaiting_approval: 4,
+  riddor_reportable_action: 5,
+  riddor_decision: 6,
+  equipment_overdue: 7,
+  coshh_review_overdue: 8,
+  missing_sds: 9,
+  risk_assessment_review_due_soon: 10,
+  hs_action_overdue: 11,
+  risk_assessment_control_action_overdue: 12,
+  equipment_due_soon: 13,
+  coshh_review_due_soon: 14,
 };
 
 function attentionSeverity(priority) {
   return priority <= 4 ? "urgent" : "attention";
+}
+
+function riskAssessmentSiteLabel(item) {
+  return {
+    siteId: trim(item?.siteId),
+    siteName: trim(item?.siteName) || trim(item?.siteId),
+    areaId: trim(item?.areaId),
+    areaName: trim(item?.areaName) || trim(item?.areaId),
+  };
 }
 
 function legacyAttentionKind(type) {
@@ -187,6 +203,13 @@ function legacyAttentionKind(type) {
       return "equipment_overdue";
     case "hs_action_overdue":
       return "hs_action_overdue";
+    case "risk_assessment_very_high":
+    case "risk_assessment_overdue_high":
+    case "risk_assessment_overdue":
+    case "risk_assessment_awaiting_approval":
+    case "risk_assessment_review_due_soon":
+    case "risk_assessment_control_action_overdue":
+      return "risk_assessment";
     default:
       return type;
   }
@@ -205,6 +228,9 @@ function toLegacyAttention(item) {
   }
   if (item.type.startsWith("equipment")) {
     navigate.equipmentId = item.recordId;
+  }
+  if (item.type.startsWith("risk_assessment")) {
+    navigate.riskAssessmentId = item.recordId;
   }
   return {
     id: item.id,
@@ -225,6 +251,7 @@ export function buildHealthSafetyMetrics(input = {}) {
   const coshh = Array.isArray(input.coshh) ? input.coshh : [];
   const equipment = Array.isArray(input.equipment) ? input.equipment : [];
   const incidentActions = Array.isArray(input.incidentActions) ? input.incidentActions : [];
+  const riskAssessments = Array.isArray(input.riskAssessments) ? input.riskAssessments : [];
   const incidentById = new Map(incidents.map((item) => [trim(item.id), item]));
 
   const openIncidents = incidents.filter(isOpenIncident);
@@ -248,6 +275,18 @@ export function buildHealthSafetyMetrics(input = {}) {
     return incident ? isHighRiskIncident(incident) : false;
   });
 
+  const activeRiskAssessments = riskAssessments.filter((item) => !item.archivedAt && (item.status === "Active" || item.status === "Review Due"));
+  const draftRiskAssessments = riskAssessments.filter((item) => !item.archivedAt && item.status === "Draft");
+  const awaitingApprovalRiskAssessments = riskAssessments.filter((item) => !item.archivedAt && item.status === "Submitted");
+  const reviewDueRiskAssessments = riskAssessments.filter((item) => !item.archivedAt && item.status === "Review Due");
+  const overdueRiskAssessments = riskAssessments.filter((item) => !item.archivedAt && item.status === "Overdue");
+  const highResidualRiskAssessments = riskAssessments.filter(
+    (item) => !item.archivedAt && isHighOrVeryHighRisk(item.highestResidualRiskScore) && item.status !== "Archived" && item.status !== "Superseded",
+  );
+  const veryHighResidualRiskAssessments = riskAssessments.filter(
+    (item) => !item.archivedAt && Number(item.highestResidualRiskScore) >= 17 && item.status !== "Archived" && item.status !== "Superseded",
+  );
+
   return {
     openIncidents: openIncidents.length,
     highRiskIncidents: highRiskIncidents.length,
@@ -265,6 +304,13 @@ export function buildHealthSafetyMetrics(input = {}) {
     equipmentOutOfService: equipmentOutOfService.length,
     overdueHealthSafetyActions: overdueIncidentActions.length,
     highPriorityOverdueActions: highPriorityOverdueActions.length,
+    activeRiskAssessments: activeRiskAssessments.length,
+    draftRiskAssessments: draftRiskAssessments.length,
+    awaitingApprovalRiskAssessments: awaitingApprovalRiskAssessments.length,
+    reviewDueRiskAssessments: reviewDueRiskAssessments.length,
+    overdueRiskAssessments: overdueRiskAssessments.length,
+    highResidualRiskAssessments: highResidualRiskAssessments.length,
+    veryHighResidualRiskAssessments: veryHighResidualRiskAssessments.length,
   };
 }
 
@@ -275,9 +321,129 @@ export function buildHealthSafetyAttentionItems(input = {}) {
   const coshh = Array.isArray(input.coshh) ? input.coshh : [];
   const equipment = Array.isArray(input.equipment) ? input.equipment : [];
   const incidentActions = Array.isArray(input.incidentActions) ? input.incidentActions : [];
+  const riskAssessments = Array.isArray(input.riskAssessments) ? input.riskAssessments : [];
   const incidentById = new Map(incidents.map((item) => [trim(item.id), item]));
 
   const items = [];
+
+  for (const assessment of riskAssessments) {
+    if (assessment.archivedAt || assessment.status === "Superseded") continue;
+    const site = riskAssessmentSiteLabel(assessment);
+    const title = trim(assessment.title) || trim(assessment.assessmentNumber) || assessment.id;
+    if (Number(assessment.highestResidualRiskScore) >= 17) {
+      items.push({
+        id: `attention-ra-very-high-${assessment.id}`,
+        type: "risk_assessment_very_high",
+        title,
+        reason: "Risk assessment has Very High residual risk.",
+        priority: ATTENTION_PRIORITY.risk_assessment_very_high,
+        severity: attentionSeverity(ATTENTION_PRIORITY.risk_assessment_very_high),
+        siteId: site.siteId,
+        siteName: site.siteName,
+        areaId: site.areaId,
+        areaName: site.areaName,
+        dueDate: trim(assessment.reviewDate),
+        route: "riskAssessments",
+        recordId: assessment.id,
+        actionLabel: "Review assessment",
+      });
+    }
+    if (assessment.status === "Overdue") {
+      const priority = isHighOrVeryHighRisk(assessment.highestResidualRiskScore)
+        ? ATTENTION_PRIORITY.risk_assessment_overdue_high
+        : ATTENTION_PRIORITY.risk_assessment_overdue;
+      items.push({
+        id: `attention-ra-overdue-${assessment.id}`,
+        type: priority === ATTENTION_PRIORITY.risk_assessment_overdue_high ? "risk_assessment_overdue_high" : "risk_assessment_overdue",
+        title,
+        reason: isHighOrVeryHighRisk(assessment.highestResidualRiskScore)
+          ? "Overdue risk assessment with High or Very High residual risk."
+          : "Risk assessment review is overdue.",
+        priority,
+        severity: attentionSeverity(priority),
+        siteId: site.siteId,
+        siteName: site.siteName,
+        areaId: site.areaId,
+        areaName: site.areaName,
+        dueDate: trim(assessment.reviewDate),
+        route: "riskAssessments",
+        recordId: assessment.id,
+        actionLabel: "Start review",
+      });
+    }
+    if (assessment.status === "Submitted") {
+      items.push({
+        id: `attention-ra-awaiting-${assessment.id}`,
+        type: "risk_assessment_awaiting_approval",
+        title,
+        reason: "Risk assessment is awaiting approval.",
+        priority: ATTENTION_PRIORITY.risk_assessment_awaiting_approval,
+        severity: attentionSeverity(ATTENTION_PRIORITY.risk_assessment_awaiting_approval),
+        siteId: site.siteId,
+        siteName: site.siteName,
+        areaId: site.areaId,
+        areaName: site.areaName,
+        dueDate: "",
+        route: "riskAssessments",
+        recordId: assessment.id,
+        actionLabel: "Review submission",
+      });
+    }
+    if (assessment.status === "Review Due") {
+      items.push({
+        id: `attention-ra-review-due-${assessment.id}`,
+        type: "risk_assessment_review_due_soon",
+        title,
+        reason: "Risk assessment review is due soon.",
+        priority: ATTENTION_PRIORITY.risk_assessment_review_due_soon,
+        severity: attentionSeverity(ATTENTION_PRIORITY.risk_assessment_review_due_soon),
+        siteId: site.siteId,
+        siteName: site.siteName,
+        areaId: site.areaId,
+        areaName: site.areaName,
+        dueDate: trim(assessment.reviewDate),
+        route: "riskAssessments",
+        recordId: assessment.id,
+        actionLabel: "Start review",
+      });
+    }
+    if (isHighOrVeryHighRisk(assessment.highestResidualRiskScore) && assessment.status === "Active") {
+      items.push({
+        id: `attention-ra-high-residual-${assessment.id}`,
+        type: "risk_assessment_very_high",
+        title,
+        reason: "Active risk assessment has High or Very High residual risk requiring review.",
+        priority: ATTENTION_PRIORITY.risk_assessment_very_high,
+        severity: attentionSeverity(ATTENTION_PRIORITY.risk_assessment_very_high),
+        siteId: site.siteId,
+        siteName: site.siteName,
+        areaId: site.areaId,
+        areaName: site.areaName,
+        dueDate: trim(assessment.reviewDate),
+        route: "riskAssessments",
+        recordId: assessment.id,
+        actionLabel: "Review assessment",
+      });
+    }
+    if (Number(assessment.outstandingActions) > 0) {
+      items.push({
+        id: `attention-ra-control-action-${assessment.id}`,
+        type: "risk_assessment_control_action_overdue",
+        title,
+        reason: "Risk assessment has outstanding control actions.",
+        priority: ATTENTION_PRIORITY.risk_assessment_control_action_overdue,
+        severity: attentionSeverity(ATTENTION_PRIORITY.risk_assessment_control_action_overdue),
+        siteId: site.siteId,
+        siteName: site.siteName,
+        areaId: site.areaId,
+        areaName: site.areaName,
+        dueDate: "",
+        route: "riskAssessments",
+        recordId: assessment.id,
+        actionLabel: "Review controls",
+      });
+    }
+  }
 
   for (const incident of incidents) {
     if (!isHighRiskIncident(incident) || !isIncidentAwaitingInvestigation(incident)) continue;
@@ -493,13 +659,24 @@ function buildStatusExplanation(metrics) {
   if (metrics.overdueHealthSafetyActions > 0) {
     parts.push(`${metrics.overdueHealthSafetyActions} overdue corrective action${metrics.overdueHealthSafetyActions === 1 ? "" : "s"}`);
   }
+  if (metrics.overdueRiskAssessments > 0) {
+    parts.push(`${metrics.overdueRiskAssessments} overdue risk assessment${metrics.overdueRiskAssessments === 1 ? "" : "s"}`);
+  }
+  if (metrics.awaitingApprovalRiskAssessments > 0) {
+    parts.push(`${metrics.awaitingApprovalRiskAssessments} risk assessment${metrics.awaitingApprovalRiskAssessments === 1 ? "" : "s"} awaiting approval`);
+  }
+  if (metrics.veryHighResidualRiskAssessments > 0) {
+    parts.push(`${metrics.veryHighResidualRiskAssessments} risk assessment${metrics.veryHighResidualRiskAssessments === 1 ? "" : "s"} with Very High residual risk`);
+  }
   if (parts.length === 0) {
     return "No open Health & Safety issues are recorded in BERT right now.";
   }
   const hasUrgentDrivers =
     metrics.highRiskIncidents > 0 ||
     metrics.equipmentInspectionsOverdue > 0 ||
-    metrics.highPriorityOverdueActions > 0;
+    metrics.highPriorityOverdueActions > 0 ||
+    metrics.veryHighResidualRiskAssessments > 0 ||
+    metrics.overdueRiskAssessments > 0;
   if (!hasUrgentDrivers && metrics.openIncidents > 0) {
     return `There are ${metrics.openIncidents} open incident${metrics.openIncidents === 1 ? "" : "s"}, but no high-risk incidents or overdue equipment inspections.`;
   }
@@ -511,7 +688,9 @@ export function buildHealthSafetyStatusSummary(metrics, attentionItems = [], upd
     metrics.highRiskIncidents > 0 ||
     metrics.equipmentInspectionsOverdue > 0 ||
     metrics.highPriorityOverdueActions > 0 ||
-    metrics.riddorReportableActionsDue > 0;
+    metrics.riddorReportableActionsDue > 0 ||
+    metrics.veryHighResidualRiskAssessments > 0 ||
+    metrics.overdueRiskAssessments > 0;
 
   const attentionDrivers =
     metrics.openIncidents > 0 ||
@@ -520,7 +699,10 @@ export function buildHealthSafetyStatusSummary(metrics, attentionItems = [], upd
     metrics.chemicalsMissingSds > 0 ||
     metrics.equipmentInspectionsDueSoon > 0 ||
     metrics.overdueHealthSafetyActions > 0 ||
-    metrics.coshhReviewsDueSoon > 0;
+    metrics.coshhReviewsDueSoon > 0 ||
+    metrics.awaitingApprovalRiskAssessments > 0 ||
+    metrics.reviewDueRiskAssessments > 0 ||
+    metrics.highResidualRiskAssessments > 0;
 
   let level = "good";
   if (urgentDrivers) level = "urgent";
@@ -548,6 +730,7 @@ export function buildHealthSafetyRecentActivity(input = {}) {
   const riddor = Array.isArray(input.riddor) ? input.riddor : [];
   const coshh = Array.isArray(input.coshh) ? input.coshh : [];
   const assessments = Array.isArray(input.assessments) ? input.assessments : [];
+  const riskAssessments = Array.isArray(input.riskAssessments) ? input.riskAssessments : [];
   const equipment = Array.isArray(input.equipment) ? input.equipment : [];
   const examinations = Array.isArray(input.examinations) ? input.examinations : [];
   const incidentActions = Array.isArray(input.incidentActions) ? input.incidentActions : [];
@@ -686,6 +869,47 @@ export function buildHealthSafetyRecentActivity(input = {}) {
     });
   }
 
+  for (const assessment of riskAssessments) {
+    const site = riskAssessmentSiteLabel(assessment);
+    pushActivity(activity, {
+      id: `activity-ra-created-${assessment.id}`,
+      type: "risk_assessment_created",
+      summary: `Risk assessment created: ${trim(assessment.title) || assessment.assessmentNumber}`,
+      actorName: trim(assessment.createdBy),
+      occurredAt: trim(assessment.createdAt),
+      siteName: site.siteName,
+      areaName: site.areaName,
+      route: "riskAssessments",
+      recordId: assessment.id,
+    });
+    if (trim(assessment.submittedAt)) {
+      pushActivity(activity, {
+        id: `activity-ra-submitted-${assessment.id}`,
+        type: "risk_assessment_submitted",
+        summary: `Risk assessment submitted: ${trim(assessment.title) || assessment.assessmentNumber}`,
+        actorName: trim(assessment.submittedBy),
+        occurredAt: trim(assessment.submittedAt),
+        siteName: site.siteName,
+        areaName: site.areaName,
+        route: "riskAssessments",
+        recordId: assessment.id,
+      });
+    }
+    if (trim(assessment.approvedAt)) {
+      pushActivity(activity, {
+        id: `activity-ra-approved-${assessment.id}`,
+        type: "risk_assessment_approved",
+        summary: `Risk assessment approved: ${trim(assessment.title) || assessment.assessmentNumber}`,
+        actorName: trim(assessment.approvedBy),
+        occurredAt: trim(assessment.approvedAt),
+        siteName: site.siteName,
+        areaName: site.areaName,
+        route: "riskAssessments",
+        recordId: assessment.id,
+      });
+    }
+  }
+
   for (const exam of examinations) {
     pushActivity(activity, {
       id: `activity-examination-${exam.id}`,
@@ -738,6 +962,9 @@ export function buildLegacyHealthSafetySummary(metrics) {
     chemicalsMissingSds: metrics.chemicalsMissingSds,
     equipmentInspectionsOverdue: metrics.equipmentInspectionsOverdue,
     openHealthSafetyActions: metrics.overdueHealthSafetyActions,
+    overdueRiskAssessments: metrics.overdueRiskAssessments,
+    awaitingApprovalRiskAssessments: metrics.awaitingApprovalRiskAssessments,
+    highResidualRiskAssessments: metrics.highResidualRiskAssessments,
   };
 }
 

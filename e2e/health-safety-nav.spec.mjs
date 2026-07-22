@@ -9,6 +9,7 @@ test("Health & Safety nav group contains Incidents and Equipment without Complia
   await expect(hsGroup.getByTestId("nav-item-incidents")).toBeVisible();
   await expect(hsGroup.getByTestId("nav-item-healthSafetyRiddor")).toBeVisible();
   await expect(hsGroup.getByTestId("nav-item-healthSafetyCoshh")).toBeVisible();
+  await expect(hsGroup.getByTestId("nav-item-riskAssessments")).toBeVisible();
   await expect(hsGroup.getByTestId("nav-item-loler")).toHaveText("loler");
 
   const complianceGroup = page.getByTestId("nav-group-compliance");

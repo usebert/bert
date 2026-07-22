@@ -1,0 +1,159 @@
+#!/usr/bin/env node
+/**
+ * verify:risk-assessments — Risk Assessments Phase 2 wiring, schema, risk matrix, and workflow.
+ */
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import {
+  RISK_ASSESSMENT_REQUIRED_TABS,
+  RISK_ASSESSMENTS_TAB_COLUMNS,
+  RISK_ASSESSMENT_HAZARDS_TAB_COLUMNS,
+  RISK_ASSESSMENT_LINKS_TAB_COLUMNS,
+  RISK_ASSESSMENT_REVIEWS_TAB_COLUMNS,
+  calculateRiskScore,
+  getRiskBand,
+  validateRiskValue,
+  summariseAssessmentRisk,
+  deriveRiskAssessmentStatus,
+  bumpVersion,
+  mapRiskAssessmentRecord,
+  mapRiskHazardRecord,
+} from "../shared/risk-assessments.mjs";
+import { buildHealthSafetyMetrics } from "../shared/health-safety-overview.mjs";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const root = path.join(__dirname, "..");
+
+let caseCount = 0;
+function assert(condition, message) {
+  caseCount += 1;
+  if (!condition) {
+    console.error(`FAIL [${caseCount}]: ${message}`);
+    process.exit(1);
+  }
+  console.log(`ok ${caseCount}: ${message}`);
+}
+
+function read(relPath) {
+  return readFileSync(path.join(root, relPath), "utf8");
+}
+
+assert(RISK_ASSESSMENT_REQUIRED_TABS.length === 4, "schema: four required workbook tabs");
+assert(RISK_ASSESSMENTS_TAB_COLUMNS.includes("RiskAssessmentId"), "schema: RiskAssessments includes RiskAssessmentId");
+assert(RISK_ASSESSMENT_HAZARDS_TAB_COLUMNS.includes("HazardId"), "schema: hazards tab includes HazardId");
+assert(RISK_ASSESSMENT_LINKS_TAB_COLUMNS.includes("LinkId"), "schema: links tab includes LinkId");
+assert(RISK_ASSESSMENT_REVIEWS_TAB_COLUMNS.includes("ReviewId"), "schema: reviews tab includes ReviewId");
+
+assert(calculateRiskScore(3, 4) === 12, "risk: likelihood × severity");
+assert(getRiskBand(4).band === "low", "risk: score 4 is Low");
+assert(getRiskBand(9).band === "moderate", "risk: score 9 is Moderate");
+assert(getRiskBand(16).band === "high", "risk: score 16 is High");
+assert(getRiskBand(25).band === "very_high", "risk: score 25 is Very High");
+assert(validateRiskValue(3) === true && validateRiskValue(6) === false, "risk: validate 1–5 values");
+
+const summary = summariseAssessmentRisk([
+  { initialLikelihood: 4, initialSeverity: 4, residualLikelihood: 2, residualSeverity: 3 },
+  { initialLikelihood: 5, initialSeverity: 5, residualLikelihood: 4, residualSeverity: 4 },
+]);
+assert(summary.highestInitialRiskScore === 25, "risk: summarise highest initial");
+assert(summary.highestResidualRiskScore === 16, "risk: summarise highest residual");
+assert(summary.veryHighResidualCount === 0, "risk: summarise very high residual count");
+
+const overdue = mapRiskAssessmentRecord({
+  RiskAssessmentId: "ra-1",
+  Status: "Active",
+  ReviewDate: "2020-01-01",
+});
+assert(deriveRiskAssessmentStatus(overdue, "2026-07-21") === "Overdue", "status: overdue derived from review date");
+
+assert(bumpVersion("1.0", "minor") === "1.1", "version: minor bump");
+assert(bumpVersion("1.1", "major") === "2.0", "version: major bump");
+
+const provisioning = read("server/company-provisioning-service.mjs");
+assert(provisioning.includes("RISK_ASSESSMENT_REQUIRED_TABS"), "provisioning: risk assessment tabs imported");
+
+const coreRoutes = read("server/core-workflow-routes.mjs");
+assert(coreRoutes.includes("installRiskAssessmentRoutes"), "routes: risk assessment routes installed");
+
+const routes = read("server/risk-assessments-routes.mjs");
+assert(routes.includes("/risk-assessments"), "routes: list/create endpoints");
+assert(routes.includes("/submit"), "routes: submit endpoint");
+assert(routes.includes("/approve"), "routes: approve endpoint");
+assert(routes.includes("/reject"), "routes: reject endpoint");
+assert(routes.includes("/new-version"), "routes: new version endpoint");
+
+const service = read("server/risk-assessments-service.mjs");
+assert(service.includes("canApproveRiskAssessment"), "permissions: approve helper");
+assert(service.includes("canSelfApproveRiskAssessment"), "permissions: self-approval guard");
+assert(service.includes("summariseAssessmentRisk"), "service: server recalculates risk summary");
+
+const permissions = read("src/permissions.ts");
+assert(permissions.includes("canAccessRiskAssessments"), "permissions: view helper");
+assert(permissions.includes('if (itemId === "riskAssessments")'), "permissions: nav gated");
+
+const navPresentation = read("src/config/navPresentation.ts");
+const hsBlocks = navPresentation.match(/label: "Health & Safety"[\s\S]*?itemIds: \[([^\]]+)\]/g) || [];
+for (const block of hsBlocks) {
+  assert(block.includes('"riskAssessments"'), "nav: Risk Assessments in Health & Safety group");
+  const order = block.match(/itemIds: \[([^\]]+)\]/)?.[1] || "";
+  const coshhIndex = order.indexOf("healthSafetyCoshh");
+  const riskIndex = order.indexOf("riskAssessments");
+  const equipmentIndex = order.indexOf("loler");
+  assert(coshhIndex >= 0 && riskIndex > coshhIndex && equipmentIndex > riskIndex, "nav: order COSHH → Risk Assessments → Equipment");
+}
+
+const appSource = read("App.tsx");
+assert(appSource.includes('screen === "riskAssessments"'), "App: risk assessments screen routed");
+
+const workspace = read("src/health-safety/RiskAssessmentsWorkspace.tsx");
+assert(workspace.includes("WIZARD_STEPS"), "ui: multi-step wizard");
+assert(workspace.includes("calculateClientRiskScore"), "ui: client risk calculation");
+assert(workspace.includes("RISK_ASSESSMENT_OFFLINE_WRITE_MESSAGE"), "ui: offline write messaging");
+
+const overviewShared = read("shared/health-safety-overview.mjs");
+assert(overviewShared.includes("activeRiskAssessments"), "overview: risk assessment metrics");
+assert(overviewShared.includes("risk_assessment_very_high"), "overview: risk attention types");
+
+const overviewService = read("server/health-safety-service.mjs");
+assert(overviewService.includes("listCompanyRiskAssessments"), "overview service: loads risk assessments");
+
+const search = read("src/services/searchAdapters/globalSearchAdapters.ts");
+assert(search.includes('kind: "risk-assessment"'), "search: risk assessments indexed");
+
+const notifications = read("src/services/notificationAdapters/notificationAdapters.ts");
+assert(notifications.includes("risk-assessment-submitted:"), "notifications: submitted for approval");
+assert(notifications.includes("risk-assessment-review:"), "notifications: review due/overdue");
+
+const metrics = buildHealthSafetyMetrics({
+  todayKey: "2026-07-21",
+  incidents: [],
+  riddor: [],
+  coshh: [],
+  equipment: [],
+  incidentActions: [],
+  riskAssessments: [
+    { id: "ra-1", status: "Active", highestResidualRiskScore: 20, archivedAt: "" },
+    { id: "ra-2", status: "Submitted", highestResidualRiskScore: 6, archivedAt: "" },
+    { id: "ra-3", status: "Overdue", reviewDate: "2020-01-01", highestResidualRiskScore: 12, archivedAt: "" },
+  ],
+});
+assert(metrics.activeRiskAssessments === 1, "overview logic: active risk assessments counted");
+assert(metrics.awaitingApprovalRiskAssessments === 1, "overview logic: awaiting approval counted");
+assert(metrics.overdueRiskAssessments === 1, "overview logic: overdue counted");
+assert(metrics.veryHighResidualRiskAssessments === 1, "overview logic: very high residual counted");
+
+const hazard = mapRiskHazardRecord({
+  HazardId: "h-1",
+  InitialLikelihood: 3,
+  InitialSeverity: 4,
+});
+assert(hazard.initialRiskScore === 12, "mapper: hazard initial score calculated");
+
+assert(!read("App.tsx").includes("VITE_GODMODE"), "security: no VITE secret usage in App");
+
+const pkg = JSON.parse(read("package.json"));
+assert(Boolean(pkg.scripts?.["verify:risk-assessments"]), "package.json defines verify:risk-assessments");
+
+console.log(`verify:risk-assessments passed (${caseCount} checks).`);
