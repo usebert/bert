@@ -35,6 +35,7 @@ import {
   nextAssessmentNumber,
   summariseAssessmentRisk,
   validateRiskValue,
+  validateRiskAssessmentForSubmit,
 } from "../shared/risk-assessments.mjs";
 import { isCompanyInviteActor, isGodmodeInviteSession } from "../shared/company-invite-permissions.mjs";
 import { getUkTodayKey } from "../shared/uk-date-time.mjs";
@@ -87,8 +88,44 @@ const ACTIONS_TAB_COLUMNS = [
   "Schema Version",
 ];
 
+const ensuredRiskAssessmentWorkbooks = new Set();
+const ensuringRiskAssessmentWorkbooks = new Map();
+
 function trim(value) {
   return String(value ?? "").trim();
+}
+
+function createRiskAssessmentTiming(operation, context = {}) {
+  const startedAt = Date.now();
+  const base = {
+    operation,
+    assessmentId: trim(context.assessmentId) || undefined,
+    companyFolderId: trim(context.companyFolderId) || undefined,
+  };
+  return {
+    log(stage, extra = {}) {
+      const entry = {
+        ...base,
+        stage,
+        durationMs: Date.now() - startedAt,
+        totalMs: Date.now() - startedAt,
+        ...extra,
+      };
+      console.info("[risk-assessment:timing]", JSON.stringify(entry));
+    },
+    startedAt,
+  };
+}
+
+function riskAssessmentValidationFailure(validation) {
+  return {
+    ok: false,
+    code: "risk_assessment_validation_failed",
+    error: validation.message || "The risk assessment cannot be submitted.",
+    message: validation.message || "The risk assessment cannot be submitted.",
+    fieldErrors: validation.fieldErrors || [],
+    httpStatus: 400,
+  };
 }
 
 function normalizeEmail(value) {
@@ -193,16 +230,323 @@ function rowToPatch(row, columns) {
 }
 
 export async function ensureRiskAssessmentTabs(auth, deps, masterSheetId) {
-  const ensureTabColumns = resolveEnsureTabColumns(deps);
-  const tabMap = [
-    [RISK_ASSESSMENTS_TAB, RISK_ASSESSMENTS_TAB_COLUMNS],
-    [RISK_ASSESSMENT_HAZARDS_TAB, RISK_ASSESSMENT_HAZARDS_TAB_COLUMNS],
-    [RISK_ASSESSMENT_LINKS_TAB, RISK_ASSESSMENT_LINKS_TAB_COLUMNS],
-    [RISK_ASSESSMENT_REVIEWS_TAB, RISK_ASSESSMENT_REVIEWS_TAB_COLUMNS],
-  ];
-  for (const [tab, columns] of tabMap) {
-    await ensureTabColumns(auth, deps, masterSheetId, tab, columns);
+  const sheetId = trim(masterSheetId);
+  if (!sheetId) return;
+  if (ensuredRiskAssessmentWorkbooks.has(sheetId)) return;
+
+  let inFlight = ensuringRiskAssessmentWorkbooks.get(sheetId);
+  if (!inFlight) {
+    inFlight = (async () => {
+      const ensureTabColumns = resolveEnsureTabColumns(deps);
+      const tabMap = [
+        [RISK_ASSESSMENTS_TAB, RISK_ASSESSMENTS_TAB_COLUMNS],
+        [RISK_ASSESSMENT_HAZARDS_TAB, RISK_ASSESSMENT_HAZARDS_TAB_COLUMNS],
+        [RISK_ASSESSMENT_LINKS_TAB, RISK_ASSESSMENT_LINKS_TAB_COLUMNS],
+        [RISK_ASSESSMENT_REVIEWS_TAB, RISK_ASSESSMENT_REVIEWS_TAB_COLUMNS],
+      ];
+      await Promise.all(tabMap.map(([tab, columns]) => ensureTabColumns(auth, deps, sheetId, tab, columns)));
+      ensuredRiskAssessmentWorkbooks.add(sheetId);
+    })().finally(() => {
+      ensuringRiskAssessmentWorkbooks.delete(sheetId);
+    });
+    ensuringRiskAssessmentWorkbooks.set(sheetId, inFlight);
   }
+  await inFlight;
+}
+
+function buildHazardRow(riskAssessmentId, resolved, actor, input = {}, sortOrder = 1) {
+  const id = trim(input.id) || trim(input.hazardId) || buildRiskHazardId();
+  const initialLikelihood = Number(input.initialLikelihood) || 0;
+  const initialSeverity = Number(input.initialSeverity) || 0;
+  const residualLikelihood = Number(input.residualLikelihood) || 0;
+  const residualSeverity = Number(input.residualSeverity) || 0;
+  const timestamp = nowIso();
+  return {
+    row: {
+      HazardId: id,
+      RiskAssessmentId: trim(riskAssessmentId),
+      CompanyFolderId: resolved.companyFolderId,
+      HazardType: trim(input.hazardType),
+      HazardTitle: trim(input.hazardTitle) || trim(input.hazardType) || "Hazard",
+      HazardDescription: trim(input.hazardDescription),
+      WhoMightBeHarmed: trim(input.whoMightBeHarmed),
+      HowMightTheyBeHarmed: trim(input.howMightTheyBeHarmed),
+      ExistingControls: trim(input.existingControls),
+      InitialLikelihood: String(initialLikelihood || ""),
+      InitialSeverity: String(initialSeverity || ""),
+      InitialRiskScore: String(calculateRiskScore(initialLikelihood, initialSeverity)),
+      AdditionalControls: trim(input.additionalControls),
+      ResidualLikelihood: String(residualLikelihood || ""),
+      ResidualSeverity: String(residualSeverity || ""),
+      ResidualRiskScore: String(calculateRiskScore(residualLikelihood, residualSeverity)),
+      ControlOwnerUserId: trim(input.controlOwnerUserId),
+      ControlOwnerName: trim(input.controlOwnerName),
+      ControlDueDate: trim(input.controlDueDate),
+      ActionRequired: String(Boolean(input.actionRequired)),
+      LinkedActionId: trim(input.linkedActionId),
+      SortOrder: String(Number(input.sortOrder) || sortOrder),
+      Status: "active",
+      CreatedAt: timestamp,
+      CreatedBy: normalizeEmail(actor.email),
+      UpdatedAt: timestamp,
+      UpdatedBy: normalizeEmail(actor.email),
+    },
+    id,
+    mapped: mapRiskHazardRecord({
+      HazardId: id,
+      RiskAssessmentId: trim(riskAssessmentId),
+      CompanyFolderId: resolved.companyFolderId,
+      HazardType: trim(input.hazardType),
+      HazardTitle: trim(input.hazardTitle) || trim(input.hazardType) || "Hazard",
+      HazardDescription: trim(input.hazardDescription),
+      WhoMightBeHarmed: trim(input.whoMightBeHarmed),
+      HowMightTheyBeHarmed: trim(input.howMightTheyBeHarmed),
+      ExistingControls: trim(input.existingControls),
+      InitialLikelihood: String(initialLikelihood || ""),
+      InitialSeverity: String(initialSeverity || ""),
+      InitialRiskScore: String(calculateRiskScore(initialLikelihood, initialSeverity)),
+      AdditionalControls: trim(input.additionalControls),
+      ResidualLikelihood: String(residualLikelihood || ""),
+      ResidualSeverity: String(residualSeverity || ""),
+      ResidualRiskScore: String(calculateRiskScore(residualLikelihood, residualSeverity)),
+      ControlOwnerUserId: trim(input.controlOwnerUserId),
+      ControlOwnerName: trim(input.controlOwnerName),
+      ControlDueDate: trim(input.controlDueDate),
+      ActionRequired: String(Boolean(input.actionRequired)),
+      LinkedActionId: trim(input.linkedActionId),
+      SortOrder: String(Number(input.sortOrder) || sortOrder),
+      Status: "active",
+      CreatedAt: timestamp,
+      CreatedBy: normalizeEmail(actor.email),
+      UpdatedAt: timestamp,
+      UpdatedBy: normalizeEmail(actor.email),
+    }),
+  };
+}
+
+async function readAssessmentRecord(auth, deps, masterSheetId, riskAssessmentId) {
+  await ensureRiskAssessmentTabs(auth, deps, masterSheetId);
+  const records = await readTab(auth, deps, masterSheetId, RISK_ASSESSMENTS_TAB, RISK_ASSESSMENTS_TAB_COLUMNS);
+  const found = records.find((record) => trim(record.RiskAssessmentId) === trim(riskAssessmentId));
+  return found ? mapRiskAssessmentRecord(found) : null;
+}
+
+async function buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, options = {}) {
+  const timer = options.timer || createRiskAssessmentTiming("build-detail", {
+    assessmentId: riskAssessmentId,
+    companyFolderId: resolved.companyFolderId,
+  });
+  if (!actorCanAccessCompanyHealthSafety(actor, resolved.companyFolderId, resolved.alternateCompanyIds)) {
+    return healthSafetyApiFailure("RISK_ASSESSMENT_FORBIDDEN", "You do not have access to this company.", 403);
+  }
+  timer.log("auth");
+  await ensureRiskAssessmentTabs(auth, deps, resolved.masterSheetId);
+  timer.log("ensure-tabs");
+  const [assessmentRecords, hazardRecords, linkRecords, reviewRecords] = await Promise.all([
+    readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, RISK_ASSESSMENTS_TAB_COLUMNS),
+    readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_HAZARDS_TAB, RISK_ASSESSMENT_HAZARDS_TAB_COLUMNS),
+    readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_LINKS_TAB, RISK_ASSESSMENT_LINKS_TAB_COLUMNS),
+    readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_REVIEWS_TAB, RISK_ASSESSMENT_REVIEWS_TAB_COLUMNS),
+  ]);
+  timer.log("read-tabs");
+  const item = assessmentRecords.map((record) => mapRiskAssessmentRecord(record)).find((entry) => entry.id === trim(riskAssessmentId));
+  if (!item) return healthSafetyApiFailure("RISK_ASSESSMENT_NOT_FOUND", "Risk assessment not found.", 404);
+  const hazards = hazardRecords
+    .map((record) => mapRiskHazardRecord(record))
+    .filter((hazard) => hazard.riskAssessmentId === trim(riskAssessmentId) && !hazard.archivedAt)
+    .sort((left, right) => left.sortOrder - right.sortOrder || left.hazardTitle.localeCompare(right.hazardTitle));
+  const links = linkRecords
+    .map((record) => mapRiskLinkRecord(record))
+    .filter((link) => link.riskAssessmentId === trim(riskAssessmentId) && !link.archivedAt);
+  const reviews = reviewRecords
+    .map((record) => mapRiskReviewRecord(record))
+    .filter((review) => review.riskAssessmentId === trim(riskAssessmentId))
+    .sort((left, right) => trim(right.createdAt).localeCompare(trim(left.createdAt)));
+  const summary = summariseAssessmentRisk(hazards);
+  timer.log("assemble");
+  return {
+    ok: true,
+    item: {
+      ...item,
+      ...summary,
+      highestResidualBand: summary.highestResidualBand,
+      highestInitialBand: summary.highestInitialBand,
+    },
+    hazards,
+    links,
+    reviews,
+  };
+}
+
+async function syncRiskAssessmentHazards(auth, deps, resolved, actor, riskAssessmentId, hazardInputs = [], options = {}) {
+  const timer = options.timer || createRiskAssessmentTiming("sync-hazards", {
+    assessmentId: riskAssessmentId,
+    companyFolderId: resolved.companyFolderId,
+  });
+  const assessment = await readAssessmentRecord(auth, deps, resolved.masterSheetId, riskAssessmentId);
+  if (!assessment) return healthSafetyApiFailure("RISK_ASSESSMENT_NOT_FOUND", "Risk assessment not found.", 404);
+  if (!canEditRiskAssessment(actor, assessment)) {
+    return healthSafetyApiFailure("RISK_ASSESSMENT_FORBIDDEN", "You cannot edit hazards on this assessment.", 403);
+  }
+  timer.log("read-assessment");
+  const records = await readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_HAZARDS_TAB, RISK_ASSESSMENT_HAZARDS_TAB_COLUMNS);
+  timer.log("read-hazards");
+  const existingById = new Map();
+  for (const record of records) {
+    const hazard = mapRiskHazardRecord(record);
+    if (hazard.riskAssessmentId === trim(riskAssessmentId) && !hazard.archivedAt) {
+      existingById.set(hazard.id, hazard);
+    }
+  }
+  const inputIds = new Set();
+  const rowsToAppend = [];
+  const mappedResults = [];
+  const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
+  const appendTabRows = resolveAppendTabRows(deps);
+
+  hazardInputs.forEach((input, index) => {
+    const existingId = trim(input.id) || trim(input.hazardId);
+    if (existingId && existingById.has(existingId)) {
+      inputIds.add(existingId);
+      const current = existingById.get(existingId);
+      const initialLikelihood = Number(input.initialLikelihood ?? current.initialLikelihood) || 0;
+      const initialSeverity = Number(input.initialSeverity ?? current.initialSeverity) || 0;
+      const residualLikelihood = Number(input.residualLikelihood ?? current.residualLikelihood) || 0;
+      const residualSeverity = Number(input.residualSeverity ?? current.residualSeverity) || 0;
+      mappedResults.push(
+        mapRiskHazardRecord({
+          HazardId: existingId,
+          RiskAssessmentId: trim(riskAssessmentId),
+          CompanyFolderId: resolved.companyFolderId,
+          HazardType: trim(input.hazardType ?? current.hazardType),
+          HazardTitle: trim(input.hazardTitle ?? current.hazardTitle),
+          HazardDescription: trim(input.hazardDescription ?? current.hazardDescription),
+          WhoMightBeHarmed: trim(input.whoMightBeHarmed ?? current.whoMightBeHarmed),
+          HowMightTheyBeHarmed: trim(input.howMightTheyBeHarmed ?? current.howMightTheyBeHarmed),
+          ExistingControls: trim(input.existingControls ?? current.existingControls),
+          InitialLikelihood: String(initialLikelihood || ""),
+          InitialSeverity: String(initialSeverity || ""),
+          InitialRiskScore: String(calculateRiskScore(initialLikelihood, initialSeverity)),
+          AdditionalControls: trim(input.additionalControls ?? current.additionalControls),
+          ResidualLikelihood: String(residualLikelihood || ""),
+          ResidualSeverity: String(residualSeverity || ""),
+          ResidualRiskScore: String(calculateRiskScore(residualLikelihood, residualSeverity)),
+          ControlOwnerUserId: trim(input.controlOwnerUserId ?? current.controlOwnerUserId),
+          ControlOwnerName: trim(input.controlOwnerName ?? current.controlOwnerName),
+          ControlDueDate: trim(input.controlDueDate ?? current.controlDueDate),
+          ActionRequired: String(Boolean(input.actionRequired ?? current.actionRequired)),
+          LinkedActionId: trim(input.linkedActionId ?? current.linkedActionId),
+          SortOrder: String(Number(input.sortOrder ?? current.sortOrder) || index + 1),
+          Status: "active",
+          UpdatedAt: nowIso(),
+          UpdatedBy: normalizeEmail(actor.email),
+        }),
+      );
+      return;
+    }
+    const built = buildHazardRow(riskAssessmentId, resolved, actor, input, index + 1);
+    inputIds.add(built.id);
+    rowsToAppend.push(built.row);
+    mappedResults.push(built.mapped);
+  });
+
+  if (rowsToAppend.length > 0) {
+    await appendTabRows(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_HAZARDS_TAB, rowsToAppend, {
+      expectedHeaders: RISK_ASSESSMENT_HAZARDS_TAB_COLUMNS,
+    });
+  }
+  timer.log("append-hazards", { appended: rowsToAppend.length });
+
+  for (const [hazardId, hazard] of existingById.entries()) {
+    if (inputIds.has(hazardId)) continue;
+    await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_HAZARDS_TAB, "HazardId", hazardId, {
+      Status: "archived",
+      ArchivedAt: nowIso(),
+      ArchivedBy: normalizeEmail(actor.email),
+      UpdatedAt: nowIso(),
+      UpdatedBy: normalizeEmail(actor.email),
+    });
+  }
+
+  for (const input of hazardInputs) {
+    const existingId = trim(input.id) || trim(input.hazardId);
+    if (!existingId || !existingById.has(existingId)) continue;
+    const current = existingById.get(existingId);
+    const initialLikelihood = Number(input.initialLikelihood ?? current.initialLikelihood) || 0;
+    const initialSeverity = Number(input.initialSeverity ?? current.initialSeverity) || 0;
+    const residualLikelihood = Number(input.residualLikelihood ?? current.residualLikelihood) || 0;
+    const residualSeverity = Number(input.residualSeverity ?? current.residualSeverity) || 0;
+    await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_HAZARDS_TAB, "HazardId", existingId, {
+      HazardType: trim(input.hazardType ?? current.hazardType),
+      HazardTitle: trim(input.hazardTitle ?? current.hazardTitle),
+      HazardDescription: trim(input.hazardDescription ?? current.hazardDescription),
+      WhoMightBeHarmed: trim(input.whoMightBeHarmed ?? current.whoMightBeHarmed),
+      HowMightTheyBeHarmed: trim(input.howMightTheyBeHarmed ?? current.howMightTheyBeHarmed),
+      ExistingControls: trim(input.existingControls ?? current.existingControls),
+      InitialLikelihood: String(initialLikelihood || ""),
+      InitialSeverity: String(initialSeverity || ""),
+      InitialRiskScore: String(calculateRiskScore(initialLikelihood, initialSeverity)),
+      AdditionalControls: trim(input.additionalControls ?? current.additionalControls),
+      ResidualLikelihood: String(residualLikelihood || ""),
+      ResidualSeverity: String(residualSeverity || ""),
+      ResidualRiskScore: String(calculateRiskScore(residualLikelihood, residualSeverity)),
+      ControlOwnerUserId: trim(input.controlOwnerUserId ?? current.controlOwnerUserId),
+      ControlOwnerName: trim(input.controlOwnerName ?? current.controlOwnerName),
+      ControlDueDate: trim(input.controlDueDate ?? current.controlDueDate),
+      ActionRequired: String(Boolean(input.actionRequired ?? current.actionRequired)),
+      LinkedActionId: trim(input.linkedActionId ?? current.linkedActionId),
+      SortOrder: String(Number(input.sortOrder ?? current.sortOrder) || 1),
+      UpdatedAt: nowIso(),
+      UpdatedBy: normalizeEmail(actor.email),
+    });
+  }
+  timer.log("patch-hazards", { patched: hazardInputs.filter((input) => trim(input.id) || trim(input.hazardId)).length });
+
+  const summary = summariseAssessmentRisk(mappedResults);
+  await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, "RiskAssessmentId", riskAssessmentId, {
+    ...recalculateAssessmentRiskFields(mappedResults),
+    UpdatedAt: nowIso(),
+    UpdatedBy: normalizeEmail(actor.email),
+  });
+  timer.log("patch-assessment-risk");
+  return { ok: true, hazards: mappedResults, summary };
+}
+
+async function patchAssessmentFieldsOnly(auth, deps, resolved, actor, riskAssessmentId, input = {}) {
+  const assessment = await readAssessmentRecord(auth, deps, resolved.masterSheetId, riskAssessmentId);
+  if (!assessment) return healthSafetyApiFailure("RISK_ASSESSMENT_NOT_FOUND", "Risk assessment not found.", 404);
+  if (!canEditRiskAssessment(actor, assessment)) {
+    return healthSafetyApiFailure("RISK_ASSESSMENT_FORBIDDEN", "You do not have permission to edit this assessment.", 403);
+  }
+  const patch = rowToPatch(
+    {
+      Title: input.title ?? assessment.title,
+      Description: input.description ?? assessment.description,
+      AssessmentType: input.assessmentType ?? assessment.assessmentType,
+      Activity: input.activity ?? assessment.activity,
+      Department: input.department ?? assessment.department,
+      SiteId: input.siteId ?? assessment.siteId,
+      AreaId: input.areaId ?? assessment.areaId,
+      OwnerUserId: input.ownerUserId ?? assessment.ownerUserId,
+      OwnerName: input.ownerName ?? assessment.ownerName,
+      AssessorUserId: input.assessorUserId ?? assessment.assessorUserId,
+      AssessorName: input.assessorName ?? assessment.assessorName,
+      AssessmentDate: input.assessmentDate ?? assessment.assessmentDate,
+      ReviewDate: input.reviewDate ?? assessment.reviewDate,
+      NextReviewReason: input.nextReviewReason ?? assessment.nextReviewReason,
+      PeopleAtRisk: input.peopleAtRisk ?? assessment.peopleAtRisk,
+      ExistingGeneralControls: input.existingGeneralControls ?? assessment.existingGeneralControls,
+      EmergencyArrangements: input.emergencyArrangements ?? assessment.emergencyArrangements,
+      PpeSummary: input.ppeSummary ?? assessment.ppeSummary,
+      Status: input.status ?? assessment.status,
+      UpdatedAt: nowIso(),
+      UpdatedBy: normalizeEmail(actor.email),
+    },
+    RISK_ASSESSMENTS_TAB_COLUMNS,
+  );
+  const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
+  await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, "RiskAssessmentId", riskAssessmentId, patch);
+  return { ok: true, item: { ...assessment, ...Object.fromEntries(Object.entries(patch).map(([key, value]) => [key, value])) } };
 }
 
 function recalculateAssessmentRiskFields(hazards = []) {
@@ -258,22 +602,7 @@ async function createActionForHazard(auth, deps, resolved, actor, assessment, ha
 }
 
 function validateAssessmentForSubmit(assessment, hazards) {
-  if (!trim(assessment.title)) return "Title is required.";
-  if (!trim(assessment.reviewDate)) return "Review date is required.";
-  const activeHazards = hazards.filter((h) => !h.archivedAt);
-  if (activeHazards.length === 0) return "At least one hazard is required.";
-  for (const hazard of activeHazards) {
-    if (!validateRiskValue(hazard.initialLikelihood) || !validateRiskValue(hazard.initialSeverity)) {
-      return `Initial risk scores are required for hazard "${hazard.hazardTitle || hazard.id}".`;
-    }
-    if (!validateRiskValue(hazard.residualLikelihood) || !validateRiskValue(hazard.residualSeverity)) {
-      return `Residual risk scores are required for hazard "${hazard.hazardTitle || hazard.id}".`;
-    }
-    if (hazard.actionRequired && !trim(hazard.controlOwnerName)) {
-      return `Control owner is required for hazard "${hazard.hazardTitle || hazard.id}".`;
-    }
-  }
-  return "";
+  return validateRiskAssessmentForSubmit(assessment, hazards, { todayKey: getUkTodayKey() });
 }
 
 export async function listCompanyRiskAssessments(auth, deps, resolved, actor, options = {}) {
@@ -313,39 +642,18 @@ export async function listCompanyRiskAssessments(auth, deps, resolved, actor, op
 }
 
 export async function getCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId) {
-  const listed = await listCompanyRiskAssessments(auth, deps, resolved, actor, { includeArchived: true });
-  if (!listed.ok) return listed;
-  const item = listed.items.find((entry) => entry.id === trim(riskAssessmentId));
-  if (!item) return healthSafetyApiFailure("RISK_ASSESSMENT_NOT_FOUND", "Risk assessment not found.", 404);
-  const [hazards, links, reviews] = await Promise.all([
-    listRiskAssessmentHazards(auth, deps, resolved, actor, item.id, { includeArchived: true }),
-    listRiskAssessmentLinks(auth, deps, resolved, actor, item.id, { includeArchived: true }),
-    listRiskAssessmentReviews(auth, deps, resolved, actor, item.id),
-  ]);
-  if (!hazards.ok) return hazards;
-  if (!links.ok) return links;
-  if (!reviews.ok) return reviews;
-  const summary = summariseAssessmentRisk(hazards.items);
-  return {
-    ok: true,
-    item: {
-      ...item,
-      ...summary,
-      highestResidualBand: summary.highestResidualBand,
-      highestInitialBand: summary.highestInitialBand,
-    },
-    hazards: hazards.items,
-    links: links.items,
-    reviews: reviews.items,
-  };
+  return buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId);
 }
 
 export async function createCompanyRiskAssessment(auth, deps, resolved, actor, input = {}) {
+  const timer = createRiskAssessmentTiming("create", { companyFolderId: resolved.companyFolderId });
   if (!canCreateRiskAssessment(actor)) {
     return healthSafetyApiFailure("RISK_ASSESSMENT_FORBIDDEN", "You do not have permission to create risk assessments.", 403);
   }
   await ensureRiskAssessmentTabs(auth, deps, resolved.masterSheetId);
+  timer.log("ensure-tabs");
   const existing = await readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, RISK_ASSESSMENTS_TAB_COLUMNS);
+  timer.log("read-assessments");
   const assessmentNumber = nextAssessmentNumber(existing.map((row) => trim(row.AssessmentNumber)));
   const id = buildRiskAssessmentId();
   const timestamp = nowIso();
@@ -382,11 +690,46 @@ export async function createCompanyRiskAssessment(auth, deps, resolved, actor, i
   await appendTabRows(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, [row], {
     expectedHeaders: RISK_ASSESSMENTS_TAB_COLUMNS,
   });
-  return getCompanyRiskAssessment(auth, deps, resolved, actor, id);
+  timer.log("append-assessment");
+  if (Array.isArray(input.hazards) && input.hazards.length > 0) {
+    const synced = await syncRiskAssessmentHazards(auth, deps, resolved, actor, id, input.hazards, { timer });
+    if (!synced.ok) return synced;
+  }
+  timer.log("complete");
+  return buildAssessmentDetail(auth, deps, resolved, actor, id, { timer });
+}
+
+export async function saveCompanyRiskAssessmentDraft(auth, deps, resolved, actor, riskAssessmentId, input = {}) {
+  const timer = createRiskAssessmentTiming("save-draft", {
+    assessmentId: riskAssessmentId,
+    companyFolderId: resolved.companyFolderId,
+  });
+  const id = trim(riskAssessmentId);
+  if (!id) {
+    const created = await createCompanyRiskAssessment(auth, deps, resolved, actor, input);
+    timer.log("complete");
+    return created;
+  }
+  const patched = await patchAssessmentFieldsOnly(auth, deps, resolved, actor, id, input);
+  if (!patched.ok) return patched;
+  timer.log("patch-assessment");
+  if (Array.isArray(input.hazards)) {
+    const synced = await syncRiskAssessmentHazards(auth, deps, resolved, actor, id, input.hazards, { timer });
+    if (!synced.ok) return synced;
+  }
+  timer.log("complete");
+  return buildAssessmentDetail(auth, deps, resolved, actor, id, { timer });
 }
 
 export async function patchCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId, input = {}) {
-  const current = await getCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId);
+  if (Array.isArray(input.hazards)) {
+    return saveCompanyRiskAssessmentDraft(auth, deps, resolved, actor, riskAssessmentId, input);
+  }
+  const timer = createRiskAssessmentTiming("patch", {
+    assessmentId: riskAssessmentId,
+    companyFolderId: resolved.companyFolderId,
+  });
+  const current = await buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer });
   if (!current.ok) return current;
   if (!canEditRiskAssessment(actor, current.item)) {
     return healthSafetyApiFailure("RISK_ASSESSMENT_FORBIDDEN", "You do not have permission to edit this assessment.", 403);
@@ -422,6 +765,7 @@ export async function patchCompanyRiskAssessment(auth, deps, resolved, actor, ri
   );
   const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
   await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, "RiskAssessmentId", riskAssessmentId, patch);
+  timer.log("patch-assessment");
   if (input.createActions === true) {
     for (const hazard of hazards) {
       if (hazard.actionRequired && !trim(hazard.linkedActionId)) {
@@ -432,17 +776,37 @@ export async function patchCompanyRiskAssessment(auth, deps, resolved, actor, ri
       }
     }
   }
-  return getCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId);
+  timer.log("complete");
+  return buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer });
 }
 
 export async function submitCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId) {
-  const current = await getCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId);
+  const timer = createRiskAssessmentTiming("submit", {
+    assessmentId: riskAssessmentId,
+    companyFolderId: resolved.companyFolderId,
+  });
+  const current = await buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer });
   if (!current.ok) return current;
+  if (current.item.status === "Submitted") {
+    timer.log("already-submitted");
+    return { ...current, alreadySubmitted: true };
+  }
+  if (!canSubmitRiskAssessmentStatus(current.item.status)) {
+    timer.log("validation-failed");
+    return riskAssessmentValidationFailure({
+      ok: false,
+      message: "The risk assessment cannot be submitted.",
+      fieldErrors: [{ step: "details", field: "status", message: "This assessment is not in a submittable status." }],
+    });
+  }
   if (!canSubmitRiskAssessment(actor, current.item)) {
     return healthSafetyApiFailure("RISK_ASSESSMENT_FORBIDDEN", "You cannot submit this assessment.", 403);
   }
-  const validationError = validateAssessmentForSubmit(current.item, current.hazards || []);
-  if (validationError) return healthSafetyApiFailure("RISK_ASSESSMENT_VALIDATION", validationError, 400);
+  const validation = validateAssessmentForSubmit(current.item, current.hazards || []);
+  if (!validation.ok) {
+    timer.log("validation-failed");
+    return riskAssessmentValidationFailure(validation);
+  }
   const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
   const timestamp = nowIso();
   await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, "RiskAssessmentId", riskAssessmentId, {
@@ -453,15 +817,21 @@ export async function submitCompanyRiskAssessment(auth, deps, resolved, actor, r
     UpdatedBy: normalizeEmail(actor.email),
     ...recalculateAssessmentRiskFields(current.hazards),
   });
+  timer.log("patch-status");
   for (const hazard of current.hazards || []) {
     if (hazard.actionRequired && !trim(hazard.linkedActionId)) {
       const actionResult = await createActionForHazard(auth, deps, resolved, actor, current.item, hazard);
       if (actionResult.actionId) {
-        await patchRiskAssessmentHazard(auth, deps, resolved, actor, hazard.id, { linkedActionId: actionResult.actionId });
+        await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_HAZARDS_TAB, "HazardId", hazard.id, {
+          LinkedActionId: actionResult.actionId,
+          UpdatedAt: timestamp,
+          UpdatedBy: normalizeEmail(actor.email),
+        });
       }
     }
   }
-  return getCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId);
+  timer.log("complete");
+  return buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer });
 }
 
 export async function approveCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId, input = {}) {
@@ -688,53 +1058,19 @@ export async function listRiskAssessmentHazards(auth, deps, resolved, actor, ris
 }
 
 export async function createRiskAssessmentHazard(auth, deps, resolved, actor, riskAssessmentId, input = {}) {
-  const current = await getCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId);
-  if (!current.ok) return current;
-  if (!canEditRiskAssessment(actor, current.item)) {
+  const timer = createRiskAssessmentTiming("create-hazard", {
+    assessmentId: riskAssessmentId,
+    companyFolderId: resolved.companyFolderId,
+  });
+  const assessment = await readAssessmentRecord(auth, deps, resolved.masterSheetId, riskAssessmentId);
+  if (!assessment) return healthSafetyApiFailure("RISK_ASSESSMENT_NOT_FOUND", "Risk assessment not found.", 404);
+  if (!canEditRiskAssessment(actor, assessment)) {
     return healthSafetyApiFailure("RISK_ASSESSMENT_FORBIDDEN", "You cannot add hazards to this assessment.", 403);
   }
-  const initialLikelihood = Number(input.initialLikelihood) || 0;
-  const initialSeverity = Number(input.initialSeverity) || 0;
-  const residualLikelihood = Number(input.residualLikelihood) || 0;
-  const residualSeverity = Number(input.residualSeverity) || 0;
-  const id = buildRiskHazardId();
-  const timestamp = nowIso();
-  const row = {
-    HazardId: id,
-    RiskAssessmentId: trim(riskAssessmentId),
-    CompanyFolderId: resolved.companyFolderId,
-    HazardType: trim(input.hazardType),
-    HazardTitle: trim(input.hazardTitle) || trim(input.hazardType) || "Hazard",
-    HazardDescription: trim(input.hazardDescription),
-    WhoMightBeHarmed: trim(input.whoMightBeHarmed),
-    HowMightTheyBeHarmed: trim(input.howMightTheyBeHarmed),
-    ExistingControls: trim(input.existingControls),
-    InitialLikelihood: String(initialLikelihood || ""),
-    InitialSeverity: String(initialSeverity || ""),
-    InitialRiskScore: String(calculateRiskScore(initialLikelihood, initialSeverity)),
-    AdditionalControls: trim(input.additionalControls),
-    ResidualLikelihood: String(residualLikelihood || ""),
-    ResidualSeverity: String(residualSeverity || ""),
-    ResidualRiskScore: String(calculateRiskScore(residualLikelihood, residualSeverity)),
-    ControlOwnerUserId: trim(input.controlOwnerUserId),
-    ControlOwnerName: trim(input.controlOwnerName),
-    ControlDueDate: trim(input.controlDueDate),
-    ActionRequired: String(Boolean(input.actionRequired)),
-    LinkedActionId: trim(input.linkedActionId),
-    SortOrder: String(Number(input.sortOrder) || (current.hazards?.length || 0) + 1),
-    Status: "active",
-    CreatedAt: timestamp,
-    CreatedBy: normalizeEmail(actor.email),
-    UpdatedAt: timestamp,
-    UpdatedBy: normalizeEmail(actor.email),
-  };
-  const appendTabRows = resolveAppendTabRows(deps);
-  await appendTabRows(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_HAZARDS_TAB, [row], {
-    expectedHeaders: RISK_ASSESSMENT_HAZARDS_TAB_COLUMNS,
-  });
-  await patchCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId, { recalculateRisk: true });
-  const hazards = await listRiskAssessmentHazards(auth, deps, resolved, actor, riskAssessmentId, { includeArchived: true });
-  const item = hazards.items.find((entry) => entry.id === id);
+  timer.log("read-assessment");
+  const synced = await syncRiskAssessmentHazards(auth, deps, resolved, actor, riskAssessmentId, [input], { timer });
+  if (!synced.ok) return synced;
+  const item = synced.hazards[synced.hazards.length - 1];
   return { ok: true, item };
 }
 

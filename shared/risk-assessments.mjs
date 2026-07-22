@@ -510,6 +510,64 @@ export function mapRiskReviewRecord(record = {}) {
   };
 }
 
+export function validateRiskAssessmentForSubmit(assessment = {}, hazards = [], options = {}) {
+  const todayKey = trim(options.todayKey) || getUkTodayKey();
+  const fieldErrors = [];
+  const push = (step, field, message) => fieldErrors.push({ step, field, message });
+
+  if (!trim(assessment.title)) push("details", "title", "Title is required.");
+  if (!trim(assessment.assessmentType)) push("details", "assessmentType", "Assessment type is required.");
+  if (!trim(assessment.assessmentDate)) push("details", "assessmentDate", "Assessment date is required.");
+  if (!trim(assessment.reviewDate)) push("details", "reviewDate", "Review date is required.");
+
+  const assessmentDate = trim(assessment.assessmentDate);
+  const reviewDate = trim(assessment.reviewDate);
+  if (assessmentDate && reviewDate && reviewDate <= assessmentDate) {
+    push("details", "reviewDate", "Review date must be after the assessment date.");
+  }
+  if (reviewDate && reviewDate < todayKey) {
+    push("details", "reviewDate", "Review date cannot be in the past.");
+  }
+
+  const activeHazards = (Array.isArray(hazards) ? hazards : []).filter((hazard) => !trim(hazard.archivedAt));
+  if (activeHazards.length === 0) {
+    push("hazards", "hazards", "At least one hazard is required.");
+  }
+
+  for (const hazard of activeHazards) {
+    const label = trim(hazard.hazardTitle) || trim(hazard.hazardType) || "Hazard";
+    if (!trim(hazard.hazardTitle) && !trim(hazard.hazardType)) {
+      push("hazards", "hazardTitle", "Hazard title is required.");
+    }
+    if (!trim(hazard.whoMightBeHarmed)) {
+      push("hazards", "whoMightBeHarmed", `Who might be harmed is required for "${label}".`);
+    }
+    if (!trim(hazard.existingControls)) {
+      push("hazards", "existingControls", `Existing controls are required for "${label}".`);
+    }
+    if (!validateRiskValue(hazard.initialLikelihood) || !validateRiskValue(hazard.initialSeverity)) {
+      push("controls", "initialRisk", `Initial risk scores are required for "${label}".`);
+    }
+    if (!validateRiskValue(hazard.residualLikelihood) || !validateRiskValue(hazard.residualSeverity)) {
+      push("residual", "residualRisk", `Residual risk scores are required for "${label}".`);
+    }
+    if (parseBool(hazard.actionRequired)) {
+      if (!trim(hazard.controlOwnerName)) {
+        push("controls", "controlOwnerName", `Control owner is required for "${label}".`);
+      }
+      if (!trim(hazard.controlDueDate)) {
+        push("controls", "controlDueDate", `Control due date is required for "${label}".`);
+      }
+    }
+  }
+
+  return {
+    ok: fieldErrors.length === 0,
+    message: fieldErrors.length ? "The risk assessment cannot be submitted." : "",
+    fieldErrors,
+  };
+}
+
 export function canEditRiskAssessmentStatus(status) {
   return ["Draft", "Rejected"].includes(status);
 }

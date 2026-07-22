@@ -167,9 +167,11 @@ export type RiskAssessmentInput = {
   existingGeneralControls?: string;
   emergencyArrangements?: string;
   ppeSummary?: string;
+  hazards?: Array<RiskHazardInput & { id?: string }>;
 };
 
 export type RiskHazardInput = {
+  id?: string;
   hazardType?: string;
   hazardTitle?: string;
   hazardDescription?: string;

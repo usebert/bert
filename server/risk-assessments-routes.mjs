@@ -24,6 +24,7 @@ import {
   rejectCompanyRiskAssessment,
   restoreCompanyRiskAssessment,
   reviewCompanyRiskAssessment,
+  saveCompanyRiskAssessmentDraft,
   submitCompanyRiskAssessment,
 } from "./risk-assessments-service.mjs";
 
@@ -162,6 +163,25 @@ export function installRiskAssessmentRoutes(app, deps) {
   app.patch("/api/companies/:companyFolderId/risk-assessments/:riskAssessmentId", (req, res) => {
     runRoute(req, res, { manage: true, label: "Patch risk assessment" }, ({ authed, actor, resolved }) =>
       patchCompanyRiskAssessment(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        resolved,
+        actor,
+        req.params.riskAssessmentId,
+        req.body || {},
+      ),
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/risk-assessments/draft", (req, res) => {
+    runRoute(req, res, { manage: true, label: "Save risk assessment draft" }, ({ authed, actor, resolved }) =>
+      saveCompanyRiskAssessmentDraft(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor, "", req.body || {}),
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/risk-assessments/:riskAssessmentId/save-draft", (req, res) => {
+    runRoute(req, res, { manage: true, label: "Save risk assessment draft" }, ({ authed, actor, resolved }) =>
+      saveCompanyRiskAssessmentDraft(
         authed,
         { ...registryDeps, ...scheduleDeps },
         resolved,

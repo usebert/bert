@@ -18,21 +18,69 @@ import type {
 export const RISK_ASSESSMENT_LOAD_USER_MESSAGE = "Could not load risk assessments.";
 export const RISK_ASSESSMENT_OFFLINE_WRITE_MESSAGE =
   "You appear to be offline. Risk assessment changes need a connection — please try again when you are back online.";
+export const RISK_ASSESSMENT_VALIDATION_USER_MESSAGE =
+  "The assessment needs more information before it can be submitted.";
+export const RISK_ASSESSMENT_TIMEOUT_USER_MESSAGE =
+  "BERT could not finish saving this assessment in time. Your entered information is still available. Try saving the draft again.";
+export const RISK_ASSESSMENT_CONNECTIVITY_USER_MESSAGE =
+  "The assessment could not be saved because the service could not be reached.";
+
+export type RiskAssessmentFieldError = {
+  step: string;
+  field: string;
+  message: string;
+};
+
+export class RiskAssessmentRequestError extends Error {
+  code?: string;
+  fieldErrors: RiskAssessmentFieldError[];
+
+  constructor(message: string, options: { code?: string; fieldErrors?: RiskAssessmentFieldError[] } = {}) {
+    super(message);
+    this.name = "RiskAssessmentRequestError";
+    this.code = options.code;
+    this.fieldErrors = options.fieldErrors || [];
+  }
+}
+
+function mapRiskAssessmentError(payload: Record<string, unknown>, response: Response) {
+  const code = String(payload?.code || "").trim();
+  const baseMessage = String(payload?.error || payload?.message || "Request failed.");
+  const details = String(payload?.details || "").trim();
+  const combined = `${baseMessage} ${details}`.trim();
+
+  if (code === "risk_assessment_validation_failed") {
+    throw new RiskAssessmentRequestError(RISK_ASSESSMENT_VALIDATION_USER_MESSAGE, {
+      code,
+      fieldErrors: Array.isArray(payload?.fieldErrors) ? (payload.fieldErrors as RiskAssessmentFieldError[]) : [],
+    });
+  }
+  if (/timed out|90000/i.test(combined)) {
+    throw new Error(RISK_ASSESSMENT_TIMEOUT_USER_MESSAGE);
+  }
+  if (!response.ok && response.status >= 500) {
+    throw new Error(RISK_ASSESSMENT_CONNECTIVITY_USER_MESSAGE);
+  }
+  throw new Error(details ? `${baseMessage} ${details}` : baseMessage);
+}
 
 async function riskAssessmentRequest(path: string, init?: RequestInit) {
-  const response = await fetch(apiUrl(path), {
-    credentials: "include",
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(apiUrl(path), {
+      credentials: "include",
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.headers || {}),
+      },
+    });
+  } catch {
+    throw new Error(RISK_ASSESSMENT_CONNECTIVITY_USER_MESSAGE);
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload?.ok === false) {
-    const baseMessage = String(payload?.error || payload?.message || "Request failed.");
-    const details = String(payload?.details || "").trim();
-    throw new Error(details ? `${baseMessage} ${details}` : baseMessage);
+    mapRiskAssessmentError(payload, response);
   }
   return payload;
 }
@@ -123,11 +171,29 @@ export async function createRiskAssessment(companyFolderId: string, input: RiskA
   return payload;
 }
 
+export async function saveRiskAssessmentDraft(
+  companyFolderId: string,
+  riskAssessmentId: string | null | undefined,
+  input: Partial<RiskAssessmentInput> & { hazards?: Array<RiskHazardInput & { id?: string }> },
+) {
+  const folderId = cacheKey(companyFolderId);
+  const id = String(riskAssessmentId || "").trim();
+  const path = id
+    ? `/api/companies/${encodeURIComponent(folderId)}/risk-assessments/${encodeURIComponent(id)}/save-draft`
+    : `/api/companies/${encodeURIComponent(folderId)}/risk-assessments/draft`;
+  const payload = await riskAssessmentRequest(path, { method: "POST", body: JSON.stringify(input) });
+  invalidateRiskAssessmentCache(companyFolderId, id || payload?.item?.id);
+  return payload as { ok: boolean } & RiskAssessmentDetail;
+}
+
 export async function updateRiskAssessment(
   companyFolderId: string,
   riskAssessmentId: string,
-  input: Partial<RiskAssessmentInput> & { createActions?: boolean; recalculateRisk?: boolean },
+  input: Partial<RiskAssessmentInput> & { createActions?: boolean; recalculateRisk?: boolean; hazards?: Array<RiskHazardInput & { id?: string }> },
 ) {
+  if (Array.isArray(input.hazards)) {
+    return saveRiskAssessmentDraft(companyFolderId, riskAssessmentId, input);
+  }
   const payload = await riskAssessmentRequest(
     `/api/companies/${encodeURIComponent(companyFolderId)}/risk-assessments/${encodeURIComponent(riskAssessmentId)}`,
     { method: "PATCH", body: JSON.stringify(input) },

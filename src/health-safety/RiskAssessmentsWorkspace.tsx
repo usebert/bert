@@ -16,8 +16,6 @@ import {
   approveRiskAssessment,
   archiveRiskAssessment,
   calculateClientRiskScore,
-  createRiskAssessment,
-  createRiskHazard,
   createRiskLink,
   fetchRiskAssessmentDetail,
   fetchRiskAssessmentList,
@@ -26,11 +24,12 @@ import {
   rejectRiskAssessment,
   restoreRiskAssessment,
   reviewRiskAssessment,
+  RiskAssessmentRequestError,
   RISK_ASSESSMENT_LOAD_USER_MESSAGE,
   RISK_ASSESSMENT_OFFLINE_WRITE_MESSAGE,
+  RISK_ASSESSMENT_VALIDATION_USER_MESSAGE,
+  saveRiskAssessmentDraft,
   submitRiskAssessment,
-  updateRiskAssessment,
-  updateRiskHazard,
 } from "../services/riskAssessmentService";
 import type { RiskAssessmentListTab, RiskAssessmentRecord, RiskHazardInput, RiskHazardRecord } from "../types/riskAssessment";
 import {
@@ -50,6 +49,14 @@ import {
   SEVERITY_OPTIONS,
   WIZARD_STEPS,
 } from "./constants/riskAssessmentConstants";
+import {
+  buildWizardHazardDraft,
+  validateRiskAssessmentSubmission,
+  wizardDraftFromServerHazard,
+  wizardHazardToInput,
+  wizardStepIndexForField,
+  type WizardHazardDraft,
+} from "./adapters/riskAssessmentValidation";
 import { RiskAssessmentPrintView } from "./RiskAssessmentPrintView";
 
 export type RiskAssessmentsWorkspaceProps = {
@@ -143,7 +150,10 @@ export function RiskAssessmentsWorkspace({
     emergencyArrangements: "",
     ppeSummary: "",
   });
-  const [draftHazards, setDraftHazards] = useState<RiskHazardRecord[]>([]);
+  const [draftHazards, setDraftHazards] = useState<WizardHazardDraft[]>([]);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [progressMessage, setProgressMessage] = useState("");
   const [hazardDraft, setHazardDraft] = useState<RiskHazardInput>({
     hazardType: HAZARD_LIBRARY[0],
     hazardTitle: "",
@@ -214,6 +224,25 @@ export function RiskAssessmentsWorkspace({
 
   const summary = useMemo(() => buildRiskAssessmentSummary(records), [records]);
 
+  const submissionValidation = useMemo(
+    () => validateRiskAssessmentSubmission(form, draftHazards),
+    [form, draftHazards],
+  );
+
+  const buildDraftPayload = () => ({
+    ...form,
+    peopleAtRisk: [...form.peopleAtRisk, form.peopleAtRiskOther].filter(Boolean).join(", "),
+    hazards: draftHazards.map((hazard, index) => ({
+      ...wizardHazardToInput(hazard),
+      sortOrder: index + 1,
+    })),
+  });
+
+  const applySavedHazards = (hazards: RiskHazardRecord[] | undefined) => {
+    if (!Array.isArray(hazards) || hazards.length === 0) return;
+    setDraftHazards(hazards.map((hazard) => wizardDraftFromServerHazard(hazard)));
+  };
+
   const guardWrite = () => {
     if (isWriteBlocked) {
       setActionError(RISK_ASSESSMENT_OFFLINE_WRITE_MESSAGE);
@@ -252,62 +281,97 @@ export function RiskAssessmentsWorkspace({
     setView("detail");
   };
 
-  const saveWizardDraft = async (): Promise<string> => {
-    if (!guardWrite()) return "";
-    setActionError("");
-    const payload = {
-      ...form,
-      peopleAtRisk: [...form.peopleAtRisk, form.peopleAtRiskOther].filter(Boolean).join(", "),
-    };
-    try {
-      if (wizardId) {
-        await updateRiskAssessment(folderId, wizardId, payload);
-        return wizardId;
-      }
-      const created = await createRiskAssessment(folderId, payload);
-      const id = created.item?.id || "";
-      if (id) setWizardId(id);
-      setActionNotice("Draft saved.");
+  const persistWizardDraft = async (): Promise<string> => {
+    const payload = buildDraftPayload();
+    if (wizardId) {
+      const saved = await saveRiskAssessmentDraft(folderId, wizardId, payload);
+      applySavedHazards(saved.hazards);
       await loadList(true);
+      return wizardId;
+    }
+    const saved = await saveRiskAssessmentDraft(folderId, null, payload);
+    const id = saved.item?.id || "";
+    if (id) setWizardId(id);
+    applySavedHazards(saved.hazards);
+    await loadList(true);
+    return id;
+  };
+
+  const saveWizardDraft = async (): Promise<string> => {
+    if (!guardWrite() || savingDraft || submitting) return wizardId;
+    setSavingDraft(true);
+    setProgressMessage("Saving draft…");
+    setActionError("");
+    setActionNotice("");
+    try {
+      const id = await persistWizardDraft();
+      setActionNotice("Draft saved.");
+      setProgressMessage("Draft saved.");
       return id;
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Could not save draft.");
-      return "";
+      setProgressMessage("");
+      return wizardId || "";
+    } finally {
+      setSavingDraft(false);
     }
   };
 
-  const addHazardToDraft = async () => {
-    if (!guardWrite()) return;
-    const id = wizardId || (await saveWizardDraft());
-    if (!id) return;
-    try {
-      const result = await createRiskHazard(folderId, id, hazardDraft);
-      setDraftHazards((current) => [...current, result.item]);
-      setHazardDraft({
-        hazardType: HAZARD_LIBRARY[0],
-        hazardTitle: "",
-        initialLikelihood: 3,
-        initialSeverity: 3,
-        residualLikelihood: 2,
-        residualSeverity: 2,
-        actionRequired: false,
-      });
-      setActionNotice("Hazard added.");
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Could not add hazard.");
-    }
+  const addHazardToDraft = () => {
+    const draft = buildWizardHazardDraft({
+      ...hazardDraft,
+      hazardTitle: hazardDraft.hazardTitle || hazardDraft.hazardType || "Hazard",
+    });
+    setDraftHazards((current) => [...current, draft]);
+    setHazardDraft({
+      hazardType: HAZARD_LIBRARY[0],
+      hazardTitle: "",
+      initialLikelihood: 3,
+      initialSeverity: 3,
+      residualLikelihood: 2,
+      residualSeverity: 2,
+      actionRequired: false,
+    });
+    setActionNotice("Hazard added to this assessment.");
+    setActionError("");
   };
 
   const submitWizard = async () => {
-    if (!guardWrite() || !wizardId) return;
+    if (!guardWrite() || savingDraft || submitting) return;
+    const validation = validateRiskAssessmentSubmission(form, draftHazards);
+    if (!validation.valid) {
+      setActionError(validation.message || RISK_ASSESSMENT_VALIDATION_USER_MESSAGE);
+      return;
+    }
+    if (validation.reviewDateWarning && !window.confirm(`${validation.reviewDateWarning} Continue with submission?`)) {
+      return;
+    }
     if (!window.confirm("Submit this risk assessment for approval?")) return;
+    setSubmitting(true);
+    setActionError("");
+    setActionNotice("");
     try {
-      await submitRiskAssessment(folderId, wizardId);
+      setProgressMessage("Saving draft…");
+      const id = await persistWizardDraft();
+      if (!id) {
+        setProgressMessage("");
+        return;
+      }
+      setProgressMessage("Draft saved. Submitting for approval…");
+      await submitRiskAssessment(folderId, id);
+      setProgressMessage("Submitted.");
       setActionNotice("Submitted for approval.");
       setView("list");
       await loadList(true);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Could not submit assessment.");
+      if (error instanceof RiskAssessmentRequestError) {
+        setActionError(error.message);
+      } else {
+        setActionError(error instanceof Error ? error.message : "Could not submit assessment.");
+      }
+      setProgressMessage("");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -381,6 +445,8 @@ export function RiskAssessmentsWorkspace({
   if (view === "wizard") {
     const initialScore = calculateClientRiskScore(hazardDraft.initialLikelihood || 0, hazardDraft.initialSeverity || 0);
     const residualScore = calculateClientRiskScore(hazardDraft.residualLikelihood || 0, hazardDraft.residualSeverity || 0);
+    const canSubmitNow =
+      canSubmitRiskAssessments(role) && submissionValidation.valid && !savingDraft && !submitting;
     return (
       <PageContainer>
         <PageHeader
@@ -389,17 +455,18 @@ export function RiskAssessmentsWorkspace({
           description={`Step ${wizardStep + 1} of ${WIZARD_STEPS.length}: ${WIZARD_STEPS[wizardStep]}`}
           secondaryActions={
             <>
-              <Button type="button" variant="secondary" onClick={() => setView("list")}>
+              <Button type="button" variant="secondary" onClick={() => setView("list")} disabled={savingDraft || submitting}>
                 Cancel
               </Button>
-              <Button type="button" variant="secondary" onClick={() => void saveWizardDraft()}>
-                Save draft
+              <Button type="button" variant="secondary" onClick={() => void saveWizardDraft()} disabled={savingDraft || submitting}>
+                {savingDraft ? "Saving draft…" : "Save draft"}
               </Button>
             </>
           }
         />
         {actionError ? <p className="mb-3 text-sm text-red-700" role="alert">{actionError}</p> : null}
         {actionNotice ? <p className="mb-3 text-sm text-emerald-700" aria-live="polite">{actionNotice}</p> : null}
+        {progressMessage ? <p className="mb-3 text-sm text-slate-600" aria-live="polite">{progressMessage}</p> : null}
         <div className="mb-4 flex flex-wrap gap-2">
           {WIZARD_STEPS.map((step, index) => (
             <button
@@ -582,10 +649,10 @@ export function RiskAssessmentsWorkspace({
                   </>
                 ) : null}
               </div>
-              <Button type="button" onClick={() => void addHazardToDraft()}>Add hazard</Button>
+              <Button type="button" onClick={addHazardToDraft} disabled={savingDraft || submitting}>Add hazard</Button>
               <div className="space-y-2">
                 {draftHazards.map((hazard) => (
-                  <div key={hazard.id} className="rounded-xl border px-4 py-3">
+                  <div key={hazard.clientId} className="rounded-xl border px-4 py-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="font-semibold text-slate-900">{hazard.hazardTitle || hazard.hazardType}</p>
                       <div className="flex gap-2">
@@ -616,10 +683,52 @@ export function RiskAssessmentsWorkspace({
             </div>
           ) : null}
           {wizardStep === 6 ? (
-            <div className="space-y-3 text-sm text-slate-700">
-              <p><strong>{form.title}</strong> · {form.assessmentType}</p>
-              <p>Review date: {formatDateKey(form.reviewDate)}</p>
-              <p>{draftHazards.length} hazard(s) recorded.</p>
+            <div className="space-y-4 text-sm text-slate-700">
+              <p><strong>{form.title || "Untitled assessment"}</strong> · {form.assessmentType || "General"}</p>
+              <p>Review date: {formatDateKey(form.reviewDate) || "Not set"}</p>
+              {submissionValidation.valid ? null : (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-3 text-red-800" role="alert">
+                  <p className="font-semibold">{submissionValidation.message || RISK_ASSESSMENT_VALIDATION_USER_MESSAGE}</p>
+                  <ul className="mt-2 list-disc space-y-1 pl-5">
+                    {submissionValidation.fieldErrors.map((fieldError) => (
+                      <li key={`${fieldError.step}-${fieldError.field}-${fieldError.message}`}>
+                        <button
+                          type="button"
+                          className="text-left underline"
+                          onClick={() => setWizardStep(wizardStepIndexForField(fieldError.step))}
+                        >
+                          {fieldError.message}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {submissionValidation.reviewDateWarning ? (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
+                  {submissionValidation.reviewDateWarning}
+                </p>
+              ) : null}
+              {draftHazards.length === 0 ? (
+                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-800">
+                  At least one hazard is required before this assessment can be submitted.
+                </p>
+              ) : (
+                <p>{draftHazards.length} hazard(s) recorded.</p>
+              )}
+              <div className="space-y-2">
+                {draftHazards.map((hazard) => (
+                  <div key={hazard.clientId} className="rounded-xl border px-4 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-semibold text-slate-900">{hazard.hazardTitle || hazard.hazardType}</p>
+                      <div className="flex gap-2">
+                        <RiskScoreBadge score={hazard.initialRiskScore} />
+                        <RiskScoreBadge score={hazard.residualRiskScore} />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
               {draftHazards.some((hazard) => hazard.residualRiskScore >= 10) ? (
                 <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
                   Warning: one or more hazards remain High or Very High after controls.
@@ -629,16 +738,21 @@ export function RiskAssessmentsWorkspace({
           ) : null}
         </Section>
         <div className="mt-4 flex flex-wrap gap-2">
-          <Button type="button" variant="secondary" disabled={wizardStep === 0} onClick={() => setWizardStep((step) => Math.max(0, step - 1))}>
+          <Button type="button" variant="secondary" disabled={wizardStep === 0 || savingDraft || submitting} onClick={() => setWizardStep((step) => Math.max(0, step - 1))}>
             Back
           </Button>
           {wizardStep < WIZARD_STEPS.length - 1 ? (
-            <Button type="button" onClick={() => setWizardStep((step) => Math.min(WIZARD_STEPS.length - 1, step + 1))}>
+            <Button type="button" onClick={() => setWizardStep((step) => Math.min(WIZARD_STEPS.length - 1, step + 1))} disabled={savingDraft || submitting}>
               Next
             </Button>
           ) : (
-            <Button type="button" onClick={() => void submitWizard()} disabled={!canSubmitRiskAssessments(role)}>
-              Submit for approval
+            <Button
+              type="button"
+              onClick={() => void submitWizard()}
+              disabled={!canSubmitNow}
+              title={!submissionValidation.valid ? submissionValidation.message : undefined}
+            >
+              {submitting ? "Submitting…" : "Submit for approval"}
             </Button>
           )}
         </div>

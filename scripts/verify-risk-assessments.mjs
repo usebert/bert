@@ -15,6 +15,7 @@ import {
   calculateRiskScore,
   getRiskBand,
   validateRiskValue,
+  validateRiskAssessmentForSubmit,
   summariseAssessmentRisk,
   deriveRiskAssessmentStatus,
   bumpVersion,
@@ -53,6 +54,24 @@ assert(getRiskBand(16).band === "high", "risk: score 16 is High");
 assert(getRiskBand(25).band === "very_high", "risk: score 25 is Very High");
 assert(validateRiskValue(3) === true && validateRiskValue(6) === false, "risk: validate 1–5 values");
 
+const invalidSubmit = validateRiskAssessmentForSubmit(
+  { title: "Test", assessmentType: "General", assessmentDate: "2026-07-01", reviewDate: "2026-08-01" },
+  [],
+  { todayKey: "2026-07-21" },
+);
+assert(!invalidSubmit.ok, "validation: rejects zero hazards");
+assert(
+  invalidSubmit.fieldErrors.some((entry) => entry.field === "hazards"),
+  "validation: zero hazards field error",
+);
+
+const invalidReviewDate = validateRiskAssessmentForSubmit(
+  { title: "Test", assessmentType: "General", assessmentDate: "2026-07-21", reviewDate: "2026-07-20" },
+  [{ hazardTitle: "Slip", whoMightBeHarmed: "Staff", existingControls: "Signage", initialLikelihood: 2, initialSeverity: 2, residualLikelihood: 1, residualSeverity: 2 }],
+  { todayKey: "2026-07-21" },
+);
+assert(!invalidReviewDate.ok, "validation: rejects review date before assessment date");
+
 const summary = summariseAssessmentRisk([
   { initialLikelihood: 4, initialSeverity: 4, residualLikelihood: 2, residualSeverity: 3 },
   { initialLikelihood: 5, initialSeverity: 5, residualLikelihood: 4, residualSeverity: 4 },
@@ -80,6 +99,8 @@ assert(coreRoutes.includes("installRiskAssessmentRoutes"), "routes: risk assessm
 const routes = read("server/risk-assessments-routes.mjs");
 assert(routes.includes("/risk-assessments"), "routes: list/create endpoints");
 assert(routes.includes("/submit"), "routes: submit endpoint");
+assert(routes.includes("/save-draft"), "routes: save-draft endpoint");
+assert(routes.includes("/risk-assessments/draft"), "routes: create draft endpoint");
 assert(routes.includes("/approve"), "routes: approve endpoint");
 assert(routes.includes("/reject"), "routes: reject endpoint");
 assert(routes.includes("/new-version"), "routes: new version endpoint");
@@ -88,6 +109,11 @@ const service = read("server/risk-assessments-service.mjs");
 assert(service.includes("canApproveRiskAssessment"), "permissions: approve helper");
 assert(service.includes("canSelfApproveRiskAssessment"), "permissions: self-approval guard");
 assert(service.includes("summariseAssessmentRisk"), "service: server recalculates risk summary");
+assert(service.includes("[risk-assessment:timing]"), "service: timing instrumentation");
+assert(service.includes("ensuredRiskAssessmentWorkbooks"), "service: sheet ensure cache");
+assert(service.includes("syncRiskAssessmentHazards"), "service: batch hazard sync");
+assert(service.includes("alreadySubmitted"), "service: idempotent submit");
+assert(service.includes("riskAssessmentValidationFailure"), "service: structured validation failures");
 
 const permissions = read("src/permissions.ts");
 assert(permissions.includes("canAccessRiskAssessments"), "permissions: view helper");
@@ -111,6 +137,9 @@ const workspace = read("src/health-safety/RiskAssessmentsWorkspace.tsx");
 assert(workspace.includes("WIZARD_STEPS"), "ui: multi-step wizard");
 assert(workspace.includes("calculateClientRiskScore"), "ui: client risk calculation");
 assert(workspace.includes("RISK_ASSESSMENT_OFFLINE_WRITE_MESSAGE"), "ui: offline write messaging");
+assert(workspace.includes("validateRiskAssessmentSubmission"), "ui: client submission validation");
+assert(workspace.includes("saveRiskAssessmentDraft"), "ui: draft save before submit");
+assert(workspace.includes("buildWizardHazardDraft"), "ui: local wizard hazards");
 
 const overviewShared = read("shared/health-safety-overview.mjs");
 assert(overviewShared.includes("activeRiskAssessments"), "overview: risk assessment metrics");
