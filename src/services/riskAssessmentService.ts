@@ -182,8 +182,8 @@ export async function saveRiskAssessmentDraft(
     ? `/api/companies/${encodeURIComponent(folderId)}/risk-assessments/${encodeURIComponent(id)}/save-draft`
     : `/api/companies/${encodeURIComponent(folderId)}/risk-assessments/draft`;
   const payload = await riskAssessmentRequest(path, { method: "POST", body: JSON.stringify(input) });
-  invalidateRiskAssessmentCache(companyFolderId, id || payload?.item?.id);
-  return payload as { ok: boolean } & RiskAssessmentDetail;
+  queueMicrotask(() => invalidateRiskAssessmentCache(companyFolderId, id || payload?.item?.id));
+  return payload as { ok: boolean; savedAt?: string } & RiskAssessmentDetail;
 }
 
 export async function updateRiskAssessment(

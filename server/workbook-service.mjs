@@ -390,6 +390,101 @@ export async function patchTabRowByHeader(
   return { ok: true, rowIndex: sheetRow, tabName: tab, masterSheetId: sheetId };
 }
 
+/** Patch multiple rows after a single tab read — one values.batchUpdate call. */
+export async function batchPatchTabRowsByHeader(
+  auth,
+  deps,
+  masterSheetId,
+  tabName,
+  matchHeader,
+  rowPatches = [],
+  options = {},
+) {
+  const sheetId = trim(masterSheetId);
+  const tab = trim(tabName);
+  const matchKey = trim(matchHeader);
+  const patches = Array.isArray(rowPatches) ? rowPatches.filter((entry) => trim(entry?.matchValue)) : [];
+  if (!sheetId || !tab || !matchKey || patches.length === 0) {
+    return { ok: true, patched: 0, tabName: tab, masterSheetId: sheetId };
+  }
+
+  const compareValues =
+    typeof options.compareValues === "function"
+      ? options.compareValues
+      : (left, right) => trim(left).toLowerCase() === trim(right).toLowerCase();
+  const headerAliases = [matchKey, ...(Array.isArray(options.matchHeaderAliases) ? options.matchHeaderAliases : [])]
+    .map((entry) => trim(entry))
+    .filter(Boolean);
+  const normalizeHeader = (value) => trim(value).toLowerCase().replace(/\s+/g, "");
+  const headerMatches = (header) =>
+    headerAliases.some(
+      (alias) =>
+        safeLower(header) === safeLower(alias) || normalizeHeader(header) === normalizeHeader(alias),
+    );
+
+  const values = await getTabValues(auth, deps, sheetId, tab);
+  if (!values.length) {
+    throw new Error(`Tab "${tab}" is empty or missing.`);
+  }
+
+  const headers = values[0].map((value, index) => String(value || `Column ${index + 1}`).trim());
+  const matchColIndex = headers.findIndex((header) => headerMatches(header));
+  if (matchColIndex < 0) {
+    throw new Error(`Match header "${matchKey}" not found on tab "${tab}".`);
+  }
+
+  const lower = deps.safeLower || safeLower;
+  const data = [];
+  for (const patch of patches) {
+    const want = trim(patch.matchValue);
+    let rowIndex = -1;
+    for (let i = 1; i < values.length; i += 1) {
+      const cell = String(values[i][matchColIndex] || "").trim();
+      if (compareValues(cell, want)) {
+        rowIndex = i;
+        break;
+      }
+    }
+    if (rowIndex < 0) continue;
+    const row = [...values[rowIndex]];
+    while (row.length < headers.length) row.push("");
+    for (const [key, value] of Object.entries(patch.updates || {})) {
+      const colIndex = headers.findIndex((header) => lower(header) === lower(key));
+      if (colIndex >= 0) row[colIndex] = String(value ?? "").trim();
+    }
+    values[rowIndex] = row;
+    const sheetRow = rowIndex + 1;
+    const lastCol = sheetEndColumnLetter(headers.length);
+    data.push({
+      range: `${tab}!A${sheetRow}:${lastCol}${sheetRow}`,
+      values: [row],
+    });
+  }
+
+  if (!data.length) {
+    return { ok: true, patched: 0, tabName: tab, masterSheetId: sheetId };
+  }
+
+  const { google, withSheetsQuotaRetry } = deps;
+  const sheets = google.sheets({ version: "v4", auth });
+  const request = () =>
+    sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: sheetId,
+      requestBody: {
+        valueInputOption: "USER_ENTERED",
+        data,
+      },
+    });
+
+  if (withSheetsQuotaRetry) {
+    await withSheetsQuotaRetry(request);
+  } else {
+    await request();
+  }
+
+  return { ok: true, patched: data.length, tabName: tab, masterSheetId: sheetId };
+}
+
 function mapRowObjectToHeaders(headers, rowObject) {
   const lower = safeLower;
   return headers.map((header) => {

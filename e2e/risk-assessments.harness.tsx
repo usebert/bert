@@ -8,6 +8,38 @@ type HarnessApi = {
   reset: () => void;
 };
 
+type HazardRecord = {
+  id: string;
+  riskAssessmentId: string;
+  companyFolderId: string;
+  hazardType: string;
+  hazardTitle: string;
+  hazardDescription: string;
+  whoMightBeHarmed: string;
+  howMightTheyBeHarmed: string;
+  existingControls: string;
+  initialLikelihood: number;
+  initialSeverity: number;
+  initialRiskScore: number;
+  additionalControls: string;
+  residualLikelihood: number;
+  residualSeverity: number;
+  residualRiskScore: number;
+  controlOwnerUserId: string;
+  controlOwnerName: string;
+  controlDueDate: string;
+  actionRequired: boolean;
+  linkedActionId: string;
+  sortOrder: number;
+  status: string;
+  createdAt: string;
+  createdBy: string;
+  updatedAt: string;
+  updatedBy: string;
+  archivedAt: string;
+  archivedBy: string;
+};
+
 declare global {
   interface Window {
     __riskAssessmentsHarness?: HarnessApi;
@@ -117,7 +149,7 @@ const assessments = [
   },
 ];
 
-const hazards = [
+const hazards: HazardRecord[] = [
   {
     id: "rah-1",
     riskAssessmentId: "ra-1",
@@ -151,9 +183,52 @@ const hazards = [
   },
 ];
 
+type DraftStore = {
+  assessmentId: string;
+  item: Record<string, unknown>;
+  hazards: HazardRecord[];
+};
+
+let draftStore: DraftStore | null = null;
+
+function mapDraftHazards(body: { hazards?: Array<Record<string, unknown>> }, assessmentId: string) {
+  return (body.hazards || []).map((hazard, index) => ({
+    id: String(hazard.id || `rah-mock-${index + 1}`),
+    riskAssessmentId: assessmentId,
+    companyFolderId,
+    hazardType: String(hazard.hazardType || "General"),
+    hazardTitle: String(hazard.hazardTitle || hazard.hazardType || "Hazard"),
+    hazardDescription: String(hazard.hazardDescription || ""),
+    whoMightBeHarmed: String(hazard.whoMightBeHarmed || ""),
+    howMightTheyBeHarmed: String(hazard.howMightTheyBeHarmed || ""),
+    existingControls: String(hazard.existingControls || ""),
+    initialLikelihood: Number(hazard.initialLikelihood) || 0,
+    initialSeverity: Number(hazard.initialSeverity) || 0,
+    initialRiskScore: (Number(hazard.initialLikelihood) || 0) * (Number(hazard.initialSeverity) || 0),
+    additionalControls: String(hazard.additionalControls || ""),
+    residualLikelihood: Number(hazard.residualLikelihood) || 0,
+    residualSeverity: Number(hazard.residualSeverity) || 0,
+    residualRiskScore: (Number(hazard.residualLikelihood) || 0) * (Number(hazard.residualSeverity) || 0),
+    controlOwnerUserId: "",
+    controlOwnerName: String(hazard.controlOwnerName || ""),
+    controlDueDate: String(hazard.controlDueDate || ""),
+    actionRequired: Boolean(hazard.actionRequired),
+    linkedActionId: "",
+    sortOrder: index + 1,
+    status: "active",
+    createdAt: new Date().toISOString(),
+    createdBy: "alex.admin@example.com",
+    updatedAt: new Date().toISOString(),
+    updatedBy: "alex.admin@example.com",
+    archivedAt: "",
+    archivedBy: "",
+  }));
+}
+
 const harnessState: HarnessApi = {
   reset() {
     harnessState.lastAction = undefined;
+    draftStore = null;
     window.dispatchEvent(new Event("risk-assessments-harness-change"));
   },
 };
@@ -163,23 +238,76 @@ window.__riskAssessmentsHarness = harnessState;
 const nativeFetch = window.fetch.bind(window);
 window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input);
-  if (url.includes(`/api/companies/${companyFolderId}/risk-assessments`) && !url.includes("/ra-")) {
-    return new Response(JSON.stringify({ ok: true, items: assessments }), { status: 200 });
+  const method = String(init?.method || "GET").toUpperCase();
+
+  if (url.includes(`/api/companies/${companyFolderId}/risk-assessments/draft`) && method === "POST") {
+    const body = JSON.parse(String(init?.body || "{}"));
+    const assessmentId = `ra-draft-${Date.now()}`;
+    const mappedHazards = mapDraftHazards(body, assessmentId);
+    draftStore = {
+      assessmentId,
+      item: {
+        id: assessmentId,
+        companyFolderId,
+        assessmentNumber: "RA-0099",
+        title: String(body.title || "Untitled risk assessment"),
+        assessmentType: String(body.assessmentType || "General"),
+        assessmentDate: String(body.assessmentDate || ""),
+        reviewDate: String(body.reviewDate || ""),
+        status: "Draft",
+        version: "1.0",
+        highestResidualRiskScore: 0,
+        highestInitialRiskScore: 0,
+      },
+      hazards: mappedHazards,
+    };
+    return new Response(
+      JSON.stringify({ ok: true, item: draftStore.item, hazards: mappedHazards, links: [], reviews: [], savedAt: new Date().toISOString() }),
+      { status: 200 },
+    );
   }
-  if (url.includes(`/api/companies/${companyFolderId}/risk-assessments/ra-1`)) {
+
+  if (url.includes("/save-draft") && method === "POST") {
+    const body = JSON.parse(String(init?.body || "{}"));
+    const assessmentId = url.split("/risk-assessments/")[1]?.split("/")[0] || draftStore?.assessmentId || "ra-draft";
+    const mappedHazards = mapDraftHazards(body, assessmentId);
+    draftStore = {
+      assessmentId,
+      item: {
+        ...(draftStore?.item || {}),
+        id: assessmentId,
+        title: String(body.title || draftStore?.item?.title || "Untitled risk assessment"),
+      },
+      hazards: mappedHazards,
+    };
+    return new Response(
+      JSON.stringify({ ok: true, item: draftStore.item, hazards: mappedHazards, links: [], reviews: [], savedAt: new Date().toISOString() }),
+      { status: 200 },
+    );
+  }
+
+  if (method === "GET" && url.includes(`/api/companies/${companyFolderId}/risk-assessments/ra-1`)) {
     return new Response(
       JSON.stringify({ ok: true, item: assessments[0], hazards, links: [], reviews: [] }),
       { status: 200 },
     );
   }
-  if (url.includes(`/api/companies/${companyFolderId}/structure/`)) {
-    if (url.includes("/sites")) {
-      return new Response(JSON.stringify({ ok: true, sites: [{ id: "site-1", name: "Main site", code: "MAIN", status: "active" }] }), { status: 200 });
-    }
-    if (url.includes("/areas")) {
-      return new Response(JSON.stringify({ ok: true, areas: [{ id: "area-1", name: "Warehouse", siteId: "site-1", status: "active" }] }), { status: 200 });
-    }
+
+  if (method === "GET" && url.includes(`/api/companies/${companyFolderId}/risk-assessments`) && !url.includes("/ra-")) {
+    return new Response(JSON.stringify({ ok: true, items: assessments }), { status: 200 });
   }
+
+  if (url.includes(`/api/companies/${companyFolderId}/structure`)) {
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        sites: [{ id: "site-1", name: "Main site", code: "MAIN", status: "active" }],
+        areas: [{ id: "area-1", name: "Warehouse", siteId: "site-1", status: "active" }],
+      }),
+      { status: 200 },
+    );
+  }
+
   return nativeFetch(input, init);
 };
 

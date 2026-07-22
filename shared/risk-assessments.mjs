@@ -272,6 +272,26 @@ export function buildRiskHazardId() {
   return `rah-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** Collapse duplicate HazardId rows — keeps the latest UpdatedAt. */
+export function dedupeHazardsById(hazards = []) {
+  const byId = new Map();
+  for (const hazard of hazards) {
+    const id = trim(hazard?.id || hazard?.HazardId);
+    if (!id) continue;
+    const current = byId.get(id);
+    if (!current) {
+      byId.set(id, hazard);
+      continue;
+    }
+    const currentUpdated = trim(current.updatedAt || current.UpdatedAt);
+    const nextUpdated = trim(hazard.updatedAt || hazard.UpdatedAt);
+    if (!currentUpdated || nextUpdated >= currentUpdated) {
+      byId.set(id, hazard);
+    }
+  }
+  return Array.from(byId.values());
+}
+
 export function buildRiskLinkId() {
   return `ral-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }

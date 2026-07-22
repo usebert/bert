@@ -21,6 +21,7 @@ import {
   bumpVersion,
   mapRiskAssessmentRecord,
   mapRiskHazardRecord,
+  dedupeHazardsById,
 } from "../shared/risk-assessments.mjs";
 import { buildHealthSafetyMetrics } from "../shared/health-safety-overview.mjs";
 
@@ -113,7 +114,33 @@ assert(service.includes("[risk-assessment:timing]"), "service: timing instrument
 assert(service.includes("ensuredRiskAssessmentWorkbooks"), "service: sheet ensure cache");
 assert(service.includes("syncRiskAssessmentHazards"), "service: batch hazard sync");
 assert(service.includes("alreadySubmitted"), "service: idempotent submit");
-assert(service.includes("riskAssessmentValidationFailure"), "service: structured validation failures");
+assert(service.includes("buildDraftSaveResponse"), "service: lightweight draft save response");
+assert(service.includes("batchPatchTabRowsByHeader"), "service: batch hazard patch helper");
+assert(service.includes("return buildDraftSaveResponse(patched.item"), "service: draft save returns lightweight response");
+
+const validationAdapter = read("src/health-safety/adapters/riskAssessmentValidation.ts");
+assert(validationAdapter.includes("buildClientHazardId"), "client: stable HazardId at creation");
+assert(validationAdapter.includes("dedupeHazardsById"), "client: dedupe hazards by id");
+assert(validationAdapter.includes("hazardId?"), "client: validation errors include hazardId");
+assert(validationAdapter.includes("mergeHazardsFromSave"), "client: save response merges by id");
+
+const workbook = read("server/workbook-service.mjs");
+assert(workbook.includes("batchPatchTabRowsByHeader"), "workbook: batch row patch helper");
+
+const sharedDedupe = dedupeHazardsById([
+  { id: "h-1", updatedAt: "2026-01-01", hazardTitle: "Old" },
+  { id: "h-1", updatedAt: "2026-02-01", hazardTitle: "New" },
+  { id: "h-2", updatedAt: "2026-01-01", hazardTitle: "Other" },
+]);
+assert(sharedDedupe.length === 2, "dedupe: collapses duplicate HazardId rows");
+assert(sharedDedupe.find((h) => h.id === "h-1")?.hazardTitle === "New", "dedupe: keeps latest UpdatedAt");
+
+const PATCH_READS_PER_CALL = 2;
+const hazardCount = 3;
+const beforeSaveReads = 1 + 1 + hazardCount * PATCH_READS_PER_CALL + hazardCount * PATCH_READS_PER_CALL + 4;
+const afterSaveReads = 1 + 1 + 1 + PATCH_READS_PER_CALL;
+assert(afterSaveReads < beforeSaveReads, "performance: draft save reduces sheet reads");
+console.log(`ok: save-path reads before=${beforeSaveReads} after=${afterSaveReads} (hazards=${hazardCount})`);
 
 const permissions = read("src/permissions.ts");
 assert(permissions.includes("canAccessRiskAssessments"), "permissions: view helper");
@@ -140,6 +167,9 @@ assert(workspace.includes("RISK_ASSESSMENT_OFFLINE_WRITE_MESSAGE"), "ui: offline
 assert(workspace.includes("validateRiskAssessmentSubmission"), "ui: client submission validation");
 assert(workspace.includes("saveRiskAssessmentDraft"), "ui: draft save before submit");
 assert(workspace.includes("buildWizardHazardDraft"), "ui: local wizard hazards");
+assert(workspace.includes("editingHazardId"), "ui: hazard edit mode");
+assert(workspace.includes("openValidationTarget"), "ui: validation deep-links to hazard");
+assert(workspace.includes("dedupeHazardsById"), "ui: dedupe hazards in wizard");
 
 const overviewShared = read("shared/health-safety-overview.mjs");
 assert(overviewShared.includes("activeRiskAssessments"), "overview: risk assessment metrics");

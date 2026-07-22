@@ -36,6 +36,7 @@ import {
   summariseAssessmentRisk,
   validateRiskValue,
   validateRiskAssessmentForSubmit,
+  dedupeHazardsById,
 } from "../shared/risk-assessments.mjs";
 import { isCompanyInviteActor, isGodmodeInviteSession } from "../shared/company-invite-permissions.mjs";
 import { getUkTodayKey } from "../shared/uk-date-time.mjs";
@@ -43,12 +44,23 @@ import { actorCanAccessCompanyHealthSafety, healthSafetyApiFailure } from "./hea
 import { resolveCompanyScheduleContext } from "./schedule-service.mjs";
 import {
   appendTabRows as workbookAppendTabRows,
+  batchPatchTabRowsByHeader as workbookBatchPatchTabRowsByHeader,
   ensureTabColumns as workbookEnsureTabColumns,
   patchTabRowByHeader as workbookPatchTabRowByHeader,
   readTabRecords as workbookReadTabRecords,
 } from "./workbook-service.mjs";
 
 export const RISK_ASSESSMENT_ROUTE_TIMEOUT_MS = 90_000;
+
+const STAGE_BUDGET_MS = {
+  "ensure-tabs": 5_000,
+  "patch-assessment": 10_000,
+  "read-hazards": 10_000,
+  "append-hazards": 15_000,
+  "patch-hazards": 15_000,
+  "patch-assessment-risk": 10_000,
+  complete: 30_000,
+};
 
 const ACTIONS_TAB = "Actions";
 const ACTIONS_TAB_COLUMNS = [
@@ -97,21 +109,43 @@ function trim(value) {
 
 function createRiskAssessmentTiming(operation, context = {}) {
   const startedAt = Date.now();
+  let lastStageAt = startedAt;
   const base = {
     operation,
     assessmentId: trim(context.assessmentId) || undefined,
     companyFolderId: trim(context.companyFolderId) || undefined,
+    workbookId: trim(context.workbookId) || undefined,
   };
   return {
     log(stage, extra = {}) {
+      const now = Date.now();
+      const stageDurationMs = now - lastStageAt;
+      const totalMs = now - startedAt;
+      lastStageAt = now;
       const entry = {
         ...base,
         stage,
-        durationMs: Date.now() - startedAt,
-        totalMs: Date.now() - startedAt,
+        durationMs: stageDurationMs,
+        totalMs,
         ...extra,
       };
       console.info("[risk-assessment:timing]", JSON.stringify(entry));
+      const budget = STAGE_BUDGET_MS[stage];
+      if (budget && stageDurationMs > budget) {
+        console.warn(
+          "[risk-assessment:slow-stage]",
+          JSON.stringify({
+            operation: base.operation,
+            stage,
+            durationMs: stageDurationMs,
+            budgetMs: budget,
+            totalMs,
+            rowCount: extra.rowCount ?? extra.appended ?? extra.patched ?? undefined,
+            companyFolderId: base.companyFolderId,
+            workbookId: base.workbookId,
+          }),
+        );
+      }
     },
     startedAt,
   };
@@ -150,6 +184,12 @@ function resolveEnsureTabColumns(deps) {
 
 function resolvePatchTabRowByHeader(deps) {
   return typeof deps?.patchTabRowByHeader === "function" ? deps.patchTabRowByHeader : workbookPatchTabRowByHeader;
+}
+
+function resolveBatchPatchTabRowsByHeader(deps) {
+  return typeof deps?.batchPatchTabRowsByHeader === "function"
+    ? deps.batchPatchTabRowsByHeader
+    : workbookBatchPatchTabRowsByHeader;
 }
 
 export function canViewRiskAssessments(actor) {
@@ -351,10 +391,11 @@ async function buildAssessmentDetail(auth, deps, resolved, actor, riskAssessment
   timer.log("read-tabs");
   const item = assessmentRecords.map((record) => mapRiskAssessmentRecord(record)).find((entry) => entry.id === trim(riskAssessmentId));
   if (!item) return healthSafetyApiFailure("RISK_ASSESSMENT_NOT_FOUND", "Risk assessment not found.", 404);
-  const hazards = hazardRecords
-    .map((record) => mapRiskHazardRecord(record))
-    .filter((hazard) => hazard.riskAssessmentId === trim(riskAssessmentId) && !hazard.archivedAt)
-    .sort((left, right) => left.sortOrder - right.sortOrder || left.hazardTitle.localeCompare(right.hazardTitle));
+  const hazards = dedupeHazardsById(
+    hazardRecords
+      .map((record) => mapRiskHazardRecord(record))
+      .filter((hazard) => hazard.riskAssessmentId === trim(riskAssessmentId) && !hazard.archivedAt),
+  ).sort((left, right) => left.sortOrder - right.sortOrder || left.hazardTitle.localeCompare(right.hazardTitle));
   const links = linkRecords
     .map((record) => mapRiskLinkRecord(record))
     .filter((link) => link.riskAssessmentId === trim(riskAssessmentId) && !link.archivedAt);
@@ -382,6 +423,7 @@ async function syncRiskAssessmentHazards(auth, deps, resolved, actor, riskAssess
   const timer = options.timer || createRiskAssessmentTiming("sync-hazards", {
     assessmentId: riskAssessmentId,
     companyFolderId: resolved.companyFolderId,
+    workbookId: resolved.masterSheetId,
   });
   const assessment = await readAssessmentRecord(auth, deps, resolved.masterSheetId, riskAssessmentId);
   if (!assessment) return healthSafetyApiFailure("RISK_ASSESSMENT_NOT_FOUND", "Risk assessment not found.", 404);
@@ -390,64 +432,152 @@ async function syncRiskAssessmentHazards(auth, deps, resolved, actor, riskAssess
   }
   timer.log("read-assessment");
   const records = await readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_HAZARDS_TAB, RISK_ASSESSMENT_HAZARDS_TAB_COLUMNS);
-  timer.log("read-hazards");
+  timer.log("read-hazards", { rowCount: records.length });
+
   const existingById = new Map();
+  const duplicateArchivePatches = [];
   for (const record of records) {
     const hazard = mapRiskHazardRecord(record);
-    if (hazard.riskAssessmentId === trim(riskAssessmentId) && !hazard.archivedAt) {
+    if (hazard.riskAssessmentId !== trim(riskAssessmentId) || hazard.archivedAt) continue;
+    const prior = existingById.get(hazard.id);
+    if (!prior) {
       existingById.set(hazard.id, hazard);
+      continue;
+    }
+    const priorUpdated = trim(prior.updatedAt);
+    const nextUpdated = trim(hazard.updatedAt);
+    if (nextUpdated >= priorUpdated) {
+      duplicateArchivePatches.push({
+        matchValue: prior.id,
+        updates: {
+          Status: "archived",
+          ArchivedAt: nowIso(),
+          ArchivedBy: normalizeEmail(actor.email),
+          UpdatedAt: nowIso(),
+          UpdatedBy: normalizeEmail(actor.email),
+        },
+      });
+      existingById.set(hazard.id, hazard);
+    } else {
+      duplicateArchivePatches.push({
+        matchValue: hazard.id,
+        updates: {
+          Status: "archived",
+          ArchivedAt: nowIso(),
+          ArchivedBy: normalizeEmail(actor.email),
+          UpdatedAt: nowIso(),
+          UpdatedBy: normalizeEmail(actor.email),
+        },
+      });
     }
   }
+
   const inputIds = new Set();
   const rowsToAppend = [];
   const mappedResults = [];
-  const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
+  const patchRows = [...duplicateArchivePatches];
+  const batchPatchTabRowsByHeader = resolveBatchPatchTabRowsByHeader(deps);
   const appendTabRows = resolveAppendTabRows(deps);
 
   hazardInputs.forEach((input, index) => {
-    const existingId = trim(input.id) || trim(input.hazardId);
-    if (existingId && existingById.has(existingId)) {
-      inputIds.add(existingId);
-      const current = existingById.get(existingId);
-      const initialLikelihood = Number(input.initialLikelihood ?? current.initialLikelihood) || 0;
-      const initialSeverity = Number(input.initialSeverity ?? current.initialSeverity) || 0;
-      const residualLikelihood = Number(input.residualLikelihood ?? current.residualLikelihood) || 0;
-      const residualSeverity = Number(input.residualSeverity ?? current.residualSeverity) || 0;
-      mappedResults.push(
-        mapRiskHazardRecord({
-          HazardId: existingId,
-          RiskAssessmentId: trim(riskAssessmentId),
-          CompanyFolderId: resolved.companyFolderId,
-          HazardType: trim(input.hazardType ?? current.hazardType),
-          HazardTitle: trim(input.hazardTitle ?? current.hazardTitle),
-          HazardDescription: trim(input.hazardDescription ?? current.hazardDescription),
-          WhoMightBeHarmed: trim(input.whoMightBeHarmed ?? current.whoMightBeHarmed),
-          HowMightTheyBeHarmed: trim(input.howMightTheyBeHarmed ?? current.howMightTheyBeHarmed),
-          ExistingControls: trim(input.existingControls ?? current.existingControls),
-          InitialLikelihood: String(initialLikelihood || ""),
-          InitialSeverity: String(initialSeverity || ""),
-          InitialRiskScore: String(calculateRiskScore(initialLikelihood, initialSeverity)),
-          AdditionalControls: trim(input.additionalControls ?? current.additionalControls),
-          ResidualLikelihood: String(residualLikelihood || ""),
-          ResidualSeverity: String(residualSeverity || ""),
-          ResidualRiskScore: String(calculateRiskScore(residualLikelihood, residualSeverity)),
-          ControlOwnerUserId: trim(input.controlOwnerUserId ?? current.controlOwnerUserId),
-          ControlOwnerName: trim(input.controlOwnerName ?? current.controlOwnerName),
-          ControlDueDate: trim(input.controlDueDate ?? current.controlDueDate),
-          ActionRequired: String(Boolean(input.actionRequired ?? current.actionRequired)),
-          LinkedActionId: trim(input.linkedActionId ?? current.linkedActionId),
-          SortOrder: String(Number(input.sortOrder ?? current.sortOrder) || index + 1),
-          Status: "active",
-          UpdatedAt: nowIso(),
-          UpdatedBy: normalizeEmail(actor.email),
-        }),
-      );
+    const hazardId = trim(input.id) || trim(input.hazardId);
+    if (hazardId) inputIds.add(hazardId);
+    const existing = hazardId ? existingById.get(hazardId) : null;
+    const initialLikelihood = Number(input.initialLikelihood ?? existing?.initialLikelihood) || 0;
+    const initialSeverity = Number(input.initialSeverity ?? existing?.initialSeverity) || 0;
+    const residualLikelihood = Number(input.residualLikelihood ?? existing?.residualLikelihood) || 0;
+    const residualSeverity = Number(input.residualSeverity ?? existing?.residualSeverity) || 0;
+    const mapped = mapRiskHazardRecord({
+      HazardId: hazardId || buildRiskHazardId(),
+      RiskAssessmentId: trim(riskAssessmentId),
+      CompanyFolderId: resolved.companyFolderId,
+      HazardType: trim(input.hazardType ?? existing?.hazardType),
+      HazardTitle: trim(input.hazardTitle ?? existing?.hazardType) || trim(input.hazardType) || "Hazard",
+      HazardDescription: trim(input.hazardDescription ?? existing?.hazardDescription),
+      WhoMightBeHarmed: trim(input.whoMightBeHarmed ?? existing?.whoMightBeHarmed),
+      HowMightTheyBeHarmed: trim(input.howMightTheyBeHarmed ?? existing?.howMightTheyBeHarmed),
+      ExistingControls: trim(input.existingControls ?? existing?.existingControls),
+      InitialLikelihood: String(initialLikelihood || ""),
+      InitialSeverity: String(initialSeverity || ""),
+      InitialRiskScore: String(calculateRiskScore(initialLikelihood, initialSeverity)),
+      AdditionalControls: trim(input.additionalControls ?? existing?.additionalControls),
+      ResidualLikelihood: String(residualLikelihood || ""),
+      ResidualSeverity: String(residualSeverity || ""),
+      ResidualRiskScore: String(calculateRiskScore(residualLikelihood, residualSeverity)),
+      ControlOwnerUserId: trim(input.controlOwnerUserId ?? existing?.controlOwnerUserId),
+      ControlOwnerName: trim(input.controlOwnerName ?? existing?.controlOwnerName),
+      ControlDueDate: trim(input.controlDueDate ?? existing?.controlDueDate),
+      ActionRequired: String(Boolean(input.actionRequired ?? existing?.actionRequired)),
+      LinkedActionId: trim(input.linkedActionId ?? existing?.linkedActionId),
+      SortOrder: String(Number(input.sortOrder ?? existing?.sortOrder) || index + 1),
+      Status: "active",
+      CreatedAt: existing?.createdAt || nowIso(),
+      CreatedBy: existing?.createdBy || normalizeEmail(actor.email),
+      UpdatedAt: nowIso(),
+      UpdatedBy: normalizeEmail(actor.email),
+    });
+    mappedResults.push(mapped);
+    inputIds.add(mapped.id);
+
+    if (existing) {
+      patchRows.push({
+        matchValue: mapped.id,
+        updates: {
+          HazardType: mapped.hazardType,
+          HazardTitle: mapped.hazardTitle,
+          HazardDescription: mapped.hazardDescription,
+          WhoMightBeHarmed: mapped.whoMightBeHarmed,
+          HowMightTheyBeHarmed: mapped.howMightTheyBeHarmed,
+          ExistingControls: mapped.existingControls,
+          InitialLikelihood: String(mapped.initialLikelihood || ""),
+          InitialSeverity: String(mapped.initialSeverity || ""),
+          InitialRiskScore: String(mapped.initialRiskScore || ""),
+          AdditionalControls: mapped.additionalControls,
+          ResidualLikelihood: String(mapped.residualLikelihood || ""),
+          ResidualSeverity: String(mapped.residualSeverity || ""),
+          ResidualRiskScore: String(mapped.residualRiskScore || ""),
+          ControlOwnerUserId: mapped.controlOwnerUserId,
+          ControlOwnerName: mapped.controlOwnerName,
+          ControlDueDate: mapped.controlDueDate,
+          ActionRequired: String(Boolean(mapped.actionRequired)),
+          LinkedActionId: mapped.linkedActionId,
+          SortOrder: String(mapped.sortOrder || index + 1),
+          UpdatedAt: mapped.updatedAt,
+          UpdatedBy: mapped.updatedBy,
+        },
+      });
       return;
     }
-    const built = buildHazardRow(riskAssessmentId, resolved, actor, input, index + 1);
-    inputIds.add(built.id);
-    rowsToAppend.push(built.row);
-    mappedResults.push(built.mapped);
+
+    rowsToAppend.push({
+      HazardId: mapped.id,
+      RiskAssessmentId: trim(riskAssessmentId),
+      CompanyFolderId: resolved.companyFolderId,
+      HazardType: mapped.hazardType,
+      HazardTitle: mapped.hazardTitle,
+      HazardDescription: mapped.hazardDescription,
+      WhoMightBeHarmed: mapped.whoMightBeHarmed,
+      HowMightTheyBeHarmed: mapped.howMightTheyBeHarmed,
+      ExistingControls: mapped.existingControls,
+      InitialLikelihood: String(mapped.initialLikelihood || ""),
+      InitialSeverity: String(mapped.initialSeverity || ""),
+      InitialRiskScore: String(mapped.initialRiskScore || ""),
+      AdditionalControls: mapped.additionalControls,
+      ResidualLikelihood: String(mapped.residualLikelihood || ""),
+      ResidualSeverity: String(mapped.residualSeverity || ""),
+      ResidualRiskScore: String(mapped.residualRiskScore || ""),
+      ControlOwnerUserId: mapped.controlOwnerUserId,
+      ControlOwnerName: mapped.controlOwnerName,
+      ControlDueDate: mapped.controlDueDate,
+      ActionRequired: String(Boolean(mapped.actionRequired)),
+      LinkedActionId: mapped.linkedActionId,
+      SortOrder: String(mapped.sortOrder || index + 1),
+      Status: "active",
+      CreatedAt: mapped.createdAt,
+      CreatedBy: mapped.createdBy,
+      UpdatedAt: mapped.updatedAt,
+      UpdatedBy: mapped.updatedBy,
+    });
   });
 
   if (rowsToAppend.length > 0) {
@@ -455,61 +585,60 @@ async function syncRiskAssessmentHazards(auth, deps, resolved, actor, riskAssess
       expectedHeaders: RISK_ASSESSMENT_HAZARDS_TAB_COLUMNS,
     });
   }
-  timer.log("append-hazards", { appended: rowsToAppend.length });
+  timer.log("append-hazards", { appended: rowsToAppend.length, rowCount: hazardInputs.length });
 
-  for (const [hazardId, hazard] of existingById.entries()) {
+  for (const [hazardId] of existingById.entries()) {
     if (inputIds.has(hazardId)) continue;
-    await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_HAZARDS_TAB, "HazardId", hazardId, {
-      Status: "archived",
-      ArchivedAt: nowIso(),
-      ArchivedBy: normalizeEmail(actor.email),
-      UpdatedAt: nowIso(),
-      UpdatedBy: normalizeEmail(actor.email),
+    patchRows.push({
+      matchValue: hazardId,
+      updates: {
+        Status: "archived",
+        ArchivedAt: nowIso(),
+        ArchivedBy: normalizeEmail(actor.email),
+        UpdatedAt: nowIso(),
+        UpdatedBy: normalizeEmail(actor.email),
+      },
     });
   }
 
-  for (const input of hazardInputs) {
-    const existingId = trim(input.id) || trim(input.hazardId);
-    if (!existingId || !existingById.has(existingId)) continue;
-    const current = existingById.get(existingId);
-    const initialLikelihood = Number(input.initialLikelihood ?? current.initialLikelihood) || 0;
-    const initialSeverity = Number(input.initialSeverity ?? current.initialSeverity) || 0;
-    const residualLikelihood = Number(input.residualLikelihood ?? current.residualLikelihood) || 0;
-    const residualSeverity = Number(input.residualSeverity ?? current.residualSeverity) || 0;
-    await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_HAZARDS_TAB, "HazardId", existingId, {
-      HazardType: trim(input.hazardType ?? current.hazardType),
-      HazardTitle: trim(input.hazardTitle ?? current.hazardTitle),
-      HazardDescription: trim(input.hazardDescription ?? current.hazardDescription),
-      WhoMightBeHarmed: trim(input.whoMightBeHarmed ?? current.whoMightBeHarmed),
-      HowMightTheyBeHarmed: trim(input.howMightTheyBeHarmed ?? current.howMightTheyBeHarmed),
-      ExistingControls: trim(input.existingControls ?? current.existingControls),
-      InitialLikelihood: String(initialLikelihood || ""),
-      InitialSeverity: String(initialSeverity || ""),
-      InitialRiskScore: String(calculateRiskScore(initialLikelihood, initialSeverity)),
-      AdditionalControls: trim(input.additionalControls ?? current.additionalControls),
-      ResidualLikelihood: String(residualLikelihood || ""),
-      ResidualSeverity: String(residualSeverity || ""),
-      ResidualRiskScore: String(calculateRiskScore(residualLikelihood, residualSeverity)),
-      ControlOwnerUserId: trim(input.controlOwnerUserId ?? current.controlOwnerUserId),
-      ControlOwnerName: trim(input.controlOwnerName ?? current.controlOwnerName),
-      ControlDueDate: trim(input.controlDueDate ?? current.controlDueDate),
-      ActionRequired: String(Boolean(input.actionRequired ?? current.actionRequired)),
-      LinkedActionId: trim(input.linkedActionId ?? current.linkedActionId),
-      SortOrder: String(Number(input.sortOrder ?? current.sortOrder) || 1),
-      UpdatedAt: nowIso(),
-      UpdatedBy: normalizeEmail(actor.email),
-    });
+  if (patchRows.length > 0) {
+    await batchPatchTabRowsByHeader(
+      auth,
+      deps,
+      resolved.masterSheetId,
+      RISK_ASSESSMENT_HAZARDS_TAB,
+      "HazardId",
+      patchRows,
+    );
   }
-  timer.log("patch-hazards", { patched: hazardInputs.filter((input) => trim(input.id) || trim(input.hazardId)).length });
+  timer.log("patch-hazards", { patched: patchRows.length, rowCount: hazardInputs.length });
 
-  const summary = summariseAssessmentRisk(mappedResults);
+  const dedupedHazards = dedupeHazardsById(mappedResults);
+  const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
   await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, "RiskAssessmentId", riskAssessmentId, {
-    ...recalculateAssessmentRiskFields(mappedResults),
+    ...recalculateAssessmentRiskFields(dedupedHazards),
     UpdatedAt: nowIso(),
     UpdatedBy: normalizeEmail(actor.email),
   });
-  timer.log("patch-assessment-risk");
-  return { ok: true, hazards: mappedResults, summary };
+  timer.log("patch-assessment-risk", { rowCount: dedupedHazards.length });
+  return { ok: true, hazards: dedupedHazards, summary: summariseAssessmentRisk(dedupedHazards) };
+}
+
+function buildDraftSaveResponse(assessment, hazards = [], links = []) {
+  const summary = summariseAssessmentRisk(hazards);
+  return {
+    ok: true,
+    item: {
+      ...assessment,
+      ...summary,
+      highestResidualBand: summary.highestResidualBand,
+      highestInitialBand: summary.highestInitialBand,
+    },
+    hazards: dedupeHazardsById(hazards),
+    links: links || [],
+    reviews: [],
+    savedAt: nowIso(),
+  };
 }
 
 async function patchAssessmentFieldsOnly(auth, deps, resolved, actor, riskAssessmentId, input = {}) {
@@ -546,7 +675,31 @@ async function patchAssessmentFieldsOnly(auth, deps, resolved, actor, riskAssess
   );
   const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
   await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, "RiskAssessmentId", riskAssessmentId, patch);
-  return { ok: true, item: { ...assessment, ...Object.fromEntries(Object.entries(patch).map(([key, value]) => [key, value])) } };
+  const updated = {
+    ...assessment,
+    title: patch.Title ?? assessment.title,
+    description: patch.Description ?? assessment.description,
+    assessmentType: patch.AssessmentType ?? assessment.assessmentType,
+    activity: patch.Activity ?? assessment.activity,
+    department: patch.Department ?? assessment.department,
+    siteId: patch.SiteId ?? assessment.siteId,
+    areaId: patch.AreaId ?? assessment.areaId,
+    ownerUserId: patch.OwnerUserId ?? assessment.ownerUserId,
+    ownerName: patch.OwnerName ?? assessment.ownerName,
+    assessorUserId: patch.AssessorUserId ?? assessment.assessorUserId,
+    assessorName: patch.AssessorName ?? assessment.assessorName,
+    assessmentDate: patch.AssessmentDate ?? assessment.assessmentDate,
+    reviewDate: patch.ReviewDate ?? assessment.reviewDate,
+    nextReviewReason: patch.NextReviewReason ?? assessment.nextReviewReason,
+    peopleAtRisk: patch.PeopleAtRisk ?? assessment.peopleAtRisk,
+    existingGeneralControls: patch.ExistingGeneralControls ?? assessment.existingGeneralControls,
+    emergencyArrangements: patch.EmergencyArrangements ?? assessment.emergencyArrangements,
+    ppeSummary: patch.PpeSummary ?? assessment.ppeSummary,
+    status: patch.Status ?? assessment.status,
+    updatedAt: patch.UpdatedAt,
+    updatedBy: patch.UpdatedBy,
+  };
+  return { ok: true, item: updated };
 }
 
 function recalculateAssessmentRiskFields(hazards = []) {
@@ -691,34 +844,37 @@ export async function createCompanyRiskAssessment(auth, deps, resolved, actor, i
     expectedHeaders: RISK_ASSESSMENTS_TAB_COLUMNS,
   });
   timer.log("append-assessment");
+  let syncedHazards = [];
   if (Array.isArray(input.hazards) && input.hazards.length > 0) {
     const synced = await syncRiskAssessmentHazards(auth, deps, resolved, actor, id, input.hazards, { timer });
     if (!synced.ok) return synced;
+    syncedHazards = synced.hazards || [];
   }
   timer.log("complete");
-  return buildAssessmentDetail(auth, deps, resolved, actor, id, { timer });
+  return buildDraftSaveResponse(mapRiskAssessmentRecord(row), syncedHazards);
 }
 
 export async function saveCompanyRiskAssessmentDraft(auth, deps, resolved, actor, riskAssessmentId, input = {}) {
   const timer = createRiskAssessmentTiming("save-draft", {
     assessmentId: riskAssessmentId,
     companyFolderId: resolved.companyFolderId,
+    workbookId: resolved.masterSheetId,
   });
   const id = trim(riskAssessmentId);
   if (!id) {
-    const created = await createCompanyRiskAssessment(auth, deps, resolved, actor, input);
-    timer.log("complete");
-    return created;
+    return createCompanyRiskAssessment(auth, deps, resolved, actor, input);
   }
   const patched = await patchAssessmentFieldsOnly(auth, deps, resolved, actor, id, input);
   if (!patched.ok) return patched;
   timer.log("patch-assessment");
+  let syncedHazards = patched.hazards || [];
   if (Array.isArray(input.hazards)) {
     const synced = await syncRiskAssessmentHazards(auth, deps, resolved, actor, id, input.hazards, { timer });
     if (!synced.ok) return synced;
+    syncedHazards = synced.hazards || [];
   }
   timer.log("complete");
-  return buildAssessmentDetail(auth, deps, resolved, actor, id, { timer });
+  return buildDraftSaveResponse(patched.item, syncedHazards);
 }
 
 export async function patchCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId, input = {}) {

@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Role } from "../permissions";
 import {
   canApproveRiskAssessments,
@@ -21,6 +21,7 @@ import {
   fetchRiskAssessmentList,
   getClientRiskBand,
   readCachedRiskAssessmentList,
+  invalidateRiskAssessmentCache,
   rejectRiskAssessment,
   restoreRiskAssessment,
   reviewRiskAssessment,
@@ -51,10 +52,12 @@ import {
 } from "./constants/riskAssessmentConstants";
 import {
   buildWizardHazardDraft,
+  dedupeHazardsById,
+  getHazardMissingSummary,
+  hazardFieldToStep,
+  mergeHazardsFromSave,
   validateRiskAssessmentSubmission,
-  wizardDraftFromServerHazard,
   wizardHazardToInput,
-  wizardStepIndexForField,
   type WizardHazardDraft,
 } from "./adapters/riskAssessmentValidation";
 import { RiskAssessmentPrintView } from "./RiskAssessmentPrintView";
@@ -151,9 +154,13 @@ export function RiskAssessmentsWorkspace({
     ppeSummary: "",
   });
   const [draftHazards, setDraftHazards] = useState<WizardHazardDraft[]>([]);
+  const [editingHazardId, setEditingHazardId] = useState<string | null>(null);
+  const [focusField, setFocusField] = useState<string | null>(null);
   const [savingDraft, setSavingDraft] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [progressMessage, setProgressMessage] = useState("");
+  const [draftSaveFailed, setDraftSaveFailed] = useState(false);
+  const fieldRefs = useRef<Record<string, HTMLElement | null>>({});
   const [hazardDraft, setHazardDraft] = useState<RiskHazardInput>({
     hazardType: HAZARD_LIBRARY[0],
     hazardTitle: "",
@@ -225,22 +232,77 @@ export function RiskAssessmentsWorkspace({
   const summary = useMemo(() => buildRiskAssessmentSummary(records), [records]);
 
   const submissionValidation = useMemo(
-    () => validateRiskAssessmentSubmission(form, draftHazards),
+    () => validateRiskAssessmentSubmission(form, dedupeHazardsById(draftHazards)),
     [form, draftHazards],
   );
+
+  const displayHazards = useMemo(() => dedupeHazardsById(draftHazards), [draftHazards]);
+
+  const resetHazardForm = () => {
+    setHazardDraft({
+      hazardType: HAZARD_LIBRARY[0],
+      hazardTitle: "",
+      initialLikelihood: 3,
+      initialSeverity: 3,
+      residualLikelihood: 2,
+      residualSeverity: 2,
+      actionRequired: false,
+    });
+    setEditingHazardId(null);
+    setFocusField(null);
+  };
+
+  const registerFieldRef = (field: string) => (element: HTMLElement | null) => {
+    fieldRefs.current[field] = element;
+  };
+
+  useEffect(() => {
+    if (!focusField) return;
+    const element = fieldRefs.current[focusField];
+    if (element && typeof element.focus === "function") {
+      element.focus();
+      if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+        element.scrollIntoView({ block: "nearest" });
+      }
+    }
+  }, [focusField, wizardStep, editingHazardId]);
+
+  const persistWizardDraft = async (): Promise<string> => {
+    const localHazards = dedupeHazardsById(draftHazards);
+    const payload = {
+      ...buildDraftPayload(),
+      hazards: localHazards.map((hazard, index) => ({
+        ...wizardHazardToInput(hazard),
+        sortOrder: index + 1,
+      })),
+    };
+    if (wizardId) {
+      const saved = await saveRiskAssessmentDraft(folderId, wizardId, payload);
+      applySavedHazards(localHazards, saved.hazards);
+      queueMicrotask(() => {
+        invalidateRiskAssessmentCache(folderId, wizardId);
+        void loadList(true);
+      });
+      return wizardId;
+    }
+    const saved = await saveRiskAssessmentDraft(folderId, null, payload);
+    const id = saved.item?.id || "";
+    if (id) setWizardId(id);
+    applySavedHazards(localHazards, saved.hazards);
+    queueMicrotask(() => {
+      invalidateRiskAssessmentCache(folderId, id);
+      void loadList(true);
+    });
+    return id;
+  };
 
   const buildDraftPayload = () => ({
     ...form,
     peopleAtRisk: [...form.peopleAtRisk, form.peopleAtRiskOther].filter(Boolean).join(", "),
-    hazards: draftHazards.map((hazard, index) => ({
-      ...wizardHazardToInput(hazard),
-      sortOrder: index + 1,
-    })),
   });
 
-  const applySavedHazards = (hazards: RiskHazardRecord[] | undefined) => {
-    if (!Array.isArray(hazards) || hazards.length === 0) return;
-    setDraftHazards(hazards.map((hazard) => wizardDraftFromServerHazard(hazard)));
+  const applySavedHazards = (local: WizardHazardDraft[], server: RiskHazardRecord[] | undefined) => {
+    setDraftHazards(mergeHazardsFromSave(local, server));
   };
 
   const guardWrite = () => {
@@ -273,6 +335,7 @@ export function RiskAssessmentsWorkspace({
       ppeSummary: "",
     });
     setDraftHazards([]);
+    resetHazardForm();
     setView("wizard");
   };
 
@@ -281,34 +344,21 @@ export function RiskAssessmentsWorkspace({
     setView("detail");
   };
 
-  const persistWizardDraft = async (): Promise<string> => {
-    const payload = buildDraftPayload();
-    if (wizardId) {
-      const saved = await saveRiskAssessmentDraft(folderId, wizardId, payload);
-      applySavedHazards(saved.hazards);
-      await loadList(true);
-      return wizardId;
-    }
-    const saved = await saveRiskAssessmentDraft(folderId, null, payload);
-    const id = saved.item?.id || "";
-    if (id) setWizardId(id);
-    applySavedHazards(saved.hazards);
-    await loadList(true);
-    return id;
-  };
-
   const saveWizardDraft = async (): Promise<string> => {
     if (!guardWrite() || savingDraft || submitting) return wizardId;
     setSavingDraft(true);
+    setDraftSaveFailed(false);
     setProgressMessage("Saving draft…");
     setActionError("");
     setActionNotice("");
     try {
       const id = await persistWizardDraft();
       setActionNotice("Draft saved.");
-      setProgressMessage("Draft saved.");
+      setProgressMessage("");
+      setDraftSaveFailed(false);
       return id;
     } catch (error) {
+      setDraftSaveFailed(true);
       setActionError(error instanceof Error ? error.message : "Could not save draft.");
       setProgressMessage("");
       return wizardId || "";
@@ -317,28 +367,91 @@ export function RiskAssessmentsWorkspace({
     }
   };
 
+  const startEditHazard = (hazardId: string, step?: number, field?: string) => {
+    const hazard = displayHazards.find((entry) => entry.id === hazardId);
+    if (!hazard) return;
+    setEditingHazardId(hazardId);
+    setHazardDraft({
+      hazardType: hazard.hazardType || HAZARD_LIBRARY[0],
+      hazardTitle: hazard.hazardTitle,
+      hazardDescription: hazard.hazardDescription,
+      whoMightBeHarmed: hazard.whoMightBeHarmed,
+      howMightTheyBeHarmed: hazard.howMightTheyBeHarmed,
+      existingControls: hazard.existingControls,
+      initialLikelihood: hazard.initialLikelihood,
+      initialSeverity: hazard.initialSeverity,
+      additionalControls: hazard.additionalControls,
+      residualLikelihood: hazard.residualLikelihood,
+      residualSeverity: hazard.residualSeverity,
+      controlOwnerUserId: hazard.controlOwnerUserId,
+      controlOwnerName: hazard.controlOwnerName,
+      controlDueDate: hazard.controlDueDate,
+      actionRequired: hazard.actionRequired,
+    });
+    if (typeof step === "number") setWizardStep(step);
+    else setWizardStep(hazardFieldToStep(field || "hazardTitle"));
+    if (field) setFocusField(field);
+    setActionError("");
+  };
+
+  const cancelEditHazard = () => {
+    resetHazardForm();
+  };
+
+  const saveHazardEdit = () => {
+    if (!editingHazardId) return;
+    const updated = buildWizardHazardDraft({
+      ...hazardDraft,
+      id: editingHazardId,
+      hazardTitle: hazardDraft.hazardTitle || hazardDraft.hazardType || "Hazard",
+    });
+    setDraftHazards((current) =>
+      dedupeHazardsById(current.map((hazard) => (hazard.id === editingHazardId ? updated : hazard))),
+    );
+    resetHazardForm();
+    setActionNotice("Hazard updated.");
+  };
+
+  const removeHazard = (hazardId: string) => {
+    setDraftHazards((current) => current.filter((hazard) => hazard.id !== hazardId));
+    if (editingHazardId === hazardId) resetHazardForm();
+  };
+
+  const duplicateHazard = (hazardId: string) => {
+    const hazard = displayHazards.find((entry) => entry.id === hazardId);
+    if (!hazard) return;
+    const copy = buildWizardHazardDraft({
+      ...hazard,
+      id: undefined,
+      hazardTitle: `${hazard.hazardTitle || hazard.hazardType} (copy)`,
+    });
+    setDraftHazards((current) => dedupeHazardsById([...current, copy]));
+    setActionNotice("Hazard duplicated.");
+  };
+
+  const openValidationTarget = (fieldError: { hazardId?: string; step: number; field: string }) => {
+    setWizardStep(fieldError.step);
+    if (fieldError.hazardId) {
+      startEditHazard(fieldError.hazardId, fieldError.step, fieldError.field);
+    } else if (fieldError.field) {
+      setFocusField(fieldError.field);
+    }
+  };
+
   const addHazardToDraft = () => {
     const draft = buildWizardHazardDraft({
       ...hazardDraft,
       hazardTitle: hazardDraft.hazardTitle || hazardDraft.hazardType || "Hazard",
     });
-    setDraftHazards((current) => [...current, draft]);
-    setHazardDraft({
-      hazardType: HAZARD_LIBRARY[0],
-      hazardTitle: "",
-      initialLikelihood: 3,
-      initialSeverity: 3,
-      residualLikelihood: 2,
-      residualSeverity: 2,
-      actionRequired: false,
-    });
+    setDraftHazards((current) => dedupeHazardsById([...current, draft]));
+    resetHazardForm();
     setActionNotice("Hazard added to this assessment.");
     setActionError("");
   };
 
   const submitWizard = async () => {
     if (!guardWrite() || savingDraft || submitting) return;
-    const validation = validateRiskAssessmentSubmission(form, draftHazards);
+    const validation = validateRiskAssessmentSubmission(form, dedupeHazardsById(draftHazards));
     if (!validation.valid) {
       setActionError(validation.message || RISK_ASSESSMENT_VALIDATION_USER_MESSAGE);
       return;
@@ -373,6 +486,42 @@ export function RiskAssessmentsWorkspace({
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const renderHazardCard = (hazard: WizardHazardDraft, options: { showMissing?: boolean; showEdit?: boolean } = {}) => {
+    const missing = getHazardMissingSummary(hazard);
+    return (
+      <div key={hazard.id} data-testid={`wizard-hazard-${hazard.id}`} className="rounded-xl border px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <button
+            type="button"
+            className="text-left font-semibold text-slate-900 underline-offset-2 hover:underline"
+            onClick={() => startEditHazard(hazard.id)}
+          >
+            {hazard.hazardTitle || hazard.hazardType}
+          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <RiskScoreBadge score={hazard.initialRiskScore} />
+            <RiskScoreBadge score={hazard.residualRiskScore} />
+            {options.showEdit ? (
+              <Button type="button" variant="secondary" onClick={() => startEditHazard(hazard.id)}>
+                Edit hazard
+              </Button>
+            ) : null}
+          </div>
+        </div>
+        {options.showMissing && missing.length > 0 ? (
+          <p className="mt-2 text-xs text-amber-800">Missing: {missing.join(", ")}</p>
+        ) : null}
+        {!options.showEdit ? (
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button type="button" variant="secondary" onClick={() => startEditHazard(hazard.id)}>Edit</Button>
+            <Button type="button" variant="secondary" onClick={() => duplicateHazard(hazard.id)}>Duplicate</Button>
+            <Button type="button" variant="secondary" onClick={() => removeHazard(hazard.id)}>Remove</Button>
+          </div>
+        ) : null}
+      </div>
+    );
   };
 
   const handleApprove = async () => {
@@ -461,6 +610,11 @@ export function RiskAssessmentsWorkspace({
               <Button type="button" variant="secondary" onClick={() => void saveWizardDraft()} disabled={savingDraft || submitting}>
                 {savingDraft ? "Saving draft…" : "Save draft"}
               </Button>
+              {draftSaveFailed ? (
+                <Button type="button" onClick={() => void saveWizardDraft()} disabled={savingDraft || submitting}>
+                  Retry save
+                </Button>
+              ) : null}
             </>
           }
         />
@@ -571,6 +725,9 @@ export function RiskAssessmentsWorkspace({
           ) : null}
           {(wizardStep === 2 || wizardStep === 3 || wizardStep === 4) ? (
             <div className="space-y-4">
+              {editingHazardId ? (
+                <p className="text-sm font-medium text-slate-700">Editing hazard — changes apply when you save.</p>
+              ) : null}
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="block">
                   <span className="text-sm font-medium">Hazard</span>
@@ -580,11 +737,11 @@ export function RiskAssessmentsWorkspace({
                 </label>
                 <label className="block">
                   <span className="text-sm font-medium">Hazard title</span>
-                  <input className="mt-1 w-full rounded-lg border px-3 py-2" value={hazardDraft.hazardTitle} onChange={(e) => setHazardDraft({ ...hazardDraft, hazardTitle: e.target.value })} />
+                  <input ref={registerFieldRef("hazardTitle")} className="mt-1 w-full rounded-lg border px-3 py-2" value={hazardDraft.hazardTitle} onChange={(e) => setHazardDraft({ ...hazardDraft, hazardTitle: e.target.value })} />
                 </label>
                 <label className="block md:col-span-2">
                   <span className="text-sm font-medium">Who might be harmed</span>
-                  <input className="mt-1 w-full rounded-lg border px-3 py-2" value={hazardDraft.whoMightBeHarmed} onChange={(e) => setHazardDraft({ ...hazardDraft, whoMightBeHarmed: e.target.value })} />
+                  <input ref={registerFieldRef("whoMightBeHarmed")} className="mt-1 w-full rounded-lg border px-3 py-2" value={hazardDraft.whoMightBeHarmed} onChange={(e) => setHazardDraft({ ...hazardDraft, whoMightBeHarmed: e.target.value })} />
                 </label>
                 <label className="block md:col-span-2">
                   <span className="text-sm font-medium">How harm could occur</span>
@@ -592,7 +749,7 @@ export function RiskAssessmentsWorkspace({
                 </label>
                 <label className="block md:col-span-2">
                   <span className="text-sm font-medium">Existing controls</span>
-                  <textarea className="mt-1 w-full rounded-lg border px-3 py-2" rows={2} value={hazardDraft.existingControls} onChange={(e) => setHazardDraft({ ...hazardDraft, existingControls: e.target.value })} />
+                  <textarea ref={registerFieldRef("existingControls")} className="mt-1 w-full rounded-lg border px-3 py-2" rows={2} value={hazardDraft.existingControls} onChange={(e) => setHazardDraft({ ...hazardDraft, existingControls: e.target.value })} />
                 </label>
                 {wizardStep >= 3 ? (
                   <label className="block md:col-span-2">
@@ -640,28 +797,27 @@ export function RiskAssessmentsWorkspace({
                     </label>
                     <label className="block">
                       <span className="text-sm font-medium">Control owner</span>
-                      <input className="mt-1 w-full rounded-lg border px-3 py-2" value={hazardDraft.controlOwnerName} onChange={(e) => setHazardDraft({ ...hazardDraft, controlOwnerName: e.target.value })} />
+                      <input ref={registerFieldRef("controlOwnerName")} className="mt-1 w-full rounded-lg border px-3 py-2" value={hazardDraft.controlOwnerName} onChange={(e) => setHazardDraft({ ...hazardDraft, controlOwnerName: e.target.value })} />
                     </label>
                     <label className="block">
                       <span className="text-sm font-medium">Control due date</span>
-                      <input type="date" className="mt-1 w-full rounded-lg border px-3 py-2" value={hazardDraft.controlDueDate} onChange={(e) => setHazardDraft({ ...hazardDraft, controlDueDate: e.target.value })} />
+                      <input ref={registerFieldRef("controlDueDate")} type="date" className="mt-1 w-full rounded-lg border px-3 py-2" value={hazardDraft.controlDueDate} onChange={(e) => setHazardDraft({ ...hazardDraft, controlDueDate: e.target.value })} />
                     </label>
                   </>
                 ) : null}
               </div>
-              <Button type="button" onClick={addHazardToDraft} disabled={savingDraft || submitting}>Add hazard</Button>
+              <div className="flex flex-wrap gap-2">
+                {editingHazardId ? (
+                  <>
+                    <Button type="button" onClick={saveHazardEdit} disabled={savingDraft || submitting}>Save changes</Button>
+                    <Button type="button" variant="secondary" onClick={cancelEditHazard} disabled={savingDraft || submitting}>Cancel edit</Button>
+                  </>
+                ) : (
+                  <Button type="button" onClick={addHazardToDraft} disabled={savingDraft || submitting}>Add hazard</Button>
+                )}
+              </div>
               <div className="space-y-2">
-                {draftHazards.map((hazard) => (
-                  <div key={hazard.clientId} className="rounded-xl border px-4 py-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="font-semibold text-slate-900">{hazard.hazardTitle || hazard.hazardType}</p>
-                      <div className="flex gap-2">
-                        <RiskScoreBadge score={hazard.initialRiskScore} />
-                        <RiskScoreBadge score={hazard.residualRiskScore} />
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                {displayHazards.map((hazard) => renderHazardCard(hazard))}
               </div>
             </div>
           ) : null}
@@ -691,11 +847,11 @@ export function RiskAssessmentsWorkspace({
                   <p className="font-semibold">{submissionValidation.message || RISK_ASSESSMENT_VALIDATION_USER_MESSAGE}</p>
                   <ul className="mt-2 list-disc space-y-1 pl-5">
                     {submissionValidation.fieldErrors.map((fieldError) => (
-                      <li key={`${fieldError.step}-${fieldError.field}-${fieldError.message}`}>
+                      <li key={`${fieldError.hazardId || "assessment"}-${fieldError.step}-${fieldError.field}-${fieldError.message}`}>
                         <button
                           type="button"
                           className="text-left underline"
-                          onClick={() => setWizardStep(wizardStepIndexForField(fieldError.step))}
+                          onClick={() => openValidationTarget(fieldError)}
                         >
                           {fieldError.message}
                         </button>
@@ -709,27 +865,17 @@ export function RiskAssessmentsWorkspace({
                   {submissionValidation.reviewDateWarning}
                 </p>
               ) : null}
-              {draftHazards.length === 0 ? (
+              {displayHazards.length === 0 ? (
                 <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-800">
                   At least one hazard is required before this assessment can be submitted.
                 </p>
               ) : (
-                <p>{draftHazards.length} hazard(s) recorded.</p>
+                <p>{displayHazards.length} hazard(s) recorded.</p>
               )}
               <div className="space-y-2">
-                {draftHazards.map((hazard) => (
-                  <div key={hazard.clientId} className="rounded-xl border px-4 py-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="font-semibold text-slate-900">{hazard.hazardTitle || hazard.hazardType}</p>
-                      <div className="flex gap-2">
-                        <RiskScoreBadge score={hazard.initialRiskScore} />
-                        <RiskScoreBadge score={hazard.residualRiskScore} />
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                {displayHazards.map((hazard) => renderHazardCard(hazard, { showMissing: true, showEdit: true }))}
               </div>
-              {draftHazards.some((hazard) => hazard.residualRiskScore >= 10) ? (
+              {displayHazards.some((hazard) => hazard.residualRiskScore >= 10) ? (
                 <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
                   Warning: one or more hazards remain High or Very High after controls.
                 </p>
