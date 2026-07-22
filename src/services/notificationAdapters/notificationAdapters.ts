@@ -2,9 +2,11 @@ import {
   canAccessActions,
   canAccessBriefings,
   canAccessCompanyOnboardingNav,
+  canAccessCoshh,
   canAccessDocumentControl,
   canAccessLoler,
   canAccessPilotSetup,
+  canAccessRiddor,
   canSubmitIncidents,
   canViewIncidents,
   canViewSyncCentre,
@@ -32,7 +34,10 @@ import {
   type NotificationGroupId,
 } from "../../presentation/notificationPresentation";
 import { readCachedDocumentControlDocuments } from "../documentControlService";
+import { readCachedCoshhList, readCachedRiddorList } from "../healthSafetyService";
 import { readCachedLolerEquipment } from "../lolerService";
+import { coshhStatusLabel } from "../../health-safety/adapters/coshhListAdapter";
+import { riddorDecisionLabel, riddorSubmissionLabel } from "../../health-safety/adapters/riddorListAdapter";
 
 export type NotificationSources = {
   role: Role;
@@ -458,6 +463,78 @@ export function buildNotificationIndex(sources: NotificationSources): BertNotifi
         priority: overdue ? NOTIFICATION_PRIORITY.LOLER_OVERDUE : NOTIFICATION_PRIORITY.DUE_TODAY,
         group: groupForNotification("equipment", overdue ? NOTIFICATION_PRIORITY.LOLER_OVERDUE : NOTIFICATION_PRIORITY.DUE_TODAY, overdue ? "Overdue" : "Due today"),
       });
+    }
+  }
+
+  if (canAccessCoshh(role) && companyFolderId) {
+    const cached = readCachedCoshhList(companyFolderId);
+    for (const record of cached?.items || []) {
+      if (record.status === "archived") continue;
+      if (record.status === "overdue" || record.status === "review_due") {
+        pushNotification(items, {
+          key: `coshh-review:${record.id}`,
+          type: "safety",
+          title: `COSHH review ${record.status === "overdue" ? "overdue" : "due"} — ${record.productName}`,
+          description: coshhStatusLabel(record.status),
+          status: coshhStatusLabel(record.status),
+          severity: record.status === "overdue" ? "high" : "warning",
+          dueAt: record.reviewDate,
+          destination: { screen: "healthSafetyCoshh", coshhId: record.id },
+          sourceRecordKey: record.id,
+          priority: record.status === "overdue" ? NOTIFICATION_PRIORITY.NCR_OVERDUE : NOTIFICATION_PRIORITY.DUE_TODAY,
+          group: groupForNotification("safety", record.status === "overdue" ? NOTIFICATION_PRIORITY.NCR_OVERDUE : NOTIFICATION_PRIORITY.DUE_TODAY, coshhStatusLabel(record.status)),
+        });
+      }
+      if (record.status === "missing_sds") {
+        pushNotification(items, {
+          key: `coshh-sds:${record.id}`,
+          type: "safety",
+          title: `Missing SDS — ${record.productName}`,
+          description: record.manufacturer,
+          status: "Missing SDS",
+          severity: "warning",
+          destination: { screen: "healthSafetyCoshh", coshhId: record.id },
+          sourceRecordKey: record.id,
+          priority: NOTIFICATION_PRIORITY.AWAITING_VERIFICATION,
+          group: groupForNotification("safety", NOTIFICATION_PRIORITY.AWAITING_VERIFICATION, "Missing SDS"),
+        });
+      }
+    }
+  }
+
+  if (canAccessRiddor(role) && companyFolderId) {
+    const cached = readCachedRiddorList(companyFolderId);
+    for (const record of cached?.items || []) {
+      if (record.archivedAt) continue;
+      if (record.decisionStatus === "decision_required" || record.decisionStatus === "information_required") {
+        pushNotification(items, {
+          key: `riddor-decision:${record.id}`,
+          type: "safety",
+          title: "RIDDOR decision required",
+          description: record.incidentId,
+          status: riddorDecisionLabel(record.decisionStatus),
+          severity: "high",
+          destination: { screen: "healthSafetyRiddor", riddorId: record.id, incidentId: record.incidentId },
+          sourceRecordKey: record.id,
+          priority: NOTIFICATION_PRIORITY.SAFETY_CRITICAL,
+          group: groupForNotification("safety", NOTIFICATION_PRIORITY.SAFETY_CRITICAL, "Decision required"),
+        });
+      }
+      if (record.submissionStatus === "follow_up_required" || (record.followUpRequired && record.followUpDate)) {
+        pushNotification(items, {
+          key: `riddor-followup:${record.id}`,
+          type: "safety",
+          title: "RIDDOR follow-up due",
+          description: record.incidentId,
+          status: riddorSubmissionLabel(record.submissionStatus),
+          severity: "warning",
+          dueAt: record.followUpDate,
+          destination: { screen: "healthSafetyRiddor", riddorId: record.id, incidentId: record.incidentId },
+          sourceRecordKey: record.id,
+          priority: NOTIFICATION_PRIORITY.AWAITING_VERIFICATION,
+          group: groupForNotification("safety", NOTIFICATION_PRIORITY.AWAITING_VERIFICATION, "Follow-up required"),
+        });
+      }
     }
   }
 

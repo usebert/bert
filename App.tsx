@@ -302,6 +302,9 @@ import { AuditsScreen } from "./src/screens/AuditsScreen";
 import { AuditCentreScreen } from "./src/screens/AuditCentreScreen";
 import { BriefingsScreen } from "./src/screens/BriefingsScreen";
 import { LolerScreen } from "./src/screens/LolerScreen";
+import { HealthSafetyOverviewScreen } from "./src/screens/HealthSafetyOverviewScreen";
+import { CoshhScreen } from "./src/screens/CoshhScreen";
+import { RiddorScreen } from "./src/screens/RiddorScreen";
 import { CalendarScreen } from "./src/screens/CalendarScreen";
 import { DocumentControlScreen } from "./src/screens/DocumentControlScreen";
 import { DocumentsScreen } from "./src/screens/DocumentsScreen";
@@ -3895,6 +3898,8 @@ function App() {
   const [searchFocusActionId, setSearchFocusActionId] = useState("");
   const [searchFocusNcrId, setSearchFocusNcrId] = useState("");
   const [searchFocusIncidentId, setSearchFocusIncidentId] = useState("");
+  const [searchFocusCoshhId, setSearchFocusCoshhId] = useState("");
+  const [searchFocusRiddorId, setSearchFocusRiddorId] = useState("");
   const [companyResultsState, setCompanyResultsState] = useState<{
     results: AuditResultSummary[];
     loading: boolean;
@@ -11760,6 +11765,16 @@ function App() {
     setScreen(nextScreen);
   }, []);
 
+  const handleHealthSafetyNavigate = useCallback(
+    (nextScreen: import("./src/types/navigation").NavItemId, params?: Record<string, string>) => {
+      if (params?.incidentId) setSearchFocusIncidentId(params.incidentId);
+      if (params?.coshhId) setSearchFocusCoshhId(params.coshhId);
+      if (params?.riddorId) setSearchFocusRiddorId(params.riddorId);
+      setScreen(nextScreen);
+    },
+    [],
+  );
+
   const applyNextBestDashboardIntent = useCallback((intent: NextBestActionIntent) => {
     if (intent.type !== "screen") return;
     applyDashboardNavWithFilter(intent.screen, intent.actionFilter);
@@ -15974,6 +15989,12 @@ function App() {
       if (target.incidentId) {
         setSearchFocusIncidentId(target.incidentId);
       }
+      if (target.coshhId) {
+        setSearchFocusCoshhId(target.coshhId);
+      }
+      if (target.riddorId) {
+        setSearchFocusRiddorId(target.riddorId);
+      }
       if (target.briefingId) {
         setSelectedBriefingId(target.briefingId);
       }
@@ -17905,6 +17926,35 @@ function App() {
                 userEmail={String(sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser)).trim().toLowerCase()}
                 offlineMode={offlineMode}
                 onBack={() => setScreen("dashboard")}
+              />
+            )}
+
+            {screen === "healthSafety" && canRoleAccessNavItem(currentUser.role, "healthSafety") && (
+              <HealthSafetyOverviewScreen
+                companyFolderId={String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim()}
+                onNavigate={handleHealthSafetyNavigate}
+                onBack={() => setScreen("dashboard")}
+              />
+            )}
+
+            {screen === "healthSafetyCoshh" && canRoleAccessNavItem(currentUser.role, "healthSafetyCoshh") && (
+              <CoshhScreen
+                role={currentUser.role}
+                companyFolderId={String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim()}
+                masterSheetId={archiveMasterSheetId || undefined}
+                offlineMode={offlineMode}
+                initialCoshhId={searchFocusCoshhId || undefined}
+                onBack={() => setScreen("healthSafety")}
+              />
+            )}
+
+            {screen === "healthSafetyRiddor" && canRoleAccessNavItem(currentUser.role, "healthSafetyRiddor") && (
+              <RiddorScreen
+                role={currentUser.role}
+                companyFolderId={String(activeCompanyContext.companyFolderId || selectedFolderId || "").trim()}
+                offlineMode={offlineMode}
+                initialRiddorId={searchFocusRiddorId || undefined}
+                onBack={() => setScreen("healthSafety")}
               />
             )}
 

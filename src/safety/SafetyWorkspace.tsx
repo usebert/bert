@@ -39,6 +39,7 @@ import {
 import { SafetyFilters } from "./components/SafetyFilters";
 import { SafetyList } from "./components/SafetyList";
 import { SafetySummaryCards } from "./components/SafetySummaryCards";
+import { RiddorAssessmentPanel } from "../health-safety/components/RiddorAssessmentPanel";
 import type { SafetyFilterState, SafetyWorkspaceProps, SafetyWorkspaceTab } from "./types";
 
 const TAB_LABELS: Record<SafetyWorkspaceTab, string> = {
@@ -619,10 +620,22 @@ export function SafetyWorkspace({
             <input value={selectedIncident.actionOwner} onChange={(event) => onUpdateIncident(selectedIncident.id, { actionOwner: event.target.value })} placeholder="Action owner" className="h-10 rounded-lg border px-3" />
             <input type="date" value={selectedIncident.dueDate} onChange={(event) => onUpdateIncident(selectedIncident.id, { dueDate: event.target.value })} className="h-10 rounded-lg border px-3" />
             <input type="date" value={selectedIncident.completionDate} onChange={(event) => onUpdateIncident(selectedIncident.id, { completionDate: event.target.value })} className="h-10 rounded-lg border px-3" />
-            <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={selectedIncident.riddorRequired} onChange={(event) => onUpdateIncident(selectedIncident.id, { riddorRequired: event.target.checked })} /> RIDDOR required</label>
               </>
             ) : null}
           </div>
+
+          {canManageIncidents && archiveCompanyFolderId ? (
+            <div className="mt-4">
+              <RiddorAssessmentPanel
+                companyFolderId={archiveCompanyFolderId}
+                incidentId={selectedIncident.incidentId}
+                disabled={offlineMode}
+                onCompleted={() =>
+                  onUpdateIncident(selectedIncident.id, { riddorRequired: true }, { statusNote: "RIDDOR assessment recorded" })
+                }
+              />
+            </div>
+          ) : null}
 
           {canManageIncidents ? (
           <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">

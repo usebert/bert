@@ -2,7 +2,7 @@ import type { Role } from "../permissions";
 import type { NavItemId } from "../types/navigation";
 import { getPresentedNavForRole, getRoleNavBucket, type PresentedNavItem } from "./roleNavigation";
 
-export type NavPresentationGroupId = "home" | "work" | "compliance" | "administration" | "platform";
+export type NavPresentationGroupId = "home" | "work" | "compliance" | "healthSafety" | "administration" | "platform";
 
 export type NavPresentationGroup = {
   id: NavPresentationGroupId;
@@ -18,10 +18,13 @@ const DISPLAY_LABELS: Partial<Record<NavItemId, string>> = {
   actions: "Actions",
   schedules: "Schedule",
   briefings: "Briefings",
-  incidents: "Safety",
+  incidents: "Incidents",
   nonConformance: "NCRs",
   documents: "Document Library",
   documentControl: "Documents",
+  healthSafety: "Overview",
+  healthSafetyCoshh: "COSHH",
+  healthSafetyRiddor: "RIDDOR",
   loler: "Equipment",
   reports: "Reports",
   sync: "Sync Centre",
@@ -52,18 +55,28 @@ const GROUPS_BY_BUCKET: Record<ReturnType<typeof getRoleNavBucket>, NavPresentat
       itemIds: ["auditCentre", "briefings", "results"],
     },
     {
+      id: "healthSafety",
+      label: "Health & Safety",
+      itemIds: ["healthSafety", "healthSafetyRiddor", "healthSafetyCoshh", "loler"],
+    },
+    {
       id: "compliance",
       label: "Compliance",
-      itemIds: ["documents", "documentControl", "loler", "calendar", "archive"],
+      itemIds: ["documents", "documentControl", "calendar", "archive"],
     },
   ],
   companyAdmin: [
     { id: "home", label: "Home", itemIds: ["dashboard"] },
     { id: "work", label: "Operations", itemIds: ["auditCentre", "schedules", "actions", "briefings", "results"] },
     {
+      id: "healthSafety",
+      label: "Health & Safety",
+      itemIds: ["healthSafety", "incidents", "healthSafetyRiddor", "healthSafetyCoshh", "loler"],
+    },
+    {
       id: "compliance",
       label: "Compliance",
-      itemIds: ["documents", "documentControl", "incidents", "nonConformance", "loler", "calendar"],
+      itemIds: ["documents", "documentControl", "nonConformance", "calendar"],
     },
     { id: "platform", label: "Insight", itemIds: ["reports"] },
     {
@@ -76,9 +89,14 @@ const GROUPS_BY_BUCKET: Record<ReturnType<typeof getRoleNavBucket>, NavPresentat
     { id: "home", label: "Home", itemIds: ["dashboard"] },
     { id: "work", label: "Operations", itemIds: ["auditCentre", "schedules", "actions", "briefings", "results"] },
     {
+      id: "healthSafety",
+      label: "Health & Safety",
+      itemIds: ["healthSafety", "incidents", "healthSafetyRiddor", "healthSafetyCoshh", "loler"],
+    },
+    {
       id: "compliance",
       label: "Compliance",
-      itemIds: ["documents", "documentControl", "incidents", "nonConformance", "loler", "calendar"],
+      itemIds: ["documents", "documentControl", "nonConformance", "calendar"],
     },
     { id: "platform", label: "Insight", itemIds: ["reports"] },
     {
@@ -91,9 +109,14 @@ const GROUPS_BY_BUCKET: Record<ReturnType<typeof getRoleNavBucket>, NavPresentat
     { id: "home", label: "Home", itemIds: ["dashboard"] },
     { id: "work", label: "Operations", itemIds: ["auditCentre", "briefings"] },
     {
+      id: "healthSafety",
+      label: "Health & Safety",
+      itemIds: ["healthSafety", "incidents", "healthSafetyRiddor", "healthSafetyCoshh", "loler"],
+    },
+    {
       id: "compliance",
       label: "Compliance",
-      itemIds: ["documents", "documentControl", "incidents", "loler", "calendar"],
+      itemIds: ["documents", "documentControl", "calendar"],
     },
     {
       id: "administration",

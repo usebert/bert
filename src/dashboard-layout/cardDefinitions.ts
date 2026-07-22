@@ -8,7 +8,8 @@ export const MANAGER_ROLE_DASHBOARD_CARDS: DashboardCardDefinition[] = [
   { id: "open-actions", label: "Open actions", defaultOrder: 2, hideable: true },
   { id: "open-ncrs", label: "Open NCRs", defaultOrder: 3, hideable: true },
   { id: "loler-summary", label: "LOLER examinations", defaultOrder: 4, hideable: true },
-  { id: "calendar-summary", label: "Calendar", defaultOrder: 5, hideable: true },
+  { id: "health-safety-summary", label: "Health & Safety", defaultOrder: 5, hideable: true },
+  { id: "calendar-summary", label: "Calendar", defaultOrder: 6, hideable: true },
 ];
 
 /** Auditor home — unified core sections are always visible above this board. */
@@ -25,7 +26,8 @@ export const COMPANY_ADMIN_DASHBOARD_CARDS: DashboardCardDefinition[] = [
   { id: "today-panel", label: "Today", defaultOrder: 2, hideable: true },
   { id: "qms-summary", label: "QMS readiness", defaultOrder: 3, hideable: true },
   { id: "loler-summary", label: "LOLER examinations", defaultOrder: 4, hideable: true },
-  { id: "calendar-summary", label: "Calendar", defaultOrder: 5, hideable: true },
+  { id: "health-safety-summary", label: "Health & Safety", defaultOrder: 5, hideable: true },
+  { id: "calendar-summary", label: "Calendar", defaultOrder: 6, hideable: true },
 ];
 
 /** Live operations panel (Manager). Act today + current incidents stay unhideable. */

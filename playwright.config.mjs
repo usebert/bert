@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: "account-menu.spec.mjs",
+  testMatch: /.*\.spec\.mjs$/,
   timeout: 60_000,
   retries: 0,
   use: {

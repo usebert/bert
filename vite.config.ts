@@ -86,6 +86,8 @@ export default defineConfig(({ mode }) => {
         input: {
           main: path.resolve(process.cwd(), "index.html"),
           accountMenuHarness: path.resolve(process.cwd(), "e2e/account-menu.harness.html"),
+          healthSafetyNavHarness: path.resolve(process.cwd(), "e2e/health-safety-nav.harness.html"),
+          riddorAssessmentHarness: path.resolve(process.cwd(), "e2e/riddor-assessment.harness.html"),
         },
       },
     },

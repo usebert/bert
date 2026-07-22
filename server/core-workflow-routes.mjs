@@ -21,6 +21,7 @@ import {
 } from "../shared/google-drive-id.mjs";
 import { readTabRecords, appendTabRows } from "./workbook-service.mjs";
 import { installDocumentRoutes } from "./document-routes.mjs";
+import { installHealthSafetyRoutes } from "./health-safety-routes.mjs";
 import {
   canListCompanySchedules,
   getCompanySchedule,
@@ -3615,6 +3616,24 @@ export function installCoreWorkflowRoutes(app, deps) {
     registryDeps,
     scheduleDeps,
     google,
+    rejectCompanyApiIfFolderInvalid,
+  });
+
+  installHealthSafetyRoutes(app, {
+    getAuthedClient,
+    parseBertActorFromRequest,
+    registryDeps,
+    readTabRecords,
+    appendTabRows,
+    ensureTabExists,
+    ensureColumns,
+    getTabValues,
+    getWorkbook,
+    withSheetsQuotaRetry,
+    google,
+    rowsToRecords,
+    readCompanySheetById,
+    getCompanyUsersDeps,
     rejectCompanyApiIfFolderInvalid,
   });
 }

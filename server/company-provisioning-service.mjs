@@ -5,6 +5,7 @@
 import { randomBytes } from "node:crypto";
 import { inviteAccessLevelForRole } from "../shared/schedule-assignees.mjs";
 import { DOCUMENT_MODULE_REQUIRED_TABS } from "../shared/document-schema.mjs";
+import { HEALTH_SAFETY_REQUIRED_TABS } from "../shared/health-safety.mjs";
 import { findMissingRequiredTabs, SETUP_REQUIRED_TABS } from "./ensure-required-tabs.mjs";
 import {
   ensureCompanyFolderStructure,
@@ -372,7 +373,7 @@ export async function provisionCompanyWorkspace(auth, deps, input = {}, onProgre
     if (!hasCompleted(state, "preparing_workbook_tabs")) {
       const started = Date.now();
       await emit("preparing_workbook_tabs", "running");
-      const requiredTabs = [...new Set([...SETUP_REQUIRED_TABS, ...DOCUMENT_MODULE_REQUIRED_TABS, PEOPLE_TAB, "Incidents"])];
+      const requiredTabs = [...new Set([...SETUP_REQUIRED_TABS, ...DOCUMENT_MODULE_REQUIRED_TABS, PEOPLE_TAB, "Incidents", ...HEALTH_SAFETY_REQUIRED_TABS])];
       const tabResult = await ensureRequiredTabs(auth, { ...deps, requiredTabs }, state.masterSheetId);
       await ensureTabColumns(auth, deps, state.masterSheetId, PEOPLE_TAB, PEOPLE_TAB_COLUMNS);
       if (typeof deps.ensureTabsAndColumns === "function") {
@@ -576,6 +577,6 @@ export async function provisionCompanyWorkspace(auth, deps, input = {}, onProgre
 }
 
 export function assertProvisionTabsCoverRequirements() {
-  const required = [...SETUP_REQUIRED_TABS, ...DOCUMENT_MODULE_REQUIRED_TABS, PEOPLE_TAB, "Incidents"];
+  const required = [...SETUP_REQUIRED_TABS, ...DOCUMENT_MODULE_REQUIRED_TABS, PEOPLE_TAB, "Incidents", ...HEALTH_SAFETY_REQUIRED_TABS];
   return findMissingRequiredTabs([], required);
 }

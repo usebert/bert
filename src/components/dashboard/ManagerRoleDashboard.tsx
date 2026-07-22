@@ -15,6 +15,7 @@ import {
 } from "./RoleDashboardPrimitives";
 import { DashboardLayoutBoard } from "../dashboard-layout/DashboardLayoutBoard";
 import { LolerSummaryCard } from "./LolerSummaryCard";
+import { HealthSafetySummaryCard } from "./HealthSafetySummaryCard";
 import { CalendarSummaryCard } from "./CalendarSummaryCard";
 import { RoleUnifiedDashboard } from "./unified/RoleUnifiedDashboard";
 
@@ -223,6 +224,11 @@ export function ManagerRoleDashboard({
                 ))}
               </ul>
             )}
+          </AnimatedCard>
+        ),
+        "health-safety-summary": (
+          <AnimatedCard index={5}>
+            <HealthSafetySummaryCard companyFolderId={companyFolderId} onNavigate={onNavigate} />
           </AnimatedCard>
         ),
         "loler-summary": (

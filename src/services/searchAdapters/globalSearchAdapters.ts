@@ -2,9 +2,11 @@ import {
   canAccessActions,
   canAccessAuditsCentre,
   canAccessBriefings,
+  canAccessCoshh,
   canAccessDocumentControl,
   canAccessDocuments,
   canAccessLoler,
+  canAccessRiddor,
   canAccessSchedulesScreen,
   canAccessUsersInvitesNav,
   canAccessWorkspaceNav,
@@ -35,6 +37,7 @@ import {
 } from "../../presentation/searchPresentation";
 import { readCachedDocumentControlDocuments } from "../documentControlService";
 import { readCachedDocuments } from "../documentService";
+import { readCachedCoshhAssessments, readCachedCoshhList, readCachedRiddorList } from "../healthSafetyService";
 import { readCachedLolerEquipment } from "../lolerService";
 import type { CompanyMember } from "../companyUserService";
 
@@ -204,6 +207,81 @@ export function buildGlobalSearchIndex(sources: GlobalSearchSources): SearchResu
     const cached = readCachedLolerEquipment(companyFolderId);
     for (const equipment of cached?.equipment || []) {
       appendEquipment(items, equipment);
+    }
+  }
+
+  if (canAccessCoshh(role) && companyFolderId) {
+    const cached = readCachedCoshhList(companyFolderId);
+    for (const record of cached?.items || []) {
+      if (record.status === "archived") continue;
+      pushItem(items, {
+        id: `coshh-${record.id}`,
+        kind: "coshh",
+        title: record.productName,
+        typeLabel: SEARCH_TYPE_LABELS.coshh,
+        status: record.status,
+        site: record.siteId || undefined,
+        description: [record.manufacturer, record.storageLocation, record.sdsFileName].filter(Boolean).join(" · "),
+        navigate: { screen: "healthSafetyCoshh", coshhId: record.id },
+        searchText: [
+          record.productName,
+          record.manufacturer,
+          record.supplier,
+          record.productCode,
+          record.storageLocation,
+          record.hazardStatements,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      });
+      const assessments = readCachedCoshhAssessments(companyFolderId, record.id);
+      for (const assessment of assessments?.items || []) {
+        if (assessment.status === "archived") continue;
+        pushItem(items, {
+          id: `coshh-assessment-${assessment.id}`,
+          kind: "coshh-assessment",
+          title: assessment.assessmentTitle || `${record.productName} assessment`,
+          typeLabel: SEARCH_TYPE_LABELS["coshh-assessment"],
+          status: assessment.status,
+          description: record.productName,
+          navigate: { screen: "healthSafetyCoshh", coshhId: record.id, assessmentId: assessment.id },
+          searchText: [
+            assessment.assessmentTitle,
+            record.productName,
+            assessment.activity,
+            assessment.assessorName,
+            assessment.status,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        });
+      }
+    }
+  }
+
+  if (canAccessRiddor(role) && companyFolderId) {
+    const cached = readCachedRiddorList(companyFolderId);
+    for (const record of cached?.items || []) {
+      if (record.archivedAt) continue;
+      pushItem(items, {
+        id: `riddor-${record.id}`,
+        kind: "riddor",
+        title: record.incidentId || record.id,
+        typeLabel: SEARCH_TYPE_LABELS.riddor,
+        status: record.decisionStatus,
+        description: [record.reportableCategory, record.submissionStatus, record.decisionStatus].filter(Boolean).join(" · "),
+        navigate: { screen: "healthSafetyRiddor", riddorId: record.id, incidentId: record.incidentId || undefined },
+        searchText: [
+          record.id,
+          record.incidentId,
+          record.reportableCategory,
+          record.decisionStatus,
+          record.submissionStatus,
+          record.submissionReference,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      });
     }
   }
 

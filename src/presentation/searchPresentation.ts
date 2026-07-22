@@ -10,6 +10,9 @@ export type SearchResultKind =
   | "near-miss"
   | "ncr"
   | "equipment"
+  | "coshh"
+  | "coshh-assessment"
+  | "riddor"
   | "person"
   | "site"
   | "area"
@@ -27,6 +30,9 @@ export type SearchNavigateTarget = {
   briefingId?: string;
   scheduleId?: string;
   siteId?: string;
+  coshhId?: string;
+  assessmentId?: string;
+  riddorId?: string;
 };
 
 export type SearchResultItem = {
@@ -52,6 +58,7 @@ export const SEARCH_GROUP_ORDER: Array<{ id: string; label: string; kinds: Searc
   { id: "audits", label: "Audits", kinds: ["audit", "completed-audit"] },
   { id: "documents", label: "Documents", kinds: ["document", "document-library"] },
   { id: "equipment", label: "Equipment", kinds: ["equipment"] },
+  { id: "health-safety", label: "Health & Safety", kinds: ["coshh", "coshh-assessment", "riddor"] },
   { id: "people", label: "People", kinds: ["person"] },
   { id: "incidents", label: "Incidents", kinds: ["incident", "near-miss"] },
   { id: "ncrs", label: "NCRs", kinds: ["ncr"] },
@@ -71,6 +78,9 @@ export const SEARCH_TYPE_LABELS: Record<SearchResultKind, string> = {
   "near-miss": "Near miss",
   ncr: "NCR",
   equipment: "Equipment",
+  coshh: "COSHH product",
+  "coshh-assessment": "COSHH assessment",
+  riddor: "RIDDOR record",
   person: "Person",
   site: "Site",
   area: "Area",

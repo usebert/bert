@@ -206,6 +206,26 @@ export function canAccessLoler(_role: Role) {
   return true;
 }
 
+export function canAccessHealthSafetyOverview(role: Role) {
+  return role === "Master" || canSubmitIncidents(role);
+}
+
+export function canAccessCoshh(role: Role) {
+  return role === "Master" || role === "Admin" || role === "Manager" || role === "Auditor";
+}
+
+export function canManageCoshh(role: Role) {
+  return role === "Master" || role === "Admin" || role === "Manager";
+}
+
+export function canAccessRiddor(role: Role) {
+  return role === "Master" || canInvestigateIncidents(role) || role === "Auditor";
+}
+
+export function canManageRiddor(role: Role) {
+  return role === "Master" || canInvestigateIncidents(role);
+}
+
 /** Add / edit / assign / archive LOLER equipment — Master, Admin, Manager. */
 export function canManageLoler(role: Role) {
   return role === "Master" || role === "Admin" || role === "Manager";
@@ -289,6 +309,9 @@ export function canRoleAccessNavItem(role: Role, itemId: NavItemId) {
   if (itemId === "auditCentre") return canAccessAuditCentre(role);
   if (itemId === "googleForms") return canAccessGoogleForms(role);
   if (itemId === "incidents") return canSubmitIncidents(role);
+  if (itemId === "healthSafety") return canAccessHealthSafetyOverview(role);
+  if (itemId === "healthSafetyCoshh") return canAccessCoshh(role);
+  if (itemId === "healthSafetyRiddor") return canAccessRiddor(role);
   if (itemId === "loler") return canAccessLoler(role);
   if (itemId === "calendar") return canAccessCalendar(role);
   if (itemId === "documentControl") return canAccessDocumentControl(role);
