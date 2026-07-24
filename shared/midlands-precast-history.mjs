@@ -30,7 +30,37 @@ import {
 } from "./midlands-history-prng.mjs";
 
 const HISTORY_DAYS = 180;
-const MONTHLY_COMPLIANCE_TARGETS = [0.72, 0.74, 0.73, 0.82, 0.85, 0.84, 0.9, 0.91, 0.92, 0.93];
+// Calendar-month pass targets for a six-month span (partial opening month through anchor month).
+const CALENDAR_COMPLIANCE_TARGETS = [0.72, 0.74, 0.73, 0.85, 0.93, 0.92, 0.90];
+
+function compliancePassRoll(anchorKey, scheduleId, dueDate, passTarget) {
+  const seed = anchorSeedNumber(`${anchorKey}|${scheduleId}|${dueDate}`);
+  return createSeededRandom(seed)() < passTarget;
+}
+
+function complianceLateDelayDays(anchorKey, scheduleId, dueDate) {
+  const seed = anchorSeedNumber(`${anchorKey}|${scheduleId}|${dueDate}|late`);
+  const lateRng = createSeededRandom(seed);
+  if (lateRng() >= 0.35) return 0;
+  return 1 + Math.floor(lateRng() * 3);
+}
+
+function buildCalendarComplianceTargets(historyStart, historyEnd) {
+  const targets = new Map();
+  let monthKey = historyStart.slice(0, 7);
+  const endMonth = historyEnd.slice(0, 7);
+  let index = 0;
+  while (monthKey <= endMonth) {
+    targets.set(
+      monthKey,
+      CALENDAR_COMPLIANCE_TARGETS[Math.min(index, CALENDAR_COMPLIANCE_TARGETS.length - 1)],
+    );
+    const [year, month] = monthKey.split("-").map(Number);
+    monthKey = month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, "0")}`;
+    index += 1;
+  }
+  return targets;
+}
 
 const SCHEDULE_HISTORY = [
   { id: "midlands-sch-001", auditId: "midlands-aud-001", site: "rugby", area: "midlands-area-rugby-batching", results: 68 },
@@ -338,6 +368,7 @@ export function buildMidlandsPrecastHistory({
   const auditResults = [];
   const auditFindings = [];
   const complianceByMonth = {};
+  const calendarComplianceTargets = buildCalendarComplianceTargets(historyStart, historyEnd);
   let resultCounter = 0;
   let findingCounter = 0;
 
@@ -345,25 +376,28 @@ export function buildMidlandsPrecastHistory({
     const template = auditTemplate(scheduleMeta.auditId);
     const assignee = scheduleAssignee(scheduleMeta.id, schedules);
     const questions = QUESTION_BANK[scheduleMeta.auditId] || [];
-    const dates = spreadDatesAcrossRange(rng, historyStart, historyEnd, scheduleMeta.results);
+    const scheduleRng = createSeededRandom(anchorSeedNumber(`${anchorKey}|${scheduleMeta.id}|dates`));
+    const dates = spreadDatesAcrossRange(scheduleRng, historyStart, historyEnd, scheduleMeta.results);
 
     for (const dueDate of dates) {
       resultCounter += 1;
       const monthIdx = Math.min(
-        MONTHLY_COMPLIANCE_TARGETS.length - 1,
+        CALENDAR_COMPLIANCE_TARGETS.length - 1,
         Math.max(0, monthIndexFromRange(historyStart, dueDate)),
       );
-      const passTarget = MONTHLY_COMPLIANCE_TARGETS[monthIdx];
-      const passAll = rng() < passTarget;
-      const late = !passAll && rng() < 0.35;
-      const completedDate = late ? addDays(dueDate, 1 + Math.floor(rng() * 3)) : dueDate;
+      const passTarget =
+        calendarComplianceTargets.get(dueDate.slice(0, 7)) ??
+        CALENDAR_COMPLIANCE_TARGETS[CALENDAR_COMPLIANCE_TARGETS.length - 1];
+      const passAll = compliancePassRoll(anchorKey, scheduleMeta.id, dueDate, passTarget);
+      const delayDays = passAll ? 0 : complianceLateDelayDays(anchorKey, scheduleMeta.id, dueDate);
+      const completedDate = delayDays ? addDays(dueDate, delayDays) : dueDate;
       if (completedDate > historyEnd) continue;
 
       const resultId = `midlands-hres-${String(resultCounter).padStart(4, "0")}`;
       const answers = [];
       const embeddedFindings = [];
       for (const question of questions) {
-        const failChance = passAll ? 0.05 : 0.14;
+        const failChance = passAll ? 0.05 : 0.092;
         const answer = rng() < failChance ? "fail" : rng() < 0.1 ? "n/a" : "pass";
         answers.push({
           questionId: question.id,
@@ -537,8 +571,8 @@ export function buildMidlandsPrecastHistory({
       assigneeEmail: "demo.midlands.hs.manager@usebert.co.uk",
       assigneeName: "Priya Sharma",
       createdAt: isoAt(addDays(anchorKey, -5), 9, 30),
-      dueDate: addDays(anchorKey, 4),
-      comments: "Sump clean scheduled Saturday.",
+      dueDate: addDays(anchorKey, -2),
+      comments: "Sump clean overdue — contractor booked for this week.",
     }),
     buildActionRow({
       actionId: "midlands-hact-dash-004",

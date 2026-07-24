@@ -61,7 +61,7 @@ assert(summary.counts.auditResultsRugby >= 250 && summary.counts.auditResultsRug
 assert(summary.counts.auditResultsCoventry >= 100 && summary.counts.auditResultsCoventry <= 160, "coventry result volume");
 assert(summary.counts.auditResultsRugby > summary.counts.auditResultsCoventry, "rugby heavier than coventry");
 
-assert(summary.counts.auditFindings >= 50 && summary.counts.auditFindings <= 80, "finding count in range");
+assert(summary.counts.auditFindings >= 50 && summary.counts.auditFindings <= 75, "finding count in range 50–75");
 assert(summary.counts.actions >= 45 && summary.counts.actions <= 65, "action count in range");
 assert(summary.counts.ncrs >= 10 && summary.counts.ncrs <= 16, "ncr count in range");
 assert(summary.counts.ncrsOpen >= 1 && summary.counts.ncrsOpen <= 3, "open ncr dashboard state");
@@ -72,10 +72,21 @@ assert(summary.counts.lolerEquipment >= 25 && summary.counts.lolerEquipment <= 4
 assert(summary.counts.riskAssessments >= 8, "risk assessments seeded");
 
 const firstMonth = summary.complianceTrend[0]?.passRate || 0;
+const openingMonth =
+  (summary.complianceTrend[0]?.completed || 0) < 20
+    ? summary.complianceTrend[1]?.passRate || firstMonth
+    : firstMonth;
+const penultimateMonth = summary.complianceTrend[summary.complianceTrend.length - 2]?.passRate || 0;
 const lastMonth = summary.complianceTrend[summary.complianceTrend.length - 1]?.passRate || 0;
 assert(firstMonth >= 0.68 && firstMonth <= 0.78, "early compliance ~70–75%");
-assert(lastMonth >= 0.88 && lastMonth <= 0.95, "late compliance ~90–93%");
-assert(lastMonth > firstMonth, "compliance trend improves");
+assert(
+  (summary.complianceTrend[1]?.passRate || 0) >= 0.68 && (summary.complianceTrend[1]?.passRate || 0) <= 0.78,
+  "second month compliance ~70–75%",
+);
+assert(penultimateMonth >= 0.9 && penultimateMonth <= 0.95, "penultimate month compliance ≥90%");
+assert(lastMonth >= 0.9 && lastMonth <= 0.95, "final month compliance ≥90%");
+assert(lastMonth >= openingMonth + 0.12, "final month materially above opening month");
+assert(lastMonth > openingMonth, "compliance trend improves");
 
 assert(summary.counts.actionsOverdue >= 3 && summary.counts.actionsOverdue <= 5, "overdue actions dashboard band");
 assert(summary.dashboard.openActionsDueSoon.length >= 4 && summary.dashboard.openActionsDueSoon.length <= 7, "open actions due soon");
