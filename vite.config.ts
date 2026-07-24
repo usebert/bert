@@ -86,6 +86,7 @@ export default defineConfig(({ mode }) => {
         input: {
           main: path.resolve(process.cwd(), "index.html"),
           accountMenuHarness: path.resolve(process.cwd(), "e2e/account-menu.harness.html"),
+          companySwitcherHarness: path.resolve(process.cwd(), "e2e/company-switcher.harness.html"),
           healthSafetyNavHarness: path.resolve(process.cwd(), "e2e/health-safety-nav.harness.html"),
           healthSafetyOverviewHarness: path.resolve(process.cwd(), "e2e/health-safety-overview.harness.html"),
           riskAssessmentsHarness: path.resolve(process.cwd(), "e2e/risk-assessments.harness.html"),

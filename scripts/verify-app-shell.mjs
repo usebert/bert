@@ -74,6 +74,10 @@ function main() {
   assert(app.includes("selectableGodmodeFolders"), "master switcher uses selected-company folder list");
   assert(app.includes("onSelectCompany={requestCompanySwitch}"), "company switch preserves existing handler chain");
   assert(app.includes("handleSelectFolder"), "company switch preserves folder selection handler");
+  assert(
+    app.includes("currentUser?.username, currentUser?.role, googleConnected"),
+    "workspace list refreshes after login and google connection",
+  );
   assert(!app.includes("buildCompanyRegistry"), "switcher does not duplicate company-registry logic");
 
   // 13–16 Account menu
@@ -104,6 +108,16 @@ function main() {
   assert(accountMenu.includes('event.key === "Escape"'), "Escape closes account menu");
   assert(accountMenu.includes("createPortal") && accountMenu.includes("document.body"), "account menu portals above shell clipping");
   assert(
+    companyContext.includes("createPortal") && companyContext.includes("document.body"),
+    "company switcher portals above shell clipping",
+  );
+  assert(companyContext.includes('data-testid="company-switcher-trigger"'), "company switcher trigger is testable");
+  assert(companyContext.includes('data-testid="company-switcher-panel"'), "company switcher panel is testable");
+  assert(companyContext.includes('event.key === "Escape"'), "Escape closes company switcher");
+  assert(companyContext.includes("aria-expanded={open}"), "company switcher exposes aria-expanded");
+  assert(companyContext.includes('event.key !== "Enter"') && companyContext.includes('event.key !== " "'), "company switcher supports keyboard activation");
+  assert(companyContext.includes("[company-switcher]"), "company switcher logs resolved workspaces in development");
+  assert(
     accountMenu.includes("window.innerWidth - trigger.right") && accountMenu.includes("z-[101]"),
     "account menu anchors from trigger right edge with shell-safe z-index",
   );
@@ -112,6 +126,7 @@ function main() {
     "temporary shell sign out fallback is visible",
   );
   assert(pkg.scripts["test:e2e:account-menu"], "account menu browser test script registered");
+  assert(pkg.scripts["test:e2e:company-switcher"], "company switcher browser test script registered");
   assert(appShell.includes("motion-reduce") || appSidebar.includes("motion-reduce"), "reduced motion supported");
   assert(appShell.includes("h-[100dvh]"), "mobile drawer uses 100dvh-safe layout");
 

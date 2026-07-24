@@ -16454,6 +16454,16 @@ function App() {
   }, [currentUser?.role, googleConnected]);
 
   useEffect(() => {
+    if (!currentUser) {
+      return;
+    }
+    void loadGoogleStatus({ silent: true });
+    if (currentUser.role === "Master" && googleConnected) {
+      void loadGodmodeLiveCompanies({ silent: true });
+    }
+  }, [currentUser?.username, currentUser?.role, googleConnected]);
+
+  useEffect(() => {
     if (currentUser && !canAccessControlScreen(currentUser.role) && screen === "admin") {
       setScreen(getHomeScreenForRole(currentUser.role));
     }
