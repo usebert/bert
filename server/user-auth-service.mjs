@@ -37,7 +37,7 @@ import {
   getCanonicalCompanyRegistryRecord,
   readCanonicalCompanyWorkspaceRegistryMap,
 } from "./company-workspace-registry.mjs";
-import { loginTimingEmailMeta } from "./login-timing.mjs";
+import { logCompanyLoginDevTrace, loginTimingEmailMeta } from "./login-timing.mjs";
 
 const LIGHT_RESOLVE_OPTS = {
   ensureTabsSync: false,
@@ -212,6 +212,43 @@ function diagnosticReasonCode(authFailureReason) {
   return AUTH_REASON_TO_DIAGNOSTIC[authFailureReason] || "invalid_credentials";
 }
 
+function buildCompanyLoginIdentityMeta(input = {}) {
+  const identity = normalizeLoginIdentity(
+    input.email || input.username || input.identity || input.identifier || input.emailOrUsername || "",
+  );
+  return {
+    identityType: identity.includes("@") ? "email" : "username",
+    inputIdentity: identity,
+  };
+}
+
+function emitCompanyLoginDevTrace({
+  identityMeta = {},
+  resolvedEmail = "",
+  identityResolved = false,
+  identitySource = "",
+  userFound = null,
+  statusActive = null,
+  passwordVerified = null,
+  companyFolderIdResolved = false,
+  rejectionReason = "",
+  failedStep = "",
+}) {
+  logCompanyLoginDevTrace("login_trace", {
+    identityType: identityMeta.identityType || "unknown",
+    inputIdentity: identityMeta.inputIdentity || "",
+    resolvedEmail: normalizeUserAuthEmail(resolvedEmail) || "",
+    identityResolved,
+    identitySource,
+    userFound,
+    statusActive,
+    passwordVerified,
+    companyFolderIdResolved,
+    rejectionReason: rejectionReason || failedStep || "unknown",
+    failedStep: failedStep || "",
+  });
+}
+
 function buildLoginAuthFailure({
   email,
   authFailureReason,
@@ -224,9 +261,18 @@ function buildLoginAuthFailure({
   usersTabDiagnostics = null,
   folderFirstDiagnostics = null,
   identityDiagnostics = null,
+  devLoginTrace = null,
 }) {
   const reasonCode = diagnosticReasonCode(authFailureReason);
   const emailNorm = normalizeUserAuthEmail(email);
+  if (devLoginTrace) {
+    emitCompanyLoginDevTrace({
+      ...devLoginTrace,
+      resolvedEmail: emailNorm || devLoginTrace.resolvedEmail || "",
+      rejectionReason: authFailureReason || reasonCode,
+      failedStep,
+    });
+  }
   console.warn("[company-auth] login rejected", {
     email: emailNorm || "(missing)",
     reasonCode,
@@ -792,8 +838,6 @@ export async function verifyUserPasswordFromUsersTab(auth, companyContext, email
     status: row.status,
     role: row.role,
     passwordHashPresent: Boolean(row.passwordHash),
-    passwordHashPrefix: row.passwordHash.slice(0, 12),
-    passwordHashLength: row.passwordHash.length,
     row,
     source: "users_tab",
     masterSheetId: row.masterSheetId,
@@ -1445,6 +1489,48 @@ async function resolveSingleLoginAttempt(
  */
 export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) {
   const password = String(input.password || "");
+  const identityMeta = buildCompanyLoginIdentityMeta(input);
+  const devLoginTrace = {
+    ...identityMeta,
+    identityResolved: false,
+    identitySource: "",
+    resolvedEmail: "",
+    userFound: null,
+    statusActive: null,
+    passwordVerified: null,
+    companyFolderIdResolved: false,
+  };
+  function updateDevLoginProbeFromAttempt(attemptResult = {}, attempt = {}) {
+    if (attemptResult.rowFound === true) {
+      devLoginTrace.userFound = true;
+      if (attemptResult.inactive) {
+        devLoginTrace.statusActive = false;
+      } else if (attemptResult.ok) {
+        devLoginTrace.statusActive = true;
+      } else {
+        devLoginTrace.statusActive = true;
+      }
+    } else if (attemptResult.rowFound === false) {
+      devLoginTrace.userFound = false;
+    }
+    if (attemptResult.ok === true) {
+      devLoginTrace.passwordVerified = true;
+    } else if (
+      attemptResult.authFailureReason === AUTH_FAILURE_REASON.PASSWORD_COMPARE_FAILED ||
+      attemptResult.authFailureReason === AUTH_FAILURE_REASON.PASSWORD_HASH_MISSING
+    ) {
+      devLoginTrace.passwordVerified = false;
+    }
+    const folderId = sanitizeCompanyFolderId(
+      attempt?.companyFolderId ||
+        attemptResult?.companyContext?.companyFolderId ||
+        attemptResult?.companyContext?.companyId ||
+        "",
+    );
+    if (folderId) {
+      devLoginTrace.companyFolderIdResolved = true;
+    }
+  }
   if (!auth || !password) {
     return buildLoginAuthFailure({
       email: normalizeUserAuthEmail(input.email || input.username || ""),
@@ -1456,6 +1542,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
       blocker: "missing_fields",
       message: "Email or username and password are required.",
       failedStep: "input_validation",
+      devLoginTrace,
     });
   }
 
@@ -1470,10 +1557,21 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
       message: "Email, username, or password is incorrect.",
       failedStep: "identity_resolve",
       identityDiagnostics: resolvedIdentity.diagnostics || null,
+      devLoginTrace: {
+        ...devLoginTrace,
+        identityResolved: false,
+        rejectionReason: resolvedIdentity.reason || AUTH_FAILURE_REASON.USER_NOT_FOUND,
+      },
     });
   }
 
   const email = normalizeUserAuthEmail(resolvedIdentity.email);
+  devLoginTrace.identityResolved = true;
+  devLoginTrace.resolvedEmail = email;
+  devLoginTrace.identitySource = resolvedIdentity.source || "";
+  if (resolvedIdentity.companyFolderId) {
+    devLoginTrace.companyFolderIdResolved = true;
+  }
   // Resolve username → email only; leave workbook discovery to collectLoginResolutionAttempts
   // (auth-index by email / hints), same as a normal email login. Do not force folder-first
   // from identity aliases alone — that can stall on Drive folder resolve during cold login.
@@ -1508,6 +1606,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
       blocker: "missing_fields",
       message: "Email or username and password are required.",
       failedStep: "input_validation",
+      devLoginTrace,
     });
   }
 
@@ -1724,6 +1823,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
             authFailureReason: AUTH_FAILURE_REASON.COMPANY_WORKBOOK_NOT_RESOLVED,
             attemptCount: effectiveAttempts.length,
             folderFirstDiagnostics: buildFolderFirstDiagnostics(attempt),
+            devLoginTrace,
           });
         }
         if (!trustedFolder) {
@@ -1735,6 +1835,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
     }
 
     if (!attemptResult.ok) {
+      updateDevLoginProbeFromAttempt(attemptResult, attempt);
       const folderFirstDiag = buildFolderFirstDiagnostics(attempt, attemptResult);
       if (attemptResult.authFailureReason === AUTH_FAILURE_REASON.AMBIGUOUS_USERS_TAB_ROWS) {
         // Ambiguous ACTIVE duplicates on a trusted workbook are final — never silently pick a row.
@@ -1744,6 +1845,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
             authFailureReason: AUTH_FAILURE_REASON.AMBIGUOUS_USERS_TAB_ROWS,
             attemptCount: effectiveAttempts.length,
             folderFirstDiagnostics: explicitFolderFirst ? folderFirstDiag : null,
+            devLoginTrace,
           });
         }
         lastAuthFailureReason = AUTH_FAILURE_REASON.AMBIGUOUS_USERS_TAB_ROWS;
@@ -1762,6 +1864,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
               authFailureReason: AUTH_FAILURE_REASON.INACTIVE,
               attemptCount: effectiveAttempts.length,
               folderFirstDiagnostics: folderFirstDiag,
+              devLoginTrace,
             });
           }
         } else {
@@ -1779,6 +1882,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
           authFailureReason: lastAuthFailureReason,
           attemptCount: effectiveAttempts.length,
           folderFirstDiagnostics: folderFirstDiag,
+          devLoginTrace,
         });
       }
       continue;
@@ -1790,6 +1894,17 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
       companyFolderIdUsed: attempt.companyFolderId,
       trustedMasterSheetId: attemptResult.companyContext?.masterSheetId,
       staleCandidatesIgnored: explicitFolderFirst ? ignoredStaleCandidates : undefined,
+    });
+    updateDevLoginProbeFromAttempt(attemptResult, attempt);
+    emitCompanyLoginDevTrace({
+      ...devLoginTrace,
+      identityResolved: true,
+      resolvedEmail: email,
+      userFound: true,
+      statusActive: true,
+      passwordVerified: true,
+      rejectionReason: "",
+      failedStep: "",
     });
     return {
       ok: true,
@@ -1867,9 +1982,24 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
         "registry_login_fallback",
       );
       if (registryResult.ok) {
+        updateDevLoginProbeFromAttempt(registryResult, {
+          companyFolderId: registryResult.companyContext?.companyFolderId,
+        });
+        emitCompanyLoginDevTrace({
+          ...devLoginTrace,
+          identityResolved: true,
+          resolvedEmail: email,
+          userFound: true,
+          statusActive: true,
+          passwordVerified: true,
+          companyFolderIdResolved: Boolean(registryResult.companyContext?.companyFolderId),
+          rejectionReason: "",
+          failedStep: "",
+        });
         return registryResult;
       }
       if (registryResult.inactive) {
+        updateDevLoginProbeFromAttempt(registryResult);
         inactiveHit = true;
         lastAuthFailureReason = AUTH_FAILURE_REASON.INACTIVE;
       } else if (!registryResult.skip && registryResult.authFailureReason) {
@@ -1904,6 +2034,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
             staleCandidatesIgnored: ignoredStaleCandidates,
           }
         : null,
+      devLoginTrace,
     });
   }
 
@@ -1950,6 +2081,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
             staleCandidatesIgnored: ignoredStaleCandidates,
           }
         : null,
+      devLoginTrace,
     });
   }
 
@@ -1965,6 +2097,7 @@ export async function authenticateCompanyUserLogin(auth, deps = {}, input = {}) 
           staleCandidatesIgnored: ignoredStaleCandidates,
         }
       : null,
+    devLoginTrace,
   });
 }
 

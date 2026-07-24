@@ -7,6 +7,8 @@ const BLOCKED_META_KEYS = new Set([
   "password",
   "passwordhash",
   "password_hash",
+  "passwordhashprefix",
+  "passwordhashlength",
   "answers",
   "answersjson",
   "answers_json",
@@ -108,6 +110,20 @@ export function logLoginTimingPhase(phase, startMs, meta = {}) {
 
 export function logLoginTimingMark(phase, meta = {}) {
   console.info(LOGIN_TIMING_PREFIX, phase, safeLoginTimingMeta(meta));
+}
+
+export const COMPANY_LOGIN_DEV_TRACE_PREFIX = "[company-login:dev]";
+
+/** Structured login trace for local development — never logs passwords or hashes. */
+export function isCompanyLoginDevTraceEnabled() {
+  return String(process.env.NODE_ENV || "").trim().toLowerCase() !== "production";
+}
+
+export function logCompanyLoginDevTrace(step, meta = {}) {
+  if (!isCompanyLoginDevTraceEnabled()) {
+    return;
+  }
+  console.info(COMPANY_LOGIN_DEV_TRACE_PREFIX, step, safeLoginTimingMeta(meta));
 }
 
 export function createLoginTimingTrace(initialMeta = {}) {
