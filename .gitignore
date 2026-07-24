@@ -9,6 +9,7 @@ public/build-meta.json
 .sessions/
 demo-company-seed-report.json
 demo-environment-seed-report.json
+demo-environment-history-report.json
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts

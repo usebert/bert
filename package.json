@@ -46,6 +46,8 @@
     "seed:demo-environment": "node scripts/seed-demo-environment.mjs",
     "register:demo-environment": "node scripts/register-demo-environment.mjs",
     "verify:demo-environment": "node scripts/verify-demo-environment.mjs",
+    "seed:demo-history": "node scripts/seed-demo-history.mjs",
+    "verify:demo-history": "node scripts/verify-demo-history.mjs",
     "reset:demo-user-password": "node scripts/reset-demo-user-password.mjs",
     "migrate:userauth": "node scripts/migrate-userauth-passwords.mjs",
     "verify:auth": "node scripts/verify-auth-hardening.mjs",
