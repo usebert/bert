@@ -42,6 +42,7 @@ import {
   verifyCompanyUserPassword,
   resolveCompanyUserEmailByHash,
   resolveCompanyContextForUser,
+  listAuthorizedCompanyWorkspacesForUser,
   updateCompanyUserRecord,
   writeUsersTabRecordByHeaders,
   isValidCompanyUserEmail,
@@ -214,6 +215,7 @@ import {
 } from "../shared/schedule-assignees.mjs";
 import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
 import { isSystemTemplateCompany } from "../shared/system-template-company.mjs";
+import { toCompanySwitcherWorkspace } from "../shared/company-workspace-access.mjs";
 import { bertCorsMiddleware } from "./bert-cors.mjs";
 
 dotenv.config();
@@ -6935,6 +6937,131 @@ async function respondCompanyUserSession(req, res, options = {}) {
 }
 
 app.get("/api/auth/company/session", respondCompanyUserSession);
+
+function parseCompanySessionRequest(req) {
+  const raw = req.signedCookies?.[COMPANY_SESSION_COOKIE];
+  if (!raw || typeof raw !== "string") {
+    return null;
+  }
+  try {
+    const data = JSON.parse(raw);
+    if (data.v !== 1 || !data.email) {
+      return null;
+    }
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+app.get("/api/auth/company/workspaces", async (req, res) => {
+  try {
+    const data = parseCompanySessionRequest(req);
+    if (!data) {
+      return res.status(401).json({ ok: false, error: "No company session." });
+    }
+    if (
+      companySessionRevocationApi.isCompanyUserSessionRevoked(
+        data.email,
+        data.companyId,
+        data.masterSheetId,
+      )
+    ) {
+      res.clearCookie(COMPANY_SESSION_COOKIE, getSessionCookieOptions());
+      return res.status(401).json({ ok: false, error: "Session invalid." });
+    }
+    const auth = getAuthedClient();
+    if (!auth) {
+      return res.status(401).json({ ok: false, error: "Google connection required for this action." });
+    }
+    const workspaces = await listAuthorizedCompanyWorkspacesForUser(
+      auth,
+      data.email,
+      getCompanyContextResolutionDeps(),
+    );
+    const switcherWorkspaces = workspaces
+      .map((workspace) => toCompanySwitcherWorkspace(workspace))
+      .filter(Boolean);
+    return res.json({ ok: true, workspaces: switcherWorkspaces });
+  } catch (error) {
+    console.error("[company-auth] workspace list failed:", error);
+    return res.status(500).json({ ok: false, error: "Unable to load authorized company workspaces." });
+  }
+});
+
+app.post("/api/auth/company/workspace-select", async (req, res) => {
+  try {
+    const data = parseCompanySessionRequest(req);
+    if (!data) {
+      return res.status(401).json({ ok: false, error: "No company session." });
+    }
+    if (
+      companySessionRevocationApi.isCompanyUserSessionRevoked(
+        data.email,
+        data.companyId,
+        data.masterSheetId,
+      )
+    ) {
+      res.clearCookie(COMPANY_SESSION_COOKIE, getSessionCookieOptions());
+      return res.status(401).json({ ok: false, error: "Session invalid." });
+    }
+    const requestedFolderId = String(req.body?.companyFolderId || req.body?.companyId || "").trim();
+    if (!requestedFolderId) {
+      return res.status(400).json({ ok: false, error: "companyFolderId is required." });
+    }
+    const auth = getAuthedClient();
+    if (!auth) {
+      return res.status(401).json({ ok: false, error: "Google connection required for this action." });
+    }
+    const workspaces = await listAuthorizedCompanyWorkspacesForUser(
+      auth,
+      data.email,
+      getCompanyContextResolutionDeps(),
+    );
+    const match = workspaces.find((workspace) => workspace.companyFolderId === requestedFolderId);
+    if (!match) {
+      return res.status(403).json({
+        ok: false,
+        code: "WORKSPACE_FORBIDDEN",
+        error: "You do not have access to that company workspace.",
+      });
+    }
+    const sessionCompanyAreas = Array.isArray(data.companyAreas) ? data.companyAreas : [];
+    res.cookie(
+      COMPANY_SESSION_COOKIE,
+      buildCompanySessionPayload({
+        email: data.email,
+        masterSheetId: match.masterSheetId,
+        companyId: match.companyFolderId,
+        companyFolderId: match.companyFolderId,
+        companyName: match.companyName,
+        role: match.role || data.role || "User",
+        name: data.name || data.email,
+        accessLevel: match.accessLevel || data.accessLevel || "",
+        companyAreas: match.companyAreas?.length ? match.companyAreas : sessionCompanyAreas,
+      }),
+      getSessionCookieOptions({ maxAge: COMPANY_SESSION_MS }),
+    );
+    return res.json(
+      buildCompanySessionApiResponse({
+        email: data.email,
+        role: match.role || data.role || "User",
+        name: data.name || data.email,
+        accessLevel: match.accessLevel || data.accessLevel || "",
+        companyAreas: match.companyAreas?.length ? match.companyAreas : sessionCompanyAreas,
+        companyId: match.companyFolderId,
+        companyFolderId: match.companyFolderId,
+        companyName: match.companyName,
+        masterSheetId: match.masterSheetId,
+        registryStatus: match.registryStatus,
+        companyContextValid: true,
+      }),
+    );
+  } catch (error) {
+    console.error("[company-auth] workspace select failed:", error);
+    return res.status(500).json({ ok: false, error: "Unable to switch company workspace." });
+  }
+});
 
 function respondMasterUserSession(req, res) {
   const raw = req.signedCookies?.[MASTER_SESSION_COOKIE];

@@ -36,6 +36,7 @@ import {
   pickRowCompanyFolderId,
   pickRowCompanyName,
 } from "./users-tab-schema.mjs";
+import { dedupeAuthorizedWorkspaces } from "../shared/company-workspace-access.mjs";
 
 export {
   USERS_TAB,
@@ -810,27 +811,20 @@ export async function resolveCompanyUserEmailByHash(auth, spreadsheetId, emailHa
   return "";
 }
 
-/**
- * Resolve company workspace context for a signed-in company user.
- * Scans LIVE companies in the main registry + fallback registry, matching ACTIVE Users tab rows by email.
- * Invite-stored masterSheetId hints are tried first.
- */
-export async function resolveCompanyContextForUser(auth, email, deps) {
-  const emailNorm = safeLower(email);
+
+async function collectWorkspaceCandidatesForUser(auth, emailNorm, deps) {
   if (!emailNorm || !auth) {
-    return null;
+    return [];
   }
 
   const {
     findMasterSheetIdsForCompanyLoginEmail,
     readCanonicalCompanyWorkspaceRegistryMap,
     isCompanyRegistryLive,
-    migrateUsersTabColumns: migrateColumns,
-    readCompanyUsersTabRecord: readUsersRecord,
   } = deps;
 
   if (typeof findMasterSheetIdsForCompanyLoginEmail !== "function") {
-    return null;
+    return [];
   }
 
   const inviteSheetIds = findMasterSheetIdsForCompanyLoginEmail(emailNorm) || [];
@@ -909,15 +903,28 @@ export async function resolveCompanyContextForUser(auth, email, deps) {
     );
   }
 
-  const candidates = [...candidateBySheet.values()].sort((a, b) => a.priority - b.priority);
+  return [...candidateBySheet.values()].sort((a, b) => a.priority - b.priority);
+}
+
+/**
+ * List LIVE company workspaces where the user has an ACTIVE Users-tab membership.
+ * Invite-stored masterSheetId hints are tried first.
+ */
+export async function listAuthorizedCompanyWorkspacesForUser(auth, email, deps) {
+  const emailNorm = safeLower(email);
+  const {
+    migrateUsersTabColumns: migrateColumns,
+    readCompanyUsersTabRecord: readUsersRecord,
+  } = deps;
+  const candidates = await collectWorkspaceCandidatesForUser(auth, emailNorm, deps);
+  const authorized = [];
+
   for (const candidate of candidates) {
     try {
-      // Schema migration is best-effort and must never block or skip login discovery.
-      // A thrown migrate (missing getConfig, quota, etc.) previously swallowed the whole candidate.
       if (typeof migrateColumns === "function") {
         await migrateColumns(auth, candidate.masterSheetId, deps).catch((error) => {
           console.warn(
-            `[company-users] migrateUsersTabColumns skipped during login resolve for ${candidate.masterSheetId}: ${
+            `[company-users] migrateUsersTabColumns skipped during workspace list for ${candidate.masterSheetId}: ${
               error instanceof Error ? error.message : String(error)
             }`,
           );
@@ -927,17 +934,19 @@ export async function resolveCompanyContextForUser(auth, email, deps) {
         typeof readUsersRecord === "function"
           ? await readUsersRecord(auth, candidate.masterSheetId, emailNorm, deps)
           : null;
-      if (!rec || String(rec.status || "").toUpperCase() !== "ACTIVE") {
+      if (!rec || String(rec.status || "").toUpperCase() !== "ACTIVE" || !String(rec.passwordHash || "").trim()) {
         continue;
       }
-      // Role is informational for post-login permissions — never required to discover the workbook.
       const companyFolderId =
         pickRowCompanyFolderId(rec) ||
         candidate.companyFolderId ||
         candidate.companyId ||
         String(rec.companyId || "").trim();
       const companyName = pickRowCompanyName(rec?.rowObject || rec) || candidate.companyName;
-      return {
+      if (!companyFolderId || !companyName) {
+        continue;
+      }
+      authorized.push({
         companyId: candidate.companyId || companyFolderId,
         companyName,
         companyFolderId,
@@ -947,18 +956,27 @@ export async function resolveCompanyContextForUser(auth, email, deps) {
         companyAreas: rec.companyAreas,
         registryStatus: candidate.registryStatus,
         registrySource: candidate.registrySource,
-      };
+      });
     } catch (error) {
       console.warn(
-        `[company-users] login resolve candidate failed sheet=${candidate.masterSheetId}: ${
+        `[company-users] workspace list candidate failed sheet=${candidate.masterSheetId}: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
-      continue;
     }
   }
 
-  return null;
+  return dedupeAuthorizedWorkspaces(authorized);
+}
+
+/**
+ * Resolve company workspace context for a signed-in company user.
+ * Scans LIVE companies in the main registry + fallback registry, matching ACTIVE Users tab rows by email.
+ * Invite-stored masterSheetId hints are tried first.
+ */
+export async function resolveCompanyContextForUser(auth, email, deps) {
+  const workspaces = await listAuthorizedCompanyWorkspacesForUser(auth, email, deps);
+  return workspaces[0] || null;
 }
 
 export async function migrateUsersTabCompanyColumns(auth, spreadsheetId, companyContext, deps) {

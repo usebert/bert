@@ -78,6 +78,9 @@ function main() {
     app.includes("currentUser?.username, currentUser?.role, googleConnected"),
     "workspace list refreshes after login and google connection",
   );
+  assert(app.includes("loadAuthorizedCompanyWorkspaces"), "company users load server-backed authorized workspaces");
+  assert(app.includes("selectAuthorizedCompanyWorkspace"), "company workspace switch revalidates membership server-side");
+  assert(!/loadGoogleStatus[\s\S]*?setFolders\(visibleCompanies\)/.test(app), "google status does not leak platform companies into switcher");
   assert(!app.includes("buildCompanyRegistry"), "switcher does not duplicate company-registry logic");
 
   // 13–16 Account menu

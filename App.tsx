@@ -401,6 +401,14 @@ import {
   type ScheduleAssignedUser,
 } from "./src/utils/scheduleSave";
 import { companyLogin, fetchAppSession, fetchCompanySession, type LoginContextDiagnostics } from "./src/services/authService";
+import {
+  fetchAuthorizedCompanyWorkspaces,
+  selectAuthorizedCompanyWorkspace,
+} from "./src/services/authorizedWorkspacesService";
+import {
+  authorizedWorkspacesToCompanyFolders,
+  isAuthorizedCompanyFolderId,
+} from "./src/utils/authorizedCompanyWorkspaces";
 import { createClientLoginTimingTrace, logClientLoginTiming } from "./src/utils/loginTiming";
 import {
   companyLoginNetworkError,
@@ -8909,10 +8917,6 @@ function App() {
         throw new Error(payload.error || "Unable to check the Google connection.");
       }
 
-      if (payload.connected && payload.companies && currentUser?.role !== "Master") {
-        const visibleCompanies = filterCustomerFacingCompanies(payload.companies);
-        setFolders(visibleCompanies);
-      }
       if (!payload.connected) {
         setGodmodeLiveCompaniesWarning("");
       }
@@ -8927,6 +8931,28 @@ function App() {
     } finally {
       if (!options?.silent) {
         setGoogleStatusLoading(false);
+      }
+    }
+  };
+
+  const loadAuthorizedCompanyWorkspaces = async (options?: { silent?: boolean }) => {
+    if (!currentUser || currentUser.role === "Master") {
+      return;
+    }
+    try {
+      const payload = await fetchAuthorizedCompanyWorkspaces();
+      if (!payload.ok) {
+        throw new Error(payload.error || "Unable to load authorized company workspaces.");
+      }
+      const authorizedFolders = authorizedWorkspacesToCompanyFolders(payload.workspaces);
+      setFolders(authorizedFolders);
+    } catch (error) {
+      if (!options?.silent) {
+        pushToast(
+          "Company workspaces unavailable",
+          error instanceof Error ? error.message : "Unable to load authorized company workspaces.",
+          "warning",
+        );
       }
     }
   };
@@ -13889,8 +13915,75 @@ function App() {
         );
         return;
       }
-    } else if (trimmedId !== selectedFolderId) {
-      clearActiveCompanyWorkspaceState();
+    } else {
+      if (!currentUser) {
+        return;
+      }
+      const companyUser = currentUser;
+      if (!isAuthorizedCompanyFolderId(folders, trimmedId)) {
+        pushToast("Workspace unavailable", "You do not have access to that company workspace.", "warning");
+        return;
+      }
+      if (trimmedId !== selectedFolderId) {
+        const selection = await selectAuthorizedCompanyWorkspace(trimmedId);
+        if (!selection.ok || !selection.company?.companyFolderId) {
+          pushToast(
+            "Workspace unavailable",
+            selection.error || "You do not have access to that company workspace.",
+            "warning",
+          );
+          void loadAuthorizedCompanyWorkspaces({ silent: true });
+          return;
+        }
+        const validatedIds = validateCompanyDriveIds({
+          companyFolderId: selection.company.companyFolderId || selection.company.companyId,
+          masterSheetId: selection.company.masterSheetId || "",
+        });
+        if (!validatedIds) {
+          pushToast("Workspace unavailable", "Company folder or master sheet id is invalid.", "warning");
+          return;
+        }
+        clearActiveCompanyWorkspaceState();
+        applyLinkedCompanyContext({
+          email: companyUser.username,
+          company: {
+            companyId: validatedIds.companyFolderId,
+            companyName: selection.company.companyName,
+            masterSheetId: validatedIds.masterSheetId,
+            registryStatus: selection.company.registryStatus,
+          },
+          setSelectedFolderId,
+          setFolders: (updater) => setFolders((current) => updater(current)),
+          setFolderIdInput,
+          setFolderNameInput,
+          setMasterSheetInput,
+          setCompanyRegistryStatus,
+        });
+        setLinkedCompanyContext({
+          companyId: validatedIds.companyFolderId,
+          companyName: selection.company.companyName,
+          masterSheetId: validatedIds.masterSheetId,
+          registryStatus: selection.company.registryStatus,
+          role: selection.user?.role || companyUser.role,
+          accessLevel: selection.user?.accessLevel || companyUser.accessLevel,
+          companyAreas: selection.user?.companyAreas || companyUser.companyAreas,
+        });
+        if (selection.user?.role && selection.user.role !== companyUser.role) {
+          setCurrentUser((current) =>
+            current
+              ? {
+                  ...current,
+                  role: selection.user!.role,
+                  accessLevel: selection.user?.accessLevel || current.accessLevel,
+                  companyAreas: selection.user?.companyAreas || current.companyAreas,
+                }
+              : current,
+          );
+        }
+        resolvedCompanyName = selection.company.companyName;
+        resolvedMasterSheetId = validatedIds.masterSheetId;
+        activeFolderId = validatedIds.companyFolderId;
+      }
     }
 
     setSelectedFolderId(activeFolderId);
@@ -16460,6 +16553,10 @@ function App() {
     void loadGoogleStatus({ silent: true });
     if (currentUser.role === "Master" && googleConnected) {
       void loadGodmodeLiveCompanies({ silent: true });
+      return;
+    }
+    if (currentUser.role !== "Master") {
+      void loadAuthorizedCompanyWorkspaces({ silent: true });
     }
   }, [currentUser?.username, currentUser?.role, googleConnected]);
 
