@@ -24,7 +24,11 @@ import {
   buildMidlandsEvidencePlan,
   buildEvidenceManifest,
   computeEvidenceManifestFingerprint,
+  enrichEvidenceRenderedFile,
   isMidlandsSyntheticEvidenceFileName,
+  preflightLiveEvidenceUpload,
+  resolveIncidentParentId,
+  resolveLiveAuditUploadParentId,
   validateImportedAsset,
 } from "../shared/midlands-precast-evidence.mjs";
 import {
@@ -204,6 +208,43 @@ assert(read("scripts/seed-demo-evidence.mjs").includes("assertDemoCompanyAllowed
 assert(read("scripts/seed-demo-evidence.mjs").includes("uploadAuditEvidenceToDrive"), "uses audit evidence upload pathway");
 assert(read("scripts/seed-demo-evidence.mjs").includes("uploadIncidentEvidenceToDrive"), "uses incident evidence upload pathway");
 assert(read("scripts/seed-demo-evidence.mjs").includes("priorBySha"), "hash-based idempotency retained");
+assert(read("scripts/seed-demo-evidence.mjs").includes("--live-preflight"), "live preflight flag supported");
+assert(read("scripts/seed-demo-evidence.mjs").includes("preflightLiveEvidenceUpload"), "seed uses strict preflight");
+assert(read("scripts/seed-demo-evidence.mjs").includes("writeLiveUploadManifest"), "incremental live manifest writes");
+assert(read("scripts/seed-demo-evidence.mjs").includes("discoverDriveUploadsForReuse"), "drive discovery reuse on retry");
+assert(read("shared/midlands-precast-evidence.mjs").includes("resolveIncidentParentId"), "incident parent resolver exported");
+assert(read("shared/midlands-precast-evidence.mjs").includes("incidentId: item.incidentId"), "manifest persists incidentId");
+
+const preflight = preflightLiveEvidenceUpload({ history, rendered: bundleA.rendered });
+assert(preflight.ok, "live preflight passes for imported bundle");
+assert(
+  preflight.enriched.every((file) => {
+    if (file.recordType === "incident") return Boolean(resolveIncidentParentId(file));
+    return Boolean(resolveLiveAuditUploadParentId(file));
+  }),
+  "all images resolve to a non-empty parent ID",
+);
+assert(
+  [...preflight.incidentGroups.keys()].every((incidentId) => incidentId && incidentIds.has(incidentId)),
+  "all incident image groups have valid incident IDs",
+);
+assert(
+  Object.keys(preflight.counts.byIncidentParent).every((key) => key && key !== "(missing)"),
+  "no incident group uses missing parent key",
+);
+
+const manifestWithoutIncidentId = bundleA.manifest.files.map((file) => {
+  const { incidentId, ...rest } = file;
+  return rest;
+});
+const reloadedFromManifest = manifestWithoutIncidentId.map((file) => enrichEvidenceRenderedFile(file));
+const replayPreflight = preflightLiveEvidenceUpload({ history, rendered: reloadedFromManifest });
+assert(replayPreflight.ok, "manifest reload via recordId still preflights for incidents");
+
+const priorReuseSource = read("scripts/lib/demo-evidence-live-upload.mjs");
+assert(priorReuseSource.includes("manifest-sha256"), "partial manifest sha reuse supported");
+assert(priorReuseSource.includes("drive-discovery"), "drive filename discovery supported");
+assert(read("scripts/seed-demo-evidence.mjs").includes("buildWorkbookEvidencePatches"), "workbook patches after uploads");
 assert(read("scripts/generate-demo-evidence.mjs").includes("imported-generation"), "generate uses imported asset pipeline");
 assert(read(".gitignore").includes("demo-environment-evidence-report.json"), "evidence report gitignored");
 

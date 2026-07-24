@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   buildMidlandsEvidencePlan,
   buildEvidenceManifest,
+  enrichEvidenceRenderedFile,
   importEvidenceAssets,
   evidenceAssetsDir,
 } from "../../shared/midlands-precast-evidence.mjs";
@@ -94,11 +95,12 @@ export function loadImportedEvidenceBundle({ plan, sessionsRoot, anchorDate }) {
     const rendered = manifest.files.map((file) => {
       const localPath = path.join(outputDir, file.fileName);
       const buffer = fs.readFileSync(localPath);
+      const enriched = enrichEvidenceRenderedFile(file);
       return {
-        ...file,
+        ...enriched,
         localPath,
         buffer,
-        dataUrl: `data:${file.mimeType};base64,${buffer.toString("base64")}`,
+        dataUrl: `data:${enriched.mimeType};base64,${buffer.toString("base64")}`,
       };
     });
     return { rendered, manifest, outputDir, assetsDir };

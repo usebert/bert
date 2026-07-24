@@ -517,6 +517,11 @@ export function buildEvidenceManifest(plan, renderedFiles = []) {
       recordId: item.recordId,
       resultId: item.resultId,
       questionId: item.questionId,
+      findingId: item.findingId || "",
+      incidentId: item.incidentId || (item.recordType === "incident" ? item.recordId : ""),
+      ncrId: item.ncrId || "",
+      actionId: item.actionId || "",
+      auditId: item.auditId || "",
       drivePath: item.drivePath,
       source: item.source,
       localPath: rendered.localPath || "",
@@ -554,6 +559,8 @@ export function computeEvidenceManifestFingerprint(manifest) {
       sha256: file.sha256,
       recordType: file.recordType,
       recordId: file.recordId,
+      incidentId: file.incidentId || "",
+      resultId: file.resultId || "",
       pairId: file.pairId,
       pairRole: file.pairRole,
     })),
@@ -587,6 +594,172 @@ function buildPairAssignments(items) {
     if (item.pairRole === "after") pairs[item.pairId].afterEvidenceId = item.evidenceId;
   }
   return pairs;
+}
+
+/** Canonical incident parent for Drive upload — manifest may only persist recordId. */
+export function resolveIncidentParentId(file = {}) {
+  return String(file.incidentId || file.recordId || "").trim();
+}
+
+/** Canonical audit-result parent for Drive upload (never a finding/NCR/action record id). */
+export function resolveAuditUploadParentId(file = {}) {
+  return String(file.resultId || "").trim();
+}
+
+/** Parent folder key used by live evidence upload (audit pathway). */
+export function resolveLiveAuditUploadParentId(file = {}) {
+  const enriched = enrichEvidenceRenderedFile(file);
+  if (enriched.recordType === "ncr") {
+    return resolveAuditUploadParentId(enriched) || enriched.ncrId || enriched.recordId;
+  }
+  if (enriched.recordType === "action") {
+    return resolveAuditUploadParentId(enriched) || enriched.actionId || enriched.recordId;
+  }
+  return resolveAuditUploadParentId(enriched) || enriched.recordId;
+}
+
+export function parentExistsInGeneratedHistory(file, parentId, historySets) {
+  const id = String(parentId || "").trim();
+  if (!id) return false;
+  if (file.recordType === "incident") return historySets.incidentIds.has(id);
+  if (file.recordType === "ncr") return historySets.ncrIds.has(id) || historySets.resultIds.has(id);
+  if (file.recordType === "action") return historySets.actionIds.has(id) || historySets.resultIds.has(id);
+  return historySets.resultIds.has(id);
+}
+
+export function enrichEvidenceRenderedFile(file = {}) {
+  const recordType = String(file.recordType || "").trim();
+  const recordId = String(file.recordId || "").trim();
+  const incidentId = recordType === "incident" ? resolveIncidentParentId(file) : String(file.incidentId || "").trim();
+  return {
+    ...file,
+    recordType,
+    recordId,
+    incidentId,
+    resultId: String(file.resultId || "").trim(),
+    findingId: String(file.findingId || (recordType === "finding" ? recordId : "")).trim(),
+    ncrId: String(file.ncrId || (recordType === "ncr" ? recordId : "")).trim(),
+    actionId: String(file.actionId || (recordType === "action" ? recordId : "")).trim(),
+  };
+}
+
+export function groupRenderedEvidenceForLiveUpload(rendered = []) {
+  const auditGroups = new Map();
+  const incidentGroups = new Map();
+  for (const raw of rendered) {
+    const file = enrichEvidenceRenderedFile(raw);
+    if (file.recordType === "incident") {
+      const incidentId = resolveIncidentParentId(file);
+      const list = incidentGroups.get(incidentId) || [];
+      list.push(file);
+      incidentGroups.set(incidentId, list);
+      continue;
+    }
+    const resultId = resolveLiveAuditUploadParentId(file);
+    const list = auditGroups.get(resultId) || [];
+    list.push(file);
+    auditGroups.set(resultId, list);
+  }
+  return { auditGroups, incidentGroups };
+}
+
+export function preflightLiveEvidenceUpload({ history, rendered = [] } = {}) {
+  const errors = [];
+  const incidentIds = new Set(
+    (history?.incidents || []).map((row) => String(row.IncidentId || "").trim()).filter(Boolean),
+  );
+  const resultIds = new Set(
+    (history?.auditResults || []).map((row) => String(row["Result ID"] || "").trim()).filter(Boolean),
+  );
+  const findingIds = new Set(
+    (history?.auditFindings || []).map((row) => String(row["Finding ID"] || "").trim()).filter(Boolean),
+  );
+  const ncrIds = new Set((history?.ncrs || []).map((row) => String(row["NCR ID"] || "").trim()).filter(Boolean));
+  const actionIds = new Set(
+    (history?.actions || []).map((row) => String(row["Action ID"] || "").trim()).filter(Boolean),
+  );
+
+  const historySets = { incidentIds, resultIds, findingIds, ncrIds, actionIds };
+  const enriched = rendered.map((file) => enrichEvidenceRenderedFile(file));
+  const { auditGroups, incidentGroups } = groupRenderedEvidenceForLiveUpload(enriched);
+
+  for (const file of enriched) {
+    if (!String(file.evidenceId || "").trim()) {
+      errors.push("evidence item missing evidenceId");
+    }
+  }
+
+  for (const [incidentId, files] of incidentGroups.entries()) {
+    if (!incidentId) {
+      errors.push(`incident evidence group missing parent ID (${files.length} files)`);
+      continue;
+    }
+    if (!parentExistsInGeneratedHistory({ recordType: "incident" }, incidentId, historySets)) {
+      errors.push(`incident parent ${incidentId} not found in generated history (${files.length} files)`);
+    }
+    for (const file of files) {
+      const resolved = resolveIncidentParentId(file);
+      if (!resolved) {
+        errors.push(`${file.evidenceId}: incident evidence missing incidentId/recordId`);
+      } else if (resolved !== incidentId) {
+        errors.push(`${file.evidenceId}: incident parent mismatch (${resolved} vs ${incidentId})`);
+      }
+    }
+  }
+
+  for (const [parentId, files] of auditGroups.entries()) {
+    if (!parentId) {
+      errors.push(`audit evidence group missing parent ID (${files.length} files)`);
+      continue;
+    }
+  }
+
+  for (const file of enriched.filter((entry) => entry.recordType !== "incident")) {
+    const parentId = resolveLiveAuditUploadParentId(file);
+    if (!parentId) {
+      errors.push(`${file.evidenceId}: audit-linked evidence missing parent ID`);
+      continue;
+    }
+    if (!parentExistsInGeneratedHistory(file, parentId, historySets)) {
+      errors.push(`${file.evidenceId}: parent ${parentId} not found in generated history`);
+    }
+    if (file.recordType === "finding" && file.recordId && !findingIds.has(file.recordId)) {
+      errors.push(`${file.evidenceId}: finding ${file.recordId} not found in generated history`);
+    }
+    if (file.recordType === "ncr" && file.recordId && !ncrIds.has(file.recordId)) {
+      errors.push(`${file.evidenceId}: ncr ${file.recordId} not found in generated history`);
+    }
+    if (file.recordType === "action" && file.recordId && !actionIds.has(file.recordId)) {
+      errors.push(`${file.evidenceId}: action ${file.recordId} not found in generated history`);
+    }
+    if (file.recordType === "finding" && !resolveAuditUploadParentId(file)) {
+      errors.push(`${file.evidenceId}: finding evidence missing resultId`);
+    }
+  }
+
+  const byAuditParent = Object.fromEntries(
+    [...auditGroups.entries()].map(([parentId, files]) => [parentId || "(missing)", files.length]),
+  );
+  const byIncidentParent = Object.fromEntries(
+    [...incidentGroups.entries()].map(([parentId, files]) => [parentId || "(missing)", files.length]),
+  );
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    counts: {
+      totalImages: enriched.length,
+      auditImages: [...auditGroups.values()].reduce((sum, files) => sum + files.length, 0),
+      incidentImages: [...incidentGroups.values()].reduce((sum, files) => sum + files.length, 0),
+      auditParentCount: auditGroups.size,
+      incidentParentCount: incidentGroups.size,
+      byAuditParent,
+      byIncidentParent,
+    },
+    auditGroups,
+    incidentGroups,
+    enriched,
+  };
 }
 
 export function buildWorkbookEvidencePatches(history, plan, uploaded = new Map()) {

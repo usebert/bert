@@ -5,6 +5,7 @@
  * Usage:
  *   DEMO_COMPANY_SEED_CONFIRM=yes BERT_DEMO_DEFAULT_PASSWORD='...' npm run seed:demo-evidence -- --anchor-date=2026-07-24
  *   ... npm run seed:demo-evidence -- --live --anchor-date=2026-07-24
+ *   ... npm run seed:demo-evidence -- --live-preflight --anchor-date=2026-07-24
  */
 import dotenv from "dotenv";
 import fs from "node:fs";
@@ -23,6 +24,7 @@ import {
 import {
   buildWorkbookEvidencePatches,
   MIDLANDS_EVIDENCE_REPORT_FILE,
+  preflightLiveEvidenceUpload,
 } from "../shared/midlands-precast-evidence.mjs";
 import { uploadAuditEvidenceToDrive } from "../server/audit-evidence-upload.mjs";
 import { uploadIncidentEvidenceToDrive } from "../server/incident-evidence-upload.mjs";
@@ -37,6 +39,14 @@ import {
   readArg,
   resolveSessionsRoot,
 } from "./lib/demo-evidence-script-utils.mjs";
+import {
+  applyPriorUploadReuse,
+  assertPreflightOrExit,
+  discoverDriveUploadsForReuse,
+  loadPriorUploadManifest,
+  printPreflightSummary,
+  writeLiveUploadManifest,
+} from "./lib/demo-evidence-live-upload.mjs";
 import {
   buildWorkbookDeps,
   ensureWorkbookTabs,
@@ -56,9 +66,14 @@ if (confirm !== "yes") {
 }
 
 const live = process.argv.includes("--live");
+const livePreflight = process.argv.includes("--live-preflight");
 const cleanup = process.argv.includes("--cleanup-demo-evidence");
 if (live && process.argv.includes("--dry-run")) {
   console.error("ERROR: Use either --live or --dry-run, not both.");
+  process.exit(1);
+}
+if (live && livePreflight) {
+  console.error("ERROR: Use either --live or --live-preflight, not both.");
   process.exit(1);
 }
 
@@ -76,15 +91,15 @@ const guard = assertDemoCompanyAllowed({
   companyName: MIDLANDS_DEMO_COMPANY_NAME,
   companyFolderId,
   masterSheetId,
-  requireWorkspaceIds: live,
-  requireSpreadsheet: live,
+  requireWorkspaceIds: live || livePreflight,
+  requireSpreadsheet: live || livePreflight,
 });
 if (!guard.ok) {
   console.error(`ERROR: ${guard.error}`);
   process.exit(1);
 }
 
-if (live && !isDemoEnvironmentEnabled()) {
+if ((live || livePreflight) && !isDemoEnvironmentEnabled()) {
   console.error("ERROR: --live requires DEMO_ENVIRONMENT_ENABLED=true");
   process.exit(1);
 }
@@ -108,10 +123,8 @@ const history = await loadMidlandsHistoryForEvidence({
 
 const plan = buildEvidencePlanFromHistory(history);
 const priorManifestPath = path.join(outputDir, "manifest.live.json");
-const priorManifest = fs.existsSync(priorManifestPath)
-  ? JSON.parse(fs.readFileSync(priorManifestPath, "utf8"))
-  : null;
-const priorBySha = new Map((priorManifest?.files || []).map((file) => [file.sha256, file]));
+const priorState = loadPriorUploadManifest(priorManifestPath);
+const priorBySha = priorState.bySha;
 
 let bundle;
 try {
@@ -124,6 +137,12 @@ try {
 }
 const { rendered, manifest } = bundle;
 
+const preflight = preflightLiveEvidenceUpload({ history, rendered });
+if (livePreflight) {
+  printPreflightSummary(preflight, { label: "live-preflight" });
+  process.exit(preflight.ok ? 0 : 1);
+}
+
 let mode = "local-manifest";
 let liveApplied = false;
 let liveNote = "";
@@ -134,37 +153,29 @@ if (live) {
     console.error(`ERROR: --live requires ${DEMO_COMPANY_FOLDER_ENV} and ${DEMO_COMPANY_SPREADSHEET_ENV}`);
     process.exit(1);
   }
+
+  assertPreflightOrExit(preflight);
+
   try {
     const auth = loadGoogleAuth(sessionsRoot);
     const deps = buildWorkbookDeps();
     await ensureWorkbookTabs(auth, deps, masterSheetId);
 
-    const auditGroups = new Map();
-    const incidentGroups = new Map();
-    for (const file of rendered) {
-      if (file.recordType === "incident") {
-        const list = incidentGroups.get(file.incidentId) || [];
-        list.push(file);
-        incidentGroups.set(file.incidentId, list);
-        continue;
-      }
-      const resultId = file.resultId || file.recordId;
-      const list = auditGroups.get(resultId) || [];
-      list.push(file);
-      auditGroups.set(resultId, list);
+    const { auditGroups, incidentGroups } = preflight;
+    const discovered = await discoverDriveUploadsForReuse(auth, deps, {
+      companyFolderId,
+      masterSheetId,
+      auditGroups,
+      incidentGroups,
+    });
+    if (discovered.size > 0) {
+      console.log(`[live] reusing ${discovered.size} file(s) discovered on Drive`);
     }
 
     for (const [resultId, files] of auditGroups.entries()) {
       const toUpload = [];
       for (const file of files) {
-        const prior = priorBySha.get(file.sha256);
-        if (prior?.driveFileId) {
-          uploaded.set(file.evidenceId, {
-            driveFileId: prior.driveFileId,
-            driveLink: prior.driveLink || "",
-            fileName: file.fileName,
-            skipped: true,
-          });
+        if (applyPriorUploadReuse(file, priorBySha, uploaded, discovered)) {
           continue;
         }
         toUpload.push({
@@ -176,7 +187,10 @@ if (live) {
           addedAt: `${anchorDate}T10:00:00.000Z`,
         });
       }
-      if (!toUpload.length) continue;
+      if (!toUpload.length) {
+        writeLiveUploadManifest(priorManifestPath, manifest, uploaded);
+        continue;
+      }
       const result = await uploadAuditEvidenceToDrive(auth, deps, {
         companyFolderId,
         masterSheetId,
@@ -184,6 +198,7 @@ if (live) {
         files: toUpload,
       });
       if (!result.ok) {
+        writeLiveUploadManifest(priorManifestPath, manifest, uploaded);
         throw new Error(result.error || "Audit evidence upload failed.");
       }
       for (const ref of result.evidenceRefs || []) {
@@ -193,19 +208,14 @@ if (live) {
           fileName: ref.name,
         });
       }
+      writeLiveUploadManifest(priorManifestPath, manifest, uploaded);
+      console.log(`[live] audit evidence saved for ${resultId} (${toUpload.length} uploaded, group total ${files.length})`);
     }
 
     for (const [incidentId, files] of incidentGroups.entries()) {
       const toUpload = [];
       for (const file of files) {
-        const prior = priorBySha.get(file.sha256);
-        if (prior?.driveFileId) {
-          uploaded.set(file.evidenceId, {
-            driveFileId: prior.driveFileId,
-            driveLink: prior.driveLink || "",
-            fileName: file.fileName,
-            skipped: true,
-          });
+        if (applyPriorUploadReuse(file, priorBySha, uploaded, discovered)) {
           continue;
         }
         toUpload.push({
@@ -216,7 +226,10 @@ if (live) {
           addedAt: `${anchorDate}T10:00:00.000Z`,
         });
       }
-      if (!toUpload.length) continue;
+      if (!toUpload.length) {
+        writeLiveUploadManifest(priorManifestPath, manifest, uploaded);
+        continue;
+      }
       const result = await uploadIncidentEvidenceToDrive(auth, deps, {
         companyFolderId,
         masterSheetId,
@@ -224,6 +237,7 @@ if (live) {
         files: toUpload,
       });
       if (!result.ok) {
+        writeLiveUploadManifest(priorManifestPath, manifest, uploaded);
         throw new Error(result.error || "Incident evidence upload failed.");
       }
       for (const ref of result.evidenceUrls || []) {
@@ -233,6 +247,8 @@ if (live) {
           fileName: ref.name,
         });
       }
+      writeLiveUploadManifest(priorManifestPath, manifest, uploaded);
+      console.log(`[live] incident evidence saved for ${incidentId} (${toUpload.length} uploaded, group total ${files.length})`);
     }
 
     const patches = buildWorkbookEvidencePatches(history, plan, uploaded);
@@ -320,18 +336,7 @@ if (live) {
     liveApplied = true;
     mode = "live-drive-workbook";
     liveNote = "Evidence uploaded and workbook rows patched.";
-    const liveManifest = {
-      ...manifest,
-      files: manifest.files.map((file) => {
-        const upload = uploaded.get(file.evidenceId) || {};
-        return {
-          ...file,
-          driveFileId: upload.driveFileId || file.driveFileId || "",
-          driveLink: upload.driveLink || file.driveLink || "",
-        };
-      }),
-    };
-    fs.writeFileSync(priorManifestPath, `${JSON.stringify(liveManifest, null, 2)}\n`);
+    writeLiveUploadManifest(priorManifestPath, manifest, uploaded);
   } catch (error) {
     liveNote = `Live apply failed: ${error instanceof Error ? error.message : String(error)}`;
     mode = "local-manifest-live-failed";
@@ -350,6 +355,7 @@ const report = {
   summary: manifest.summary,
   linkage: manifest.linkage,
   uploadedCount: uploaded.size,
+  preflight: preflight.counts,
   generatedAt: new Date().toISOString(),
 };
 
