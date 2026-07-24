@@ -49,6 +49,8 @@
     "seed:demo-history": "node scripts/seed-demo-history.mjs",
     "verify:demo-history": "node scripts/verify-demo-history.mjs",
     "generate:demo-evidence": "node scripts/generate-demo-evidence.mjs",
+    "export:demo-evidence-prompts": "node scripts/export-demo-evidence-prompts.mjs",
+    "import:demo-evidence-assets": "node scripts/import-demo-evidence-assets.mjs",
     "seed:demo-evidence": "node scripts/seed-demo-evidence.mjs",
     "verify:demo-evidence": "node scripts/verify-demo-evidence.mjs",
     "reset:demo-user-password": "node scripts/reset-demo-user-password.mjs",

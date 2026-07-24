@@ -1,7 +1,9 @@
 /**
- * Midlands Precast — Phase 3 deterministic synthetic evidence plan and linkage.
+ * Midlands Precast — Phase 3 deterministic evidence plan, import pipeline and linkage.
  */
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import {
   AUDIT_EVIDENCE_DRIVE_PATH_PREFIX,
   buildAuditEvidenceFileName,
@@ -18,134 +20,86 @@ import {
   createSeededRandom,
   shuffleDeterministic,
 } from "./midlands-history-prng.mjs";
-import { renderSyntheticEvidencePng } from "./midlands-evidence-render.mjs";
+import { isLegacyPlaceholderEvidenceBuffer } from "./midlands-evidence-legacy.mjs";
+import {
+  BEFORE_AFTER_PAIR_DEFINITIONS,
+  EVIDENCE_SCENE_CATALOG,
+  buildImageSpec,
+  sceneByKey,
+} from "./midlands-evidence-specs.mjs";
 import { MIDLANDS_SITE_COVENTRY_ID } from "./demo-environment.mjs";
 
 export const MIDLANDS_EVIDENCE_RUNTIME_DIR = ".sessions/demo-environment-evidence";
 export const MIDLANDS_EVIDENCE_REPORT_FILE = "demo-environment-evidence-report.json";
+export const EVIDENCE_ASSETS_SUBDIR = "assets";
+export const EVIDENCE_PROMPT_PACK_SUBDIR = "prompt-pack";
 
-const TARGET_IMAGE_MIN = 35;
-const TARGET_IMAGE_MAX = 50;
+export const TARGET_IMAGE_MIN = 40;
+export const TARGET_IMAGE_MAX = 50;
+export const MAX_IMAGES_PER_RECORD = 3;
+export const MIN_EVIDENCE_WIDTH = 640;
+export const MIN_EVIDENCE_HEIGHT = 480;
+export const MIN_EVIDENCE_BYTES = 12_000;
+export const ACCEPTED_EVIDENCE_EXTENSIONS = [".jpg", ".jpeg", ".png"];
 
-export const EVIDENCE_SCENE_CATALOG = [
-  { key: "rugby-cement-dust", site: "rugby", title: "Cement dust near mixer platform", category: "rugby" },
-  { key: "rugby-silo-access", site: "rugby", title: "Silo ladder access inspection", category: "rugby" },
-  { key: "rugby-conveyor-guard", site: "rugby", title: "Damaged conveyor guard section", category: "rugby" },
-  { key: "rugby-emergency-route", site: "rugby", title: "Blocked emergency access route", category: "rugby" },
-  { key: "rugby-admixture-bund", site: "rugby", title: "Admixture stained bund area", category: "rugby" },
-  { key: "rugby-washout-housekeeping", site: "rugby", title: "Washout area housekeeping", category: "rugby" },
-  { key: "rugby-loader-leak", site: "rugby", title: "Loader hydraulic leak trace", category: "rugby" },
-  { key: "rugby-estop-label", site: "rugby", title: "Missing emergency stop label", category: "rugby" },
-  { key: "rugby-damaged-lead", site: "rugby", title: "Damaged electrical lead", category: "rugby" },
-  { key: "rugby-mould-oil", site: "rugby", title: "Mould oil storage arrangement", category: "rugby" },
-  { key: "rugby-ppe-setup", site: "rugby", title: "PPE station condition", category: "rugby" },
-  { key: "rugby-lab-cubes", site: "rugby", title: "Lab cube testing setup", category: "rugby-quality" },
-  { key: "rugby-calibration-label", site: "rugby", title: "Calibration label condition", category: "rugby" },
-  { key: "rugby-batching-panel", site: "rugby", title: "Batching control panel", category: "rugby" },
-  { key: "rugby-aggregate-bay", site: "rugby", title: "Aggregate bay housekeeping", category: "rugby" },
-  { key: "rugby-pedestrian-barrier", site: "rugby", title: "Pedestrian barrier defect", category: "rugby" },
-  { key: "rugby-guard-repaired", site: "rugby", title: "Repaired conveyor guard", category: "rugby", variant: "after" },
-  { key: "rugby-washout-cleaned", site: "rugby", title: "Cleaned washout area", category: "rugby", variant: "after" },
-  { key: "rugby-spill-contained", site: "rugby", title: "Spill containment correction", category: "rugby", variant: "after" },
-  { key: "rugby-inspection-tag", site: "rugby", title: "Replacement inspection tag", category: "rugby", variant: "after" },
-  { key: "rugby-housekeeping-improved", site: "rugby", title: "Improved platform housekeeping", category: "rugby", variant: "after" },
-  { key: "coventry-chain-tag", site: "coventry", title: "Lifting chain tag defect", category: "coventry" },
-  { key: "coventry-shackle-wear", site: "coventry", title: "Worn shackle identification tag", category: "coventry" },
-  { key: "coventry-unstable-stack", site: "coventry", title: "Unstable product storage stack", category: "coventry" },
-  { key: "coventry-damaged-barrier", site: "coventry", title: "Damaged pedestrian barrier", category: "coventry" },
-  { key: "coventry-forklift-route", site: "coventry", title: "Obstructed forklift route", category: "coventry" },
-  { key: "coventry-crane-zone", site: "coventry", title: "Crane exclusion zone marking", category: "coventry" },
-  { key: "coventry-dispatch-congestion", site: "coventry", title: "Dispatch yard congestion", category: "coventry" },
-  { key: "coventry-wheel-chocks", site: "coventry", title: "Missing wheel chocks", category: "coventry" },
-  { key: "coventry-trailer-loading", site: "coventry", title: "Trailer loading setup", category: "coventry" },
-  { key: "coventry-grinding-dust", site: "coventry", title: "Dust from remedial grinding", category: "coventry" },
-  { key: "coventry-barrier-repaired", site: "coventry", title: "Repaired pedestrian barrier", category: "coventry", variant: "after" },
-  { key: "coventry-stack-corrected", site: "coventry", title: "Corrected storage stack", category: "coventry", variant: "after" },
-  { key: "coventry-lifting-tag-replaced", site: "coventry", title: "Replacement lifting tag", category: "coventry", variant: "after" },
-  { key: "coventry-route-cleared", site: "coventry", title: "Cleared forklift route", category: "coventry", variant: "after" },
-  { key: "coventry-loading-segregation", site: "coventry", title: "Improved loading segregation", category: "coventry", variant: "after" },
-  { key: "quality-cube-setup", site: "rugby", title: "Concrete cube test setup", category: "quality" },
-  { key: "quality-mix-sheet", site: "rugby", title: "Mix documentation sheet", category: "quality" },
-  { key: "quality-edge-spall", site: "coventry", title: "Damaged precast edge", category: "quality" },
-  { key: "quality-label-issue", site: "coventry", title: "Product identification label", category: "quality" },
-  { key: "quality-rebar-check", site: "rugby", title: "Reinforcement placement check", category: "quality" },
-  { key: "quality-curing-board", site: "rugby", title: "Curing record board", category: "quality" },
-  { key: "quality-finished-repair", site: "coventry", title: "Repaired finished product", category: "quality", variant: "after" },
-  { key: "quality-label-corrected", site: "coventry", title: "Corrected product labelling", category: "quality", variant: "after" },
-  { key: "incident-spill-isolated", site: "rugby", title: "Spill area after isolation", category: "incident" },
-  { key: "incident-blocked-route", site: "rugby", title: "Blocked route near miss area", category: "incident" },
-  { key: "incident-damaged-barrier", site: "coventry", title: "Damaged barrier incident scene", category: "incident" },
-  { key: "incident-product-movement", site: "coventry", title: "Product movement area", category: "incident" },
-  { key: "incident-route-conflict", site: "rugby", title: "Loader route conflict zone", category: "incident" },
-  { key: "incident-lifting-quarantine", site: "coventry", title: "Defective lifting accessory quarantined", category: "incident" },
-  { key: "incident-washout-slip", site: "rugby", title: "Washout slip hazard area", category: "incident" },
-  { key: "incident-oil-containment", site: "rugby", title: "Oil spill containment", category: "incident" },
-];
+const TARGET_LINKED = {
+  finding: { records: 16, images: 18 },
+  incident: { records: 6, images: 8 },
+  ncr: { records: 5, images: 6 },
+  action: { records: 8, images: 10 },
+};
 
-const BEFORE_AFTER_PAIRS = [
-  {
-    pairId: "pair-conveyor-guard",
-    beforeScene: "rugby-conveyor-guard",
-    afterScene: "rugby-guard-repaired",
-    recordTypes: ["finding", "action", "ncr"],
-  },
-  {
-    pairId: "pair-washout",
-    beforeScene: "rugby-washout-housekeeping",
-    afterScene: "rugby-washout-cleaned",
-    recordTypes: ["finding", "action", "incident"],
-  },
-  {
-    pairId: "pair-barrier-coventry",
-    beforeScene: "coventry-damaged-barrier",
-    afterScene: "coventry-barrier-repaired",
-    recordTypes: ["finding", "incident", "action"],
-  },
-  {
-    pairId: "pair-lifting-tag",
-    beforeScene: "coventry-chain-tag",
-    afterScene: "coventry-lifting-tag-replaced",
-    recordTypes: ["finding", "ncr", "action"],
-  },
-  {
-    pairId: "pair-storage-stack",
-    beforeScene: "coventry-unstable-stack",
-    afterScene: "coventry-stack-corrected",
-    recordTypes: ["finding", "incident"],
-  },
-  {
-    pairId: "pair-quality-label",
-    beforeScene: "quality-label-issue",
-    afterScene: "quality-label-corrected",
-    recordTypes: ["ncr", "action"],
-  },
-];
+export { EVIDENCE_SCENE_CATALOG, BEFORE_AFTER_PAIR_DEFINITIONS };
 
 function siteFromArea(areaId = "") {
   return String(areaId).includes("coventry") ? "coventry" : "rugby";
 }
 
-function sceneByKey(key) {
-  return EVIDENCE_SCENE_CATALOG.find((entry) => entry.key === key) || EVIDENCE_SCENE_CATALOG[0];
+function recordKey(recordType, recordId) {
+  return `${recordType}:${recordId}`;
 }
 
-function pickScenes(rng, site, count, usedKeys = new Set()) {
-  const pool = shuffleDeterministic(
-    rng,
-    EVIDENCE_SCENE_CATALOG.filter((entry) => entry.site === site && !usedKeys.has(entry.key)),
-  );
-  return pool.slice(0, count);
+function recordIdForType(record, recordType) {
+  if (recordType === "finding") return record["Finding ID"];
+  if (recordType === "incident") return record.IncidentId;
+  if (recordType === "ncr") return record["NCR ID"];
+  if (recordType === "action") return record["Action ID"];
+  return "";
 }
 
-function buildFileName(recordId, slot, ext = "png") {
-  return `midlands-demo-synthetic-${recordId}-${String(slot).padStart(3, "0")}.${ext}`;
+function recordText(record, recordType) {
+  if (recordType === "finding") {
+    return `${record.Note || ""} ${record["Question Text"] || ""}`;
+  }
+  if (recordType === "incident") {
+    return `${record.Description || ""} ${record.IncidentType || ""} ${record.Location || ""}`;
+  }
+  if (recordType === "ncr") {
+    return `${record.Title || ""} ${record.Description || ""}`;
+  }
+  if (recordType === "action") {
+    return `${record["Corrective Action"] || ""} ${record.Comments || ""} ${record["Source Audit Name"] || ""}`;
+  }
+  return "";
+}
+
+function areaForRecord(record, recordType) {
+  if (recordType === "finding") return record["Area ID"] || "";
+  if (recordType === "incident") return record.Location || "";
+  if (recordType === "ncr") return record.Site || "";
+  if (recordType === "action") return record["Source Audit Name"] || "";
+  return "";
+}
+
+function buildFileName(evidenceId, ext = "jpg") {
+  return `${evidenceId}.${ext}`;
 }
 
 function evidenceIdFor(slot) {
   return `midlands-demo-ev-${String(slot).padStart(4, "0")}`;
 }
 
-function dimensionsForSlot(rng, slot) {
+function dimensionsForSlot(slot) {
   const landscape = slot % 3 !== 0;
   const mobile = slot % 4 !== 1;
   if (landscape) {
@@ -168,6 +122,12 @@ function hashBuffer(buffer) {
   return crypto.createHash("sha256").update(buffer).digest("hex");
 }
 
+function mimeTypeForExtension(ext) {
+  const lower = String(ext || "").toLowerCase();
+  if (lower === ".png") return "image/png";
+  return "image/jpeg";
+}
+
 function drivePathForItem(item) {
   if (item.recordType === "incident") {
     return `${INCIDENT_EVIDENCE_DRIVE_PATH_PREFIX}/${item.recordId}`;
@@ -178,54 +138,107 @@ function drivePathForItem(item) {
   return `${AUDIT_EVIDENCE_DRIVE_PATH_PREFIX}/${item.recordId}`;
 }
 
+function pickScenes(rng, site, count, usedKeys = new Set(), category = "") {
+  const pool = shuffleDeterministic(
+    rng,
+    EVIDENCE_SCENE_CATALOG.filter((entry) => {
+      if (usedKeys.has(entry.key)) return false;
+      if (entry.variant === "after") return false;
+      if (category) return entry.category === category;
+      return entry.site === site || entry.category === "quality";
+    }),
+  );
+  return pool.slice(0, count);
+}
+
+function pickRecordForPair(rng, pairDef, pools, usedParents) {
+  const pool = shuffleDeterministic(rng, pools[pairDef.recordType] || []);
+  const matched = pool.filter((record) => {
+    const id = recordIdForType(record, pairDef.recordType);
+    if (!id || usedParents.has(recordKey(pairDef.recordType, id))) return false;
+    if (pairDef.matchNote && !pairDef.matchNote.test(recordText(record, pairDef.recordType))) return false;
+    return true;
+  });
+  const candidates = matched.length ? matched : pool.filter((record) => {
+    const id = recordIdForType(record, pairDef.recordType);
+    return id && !usedParents.has(recordKey(pairDef.recordType, id));
+  });
+  return candidates[0] || pool[0];
+}
+
+function baseFieldsForRecord(record, recordType) {
+  const recordId = recordIdForType(record, recordType);
+  return {
+    recordType,
+    recordId,
+    findingId: recordType === "finding" ? recordId : "",
+    incidentId: recordType === "incident" ? recordId : "",
+    ncrId: recordType === "ncr" ? recordId : "",
+    actionId: recordType === "action" ? recordId : "",
+    resultId: record["Result ID"] || "",
+    questionId: record["Question ID"] || record["Source Question ID"] || "",
+    auditId: record["Audit ID"] || record["Source Audit ID"] || "",
+    area: areaForRecord(record, recordType),
+    contextNote: recordText(record, recordType).slice(0, 120),
+  };
+}
+
 export function buildMidlandsEvidencePlan({ history, anchorDate } = {}) {
   if (!history?.auditFindings?.length) {
     throw new Error("Midlands history payload is required to build an evidence plan.");
   }
   const anchorKey = history.anchorDate || anchorDate;
-  const rng = createSeededRandom(anchorSeedNumber(`${anchorKey}|evidence-plan`));
+  const rng = createSeededRandom(anchorSeedNumber(`${anchorKey}|evidence-plan-v2`));
 
-  const findings = shuffleDeterministic(rng, [...history.auditFindings]);
-  const incidents = shuffleDeterministic(
-    rng,
-    history.incidents.filter((row) => String(row.IncidentId || "").startsWith("midlands-")),
-  );
-  const ncrs = shuffleDeterministic(rng, [...history.ncrs]);
-  const actions = shuffleDeterministic(
-    rng,
-    history.actions.filter((row) => row.Archived !== "true"),
-  );
-
-  const selectedFindings = findings.slice(0, 16);
-  const selectedIncidents = incidents.slice(0, 7);
-  const selectedNcrs = ncrs.slice(0, 6);
-  const selectedActions = actions.slice(0, 8);
+  const pools = {
+    finding: shuffleDeterministic(rng, [...history.auditFindings]),
+    incident: shuffleDeterministic(
+      rng,
+      history.incidents.filter((row) => String(row.IncidentId || "").startsWith("midlands-")),
+    ),
+    ncr: shuffleDeterministic(rng, [...history.ncrs]),
+    action: shuffleDeterministic(
+      rng,
+      history.actions.filter((row) => row.Archived !== "true"),
+    ),
+  };
 
   const items = [];
-  const usedScenes = new Set();
+  const usedParents = new Set();
+  const imagesPerRecord = new Map();
   let slot = 0;
 
+  function canAdd(recordType, recordId, count = 1) {
+    const key = recordKey(recordType, recordId);
+    return (imagesPerRecord.get(key) || 0) + count <= MAX_IMAGES_PER_RECORD;
+  }
+
+  function track(recordType, recordId, count = 1) {
+    const key = recordKey(recordType, recordId);
+    imagesPerRecord.set(key, (imagesPerRecord.get(key) || 0) + count);
+  }
+
   function addItem(input) {
+    if (!canAdd(input.recordType, input.recordId)) {
+      return null;
+    }
     slot += 1;
-    const dims = dimensionsForSlot(rng, slot);
-    const sequence = input.sequence || 1;
-    const recordId = input.recordId;
-    const fileName = buildFileName(recordId, slot, "png");
+    const dims = dimensionsForSlot(slot);
     const evidenceId = evidenceIdFor(slot);
     const scene = sceneByKey(input.sceneKey);
     const item = {
       evidenceId,
-      fileName,
-      mimeType: "image/png",
+      fileName: buildFileName(evidenceId, "jpg"),
+      mimeType: "image/jpeg",
       sceneKey: scene.key,
-      title: input.title || scene.title,
+      title: input.title || scene.subject,
       site: input.site || scene.site,
       category: scene.category,
       variant: input.variant || scene.variant || "single",
       pairId: input.pairId || "",
       pairRole: input.pairRole || "",
       recordType: input.recordType,
-      recordId,
+      recordId: input.recordId,
       resultId: input.resultId || "",
       questionId: input.questionId || "",
       auditId: input.auditId || "",
@@ -233,219 +246,132 @@ export function buildMidlandsEvidencePlan({ history, anchorDate } = {}) {
       findingId: input.findingId || "",
       ncrId: input.ncrId || "",
       incidentId: input.incidentId || "",
+      area: input.area || "",
+      contextNote: input.contextNote || "",
       anchorDate: anchorKey,
+      source: "imported-synthetic-photo",
       ...dims,
       drivePath: "",
       renderSeed: anchorSeedNumber(`${anchorKey}|${evidenceId}`),
     };
     item.drivePath = drivePathForItem(item);
     items.push(item);
-    usedScenes.add(scene.key);
+    track(input.recordType, input.recordId);
     return item;
   }
 
-  for (const finding of selectedFindings) {
-    const site = siteFromArea(finding["Area ID"]);
-    const scenes = pickScenes(rng, site, 1, usedScenes);
-    const sceneKey = scenes[0]?.key || (site === "coventry" ? "coventry-forklift-route" : "rugby-cement-dust");
+  for (const pairDef of BEFORE_AFTER_PAIR_DEFINITIONS) {
+    const record = pickRecordForPair(rng, pairDef, pools, usedParents);
+    if (!record) continue;
+    const base = baseFieldsForRecord(record, pairDef.recordType);
+    const parentKey = recordKey(pairDef.recordType, base.recordId);
+    if (!canAdd(pairDef.recordType, base.recordId, 2)) continue;
+    usedParents.add(parentKey);
+
     addItem({
-      recordType: "finding",
-      recordId: finding["Finding ID"],
-      findingId: finding["Finding ID"],
-      resultId: finding["Result ID"],
-      questionId: finding["Question ID"],
-      auditId: finding["Audit ID"],
-      sceneKey,
-      site,
-      title: String(finding.Note || sceneByKey(sceneKey).title).slice(0, 48),
-      sequence: 1,
+      ...base,
+      sceneKey: pairDef.beforeScene,
+      site: sceneByKey(pairDef.beforeScene).site,
+      pairId: pairDef.pairId,
+      pairRole: "before",
+      variant: "before",
+      title: sceneByKey(pairDef.beforeScene).subject,
+    });
+    addItem({
+      ...base,
+      sceneKey: pairDef.afterScene,
+      site: sceneByKey(pairDef.afterScene).site,
+      pairId: pairDef.pairId,
+      pairRole: "after",
+      variant: "after",
+      title: sceneByKey(pairDef.afterScene).subject,
     });
   }
 
-  for (const incident of selectedIncidents) {
-    const site = String(incident.Location || "").toLowerCase().includes("coventry") ? "coventry" : "rugby";
-    const incidentScenes = EVIDENCE_SCENE_CATALOG.filter((entry) => entry.category === "incident" && entry.site === site);
-    const scene = incidentScenes[Math.floor(rng() * incidentScenes.length)] || sceneByKey("incident-spill-isolated");
-    addItem({
-      recordType: "incident",
-      recordId: incident.IncidentId,
-      incidentId: incident.IncidentId,
-      sceneKey: scene.key,
-      site,
-      title: String(incident.Description || scene.title).slice(0, 48),
-      sequence: 1,
-    });
-    if (String(incident.IncidentType || "").toLowerCase().includes("near")) {
-      addItem({
-        recordType: "incident",
-        recordId: incident.IncidentId,
-        incidentId: incident.IncidentId,
-        sceneKey: scene.key,
+  function addSingles(recordType, targetRecords, scenePicker) {
+    let recordsAdded = 0;
+    for (const record of pools[recordType]) {
+      if (recordsAdded >= targetRecords) break;
+      const base = baseFieldsForRecord(record, recordType);
+      if (usedParents.has(recordKey(recordType, base.recordId))) {
+        if ((imagesPerRecord.get(recordKey(recordType, base.recordId)) || 0) >= MAX_IMAGES_PER_RECORD) {
+          continue;
+        }
+      }
+      if (!canAdd(recordType, base.recordId)) continue;
+      const site =
+        recordType === "finding"
+          ? siteFromArea(record["Area ID"])
+          : String(record.Location || record.Site || record["Source Audit Name"] || "")
+              .toLowerCase()
+              .includes("coventry")
+            ? "coventry"
+            : "rugby";
+      const sceneKey = scenePicker(record, site, rng);
+      const added = addItem({
+        ...base,
         site,
-        sequence: 2,
-        title: `${scene.title} follow-up`,
+        sceneKey,
+        title: recordText(record, recordType).slice(0, 80) || sceneByKey(sceneKey).subject,
       });
+      if (!added) continue;
+      recordsAdded += 1;
+      usedParents.add(recordKey(recordType, base.recordId));
     }
+    return recordsAdded;
   }
 
-  for (const ncr of selectedNcrs) {
-    const site = String(ncr.Site || "").toLowerCase().includes("coventry") ? "coventry" : "rugby";
+  addSingles("finding", TARGET_LINKED.finding.records, (record, site, random) => {
+    const scenes = pickScenes(random, site, 1);
+    return scenes[0]?.key || (site === "coventry" ? "coventry-forklift-route" : "rugby-cement-dust");
+  });
+  addSingles("incident", TARGET_LINKED.incident.records, (record, site, random) => {
+    const scenes = EVIDENCE_SCENE_CATALOG.filter((entry) => entry.category === "incident" && entry.site === site);
+    return scenes[Math.floor(random() * scenes.length)]?.key || "incident-spill-isolated";
+  });
+  addSingles("ncr", TARGET_LINKED.ncr.records, (record, site, random) => {
     const quality =
-      String(ncr.Title || "").toLowerCase().includes("concrete")
-      || String(ncr.Description || "").toLowerCase().includes("quality");
-    const scenePool = EVIDENCE_SCENE_CATALOG.filter((entry) =>
-      (quality ? entry.category === "quality" : entry.site === site),
-    );
-    const scene = scenePool[Math.floor(rng() * scenePool.length)] || sceneByKey("quality-cube-setup");
-    addItem({
-      recordType: "ncr",
-      recordId: ncr["NCR ID"],
-      ncrId: ncr["NCR ID"],
-      resultId: ncr["Result ID"],
-      questionId: ncr["Source Question ID"] || "q-ncr-linked",
-      auditId: ncr["Source Audit ID"],
-      sceneKey: scene.key,
-      site,
-      title: String(ncr.Title || scene.title).slice(0, 48),
-      sequence: 1,
-    });
-  }
-
-  for (const action of selectedActions) {
-    const site =
-      String(action["Source Audit Name"] || "").toLowerCase().includes("dispatch")
-      || String(action["Source Audit Name"] || "").toLowerCase().includes("crane")
-      || String(action["Source Audit Name"] || "").toLowerCase().includes("forklift")
-        ? "coventry"
-        : "rugby";
-    const scenes = pickScenes(rng, site, 1, usedScenes);
-    addItem({
-      recordType: "action",
-      recordId: action["Action ID"],
-      actionId: action["Action ID"],
-      questionId: action["Source Question ID"],
-      auditId: action["Source Audit ID"],
-      sceneKey: scenes[0]?.key || "rugby-housekeeping-improved",
-      site,
-      title: String(action["Corrective Action"] || action.Comments || "Corrective action evidence").slice(0, 48),
-      sequence: 1,
-      variant: action.Status === "Closed" ? "after" : "single",
-    });
-  }
-
-  for (const pair of BEFORE_AFTER_PAIRS) {
-    const candidates = {
-      finding: selectedFindings,
-      incident: selectedIncidents,
-      ncr: selectedNcrs,
-      action: selectedActions,
-    };
-    for (const type of pair.recordTypes) {
-      const record = candidates[type]?.find((row) => {
-        const id = row["Finding ID"] || row.IncidentId || row["NCR ID"] || row["Action ID"];
-        return !items.some((item) => item.pairId === pair.pairId && item.recordId === id);
-      });
-      if (!record) continue;
-      const recordId = record["Finding ID"] || record.IncidentId || record["NCR ID"] || record["Action ID"];
-      const base = {
-        recordId,
-        findingId: record["Finding ID"] || "",
-        incidentId: record.IncidentId || "",
-        ncrId: record["NCR ID"] || "",
-        actionId: record["Action ID"] || "",
-        resultId: record["Result ID"] || "",
-        questionId: record["Question ID"] || record["Source Question ID"] || "",
-        auditId: record["Audit ID"] || record["Source Audit ID"] || "",
-        pairId: pair.pairId,
-        recordType: type,
-      };
-      addItem({
-        ...base,
-        sceneKey: pair.beforeScene,
-        variant: "before",
-        pairRole: "before",
-        sequence: 1,
-        site: sceneByKey(pair.beforeScene).site,
-      });
-      addItem({
-        ...base,
-        sceneKey: pair.afterScene,
-        variant: "after",
-        pairRole: "after",
-        sequence: 2,
-        site: sceneByKey(pair.afterScene).site,
-      });
-      break;
-    }
-  }
+      String(record.Title || "").toLowerCase().includes("concrete")
+      || String(record.Description || "").toLowerCase().includes("quality")
+      || String(record.Title || "").toLowerCase().includes("label");
+    const scenes = pickScenes(random, site, 1, new Set(), quality ? "quality" : "");
+    return scenes[0]?.key || "quality-edge-spall";
+  });
+  addSingles("action", TARGET_LINKED.action.records, (record, site, random) => {
+    const scenes = pickScenes(random, site, 1);
+    return scenes[0]?.key || "rugby-aggregate-bay";
+  });
 
   while (items.length < TARGET_IMAGE_MIN) {
-    const fillerFinding = findings[items.length % findings.length];
-    const site = siteFromArea(fillerFinding["Area ID"]);
-    const scenes = pickScenes(rng, site, 1, usedScenes);
+    const fillerType = ["finding", "incident", "ncr", "action"][items.length % 4];
+    const record = pools[fillerType].find((row) => {
+      const id = recordIdForType(row, fillerType);
+      return id && canAdd(fillerType, id);
+    });
+    if (!record) break;
+    const base = baseFieldsForRecord(record, fillerType);
+    const site =
+      fillerType === "finding"
+        ? siteFromArea(record["Area ID"])
+        : String(record.Location || record.Site || "").toLowerCase().includes("coventry")
+          ? "coventry"
+          : "rugby";
+    const scenes = pickScenes(rng, site, 1);
     addItem({
-      recordType: "finding",
-      recordId: fillerFinding["Finding ID"],
-      findingId: fillerFinding["Finding ID"],
-      resultId: fillerFinding["Result ID"],
-      questionId: fillerFinding["Question ID"],
-      auditId: fillerFinding["Audit ID"],
-      sceneKey: scenes[0]?.key || "rugby-aggregate-bay",
+      ...base,
       site,
-      sequence: 3,
+      sceneKey: scenes[0]?.key || "rugby-aggregate-bay",
     });
   }
 
-  const finalItems = finalizeEvidenceItems(items);
+  const finalItems = items.slice(0, TARGET_IMAGE_MAX);
   return {
     anchorDate: anchorKey,
     generatedAt: new Date().toISOString(),
     items: finalItems,
+    imageSpecs: finalItems.map((item) => buildImageSpec(item, sceneByKey(item.sceneKey))),
     summary: summarizeEvidencePlan(finalItems),
   };
-}
-
-function finalizeEvidenceItems(items) {
-  const pairItems = items.filter((item) => item.pairId);
-  const selected = [...pairItems];
-  const selectedIds = new Set(selected.map((item) => item.evidenceId));
-  const minRecords = { finding: 15, incident: 6, ncr: 5, action: 8 };
-
-  for (const [recordType, minCount] of Object.entries(minRecords)) {
-    const pool = items.filter((item) => item.recordType === recordType && !item.pairId);
-    const byRecord = new Map();
-    for (const item of pool) {
-      const list = byRecord.get(item.recordId) || [];
-      list.push(item);
-      byRecord.set(item.recordId, list);
-    }
-    let recordsChosen = 0;
-    for (const recordItems of byRecord.values()) {
-      if (recordsChosen >= minCount) break;
-      const item = recordItems[0];
-      if (!selectedIds.has(item.evidenceId)) {
-        selected.push(item);
-        selectedIds.add(item.evidenceId);
-      }
-      recordsChosen += 1;
-    }
-  }
-
-  for (const item of items) {
-    if (selected.length >= TARGET_IMAGE_MAX) break;
-    if (selectedIds.has(item.evidenceId)) continue;
-    selected.push(item);
-    selectedIds.add(item.evidenceId);
-  }
-
-  while (selected.length < TARGET_IMAGE_MIN) {
-    const donor = items.find((item) => !selectedIds.has(item.evidenceId));
-    if (!donor) break;
-    selected.push(donor);
-    selectedIds.add(donor.evidenceId);
-  }
-
-  return selected.slice(0, TARGET_IMAGE_MAX);
 }
 
 export function summarizeEvidencePlan(items = []) {
@@ -453,10 +379,13 @@ export function summarizeEvidencePlan(items = []) {
   const bySite = { rugby: 0, coventry: 0 };
   const byRecordType = {};
   const pairIds = new Set(items.filter((item) => item.pairId).map((item) => item.pairId));
+  const imagesPerRecord = new Map();
   for (const item of items) {
     byCategory[item.category] = (byCategory[item.category] || 0) + 1;
     bySite[item.site] = (bySite[item.site] || 0) + 1;
     byRecordType[item.recordType] = (byRecordType[item.recordType] || 0) + 1;
+    const key = recordKey(item.recordType, item.recordId);
+    imagesPerRecord.set(key, (imagesPerRecord.get(key) || 0) + 1);
   }
   return {
     imageCount: items.length,
@@ -470,26 +399,149 @@ export function summarizeEvidencePlan(items = []) {
       ncrs: new Set(items.filter((i) => i.recordType === "ncr").map((i) => i.recordId)).size,
       actions: new Set(items.filter((i) => i.recordType === "action").map((i) => i.recordId)).size,
     },
+    maxImagesOnRecord: Math.max(0, ...imagesPerRecord.values()),
+    imagesPerRecord: Object.fromEntries(imagesPerRecord),
   };
 }
 
-export function renderEvidencePlanItem(item) {
-  const buffer = renderSyntheticEvidencePng({
-    seed: item.renderSeed,
-    width: item.width,
-    height: item.height,
-    sceneKey: item.sceneKey,
-    title: item.title,
-    site: item.site,
-    variant: item.variant,
-    quality: item.quality,
-  });
+export function resolveImportedAssetPath(assetsDir, item) {
+  const candidates = [
+    pathJoin(assetsDir, item.fileName),
+    ...ACCEPTED_EVIDENCE_EXTENSIONS.map((ext) => pathJoin(assetsDir, `${item.evidenceId}${ext}`)),
+  ];
+  const seen = new Set();
+  for (const candidate of candidates) {
+    if (seen.has(candidate)) continue;
+    seen.add(candidate);
+    if (existsSync(candidate)) return candidate;
+  }
+  return "";
+}
+
+function pathJoin(...parts) {
+  return path.join(...parts);
+}
+
+function existsSync(filePath) {
+  try {
+    return fs.existsSync(filePath);
+  } catch {
+    return false;
+  }
+}
+
+export function readImageDimensions(buffer, mimeType) {
+  if (mimeType === "image/png" || buffer[0] === 0x89) {
+    if (buffer.length < 24) return { width: 0, height: 0 };
+    return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+  }
+  if (buffer.length > 4 && buffer[0] === 0xff && buffer[1] === 0xd8) {
+    let offset = 2;
+    while (offset < buffer.length) {
+      if (buffer[offset] !== 0xff) break;
+      const marker = buffer[offset + 1];
+      const length = buffer.readUInt16BE(offset + 2);
+      if (marker === 0xc0 || marker === 0xc2) {
+        return {
+          height: buffer.readUInt16BE(offset + 5),
+          width: buffer.readUInt16BE(offset + 7),
+        };
+      }
+      offset += 2 + length;
+    }
+  }
+  return { width: 0, height: 0 };
+}
+
+export function validateImportedAsset(buffer, item, { allowLegacy = false } = {}) {
+  const errors = [];
+  if (!buffer?.length) {
+    errors.push(`${item.evidenceId}: empty file`);
+    return { ok: false, errors };
+  }
+  if (buffer.length < MIN_EVIDENCE_BYTES) {
+    errors.push(`${item.evidenceId}: file smaller than ${MIN_EVIDENCE_BYTES} bytes`);
+  }
+  const mimeType =
+    buffer[0] === 0x89
+      ? "image/png"
+      : buffer[0] === 0xff && buffer[1] === 0xd8
+        ? "image/jpeg"
+        : item.mimeType;
+  if (!["image/png", "image/jpeg"].includes(mimeType)) {
+    errors.push(`${item.evidenceId}: unsupported image type`);
+  }
+  const { width, height } = readImageDimensions(buffer, mimeType);
+  if (width < MIN_EVIDENCE_WIDTH || height < MIN_EVIDENCE_HEIGHT) {
+    errors.push(`${item.evidenceId}: dimensions ${width}x${height} below minimum ${MIN_EVIDENCE_WIDTH}x${MIN_EVIDENCE_HEIGHT}`);
+  }
+  if (!allowLegacy && isLegacyPlaceholderEvidenceBuffer(buffer, item)) {
+    errors.push(`${item.evidenceId}: rejected legacy procedural placeholder output`);
+  }
   return {
-    ...item,
-    buffer,
+    ok: errors.length === 0,
+    errors,
+    mimeType,
+    width: width || item.width,
+    height: height || item.height,
     size: buffer.length,
     sha256: hashBuffer(buffer),
   };
+}
+
+export function importEvidenceAssets({ plan, assetsDir, outputDir }) {
+  fs.mkdirSync(outputDir, { recursive: true });
+  const rendered = [];
+  const errors = [];
+  const usedPaths = new Map();
+
+  for (const item of plan.items) {
+    const sourcePath = resolveImportedAssetPath(assetsDir, item);
+    if (!sourcePath) {
+      errors.push(`${item.evidenceId}: missing asset (expected ${item.fileName} or ${item.evidenceId}.jpg/.png)`);
+      continue;
+    }
+    if (usedPaths.has(sourcePath)) {
+      errors.push(`${item.evidenceId}: duplicate asset file ${path.basename(sourcePath)}`);
+      continue;
+    }
+    usedPaths.set(sourcePath, item.evidenceId);
+    const buffer = fs.readFileSync(sourcePath);
+    const validation = validateImportedAsset(buffer, item);
+    if (!validation.ok) {
+      errors.push(...validation.errors);
+      continue;
+    }
+    const ext = path.extname(sourcePath).toLowerCase() || ".jpg";
+    const fileName = `${item.evidenceId}${ext}`;
+    const localPath = path.join(outputDir, fileName);
+    fs.copyFileSync(sourcePath, localPath);
+    rendered.push({
+      ...item,
+      fileName,
+      mimeType: validation.mimeType,
+      width: validation.width,
+      height: validation.height,
+      buffer,
+      size: validation.size,
+      sha256: validation.sha256,
+      localPath,
+      dataUrl: `data:${validation.mimeType};base64,${buffer.toString("base64")}`,
+    });
+  }
+
+  if (errors.length) {
+    const error = new Error(`Evidence import failed:\n${errors.join("\n")}`);
+    error.details = errors;
+    throw error;
+  }
+  if (rendered.length !== plan.items.length) {
+    throw new Error(`Evidence import incomplete: expected ${plan.items.length}, imported ${rendered.length}`);
+  }
+
+  const manifest = buildEvidenceManifest(plan, rendered);
+  fs.writeFileSync(path.join(outputDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  return { rendered, manifest, outputDir };
 }
 
 export function buildEvidenceManifest(plan, renderedFiles = []) {
@@ -498,12 +550,12 @@ export function buildEvidenceManifest(plan, renderedFiles = []) {
     const rendered = fileById.get(item.evidenceId) || {};
     return {
       evidenceId: item.evidenceId,
-      fileName: item.fileName,
-      mimeType: item.mimeType,
+      fileName: rendered.fileName || item.fileName,
+      mimeType: rendered.mimeType || item.mimeType,
       size: rendered.size || 0,
       sha256: rendered.sha256 || "",
-      width: item.width,
-      height: item.height,
+      width: rendered.width || item.width,
+      height: rendered.height || item.height,
       orientation: item.orientation,
       sceneKey: item.sceneKey,
       site: item.site,
@@ -516,15 +568,18 @@ export function buildEvidenceManifest(plan, renderedFiles = []) {
       resultId: item.resultId,
       questionId: item.questionId,
       drivePath: item.drivePath,
+      source: item.source,
       localPath: rendered.localPath || "",
     };
   });
   const payload = {
     anchorDate: plan.anchorDate,
     generatedAt: plan.generatedAt,
+    pipeline: "imported-assets-v2",
     summary: summarizeEvidenceManifest(files, plan.summary),
     files,
     linkage: buildLinkageIndex(plan.items),
+    pairAssignments: buildPairAssignments(plan.items),
   };
   payload.fingerprint = computeEvidenceManifestFingerprint(payload);
   return payload;
@@ -542,6 +597,7 @@ function summarizeEvidenceManifest(files, planSummary) {
 export function computeEvidenceManifestFingerprint(manifest) {
   const stable = {
     anchorDate: manifest.anchorDate,
+    pipeline: manifest.pipeline || "imported-assets-v2",
     files: (manifest.files || []).map((file) => ({
       evidenceId: file.evidenceId,
       fileName: file.fileName,
@@ -563,6 +619,24 @@ function buildLinkageIndex(items) {
     grouped[key].push(item.evidenceId);
   }
   return grouped;
+}
+
+function buildPairAssignments(items) {
+  const pairs = {};
+  for (const item of items.filter((entry) => entry.pairId)) {
+    if (!pairs[item.pairId]) {
+      pairs[item.pairId] = {
+        pairId: item.pairId,
+        recordType: item.recordType,
+        recordId: item.recordId,
+        beforeEvidenceId: "",
+        afterEvidenceId: "",
+      };
+    }
+    if (item.pairRole === "before") pairs[item.pairId].beforeEvidenceId = item.evidenceId;
+    if (item.pairRole === "after") pairs[item.pairId].afterEvidenceId = item.evidenceId;
+  }
+  return pairs;
 }
 
 export function buildWorkbookEvidencePatches(history, plan, uploaded = new Map()) {
@@ -589,6 +663,7 @@ export function buildWorkbookEvidencePatches(history, plan, uploaded = new Map()
             driveLink: upload.driveLink || "",
             driveFileId: upload.driveFileId || "",
             addedAt,
+            source: item.source,
           },
         ])[0],
       );
@@ -607,6 +682,7 @@ export function buildWorkbookEvidencePatches(history, plan, uploaded = new Map()
         driveLink: upload.driveLink || "",
         driveFileId: upload.driveFileId || "",
         addedAt,
+        source: item.source,
       },
     ])[0];
 
@@ -693,7 +769,7 @@ export function buildWorkbookEvidencePatches(history, plan, uploaded = new Map()
 }
 
 export function isMidlandsSyntheticEvidenceFileName(name = "") {
-  return String(name).startsWith("midlands-demo-synthetic-");
+  return /^midlands-demo-ev-\d{4}\.(jpe?g|png)$/i.test(String(name));
 }
 
 export function areaSiteFromHistory(history, areaId = "") {
@@ -701,4 +777,12 @@ export function areaSiteFromHistory(history, areaId = "") {
     return "coventry";
   }
   return "rugby";
+}
+
+export function evidenceAssetsDir(sessionsRoot, anchorDate) {
+  return path.join(sessionsRoot, "demo-environment-evidence", anchorDate, EVIDENCE_ASSETS_SUBDIR);
+}
+
+export function evidencePromptPackDir(sessionsRoot, anchorDate) {
+  return path.join(sessionsRoot, "demo-environment-evidence", anchorDate, EVIDENCE_PROMPT_PACK_SUBDIR);
 }

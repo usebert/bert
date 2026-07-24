@@ -6,9 +6,11 @@ import path from "node:path";
 import {
   buildMidlandsEvidencePlan,
   buildEvidenceManifest,
-  renderEvidencePlanItem,
-  MIDLANDS_EVIDENCE_RUNTIME_DIR,
+  importEvidenceAssets,
+  evidenceAssetsDir,
 } from "../../shared/midlands-precast-evidence.mjs";
+import { encodePng } from "../../shared/midlands-evidence-render.mjs";
+import { createSeededRandom } from "../../shared/midlands-history-prng.mjs";
 import { buildMidlandsPrecastSeed } from "../../shared/midlands-precast-seed.mjs";
 import { buildMidlandsPrecastHistory } from "../../shared/midlands-precast-history.mjs";
 
@@ -49,24 +51,57 @@ export async function loadMidlandsHistoryForEvidence({
   });
 }
 
-export function generateLocalEvidenceBundle({ plan, outputDir }) {
-  fs.mkdirSync(outputDir, { recursive: true });
-  const rendered = [];
-  for (const item of plan.items) {
-    const file = renderEvidencePlanItem(item);
-    const localPath = path.join(outputDir, file.fileName);
-    fs.writeFileSync(localPath, file.buffer);
-    rendered.push({
-      ...file,
-      localPath,
-      dataUrl: `data:${file.mimeType};base64,${file.buffer.toString("base64")}`,
-    });
-  }
-  const manifest = buildEvidenceManifest(plan, rendered);
-  fs.writeFileSync(path.join(outputDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
-  return { rendered, manifest, outputDir };
-}
-
 export function buildEvidencePlanFromHistory(history) {
   return buildMidlandsEvidencePlan({ history, anchorDate: history.anchorDate });
+}
+
+export function createVerifierFixtureImage(item) {
+  const rng = createSeededRandom(item.renderSeed >>> 0);
+  const rgba = Buffer.alloc(item.width * item.height * 4);
+  for (let y = 0; y < item.height; y += 1) {
+    for (let x = 0; x < item.width; x += 1) {
+      const idx = (y * item.width + x) * 4;
+      const noise = Math.floor(rng() * 48);
+      rgba[idx] = 90 + noise + (x % 17);
+      rgba[idx + 1] = 84 + noise + (y % 13);
+      rgba[idx + 2] = 78 + noise;
+      rgba[idx + 3] = 255;
+    }
+  }
+  return encodePng(item.width, item.height, rgba);
+}
+
+export function writeVerifierFixtureAssets({ plan, assetsDir }) {
+  fs.mkdirSync(assetsDir, { recursive: true });
+  for (const item of plan.items) {
+    const buffer = createVerifierFixtureImage(item);
+    fs.writeFileSync(path.join(assetsDir, item.fileName), buffer);
+  }
+}
+
+export function importLocalEvidenceBundle({ plan, assetsDir, outputDir }) {
+  return importEvidenceAssets({ plan, assetsDir, outputDir });
+}
+
+export { evidenceAssetsDir };
+
+export function loadImportedEvidenceBundle({ plan, sessionsRoot, anchorDate }) {
+  const outputDir = evidenceOutputDir(sessionsRoot, anchorDate);
+  const assetsDir = evidenceAssetsDir(sessionsRoot, anchorDate);
+  const manifestPath = path.join(outputDir, "manifest.json");
+  if (fs.existsSync(manifestPath)) {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    const rendered = manifest.files.map((file) => {
+      const localPath = path.join(outputDir, file.fileName);
+      const buffer = fs.readFileSync(localPath);
+      return {
+        ...file,
+        localPath,
+        buffer,
+        dataUrl: `data:${file.mimeType};base64,${buffer.toString("base64")}`,
+      };
+    });
+    return { rendered, manifest, outputDir, assetsDir };
+  }
+  return importLocalEvidenceBundle({ plan, assetsDir, outputDir });
 }

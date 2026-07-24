@@ -31,8 +31,8 @@ import { NCR_TAB_COLUMNS } from "../shared/ncr.mjs";
 import { INCIDENTS_TAB, INCIDENTS_TAB_COLUMNS } from "../server/incidents-service.mjs";
 import {
   buildEvidencePlanFromHistory,
-  evidenceOutputDir,
-  generateLocalEvidenceBundle,
+  evidenceAssetsDir,
+  loadImportedEvidenceBundle,
   loadMidlandsHistoryForEvidence,
   readArg,
   resolveSessionsRoot,
@@ -95,7 +95,8 @@ if (cleanup) {
 }
 
 const sessionsRoot = resolveSessionsRoot(root);
-const outputDir = evidenceOutputDir(sessionsRoot, anchorDate);
+const outputDir = path.join(sessionsRoot, "demo-environment-evidence", anchorDate);
+const assetsDir = evidenceAssetsDir(sessionsRoot, anchorDate);
 
 const history = await loadMidlandsHistoryForEvidence({
   root,
@@ -112,7 +113,16 @@ const priorManifest = fs.existsSync(priorManifestPath)
   : null;
 const priorBySha = new Map((priorManifest?.files || []).map((file) => [file.sha256, file]));
 
-const { rendered, manifest } = generateLocalEvidenceBundle({ plan, outputDir });
+let bundle;
+try {
+  bundle = loadImportedEvidenceBundle({ plan, sessionsRoot, anchorDate });
+} catch (error) {
+  console.error(error?.message || error);
+  console.error(`\nExpected imported assets in: ${assetsDir}`);
+  console.error("Run export -> external generation -> import before seeding evidence.");
+  process.exit(1);
+}
+const { rendered, manifest } = bundle;
 
 let mode = "local-manifest";
 let liveApplied = false;
