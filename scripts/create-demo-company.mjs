@@ -1,0 +1,245 @@
+#!/usr/bin/env node
+/**
+ * Provision Midlands Precast Concrete Ltd demo company workspace (folder + workbook).
+ *
+ * Default: dry-run plan (no Google writes).
+ * --live: creates or resumes provisioning via provisionCompanyWorkspace.
+ *
+ * Usage:
+ *   DEMO_COMPANY_SEED_CONFIRM=yes npm run create:demo-company
+ *   DEMO_COMPANY_SEED_CONFIRM=yes npm run create:demo-company -- --live
+ */
+import dotenv from "dotenv";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { google } from "googleapis";
+import {
+  DEMO_COMPANY_FOLDER_ENV,
+  DEMO_COMPANY_SEED_CONFIRM_ENV,
+  DEMO_COMPANY_SPREADSHEET_ENV,
+  DEMO_DEFAULT_PASSWORD_ENV,
+  DEMO_MASTER_EMAIL_ENV,
+  MIDLANDS_DEMO_COMPANY_NAME,
+  assertDemoCompanyAllowed,
+  readDemoCompanyFolderId,
+  readDemoCompanySpreadsheetId,
+  readDemoDefaultPassword,
+  readDemoMasterEmail,
+} from "../shared/demo-environment.mjs";
+import { provisionCompanyWorkspace } from "../server/company-provisioning-service.mjs";
+import { resolveLiveCompaniesFolder } from "../server/company-folder-placement.mjs";
+import {
+  ensureTabColumns,
+  ensureTabExists,
+  getTabValues,
+} from "../server/workbook-service.mjs";
+import { loadGoogleAuth } from "./lib/demo-environment-script-utils.mjs";
+
+dotenv.config();
+
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+process.chdir(root);
+
+const live = process.argv.includes("--live");
+const confirm = String(process.env[DEMO_COMPANY_SEED_CONFIRM_ENV] || "").trim().toLowerCase();
+if (confirm !== "yes") {
+  console.error(`ERROR: Set ${DEMO_COMPANY_SEED_CONFIRM_ENV}=yes to run the demo company creator.`);
+  process.exit(1);
+}
+
+const companyName = MIDLANDS_DEMO_COMPANY_NAME;
+const folderFromEnv = readDemoCompanyFolderId();
+const spreadsheetFromEnv = readDemoCompanySpreadsheetId();
+const defaultPassword = readDemoDefaultPassword();
+const masterEmail = readDemoMasterEmail();
+
+const guard = assertDemoCompanyAllowed({
+  companyName,
+  companyFolderId: folderFromEnv,
+  masterSheetId: spreadsheetFromEnv,
+  requireWorkspaceIds: live,
+  requireSpreadsheet: live && Boolean(folderFromEnv),
+});
+if (!guard.ok) {
+  console.error(`ERROR: ${guard.error}`);
+  process.exit(1);
+}
+
+if (!defaultPassword || defaultPassword.length < 12) {
+  console.error(`ERROR: Set ${DEMO_DEFAULT_PASSWORD_ENV} (>= 12 chars) for demo user seeding.`);
+  process.exit(1);
+}
+
+const sessionsRoot = String(process.env.BERT_SESSIONS_DIR || "").trim()
+  ? path.resolve(root, process.env.BERT_SESSIONS_DIR)
+  : path.join(root, ".sessions");
+const manifestPath = path.join(sessionsRoot, "demo-environment-manifest.json");
+
+const adminPersona = {
+  name: "Olivia Bennett",
+  email: "demo.midlands.admin@usebert.co.uk",
+  username: "demo.midlands.admin",
+};
+
+function buildDeps(auth) {
+  const sharedDriveId = String(process.env.GOOGLE_SHARED_DRIVE_ID || "").trim();
+  const platformRegistrySheetId = String(process.env.BERT_PLATFORM_REGISTRY_SHEET_ID || "").trim();
+  return {
+    google,
+    resolveLiveCompaniesFolder,
+    sharedDriveId,
+    platformRegistrySheetId,
+    sessionDir: sessionsRoot,
+    withSheetsQuotaRetry: async (fn) => fn(),
+    safeLower: (value = "") => String(value || "").trim().toLowerCase(),
+    ensureTabExists: (a, spreadsheetId, tab, existingWorkbook = null) =>
+      ensureTabExists(a, { google, withSheetsQuotaRetry: async (fn) => fn() }, spreadsheetId, tab, existingWorkbook),
+    ensureColumns: (a, spreadsheetId, tab, columns) =>
+      ensureTabColumns(a, { google, withSheetsQuotaRetry: async (fn) => fn() }, spreadsheetId, tab, columns),
+    getTabValues: (a, spreadsheetId, tab) =>
+      getTabValues(a, { google, withSheetsQuotaRetry: async (fn) => fn() }, spreadsheetId, tab),
+    getCompanyUsersDeps: () => ({}),
+    getCompanyWorkspaceRegistryDeps: () => ({
+      sharedDriveId,
+      platformRegistrySheetId,
+      sessionDir: sessionsRoot,
+    }),
+    authIndex: null,
+    getConfig: async () => ({}),
+    updateConfig: async () => ({}),
+    ensureTabsAndColumns: async () => ({}),
+    currentSchemaVersion: "3.0.0",
+  };
+}
+
+async function verifyExistingWorkspace(auth, folderId, spreadsheetId) {
+  const drive = google.drive({ version: "v3", auth });
+  const folder = await drive.files.get({
+    fileId: folderId,
+    fields: "id,name,trashed",
+    supportsAllDrives: true,
+  });
+  const folderName = String(folder.data.name || "").trim();
+  if (folder.data.trashed) {
+    throw new Error(`Configured folder ${folderId} is in trash.`);
+  }
+  if (folderName.toLowerCase() !== companyName.toLowerCase()) {
+    throw new Error(`Folder name mismatch: expected "${companyName}", got "${folderName}".`);
+  }
+  const workbook = await drive.files.get({
+    fileId: spreadsheetId,
+    fields: "id,name,trashed,parents",
+    supportsAllDrives: true,
+  });
+  if (workbook.data.trashed) {
+    throw new Error(`Configured workbook ${spreadsheetId} is in trash.`);
+  }
+  return { folderName, workbookName: workbook.data.name || "" };
+}
+
+async function seedMasterOperator() {
+  const masterSecret = String(process.env.BERT_MASTER_SEED_SECRET || "").trim();
+  if (!masterSecret || masterSecret.length < 16) {
+    console.warn(
+      `WARNING: Skipping master operator seed — set BERT_MASTER_SEED_SECRET (>= 16 chars) to upsert ${masterEmail}.`,
+    );
+    return { seeded: false };
+  }
+  const { upsertMasterOperator } = await import(pathToFileURL(path.join(root, "server/master-auth.mjs")).href);
+  upsertMasterOperator({
+    sessionDir: sessionsRoot,
+    email: masterEmail,
+    name: "Master Demo Operator",
+    password: defaultPassword,
+  });
+  return { seeded: true, email: masterEmail };
+}
+
+async function main() {
+  const plan = {
+    companyName,
+    mode: live ? "live" : "dry-run",
+    folderId: folderFromEnv || "(provision on --live)",
+    spreadsheetId: spreadsheetFromEnv || "(provision on --live)",
+    admin: adminPersona,
+    masterEmail,
+    generatedAt: new Date().toISOString(),
+  };
+
+  if (!live) {
+    console.log("Midlands demo company create — dry run");
+    console.log(JSON.stringify(plan, null, 2));
+    console.log("");
+    console.log("No Google writes performed. Re-run with --live to provision.");
+    fs.mkdirSync(sessionsRoot, { recursive: true });
+    fs.writeFileSync(manifestPath, JSON.stringify({ ...plan, liveApplied: false }, null, 2), "utf8");
+    console.log(`Manifest: ${manifestPath}`);
+    return;
+  }
+
+  let companyFolderId = folderFromEnv;
+  let masterSheetId = spreadsheetFromEnv;
+
+  const auth = loadGoogleAuth(sessionsRoot);
+
+  if (companyFolderId && masterSheetId) {
+    const verified = await verifyExistingWorkspace(auth, companyFolderId, masterSheetId);
+    console.log(`Validated existing workspace: ${verified.folderName} / ${verified.workbookName}`);
+  } else {
+    const deps = buildDeps(auth);
+    const result = await provisionCompanyWorkspace(
+      auth,
+      deps,
+      {
+        companyName,
+        companyType: "Manufacturing",
+        firstAdminName: adminPersona.name,
+        firstAdminEmail: adminPersona.email,
+        firstAdminUsername: adminPersona.username,
+        adminPassword: defaultPassword,
+        confirmPassword: defaultPassword,
+      },
+      async (event) => {
+        if (event.type === "stage") {
+          console.log(`[provision] ${event.stage}: ${event.status}`);
+        }
+      },
+    );
+    if (!result.ok) {
+      throw new Error(result.error || `Provisioning failed at ${result.failedStage || "unknown"}`);
+    }
+    companyFolderId = result.companyFolderId;
+    masterSheetId = result.masterSheetId;
+    console.log("Provisioned workspace:");
+    console.log(`  ${DEMO_COMPANY_FOLDER_ENV}=${companyFolderId}`);
+    console.log(`  ${DEMO_COMPANY_SPREADSHEET_ENV}=${masterSheetId}`);
+  }
+
+  const master = await seedMasterOperator();
+  const manifest = {
+    ...plan,
+    liveApplied: true,
+    companyFolderId,
+    masterSheetId,
+    masterOperatorSeeded: master.seeded,
+    masterEmail: master.seeded ? master.email : masterEmail,
+  };
+  fs.mkdirSync(sessionsRoot, { recursive: true });
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+
+  console.log("");
+  console.log("Midlands demo company workspace ready.");
+  console.log(`  Folder: ${companyFolderId}`);
+  console.log(`  Workbook: ${masterSheetId}`);
+  console.log(`  Master operator: ${master.seeded ? master.email : "not seeded (missing BERT_MASTER_SEED_SECRET)"}`);
+  console.log(`  Manifest: ${manifestPath}`);
+  console.log("");
+  console.log("Next: npm run seed:demo-environment -- --live");
+  console.log("Then: npm run register:demo-environment");
+}
+
+main().catch((error) => {
+  console.error("Create failed:", error?.stack || error);
+  process.exit(1);
+});

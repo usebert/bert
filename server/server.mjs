@@ -18,6 +18,7 @@ import {
   MASTER_SESSION_MS,
 } from "./master-auth.mjs";
 import { bootstrapMasterOperatorFromEnv } from "./master-operator-bootstrap.mjs";
+import { guardDemoOutboundEmail } from "./demo-email-guard.mjs";
 import { getSessionCookieOptions } from "./session-cookie-options.mjs";
 import {
   isUserAuthScryptHash,
@@ -1440,7 +1441,17 @@ async function sendOnboardingInviteEmail({
   inviteRole,
   invitedBy,
   onboardingFormUrl,
+  companyFolderId = "",
 }) {
+  if (
+    guardDemoOutboundEmail({
+      channel: "onboarding-invite",
+      toEmail,
+      companyFolderId,
+    }).suppressed
+  ) {
+    return;
+  }
   if (!emailConfigured()) {
     throw new Error("SMTP is not configured. Add SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM_EMAIL.");
   }
@@ -1509,9 +1520,21 @@ async function sendManagerNonComplianceAlertEmail({
   submittedBy,
   nonComplianceCount,
   queuedForSync,
+  companyFolderId = "",
 }) {
   if (!emailConfigured()) {
     throw new Error("SMTP is not configured. Add SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM_EMAIL.");
+  }
+  if (
+    (recipients || []).some((email) =>
+      guardDemoOutboundEmail({
+        channel: "manager-non-compliance-alert",
+        toEmail: email,
+        companyFolderId,
+      }).suppressed,
+    )
+  ) {
+    return { suppressed: true };
   }
   if (!Array.isArray(recipients) || recipients.length === 0) {
     throw new Error("At least one manager recipient is required.");
@@ -1565,9 +1588,19 @@ async function sendNcrEscalationEmail({
   auditQuestion,
   selectedAnswer,
   investigationLink,
+  companyFolderId = "",
 }) {
   if (!emailConfigured()) {
     throw new Error("SMTP is not configured. Add SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM_EMAIL.");
+  }
+  if (
+    guardDemoOutboundEmail({
+      channel: "ncr-escalation",
+      toEmail,
+      companyFolderId,
+    }).suppressed
+  ) {
+    return { suppressed: true };
   }
   const transporter = createSmtpTransport();
 
@@ -1673,7 +1706,7 @@ async function sendIncidentReportEmail({
   });
 }
 
-async function sendReportPackEmail({ title, html, recipients = [], workspaceName, createdBy }) {
+async function sendReportPackEmail({ title, html, recipients = [], workspaceName, createdBy, companyFolderId = "" }) {
   if (!emailConfigured()) {
     throw new Error("SMTP is not configured. Add SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM_EMAIL.");
   }
@@ -1682,6 +1715,18 @@ async function sendReportPackEmail({ title, html, recipients = [], workspaceName
     : [];
   if (!toList.length) {
     throw new Error("Select at least one recipient before emailing this report.");
+  }
+  if (
+    toList.some((email) =>
+      guardDemoOutboundEmail({
+        channel: "report-pack",
+        toEmail: email,
+        companyFolderId,
+        companyName: workspaceName,
+      }).suppressed,
+    )
+  ) {
+    return { suppressed: true, recipientCount: 0 };
   }
   const reportTitle = String(title || "BERT report").trim() || "BERT report";
   const transporter = createSmtpTransport();
@@ -2363,6 +2408,9 @@ async function sendCompanyOnboardingFormEmail(toEmail) {
   if (!emailConfigured()) {
     throw new Error("SMTP is not configured.");
   }
+  if (guardDemoOutboundEmail({ channel: "company-onboarding-form", toEmail }).suppressed) {
+    return { suppressed: true };
+  }
   const { subject, textBody, htmlBody, onboardingFormUrl } = buildCompanyOnboardingEmailDraft();
   const transporter = createSmtpTransport();
   const from = requiredEnv.SMTP_FROM_NAME
@@ -2412,9 +2460,19 @@ function buildCompanyUserInviteMailto({ toEmail, companyName, inviteUrl }) {
   return `mailto:${encodeURIComponent(toEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(textBody)}`;
 }
 
-async function sendCompanyUserInviteEmail({ toEmail, companyName, inviteUrl }) {
+async function sendCompanyUserInviteEmail({ toEmail, companyName, inviteUrl, companyFolderId = "" }) {
   if (!emailConfigured()) {
     throw new Error("SMTP is not configured.");
+  }
+  if (
+    guardDemoOutboundEmail({
+      channel: "company-user-invite",
+      toEmail,
+      companyName,
+      companyFolderId,
+    }).suppressed
+  ) {
+    return { suppressed: true };
   }
   const { subject, textBody, htmlBody } = buildCompanyUserInviteEmailDraft({ companyName, inviteUrl });
   const transporter = createSmtpTransport();
@@ -2493,9 +2551,18 @@ function defaultCompanyUserInviteLifecycle() {
   };
 }
 
-async function sendAppHostedOnboardingEmail({ toEmail, subjectLine, invitedBy, onboardingUrl, htmlIntro }) {
+async function sendAppHostedOnboardingEmail({ toEmail, subjectLine, invitedBy, onboardingUrl, htmlIntro, companyFolderId = "" }) {
   if (!emailConfigured()) {
     throw new Error("SMTP is not configured.");
+  }
+  if (
+    guardDemoOutboundEmail({
+      channel: "app-hosted-onboarding",
+      toEmail,
+      companyFolderId,
+    }).suppressed
+  ) {
+    return { suppressed: true };
   }
   const transporter = createSmtpTransport();
   const from = requiredEnv.SMTP_FROM_NAME

@@ -183,9 +183,19 @@ function renderAckSuccessPage(title) {
 export function installDocumentDistributionRoutes(app, deps) {
   const { sessionDir, emailConfigured, createSmtpTransport, getFromAddress, getApiPublicOrigin, appBrandName } = deps;
 
-  async function sendDocumentAckEmail({ toEmail, recipientName, documentTitle, ackUrl }) {
+  async function sendDocumentAckEmail({ toEmail, recipientName, documentTitle, ackUrl, companyFolderId = "" }) {
     if (!emailConfigured()) {
       throw new Error("SMTP is not configured. Add SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM_EMAIL.");
+    }
+    const { guardDemoOutboundEmail } = await import("./demo-email-guard.mjs");
+    if (
+      guardDemoOutboundEmail({
+        channel: "document-acknowledgement",
+        toEmail,
+        companyFolderId,
+      }).suppressed
+    ) {
+      return { suppressed: true };
     }
     const transporter = createSmtpTransport();
     const subject = `${appBrandName}: Please read — ${documentTitle}`;

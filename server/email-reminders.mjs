@@ -222,6 +222,16 @@ export function installEmailReminderRoutes(app, deps) {
   });
 
   async function sendReminderEmail(reminder) {
+    const { guardDemoOutboundEmail } = await import("./demo-email-guard.mjs");
+    if (
+      guardDemoOutboundEmail({
+        channel: "user-reminder",
+        toEmail: reminder.ownerEmail,
+        companyFolderId: reminder.companyFolderId || reminder.companyId,
+      }).suppressed
+    ) {
+      return { suppressed: true };
+    }
     const transporter = createSmtpTransport();
     const subjectPreview = reminder.message.length > 60 ? `${reminder.message.slice(0, 57)}…` : reminder.message;
     const frontend = String(getFrontendUrl() || "").trim();

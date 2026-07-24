@@ -822,6 +822,10 @@ export function installCompanyOnboardingRoutes(app, deps) {
   const inviteTtlMs = Math.max(60 * 60 * 1000, Number(deps.onboardingInviteTtlMs || 7 * 24 * 60 * 60 * 1000));
 
   async function sendInviteEmail({ toEmail, invitedBy, onboardingUrl }) {
+    const { guardDemoOutboundEmail } = await import("./demo-email-guard.mjs");
+    if (guardDemoOutboundEmail({ channel: "company-onboarding-invite", toEmail }).suppressed) {
+      return { sent: false, suppressed: true };
+    }
     const subject = "Set up your company on BERT";
     const textBody = [
       "Hi,",

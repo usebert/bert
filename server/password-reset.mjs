@@ -128,6 +128,10 @@ function buildPasswordResetUrl(frontendUrl, tokenId, rawToken) {
 }
 
 async function sendPasswordResetEmail(deps, { toEmail, resetUrl }) {
+  const { guardDemoOutboundEmail } = await import("./demo-email-guard.mjs");
+  if (guardDemoOutboundEmail({ channel: "password-reset", toEmail }).suppressed) {
+    return { suppressed: true };
+  }
   const transporter = deps.createSmtpTransport();
   const brand = deps.appBrandName || "BERT";
   const from = deps.getFromAddress();
