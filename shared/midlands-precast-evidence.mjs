@@ -27,6 +27,10 @@ import {
   buildImageSpec,
   sceneByKey,
 } from "./midlands-evidence-specs.mjs";
+import {
+  applyResolvedSceneToItem,
+  validateEvidencePlanSemantics,
+} from "./midlands-evidence-scene-resolver.mjs";
 import { MIDLANDS_SITE_COVENTRY_ID } from "./demo-environment.mjs";
 
 export const MIDLANDS_EVIDENCE_RUNTIME_DIR = ".sessions/demo-environment-evidence";
@@ -50,10 +54,6 @@ const TARGET_LINKED = {
 };
 
 export { EVIDENCE_SCENE_CATALOG, BEFORE_AFTER_PAIR_DEFINITIONS };
-
-function siteFromArea(areaId = "") {
-  return String(areaId).includes("coventry") ? "coventry" : "rugby";
-}
 
 function recordKey(recordType, recordId) {
   return `${recordType}:${recordId}`;
@@ -138,19 +138,6 @@ function drivePathForItem(item) {
   return `${AUDIT_EVIDENCE_DRIVE_PATH_PREFIX}/${item.recordId}`;
 }
 
-function pickScenes(rng, site, count, usedKeys = new Set(), category = "") {
-  const pool = shuffleDeterministic(
-    rng,
-    EVIDENCE_SCENE_CATALOG.filter((entry) => {
-      if (usedKeys.has(entry.key)) return false;
-      if (entry.variant === "after") return false;
-      if (category) return entry.category === category;
-      return entry.site === site || entry.category === "quality";
-    }),
-  );
-  return pool.slice(0, count);
-}
-
 function pickRecordForPair(rng, pairDef, pools, usedParents) {
   const pool = shuffleDeterministic(rng, pools[pairDef.recordType] || []);
   const matched = pool.filter((record) => {
@@ -218,23 +205,22 @@ export function buildMidlandsEvidencePlan({ history, anchorDate } = {}) {
     imagesPerRecord.set(key, (imagesPerRecord.get(key) || 0) + count);
   }
 
-  function addItem(input) {
+  function addItem(input, record) {
     if (!canAdd(input.recordType, input.recordId)) {
       return null;
     }
     slot += 1;
     const dims = dimensionsForSlot(slot);
     const evidenceId = evidenceIdFor(slot);
-    const scene = sceneByKey(input.sceneKey);
     const item = {
       evidenceId,
       fileName: buildFileName(evidenceId, "jpg"),
       mimeType: "image/jpeg",
-      sceneKey: scene.key,
-      title: input.title || scene.subject,
-      site: input.site || scene.site,
-      category: scene.category,
-      variant: input.variant || scene.variant || "single",
+      sceneKey: input.sceneKey || "rugby-batching-panel",
+      title: input.title || "",
+      site: input.site || "rugby",
+      category: "rugby",
+      variant: input.variant || "single",
       pairId: input.pairId || "",
       pairRole: input.pairRole || "",
       recordType: input.recordType,
@@ -254,6 +240,13 @@ export function buildMidlandsEvidencePlan({ history, anchorDate } = {}) {
       drivePath: "",
       renderSeed: anchorSeedNumber(`${anchorKey}|${evidenceId}`),
     };
+    if (record) {
+      applyResolvedSceneToItem(item, record);
+    } else {
+      const scene = sceneByKey(item.sceneKey);
+      item.category = scene.category;
+      item.site = item.site || scene.site;
+    }
     item.drivePath = drivePathForItem(item);
     items.push(item);
     track(input.recordType, input.recordId);
@@ -270,25 +263,19 @@ export function buildMidlandsEvidencePlan({ history, anchorDate } = {}) {
 
     addItem({
       ...base,
-      sceneKey: pairDef.beforeScene,
-      site: sceneByKey(pairDef.beforeScene).site,
       pairId: pairDef.pairId,
       pairRole: "before",
       variant: "before",
-      title: sceneByKey(pairDef.beforeScene).subject,
-    });
+    }, record);
     addItem({
       ...base,
-      sceneKey: pairDef.afterScene,
-      site: sceneByKey(pairDef.afterScene).site,
       pairId: pairDef.pairId,
       pairRole: "after",
       variant: "after",
-      title: sceneByKey(pairDef.afterScene).subject,
-    });
+    }, record);
   }
 
-  function addSingles(recordType, targetRecords, scenePicker) {
+  function addSingles(recordType, targetRecords) {
     let recordsAdded = 0;
     for (const record of pools[recordType]) {
       if (recordsAdded >= targetRecords) break;
@@ -299,21 +286,7 @@ export function buildMidlandsEvidencePlan({ history, anchorDate } = {}) {
         }
       }
       if (!canAdd(recordType, base.recordId)) continue;
-      const site =
-        recordType === "finding"
-          ? siteFromArea(record["Area ID"])
-          : String(record.Location || record.Site || record["Source Audit Name"] || "")
-              .toLowerCase()
-              .includes("coventry")
-            ? "coventry"
-            : "rugby";
-      const sceneKey = scenePicker(record, site, rng);
-      const added = addItem({
-        ...base,
-        site,
-        sceneKey,
-        title: recordText(record, recordType).slice(0, 80) || sceneByKey(sceneKey).subject,
-      });
+      const added = addItem({ ...base }, record);
       if (!added) continue;
       recordsAdded += 1;
       usedParents.add(recordKey(recordType, base.recordId));
@@ -321,26 +294,10 @@ export function buildMidlandsEvidencePlan({ history, anchorDate } = {}) {
     return recordsAdded;
   }
 
-  addSingles("finding", TARGET_LINKED.finding.records, (record, site, random) => {
-    const scenes = pickScenes(random, site, 1);
-    return scenes[0]?.key || (site === "coventry" ? "coventry-forklift-route" : "rugby-cement-dust");
-  });
-  addSingles("incident", TARGET_LINKED.incident.records, (record, site, random) => {
-    const scenes = EVIDENCE_SCENE_CATALOG.filter((entry) => entry.category === "incident" && entry.site === site);
-    return scenes[Math.floor(random() * scenes.length)]?.key || "incident-spill-isolated";
-  });
-  addSingles("ncr", TARGET_LINKED.ncr.records, (record, site, random) => {
-    const quality =
-      String(record.Title || "").toLowerCase().includes("concrete")
-      || String(record.Description || "").toLowerCase().includes("quality")
-      || String(record.Title || "").toLowerCase().includes("label");
-    const scenes = pickScenes(random, site, 1, new Set(), quality ? "quality" : "");
-    return scenes[0]?.key || "quality-edge-spall";
-  });
-  addSingles("action", TARGET_LINKED.action.records, (record, site, random) => {
-    const scenes = pickScenes(random, site, 1);
-    return scenes[0]?.key || "rugby-aggregate-bay";
-  });
+  addSingles("finding", TARGET_LINKED.finding.records);
+  addSingles("incident", TARGET_LINKED.incident.records);
+  addSingles("ncr", TARGET_LINKED.ncr.records);
+  addSingles("action", TARGET_LINKED.action.records);
 
   while (items.length < TARGET_IMAGE_MIN) {
     const fillerType = ["finding", "incident", "ncr", "action"][items.length % 4];
@@ -350,21 +307,14 @@ export function buildMidlandsEvidencePlan({ history, anchorDate } = {}) {
     });
     if (!record) break;
     const base = baseFieldsForRecord(record, fillerType);
-    const site =
-      fillerType === "finding"
-        ? siteFromArea(record["Area ID"])
-        : String(record.Location || record.Site || "").toLowerCase().includes("coventry")
-          ? "coventry"
-          : "rugby";
-    const scenes = pickScenes(rng, site, 1);
-    addItem({
-      ...base,
-      site,
-      sceneKey: scenes[0]?.key || "rugby-aggregate-bay",
-    });
+    addItem({ ...base }, record);
   }
 
   const finalItems = items.slice(0, TARGET_IMAGE_MAX);
+  const semanticErrors = validateEvidencePlanSemantics({ items: finalItems }, history);
+  if (semanticErrors.length) {
+    throw new Error(`Evidence plan semantic validation failed:\n${semanticErrors.join("\n")}`);
+  }
   return {
     anchorDate: anchorKey,
     generatedAt: new Date().toISOString(),

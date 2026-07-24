@@ -15,6 +15,9 @@ import {
   renderLegacyPlaceholderForItem,
 } from "../shared/midlands-evidence-legacy.mjs";
 import {
+  validateEvidencePlanSemantics,
+} from "../shared/midlands-evidence-scene-resolver.mjs";
+import {
   MAX_IMAGES_PER_RECORD,
   MIN_EVIDENCE_HEIGHT,
   MIN_EVIDENCE_WIDTH,
@@ -95,6 +98,7 @@ assert(
   plan1.imageSpecs.every((spec) => spec.prompt && spec.expectedFileName && spec.evidenceId),
   "image specs include prompts and filenames",
 );
+assert(validateEvidencePlanSemantics(plan1, history).length === 0, "semantic scene-to-record validation passes");
 
 const findingIds = new Set(history.auditFindings.map((row) => row["Finding ID"]));
 const incidentIds = new Set(history.incidents.map((row) => row.IncidentId));
@@ -192,7 +196,9 @@ const manifestText = JSON.stringify(bundleA.manifest);
 assert(!manifestText.includes(DOVECOTE_COMPANY_NAME), "manifest does not reference Dovecote");
 assert(!manifestText.match(/@usebert\.co\.uk/), "manifest avoids real demo emails");
 assert(!manifestText.match(/https?:\/\//), "manifest has no external URLs");
+assert(read("shared/midlands-precast-evidence.mjs").includes("validateEvidencePlanSemantics"), "evidence plan enforces semantic validation");
 assert(!read("shared/midlands-precast-evidence.mjs").includes("renderSyntheticEvidencePng"), "production evidence module no longer renders placeholders");
+assert(fs.existsSync(path.join(root, "shared/midlands-evidence-scene-resolver.mjs")), "semantic scene resolver exists");
 assert(!read("scripts/generate-demo-evidence.mjs").includes("renderEvidencePlanItem"), "generate script no longer renders placeholders");
 assert(read("scripts/seed-demo-evidence.mjs").includes("assertDemoCompanyAllowed"), "live mode guarded");
 assert(read("scripts/seed-demo-evidence.mjs").includes("uploadAuditEvidenceToDrive"), "uses audit evidence upload pathway");
