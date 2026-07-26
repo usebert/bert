@@ -2,6 +2,7 @@ import { apiUrl } from "../config/apiBase";
 import {
   canonicalIncidentId,
   isValidRegisterIncidentId,
+  isWorkbookRegisterIncidentId,
   normalizeIncidentIdForLookup,
   pickIncidentIdFromRecord,
   INCIDENT_NOT_IN_WORKBOOK_MESSAGE,
@@ -355,7 +356,7 @@ export function filterValidRegisterIncidents(
   incidents: IncidentRecord[],
   options: { log?: boolean } = {},
 ): IncidentRecord[] {
-  const valid = incidents.filter((item) => isValidRegisterIncidentId(item.incidentId));
+  const valid = incidents.filter((item) => isWorkbookRegisterIncidentId(item.incidentId));
   if (options.log !== false && incidents.length > 0) {
     console.info("[incidents]", {
       phase: "incident_register_filter",

@@ -76,14 +76,18 @@ export function pickIncidentIdFromRecord(record: Record<string, unknown> = {}): 
 export const INCIDENT_NOT_IN_WORKBOOK_MESSAGE =
   "This incident is not in the company workbook yet. Refresh the register to sync incidents, then try again.";
 
-/** INC-YYYY-NNN or INC-YYYY-NNNN — register-visible incident IDs only. */
+/** INC-YYYY-NNN or INC-YYYY-NNNN — canonical register incident IDs. */
 export const REGISTER_INCIDENT_ID_PATTERN = /^INC-\d{4}-\d{3,4}$/i;
+
+/** Stable slug IDs written by demo/history seeders (e.g. midlands-inc-001). */
+export const WORKBOOK_SLUG_INCIDENT_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)+$/i;
 
 const NON_REGISTER_INCIDENT_ID_VALUES = new Set([
   "open",
   "closed",
   "under investigation",
   "underinvestigation",
+  "investigating",
   "pending",
   "draft",
   "minor",
@@ -93,13 +97,21 @@ const NON_REGISTER_INCIDENT_ID_VALUES = new Set([
   "accident",
 ]);
 
-export function isValidRegisterIncidentId(value: unknown): boolean {
+export function isWorkbookRegisterIncidentId(value: unknown): boolean {
   const text = trim(value);
   if (!text) {
     return false;
   }
-  if (NON_REGISTER_INCIDENT_ID_VALUES.has(text.toLowerCase())) {
+  const lowered = text.toLowerCase();
+  if (NON_REGISTER_INCIDENT_ID_VALUES.has(lowered)) {
     return false;
   }
-  return REGISTER_INCIDENT_ID_PATTERN.test(text);
+  if (/^inc-/i.test(text)) {
+    return REGISTER_INCIDENT_ID_PATTERN.test(text);
+  }
+  return WORKBOOK_SLUG_INCIDENT_ID_PATTERN.test(text) && text.length >= 8;
+}
+
+export function isValidRegisterIncidentId(value: unknown): boolean {
+  return isWorkbookRegisterIncidentId(value);
 }

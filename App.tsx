@@ -2658,6 +2658,35 @@ function filterNonConformancesByAssignedSites(
   });
 }
 
+function filterIncidentsByAssignedSites(
+  records: IncidentRecord[],
+  allowedSiteIds: Set<string> | null,
+  sites: Site[],
+): IncidentRecord[] {
+  if (!allowedSiteIds) return records;
+  const allowedNames = new Set(
+    sites.filter((site) => allowedSiteIds.has(site.id) && site.active).map((site) => normalizeIdentity(site.name)),
+  );
+  if (allowedNames.size === 0) return [];
+  return records.filter((record) => {
+    const department = String(record.department || "");
+    const location = normalizeIdentity(record.location || "");
+    let siteName = location;
+    if (department.includes(" / ")) {
+      siteName = normalizeIdentity(department.split(" / ", 2)[0] || "");
+    } else if (!siteName) {
+      siteName = normalizeIdentity(department);
+    }
+    if (!siteName) return false;
+    for (const allowed of allowedNames) {
+      if (siteName === allowed || siteName.includes(allowed) || allowed.includes(siteName)) {
+        return true;
+      }
+    }
+    return false;
+  });
+}
+
 function deriveSitesFromWorkspace(audits: Audit[], schedules: ScheduleItem[], managedSchedules: ManagedSchedule[]) {
   const names = new Set<string>();
   audits.forEach((audit) => {
@@ -4460,6 +4489,10 @@ function App() {
   const assignmentFilteredNonConformances = useMemo(
     () => filterNonConformancesByAssignedSites(nonConformances, currentUserAssignedSiteIds, sites),
     [nonConformances, currentUserAssignedSiteIds, sites],
+  );
+  const siteScopedIncidents = useMemo(
+    () => filterIncidentsByAssignedSites(incidents, currentUserAssignedSiteIds, sites),
+    [incidents, currentUserAssignedSiteIds, sites],
   );
   const assignmentFilteredHistory = useMemo(() => {
     if (!currentUserAssignedSiteIds) return history;
@@ -18402,7 +18435,7 @@ function App() {
             {screen === "incidents" && canSubmitIncidents(currentUser.role) && (
               <IncidentReportingScreen
                 currentUser={currentUser}
-                incidents={incidents}
+                incidents={siteScopedIncidents}
                 incidentActions={incidentActions}
                 reassignTargets={incidentReassignTargets}
                 reassignTargetsLoading={incidentReassignTargetsLoading}
@@ -18465,7 +18498,7 @@ function App() {
               <AuditorHistoryScreen
                 currentUserName={currentUser.name}
                 history={assignmentFilteredHistory}
-                incidents={incidents}
+                incidents={siteScopedIncidents}
                 unsyncedAuditIds={unsyncedSubmittedAuditIds}
                 syncSummary={syncPlainSummary}
                 syncNeedsAttention={failedSyncCount > 0 || offlineMode}
@@ -18611,7 +18644,7 @@ function App() {
                 history={assignmentFilteredHistory}
                 openReportsCount={reportInbox.length}
                 onNavigate={(nextScreen) => setScreen(nextScreen)}
-                incidents={incidents}
+                incidents={siteScopedIncidents}
                 hazards={hsHazardReports}
                 safetyRiskAssessments={hsRiskAssessments}
                 safetyObservations={hsSafetyObservations}

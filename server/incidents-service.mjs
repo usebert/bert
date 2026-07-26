@@ -18,10 +18,12 @@ import {
 import {
   INCIDENT_ID_HEADER_ALIASES,
   canonicalIncidentId,
+  filterRegisterIncidents,
   findIncidentIdHeader,
   findIncidentWorkbookRecord,
   incidentIdsMatch,
   normalizeIncidentIdForLookup,
+  normalizeIncidentStatus,
   pickIncidentIdFromRecord,
   sampleIncidentIdsFromRecords,
 } from "../shared/incident-id.mjs";
@@ -445,7 +447,7 @@ export function mapWorkbookIncidentRecord(record = {}, fallback = {}) {
   return {
     id: localId,
     incidentId,
-    status: pickRecordField(sanitized, "Status", "status") || "Open",
+    status: normalizeIncidentStatus(pickRecordField(sanitized, "Status", "status") || "Open"),
     priority: pickRecordField(sanitized, "Priority", "priority") || "Normal",
     incidentType: pickRecordField(sanitized, "IncidentType", "incidentType"),
     severity: pickRecordField(sanitized, "Severity", "severity"),
@@ -683,7 +685,14 @@ export async function listCompanyIncidents(auth, deps, companyContext = {}, list
       expectedHeaders: INCIDENTS_TAB_COLUMNS,
     });
     const incidents = sortIncidentsByCreatedAtDesc(
-      (readResult.records || []).map((record) => mapWorkbookIncidentRecord(record)),
+      filterRegisterIncidents(
+        (readResult.records || []).map((record) => mapWorkbookIncidentRecord(record)),
+        {
+          log: true,
+          phase: "list_company_incidents",
+          label: context.companyFolderId,
+        },
+      ),
     );
 
     return {

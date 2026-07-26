@@ -218,8 +218,8 @@ const BRIEFING_DEFS = [
   { id: "midlands-br-011", title: "Housekeeping standards", type: "Toolbox Talk", scope: "rugby" },
   { id: "midlands-br-012", title: "Hand protection when handling precast units", type: "Toolbox Talk", scope: "coventry" },
   { id: "midlands-br-013", title: "Emergency arrangements review", type: "Policy", scope: "company" },
-  { id: "midlands-br-014", title: "Lessons learned — washout slip", type: "Toolbox Talk", scope: "rugby", incident: "midlands-inc-001" },
-  { id: "midlands-br-015", title: "Lessons learned — dispatch near miss", type: "Toolbox Talk", scope: "coventry", incident: "midlands-nm-013" },
+  { id: "midlands-br-014", title: "Lessons learned — washout slip", type: "Toolbox Talk", scope: "rugby", incidentIndex: 0 },
+  { id: "midlands-br-015", title: "Lessons learned — dispatch near miss", type: "Toolbox Talk", scope: "coventry", incidentIndex: 20 },
   { id: "midlands-br-016", title: "Dust controls during remedial grinding", type: "Notice", scope: "coventry" },
   { id: "midlands-br-017", title: "Monthly H&S bulletin — Q2", type: "Notice", scope: "company" },
   { id: "midlands-br-018", title: "Loader pre-use expectations", type: "Toolbox Talk", scope: "rugby" },
@@ -290,6 +290,11 @@ function siteId(siteKey) {
   if (siteKey === "rugby") return MIDLANDS_SITE_RUGBY_ID;
   if (siteKey === "coventry") return MIDLANDS_SITE_COVENTRY_ID;
   return "";
+}
+
+function buildIncidentRegistryId(sequence, anchorKey) {
+  const year = String(anchorKey || "").slice(0, 4) || "2026";
+  return `INC-${year}-${String(sequence).padStart(3, "0")}`;
 }
 
 function scheduleAssignee(scheduleId, phase1Schedules) {
@@ -702,8 +707,8 @@ export function buildMidlandsPrecastHistory({
     const closed = incidentDate < addDays(anchorKey, -21);
     incidents.push(
       buildIncidentRow({
-        incidentId: def.id,
-        status: closed ? "Closed" : def.month >= 3 ? "Investigating" : "Open",
+        incidentId: buildIncidentRegistryId(index + 1, anchorKey),
+        status: closed ? "Closed" : def.month >= 3 ? "Under Investigation" : "Open",
         priority: def.severity === "Minor" ? "Normal" : "High",
         incidentType: def.type,
         severity: def.severity,
@@ -731,7 +736,7 @@ export function buildMidlandsPrecastHistory({
     );
     incidents.push(
       buildIncidentRow({
-        incidentId: def.id,
+        incidentId: buildIncidentRegistryId(INCIDENT_DEFS.length + index + 1, anchorKey),
         status: def.recent ? "Open" : "Closed",
         priority: "Normal",
         incidentType: "Near Miss",
@@ -767,7 +772,7 @@ export function buildMidlandsPrecastHistory({
       title: def.title,
       type: def.type,
       status: def.archived ? "Archived" : "Sent",
-      priority: def.incident ? "Important" : "Normal",
+      priority: Number.isInteger(def.incidentIndex) ? "Important" : "Normal",
       createdByEmail: creator?.email,
       createdByName: creator?.name,
       createdAt: isoAt(sentDate, 8, 0),

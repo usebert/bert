@@ -4,22 +4,31 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   canReassignCompanyIncident,
   isEligibleIncidentReassignTarget,
 } from "../shared/incident-assignment-permissions.mjs";
 import {
+  countDashboardOpenIncidents,
+  filterIncidentsByAssignedSites,
+  filterIncidentsForRegisterTab,
+  filterRegisterIncidents,
   findIncidentWorkbookRecord,
   incidentIdsMatch,
   isValidRegisterIncidentId,
+  isWorkbookRegisterIncidentId,
   normalizeIncidentIdForLookup,
   pickIncidentIdFromRecord,
 } from "../shared/incident-id.mjs";
+import { buildMidlandsPrecastHistory } from "../shared/midlands-precast-history.mjs";
+import { MIDLANDS_SITE_RUGBY_ID } from "../shared/demo-environment.mjs";
+import { MIDLANDS_SITES, buildMidlandsPrecastSeed } from "../shared/midlands-precast-seed.mjs";
 import {
   INCIDENTS_TAB,
   INCIDENTS_TAB_COLUMNS,
   buildIncidentRow,
+  mapWorkbookIncidentRecord,
   reassignCompanyIncident,
   submitCompanyIncident,
 } from "../server/incidents-service.mjs";
@@ -88,6 +97,33 @@ assert(!isValidRegisterIncidentId(""), "FILTER: blank incident id rejected");
 assert(isValidRegisterIncidentId("INC-2026-006"), "FILTER: INC-2026-006 accepted");
 assert(isValidRegisterIncidentId("INC-2026-0006"), "FILTER: INC-2026-0006 accepted");
 assert(!isValidRegisterIncidentId("INC-2026-06"), "FILTER: short sequence rejected");
+assert(isWorkbookRegisterIncidentId("midlands-inc-001"), "FILTER: legacy midlands slug ids accepted");
+assert(isWorkbookRegisterIncidentId("INC-2026-021"), "FILTER: canonical midlands ids accepted");
+assert(!isWorkbookRegisterIncidentId("Open"), "FILTER: status token still rejected");
+
+const { hashPassword } = await import(pathToFileURL(path.join(root, "server/master-auth.mjs")).href);
+const phase1 = buildMidlandsPrecastSeed({ passwordHash: hashPassword("verify-only-placeholder-12") });
+const history = buildMidlandsPrecastHistory({
+  anchorDate: "2026-07-24",
+  companyFolderId: "abcdefghijklmnopqrstuvwxyz1234567",
+  phase1Seed: phase1,
+});
+const mappedMidlandsIncidents = history.incidents.map((row) => mapWorkbookIncidentRecord(row));
+const registerIncidents = filterRegisterIncidents(mappedMidlandsIncidents, { log: false });
+assert(registerIncidents.length === history.incidents.length, "MIDLANDS: all seeded incidents pass register filter");
+const dashboardOpen = countDashboardOpenIncidents(registerIncidents);
+const registerVisible = filterIncidentsForRegisterTab(registerIncidents, "incidents");
+assert(dashboardOpen > 0, "MIDLANDS: dashboard open incident count is non-zero");
+assert(registerVisible.length > 0, "MIDLANDS: incidents register tab has visible rows");
+assert(
+  registerVisible.length <= dashboardOpen,
+  "MIDLANDS: default register tab is subset of open dashboard incidents",
+);
+const rugbyScoped = filterIncidentsByAssignedSites(registerIncidents, new Set([MIDLANDS_SITE_RUGBY_ID]), MIDLANDS_SITES);
+const coventryScoped = filterIncidentsByAssignedSites(registerIncidents, new Set(["midlands-site-coventry"]), MIDLANDS_SITES);
+assert(rugbyScoped.length > 0, "MIDLANDS: rugby manager scope returns rugby incidents");
+assert(coventryScoped.length > 0, "MIDLANDS: coventry manager scope returns coventry incidents");
+assert(rugbyScoped.length + coventryScoped.length >= registerIncidents.length, "MIDLANDS: site scopes partition workbook incidents");
 
 assert(
   pickIncidentIdFromRecord({ "Incident ID": "INC-2026-003" }) === "INC-2026-003",
