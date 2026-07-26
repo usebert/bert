@@ -14,6 +14,7 @@ import {
   rowsToRecords,
   writeTabRecords,
 } from "../../server/workbook-service.mjs";
+import { createSheetsQuotaRetry } from "./sheets-quota-retry.mjs";
 
 export function upsertByKey(existingRows = [], nextRows = [], keyFields = []) {
   const map = new Map();
@@ -69,10 +70,14 @@ export function loadGoogleAuth(sessionsRoot) {
   return auth;
 }
 
-export function buildWorkbookDeps() {
+export function buildWorkbookDeps(options = {}) {
+  const withSheetsQuotaRetry =
+    typeof options.withSheetsQuotaRetry === "function"
+      ? options.withSheetsQuotaRetry
+      : createSheetsQuotaRetry({ label: options.retryLabel || "demo-workbook" });
   const deps = {
     google,
-    withSheetsQuotaRetry: async (fn) => fn(),
+    withSheetsQuotaRetry,
     safeLower: (value = "") => String(value || "").trim().toLowerCase(),
     rowsToRecords,
   };
@@ -103,9 +108,13 @@ export function buildCompanyProvisionScriptDeps(options = {}) {
     options.platformRegistrySheetId || process.env.BERT_PLATFORM_REGISTRY_SHEET_ID || "",
   ).trim();
 
+  const withSheetsQuotaRetry =
+    typeof options.withSheetsQuotaRetry === "function"
+      ? options.withSheetsQuotaRetry
+      : createSheetsQuotaRetry({ label: "demo-provision" });
   const deps = {
     google,
-    withSheetsQuotaRetry: async (fn) => fn(),
+    withSheetsQuotaRetry,
     safeLower: (value = "") => String(value || "").trim().toLowerCase(),
     rowsToRecords,
     sessionDir: sessionsRoot,

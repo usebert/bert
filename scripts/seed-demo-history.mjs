@@ -53,11 +53,13 @@ import {
 } from "../shared/risk-assessments.mjs";
 import {
   buildWorkbookDeps,
-  ensureWorkbookTabs,
   loadGoogleAuth,
   upsertByKey,
-  writeMergedTab,
 } from "./lib/demo-environment-script-utils.mjs";
+import {
+  applyHistoryWorkbookWrites,
+  buildHistoryApplyProgressPath,
+} from "./lib/history-workbook-writer.mjs";
 
 dotenv.config();
 
@@ -201,13 +203,13 @@ const ACTIONS_COLUMNS = [
   "ArchiveReason",
 ];
 
-async function applyLiveHistory(payload) {
+async function applyLiveHistory(payload, fingerprint) {
   if (!companyFolderId || !masterSheetId) {
     throw new Error(`--live requires ${DEMO_COMPANY_FOLDER_ENV} and ${DEMO_COMPANY_SPREADSHEET_ENV}`);
   }
   const auth = loadGoogleAuth(sessionsRoot);
-  const deps = buildWorkbookDeps();
-  await ensureWorkbookTabs(auth, deps, masterSheetId);
+  const deps = buildWorkbookDeps({ retryLabel: "demo-history" });
+  const progressPath = buildHistoryApplyProgressPath(sessionsRoot);
 
   const writes = [
     ["Schedules", SCHEDULES_TAB_COLUMNS, payload.schedules, ["Schedule ID"]],
@@ -227,12 +229,28 @@ async function applyLiveHistory(payload) {
     [RISK_ASSESSMENT_REVIEWS_TAB, RISK_ASSESSMENT_REVIEWS_TAB_COLUMNS, payload.riskReviews, ["ReviewId"]],
   ];
 
-  for (const [tab, columns, rows, keys] of writes) {
-    await writeMergedTab(auth, deps, masterSheetId, tab, columns, rows, keys);
-    console.log(`[live] upserted ${rows.length} rows into ${tab}`);
+  const result = await applyHistoryWorkbookWrites({
+    auth,
+    deps,
+    masterSheetId,
+    companyFolderId,
+    fingerprint,
+    writes,
+    progressPath,
+  });
+
+  if (!result.allComplete) {
+    throw new Error(
+      `Live history apply incomplete (${result.completedTabs.length}/${writes.length} tabs). Re-run the same command to resume.`,
+    );
   }
 
-  return { companyFolderId, masterSheetId };
+  return {
+    companyFolderId,
+    masterSheetId,
+    stats: result.stats,
+    resumedFrom: result.resumedFrom,
+  };
 }
 
 let mode = "local-snapshot";
@@ -241,10 +259,10 @@ let liveNote = "";
 
 if (live) {
   try {
-    await applyLiveHistory(history);
+    const liveResult = await applyLiveHistory(history, history.summary.fingerprint);
     liveApplied = true;
     mode = "live-workbook";
-    liveNote = "History upserted into Midlands demo workbook.";
+    liveNote = `History upserted into Midlands demo workbook (${liveResult.resumedFrom ? `resumed after ${liveResult.resumedFrom} tabs` : "fresh run"}).`;
   } catch (error) {
     liveNote = `Live apply failed: ${error instanceof Error ? error.message : String(error)}`;
     mode = "local-snapshot-live-failed";

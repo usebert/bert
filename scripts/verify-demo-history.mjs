@@ -10,6 +10,15 @@ import { MIDLANDS_DEMO_COMPANY_NAME, MIDLANDS_SITE_COVENTRY_ID, MIDLANDS_SITE_RU
 import { buildMidlandsPrecastSeed } from "../shared/midlands-precast-seed.mjs";
 import { buildMidlandsPrecastHistory, summarizeMidlandsHistory } from "../shared/midlands-precast-history.mjs";
 import { addDays } from "../shared/midlands-history-prng.mjs";
+import { createSheetsQuotaRetry, isSheetsQuotaOrRateLimitError } from "./lib/sheets-quota-retry.mjs";
+import {
+  HistoryWorkbookWriter,
+  applyHistoryWorkbookWrites,
+  clearHistoryApplyProgress,
+  loadHistoryApplyProgress,
+  saveHistoryApplyProgress,
+} from "./lib/history-workbook-writer.mjs";
+import { upsertByKey } from "./lib/demo-environment-script-utils.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 let checks = 0;
@@ -152,6 +161,196 @@ assert(
   history.auditResults.every((row) => String(row["Completed At"]).slice(0, 10) <= anchor),
   "no future completion dates",
 );
+
+const quotaErr = Object.assign(new Error("Quota exceeded for quota metric 'Read requests'"), {
+  code: 429,
+  response: { status: 429, data: { error: { status: "RESOURCE_EXHAUSTED" } } },
+});
+assert(isSheetsQuotaOrRateLimitError(quotaErr), "429 quota errors are recognised");
+
+let retryAttempts = 0;
+const retryingQuota = createSheetsQuotaRetry({ maxRetries: 3, baseDelayMs: 1, maxDelayMs: 5, label: "test" });
+const retryResult = await retryingQuota(async () => {
+  retryAttempts += 1;
+  if (retryAttempts < 3) {
+    throw quotaErr;
+  }
+  return "ok";
+});
+assert(retryResult === "ok" && retryAttempts === 3, "429 retry/backoff succeeds after bounded retries");
+
+function createMockSheetsApi(initialTabs = ["Schedules"]) {
+  const tabs = new Set(initialTabs.map((tab) => tab.toLowerCase()));
+  const valuesByRange = new Map();
+  const stats = { getWorkbookCalls: 0, batchGetCalls: 0, getCalls: 0, updateCalls: 0, batchUpdateCalls: 0 };
+
+  const api = {
+    spreadsheets: {
+      get: async () => {
+        stats.getWorkbookCalls += 1;
+        return {
+          data: {
+            sheets: [...tabs].map((title) => ({ properties: { sheetId: title.length, title } })),
+          },
+        };
+      },
+      batchUpdate: async ({ requestBody }) => {
+        stats.batchUpdateCalls += 1;
+        for (const request of requestBody.requests || []) {
+          const title = request.addSheet?.properties?.title;
+          if (title) tabs.add(title.toLowerCase());
+        }
+        return { data: {} };
+      },
+      values: {
+        batchGet: async ({ ranges }) => {
+          stats.batchGetCalls += 1;
+          return {
+            data: {
+              valueRanges: ranges.map((range) => ({
+                values: api.readRangeValues(range),
+              })),
+            },
+          };
+        },
+        get: async ({ range }) => {
+          stats.getCalls += 1;
+          return { data: { values: api.readRangeValues(range) } };
+        },
+        update: async ({ range, requestBody }) => {
+          stats.updateCalls += 1;
+          api.storeRangeValues(range, requestBody.values || []);
+          return { data: {} };
+        },
+      },
+    },
+    readRangeValues(range) {
+      if (valuesByRange.has(range)) {
+        return valuesByRange.get(range);
+      }
+      const tab = String(range).split("!")[0];
+      let best = [];
+      for (const [key, value] of valuesByRange.entries()) {
+        if (!String(key).startsWith(`${tab}!`)) {
+          continue;
+        }
+        if ((value?.length || 0) > best.length) {
+          best = value;
+        }
+      }
+      return best;
+    },
+    storeRangeValues(range, values) {
+      valuesByRange.set(range, values);
+      const tab = String(range).split("!")[0];
+      valuesByRange.set(`${tab}!stored`, values);
+    },
+    stats,
+    valuesByRange,
+    tabs,
+  };
+  return api;
+}
+
+const mockAuth = {};
+const mockSheets = createMockSheetsApi(["Schedules", "AuditResults"]);
+const mockDeps = {
+  google: { sheets: () => mockSheets },
+  withSheetsQuotaRetry: async (fn) => fn(),
+};
+
+const writer = new HistoryWorkbookWriter(mockAuth, mockDeps, "sheet-1");
+await writer.fetchWorkbook();
+assert(writer.stats.getWorkbookCalls === 1, "workbook metadata fetched once on init");
+
+const tabSpecs = [
+  { tab: "Schedules", columns: ["Schedule ID", "Name"] },
+  { tab: "AuditResults", columns: ["Result ID", "Schedule ID"] },
+  { tab: "Actions", columns: ["Action ID", "Status"] },
+];
+await writer.prepareTabs(tabSpecs);
+assert(writer.stats.getWorkbookCalls === 2, "workbook metadata refreshed only after tab creation");
+assert(mockSheets.stats.batchGetCalls === 1, "tab headers batch-read once during prepare");
+assert(writer.hasTab("actions"), "missing tabs are batch-created");
+
+await writer.prepareTabs(tabSpecs);
+assert(mockSheets.stats.batchGetCalls === 2, "second prepare performs one additional header batch read");
+assert(mockSheets.stats.batchUpdateCalls === 1, "tab creation batchUpdate runs once");
+
+const progressPath = path.join(root, ".sessions", "demo-environment-history", "verify-live-apply-progress.json");
+clearHistoryApplyProgress(progressPath);
+saveHistoryApplyProgress(progressPath, {
+  masterSheetId: "sheet-1",
+  companyFolderId: "folder-1",
+  fingerprint: "fp-test",
+  completedTabs: ["Schedules"],
+});
+const loaded = loadHistoryApplyProgress(progressPath, {
+  masterSheetId: "sheet-1",
+  companyFolderId: "folder-1",
+  fingerprint: "fp-test",
+});
+assert(loaded.completedTabs.length === 1 && loaded.completedTabs[0] === "Schedules", "resume progress loads completed tabs");
+
+const writes = [
+  ["Schedules", ["Schedule ID", "Name"], [{ "Schedule ID": "S1", Name: "Weekly" }], ["Schedule ID"]],
+  ["AuditResults", ["Result ID", "Schedule ID"], [{ "Result ID": "R1", "Schedule ID": "S1" }], ["Result ID"]],
+];
+const firstApply = await applyHistoryWorkbookWrites({
+  auth: mockAuth,
+  deps: mockDeps,
+  masterSheetId: "sheet-1",
+  companyFolderId: "folder-1",
+  fingerprint: "fp-apply",
+  writes,
+  progressPath,
+});
+assert(firstApply.allComplete, "full history apply completes all tabs");
+assert(!fs.existsSync(progressPath), "progress file cleared after successful completion");
+
+saveHistoryApplyProgress(progressPath, {
+  masterSheetId: "sheet-1",
+  companyFolderId: "folder-1",
+  fingerprint: "fp-apply",
+  completedTabs: ["Schedules"],
+});
+const resumedApply = await applyHistoryWorkbookWrites({
+  auth: mockAuth,
+  deps: mockDeps,
+  masterSheetId: "sheet-1",
+  companyFolderId: "folder-1",
+  fingerprint: "fp-apply",
+  writes,
+  progressPath,
+});
+assert(
+  resumedApply.applied.some((entry) => entry.tab === "Schedules" && entry.skipped),
+  "resume skips already completed tabs",
+);
+assert(resumedApply.allComplete, "resume completes remaining tabs");
+
+const duplicateRows = [{ "Schedule ID": "S1", Name: "Weekly" }];
+await writer.writeMergedTab("Schedules", ["Schedule ID", "Name"], duplicateRows, ["Schedule ID"]);
+await writer.writeMergedTab("Schedules", ["Schedule ID", "Name"], duplicateRows, ["Schedule ID"]);
+const afterDuplicate = await writer.readTabRecords("Schedules");
+assert(afterDuplicate.length === 1, "rerun does not create duplicate rows");
+assert(afterDuplicate[0].Name === "Weekly", "upsert preserves single canonical row");
+
+const merged = upsertByKey(
+  [{ "Schedule ID": "S1", Name: "Weekly" }],
+  [{ "Schedule ID": "S1", Name: "Weekly" }, { "Schedule ID": "S2", Name: "Monthly" }],
+  ["Schedule ID"],
+);
+assert(merged.length === 2, "upsertByKey keeps unique keys only");
+
+const historyScript = read("scripts/seed-demo-history.mjs");
+assert(historyScript.includes("applyHistoryWorkbookWrites"), "history seeder uses cached workbook writer");
+assert(historyScript.includes("buildHistoryApplyProgressPath"), "history seeder persists resume progress");
+assert(historyScript.includes("history.summary.fingerprint"), "history seeder keys resume by fingerprint");
+assert(read("scripts/lib/history-workbook-writer.mjs").includes("batchGet"), "history writer batches header reads");
+assert(read("scripts/lib/sheets-quota-retry.mjs").includes("jitter"), "quota retry uses jittered backoff");
+
+clearHistoryApplyProgress(progressPath);
 
 console.log(`\nverify:demo-history passed (${checks} checks).`);
 console.log(`Fingerprint (${anchor}): ${history.summary.fingerprint}`);

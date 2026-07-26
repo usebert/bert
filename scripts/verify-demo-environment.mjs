@@ -233,4 +233,9 @@ assert(!reportExample.includes("BertDemo"), "report structure avoids embedded pa
 assert(isDemoCompanyEmail("demo.midlands.admin@usebert.co.uk", envOn), "demo email detection");
 assert(seedScript.includes("writeMergedTab"), "idempotent upsert path");
 
+const historySeedScript = read("scripts/seed-demo-history.mjs");
+assert(historySeedScript.includes("applyHistoryWorkbookWrites"), "history seeder uses cached workbook writer");
+assert(historySeedScript.includes("buildHistoryApplyProgressPath"), "history seeder persists resume progress");
+assert(read("scripts/lib/sheets-quota-retry.mjs").includes("createSheetsQuotaRetry"), "sheets quota retry helper exists");
+
 console.log(`\nverify:demo-environment passed (${checks} checks).`);
