@@ -19,6 +19,7 @@ import { repairUsersTabSchema } from "./users-tab-reader.mjs";
 import { ensureCompanyRegistryRecordForWorkspace } from "./company-workspace-registry.mjs";
 import { provisionDocumentFolders } from "./document-folder-service.mjs";
 import { deriveUsernameFromEmail, normalizeUsername } from "../shared/login-username.mjs";
+import { describeLiveCompaniesResolutionFailure } from "../shared/company-folder-placement.mjs";
 
 const operations = new Map();
 
@@ -332,11 +333,17 @@ export async function provisionCompanyWorkspace(auth, deps, input = {}, onProgre
     if (!hasCompleted(state, "creating_company_folder")) {
       const started = Date.now();
       await emit("creating_company_folder", "running");
-      const live = await deps.resolveLiveCompaniesFolder(auth);
+      const live = await deps.resolveLiveCompaniesFolder(auth, deps);
       const parentId = live?.liveCompaniesFolder?.id;
       if (!parentId) {
-        throw Object.assign(new Error("Live Companies folder not found. Check platform setup."), {
+        const failure = describeLiveCompaniesResolutionFailure(live, {
+          sharedDriveId: deps.sharedDriveId,
+        });
+        throw Object.assign(new Error(failure.message || "Live Companies folder not found. Check platform setup."), {
           stage: "creating_company_folder",
+          reasonCode: failure.reasonCode,
+          diagnostics: failure.diagnostics,
+          setupHint: failure.setupHint,
         });
       }
       if (!state.companyFolderId) {
@@ -568,6 +575,9 @@ export async function provisionCompanyWorkspace(auth, deps, input = {}, onProgre
       code: "PROVISION_FAILED",
       error: message,
       failedStage: stage,
+      reasonCode: error?.reasonCode || undefined,
+      diagnostics: error?.diagnostics || undefined,
+      setupHint: error?.setupHint || undefined,
       operationId: state.operationId,
       companyFolderId: state.companyFolderId || undefined,
       masterSheetId: state.masterSheetId || undefined,

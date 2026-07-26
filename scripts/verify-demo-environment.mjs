@@ -128,6 +128,8 @@ assert(seedScript.includes("assertDemoCompanyAllowed"), "seeder guards company")
 assert(createScript.includes("--live"), "create script supports --live");
 assert(createScript.includes("requireWorkspaceIds: false"), "create script allows bootstrap without workspace IDs");
 assert(createScript.includes("resolveDemoWorkspaceIdMode"), "create script validates workspace ID combinations");
+assert(createScript.includes("assertLiveCompaniesWorkspaceReady"), "create script preflights Live Companies resolution");
+assert(createScript.includes("describeLiveCompaniesResolutionFailure"), "create script surfaces Live Companies diagnostics");
 assert(
   createScript.includes("requireWorkspaceIds: true") && createScript.includes("postGuard"),
   "create script strictly validates provisioned workspace IDs after live bootstrap",

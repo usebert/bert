@@ -6,8 +6,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  describeLiveCompaniesResolutionFailure,
   isFolderUnderLiveCompanies,
   isLiveCompaniesFolderName,
+  LIVE_COMPANIES_FAILURE_REASON,
 } from "../shared/company-folder-placement.mjs";
 import {
   cleanCompanyNameFromFolder,
@@ -53,6 +55,8 @@ const inviteReadiness = read("shared/company-invite-readiness.mjs");
 const inviteReadinessServer = read("server/company-invite-readiness.mjs");
 const makeUsable = read("server/godmode-registry-actions.mjs");
 const panel = read("src/components/godmode/GodmodeCompanyWorkspacePanel.tsx");
+const createDemoCompany = read("scripts/create-demo-company.mjs");
+const provisioningService = read("server/company-provisioning-service.mjs");
 const setupState = read("src/utils/companySetupState.ts");
 const serverMain = read("server/server.mjs");
 const appTsx = read("App.tsx");
@@ -174,7 +178,7 @@ assert(
 assert(read("server/core-workflow-routes.mjs").includes("rejectCompanyApiIfFolderInvalid"), "29h: company APIs reject invalid folder");
 assert(read("src/utils/companyFolderContext.ts").includes("folderPlacementOk"), "29h2: frontend blocks usable when folder placement invalid");
 assert(appTsx.includes("companyLinkBlockedMessage"), "29h3: App blocks orphan company dashboard");
-assert(panel.includes("Under Live Companies"), "29i: godmode diagnostics show folder placement");
+assert(panel.includes("checklistLiveCompanies"), "29i: godmode diagnostics show folder placement");
 assert(pkg.scripts["verify:company-folder-source-of-truth"], "30: npm script registered");
 
 assert(isLiveCompaniesFolderName("01 Live Companies"), "31: matches numbered Live Companies folder");
@@ -187,6 +191,26 @@ assert(
   !isFolderUnderLiveCompanies("company-a", "live-root", ["shared-root"]),
   "34: rejects folder outside Live Companies",
 );
+
+const missingSharedDrive = describeLiveCompaniesResolutionFailure({}, { sharedDriveId: "" });
+assert(
+  missingSharedDrive.reasonCode === LIVE_COMPANIES_FAILURE_REASON.MISSING_SHARED_DRIVE_ID,
+  "34a: missing GOOGLE_SHARED_DRIVE_ID diagnosed",
+);
+const companyFolderRoot = describeLiveCompaniesResolutionFailure(
+  {
+    liveCompaniesMissing: true,
+    workspaceRoot: { ok: true, kind: "folder", name: "Dovecote Studio" },
+    topLevelFolders: [{ name: "01 - BERT System Files" }, { name: "03 - Evidence" }],
+  },
+  { sharedDriveId: "company-folder-id" },
+);
+assert(
+  companyFolderRoot.reasonCode === LIVE_COMPANIES_FAILURE_REASON.SHARED_DRIVE_ID_IS_COMPANY_FOLDER,
+  "34b: company folder misconfiguration diagnosed",
+);
+assert(createDemoCompany.includes("assertLiveCompaniesWorkspaceReady"), "34c: demo creator preflights Live Companies");
+assert(provisioningService.includes("describeLiveCompaniesResolutionFailure"), "34d: provisioning surfaces Live Companies diagnostics");
 
 assert(serverMain.includes("isGodmodeListableRegistryRecord"), "35: Godmode list uses folder-first registry listability");
 assert(serverMain.includes("buildGodmodeRegistryFallbackCompany"), "35b: Godmode list builds folder-first fallback rows");

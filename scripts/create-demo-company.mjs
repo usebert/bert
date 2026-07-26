@@ -28,6 +28,7 @@ import {
   readDemoDefaultPassword,
   readDemoMasterEmail,
 } from "../shared/demo-environment.mjs";
+import { describeLiveCompaniesResolutionFailure } from "../shared/company-folder-placement.mjs";
 import { provisionCompanyWorkspace } from "../server/company-provisioning-service.mjs";
 import { resolveLiveCompaniesFolder } from "../server/company-folder-placement.mjs";
 import {
@@ -120,6 +121,47 @@ function buildDeps(auth) {
   };
 }
 
+async function assertLiveCompaniesWorkspaceReady(auth, deps) {
+  const resolution = await resolveLiveCompaniesFolder(auth, deps);
+  const failure = describeLiveCompaniesResolutionFailure(resolution, {
+    sharedDriveId: deps.sharedDriveId,
+    companyFolderId: folderFromEnv,
+  });
+  if (failure.ok) {
+    console.log(
+      `Live Companies preflight ok: workspace root "${failure.diagnostics.workspaceRootName || deps.sharedDriveId}", folder "${failure.diagnostics.liveCompaniesFolderName || "Live Companies"}".`,
+    );
+    return resolution;
+  }
+  console.error("Live Companies preflight failed:");
+  console.error(`  reason: ${failure.reasonCode}`);
+  console.error(`  ${failure.message}`);
+  console.error(`  diagnostics: ${JSON.stringify(failure.diagnostics, null, 2)}`);
+  if (failure.setupHint) {
+    console.error("");
+    console.error(failure.setupHint);
+  }
+  const error = new Error(failure.message);
+  error.reasonCode = failure.reasonCode;
+  error.diagnostics = failure.diagnostics;
+  error.setupHint = failure.setupHint;
+  throw error;
+}
+
+function printProvisionFailure(result) {
+  console.error(`Provisioning failed at ${result.failedStage || "unknown"}: ${result.error || "unknown error"}`);
+  if (result.reasonCode) {
+    console.error(`  reason: ${result.reasonCode}`);
+  }
+  if (result.diagnostics) {
+    console.error(`  diagnostics: ${JSON.stringify(result.diagnostics, null, 2)}`);
+  }
+  if (result.setupHint) {
+    console.error("");
+    console.error(result.setupHint);
+  }
+}
+
 async function verifyExistingWorkspace(auth, folderId, spreadsheetId) {
   const drive = google.drive({ version: "v3", auth });
   const folder = await drive.files.get({
@@ -204,6 +246,7 @@ async function main() {
     console.log(`Validated existing workspace: ${verified.folderName} / ${verified.workbookName}`);
   } else {
     const deps = buildDeps(auth);
+    await assertLiveCompaniesWorkspaceReady(auth, deps);
     const result = await provisionCompanyWorkspace(
       auth,
       deps,
@@ -223,6 +266,7 @@ async function main() {
       },
     );
     if (!result.ok) {
+      printProvisionFailure(result);
       throw new Error(result.error || `Provisioning failed at ${result.failedStage || "unknown"}`);
     }
     companyFolderId = result.companyFolderId;
@@ -269,6 +313,19 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error("Create failed:", error?.stack || error);
+  console.error("Create failed:", error?.message || error);
+  if (error?.reasonCode) {
+    console.error(`  reason: ${error.reasonCode}`);
+  }
+  if (error?.diagnostics) {
+    console.error(`  diagnostics: ${JSON.stringify(error.diagnostics, null, 2)}`);
+  }
+  if (error?.setupHint) {
+    console.error("");
+    console.error(error.setupHint);
+  }
+  if (error?.stack) {
+    console.error(error.stack);
+  }
   process.exit(1);
 });

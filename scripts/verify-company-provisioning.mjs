@@ -282,6 +282,34 @@ async function main() {
   const hashed = hashPassword("password123");
   assert(hashed && hashed !== "password123", "password hashing produces non-plaintext");
 
+  const missingLiveHarness = createMockHarness();
+  const missingLive = await provisionCompanyWorkspace(
+    missingLiveHarness.auth,
+    {
+      ...missingLiveHarness.deps,
+      sharedDriveId: "workspace-root",
+      resolveLiveCompaniesFolder: async () => ({
+        liveCompaniesMissing: true,
+        liveCompaniesFolderId: "",
+        workspaceRoot: { ok: true, kind: "folder", name: "Dovecote Studio" },
+        topLevelFolders: [{ name: "01 - BERT System Files" }, { name: "03 - Evidence" }],
+      }),
+    },
+    {
+      companyName: "Missing Live Co",
+      firstAdminName: "Ada Admin",
+      firstAdminEmail: "ada@missing.test",
+      firstAdminUsername: "ada",
+      adminPassword: "password123",
+      confirmPassword: "password123",
+    },
+    async () => {},
+  );
+  assert(!missingLive.ok, "provisioning fails when Live Companies is missing");
+  assert(missingLive.failedStage === "creating_company_folder", "failure stage is creating_company_folder");
+  assert(missingLive.reasonCode === "shared_drive_id_is_company_folder", "misconfigured workspace root reason returned");
+  assert(missingLive.diagnostics?.topLevelFolderNames?.includes("01 - BERT System Files"), "diagnostics list workspace children");
+
   const harness = createMockHarness();
   const flakyDeps = {
     ...harness.deps,
@@ -356,6 +384,8 @@ async function main() {
   assert(serviceSrc.includes("rebuildAuthIndexFromUsersTab"), "auth index rebuilt for admin login");
   assert(serviceSrc.includes('Status: "ACTIVE"'), "admin seeded as ACTIVE");
   assert(serviceSrc.includes('Role: "Admin"'), "admin seeded as Admin");
+  assert(serviceSrc.includes("describeLiveCompaniesResolutionFailure"), "provisioning includes Live Companies diagnostics");
+  assert(serviceSrc.includes("reasonCode: error?.reasonCode"), "provisioning failure returns reasonCode");
   assert(adminSrc.includes("onBackToCompanies"), "back to companies wired");
   assert(adminSrc.includes("onCompanyFolderConnected"), "success opens company via callback");
 
