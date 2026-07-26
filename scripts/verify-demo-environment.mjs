@@ -51,6 +51,7 @@ const packageJson = JSON.parse(read("package.json"));
 const demoEnvModule = read("shared/demo-environment.mjs");
 const seedScript = read("scripts/seed-demo-environment.mjs");
 const createScript = read("scripts/create-demo-company.mjs");
+const loginRolesScript = read("scripts/verify-demo-login-roles.mjs");
 const serverSrc = read("server/server.mjs");
 const onboardingSrc = read("server/company-onboarding.mjs");
 const remindersSrc = read("server/email-reminders.mjs");
@@ -61,6 +62,7 @@ assert(packageJson.scripts["create:demo-company"], "npm script create:demo-compa
 assert(packageJson.scripts["seed:demo-environment"], "npm script seed:demo-environment registered");
 assert(packageJson.scripts["register:demo-environment"], "npm script register:demo-environment registered");
 assert(packageJson.scripts["verify:demo-environment"], "npm script verify:demo-environment registered");
+assert(packageJson.scripts["verify:demo-login-roles"], "npm script verify:demo-login-roles registered");
 
 assert(isMidlandsDemoCompanyName(MIDLANDS_DEMO_COMPANY_NAME), "Midlands company name constant");
 assert(MIDLANDS_DEMO_COMPANY_NAME !== DOVECOTE_COMPANY_NAME, "Midlands is separate from Dovecote");
@@ -139,6 +141,18 @@ assert(
 );
 assert(!seedScript.includes(DOVECOTE_COMPANY_NAME), "Midlands seeder does not reference Dovecote");
 assert(!createScript.includes("Dovecote"), "create script does not touch Dovecote");
+
+assert(loginRolesScript.includes("shared/demo-environment.mjs"), "login roles verifier uses Midlands demo environment module");
+assert(!loginRolesScript.includes("shared/demo-company-seed.mjs"), "login roles verifier does not import Dovecote seed module");
+assert(loginRolesScript.includes("MIDLANDS_SWITCH_PERSONAS"), "login roles verifier uses Midlands switch personas");
+assert(loginRolesScript.includes("MIDLANDS_DEMO_COMPANY_NAME"), "login roles verifier expects Midlands company name");
+assert(loginRolesScript.includes("readDemoCompanySpreadsheetId"), "login roles verifier supports spreadsheet env aliases");
+assert(loginRolesScript.includes("persona.username"), "login roles verifier tests Midlands username login path");
+assert(loginRolesScript.includes("input.username"), "login roles verifier resolves username identity");
+assert(loginRolesScript.includes("bert.demo+mr.important@usebert.co.uk"), "login roles verifier regression blocks legacy Dovecote admin email");
+assert(loginRolesScript.includes("LEGACY_DOVECOTE_LOGIN_EMAILS"), "login roles verifier isolates legacy Dovecote personas");
+assert(loginRolesScript.includes("resolveCompanyLoginIdentity"), "login roles verifier reports identity resolution");
+assert(loginRolesScript.includes("readCompanyUsersTabRecord"), "login roles verifier checks Users tab match");
 
 const demoFolderId = "abcdefghijklmnopqrstuvwxyz1234567";
 const demoSpreadsheetId = "abcdefghijklmnopqrstuvwxyz1234567890abcdefgh";
