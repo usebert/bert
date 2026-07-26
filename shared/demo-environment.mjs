@@ -177,6 +177,35 @@ export function isDemoCompanyFolderId(folderId = "", env = process.env) {
   return Boolean(configured && candidate && configured === candidate);
 }
 
+export function resolveDemoWorkspaceIdMode(input = {}, env = process.env) {
+  const envRef = input.env || env;
+  const companyFolderId = sanitizeCompanyFolderId(
+    input.companyFolderId || input.folderId || readDemoCompanyFolderId(envRef),
+  );
+  const masterSheetId = sanitizeGoogleSpreadsheetId(
+    input.masterSheetId || input.spreadsheetId || input.workbookId || readDemoCompanySpreadsheetId(envRef),
+  );
+  const hasFolder = Boolean(companyFolderId);
+  const hasSpreadsheet = Boolean(masterSheetId);
+
+  if (!hasFolder && !hasSpreadsheet) {
+    return { ok: true, mode: "provision" };
+  }
+  if (hasFolder && hasSpreadsheet) {
+    return { ok: true, mode: "resume", companyFolderId, masterSheetId };
+  }
+  if (hasFolder && !hasSpreadsheet) {
+    return {
+      ok: false,
+      error: `Both ${DEMO_COMPANY_FOLDER_ENV} and ${DEMO_COMPANY_SPREADSHEET_ENV} are required to resume an existing demo workspace. Folder ID was supplied without a workbook/spreadsheet ID.`,
+    };
+  }
+  return {
+    ok: false,
+    error: `Both ${DEMO_COMPANY_FOLDER_ENV} and ${DEMO_COMPANY_SPREADSHEET_ENV} are required to resume an existing demo workspace. Workbook/spreadsheet ID was supplied without a folder ID.`,
+  };
+}
+
 export function isAllowedDemoUser(email = "", env = process.env) {
   const normalized = normalizeDemoEmail(email);
   if (!normalized) {

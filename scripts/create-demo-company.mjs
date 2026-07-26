@@ -22,6 +22,7 @@ import {
   DEMO_MASTER_EMAIL_ENV,
   MIDLANDS_DEMO_COMPANY_NAME,
   assertDemoCompanyAllowed,
+  resolveDemoWorkspaceIdMode,
   readDemoCompanyFolderId,
   readDemoCompanySpreadsheetId,
   readDemoDefaultPassword,
@@ -56,13 +57,19 @@ const masterEmail = readDemoMasterEmail();
 
 const guard = assertDemoCompanyAllowed({
   companyName,
-  companyFolderId: folderFromEnv,
-  masterSheetId: spreadsheetFromEnv,
-  requireWorkspaceIds: live,
-  requireSpreadsheet: live && Boolean(folderFromEnv),
+  requireWorkspaceIds: false,
 });
 if (!guard.ok) {
   console.error(`ERROR: ${guard.error}`);
+  process.exit(1);
+}
+
+const workspaceIdMode = resolveDemoWorkspaceIdMode({
+  companyFolderId: folderFromEnv,
+  masterSheetId: spreadsheetFromEnv,
+});
+if (!workspaceIdMode.ok) {
+  console.error(`ERROR: ${workspaceIdMode.error}`);
   process.exit(1);
 }
 
@@ -160,8 +167,15 @@ async function main() {
   const plan = {
     companyName,
     mode: live ? "live" : "dry-run",
-    folderId: folderFromEnv || "(provision on --live)",
-    spreadsheetId: spreadsheetFromEnv || "(provision on --live)",
+    workspaceMode: workspaceIdMode.mode,
+    folderId:
+      workspaceIdMode.mode === "resume"
+        ? workspaceIdMode.companyFolderId
+        : folderFromEnv || "(provision on --live)",
+    spreadsheetId:
+      workspaceIdMode.mode === "resume"
+        ? workspaceIdMode.masterSheetId
+        : spreadsheetFromEnv || "(provision on --live)",
     admin: adminPersona,
     masterEmail,
     generatedAt: new Date().toISOString(),
@@ -183,7 +197,9 @@ async function main() {
 
   const auth = loadGoogleAuth(sessionsRoot);
 
-  if (companyFolderId && masterSheetId) {
+  if (workspaceIdMode.mode === "resume") {
+    companyFolderId = workspaceIdMode.companyFolderId;
+    masterSheetId = workspaceIdMode.masterSheetId;
     const verified = await verifyExistingWorkspace(auth, companyFolderId, masterSheetId);
     console.log(`Validated existing workspace: ${verified.folderName} / ${verified.workbookName}`);
   } else {
@@ -215,6 +231,19 @@ async function main() {
     console.log(`  ${DEMO_COMPANY_FOLDER_ENV}=${companyFolderId}`);
     console.log(`  ${DEMO_COMPANY_SPREADSHEET_ENV}=${masterSheetId}`);
   }
+
+  const postGuard = assertDemoCompanyAllowed({
+    companyName,
+    companyFolderId,
+    masterSheetId,
+    requireWorkspaceIds: true,
+    requireSpreadsheet: true,
+  });
+  if (!postGuard.ok) {
+    throw new Error(postGuard.error || "Provisioned workspace failed demo environment validation.");
+  }
+  companyFolderId = postGuard.companyFolderId;
+  masterSheetId = postGuard.masterSheetId;
 
   const master = await seedMasterOperator();
   const manifest = {

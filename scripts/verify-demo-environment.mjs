@@ -18,6 +18,7 @@ import {
   isDemoEnvironmentEnabled,
   isMidlandsDemoCompanyName,
   readDemoMasterEmail,
+  resolveDemoWorkspaceIdMode,
   shouldSuppressDemoOutboundEmail,
 } from "../shared/demo-environment.mjs";
 import {
@@ -66,12 +67,12 @@ assert(MIDLANDS_DEMO_COMPANY_NAME !== DOVECOTE_COMPANY_NAME, "Midlands is separa
 assert(assertDemoCompanyAllowed({
   companyName: DOVECOTE_COMPANY_NAME,
   companyFolderId: "abcdefghijklmnopqrstuvwxyz1234567",
-  masterSheetId: "abcdefghijklmnopqrstuvwxyz1234567890abcdefghij",
+  masterSheetId: "abcdefghijklmnopqrstuvwxyz1234567890abcdefgh",
 }).ok === false, "refuses Dovecote company name");
 assert(assertDemoCompanyAllowed({
   companyName: "TESTCO",
   companyFolderId: "abcdefghijklmnopqrstuvwxyz1234567",
-  masterSheetId: "abcdefghijklmnopqrstuvwxyz1234567890abcdefghij",
+  masterSheetId: "abcdefghijklmnopqrstuvwxyz1234567890abcdefgh",
 }).ok === false, "refuses TESTCO");
 
 assert(demoEnvModule.includes("isDemoEnvironmentEnabled"), "demo environment enable helper exported");
@@ -125,8 +126,48 @@ assert(seed.counts.users >= 11, "credible user count beyond switch personas");
 assert(seedScript.includes(DEMO_COMPANY_SEED_CONFIRM_ENV), "seeder requires confirm env");
 assert(seedScript.includes("assertDemoCompanyAllowed"), "seeder guards company");
 assert(createScript.includes("--live"), "create script supports --live");
+assert(createScript.includes("requireWorkspaceIds: false"), "create script allows bootstrap without workspace IDs");
+assert(createScript.includes("resolveDemoWorkspaceIdMode"), "create script validates workspace ID combinations");
+assert(
+  createScript.includes("requireWorkspaceIds: true") && createScript.includes("postGuard"),
+  "create script strictly validates provisioned workspace IDs after live bootstrap",
+);
 assert(!seedScript.includes(DOVECOTE_COMPANY_NAME), "Midlands seeder does not reference Dovecote");
 assert(!createScript.includes("Dovecote"), "create script does not touch Dovecote");
+
+const demoFolderId = "abcdefghijklmnopqrstuvwxyz1234567";
+const demoSpreadsheetId = "abcdefghijklmnopqrstuvwxyz1234567890abcdefgh";
+
+const provisionMode = resolveDemoWorkspaceIdMode({});
+assert(provisionMode.ok && provisionMode.mode === "provision", "no IDs allowed for creator bootstrap");
+const resumeMode = resolveDemoWorkspaceIdMode({
+  companyFolderId: demoFolderId,
+  masterSheetId: demoSpreadsheetId,
+});
+assert(
+  resumeMode.ok && resumeMode.mode === "resume" && resumeMode.companyFolderId === demoFolderId,
+  "both IDs allowed for resume",
+);
+const folderOnlyMode = resolveDemoWorkspaceIdMode({ companyFolderId: demoFolderId });
+assert(folderOnlyMode.ok === false && /folder id was supplied without/i.test(folderOnlyMode.error || ""), "folder only rejected");
+const spreadsheetOnlyMode = resolveDemoWorkspaceIdMode({ masterSheetId: demoSpreadsheetId });
+assert(
+  spreadsheetOnlyMode.ok === false && /without a folder id/i.test(spreadsheetOnlyMode.error || ""),
+  "spreadsheet only rejected",
+);
+const provisionedGuard = assertDemoCompanyAllowed({
+  companyName: MIDLANDS_DEMO_COMPANY_NAME,
+  companyFolderId: demoFolderId,
+  masterSheetId: demoSpreadsheetId,
+  requireWorkspaceIds: true,
+  requireSpreadsheet: true,
+});
+assert(
+  provisionedGuard.ok &&
+    provisionedGuard.companyFolderId === demoFolderId &&
+    provisionedGuard.masterSheetId === demoSpreadsheetId,
+  "returned provisioned IDs strictly validated",
+);
 
 const envOn = {
   DEMO_ENVIRONMENT_ENABLED: "true",
