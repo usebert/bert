@@ -29,7 +29,11 @@ import {
   readDemoMasterEmail,
 } from "../shared/demo-environment.mjs";
 import { describeLiveCompaniesResolutionFailure } from "../shared/company-folder-placement.mjs";
-import { provisionCompanyWorkspace } from "../server/company-provisioning-service.mjs";
+import {
+  inferCompletedProvisioningStages,
+  mergeCompletedProvisioningStages,
+} from "../shared/company-provision-resume.mjs";
+import { provisionCompanyWorkspace, COMPANY_PROVISION_STAGES } from "../server/company-provisioning-service.mjs";
 import { resolveLiveCompaniesFolder } from "../server/company-folder-placement.mjs";
 import { loadGoogleAuth, buildCompanyProvisionScriptDeps } from "./lib/demo-environment-script-utils.mjs";
 
@@ -85,6 +89,54 @@ const adminPersona = {
   username: "demo.midlands.admin",
 };
 
+function readManifest() {
+  try {
+    return JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function writeManifest(patch = {}) {
+  const current = readManifest();
+  const next = {
+    ...current,
+    ...patch,
+    companyName,
+    updatedAt: new Date().toISOString(),
+  };
+  fs.mkdirSync(sessionsRoot, { recursive: true });
+  fs.writeFileSync(manifestPath, JSON.stringify(next, null, 2), "utf8");
+  return next;
+}
+
+function persistCompletedStages(completedStages = []) {
+  writeManifest({
+    completedStages: mergeCompletedProvisioningStages(readManifest().completedStages, completedStages),
+  });
+}
+
+async function resolveResumeCompletedStages(auth, deps, companyFolderId, masterSheetId) {
+  const manifestStages = readManifest().completedStages || [];
+  const inferred = await inferCompletedProvisioningStages(auth, deps, {
+    companyFolderId,
+    masterSheetId,
+    companyName,
+  }, {
+    adminEmail: adminPersona.email,
+  });
+  const completedStages = mergeCompletedProvisioningStages(manifestStages, inferred.completedStages);
+  if (inferred.diagnostics?.length) {
+    console.log("Inferred provisioning progress from existing workspace:");
+    for (const entry of inferred.diagnostics) {
+      console.log(`  [${entry.stage}] ${entry.operation}: ${JSON.stringify(entry)}`);
+    }
+  }
+  console.log(`Resume will skip completed stages: ${completedStages.join(", ") || "(none)"}`);
+  persistCompletedStages(completedStages);
+  return completedStages;
+}
+
 function buildDeps() {
   return buildCompanyProvisionScriptDeps({
     sessionDir: sessionsRoot,
@@ -115,6 +167,12 @@ async function runProvisioning(auth, deps, input) {
     async (event) => {
       if (event.type === "stage") {
         console.log(`[provision] ${event.stage}: ${event.status}`);
+        if (event.status === "done") {
+          persistCompletedStages([event.stage]);
+        }
+      }
+      if (event.type === "complete" && Array.isArray(event.completedStages)) {
+        persistCompletedStages(event.completedStages);
       }
     },
   );
@@ -149,6 +207,9 @@ async function assertLiveCompaniesWorkspaceReady(auth, deps) {
 
 function printProvisionFailure(result) {
   console.error(`Provisioning failed at ${result.failedStage || "unknown"}: ${result.error || "unknown error"}`);
+  if (result.operation) {
+    console.error(`  operation: ${result.operation}`);
+  }
   if (result.reasonCode) {
     console.error(`  reason: ${result.reasonCode}`);
   }
@@ -244,13 +305,14 @@ async function main() {
     const verified = await verifyExistingWorkspace(auth, companyFolderId, masterSheetId);
     console.log(`Validated existing workspace: ${verified.folderName} / ${verified.workbookName}`);
     const deps = buildDeps();
+    const completedStages = await resolveResumeCompletedStages(auth, deps, companyFolderId, masterSheetId);
     const result = await runProvisioning(
       auth,
       deps,
       buildProvisionInput({
         companyFolderId,
         masterSheetId,
-        completedStages: ["creating_company_folder", "creating_workbook", "preparing_workbook_tabs"],
+        completedStages,
       }),
     );
     if (!result.ok) {
@@ -291,16 +353,15 @@ async function main() {
   masterSheetId = postGuard.masterSheetId;
 
   const master = await seedMasterOperator();
-  const manifest = {
+  const manifest = writeManifest({
     ...plan,
     liveApplied: true,
     companyFolderId,
     masterSheetId,
+    completedStages: mergeCompletedProvisioningStages(readManifest().completedStages, COMPANY_PROVISION_STAGES.map((stage) => stage.id)),
     masterOperatorSeeded: master.seeded,
     masterEmail: master.seeded ? master.email : masterEmail,
-  };
-  fs.mkdirSync(sessionsRoot, { recursive: true });
-  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+  });
 
   console.log("");
   console.log("Midlands demo company workspace ready.");

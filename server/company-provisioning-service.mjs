@@ -451,20 +451,30 @@ export async function provisionCompanyWorkspace(auth, deps, input = {}, onProgre
     if (!hasCompleted(state, "creating_iso_document_structure")) {
       const started = Date.now();
       await emit("creating_iso_document_structure", "running");
-      const provisioned = await provisionDocumentFolders(
-        auth,
-        deps,
-        {
-          companyFolderId: state.companyFolderId,
-          companyId: state.companyFolderId,
-          masterSheetId: state.masterSheetId,
-          companyName: state.companyName,
-        },
-        drive,
-      );
+      let provisioned;
+      try {
+        provisioned = await provisionDocumentFolders(
+          auth,
+          deps,
+          {
+            companyFolderId: state.companyFolderId,
+            companyId: state.companyFolderId,
+            masterSheetId: state.masterSheetId,
+            companyName: state.companyName,
+          },
+          drive,
+        );
+      } catch (error) {
+        throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
+          stage: "creating_iso_document_structure",
+          diagnostics: error?.diagnostics,
+          operation: error?.operation,
+        });
+      }
       if (!provisioned.ok) {
         throw Object.assign(new Error(provisioned.error || "Could not provision document folders."), {
           stage: "creating_iso_document_structure",
+          diagnostics: provisioned.diagnostics,
         });
       }
       markCompleted(state, "creating_iso_document_structure");
@@ -583,6 +593,7 @@ export async function provisionCompanyWorkspace(auth, deps, input = {}, onProgre
       failedStage: stage,
       reasonCode: error?.reasonCode || undefined,
       diagnostics: error?.diagnostics || undefined,
+      operation: error?.operation || undefined,
       setupHint: error?.setupHint || undefined,
       operationId: state.operationId,
       companyFolderId: state.companyFolderId || undefined,

@@ -24,6 +24,9 @@ import {
 } from "../server/company-provisioning-service.mjs";
 import { buildCompanyWorkbookName } from "../server/company-folder-structure.mjs";
 import { hashPassword } from "../server/user-auth-service.mjs";
+import { provisionDocumentFolders, verifyDriveFolder } from "../server/document-folder-service.mjs";
+import { mergeCompletedProvisioningStages } from "../shared/company-provision-resume.mjs";
+import { buildCompanyProvisionScriptDeps } from "./lib/demo-environment-script-utils.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
@@ -202,6 +205,7 @@ async function main() {
   const godmodeServiceSrc = read("src/services/godmodeService.ts");
   const createDemoCompanySrc = read("scripts/create-demo-company.mjs");
   const demoScriptUtils = read("scripts/lib/demo-environment-script-utils.mjs");
+  const documentFolderService = read("server/document-folder-service.mjs");
   const pkg = JSON.parse(read("package.json"));
 
   assert(Boolean(pkg.scripts?.["verify:company-provisioning"]), "package.json has verify:company-provisioning");
@@ -400,6 +404,109 @@ async function main() {
   assert(resumeValidated.value.companyFolderId === "folder-resume", "resume input keeps company folder id");
   assert(resumeValidated.value.completedStages.length === 2, "resume input keeps completed stages");
 
+  const scriptDeps = buildCompanyProvisionScriptDeps({ sessionDir: ".sessions" });
+  assert(scriptDeps.ensureTabColumns.length === 5, "script ensureTabColumns uses workbook 5-arg signature");
+  assert(scriptDeps.ensureColumns.length === 4, "script ensureColumns keeps 4-arg server signature");
+  assert(
+    mergeCompletedProvisioningStages(["creating_bert_folders", "creating_company_folder"], ["creating_workbook"]).join(",") ===
+      "creating_company_folder,creating_workbook,creating_bert_folders",
+    "completed stages merge preserves canonical order",
+  );
+
+  const missingParentDrive = {
+    files: {
+      get: async () => {
+        throw Object.assign(new Error("Requested entity was not found."), {
+          code: 404,
+          response: { status: 404, data: { error: { code: 404, message: "Requested entity was not found.", errors: [{ reason: "notFound" }] } } },
+        });
+      },
+      list: async () => ({ data: { files: [] } }),
+      create: async () => ({ data: { id: "should-not-run" } }),
+    },
+  };
+  const missingParent = await verifyDriveFolder(missingParentDrive, "missing-parent", {
+    stage: "creating_iso_document_structure",
+    operation: "verify_company_root",
+  });
+  assert(!missingParent.ok && missingParent.googleErrorCode === 404, "missing parent folder reports 404 diagnostic");
+
+  let createCount = 0;
+  const folderNamesById = new Map([
+    ["company-root", "Midlands Precast Concrete Ltd"],
+    ["controlled-root", "Controlled Documents"],
+  ]);
+  const isoDrive = {
+    files: {
+      get: async ({ fileId }) => {
+        if (fileId === "stale-child") {
+          throw Object.assign(new Error("Requested entity was not found."), {
+            code: 404,
+            response: { status: 404, data: { error: { code: 404, message: "Requested entity was not found.", errors: [{ reason: "notFound" }] } } },
+          });
+        }
+        return {
+          data: {
+            id: fileId,
+            name: folderNamesById.get(fileId) || `Folder ${fileId}`,
+            mimeType: "application/vnd.google-apps.folder",
+            trashed: false,
+          },
+        };
+      },
+      list: async ({ q }) => {
+        if (String(q).includes("Controlled Documents")) {
+          return { data: { files: [{ id: "controlled-root", name: "Controlled Documents" }] } };
+        }
+        return { data: { files: [] } };
+      },
+      create: async ({ requestBody }) => {
+        createCount += 1;
+        const id = `created-${createCount}`;
+        folderNamesById.set(id, requestBody.name);
+        return { data: { id, name: requestBody.name } };
+      },
+    },
+  };
+  let registryRows = [
+    {
+      FolderRecordID: "row-1",
+      GoogleFolderID: "stale-child",
+      FolderName: "Controlled Documents",
+      FolderPath: "Controlled Documents",
+      FolderType: "folder",
+      SortOrder: "0",
+      Active: "Yes",
+    },
+  ];
+  const isoDeps = {
+    google: { drive: () => isoDrive },
+    readTabRecords: async () => ({ records: registryRows }),
+    writeTabRecords: async (_auth, _deps, _sheetId, _tab, _columns, rows) => {
+      registryRows = rows;
+      return { ok: true };
+    },
+    ensureTabColumns: async () => ({ addedColumns: [] }),
+    withSheetsQuotaRetry: async (fn) => fn(),
+    safeLower: (v) => String(v || "").toLowerCase(),
+  };
+  const isoResult = await provisionDocumentFolders(
+    {},
+    isoDeps,
+    { companyFolderId: "company-root", masterSheetId: "sheet-1" },
+    isoDrive,
+  );
+  assert(isoResult.ok, "iso provision succeeds after stale registry id recovery");
+  assert((isoResult.summary?.staleRecovered || 0) >= 1, "stale registry folder ids are recovered");
+  const isoResultResume = await provisionDocumentFolders(
+    {},
+    isoDeps,
+    { companyFolderId: "company-root", masterSheetId: "sheet-1" },
+    isoDrive,
+  );
+  assert(isoResultResume.ok, "iso provision resume succeeds");
+  assert(isoResultResume.summary.created === 0, "iso provision resume does not create duplicate folders");
+
   const harness = createMockHarness();
   const flakyDeps = {
     ...harness.deps,
@@ -478,8 +585,10 @@ async function main() {
   assert(serviceSrc.includes("reasonCode: error?.reasonCode"), "provisioning failure returns reasonCode");
   assert(serviceSrc.includes("completedStages: [...(admin.completedStages || [])]"), "provisioning accepts resume completedStages");
   assert(createDemoCompanySrc.includes("buildCompanyProvisionScriptDeps"), "demo creator uses shared provision deps builder");
-  assert(createDemoCompanySrc.includes('completedStages: ["creating_company_folder"'), "demo creator resumes from existing workspace ids");
-  assert(demoScriptUtils.includes("getCompanyUsersDeps"), "provision script deps expose getCompanyUsersDeps");
+  assert(createDemoCompanySrc.includes("resolveResumeCompletedStages"), "demo creator infers completed stages from workspace");
+  assert(createDemoCompanySrc.includes("inferCompletedProvisioningStages"), "demo creator inspects workspace before resume");
+  assert(demoScriptUtils.includes("ensureTabColumns = (auth, workbookDeps"), "provision script deps use 5-arg ensureTabColumns");
+  assert(documentFolderService.includes("resolveEnsureTabColumns"), "document folder service resolves ensureTabColumns from deps");
   assert(adminSrc.includes("onBackToCompanies"), "back to companies wired");
   assert(adminSrc.includes("onCompanyFolderConnected"), "success opens company via callback");
 

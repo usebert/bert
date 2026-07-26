@@ -131,7 +131,8 @@ export function buildCompanyProvisionScriptDeps(options = {}) {
   deps.ensureColumns = (auth, spreadsheetId, tab, columns) =>
     ensureTabColumns(auth, deps, spreadsheetId, tab, columns);
 
-  deps.ensureTabColumns = deps.ensureColumns;
+  deps.ensureTabColumns = (auth, workbookDeps, spreadsheetId, tab, columns) =>
+    ensureTabColumns(auth, workbookDeps?.google ? workbookDeps : deps, spreadsheetId, tab, columns);
 
   deps.getTabValues = (auth, maybeDepsOrSheetId, maybeSheetIdOrTab, maybeTab) => {
     if (maybeDepsOrSheetId && typeof maybeDepsOrSheetId === "object" && maybeDepsOrSheetId.google) {
