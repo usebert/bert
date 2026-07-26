@@ -132,6 +132,11 @@ export function validateCompanyProvisionInput(input = {}) {
       logoDataUrl: trim(input.logoDataUrl || ""),
       logoFileName: trim(input.logoFileName || "company-logo"),
       operationId: trim(input.operationId),
+      companyFolderId: trim(input.companyFolderId),
+      masterSheetId: trim(input.masterSheetId || input.spreadsheetId || input.workbookId),
+      completedStages: Array.isArray(input.completedStages)
+        ? input.completedStages.map((stage) => trim(stage)).filter(Boolean)
+        : [],
     },
   };
 }
@@ -294,9 +299,9 @@ export async function provisionCompanyWorkspace(auth, deps, input = {}, onProgre
       adminEmail: admin.adminEmail,
       adminUsername: admin.adminUsername,
       adminName: admin.adminName,
-      completedStages: [],
-      companyFolderId: "",
-      masterSheetId: "",
+      completedStages: [...(admin.completedStages || [])],
+      companyFolderId: admin.companyFolderId || "",
+      masterSheetId: admin.masterSheetId || "",
       adminSeeded: false,
       personSeeded: false,
       createdAt: nowIso(),
@@ -370,8 +375,9 @@ export async function provisionCompanyWorkspace(auth, deps, input = {}, onProgre
       const sheet = await ensureCompanyMasterSheet(drive, {
         companyName: state.companyName,
         workbookFolderId: state.companyFolderId,
+        masterSheetId: state.masterSheetId,
       });
-      state.masterSheetId = sheet.masterSheetId;
+      state.masterSheetId = sheet.masterSheetId || state.masterSheetId;
       markCompleted(state, "creating_workbook");
       logStageTiming(state.operationId, "creating_workbook", started, { masterSheetId: state.masterSheetId });
       await emit("creating_workbook", "done");

@@ -31,12 +31,7 @@ import {
 import { describeLiveCompaniesResolutionFailure } from "../shared/company-folder-placement.mjs";
 import { provisionCompanyWorkspace } from "../server/company-provisioning-service.mjs";
 import { resolveLiveCompaniesFolder } from "../server/company-folder-placement.mjs";
-import {
-  ensureTabColumns,
-  ensureTabExists,
-  getTabValues,
-} from "../server/workbook-service.mjs";
-import { loadGoogleAuth } from "./lib/demo-environment-script-utils.mjs";
+import { loadGoogleAuth, buildCompanyProvisionScriptDeps } from "./lib/demo-environment-script-utils.mjs";
 
 dotenv.config();
 
@@ -90,35 +85,39 @@ const adminPersona = {
   username: "demo.midlands.admin",
 };
 
-function buildDeps(auth) {
-  const sharedDriveId = String(process.env.GOOGLE_SHARED_DRIVE_ID || "").trim();
-  const platformRegistrySheetId = String(process.env.BERT_PLATFORM_REGISTRY_SHEET_ID || "").trim();
-  return {
-    google,
-    resolveLiveCompaniesFolder,
-    sharedDriveId,
-    platformRegistrySheetId,
+function buildDeps() {
+  return buildCompanyProvisionScriptDeps({
     sessionDir: sessionsRoot,
-    withSheetsQuotaRetry: async (fn) => fn(),
-    safeLower: (value = "") => String(value || "").trim().toLowerCase(),
-    ensureTabExists: (a, spreadsheetId, tab, existingWorkbook = null) =>
-      ensureTabExists(a, { google, withSheetsQuotaRetry: async (fn) => fn() }, spreadsheetId, tab, existingWorkbook),
-    ensureColumns: (a, spreadsheetId, tab, columns) =>
-      ensureTabColumns(a, { google, withSheetsQuotaRetry: async (fn) => fn() }, spreadsheetId, tab, columns),
-    getTabValues: (a, spreadsheetId, tab) =>
-      getTabValues(a, { google, withSheetsQuotaRetry: async (fn) => fn() }, spreadsheetId, tab),
-    getCompanyUsersDeps: () => ({}),
-    getCompanyWorkspaceRegistryDeps: () => ({
-      sharedDriveId,
-      platformRegistrySheetId,
-      sessionDir: sessionsRoot,
-    }),
-    authIndex: null,
-    getConfig: async () => ({}),
-    updateConfig: async () => ({}),
-    ensureTabsAndColumns: async () => ({}),
-    currentSchemaVersion: "3.0.0",
+    sharedDriveId: String(process.env.GOOGLE_SHARED_DRIVE_ID || "").trim(),
+    platformRegistrySheetId: String(process.env.BERT_PLATFORM_REGISTRY_SHEET_ID || "").trim(),
+    resolveLiveCompaniesFolder,
+  });
+}
+
+function buildProvisionInput(overrides = {}) {
+  return {
+    companyName,
+    companyType: "Manufacturing",
+    firstAdminName: adminPersona.name,
+    firstAdminEmail: adminPersona.email,
+    firstAdminUsername: adminPersona.username,
+    adminPassword: defaultPassword,
+    confirmPassword: defaultPassword,
+    ...overrides,
   };
+}
+
+async function runProvisioning(auth, deps, input) {
+  return provisionCompanyWorkspace(
+    auth,
+    deps,
+    input,
+    async (event) => {
+      if (event.type === "stage") {
+        console.log(`[provision] ${event.stage}: ${event.status}`);
+      }
+    },
+  );
 }
 
 async function assertLiveCompaniesWorkspaceReady(auth, deps) {
@@ -244,27 +243,29 @@ async function main() {
     masterSheetId = workspaceIdMode.masterSheetId;
     const verified = await verifyExistingWorkspace(auth, companyFolderId, masterSheetId);
     console.log(`Validated existing workspace: ${verified.folderName} / ${verified.workbookName}`);
-  } else {
-    const deps = buildDeps(auth);
-    await assertLiveCompaniesWorkspaceReady(auth, deps);
-    const result = await provisionCompanyWorkspace(
+    const deps = buildDeps();
+    const result = await runProvisioning(
       auth,
       deps,
-      {
-        companyName,
-        companyType: "Manufacturing",
-        firstAdminName: adminPersona.name,
-        firstAdminEmail: adminPersona.email,
-        firstAdminUsername: adminPersona.username,
-        adminPassword: defaultPassword,
-        confirmPassword: defaultPassword,
-      },
-      async (event) => {
-        if (event.type === "stage") {
-          console.log(`[provision] ${event.stage}: ${event.status}`);
-        }
-      },
+      buildProvisionInput({
+        companyFolderId,
+        masterSheetId,
+        completedStages: ["creating_company_folder", "creating_workbook", "preparing_workbook_tabs"],
+      }),
     );
+    if (!result.ok) {
+      printProvisionFailure(result);
+      throw new Error(result.error || `Provisioning failed at ${result.failedStage || "unknown"}`);
+    }
+    companyFolderId = result.companyFolderId || companyFolderId;
+    masterSheetId = result.masterSheetId || masterSheetId;
+    console.log("Resumed provisioning from existing workspace:");
+    console.log(`  ${DEMO_COMPANY_FOLDER_ENV}=${companyFolderId}`);
+    console.log(`  ${DEMO_COMPANY_SPREADSHEET_ENV}=${masterSheetId}`);
+  } else {
+    const deps = buildDeps();
+    await assertLiveCompaniesWorkspaceReady(auth, deps);
+    const result = await runProvisioning(auth, deps, buildProvisionInput());
     if (!result.ok) {
       printProvisionFailure(result);
       throw new Error(result.error || `Provisioning failed at ${result.failedStage || "unknown"}`);

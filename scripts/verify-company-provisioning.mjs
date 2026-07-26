@@ -129,11 +129,24 @@ function createMockHarness() {
     resolveLiveCompaniesFolder: async () => ({
       liveCompaniesFolder: { id: "live-companies", name: "Live Companies" },
     }),
-    getCompanyUsersDeps: () => ({
-      google,
-      withSheetsQuotaRetry: async (fn) => fn(),
-      safeLower: (v) => String(v || "").toLowerCase(),
-    }),
+    getCompanyUsersDeps() {
+      return {
+        google,
+        withSheetsQuotaRetry: async (fn) => fn(),
+        safeLower: (v) => String(v || "").toLowerCase(),
+        ensureColumns: deps.ensureColumns,
+        getTabValues: deps.getTabValues,
+        getConfig: async () => ({}),
+        getWorkbook: async (_auth, spreadsheetId) => google.sheets().spreadsheets.get({ spreadsheetId }),
+        readTabRecords: deps.readTabRecords,
+        rowsToRecords: (values) => {
+          const headers = (values[0] || []).map((cell) => String(cell || "").trim());
+          return (values.slice(1) || []).map((row) =>
+            Object.fromEntries(headers.map((header, index) => [header, String(row[index] ?? "").trim()])),
+          );
+        },
+      };
+    },
     getCompanyWorkspaceRegistryDeps: () => ({}),
     authIndex: { upsert: async () => ({ ok: true }) },
     ensureTabExists: async () => ({ ok: true }),
@@ -187,6 +200,8 @@ async function main() {
   const adminSrc = read("src/screens/AdminScreen.tsx");
   const connectSrc = read("src/components/godmode/GodmodeConnectCompanyFolderPanel.tsx");
   const godmodeServiceSrc = read("src/services/godmodeService.ts");
+  const createDemoCompanySrc = read("scripts/create-demo-company.mjs");
+  const demoScriptUtils = read("scripts/lib/demo-environment-script-utils.mjs");
   const pkg = JSON.parse(read("package.json"));
 
   assert(Boolean(pkg.scripts?.["verify:company-provisioning"]), "package.json has verify:company-provisioning");
@@ -310,6 +325,81 @@ async function main() {
   assert(missingLive.reasonCode === "shared_drive_id_is_company_folder", "misconfigured workspace root reason returned");
   assert(missingLive.diagnostics?.topLevelFolderNames?.includes("01 - BERT System Files"), "diagnostics list workspace children");
 
+  const brokenUsersDepsHarness = createMockHarness();
+  const brokenUsersDeps = {
+    ...brokenUsersDepsHarness.deps,
+    getCompanyUsersDeps: () => ({}),
+  };
+  const brokenUsers = await provisionCompanyWorkspace(
+    brokenUsersDepsHarness.auth,
+    brokenUsersDeps,
+    {
+      companyName: "Broken Users Deps Co",
+      firstAdminName: "Ada Admin",
+      firstAdminEmail: "ada@broken.test",
+      firstAdminUsername: "ada",
+      adminPassword: "password123",
+      confirmPassword: "password123",
+      companyFolderId: "folder-resume",
+      masterSheetId: "sheet-resume",
+      completedStages: ["creating_company_folder", "creating_workbook", "preparing_workbook_tabs"],
+    },
+    async () => {},
+  );
+  assert(!brokenUsers.ok, "provisioning fails when getCompanyUsersDeps omits ensureColumns");
+  assert(/ensureColumns is not a function/i.test(brokenUsers.error || ""), "admin failure names missing ensureColumns");
+
+  const resumeHarness = createMockHarness();
+  resumeHarness.foldersByParent.set("live-companies", [{ id: "folder-resume", name: "Resume Co" }]);
+  const resumeInput = {
+    companyName: "Resume Co",
+    firstAdminName: "Ada Admin",
+    firstAdminEmail: "ada@resume.test",
+    firstAdminUsername: "ada",
+    adminPassword: "password123",
+    confirmPassword: "password123",
+    companyFolderId: "folder-resume",
+    masterSheetId: "sheet-resume",
+    completedStages: ["creating_company_folder", "creating_workbook", "preparing_workbook_tabs"],
+  };
+  const resumeStages = [];
+  const resumed = await provisionCompanyWorkspace(resumeHarness.auth, resumeHarness.deps, resumeInput, async (event) => {
+    if (event.type === "stage") {
+      resumeStages.push(`${event.stage}:${event.status}`);
+    }
+  });
+  assert(
+    !resumeStages.some((entry) => entry.startsWith("creating_company_folder:running")),
+    "resume skips company folder stage",
+  );
+  assert(
+    !resumeStages.some((entry) => entry.startsWith("creating_workbook:running")),
+    "resume skips workbook stage",
+  );
+  assert(
+    !resumeStages.some((entry) => entry.startsWith("preparing_workbook_tabs:running")),
+    "resume skips workbook tab preparation stage",
+  );
+  assert(
+    resumeStages.some((entry) => entry.startsWith("creating_first_administrator:running")),
+    "resume reaches first administrator stage",
+  );
+
+  const resumeValidated = validateCompanyProvisionInput({
+    companyName: "Resume Co",
+    firstAdminName: "Ada Admin",
+    firstAdminEmail: "ada@resume.test",
+    firstAdminUsername: "ada",
+    adminPassword: "password123",
+    confirmPassword: "password123",
+    companyFolderId: "folder-resume",
+    masterSheetId: "sheet-resume",
+    completedStages: ["creating_company_folder", "creating_workbook"],
+  });
+  assert(resumeValidated.ok, "resume input validates");
+  assert(resumeValidated.value.companyFolderId === "folder-resume", "resume input keeps company folder id");
+  assert(resumeValidated.value.completedStages.length === 2, "resume input keeps completed stages");
+
   const harness = createMockHarness();
   const flakyDeps = {
     ...harness.deps,
@@ -386,6 +476,10 @@ async function main() {
   assert(serviceSrc.includes('Role: "Admin"'), "admin seeded as Admin");
   assert(serviceSrc.includes("describeLiveCompaniesResolutionFailure"), "provisioning includes Live Companies diagnostics");
   assert(serviceSrc.includes("reasonCode: error?.reasonCode"), "provisioning failure returns reasonCode");
+  assert(serviceSrc.includes("completedStages: [...(admin.completedStages || [])]"), "provisioning accepts resume completedStages");
+  assert(createDemoCompanySrc.includes("buildCompanyProvisionScriptDeps"), "demo creator uses shared provision deps builder");
+  assert(createDemoCompanySrc.includes('completedStages: ["creating_company_folder"'), "demo creator resumes from existing workspace ids");
+  assert(demoScriptUtils.includes("getCompanyUsersDeps"), "provision script deps expose getCompanyUsersDeps");
   assert(adminSrc.includes("onBackToCompanies"), "back to companies wired");
   assert(adminSrc.includes("onCompanyFolderConnected"), "success opens company via callback");
 

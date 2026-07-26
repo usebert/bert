@@ -5,9 +5,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { google } from "googleapis";
 import {
+  appendTabRows,
   ensureRequiredTabs,
   ensureTabColumns,
+  ensureTabExists,
   getTabValues,
+  readTabRecords,
   rowsToRecords,
   writeTabRecords,
 } from "../../server/workbook-service.mjs";
@@ -83,6 +86,133 @@ export function buildWorkbookDeps() {
     }
     return getTabValues(auth, deps, maybeDepsOrSheetId, maybeSheetIdOrTab);
   };
+
+  return deps;
+}
+
+const CONFIG_TAB_COLUMNS = ["Key", "Value"];
+
+/**
+ * Workbook + company-user deps for provisionCompanyWorkspace from CLI scripts.
+ * Mirrors the server installCompanyProvisioningRoutes dependency contract.
+ */
+export function buildCompanyProvisionScriptDeps(options = {}) {
+  const sessionsRoot = String(options.sessionDir || "").trim();
+  const sharedDriveId = String(options.sharedDriveId || process.env.GOOGLE_SHARED_DRIVE_ID || "").trim();
+  const platformRegistrySheetId = String(
+    options.platformRegistrySheetId || process.env.BERT_PLATFORM_REGISTRY_SHEET_ID || "",
+  ).trim();
+
+  const deps = {
+    google,
+    withSheetsQuotaRetry: async (fn) => fn(),
+    safeLower: (value = "") => String(value || "").trim().toLowerCase(),
+    rowsToRecords,
+    sessionDir: sessionsRoot,
+    sharedDriveId,
+    platformRegistrySheetId,
+    currentSchemaVersion: String(options.currentSchemaVersion || "3.0.0"),
+    authIndex: options.authIndex ?? null,
+  };
+
+  deps.getWorkbook = async (auth, spreadsheetId) => {
+    const sheets = google.sheets({ version: "v4", auth });
+    return deps.withSheetsQuotaRetry(() =>
+      sheets.spreadsheets.get({
+        spreadsheetId,
+        fields: "properties(title),sheets(properties(sheetId,title))",
+      }),
+    );
+  };
+
+  deps.ensureTabExists = (auth, spreadsheetId, tab, existingWorkbook = null) =>
+    ensureTabExists(auth, deps, spreadsheetId, tab, existingWorkbook);
+
+  deps.ensureColumns = (auth, spreadsheetId, tab, columns) =>
+    ensureTabColumns(auth, deps, spreadsheetId, tab, columns);
+
+  deps.ensureTabColumns = deps.ensureColumns;
+
+  deps.getTabValues = (auth, maybeDepsOrSheetId, maybeSheetIdOrTab, maybeTab) => {
+    if (maybeDepsOrSheetId && typeof maybeDepsOrSheetId === "object" && maybeDepsOrSheetId.google) {
+      return getTabValues(auth, maybeDepsOrSheetId, maybeSheetIdOrTab, maybeTab);
+    }
+    return getTabValues(auth, deps, maybeDepsOrSheetId, maybeSheetIdOrTab);
+  };
+
+  deps.readTabRecords = (auth, maybeDeps, spreadsheetId, tabName, readOptions = {}) =>
+    readTabRecords(auth, maybeDeps?.google ? maybeDeps : deps, spreadsheetId, tabName, readOptions);
+
+  deps.appendTabRows = (auth, maybeDeps, spreadsheetId, tabName, expectedHeaders, rowObjects = []) =>
+    appendTabRows(auth, maybeDeps?.google ? maybeDeps : deps, spreadsheetId, tabName, expectedHeaders, rowObjects);
+
+  deps.writeTabRecords = (auth, maybeDeps, spreadsheetId, tabName, columns, dataRows) =>
+    writeTabRecords(auth, maybeDeps?.google ? maybeDeps : deps, spreadsheetId, tabName, columns, dataRows);
+
+  deps.getConfig = async (auth, spreadsheetId) => {
+    const rows = rowsToRecords(await deps.getTabValues(auth, spreadsheetId, "Config"));
+    return rows.reduce((accumulator, row) => {
+      const key = String(row.Key || row.key || "").trim();
+      if (key) {
+        accumulator[key] = String(row.Value || row.value || "").trim();
+      }
+      return accumulator;
+    }, {});
+  };
+
+  deps.updateConfig = async (auth, spreadsheetId, patch) => {
+    await ensureTabColumns(auth, deps, spreadsheetId, "Config", CONFIG_TAB_COLUMNS);
+    const existing = rowsToRecords(await deps.getTabValues(auth, spreadsheetId, "Config"));
+    const merged = existing.reduce((accumulator, row) => {
+      const key = String(row.Key || row.key || "").trim();
+      if (key) {
+        accumulator[key] = String(row.Value || row.value || "").trim();
+      }
+      return accumulator;
+    }, {});
+    Object.assign(merged, patch);
+    await writeTabRecords(
+      auth,
+      deps,
+      spreadsheetId,
+      "Config",
+      CONFIG_TAB_COLUMNS,
+      Object.entries(merged).map(([Key, Value]) => ({ Key, Value: String(Value ?? "") })),
+    );
+    return merged;
+  };
+
+  deps.getCompanyUsersDeps = () => ({
+    google: deps.google,
+    withSheetsQuotaRetry: deps.withSheetsQuotaRetry,
+    safeLower: deps.safeLower,
+    ensureColumns: deps.ensureColumns,
+    getTabValues: deps.getTabValues,
+    getConfig: deps.getConfig,
+    updateConfig: deps.updateConfig,
+    getWorkbook: deps.getWorkbook,
+    readTabRecords: deps.readTabRecords,
+    rowsToRecords: deps.rowsToRecords,
+  });
+
+  deps.getCompanyWorkspaceRegistryDeps = () => ({
+    sharedDriveId,
+    platformRegistrySheetId,
+    sessionDir: sessionsRoot,
+    google: deps.google,
+    withSheetsQuotaRetry: deps.withSheetsQuotaRetry,
+    safeLower: deps.safeLower,
+    ensureColumns: deps.ensureColumns,
+    getTabValues: deps.getTabValues,
+    getWorkbook: deps.getWorkbook,
+    ensureTabExists: deps.ensureTabExists,
+  });
+
+  deps.ensureTabsAndColumns = async () => ({});
+
+  if (typeof options.resolveLiveCompaniesFolder === "function") {
+    deps.resolveLiveCompaniesFolder = options.resolveLiveCompaniesFolder;
+  }
 
   return deps;
 }

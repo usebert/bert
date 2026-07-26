@@ -130,6 +130,8 @@ assert(createScript.includes("requireWorkspaceIds: false"), "create script allow
 assert(createScript.includes("resolveDemoWorkspaceIdMode"), "create script validates workspace ID combinations");
 assert(createScript.includes("assertLiveCompaniesWorkspaceReady"), "create script preflights Live Companies resolution");
 assert(createScript.includes("describeLiveCompaniesResolutionFailure"), "create script surfaces Live Companies diagnostics");
+assert(createScript.includes("buildCompanyProvisionScriptDeps"), "create script uses shared provision deps builder");
+assert(createScript.includes('completedStages: ["creating_company_folder"'), "create script resumes partial provisioning");
 assert(
   createScript.includes("requireWorkspaceIds: true") && createScript.includes("postGuard"),
   "create script strictly validates provisioned workspace IDs after live bootstrap",
