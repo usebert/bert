@@ -29,6 +29,7 @@ import {
   sanitizeAuditEvidenceRefsForWorkbook,
   uploadAuditEvidenceToDrive,
 } from "./audit-evidence-upload.mjs";
+import { createCompletionRequestScope } from "./completion-request-scope.mjs";
 
 export const CHECK_COMPLETION_GOOGLE_TIMEOUT_MS = Math.min(
   DEFAULT_GOOGLE_OPERATION_TIMEOUT_MS,
@@ -364,11 +365,16 @@ export async function verifyScheduleCompletionEligibility(auth, deps, input = {}
     };
   }
 
+  const resolveCompanyContext =
+    typeof deps?.resolveCompanyScheduleContext === "function"
+      ? deps.resolveCompanyScheduleContext
+      : resolveCompanyScheduleContext;
+
   let context;
   const resolveStart = Date.now();
   try {
     context = await withCheckCompletionTimeout(
-      resolveCompanyScheduleContext(auth, deps, {
+      resolveCompanyContext(auth, deps, {
         companyId: companyFolderId,
         companyFolderId,
         companyName: input.companyName,
@@ -450,6 +456,30 @@ export async function verifyScheduleCompletionEligibility(auth, deps, input = {}
 
 /** Append completed check row to AuditResults tab via workbookService. */
 export async function submitCompletedCheck(auth, deps, input = {}) {
+  const disableRequestScope = input.disableCompletionRequestScope === true;
+  const requestScope = disableRequestScope
+    ? null
+    : createCompletionRequestScope(deps, {
+        trustSessionContext: input.trustSessionContext === true,
+        masterSheetId: input.masterSheetId,
+        companyFolderId: input.companyFolderId || input.companyId,
+        resolvedContext: input.resolvedContext,
+        logGoogleOp: (entry) => {
+          try {
+            console.info("[complete-check]", {
+              phase: "google_op",
+              companyId: trim(input.companyFolderId || input.companyId),
+              scheduleId: trim(input.scheduleId),
+              userEmail: normalizeEmail(input.email || input.userEmail || input.completedByEmail),
+              ...entry,
+            });
+          } catch {
+            /* timing log must never affect submission */
+          }
+        },
+      });
+  const scopedDeps = requestScope?.deps || deps;
+
   const email = normalizeEmail(input.email || input.userEmail || input.completedByEmail);
   const scheduleId = trim(input.scheduleId);
   const companyFolderId = trim(input.companyFolderId || input.companyId);
@@ -478,6 +508,13 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
     }
     summaryLogged = true;
     try {
+      if (requestScope) {
+        requestScope.logSkippedOps(traceMeta);
+        logCheckCompletePhase("google_ops_summary", {
+          ...traceMeta,
+          ...requestScope.getSummary(),
+        });
+      }
       logCheckCompletePhase("stage_timings_summary", {
         ...traceMeta,
         scheduleId,
@@ -487,6 +524,7 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
         stages: stageMs,
         ok: outcome.ok === true,
         code: outcome.code,
+        googleOps: requestScope?.getSummary()?.googleOpCount ?? undefined,
       });
     } catch {
       /* timing log must never affect submission */
@@ -498,7 +536,7 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
   try {
     const validateStart = Date.now();
     logCheckCompletePhase("validate_answers_start", traceMeta);
-    const eligibility = await verifyScheduleCompletionEligibility(auth, deps, {
+    const eligibility = await verifyScheduleCompletionEligibility(auth, scopedDeps, {
       scheduleId,
       email,
       companyFolderId,
@@ -590,7 +628,7 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
       };
     }
 
-    const appendTabRows = resolveAppendTabRows(deps);
+    const appendTabRows = resolveAppendTabRows(scopedDeps);
     let written = 0;
     const writeStart = Date.now();
     try {
@@ -598,7 +636,7 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
       written = await appendAuditResultRowWithRetry(
         appendTabRows,
         auth,
-        deps,
+        scopedDeps,
         eligibility.masterSheetId,
         row,
       );
@@ -636,11 +674,12 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
     let ncrResult;
     try {
       ncrResult = await withCheckCompletionTimeout(
-        appendNcrsFromCheckCompletion(auth, deps, {
+        appendNcrsFromCheckCompletion(auth, scopedDeps, {
           companyId: eligibility.companyFolderId,
           companyFolderId: eligibility.companyFolderId,
           masterSheetId: eligibility.masterSheetId,
           resolvedContext: eligibility.resolvedContext,
+          trustSessionContext: input.trustSessionContext === true,
           resultId: row["Result ID"],
           auditId,
           auditName,
@@ -697,9 +736,10 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
       });
       try {
         const uploaded = await withCheckCompletionTimeout(
-          uploadAuditEvidenceToDrive(auth, deps, {
+          uploadAuditEvidenceToDrive(auth, scopedDeps, {
             companyFolderId: eligibility.companyFolderId,
             masterSheetId: eligibility.masterSheetId,
+            trustSessionContext: input.trustSessionContext === true,
             resultId,
             files: normalizedFiles,
           }),
@@ -727,10 +767,10 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
 
           // Best-effort: patch AuditResult Evidence Refs with Drive links (source of truth).
           try {
-            const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
+            const patchTabRowByHeader = resolvePatchTabRowByHeader(scopedDeps);
             await patchTabRowByHeader(
               auth,
-              deps,
+              scopedDeps,
               eligibility.masterSheetId,
               AUDIT_RESULTS_TAB,
               "Result ID",
@@ -751,7 +791,7 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
               ncrCount: createdNcrs.length,
             });
             try {
-              const linked = await linkEvidenceRefsToNcrs(auth, deps, {
+              const linked = await linkEvidenceRefsToNcrs(auth, scopedDeps, {
                 masterSheetId: eligibility.masterSheetId,
                 resultId,
                 evidenceRefs,
@@ -810,7 +850,7 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
     });
     outcome = { ok: true, resultId: row["Result ID"] };
     logCheckCompletePhase("response_sent", { ...traceMeta, ok: true, resultId: row["Result ID"] });
-    return {
+    const response = {
       ok: true,
       resultId: row["Result ID"],
       companyId: eligibility.companyFolderId,
@@ -824,6 +864,11 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
       ncrEvidenceLinkWarning,
       evidenceUploadWarning,
     };
+    if (input.captureCompletionDiagnostics === true && requestScope) {
+      requestScope.logSkippedOps(traceMeta);
+      response.completionDiagnostics = requestScope.getSummary();
+    }
+    return response;
   } finally {
     emitStageTimingsSummary();
   }

@@ -102,13 +102,21 @@ function parseDataUrl(dataUrl) {
   return { mimeType, body };
 }
 
-async function uploadDataUrlToDrive(auth, google, folderId, fileName, mimeType, dataUrl) {
+function recordCompletionGoogleOp(deps, kind, operation, startedAt, meta = {}) {
+  const record = deps?.completionRequestScope?.recordGoogleOp;
+  if (typeof record === "function") {
+    record(kind, operation, startedAt, meta);
+  }
+}
+
+async function uploadDataUrlToDrive(auth, google, folderId, fileName, mimeType, dataUrl, deps = null) {
   const parsed = parseDataUrl(dataUrl);
   if (!parsed) {
     return { id: "", link: "", error: "Invalid or missing data URL payload." };
   }
 
   const drive = google.drive({ version: "v3", auth });
+  const uploadStartedAt = Date.now();
   const response = await drive.files.create({
     supportsAllDrives: true,
     requestBody: {
@@ -121,6 +129,10 @@ async function uploadDataUrlToDrive(auth, google, folderId, fileName, mimeType, 
       body: Readable.from(parsed.body),
     },
     fields: "id,webViewLink",
+  });
+  recordCompletionGoogleOp(deps, "drive_create", "upload_audit_evidence_file", uploadStartedAt, {
+    fileName,
+    folderId,
   });
 
   return {
@@ -139,13 +151,36 @@ function buildFolderStructureDeps(deps = {}) {
     getTabValues: deps.getTabValues,
     withSheetsQuotaRetry: deps.withSheetsQuotaRetry,
     safeLower: deps.safeLower || safeLower,
+    ensureCompanyFolderStructure: deps.ensureCompanyFolderStructure,
   };
+}
+
+/** Resolve Photos folder id without Drive tree scan when session context is trusted. */
+export async function resolveEvidencePhotosFolderId(auth, deps, input = {}) {
+  const direct = trim(input.evidencePhotosFolderId);
+  if (direct) {
+    return direct;
+  }
+
+  const masterSheetId = trim(input.masterSheetId);
+  const trustSessionContext = input.trustSessionContext === true;
+  if (!trustSessionContext || !masterSheetId || typeof deps?.getConfig !== "function") {
+    return "";
+  }
+
+  try {
+    const config = await deps.getConfig(auth, masterSheetId);
+    return trim(config?.evidenceFolderId);
+  } catch {
+    return "";
+  }
 }
 
 export async function uploadAuditEvidenceToDrive(auth, deps, input = {}) {
   const companyFolderId = trim(input.companyFolderId || input.companyId);
   const masterSheetId = trim(input.masterSheetId);
   const resultId = trim(input.resultId);
+  const trustSessionContext = input.trustSessionContext === true;
   const files = (Array.isArray(input.files) ? input.files : []).map((file, index) =>
     normalizeAuditEvidenceUploadFile(file, index),
   );
@@ -187,13 +222,27 @@ export async function uploadAuditEvidenceToDrive(auth, deps, input = {}) {
 
   let folderId = "";
   try {
-    const structure = await ensureCompanyFolderStructure(buildFolderStructureDeps(deps), auth, {
-      companyRootFolderId: companyFolderId,
+    const evidencePhotosFolderId = await resolveEvidencePhotosFolderId(auth, deps, {
       masterSheetId,
-      syncWorkbookTab: false,
-      placeFiles: false,
+      trustSessionContext,
+      evidencePhotosFolderId: input.evidencePhotosFolderId,
     });
-    const photosFolderId = structure.folderIds.EVIDENCE_PHOTOS;
+    const structureDeps = buildFolderStructureDeps(deps);
+    const ensureStructure =
+      typeof structureDeps.ensureCompanyFolderStructure === "function"
+        ? structureDeps.ensureCompanyFolderStructure
+        : ensureCompanyFolderStructure;
+
+    let photosFolderId = evidencePhotosFolderId;
+    if (!photosFolderId) {
+      const structure = await ensureStructure(structureDeps, auth, {
+        companyRootFolderId: companyFolderId,
+        masterSheetId,
+        syncWorkbookTab: false,
+        placeFiles: false,
+      });
+      photosFolderId = structure.folderIds.EVIDENCE_PHOTOS;
+    }
     if (!photosFolderId) {
       return {
         ok: false,
@@ -205,7 +254,12 @@ export async function uploadAuditEvidenceToDrive(auth, deps, input = {}) {
       };
     }
     const drive = deps.google.drive({ version: "v3", auth });
+    const folderLookupStartedAt = Date.now();
     const ensured = await ensureAuditEvidenceFolderId(drive, photosFolderId, resultId);
+    recordCompletionGoogleOp(deps, "drive_lookup", "ensure_audit_evidence_folder", folderLookupStartedAt, {
+      photosFolderId,
+      resultId,
+    });
     folderId = ensured.folderId;
     console.info("[audit-evidence]", {
       phase: "audit_evidence_folder_ready",
@@ -258,7 +312,7 @@ export async function uploadAuditEvidenceToDrive(auth, deps, input = {}) {
     });
     try {
       const upload = await withOperationTimeout(
-        uploadDataUrlToDrive(auth, deps.google, folderId, fileName, file.mimeType, dataUrl),
+        uploadDataUrlToDrive(auth, deps.google, folderId, fileName, file.mimeType, dataUrl, deps),
         "upload_audit_evidence_file",
         AUDIT_EVIDENCE_UPLOAD_TIMEOUT_MS,
       );

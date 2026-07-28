@@ -69,6 +69,7 @@
     "verify:offline-tablet": "node scripts/verify-offline-tablet.mjs",
     "verify:offline-submission-queue": "node scripts/verify-offline-submission-queue.mjs",
     "verify:check-completion": "node scripts/verify-check-completion.mjs",
+    "verify:check-completion-ops": "node scripts/verify-check-completion-ops.mjs",
     "verify:form-prompts-escalation": "node scripts/verify-form-prompts-escalation.mjs",
     "verify:navigation": "node scripts/verify-navigation.mjs",
     "verify:briefings-to-do": "node scripts/verify-briefings-to-do.mjs",
