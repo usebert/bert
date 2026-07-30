@@ -1,36 +1,25 @@
 #!/usr/bin/env node
 /**
- * Regenerate PasswordHash for a single ACTIVE demo user in the Dovecote workbook.
+ * Regenerate PasswordHash for a single ACTIVE demo user in the company workbook.
  * Does not touch other Users-tab rows. Optionally refreshes that user's auth-index entry.
  *
  * Usage:
  *   set -a && source .env && set +a
  *   DEMO_COMPANY_SEED_CONFIRM=yes \
- *   BERT_DEMO_COMPANY_FOLDER_ID=1tDKluapYfY-RkuxXc6eoRnGHL38XCswx \
- *   BERT_DEMO_COMPANY_WORKBOOK_ID=1MntKgSgVmTmlpzZhnCZdDQtdmPw7GcXptlAp88Ewrkc \
- *   npm run reset:demo-user-password -- --username mr.important
+ *   BERT_DEMO_COMPANY_FOLDER_ID=1i1c_Li1P4ZO2hsV0fOhYq2f071JW0UPb \
+ *   BERT_DEMO_COMPANY_SPREADSHEET_ID=1_9kuJt1TiXIMA6wp_UYv77sfASJYK1jSIA2d0N_Smhg \
+ *   npm run reset:demo-user-password -- --email demo.midlands.admin@usebert.co.uk
  *
  * Or:
- *   npm run reset:demo-user-password -- --email bert.demo+mr.important@usebert.co.uk
+ *   npm run reset:demo-user-password -- --username demo.midlands.admin
  *
  * Optional:
- *   --password "BertDemo123!"   (default: DEMO_COMPANY_SHARED_PASSWORD)
+ *   --password "BertDemo123!"   (default: BERT_DEMO_DEFAULT_PASSWORD or BertDemo123!)
  *   --skip-auth-index           (only rewrite Users tab PasswordHash)
  */
 import dotenv from "dotenv";
-import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { google } from "googleapis";
-import {
-  DEMO_COMPANY_FOLDER_ENV,
-  DEMO_COMPANY_NAME,
-  DEMO_COMPANY_SEED_CONFIRM_ENV,
-  DEMO_COMPANY_SHARED_PASSWORD,
-  DEMO_COMPANY_WORKBOOK_ENV,
-  assertDemoCompanyAllowed,
-  demoEmail,
-} from "../shared/demo-company-seed.mjs";
 import { createAuthIndexApi } from "../server/auth-index.mjs";
 import {
   findCompanyUsersTabRow,
@@ -38,12 +27,7 @@ import {
   defaultAccessLevelForRole,
 } from "../server/company-users.mjs";
 import { verifyPassword } from "../server/master-auth.mjs";
-import {
-  getTabValues,
-  rowsToRecords,
-  getConfig,
-  updateConfig,
-} from "../server/workbook-service.mjs";
+import { rowsToRecords } from "../server/workbook-service.mjs";
 import {
   isPasswordHash,
   normalizeUserStatus,
@@ -51,6 +35,19 @@ import {
   rowMatchesLoginIdentity,
 } from "../server/users-tab-schema.mjs";
 import { resolveUsernameFromUserFields } from "../shared/login-username.mjs";
+import {
+  DEMO_COMPANY_SEED_CONFIRM_ENV,
+  MIDLANDS_DEMO_COMPANY_NAME,
+  assertDemoCompanyAllowed,
+  readDemoCompanyFolderId,
+  readDemoCompanySpreadsheetId,
+  readDemoDefaultPassword,
+  isDemoCompanyEmail,
+} from "../shared/demo-environment.mjs";
+import {
+  buildCompanyProvisionScriptDeps,
+  loadGoogleAuth,
+} from "./lib/demo-environment-script-utils.mjs";
 
 dotenv.config();
 
@@ -65,13 +62,13 @@ function readArg(flag) {
   return String(process.argv[index + 1] || "").trim();
 }
 
-const companyFolderId = String(process.env[DEMO_COMPANY_FOLDER_ENV] || "").trim();
-const masterSheetId = String(process.env[DEMO_COMPANY_WORKBOOK_ENV] || "").trim();
+const companyFolderId = readDemoCompanyFolderId();
+const masterSheetId = readDemoCompanySpreadsheetId();
 const confirm = String(process.env[DEMO_COMPANY_SEED_CONFIRM_ENV] || "").trim().toLowerCase();
 const skipAuthIndex = process.argv.includes("--skip-auth-index");
 const usernameArg = readArg("--username");
 const emailArg = readArg("--email").toLowerCase();
-const newPassword = readArg("--password") || DEMO_COMPANY_SHARED_PASSWORD;
+const newPassword = readArg("--password") || readDemoDefaultPassword() || "BertDemo123!";
 
 function pickField(row, ...keys) {
   for (const key of keys) {
@@ -82,50 +79,19 @@ function pickField(row, ...keys) {
   return "";
 }
 
-function loadGoogleAuth() {
-  const sessionCandidates = [
-    path.join(sessionsRoot, "google-oauth-token.json"),
-    path.join(sessionsRoot, "google-session.json"),
-    path.join(root, ".sessions", "google-session.json"),
-    path.join(root, ".data", "google-oauth.json"),
-  ];
-  const sessionPath = sessionCandidates.find((candidate) => fs.existsSync(candidate));
-  if (!sessionPath) {
-    throw new Error("Missing Google OAuth token — connect Google first (npm run google:connect).");
-  }
-  const session = JSON.parse(fs.readFileSync(sessionPath, "utf8"));
-  const auth = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI,
-  );
-  auth.setCredentials(session.tokens || session);
-  return auth;
-}
-
 function buildDeps() {
-  const deps = {
-    google,
-    withSheetsQuotaRetry: async (fn) => fn(),
-    safeLower: (value = "") => String(value || "").trim().toLowerCase(),
+  return buildCompanyProvisionScriptDeps({
+    sessionDir: sessionsRoot,
     sharedDriveId: process.env.GOOGLE_SHARED_DRIVE_ID || "",
     platformRegistrySheetId: process.env.BERT_PLATFORM_REGISTRY_SHEET_ID || "",
-    sessionDir: sessionsRoot,
-    getConfig,
-    updateConfig,
-    getTabValues: async (authClient, spreadsheetId, tabTitle) =>
-      getTabValues(authClient, deps, spreadsheetId, tabTitle),
-  };
-  deps.getWorkbook = async (authClient, spreadsheetId) => {
-    const sheets = google.sheets({ version: "v4", auth: authClient });
-    const response = await sheets.spreadsheets.get({ spreadsheetId });
-    return response.data;
-  };
-  return deps;
+  });
 }
 
 async function resolveTargetUser(auth, deps) {
   if (emailArg) {
+    if (!isDemoCompanyEmail(emailArg)) {
+      throw new Error(`Refusing to reset non-demo email: ${emailArg}`);
+    }
     return { identity: emailArg, email: emailArg };
   }
   if (usernameArg) {
@@ -137,7 +103,11 @@ async function resolveTargetUser(auth, deps) {
     if (!row?.email) {
       throw new Error(`No Users-tab row matches username "${usernameArg}".`);
     }
-    return { identity: usernameArg, email: String(row.email).trim().toLowerCase() };
+    const email = String(row.email).trim().toLowerCase();
+    if (!isDemoCompanyEmail(email)) {
+      throw new Error(`Refusing to reset non-demo email resolved from username: ${email}`);
+    }
+    return { identity: usernameArg, email };
   }
   throw new Error("Provide --username or --email for the demo user to reset.");
 }
@@ -146,18 +116,22 @@ async function main() {
   if (confirm !== "yes") {
     throw new Error(`Set ${DEMO_COMPANY_SEED_CONFIRM_ENV}=yes to run this script.`);
   }
-  const allowed = assertDemoCompanyAllowed(DEMO_COMPANY_NAME);
+  const allowed = assertDemoCompanyAllowed({
+    companyName: MIDLANDS_DEMO_COMPANY_NAME,
+    companyFolderId,
+    masterSheetId,
+  });
   if (!allowed.ok) {
     throw new Error(allowed.error || "Demo company guard failed.");
   }
   if (!companyFolderId || !masterSheetId) {
-    throw new Error(`Set ${DEMO_COMPANY_FOLDER_ENV} and ${DEMO_COMPANY_WORKBOOK_ENV}.`);
+    throw new Error("Set BERT_DEMO_COMPANY_FOLDER_ID and BERT_DEMO_COMPANY_SPREADSHEET_ID.");
   }
   if (!newPassword || newPassword.length < 8) {
     throw new Error("Password must be at least 8 characters.");
   }
 
-  const auth = loadGoogleAuth();
+  const auth = loadGoogleAuth(sessionsRoot);
   const deps = buildDeps();
   const { identity, email } = await resolveTargetUser(auth, deps);
   const beforeRow = await findCompanyUsersTabRow(auth, masterSheetId, email, {
@@ -207,6 +181,7 @@ async function main() {
   }
 
   let authIndexUpdated = false;
+  let authIndexVerified = false;
   if (!skipAuthIndex) {
     const authIndex = createAuthIndexApi(path.join(sessionsRoot, "auth-index.json"));
     const roleRaw = pickField(afterRow.rowObject || afterRow, "Role", "role");
@@ -221,7 +196,7 @@ async function main() {
         defaultAccessLevelForRole(role),
       companyId: companyFolderId,
       companyFolderId,
-      companyName: DEMO_COMPANY_NAME,
+      companyName: MIDLANDS_DEMO_COMPANY_NAME,
       masterSheetId,
       status: "ACTIVE",
       passwordHash: afterRow.passwordHash,
@@ -232,10 +207,17 @@ async function main() {
       indexedAt: Date.now(),
     });
     authIndexUpdated = true;
+    const indexed = authIndex.lookupByEmail(email);
+    authIndexVerified =
+      Boolean(indexed?.passwordHash) &&
+      indexed.passwordHash === afterRow.passwordHash &&
+      verifyPassword(newPassword, indexed.passwordHash);
+    if (!authIndexVerified) {
+      throw new Error("Auth index entry was written but password hash verification failed.");
+    }
   }
 
-  // Safety: ensure we only touched the intended row (scan for unexpected password changes).
-  const values = await getTabValues(auth, deps, masterSheetId, "Users");
+  const values = await deps.getTabValues(auth, masterSheetId, "Users");
   const records = rowsToRecords(values);
   const touched = records.filter((row) => rowMatchesLoginIdentity(row, email));
   if (touched.length !== 1) {
@@ -250,9 +232,10 @@ async function main() {
         username,
         status,
         passwordVerified: verified,
-        migratedLegacyUserAuth: resetResult.migratedUserAuth === true,
+        usersTabPasswordHashUpdated: verified,
         authIndexUpdated,
-        expectedDemoEmail: demoEmail(username.replace(/^bert\.demo\+/, "").split("@")[0]),
+        authIndexPasswordVerified: authIndexVerified,
+        migratedLegacyUserAuth: resetResult.migratedUserAuth === true,
       },
       null,
       2,

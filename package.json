@@ -55,6 +55,7 @@
     "seed:demo-evidence": "node scripts/seed-demo-evidence.mjs",
     "verify:demo-evidence": "node scripts/verify-demo-evidence.mjs",
     "reset:demo-user-password": "node scripts/reset-demo-user-password.mjs",
+    "verify:reset-demo-user-password": "node scripts/verify-reset-demo-user-password.mjs",
     "migrate:userauth": "node scripts/migrate-userauth-passwords.mjs",
     "verify:auth": "node scripts/verify-auth-hardening.mjs",
     "verify:auth-index-bootstrap": "node scripts/verify-auth-index-bootstrap.mjs",
