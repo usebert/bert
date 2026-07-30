@@ -68,6 +68,11 @@ import {
   buildGoogleCredentialDiagnostics,
   probeGoogleSheetsWorkbookMetadata,
 } from "./google-auth-diagnostics.mjs";
+import {
+  buildSystemHealthApiPayload,
+  createStartupHealthService,
+  formatStartupVerificationReport,
+} from "./startup-health-manager.mjs";
 import { installSetupStatusRoutes } from "./setup-status.mjs";
 import {
   isArchiveOrNonLiveWorkspaceName,
@@ -235,6 +240,8 @@ const googleOAuthStore = createGoogleOAuthSessionStore({
 });
 const sessionDir = googleOAuthStore.sessionDir;
 let backgroundJobs = null;
+let startupHealthService = null;
+let emailReminderSchedulerStarted = false;
 
 const requiredEnv = {
   // Trim Google OAuth env values — Render/env pastes often introduce trailing newlines that cause invalid_grant.
@@ -7655,6 +7662,58 @@ backgroundJobs = createBackgroundJobsService(sessionDir, {
 backgroundJobs.installRoutes(app, { requireMasterOnlyActor });
 backgroundJobs.startProcessor();
 
+startupHealthService = createStartupHealthService({
+  requiredEnv,
+  googleOAuthStore,
+  processEnv: process.env,
+  envConfigured,
+  getAuthedClient,
+  google,
+  withSheetsQuotaRetry,
+  resolveGoogleSheetsProbeWorkbookId,
+  readCanonicalCompanyWorkspaceRegistryMap,
+  getCompanyWorkspaceRegistryDeps,
+  authIndexApi,
+  getCompanyUsersDeps,
+  evaluateProductionEnvironment,
+  sessionStoreWritable,
+  sessionDir,
+  sessionSecret: process.env.SESSION_SECRET,
+  uploadDir: path.join(sessionDir, "uploads"),
+  authIndexPath: AUTH_INDEX_PATH,
+  companyUsersCachePath: path.join(sessionDir, "company-users-cache.json"),
+  masterSheetCachePath: path.join(sessionDir, "master-sheet-cache.json"),
+  backgroundJobsPath: path.join(sessionDir, "background-jobs.json"),
+  apiDiagnostics: {
+    routesLoaded: true,
+    middlewareInitialised: true,
+    sessionMiddlewareActive: Boolean(String(process.env.SESSION_SECRET || "").trim()),
+  },
+});
+
+app.get("/api/system/health", requireMasterOnlyActor, (_req, res) => {
+  const snapshot = startupHealthService?.getSnapshot();
+  const build = resolveBuildGitSha();
+  if (!snapshot) {
+    return res.status(503).json({
+      status: "FAILED",
+      apiVersion: APP_VERSION,
+      apiSha: build.gitSha || undefined,
+      startupTime: undefined,
+      uptime: Math.round(process.uptime()),
+      checks: [],
+      message: "Startup verification has not completed yet.",
+    });
+  }
+  return res.json(
+    buildSystemHealthApiPayload(snapshot, {
+      apiVersion: APP_VERSION,
+      apiSha: build.gitSha || undefined,
+      uptimeSeconds: Math.round(process.uptime()),
+    }),
+  );
+});
+
 installGodmodeRegistryActionRoutes(app, {
   getAuthedClient,
   envConfigured,
@@ -7989,6 +8048,25 @@ const httpServer = app.listen(port, "0.0.0.0", () => {
     }
   });
   startEmailReminderScheduler(emailReminderRunner);
+  emailReminderSchedulerStarted = true;
+  void (async () => {
+    if (!startupHealthService) {
+      return;
+    }
+    try {
+      const result = await startupHealthService.runChecks({
+        isBackgroundProcessorRunning: () => backgroundJobs?.isProcessorRunning?.() === true,
+        isNotificationServiceReady: () => emailReminderSchedulerStarted,
+        isOfflineQueueProcessorReady: () => false,
+      });
+      console.log(formatStartupVerificationReport(result));
+    } catch (error) {
+      console.error(
+        "[startup-health] verification failed:",
+        error instanceof Error ? error.message : error,
+      );
+    }
+  })();
 });
 
 httpServer.on("error", (err) => {

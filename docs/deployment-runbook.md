@@ -240,6 +240,22 @@ Unit tests (mocked HTTP, no production calls):
 npm run verify:production-auth-health-tests
 ```
 
+### Startup system health (Master operators)
+
+After API boot, the server runs startup verification and exposes aggregated results to Master operators:
+
+```bash
+GET /api/system/health
+```
+
+Requires a valid **Master** session (`bert_master_session`). Response includes overall status (`HEALTHY`, `DEGRADED`, or `FAILED`), API version/SHA, uptime, and per-check results. No secrets are returned.
+
+Local unit tests:
+
+```bash
+npm run verify:startup-health-manager-tests
+```
+
 ### CORS preflight (browser login prerequisite)
 
 Temp SPA host:

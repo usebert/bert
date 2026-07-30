@@ -482,6 +482,10 @@ export function createBackgroundJobsService(sessionDir, deps = {}) {
     }
   }
 
+  function isProcessorRunning() {
+    return Boolean(processorTimer);
+  }
+
   function startProcessor() {
     if (processorTimer) {
       return;
@@ -627,6 +631,7 @@ export function createBackgroundJobsService(sessionDir, deps = {}) {
     processNextJob,
     startProcessor,
     stopProcessor,
+    isProcessorRunning,
     installRoutes,
   };
 }

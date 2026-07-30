@@ -186,6 +186,8 @@
     "verify:login-api-connectivity": "node scripts/verify-login-api-connectivity.mjs",
     "verify:production-auth-health": "node scripts/verify-production-auth-health.mjs",
     "verify:production-auth-health-tests": "node --test scripts/verify-production-auth-health.test.mjs",
+    "verify:startup-health-manager": "node scripts/verify-startup-health-manager.mjs",
+    "verify:startup-health-manager-tests": "node --test scripts/verify-startup-health-manager.test.mjs",
     "verify:app-paths": "node scripts/verify-app-paths.mjs",
     "verify:end-to-end-smoke": "node scripts/verify-end-to-end-smoke.mjs",
     "verify:dark-panel-contrast": "node scripts/verify-dark-panel-contrast.mjs",
