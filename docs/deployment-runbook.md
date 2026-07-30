@@ -211,6 +211,35 @@ curl -sS -X POST "https://api.usebert.co.uk/api/auth/master/login" \
 
 Expect **`/api/health`** → **`"ok":true`**; login → **`"ok":true`**, JSON **`operator`**, and **`Set-Cookie: bert_master_session=...; Secure; SameSite=None`** when credentials match **`master-operators.json`** and **`Origin`** is listed in **`BERT_ALLOWED_ORIGINS`**.
 
+### Production authentication health (post-deploy smoke)
+
+After every API deployment, run the read-only company login smoke test against production. It verifies API health, Google workbook access, username resolution, a real company login/logout cycle, and invalid-password rejection. Credentials are read from environment variables — never commit passwords.
+
+```bash
+set -a && source .env && set +a
+
+BERT_SMOKE_USERNAME=mr.important \
+BERT_SMOKE_PASSWORD='<set securely in your environment>' \
+BERT_SMOKE_COMPANY_FOLDER_ID=1tDKluapYfY-RkuxXc6eoRnGHL38XCswx \
+BERT_SMOKE_MASTER_SHEET_ID=1MntKgSgVmTmlpzZhnCZdDQtdmPw7GcXptlAp88Ewrkc \
+BERT_SMOKE_EXPECTED_EMAIL=bert.demo+mr.important@usebert.co.uk \
+npm run verify:production-auth-health
+```
+
+Optional overrides:
+
+- **`BERT_SMOKE_API_ORIGIN`** — default `https://api.usebert.co.uk`
+- **`BERT_SMOKE_APP_ORIGIN`** — default `https://app.usebert.co.uk`
+- **`BERT_SMOKE_EXPECTED_ROLE`** — default `Admin`
+
+Exit code **0** and **`RESULT: READY FOR CUSTOMERS`** mean every check passed. Any failure prints the failed stage, reason, and likely remediation.
+
+Unit tests (mocked HTTP, no production calls):
+
+```bash
+npm run verify:production-auth-health-tests
+```
+
 ### CORS preflight (browser login prerequisite)
 
 Temp SPA host:
