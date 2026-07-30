@@ -244,7 +244,10 @@ test("submit failure is reported when verification schedule exists", async () =>
     schedules: [assignedSchedule(), verificationSchedule()],
     submitResponse: () => ({ status: 500, json: { ok: false, code: "CHECK_SUBMIT_FAILED" } }),
   });
-  const result = await runProductionAuditWorkflowChecks(baseConfig, transport);
+  const result = await runProductionAuditWorkflowChecks(
+    { ...baseConfig, allowVerificationSubmit: true },
+    transport,
+  );
   assert.equal(result.ok, false);
   assert.equal(result.failedKey, "submit");
 });
@@ -261,7 +264,10 @@ test("dashboard mismatch fails after submit", async () => {
       return { status: 200, json: { ok: true, metrics: { completedChecksToday: count } } };
     },
   });
-  const result = await runProductionAuditWorkflowChecks(baseConfig, transport);
+  const result = await runProductionAuditWorkflowChecks(
+    { ...baseConfig, allowVerificationSubmit: true },
+    transport,
+  );
   assert.equal(result.ok, false);
   assert.equal(result.failedKey, "dashboard");
 });
@@ -298,11 +304,24 @@ test("cleanup removes ephemeral draft after workflow", async () => {
   assert.equal(draftStore.size(), 0);
 });
 
-test("successful workflow with verification schedule submits and validates results", async () => {
+test("successful workflow with verification schedule skips submit unless explicitly enabled", async () => {
   const transport = createHappyTransport({
     schedules: [assignedSchedule(), verificationSchedule()],
   });
   const result = await runProductionAuditWorkflowChecks(baseConfig, transport);
+  assert.equal(result.ok, true);
+  assert.equal(result.checks.submit.status, "SKIPPED");
+  assert.equal(result.submissionSkipped, true);
+});
+
+test("successful workflow with verification schedule submits when enabled", async () => {
+  const transport = createHappyTransport({
+    schedules: [assignedSchedule(), verificationSchedule()],
+  });
+  const result = await runProductionAuditWorkflowChecks(
+    { ...baseConfig, allowVerificationSubmit: true },
+    transport,
+  );
   assert.equal(result.ok, true);
   assert.equal(result.checks.submit.status, "PASS");
   assert.equal(result.checks.auditResults.status, "PASS");

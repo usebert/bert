@@ -58,9 +58,13 @@ function normalizeIdentity(value) {
 export function loadAuditWorkflowConfig(env = process.env) {
   const base = loadSmokeConfig(env);
   const verificationScheduleId = trim(env.BERT_SMOKE_VERIFICATION_SCHEDULE_ID);
+  const allowVerificationSubmit =
+    trim(env.BERT_SMOKE_ALLOW_VERIFICATION_SUBMIT).toLowerCase() === "1" ||
+    trim(env.BERT_SMOKE_ALLOW_VERIFICATION_SUBMIT).toLowerCase() === "true";
   return {
     ...base,
     verificationScheduleId,
+    allowVerificationSubmit,
   };
 }
 
@@ -86,12 +90,16 @@ export function resolveAssignedCheckAuditId(auditId, auditName) {
   return normalizeIdentity(name).replace(/\s+/g, "-") || "scheduled-check";
 }
 
-export function buildQuestionsForAudit(auditName, templates = []) {
+export function buildQuestionsForAudit(auditName, templates = [], auditId = "") {
   const normalizedName = normalizeIdentity(auditName);
+  const normalizedAuditId = trim(auditId).toLowerCase();
   const template = templates.find((item) => {
-    const id = trim(item.id || item.formId || item.driveFileId);
-    const name = normalizeIdentity(item.name || item.templateName || item.auditName);
-    return id && id === trim(auditName) ? true : name === normalizedName;
+    const id = trim(item.id || item.formId || item.driveFileId || item.auditId);
+    const name = normalizeIdentity(item.name || item.templateName || item.template_name || item.auditName);
+    if (normalizedAuditId && id && id.toLowerCase() === normalizedAuditId) {
+      return true;
+    }
+    return name === normalizedName;
   });
 
   if (template && Array.isArray(template.questions) && template.questions.length > 0) {
@@ -104,6 +112,11 @@ export function buildQuestionsForAudit(auditName, templates = []) {
     }));
   }
 
+  const builderQuestions = flattenAuditBuilderTemplateQuestions(template);
+  if (builderQuestions.length > 0) {
+    return builderQuestions;
+  }
+
   const safeName = trim(auditName) || "scheduled-check";
   return [
     {
@@ -114,6 +127,41 @@ export function buildQuestionsForAudit(auditName, templates = []) {
       requiresPhotoEvidence: false,
     },
   ];
+}
+
+export function flattenAuditBuilderTemplateQuestions(template) {
+  if (!template || typeof template !== "object") {
+    return [];
+  }
+  const sections = Array.isArray(template.sections) ? template.sections : [];
+  const flattened = [];
+  for (const section of sections) {
+    for (const [index, question] of (section.questions || []).entries()) {
+      const text = trim(question.question_text || question.text || question.label);
+      if (!text) {
+        continue;
+      }
+      flattened.push({
+        id: trim(question.id || question.questionId || `q-${flattened.length + 1}`),
+        text,
+        fieldType: trim(question.fieldType || question.answer_type || "Pass / Fail"),
+        required: question.required !== false,
+        requiresPhotoEvidence: Boolean(question.requiresPhotoEvidence || question.allows_photo_evidence),
+      });
+    }
+  }
+  return flattened;
+}
+
+export function buildQuestionsForAssignedAudit(auditName, auditId, googleForms = [], auditBuilderTemplates = []) {
+  const fromForms = buildQuestionsForAudit(auditName, googleForms, auditId);
+  if (fromForms.length === 1 && fromForms[0]?.text?.startsWith("Complete check:")) {
+    const fromBuilder = buildQuestionsForAudit(auditName, auditBuilderTemplates, auditId);
+    if (fromBuilder.length > 0 && !fromBuilder[0]?.text?.startsWith("Complete check:")) {
+      return fromBuilder;
+    }
+  }
+  return fromForms;
 }
 
 export function pickSafeAnswer(question) {
@@ -492,19 +540,45 @@ export async function runProductionAuditWorkflowChecks(config, transport, option
     );
   }
 
-  const templates = Array.isArray(forms.json?.forms)
+  const googleForms = Array.isArray(forms.json?.forms)
     ? forms.json.forms
     : Array.isArray(forms.json?.templates)
       ? forms.json.templates
       : [];
-  const questions = buildQuestionsForAudit(draftTarget.auditName, templates);
+
+  let auditBuilderTemplates = [];
+  try {
+    const templatesResponse = await request(
+      "GET",
+      `/api/audits/templates?masterSheetId=${encodeURIComponent(masterSheetId)}`,
+    );
+    assertResponseSafe(templatesResponse.json, "audit templates");
+    if (templatesResponse.status === 200 && templatesResponse.json?.ok !== false) {
+      auditBuilderTemplates = Array.isArray(templatesResponse.json?.templates)
+        ? templatesResponse.json.templates
+        : [];
+    }
+  } catch {
+    auditBuilderTemplates = [];
+  }
+
+  const questions = buildQuestionsForAssignedAudit(
+    draftTarget.auditName,
+    draftTarget.auditId,
+    googleForms,
+    auditBuilderTemplates,
+  );
   if (!questions.length || !questions[0]?.id) {
     return fail(
       "openAudit",
       "Assigned audit did not resolve to any questions.",
       "Verify the schedule audit maps to a template or Google Form in the company folder.",
       forms.status,
-      { auditName: draftTarget.auditName, templateCount: templates.length },
+      {
+        auditName: draftTarget.auditName,
+        googleFormCount: googleForms.length,
+        auditBuilderTemplateCount: auditBuilderTemplates.length,
+      },
     );
   }
 
@@ -596,8 +670,8 @@ export async function runProductionAuditWorkflowChecks(config, transport, option
   }
   pass("editDraft");
 
-  // Submit / results / dashboard — only on dedicated verification schedule
-  if (!submitTarget) {
+  // Submit / results / dashboard — only when explicitly enabled and verification schedule exists
+  if (!submitTarget || !config.allowVerificationSubmit) {
     result.submissionSkipped = true;
     pass("submit", "SKIPPED");
     pass("auditResults", "SKIPPED");
@@ -610,7 +684,12 @@ export async function runProductionAuditWorkflowChecks(config, transport, option
   }
 
   const submitAudit = submitTarget;
-  const submitQuestions = buildQuestionsForAudit(submitAudit.auditName, templates);
+  const submitQuestions = buildQuestionsForAssignedAudit(
+    submitAudit.auditName,
+    submitAudit.auditId,
+    googleForms,
+    auditBuilderTemplates,
+  );
   const submitAnswers = {};
   for (const question of submitQuestions) {
     const answer = pickSafeAnswer(question);

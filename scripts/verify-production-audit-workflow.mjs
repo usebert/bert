@@ -52,7 +52,9 @@ async function main() {
     );
   }
   if (result.submissionSkipped) {
-    console.log("Submission skipped intentionally — no dedicated demo verification audit configured.");
+    console.log(
+      "Submission skipped intentionally — set BERT_SMOKE_ALLOW_VERIFICATION_SUBMIT=1 to exercise end-to-end submit.",
+    );
   }
   console.log(formatAuditWorkflowReport(result));
   console.log(`Elapsed: ${Date.now() - startedAt}ms`);

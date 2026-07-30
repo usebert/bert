@@ -257,7 +257,16 @@ npm run verify:production-audit-workflow
 
 Optional:
 
-- **`BERT_SMOKE_VERIFICATION_SCHEDULE_ID`** — explicit schedule ID allowed for safe end-to-end submission (name patterns like `BERT Verification Audit` are also recognised).
+- **`BERT_SMOKE_VERIFICATION_SCHEDULE_ID`** — explicit schedule ID allowed for safe end-to-end submission (defaults to `bert-sch-production-verification` when provisioned via `npm run ensure:production-verification-audit`).
+
+Provision the dedicated verification audit and schedule (idempotent):
+
+```bash
+DEMO_COMPANY_SEED_CONFIRM=yes \
+BERT_DEMO_COMPANY_FOLDER_ID=1tDKluapYfY-RkuxXc6eoRnGHL38XCswx \
+BERT_DEMO_COMPANY_WORKBOOK_ID=1MntKgSgVmTmlpzZhnCZdDQtdmPw7GcXptlAp88Ewrkc \
+npm run ensure:production-verification-audit
+```
 
 Exit code **0** and **`RESULT: READY FOR CUSTOMERS`** mean every required stage passed. Submission stages show **SKIPPED** when no dedicated verification audit is configured — that is expected and still counts as ready.
 

@@ -188,6 +188,7 @@
     "verify:production-auth-health-tests": "node --test scripts/verify-production-auth-health.test.mjs",
     "verify:production-audit-workflow": "node scripts/verify-production-audit-workflow.mjs",
     "verify:production-audit-workflow-tests": "node --test scripts/verify-production-audit-workflow.test.mjs",
+    "ensure:production-verification-audit": "node scripts/ensure-production-verification-audit.mjs",
     "verify:startup-health-manager": "node scripts/verify-startup-health-manager.mjs",
     "verify:startup-health-manager-tests": "node --test scripts/verify-startup-health-manager.test.mjs",
     "verify:startup-boot-gate-tests": "node --test scripts/verify-startup-boot-gate.test.mjs",
