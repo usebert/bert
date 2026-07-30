@@ -7,6 +7,7 @@ import {
   COMPANY_CONTEXT_STATUS_USABLE,
   COMPANY_NO_LONGER_AVAILABLE_MESSAGE,
   isCompanyWorkspaceUsable,
+  isLegacyConfigCompanyFolderId,
 } from "../shared/company-folder-context.mjs";
 import { FOLDER_NOT_IN_COMPANIES_ROOT } from "../shared/company-folder-placement.mjs";
 import { getCanonicalCompanyStatus } from "../shared/company-invite-permissions.mjs";
@@ -89,6 +90,10 @@ export async function resolveCompanyContextFromLoginWorkbook(auth, deps, masterS
   const registryFolderId = registryRecord
     ? trim(registryRecord.companyFolderId || registryRecord.rootFolderId || registryRecord.companyId)
     : "";
+
+  if (isLegacyConfigCompanyFolderId(companyFolderId, sheetId)) {
+    companyFolderId = "";
+  }
 
   if (!companyFolderId && registryFolderId) {
     companyFolderId = registryFolderId;
@@ -275,9 +280,23 @@ export async function validateLiveCompanyContext(auth, deps, partial = {}) {
   }
 
   const workbookContext = await resolveCompanyContextFromLoginWorkbook(auth, deps, masterSheetId).catch(() => null);
-  let companyFolderId = trim(workbookContext?.companyFolderId || partial.companyFolderId || partial.companyId);
-  let companyName = trim(workbookContext?.companyName || partial.companyName);
+  const hintFolderId = trim(partial.companyFolderId || partial.companyId);
   const resolvedMasterSheetId = trim(workbookContext?.masterSheetId || masterSheetId);
+  let companyFolderId = trim(workbookContext?.companyFolderId);
+  if (isLegacyConfigCompanyFolderId(companyFolderId, resolvedMasterSheetId)) {
+    companyFolderId = "";
+  }
+  if (!companyFolderId) {
+    companyFolderId = hintFolderId;
+  }
+  if (!companyFolderId && workbookContext?.registryRecord) {
+    companyFolderId = trim(
+      workbookContext.registryRecord.companyFolderId ||
+        workbookContext.registryRecord.rootFolderId ||
+        workbookContext.registryRecord.companyId,
+    );
+  }
+  let companyName = trim(workbookContext?.companyName || partial.companyName);
 
   if (!companyFolderId) {
     return {

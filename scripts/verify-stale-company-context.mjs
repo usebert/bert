@@ -44,6 +44,7 @@ assert(
   "1b2: invalid folder placement still returns valid workbook context",
 );
 assert(contextService.includes("COMPANY_CONTEXT_INVALID"), "1c: validator uses COMPANY_CONTEXT_INVALID");
+assert(contextService.includes("isLegacyConfigCompanyFolderId"), "1d: legacy Config companyId guard");
 
 assert(authService.includes("companyContextValid"), "2: session API exposes companyContextValid");
 assert(authService.includes("resolveValidatedCompanyLoginContext"), "2b: login context resolver");
@@ -59,7 +60,7 @@ assert(authIndex.includes("lookupByEmailValidated"), "4a: auth index validates e
 assert(authIndex.includes("validateLiveCompanyContext"), "4b: auth index uses live validator");
 assert(authIndex.includes("pruneAuthIndexGhostEntries"), "4f: auth index prunes ghost entries on startup");
 assert(
-  /rebuildAuthIndex[\s\S]*?validateLiveCompanyContext/.test(authIndex),
+  /rebuildAuthIndex[\s\S]*?resolveValidateLiveCompanyContext/.test(authIndex),
   "4g: rebuild only indexes folders under Live Companies",
 );
 assert(

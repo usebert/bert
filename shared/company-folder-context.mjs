@@ -9,6 +9,13 @@ export const COMPANY_CONTEXT_INVALID = "COMPANY_CONTEXT_INVALID";
 export const COMPANY_NO_LONGER_AVAILABLE_MESSAGE =
   "This company workspace is no longer available. Contact your administrator.";
 
+/** Legacy workbooks stored the master spreadsheet id in Config companyId — not a Drive folder. */
+export function isLegacyConfigCompanyFolderId(companyFolderId = "", masterSheetId = "") {
+  const folderId = trim(companyFolderId);
+  const sheetId = trim(masterSheetId);
+  return Boolean(folderId && sheetId && folderId === sheetId);
+}
+
 export const BERT_FOLDER_STRUCTURE_SUFFIX = " - BERT Folder Structure";
 
 export const COMPANY_READY_INVITE_MESSAGE = "Company is ready. You can now invite users.";

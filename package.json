@@ -189,6 +189,7 @@
     "verify:production-audit-workflow": "node scripts/verify-production-audit-workflow.mjs",
     "verify:production-audit-workflow-tests": "node --test scripts/verify-production-audit-workflow.test.mjs",
     "verify:schedule-completion-lookup-tests": "node --test scripts/verify-schedule-completion-lookup.test.mjs",
+    "verify:company-context-login-tests": "node --test scripts/verify-company-context-login.test.mjs",
     "ensure:production-verification-audit": "node scripts/ensure-production-verification-audit.mjs",
     "verify:startup-health-manager": "node scripts/verify-startup-health-manager.mjs",
     "verify:startup-health-manager-tests": "node --test scripts/verify-startup-health-manager.test.mjs",

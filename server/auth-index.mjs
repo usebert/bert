@@ -6,6 +6,7 @@ import fs from "node:fs";
 import { verifyPassword } from "./master-auth.mjs";
 import { isPlatformOwnerEmail } from "../shared/platform-owner.mjs";
 import { isKnownStaleAuthIndexPairing } from "../shared/auth-index-trust.mjs";
+import { isLegacyConfigCompanyFolderId } from "../shared/company-folder-context.mjs";
 import { validateLiveCompanyContext as defaultValidateLiveCompanyContext } from "./company-context-service.mjs";
 import { readUserAuthRowByEmail } from "./user-auth-service.mjs";
 import {
@@ -1043,7 +1044,15 @@ export function createAuthIndexApi(indexPath) {
 
     const indexFolder = String(entry.companyFolderId || entry.companyId || "").trim();
     if (indexFolder && indexFolder !== validation.companyFolderId) {
-      return { ok: false, reason: "index_folder_mismatch", removeEntry: true, validation };
+      if (
+        isLegacyConfigCompanyFolderId(validation.companyFolderId, masterSheetId) &&
+        indexFolder
+      ) {
+        validation.companyFolderId = indexFolder;
+        validation.companyId = indexFolder;
+      } else {
+        return { ok: false, reason: "index_folder_mismatch", removeEntry: true, validation };
+      }
     }
 
     return { ok: true, validation, rec };
