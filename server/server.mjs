@@ -73,6 +73,7 @@ import {
   createStartupHealthService,
   formatStartupVerificationReport,
 } from "./startup-health-manager.mjs";
+import { buildPublicHealthPayload, executeBootSequence, publicHealthStatusCode } from "./startup-boot-gate.mjs";
 import { installSetupStatusRoutes } from "./setup-status.mjs";
 import {
   isArchiveOrNonLiveWorkspaceName,
@@ -894,7 +895,8 @@ app.use(httpRequestLogMiddleware);
 app.use(sensitiveAbusePostRateLimit);
 
 app.get("/api/health", (_req, res) => {
-  res.json(getHealthPayload());
+  const payload = getHealthPayload();
+  res.status(publicHealthStatusCode(payload)).json(payload);
 });
 
 app.get("/api/readiness", (_req, res) => {
@@ -1054,8 +1056,7 @@ function getHealthPayload() {
   const googleOk = envConfigured();
   const googleOAuthConnected = googleOAuthStore.hasTokens();
   const build = resolveBuildGitSha();
-  return {
-    ok: true,
+  const base = {
     service: "bert-api",
     version: APP_VERSION,
     gitSha: build.gitSha || undefined,
@@ -1070,6 +1071,12 @@ function getHealthPayload() {
     sessionsDirConfigured: googleOAuthStore.sessionsDirConfigured,
     uptimeSeconds: Math.round(process.uptime()),
   };
+  const readiness = startupHealthService?.getReadiness?.() || {
+    phase: "booting",
+    acceptingTraffic: false,
+    status: "FAILED",
+  };
+  return buildPublicHealthPayload({ ...base, ok: true }, readiness);
 }
 
 function getReadinessPayload() {
@@ -7660,7 +7667,6 @@ backgroundJobs = createBackgroundJobsService(sessionDir, {
   ...getCompanyWorkspaceRegistryDeps(),
 });
 backgroundJobs.installRoutes(app, { requireMasterOnlyActor });
-backgroundJobs.startProcessor();
 
 startupHealthService = createStartupHealthService({
   requiredEnv,
@@ -7710,6 +7716,8 @@ app.get("/api/system/health", requireMasterOnlyActor, (_req, res) => {
       apiVersion: APP_VERSION,
       apiSha: build.gitSha || undefined,
       uptimeSeconds: Math.round(process.uptime()),
+      acceptingTraffic: startupHealthService?.isAcceptingTraffic?.() === true,
+      bootPhase: startupHealthService?.getReadiness?.()?.phase,
     }),
   );
 });
@@ -7924,7 +7932,7 @@ app.use((err, req, res, _next) => {
 
 assertSafeProductionBoot();
 
-const httpServer = app.listen(port, "0.0.0.0", () => {
+function logListenStartupMessages() {
   googleOAuthStore.logStorageState("startup");
   const googleCreds = getGoogleCredentialDiagnosticsPayload();
   console.log("[google-auth] startup", {
@@ -7984,6 +7992,9 @@ const httpServer = app.listen(port, "0.0.0.0", () => {
     );
   }
   console.log("[smtp] startup", smtpStartupLogPayload());
+}
+
+function schedulePostListenMaintenance() {
   void (async () => {
     if (!envConfigured()) {
       return;
@@ -8047,36 +8058,72 @@ const httpServer = app.listen(port, "0.0.0.0", () => {
       console.log("[smtp] verify", result);
     }
   });
-  startEmailReminderScheduler(emailReminderRunner);
-  emailReminderSchedulerStarted = true;
-  void (async () => {
-    if (!startupHealthService) {
-      return;
-    }
-    try {
-      const result = await startupHealthService.runChecks({
-        isBackgroundProcessorRunning: () => backgroundJobs?.isProcessorRunning?.() === true,
-        isNotificationServiceReady: () => emailReminderSchedulerStarted,
-        isOfflineQueueProcessorReady: () => false,
-      });
-      console.log(formatStartupVerificationReport(result));
-    } catch (error) {
-      console.error(
-        "[startup-health] verification failed:",
-        error instanceof Error ? error.message : error,
-      );
-    }
-  })();
-});
+}
 
-httpServer.on("error", (err) => {
-  if (err && "code" in err && err.code === "EADDRINUSE") {
-    console.error(
-      `[api] Port ${port} is already in use. You already have an API on this port (another terminal running \`npm run server\` or \`npm run dev:full\`). Stop that process first, or use a different port: PORT=8790 npm run server`,
-    );
-    process.exit(1);
+let httpServer = null;
+let backgroundServicesStarted = false;
+
+function startBackgroundServicesOnce() {
+  if (backgroundServicesStarted) {
     return;
   }
-  console.error("[api] Failed to listen:", err);
+  backgroundServicesStarted = true;
+  backgroundJobs.startProcessor();
+  startEmailReminderScheduler(emailReminderRunner);
+  emailReminderSchedulerStarted = true;
+}
+
+async function bootApiServer() {
+  const boot = await executeBootSequence({
+    runCriticalBootChecks: async () => startupHealthService.runCriticalBootChecks(),
+    onCriticalReport: (critical) => {
+      console.log(formatStartupVerificationReport(critical, { phase: "critical" }));
+    },
+    listen: (onListening) => {
+      httpServer = app.listen(port, "0.0.0.0", () => {
+        logListenStartupMessages();
+        onListening();
+      });
+      httpServer.on("error", (err) => {
+        if (err && "code" in err && err.code === "EADDRINUSE") {
+          console.error(
+            `[api] Port ${port} is already in use. You already have an API on this port (another terminal running \`npm run server\` or \`npm run dev:full\`). Stop that process first, or use a different port: PORT=8790 npm run server`,
+          );
+          process.exit(1);
+          return;
+        }
+        console.error("[api] Failed to listen:", err);
+        process.exit(1);
+      });
+    },
+    startBackgroundServices: startBackgroundServicesOnce,
+    runDeferredReadinessChecks: async () =>
+      startupHealthService.runDeferredReadinessChecks({
+        isBackgroundProcessorRunning: () => backgroundJobs?.isProcessorRunning?.() === true,
+        isNotificationServiceReady: () => emailReminderSchedulerStarted,
+      }),
+    onFinalReport: ({ readiness }) => {
+      console.log(formatStartupVerificationReport(startupHealthService.getSnapshot(), { phase: "deferred" }));
+      startupHealthService.markReady(readiness.status);
+      console.log(`[startup-health] accepting traffic — status=${readiness.status}`);
+    },
+    exit: (code) => {
+      const done = () => process.exit(code);
+      if (process.stdout.writable && !process.stdout.writableEnded) {
+        process.stdout.write("", done);
+        return;
+      }
+      done();
+    },
+  });
+
+  if (!boot.listened) {
+    return;
+  }
+  schedulePostListenMaintenance();
+}
+
+bootApiServer().catch((error) => {
+  console.error("[api] boot failed:", error instanceof Error ? error.message : error);
   process.exit(1);
 });

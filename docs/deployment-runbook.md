@@ -242,7 +242,9 @@ npm run verify:production-auth-health-tests
 
 ### Startup system health (Master operators)
 
-After API boot, the server runs startup verification and exposes aggregated results to Master operators:
+After API boot, the server runs **critical verification before `listen()`**. The port does not open until critical checks pass. `GET /api/health` returns **HTTP 503** while booting and **HTTP 200** once deferred readiness completes and the API is accepting traffic.
+
+Master-only detailed diagnostics:
 
 ```bash
 GET /api/system/health
@@ -254,6 +256,7 @@ Local unit tests:
 
 ```bash
 npm run verify:startup-health-manager-tests
+npm run verify:startup-boot-gate-tests
 ```
 
 ### CORS preflight (browser login prerequisite)

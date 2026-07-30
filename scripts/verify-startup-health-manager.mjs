@@ -25,15 +25,20 @@ const pkg = JSON.parse(read("package.json"));
 const server = read("server/server.mjs");
 const manager = read("server/startup-health-manager.mjs");
 
-assert(pkg.scripts["verify:startup-health-manager-tests"], "verify:startup-health-manager-tests registered");
+assert(pkg.scripts["verify:startup-boot-gate-tests"], "verify:startup-boot-gate-tests registered");
 assert(fs.existsSync(path.join(root, "server/startup-health-manager.mjs")), "startup-health-manager module exists");
 assert(manager.includes("runStartupHealthChecks"), "manager exports startup check runner");
 assert(manager.includes("createStartupHealthService"), "manager exports startup health service");
 assert(server.includes('app.get("/api/system/health"'), "/api/system/health route registered");
 assert(server.includes("requireMasterOnlyActor"), "/api/system/health is master-protected");
 assert(server.includes("formatStartupVerificationReport"), "startup verification banner wired");
-assert(server.includes("createStartupHealthService"), "startup health service created at boot");
-assert(server.includes("isProcessorRunning"), "background processor state exposed to startup checks");
+assert(server.includes("executeBootSequence"), "boot gate executeBootSequence wired");
+assert(server.includes("bootApiServer"), "async bootApiServer entrypoint wired");
+assert(server.includes("runCriticalBootChecks"), "critical boot checks run before listen");
+assert(!server.includes("backgroundJobs.startProcessor();\n\nstartupHealthService"), "processor not started before health service");
+assert(manager.includes("runCriticalBootChecks"), "manager exports critical boot checks");
+assert(manager.includes("runDeferredReadinessChecks"), "manager exports deferred readiness checks");
+assert(fs.existsSync(path.join(root, "server/startup-boot-gate.mjs")), "startup-boot-gate module exists");
 assert(!manager.includes("passwordHash"), "startup manager does not log password hashes");
 
 console.log(`PASS: verify-startup-health-manager (${caseCount} cases)`);

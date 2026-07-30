@@ -13,6 +13,8 @@ import {
   createStartupHealthService,
   deriveOverallStatus,
   formatStartupVerificationReport,
+  runCriticalBootChecks,
+  runDeferredReadinessChecks,
   runStartupHealthChecks,
 } from "../server/startup-health-manager.mjs";
 
@@ -102,8 +104,8 @@ test("healthy startup", async () => {
   assert.ok(result.checks.every((check) => check.status === CHECK_STATUS.PASS || check.status === CHECK_STATUS.WARNING));
 });
 
-test("Google failure invalid_grant", async () => {
-  const result = await runStartupHealthChecks(
+test("Google failure invalid_grant blocks critical boot", async () => {
+  const result = await runCriticalBootChecks(
     healthyGoogleDeps({
       probeGoogleSheetsWorkbookMetadata: async () => ({
         ok: false,
@@ -112,7 +114,7 @@ test("Google failure invalid_grant", async () => {
       }),
     }),
   );
-  assert.equal(result.status, OVERALL_STATUS.FAILED);
+  assert.equal(result.bootBlocked, true);
   assert.equal(result.checks.find((check) => check.name === "Google")?.status, CHECK_STATUS.FAIL);
 });
 
@@ -123,21 +125,21 @@ test("registry failure duplicate company IDs", async () => {
   ]);
   const integrity = analyzeRegistryIntegrity(map);
   assert.equal(integrity.duplicateCompanyIds.length, 1);
-  const result = await runStartupHealthChecks(
+  const result = await runCriticalBootChecks(
     healthyGoogleDeps({
       readCanonicalCompanyWorkspaceRegistryMap: async () => ({ map }),
     }),
   );
   assert.equal(result.checks.find((check) => check.name === "Registry")?.status, CHECK_STATUS.FAIL);
+  assert.equal(result.bootBlocked, true);
 });
 
-test("workbook unavailable", async () => {
-  const result = await runStartupHealthChecks(
-    healthyGoogleDeps({
-      probeGoogleSheetsWorkbookMetadata: async () => ({ ok: false, reason: "not_found" }),
-    }),
-  );
-  assert.equal(result.checks.find((check) => check.name === "Workbook")?.status, CHECK_STATUS.FAIL);
+test("workbook unavailable is deferred warning", async () => {
+  const critical = await runCriticalBootChecks(healthyGoogleDeps());
+  const deferred = await runDeferredReadinessChecks(healthyGoogleDeps({
+    probeGoogleSheetsWorkbookMetadata: async () => ({ ok: false, reason: "not_found" }),
+  }), { registryMap: critical.registryMap });
+  assert.equal(deferred.checks.find((check) => check.name === "Workbook")?.status, CHECK_STATUS.WARNING);
 });
 
 test("duplicate usernames in auth index", async () => {
@@ -158,7 +160,7 @@ test("duplicate usernames in auth index", async () => {
     }),
   });
   assert.equal(integrity.ambiguousUsernameCount, 1);
-  const result = await runStartupHealthChecks(
+  const result = await runCriticalBootChecks(
     healthyGoogleDeps({
       authIndexApi: {
         getAuthIndexSnapshot: () => ({
@@ -174,6 +176,7 @@ test("duplicate usernames in auth index", async () => {
     }),
   );
   assert.equal(result.checks.find((check) => check.name === "Auth Index")?.status, CHECK_STATUS.FAIL);
+  assert.equal(result.bootBlocked, true);
 });
 
 test("duplicate company IDs helper", () => {
@@ -185,8 +188,8 @@ test("duplicate company IDs helper", () => {
   assert.deepEqual(integrity.duplicateCompanyIds, ["same"]);
 });
 
-test("missing env vars degrade configuration", async () => {
-  const result = await runStartupHealthChecks(
+test("missing env vars degrade critical configuration", async () => {
+  const result = await runCriticalBootChecks(
     healthyGoogleDeps({
       evaluateProductionEnvironment: () => ({
         blockingIssues: [],
@@ -195,31 +198,32 @@ test("missing env vars degrade configuration", async () => {
     }),
   );
   assert.equal(result.checks.find((check) => check.name === "Configuration")?.status, CHECK_STATUS.WARNING);
-  assert.equal(result.status, OVERALL_STATUS.DEGRADED);
+  assert.equal(result.bootBlocked, false);
 });
 
-test("scheduler unavailable", async () => {
-  const result = await runStartupHealthChecks(
+test("scheduler unavailable is deferred warning", async () => {
+  const deferred = await runDeferredReadinessChecks(
     healthyGoogleDeps({
       isBackgroundProcessorRunning: () => false,
       isNotificationServiceReady: () => false,
     }),
   );
-  assert.equal(result.checks.find((check) => check.name === "Background Jobs")?.status, CHECK_STATUS.FAIL);
+  assert.equal(deferred.checks.find((check) => check.name === "Background Jobs")?.status, CHECK_STATUS.WARNING);
 });
 
-test("cache failure when session dir missing", async () => {
-  const result = await runStartupHealthChecks(
+test("cache failure blocks critical boot", async () => {
+  const result = await runCriticalBootChecks(
     healthyGoogleDeps({
       sessionDir: "",
       sessionStoreWritable: () => false,
     }),
   );
   assert.equal(result.checks.find((check) => check.name === "Cache")?.status, CHECK_STATUS.FAIL);
+  assert.equal(result.bootBlocked, true);
 });
 
-test("API middleware missing", async () => {
-  const result = await runStartupHealthChecks(
+test("API middleware missing blocks critical boot", async () => {
+  const result = await runCriticalBootChecks(
     healthyGoogleDeps({
       apiDiagnostics: {
         routesLoaded: true,
@@ -230,6 +234,7 @@ test("API middleware missing", async () => {
     }),
   );
   assert.equal(result.checks.find((check) => check.name === "API")?.status, CHECK_STATUS.FAIL);
+  assert.equal(result.bootBlocked, true);
 });
 
 test("deriveOverallStatus rules", () => {
@@ -267,6 +272,10 @@ test("startup report and API payload omit secrets", () => {
 test("createStartupHealthService stores snapshot", async () => {
   const service = createStartupHealthService(healthyGoogleDeps());
   assert.equal(service.getSnapshot(), null);
-  const result = await service.runChecks();
-  assert.equal(service.getSnapshot(), result);
+  assert.equal(service.isAcceptingTraffic(), false);
+  await service.runCriticalBootChecks();
+  await service.runDeferredReadinessChecks({ isBackgroundProcessorRunning: () => true });
+  service.markReady(OVERALL_STATUS.HEALTHY);
+  assert.ok(service.getSnapshot());
+  assert.equal(service.isAcceptingTraffic(), true);
 });
