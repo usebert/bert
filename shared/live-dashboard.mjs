@@ -17,6 +17,7 @@ import { enrichSchedulesWithDueOccurrence } from "./schedule-due.mjs";
 import { getScheduleAssignedEmails } from "./schedule-assignment.mjs";
 import { getUkTodayKey, isUkOverdue, isUkToday, ukDateKeyFromTimestamp } from "./uk-date-time.mjs";
 import { isWorkbookRowArchived } from "./archive.mjs";
+import { isOperationalAuditResult, isVerificationSchedule } from "./production-verification-audit.mjs";
 
 /** Workbook tabs the live dashboard reads. All are existing tabs — no new storage. */
 export const LIVE_DASHBOARD_TABS = [
@@ -629,7 +630,7 @@ export function buildLiveDashboardFromSources(sources = {}, options = {}) {
   // --- Schedules → due today / overdue inspections ---------------------------
   const scheduleRows = filterCompanyRows(sources.schedules, companyFolderId, alternateIds);
   let schedules = parseCompanyScheduleListFromRecords(scheduleRows, companyFolderId, alternateIds).filter(
-    (schedule) => schedule.lifecycle !== "Archived",
+    (schedule) => schedule.lifecycle !== "Archived" && !isVerificationSchedule(schedule),
   );
   schedules = enrichSchedulesWithDueOccurrence(schedules, new Date(nowMs)).map((schedule) => ({
     ...schedule,
@@ -641,7 +642,9 @@ export function buildLiveDashboardFromSources(sources = {}, options = {}) {
   }
 
   // --- AuditResults → completed today ---------------------------------------
-  let results = filterCompanyRows(sources.auditResults, companyFolderId, alternateIds);
+  let results = filterCompanyRows(sources.auditResults, companyFolderId, alternateIds).filter((row) =>
+    isOperationalAuditResult(row),
+  );
   if (ownOnly && actorEmail) {
     results = results.filter((row) =>
       actorEmailMatches(row, actorEmail, [["completed by email", "completed by"], ["completed by name"]]),

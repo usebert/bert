@@ -10,6 +10,13 @@ import {
   maskEmail,
   performProductionSmokeLogin,
 } from "./production-auth-health-core.mjs";
+import {
+  PRODUCTION_VERIFICATION_AUDIT_ID,
+  PRODUCTION_VERIFICATION_CLEANED_STATUS,
+  PRODUCTION_VERIFICATION_RESULT_STATUS,
+  PRODUCTION_VERIFICATION_SCHEDULE_ID,
+  PRODUCTION_VERIFICATION_SMOKE_LOCAL_SUBMISSION_PREFIX,
+} from "../../shared/production-verification-audit.mjs";
 
 export { loadSmokeConfig, performProductionSmokeLogin, maskEmail };
 
@@ -23,6 +30,7 @@ export const CHECK_KEYS = [
   "submit",
   "auditResults",
   "dashboard",
+  "cleanup",
 ];
 
 export const CHECK_LABELS = {
@@ -35,6 +43,7 @@ export const CHECK_LABELS = {
   submit: "Submit",
   auditResults: "Audit Results",
   dashboard: "Dashboard",
+  cleanup: "Cleanup",
 };
 
 const VERIFICATION_SCHEDULE_PATTERNS = [
@@ -57,13 +66,17 @@ function normalizeIdentity(value) {
 
 export function loadAuditWorkflowConfig(env = process.env) {
   const base = loadSmokeConfig(env);
-  const verificationScheduleId = trim(env.BERT_SMOKE_VERIFICATION_SCHEDULE_ID);
+  const verificationScheduleId =
+    trim(env.BERT_SMOKE_VERIFICATION_SCHEDULE_ID) || PRODUCTION_VERIFICATION_SCHEDULE_ID;
+  const verificationAuditId =
+    trim(env.BERT_SMOKE_VERIFICATION_AUDIT_ID) || PRODUCTION_VERIFICATION_AUDIT_ID;
   const allowVerificationSubmit =
     trim(env.BERT_SMOKE_ALLOW_VERIFICATION_SUBMIT).toLowerCase() === "1" ||
     trim(env.BERT_SMOKE_ALLOW_VERIFICATION_SUBMIT).toLowerCase() === "true";
   return {
     ...base,
     verificationScheduleId,
+    verificationAuditId,
     allowVerificationSubmit,
   };
 }
@@ -360,6 +373,7 @@ function dashboardCompletionCount(payload = {}) {
   const metrics = payload.metrics || {};
   const today = payload.today || {};
   const candidates = [
+    metrics.todayCompleted,
     metrics.completedChecks,
     metrics.completedChecksToday,
     metrics.checksCompletedToday,
@@ -373,6 +387,104 @@ function dashboardCompletionCount(payload = {}) {
     }
   }
   return null;
+}
+
+function extractResultField(record = {}, keys = []) {
+  const normalizedKeys = keys.map((key) => normalizeIdentity(key).replace(/[^a-z0-9]/g, ""));
+  for (const [header, value] of Object.entries(record || {})) {
+    const normalizedHeader = normalizeIdentity(header).replace(/[^a-z0-9]/g, "");
+    if (normalizedKeys.some((key) => normalizedHeader === key || normalizedHeader.includes(key))) {
+      const text = trim(value);
+      if (text) {
+        return text;
+      }
+    }
+  }
+  return "";
+}
+
+export function countVerificationAuditResults(results = [], config = {}) {
+  const scheduleId = trim(config.verificationScheduleId);
+  const auditId = trim(config.verificationAuditId);
+  return results.filter((row) => {
+    const rowScheduleId = extractResultField(row, ["schedule id", "scheduleid"]);
+    const rowAuditId = extractResultField(row, ["audit id", "auditid"]);
+    const status = normalizeIdentity(extractResultField(row, ["status"]));
+    if (status === PRODUCTION_VERIFICATION_CLEANED_STATUS) {
+      return false;
+    }
+    return rowScheduleId === scheduleId && rowAuditId === auditId;
+  }).length;
+}
+
+export function findVerificationAuditResult(results = [], config = {}, resultId = "") {
+  const targetId = trim(resultId);
+  const scheduleId = trim(config.verificationScheduleId);
+  const auditId = trim(config.verificationAuditId);
+  return results.find((row) => {
+    const rowResultId = extractResultField(row, ["result id", "resultid", "id"]);
+    const rowScheduleId = extractResultField(row, ["schedule id", "scheduleid"]);
+    const rowAuditId = extractResultField(row, ["audit id", "auditid"]);
+    if (targetId && rowResultId !== targetId) {
+      return false;
+    }
+    return rowScheduleId === scheduleId && rowAuditId === auditId;
+  });
+}
+
+export function listActiveVerificationAuditResults(results = [], config = {}) {
+  const scheduleId = trim(config.verificationScheduleId);
+  const auditId = trim(config.verificationAuditId);
+  return results.filter((row) => {
+    const status = normalizeIdentity(extractResultField(row, ["status"]));
+    if (status === PRODUCTION_VERIFICATION_CLEANED_STATUS) {
+      return false;
+    }
+    const rowScheduleId = extractResultField(row, ["schedule id", "scheduleid"]);
+    const rowAuditId = extractResultField(row, ["audit id", "auditid"]);
+    return rowScheduleId === scheduleId && rowAuditId === auditId;
+  });
+}
+
+export async function cleanupStaleVerificationResults(request, companyFolderId, masterSheetId, config = {}) {
+  let auditResults;
+  try {
+    auditResults = await request(
+      "GET",
+      `/api/companies/${encodeURIComponent(companyFolderId)}/audit-results?masterSheetId=${encodeURIComponent(masterSheetId)}`,
+    );
+  } catch {
+    return { ok: true, cleanedCount: 0 };
+  }
+  if (auditResults.status !== 200 || auditResults.json?.ok !== true) {
+    return { ok: true, cleanedCount: 0 };
+  }
+  const results = Array.isArray(auditResults.json?.results) ? auditResults.json.results : [];
+  const staleRows = listActiveVerificationAuditResults(results, config);
+  let cleanedCount = 0;
+  for (const row of staleRows) {
+    const resultId = extractResultField(row, ["result id", "resultid", "id"]);
+    if (!resultId) {
+      continue;
+    }
+    try {
+      const cleanup = await request(
+        "POST",
+        `/api/companies/${encodeURIComponent(companyFolderId)}/audit-results/${encodeURIComponent(resultId)}/verification-cleanup`,
+        {
+          companyFolderId,
+          masterSheetId,
+          localSubmissionId: extractResultField(row, ["local submission id", "localsubmissionid"]),
+        },
+      );
+      if (cleanup.status === 200 && cleanup.json?.ok === true) {
+        cleanedCount += 1;
+      }
+    } catch {
+      /* best-effort stale cleanup */
+    }
+  }
+  return { ok: true, cleanedCount };
 }
 
 /**
@@ -670,12 +782,13 @@ export async function runProductionAuditWorkflowChecks(config, transport, option
   }
   pass("editDraft");
 
-  // Submit / results / dashboard — only when explicitly enabled and verification schedule exists
+  // Submit / results / dashboard / cleanup — only when explicitly enabled and verification schedule exists
   if (!submitTarget || !config.allowVerificationSubmit) {
     result.submissionSkipped = true;
     pass("submit", "SKIPPED");
     pass("auditResults", "SKIPPED");
     pass("dashboard", "SKIPPED");
+    pass("cleanup", "SKIPPED");
     draftStore.clear(draftTarget.auditId);
     result.cleanupDraftRemoved = draftStore.load(draftTarget.auditId) === null;
     result.ok = true;
@@ -699,6 +812,8 @@ export async function runProductionAuditWorkflowChecks(config, transport, option
     }
   }
 
+  await cleanupStaleVerificationResults(request, companyFolderId, masterSheetId, config);
+
   let dashboardBefore;
   try {
     dashboardBefore = await request(
@@ -715,6 +830,7 @@ export async function runProductionAuditWorkflowChecks(config, transport, option
   assertResponseSafe(dashboardBefore.json, "dashboard before submit");
   const beforeCount = dashboardCompletionCount(dashboardBefore.json);
 
+  const localSubmissionId = `${PRODUCTION_VERIFICATION_SMOKE_LOCAL_SUBMISSION_PREFIX}${Date.now()}`;
   let complete;
   try {
     complete = await request(
@@ -730,7 +846,7 @@ export async function runProductionAuditWorkflowChecks(config, transport, option
         findings: [],
         evidenceRefs: [],
         evidenceFiles: [],
-        localSubmissionId: `bert-smoke-${Date.now()}`,
+        localSubmissionId,
         completedByName: login.user?.name || login.accountEmail,
       },
     );
@@ -778,16 +894,34 @@ export async function runProductionAuditWorkflowChecks(config, transport, option
     );
   }
   const results = Array.isArray(auditResults.json?.results) ? auditResults.json.results : [];
-  const foundResult =
-    resultId &&
-    results.some((row) => trim(row?.id || row?.resultId || row?.["Result ID"]) === resultId);
+  const activeVerificationResults = listActiveVerificationAuditResults(results, config);
+  const foundResult = findVerificationAuditResult(results, config, resultId);
   if (!foundResult) {
     return fail(
       "auditResults",
-      "Submitted verification check does not appear in AuditResults.",
+      "Submitted verification check does not appear in AuditResults with the expected schedule and audit IDs.",
       "Inspect AuditResults append path and list filtering for the company workbook.",
       auditResults.status,
-      { resultId, resultCount: results.length },
+      { resultId, resultCount: results.length, activeVerificationResultCount: activeVerificationResults.length },
+    );
+  }
+  if (activeVerificationResults.length !== 1) {
+    return fail(
+      "auditResults",
+      `Expected exactly one active verification AuditResults row after submit, found ${activeVerificationResults.length}.`,
+      "Inspect duplicate verification submissions and cleanup of prior smoke rows.",
+      auditResults.status,
+      { resultId, activeVerificationResultCount: activeVerificationResults.length },
+    );
+  }
+  const foundStatus = normalizeIdentity(extractResultField(foundResult, ["status"]));
+  if (foundStatus && foundStatus !== PRODUCTION_VERIFICATION_RESULT_STATUS && foundStatus !== "completed") {
+    return fail(
+      "auditResults",
+      `Verification AuditResults row has unexpected status "${foundStatus}".`,
+      "Inspect verification result status tagging during completion.",
+      auditResults.status,
+      { resultId, status: foundStatus },
     );
   }
   pass("auditResults");
@@ -816,6 +950,15 @@ export async function runProductionAuditWorkflowChecks(config, transport, option
     );
   }
   const afterCount = dashboardCompletionCount(dashboardAfter.json);
+  if (beforeCount !== null && afterCount !== null && afterCount > beforeCount) {
+    return fail(
+      "dashboard",
+      "Dashboard completion count increased after verification submit.",
+      "Inspect live dashboard aggregation excludes verification audit results.",
+      dashboardAfter.status,
+      { beforeCount, afterCount },
+    );
+  }
   if (beforeCount !== null && afterCount !== null && afterCount < beforeCount) {
     return fail(
       "dashboard",
@@ -827,8 +970,73 @@ export async function runProductionAuditWorkflowChecks(config, transport, option
   }
   pass("dashboard");
 
+  let cleanup;
+  try {
+    cleanup = await request(
+      "POST",
+      `/api/companies/${encodeURIComponent(companyFolderId)}/audit-results/${encodeURIComponent(resultId)}/verification-cleanup`,
+      {
+        companyFolderId,
+        masterSheetId,
+        localSubmissionId,
+      },
+    );
+  } catch (error) {
+    return fail(
+      "cleanup",
+      `Verification cleanup request failed: ${error instanceof Error ? error.message : String(error)}`,
+      "Inspect POST /api/companies/:id/audit-results/:resultId/verification-cleanup.",
+    );
+  }
+  assertResponseSafe(cleanup.json, "verification cleanup");
+  if (cleanup.status !== 200 || cleanup.json?.ok !== true) {
+    return fail(
+      "cleanup",
+      `Verification cleanup was rejected (HTTP ${cleanup.status}).`,
+      "Inspect verification cleanup permissions and AuditResults patch path.",
+      cleanup.status,
+      cleanup.json,
+    );
+  }
+
+  let auditResultsAfterCleanup;
+  try {
+    auditResultsAfterCleanup = await request(
+      "GET",
+      `/api/companies/${encodeURIComponent(companyFolderId)}/audit-results?masterSheetId=${encodeURIComponent(masterSheetId)}`,
+    );
+  } catch (error) {
+    return fail(
+      "cleanup",
+      `Post-cleanup audit results request failed: ${error instanceof Error ? error.message : String(error)}`,
+      "Inspect GET /api/companies/:id/audit-results after cleanup.",
+    );
+  }
+  assertResponseSafe(auditResultsAfterCleanup.json, "audit results after cleanup");
+  const resultsAfterCleanup = Array.isArray(auditResultsAfterCleanup.json?.results)
+    ? auditResultsAfterCleanup.json.results
+    : [];
+  const cleanedRow = resultsAfterCleanup.find(
+    (row) => trim(row?.id || row?.resultId || row?.["Result ID"]) === resultId,
+  );
+  const cleanedStatus = normalizeIdentity(extractResultField(cleanedRow || {}, ["status"]));
+  if (
+    listActiveVerificationAuditResults(resultsAfterCleanup, config).length !== 0 &&
+    cleanedStatus !== PRODUCTION_VERIFICATION_CLEANED_STATUS
+  ) {
+    return fail(
+      "cleanup",
+      "Verification AuditResults row was not marked cleaned after cleanup.",
+      "Inspect verification cleanup status patch and operational result filtering.",
+      cleanup.status,
+      { resultId, cleanedStatus, verificationResultCount: countVerificationAuditResults(resultsAfterCleanup, config) },
+    );
+  }
+  pass("cleanup");
+
   draftStore.clear(draftTarget.auditId);
   result.cleanupDraftRemoved = draftStore.load(draftTarget.auditId) === null;
+  result.submittedResultId = resultId;
   result.ok = true;
   result.durationMs = Date.now() - startedAt;
   return result;

@@ -7,12 +7,18 @@ import test from "node:test";
 import { COMPANY_SESSION_COOKIE } from "./lib/production-auth-health-core.mjs";
 import {
   CHECK_KEYS,
+  countVerificationAuditResults,
   createDraftStore,
   formatAuditWorkflowReport,
+  findVerificationAuditResult,
   isSafeVerificationSchedule,
   loadAuditWorkflowConfig,
   runProductionAuditWorkflowChecks,
 } from "./lib/production-audit-workflow-core.mjs";
+import {
+  PRODUCTION_VERIFICATION_AUDIT_ID,
+  PRODUCTION_VERIFICATION_SCHEDULE_ID,
+} from "../shared/production-verification-audit.mjs";
 
 const baseConfig = loadAuditWorkflowConfig({
   BERT_SMOKE_USERNAME: "mr.important",
@@ -53,15 +59,16 @@ function assignedSchedule(overrides = {}) {
 
 function verificationSchedule() {
   return assignedSchedule({
-    id: "sch-verification",
+    id: PRODUCTION_VERIFICATION_SCHEDULE_ID,
     scheduleName: "BERT Verification Audit",
-    audits: [{ auditId: "aud-verify", auditName: "BERT Verification Audit" }],
+    audits: [{ auditId: PRODUCTION_VERIFICATION_AUDIT_ID, auditName: "BERT Verification Audit" }],
   });
 }
 
 function createHappyTransport(options = {}) {
   const cookies = new Map();
   let dashboardCompletionCount = options.dashboardCompletionCount ?? 3;
+  let storedResults = options.initialResults ? [...options.initialResults] : [];
 
   const request = async (method, path, body) => {
     if (method === "GET" && path === "/api/health") {
@@ -135,10 +142,33 @@ function createHappyTransport(options = {}) {
       if (options.submitResponse) {
         return options.submitResponse(body);
       }
+      const resultId = "result-smoke-1";
+      storedResults.push({
+        id: resultId,
+        resultId,
+        "Result ID": resultId,
+        "Schedule ID": PRODUCTION_VERIFICATION_SCHEDULE_ID,
+        "Audit ID": PRODUCTION_VERIFICATION_AUDIT_ID,
+        "Audit Name": "BERT Verification Audit",
+        Status: "verification",
+        "Local Submission ID": body?.localSubmissionId || "",
+      });
       return {
         status: 200,
-        json: { ok: true, resultId: "result-smoke-1", scheduleId: "sch-verification" },
+        json: { ok: true, resultId, scheduleId: PRODUCTION_VERIFICATION_SCHEDULE_ID },
       };
+    }
+    if (method === "POST" && path.includes("/verification-cleanup")) {
+      if (options.cleanupResponse) {
+        return options.cleanupResponse(body);
+      }
+      const resultId = path.split("/").filter(Boolean).at(-2);
+      storedResults = storedResults.map((row) =>
+        (row.id || row.resultId || row["Result ID"]) === resultId
+          ? { ...row, Status: "verification-cleaned" }
+          : row,
+      );
+      return { status: 200, json: { ok: true, resultId, cleaned: true, status: "verification-cleaned" } };
     }
     if (method === "GET" && path.includes("/audit-results")) {
       if (options.auditResultsResponse) {
@@ -148,7 +178,7 @@ function createHappyTransport(options = {}) {
         status: 200,
         json: {
           ok: true,
-          results: [{ id: "result-smoke-1", resultId: "result-smoke-1", auditName: "BERT Verification Audit" }],
+          results: [...storedResults],
         },
       };
     }
@@ -156,14 +186,14 @@ function createHappyTransport(options = {}) {
       if (options.dashboardResponse) {
         return options.dashboardResponse();
       }
-      if (path.includes("refresh=1")) {
+      if (path.includes("refresh=1") && options.incrementDashboardOnRefresh === true) {
         dashboardCompletionCount += 1;
       }
       return {
         status: 200,
         json: {
           ok: true,
-          metrics: { completedChecksToday: dashboardCompletionCount },
+          metrics: { todayCompleted: dashboardCompletionCount, completedChecksToday: dashboardCompletionCount },
         },
       };
     }
@@ -242,7 +272,10 @@ test("edit failure is reported", async () => {
 test("submit failure is reported when verification schedule exists", async () => {
   const transport = createHappyTransport({
     schedules: [assignedSchedule(), verificationSchedule()],
-    submitResponse: () => ({ status: 500, json: { ok: false, code: "CHECK_SUBMIT_FAILED" } }),
+    submitResponse: () => ({
+      status: 404,
+      json: { ok: false, code: "SCHEDULE_NOT_FOUND" },
+    }),
   });
   const result = await runProductionAuditWorkflowChecks(
     { ...baseConfig, allowVerificationSubmit: true },
@@ -250,6 +283,51 @@ test("submit failure is reported when verification schedule exists", async () =>
   );
   assert.equal(result.ok, false);
   assert.equal(result.failedKey, "submit");
+});
+
+test("audit results mismatch fails when verification row count is not exactly one", async () => {
+  const transport = createHappyTransport({
+    schedules: [assignedSchedule(), verificationSchedule()],
+    cleanupResponse: () => ({ status: 500, json: { ok: false, code: "CLEANUP_WRITE_FAILED" } }),
+    initialResults: [
+      {
+        id: "existing-1",
+        "Result ID": "existing-1",
+        "Schedule ID": PRODUCTION_VERIFICATION_SCHEDULE_ID,
+        "Audit ID": PRODUCTION_VERIFICATION_AUDIT_ID,
+        Status: "verification",
+      },
+    ],
+  });
+  const result = await runProductionAuditWorkflowChecks(
+    { ...baseConfig, allowVerificationSubmit: true },
+    transport,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.failedKey, "auditResults");
+});
+
+test("dashboard increase fails after submit", async () => {
+  const transport = createHappyTransport({
+    schedules: [assignedSchedule(), verificationSchedule()],
+    dashboardResponse: () => {
+      if (transport.__dashboardCall === undefined) {
+        transport.__dashboardCall = 0;
+      }
+      transport.__dashboardCall += 1;
+      const count = transport.__dashboardCall === 1 ? 5 : 6;
+      return {
+        status: 200,
+        json: { ok: true, metrics: { todayCompleted: count, completedChecksToday: count } },
+      };
+    },
+  });
+  const result = await runProductionAuditWorkflowChecks(
+    { ...baseConfig, allowVerificationSubmit: true },
+    transport,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.failedKey, "dashboard");
 });
 
 test("dashboard mismatch fails after submit", async () => {
@@ -314,6 +392,19 @@ test("successful workflow with verification schedule skips submit unless explici
   assert.equal(result.submissionSkipped, true);
 });
 
+test("cleanup failure is reported after successful submit", async () => {
+  const transport = createHappyTransport({
+    schedules: [assignedSchedule(), verificationSchedule()],
+    cleanupResponse: () => ({ status: 500, json: { ok: false, code: "CLEANUP_WRITE_FAILED" } }),
+  });
+  const result = await runProductionAuditWorkflowChecks(
+    { ...baseConfig, allowVerificationSubmit: true },
+    transport,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.failedKey, "cleanup");
+});
+
 test("successful workflow with verification schedule submits when enabled", async () => {
   const transport = createHappyTransport({
     schedules: [assignedSchedule(), verificationSchedule()],
@@ -326,6 +417,30 @@ test("successful workflow with verification schedule submits when enabled", asyn
   assert.equal(result.checks.submit.status, "PASS");
   assert.equal(result.checks.auditResults.status, "PASS");
   assert.equal(result.checks.dashboard.status, "PASS");
+  assert.equal(result.checks.cleanup.status, "PASS");
+});
+
+test("verification audit result helpers match schedule and audit IDs", () => {
+  const config = {
+    verificationScheduleId: PRODUCTION_VERIFICATION_SCHEDULE_ID,
+    verificationAuditId: PRODUCTION_VERIFICATION_AUDIT_ID,
+  };
+  const rows = [
+    {
+      "Result ID": "result-1",
+      "Schedule ID": PRODUCTION_VERIFICATION_SCHEDULE_ID,
+      "Audit ID": PRODUCTION_VERIFICATION_AUDIT_ID,
+      Status: "verification",
+    },
+    {
+      "Result ID": "result-2",
+      "Schedule ID": "other-schedule",
+      "Audit ID": "other-audit",
+      Status: "completed",
+    },
+  ];
+  assert.equal(countVerificationAuditResults(rows, config), 1);
+  assert.equal(findVerificationAuditResult(rows, config, "result-1")?.["Result ID"], "result-1");
 });
 
 test("isSafeVerificationSchedule matches explicit id and name patterns", () => {

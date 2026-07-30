@@ -972,10 +972,34 @@ export async function listCompanySchedules(auth, deps, input = {}) {
   return readSchedulesFromTab(auth, deps, input);
 }
 
+function scheduleRecordMatchesId(record = {}, scheduleId = "") {
+  const targetId = String(scheduleId || "").trim();
+  if (!targetId) {
+    return false;
+  }
+  const rowScheduleId = String(record["Schedule ID"] || record.ScheduleId || "").trim();
+  return rowScheduleId === targetId;
+}
+
 async function readScheduleRecordsByScheduleId(auth, deps, masterSheetId, scheduleId) {
   const targetId = String(scheduleId || "").trim();
   if (!targetId) {
     return null;
+  }
+
+  const readTabRecords = resolveReadTabRecords(deps);
+  try {
+    const readResult = await readTabRecords(auth, deps, masterSheetId, SCHEDULES_TAB, {
+      expectedHeaders: SCHEDULES_TAB_COLUMNS,
+    });
+    if (Array.isArray(readResult?.records)) {
+      const records = readResult.records.filter((record) => scheduleRecordMatchesId(record, targetId));
+      if (records.length > 0) {
+        return records;
+      }
+    }
+  } catch {
+    /* fall through to column-scan path for lightweight test doubles */
   }
 
   const getTabValues = resolveGetTabValues(deps);
@@ -996,14 +1020,13 @@ async function readScheduleRecordsByScheduleId(auth, deps, masterSheetId, schedu
   }
 
   const headerValues = await getTabValues(auth, deps, masterSheetId, SCHEDULES_TAB, "A1:W1");
+  const headerRows =
+    Array.isArray(headerValues) && headerValues.length > 0 ? headerValues : [SCHEDULES_TAB_COLUMNS];
   const minRow = Math.min(...matchingSheetRows);
   const maxRow = Math.max(...matchingSheetRows);
   const blockValues = await getTabValues(auth, deps, masterSheetId, SCHEDULES_TAB, `A${minRow}:W${maxRow}`);
-  const records = rowsToRecords([...(headerValues || []), ...(blockValues || [])]);
-  return records.filter((record) => {
-    const rowScheduleId = String(record["Schedule ID"] || record.ScheduleId || "").trim();
-    return rowScheduleId === targetId;
-  });
+  const records = rowsToRecords([...headerRows, ...(blockValues || [])]);
+  return records.filter((record) => scheduleRecordMatchesId(record, targetId));
 }
 
 /** Fast schedule lookup for completion — folder-first workbook resolution, targeted row read. */
@@ -1025,13 +1048,11 @@ export async function getCompanyScheduleForCompletion(auth, deps, input = {}) {
   }
 
   let records = await readScheduleRecordsByScheduleId(auth, deps, context.masterSheetId, scheduleId);
-  if (records === null) {
+  if (!records || records.length === 0) {
     const loaded = await loadCompanySchedulesFromWorkbook(auth, deps, context, {
       canonicalOnly: true,
     });
-    records = (loaded.records || []).filter(
-      (record) => String(record["Schedule ID"] || record.ScheduleId || "").trim() === scheduleId,
-    );
+    records = (loaded.records || []).filter((record) => scheduleRecordMatchesId(record, scheduleId));
   }
 
   if (!records || records.length === 0) {
@@ -1049,7 +1070,13 @@ export async function getCompanyScheduleForCompletion(auth, deps, input = {}) {
     context.companyFolderId,
     context.alternateIds || [],
   );
-  const schedule = findCompanyScheduleById(schedules, scheduleId);
+  let schedule = findCompanyScheduleById(schedules, scheduleId);
+  if (!schedule) {
+    const loaded = await loadCompanySchedulesFromWorkbook(auth, deps, context, {
+      canonicalOnly: true,
+    });
+    schedule = findCompanyScheduleById(loaded.schedules, scheduleId);
+  }
   if (!schedule) {
     return {
       ok: false,

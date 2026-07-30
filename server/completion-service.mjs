@@ -25,6 +25,14 @@ import {
 } from "./workbook-service.mjs";
 import { appendNcrsFromCheckCompletion, linkEvidenceRefsToNcrs } from "./ncr-service.mjs";
 import {
+  PRODUCTION_VERIFICATION_CLEANED_STATUS,
+  PRODUCTION_VERIFICATION_RESULT_STATUS,
+  PRODUCTION_VERIFICATION_SMOKE_LOCAL_SUBMISSION_PREFIX,
+  isVerificationAuditId,
+  isVerificationAuditResult,
+  isVerificationScheduleId,
+} from "../shared/production-verification-audit.mjs";
+import {
   normalizeAuditEvidenceUploadFile,
   sanitizeAuditEvidenceRefsForWorkbook,
   uploadAuditEvidenceToDrive,
@@ -169,6 +177,21 @@ function jsonString(value, fallback = "{}") {
   } catch {
     return fallback;
   }
+}
+
+function resolveAuditResultStatus(input = {}) {
+  const explicit = trim(input.status || input.result);
+  const localSubmissionId = trim(input.localSubmissionId);
+  const scheduleId = trim(input.scheduleId);
+  const auditId = trim(input.auditId);
+  if (
+    localSubmissionId.startsWith(PRODUCTION_VERIFICATION_SMOKE_LOCAL_SUBMISSION_PREFIX) ||
+    isVerificationScheduleId(scheduleId) ||
+    isVerificationAuditId(auditId)
+  ) {
+    return PRODUCTION_VERIFICATION_RESULT_STATUS;
+  }
+  return explicit || "completed";
 }
 
 function resolveAppendTabRows(deps) {
@@ -326,7 +349,7 @@ export function buildAuditResultRow(input = {}) {
     "Completed By Email": completedByEmail,
     "Completed By Name": completedByName,
     "Completed At": completedAt,
-    Status: trim(input.status) || "completed",
+    Status: resolveAuditResultStatus(input),
     "Answers JSON": jsonString(input.answersJson ?? input.answers, "{}"),
     "Findings JSON": jsonString(input.findingsJson ?? input.findings, "[]"),
     "Evidence Refs": jsonString(input.evidenceRefs ?? input.evidence, "[]"),
@@ -607,7 +630,11 @@ export async function submitCompletedCheck(auth, deps, input = {}) {
         "",
       nextDueAt: trim(input.nextDueAt || schedule.nextDueAt),
       frequency: trim(input.frequency || matchingAudit?.frequency || "Weekly"),
-      status: trim(input.status || input.result) || "completed",
+      status: resolveAuditResultStatus({
+        ...input,
+        scheduleId,
+        auditId,
+      }),
       answers: input.answers,
       answersJson: input.answersJson,
       findings: input.findings,
@@ -989,6 +1016,98 @@ export async function getAuditResult(auth, deps, companyContext = {}, resultId =
     companyFolderId: context.companyFolderId,
     masterSheetId: context.masterSheetId,
     result: match,
+  };
+}
+
+/** Mark a smoke verification AuditResults row as cleaned — verification rows only. */
+export async function cleanupVerificationAuditResult(auth, deps, input = {}) {
+  const resultId = trim(input.resultId);
+  const companyFolderId = trim(input.companyFolderId || input.companyId);
+  const masterSheetId = trim(input.masterSheetId);
+  const localSubmissionId = trim(input.localSubmissionId);
+
+  if (!resultId || !companyFolderId) {
+    return {
+      ok: false,
+      code: "CLEANUP_CONTEXT_MISSING",
+      error: "Result ID and company folder are required.",
+      httpStatus: 400,
+    };
+  }
+
+  const existing = await getAuditResult(
+    auth,
+    deps,
+    {
+      companyFolderId,
+      companyId: companyFolderId,
+      masterSheetId,
+      trustSessionContext: input.trustSessionContext === true,
+    },
+    resultId,
+  );
+  if (!existing.ok) {
+    return existing;
+  }
+
+  const record = existing.result || {};
+  if (!isVerificationAuditResult(record)) {
+    return {
+      ok: false,
+      code: "CLEANUP_NOT_VERIFICATION_RESULT",
+      error: "Only verification audit results can be cleaned up through this path.",
+      httpStatus: 403,
+    };
+  }
+
+  const rowLocalSubmissionId = trim(
+    pickRecordField(record, "Local Submission ID", "LocalSubmissionId"),
+  );
+  if (
+    localSubmissionId &&
+    rowLocalSubmissionId &&
+    rowLocalSubmissionId !== localSubmissionId
+  ) {
+    return {
+      ok: false,
+      code: "CLEANUP_SUBMISSION_MISMATCH",
+      error: "The verification result does not match the submitted local submission ID.",
+      httpStatus: 403,
+    };
+  }
+
+  const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
+  try {
+    await patchTabRowByHeader(
+      auth,
+      deps,
+      existing.masterSheetId,
+      AUDIT_RESULTS_TAB,
+      "Result ID",
+      resultId,
+      {
+        Status: PRODUCTION_VERIFICATION_CLEANED_STATUS,
+        "Updated At": new Date().toISOString(),
+      },
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      code: "CLEANUP_WRITE_FAILED",
+      error: "Could not clean up the verification audit result.",
+      message: "Could not clean up the verification audit result.",
+      technicalError: error instanceof Error ? error.message : String(error),
+      httpStatus: 502,
+    };
+  }
+
+  return {
+    ok: true,
+    resultId,
+    companyFolderId: existing.companyFolderId,
+    masterSheetId: existing.masterSheetId,
+    cleaned: true,
+    status: PRODUCTION_VERIFICATION_CLEANED_STATUS,
   };
 }
 

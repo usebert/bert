@@ -381,6 +381,59 @@ const buildOpts = (actor) => ({ companyFolderId: CO, alternateIds: [CO], actor, 
   assert(!built.sections.currentIncidents.some((row) => row.id.includes("i-other")), "15c: no other-company incident rows");
 }
 
+{
+  const built = buildLiveDashboardFromSources(
+    {
+      schedules: [
+        {
+          "Schedule ID": "bert-sch-production-verification",
+          "Company Folder ID": CO,
+          "Schedule Name": "BERT Verification Audit",
+          "Audit ID": "bert-verify-audit-v1",
+          Frequency: "Weekly",
+          Status: "ACTIVE",
+          "Assigned User Emails": "aud@live.co",
+        },
+        {
+          "Schedule ID": "s-today",
+          "Company Folder ID": CO,
+          "Schedule Name": "Daily fire walk",
+          "Audit ID": "a1",
+          Frequency: "Daily",
+          "Live Time": "08:00",
+          "Completion Hours": "24",
+          "Start Date": "2026-07-01",
+          "Assigned User Emails": "aud@live.co",
+          Status: "ACTIVE",
+        },
+      ],
+      auditResults: [
+        {
+          "Result ID": "r-verify",
+          "Company ID": CO,
+          "Schedule ID": "bert-sch-production-verification",
+          "Audit ID": "bert-verify-audit-v1",
+          "Completed At": "2026-07-07T09:00:00.000Z",
+          Status: "verification",
+        },
+      ],
+      actions: [],
+      incidents: [],
+      ncrs: [],
+      auditFindings: [],
+      briefings: [],
+      briefingRecipients: [],
+      areas: [],
+      sites: [],
+      departments: [],
+      syncLog: [],
+    },
+    { companyFolderId: CO, actor: { role: "Admin", email: "aud@live.co" }, now: NOW },
+  );
+  assert(built.metrics.todayCompleted === 0, "15d: verification audit results excluded from todayCompleted");
+  assert(built.metrics.todayDue === 1, "15e: verification schedules excluded from due counts");
+}
+
 /** Route + package wiring. */
 {
   const coreRoutes = read("server/core-workflow-routes.mjs");

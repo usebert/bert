@@ -17,6 +17,71 @@ export const PRODUCTION_VERIFICATION_SMOKE_USERNAME = "mr.important";
 export const PRODUCTION_VERIFICATION_SMOKE_EMAIL = demoEmail(PRODUCTION_VERIFICATION_SMOKE_USERNAME);
 export const PRODUCTION_VERIFICATION_SMOKE_NAME = "Mr Important";
 export const PRODUCTION_VERIFICATION_SMOKE_ROLE = "Admin";
+export const PRODUCTION_VERIFICATION_SMOKE_LOCAL_SUBMISSION_PREFIX = "bert-smoke-";
+export const PRODUCTION_VERIFICATION_RESULT_STATUS = "verification";
+export const PRODUCTION_VERIFICATION_CLEANED_STATUS = "verification-cleaned";
+
+function trim(value) {
+  return String(value ?? "").trim();
+}
+
+function normalize(value) {
+  return trim(value).toLowerCase();
+}
+
+function extractField(record, keys) {
+  const normalizedKeys = keys.map((key) => normalize(key).replace(/[^a-z0-9]/g, ""));
+  for (const [header, value] of Object.entries(record || {})) {
+    const normalizedHeader = normalize(header).replace(/[^a-z0-9]/g, "");
+    if (normalizedKeys.some((key) => normalizedHeader === key || normalizedHeader.includes(key))) {
+      const text = trim(value);
+      if (text) {
+        return text;
+      }
+    }
+  }
+  return "";
+}
+
+export function isVerificationScheduleId(scheduleId = "") {
+  return trim(scheduleId) === PRODUCTION_VERIFICATION_SCHEDULE_ID;
+}
+
+export function isVerificationAuditId(auditId = "") {
+  return trim(auditId) === PRODUCTION_VERIFICATION_AUDIT_ID;
+}
+
+export function isVerificationSchedule(schedule = {}) {
+  const scheduleId = trim(schedule.id || schedule.scheduleId);
+  const scheduleName = trim(schedule.scheduleName || schedule.name);
+  if (isVerificationScheduleId(scheduleId)) {
+    return true;
+  }
+  return /bert\s+verification/i.test(scheduleName) || /verification\s+audit/i.test(scheduleName);
+}
+
+export function isVerificationAuditResult(record = {}) {
+  const status = normalize(extractField(record, ["status"]));
+  if (status === PRODUCTION_VERIFICATION_RESULT_STATUS || status === PRODUCTION_VERIFICATION_CLEANED_STATUS) {
+    return true;
+  }
+  if (isVerificationScheduleId(extractField(record, ["schedule id", "scheduleid"]))) {
+    return true;
+  }
+  if (isVerificationAuditId(extractField(record, ["audit id", "auditid"]))) {
+    return true;
+  }
+  const localSubmissionId = extractField(record, ["local submission id", "localsubmissionid"]);
+  if (localSubmissionId.startsWith(PRODUCTION_VERIFICATION_SMOKE_LOCAL_SUBMISSION_PREFIX)) {
+    return true;
+  }
+  const auditName = extractField(record, ["audit name", "auditname"]);
+  return /bert\s+verification/i.test(auditName);
+}
+
+export function isOperationalAuditResult(record = {}) {
+  return !isVerificationAuditResult(record);
+}
 
 export const PRODUCTION_VERIFICATION_QUESTIONS = [
   {
