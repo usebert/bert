@@ -240,6 +240,43 @@ Unit tests (mocked HTTP, no production calls):
 npm run verify:production-auth-health-tests
 ```
 
+### Production audit workflow (post-deploy smoke)
+
+After startup health and authentication health pass, run the audit workflow smoke test. It authenticates with the same smoke account, loads assigned checks, opens an audit, exercises draft save/resume/edit (client-local draft parity), and — only when a dedicated verification schedule exists — submits that audit and confirms AuditResults and dashboard metrics update. It never submits customer production audits.
+
+```bash
+set -a && source .env && set +a
+
+BERT_SMOKE_USERNAME=mr.important \
+BERT_SMOKE_PASSWORD='<set securely in your environment>' \
+BERT_SMOKE_COMPANY_FOLDER_ID=1tDKluapYfY-RkuxXc6eoRnGHL38XCswx \
+BERT_SMOKE_MASTER_SHEET_ID=1MntKgSgVmTmlpzZhnCZdDQtdmPw7GcXptlAp88Ewrkc \
+BERT_SMOKE_EXPECTED_EMAIL=bert.demo+mr.important@usebert.co.uk \
+npm run verify:production-audit-workflow
+```
+
+Optional:
+
+- **`BERT_SMOKE_VERIFICATION_SCHEDULE_ID`** — explicit schedule ID allowed for safe end-to-end submission (name patterns like `BERT Verification Audit` are also recognised).
+
+Exit code **0** and **`RESULT: READY FOR CUSTOMERS`** mean every required stage passed. Submission stages show **SKIPPED** when no dedicated verification audit is configured — that is expected and still counts as ready.
+
+Unit tests (mocked HTTP, no production calls):
+
+```bash
+npm run verify:production-audit-workflow-tests
+```
+
+### Post-deploy verification sequence
+
+Run in order after every API deployment:
+
+1. **Startup health** — boot gate and `/api/health` readiness (`verify:startup-health-manager`, `verify:startup-boot-gate-tests`)
+2. **Authentication health** — `npm run verify:production-auth-health`
+3. **Audit workflow** — `npm run verify:production-audit-workflow`
+
+Only when all three pass should the deployment be considered **READY FOR CUSTOMERS**.
+
 ### Startup system health (Master operators)
 
 After API boot, the server runs **critical verification before `listen()`**. The port does not open until critical checks pass. `GET /api/health` returns **HTTP 503** while booting and **HTTP 200** once deferred readiness completes and the API is accepting traffic.

@@ -641,6 +641,134 @@ export async function runProductionAuthHealthChecks(config, transport) {
   return result;
 }
 
+/**
+ * Authenticate the smoke account only (login + session validation).
+ * Reused by production audit workflow and other post-deploy verifiers.
+ */
+export async function performProductionSmokeLogin(config, transport) {
+  if (transport.clearCookies) {
+    transport.clearCookies();
+  }
+
+  let login;
+  try {
+    login = await transport.request("POST", "/api/auth/company/login", buildLoginBody(config));
+  } catch (error) {
+    return {
+      ok: false,
+      failureReason: `Production login request failed: ${error instanceof Error ? error.message : String(error)}`,
+      remediation: "Inspect API logs for the company login route.",
+      httpStatus: 0,
+      responseBody: "",
+    };
+  }
+
+  assertResponseSafe(login.json, "production login");
+  const cookies = transport.getCookies ? transport.getCookies() : {};
+
+  if (login.status !== 200 || login.json?.ok !== true) {
+    const outcome = classifyProbeLoginFailure(login.json);
+    return {
+      ok: false,
+      failureReason: `Login rejected (HTTP ${login.status}, outcome=${outcome}).`,
+      remediation:
+        outcome === "invalid_credentials"
+          ? "Reset the smoke account password with npm run reset:demo-user-password if needed."
+          : "Inspect company registry, Users tab, and API Google connectivity.",
+      httpStatus: login.status,
+      responseBody: login.json,
+    };
+  }
+
+  const sessionEmail = trim(login.json?.user?.email).toLowerCase();
+  const sessionRole = trim(login.json?.user?.role);
+  const sessionFolderId = trim(
+    login.json?.company?.companyFolderId || login.json?.company?.companyId || login.json?.user?.companyFolderId,
+  );
+  const sessionCompanyName = trim(login.json?.company?.companyName);
+  const masterSheetId = trim(login.json?.masterSheetId || config.masterSheetId);
+
+  if (config.expectedEmail && sessionEmail !== config.expectedEmail) {
+    return {
+      ok: false,
+      failureReason: `Login email mismatch (got ${maskEmail(sessionEmail)}, expected ${maskEmail(config.expectedEmail)}).`,
+      remediation: "Repair the Users tab Username/Email mapping and rebuild the auth index.",
+      httpStatus: login.status,
+      responseBody: login.json,
+    };
+  }
+  if (!sessionEmail.includes("@")) {
+    return {
+      ok: false,
+      failureReason: "Login response did not return a canonical email address.",
+      remediation: "Inspect performCompanyLogin session payload shaping.",
+      httpStatus: login.status,
+      responseBody: login.json,
+    };
+  }
+  if (sessionFolderId !== config.companyFolderId) {
+    return {
+      ok: false,
+      failureReason: `Login companyFolderId mismatch (got ${sessionFolderId || "(blank)"}).`,
+      remediation: "Verify BERT_SMOKE_COMPANY_FOLDER_ID matches the Users tab and registry row.",
+      httpStatus: login.status,
+      responseBody: login.json,
+    };
+  }
+  if (config.expectedRole && sessionRole !== config.expectedRole) {
+    return {
+      ok: false,
+      failureReason: `Login role mismatch (got ${sessionRole || "(blank)"}, expected ${config.expectedRole}).`,
+      remediation: "Verify the Users tab Role column for the smoke account.",
+      httpStatus: login.status,
+      responseBody: login.json,
+    };
+  }
+  if (!hasSessionCookie(cookies)) {
+    return {
+      ok: false,
+      failureReason: `Login succeeded but no ${COMPANY_SESSION_COOKIE} cookie was issued.`,
+      remediation: "Inspect session cookie settings (SESSION_SECRET, secure/sameSite) on the API host.",
+      httpStatus: login.status,
+      responseBody: login.json,
+    };
+  }
+
+  let session;
+  try {
+    session = await transport.request("GET", "/api/auth/company/session");
+  } catch (error) {
+    return {
+      ok: false,
+      failureReason: `Session endpoint failed: ${error instanceof Error ? error.message : String(error)}`,
+      remediation: "Inspect GET /api/auth/company/session on the API host.",
+      httpStatus: 0,
+      responseBody: "",
+    };
+  }
+  assertResponseSafe(session.json, "company session");
+  if (session.status !== 200 || session.json?.ok !== true) {
+    return {
+      ok: false,
+      failureReason: `Authenticated session was not accepted (HTTP ${session.status}).`,
+      remediation: "Inspect signed session cookies and company session validation on the API host.",
+      httpStatus: session.status,
+      responseBody: session.json,
+    };
+  }
+
+  return {
+    ok: true,
+    accountEmail: sessionEmail,
+    role: sessionRole,
+    companyLabel: sessionCompanyName || config.companyFolderId,
+    companyFolderId: sessionFolderId,
+    masterSheetId,
+    user: login.json?.user || {},
+    company: login.json?.company || {},
+  };
+}
+
 export function createFetchTransport(apiBase, appOrigin, timeoutMs = DEFAULT_TIMEOUT_MS) {
   const cookies = new Map();
 
