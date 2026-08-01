@@ -277,6 +277,7 @@ export async function runProductionActionsWorkflowChecks(config, transport, opti
     result.remediation = remediation;
     result.httpStatus = httpStatus || undefined;
     result.safeResponseBody = responseBody ? redactSafeResponseBody(responseBody) : undefined;
+    result.checks[key] = { status: "FAIL" };
     for (const checkKey of CHECK_KEYS) {
       if (result.checks[checkKey].status === "PENDING") {
         result.checks[checkKey] = { status: "SKIP" };
