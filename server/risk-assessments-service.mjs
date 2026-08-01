@@ -38,6 +38,14 @@ import {
   validateRiskAssessmentForSubmit,
   dedupeHazardsById,
 } from "../shared/risk-assessments.mjs";
+import {
+  isVerificationAssessmentNumber,
+  isVerificationRiskAssessment,
+  isVerificationRiskAssessmentId,
+  isActiveVerificationRiskAssessment,
+  PRODUCTION_VERIFICATION_RA_CLEANED_STATUS,
+} from "../shared/production-verification-risk-assessment.mjs";
+import { cleanupVerificationAction } from "./actions-service.mjs";
 import { isCompanyInviteActor, isGodmodeInviteSession } from "../shared/company-invite-permissions.mjs";
 import { getUkTodayKey } from "../shared/uk-date-time.mjs";
 import { actorCanAccessCompanyHealthSafety, healthSafetyApiFailure } from "./health-safety-service.mjs";
@@ -807,8 +815,27 @@ export async function createCompanyRiskAssessment(auth, deps, resolved, actor, i
   timer.log("ensure-tabs");
   const existing = await readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, RISK_ASSESSMENTS_TAB_COLUMNS);
   timer.log("read-assessments");
-  const assessmentNumber = nextAssessmentNumber(existing.map((row) => trim(row.AssessmentNumber)));
-  const id = buildRiskAssessmentId();
+  const requestedId = trim(input.riskAssessmentId) || trim(input.id);
+  const requestedNumber = trim(input.assessmentNumber);
+  const existingMatch = requestedId
+    ? existing.find((row) => trim(row.RiskAssessmentId) === requestedId)
+    : null;
+  if (existingMatch) {
+    const mapped = mapRiskAssessmentRecord(existingMatch);
+    if (isVerificationRiskAssessment(mapped)) {
+      timer.log("existing-verification");
+      return buildDraftSaveResponse(mapped, []);
+    }
+    return healthSafetyApiFailure(
+      "RISK_ASSESSMENT_EXISTS",
+      "A risk assessment with this ID already exists.",
+      409,
+    );
+  }
+  const assessmentNumber = isVerificationAssessmentNumber(requestedNumber)
+    ? requestedNumber
+    : nextAssessmentNumber(existing.map((row) => trim(row.AssessmentNumber)));
+  const id = isVerificationRiskAssessmentId(requestedId) ? requestedId : buildRiskAssessmentId();
   const timestamp = nowIso();
   const row = {
     RiskAssessmentId: id,
@@ -827,8 +854,9 @@ export async function createCompanyRiskAssessment(auth, deps, resolved, actor, i
     AssessorName: trim(input.assessorName) || trim(actor.name),
     AssessmentDate: trim(input.assessmentDate) || getUkTodayKey(),
     ReviewDate: trim(input.reviewDate),
+    NextReviewReason: trim(input.nextReviewReason),
     Status: "Draft",
-    Version: "1.0",
+    Version: trim(input.version) || "1.0",
     PeopleAtRisk: trim(input.peopleAtRisk),
     ExistingGeneralControls: trim(input.existingGeneralControls),
     EmergencyArrangements: trim(input.emergencyArrangements),
@@ -1391,6 +1419,182 @@ export async function listRiskAssessmentReviews(auth, deps, resolved, actor, ris
     .filter((item) => item.id && item.riskAssessmentId === trim(riskAssessmentId))
     .sort((left, right) => trim(right.createdAt).localeCompare(trim(left.createdAt)));
   return { ok: true, items };
+}
+
+async function archiveVerificationHazardsForAssessment(auth, deps, resolved, actor, riskAssessmentId, timestamp) {
+  const records = await readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_HAZARDS_TAB, RISK_ASSESSMENT_HAZARDS_TAB_COLUMNS);
+  const batchPatchTabRowsByHeader = resolveBatchPatchTabRowsByHeader(deps);
+  const patchRows = [];
+  for (const record of records) {
+    const hazard = mapRiskHazardRecord(record);
+    if (hazard.riskAssessmentId !== trim(riskAssessmentId) || hazard.archivedAt) continue;
+    patchRows.push({
+      matchValue: hazard.id,
+      updates: {
+        Status: "archived",
+        ArchivedAt: timestamp,
+        ArchivedBy: normalizeEmail(actor.email),
+        UpdatedAt: timestamp,
+        UpdatedBy: normalizeEmail(actor.email),
+      },
+    });
+  }
+  if (patchRows.length > 0) {
+    await batchPatchTabRowsByHeader(
+      auth,
+      deps,
+      resolved.masterSheetId,
+      RISK_ASSESSMENT_HAZARDS_TAB,
+      "HazardId",
+      patchRows,
+    );
+  }
+  return patchRows.length;
+}
+
+async function archiveVerificationLinksForAssessment(auth, deps, resolved, actor, riskAssessmentId, timestamp) {
+  const records = await readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_LINKS_TAB, RISK_ASSESSMENT_LINKS_TAB_COLUMNS);
+  const batchPatchTabRowsByHeader = resolveBatchPatchTabRowsByHeader(deps);
+  const patchRows = [];
+  for (const record of records) {
+    const link = mapRiskLinkRecord(record);
+    if (link.riskAssessmentId !== trim(riskAssessmentId) || link.archivedAt) continue;
+    patchRows.push({
+      matchValue: link.id,
+      updates: {
+        ArchivedAt: timestamp,
+        ArchivedBy: normalizeEmail(actor.email),
+      },
+    });
+  }
+  if (patchRows.length > 0) {
+    await batchPatchTabRowsByHeader(
+      auth,
+      deps,
+      resolved.masterSheetId,
+      RISK_ASSESSMENT_LINKS_TAB,
+      "LinkId",
+      patchRows,
+    );
+  }
+  return patchRows.length;
+}
+
+async function cleanupLinkedVerificationActions(auth, deps, resolved, actor, riskAssessmentId) {
+  const hazardRecords = await readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_HAZARDS_TAB, RISK_ASSESSMENT_HAZARDS_TAB_COLUMNS);
+  const linkedActionIds = new Set();
+  for (const record of hazardRecords) {
+    const hazard = mapRiskHazardRecord(record);
+    if (hazard.riskAssessmentId !== trim(riskAssessmentId)) continue;
+    const linkedActionId = trim(hazard.linkedActionId);
+    if (linkedActionId) {
+      linkedActionIds.add(linkedActionId);
+    }
+  }
+  let cleanedActions = 0;
+  for (const actionId of linkedActionIds) {
+    const result = await cleanupVerificationAction(auth, deps, {
+      actionId,
+      companyFolderId: resolved.companyFolderId,
+      companyId: resolved.companyFolderId,
+      masterSheetId: resolved.masterSheetId,
+      trustSessionContext: true,
+    });
+    if (result.ok) {
+      cleanedActions += 1;
+    }
+  }
+  return cleanedActions;
+}
+
+export async function cleanupVerificationRiskAssessment(auth, deps, resolved, actor, riskAssessmentId, input = {}) {
+  const id = trim(riskAssessmentId);
+  if (!id) {
+    return healthSafetyApiFailure("CLEANUP_CONTEXT_MISSING", "Risk assessment ID is required.", 400);
+  }
+  if (!canViewRiskAssessments(actor)) {
+    return healthSafetyApiFailure("RISK_ASSESSMENT_FORBIDDEN", "You do not have access to risk assessments.", 403);
+  }
+  await ensureRiskAssessmentTabs(auth, deps, resolved.masterSheetId);
+  const records = await readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, RISK_ASSESSMENTS_TAB_COLUMNS);
+  const found = records.find((record) => trim(record.RiskAssessmentId) === id);
+  if (!found) {
+    return healthSafetyApiFailure("RISK_ASSESSMENT_NOT_FOUND", "Risk assessment not found.", 404);
+  }
+  const assessment = mapRiskAssessmentRecord(found);
+  if (!isVerificationRiskAssessment(assessment)) {
+    return healthSafetyApiFailure(
+      "CLEANUP_NOT_VERIFICATION_RISK_ASSESSMENT",
+      "Only verification risk assessments can be cleaned up through this path.",
+      403,
+    );
+  }
+  const timestamp = nowIso();
+  const cleanedHazards = await archiveVerificationHazardsForAssessment(auth, deps, resolved, actor, id, timestamp);
+  const cleanedLinks = await archiveVerificationLinksForAssessment(auth, deps, resolved, actor, id, timestamp);
+  const cleanedActions = await cleanupLinkedVerificationActions(auth, deps, resolved, actor, id);
+  const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
+  await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, "RiskAssessmentId", id, {
+    Status: PRODUCTION_VERIFICATION_RA_CLEANED_STATUS,
+    ArchivedAt: timestamp,
+    ArchivedBy: normalizeEmail(actor.email),
+    UpdatedAt: timestamp,
+    UpdatedBy: normalizeEmail(actor.email),
+  });
+  return {
+    ok: true,
+    riskAssessmentId: id,
+    cleaned: true,
+    status: PRODUCTION_VERIFICATION_RA_CLEANED_STATUS,
+    cleanedHazards,
+    cleanedLinks,
+    cleanedActions,
+    companyFolderId: resolved.companyFolderId,
+    masterSheetId: resolved.masterSheetId,
+  };
+}
+
+export async function cleanupStaleVerificationRiskAssessments(auth, deps, resolved, actor) {
+  if (!canViewRiskAssessments(actor)) {
+    return healthSafetyApiFailure("RISK_ASSESSMENT_FORBIDDEN", "You do not have access to risk assessments.", 403);
+  }
+  await ensureRiskAssessmentTabs(auth, deps, resolved.masterSheetId);
+  const records = await readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, RISK_ASSESSMENTS_TAB_COLUMNS);
+  const stale = records
+    .map((record) => mapRiskAssessmentRecord(record))
+    .filter((item) => isActiveVerificationRiskAssessment(item));
+  if (stale.length === 0) {
+    return {
+      ok: true,
+      cleanedCount: 0,
+      cleanedRiskAssessmentIds: [],
+      companyFolderId: resolved.companyFolderId,
+      masterSheetId: resolved.masterSheetId,
+    };
+  }
+  const cleanedRiskAssessmentIds = [];
+  let cleanedHazards = 0;
+  let cleanedLinks = 0;
+  let cleanedActions = 0;
+  for (const assessment of stale) {
+    const result = await cleanupVerificationRiskAssessment(auth, deps, resolved, actor, assessment.id);
+    if (result.ok) {
+      cleanedRiskAssessmentIds.push(assessment.id);
+      cleanedHazards += Number(result.cleanedHazards) || 0;
+      cleanedLinks += Number(result.cleanedLinks) || 0;
+      cleanedActions += Number(result.cleanedActions) || 0;
+    }
+  }
+  return {
+    ok: true,
+    cleanedCount: cleanedRiskAssessmentIds.length,
+    cleanedRiskAssessmentIds,
+    cleanedHazards,
+    cleanedLinks,
+    cleanedActions,
+    companyFolderId: resolved.companyFolderId,
+    masterSheetId: resolved.masterSheetId,
+  };
 }
 
 export { resolveCompanyScheduleContext, RISK_ASSESSMENT_REQUIRED_TABS };

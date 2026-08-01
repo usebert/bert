@@ -313,6 +313,56 @@ npm run verify:production-actions-workflow-tests
 npm run verify:production-verification-action-tests
 ```
 
+### Production Risk Assessment workflow (post-deploy smoke)
+
+After startup health, authentication health, audit workflow, and Actions workflow pass, run the Risk Assessment workflow smoke test. It authenticates with the same smoke account, confirms the folder-first Risk Assessments read/write API, and — only when `BERT_SMOKE_ALLOW_RISK_ASSESSMENT_MUTATION=1` — creates a dedicated verification Risk Assessment, exercises draft hazards, submit, approve, review, Health & Safety overview exclusion, and cleans up safely. It never edits customer Risk Assessments.
+
+```bash
+set -a && source .env && set +a
+
+BERT_SMOKE_USERNAME=mr.important \
+BERT_SMOKE_PASSWORD='<set securely in your environment>' \
+BERT_SMOKE_COMPANY_FOLDER_ID=1tDKluapYfY-RkuxXc6eoRnGHL38XCswx \
+BERT_SMOKE_MASTER_SHEET_ID=1MntKgSgVmTmlpzZhnCZdDQtdmPw7GcXptlAp88Ewrkc \
+BERT_SMOKE_EXPECTED_EMAIL=bert.demo+mr.important@usebert.co.uk \
+BERT_SMOKE_ALLOW_RISK_ASSESSMENT_MUTATION=1 \
+npm run verify:production-risk-assessment-workflow
+```
+
+Optional:
+
+- **`BERT_SMOKE_ALLOW_RISK_ASSESSMENT_MUTATION`** — must be `1` to exercise create/hazard/submit/approve/review/cleanup stages. Without it, mutation stages report **SKIPPED** (authentication, Risk Assessments API, and baseline still run).
+- **`BERT_SMOKE_RISK_ASSESSMENT_REVIEWER_USERNAME` / `BERT_SMOKE_RISK_ASSESSMENT_REVIEWER_PASSWORD` / `BERT_SMOKE_RISK_ASSESSMENT_REVIEWER_EXPECTED_EMAIL`** — only required if the primary smoke account cannot approve its own submission.
+
+Verification Risk Assessment markers:
+
+- RiskAssessmentId prefix: `bert-smoke-ra-`
+- Assessment number prefix: `BERT-VERIFY-RA-`
+- Title: `BERT Verification Risk Assessment`
+- Source reference: `production-risk-assessment-workflow`
+- Status marker: `verification`
+
+Cleanup uses verification-only routes:
+
+- `POST /api/companies/:companyFolderId/risk-assessments/verification-cleanup`
+- `POST /api/companies/:companyFolderId/risk-assessments/:riskAssessmentId/verification-cleanup`
+
+Expected duration: ~3–12 minutes with mutation enabled (Google Sheets writes can be slow).
+
+Stage timeouts: authentication 90s, reads 60s, create/save hazards 120s, submit/approve 120s, overview/dashboard 60s, review/cleanup 120s, total budget 12 minutes.
+
+Optional **SKIPPED** stages:
+
+- **Search** — client-side search only; no safe production search endpoint.
+- **New Version** — skipped until safe multi-version verification cleanup is implemented.
+
+Unit tests (mocked HTTP, no production calls):
+
+```bash
+npm run verify:production-risk-assessment-workflow-tests
+npm run verify:production-verification-risk-assessment-tests
+```
+
 ### Post-deploy verification sequence
 
 Run in order after every API deployment:
@@ -321,8 +371,9 @@ Run in order after every API deployment:
 2. **Authentication health** — `npm run verify:production-auth-health`
 3. **Audit workflow** — `npm run verify:production-audit-workflow`
 4. **Actions workflow** — `npm run verify:production-actions-workflow`
+5. **Risk Assessment workflow** — `npm run verify:production-risk-assessment-workflow`
 
-Only when all four pass should the deployment be considered **READY FOR CUSTOMERS**.
+Only when all five pass should the deployment be considered **READY FOR CUSTOMERS**.
 
 ### Startup system health (Master operators)
 

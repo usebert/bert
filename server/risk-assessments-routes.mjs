@@ -10,6 +10,8 @@ import {
   archiveCompanyRiskAssessment,
   archiveRiskAssessmentHazard,
   archiveRiskAssessmentLink,
+  cleanupStaleVerificationRiskAssessments,
+  cleanupVerificationRiskAssessment,
   createCompanyRiskAssessment,
   createNewVersionCompanyRiskAssessment,
   createRiskAssessmentHazard,
@@ -151,6 +153,12 @@ export function installRiskAssessmentRoutes(app, deps) {
   app.post("/api/companies/:companyFolderId/risk-assessments", (req, res) => {
     runRoute(req, res, { manage: true, label: "Create risk assessment" }, ({ authed, actor, resolved }) =>
       createCompanyRiskAssessment(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor, req.body || {}),
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/risk-assessments/verification-cleanup", (req, res) => {
+    runRoute(req, res, { manage: true, label: "Cleanup stale verification risk assessments" }, ({ authed, actor, resolved }) =>
+      cleanupStaleVerificationRiskAssessments(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor),
     );
   });
 
@@ -325,6 +333,19 @@ export function installRiskAssessmentRoutes(app, deps) {
   app.get("/api/companies/:companyFolderId/risk-assessments/:riskAssessmentId/reviews", (req, res) => {
     runRoute(req, res, { label: "List reviews" }, ({ authed, actor, resolved }) =>
       listRiskAssessmentReviews(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor, req.params.riskAssessmentId),
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/risk-assessments/:riskAssessmentId/verification-cleanup", (req, res) => {
+    runRoute(req, res, { manage: true, label: "Cleanup verification risk assessment" }, ({ authed, actor, resolved }) =>
+      cleanupVerificationRiskAssessment(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        resolved,
+        actor,
+        req.params.riskAssessmentId,
+        req.body || {},
+      ),
     );
   });
 }

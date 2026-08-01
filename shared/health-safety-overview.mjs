@@ -5,6 +5,7 @@
 import { lolerEquipmentComplianceStatus } from "./loler.mjs";
 import { isUkOverdue } from "./uk-date-time.mjs";
 import { isHighOrVeryHighRisk } from "./risk-assessments.mjs";
+import { isOperationalRiskAssessment } from "./production-verification-risk-assessment.mjs";
 
 const HIGH_RISK_SEVERITIES = new Set(["fatality", "major incident", "lost time injury"]);
 const RIDDOR_DECISION_REQUIRED = new Set(["decision_required", "information_required"]);
@@ -251,7 +252,9 @@ export function buildHealthSafetyMetrics(input = {}) {
   const coshh = Array.isArray(input.coshh) ? input.coshh : [];
   const equipment = Array.isArray(input.equipment) ? input.equipment : [];
   const incidentActions = Array.isArray(input.incidentActions) ? input.incidentActions : [];
-  const riskAssessments = Array.isArray(input.riskAssessments) ? input.riskAssessments : [];
+  const riskAssessments = Array.isArray(input.riskAssessments)
+    ? input.riskAssessments.filter((item) => isOperationalRiskAssessment(item))
+    : [];
   const incidentById = new Map(incidents.map((item) => [trim(item.id), item]));
 
   const openIncidents = incidents.filter(isOpenIncident);
@@ -321,7 +324,9 @@ export function buildHealthSafetyAttentionItems(input = {}) {
   const coshh = Array.isArray(input.coshh) ? input.coshh : [];
   const equipment = Array.isArray(input.equipment) ? input.equipment : [];
   const incidentActions = Array.isArray(input.incidentActions) ? input.incidentActions : [];
-  const riskAssessments = Array.isArray(input.riskAssessments) ? input.riskAssessments : [];
+  const riskAssessments = Array.isArray(input.riskAssessments)
+    ? input.riskAssessments.filter((item) => isOperationalRiskAssessment(item))
+    : [];
   const incidentById = new Map(incidents.map((item) => [trim(item.id), item]));
 
   const items = [];
@@ -730,7 +735,9 @@ export function buildHealthSafetyRecentActivity(input = {}) {
   const riddor = Array.isArray(input.riddor) ? input.riddor : [];
   const coshh = Array.isArray(input.coshh) ? input.coshh : [];
   const assessments = Array.isArray(input.assessments) ? input.assessments : [];
-  const riskAssessments = Array.isArray(input.riskAssessments) ? input.riskAssessments : [];
+  const riskAssessments = Array.isArray(input.riskAssessments)
+    ? input.riskAssessments.filter((item) => isOperationalRiskAssessment(item))
+    : [];
   const equipment = Array.isArray(input.equipment) ? input.equipment : [];
   const examinations = Array.isArray(input.examinations) ? input.examinations : [];
   const incidentActions = Array.isArray(input.incidentActions) ? input.incidentActions : [];
