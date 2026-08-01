@@ -18,6 +18,7 @@ import { getScheduleAssignedEmails } from "./schedule-assignment.mjs";
 import { getUkTodayKey, isUkOverdue, isUkToday, ukDateKeyFromTimestamp } from "./uk-date-time.mjs";
 import { isWorkbookRowArchived } from "./archive.mjs";
 import { isOperationalAuditResult, isVerificationSchedule } from "./production-verification-audit.mjs";
+import { isOperationalAction } from "./production-verification-action.mjs";
 
 /** Workbook tabs the live dashboard reads. All are existing tabs — no new storage. */
 export const LIVE_DASHBOARD_TABS = [
@@ -115,7 +116,13 @@ const RISK_WEIGHT = { Low: 1, Medium: 3, High: 6, Critical: 10 };
 
 function normalizeActionStatus(rawStatus, dueDate, nowMs) {
   const lower = normalize(rawStatus);
-  if (lower === "closed" || lower === "rejected" || lower === "complete" || lower === "completed") {
+  if (
+    lower === "closed" ||
+    lower === "rejected" ||
+    lower === "complete" ||
+    lower === "completed" ||
+    lower === "verification-cleaned"
+  ) {
     return "Closed";
   }
   const dueMs = parseDate(dueDate);
@@ -663,7 +670,7 @@ export function buildLiveDashboardFromSources(sources = {}, options = {}) {
 
   // --- Actions --------------------------------------------------------------
   let actions = filterCompanyRows(sources.actions, companyFolderId, alternateIds).filter(
-    (row) => !isWorkbookRowArchived(row, "action"),
+    (row) => !isWorkbookRowArchived(row, "action") && isOperationalAction(row),
   );
   if (ownOnly && actorEmail) {
     actions = actions.filter((row) =>

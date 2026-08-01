@@ -276,6 +276,43 @@ Unit tests (mocked HTTP, no production calls):
 npm run verify:production-audit-workflow-tests
 ```
 
+### Production Actions workflow (post-deploy smoke)
+
+After startup health, authentication health, and audit workflow pass, run the Actions workflow smoke test. It authenticates with the same smoke account, confirms the folder-first Actions read/write API, and — only when `BERT_SMOKE_ALLOW_ACTION_MUTATION=1` — creates a dedicated verification Action, exercises Open → In Progress → Awaiting Verification → Closed, confirms dashboard metrics exclude verification rows, and cleans up safely. It never edits customer Actions.
+
+```bash
+set -a && source .env && set +a
+
+BERT_SMOKE_USERNAME=mr.important \
+BERT_SMOKE_PASSWORD='<set securely in your environment>' \
+BERT_SMOKE_COMPANY_FOLDER_ID=1tDKluapYfY-RkuxXc6eoRnGHL38XCswx \
+BERT_SMOKE_MASTER_SHEET_ID=1MntKgSgVmTmlpzZhnCZdDQtdmPw7GcXptlAp88Ewrkc \
+BERT_SMOKE_EXPECTED_EMAIL=bert.demo+mr.important@usebert.co.uk \
+BERT_SMOKE_ALLOW_ACTION_MUTATION=1 \
+npm run verify:production-actions-workflow
+```
+
+Optional:
+
+- **`BERT_SMOKE_ALLOW_ACTION_MUTATION`** — must be `1` to exercise create/update/close/cleanup stages. Without it, mutation stages report **SKIPPED** (authentication, Actions API, and baseline still run).
+- **`BERT_SMOKE_REVIEWER_USERNAME` / `BERT_SMOKE_REVIEWER_PASSWORD` / `BERT_SMOKE_REVIEWER_EXPECTED_EMAIL`** — only required if the primary smoke account cannot verify/close its own Action under separation-of-duties rules.
+
+Verification Action markers:
+
+- Action ID prefix: `bert-smoke-action-`
+- Title: `BERT Verification Action`
+- Source reference: `production-actions-workflow`
+- Source type / marker: `verification`
+
+Expected duration: ~60–120 seconds with mutation enabled.
+
+Unit tests (mocked HTTP, no production calls):
+
+```bash
+npm run verify:production-actions-workflow-tests
+npm run verify:production-verification-action-tests
+```
+
 ### Post-deploy verification sequence
 
 Run in order after every API deployment:
@@ -283,8 +320,9 @@ Run in order after every API deployment:
 1. **Startup health** — boot gate and `/api/health` readiness (`verify:startup-health-manager`, `verify:startup-boot-gate-tests`)
 2. **Authentication health** — `npm run verify:production-auth-health`
 3. **Audit workflow** — `npm run verify:production-audit-workflow`
+4. **Actions workflow** — `npm run verify:production-actions-workflow`
 
-Only when all three pass should the deployment be considered **READY FOR CUSTOMERS**.
+Only when all four pass should the deployment be considered **READY FOR CUSTOMERS**.
 
 ### Startup system health (Master operators)
 

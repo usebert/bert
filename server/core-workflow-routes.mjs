@@ -140,7 +140,12 @@ import {
   replyToBriefing,
   signBriefing,
 } from "./briefings-service.mjs";
-import { saveCompanyActions } from "./actions-service.mjs";
+import {
+  cleanupStaleVerificationActions,
+  cleanupVerificationAction,
+  loadCompanyActions,
+  saveCompanyActions,
+} from "./actions-service.mjs";
 import { saveCompanyNcrs } from "./ncr-service.mjs";
 import {
   archiveCompanyRecord,
@@ -1199,6 +1204,83 @@ export function installCoreWorkflowRoutes(app, deps) {
     }
   });
 
+  app.get("/api/companies/:companyFolderId/actions", async (req, res) => {
+    const authed = getAuthedClient();
+    const companyFolderId = String(req.params?.companyFolderId || req.query?.companyFolderId || "").trim();
+    const masterSheetId = String(req.query?.masterSheetId || req.query?.sheetId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || companyFolderId).trim();
+    const sessionMasterSheetId = String(actor?.masterSheetId || "").trim();
+    const trustSessionContext =
+      actor?.kind === "company" &&
+      Boolean(sessionMasterSheetId) &&
+      sessionCompanyFolderId === companyFolderId;
+
+    if (!companyFolderId) {
+      return res.status(400).json({
+        ok: false,
+        code: "COMPANY_CONTEXT_MISSING",
+        error: "Company folder ID is required before loading actions.",
+        message: "Company folder ID is required before loading actions.",
+      });
+    }
+
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({
+        ok: false,
+        error: "Please connect Google before loading actions.",
+        message: "Please connect Google before loading actions.",
+      });
+    }
+
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      companyFolderId,
+      String(req.query?.companyName || actor?.companyName || "").trim(),
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
+
+    try {
+      const result = await loadCompanyActions(
+        authed,
+        { ...registryDeps, ...scheduleDeps, readTabRecords },
+        {
+          companyId: companyFolderId,
+          companyFolderId,
+          masterSheetId: trustSessionContext ? sessionMasterSheetId : masterSheetId,
+          trustSessionContext,
+        },
+      );
+
+      if (!result.ok) {
+        return res.status(result.httpStatus || 400).json({
+          ok: false,
+          code: result.code,
+          error: result.error,
+          message: result.message || result.error,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        companyId: result.companyFolderId,
+        companyFolderId: result.companyFolderId,
+        masterSheetId: result.masterSheetId,
+        actions: result.actions,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "ACTIONS_LOAD_FAILED",
+        error: "Could not load actions for this company workspace.",
+        message: "Could not load actions for this company workspace.",
+      });
+    }
+  });
+
   app.post("/api/companies/:companyFolderId/actions", async (req, res) => {
     const authed = getAuthedClient();
     const companyFolderId = String(req.params?.companyFolderId || req.body?.companyFolderId || "").trim();
@@ -1269,6 +1351,156 @@ export function installCoreWorkflowRoutes(app, deps) {
         code: "ACTIONS_SAVE_FAILED",
         error: "BERT could not save these actions. Try again.",
         message: "BERT could not save these actions. Try again.",
+      });
+    }
+  });
+
+  app.post("/api/companies/:companyId/actions/verification-cleanup", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({
+        ok: false,
+        error: "Please connect Google before cleaning up verification actions.",
+        message: "Could not clean up verification actions.",
+      });
+    }
+
+    const companyId = String(req.params?.companyId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const companyFolderId = String(
+      req.body?.companyFolderId || actor?.companyFolderId || actor?.companyId || companyId,
+    ).trim();
+    const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || "").trim();
+    const sessionMasterSheetId = String(actor?.masterSheetId || "").trim();
+    const trustSessionContext =
+      actor?.kind === "company" &&
+      Boolean(sessionMasterSheetId) &&
+      sessionCompanyFolderId === companyFolderId;
+
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      companyFolderId,
+      actor,
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
+
+    try {
+      const result = await cleanupStaleVerificationActions(
+        authed,
+        { ...registryDeps, ...scheduleDeps, writeCompanyActions, readTabRecords },
+        {
+          companyId: companyFolderId,
+          companyFolderId,
+          masterSheetId: trustSessionContext
+            ? sessionMasterSheetId
+            : String(req.body?.masterSheetId || "").trim(),
+          trustSessionContext,
+        },
+      );
+      if (!result.ok) {
+        return res.status(result.httpStatus || 400).json({
+          ok: false,
+          code: result.code,
+          error: result.error,
+          message: result.message || result.error,
+        });
+      }
+      return res.status(200).json({
+        ok: true,
+        cleanedCount: result.cleanedCount || 0,
+        cleanedActionIds: result.cleanedActionIds || [],
+      });
+    } catch (error) {
+      const technicalError = error instanceof Error ? error.message : String(error);
+      console.error("[actions-verification-cleanup] route catch_error:", {
+        companyId: companyFolderId,
+        error: technicalError,
+      });
+      return res.status(500).json({
+        ok: false,
+        code: "VERIFICATION_CLEANUP_FAILED",
+        error: "Could not clean up verification actions.",
+        message: "Could not clean up verification actions.",
+      });
+    }
+  });
+
+  app.post("/api/companies/:companyId/actions/:actionId/verification-cleanup", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({
+        ok: false,
+        error: "Please connect Google before cleaning up verification actions.",
+        message: "Could not clean up verification action.",
+      });
+    }
+
+    const companyId = String(req.params?.companyId || "").trim();
+    const actionId = String(req.params?.actionId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const companyFolderId = String(
+      req.body?.companyFolderId || actor?.companyFolderId || actor?.companyId || companyId,
+    ).trim();
+    const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || "").trim();
+    const sessionMasterSheetId = String(actor?.masterSheetId || "").trim();
+    const trustSessionContext =
+      actor?.kind === "company" &&
+      Boolean(sessionMasterSheetId) &&
+      sessionCompanyFolderId === companyFolderId;
+
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      companyFolderId,
+      actor,
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
+
+    try {
+      const result = await cleanupVerificationAction(
+        authed,
+        { ...registryDeps, ...scheduleDeps, writeCompanyActions, readTabRecords },
+        {
+          actionId,
+          companyId: companyFolderId,
+          companyFolderId,
+          masterSheetId: trustSessionContext
+            ? sessionMasterSheetId
+            : String(req.body?.masterSheetId || "").trim(),
+          trustSessionContext,
+        },
+      );
+      if (!result.ok) {
+        return res.status(result.httpStatus || 400).json({
+          ok: false,
+          code: result.code,
+          error: result.error,
+          message: result.message || result.error,
+        });
+      }
+      return res.status(200).json({
+        ok: true,
+        actionId: result.actionId,
+        cleaned: result.cleaned === true,
+        status: result.status,
+      });
+    } catch (error) {
+      const technicalError = error instanceof Error ? error.message : String(error);
+      console.error("[action-verification-cleanup] route catch_error:", {
+        companyId: companyFolderId,
+        actionId,
+        error: technicalError,
+      });
+      return res.status(500).json({
+        ok: false,
+        code: "VERIFICATION_CLEANUP_FAILED",
+        error: "Could not clean up verification action.",
+        message: "Could not clean up verification action.",
       });
     }
   });
