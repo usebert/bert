@@ -792,10 +792,11 @@ export function createFetchTransport(apiBase, appOrigin, timeoutMs = DEFAULT_TIM
     }
   }
 
-  async function request(method, path, body) {
+  async function request(method, path, body, requestOptions = {}) {
     const url = path.startsWith("http") ? path : `${apiBase.replace(/\/$/, "")}${path}`;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const effectiveTimeoutMs = Number(requestOptions.timeoutMs) || timeoutMs;
+    const timer = setTimeout(() => controller.abort(), effectiveTimeoutMs);
     try {
       const response = await fetch(url, {
         method,
