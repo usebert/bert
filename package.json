@@ -81,6 +81,7 @@
     "verify:coshh": "node scripts/verify-coshh.mjs",
     "verify:riddor": "node scripts/verify-riddor.mjs",
     "verify:risk-assessments": "node scripts/verify-risk-assessments.mjs",
+    "verify:risk-assessment-list-endpoint-tests": "node --test scripts/verify-risk-assessment-list-endpoint.test.mjs",
     "verify:loler-phase-2": "node scripts/verify-loler-phase-2.mjs",
     "verify:ui-i18n-stage1": "node scripts/verify-ui-i18n-stage1.mjs",
     "verify:ui-i18n-stage2": "node scripts/verify-ui-i18n-stage2.mjs",

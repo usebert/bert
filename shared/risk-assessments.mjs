@@ -353,6 +353,30 @@ export function summariseAssessmentRisk(hazards = []) {
   };
 }
 
+/**
+ * Build list-view risk summary from persisted assessment row aggregates.
+ * Used by the workspace list endpoint to avoid reading the hazards tab.
+ */
+export function buildRiskAssessmentListSummaryFromRecord(record = {}) {
+  const item = trim(record?.id) ? record : mapRiskAssessmentRecord(record);
+  const highestResidual =
+    Number(item.highestResidualRiskScore) || Number(item.residualOverallRiskScore) || 0;
+  return {
+    highestResidualRiskScore: highestResidual,
+    highestResidualBand: getRiskBand(highestResidual),
+    highResidualCount: isHighOrVeryHighRisk(highestResidual) && highestResidual < 17 ? 1 : 0,
+    veryHighResidualCount: highestResidual >= 17 ? 1 : 0,
+  };
+}
+
+export function buildRiskAssessmentListItemFromRecord(record = {}) {
+  const item = mapRiskAssessmentRecord(record);
+  return {
+    ...item,
+    ...buildRiskAssessmentListSummaryFromRecord(item),
+  };
+}
+
 export function deriveRiskAssessmentStatus(record, todayKey = getUkTodayKey()) {
   const archivedAt = trim(record.archivedAt || record.ArchivedAt);
   if (archivedAt) return "Archived";

@@ -20,6 +20,7 @@ import {
   buildRiskLinkId,
   buildRiskReviewId,
   bumpVersion,
+  buildRiskAssessmentListItemFromRecord,
   calculateRiskScore,
   canApproveRiskAssessmentStatus,
   canEditRiskAssessmentStatus,
@@ -110,6 +111,11 @@ const ACTIONS_TAB_COLUMNS = [
 
 const ensuredRiskAssessmentWorkbooks = new Set();
 const ensuringRiskAssessmentWorkbooks = new Map();
+const RISK_ASSESSMENT_LIST_CACHE_TTL_MS = 30_000;
+/** @type {Map<string, { expiresAt: number, payload: object }>} */
+const riskAssessmentListCache = new Map();
+/** @type {Map<string, Promise<object>>} */
+const riskAssessmentListInFlight = new Map();
 
 function trim(value) {
   return String(value ?? "").trim();
@@ -157,6 +163,53 @@ function createRiskAssessmentTiming(operation, context = {}) {
     },
     startedAt,
   };
+}
+
+export function createRiskAssessmentListTiming(companyFolderId) {
+  const startedAt = Date.now();
+  let lastStageAt = startedAt;
+  let lastStage = "start";
+  const baseCompanyFolderId = trim(companyFolderId) || undefined;
+  return {
+    log(stage, extra = {}) {
+      const now = Date.now();
+      const durationMs = now - lastStageAt;
+      const totalMs = now - startedAt;
+      lastStageAt = now;
+      lastStage = stage;
+      const entry = {
+        stage,
+        durationMs,
+        totalMs,
+        companyFolderId: baseCompanyFolderId,
+      };
+      if (extra.rowCounts !== undefined) {
+        entry.rowCounts = extra.rowCounts;
+      }
+      console.info("[risk-assessment:list-timing]", JSON.stringify(entry));
+      return entry;
+    },
+    getLastStage() {
+      return lastStage;
+    },
+    getTotalMs() {
+      return Date.now() - startedAt;
+    },
+    startedAt,
+  };
+}
+
+function riskAssessmentListCacheKey(resolved, actor, includeArchived) {
+  const role = String(actor?.role || "").trim();
+  const scopeEmail = role === "Auditor" ? normalizeEmail(actor?.email) : "*";
+  return `${trim(resolved.companyFolderId)}::${trim(resolved.masterSheetId)}::${includeArchived ? "1" : "0"}::${role}::${scopeEmail}`;
+}
+
+export function resetRiskAssessmentListCachesForTests() {
+  ensuredRiskAssessmentWorkbooks.clear();
+  ensuringRiskAssessmentWorkbooks.clear();
+  riskAssessmentListCache.clear();
+  riskAssessmentListInFlight.clear();
 }
 
 function riskAssessmentValidationFailure(validation) {
@@ -767,39 +820,74 @@ function validateAssessmentForSubmit(assessment, hazards) {
 }
 
 export async function listCompanyRiskAssessments(auth, deps, resolved, actor, options = {}) {
+  const includeArchived = options.includeArchived === true;
+  const timer = options.timer || createRiskAssessmentListTiming(resolved.companyFolderId);
+  const skipCache = options.skipCache === true;
+
+  if (!skipCache) {
+    const cacheKey = riskAssessmentListCacheKey(resolved, actor, includeArchived);
+    const cached = riskAssessmentListCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      timer.log("cache-hit", { rowCounts: { items: cached.payload.items?.length || 0 } });
+      return cached.payload;
+    }
+    let inFlight = riskAssessmentListInFlight.get(cacheKey);
+    if (!inFlight) {
+      inFlight = listCompanyRiskAssessmentsUncached(auth, deps, resolved, actor, {
+        ...options,
+        timer,
+        skipCache: true,
+      }).finally(() => {
+        riskAssessmentListInFlight.delete(cacheKey);
+      });
+      riskAssessmentListInFlight.set(cacheKey, inFlight);
+    } else {
+      timer.log("in-flight-wait");
+    }
+    const result = await inFlight;
+    if (result?.ok) {
+      riskAssessmentListCache.set(cacheKey, {
+        expiresAt: Date.now() + RISK_ASSESSMENT_LIST_CACHE_TTL_MS,
+        payload: result,
+      });
+    }
+    return result;
+  }
+
+  return listCompanyRiskAssessmentsUncached(auth, deps, resolved, actor, { ...options, timer, skipCache: true });
+}
+
+async function listCompanyRiskAssessmentsUncached(auth, deps, resolved, actor, options = {}) {
+  const timer = options.timer || createRiskAssessmentListTiming(resolved.companyFolderId);
+  const includeArchived = options.includeArchived === true;
+
   if (!actorCanAccessCompanyHealthSafety(actor, resolved.companyFolderId, resolved.alternateCompanyIds)) {
+    timer.log("permission-filtering", { rowCounts: { items: 0 } });
     return healthSafetyApiFailure("RISK_ASSESSMENT_FORBIDDEN", "You do not have access to this company.", 403);
   }
+  timer.log("permission-filtering", { rowCounts: { items: 0 } });
+
   await ensureRiskAssessmentTabs(auth, deps, resolved.masterSheetId);
-  const [records, hazardRecords] = await Promise.all([
-    readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, RISK_ASSESSMENTS_TAB_COLUMNS),
-    readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_HAZARDS_TAB, RISK_ASSESSMENT_HAZARDS_TAB_COLUMNS),
-  ]);
-  const hazardsByAssessment = new Map();
-  for (const record of hazardRecords) {
-    const hazard = mapRiskHazardRecord(record);
-    if (!hazard.riskAssessmentId || hazard.archivedAt) continue;
-    const bucket = hazardsByAssessment.get(hazard.riskAssessmentId) || [];
-    bucket.push(hazard);
-    hazardsByAssessment.set(hazard.riskAssessmentId, bucket);
-  }
-  const includeArchived = options.includeArchived === true;
+  timer.log("ensure-risk-assessment-tabs");
+
+  const records = await readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, RISK_ASSESSMENTS_TAB_COLUMNS);
+  timer.log("read-risk-assessments-tab", { rowCounts: { assessments: records.length } });
+  timer.log("read-risk-assessment-hazards-tab", { rowCounts: { hazards: 0 } });
+  timer.log("read-risk-assessment-links-tab", { rowCounts: { links: 0 } });
+  timer.log("read-risk-assessment-reviews-tab", { rowCounts: { reviews: 0 } });
+
   const items = records
-    .map((record) => {
-      const item = mapRiskAssessmentRecord(record);
-      const hazards = hazardsByAssessment.get(item.id) || [];
-      const summary = summariseAssessmentRisk(hazards);
-      return {
-        ...item,
-        hazardCount: summary.hazardCount,
-        highestResidualRiskScore: summary.highestResidualRiskScore,
-        highestResidualBand: summary.highestResidualBand,
-        highResidualCount: summary.highResidualCount,
-        veryHighResidualCount: summary.veryHighResidualCount,
-      };
-    })
+    .map((record) => buildRiskAssessmentListItemFromRecord(record))
     .filter((item) => item.id && (includeArchived || !item.archivedAt));
-  return { ok: true, items };
+  timer.log("parsing-normalisation", {
+    rowCounts: { assessments: records.length, items: items.length },
+  });
+
+  timer.log("derived-status-risk", { rowCounts: { items: items.length } });
+
+  const response = { ok: true, items };
+  timer.log("response-serialisation", { rowCounts: { items: items.length } });
+  return response;
 }
 
 export async function getCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId) {

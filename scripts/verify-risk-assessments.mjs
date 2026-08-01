@@ -3,6 +3,7 @@
  * verify:risk-assessments — Risk Assessments Phase 2 wiring, schema, risk matrix, and workflow.
  */
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -112,6 +113,16 @@ assert(service.includes("canSelfApproveRiskAssessment"), "permissions: self-appr
 assert(service.includes("summariseAssessmentRisk"), "service: server recalculates risk summary");
 assert(service.includes("[risk-assessment:timing]"), "service: timing instrumentation");
 assert(service.includes("ensuredRiskAssessmentWorkbooks"), "service: sheet ensure cache");
+assert(service.includes("[risk-assessment:list-timing]"), "service: list timing instrumentation");
+assert(service.includes("buildRiskAssessmentListItemFromRecord"), "service: list uses row aggregates");
+assert(service.includes("riskAssessmentListCache"), "service: list response cache");
+assert(service.includes("listCompanyRiskAssessmentsUncached"), "service: uncached list path");
+assert(service.includes('timer.log("read-risk-assessment-hazards-tab", { rowCounts: { hazards: 0 } })'), "service: list path skips hazards tab read");
+assert(!service.includes("summariseAssessmentRisk(hazards)") || service.includes("buildRiskAssessmentListItemFromRecord"), "service: list path uses row aggregates");
+
+const routesList = routes.match(/app\.get\("\/api\/companies\/:companyFolderId\/risk-assessments"[\s\S]*?\n  \}\);/)?.[0] || "";
+assert(routesList.includes("createRiskAssessmentListTiming"), "routes: list route instruments timings");
+assert(routesList.includes("Risk assessments could not be loaded. Try again."), "routes: list user-facing failure message");
 assert(service.includes("syncRiskAssessmentHazards"), "service: batch hazard sync");
 assert(service.includes("alreadySubmitted"), "service: idempotent submit");
 assert(service.includes("buildDraftSaveResponse"), "service: lightweight draft save response");
@@ -214,5 +225,13 @@ assert(!read("App.tsx").includes("VITE_GODMODE"), "security: no VITE secret usag
 
 const pkg = JSON.parse(read("package.json"));
 assert(Boolean(pkg.scripts?.["verify:risk-assessments"]), "package.json defines verify:risk-assessments");
+assert(Boolean(pkg.scripts?.["verify:risk-assessment-list-endpoint-tests"]), "package.json defines list endpoint tests");
 
 console.log(`verify:risk-assessments passed (${caseCount} checks).`);
+
+const listTests = spawnSync("node", ["--test", "scripts/verify-risk-assessment-list-endpoint.test.mjs"], {
+  stdio: "inherit",
+});
+if (listTests.status !== 0) {
+  process.exit(listTests.status || 1);
+}

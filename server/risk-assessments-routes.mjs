@@ -15,6 +15,7 @@ import {
   createCompanyRiskAssessment,
   createNewVersionCompanyRiskAssessment,
   createRiskAssessmentHazard,
+  createRiskAssessmentListTiming,
   createRiskAssessmentLink,
   getCompanyRiskAssessment,
   listCompanyRiskAssessments,
@@ -128,8 +129,8 @@ export function installRiskAssessmentRoutes(app, deps) {
         }
         res.json(result);
       })(),
-      options.timeoutMs || RISK_ASSESSMENT_ROUTE_TIMEOUT_MS,
       options.label || "Risk assessment route",
+      options.timeoutMs || RISK_ASSESSMENT_ROUTE_TIMEOUT_MS,
     ).catch((error) => {
       res.status(500).json(
         healthSafetyApiFailure(
@@ -143,11 +144,89 @@ export function installRiskAssessmentRoutes(app, deps) {
   };
 
   app.get("/api/companies/:companyFolderId/risk-assessments", (req, res) => {
-    runRoute(req, res, { label: "List risk assessments" }, ({ authed, actor, resolved }) =>
-      listCompanyRiskAssessments(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor, {
-        includeArchived: req.query?.includeArchived === "true",
-      }),
-    );
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const listTimer = createRiskAssessmentListTiming(companyFolderId);
+    void withOperationTimeout(
+      (async () => {
+        if (!companyFolderId) {
+          res.status(400).json({ ok: false, error: "Company folder ID is required." });
+          return;
+        }
+        const actor = parseBertActorFromRequest(req);
+        if (!actor) {
+          res.status(401).json({ ok: false, error: "Sign in required." });
+          return;
+        }
+        const authed = getAuthedClient();
+        const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || companyFolderId).trim();
+        const folderDenial = await rejectCompanyApiIfFolderInvalid(authed, registryDeps, sessionCompanyFolderId);
+        if (folderDenial) {
+          res.status(folderDenial.httpStatus || 403).json(folderDenial.body || folderDenial);
+          return;
+        }
+        listTimer.log("company-resolution");
+        const resolved = await resolveCompanyScheduleContext(authed, { ...registryDeps, ...scheduleDeps }, {
+          companyId: sessionCompanyFolderId,
+          companyFolderId: sessionCompanyFolderId,
+          masterSheetId: String(req.query?.masterSheetId || "").trim(),
+          companyName: String(actor?.companyName || "").trim(),
+        });
+        listTimer.log("workbook-resolution");
+        if (!resolved?.ok) {
+          res.status(resolved?.httpStatus || 400).json({
+            ok: false,
+            error: resolved?.error || "Could not resolve company workbook.",
+          });
+          return;
+        }
+        if (
+          !actorCanAccessCompanyHealthSafety(actor, resolved.companyFolderId, [
+            companyFolderId,
+            resolved.companyId,
+            ...(resolved.alternateCompanyIds || []),
+          ])
+        ) {
+          res.status(403).json({ ok: false, error: "You do not have access to this company." });
+          return;
+        }
+        const result = await listCompanyRiskAssessments(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          {
+            includeArchived: req.query?.includeArchived === "true",
+            timer: listTimer,
+          },
+        );
+        if (!result?.ok) {
+          res.status(result?.httpStatus || 400).json(result);
+          return;
+        }
+        res.json(result);
+      })(),
+      "List risk assessments",
+      RISK_ASSESSMENT_ROUTE_TIMEOUT_MS,
+    ).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(
+        "[risk-assessment:list-failed]",
+        JSON.stringify({
+          companyFolderId,
+          lastStage: listTimer.getLastStage(),
+          totalMs: listTimer.getTotalMs(),
+          error: message,
+        }),
+      );
+      res.status(500).json(
+        healthSafetyApiFailure(
+          "RISK_ASSESSMENT_LIST_FAILED",
+          "Risk assessments could not be loaded. Try again.",
+          500,
+          message,
+        ),
+      );
+    });
   });
 
   app.post("/api/companies/:companyFolderId/risk-assessments", (req, res) => {
