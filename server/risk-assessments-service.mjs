@@ -471,6 +471,26 @@ async function readAssessmentRecord(auth, deps, masterSheetId, riskAssessmentId)
   return found ? mapRiskAssessmentRecord(found) : null;
 }
 
+function sleepMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForAssessmentRecordAfterWrite(auth, deps, masterSheetId, riskAssessmentId, options = {}) {
+  const maxAttempts = Number(options.maxAttempts) || 15;
+  const intervalMs = Number(options.intervalMs) || 1000;
+  let lastRecord = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (attempt > 1) {
+      await sleepMs(intervalMs);
+    }
+    lastRecord = await readAssessmentRecord(auth, deps, masterSheetId, riskAssessmentId);
+    if (lastRecord) {
+      return { ok: true, record: lastRecord, attempts: attempt };
+    }
+  }
+  return { ok: false, record: lastRecord, attempts: maxAttempts };
+}
+
 async function buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, options = {}) {
   const timer = options.timer || createRiskAssessmentTiming("build-detail", {
     assessmentId: riskAssessmentId,
@@ -482,15 +502,16 @@ async function buildAssessmentDetail(auth, deps, resolved, actor, riskAssessment
   timer.log("auth");
   await ensureRiskAssessmentTabs(auth, deps, resolved.masterSheetId);
   timer.log("ensure-tabs");
-  const [assessmentRecords, hazardRecords, linkRecords, reviewRecords] = await Promise.all([
-    readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, RISK_ASSESSMENTS_TAB_COLUMNS),
+  const assessmentRecords = await readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, RISK_ASSESSMENTS_TAB_COLUMNS);
+  timer.log("read-assessments-tab");
+  const item = assessmentRecords.map((record) => mapRiskAssessmentRecord(record)).find((entry) => entry.id === trim(riskAssessmentId));
+  if (!item) return healthSafetyApiFailure("RISK_ASSESSMENT_NOT_FOUND", "Risk assessment not found.", 404);
+  const [hazardRecords, linkRecords, reviewRecords] = await Promise.all([
     readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_HAZARDS_TAB, RISK_ASSESSMENT_HAZARDS_TAB_COLUMNS),
     readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_LINKS_TAB, RISK_ASSESSMENT_LINKS_TAB_COLUMNS),
     readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_REVIEWS_TAB, RISK_ASSESSMENT_REVIEWS_TAB_COLUMNS),
   ]);
-  timer.log("read-tabs");
-  const item = assessmentRecords.map((record) => mapRiskAssessmentRecord(record)).find((entry) => entry.id === trim(riskAssessmentId));
-  if (!item) return healthSafetyApiFailure("RISK_ASSESSMENT_NOT_FOUND", "Risk assessment not found.", 404);
+  timer.log("read-related-tabs");
   const hazards = dedupeHazardsById(
     hazardRecords
       .map((record) => mapRiskHazardRecord(record))
@@ -1003,8 +1024,12 @@ export async function createCompanyRiskAssessment(auth, deps, resolved, actor, i
     expectedHeaders: RISK_ASSESSMENTS_TAB_COLUMNS,
   });
   timer.log("append-assessment");
-  const persisted = await readAssessmentRecord(auth, deps, resolved.masterSheetId, id);
-  if (!persisted) {
+  const visibility = await waitForAssessmentRecordAfterWrite(auth, deps, resolved.masterSheetId, id, {
+    maxAttempts: 15,
+    intervalMs: 1000,
+  });
+  timer.log("read-after-write", { attempts: visibility.attempts, visible: visibility.ok });
+  if (!visibility.ok) {
     timer.log("create-not-visible");
     return healthSafetyApiFailure(
       "RISK_ASSESSMENT_CREATE_NOT_VISIBLE",
@@ -1012,6 +1037,7 @@ export async function createCompanyRiskAssessment(auth, deps, resolved, actor, i
       500,
     );
   }
+  const persisted = visibility.record;
   let syncedHazards = [];
   if (Array.isArray(input.hazards) && input.hazards.length > 0) {
     const synced = await syncRiskAssessmentHazards(auth, deps, resolved, actor, id, input.hazards, { timer });

@@ -401,3 +401,14 @@ test("manual cache invalidation prevents stale empty list after workbook mutatio
   const fresh = await listCompanyRiskAssessments({}, deps, resolved, actor);
   assert.equal(fresh.items.length, 1);
 });
+
+test("detail returns 404 without reading hazards when assessment is missing", async () => {
+  const deps = createTrackingDeps({
+    RiskAssessments: [],
+    RiskAssessmentHazards: [{ HazardId: "h-1", RiskAssessmentId: "missing" }],
+  });
+  const detail = await getCompanyRiskAssessment({}, deps, resolved, actor, "missing-id");
+  assert.equal(detail.ok, false);
+  assert.equal(detail.httpStatus, 404);
+  assert.deepEqual(deps.getReadCalls(), ["RiskAssessments"]);
+});
