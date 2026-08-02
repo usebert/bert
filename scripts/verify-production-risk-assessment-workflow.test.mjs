@@ -270,54 +270,58 @@ function createTransport(options = {}) {
       const item = hazards.find((entry) => entry.id === hazardId);
       return { status: 200, json: { ok: true, item } };
     }
-    if (method === "GET" && path.includes(`/risk-assessments/${verification.id}`)) {
-      if (options.resumeMismatch) {
+    if (method === "GET" && /\/risk-assessments\/[^/?]+/.test((path.split("?")[0] || path))) {
+      const detailId = decodeURIComponent(path.split("/risk-assessments/")[1]?.split("?")[0] || "");
+      if (detailId && !detailId.includes("verification-cleanup")) {
+        if (options.resumeMismatch) {
+          return {
+            status: 200,
+            json: {
+              ok: true,
+              item: { ...verification, id: detailId, title: "Wrong title", status, version: "1.0", description, approvedAt, approvedBy },
+              hazards,
+              links: [],
+              reviews,
+            },
+          };
+        }
         return {
           status: 200,
           json: {
             ok: true,
-            item: { ...verification, title: "Wrong title", status, version: "1.0", description, approvedAt, approvedBy },
-            hazards,
+            item: {
+              ...verification,
+              id: detailId,
+              title: PRODUCTION_VERIFICATION_RA_TITLE,
+              status,
+              version: "1.0",
+              description,
+              submittedAt,
+              submittedBy,
+              approvedAt,
+              approvedBy,
+              nextReviewReason: "verification",
+              peopleAtRisk: "production-risk-assessment-workflow",
+              activity: "Production smoke verification",
+              department: "Verification",
+            },
+            hazards: options.duplicateHazards
+              ? [hazardOne, hazardOne]
+              : hazards.map((item) =>
+                  item.id === hazardOne.id
+                    ? { ...item, existingControls: hazardOneControls }
+                    : {
+                        ...item,
+                        additionalControls: hazardTwoAdditional,
+                        residualLikelihood: hazardTwoResidualLikelihood,
+                        updatedAt: hazardTwoUpdatedAt,
+                      },
+                ),
             links: [],
             reviews,
           },
         };
       }
-      return {
-        status: 200,
-        json: {
-          ok: true,
-          item: {
-            ...verification,
-            title: PRODUCTION_VERIFICATION_RA_TITLE,
-            status,
-            version: "1.0",
-            description,
-            submittedAt,
-            submittedBy,
-            approvedAt,
-            approvedBy,
-            nextReviewReason: "verification",
-            peopleAtRisk: "production-risk-assessment-workflow",
-            activity: "Production smoke verification",
-            department: "Verification",
-          },
-          hazards: options.duplicateHazards
-            ? [hazardOne, hazardOne]
-            : hazards.map((item) =>
-                item.id === hazardOne.id
-                  ? { ...item, existingControls: hazardOneControls }
-                  : {
-                      ...item,
-                      additionalControls: hazardTwoAdditional,
-                      residualLikelihood: hazardTwoResidualLikelihood,
-                      updatedAt: hazardTwoUpdatedAt,
-                    },
-              ),
-          links: [],
-          reviews,
-        },
-      };
     }
     if (method === "POST" && path.endsWith("/submit")) {
       submitAttempts += 1;
@@ -489,7 +493,7 @@ test("created draft missing from list", async () => {
 test("create draft polls until verification assessment appears in list", async () => {
   const result = await runProductionRiskAssessmentWorkflowChecks(
     baseConfig,
-    createTransport({ listStaleUntilAttempt: 1 }),
+    createTransport({ listStaleUntilAttempt: 1, runId: TEST_RUN_ID }),
     { runId: TEST_RUN_ID, listPollMaxAttempts: 5, listPollIntervalMs: 0 },
   );
   assert.equal(result.checks.createDraft.status, "PASS");

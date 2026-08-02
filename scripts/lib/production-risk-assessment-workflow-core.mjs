@@ -27,6 +27,10 @@ import {
 
 export { loadSmokeConfig, performProductionSmokeLogin, maskEmail };
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export const RA_VERIFIER_BUDGET_MS = 12 * 60 * 1000;
 
 export const DEFAULT_RA_STAGE_TIMEOUTS_MS = {
@@ -275,10 +279,6 @@ export async function fetchCompanyRiskAssessments(request, companyFolderId, mast
   return response;
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 export async function pollRiskAssessmentListForId(request, companyFolderId, masterSheetId, riskAssessmentId, options = {}) {
   const maxAttempts = Number(options.maxAttempts) || 15;
   const intervalMs = Number(options.intervalMs) || 1000;
@@ -303,6 +303,38 @@ export async function pollRiskAssessmentListForId(request, companyFolderId, mast
     }
   }
   return { ok: false, matches, attempts, listResponse: lastListResponse };
+}
+
+export async function pollRiskAssessmentDetailForId(request, companyFolderId, masterSheetId, riskAssessmentId, options = {}) {
+  const maxAttempts = Number(options.maxAttempts) || 15;
+  const intervalMs = Number(options.intervalMs) || 1000;
+  const stageKey = options.stageKey || "createDraft";
+  const attempts = [];
+  let lastDetailResponse = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (attempt > 1) {
+      await sleep(intervalMs);
+    }
+    lastDetailResponse = await request(
+      "GET",
+      riskAssessmentDetailPath(companyFolderId, riskAssessmentId, masterSheetId),
+      undefined,
+      { stageKey },
+    );
+    assertResponseSafe(lastDetailResponse.json, "create draft detail poll");
+    const found = lastDetailResponse.json?.ok === true && trim(lastDetailResponse.json?.item?.id) === trim(riskAssessmentId);
+    attempts.push({
+      attempt,
+      status: lastDetailResponse.status,
+      ok: lastDetailResponse.json?.ok === true,
+      found,
+      returnedStatus: trim(lastDetailResponse.json?.item?.status) || null,
+    });
+    if (found) {
+      return { ok: true, detailResponse: lastDetailResponse, attempts };
+    }
+  }
+  return { ok: false, detailResponse: lastDetailResponse, attempts };
 }
 
 export async function attemptVerificationRiskAssessmentCleanup(request, context = {}) {
@@ -752,44 +784,26 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
     }
 
     let detailResponse;
-    try {
-      detailResponse = await request(
-        "GET",
-        riskAssessmentDetailPath(companyFolderId, riskAssessmentId, masterSheetId),
-        undefined,
-        { stageKey: "createDraft" },
-      );
-    } catch (error) {
-      if (isStageTimeoutError(error)) {
-        throw error;
-      }
-      result.createDraftDiagnostics = {
-        ...createDiagnostics,
-        detailLookup: {
-          ok: false,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      };
-      return fail(
-        "createDraft",
-        `Detail lookup failed after create: ${error instanceof Error ? error.message : String(error)}`,
-        "Inspect GET /api/companies/:id/risk-assessments/:riskAssessmentId.",
-      );
-    }
-    assertResponseSafe(detailResponse.json, "create draft detail");
+    const detailPolled = await pollRiskAssessmentDetailForId(request, companyFolderId, masterSheetId, riskAssessmentId, {
+      stageKey: "createDraft",
+      maxAttempts: Number(options.listPollMaxAttempts) || 15,
+      intervalMs: Number(options.listPollIntervalMs) || 1000,
+    });
+    detailResponse = detailPolled.detailResponse;
     createDiagnostics.detailLookup = {
-      status: detailResponse.status,
-      ok: detailResponse.json?.ok === true,
-      found: trim(detailResponse.json?.item?.id) === riskAssessmentId,
-      returnedStatus: trim(detailResponse.json?.item?.status) || null,
+      status: detailResponse?.status,
+      ok: detailPolled.ok,
+      found: detailPolled.ok,
+      returnedStatus: trim(detailResponse?.json?.item?.status) || null,
+      pollAttempts: detailPolled.attempts,
     };
-    if (detailResponse.status !== 200 || detailResponse.json?.ok !== true || !createDiagnostics.detailLookup.found) {
+    if (!detailPolled.ok) {
       result.createDraftDiagnostics = createDiagnostics;
       return fail(
         "createDraft",
         "Created verification assessment was not retrievable from the detail endpoint.",
         "Inspect create write path and detail route lookup.",
-        detailResponse.status,
+        detailResponse?.status,
         createDiagnostics,
       );
     }

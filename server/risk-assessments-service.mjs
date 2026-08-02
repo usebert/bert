@@ -1003,6 +1003,15 @@ export async function createCompanyRiskAssessment(auth, deps, resolved, actor, i
     expectedHeaders: RISK_ASSESSMENTS_TAB_COLUMNS,
   });
   timer.log("append-assessment");
+  const persisted = await readAssessmentRecord(auth, deps, resolved.masterSheetId, id);
+  if (!persisted) {
+    timer.log("create-not-visible");
+    return healthSafetyApiFailure(
+      "RISK_ASSESSMENT_CREATE_NOT_VISIBLE",
+      "Risk assessment could not be confirmed after create.",
+      500,
+    );
+  }
   let syncedHazards = [];
   if (Array.isArray(input.hazards) && input.hazards.length > 0) {
     const synced = await syncRiskAssessmentHazards(auth, deps, resolved, actor, id, input.hazards, { timer });
@@ -1013,7 +1022,7 @@ export async function createCompanyRiskAssessment(auth, deps, resolved, actor, i
   return publishRiskAssessmentListMutation(
     resolved,
     "create",
-    buildDraftSaveResponse(mapRiskAssessmentRecord(row), syncedHazards),
+    buildDraftSaveResponse(persisted, syncedHazards),
   );
 }
 
