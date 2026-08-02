@@ -218,6 +218,11 @@ export function formatRiskAssessmentWorkflowReport(result) {
   if (result.durationMs) {
     lines.push(`Duration: ${result.durationMs}ms`);
   }
+  if (result.createDraftDiagnostics) {
+    lines.push("");
+    lines.push("Create draft diagnostics:");
+    lines.push(JSON.stringify(result.createDraftDiagnostics));
+  }
   lines.push("");
 
   if (result.timedOut) {
@@ -268,6 +273,36 @@ export async function fetchCompanyRiskAssessments(request, companyFolderId, mast
   const response = await request("GET", riskAssessmentsPath(companyFolderId, masterSheetId), undefined, { stageKey });
   assertResponseSafe(response.json, "risk assessments list");
   return response;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function pollRiskAssessmentListForId(request, companyFolderId, masterSheetId, riskAssessmentId, options = {}) {
+  const maxAttempts = Number(options.maxAttempts) || 15;
+  const intervalMs = Number(options.intervalMs) || 1000;
+  const stageKey = options.stageKey || "createDraft";
+  const attempts = [];
+  let matches = [];
+  let lastListResponse = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (attempt > 1) {
+      await sleep(intervalMs);
+    }
+    lastListResponse = await fetchCompanyRiskAssessments(request, companyFolderId, masterSheetId, stageKey);
+    matches = (lastListResponse.json?.items || []).filter((item) => trim(item.id) === trim(riskAssessmentId));
+    attempts.push({
+      attempt,
+      status: lastListResponse.status,
+      itemCount: Array.isArray(lastListResponse.json?.items) ? lastListResponse.json.items.length : 0,
+      matchCount: matches.length,
+    });
+    if (matches.length === 1) {
+      return { ok: true, matches, attempts, listResponse: lastListResponse };
+    }
+  }
+  return { ok: false, matches, attempts, listResponse: lastListResponse };
 }
 
 export async function attemptVerificationRiskAssessmentCleanup(request, context = {}) {
@@ -697,20 +732,83 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
       );
     }
     const createdId = trim(createResponse.json?.item?.id);
+    const createDiagnostics = {
+      createHttpStatus: createResponse.status,
+      returnedAssessmentId: createdId || null,
+      returnedStatus: trim(createResponse.json?.item?.status) || null,
+      verificationMarker: isVerificationRiskAssessment(createResponse.json?.item || {}) ? "verification" : null,
+      detailLookup: null,
+      listPollAttempts: [],
+    };
     if (createdId !== riskAssessmentId) {
+      result.createDraftDiagnostics = createDiagnostics;
       return fail(
         "createDraft",
         `Expected verification RiskAssessmentId ${riskAssessmentId}, got ${createdId || "(missing)"}.`,
         "Inspect verification ID acceptance in createCompanyRiskAssessment.",
+        createResponse.status,
+        createDiagnostics,
       );
     }
-    const listAfterCreate = await fetchCompanyRiskAssessments(request, companyFolderId, masterSheetId, "createDraft");
-    const matches = (listAfterCreate.json?.items || []).filter((item) => item.id === riskAssessmentId);
-    if (matches.length !== 1) {
+
+    let detailResponse;
+    try {
+      detailResponse = await request(
+        "GET",
+        riskAssessmentDetailPath(companyFolderId, riskAssessmentId, masterSheetId),
+        undefined,
+        { stageKey: "createDraft" },
+      );
+    } catch (error) {
+      if (isStageTimeoutError(error)) {
+        throw error;
+      }
+      result.createDraftDiagnostics = {
+        ...createDiagnostics,
+        detailLookup: {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      };
+      return fail(
+        "createDraft",
+        `Detail lookup failed after create: ${error instanceof Error ? error.message : String(error)}`,
+        "Inspect GET /api/companies/:id/risk-assessments/:riskAssessmentId.",
+      );
+    }
+    assertResponseSafe(detailResponse.json, "create draft detail");
+    createDiagnostics.detailLookup = {
+      status: detailResponse.status,
+      ok: detailResponse.json?.ok === true,
+      found: trim(detailResponse.json?.item?.id) === riskAssessmentId,
+      returnedStatus: trim(detailResponse.json?.item?.status) || null,
+    };
+    if (detailResponse.status !== 200 || detailResponse.json?.ok !== true || !createDiagnostics.detailLookup.found) {
+      result.createDraftDiagnostics = createDiagnostics;
+      return fail(
+        "createDraft",
+        "Created verification assessment was not retrievable from the detail endpoint.",
+        "Inspect create write path and detail route lookup.",
+        detailResponse.status,
+        createDiagnostics,
+      );
+    }
+
+    const polled = await pollRiskAssessmentListForId(request, companyFolderId, masterSheetId, riskAssessmentId, {
+      stageKey: "createDraft",
+      maxAttempts: Number(options.listPollMaxAttempts) || 15,
+      intervalMs: Number(options.listPollIntervalMs) || 1000,
+    });
+    createDiagnostics.listPollAttempts = polled.attempts;
+    result.createDraftDiagnostics = createDiagnostics;
+    const matches = polled.matches;
+    if (!polled.ok || matches.length !== 1) {
       return fail(
         "createDraft",
         `Expected exactly one verification assessment in list, found ${matches.length}.`,
-        "Inspect duplicate prevention for verification assessments.",
+        "Inspect Risk Assessment list cache invalidation after create and workbook row visibility.",
+        polled.listResponse?.status,
+        createDiagnostics,
       );
     }
     if (trim(matches[0].status) !== "Draft") {

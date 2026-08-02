@@ -205,6 +205,45 @@ function riskAssessmentListCacheKey(resolved, actor, includeArchived) {
   return `${trim(resolved.companyFolderId)}::${trim(resolved.masterSheetId)}::${includeArchived ? "1" : "0"}::${role}::${scopeEmail}`;
 }
 
+export function invalidateRiskAssessmentListCache(resolved, reason = "mutation") {
+  const companyFolderId = trim(resolved?.companyFolderId);
+  const masterSheetId = trim(resolved?.masterSheetId);
+  if (!companyFolderId || !masterSheetId) {
+    return { companyFolderId: companyFolderId || undefined, masterSheetId: masterSheetId || undefined, reason, clearedKeys: 0 };
+  }
+  const prefix = `${companyFolderId}::${masterSheetId}::`;
+  let clearedKeys = 0;
+  for (const key of riskAssessmentListCache.keys()) {
+    if (key.startsWith(prefix)) {
+      riskAssessmentListCache.delete(key);
+      clearedKeys += 1;
+    }
+  }
+  for (const key of riskAssessmentListInFlight.keys()) {
+    if (key.startsWith(prefix)) {
+      riskAssessmentListInFlight.delete(key);
+      clearedKeys += 1;
+    }
+  }
+  console.info(
+    "[risk-assessment:list-cache-invalidate]",
+    JSON.stringify({
+      companyFolderId,
+      masterSheetId,
+      reason,
+      clearedKeys,
+    }),
+  );
+  return { companyFolderId, masterSheetId, reason, clearedKeys };
+}
+
+function publishRiskAssessmentListMutation(resolved, reason, result) {
+  if (result?.ok !== false) {
+    invalidateRiskAssessmentListCache(resolved, reason);
+  }
+  return result;
+}
+
 export function resetRiskAssessmentListCachesForTests() {
   ensuredRiskAssessmentWorkbooks.clear();
   ensuringRiskAssessmentWorkbooks.clear();
@@ -912,7 +951,11 @@ export async function createCompanyRiskAssessment(auth, deps, resolved, actor, i
     const mapped = mapRiskAssessmentRecord(existingMatch);
     if (isVerificationRiskAssessment(mapped)) {
       timer.log("existing-verification");
-      return buildDraftSaveResponse(mapped, []);
+      return publishRiskAssessmentListMutation(
+        resolved,
+        "create-existing-verification",
+        buildDraftSaveResponse(mapped, []),
+      );
     }
     return healthSafetyApiFailure(
       "RISK_ASSESSMENT_EXISTS",
@@ -967,7 +1010,11 @@ export async function createCompanyRiskAssessment(auth, deps, resolved, actor, i
     syncedHazards = synced.hazards || [];
   }
   timer.log("complete");
-  return buildDraftSaveResponse(mapRiskAssessmentRecord(row), syncedHazards);
+  return publishRiskAssessmentListMutation(
+    resolved,
+    "create",
+    buildDraftSaveResponse(mapRiskAssessmentRecord(row), syncedHazards),
+  );
 }
 
 export async function saveCompanyRiskAssessmentDraft(auth, deps, resolved, actor, riskAssessmentId, input = {}) {
@@ -990,7 +1037,7 @@ export async function saveCompanyRiskAssessmentDraft(auth, deps, resolved, actor
     syncedHazards = synced.hazards || [];
   }
   timer.log("complete");
-  return buildDraftSaveResponse(patched.item, syncedHazards);
+  return publishRiskAssessmentListMutation(resolved, "save-draft", buildDraftSaveResponse(patched.item, syncedHazards));
 }
 
 export async function patchCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId, input = {}) {
@@ -1049,7 +1096,11 @@ export async function patchCompanyRiskAssessment(auth, deps, resolved, actor, ri
     }
   }
   timer.log("complete");
-  return buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer });
+  return publishRiskAssessmentListMutation(
+    resolved,
+    "patch",
+    await buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer }),
+  );
 }
 
 export async function submitCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId) {
@@ -1061,7 +1112,7 @@ export async function submitCompanyRiskAssessment(auth, deps, resolved, actor, r
   if (!current.ok) return current;
   if (current.item.status === "Submitted") {
     timer.log("already-submitted");
-    return { ...current, alreadySubmitted: true };
+    return publishRiskAssessmentListMutation(resolved, "submit", { ...current, alreadySubmitted: true });
   }
   if (!canSubmitRiskAssessmentStatus(current.item.status)) {
     timer.log("validation-failed");
@@ -1103,7 +1154,11 @@ export async function submitCompanyRiskAssessment(auth, deps, resolved, actor, r
     }
   }
   timer.log("complete");
-  return buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer });
+  return publishRiskAssessmentListMutation(
+    resolved,
+    "submit",
+    await buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer }),
+  );
 }
 
 export async function approveCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId, input = {}) {
@@ -1134,7 +1189,11 @@ export async function approveCompanyRiskAssessment(auth, deps, resolved, actor, 
       UpdatedBy: normalizeEmail(actor.email),
     });
   }
-  return getCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId);
+  return publishRiskAssessmentListMutation(
+    resolved,
+    "approve",
+    await getCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId),
+  );
 }
 
 export async function rejectCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId, input = {}) {
@@ -1155,7 +1214,11 @@ export async function rejectCompanyRiskAssessment(auth, deps, resolved, actor, r
     UpdatedAt: timestamp,
     UpdatedBy: normalizeEmail(actor.email),
   });
-  return getCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId);
+  return publishRiskAssessmentListMutation(
+    resolved,
+    "reject",
+    await getCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId),
+  );
 }
 
 export async function archiveCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId) {
@@ -1173,7 +1236,11 @@ export async function archiveCompanyRiskAssessment(auth, deps, resolved, actor, 
     UpdatedAt: timestamp,
     UpdatedBy: normalizeEmail(actor.email),
   });
-  return getCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId);
+  return publishRiskAssessmentListMutation(
+    resolved,
+    "archive",
+    await getCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId),
+  );
 }
 
 export async function restoreCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId) {
@@ -1191,7 +1258,11 @@ export async function restoreCompanyRiskAssessment(auth, deps, resolved, actor, 
     UpdatedAt: timestamp,
     UpdatedBy: normalizeEmail(actor.email),
   });
-  return getCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId);
+  return publishRiskAssessmentListMutation(
+    resolved,
+    "restore",
+    await getCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId),
+  );
 }
 
 export async function reviewCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId, input = {}) {
@@ -1264,7 +1335,11 @@ export async function reviewCompanyRiskAssessment(auth, deps, resolved, actor, r
       UpdatedBy: normalizeEmail(actor.email),
     });
   }
-  return getCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId);
+  return publishRiskAssessmentListMutation(
+    resolved,
+    "review",
+    await getCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId),
+  );
 }
 
 export async function createNewVersionCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId, input = {}) {
@@ -1308,7 +1383,11 @@ export async function createNewVersionCompanyRiskAssessment(auth, deps, resolved
   for (const link of current.links || []) {
     await createRiskAssessmentLink(auth, deps, resolved, actor, created.item.id, link);
   }
-  return getCompanyRiskAssessment(auth, deps, resolved, actor, created.item.id);
+  return publishRiskAssessmentListMutation(
+    resolved,
+    "new-version",
+    await getCompanyRiskAssessment(auth, deps, resolved, actor, created.item.id),
+  );
 }
 
 export async function listRiskAssessmentHazards(auth, deps, resolved, actor, riskAssessmentId, options = {}) {
@@ -1629,7 +1708,7 @@ export async function cleanupVerificationRiskAssessment(auth, deps, resolved, ac
     UpdatedAt: timestamp,
     UpdatedBy: normalizeEmail(actor.email),
   });
-  return {
+  return publishRiskAssessmentListMutation(resolved, "verification-cleanup", {
     ok: true,
     riskAssessmentId: id,
     cleaned: true,
@@ -1639,7 +1718,7 @@ export async function cleanupVerificationRiskAssessment(auth, deps, resolved, ac
     cleanedActions,
     companyFolderId: resolved.companyFolderId,
     masterSheetId: resolved.masterSheetId,
-  };
+  });
 }
 
 export async function cleanupStaleVerificationRiskAssessments(auth, deps, resolved, actor) {
@@ -1673,7 +1752,7 @@ export async function cleanupStaleVerificationRiskAssessments(auth, deps, resolv
       cleanedActions += Number(result.cleanedActions) || 0;
     }
   }
-  return {
+  return publishRiskAssessmentListMutation(resolved, "verification-cleanup-stale", {
     ok: true,
     cleanedCount: cleanedRiskAssessmentIds.length,
     cleanedRiskAssessmentIds,
@@ -1682,7 +1761,7 @@ export async function cleanupStaleVerificationRiskAssessments(auth, deps, resolv
     cleanedActions,
     companyFolderId: resolved.companyFolderId,
     masterSheetId: resolved.masterSheetId,
-  };
+  });
 }
 
 export { resolveCompanyScheduleContext, RISK_ASSESSMENT_REQUIRED_TABS };

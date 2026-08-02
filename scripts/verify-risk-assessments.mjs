@@ -116,6 +116,8 @@ assert(service.includes("ensuredRiskAssessmentWorkbooks"), "service: sheet ensur
 assert(service.includes("[risk-assessment:list-timing]"), "service: list timing instrumentation");
 assert(service.includes("buildRiskAssessmentListItemFromRecord"), "service: list uses row aggregates");
 assert(service.includes("riskAssessmentListCache"), "service: list response cache");
+assert(service.includes("invalidateRiskAssessmentListCache"), "service: list cache invalidation");
+assert(service.includes("[risk-assessment:list-cache-invalidate]"), "service: list cache invalidation logging");
 assert(service.includes("listCompanyRiskAssessmentsUncached"), "service: uncached list path");
 assert(service.includes('timer.log("read-risk-assessment-hazards-tab", { rowCounts: { hazards: 0 } })'), "service: list path skips hazards tab read");
 assert(!service.includes("summariseAssessmentRisk(hazards)") || service.includes("buildRiskAssessmentListItemFromRecord"), "service: list path uses row aggregates");
@@ -127,7 +129,7 @@ assert(service.includes("syncRiskAssessmentHazards"), "service: batch hazard syn
 assert(service.includes("alreadySubmitted"), "service: idempotent submit");
 assert(service.includes("buildDraftSaveResponse"), "service: lightweight draft save response");
 assert(service.includes("batchPatchTabRowsByHeader"), "service: batch hazard patch helper");
-assert(service.includes("return buildDraftSaveResponse(patched.item"), "service: draft save returns lightweight response");
+assert(service.includes("publishRiskAssessmentListMutation(resolved, \"save-draft\", buildDraftSaveResponse(patched.item"), "service: draft save returns lightweight response");
 
 const validationAdapter = read("src/health-safety/adapters/riskAssessmentValidation.ts");
 assert(validationAdapter.includes("buildClientHazardId"), "client: stable HazardId at creation");

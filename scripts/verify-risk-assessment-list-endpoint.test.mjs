@@ -11,7 +11,15 @@ import {
 } from "../shared/risk-assessments.mjs";
 import { getUkTodayKey } from "../shared/uk-date-time.mjs";
 import {
+  buildProductionVerificationRiskAssessment,
+  isOperationalRiskAssessment,
+} from "../shared/production-verification-risk-assessment.mjs";
+import { buildHealthSafetyMetrics } from "../shared/health-safety-overview.mjs";
+import {
+  cleanupVerificationRiskAssessment,
+  createCompanyRiskAssessment,
   getCompanyRiskAssessment,
+  invalidateRiskAssessmentListCache,
   listCompanyRiskAssessments,
   resetRiskAssessmentListCachesForTests,
 } from "../server/risk-assessments-service.mjs";
@@ -65,6 +73,28 @@ function createTrackingDeps(rowsByTab = {}) {
     getReadCalls: () => readCalls,
     getEnsureCalls: () => ensureCalls,
   };
+  return deps;
+}
+
+function createMutableDeps(initialRows = {}) {
+  const rowsByTab = {
+    RiskAssessments: [...(initialRows.RiskAssessments || [])],
+    RiskAssessmentHazards: [...(initialRows.RiskAssessmentHazards || [])],
+    RiskAssessmentLinks: [...(initialRows.RiskAssessmentLinks || [])],
+    RiskAssessmentReviews: [...(initialRows.RiskAssessmentReviews || [])],
+  };
+  const deps = createTrackingDeps(rowsByTab);
+  deps.appendTabRows = async (_auth, _deps, _sheetId, tabName, rows = []) => {
+    rowsByTab[tabName] = [...(rowsByTab[tabName] || []), ...rows];
+    return { ok: true };
+  };
+  deps.patchTabRowByHeader = async (_auth, _deps, _sheetId, tabName, header, id, patch) => {
+    rowsByTab[tabName] = (rowsByTab[tabName] || []).map((row) =>
+      String(row[header]) === String(id) ? { ...row, ...patch } : row,
+    );
+    return { ok: true };
+  };
+  deps.getRows = () => rowsByTab;
   return deps;
 }
 
@@ -240,4 +270,134 @@ test("verifier list stage completes within bounded mock budget", async () => {
   assert.equal(result.items.length, 25);
   assert.ok(durationMs < 500, `expected mock list under 500ms, got ${durationMs}ms`);
   assert.deepEqual(deps.getReadCalls(), ["RiskAssessments"]);
+});
+
+test("create invalidates warmed list cache so new verification record appears", async () => {
+  const verification = buildProductionVerificationRiskAssessment({ runId: 4242, companyFolderId });
+  const deps = createMutableDeps({
+    RiskAssessments: [assessmentRow()],
+  });
+  const warmed = await listCompanyRiskAssessments({}, deps, resolved, actor);
+  assert.equal(warmed.items.length, 1);
+
+  const created = await createCompanyRiskAssessment({}, deps, resolved, actor, {
+    riskAssessmentId: verification.id,
+    assessmentNumber: verification.assessmentNumber,
+    title: verification.title,
+    description: verification.description,
+    activity: verification.activity,
+    department: verification.department,
+    nextReviewReason: verification.nextReviewReason,
+    peopleAtRisk: verification.peopleAtRisk,
+  });
+  assert.equal(created.ok, true);
+  assert.equal(created.item.id, verification.id);
+
+  const listed = await listCompanyRiskAssessments({}, deps, resolved, actor);
+  assert.equal(listed.ok, true);
+  assert.equal(listed.items.some((item) => item.id === verification.id), true);
+});
+
+test("repeated verification create is idempotent and remains visible in list", async () => {
+  const verification = buildProductionVerificationRiskAssessment({ runId: 5252, companyFolderId });
+  const deps = createMutableDeps({ RiskAssessments: [] });
+  const payload = {
+    riskAssessmentId: verification.id,
+    assessmentNumber: verification.assessmentNumber,
+    title: verification.title,
+    description: verification.description,
+    activity: verification.activity,
+    department: verification.department,
+    nextReviewReason: verification.nextReviewReason,
+    peopleAtRisk: verification.peopleAtRisk,
+  };
+  const first = await createCompanyRiskAssessment({}, deps, resolved, actor, payload);
+  const second = await createCompanyRiskAssessment({}, deps, resolved, actor, payload);
+  assert.equal(first.ok, true);
+  assert.equal(second.ok, true);
+  assert.equal(second.item.id, verification.id);
+  const listed = await listCompanyRiskAssessments({}, deps, resolved, actor, { skipCache: true });
+  assert.equal(listed.items.filter((item) => item.id === verification.id).length, 1);
+});
+
+test("verification record is retrievable from detail endpoint", async () => {
+  const verification = buildProductionVerificationRiskAssessment({ runId: 6262, companyFolderId });
+  const row = {
+    RiskAssessmentId: verification.id,
+    CompanyFolderId: companyFolderId,
+    AssessmentNumber: verification.assessmentNumber,
+    Title: verification.title,
+    Description: verification.description,
+    Activity: verification.activity,
+    Department: verification.department,
+    NextReviewReason: verification.nextReviewReason,
+    PeopleAtRisk: verification.peopleAtRisk,
+    Status: "Draft",
+    Version: "1.0",
+    CreatedAt: verification.createdAt,
+    UpdatedAt: verification.updatedAt,
+  };
+  const deps = createMutableDeps({ RiskAssessments: [row] });
+  const detail = await getCompanyRiskAssessment({}, deps, resolved, actor, verification.id);
+  assert.equal(detail.ok, true);
+  assert.equal(detail.item.id, verification.id);
+});
+
+test("cleanup invalidates list cache for verification assessments", async () => {
+  const verification = buildProductionVerificationRiskAssessment({ runId: 7272, companyFolderId });
+  const row = {
+    RiskAssessmentId: verification.id,
+    CompanyFolderId: companyFolderId,
+    AssessmentNumber: verification.assessmentNumber,
+    Title: verification.title,
+    Description: verification.description,
+    Activity: verification.activity,
+    Department: verification.department,
+    NextReviewReason: verification.nextReviewReason,
+    PeopleAtRisk: verification.peopleAtRisk,
+    Status: "Draft",
+    Version: "1.0",
+    CreatedAt: verification.createdAt,
+    UpdatedAt: verification.updatedAt,
+  };
+  const deps = createMutableDeps({ RiskAssessments: [row] });
+  await listCompanyRiskAssessments({}, deps, resolved, actor);
+  const cleaned = await cleanupVerificationRiskAssessment({}, deps, resolved, actor, verification.id);
+  assert.equal(cleaned.ok, true);
+  const listed = await listCompanyRiskAssessments({}, deps, resolved, actor);
+  assert.equal(listed.items.some((item) => item.id === verification.id), false);
+  const archivedList = await listCompanyRiskAssessments({}, deps, resolved, actor, {
+    includeArchived: true,
+    skipCache: true,
+  });
+  const match = archivedList.items.find((item) => item.id === verification.id);
+  assert.ok(match);
+  assert.equal(match.status, "Archived");
+});
+
+test("verification records remain excluded from Health & Safety overview metrics", () => {
+  const verification = buildProductionVerificationRiskAssessment({ runId: 8282, companyFolderId });
+  const metrics = buildHealthSafetyMetrics({
+    riskAssessments: [
+      { id: "ra-customer", status: "Active", highestResidualRiskScore: 8 },
+      { ...verification, status: "Active", highestResidualRiskScore: 20 },
+    ],
+  });
+  assert.equal(metrics.activeRiskAssessments, 1);
+  assert.equal(metrics.veryHighResidualRiskAssessments, 0);
+  assert.equal(isOperationalRiskAssessment(verification), false);
+});
+
+test("manual cache invalidation prevents stale empty list after workbook mutation", async () => {
+  const deps = createMutableDeps({ RiskAssessments: [] });
+  const empty = await listCompanyRiskAssessments({}, deps, resolved, actor);
+  assert.equal(empty.items.length, 0);
+  deps.getRows().RiskAssessments.push(
+    assessmentRow({ RiskAssessmentId: "ra-new", AssessmentNumber: "RA-0099", Title: "New assessment" }),
+  );
+  const stillStale = await listCompanyRiskAssessments({}, deps, resolved, actor);
+  assert.equal(stillStale.items.length, 0);
+  invalidateRiskAssessmentListCache(resolved, "test-invalidate");
+  const fresh = await listCompanyRiskAssessments({}, deps, resolved, actor);
+  assert.equal(fresh.items.length, 1);
 });

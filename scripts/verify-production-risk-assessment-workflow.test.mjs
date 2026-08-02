@@ -86,6 +86,7 @@ function createTransport(options = {}) {
   let submitAttempts = 0;
   let cleanupAttempts = 0;
   let verificationCleanupCalls = 0;
+  let suppressVerificationInListCount = 0;
 
   const request = async (method, path, body) => {
     if (method === "GET" && path === "/api/health") {
@@ -129,11 +130,16 @@ function createTransport(options = {}) {
       if (options.listResponse) {
         return options.listResponse();
       }
+      let items = [...assessments];
+      if (suppressVerificationInListCount > 0) {
+        suppressVerificationInListCount -= 1;
+        items = items.filter((item) => item.id !== verification.id);
+      }
       return {
         status: options.listUnavailable ? 503 : 200,
         json: options.listUnavailable
           ? { ok: false, code: "RISK_ASSESSMENT_FAILED" }
-          : { ok: true, items: [...assessments] },
+          : { ok: true, items },
       };
     }
     if (method === "POST" && path.includes("/risk-assessments/verification-cleanup") && !path.includes(verification.id)) {
@@ -184,6 +190,7 @@ function createTransport(options = {}) {
         };
       }
       assessments.push({ ...verification, id: verification.id, status: "Draft", version: "1.0", description });
+      suppressVerificationInListCount = Number(options.listStaleUntilAttempt) || 0;
       return {
         status: 200,
         json: {
@@ -473,9 +480,21 @@ test("created draft missing from list", async () => {
   const result = await runProductionRiskAssessmentWorkflowChecks(
     baseConfig,
     createTransport({ createMissingFromList: true }),
-    { runId: TEST_RUN_ID },
+    { runId: TEST_RUN_ID, listPollMaxAttempts: 2, listPollIntervalMs: 0 },
   );
   assert.equal(result.failedKey, "createDraft");
+  assert.ok(Array.isArray(result.createDraftDiagnostics?.listPollAttempts));
+});
+
+test("create draft polls until verification assessment appears in list", async () => {
+  const result = await runProductionRiskAssessmentWorkflowChecks(
+    baseConfig,
+    createTransport({ listStaleUntilAttempt: 1 }),
+    { runId: TEST_RUN_ID, listPollMaxAttempts: 5, listPollIntervalMs: 0 },
+  );
+  assert.equal(result.checks.createDraft.status, "PASS");
+  assert.ok((result.createDraftDiagnostics?.listPollAttempts || []).length >= 2);
+  assert.equal(result.createDraftDiagnostics?.detailLookup?.found, true);
 });
 
 test("add first hazard failure", async () => {
@@ -572,7 +591,7 @@ test("detail verification failure", async () => {
     const response = await original(method, path, body);
     if (method === "GET" && path.includes("/risk-assessments/bert-smoke-ra-12345") && path.includes("health-safety") === false) {
       const calls = (transport._detailCalls = (transport._detailCalls || 0) + 1);
-      if (calls >= 3) {
+      if (calls >= 5) {
         return {
           status: 200,
           json: {
