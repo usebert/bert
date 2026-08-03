@@ -420,6 +420,62 @@ npm run verify:production-incident-workflow-tests
 npm run verify:production-verification-incident-tests
 ```
 
+### Production Briefing workflow (post-deploy smoke)
+
+After startup health, authentication health, audit workflow, Actions workflow, Risk Assessment workflow, and Incident workflow pass, run the Briefing workflow smoke test. It authenticates with the same smoke account, confirms the Briefings tracker and recipient APIs, and — only when `BERT_SMOKE_ALLOW_BRIEFING_MUTATION=1` — creates a dedicated verification briefing draft, edits it, assigns only the smoke recipient, publishes, exercises read/acknowledge/sign through the normal recipient routes, verifies dashboard exclusion, and cleans up safely. It never edits customer briefings, never sends external email, and never assigns broad recipient groups.
+
+```bash
+set -a && source .env && set +a
+
+BERT_SMOKE_USERNAME=mr.important \
+BERT_SMOKE_PASSWORD='<set securely in your environment>' \
+BERT_SMOKE_COMPANY_FOLDER_ID=1tDKluapYfY-RkuxXc6eoRnGHL38XCswx \
+BERT_SMOKE_MASTER_SHEET_ID=1MntKgSgVmTmlpzZhnCZdDQtdmPw7GcXptlAp88Ewrkc \
+BERT_SMOKE_EXPECTED_EMAIL=bert.demo+mr.important@usebert.co.uk \
+BERT_SMOKE_ALLOW_BRIEFING_MUTATION=1 \
+npm run verify:production-briefing-workflow
+```
+
+Optional:
+
+- **`BERT_SMOKE_ALLOW_BRIEFING_MUTATION`** — must be `1` to exercise create/edit/publish/recipient/read/ack/sign/cleanup stages. Without it, mutation stages report **SKIPPED** (authentication, Briefings API, and baseline still run).
+- **`BERT_SMOKE_BRIEFING_RECIPIENT_USERNAME` / `BERT_SMOKE_BRIEFING_RECIPIENT_PASSWORD` / `BERT_SMOKE_BRIEFING_RECIPIENT_EXPECTED_EMAIL`** — optional second smoke account. When omitted, the verifier uses **self-recipient mode** (creator also receives the briefing) if the production workflow allows it.
+
+Verification briefing markers:
+
+- BriefingId prefix: `bert-smoke-briefing-`
+- Title: `BERT Verification Briefing`
+- Type: `Verification`
+- Source: `production-briefing-workflow`
+- Marker: `verification`
+
+Cleanup uses verification-only routes:
+
+- `POST /api/companies/:companyFolderId/briefings/verification-cleanup`
+- `POST /api/companies/:companyFolderId/briefings/:briefingId/verification-cleanup`
+
+Email suppression: verification briefings target only configured smoke accounts via `users` target mode. No external email delivery is required or verified.
+
+Signature handling: typed verification signature name only (`BERT Verification Signature`); no handwritten uploads.
+
+Expected duration: ~3–12 minutes with mutation enabled.
+
+Stage timeouts: authentication 90s, list/detail reads 60s, create/edit/publish/recipient/read/ack/sign 120s, dashboard 60s, cleanup 120s, total budget 12 minutes. Transient **502/503/504** and network timeouts retry after checking whether the briefing already exists or the mutation already completed.
+
+Optional **SKIPPED** stages:
+
+- **Notification** — internal notification state is client-cache derived; no server notification API.
+- **Search** — client-side search only; no safe production search endpoint.
+
+Failure remediation: inspect the failed stage output, confirm `BERT_SMOKE_ALLOW_BRIEFING_MUTATION=1` when mutations are required, run stale cleanup manually via `POST .../briefings/verification-cleanup`, then re-run the verifier.
+
+Unit tests (mocked HTTP, no production calls):
+
+```bash
+npm run verify:production-briefing-workflow-tests
+npm run verify:production-verification-briefing-tests
+```
+
 ### Post-deploy verification sequence
 
 Run in order after every API deployment:
@@ -430,8 +486,9 @@ Run in order after every API deployment:
 4. **Actions workflow** — `npm run verify:production-actions-workflow`
 5. **Risk Assessment workflow** — `npm run verify:production-risk-assessment-workflow`
 6. **Incident workflow** — `npm run verify:production-incident-workflow`
+7. **Briefing workflow** — `npm run verify:production-briefing-workflow`
 
-Only when all six pass should the deployment be considered **READY FOR CUSTOMERS**.
+Only when all seven pass should the deployment be considered **READY FOR CUSTOMERS**.
 
 ### Startup system health (Master operators)
 

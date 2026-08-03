@@ -460,6 +460,38 @@ const buildOpts = (actor) => ({ companyFolderId: CO, alternateIds: [CO], actor, 
   );
 }
 
+/** 17: Verification briefings excluded from operational dashboard metrics. */
+{
+  const mixed = baseSources();
+  mixed.briefings = mixed.briefings || [];
+  mixed.briefingRecipients = mixed.briefingRecipients || [];
+  mixed.briefings.push({
+    BriefingId: "bert-smoke-briefing-999",
+    "Company Folder ID": CO,
+    Title: "BERT Verification Briefing",
+    Type: "Verification",
+    Status: "Sent",
+    Priority: "Normal",
+    Message: "Automated production Briefing workflow verification. Safe to remove.",
+    VerificationSource: "production-briefing-workflow",
+    RequiresRead: "Yes",
+    RequiresAcknowledgement: "Yes",
+    RequiresSignature: "Yes",
+  });
+  mixed.briefingRecipients.push({
+    BriefingId: "bert-smoke-briefing-999",
+    RecipientEmail: "aud@live.co",
+    RecipientName: "Aud",
+    Status: "New",
+  });
+  const built = buildLiveDashboardFromSources(mixed, buildOpts(adminActor));
+  assert(built.metrics.pendingBriefings === 1, "17: verification briefing excluded from pending counts");
+  assert(
+    !built.actToday.some((item) => String(item.id || "").includes("bert-smoke-briefing")),
+    "17b: verification briefing excluded from act today",
+  );
+}
+
 /** Route + package wiring. */
 {
   const coreRoutes = read("server/core-workflow-routes.mjs");

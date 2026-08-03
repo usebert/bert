@@ -22,6 +22,14 @@ import {
   pickBriefingRecipientField,
 } from "../shared/briefings.mjs";
 import { isWorkbookRowArchived } from "../shared/archive.mjs";
+import {
+  isActiveVerificationBriefing,
+  isVerificationBriefing,
+  isVerificationBriefingId,
+  PRODUCTION_VERIFICATION_BRIEFING_CLEANED_STATUS,
+  PRODUCTION_VERIFICATION_BRIEFING_SOURCE,
+  PRODUCTION_VERIFICATION_BRIEFING_TYPE,
+} from "../shared/production-verification-briefing.mjs";
 import { resolveCompanyScheduleContext } from "./schedule-service.mjs";
 import {
   appendTabRows as workbookAppendTabRows,
@@ -220,6 +228,7 @@ export function mapBriefingRecord(record = {}) {
     signedCount: Number(pickRecordField(record, "SignedCount")) || 0,
     replyCount: Number(pickRecordField(record, "ReplyCount")) || 0,
     overdueCount: Number(pickRecordField(record, "OverdueCount")) || 0,
+    verificationSource: pickRecordField(record, "VerificationSource"),
   };
 }
 
@@ -420,6 +429,7 @@ export function buildBriefingRow(input = {}) {
     SignedCount: "0",
     ReplyCount: "0",
     OverdueCount: "0",
+    VerificationSource: trim(input.verificationSource),
   };
 }
 
@@ -1027,4 +1037,438 @@ export async function ensureBriefingDriveFolder(auth, deps, companyFolderId, bri
     BRIEFINGS_GOOGLE_TIMEOUT_MS,
   );
   return { ok: true, folderId: ensured.folderId, path: ensured.path };
+}
+
+function logBriefingMutationTiming(operation, stage, meta = {}) {
+  console.info("[briefing:mutation-timing]", {
+    operation,
+    stage,
+    briefingId: trim(meta.briefingId),
+    workbookId: trim(meta.workbookId),
+    updatedRows: Number(meta.updatedRows) || 0,
+    durationMs: Number(meta.durationMs) || 0,
+    totalMs: Number(meta.totalMs) || Number(meta.durationMs) || 0,
+  });
+}
+
+async function findBriefingWorkbookRecord(auth, deps, masterSheetId, briefingId) {
+  const readTabRecords = resolveReadTabRecords(deps);
+  const result = await readTabRecords(auth, deps, masterSheetId, BRIEFINGS_TAB);
+  const record = (result.records || []).find((row) => pickRecordField(row, "BriefingId") === briefingId);
+  if (!record) {
+    return null;
+  }
+  return { record, briefing: mapBriefingRecord(record) };
+}
+
+async function patchBriefingRow(auth, deps, masterSheetId, briefingId, patch = {}) {
+  const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
+  return patchTabRowByHeader(auth, deps, masterSheetId, BRIEFINGS_TAB, "BriefingId", briefingId, patch);
+}
+
+async function removeBriefingRecipients(auth, deps, masterSheetId, briefingId) {
+  const readTabRecords = resolveReadTabRecords(deps);
+  const writeTabRecords =
+    typeof deps?.writeTabRecords === "function" ? deps.writeTabRecords : workbookWriteTabRecords;
+  const result = await readTabRecords(auth, deps, masterSheetId, BRIEFING_RECIPIENTS_TAB);
+  const records = result.records || [];
+  const remaining = records.filter((row) => pickRecordField(row, "BriefingId") !== briefingId);
+  const removed = records.length - remaining.length;
+  if (removed > 0) {
+    await writeTabRecords(auth, deps, masterSheetId, BRIEFING_RECIPIENTS_TAB, BRIEFING_RECIPIENTS_TAB_COLUMNS, remaining);
+  }
+  return removed;
+}
+
+export async function createDraftVerificationBriefing(auth, deps, actor, companyFolderId, input = {}) {
+  const startedAt = Date.now();
+  if (!canManageBriefings(actor)) {
+    return briefingApiFailure("BRIEFING_FORBIDDEN", "You do not have permission to create briefings.", "", 403);
+  }
+  const briefingId = trim(input.briefingId);
+  if (!isVerificationBriefingId(briefingId)) {
+    return briefingApiFailure(
+      "BRIEFING_VERIFICATION_ID_REQUIRED",
+      "Verification briefings must use the bert-smoke-briefing- ID prefix.",
+      "",
+      403,
+    );
+  }
+  const context = await resolveCompanyContext(auth, deps, actor, companyFolderId);
+  if (!context?.ok) {
+    return normalizeContextFailure(context);
+  }
+  if (!actorCanAccessCompanyBriefings(actor, companyFolderId, context.alternateIds)) {
+    return briefingApiFailure("BRIEFING_COMPANY_MISMATCH", "Briefing must be created within your company workspace.", "", 403);
+  }
+
+  await ensureBriefingsTabs(auth, deps, context.masterSheetId);
+  const existing = await findBriefingWorkbookRecord(auth, deps, context.masterSheetId, briefingId);
+  if (existing?.briefing) {
+    if (!isVerificationBriefing(existing.briefing)) {
+      return briefingApiFailure("BRIEFING_ID_CONFLICT", "Briefing ID is already used by a non-verification record.", "", 409);
+    }
+    return {
+      ok: true,
+      briefing: existing.briefing,
+      alreadyExists: true,
+      updatedRows: 0,
+      briefingId,
+      masterSheetId: context.masterSheetId,
+    };
+  }
+
+  const createdAt = nowIso();
+  const briefingRow = buildBriefingRow({
+    ...input,
+    briefingId,
+    title: trim(input.title),
+    type: PRODUCTION_VERIFICATION_BRIEFING_TYPE,
+    status: "Draft",
+    priority: trim(input.priority) || "Normal",
+    createdByEmail: actor.email,
+    createdByName: trim(actor.name || actor.displayName || actor.email),
+    createdAt,
+    sentAt: "",
+    dueDate: input.dueDate,
+    requiresRead: input.requiresRead !== false,
+    requiresAcknowledgement: input.requiresAcknowledgement !== false,
+    requiresSignature: input.requiresSignature !== false,
+    requiresReply: false,
+    targetMode: "users",
+    targetUserEmails: input.targetUserEmails || [],
+    message: trim(input.message),
+    verificationSource: PRODUCTION_VERIFICATION_BRIEFING_SOURCE,
+    recipientCount: 0,
+  });
+
+  const appendTabRows = resolveAppendTabRows(deps);
+  await appendTabRows(auth, deps, context.masterSheetId, BRIEFINGS_TAB, BRIEFINGS_TAB_COLUMNS, [briefingRow]);
+  const updatedRows = 1;
+  logBriefingMutationTiming("create", "draft", {
+    briefingId,
+    workbookId: context.masterSheetId,
+    updatedRows,
+    durationMs: Date.now() - startedAt,
+    totalMs: Date.now() - startedAt,
+  });
+  return {
+    ok: true,
+    briefing: mapBriefingRecord(briefingRow),
+    briefingId,
+    masterSheetId: context.masterSheetId,
+    updatedRows,
+  };
+}
+
+export async function patchVerificationBriefing(auth, deps, actor, companyFolderId, briefingId, input = {}) {
+  const startedAt = Date.now();
+  if (!canManageBriefings(actor)) {
+    return briefingApiFailure("BRIEFING_FORBIDDEN", "You do not have permission to edit briefings.", "", 403);
+  }
+  if (!isVerificationBriefingId(briefingId)) {
+    return briefingApiFailure("BRIEFING_VERIFICATION_ID_REQUIRED", "Only verification briefings can be patched through this path.", "", 403);
+  }
+  const context = await resolveCompanyContext(auth, deps, actor, companyFolderId);
+  if (!context?.ok) {
+    return normalizeContextFailure(context);
+  }
+  const found = await findBriefingWorkbookRecord(auth, deps, context.masterSheetId, briefingId);
+  if (!found) {
+    return briefingApiFailure("BRIEFING_NOT_FOUND", "Briefing not found.", "", 404);
+  }
+  if (!isVerificationBriefing(found.briefing)) {
+    return briefingApiFailure("BRIEFING_NOT_VERIFICATION", "Only verification briefings can be patched through this path.", "", 403);
+  }
+  const status = trim(found.briefing.status).toLowerCase();
+  if (status !== "draft" && status !== PRODUCTION_VERIFICATION_BRIEFING_CLEANED_STATUS) {
+    if (status === "sent" || status === "active" || status === "published") {
+      return briefingApiFailure("BRIEFING_NOT_DRAFT", "Only draft verification briefings can be edited.", "", 409);
+    }
+  }
+
+  const patch = {};
+  if (input.title !== undefined) patch.Title = trim(input.title);
+  if (input.message !== undefined) patch.Message = trim(input.message);
+  if (input.dueDate !== undefined) patch.DueDate = trim(input.dueDate);
+  if (input.requiresRead !== undefined) patch.RequiresRead = boolText(input.requiresRead);
+  if (input.requiresAcknowledgement !== undefined) patch.RequiresAcknowledgement = boolText(input.requiresAcknowledgement);
+  if (input.requiresSignature !== undefined) patch.RequiresSignature = boolText(input.requiresSignature);
+  if (input.targetUserEmails !== undefined) {
+    patch.TargetUserEmails = (input.targetUserEmails || []).map(normalizeEmail).join(", ");
+    patch.TargetMode = "users";
+  }
+  if (!Object.keys(patch).length) {
+    return { ok: true, briefing: found.briefing, updatedRows: 0, unchanged: true };
+  }
+
+  const patchResult = await patchBriefingRow(auth, deps, context.masterSheetId, briefingId, patch);
+  const updatedRows = Number(patchResult?.patched ?? patchResult?.updatedRows ?? 1);
+  const refreshed = await findBriefingWorkbookRecord(auth, deps, context.masterSheetId, briefingId);
+  logBriefingMutationTiming("patch", "patch", {
+    briefingId,
+    workbookId: context.masterSheetId,
+    updatedRows,
+    durationMs: Date.now() - startedAt,
+    totalMs: Date.now() - startedAt,
+  });
+  return { ok: true, briefing: refreshed?.briefing || found.briefing, updatedRows };
+}
+
+export async function assignVerificationBriefingRecipients(auth, deps, actor, companyFolderId, briefingId, input = {}) {
+  const startedAt = Date.now();
+  if (!canManageBriefings(actor)) {
+    return briefingApiFailure("BRIEFING_FORBIDDEN", "You do not have permission to assign recipients.", "", 403);
+  }
+  if (!isVerificationBriefingId(briefingId)) {
+    return briefingApiFailure("BRIEFING_VERIFICATION_ID_REQUIRED", "Only verification briefings support this assignment path.", "", 403);
+  }
+  const targetEmails = (input.targetUserEmails || input.recipientEmails || [])
+    .map(normalizeEmail)
+    .filter(Boolean);
+  if (!targetEmails.length) {
+    return briefingApiFailure("BRIEFING_RECIPIENTS_REQUIRED", "At least one recipient email is required.");
+  }
+  if (targetEmails.length > 3) {
+    return briefingApiFailure("BRIEFING_RECIPIENTS_TOO_BROAD", "Verification briefings cannot assign broad recipient groups.", "", 403);
+  }
+  const context = await resolveCompanyContext(auth, deps, actor, companyFolderId);
+  if (!context?.ok) {
+    return normalizeContextFailure(context);
+  }
+  const found = await findBriefingWorkbookRecord(auth, deps, context.masterSheetId, briefingId);
+  if (!found) {
+    return briefingApiFailure("BRIEFING_NOT_FOUND", "Briefing not found.", "", 404);
+  }
+  if (!isVerificationBriefing(found.briefing)) {
+    return briefingApiFailure("BRIEFING_NOT_VERIFICATION", "Only verification briefings can be assigned through this path.", "", 403);
+  }
+  if (trim(found.briefing.status).toLowerCase() !== "draft") {
+    return briefingApiFailure("BRIEFING_NOT_DRAFT", "Recipients can only be assigned while the briefing is a draft.", "", 409);
+  }
+
+  const expansion = await readBriefingRecipientSourceRecords(auth, deps, context.masterSheetId);
+  const profiles = expansion.profiles.filter((profile) => targetEmails.includes(profile.email));
+  if (profiles.length !== targetEmails.length) {
+    return briefingApiFailure(
+      "BRIEFING_RECIPIENT_NOT_FOUND",
+      "One or more recipient emails could not be resolved to an active company account.",
+      buildBriefingRecipientExpansionDebug(expansion.tabsChecked, expansion.counts),
+      404,
+    );
+  }
+
+  const existingRecipients = (await readAllRecipients(auth, deps, context.masterSheetId)).filter(
+    (entry) => entry.briefingId === briefingId,
+  );
+  if (existingRecipients.length > 0) {
+  const existingEmails = new Set(existingRecipients.map((entry) => entry.recipientEmail));
+    const allPresent = targetEmails.every((email) => existingEmails.has(email));
+    if (allPresent && existingRecipients.length === targetEmails.length) {
+      await patchBriefingRow(auth, deps, context.masterSheetId, briefingId, {
+        TargetUserEmails: targetEmails.join(", "),
+        TargetMode: "users",
+        RecipientCount: String(targetEmails.length),
+      });
+      return {
+        ok: true,
+        briefingId,
+        recipientCount: targetEmails.length,
+        alreadyAssigned: true,
+        updatedRows: 0,
+      };
+    }
+    if (existingRecipients.length > 0) {
+      return briefingApiFailure("BRIEFING_RECIPIENT_DUPLICATE", "Recipient assignment already exists for this briefing.", "", 409);
+    }
+  }
+
+  await patchBriefingRow(auth, deps, context.masterSheetId, briefingId, {
+    TargetUserEmails: targetEmails.join(", "),
+    TargetMode: "users",
+    RecipientCount: String(targetEmails.length),
+  });
+  logBriefingMutationTiming("patch", "recipient-assignment", {
+    briefingId,
+    workbookId: context.masterSheetId,
+    updatedRows: 1,
+    durationMs: Date.now() - startedAt,
+    totalMs: Date.now() - startedAt,
+  });
+  return { ok: true, briefingId, recipientCount: targetEmails.length, updatedRows: 1, profiles };
+}
+
+export async function publishVerificationBriefing(auth, deps, actor, companyFolderId, briefingId) {
+  const startedAt = Date.now();
+  if (!canManageBriefings(actor)) {
+    return briefingApiFailure("BRIEFING_FORBIDDEN", "You do not have permission to publish briefings.", "", 403);
+  }
+  if (!isVerificationBriefingId(briefingId)) {
+    return briefingApiFailure("BRIEFING_VERIFICATION_ID_REQUIRED", "Only verification briefings can be published through this path.", "", 403);
+  }
+  const context = await resolveCompanyContext(auth, deps, actor, companyFolderId);
+  if (!context?.ok) {
+    return normalizeContextFailure(context);
+  }
+  const found = await findBriefingWorkbookRecord(auth, deps, context.masterSheetId, briefingId);
+  if (!found) {
+    return briefingApiFailure("BRIEFING_NOT_FOUND", "Briefing not found.", "", 404);
+  }
+  if (!isVerificationBriefing(found.briefing)) {
+    return briefingApiFailure("BRIEFING_NOT_VERIFICATION", "Only verification briefings can be published through this path.", "", 403);
+  }
+
+  const currentStatus = trim(found.briefing.status).toLowerCase();
+  if (currentStatus === "sent" || currentStatus === "active" || currentStatus === "published") {
+    return { ok: true, briefing: found.briefing, alreadyPublished: true, updatedRows: 0 };
+  }
+  if (currentStatus !== "draft") {
+    return briefingApiFailure("BRIEFING_NOT_DRAFT", "Only draft briefings can be published.", "", 409);
+  }
+
+  const targetEmails = trim(found.briefing.targetUserEmails || "")
+    .split(",")
+    .map(normalizeEmail)
+    .filter(Boolean);
+  if (!targetEmails.length) {
+    return briefingApiFailure("BRIEFING_RECIPIENTS_REQUIRED", "Assign at least one recipient before publishing.");
+  }
+
+  const expansion = await readBriefingRecipientSourceRecords(auth, deps, context.masterSheetId);
+  const profiles = expansion.profiles.filter((profile) => targetEmails.includes(profile.email));
+  if (!profiles.length) {
+    return briefingApiFailure("BRIEFING_NO_RECIPIENTS", "No recipients matched the assigned emails.");
+  }
+
+  const sentAt = nowIso();
+  const existingRecipients = (await readAllRecipients(auth, deps, context.masterSheetId)).filter(
+    (entry) => entry.briefingId === briefingId,
+  );
+  let recipientRows = existingRecipients;
+  if (!existingRecipients.length) {
+    recipientRows = profiles.map((profile) =>
+      buildRecipientRow({
+        briefingId,
+        recipientEmail: profile.email,
+        recipientName: trim(profile.name || profile.displayName || profile.email),
+        role: profile.role,
+        area: profile.area || profile.siteArea,
+        department: profile.department,
+        sentAt,
+        status: "New",
+      }),
+    );
+    const appendTabRows = resolveAppendTabRows(deps);
+    await appendTabRows(
+      auth,
+      deps,
+      context.masterSheetId,
+      BRIEFING_RECIPIENTS_TAB,
+      BRIEFING_RECIPIENTS_TAB_COLUMNS,
+      recipientRows,
+    );
+  }
+
+  await patchBriefingRow(auth, deps, context.masterSheetId, briefingId, {
+    Status: "Sent",
+    SentAt: sentAt,
+    RecipientCount: String(recipientRows.length),
+  });
+  const refreshed = await findBriefingWorkbookRecord(auth, deps, context.masterSheetId, briefingId);
+  const updatedRows = 1 + (existingRecipients.length ? 0 : recipientRows.length);
+  logBriefingMutationTiming("publish", "publish", {
+    briefingId,
+    workbookId: context.masterSheetId,
+    updatedRows,
+    durationMs: Date.now() - startedAt,
+    totalMs: Date.now() - startedAt,
+  });
+  return { ok: true, briefing: refreshed?.briefing || found.briefing, recipientCount: recipientRows.length, updatedRows };
+}
+
+export async function cleanupVerificationBriefing(auth, deps, actor, companyFolderId, briefingId, input = {}) {
+  const startedAt = Date.now();
+  if (!isVerificationBriefingId(briefingId)) {
+    return briefingApiFailure(
+      "CLEANUP_NOT_VERIFICATION_BRIEFING",
+      "Only verification briefings with the bert-smoke-briefing- prefix can be cleaned up through this path.",
+      "",
+      403,
+    );
+  }
+  const context = await resolveCompanyContext(auth, deps, actor, companyFolderId);
+  if (!context?.ok) {
+    return normalizeContextFailure(context);
+  }
+  const found = await findBriefingWorkbookRecord(auth, deps, context.masterSheetId, briefingId);
+  if (!found) {
+    return {
+      ok: true,
+      cleaned: true,
+      alreadyCleaned: true,
+      briefingId,
+      masterSheetId: context.masterSheetId,
+      updatedRows: 0,
+    };
+  }
+  if (!isVerificationBriefing(found.briefing)) {
+    return briefingApiFailure("CLEANUP_NOT_VERIFICATION_BRIEFING", "Only verification briefings can be cleaned up through this path.", "", 403);
+  }
+  const status = trim(found.briefing.status).toLowerCase();
+  if (status === PRODUCTION_VERIFICATION_BRIEFING_CLEANED_STATUS) {
+    return {
+      ok: true,
+      cleaned: true,
+      alreadyCleaned: true,
+      briefingId,
+      status: PRODUCTION_VERIFICATION_BRIEFING_CLEANED_STATUS,
+      masterSheetId: context.masterSheetId,
+      updatedRows: 0,
+    };
+  }
+
+  const timestamp = nowIso();
+  await patchBriefingRow(auth, deps, context.masterSheetId, briefingId, {
+    Status: PRODUCTION_VERIFICATION_BRIEFING_CLEANED_STATUS,
+    VerificationSource: PRODUCTION_VERIFICATION_BRIEFING_SOURCE,
+    UpdatedAt: timestamp,
+  });
+  const removedRecipients = await removeBriefingRecipients(auth, deps, context.masterSheetId, briefingId);
+  logBriefingMutationTiming("cleanup", "cleanup", {
+    briefingId,
+    workbookId: context.masterSheetId,
+    updatedRows: 1 + removedRecipients,
+    durationMs: Date.now() - startedAt,
+    totalMs: Date.now() - startedAt,
+  });
+  return {
+    ok: true,
+    cleaned: true,
+    briefingId,
+    status: PRODUCTION_VERIFICATION_BRIEFING_CLEANED_STATUS,
+    masterSheetId: context.masterSheetId,
+    removedRecipients,
+    updatedRows: 1 + removedRecipients,
+  };
+}
+
+export async function cleanupStaleVerificationBriefings(auth, deps, actor, companyFolderId, input = {}) {
+  const context = await resolveCompanyContext(auth, deps, actor, companyFolderId);
+  if (!context?.ok) {
+    return normalizeContextFailure(context);
+  }
+  const briefings = await safeReadAllBriefings(auth, deps, context.masterSheetId);
+  const stale = briefings.filter((briefing) => isActiveVerificationBriefing(briefing));
+  const results = [];
+  for (const briefing of stale) {
+    const cleaned = await cleanupVerificationBriefing(auth, deps, actor, companyFolderId, briefing.briefingId, input);
+    results.push({ briefingId: briefing.briefingId, ok: cleaned.ok === true, status: cleaned.status });
+  }
+  return {
+    ok: true,
+    cleanedCount: results.filter((item) => item.ok).length,
+    results,
+    companyFolderId,
+    masterSheetId: context.masterSheetId,
+  };
 }

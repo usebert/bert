@@ -132,15 +132,21 @@ import {
 } from "./document-control-service.mjs";
 import {
   acknowledgeBriefing,
+  assignVerificationBriefingRecipients,
   BRIEFINGS_ROUTE_TIMEOUT_MS,
   canAccessBriefings,
   canManageBriefings,
   canViewBriefingsTracker,
+  cleanupStaleVerificationBriefings,
+  cleanupVerificationBriefing,
   createAndSendBriefing,
+  createDraftVerificationBriefing,
   listBriefingsTodoPreview,
   listBriefingsTracker,
   listMyBriefings,
   openBriefing,
+  patchVerificationBriefing,
+  publishVerificationBriefing,
   readBriefing,
   replyToBriefing,
   signBriefing,
@@ -4160,11 +4166,12 @@ export function installCoreWorkflowRoutes(app, deps) {
       });
     }
     try {
-      const result = await withOperationTimeout(
-        createAndSendBriefing(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, req.body || {}),
-        "briefings_create",
-        BRIEFINGS_ROUTE_TIMEOUT_MS,
-      );
+      const body = req.body || {};
+      const createHandler =
+        body.saveAsDraft === true || body.saveAsDraft === "true"
+          ? () => createDraftVerificationBriefing(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, body)
+          : () => createAndSendBriefing(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, body);
+      const result = await withOperationTimeout(createHandler(), "briefings_create", BRIEFINGS_ROUTE_TIMEOUT_MS);
       if (!result.ok) {
         return briefingRouteError(res, result);
       }
@@ -4215,6 +4222,135 @@ export function installCoreWorkflowRoutes(app, deps) {
   app.post("/api/companies/:companyFolderId/briefings/:briefingId/acknowledge", (req, res) => handleBriefingAction(req, res, "acknowledge"));
   app.post("/api/companies/:companyFolderId/briefings/:briefingId/sign", (req, res) => handleBriefingAction(req, res, "sign"));
   app.post("/api/companies/:companyFolderId/briefings/:briefingId/reply", (req, res) => handleBriefingAction(req, res, "reply"));
+
+  app.patch("/api/companies/:companyFolderId/briefings/:briefingId", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, error: "Could not update briefing.", message: "Could not update briefing." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const briefingId = String(req.params?.briefingId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    if (!canManageBriefings(actor)) {
+      return res.status(403).json({ ok: false, code: "BRIEFING_FORBIDDEN", error: "You do not have permission to edit briefings." });
+    }
+    try {
+      const result = await withOperationTimeout(
+        patchVerificationBriefing(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, briefingId, req.body || {}),
+        "briefings_patch",
+        BRIEFINGS_ROUTE_TIMEOUT_MS,
+      );
+      if (!result.ok) {
+        return briefingRouteError(res, result);
+      }
+      return res.json(result);
+    } catch (error) {
+      return res.status(500).json({ ok: false, code: "BRIEFING_PATCH_FAILED", error: "Could not update briefing." });
+    }
+  });
+
+  app.post("/api/companies/:companyFolderId/briefings/:briefingId/recipients", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, error: "Could not assign recipients.", message: "Could not assign recipients." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const briefingId = String(req.params?.briefingId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    if (!canManageBriefings(actor)) {
+      return res.status(403).json({ ok: false, code: "BRIEFING_FORBIDDEN", error: "You do not have permission to assign recipients." });
+    }
+    try {
+      const result = await withOperationTimeout(
+        assignVerificationBriefingRecipients(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, briefingId, req.body || {}),
+        "briefings_assign_recipients",
+        BRIEFINGS_ROUTE_TIMEOUT_MS,
+      );
+      if (!result.ok) {
+        return briefingRouteError(res, result);
+      }
+      return res.json(result);
+    } catch (error) {
+      return res.status(500).json({ ok: false, code: "BRIEFING_RECIPIENTS_FAILED", error: "Could not assign recipients." });
+    }
+  });
+
+  app.post("/api/companies/:companyFolderId/briefings/:briefingId/publish", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, error: "Could not publish briefing.", message: "Could not publish briefing." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const briefingId = String(req.params?.briefingId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    if (!canManageBriefings(actor)) {
+      return res.status(403).json({ ok: false, code: "BRIEFING_FORBIDDEN", error: "You do not have permission to publish briefings." });
+    }
+    try {
+      const result = await withOperationTimeout(
+        publishVerificationBriefing(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, briefingId),
+        "briefings_publish",
+        BRIEFINGS_ROUTE_TIMEOUT_MS,
+      );
+      if (!result.ok) {
+        return briefingRouteError(res, result);
+      }
+      return res.json(result);
+    } catch (error) {
+      return res.status(500).json({ ok: false, code: "BRIEFING_PUBLISH_FAILED", error: "Could not publish briefing." });
+    }
+  });
+
+  app.post("/api/companies/:companyFolderId/briefings/verification-cleanup", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, error: "Could not clean up verification briefings." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    if (!canManageBriefings(actor)) {
+      return res.status(403).json({ ok: false, code: "BRIEFING_FORBIDDEN", error: "You do not have permission to clean up briefings." });
+    }
+    try {
+      const result = await withOperationTimeout(
+        cleanupStaleVerificationBriefings(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, req.body || {}),
+        "briefings_verification_cleanup",
+        BRIEFINGS_ROUTE_TIMEOUT_MS,
+      );
+      if (!result.ok) {
+        return briefingRouteError(res, result);
+      }
+      return res.json(result);
+    } catch (error) {
+      return res.status(500).json({ ok: false, code: "BRIEFING_CLEANUP_FAILED", error: "Could not clean up verification briefings." });
+    }
+  });
+
+  app.post("/api/companies/:companyFolderId/briefings/:briefingId/verification-cleanup", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, error: "Could not clean up verification briefing." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const briefingId = String(req.params?.briefingId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    if (!canManageBriefings(actor)) {
+      return res.status(403).json({ ok: false, code: "BRIEFING_FORBIDDEN", error: "You do not have permission to clean up briefings." });
+    }
+    try {
+      const result = await withOperationTimeout(
+        cleanupVerificationBriefing(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, briefingId, req.body || {}),
+        "briefing_verification_cleanup",
+        BRIEFINGS_ROUTE_TIMEOUT_MS,
+      );
+      if (!result.ok) {
+        return briefingRouteError(res, result);
+      }
+      return res.json(result);
+    } catch (error) {
+      return res.status(500).json({ ok: false, code: "BRIEFING_CLEANUP_FAILED", error: "Could not clean up verification briefing." });
+    }
+  });
 
   app.get("/api/companies/:companyFolderId/archive", async (req, res) => {
     const authed = getAuthedClient();

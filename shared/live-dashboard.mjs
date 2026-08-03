@@ -19,6 +19,7 @@ import { getUkTodayKey, isUkOverdue, isUkToday, ukDateKeyFromTimestamp } from ".
 import { isWorkbookRowArchived } from "./archive.mjs";
 import { isOperationalAuditResult, isVerificationSchedule } from "./production-verification-audit.mjs";
 import { isOperationalAction } from "./production-verification-action.mjs";
+import { isOperationalWorkbookBriefingRow } from "./production-verification-briefing.mjs";
 import { isOperationalWorkbookIncidentRow } from "./production-verification-incident.mjs";
 
 /** Workbook tabs the live dashboard reads. All are existing tabs — no new storage. */
@@ -722,7 +723,7 @@ export function buildLiveDashboardFromSources(sources = {}, options = {}) {
 
   // --- Briefings ------------------------------------------------------------
   const briefingRows = filterCompanyRows(sources.briefings, companyFolderId, alternateIds).filter(
-    (row) => !isWorkbookRowArchived(row, "briefing"),
+    (row) => !isWorkbookRowArchived(row, "briefing") && isOperationalWorkbookBriefingRow(row),
   );
   const briefingById = new Map();
   for (const row of briefingRows) {

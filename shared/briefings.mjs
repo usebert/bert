@@ -36,6 +36,7 @@ export const BRIEFINGS_TAB_COLUMNS = [
   "SignedCount",
   "ReplyCount",
   "OverdueCount",
+  "VerificationSource",
 ];
 
 export const BRIEFING_RECIPIENTS_TAB_COLUMNS = [
@@ -58,7 +59,7 @@ export const BRIEFING_RECIPIENTS_TAB_COLUMNS = [
   "LastReminderAt",
 ];
 
-export const BRIEFING_TYPES = ["Policy", "Toolbox Talk", "Notice", "Training", "Other"];
+export const BRIEFING_TYPES = ["Policy", "Toolbox Talk", "Notice", "Training", "Verification", "Other"];
 export const BRIEFING_PRIORITIES = ["Normal", "Important", "Urgent"];
 export const BRIEFING_TARGET_MODES = ["everyone", "role", "area", "department", "users"];
 export const BRIEFING_RENEWAL_FREQUENCIES = ["None", "Annual", "6 monthly", "Custom"];
