@@ -232,6 +232,11 @@ export function formatRiskAssessmentWorkflowReport(result) {
     lines.push("Add hazards diagnostics:");
     lines.push(JSON.stringify(result.addHazardsDiagnostics));
   }
+  if (result.saveDraftDiagnostics) {
+    lines.push("");
+    lines.push("Save draft diagnostics:");
+    lines.push(JSON.stringify(result.saveDraftDiagnostics));
+  }
   lines.push("");
 
   if (result.timedOut) {
@@ -377,10 +382,26 @@ export async function pollRiskAssessmentDetailForHazardIds(
       matchCount: foundIds.length,
     });
     if (foundIds.length === expectedIds.length) {
-      return { ok: true, detailResponse: lastDetailResponse, attempts, hazards: hazardItems };
+      return {
+        ok: true,
+        detailResponse: lastDetailResponse,
+        attempts,
+        hazards: hazardItems,
+        foundIds,
+        assessmentRowCount: lastDetailResponse.json?.assessmentRowCount,
+      };
     }
   }
-  return { ok: false, detailResponse: lastDetailResponse, attempts, hazards: lastDetailResponse?.json?.hazards || [] };
+  const hazardItems = Array.isArray(lastDetailResponse?.json?.hazards) ? lastDetailResponse.json.hazards : [];
+  const foundIds = expectedIds.filter((id) => hazardItems.some((item) => trim(item.id) === id));
+  return {
+    ok: false,
+    detailResponse: lastDetailResponse,
+    attempts,
+    hazards: hazardItems,
+    foundIds,
+    assessmentRowCount: lastDetailResponse?.json?.assessmentRowCount,
+  };
 }
 
 export async function attemptVerificationRiskAssessmentCleanup(request, context = {}) {
@@ -986,6 +1007,14 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
   }
 
   const saveDraftFail = await runStage("saveDraft", async () => {
+    const saveDraftDiagnostics = {
+      expectedStatus: "Draft",
+      expectedVersion: "1.0",
+      expectedHazardIds: [hazardOneId, hazardTwoId],
+      assessmentPatch: null,
+      hazardPatch: null,
+      detailPollAttempts: [],
+    };
     let saveResponse;
     try {
       saveResponse = await request(
@@ -1008,7 +1037,15 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
       );
     }
     assertResponseSafe(saveResponse.json, "save draft");
+    saveDraftDiagnostics.assessmentPatch = {
+      httpStatus: saveResponse.status,
+      ok: saveResponse.json?.ok === true,
+      actualStatus: trim(saveResponse.json?.item?.status) || null,
+      actualVersion: trim(saveResponse.json?.item?.version) || null,
+      actualAssessmentId: trim(saveResponse.json?.item?.id) || null,
+    };
     if (saveResponse.status !== 200 || saveResponse.json?.ok !== true) {
+      result.saveDraftDiagnostics = saveDraftDiagnostics;
       return fail(
         "saveDraft",
         `Save draft returned HTTP ${saveResponse.status}.`,
@@ -1033,13 +1070,20 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
       if (isStageTimeoutError(error)) {
         throw error;
       }
+      result.saveDraftDiagnostics = saveDraftDiagnostics;
       return fail(
         "saveDraft",
         `Hazard save failed: ${error instanceof Error ? error.message : String(error)}`,
         "Inspect PATCH /api/companies/:id/risk-assessment-hazards/:hazardId.",
       );
     }
+    saveDraftDiagnostics.hazardPatch = {
+      httpStatus: hazardPatch.status,
+      ok: hazardPatch.json?.ok === true,
+      hazardId: hazardOneId,
+    };
     if (hazardPatch.status !== 200 || hazardPatch.json?.ok !== true) {
+      result.saveDraftDiagnostics = saveDraftDiagnostics;
       return fail(
         "saveDraft",
         `Hazard save returned HTTP ${hazardPatch.status}.`,
@@ -1048,8 +1092,39 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
         hazardPatch.json,
       );
     }
-    if (trim(saveResponse.json?.item?.status) !== "Draft" || trim(saveResponse.json?.item?.version) !== "1.0") {
-      return fail("saveDraft", "Assessment status or version changed unexpectedly during save.", "Inspect draft save rules.");
+
+    const detailPolled = await pollRiskAssessmentDetailForHazardIds(
+      request,
+      companyFolderId,
+      masterSheetId,
+      riskAssessmentId,
+      [hazardOneId, hazardTwoId],
+      { stageKey: "saveDraft" },
+    );
+    saveDraftDiagnostics.detailPollAttempts = detailPolled.attempts;
+    saveDraftDiagnostics.actualHazardIds = detailPolled.foundIds || [];
+    saveDraftDiagnostics.assessmentRowCount = detailPolled.assessmentRowCount;
+    result.saveDraftDiagnostics = saveDraftDiagnostics;
+
+    const actualStatus = trim(saveResponse.json?.item?.status);
+    const actualVersion = trim(saveResponse.json?.item?.version);
+    if (actualStatus !== "Draft" || actualVersion !== "1.0") {
+      return fail(
+        "saveDraft",
+        `Assessment status or version changed unexpectedly during save (status ${actualStatus || "(missing)"}, version ${actualVersion || "(missing)"}).`,
+        "Inspect draft save rules.",
+        saveResponse.status,
+        saveDraftDiagnostics,
+      );
+    }
+    if (!detailPolled.ok) {
+      return fail(
+        "saveDraft",
+        `Expected hazards ${hazardOneId} and ${hazardTwoId} after save draft, found ${(detailPolled.foundIds || []).join(", ") || "(none)"}.`,
+        "Inspect hazard persistence after draft save.",
+        saveResponse.status,
+        saveDraftDiagnostics,
+      );
     }
     pass("saveDraft");
     return null;

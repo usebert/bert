@@ -34,6 +34,7 @@ import {
   mapRiskLinkRecord,
   mapRiskReviewRecord,
   nextAssessmentNumber,
+  normalizeAssessmentVersion,
   summariseAssessmentRisk,
   validateRiskValue,
   validateRiskAssessmentForSubmit,
@@ -741,11 +742,126 @@ function buildHazardRow(riskAssessmentId, resolved, actor, input = {}, sortOrder
   };
 }
 
-async function readAssessmentRecord(auth, deps, masterSheetId, riskAssessmentId) {
+async function readAssessmentRawRecord(auth, deps, masterSheetId, riskAssessmentId) {
   await ensureRiskAssessmentTabs(auth, deps, masterSheetId);
   const records = await readTab(auth, deps, masterSheetId, RISK_ASSESSMENTS_TAB, RISK_ASSESSMENTS_TAB_COLUMNS);
-  const found = records.find((record) => trim(record.RiskAssessmentId) === trim(riskAssessmentId));
+  const matches = records.filter((record) => trim(record.RiskAssessmentId) === trim(riskAssessmentId));
+  return matches.length ? matches[matches.length - 1] : null;
+}
+
+async function readAssessmentRecord(auth, deps, masterSheetId, riskAssessmentId) {
+  const found = await readAssessmentRawRecord(auth, deps, masterSheetId, riskAssessmentId);
   return found ? mapRiskAssessmentRecord(found) : null;
+}
+
+const DRAFT_EDITABLE_ASSESSMENT_FIELDS = [
+  ["title", "Title"],
+  ["description", "Description"],
+  ["assessmentType", "AssessmentType"],
+  ["activity", "Activity"],
+  ["department", "Department"],
+  ["siteId", "SiteId"],
+  ["areaId", "AreaId"],
+  ["ownerUserId", "OwnerUserId"],
+  ["ownerName", "OwnerName"],
+  ["assessorUserId", "AssessorUserId"],
+  ["assessorName", "AssessorName"],
+  ["assessmentDate", "AssessmentDate"],
+  ["reviewDate", "ReviewDate"],
+  ["nextReviewReason", "NextReviewReason"],
+  ["peopleAtRisk", "PeopleAtRisk"],
+  ["existingGeneralControls", "ExistingGeneralControls"],
+  ["emergencyArrangements", "EmergencyArrangements"],
+  ["ppeSummary", "PpeSummary"],
+];
+
+function pickRawAssessmentField(record = {}, ...keys) {
+  for (const key of keys) {
+    const direct = trim(record[key]);
+    if (direct) return direct;
+  }
+  return "";
+}
+
+function logRiskAssessmentSaveDraft(stage, payload = {}) {
+  console.info(
+    "[risk-assessment:save-draft]",
+    JSON.stringify({
+      stage,
+      riskAssessmentId: payload.riskAssessmentId,
+      incomingStatus: payload.incomingStatus,
+      storedStatus: payload.storedStatus,
+      incomingVersion: payload.incomingVersion,
+      storedVersion: payload.storedVersion,
+      updatedRows: payload.updatedRows,
+      durationMs: payload.durationMs,
+      hazardSyncMode: payload.hazardSyncMode,
+      archiveMissingHazards: payload.archiveMissingHazards,
+      assessmentRowCount: payload.assessmentRowCount,
+      operation: payload.operation,
+    }),
+  );
+}
+
+function buildEditableDraftAssessmentPatch(mappedAssessment, rawRecord, input = {}, actor, options = {}) {
+  const storedStatus = pickRawAssessmentField(rawRecord, "Status") || "Draft";
+  const storedVersion = normalizeAssessmentVersion(pickRawAssessmentField(rawRecord, "Version") || "1.0");
+  const row = {};
+  for (const [inputKey, column] of DRAFT_EDITABLE_ASSESSMENT_FIELDS) {
+    if (input[inputKey] !== undefined) {
+      row[column] = trim(input[inputKey]);
+    } else {
+      row[column] = trim(mappedAssessment[inputKey]);
+    }
+  }
+  if (options.riskFields) {
+    Object.assign(row, options.riskFields);
+  }
+  row.Status = storedStatus;
+  row.UpdatedAt = nowIso();
+  row.UpdatedBy = normalizeEmail(actor.email);
+  return {
+    patch: rowToPatch(row, RISK_ASSESSMENTS_TAB_COLUMNS),
+    storedStatus,
+    storedVersion,
+  };
+}
+
+function isRecalculateRiskOnlyPatch(input = {}) {
+  const keys = Object.keys(input).filter((key) => input[key] !== undefined);
+  return keys.length === 1 && keys[0] === "recalculateRisk";
+}
+
+function mapAssessmentRecordFromPatch(mappedAssessment, patch, rawRecord) {
+  const storedStatus = pickRawAssessmentField(rawRecord, "Status") || mappedAssessment.status || "Draft";
+  const storedVersion = normalizeAssessmentVersion(
+    pickRawAssessmentField(rawRecord, "Version") || mappedAssessment.version || "1.0",
+  );
+  return {
+    ...mappedAssessment,
+    title: patch.Title ?? mappedAssessment.title,
+    description: patch.Description ?? mappedAssessment.description,
+    assessmentType: patch.AssessmentType ?? mappedAssessment.assessmentType,
+    activity: patch.Activity ?? mappedAssessment.activity,
+    department: patch.Department ?? mappedAssessment.department,
+    siteId: patch.SiteId ?? mappedAssessment.siteId,
+    areaId: patch.AreaId ?? mappedAssessment.areaId,
+    ownerUserId: patch.OwnerUserId ?? mappedAssessment.ownerUserId,
+    ownerName: patch.OwnerName ?? mappedAssessment.ownerName,
+    assessorUserId: patch.AssessorUserId ?? mappedAssessment.assessorUserId,
+    assessorName: patch.AssessorName ?? mappedAssessment.assessorName,
+    assessmentDate: patch.AssessmentDate ?? mappedAssessment.assessmentDate,
+    reviewDate: patch.ReviewDate ?? mappedAssessment.reviewDate,
+    nextReviewReason: patch.NextReviewReason ?? mappedAssessment.nextReviewReason,
+    peopleAtRisk: patch.PeopleAtRisk ?? mappedAssessment.peopleAtRisk,
+    existingGeneralControls: patch.ExistingGeneralControls ?? mappedAssessment.existingGeneralControls,
+    emergencyArrangements: patch.EmergencyArrangements ?? mappedAssessment.emergencyArrangements,
+    ppeSummary: patch.PpeSummary ?? mappedAssessment.ppeSummary,
+    status: storedStatus,
+    version: storedVersion,
+    updatedAt: patch.UpdatedAt ?? mappedAssessment.updatedAt,
+    updatedBy: patch.UpdatedBy ?? mappedAssessment.updatedBy,
+  };
 }
 
 function sleepMs(ms) {
@@ -842,7 +958,10 @@ async function buildAssessmentDetail(auth, deps, resolved, actor, riskAssessment
   timer.log("ensure-tabs");
   const assessmentRecords = await readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, RISK_ASSESSMENTS_TAB_COLUMNS);
   timer.log("read-assessments-tab");
-  const item = assessmentRecords.map((record) => mapRiskAssessmentRecord(record)).find((entry) => entry.id === trim(riskAssessmentId));
+  const matchingAssessments = assessmentRecords
+    .map((record) => mapRiskAssessmentRecord(record))
+    .filter((entry) => entry.id === trim(riskAssessmentId));
+  const item = matchingAssessments.at(-1);
   if (!item) return healthSafetyApiFailure("RISK_ASSESSMENT_NOT_FOUND", "Risk assessment not found.", 404);
   const [hazardRecords, linkRecords, reviewRecords] = await Promise.all([
     readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_HAZARDS_TAB, RISK_ASSESSMENT_HAZARDS_TAB_COLUMNS),
@@ -1108,65 +1227,57 @@ function buildDraftSaveResponse(assessment, hazards = [], links = []) {
   };
 }
 
-async function patchAssessmentFieldsOnly(auth, deps, resolved, actor, riskAssessmentId, input = {}) {
-  const assessment = await readAssessmentRecord(auth, deps, resolved.masterSheetId, riskAssessmentId);
-  if (!assessment) return healthSafetyApiFailure("RISK_ASSESSMENT_NOT_FOUND", "Risk assessment not found.", 404);
+async function patchAssessmentFieldsOnly(auth, deps, resolved, actor, riskAssessmentId, input = {}, options = {}) {
+  const rawRecord = await readAssessmentRawRecord(auth, deps, resolved.masterSheetId, riskAssessmentId);
+  if (!rawRecord) return healthSafetyApiFailure("RISK_ASSESSMENT_NOT_FOUND", "Risk assessment not found.", 404);
+  const assessment = mapRiskAssessmentRecord(rawRecord);
   if (!canEditRiskAssessment(actor, assessment)) {
     return healthSafetyApiFailure("RISK_ASSESSMENT_FORBIDDEN", "You do not have permission to edit this assessment.", 403);
   }
-  const patch = rowToPatch(
-    {
-      Title: input.title ?? assessment.title,
-      Description: input.description ?? assessment.description,
-      AssessmentType: input.assessmentType ?? assessment.assessmentType,
-      Activity: input.activity ?? assessment.activity,
-      Department: input.department ?? assessment.department,
-      SiteId: input.siteId ?? assessment.siteId,
-      AreaId: input.areaId ?? assessment.areaId,
-      OwnerUserId: input.ownerUserId ?? assessment.ownerUserId,
-      OwnerName: input.ownerName ?? assessment.ownerName,
-      AssessorUserId: input.assessorUserId ?? assessment.assessorUserId,
-      AssessorName: input.assessorName ?? assessment.assessorName,
-      AssessmentDate: input.assessmentDate ?? assessment.assessmentDate,
-      ReviewDate: input.reviewDate ?? assessment.reviewDate,
-      NextReviewReason: input.nextReviewReason ?? assessment.nextReviewReason,
-      PeopleAtRisk: input.peopleAtRisk ?? assessment.peopleAtRisk,
-      ExistingGeneralControls: input.existingGeneralControls ?? assessment.existingGeneralControls,
-      EmergencyArrangements: input.emergencyArrangements ?? assessment.emergencyArrangements,
-      PpeSummary: input.ppeSummary ?? assessment.ppeSummary,
-      Status: input.status ?? assessment.status,
-      UpdatedAt: nowIso(),
-      UpdatedBy: normalizeEmail(actor.email),
-    },
-    RISK_ASSESSMENTS_TAB_COLUMNS,
-  );
+  const records = await readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, RISK_ASSESSMENTS_TAB_COLUMNS);
+  const assessmentRowCount = records.filter((record) => trim(record.RiskAssessmentId) === trim(riskAssessmentId)).length;
+  const { patch, storedStatus, storedVersion } = buildEditableDraftAssessmentPatch(assessment, rawRecord, input, actor, {
+    riskFields: options.riskFields,
+  });
+  logRiskAssessmentSaveDraft("patch-built", {
+    riskAssessmentId,
+    incomingStatus: trim(input.status) || undefined,
+    storedStatus,
+    incomingVersion: trim(input.version) || undefined,
+    storedVersion,
+    assessmentRowCount,
+    operation: "patch-assessment-fields",
+  });
   const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
-  await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, "RiskAssessmentId", riskAssessmentId, patch);
-  const updated = {
-    ...assessment,
-    title: patch.Title ?? assessment.title,
-    description: patch.Description ?? assessment.description,
-    assessmentType: patch.AssessmentType ?? assessment.assessmentType,
-    activity: patch.Activity ?? assessment.activity,
-    department: patch.Department ?? assessment.department,
-    siteId: patch.SiteId ?? assessment.siteId,
-    areaId: patch.AreaId ?? assessment.areaId,
-    ownerUserId: patch.OwnerUserId ?? assessment.ownerUserId,
-    ownerName: patch.OwnerName ?? assessment.ownerName,
-    assessorUserId: patch.AssessorUserId ?? assessment.assessorUserId,
-    assessorName: patch.AssessorName ?? assessment.assessorName,
-    assessmentDate: patch.AssessmentDate ?? assessment.assessmentDate,
-    reviewDate: patch.ReviewDate ?? assessment.reviewDate,
-    nextReviewReason: patch.NextReviewReason ?? assessment.nextReviewReason,
-    peopleAtRisk: patch.PeopleAtRisk ?? assessment.peopleAtRisk,
-    existingGeneralControls: patch.ExistingGeneralControls ?? assessment.existingGeneralControls,
-    emergencyArrangements: patch.EmergencyArrangements ?? assessment.emergencyArrangements,
-    ppeSummary: patch.PpeSummary ?? assessment.ppeSummary,
-    status: patch.Status ?? assessment.status,
-    updatedAt: patch.UpdatedAt,
-    updatedBy: patch.UpdatedBy,
-  };
-  return { ok: true, item: updated };
+  const patchResult = await patchTabRowByHeader(
+    auth,
+    deps,
+    resolved.masterSheetId,
+    RISK_ASSESSMENTS_TAB,
+    "RiskAssessmentId",
+    riskAssessmentId,
+    patch,
+  );
+  logRiskAssessmentSaveDraft("patch-ack", {
+    riskAssessmentId,
+    storedStatus,
+    storedVersion,
+    updatedRows: patchResult?.patched ?? patchResult?.updatedRows ?? 1,
+    assessmentRowCount,
+    operation: "patch-assessment-fields",
+  });
+  const readback = await readAssessmentRawRecord(auth, deps, resolved.masterSheetId, riskAssessmentId);
+  const readbackStatus = pickRawAssessmentField(readback, "Status") || storedStatus;
+  const readbackVersion = normalizeAssessmentVersion(pickRawAssessmentField(readback, "Version") || storedVersion);
+  logRiskAssessmentSaveDraft("exact-row-readback", {
+    riskAssessmentId,
+    storedStatus: readbackStatus,
+    storedVersion: readbackVersion,
+    assessmentRowCount,
+    operation: "patch-assessment-fields",
+  });
+  const updated = mapAssessmentRecordFromPatch(assessment, patch, readback || rawRecord);
+  return { ok: true, item: updated, storedStatus: readbackStatus, storedVersion: readbackVersion, assessmentRowCount };
 }
 
 function recalculateAssessmentRiskFields(hazards = []) {
@@ -1528,12 +1639,21 @@ export async function createCompanyRiskAssessment(auth, deps, resolved, actor, i
 }
 
 export async function saveCompanyRiskAssessmentDraft(auth, deps, resolved, actor, riskAssessmentId, input = {}) {
+  const startedAt = Date.now();
   const timer = createRiskAssessmentTiming("save-draft", {
     assessmentId: riskAssessmentId,
     companyFolderId: resolved.companyFolderId,
     workbookId: resolved.masterSheetId,
   });
   const id = trim(riskAssessmentId);
+  logRiskAssessmentSaveDraft("validation-start", {
+    riskAssessmentId: id || undefined,
+    incomingStatus: trim(input.status) || undefined,
+    incomingVersion: trim(input.version) || undefined,
+    hazardSyncMode: Array.isArray(input.hazards) ? "full-sync" : "assessment-only",
+    archiveMissingHazards: Array.isArray(input.hazards) ? true : false,
+    durationMs: Date.now() - startedAt,
+  });
   if (!id) {
     return createCompanyRiskAssessment(auth, deps, resolved, actor, input);
   }
@@ -1548,55 +1668,105 @@ export async function saveCompanyRiskAssessmentDraft(auth, deps, resolved, actor
     });
     if (!synced.ok) return synced;
     syncedHazards = synced.hazards || [];
+    logRiskAssessmentSaveDraft("hazard-sync-complete", {
+      riskAssessmentId: id,
+      storedStatus: patched.storedStatus,
+      storedVersion: patched.storedVersion,
+      hazardSyncMode: "full-sync",
+      archiveMissingHazards: true,
+      durationMs: Date.now() - startedAt,
+    });
+  }
+  const detailLookup = await buildAssessmentDetail(auth, deps, resolved, actor, id, { timer, skipCache: true });
+  logRiskAssessmentSaveDraft("detail-lookup", {
+    riskAssessmentId: id,
+    storedStatus: detailLookup?.item?.status,
+    storedVersion: detailLookup?.item?.version,
+    durationMs: Date.now() - startedAt,
+  });
+  if (!detailLookup?.ok) {
+    return detailLookup;
   }
   timer.log("complete");
-  return publishRiskAssessmentListMutation(resolved, "save-draft", buildDraftSaveResponse(patched.item, syncedHazards), id);
+  logRiskAssessmentSaveDraft("complete", {
+    riskAssessmentId: id,
+    storedStatus: detailLookup.item?.status,
+    storedVersion: detailLookup.item?.version,
+    assessmentRowCount: patched.assessmentRowCount,
+    durationMs: Date.now() - startedAt,
+  });
+  return publishRiskAssessmentListMutation(
+    resolved,
+    "save-draft",
+    buildDraftSaveResponse(detailLookup.item, syncedHazards, detailLookup.links),
+    id,
+  );
 }
 
 export async function patchCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId, input = {}) {
   if (Array.isArray(input.hazards)) {
     return saveCompanyRiskAssessmentDraft(auth, deps, resolved, actor, riskAssessmentId, input);
   }
+  const startedAt = Date.now();
   const timer = createRiskAssessmentTiming("patch", {
     assessmentId: riskAssessmentId,
     companyFolderId: resolved.companyFolderId,
   });
-  const current = await buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer });
+  const current = await buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer, skipCache: true });
   if (!current.ok) return current;
   if (!canEditRiskAssessment(actor, current.item)) {
     return healthSafetyApiFailure("RISK_ASSESSMENT_FORBIDDEN", "You do not have permission to edit this assessment.", 403);
   }
+  const rawRecord = await readAssessmentRawRecord(auth, deps, resolved.masterSheetId, riskAssessmentId);
+  const records = await readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, RISK_ASSESSMENTS_TAB_COLUMNS);
+  const assessmentRowCount = records.filter((record) => trim(record.RiskAssessmentId) === trim(riskAssessmentId)).length;
+  const storedStatus = pickRawAssessmentField(rawRecord, "Status") || current.item.status || "Draft";
+  const storedVersion = normalizeAssessmentVersion(pickRawAssessmentField(rawRecord, "Version") || current.item.version || "1.0");
+  logRiskAssessmentSaveDraft("validation-start", {
+    riskAssessmentId,
+    incomingStatus: trim(input.status) || undefined,
+    storedStatus,
+    incomingVersion: trim(input.version) || undefined,
+    storedVersion,
+    assessmentRowCount,
+    operation: "patch",
+    durationMs: Date.now() - startedAt,
+  });
   const hazards = current.hazards || [];
   const riskFields = input.recalculateRisk === false ? {} : recalculateAssessmentRiskFields(hazards);
-  const patch = rowToPatch(
-    {
-      Title: input.title ?? current.item.title,
-      Description: input.description ?? current.item.description,
-      AssessmentType: input.assessmentType ?? current.item.assessmentType,
-      Activity: input.activity ?? current.item.activity,
-      Department: input.department ?? current.item.department,
-      SiteId: input.siteId ?? current.item.siteId,
-      AreaId: input.areaId ?? current.item.areaId,
-      OwnerUserId: input.ownerUserId ?? current.item.ownerUserId,
-      OwnerName: input.ownerName ?? current.item.ownerName,
-      AssessorUserId: input.assessorUserId ?? current.item.assessorUserId,
-      AssessorName: input.assessorName ?? current.item.assessorName,
-      AssessmentDate: input.assessmentDate ?? current.item.assessmentDate,
-      ReviewDate: input.reviewDate ?? current.item.reviewDate,
-      NextReviewReason: input.nextReviewReason ?? current.item.nextReviewReason,
-      PeopleAtRisk: input.peopleAtRisk ?? current.item.peopleAtRisk,
-      ExistingGeneralControls: input.existingGeneralControls ?? current.item.existingGeneralControls,
-      EmergencyArrangements: input.emergencyArrangements ?? current.item.emergencyArrangements,
-      PpeSummary: input.ppeSummary ?? current.item.ppeSummary,
-      Status: input.status ?? current.item.status,
-      ...riskFields,
-      UpdatedAt: nowIso(),
-      UpdatedBy: normalizeEmail(actor.email),
-    },
-    RISK_ASSESSMENTS_TAB_COLUMNS,
-  );
+  let patch;
+  if (isRecalculateRiskOnlyPatch(input)) {
+    patch = rowToPatch(
+      {
+        ...riskFields,
+        UpdatedAt: nowIso(),
+        UpdatedBy: normalizeEmail(actor.email),
+      },
+      RISK_ASSESSMENTS_TAB_COLUMNS,
+    );
+  } else {
+    const built = buildEditableDraftAssessmentPatch(current.item, rawRecord, input, actor, { riskFields });
+    patch = built.patch;
+  }
   const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
-  await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, "RiskAssessmentId", riskAssessmentId, patch);
+  const patchResult = await patchTabRowByHeader(
+    auth,
+    deps,
+    resolved.masterSheetId,
+    RISK_ASSESSMENTS_TAB,
+    "RiskAssessmentId",
+    riskAssessmentId,
+    patch,
+  );
+  logRiskAssessmentSaveDraft("patch-ack", {
+    riskAssessmentId,
+    storedStatus,
+    storedVersion,
+    updatedRows: patchResult?.patched ?? patchResult?.updatedRows ?? 1,
+    assessmentRowCount,
+    operation: "patch",
+    durationMs: Date.now() - startedAt,
+  });
   timer.log("patch-assessment");
   if (input.createActions === true) {
     for (const hazard of hazards) {
@@ -1608,12 +1778,28 @@ export async function patchCompanyRiskAssessment(auth, deps, resolved, actor, ri
       }
     }
   }
+  const readback = await readAssessmentRawRecord(auth, deps, resolved.masterSheetId, riskAssessmentId);
+  const readbackStatus = pickRawAssessmentField(readback, "Status") || storedStatus;
+  const readbackVersion = normalizeAssessmentVersion(pickRawAssessmentField(readback, "Version") || storedVersion);
+  logRiskAssessmentSaveDraft("exact-row-readback", {
+    riskAssessmentId,
+    storedStatus: readbackStatus,
+    storedVersion: readbackVersion,
+    assessmentRowCount,
+    operation: "patch",
+    durationMs: Date.now() - startedAt,
+  });
   timer.log("complete");
-  return publishRiskAssessmentListMutation(
-    resolved,
-    "patch",
-    await buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer }),
-  );
+  const detail = await buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer, skipCache: true });
+  logRiskAssessmentSaveDraft("detail-lookup", {
+    riskAssessmentId,
+    storedStatus: detail?.item?.status,
+    storedVersion: detail?.item?.version,
+    assessmentRowCount,
+    operation: "patch",
+    durationMs: Date.now() - startedAt,
+  });
+  return publishRiskAssessmentListMutation(resolved, "patch", detail, riskAssessmentId);
 }
 
 export async function submitCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId) {

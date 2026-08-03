@@ -407,6 +407,15 @@ export function bumpVersion(currentVersion, type = "major") {
   return `${major + 1}.0`;
 }
 
+/** Canonicalise workbook/API version strings (e.g. `1` → `1.0`). */
+export function normalizeAssessmentVersion(value = "") {
+  const raw = trim(value);
+  if (!raw) return "1.0";
+  const match = raw.match(/^(\d+)(?:\.(\d+))?$/);
+  if (!match) return raw;
+  return `${match[1]}.${match[2] ?? "0"}`;
+}
+
 export function nextAssessmentNumber(existingNumbers = []) {
   const numeric = existingNumbers
     .map((entry) => {
@@ -440,7 +449,7 @@ export function mapRiskAssessmentRecord(record = {}) {
     reviewDate,
     nextReviewReason: pickField(record, "NextReviewReason", "nextReviewReason"),
     status: pickField(record, "Status", "status") || "Draft",
-    version: pickField(record, "Version", "version") || "1.0",
+    version: normalizeAssessmentVersion(pickField(record, "Version", "version") || "1.0"),
     previousVersionId: pickField(record, "PreviousVersionId", "previousVersionId"),
     initialOverallRiskScore: parseNumber(pickField(record, "InitialOverallRiskScore", "initialOverallRiskScore")),
     residualOverallRiskScore: parseNumber(pickField(record, "ResidualOverallRiskScore", "residualOverallRiskScore")),

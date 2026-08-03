@@ -129,7 +129,7 @@ assert(service.includes("syncRiskAssessmentHazards"), "service: batch hazard syn
 assert(service.includes("alreadySubmitted"), "service: idempotent submit");
 assert(service.includes("buildDraftSaveResponse"), "service: lightweight draft save response");
 assert(service.includes("batchPatchTabRowsByHeader"), "service: batch hazard patch helper");
-assert(service.includes("publishRiskAssessmentListMutation(resolved, \"save-draft\", buildDraftSaveResponse(patched.item"), "service: draft save returns lightweight response");
+assert(service.includes('publishRiskAssessmentListMutation(\n    resolved,\n    "save-draft",\n    buildDraftSaveResponse(detailLookup.item'), "service: draft save returns lightweight response");
 assert(service.includes("[risk-assessment:create-persist]"), "service: create persistence instrumentation");
 assert(service.includes("waitForAssessmentRecordAfterWrite"), "service: bounded create read-after-write");
 assert(service.includes("RISK_ASSESSMENTS_TAB_COLUMNS, [row]"), "service: create append uses canonical headers then row objects");
@@ -138,6 +138,11 @@ assert(service.includes("[risk-assessment:hazard-persist]"), "service: hazard pe
 assert(service.includes("archiveMissingHazards"), "service: incremental hazard create skips archive sweep");
 assert(service.includes("invalidateRiskAssessmentDetailCache"), "service: detail cache invalidation");
 assert(service.includes("RISK_ASSESSMENT_HAZARDS_TAB_COLUMNS,\n        [row]"), "service: hazard append uses canonical headers");
+
+assert(service.includes("[risk-assessment:save-draft]"), "service: save draft instrumentation");
+assert(service.includes("buildEditableDraftAssessmentPatch"), "service: draft field allowlist");
+assert(service.includes("normalizeAssessmentVersion"), "service: version normalisation");
+assert(service.includes("isRecalculateRiskOnlyPatch"), "service: recalculate-only patch guard");
 
 const validationAdapter = read("src/health-safety/adapters/riskAssessmentValidation.ts");
 assert(validationAdapter.includes("buildClientHazardId"), "client: stable HazardId at creation");
@@ -261,4 +266,11 @@ const hazardPersistenceTests = spawnSync("node", ["--test", "scripts/verify-risk
 });
 if (hazardPersistenceTests.status !== 0) {
   process.exit(hazardPersistenceTests.status || 1);
+}
+
+const saveDraftPersistenceTests = spawnSync("node", ["--test", "scripts/verify-risk-assessment-save-draft-persistence.test.mjs"], {
+  stdio: "inherit",
+});
+if (saveDraftPersistenceTests.status !== 0) {
+  process.exit(saveDraftPersistenceTests.status || 1);
 }
