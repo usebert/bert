@@ -237,6 +237,11 @@ export function formatRiskAssessmentWorkflowReport(result) {
     lines.push("Save draft diagnostics:");
     lines.push(JSON.stringify(result.saveDraftDiagnostics));
   }
+  if (result.submitDiagnostics) {
+    lines.push("");
+    lines.push("Submit diagnostics:");
+    lines.push(JSON.stringify(result.submitDiagnostics));
+  }
   lines.push("");
 
   if (result.timedOut) {
@@ -1240,6 +1245,14 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
   }
 
   const submitFail = await runStage("submit", async () => {
+    const submitDiagnostics = {
+      expectedStatus: "Submitted",
+      expectedVersion: "1.0",
+      expectedHazardIds: [hazardOneId, hazardTwoId],
+      firstSubmit: null,
+      repeatSubmit: null,
+      detailPollAttempts: [],
+    };
     let submitResponse;
     try {
       submitResponse = await request(
@@ -1259,7 +1272,17 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
       );
     }
     assertResponseSafe(submitResponse.json, "submit");
+    submitDiagnostics.firstSubmit = {
+      httpStatus: submitResponse.status,
+      ok: submitResponse.json?.ok === true,
+      actualStatus: trim(submitResponse.json?.item?.status) || null,
+      actualVersion: trim(submitResponse.json?.item?.version) || null,
+      submittedAt: Boolean(trim(submitResponse.json?.item?.submittedAt)),
+      submittedBy: Boolean(trim(submitResponse.json?.item?.submittedBy)),
+      actualAssessmentId: trim(submitResponse.json?.item?.id) || null,
+    };
     if (submitResponse.status !== 200 || submitResponse.json?.ok !== true) {
+      result.submitDiagnostics = submitDiagnostics;
       return fail(
         "submit",
         `Submit returned HTTP ${submitResponse.status}.`,
@@ -1269,10 +1292,49 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
       );
     }
     if (trim(submitResponse.json?.item?.status) !== "Submitted") {
-      return fail("submit", `Expected Submitted status, got ${submitResponse.json?.item?.status}.`, "Inspect submit status transition.");
+      result.submitDiagnostics = submitDiagnostics;
+      return fail(
+        "submit",
+        `Expected Submitted status, got ${submitResponse.json?.item?.status}.`,
+        "Inspect submit status transition.",
+        submitResponse.status,
+        submitDiagnostics,
+      );
     }
     if (!trim(submitResponse.json?.item?.submittedAt) || !trim(submitResponse.json?.item?.submittedBy)) {
-      return fail("submit", "SubmittedAt/SubmittedBy not recorded.", "Inspect submit metadata persistence.");
+      result.submitDiagnostics = submitDiagnostics;
+      return fail("submit", "SubmittedAt/SubmittedBy not recorded.", "Inspect submit metadata persistence.", submitResponse.status, submitDiagnostics);
+    }
+
+    const detailPolled = await pollRiskAssessmentDetailForHazardIds(
+      request,
+      companyFolderId,
+      masterSheetId,
+      riskAssessmentId,
+      [hazardOneId, hazardTwoId],
+      { stageKey: "submit" },
+    );
+    submitDiagnostics.detailPollAttempts = detailPolled.attempts;
+    submitDiagnostics.actualHazardIds = detailPolled.foundIds || [];
+    if (!detailPolled.ok) {
+      result.submitDiagnostics = submitDiagnostics;
+      return fail(
+        "submit",
+        `Expected both hazards after submit, found ${(detailPolled.foundIds || []).join(", ") || "(none)"}.`,
+        "Inspect hazard persistence after submit.",
+        submitResponse.status,
+        submitDiagnostics,
+      );
+    }
+    if (trim(detailPolled.detailResponse?.json?.item?.status) !== "Submitted") {
+      result.submitDiagnostics = submitDiagnostics;
+      return fail(
+        "submit",
+        `Detail status after submit was ${detailPolled.detailResponse?.json?.item?.status || "(missing)"}.`,
+        "Inspect submit detail readback.",
+        submitResponse.status,
+        submitDiagnostics,
+      );
     }
 
     let repeatSubmit;
@@ -1287,8 +1349,16 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
       if (isStageTimeoutError(error)) {
         throw error;
       }
+      result.submitDiagnostics = submitDiagnostics;
       return fail("submit", `Repeated submit failed: ${error instanceof Error ? error.message : String(error)}`, "Inspect submit idempotency.");
     }
+    submitDiagnostics.repeatSubmit = {
+      httpStatus: repeatSubmit.status,
+      ok: repeatSubmit.json?.ok === true,
+      alreadySubmitted: repeatSubmit.json?.alreadySubmitted === true,
+      actualStatus: trim(repeatSubmit.json?.item?.status) || null,
+    };
+    result.submitDiagnostics = submitDiagnostics;
     if (repeatSubmit.status !== 200 || repeatSubmit.json?.ok !== true) {
       return fail(
         "submit",

@@ -803,6 +803,26 @@ function logRiskAssessmentSaveDraft(stage, payload = {}) {
   );
 }
 
+function logRiskAssessmentSubmit(stage, payload = {}) {
+  console.info(
+    "[risk-assessment:submit]",
+    JSON.stringify({
+      stage,
+      riskAssessmentId: payload.riskAssessmentId,
+      storedStatus: payload.storedStatus,
+      storedVersion: payload.storedVersion,
+      incomingStatus: payload.incomingStatus,
+      updatedRows: payload.updatedRows,
+      submittedAt: payload.submittedAt ? true : undefined,
+      submittedBy: payload.submittedBy ? true : undefined,
+      hazardCount: payload.hazardCount,
+      validationOk: payload.validationOk,
+      alreadySubmitted: payload.alreadySubmitted,
+      durationMs: payload.durationMs,
+    }),
+  );
+}
+
 function buildEditableDraftAssessmentPatch(mappedAssessment, rawRecord, input = {}, actor, options = {}) {
   const storedStatus = pickRawAssessmentField(rawRecord, "Status") || "Draft";
   const storedVersion = normalizeAssessmentVersion(pickRawAssessmentField(rawRecord, "Version") || "1.0");
@@ -1803,18 +1823,50 @@ export async function patchCompanyRiskAssessment(auth, deps, resolved, actor, ri
 }
 
 export async function submitCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId) {
+  const startedAt = Date.now();
   const timer = createRiskAssessmentTiming("submit", {
     assessmentId: riskAssessmentId,
     companyFolderId: resolved.companyFolderId,
   });
-  const current = await buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer });
+  const current = await buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer, skipCache: true });
   if (!current.ok) return current;
-  if (current.item.status === "Submitted") {
+  const rawBefore = await readAssessmentRawRecord(auth, deps, resolved.masterSheetId, riskAssessmentId);
+  const storedStatusBefore = pickRawAssessmentField(rawBefore, "Status") || current.item.status || "Draft";
+  const storedVersionBefore = normalizeAssessmentVersion(
+    pickRawAssessmentField(rawBefore, "Version") || current.item.version || "1.0",
+  );
+  logRiskAssessmentSubmit("validation-start", {
+    riskAssessmentId,
+    storedStatus: storedStatusBefore,
+    storedVersion: storedVersionBefore,
+    hazardCount: (current.hazards || []).length,
+    durationMs: Date.now() - startedAt,
+  });
+  if (storedStatusBefore === "Submitted" || current.item.status === "Submitted") {
     timer.log("already-submitted");
-    return publishRiskAssessmentListMutation(resolved, "submit", { ...current, alreadySubmitted: true });
+    const fresh = await buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer, skipCache: true });
+    logRiskAssessmentSubmit("already-submitted", {
+      riskAssessmentId,
+      storedStatus: fresh.item?.status,
+      storedVersion: fresh.item?.version,
+      alreadySubmitted: true,
+      durationMs: Date.now() - startedAt,
+    });
+    return publishRiskAssessmentListMutation(
+      resolved,
+      "submit",
+      { ...fresh, alreadySubmitted: true },
+      riskAssessmentId,
+    );
   }
   if (!canSubmitRiskAssessmentStatus(current.item.status)) {
     timer.log("validation-failed");
+    logRiskAssessmentSubmit("validation-failed", {
+      riskAssessmentId,
+      storedStatus: storedStatusBefore,
+      validationOk: false,
+      durationMs: Date.now() - startedAt,
+    });
     return riskAssessmentValidationFailure({
       ok: false,
       message: "The risk assessment cannot be submitted.",
@@ -1827,19 +1879,61 @@ export async function submitCompanyRiskAssessment(auth, deps, resolved, actor, r
   const validation = validateAssessmentForSubmit(current.item, current.hazards || []);
   if (!validation.ok) {
     timer.log("validation-failed");
+    logRiskAssessmentSubmit("validation-failed", {
+      riskAssessmentId,
+      storedStatus: storedStatusBefore,
+      validationOk: false,
+      durationMs: Date.now() - startedAt,
+    });
     return riskAssessmentValidationFailure(validation);
   }
+  logRiskAssessmentSubmit("validation-passed", {
+    riskAssessmentId,
+    storedStatus: storedStatusBefore,
+    storedVersion: storedVersionBefore,
+    validationOk: true,
+    hazardCount: (current.hazards || []).length,
+    durationMs: Date.now() - startedAt,
+  });
   const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
   const timestamp = nowIso();
-  await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, "RiskAssessmentId", riskAssessmentId, {
+  const submittedBy = normalizeEmail(actor.email);
+  const patchResult = await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, "RiskAssessmentId", riskAssessmentId, {
     Status: "Submitted",
     SubmittedAt: timestamp,
-    SubmittedBy: normalizeEmail(actor.email),
+    SubmittedBy: submittedBy,
     UpdatedAt: timestamp,
-    UpdatedBy: normalizeEmail(actor.email),
+    UpdatedBy: submittedBy,
     ...recalculateAssessmentRiskFields(current.hazards),
   });
+  logRiskAssessmentSubmit("patch-ack", {
+    riskAssessmentId,
+    storedStatus: "Submitted",
+    storedVersion: storedVersionBefore,
+    updatedRows: patchResult?.patched ?? patchResult?.updatedRows ?? 1,
+    durationMs: Date.now() - startedAt,
+  });
   timer.log("patch-status");
+  const rawAfterPatch = await readAssessmentRawRecord(auth, deps, resolved.masterSheetId, riskAssessmentId);
+  const readbackStatus = pickRawAssessmentField(rawAfterPatch, "Status");
+  const readbackSubmittedAt = pickRawAssessmentField(rawAfterPatch, "SubmittedAt");
+  const readbackSubmittedBy = pickRawAssessmentField(rawAfterPatch, "SubmittedBy");
+  const readbackVersion = normalizeAssessmentVersion(pickRawAssessmentField(rawAfterPatch, "Version") || storedVersionBefore);
+  logRiskAssessmentSubmit("exact-row-readback", {
+    riskAssessmentId,
+    storedStatus: readbackStatus,
+    storedVersion: readbackVersion,
+    submittedAt: Boolean(readbackSubmittedAt),
+    submittedBy: Boolean(readbackSubmittedBy),
+    durationMs: Date.now() - startedAt,
+  });
+  if (readbackStatus !== "Submitted" || !readbackSubmittedAt || !readbackSubmittedBy) {
+    return healthSafetyApiFailure(
+      "RISK_ASSESSMENT_SUBMIT_NOT_VISIBLE",
+      "Risk assessment submit could not be confirmed after write.",
+      500,
+    );
+  }
   for (const hazard of current.hazards || []) {
     if (hazard.actionRequired && !trim(hazard.linkedActionId)) {
       const actionResult = await createActionForHazard(auth, deps, resolved, actor, current.item, hazard);
@@ -1847,17 +1941,39 @@ export async function submitCompanyRiskAssessment(auth, deps, resolved, actor, r
         await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_HAZARDS_TAB, "HazardId", hazard.id, {
           LinkedActionId: actionResult.actionId,
           UpdatedAt: timestamp,
-          UpdatedBy: normalizeEmail(actor.email),
+          UpdatedBy: submittedBy,
         });
       }
     }
   }
+  const detail = await buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer, skipCache: true });
+  logRiskAssessmentSubmit("detail-lookup", {
+    riskAssessmentId,
+    storedStatus: detail?.item?.status,
+    storedVersion: detail?.item?.version,
+    submittedAt: Boolean(detail?.item?.submittedAt),
+    submittedBy: Boolean(detail?.item?.submittedBy),
+    hazardCount: (detail?.hazards || []).length,
+    durationMs: Date.now() - startedAt,
+  });
+  if (!detail?.ok || trim(detail.item?.status) !== "Submitted") {
+    return healthSafetyApiFailure(
+      "RISK_ASSESSMENT_SUBMIT_NOT_VISIBLE",
+      "Risk assessment submit could not be confirmed on detail readback.",
+      500,
+    );
+  }
   timer.log("complete");
-  return publishRiskAssessmentListMutation(
-    resolved,
-    "submit",
-    await buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer }),
-  );
+  logRiskAssessmentSubmit("complete", {
+    riskAssessmentId,
+    storedStatus: detail.item.status,
+    storedVersion: detail.item.version,
+    submittedAt: Boolean(detail.item.submittedAt),
+    submittedBy: Boolean(detail.item.submittedBy),
+    hazardCount: (detail.hazards || []).length,
+    durationMs: Date.now() - startedAt,
+  });
+  return publishRiskAssessmentListMutation(resolved, "submit", detail, riskAssessmentId);
 }
 
 export async function approveCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId, input = {}) {

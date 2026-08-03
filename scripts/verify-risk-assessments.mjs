@@ -143,6 +143,9 @@ assert(service.includes("[risk-assessment:save-draft]"), "service: save draft in
 assert(service.includes("buildEditableDraftAssessmentPatch"), "service: draft field allowlist");
 assert(service.includes("normalizeAssessmentVersion"), "service: version normalisation");
 assert(service.includes("isRecalculateRiskOnlyPatch"), "service: recalculate-only patch guard");
+assert(service.includes("[risk-assessment:submit]"), "service: submit instrumentation");
+assert(service.includes("RISK_ASSESSMENT_SUBMIT_NOT_VISIBLE"), "service: submit read-after-write guard");
+assert(service.includes('buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer, skipCache: true })'), "service: submit skips stale detail cache");
 
 const validationAdapter = read("src/health-safety/adapters/riskAssessmentValidation.ts");
 assert(validationAdapter.includes("buildClientHazardId"), "client: stable HazardId at creation");
@@ -273,4 +276,11 @@ const saveDraftPersistenceTests = spawnSync("node", ["--test", "scripts/verify-r
 });
 if (saveDraftPersistenceTests.status !== 0) {
   process.exit(saveDraftPersistenceTests.status || 1);
+}
+
+const submitPersistenceTests = spawnSync("node", ["--test", "scripts/verify-risk-assessment-submit-persistence.test.mjs"], {
+  stdio: "inherit",
+});
+if (submitPersistenceTests.status !== 0) {
+  process.exit(submitPersistenceTests.status || 1);
 }

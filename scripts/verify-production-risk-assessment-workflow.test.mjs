@@ -285,6 +285,18 @@ function createTransport(options = {}) {
             },
           };
         }
+        if (options.detailVerificationFails && approvedAt) {
+          return {
+            status: 200,
+            json: {
+              ok: true,
+              item: { id: detailId, title: "Wrong", status: "Active", version: "1.0", approvedAt, approvedBy },
+              hazards: [],
+              links: [],
+              reviews: [],
+            },
+          };
+        }
         return {
           status: 200,
           json: {
@@ -589,28 +601,11 @@ test("approval failure", async () => {
 });
 
 test("detail verification failure", async () => {
-  const transport = createTransport();
-  const original = transport.request.bind(transport);
-  transport.request = async (method, path, body) => {
-    const response = await original(method, path, body);
-    if (method === "GET" && path.includes("/risk-assessments/bert-smoke-ra-12345") && path.includes("health-safety") === false) {
-      const calls = (transport._detailCalls = (transport._detailCalls || 0) + 1);
-      if (calls >= 5) {
-        return {
-          status: 200,
-          json: {
-            ok: true,
-            item: { id: "bert-smoke-ra-12345", title: "Wrong", status: "Active", version: "1.0" },
-            hazards: [],
-            links: [],
-            reviews: [],
-          },
-        };
-      }
-    }
-    return response;
-  };
-  const result = await runProductionRiskAssessmentWorkflowChecks(baseConfig, transport, { runId: TEST_RUN_ID });
+  const result = await runProductionRiskAssessmentWorkflowChecks(
+    baseConfig,
+    createTransport({ detailVerificationFails: true }),
+    { runId: TEST_RUN_ID },
+  );
   assert.equal(result.failedKey, "detailVerification");
 });
 
