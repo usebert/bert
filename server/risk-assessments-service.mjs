@@ -115,10 +115,13 @@ const ACTIONS_TAB_COLUMNS = [
 const ensuredRiskAssessmentWorkbooks = new Set();
 const ensuringRiskAssessmentWorkbooks = new Map();
 const RISK_ASSESSMENT_LIST_CACHE_TTL_MS = 30_000;
+const RISK_ASSESSMENT_DETAIL_CACHE_TTL_MS = 30_000;
 /** @type {Map<string, { expiresAt: number, payload: object }>} */
 const riskAssessmentListCache = new Map();
 /** @type {Map<string, Promise<object>>} */
 const riskAssessmentListInFlight = new Map();
+/** @type {Map<string, { expiresAt: number, payload: object }>} */
+const riskAssessmentDetailCache = new Map();
 
 function trim(value) {
   return String(value ?? "").trim();
@@ -240,9 +243,69 @@ export function invalidateRiskAssessmentListCache(resolved, reason = "mutation")
   return { companyFolderId, masterSheetId, reason, clearedKeys };
 }
 
-function publishRiskAssessmentListMutation(resolved, reason, result) {
+function riskAssessmentDetailCacheKey(resolved, riskAssessmentId) {
+  return `${trim(resolved.companyFolderId)}::${trim(resolved.masterSheetId)}::${trim(riskAssessmentId)}`;
+}
+
+export function invalidateRiskAssessmentDetailCache(resolved, riskAssessmentId, reason = "mutation") {
+  const companyFolderId = trim(resolved?.companyFolderId);
+  const masterSheetId = trim(resolved?.masterSheetId);
+  const id = trim(riskAssessmentId);
+  let clearedKeys = 0;
+  if (!companyFolderId || !masterSheetId) {
+    return { companyFolderId: companyFolderId || undefined, masterSheetId: masterSheetId || undefined, riskAssessmentId: id || undefined, reason, clearedKeys };
+  }
+  const prefix = `${companyFolderId}::${masterSheetId}::`;
+  if (id) {
+    const key = riskAssessmentDetailCacheKey(resolved, id);
+    if (riskAssessmentDetailCache.delete(key)) {
+      clearedKeys = 1;
+    }
+  } else {
+    for (const key of riskAssessmentDetailCache.keys()) {
+      if (key.startsWith(prefix)) {
+        riskAssessmentDetailCache.delete(key);
+        clearedKeys += 1;
+      }
+    }
+  }
+  console.info(
+    "[risk-assessment:detail-cache-invalidate]",
+    JSON.stringify({
+      companyFolderId,
+      masterSheetId,
+      riskAssessmentId: id || undefined,
+      reason,
+      clearedKeys,
+    }),
+  );
+  return { companyFolderId, masterSheetId, riskAssessmentId: id || undefined, reason, clearedKeys };
+}
+
+function getCachedRiskAssessmentDetail(resolved, riskAssessmentId) {
+  const key = riskAssessmentDetailCacheKey(resolved, riskAssessmentId);
+  const cached = riskAssessmentDetailCache.get(key);
+  if (!cached || cached.expiresAt <= Date.now()) {
+    if (cached) {
+      riskAssessmentDetailCache.delete(key);
+    }
+    return null;
+  }
+  return cached.payload;
+}
+
+function setCachedRiskAssessmentDetail(resolved, riskAssessmentId, payload) {
+  const key = riskAssessmentDetailCacheKey(resolved, riskAssessmentId);
+  riskAssessmentDetailCache.set(key, {
+    expiresAt: Date.now() + RISK_ASSESSMENT_DETAIL_CACHE_TTL_MS,
+    payload,
+  });
+}
+
+function publishRiskAssessmentListMutation(resolved, reason, result, riskAssessmentId) {
   if (result?.ok !== false) {
     invalidateRiskAssessmentListCache(resolved, reason);
+    invalidateRiskAssessmentDetailCache(resolved, riskAssessmentId, reason);
   }
   return result;
 }
@@ -252,6 +315,7 @@ export function resetRiskAssessmentListCachesForTests() {
   ensuringRiskAssessmentWorkbooks.clear();
   riskAssessmentListCache.clear();
   riskAssessmentListInFlight.clear();
+  riskAssessmentDetailCache.clear();
 }
 
 function riskAssessmentValidationFailure(validation) {
@@ -311,6 +375,177 @@ function logRiskAssessmentCreatePersist(stage, payload = {}) {
       error: trim(payload.error) || undefined,
     }),
   );
+}
+
+function logRiskAssessmentHazardPersist(stage, payload = {}) {
+  const startedAt = Number(payload.startedAt);
+  const durationMs = Number.isFinite(payload.durationMs)
+    ? payload.durationMs
+    : Number.isFinite(startedAt)
+      ? Date.now() - startedAt
+      : undefined;
+  console.info(
+    "[risk-assessment:hazard-persist]",
+    JSON.stringify({
+      stage,
+      riskAssessmentId: trim(payload.riskAssessmentId) || undefined,
+      hazardId: trim(payload.hazardId) || undefined,
+      workbookId: trim(payload.workbookId) || undefined,
+      tabName: RISK_ASSESSMENT_HAZARDS_TAB,
+      updatedRange: trim(payload.updatedRange) || undefined,
+      updatedRows: Number.isFinite(payload.updatedRows) ? payload.updatedRows : undefined,
+      exactRowFound: payload.exactRowFound === true ? true : payload.exactRowFound === false ? false : undefined,
+      fullTabFound: payload.fullTabFound === true ? true : payload.fullTabFound === false ? false : undefined,
+      durationMs,
+      attempt: Number.isFinite(payload.attempt) ? payload.attempt : undefined,
+      error: trim(payload.error) || undefined,
+    }),
+  );
+}
+
+async function readHazardRecord(auth, deps, masterSheetId, hazardId) {
+  const records = await readTab(auth, deps, masterSheetId, RISK_ASSESSMENT_HAZARDS_TAB, RISK_ASSESSMENT_HAZARDS_TAB_COLUMNS);
+  const found = records.find((record) => trim(record.HazardId) === trim(hazardId));
+  return found ? mapRiskHazardRecord(found) : null;
+}
+
+async function waitForHazardRecordAfterWrite(auth, deps, masterSheetId, hazardId, options = {}) {
+  const maxAttempts = Number(options.maxAttempts) || 15;
+  const intervalMs = Number(options.intervalMs) || 1000;
+  const appendResult = options.appendResult || null;
+  const readAppendedRowByRange = resolveReadAppendedRowByRange(deps);
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (attempt > 1) {
+      await sleepMs(intervalMs);
+    }
+    if (appendResult?.updatedRange) {
+      const exactRecord = await readAppendedRowByRange(
+        auth,
+        deps,
+        masterSheetId,
+        RISK_ASSESSMENT_HAZARDS_TAB,
+        appendResult,
+        "HazardId",
+        hazardId,
+      );
+      if (exactRecord) {
+        logRiskAssessmentHazardPersist("exact-row-readback", {
+          riskAssessmentId: options.riskAssessmentId,
+          hazardId,
+          workbookId: masterSheetId,
+          updatedRange: appendResult.updatedRange,
+          exactRowFound: true,
+          attempt,
+        });
+        return { ok: true, record: mapRiskHazardRecord(exactRecord), attempts: attempt, source: "exact-range" };
+      }
+      logRiskAssessmentHazardPersist("exact-row-readback", {
+        riskAssessmentId: options.riskAssessmentId,
+        hazardId,
+        workbookId: masterSheetId,
+        updatedRange: appendResult.updatedRange,
+        exactRowFound: false,
+        attempt,
+      });
+    }
+    const record = await readHazardRecord(auth, deps, masterSheetId, hazardId);
+    if (record && !record.archivedAt) {
+      logRiskAssessmentHazardPersist("full-tab-readback", {
+        riskAssessmentId: options.riskAssessmentId,
+        hazardId,
+        workbookId: masterSheetId,
+        fullTabFound: true,
+        attempt,
+      });
+      return { ok: true, record, attempts: attempt, source: "full-tab" };
+    }
+    logRiskAssessmentHazardPersist("full-tab-readback", {
+      riskAssessmentId: options.riskAssessmentId,
+      hazardId,
+      workbookId: masterSheetId,
+      fullTabFound: false,
+      attempt,
+    });
+  }
+  return { ok: false, record: null, attempts: maxAttempts, source: "none" };
+}
+
+async function appendAndConfirmHazardRows(auth, deps, resolved, riskAssessmentId, rows, options = {}) {
+  const appendTabRows = resolveAppendTabRows(deps);
+  const workbookId = trim(resolved.masterSheetId);
+  const confirmed = [];
+  for (const row of rows) {
+    const hazardId = trim(row.HazardId);
+    const startedAt = Date.now();
+    logRiskAssessmentHazardPersist("append-start", {
+      riskAssessmentId,
+      hazardId,
+      workbookId,
+      startedAt,
+    });
+    let appendResult;
+    try {
+      appendResult = await appendTabRows(
+        auth,
+        deps,
+        workbookId,
+        RISK_ASSESSMENT_HAZARDS_TAB,
+        RISK_ASSESSMENT_HAZARDS_TAB_COLUMNS,
+        [row],
+      );
+    } catch (error) {
+      logRiskAssessmentHazardPersist("append-failed", {
+        riskAssessmentId,
+        hazardId,
+        workbookId,
+        error: error instanceof Error ? error.message : String(error),
+        durationMs: Date.now() - startedAt,
+      });
+      return healthSafetyApiFailure(
+        "RISK_HAZARD_CREATE_WRITE_FAILED",
+        "Hazard could not be written to the workbook.",
+        500,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    logRiskAssessmentHazardPersist("append-ack", {
+      riskAssessmentId,
+      hazardId,
+      workbookId,
+      updatedRange: appendResult?.updatedRange,
+      updatedRows: appendResult?.updatedRows,
+      durationMs: Date.now() - startedAt,
+    });
+    if (!appendResult?.ok || Number(appendResult?.updatedRows) <= 0) {
+      return healthSafetyApiFailure(
+        "RISK_HAZARD_CREATE_WRITE_FAILED",
+        "Hazard write was not acknowledged by Google Sheets.",
+        500,
+      );
+    }
+    const visibility = await waitForHazardRecordAfterWrite(auth, deps, workbookId, hazardId, {
+      appendResult,
+      riskAssessmentId,
+      maxAttempts: options.maxAttempts,
+      intervalMs: options.intervalMs,
+    });
+    if (!visibility.ok) {
+      logRiskAssessmentHazardPersist("readback-failed", {
+        riskAssessmentId,
+        hazardId,
+        workbookId,
+        updatedRange: appendResult?.updatedRange,
+        durationMs: Date.now() - startedAt,
+      });
+      return healthSafetyApiFailure(
+        "RISK_HAZARD_CREATE_NOT_VISIBLE",
+        "Hazard could not be confirmed after create.",
+        500,
+      );
+    }
+    confirmed.push(visibility.record);
+  }
+  return { ok: true, hazards: confirmed };
 }
 
 async function readRiskAssessmentTabHeaders(auth, deps, masterSheetId) {
@@ -595,6 +830,13 @@ async function buildAssessmentDetail(auth, deps, resolved, actor, riskAssessment
   if (!actorCanAccessCompanyHealthSafety(actor, resolved.companyFolderId, resolved.alternateCompanyIds)) {
     return healthSafetyApiFailure("RISK_ASSESSMENT_FORBIDDEN", "You do not have access to this company.", 403);
   }
+  if (!options.skipCache) {
+    const cached = getCachedRiskAssessmentDetail(resolved, riskAssessmentId);
+    if (cached) {
+      timer.log("detail-cache-hit");
+      return cached;
+    }
+  }
   timer.log("auth");
   await ensureRiskAssessmentTabs(auth, deps, resolved.masterSheetId);
   timer.log("ensure-tabs");
@@ -622,7 +864,7 @@ async function buildAssessmentDetail(auth, deps, resolved, actor, riskAssessment
     .sort((left, right) => trim(right.createdAt).localeCompare(trim(left.createdAt)));
   const summary = summariseAssessmentRisk(hazards);
   timer.log("assemble");
-  return {
+  const response = {
     ok: true,
     item: {
       ...item,
@@ -634,6 +876,10 @@ async function buildAssessmentDetail(auth, deps, resolved, actor, riskAssessment
     links,
     reviews,
   };
+  if (!options.skipCache) {
+    setCachedRiskAssessmentDetail(resolved, riskAssessmentId, response);
+  }
+  return response;
 }
 
 async function syncRiskAssessmentHazards(auth, deps, resolved, actor, riskAssessmentId, hazardInputs = [], options = {}) {
@@ -694,7 +940,6 @@ async function syncRiskAssessmentHazards(auth, deps, resolved, actor, riskAssess
   const mappedResults = [];
   const patchRows = [...duplicateArchivePatches];
   const batchPatchTabRowsByHeader = resolveBatchPatchTabRowsByHeader(deps);
-  const appendTabRows = resolveAppendTabRows(deps);
 
   hazardInputs.forEach((input, index) => {
     const hazardId = trim(input.id) || trim(input.hazardId);
@@ -798,22 +1043,29 @@ async function syncRiskAssessmentHazards(auth, deps, resolved, actor, riskAssess
   });
 
   if (rowsToAppend.length > 0) {
-    await appendTabRows(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_HAZARDS_TAB, RISK_ASSESSMENT_HAZARDS_TAB_COLUMNS, rowsToAppend);
+    const appendConfirmed = await appendAndConfirmHazardRows(auth, deps, resolved, riskAssessmentId, rowsToAppend, {
+      maxAttempts: options.readAfterWriteMaxAttempts,
+      intervalMs: options.readAfterWriteIntervalMs,
+    });
+    if (!appendConfirmed.ok) return appendConfirmed;
   }
   timer.log("append-hazards", { appended: rowsToAppend.length, rowCount: hazardInputs.length });
 
-  for (const [hazardId] of existingById.entries()) {
-    if (inputIds.has(hazardId)) continue;
-    patchRows.push({
-      matchValue: hazardId,
-      updates: {
-        Status: "archived",
-        ArchivedAt: nowIso(),
-        ArchivedBy: normalizeEmail(actor.email),
-        UpdatedAt: nowIso(),
-        UpdatedBy: normalizeEmail(actor.email),
-      },
-    });
+  const shouldArchiveMissing = options.archiveMissingHazards === true;
+  if (shouldArchiveMissing) {
+    for (const [hazardId] of existingById.entries()) {
+      if (inputIds.has(hazardId)) continue;
+      patchRows.push({
+        matchValue: hazardId,
+        updates: {
+          Status: "archived",
+          ArchivedAt: nowIso(),
+          ArchivedBy: normalizeEmail(actor.email),
+          UpdatedAt: nowIso(),
+          UpdatedBy: normalizeEmail(actor.email),
+        },
+      });
+    }
   }
 
   if (patchRows.length > 0) {
@@ -1237,7 +1489,7 @@ export async function createCompanyRiskAssessment(auth, deps, resolved, actor, i
     );
   }
   const persisted = visibility.record;
-  const detailLookup = await buildAssessmentDetail(auth, deps, resolved, actor, id, { timer });
+  const detailLookup = await buildAssessmentDetail(auth, deps, resolved, actor, id, { timer, skipCache: true });
   logRiskAssessmentCreatePersist("detail-lookup", {
     companyFolderId: resolved.companyFolderId,
     writeMasterSheetId,
@@ -1251,7 +1503,10 @@ export async function createCompanyRiskAssessment(auth, deps, resolved, actor, i
   }
   let syncedHazards = [];
   if (Array.isArray(input.hazards) && input.hazards.length > 0) {
-    const synced = await syncRiskAssessmentHazards(auth, deps, resolved, actor, id, input.hazards, { timer });
+    const synced = await syncRiskAssessmentHazards(auth, deps, resolved, actor, id, input.hazards, {
+      timer,
+      archiveMissingHazards: true,
+    });
     if (!synced.ok) return synced;
     syncedHazards = synced.hazards || [];
   }
@@ -1268,6 +1523,7 @@ export async function createCompanyRiskAssessment(auth, deps, resolved, actor, i
     resolved,
     "create",
     buildDraftSaveResponse(persisted, syncedHazards),
+    id,
   );
 }
 
@@ -1286,12 +1542,15 @@ export async function saveCompanyRiskAssessmentDraft(auth, deps, resolved, actor
   timer.log("patch-assessment");
   let syncedHazards = patched.hazards || [];
   if (Array.isArray(input.hazards)) {
-    const synced = await syncRiskAssessmentHazards(auth, deps, resolved, actor, id, input.hazards, { timer });
+    const synced = await syncRiskAssessmentHazards(auth, deps, resolved, actor, id, input.hazards, {
+      timer,
+      archiveMissingHazards: true,
+    });
     if (!synced.ok) return synced;
     syncedHazards = synced.hazards || [];
   }
   timer.log("complete");
-  return publishRiskAssessmentListMutation(resolved, "save-draft", buildDraftSaveResponse(patched.item, syncedHazards));
+  return publishRiskAssessmentListMutation(resolved, "save-draft", buildDraftSaveResponse(patched.item, syncedHazards), id);
 }
 
 export async function patchCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId, input = {}) {
@@ -1671,10 +1930,33 @@ export async function createRiskAssessmentHazard(auth, deps, resolved, actor, ri
     return healthSafetyApiFailure("RISK_ASSESSMENT_FORBIDDEN", "You cannot add hazards to this assessment.", 403);
   }
   timer.log("read-assessment");
-  const synced = await syncRiskAssessmentHazards(auth, deps, resolved, actor, riskAssessmentId, [input], { timer });
+  const requestedHazardId = trim(input.id) || trim(input.hazardId);
+  logRiskAssessmentHazardPersist("validation-start", {
+    riskAssessmentId,
+    hazardId: requestedHazardId || undefined,
+    workbookId: resolved.masterSheetId,
+  });
+  const synced = await syncRiskAssessmentHazards(auth, deps, resolved, actor, riskAssessmentId, [input], {
+    timer,
+    archiveMissingHazards: false,
+  });
   if (!synced.ok) return synced;
-  const item = synced.hazards[synced.hazards.length - 1];
-  return { ok: true, item };
+  const item =
+    synced.hazards.find((hazard) => hazard.id === requestedHazardId) || synced.hazards[synced.hazards.length - 1];
+  if (!item) {
+    return healthSafetyApiFailure("RISK_HAZARD_CREATE_NOT_VISIBLE", "Hazard could not be confirmed after create.", 500);
+  }
+  const detailLookup = await buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer, skipCache: true });
+  logRiskAssessmentHazardPersist("detail-lookup", {
+    riskAssessmentId,
+    hazardId: item.id,
+    workbookId: resolved.masterSheetId,
+    fullTabFound: detailLookup?.ok === true && (detailLookup.hazards || []).some((hazard) => hazard.id === item.id),
+  });
+  if (!detailLookup?.ok) {
+    return detailLookup;
+  }
+  return publishRiskAssessmentListMutation(resolved, "create-hazard", { ok: true, item }, riskAssessmentId);
 }
 
 export async function patchRiskAssessmentHazard(auth, deps, resolved, actor, hazardId, input = {}) {
@@ -1722,7 +2004,7 @@ export async function patchRiskAssessmentHazard(auth, deps, resolved, actor, haz
   await patchCompanyRiskAssessment(auth, deps, resolved, actor, current.riskAssessmentId, { recalculateRisk: true });
   const hazards = await listRiskAssessmentHazards(auth, deps, resolved, actor, current.riskAssessmentId, { includeArchived: true });
   const item = hazards.items.find((entry) => entry.id === hazardId);
-  return { ok: true, item };
+  return publishRiskAssessmentListMutation(resolved, "patch-hazard", { ok: true, item }, current.riskAssessmentId);
 }
 
 export async function archiveRiskAssessmentHazard(auth, deps, resolved, actor, hazardId) {
@@ -1745,7 +2027,7 @@ export async function archiveRiskAssessmentHazard(auth, deps, resolved, actor, h
     UpdatedBy: normalizeEmail(actor.email),
   });
   await patchCompanyRiskAssessment(auth, deps, resolved, actor, current.riskAssessmentId, { recalculateRisk: true });
-  return { ok: true };
+  return publishRiskAssessmentListMutation(resolved, "archive-hazard", { ok: true, hazardId }, current.riskAssessmentId);
 }
 
 export async function listRiskAssessmentLinks(auth, deps, resolved, actor, riskAssessmentId, options = {}) {

@@ -227,6 +227,11 @@ export function formatRiskAssessmentWorkflowReport(result) {
     lines.push("Create draft diagnostics:");
     lines.push(JSON.stringify(result.createDraftDiagnostics));
   }
+  if (result.addHazardsDiagnostics) {
+    lines.push("");
+    lines.push("Add hazards diagnostics:");
+    lines.push(JSON.stringify(result.addHazardsDiagnostics));
+  }
   lines.push("");
 
   if (result.timedOut) {
@@ -335,6 +340,47 @@ export async function pollRiskAssessmentDetailForId(request, companyFolderId, ma
     }
   }
   return { ok: false, detailResponse: lastDetailResponse, attempts };
+}
+
+export async function pollRiskAssessmentDetailForHazardIds(
+  request,
+  companyFolderId,
+  masterSheetId,
+  riskAssessmentId,
+  hazardIds = [],
+  options = {},
+) {
+  const expectedIds = hazardIds.map((id) => trim(id)).filter(Boolean);
+  const maxAttempts = Number(options.maxAttempts) || 15;
+  const intervalMs = Number(options.intervalMs) || 1000;
+  const stageKey = options.stageKey || "addHazards";
+  const attempts = [];
+  let lastDetailResponse = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (attempt > 1) {
+      await sleep(intervalMs);
+    }
+    lastDetailResponse = await request(
+      "GET",
+      riskAssessmentDetailPath(companyFolderId, riskAssessmentId, masterSheetId),
+      undefined,
+      { stageKey },
+    );
+    assertResponseSafe(lastDetailResponse.json, "add hazards detail poll");
+    const hazardItems = Array.isArray(lastDetailResponse.json?.hazards) ? lastDetailResponse.json.hazards : [];
+    const foundIds = expectedIds.filter((id) => hazardItems.some((item) => trim(item.id) === id));
+    attempts.push({
+      attempt,
+      status: lastDetailResponse.status,
+      hazardCount: hazardItems.length,
+      foundIds,
+      matchCount: foundIds.length,
+    });
+    if (foundIds.length === expectedIds.length) {
+      return { ok: true, detailResponse: lastDetailResponse, attempts, hazards: hazardItems };
+    }
+  }
+  return { ok: false, detailResponse: lastDetailResponse, attempts, hazards: lastDetailResponse?.json?.hazards || [] };
 }
 
 export async function attemptVerificationRiskAssessmentCleanup(request, context = {}) {
@@ -836,6 +882,10 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
   }
 
   const addHazardsFail = await runStage("addHazards", async () => {
+    const addHazardsDiagnostics = {
+      hazardCreates: [],
+      detailPollAttempts: [],
+    };
     for (const [index, hazard] of [
       buildProductionVerificationHazard(runId, 1),
       buildProductionVerificationHazard(runId, 2),
@@ -859,7 +909,14 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
         );
       }
       assertResponseSafe(hazardResponse.json, `add hazard ${index + 1}`);
+      addHazardsDiagnostics.hazardCreates.push({
+        requestHazardId: hazard.id,
+        httpStatus: hazardResponse.status,
+        responseHazardId: trim(hazardResponse.json?.item?.id) || null,
+        ok: hazardResponse.json?.ok === true,
+      });
       if (hazardResponse.status !== 200 || hazardResponse.json?.ok !== true) {
+        result.addHazardsDiagnostics = addHazardsDiagnostics;
         return fail(
           "addHazards",
           `Add hazard ${index + 1} returned HTTP ${hazardResponse.status}.`,
@@ -868,16 +925,34 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
           hazardResponse.json,
         );
       }
+      if (trim(hazardResponse.json?.item?.id) !== hazard.id) {
+        result.addHazardsDiagnostics = addHazardsDiagnostics;
+        return fail(
+          "addHazards",
+          `Add hazard ${index + 1} did not preserve HazardId.`,
+          "Inspect hazard ID acceptance in createRiskAssessmentHazard.",
+          hazardResponse.status,
+          addHazardsDiagnostics,
+        );
+      }
     }
 
-    const detail = await request(
-      "GET",
-      riskAssessmentDetailPath(companyFolderId, riskAssessmentId, masterSheetId),
-      undefined,
-      { stageKey: "addHazards" },
+    const detailPolled = await pollRiskAssessmentDetailForHazardIds(
+      request,
+      companyFolderId,
+      masterSheetId,
+      riskAssessmentId,
+      [hazardOneId, hazardTwoId],
+      {
+        stageKey: "addHazards",
+        maxAttempts: Number(options.listPollMaxAttempts) || 15,
+        intervalMs: Number(options.listPollIntervalMs) || 1000,
+      },
     );
-    const hazards = detail.json?.hazards || [];
-    if (hazards.length !== 2) {
+    addHazardsDiagnostics.detailPollAttempts = detailPolled.attempts;
+    result.addHazardsDiagnostics = addHazardsDiagnostics;
+    const hazards = detailPolled.hazards || [];
+    if (!detailPolled.ok || hazards.length !== 2) {
       return fail("addHazards", `Expected 2 hazards, found ${hazards.length}.`, "Inspect hazard persistence.");
     }
     const ids = new Set(hazards.map((item) => item.id));

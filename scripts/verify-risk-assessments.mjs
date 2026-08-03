@@ -134,6 +134,11 @@ assert(service.includes("[risk-assessment:create-persist]"), "service: create pe
 assert(service.includes("waitForAssessmentRecordAfterWrite"), "service: bounded create read-after-write");
 assert(service.includes("RISK_ASSESSMENTS_TAB_COLUMNS, [row]"), "service: create append uses canonical headers then row objects");
 
+assert(service.includes("[risk-assessment:hazard-persist]"), "service: hazard persistence instrumentation");
+assert(service.includes("archiveMissingHazards"), "service: incremental hazard create skips archive sweep");
+assert(service.includes("invalidateRiskAssessmentDetailCache"), "service: detail cache invalidation");
+assert(service.includes("RISK_ASSESSMENT_HAZARDS_TAB_COLUMNS,\n        [row]"), "service: hazard append uses canonical headers");
+
 const validationAdapter = read("src/health-safety/adapters/riskAssessmentValidation.ts");
 assert(validationAdapter.includes("buildClientHazardId"), "client: stable HazardId at creation");
 assert(validationAdapter.includes("dedupeHazardsById"), "client: dedupe hazards by id");
@@ -249,4 +254,11 @@ const createPersistenceTests = spawnSync("node", ["--test", "scripts/verify-risk
 });
 if (createPersistenceTests.status !== 0) {
   process.exit(createPersistenceTests.status || 1);
+}
+
+const hazardPersistenceTests = spawnSync("node", ["--test", "scripts/verify-risk-assessment-hazard-persistence.test.mjs"], {
+  stdio: "inherit",
+});
+if (hazardPersistenceTests.status !== 0) {
+  process.exit(hazardPersistenceTests.status || 1);
 }
