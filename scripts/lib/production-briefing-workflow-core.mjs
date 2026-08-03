@@ -40,8 +40,8 @@ export const BRIEFING_VERIFIER_BUDGET_MS = 12 * 60 * 1000;
 
 export const DEFAULT_BRIEFING_STAGE_TIMEOUTS_MS = {
   authentication: 90_000,
-  briefingsApi: 60_000,
-  baseline: 60_000,
+  briefingsApi: 90_000,
+  baseline: 90_000,
   staleCleanup: 120_000,
   createDraft: 120_000,
   readback: 60_000,
@@ -49,7 +49,7 @@ export const DEFAULT_BRIEFING_STAGE_TIMEOUTS_MS = {
   recipientAssignment: 120_000,
   publish: 120_000,
   recipientLogin: 90_000,
-  recipientTodo: 60_000,
+  recipientTodo: 90_000,
   read: 120_000,
   acknowledge: 120_000,
   sign: 120_000,
@@ -935,8 +935,18 @@ export async function runProductionBriefingWorkflowChecks(config, transport, opt
     let trackerResponse;
     let mineResponse;
     try {
-      trackerResponse = await fetchBriefingsTracker(request, companyFolderId, "briefingsApi");
-      mineResponse = await request("GET", briefingsMinePath(companyFolderId), undefined, { stageKey: "briefingsApi" });
+      const [trackerResult, mineResult] = await Promise.all([
+        requestWithTransientRetries(request, "GET", briefingsTrackerPath(companyFolderId), undefined, {
+          stageKey: "briefingsApi",
+          maxRetries: 2,
+        }),
+        requestWithTransientRetries(request, "GET", briefingsMinePath(companyFolderId), undefined, {
+          stageKey: "briefingsApi",
+          maxRetries: 2,
+        }),
+      ]);
+      trackerResponse = trackerResult.response;
+      mineResponse = mineResult.response;
     } catch (error) {
       if (isStageTimeoutError(error)) {
         throw error;
