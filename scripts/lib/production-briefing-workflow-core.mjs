@@ -612,8 +612,12 @@ function briefingAppearsInDashboard(payload = {}, briefingId = "") {
 function briefingAppearsInPendingBriefings(payload = {}, briefingId = "", recipientEmail = "") {
   const id = trim(briefingId);
   const email = trim(recipientEmail).toLowerCase();
-  const pendingBriefings = Array.isArray(payload.pendingBriefings) ? payload.pendingBriefings : [];
-  return pendingBriefings.some((item) => {
+  const pendingItems = Array.isArray(payload?.sections?.briefings)
+    ? payload.sections.briefings
+    : Array.isArray(payload.pendingBriefings)
+      ? payload.pendingBriefings
+      : [];
+  return pendingItems.some((item) => {
     const itemId = trim(item?.id || "");
     const matchesBriefing = itemId.includes(id) || itemId.startsWith(`briefing-${id}`);
     if (!matchesBriefing) {
@@ -1005,7 +1009,7 @@ export async function runProductionBriefingWorkflowChecks(config, transport, opt
     result.baseline = countBriefingBaselines(trackerItemsCache);
     let dashboardResponse;
     try {
-      dashboardResponse = await request("GET", dashboardPath(companyFolderId, masterSheetId), undefined, {
+      dashboardResponse = await request("GET", dashboardPath(companyFolderId, masterSheetId, true), undefined, {
         stageKey: "baseline",
       });
     } catch (error) {
@@ -1828,11 +1832,13 @@ export async function runProductionBriefingWorkflowChecks(config, transport, opt
     if (
       Number.isFinite(baselineDashboardPendingBriefings) &&
       Number.isFinite(dashboardResponse.json?.metrics?.pendingBriefings) &&
-      dashboardResponse.json.metrics.pendingBriefings > baselineDashboardPendingBriefings
+      dashboardResponse.json.metrics.pendingBriefings > baselineDashboardPendingBriefings &&
+      (briefingAppearsInPendingBriefings(dashboardResponse.json, verificationBriefingId, recipientEmail) ||
+        briefingAppearsInDashboard(dashboardResponse.json, verificationBriefingId))
     ) {
       return fail(
         "dashboard",
-        "Dashboard pendingBriefings increased after verification workflow.",
+        "Dashboard pendingBriefings increased because the verification briefing remains in operational metrics.",
         "Inspect verification briefing exclusion from operational dashboard metrics.",
         dashboardResponse.status,
         {
