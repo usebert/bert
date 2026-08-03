@@ -52,7 +52,9 @@ import {
   DocumentControlUploadError,
   ensureDocumentControlFolderStructure,
   googleDriveErrorDetails,
+  logDocumentUploadFailure,
   logDocumentUploadTiming,
+  resolveDocumentControlFolderStructure,
   uploadDocumentControlFile,
   verifyDocumentControlFolder,
 } from "./document-control-file-service.mjs";
@@ -80,6 +82,7 @@ export {
 };
 
 export const DOCUMENT_CONTROL_ROUTE_TIMEOUT_MS = 90_000;
+export const DOCUMENT_CONTROL_UPLOAD_ROUTE_TIMEOUT_MS = 120_000;
 
 function trim(value) {
   return String(value ?? "").trim();
@@ -181,9 +184,16 @@ function scheduleIndexSync(auth, deps, masterSheetId) {
   void syncIndexAfterChange(auth, deps, masterSheetId).catch(() => {});
 }
 
-function afterDocumentControlMutation(auth, deps, resolved, masterSheetId) {
+function afterDocumentControlMutation(auth, deps, resolved, masterSheetId, options = {}) {
   invalidateDocumentControlCaches(resolved || { masterSheetId });
-  scheduleIndexSync(auth, deps, masterSheetId);
+  if (options.skipIndexSync !== true) {
+    scheduleIndexSync(auth, deps, masterSheetId);
+  }
+}
+
+async function ensureDocumentControlUploadTabs(auth, deps, masterSheetId) {
+  await ensureDocumentControlTabCached(auth, deps, masterSheetId, CONTROLLED_DOCUMENTS_TAB, CONTROLLED_DOCUMENTS_TAB_COLUMNS);
+  await ensureDocumentControlTabCached(auth, deps, masterSheetId, DOCUMENT_REVISIONS_TAB, DOCUMENT_REVISIONS_TAB_COLUMNS);
 }
 
 async function ensureDocumentControlTabCached(auth, deps, masterSheetId, tabName, columns) {
@@ -1326,7 +1336,7 @@ export async function createDraftVerificationDocument(auth, deps, resolved, acto
   const appendTabRows = resolveAppendTabRows(deps);
   await appendTabRows(auth, deps, masterSheetId, CONTROLLED_DOCUMENTS_TAB, CONTROLLED_DOCUMENTS_TAB_COLUMNS, [documentRow]);
   await appendTabRows(auth, deps, masterSheetId, DOCUMENT_REVISIONS_TAB, DOCUMENT_REVISIONS_TAB_COLUMNS, [revisionRow]);
-  afterDocumentControlMutation(auth, deps, resolved, masterSheetId);
+  afterDocumentControlMutation(auth, deps, resolved, masterSheetId, { skipIndexSync: true });
   logDocumentMutationTiming("create", "draft", {
     documentId,
     workbookId: masterSheetId,
@@ -1344,7 +1354,7 @@ export async function createDraftVerificationDocument(auth, deps, resolved, acto
 
 export async function uploadVerificationRevisionFile(auth, deps, resolved, actor, revisionId, input = {}) {
   const startedAt = Date.now();
-  const stageStartedAt = Date.now();
+  let stageStartedAt = Date.now();
   const companyFolderId = trim(resolved?.companyFolderId);
   const masterSheetId = trim(resolved?.masterSheetId);
   const id = trim(revisionId);
@@ -1352,31 +1362,67 @@ export async function uploadVerificationRevisionFile(auth, deps, resolved, actor
   let currentStage = "company_resolution";
   let targetFolderId = "";
   let uploadedFileId = "";
+  let activeDocumentId = documentIdHint;
+  let patchAcknowledgedRows = 0;
+  let readbackMatched = false;
+  let readbackFileId = "";
 
   const logStage = (stage, extra = {}) => {
     currentStage = stage;
+    const durationMs = Date.now() - stageStartedAt;
+    stageStartedAt = Date.now();
     logDocumentUploadTiming({
       stage,
-      documentId: extra.documentId || documentIdHint,
+      documentId: extra.documentId || activeDocumentId || documentIdHint,
       revisionId: id,
       companyFolderId,
-      masterSheetId,
+      workbookId: masterSheetId,
       targetFolderId: extra.targetFolderId || targetFolderId,
       mimeType: trim(input.mimeType) || extra.mimeType || "",
       fileSize: Number(extra.fileSize) || 0,
-      durationMs: Date.now() - stageStartedAt,
+      durationMs,
       totalMs: Date.now() - startedAt,
-      ...extra,
+      failureStage: extra.failureStage,
+      googleErrorCode: extra.googleErrorCode,
+      googleErrorReason: extra.googleErrorReason,
+      patchAcknowledgedRows: extra.patchAcknowledgedRows,
+      readbackMatched: extra.readbackMatched,
+      readbackFileId: extra.readbackFileId,
+      orphanCleanupDeleted: extra.orphanCleanupDeleted,
     });
   };
 
   const uploadFailure = (message, code, httpStatus = 500, extra = {}) => {
+    const failureStage = trim(extra.stage || currentStage);
+    logDocumentUploadFailure({
+      operationStage: failureStage,
+      documentId: extra.documentId || activeDocumentId || documentIdHint,
+      revisionId: id,
+      companyFolderId,
+      workbookId: masterSheetId,
+      targetFolderId,
+      mimeType: trim(input.mimeType) || extra.mimeType || "",
+      fileSize: Number(extra.fileSize) || 0,
+      code,
+      httpStatus,
+      googleErrorCode: extra.google?.googleErrorCode,
+      googleErrorReason: extra.google?.googleErrorReason,
+      patchAcknowledgedRows,
+      readbackMatched,
+      readbackFileId,
+      orphanCleanupDeleted: extra.orphanCleanupDeleted,
+    });
     const details = [
       trim(extra.details),
-      extra.stage ? `stage=${extra.stage}` : "",
+      `stage=${failureStage}`,
       extra.google?.googleErrorReason ? `googleReason=${extra.google.googleErrorReason}` : "",
       extra.google?.googleErrorMessage ? `googleMessage=${extra.google.googleErrorMessage}` : "",
+      extra.google?.googleErrorCode ? `googleStatus=${extra.google.googleErrorCode}` : "",
       targetFolderId ? `targetFolderId=${targetFolderId}` : "",
+      patchAcknowledgedRows ? `patchAcknowledgedRows=${patchAcknowledgedRows}` : "",
+      readbackMatched ? `readbackMatched=${readbackMatched}` : "",
+      readbackFileId ? `readbackFileId=${readbackFileId}` : "",
+      extra.orphanCleanupDeleted !== undefined ? `orphanCleanupDeleted=${extra.orphanCleanupDeleted}` : "",
     ]
       .filter(Boolean)
       .join(" ");
@@ -1397,17 +1443,15 @@ export async function uploadVerificationRevisionFile(auth, deps, resolved, actor
 
   try {
     currentStage = "revision_lookup";
-    await ensureDocumentControlTabs(auth, deps, masterSheetId);
-    const revisions = mapRevisionsSafely(await readRevisionRecords(auth, deps, masterSheetId));
+    await ensureDocumentControlUploadTabs(auth, deps, masterSheetId);
+    const revisions = mapRevisionsSafely(await readRevisionRecords(auth, deps, masterSheetId, { skipTabEnsure: true }));
     const revision = revisions.find((rev) => rev.revisionId === id);
     if (!revision) {
-      logStage("revision_lookup", { failureStage: "revision_lookup" });
       return uploadFailure("Revision not found.", "REVISION_NOT_FOUND", 404, { stage: "revision_lookup" });
     }
-    const documents = mapDocumentsSafely(await readDocumentRecords(auth, deps, masterSheetId));
+    const documents = mapDocumentsSafely(await readDocumentRecords(auth, deps, masterSheetId, { skipTabEnsure: true }));
     const document = documents.find((doc) => doc.documentId === revision.documentId);
     if (!document || !isVerificationDocument(document)) {
-      logStage("revision_lookup", { documentId: revision.documentId, failureStage: "revision_lookup" });
       return uploadFailure(
         "Only verification revisions can use this upload path.",
         "DOCUMENT_NOT_VERIFICATION",
@@ -1415,43 +1459,51 @@ export async function uploadVerificationRevisionFile(auth, deps, resolved, actor
         { stage: "revision_lookup", documentId: revision.documentId },
       );
     }
+    activeDocumentId = document.documentId;
+    logStage("revision_lookup", { documentId: activeDocumentId, rowCounts: { revisions: revisions.length } });
+
     if (revision.fileId || revision.fileUrl) {
-      logStage("readback", { documentId: document.documentId, fileSize: Number(revision.fileSize) || 0 });
+      logStage("readback", {
+        documentId: activeDocumentId,
+        fileSize: Number(revision.fileSize) || 0,
+        readbackMatched: true,
+        readbackFileId: trim(revision.fileId),
+      });
       return { ok: true, revision, document, alreadyUploaded: true, updatedRows: 0 };
     }
 
     const drive = deps?.google?.drive ? deps.google.drive({ version: "v3", auth }) : null;
     if (!drive) {
-      logStage("drive_client", { documentId: document.documentId, failureStage: "drive_client" });
       return uploadFailure("Google Drive is not available for verification upload.", "DRIVE_UNAVAILABLE", 503, {
         stage: "drive_client",
-        documentId: document.documentId,
+        documentId: activeDocumentId,
       });
     }
 
     currentStage = "drafts_folder_resolution";
-    const folders = await ensureDocumentControlFolderStructure(drive, companyFolderId, { stage: currentStage });
+    const folders = await resolveDocumentControlFolderStructure(drive, companyFolderId, { stage: currentStage });
     targetFolderId = trim(folders.folders.Drafts);
-    logStage("drafts_folder_resolution", { documentId: document.documentId, targetFolderId });
+    logStage("drafts_folder_resolution", {
+      documentId: activeDocumentId,
+      targetFolderId,
+      cacheHit: folders.cacheHit === true,
+    });
 
     currentStage = "drafts_folder_check";
     const draftsCheck = await verifyDocumentControlFolder(drive, targetFolderId, { stage: currentStage });
     if (!draftsCheck.ok) {
-      logStage("drafts_folder_check", {
-        documentId: document.documentId,
-        targetFolderId,
-        failureStage: "drafts_folder_check",
-        googleErrorCode: draftsCheck.google?.googleErrorCode,
-        googleErrorReason: draftsCheck.google?.googleErrorReason,
-      });
       return uploadFailure(
         draftsCheck.message || "Document Control Drafts folder is not accessible.",
         "UPLOAD_DRAFTS_FOLDER_INACCESSIBLE",
         403,
-        { stage: "drafts_folder_check", documentId: document.documentId, google: draftsCheck.google },
+        {
+          stage: "drafts_folder_check",
+          documentId: activeDocumentId,
+          google: draftsCheck.google,
+        },
       );
     }
-    logStage("drafts_folder_check", { documentId: document.documentId, targetFolderId });
+    logStage("drafts_folder_check", { documentId: activeDocumentId, targetFolderId });
 
     currentStage = "file_validation";
     const fileName = trim(input.fileName) || "bert-verify-doc.pdf";
@@ -1463,11 +1515,20 @@ export async function uploadVerificationRevisionFile(auth, deps, resolved, actor
       mimeType,
     });
     uploadedFileId = trim(uploaded.fileId);
+    if (!uploadedFileId) {
+      return uploadFailure("Google Drive did not return a file ID.", "UPLOAD_EMPTY_DRIVE_FILE_ID", 502, {
+        stage: "drive_create_ack",
+        documentId: activeDocumentId,
+        mimeType: uploaded.mimeType,
+        fileSize: Number(uploaded.fileSize) || 0,
+      });
+    }
     logStage("drive_create", {
-      documentId: document.documentId,
+      documentId: activeDocumentId,
       targetFolderId,
       mimeType: uploaded.mimeType,
       fileSize: Number(uploaded.fileSize) || 0,
+      readbackFileId: uploadedFileId,
     });
 
     currentStage = "metadata_patch";
@@ -1477,18 +1538,11 @@ export async function uploadVerificationRevisionFile(auth, deps, resolved, actor
       FileUrl: uploaded.fileUrl,
       MimeType: uploaded.mimeType,
       FileSize: uploaded.fileSize,
-      UpdatedAt: nowIso(),
-      UpdatedBy: normalizeEmail(actor?.email) || "unknown",
+      PreparedBy: normalizeEmail(actor?.email) || revision.preparedBy || "unknown",
+      PreparedAt: revision.preparedAt || nowIso(),
     });
-    const updatedRows = Number(patchResult?.updatedRows ?? patchResult?.updated ?? 1);
-    if (updatedRows <= 0) {
-      logStage("metadata_patch", {
-        documentId: document.documentId,
-        targetFolderId,
-        mimeType: uploaded.mimeType,
-        fileSize: Number(uploaded.fileSize) || 0,
-        failureStage: "metadata_patch",
-      });
+    patchAcknowledgedRows = Number(patchResult?.updatedRows ?? patchResult?.updated ?? 0);
+    if (patchAcknowledgedRows <= 0) {
       const cleanup = await deleteDocumentControlDriveFile(drive, uploadedFileId);
       return uploadFailure(
         "Revision file metadata patch returned zero-row acknowledgement.",
@@ -1496,96 +1550,128 @@ export async function uploadVerificationRevisionFile(auth, deps, resolved, actor
         500,
         {
           stage: "metadata_patch",
-          documentId: document.documentId,
-          details: `Drive file ${uploadedFileId} cleanup deleted=${cleanup.deleted === true}`,
+          documentId: activeDocumentId,
+          patchAcknowledgedRows,
+          orphanCleanupDeleted: cleanup.deleted === true,
         },
       );
     }
     logStage("metadata_patch", {
-      documentId: document.documentId,
+      documentId: activeDocumentId,
       targetFolderId,
       mimeType: uploaded.mimeType,
       fileSize: Number(uploaded.fileSize) || 0,
+      patchAcknowledgedRows,
     });
 
-    currentStage = "readback";
-    const refreshed = mapRevisionsSafely(await readRevisionRecords(auth, deps, masterSheetId)).find((rev) => rev.revisionId === id);
-    if (!refreshed || trim(refreshed.fileId) !== uploadedFileId) {
-      logStage("readback", {
-        documentId: document.documentId,
-        targetFolderId,
-        mimeType: uploaded.mimeType,
-        fileSize: Number(uploaded.fileSize) || 0,
-        failureStage: "readback",
-      });
+    currentStage = "exact_row_readback";
+    invalidateDocumentControlCaches(resolved);
+    const refreshed = mapRevisionsSafely(
+      await readRevisionRecords(auth, deps, masterSheetId, { skipTabEnsure: true }),
+    ).find((rev) => rev.revisionId === id);
+    readbackFileId = trim(refreshed?.fileId);
+    readbackMatched = Boolean(refreshed && readbackFileId === uploadedFileId);
+    if (!readbackMatched) {
       const cleanup = await deleteDocumentControlDriveFile(drive, uploadedFileId);
       return uploadFailure(
-        "Uploaded revision file was not visible on readback.",
+        "Uploaded revision file was not visible on exact-row readback.",
         "UPLOAD_READBACK_FAILED",
         500,
         {
-          stage: "readback",
-          documentId: document.documentId,
-          details: `Drive file ${uploadedFileId} cleanup deleted=${cleanup.deleted === true}`,
+          stage: "exact_row_readback",
+          documentId: activeDocumentId,
+          readbackMatched,
+          readbackFileId,
+          orphanCleanupDeleted: cleanup.deleted === true,
         },
       );
     }
-    logStage("readback", {
-      documentId: document.documentId,
+    logStage("exact_row_readback", {
+      documentId: activeDocumentId,
       targetFolderId,
       mimeType: uploaded.mimeType,
       fileSize: Number(uploaded.fileSize) || 0,
+      readbackMatched,
+      readbackFileId,
+    });
+
+    currentStage = "detail_readback";
+    const detail = await getDocumentControlDocument(auth, deps, resolved, actor, activeDocumentId, {
+      skipCache: true,
+    });
+    const detailRevision =
+      detail?.currentRevision ||
+      (Array.isArray(detail?.revisions) ? detail.revisions.find((rev) => rev.revisionId === id) : null);
+    const detailFileId = trim(detailRevision?.fileId);
+    if (!detail.ok || detailFileId !== uploadedFileId) {
+      const cleanup = await deleteDocumentControlDriveFile(drive, uploadedFileId);
+      return uploadFailure(
+        "Uploaded revision file was not visible on detail readback.",
+        "UPLOAD_DETAIL_READBACK_FAILED",
+        500,
+        {
+          stage: "detail_readback",
+          documentId: activeDocumentId,
+          readbackMatched: detailFileId === uploadedFileId,
+          readbackFileId: detailFileId,
+          orphanCleanupDeleted: cleanup.deleted === true,
+        },
+      );
+    }
+    logStage("detail_readback", {
+      documentId: activeDocumentId,
+      targetFolderId,
+      mimeType: uploaded.mimeType,
+      fileSize: Number(uploaded.fileSize) || 0,
+      readbackMatched: true,
+      readbackFileId: detailFileId,
     });
 
     logDocumentMutationTiming("upload", "upload", {
-      documentId: document.documentId,
+      documentId: activeDocumentId,
       workbookId: masterSheetId,
       updatedRows: 1,
       durationMs: Date.now() - startedAt,
       totalMs: Date.now() - startedAt,
     });
-    invalidateDocumentControlCaches(resolved);
+    afterDocumentControlMutation(auth, deps, resolved, masterSheetId, { skipIndexSync: true });
     return { ok: true, revision: refreshed, document, updatedRows: 1 };
   } catch (error) {
     const google = error instanceof DocumentControlUploadError ? error.google : googleDriveErrorDetails(error);
     const stage = error instanceof DocumentControlUploadError ? error.stage : currentStage;
-    const code = error instanceof DocumentControlUploadError ? error.code : "DOCUMENT_CONTROL_UPLOAD_FAILED";
+    const code =
+      error?.code === "GOOGLE_TIMEOUT"
+        ? "DOCUMENT_CONTROL_UPLOAD_TIMEOUT"
+        : error instanceof DocumentControlUploadError
+          ? error.code
+          : "DOCUMENT_CONTROL_UPLOAD_FAILED";
     const httpStatus =
       error instanceof DocumentControlUploadError
         ? error.httpStatus
-        : google.googleErrorCode && google.googleErrorCode >= 400
-          ? google.googleErrorCode
-          : 500;
+        : error?.code === "GOOGLE_TIMEOUT"
+          ? 504
+          : google.googleErrorCode && google.googleErrorCode >= 400
+            ? google.googleErrorCode
+            : 500;
     const message = error instanceof Error ? error.message : String(error);
-    console.error("[document-control-upload] failed:", {
-      stage,
-      revisionId: id,
-      companyFolderId,
-      masterSheetId,
-      targetFolderId,
-      uploadedFileId: uploadedFileId || undefined,
-      code,
-      httpStatus,
-      ...google,
-    });
-    logDocumentUploadTiming({
-      stage,
-      revisionId: id,
-      companyFolderId,
-      masterSheetId,
-      targetFolderId,
-      mimeType: trim(input.mimeType),
-      durationMs: Date.now() - stageStartedAt,
-      totalMs: Date.now() - startedAt,
+    let orphanCleanupDeleted;
+    if (uploadedFileId && deps?.google?.drive) {
+      const drive = deps.google.drive({ version: "v3", auth });
+      const cleanup = await deleteDocumentControlDriveFile(drive, uploadedFileId);
+      orphanCleanupDeleted = cleanup.deleted === true;
+    }
+    logStage(stage, {
+      documentId: activeDocumentId,
       failureStage: stage,
       googleErrorCode: google?.googleErrorCode,
       googleErrorReason: google?.googleErrorReason,
+      orphanCleanupDeleted,
     });
-    if (uploadedFileId && deps?.google?.drive) {
-      const drive = deps.google.drive({ version: "v3", auth });
-      await deleteDocumentControlDriveFile(drive, uploadedFileId);
-    }
-    return uploadFailure(message, code, httpStatus, { stage, google });
+    return uploadFailure(message, code, httpStatus, {
+      stage,
+      google,
+      orphanCleanupDeleted,
+    });
   }
 }
 
@@ -1633,7 +1719,7 @@ export async function cleanupVerificationDocument(auth, deps, resolved, actor, d
       ),
     });
   }
-  afterDocumentControlMutation(auth, deps, resolved, masterSheetId);
+  afterDocumentControlMutation(auth, deps, resolved, masterSheetId, { skipIndexSync: true });
   logDocumentMutationTiming("cleanup", "cleanup", {
     documentId: id,
     workbookId: masterSheetId,

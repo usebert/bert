@@ -3,10 +3,12 @@
  */
 const LIST_CACHE_TTL_MS = 30_000;
 const ENSURED_TAB_TTL_MS = 5 * 60_000;
+const FOLDER_STRUCTURE_CACHE_TTL_MS = 5 * 60_000;
 
 const listCache = new Map();
 const listInFlight = new Map();
 const ensuredTabs = new Map();
+const folderStructureCache = new Map();
 
 function trim(value) {
   return String(value ?? "").trim();
@@ -48,6 +50,7 @@ export function invalidateDocumentControlListCache(context = {}) {
     listInFlight.clear();
     workbookSheetCache.clear();
     ensuredTabs.clear();
+    folderStructureCache.clear();
     return;
   }
   const prefix = masterSheetId ? `${companyFolderId}:${masterSheetId}:` : `${companyFolderId}:`;
@@ -64,6 +67,9 @@ export function invalidateDocumentControlListCache(context = {}) {
   if (masterSheetId) {
     workbookSheetCache.delete(trim(masterSheetId));
     invalidateEnsuredTabs(masterSheetId);
+  }
+  if (companyFolderId) {
+    invalidateDocumentControlFolderCache(companyFolderId);
   }
 }
 
@@ -167,4 +173,32 @@ export function setWorkbookSheetCache(masterSheetId, data) {
     ...data,
     expiresAt: Date.now() + LIST_CACHE_TTL_MS,
   });
+}
+
+export function getDocumentControlFolderStructureCache(companyFolderId) {
+  const entry = folderStructureCache.get(trim(companyFolderId));
+  if (!entry || entry.expiresAt <= Date.now()) {
+    return null;
+  }
+  return entry;
+}
+
+export function setDocumentControlFolderStructureCache(companyFolderId, structure) {
+  const id = trim(companyFolderId);
+  if (!id || !structure) {
+    return;
+  }
+  folderStructureCache.set(id, {
+    ...structure,
+    expiresAt: Date.now() + FOLDER_STRUCTURE_CACHE_TTL_MS,
+  });
+}
+
+export function invalidateDocumentControlFolderCache(companyFolderId) {
+  const id = trim(companyFolderId);
+  if (!id) {
+    folderStructureCache.clear();
+    return;
+  }
+  folderStructureCache.delete(id);
 }

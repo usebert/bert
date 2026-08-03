@@ -11,6 +11,10 @@ import {
   isAllowedDocumentMimeType,
   MAX_DOCUMENT_FILE_BYTES,
 } from "../shared/document-control.mjs";
+import {
+  getDocumentControlFolderStructureCache,
+  setDocumentControlFolderStructureCache,
+} from "./document-control-list-cache.mjs";
 
 function trim(value) {
   return String(value ?? "").trim();
@@ -28,20 +32,47 @@ export function googleDriveErrorDetails(error) {
 }
 
 export function logDocumentUploadTiming(meta = {}) {
-  console.info("[document:upload-timing]", {
+  const payload = {
     stage: trim(meta.stage),
     documentId: trim(meta.documentId),
     revisionId: trim(meta.revisionId),
     companyFolderId: trim(meta.companyFolderId),
-    masterSheetId: trim(meta.masterSheetId),
+    masterSheetId: trim(meta.workbookId) || trim(meta.masterSheetId),
+    workbookId: trim(meta.workbookId) || trim(meta.masterSheetId),
     targetFolderId: trim(meta.targetFolderId),
     mimeType: trim(meta.mimeType),
     fileSize: Number(meta.fileSize) || 0,
     durationMs: Number(meta.durationMs) || 0,
     totalMs: Number(meta.totalMs) || Number(meta.durationMs) || 0,
+    ...(meta.failureStage ? { failureStage: trim(meta.failureStage) } : {}),
     ...(meta.googleErrorCode ? { googleErrorCode: meta.googleErrorCode } : {}),
     ...(meta.googleErrorReason ? { googleErrorReason: meta.googleErrorReason } : {}),
-    ...(meta.failureStage ? { failureStage: meta.failureStage } : {}),
+    ...(meta.patchAcknowledgedRows !== undefined ? { patchAcknowledgedRows: meta.patchAcknowledgedRows } : {}),
+    ...(meta.readbackMatched !== undefined ? { readbackMatched: meta.readbackMatched } : {}),
+    ...(meta.readbackFileId ? { readbackFileId: trim(meta.readbackFileId) } : {}),
+    ...(meta.orphanCleanupDeleted !== undefined ? { orphanCleanupDeleted: meta.orphanCleanupDeleted } : {}),
+  };
+  console.info("[document:upload-timing]", payload);
+}
+
+export function logDocumentUploadFailure(meta = {}) {
+  console.error("[document-control-upload] failed:", {
+    operationStage: trim(meta.operationStage || meta.stage),
+    documentId: trim(meta.documentId),
+    revisionId: trim(meta.revisionId),
+    companyFolderId: trim(meta.companyFolderId),
+    workbookId: trim(meta.workbookId) || trim(meta.masterSheetId),
+    targetFolderId: trim(meta.targetFolderId),
+    mimeType: trim(meta.mimeType),
+    fileSize: Number(meta.fileSize) || 0,
+    code: trim(meta.code),
+    httpStatus: Number(meta.httpStatus) || 500,
+    googleErrorCode: meta.googleErrorCode,
+    googleErrorReason: meta.googleErrorReason,
+    patchAcknowledgedRows: meta.patchAcknowledgedRows,
+    readbackMatched: meta.readbackMatched,
+    readbackFileId: trim(meta.readbackFileId),
+    orphanCleanupDeleted: meta.orphanCleanupDeleted,
   });
 }
 
@@ -200,6 +231,26 @@ export async function ensureDocumentControlFolderStructure(drive, companyRootFol
     folders[name] = ensured.folder.id;
   }
   return { rootFolderId: root.folder.id, folders };
+}
+
+/**
+ * Resolve Document Control folder structure with a short-lived in-memory cache.
+ */
+export async function resolveDocumentControlFolderStructure(drive, companyRootFolderId, options = {}) {
+  const rootId = trim(companyRootFolderId);
+  if (!options.skipCache) {
+    const cached = getDocumentControlFolderStructureCache(rootId);
+    if (cached?.folders?.Drafts) {
+      return {
+        rootFolderId: cached.rootFolderId,
+        folders: cached.folders,
+        cacheHit: true,
+      };
+    }
+  }
+  const structure = await ensureDocumentControlFolderStructure(drive, rootId, options);
+  setDocumentControlFolderStructureCache(rootId, structure);
+  return { ...structure, cacheHit: false };
 }
 
 /**

@@ -123,6 +123,7 @@ import {
   createDocumentRevision,
   createDraftVerificationDocument,
   DOCUMENT_CONTROL_ROUTE_TIMEOUT_MS,
+  DOCUMENT_CONTROL_UPLOAD_ROUTE_TIMEOUT_MS,
   getDocumentControlDocument,
   getDocumentRevisionFile,
   listDocumentControlDocuments,
@@ -3788,16 +3789,17 @@ export function installCoreWorkflowRoutes(app, deps) {
     });
   };
 
-  const runDocumentControlRoute = async (req, res, options, run, failure) => {
+  const runDocumentControlRoute = async (req, res, options, run, failure, routeOptions = {}) => {
     const routeContext = await resolveDocumentControlRouteContext(req, res, options);
     if (!routeContext) {
       return undefined;
     }
+    const timeoutMs = Number(routeOptions.timeoutMs) || DOCUMENT_CONTROL_ROUTE_TIMEOUT_MS;
     try {
       const result = await withOperationTimeout(
         run(routeContext),
         failure.operation,
-        DOCUMENT_CONTROL_ROUTE_TIMEOUT_MS,
+        timeoutMs,
       );
       if (!result.ok) {
         return documentControlRouteError(res, result, failure.code);
@@ -3806,22 +3808,27 @@ export function installCoreWorkflowRoutes(app, deps) {
     } catch (error) {
       const technicalError = error instanceof Error ? error.message : String(error);
       const googleError = error?.response?.data?.error;
+      const isUpload = failure.operation === "document_control_upload";
+      const timeoutCode = isUpload ? "DOCUMENT_CONTROL_UPLOAD_TIMEOUT" : failure.code;
+      const responseCode = error?.code === "GOOGLE_TIMEOUT" ? timeoutCode : failure.code;
       console.error("[document-control]", {
         phase: failure.operation,
         companyId: String(req.params?.companyFolderId || "").trim(),
         revisionId: String(req.params?.revisionId || "").trim(),
         error: technicalError,
-        stage: error?.stage,
-        code: error?.code,
+        stage: error?.stage || error?.operation,
+        code: error?.code || responseCode,
         googleErrorCode: error?.code || error?.response?.status,
         googleErrorReason: googleError?.errors?.[0]?.reason,
         googleErrorMessage: googleError?.message,
       });
-      return res.status(500).json({
+      return res.status(error?.code === "GOOGLE_TIMEOUT" ? 504 : 500).json({
         ok: false,
-        code: failure.code,
+        code: responseCode,
         error: failure.message,
         message: failure.message,
+        details: technicalError,
+        stage: error?.operation || error?.stage || failure.operation,
       });
     }
   };
@@ -4083,6 +4090,7 @@ export function installCoreWorkflowRoutes(app, deps) {
           req.body || {},
         ),
       { operation: "document_control_upload", code: "DOCUMENT_CONTROL_UPLOAD_FAILED", message: "Could not upload verification revision file." },
+      { timeoutMs: DOCUMENT_CONTROL_UPLOAD_ROUTE_TIMEOUT_MS },
     );
   });
 

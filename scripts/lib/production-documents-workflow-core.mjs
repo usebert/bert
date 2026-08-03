@@ -219,6 +219,50 @@ function documentAlreadyVisible(detailResponse, documentId) {
   );
 }
 
+export function revisionHasVerificationPdf(detailResponse, runId = "") {
+  const revision = detailResponse?.json?.currentRevision || {};
+  const fileId = trim(revision.fileId);
+  const fileName = trim(revision.fileName);
+  const mimeType = trim(revision.mimeType).toLowerCase();
+  if (!fileId) {
+    return false;
+  }
+  if (mimeType !== "application/pdf") {
+    return false;
+  }
+  if (!fileName.toLowerCase().endsWith(".pdf")) {
+    return false;
+  }
+  if (runId && fileName && !fileName.includes(String(runId))) {
+    return false;
+  }
+  return true;
+}
+
+function isTransientUploadFailure(response) {
+  const status = Number(response?.status) || 0;
+  if ([502, 503, 504].includes(status)) {
+    return true;
+  }
+  const code = trim(response?.json?.code);
+  if (code === "DOCUMENT_CONTROL_UPLOAD_TIMEOUT") {
+    return true;
+  }
+  if (status === 500 && /timed out|timeout/i.test(trim(response?.json?.details))) {
+    return true;
+  }
+  return false;
+}
+
+async function fetchVerificationRevisionDetail(request, companyFolderId, verificationDocumentId, masterSheetId, stageKey) {
+  return request(
+    "GET",
+    documentDetailPath(companyFolderId, verificationDocumentId, masterSheetId),
+    undefined,
+    { stageKey },
+  );
+}
+
 function documentAppearsInDashboard(payload = {}, documentId = "") {
   const id = trim(documentId);
   if (!id) {
@@ -1076,67 +1120,112 @@ export async function runProductionDocumentsWorkflowChecks(config, transport, op
   }
 
   const fileUploadFail = await runPostCreateStage("fileUpload", async () => {
-    let uploadResponse;
-    try {
-      uploadResponse = await requestWithTransientRetries(
-        request,
-        "POST",
-        revisionUploadPath(companyFolderId, verificationRevisionId, masterSheetId),
-        {
-          fileName: buildVerificationFileName(runId),
-          fileDataUrl: buildVerificationFileDataUrl(runId),
-          mimeType: "application/pdf",
-        },
-        {
-          stageKey: "fileUpload",
-          maxRetries: 2,
-          beforeRetry: async () => {
-            const detail = await request(
-              "GET",
-              documentDetailPath(companyFolderId, verificationDocumentId, masterSheetId),
-              undefined,
-              { stageKey: "fileUpload" },
-            );
-            const revision = detail.json?.currentRevision || {};
-            return Boolean(trim(revision.fileId) || trim(revision.fileUrl));
-          },
-        },
-      ).then((item) => item.response);
-    } catch (error) {
-      if (isStageTimeoutError(error)) {
-        throw error;
+    const uploadBody = {
+      fileName: buildVerificationFileName(runId),
+      fileDataUrl: buildVerificationFileDataUrl(runId),
+      mimeType: "application/pdf",
+    };
+    const maxAttempts = 3;
+    let uploadResponse = null;
+    let uploadAttempts = [];
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      if (attempt > 1) {
+        const detail = await fetchVerificationRevisionDetail(
+          request,
+          companyFolderId,
+          verificationDocumentId,
+          masterSheetId,
+          "fileUpload",
+        );
+        if (revisionHasVerificationPdf(detail, runId)) {
+          pass("fileUpload");
+          return null;
+        }
+        await sleep(2000 * (attempt - 1));
       }
-      const message = error instanceof Error ? error.message : String(error);
-      if (/404|not found|unsupported/i.test(message)) {
-        skip("fileUpload", "No safe production upload path is available for verification revisions.");
+      try {
+        const result = await requestWithTransientRetries(
+          request,
+          "POST",
+          revisionUploadPath(companyFolderId, verificationRevisionId, masterSheetId),
+          uploadBody,
+          {
+            stageKey: "fileUpload",
+            maxRetries: 0,
+          },
+        );
+        uploadResponse = result.response;
+        uploadAttempts = result.attempts || [];
+      } catch (error) {
+        if (isStageTimeoutError(error)) {
+          throw error;
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        if (/404|not found|unsupported/i.test(message)) {
+          skip("fileUpload", "No safe production upload path is available for verification revisions.");
+          return null;
+        }
+        if (attempt < maxAttempts && isTransientNetworkError(error)) {
+          continue;
+        }
+        return fail(
+          "fileUpload",
+          `Verification file upload failed: ${message}`,
+          "Inspect POST /api/companies/:id/document-control/revisions/:revisionId/upload.",
+        );
+      }
+
+      assertResponseSafe(uploadResponse.json, "file upload");
+      if (uploadResponse.status === 404 || uploadResponse.json?.code === "DRIVE_UNAVAILABLE") {
+        skip("fileUpload", "File upload is not available in production (Drive unavailable or route missing).");
         return null;
       }
-      return fail(
-        "fileUpload",
-        `Verification file upload failed: ${message}`,
-        "Inspect POST /api/companies/:id/document-control/revisions/:revisionId/upload.",
-      );
-    }
-    assertResponseSafe(uploadResponse.json, "file upload");
-    if (uploadResponse.status === 404 || uploadResponse.json?.code === "DRIVE_UNAVAILABLE") {
-      skip("fileUpload", "File upload is not available in production (Drive unavailable or route missing).");
-      return null;
-    }
-    if (uploadResponse.status !== 200 || uploadResponse.json?.ok !== true) {
+      if (uploadResponse.status === 200 && uploadResponse.json?.ok === true) {
+        break;
+      }
       if (uploadResponse.status === 503 || uploadResponse.json?.code === "DRIVE_UNAVAILABLE") {
         skip("fileUpload", "File upload skipped because Google Drive is unavailable.");
         return null;
       }
+      if (attempt < maxAttempts && isTransientUploadFailure(uploadResponse)) {
+        continue;
+      }
+      break;
+    }
+
+    if (!uploadResponse || uploadResponse.status !== 200 || uploadResponse.json?.ok !== true) {
+      const detail = await fetchVerificationRevisionDetail(
+        request,
+        companyFolderId,
+        verificationDocumentId,
+        masterSheetId,
+        "fileUpload",
+      );
+      if (revisionHasVerificationPdf(detail, runId)) {
+        pass("fileUpload");
+        return null;
+      }
       return fail(
         "fileUpload",
-        `File upload returned HTTP ${uploadResponse.status}.`,
+        `File upload returned HTTP ${uploadResponse?.status || "unknown"}.`,
         "Inspect uploadVerificationRevisionFile and Drafts folder access.",
-        uploadResponse.status,
-        uploadResponse.json,
+        uploadResponse?.status,
+        { response: uploadResponse?.json, attempts: uploadAttempts },
       );
     }
     const revision = uploadResponse.json?.revision || {};
     if (!uploadResponse.json?.alreadyUploaded && !(trim(revision.fileId) || trim(revision.fileUrl))) {
+      const detail = await fetchVerificationRevisionDetail(
+        request,
+        companyFolderId,
+        verificationDocumentId,
+        masterSheetId,
+        "fileUpload",
+      );
+      if (revisionHasVerificationPdf(detail, runId)) {
+        pass("fileUpload");
+        return null;
+      }
       return fail(
         "fileUpload",
         "Upload response did not include linked file metadata.",

@@ -510,3 +510,57 @@ test("uploadVerificationRevisionFile cleans up Drive file when metadata patch fa
   assert.equal(failed.code, "UPLOAD_METADATA_PATCH_FAILED");
   assert.equal(deps.getDeletedFileId(), "drive-file-1");
 });
+
+test("createDraftVerificationDocument skips synchronous index rebuild", async () => {
+  let indexRebuildCalls = 0;
+  const { documentRow, revisionRow } = verificationDocumentRow();
+  const deps = createUploadDeps({
+    [CONTROLLED_DOCUMENTS_TAB]: [customerDocumentRow()],
+    [DOCUMENT_REVISIONS_TAB]: [],
+  });
+  deps.replaceTabRows = async (...args) => {
+    indexRebuildCalls += 1;
+    return { ok: true, written: args[5]?.length || 0 };
+  };
+  const created = await createDraftVerificationDocument(
+    null,
+    deps,
+    { masterSheetId, companyFolderId },
+    actor,
+    {
+      documentId: documentRow.DocumentId,
+      documentNumber: documentRow.DocumentNumber,
+      title: documentRow.Title,
+      verificationSource: documentRow.VerificationSource,
+    },
+  );
+  assert.equal(created.ok, true);
+  assert.equal(indexRebuildCalls, 0);
+});
+
+test("uploadVerificationRevisionFile skips index rebuild during upload", async () => {
+  let indexRebuildCalls = 0;
+  const { documentRow, revisionRow, revisionId } = verificationDocumentRow();
+  const deps = createUploadDeps({
+    [CONTROLLED_DOCUMENTS_TAB]: [customerDocumentRow(), documentRow],
+    [DOCUMENT_REVISIONS_TAB]: [revisionRow],
+  });
+  deps.replaceTabRows = async (...args) => {
+    indexRebuildCalls += 1;
+    return { ok: true, written: args[5]?.length || 0 };
+  };
+  const uploaded = await uploadVerificationRevisionFile(
+    null,
+    deps,
+    { masterSheetId, companyFolderId },
+    actor,
+    revisionId,
+    {
+      fileName: buildVerificationFileName(runId),
+      fileDataUrl: buildVerificationFileDataUrl(runId),
+      mimeType: "application/pdf",
+    },
+  );
+  assert.equal(uploaded.ok, true);
+  assert.equal(indexRebuildCalls, 0);
+});

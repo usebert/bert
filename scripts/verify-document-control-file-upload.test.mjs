@@ -10,10 +10,13 @@ import {
 } from "../shared/production-verification-document.mjs";
 import {
   deleteDocumentControlDriveFile,
+  logDocumentUploadFailure,
   parseDocumentControlDataUrl,
+  resolveDocumentControlFolderStructure,
   uploadDocumentControlFile,
   validateDocumentControlUploadInput,
 } from "../server/document-control-file-service.mjs";
+import { invalidateDocumentControlListCache } from "../server/document-control-list-cache.mjs";
 
 const VALID_PDF_DATA_URL = buildVerificationFileDataUrl(424242);
 const DRAFTS_FOLDER_ID = "drafts-folder-123";
@@ -181,4 +184,35 @@ test("secrets and file contents absent from validation output", () => {
     fileSize: validation.fileSize,
   });
   assert.doesNotMatch(safeLog, new RegExp(secret, "i"));
+});
+
+test("resolveDocumentControlFolderStructure caches Drafts folder id", async () => {
+  invalidateDocumentControlListCache();
+  let listCalls = 0;
+  const drive = createMockDrive({
+    list: async () => {
+      listCalls += 1;
+      return { data: { files: [{ id: "drafts-folder-1", name: "Drafts" }] } };
+    },
+    get: async ({ fileId }) => ({
+      data: {
+        id: fileId,
+        name: fileId === "drafts-folder-1" ? "Drafts" : "Document Control",
+        mimeType: "application/vnd.google-apps.folder",
+        trashed: false,
+      },
+    }),
+  });
+  const companyFolderId = "company-root-1";
+  const first = await resolveDocumentControlFolderStructure(drive, companyFolderId);
+  const callsAfterFirst = listCalls;
+  const second = await resolveDocumentControlFolderStructure(drive, companyFolderId);
+  assert.equal(first.folders.Drafts, "drafts-folder-1");
+  assert.equal(second.cacheHit, true);
+  assert.equal(listCalls, callsAfterFirst);
+});
+
+test("upload failure logger omits file payload fields", () => {
+  const source = logDocumentUploadFailure.toString();
+  assert.doesNotMatch(source, /fileDataUrl|fileUrl|access_token|authorization/i);
 });

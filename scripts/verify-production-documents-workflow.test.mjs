@@ -12,6 +12,7 @@ import {
   attemptVerificationDocumentCleanup,
   formatDocumentsWorkflowReport,
   loadDocumentsWorkflowConfig,
+  revisionHasVerificationPdf,
   runProductionDocumentsWorkflowChecks,
 } from "./lib/production-documents-workflow-core.mjs";
 import {
@@ -471,6 +472,23 @@ function createTransport(options = {}) {
       const revision = getRevision(revisionId) || ensureVerificationRevision(getDocument(verificationDocumentId));
       if (options.uploadUnavailable) {
         return { status: 503, json: { ok: false, code: "DRIVE_UNAVAILABLE" } };
+      }
+      if (options.uploadLinkedOnDetailAfterFailure && uploadAttempts === 1) {
+        upsertRevision({
+          ...revision,
+          fileId: "verify-file-1",
+          fileName: buildVerificationFileName(runId),
+          fileUrl: "https://drive.example/verify-file-1",
+          mimeType: "application/pdf",
+        });
+        return {
+          status: 504,
+          json: {
+            ok: false,
+            code: "DOCUMENT_CONTROL_UPLOAD_TIMEOUT",
+            details: "Google operation timed out (document_control_upload).",
+          },
+        };
       }
       if (options.uploadFails && uploadAttempts === 1) {
         return { status: 500, json: { ok: false, code: "DOCUMENT_CONTROL_UPLOAD_FAILED" } };
@@ -1084,4 +1102,30 @@ test("check keys cover required stages", () => {
   assert.equal(normalizeStatus(PRODUCTION_VERIFICATION_DOCUMENT_SOURCE), "production-documents-workflow");
   assert.match(PRODUCTION_VERIFICATION_DOCUMENT_TITLE, /BERT Verification Document/);
   assert.equal(CHECK_LABELS.authentication, "Authentication");
+});
+
+test("revisionHasVerificationPdf accepts linked PDF detail", () => {
+  const runId = TEST_RUN_ID;
+  const detail = {
+    status: 200,
+    json: {
+      ok: true,
+      currentRevision: {
+        fileId: "drive-file-1",
+        fileName: buildVerificationFileName(runId),
+        mimeType: "application/pdf",
+      },
+    },
+  };
+  assert.equal(revisionHasVerificationPdf(detail, runId), true);
+});
+
+test("file upload recovers from linked detail after transient upload failure", async () => {
+  const transport = createTransport({ uploadLinkedOnDetailAfterFailure: true });
+  const result = await runProductionDocumentsWorkflowChecks(baseConfig, transport, {
+    ...defaultRunOptions,
+    listPollIntervalMs: 0,
+    detailPollIntervalMs: 0,
+  });
+  assert.equal(result.checks.fileUpload.status, "PASS");
 });
