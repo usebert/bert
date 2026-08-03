@@ -151,17 +151,31 @@ function addDaysUk(dateKey, days) {
 }
 
 export function buildVerificationFileDataUrl(runId = Date.now()) {
-  const text = [
-    "BERT production document workflow verification.",
-    "This file contains no customer data.",
-    `Run: ${runId}`,
-  ].join("\n");
-  const base64 = Buffer.from(text, "utf8").toString("base64");
-  return `data:text/plain;base64,${base64}`;
+  const pdfBytes = Buffer.from(
+    [
+      "%PDF-1.4",
+      "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj",
+      "2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj",
+      "3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R>>endobj",
+      "xref",
+      "0 4",
+      "0000000000 65535 f ",
+      "0000000009 00000 n ",
+      "0000000052 00000 n ",
+      "0000000101 00000 n ",
+      "trailer<</Size 4/Root 1 0 R>>",
+      "startxref",
+      "178",
+      `%%EOF verification-run-${runId}`,
+    ].join("\n"),
+    "utf8",
+  );
+  const base64 = pdfBytes.toString("base64");
+  return `data:application/pdf;base64,${base64}`;
 }
 
 export function buildVerificationFileName(runId = Date.now()) {
-  return `${PRODUCTION_VERIFICATION_DOCUMENT_FILE_NAME_PREFIX}${runId}.txt`;
+  return `${PRODUCTION_VERIFICATION_DOCUMENT_FILE_NAME_PREFIX}${runId}.pdf`;
 }
 
 export function countDocumentBaselines(documents = []) {

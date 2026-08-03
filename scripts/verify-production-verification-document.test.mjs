@@ -9,6 +9,8 @@ import {
   buildProductionVerificationDocument,
   buildProductionVerificationDocumentId,
   buildProductionVerificationDocumentNumber,
+  buildVerificationFileDataUrl,
+  buildVerificationFileName,
   countDocumentBaselines,
   isActiveVerificationDocument,
   isOperationalDocument,
@@ -27,6 +29,7 @@ import {
   DOCUMENT_REVISIONS_TAB,
   DOCUMENT_REVISIONS_TAB_COLUMNS,
   submitDocumentRevision,
+  uploadVerificationRevisionFile,
 } from "../server/document-control-service.mjs";
 
 const companyFolderId = "folder-abc";
@@ -213,9 +216,9 @@ async function attachRevisionFile(deps, revisionId) {
     revisionId,
     {
       FileId: "verify-file-1",
-      FileName: "bert-verify-doc.txt",
+      FileName: "bert-verify-doc.pdf",
       FileUrl: "https://drive.example/verify-file-1",
-      MimeType: "text/plain",
+      MimeType: "application/pdf",
       FileSize: "128",
     },
   );
@@ -251,7 +254,7 @@ test("verification marker recognition", () => {
 test("verification-only cleanup", async () => {
   const { documentRow, revisionRow } = verificationDocumentRow({
     documentRow: { DocumentStatus: "current" },
-    revisionRow: { RevisionStatus: "current", FileId: "file-1", FileName: "bert-verify-doc.txt" },
+    revisionRow: { RevisionStatus: "current", FileId: "file-1", FileName: "bert-verify-doc.pdf" },
   });
   const deps = createDocumentDeps({
     [CONTROLLED_DOCUMENTS_TAB]: [customerDocumentRow(), documentRow],
@@ -342,4 +345,168 @@ test("operational dashboard exclusion helpers", () => {
   assert.equal(operationalSummary.total, 1);
   assert.equal(operationalSummary.current, 1);
   assert.match(PRODUCTION_VERIFICATION_DOCUMENT_TITLE, /BERT Verification Document/);
+});
+
+function createUploadDeps(initialRowsByTab = {}, driveHandlers = {}) {
+  const deps = createDocumentDeps(initialRowsByTab);
+  let deletedFileId = "";
+  const drive = {
+    files: {
+      create: driveHandlers.create || (async () => ({
+        data: {
+          id: "drive-file-1",
+          name: buildVerificationFileName(runId),
+          mimeType: "application/pdf",
+          size: "256",
+          webViewLink: "https://drive.example/verify-file-1",
+          parents: ["drafts-folder-1"],
+        },
+      })),
+      delete: driveHandlers.delete || (async ({ fileId }) => {
+        deletedFileId = fileId;
+        return {};
+      }),
+      get: driveHandlers.get || (async ({ fileId }) => ({
+        data: {
+          id: fileId,
+          name: fileId === "drafts-folder-1" ? "Drafts" : "Document Control",
+          mimeType: "application/vnd.google-apps.folder",
+          trashed: false,
+        },
+      })),
+      list:
+        driveHandlers.list ||
+        (async () => ({
+          data: {
+            files: [{ id: "drafts-folder-1", name: "Drafts" }],
+          },
+        })),
+      update: driveHandlers.update || (async () => ({ data: { id: "drive-file-1" } })),
+    },
+  };
+  deps.google = { drive: () => drive };
+  deps.getDeletedFileId = () => deletedFileId;
+  return deps;
+}
+
+test("uploadVerificationRevisionFile persists PDF metadata", async () => {
+  const { documentRow, revisionRow, revisionId } = verificationDocumentRow();
+  const deps = createUploadDeps({
+    [CONTROLLED_DOCUMENTS_TAB]: [customerDocumentRow(), documentRow],
+    [DOCUMENT_REVISIONS_TAB]: [revisionRow],
+  });
+  const uploaded = await uploadVerificationRevisionFile(
+    null,
+    deps,
+    { masterSheetId, companyFolderId },
+    actor,
+    revisionId,
+    {
+      fileName: buildVerificationFileName(runId),
+      fileDataUrl: buildVerificationFileDataUrl(runId),
+      mimeType: "application/pdf",
+    },
+  );
+  assert.equal(uploaded.ok, true);
+  assert.equal(uploaded.updatedRows, 1);
+  assert.equal(deps.getRows(DOCUMENT_REVISIONS_TAB)[0].FileId, "drive-file-1");
+  assert.match(deps.getRows(DOCUMENT_REVISIONS_TAB)[0].FileName, /\.pdf$/);
+});
+
+test("uploadVerificationRevisionFile is idempotent for same revision", async () => {
+  const { documentRow, revisionRow, revisionId } = verificationDocumentRow();
+  const deps = createUploadDeps({
+    [CONTROLLED_DOCUMENTS_TAB]: [customerDocumentRow(), documentRow],
+    [DOCUMENT_REVISIONS_TAB]: [revisionRow],
+  });
+  const first = await uploadVerificationRevisionFile(
+    null,
+    deps,
+    { masterSheetId, companyFolderId },
+    actor,
+    revisionId,
+    {
+      fileName: buildVerificationFileName(runId),
+      fileDataUrl: buildVerificationFileDataUrl(runId),
+      mimeType: "application/pdf",
+    },
+  );
+  const second = await uploadVerificationRevisionFile(
+    null,
+    deps,
+    { masterSheetId, companyFolderId },
+    actor,
+    revisionId,
+    {
+      fileName: buildVerificationFileName(runId),
+      fileDataUrl: buildVerificationFileDataUrl(runId),
+      mimeType: "application/pdf",
+    },
+  );
+  assert.equal(first.ok, true);
+  assert.equal(second.ok, true);
+  assert.equal(second.alreadyUploaded, true);
+  assert.equal(second.updatedRows, 0);
+});
+
+test("uploadVerificationRevisionFile rejects non-verification document", async () => {
+  const customer = customerDocumentRow();
+  const revisionId = "REV-doc-customer-1-1";
+  const deps = createUploadDeps({
+    [CONTROLLED_DOCUMENTS_TAB]: [customer],
+    [DOCUMENT_REVISIONS_TAB]: [
+      {
+        RevisionId: revisionId,
+        DocumentId: customer.DocumentId,
+        DocumentNumber: customer.DocumentNumber,
+        Revision: "1",
+        RevisionSequence: "1",
+        RevisionStatus: "draft",
+      },
+    ],
+  });
+  const denied = await uploadVerificationRevisionFile(
+    null,
+    deps,
+    { masterSheetId, companyFolderId },
+    actor,
+    revisionId,
+    {
+      fileName: "customer.pdf",
+      fileDataUrl: buildVerificationFileDataUrl(runId),
+      mimeType: "application/pdf",
+    },
+  );
+  assert.equal(denied.ok, false);
+  assert.equal(denied.code, "DOCUMENT_NOT_VERIFICATION");
+});
+
+test("uploadVerificationRevisionFile cleans up Drive file when metadata patch fails", async () => {
+  const { documentRow, revisionRow, revisionId } = verificationDocumentRow();
+  const deps = createUploadDeps({
+    [CONTROLLED_DOCUMENTS_TAB]: [customerDocumentRow(), documentRow],
+    [DOCUMENT_REVISIONS_TAB]: [revisionRow],
+  });
+  const originalPatch = deps.patchTabRowByHeader;
+  deps.patchTabRowByHeader = async (...args) => {
+    if (args[3] === DOCUMENT_REVISIONS_TAB) {
+      return { ok: false, patched: 0, updatedRows: 0 };
+    }
+    return originalPatch(...args);
+  };
+  const failed = await uploadVerificationRevisionFile(
+    null,
+    deps,
+    { masterSheetId, companyFolderId },
+    actor,
+    revisionId,
+    {
+      fileName: buildVerificationFileName(runId),
+      fileDataUrl: buildVerificationFileDataUrl(runId),
+      mimeType: "application/pdf",
+    },
+  );
+  assert.equal(failed.ok, false);
+  assert.equal(failed.code, "UPLOAD_METADATA_PATCH_FAILED");
+  assert.equal(deps.getDeletedFileId(), "drive-file-1");
 });

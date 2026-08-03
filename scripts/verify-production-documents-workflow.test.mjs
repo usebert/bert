@@ -480,7 +480,7 @@ function createTransport(options = {}) {
         fileId: "verify-file-1",
         fileName: trim(body?.fileName) || buildVerificationFileName(runId),
         fileUrl: "https://drive.example/verify-file-1",
-        mimeType: "text/plain",
+        mimeType: "application/pdf",
       };
       upsertRevision(uploaded);
       return { status: 200, json: { ok: true, revision: uploaded, updatedRows: 1 } };

@@ -1056,7 +1056,7 @@ export async function runProductionDocumentsWorkflowChecks(config, transport, op
         {
           fileName: buildVerificationFileName(runId),
           fileDataUrl: buildVerificationFileDataUrl(runId),
-          mimeType: "text/plain",
+          mimeType: "application/pdf",
         },
         {
           stageKey: "fileUpload",

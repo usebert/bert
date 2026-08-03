@@ -3804,10 +3804,18 @@ export function installCoreWorkflowRoutes(app, deps) {
       }
       return res.json(result);
     } catch (error) {
-      console.info("[document-control]", {
+      const technicalError = error instanceof Error ? error.message : String(error);
+      const googleError = error?.response?.data?.error;
+      console.error("[document-control]", {
         phase: failure.operation,
         companyId: String(req.params?.companyFolderId || "").trim(),
-        error: error instanceof Error ? error.message : String(error),
+        revisionId: String(req.params?.revisionId || "").trim(),
+        error: technicalError,
+        stage: error?.stage,
+        code: error?.code,
+        googleErrorCode: error?.code || error?.response?.status,
+        googleErrorReason: googleError?.errors?.[0]?.reason,
+        googleErrorMessage: googleError?.message,
       });
       return res.status(500).json({
         ok: false,
