@@ -145,7 +145,9 @@ assert(service.includes("normalizeAssessmentVersion"), "service: version normali
 assert(service.includes("isRecalculateRiskOnlyPatch"), "service: recalculate-only patch guard");
 assert(service.includes("[risk-assessment:submit]"), "service: submit instrumentation");
 assert(service.includes("RISK_ASSESSMENT_SUBMIT_NOT_VISIBLE"), "service: submit read-after-write guard");
-assert(service.includes('buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer, skipCache: true })'), "service: submit skips stale detail cache");
+assert(service.includes("[risk-assessment:approve]"), "service: approve instrumentation");
+assert(service.includes("RISK_ASSESSMENT_APPROVE_NOT_VISIBLE"), "service: approve read-after-write guard");
+assert(service.includes("alreadyApproved"), "service: approve idempotency");
 
 const validationAdapter = read("src/health-safety/adapters/riskAssessmentValidation.ts");
 assert(validationAdapter.includes("buildClientHazardId"), "client: stable HazardId at creation");
@@ -283,4 +285,11 @@ const submitPersistenceTests = spawnSync("node", ["--test", "scripts/verify-risk
 });
 if (submitPersistenceTests.status !== 0) {
   process.exit(submitPersistenceTests.status || 1);
+}
+
+const approvePersistenceTests = spawnSync("node", ["--test", "scripts/verify-risk-assessment-approve-persistence.test.mjs"], {
+  stdio: "inherit",
+});
+if (approvePersistenceTests.status !== 0) {
+  process.exit(approvePersistenceTests.status || 1);
 }

@@ -84,6 +84,8 @@ function createTransport(options = {}) {
   let reviews = [];
   let loginAttempts = 0;
   let submitAttempts = 0;
+  let approveAttempts = 0;
+  let postApproveDetailReads = 0;
   let cleanupAttempts = 0;
   let verificationCleanupCalls = 0;
   let suppressVerificationInListCount = 0;
@@ -286,16 +288,19 @@ function createTransport(options = {}) {
           };
         }
         if (options.detailVerificationFails && approvedAt) {
-          return {
-            status: 200,
-            json: {
-              ok: true,
-              item: { id: detailId, title: "Wrong", status: "Active", version: "1.0", approvedAt, approvedBy },
-              hazards: [],
-              links: [],
-              reviews: [],
-            },
-          };
+          postApproveDetailReads += 1;
+          if (postApproveDetailReads >= 2) {
+            return {
+              status: 200,
+              json: {
+                ok: true,
+                item: { id: detailId, title: "Wrong", status: "Active", version: "1.0", approvedAt, approvedBy },
+                hazards: [],
+                links: [],
+                reviews: [],
+              },
+            };
+          }
         }
         return {
           status: 200,
@@ -365,11 +370,25 @@ function createTransport(options = {}) {
       };
     }
     if (method === "POST" && path.endsWith("/approve")) {
+      approveAttempts += 1;
       if (options.selfApproveBlocked && loginAttempts === 1) {
         return { status: 403, json: { ok: false, error: "You cannot approve your own submission." } };
       }
       if (options.approveFails) {
         return { status: 403, json: { ok: false, code: "RISK_ASSESSMENT_FORBIDDEN" } };
+      }
+      if (approveAttempts > 1) {
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            alreadyApproved: true,
+            item: { ...verification, status: "Active", approvedAt, approvedBy, version: "1.0", activatedAt: approvedAt },
+            hazards,
+            links: [],
+            reviews,
+          },
+        };
       }
       status = "Active";
       approvedAt = new Date().toISOString();
@@ -378,7 +397,7 @@ function createTransport(options = {}) {
         status: 200,
         json: {
           ok: true,
-          item: { ...verification, status, approvedAt, approvedBy, version: "1.0" },
+          item: { ...verification, status, approvedAt, approvedBy, version: "1.0", activatedAt: approvedAt },
           hazards,
           links: [],
           reviews,

@@ -823,6 +823,27 @@ function logRiskAssessmentSubmit(stage, payload = {}) {
   );
 }
 
+function logRiskAssessmentApprove(stage, payload = {}) {
+  console.info(
+    "[risk-assessment:approve]",
+    JSON.stringify({
+      stage,
+      riskAssessmentId: payload.riskAssessmentId,
+      actorRole: payload.actorRole,
+      sameActorAsSubmitter: payload.sameActorAsSubmitter,
+      beforeStatus: payload.beforeStatus,
+      afterStatus: payload.afterStatus,
+      approvedAt: payload.approvedAt ? true : undefined,
+      activatedAt: payload.activatedAt ? true : undefined,
+      activateNow: payload.activateNow,
+      selfApprovalBlocked: payload.selfApprovalBlocked,
+      alreadyApproved: payload.alreadyApproved,
+      updatedRows: payload.updatedRows,
+      durationMs: payload.durationMs,
+    }),
+  );
+}
+
 function buildEditableDraftAssessmentPatch(mappedAssessment, rawRecord, input = {}, actor, options = {}) {
   const storedStatus = pickRawAssessmentField(rawRecord, "Status") || "Draft";
   const storedVersion = normalizeAssessmentVersion(pickRawAssessmentField(rawRecord, "Version") || "1.0");
@@ -1977,38 +1998,172 @@ export async function submitCompanyRiskAssessment(auth, deps, resolved, actor, r
 }
 
 export async function approveCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId, input = {}) {
-  const current = await getCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId);
+  const startedAt = Date.now();
+  const timer = createRiskAssessmentTiming("approve", {
+    assessmentId: riskAssessmentId,
+    companyFolderId: resolved.companyFolderId,
+  });
+  const current = await buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer, skipCache: true });
   if (!current.ok) return current;
+  const rawBefore = await readAssessmentRawRecord(auth, deps, resolved.masterSheetId, riskAssessmentId);
+  const storedStatusBefore = pickRawAssessmentField(rawBefore, "Status") || current.item.status || "";
+  const storedVersionBefore = normalizeAssessmentVersion(
+    pickRawAssessmentField(rawBefore, "Version") || current.item.version || "1.0",
+  );
+  const submitterEmail = normalizeEmail(current.item.submittedBy || pickRawAssessmentField(rawBefore, "SubmittedBy"));
+  const actorEmail = normalizeEmail(actor.email);
+  const sameActorAsSubmitter = Boolean(submitterEmail && actorEmail && submitterEmail === actorEmail);
+  logRiskAssessmentApprove("validation-start", {
+    riskAssessmentId,
+    actorRole: trim(actor.role),
+    sameActorAsSubmitter,
+    beforeStatus: storedStatusBefore,
+    activateNow: input.activateNow !== false,
+    durationMs: Date.now() - startedAt,
+  });
+  const activateNow = input.activateNow !== false;
+  const targetStatus = activateNow ? "Active" : "Approved";
+  if (storedStatusBefore === "Active" || storedStatusBefore === "Approved") {
+    timer.log("already-approved");
+    const fresh = await buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer, skipCache: true });
+    logRiskAssessmentApprove("already-approved", {
+      riskAssessmentId,
+      actorRole: trim(actor.role),
+      beforeStatus: storedStatusBefore,
+      afterStatus: fresh.item?.status,
+      alreadyApproved: true,
+      approvedAt: Boolean(fresh.item?.approvedAt),
+      activatedAt: Boolean(fresh.item?.activatedAt),
+      durationMs: Date.now() - startedAt,
+    });
+    return publishRiskAssessmentListMutation(
+      resolved,
+      "approve",
+      { ...fresh, alreadyApproved: true },
+      riskAssessmentId,
+    );
+  }
   if (!canApproveRiskAssessment(actor, current.item)) {
+    logRiskAssessmentApprove("permission-denied", {
+      riskAssessmentId,
+      actorRole: trim(actor.role),
+      beforeStatus: storedStatusBefore,
+      durationMs: Date.now() - startedAt,
+    });
     return healthSafetyApiFailure("RISK_ASSESSMENT_FORBIDDEN", "You cannot approve this assessment.", 403);
   }
   if (!canSelfApproveRiskAssessment(actor, current.item)) {
+    logRiskAssessmentApprove("self-approval-blocked", {
+      riskAssessmentId,
+      actorRole: trim(actor.role),
+      sameActorAsSubmitter: true,
+      beforeStatus: storedStatusBefore,
+      selfApprovalBlocked: true,
+      durationMs: Date.now() - startedAt,
+    });
     return healthSafetyApiFailure("RISK_ASSESSMENT_FORBIDDEN", "You cannot approve your own submission.", 403);
   }
+  if (storedStatusBefore !== "Submitted" && current.item.status !== "Submitted") {
+    logRiskAssessmentApprove("validation-failed", {
+      riskAssessmentId,
+      beforeStatus: storedStatusBefore,
+      durationMs: Date.now() - startedAt,
+    });
+    return healthSafetyApiFailure(
+      "RISK_ASSESSMENT_VALIDATION",
+      "Only submitted assessments can be approved.",
+      400,
+    );
+  }
   const timestamp = nowIso();
-  const activateNow = input.activateNow !== false;
+  const approvedBy = normalizeEmail(actor.email);
   const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
-  await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, "RiskAssessmentId", riskAssessmentId, {
-    Status: activateNow ? "Active" : "Approved",
+  const patchResult = await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, "RiskAssessmentId", riskAssessmentId, {
+    Status: targetStatus,
     ApprovedAt: timestamp,
-    ApprovedBy: normalizeEmail(actor.email),
+    ApprovedBy: approvedBy,
     ActivatedAt: activateNow ? timestamp : "",
     UpdatedAt: timestamp,
-    UpdatedBy: normalizeEmail(actor.email),
+    UpdatedBy: approvedBy,
   });
+  logRiskAssessmentApprove("patch-ack", {
+    riskAssessmentId,
+    beforeStatus: storedStatusBefore,
+    afterStatus: targetStatus,
+    activateNow,
+    updatedRows: patchResult?.patched ?? patchResult?.updatedRows ?? 1,
+    durationMs: Date.now() - startedAt,
+  });
+  timer.log("patch-status");
   if (trim(current.item.previousVersionId) && activateNow) {
     await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, "RiskAssessmentId", current.item.previousVersionId, {
       Status: "Superseded",
       SupersededAt: timestamp,
       UpdatedAt: timestamp,
-      UpdatedBy: normalizeEmail(actor.email),
+      UpdatedBy: approvedBy,
     });
   }
-  return publishRiskAssessmentListMutation(
-    resolved,
-    "approve",
-    await getCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId),
-  );
+  const rawAfterPatch = await readAssessmentRawRecord(auth, deps, resolved.masterSheetId, riskAssessmentId);
+  const readbackStatus = pickRawAssessmentField(rawAfterPatch, "Status");
+  const readbackApprovedAt = pickRawAssessmentField(rawAfterPatch, "ApprovedAt");
+  const readbackApprovedBy = pickRawAssessmentField(rawAfterPatch, "ApprovedBy");
+  const readbackActivatedAt = pickRawAssessmentField(rawAfterPatch, "ActivatedAt");
+  logRiskAssessmentApprove("exact-row-readback", {
+    riskAssessmentId,
+    beforeStatus: storedStatusBefore,
+    afterStatus: readbackStatus,
+    approvedAt: Boolean(readbackApprovedAt),
+    activatedAt: Boolean(readbackActivatedAt),
+    durationMs: Date.now() - startedAt,
+  });
+  if (
+    readbackStatus !== targetStatus ||
+    !readbackApprovedAt ||
+    !readbackApprovedBy ||
+    (activateNow && !readbackActivatedAt)
+  ) {
+    return healthSafetyApiFailure(
+      "RISK_ASSESSMENT_APPROVE_NOT_VISIBLE",
+      "Risk assessment approval could not be confirmed after write.",
+      500,
+    );
+  }
+  const detail = await buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer, skipCache: true });
+  const detailStatus = trim(detail?.item?.status);
+  logRiskAssessmentApprove("detail-lookup", {
+    riskAssessmentId,
+    beforeStatus: storedStatusBefore,
+    afterStatus: detailStatus,
+    approvedAt: Boolean(detail?.item?.approvedAt),
+    activatedAt: Boolean(detail?.item?.activatedAt),
+    durationMs: Date.now() - startedAt,
+  });
+  if (!detail?.ok || (detailStatus !== "Active" && detailStatus !== "Approved")) {
+    return healthSafetyApiFailure(
+      "RISK_ASSESSMENT_APPROVE_NOT_VISIBLE",
+      "Risk assessment approval could not be confirmed on detail readback.",
+      500,
+    );
+  }
+  if (normalizeAssessmentVersion(detail.item.version) !== storedVersionBefore) {
+    return healthSafetyApiFailure(
+      "RISK_ASSESSMENT_APPROVE_NOT_VISIBLE",
+      "Risk assessment version changed unexpectedly during approval.",
+      500,
+    );
+  }
+  timer.log("complete");
+  logRiskAssessmentApprove("complete", {
+    riskAssessmentId,
+    actorRole: trim(actor.role),
+    sameActorAsSubmitter,
+    beforeStatus: storedStatusBefore,
+    afterStatus: detailStatus,
+    approvedAt: Boolean(detail.item.approvedAt),
+    activatedAt: Boolean(detail.item.activatedAt),
+    durationMs: Date.now() - startedAt,
+  });
+  return publishRiskAssessmentListMutation(resolved, "approve", detail, riskAssessmentId);
 }
 
 export async function rejectCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId, input = {}) {

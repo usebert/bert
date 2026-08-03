@@ -242,6 +242,11 @@ export function formatRiskAssessmentWorkflowReport(result) {
     lines.push("Submit diagnostics:");
     lines.push(JSON.stringify(result.submitDiagnostics));
   }
+  if (result.approveDiagnostics) {
+    lines.push("");
+    lines.push("Approve diagnostics:");
+    lines.push(JSON.stringify(result.approveDiagnostics));
+  }
   lines.push("");
 
   if (result.timedOut) {
@@ -1379,6 +1384,17 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
   }
 
   const approveFail = await runStage("approve", async () => {
+    const approveDiagnostics = {
+      expectedStatuses: ["Active", "Approved"],
+      expectedVersion: "1.0",
+      expectedHazardIds: [hazardOneId, hazardTwoId],
+      submitterEmail: trim(result.accountEmail) || trim(login?.accountEmail) || null,
+      reviewerCredentialsConfigured: config.hasReviewerCredentials,
+      reviewerUsed: false,
+      firstApprove: null,
+      repeatApprove: null,
+      detailPollAttempts: [],
+    };
     let approveResponse;
     try {
       approveResponse = await request(
@@ -1399,7 +1415,9 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
     }
 
     if (approveResponse.status === 403 && /own submission/i.test(String(approveResponse.json?.error || approveResponse.json?.message || ""))) {
+      approveDiagnostics.selfApprovalBlocked = true;
       if (!config.hasReviewerCredentials) {
+        result.approveDiagnostics = approveDiagnostics;
         return fail(
           "approve",
           "Reviewer credentials are required because self-approval is blocked.",
@@ -1419,6 +1437,7 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
         options,
       );
       if (!reviewerLogin.ok) {
+        result.approveDiagnostics = approveDiagnostics;
         return fail(
           "approve",
           reviewerLogin.failureReason || "Reviewer login failed.",
@@ -1427,16 +1446,33 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
           reviewerLogin.responseBody,
         );
       }
+      approveDiagnostics.reviewerUsed = true;
+      approveDiagnostics.approverEmail = trim(reviewerLogin.accountEmail) || config.reviewerExpectedEmail || null;
       approveResponse = await request(
         "POST",
         `/api/companies/${encodeURIComponent(companyFolderId)}/risk-assessments/${encodeURIComponent(riskAssessmentId)}/approve`,
         { activateNow: true, masterSheetId },
         { stageKey: "approve" },
       );
+    } else {
+      approveDiagnostics.approverEmail = approveDiagnostics.submitterEmail;
+      approveDiagnostics.selfApprovalBlocked = false;
     }
 
     assertResponseSafe(approveResponse.json, "approve");
+    approveDiagnostics.firstApprove = {
+      httpStatus: approveResponse.status,
+      ok: approveResponse.json?.ok === true,
+      actualStatus: trim(approveResponse.json?.item?.status) || null,
+      actualVersion: trim(approveResponse.json?.item?.version) || null,
+      approvedAt: Boolean(trim(approveResponse.json?.item?.approvedAt)),
+      approvedBy: trim(approveResponse.json?.item?.approvedBy) || null,
+      activatedAt: Boolean(trim(approveResponse.json?.item?.activatedAt)),
+      actualAssessmentId: trim(approveResponse.json?.item?.id) || null,
+      responseCode: trim(approveResponse.json?.code) || null,
+    };
     if (approveResponse.status !== 200 || approveResponse.json?.ok !== true) {
+      result.approveDiagnostics = approveDiagnostics;
       return fail(
         "approve",
         `Approve returned HTTP ${approveResponse.status}.`,
@@ -1447,13 +1483,83 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
     }
     const status = trim(approveResponse.json?.item?.status);
     if (status !== "Active" && status !== "Approved") {
-      return fail("approve", `Expected Active/Approved status, got ${status}.`, "Inspect approval lifecycle.");
+      result.approveDiagnostics = approveDiagnostics;
+      return fail(
+        "approve",
+        `Expected Active/Approved status, got ${status}.`,
+        "Inspect approval lifecycle.",
+        approveResponse.status,
+        approveDiagnostics,
+      );
     }
     if (!trim(approveResponse.json?.item?.approvedAt) || !trim(approveResponse.json?.item?.approvedBy)) {
-      return fail("approve", "ApprovedAt/ApprovedBy not recorded.", "Inspect approval metadata.");
+      result.approveDiagnostics = approveDiagnostics;
+      return fail("approve", "ApprovedAt/ApprovedBy not recorded.", "Inspect approval metadata.", approveResponse.status, approveDiagnostics);
     }
     if (trim(approveResponse.json?.item?.version) !== "1.0") {
+      result.approveDiagnostics = approveDiagnostics;
       return fail("approve", "Version changed unexpectedly during approval.", "Inspect version rules on approval.");
+    }
+
+    const detailPolled = await pollRiskAssessmentDetailForHazardIds(
+      request,
+      companyFolderId,
+      masterSheetId,
+      riskAssessmentId,
+      [hazardOneId, hazardTwoId],
+      { stageKey: "approve" },
+    );
+    approveDiagnostics.detailPollAttempts = detailPolled.attempts;
+    approveDiagnostics.actualHazardIds = detailPolled.foundIds || [];
+    approveDiagnostics.finalDetailStatus = trim(detailPolled.detailResponse?.json?.item?.status) || null;
+    if (!detailPolled.ok) {
+      result.approveDiagnostics = approveDiagnostics;
+      return fail(
+        "approve",
+        `Expected both hazards after approval, found ${(detailPolled.foundIds || []).join(", ") || "(none)"}.`,
+        "Inspect hazard persistence after approval.",
+        approveResponse.status,
+        approveDiagnostics,
+      );
+    }
+
+    let repeatApprove;
+    try {
+      repeatApprove = await request(
+        "POST",
+        `/api/companies/${encodeURIComponent(companyFolderId)}/risk-assessments/${encodeURIComponent(riskAssessmentId)}/approve`,
+        { activateNow: true, masterSheetId },
+        { stageKey: "approve" },
+      );
+    } catch (error) {
+      if (isStageTimeoutError(error)) {
+        throw error;
+      }
+      result.approveDiagnostics = approveDiagnostics;
+      return fail("approve", `Repeated approve failed: ${error instanceof Error ? error.message : String(error)}`, "Inspect approve idempotency.");
+    }
+    approveDiagnostics.repeatApprove = {
+      httpStatus: repeatApprove.status,
+      ok: repeatApprove.json?.ok === true,
+      alreadyApproved: repeatApprove.json?.alreadyApproved === true,
+      actualStatus: trim(repeatApprove.json?.item?.status) || null,
+    };
+    result.approveDiagnostics = approveDiagnostics;
+    if (repeatApprove.status !== 200 || repeatApprove.json?.ok !== true) {
+      return fail(
+        "approve",
+        `Repeated approve returned HTTP ${repeatApprove.status}.`,
+        "Inspect approve idempotency handling.",
+        repeatApprove.status,
+        repeatApprove.json,
+      );
+    }
+    if (
+      repeatApprove.json?.alreadyApproved !== true &&
+      trim(repeatApprove.json?.item?.status) !== "Active" &&
+      trim(repeatApprove.json?.item?.status) !== "Approved"
+    ) {
+      return fail("approve", "Repeated approve did not return a safe already-approved response.", "Inspect approve idempotency.");
     }
     pass("approve");
     return null;
