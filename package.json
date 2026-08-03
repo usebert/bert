@@ -88,6 +88,7 @@
     "verify:ui-i18n-stage3": "node scripts/verify-ui-i18n-stage3.mjs",
     "verify:calendar": "node scripts/verify-calendar.mjs",
     "verify:document-control": "node scripts/verify-document-control.mjs",
+    "verify:document-control-list-path-tests": "node --test scripts/verify-document-control-list-path.test.mjs",
     "verify:documents-phase1": "node scripts/verify-documents-phase1.mjs",
     "verify:company-provisioning": "node scripts/verify-company-provisioning.mjs",
     "verify:ui-foundation": "node scripts/verify-ui-foundation.mjs",

@@ -56,6 +56,19 @@ import {
   uploadDocumentControlFile,
   verifyDocumentControlFolder,
 } from "./document-control-file-service.mjs";
+import {
+  createDocumentControlListTiming,
+  documentControlListCacheKey,
+  getWorkbookSheetCache,
+  invalidateDocumentControlListCache,
+  isDocumentControlTabEnsured,
+  markDocumentControlTabEnsured,
+  peekDocumentControlListCache,
+  setWorkbookSheetCache,
+  withDocumentControlListCache,
+} from "./document-control-list-cache.mjs";
+
+export { invalidateDocumentControlListCache };
 
 export {
   CONTROLLED_DOCUMENTS_TAB,
@@ -157,27 +170,104 @@ export function documentControlApiFailure(code, error, httpStatus = 400, details
   };
 }
 
-async function ensureDocumentControlTabs(auth, deps, masterSheetId) {
+function invalidateDocumentControlCaches(resolved) {
+  invalidateDocumentControlListCache({
+    companyFolderId: resolved?.companyFolderId,
+    masterSheetId: resolved?.masterSheetId,
+  });
+}
+
+function scheduleIndexSync(auth, deps, masterSheetId) {
+  void syncIndexAfterChange(auth, deps, masterSheetId).catch(() => {});
+}
+
+function afterDocumentControlMutation(auth, deps, resolved, masterSheetId) {
+  invalidateDocumentControlCaches(resolved || { masterSheetId });
+  scheduleIndexSync(auth, deps, masterSheetId);
+}
+
+async function ensureDocumentControlTabCached(auth, deps, masterSheetId, tabName, columns) {
+  if (isDocumentControlTabEnsured(masterSheetId, tabName)) {
+    return;
+  }
   const ensureTabColumns = resolveEnsureTabColumns(deps);
-  await ensureTabColumns(auth, deps, masterSheetId, CONTROLLED_DOCUMENTS_TAB, CONTROLLED_DOCUMENTS_TAB_COLUMNS);
-  await ensureTabColumns(auth, deps, masterSheetId, DOCUMENT_REVISIONS_TAB, DOCUMENT_REVISIONS_TAB_COLUMNS);
-  await ensureTabColumns(auth, deps, masterSheetId, DOCUMENT_CONTROL_INDEX_TAB, DOCUMENT_CONTROL_INDEX_TAB_COLUMNS);
+  await ensureTabColumns(auth, deps, masterSheetId, tabName, columns);
+  markDocumentControlTabEnsured(masterSheetId, tabName);
 }
 
-async function readDocumentRecords(auth, deps, masterSheetId) {
+async function ensureDocumentControlListTab(auth, deps, masterSheetId) {
+  await ensureDocumentControlTabCached(auth, deps, masterSheetId, CONTROLLED_DOCUMENTS_TAB, CONTROLLED_DOCUMENTS_TAB_COLUMNS);
+}
+
+async function ensureDocumentControlTabs(auth, deps, masterSheetId) {
+  await ensureDocumentControlTabCached(auth, deps, masterSheetId, CONTROLLED_DOCUMENTS_TAB, CONTROLLED_DOCUMENTS_TAB_COLUMNS);
+  await ensureDocumentControlTabCached(auth, deps, masterSheetId, DOCUMENT_REVISIONS_TAB, DOCUMENT_REVISIONS_TAB_COLUMNS);
+  await ensureDocumentControlTabCached(auth, deps, masterSheetId, DOCUMENT_CONTROL_INDEX_TAB, DOCUMENT_CONTROL_INDEX_TAB_COLUMNS);
+}
+
+async function readDocumentRecords(auth, deps, masterSheetId, options = {}) {
   const readTabRecords = resolveReadTabRecords(deps);
-  const result = await readTabRecords(auth, deps, masterSheetId, CONTROLLED_DOCUMENTS_TAB, {
-    expectedHeaders: CONTROLLED_DOCUMENTS_TAB_COLUMNS,
-  });
+  if (!options.skipTabEnsure) {
+    await ensureDocumentControlListTab(auth, deps, masterSheetId);
+  }
+  const readOptions = options.skipTabEnsure ? {} : { expectedHeaders: CONTROLLED_DOCUMENTS_TAB_COLUMNS };
+  const result = await readTabRecords(auth, deps, masterSheetId, CONTROLLED_DOCUMENTS_TAB, readOptions);
   return result?.records || [];
 }
 
-async function readRevisionRecords(auth, deps, masterSheetId) {
+async function readRevisionRecords(auth, deps, masterSheetId, options = {}) {
   const readTabRecords = resolveReadTabRecords(deps);
-  const result = await readTabRecords(auth, deps, masterSheetId, DOCUMENT_REVISIONS_TAB, {
-    expectedHeaders: DOCUMENT_REVISIONS_TAB_COLUMNS,
-  });
+  if (!options.skipTabEnsure) {
+    await ensureDocumentControlTabCached(auth, deps, masterSheetId, DOCUMENT_REVISIONS_TAB, DOCUMENT_REVISIONS_TAB_COLUMNS);
+  }
+  const readOptions = options.skipTabEnsure ? {} : { expectedHeaders: DOCUMENT_REVISIONS_TAB_COLUMNS };
+  const result = await readTabRecords(auth, deps, masterSheetId, DOCUMENT_REVISIONS_TAB, readOptions);
   return result?.records || [];
+}
+
+async function loadWorkbookDocumentsBundle(auth, deps, masterSheetId, timer, options = {}) {
+  if (!options.skipCache) {
+    const cached = getWorkbookSheetCache(masterSheetId);
+    if (cached?.documents) {
+      timer?.log("documents-read", {
+        rowCounts: { documents: cached.documents.length },
+        cacheHit: true,
+      });
+      return cached;
+    }
+  }
+
+  await ensureDocumentControlListTab(auth, deps, masterSheetId);
+  timer?.log("tab-ensure", { rowCounts: { tabs: 1 } });
+
+  const records = await readDocumentRecords(auth, deps, masterSheetId, { skipTabEnsure: true });
+  timer?.log("documents-read", { rowCounts: { documents: records.length } });
+
+  const documents = mapDocumentsSafely(records);
+  const bundle = { records, documents };
+  setWorkbookSheetCache(masterSheetId, bundle);
+  return bundle;
+}
+
+async function loadWorkbookRevisionRecords(auth, deps, masterSheetId, timer, options = {}) {
+  if (!options.skipCache) {
+    const cached = getWorkbookSheetCache(masterSheetId);
+    if (cached?.revisionRecords) {
+      timer?.log("revisions-read", {
+        rowCounts: { revisions: cached.revisionRecords.length },
+        cacheHit: true,
+      });
+      return cached.revisionRecords;
+    }
+  }
+
+  await ensureDocumentControlTabCached(auth, deps, masterSheetId, DOCUMENT_REVISIONS_TAB, DOCUMENT_REVISIONS_TAB_COLUMNS);
+  const revisionRecords = await readRevisionRecords(auth, deps, masterSheetId, { skipTabEnsure: true });
+  timer?.log("revisions-read", { rowCounts: { revisions: revisionRecords.length } });
+
+  const existing = getWorkbookSheetCache(masterSheetId) || {};
+  setWorkbookSheetCache(masterSheetId, { ...existing, revisionRecords });
+  return revisionRecords;
 }
 
 function mapDocumentsSafely(records = []) {
@@ -396,23 +486,30 @@ function buildRevisionRow(revisionId, documentId, documentNumber, sequence, norm
   };
 }
 
-export async function listDocumentControlDocuments(auth, deps, resolved, actor, options = {}) {
-  if (!canViewDocumentControl(actor)) {
-    return documentControlApiFailure("DOCUMENT_CONTROL_FORBIDDEN", "You do not have access to Document Control.", 403);
-  }
+async function listDocumentControlDocumentsUncached(auth, deps, resolved, actor, options = {}, timer) {
   const masterSheetId = trim(resolved?.masterSheetId);
-  if (!masterSheetId) {
-    return documentControlApiFailure("DOCUMENT_CONTROL_NO_WORKBOOK", "Company workbook is not linked.", 400);
-  }
-  await ensureDocumentControlTabs(auth, deps, masterSheetId);
+  timer.log("workbook-resolution", { workbookId: masterSheetId });
+
+  const bundle = await loadWorkbookDocumentsBundle(auth, deps, masterSheetId, timer, options);
+  timer.log("approvals-history-read", { rowCounts: { history: 0 } });
+  timer.log("reviews-read", { rowCounts: { reviews: 0 } });
+  timer.log("drive-metadata-lookups", { rowCounts: { files: 0 } });
+
   const todayKey = options.todayKey || getUkTodayKey();
-  const documents = mapDocumentsSafely(await readDocumentRecords(auth, deps, masterSheetId)).map((doc) =>
-    decorateDocument(doc, todayKey),
-  );
+  const documents = bundle.documents.map((doc) => decorateDocument(doc, todayKey));
+  timer.log("parsing", { rowCounts: { documents: documents.length } });
+
   const visible = filterDocumentsForActor(documents, actor, options);
+  timer.log("permission-filtering", {
+    rowCounts: { visible: visible.length, documents: documents.length },
+  });
+
   const summary = summarizeDocumentControl(documents, todayKey);
-  const clauseGroups = groupDocumentsByClause(visible.filter((doc) => doc.documentStatus === "current" || canManageDocumentControl(actor)));
-  return {
+  const clauseGroups = groupDocumentsByClause(
+    visible.filter((doc) => doc.documentStatus === "current" || canManageDocumentControl(actor)),
+  );
+
+  const payload = {
     ok: true,
     companyFolderId: trim(resolved?.companyFolderId),
     documents: visible,
@@ -421,7 +518,46 @@ export async function listDocumentControlDocuments(auth, deps, resolved, actor, 
     canManage: canManageDocumentControl(actor),
     canApprove: canApproveDocumentControl(actor),
     canViewSuperseded: canViewSupersededRevisions(actor),
+    _allDocuments: documents,
   };
+  timer.log("response-build", { rowCounts: { documents: visible.length } });
+  return payload;
+}
+
+export async function listDocumentControlDocuments(auth, deps, resolved, actor, options = {}) {
+  if (!canViewDocumentControl(actor)) {
+    return documentControlApiFailure("DOCUMENT_CONTROL_FORBIDDEN", "You do not have access to Document Control.", 403);
+  }
+  const masterSheetId = trim(resolved?.masterSheetId);
+  if (!masterSheetId) {
+    return documentControlApiFailure("DOCUMENT_CONTROL_NO_WORKBOOK", "Company workbook is not linked.", 400);
+  }
+
+  const timer =
+    options.timer ||
+    createDocumentControlListTiming({
+      companyFolderId: resolved?.companyFolderId,
+      workbookId: masterSheetId,
+    });
+
+  if (options.skipCache) {
+    const result = await listDocumentControlDocumentsUncached(auth, deps, resolved, actor, options, timer);
+    const { _allDocuments, ...response } = result;
+    return response;
+  }
+
+  const cacheKey = documentControlListCacheKey(resolved, actor, options);
+  const cached = peekDocumentControlListCache(cacheKey);
+  if (cached) {
+    timer.log("cache-hit", { rowCounts: { documents: cached.documents?.length || 0 } });
+    return cached;
+  }
+
+  const { payload } = await withDocumentControlListCache(cacheKey, () =>
+    listDocumentControlDocumentsUncached(auth, deps, resolved, actor, options, timer),
+  );
+  const { _allDocuments, ...response } = payload;
+  return response;
 }
 
 export async function getDocumentControlDocument(auth, deps, resolved, actor, documentId, options = {}) {
@@ -430,10 +566,19 @@ export async function getDocumentControlDocument(auth, deps, resolved, actor, do
   }
   const masterSheetId = trim(resolved?.masterSheetId);
   const id = trim(documentId);
-  await ensureDocumentControlTabs(auth, deps, masterSheetId);
-  const todayKey = options.todayKey || getUkTodayKey();
-  const documents = mapDocumentsSafely(await readDocumentRecords(auth, deps, masterSheetId));
-  const document = documents.find((doc) => doc.documentId === id);
+  const timer =
+    options.timer ||
+    createDocumentControlListTiming({
+      companyFolderId: resolved?.companyFolderId,
+      workbookId: masterSheetId,
+    });
+
+  timer.log("workbook-resolution", { workbookId: masterSheetId });
+
+  const bundle = await loadWorkbookDocumentsBundle(auth, deps, masterSheetId, timer, {
+    skipCache: options.skipCache === true,
+  });
+  const document = bundle.documents.find((doc) => doc.documentId === id);
   if (!document) {
     return documentControlApiFailure("DOCUMENT_NOT_FOUND", "Document not found.", 404);
   }
@@ -444,9 +589,18 @@ export async function getDocumentControlDocument(auth, deps, resolved, actor, do
       403,
     );
   }
-  const revisions = mapRevisionsSafely(await readRevisionRecords(auth, deps, masterSheetId)).filter(
-    (rev) => rev.documentId === id,
-  );
+
+  timer.log("approvals-history-read", { rowCounts: { history: 0 } });
+  timer.log("reviews-read", { rowCounts: { reviews: 0 } });
+  timer.log("drive-metadata-lookups", { rowCounts: { files: 0 } });
+
+  const revisionRecords = await loadWorkbookRevisionRecords(auth, deps, masterSheetId, timer, {
+    skipCache: options.skipCache === true,
+  });
+  const revisions = mapRevisionsSafely(revisionRecords).filter((rev) => rev.documentId === id);
+  timer.log("parsing", { rowCounts: { revisions: revisions.length } });
+
+  const todayKey = options.todayKey || getUkTodayKey();
   const currentRevision =
     revisions.find((rev) => rev.revisionId === document.currentRevisionId) ||
     revisions.find((rev) => rev.revisionStatus === "current") ||
@@ -457,7 +611,9 @@ export async function getDocumentControlDocument(auth, deps, resolved, actor, do
     visibleRevisions = currentRevision ? [currentRevision] : [];
   }
 
-  return {
+  timer.log("permission-filtering", { rowCounts: { revisions: visibleRevisions.length } });
+
+  const response = {
     ok: true,
     document: decorateDocument(document, todayKey),
     currentRevision,
@@ -467,6 +623,8 @@ export async function getDocumentControlDocument(auth, deps, resolved, actor, do
     canApprove: canApproveDocumentControl(actor),
     canViewSuperseded: canViewSupersededRevisions(actor),
   };
+  timer.log("response-build", { rowCounts: { revisions: visibleRevisions.length } });
+  return response;
 }
 
 export async function createControlledDocument(auth, deps, resolved, actor, input = {}) {
@@ -544,7 +702,7 @@ export async function createControlledDocument(auth, deps, resolved, actor, inpu
   const appendTabRows = resolveAppendTabRows(deps);
   await appendTabRows(auth, deps, masterSheetId, CONTROLLED_DOCUMENTS_TAB, CONTROLLED_DOCUMENTS_TAB_COLUMNS, [documentRow]);
   await appendTabRows(auth, deps, masterSheetId, DOCUMENT_REVISIONS_TAB, DOCUMENT_REVISIONS_TAB_COLUMNS, [revisionRow]);
-  await syncIndexAfterChange(auth, deps, masterSheetId);
+  afterDocumentControlMutation(auth, deps, resolved, masterSheetId);
 
   const document = mapControlledDocumentRecord(documentRow);
   const revision = mapDocumentRevisionRecord(revisionRow);
@@ -606,7 +764,7 @@ export async function updateControlledDocument(auth, deps, resolved, actor, docu
     UpdatedAt: nowIso(),
     UpdatedBy: actorEmail,
   });
-  await syncIndexAfterChange(auth, deps, masterSheetId);
+  afterDocumentControlMutation(auth, deps, resolved, masterSheetId);
   return getDocumentControlDocument(auth, deps, resolved, actor, id);
 }
 
@@ -680,7 +838,7 @@ export async function createDocumentRevision(auth, deps, resolved, actor, docume
     UpdatedBy: normalizeEmail(actor?.email) || "unknown",
   });
   // Current revision stays current until approval.
-  await syncIndexAfterChange(auth, deps, masterSheetId);
+  afterDocumentControlMutation(auth, deps, resolved, masterSheetId);
   return {
     ok: true,
     revision: mapDocumentRevisionRecord(revisionRow),
@@ -806,7 +964,7 @@ export async function approveDocumentRevision(auth, deps, resolved, actor, revis
     UpdatedBy: actorEmail,
   });
 
-  await syncIndexAfterChange(auth, deps, masterSheetId);
+  afterDocumentControlMutation(auth, deps, resolved, masterSheetId);
   return getDocumentControlDocument(auth, deps, resolved, actor, document.documentId);
 }
 
@@ -863,7 +1021,7 @@ async function transitionRevision(auth, deps, resolved, actor, revisionId, nextS
     UpdatedAt: nowIso(),
     UpdatedBy: actorEmail,
   });
-  await syncIndexAfterChange(auth, deps, masterSheetId);
+  afterDocumentControlMutation(auth, deps, resolved, masterSheetId);
   return getDocumentControlDocument(auth, deps, resolved, actor, document.documentId);
 }
 
@@ -982,7 +1140,7 @@ export async function archiveControlledDocument(auth, deps, resolved, actor, doc
     UpdatedAt: archivedAt,
     UpdatedBy: actorEmail,
   });
-  await syncIndexAfterChange(auth, deps, masterSheetId);
+  afterDocumentControlMutation(auth, deps, resolved, masterSheetId);
   return getDocumentControlDocument(auth, deps, resolved, actor, id, { includeArchived: true });
 }
 
@@ -1010,7 +1168,7 @@ export async function restoreControlledDocument(auth, deps, resolved, actor, doc
     UpdatedAt: nowIso(),
     UpdatedBy: actorEmail,
   });
-  await syncIndexAfterChange(auth, deps, masterSheetId);
+  afterDocumentControlMutation(auth, deps, resolved, masterSheetId);
   return getDocumentControlDocument(auth, deps, resolved, actor, id);
 }
 
@@ -1168,7 +1326,7 @@ export async function createDraftVerificationDocument(auth, deps, resolved, acto
   const appendTabRows = resolveAppendTabRows(deps);
   await appendTabRows(auth, deps, masterSheetId, CONTROLLED_DOCUMENTS_TAB, CONTROLLED_DOCUMENTS_TAB_COLUMNS, [documentRow]);
   await appendTabRows(auth, deps, masterSheetId, DOCUMENT_REVISIONS_TAB, DOCUMENT_REVISIONS_TAB_COLUMNS, [revisionRow]);
-  await syncIndexAfterChange(auth, deps, masterSheetId);
+  afterDocumentControlMutation(auth, deps, resolved, masterSheetId);
   logDocumentMutationTiming("create", "draft", {
     documentId,
     workbookId: masterSheetId,
@@ -1386,6 +1544,7 @@ export async function uploadVerificationRevisionFile(auth, deps, resolved, actor
       durationMs: Date.now() - startedAt,
       totalMs: Date.now() - startedAt,
     });
+    invalidateDocumentControlCaches(resolved);
     return { ok: true, revision: refreshed, document, updatedRows: 1 };
   } catch (error) {
     const google = error instanceof DocumentControlUploadError ? error.google : googleDriveErrorDetails(error);
@@ -1474,7 +1633,7 @@ export async function cleanupVerificationDocument(auth, deps, resolved, actor, d
       ),
     });
   }
-  await syncIndexAfterChange(auth, deps, masterSheetId);
+  afterDocumentControlMutation(auth, deps, resolved, masterSheetId);
   logDocumentMutationTiming("cleanup", "cleanup", {
     documentId: id,
     workbookId: masterSheetId,

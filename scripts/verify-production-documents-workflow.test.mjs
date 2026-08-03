@@ -776,11 +776,20 @@ test("create failure", async () => {
 test("create succeeds but record not visible", async () => {
   const result = await runProductionDocumentsWorkflowChecks(
     baseConfig,
-    createTransport({ createSuccessButNotVisible: true, listStaleUntilAttempt: 99 }),
+    createTransport({ createSuccessButNotVisible: true }),
     defaultRunOptions,
   );
   assert.equal(result.ok, false);
   assert.equal(result.failedKey, "readback");
+});
+
+test("detail visible but list stale is retried safely", async () => {
+  const result = await runProductionDocumentsWorkflowChecks(
+    baseConfig,
+    createTransport({ listStaleUntilAttempt: 2 }),
+    defaultRunOptions,
+  );
+  assert.equal(result.checks.readback.status, "PASS");
 });
 
 test("duplicate create idempotency", async () => {

@@ -384,8 +384,36 @@ export async function fetchDocumentControlList(request, companyFolderId, masterS
   return response;
 }
 
+export async function pollDocumentDetailForId(request, companyFolderId, masterSheetId, documentId, options = {}) {
+  const maxAttempts = Number(options.maxAttempts) || 8;
+  const intervalMs = Number(options.intervalMs) ?? 1000;
+  const stageKey = options.stageKey || "readback";
+  const attempts = [];
+  let lastDetailResponse = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (attempt > 1 && intervalMs > 0) {
+      await sleep(intervalMs);
+    }
+    lastDetailResponse = await request(
+      "GET",
+      documentDetailPath(companyFolderId, documentId, masterSheetId),
+      undefined,
+      { stageKey },
+    );
+    attempts.push({
+      attempt,
+      status: lastDetailResponse.status,
+      visible: documentAlreadyVisible(lastDetailResponse, documentId),
+    });
+    if (documentAlreadyVisible(lastDetailResponse, documentId)) {
+      return { ok: true, detailResponse: lastDetailResponse, attempts };
+    }
+  }
+  return { ok: false, detailResponse: lastDetailResponse, attempts };
+}
+
 export async function pollDocumentListForId(request, companyFolderId, masterSheetId, documentId, options = {}) {
-  const maxAttempts = Number(options.maxAttempts) || 15;
+  const maxAttempts = Number(options.maxAttempts) || 5;
   const intervalMs = Number(options.intervalMs) ?? 1000;
   const stageKey = options.stageKey || "readback";
   const attempts = [];
@@ -999,35 +1027,21 @@ export async function runProductionDocumentsWorkflowChecks(config, transport, op
   }
 
   const readbackFail = await runPostCreateStage("readback", async () => {
-    const poll = await pollDocumentListForId(request, companyFolderId, masterSheetId, verificationDocumentId, {
-      maxAttempts: options.listPollMaxAttempts ?? 15,
-      intervalMs: options.listPollIntervalMs ?? 1000,
+    const detailPoll = await pollDocumentDetailForId(request, companyFolderId, masterSheetId, verificationDocumentId, {
+      maxAttempts: options.detailPollMaxAttempts ?? 8,
+      intervalMs: options.detailPollIntervalMs ?? 1000,
       stageKey: "readback",
     });
-    if (!poll.ok) {
-      return fail(
-        "readback",
-        "Verification document was not visible in Document Control list after create.",
-        "Inspect read-after-write confirmation and index rebuild.",
-        poll.listResponse?.status,
-        { attempts: poll.attempts },
-      );
-    }
-    const detail = await request(
-      "GET",
-      documentDetailPath(companyFolderId, verificationDocumentId, masterSheetId),
-      undefined,
-      { stageKey: "readback" },
-    );
-    if (!documentAlreadyVisible(detail, verificationDocumentId)) {
+    if (!detailPoll.ok) {
       return fail(
         "readback",
         "Verification document detail was not readable after create.",
         "Inspect GET /api/companies/:id/document-control/documents/:documentId.",
-        detail.status,
-        detail.json,
+        detailPoll.detailResponse?.status,
+        { attempts: detailPoll.attempts },
       );
     }
+    const detail = detailPoll.detailResponse;
     const status = normalizeStatus(detail.json?.document?.documentStatus);
     if (status !== "draft") {
       return fail(
@@ -1036,6 +1050,21 @@ export async function runProductionDocumentsWorkflowChecks(config, transport, op
         "Inspect verification document initial status.",
         detail.status,
         detail.json?.document,
+      );
+    }
+
+    const listPoll = await pollDocumentListForId(request, companyFolderId, masterSheetId, verificationDocumentId, {
+      maxAttempts: options.listPollMaxAttempts ?? 5,
+      intervalMs: options.listPollIntervalMs ?? 1000,
+      stageKey: "readback",
+    });
+    if (!listPoll.ok) {
+      return fail(
+        "readback",
+        "Verification document was not visible in Document Control list after create.",
+        "Inspect read-after-write list confirmation for the created document ID.",
+        listPoll.listResponse?.status,
+        { detailAttempts: detailPoll.attempts, listAttempts: listPoll.attempts },
       );
     }
     pass("readback");
