@@ -104,6 +104,7 @@ assert(routes.includes("/submit"), "routes: submit endpoint");
 assert(routes.includes("/save-draft"), "routes: save-draft endpoint");
 assert(routes.includes("/risk-assessments/draft"), "routes: create draft endpoint");
 assert(routes.includes("/approve"), "routes: approve endpoint");
+assert(routes.includes("/review"), "routes: review endpoint");
 assert(routes.includes("/reject"), "routes: reject endpoint");
 assert(routes.includes("/new-version"), "routes: new version endpoint");
 
@@ -148,6 +149,12 @@ assert(service.includes("RISK_ASSESSMENT_SUBMIT_NOT_VISIBLE"), "service: submit 
 assert(service.includes("[risk-assessment:approve]"), "service: approve instrumentation");
 assert(service.includes("RISK_ASSESSMENT_APPROVE_NOT_VISIBLE"), "service: approve read-after-write guard");
 assert(service.includes("alreadyApproved"), "service: approve idempotency");
+assert(service.includes("[risk-assessment:review]"), "service: review instrumentation");
+assert(service.includes("RISK_REVIEW_CREATE_NOT_VISIBLE"), "service: review read-after-write guard");
+assert(service.includes("RISK_REVIEW_CREATE_WRITE_FAILED"), "service: review zero-row append guard");
+assert(service.includes("alreadyReviewed"), "service: review idempotency");
+assert(service.includes("appendAndConfirmReviewRow"), "service: review append confirmation helper");
+assert(service.includes("RISK_ASSESSMENT_REVIEWS_TAB_COLUMNS,\n      [reviewRow]"), "service: review append uses canonical headers");
 
 const validationAdapter = read("src/health-safety/adapters/riskAssessmentValidation.ts");
 assert(validationAdapter.includes("buildClientHazardId"), "client: stable HazardId at creation");
@@ -292,4 +299,11 @@ const approvePersistenceTests = spawnSync("node", ["--test", "scripts/verify-ris
 });
 if (approvePersistenceTests.status !== 0) {
   process.exit(approvePersistenceTests.status || 1);
+}
+
+const reviewPersistenceTests = spawnSync("node", ["--test", "scripts/verify-risk-assessment-review-persistence.test.mjs"], {
+  stdio: "inherit",
+});
+if (reviewPersistenceTests.status !== 0) {
+  process.exit(reviewPersistenceTests.status || 1);
 }

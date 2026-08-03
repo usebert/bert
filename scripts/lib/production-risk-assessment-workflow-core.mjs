@@ -11,6 +11,7 @@ import {
   buildProductionVerificationHazard,
   buildProductionVerificationRiskAssessment,
   buildProductionVerificationRiskAssessmentId,
+  buildProductionVerificationReviewId,
   countRiskAssessmentBaselines,
   isActiveVerificationRiskAssessment,
   isVerificationRiskAssessment,
@@ -246,6 +247,11 @@ export function formatRiskAssessmentWorkflowReport(result) {
     lines.push("");
     lines.push("Approve diagnostics:");
     lines.push(JSON.stringify(result.approveDiagnostics));
+  }
+  if (result.reviewDiagnostics) {
+    lines.push("");
+    lines.push("Review diagnostics:");
+    lines.push(JSON.stringify(result.reviewDiagnostics));
   }
   lines.push("");
 
@@ -1651,13 +1657,57 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
   }
 
   const reviewFail = await runStage("review", async () => {
+    const reviewId = buildProductionVerificationReviewId(runId);
     const nextReviewDate = futureReviewDate(180);
+    const reviewDiagnostics = {
+      reviewId,
+      expectedStatus: "Active",
+      expectedVersion: "1.0",
+      expectedOutcome: "no_change",
+      expectedHazardIds: [hazardOneId, hazardTwoId],
+      beforeStatus: null,
+      beforeVersion: null,
+      previousReviewDate: null,
+      newReviewDate: nextReviewDate,
+      firstReview: null,
+      repeatReview: null,
+      detailPollAttempts: [],
+      reviewHistoryIds: [],
+      duplicateReviewCount: 0,
+      actualHazardIds: [],
+      finalDetailStatus: null,
+      reviewHistoryCount: null,
+    };
+    let beforeDetail;
+    try {
+      beforeDetail = await request(
+        "GET",
+        riskAssessmentDetailPath(companyFolderId, riskAssessmentId, masterSheetId),
+        undefined,
+        { stageKey: "review" },
+      );
+    } catch (error) {
+      if (isStageTimeoutError(error)) {
+        throw error;
+      }
+      return fail(
+        "review",
+        `Pre-review detail read failed: ${error instanceof Error ? error.message : String(error)}`,
+        "Inspect GET risk assessment detail before review.",
+      );
+    }
+    reviewDiagnostics.beforeStatus = trim(beforeDetail.json?.item?.status) || null;
+    reviewDiagnostics.beforeVersion = trim(beforeDetail.json?.item?.version) || null;
+    reviewDiagnostics.previousReviewDate = trim(beforeDetail.json?.item?.reviewDate) || null;
+    reviewDiagnostics.reviewHistoryCountBefore = Array.isArray(beforeDetail.json?.reviews) ? beforeDetail.json.reviews.length : 0;
+
     let reviewResponse;
     try {
       reviewResponse = await request(
         "POST",
         `/api/companies/${encodeURIComponent(companyFolderId)}/risk-assessments/${encodeURIComponent(riskAssessmentId)}/review`,
         {
+          reviewId,
           reviewType: "manual",
           outcome: "no_change",
           summary: PRODUCTION_VERIFICATION_RA_REVIEW_SUMMARY,
@@ -1670,13 +1720,31 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
       if (isStageTimeoutError(error)) {
         throw error;
       }
+      result.reviewDiagnostics = reviewDiagnostics;
       return fail(
         "review",
         `Review request failed: ${error instanceof Error ? error.message : String(error)}`,
         "Inspect POST /api/companies/:id/risk-assessments/:id/review.",
       );
     }
+    assertResponseSafe(reviewResponse.json, "review");
+    reviewDiagnostics.firstReview = {
+      httpStatus: reviewResponse.status,
+      ok: reviewResponse.json?.ok === true,
+      responseCode: trim(reviewResponse.json?.code) || null,
+      responseMessage: trim(reviewResponse.json?.error || reviewResponse.json?.message) || null,
+      returnedReviewId: trim(reviewResponse.json?.reviews?.[0]?.id) || null,
+      actualStatus: trim(reviewResponse.json?.item?.status) || null,
+      actualVersion: trim(reviewResponse.json?.item?.version) || null,
+      actualReviewDate: trim(reviewResponse.json?.item?.reviewDate) || null,
+      reviewHistoryCount: Array.isArray(reviewResponse.json?.reviews) ? reviewResponse.json.reviews.length : 0,
+      reviewHistoryIds: (reviewResponse.json?.reviews || []).map((entry) => trim(entry.id)).filter(Boolean),
+      reviewOutcome: trim(
+        (reviewResponse.json?.reviews || []).find((entry) => trim(entry.id) === reviewId || String(entry.summary || "").includes("Production smoke verification review"))?.outcome,
+      ) || null,
+    };
     if (reviewResponse.status !== 200 || reviewResponse.json?.ok !== true) {
+      result.reviewDiagnostics = reviewDiagnostics;
       return fail(
         "review",
         `Review returned HTTP ${reviewResponse.status}.`,
@@ -1687,14 +1755,125 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
     }
     const item = reviewResponse.json.item || {};
     if (trim(item.status) !== "Active" && trim(item.status) !== "Review Due") {
+      result.reviewDiagnostics = reviewDiagnostics;
       return fail("review", `Expected Active after no-change review, got ${item.status}.`, "Inspect review outcome handling.");
     }
     if (trim(item.version) !== "1.0") {
+      result.reviewDiagnostics = reviewDiagnostics;
       return fail("review", "Version changed unexpectedly during no-change review.", "Inspect review version rules.");
     }
     const reviews = reviewResponse.json.reviews || [];
-    if (!reviews.some((entry) => String(entry.summary || "").includes("Production smoke verification review"))) {
+    reviewDiagnostics.reviewHistoryIds = reviews.map((entry) => trim(entry.id)).filter(Boolean);
+    reviewDiagnostics.duplicateReviewCount = reviewDiagnostics.reviewHistoryIds.filter((id) => id === reviewId).length;
+    const matchingReview = reviews.find(
+      (entry) => trim(entry.id) === reviewId || String(entry.summary || "").includes("Production smoke verification review"),
+    );
+    if (!matchingReview) {
+      result.reviewDiagnostics = reviewDiagnostics;
       return fail("review", "Review history missing the new verification review.", "Inspect review persistence.");
+    }
+    if (trim(matchingReview.outcome) !== "no_change") {
+      result.reviewDiagnostics = reviewDiagnostics;
+      return fail("review", `Expected no_change review outcome, got ${matchingReview.outcome}.`, "Inspect review outcome mapping.");
+    }
+    if (trim(item.reviewDate) !== trim(nextReviewDate)) {
+      result.reviewDiagnostics = reviewDiagnostics;
+      return fail(
+        "review",
+        `NextReviewDate not updated (expected ${nextReviewDate}, got ${item.reviewDate || "(empty)"}).`,
+        "Inspect assessment ReviewDate patch after review.",
+      );
+    }
+
+    const detailPolled = await pollRiskAssessmentDetailForHazardIds(
+      request,
+      companyFolderId,
+      masterSheetId,
+      riskAssessmentId,
+      [hazardOneId, hazardTwoId],
+      { stageKey: "review" },
+    );
+    reviewDiagnostics.detailPollAttempts = detailPolled.attempts;
+    reviewDiagnostics.actualHazardIds = detailPolled.foundIds || [];
+    reviewDiagnostics.finalDetailStatus = trim(detailPolled.detailResponse?.json?.item?.status) || null;
+    reviewDiagnostics.reviewHistoryCount = Array.isArray(detailPolled.detailResponse?.json?.reviews)
+      ? detailPolled.detailResponse.json.reviews.length
+      : reviewDiagnostics.firstReview.reviewHistoryCount;
+    reviewDiagnostics.reviewHistoryIds = (detailPolled.detailResponse?.json?.reviews || reviews)
+      .map((entry) => trim(entry.id))
+      .filter(Boolean);
+    reviewDiagnostics.duplicateReviewCount = reviewDiagnostics.reviewHistoryIds.filter((id) => id === reviewId).length;
+    if (!detailPolled.ok) {
+      result.reviewDiagnostics = reviewDiagnostics;
+      return fail(
+        "review",
+        `Expected both hazards after review, found ${(detailPolled.foundIds || []).join(", ") || "(none)"}.`,
+        "Inspect hazard persistence after review.",
+        reviewResponse.status,
+        reviewDiagnostics,
+      );
+    }
+    const polledReviews = detailPolled.detailResponse?.json?.reviews || [];
+    if (!polledReviews.some((entry) => trim(entry.id) === reviewId)) {
+      result.reviewDiagnostics = reviewDiagnostics;
+      return fail("review", "Review history missing on post-review detail poll.", "Inspect review cache invalidation.");
+    }
+
+    let repeatReview;
+    try {
+      repeatReview = await request(
+        "POST",
+        `/api/companies/${encodeURIComponent(companyFolderId)}/risk-assessments/${encodeURIComponent(riskAssessmentId)}/review`,
+        {
+          reviewId,
+          reviewType: "manual",
+          outcome: "no_change",
+          summary: PRODUCTION_VERIFICATION_RA_REVIEW_SUMMARY,
+          nextReviewDate: futureReviewDate(365),
+          masterSheetId,
+        },
+        { stageKey: "review" },
+      );
+    } catch (error) {
+      if (isStageTimeoutError(error)) {
+        throw error;
+      }
+      result.reviewDiagnostics = reviewDiagnostics;
+      return fail("review", `Repeated review failed: ${error instanceof Error ? error.message : String(error)}`, "Inspect review idempotency.");
+    }
+    reviewDiagnostics.repeatReview = {
+      httpStatus: repeatReview.status,
+      ok: repeatReview.json?.ok === true,
+      alreadyReviewed: repeatReview.json?.alreadyReviewed === true,
+      actualStatus: trim(repeatReview.json?.item?.status) || null,
+      actualVersion: trim(repeatReview.json?.item?.version) || null,
+      actualReviewDate: trim(repeatReview.json?.item?.reviewDate) || null,
+      reviewHistoryCount: Array.isArray(repeatReview.json?.reviews) ? repeatReview.json.reviews.length : 0,
+      reviewHistoryIds: (repeatReview.json?.reviews || []).map((entry) => trim(entry.id)).filter(Boolean),
+    };
+    reviewDiagnostics.duplicateReviewCount = (reviewDiagnostics.repeatReview.reviewHistoryIds || []).filter((id) => id === reviewId).length;
+    result.reviewDiagnostics = reviewDiagnostics;
+    if (repeatReview.status !== 200 || repeatReview.json?.ok !== true) {
+      return fail(
+        "review",
+        `Repeated review returned HTTP ${repeatReview.status}.`,
+        "Inspect review idempotency handling.",
+        repeatReview.status,
+        repeatReview.json,
+      );
+    }
+    if (repeatReview.json?.alreadyReviewed !== true) {
+      return fail("review", "Repeated review did not return alreadyReviewed.", "Inspect review idempotency.");
+    }
+    if (trim(repeatReview.json?.item?.reviewDate) !== trim(nextReviewDate)) {
+      return fail(
+        "review",
+        "Repeated review moved NextReviewDate unexpectedly.",
+        "Inspect review idempotency date preservation.",
+      );
+    }
+    if ((repeatReview.json?.reviews || []).filter((entry) => trim(entry.id) === reviewId).length !== 1) {
+      return fail("review", "Repeated review created duplicate review rows.", "Inspect review idempotency.");
     }
     pass("review");
     return null;

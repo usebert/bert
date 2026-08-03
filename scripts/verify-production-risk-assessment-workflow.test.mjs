@@ -14,6 +14,7 @@ import {
 } from "./lib/production-risk-assessment-workflow-core.mjs";
 import {
   buildProductionVerificationHazard,
+  buildProductionVerificationReviewId,
   buildProductionVerificationRiskAssessment,
   PRODUCTION_VERIFICATION_RA_CLEANED_STATUS,
   PRODUCTION_VERIFICATION_RA_TITLE,
@@ -60,6 +61,10 @@ function customerAssessment() {
 
 const TEST_RUN_ID = 12345;
 
+function trim(value) {
+  return String(value ?? "").trim();
+}
+
 function createTransport(options = {}) {
   const cookies = new Map();
   const runId = options.runId ?? TEST_RUN_ID;
@@ -81,10 +86,12 @@ function createTransport(options = {}) {
   let submittedBy = "";
   let approvedAt = "";
   let approvedBy = "";
+  let reviewDate = verification.reviewDate;
   let reviews = [];
   let loginAttempts = 0;
   let submitAttempts = 0;
   let approveAttempts = 0;
+  let reviewAttempts = 0;
   let postApproveDetailReads = 0;
   let cleanupAttempts = 0;
   let verificationCleanupCalls = 0;
@@ -317,6 +324,7 @@ function createTransport(options = {}) {
               submittedBy,
               approvedAt,
               approvedBy,
+              reviewDate,
               nextReviewReason: "verification",
               peopleAtRisk: "production-risk-assessment-workflow",
               activity: "Production smoke verification",
@@ -408,9 +416,25 @@ function createTransport(options = {}) {
       if (options.reviewFails) {
         return { status: 500, json: { ok: false, code: "RISK_ASSESSMENT_FAILED" } };
       }
+      reviewAttempts += 1;
+      const reviewId = trim(body?.reviewId) || buildProductionVerificationReviewId(runId);
+      if (reviewAttempts > 1) {
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            alreadyReviewed: true,
+            item: { ...verification, status: "Active", version: "1.0", reviewDate },
+            hazards,
+            links: [],
+            reviews,
+          },
+        };
+      }
+      reviewDate = trim(body?.nextReviewDate) || reviewDate;
       reviews = [
         {
-          id: "rar-test",
+          id: reviewId,
           summary: "Production smoke verification review",
           outcome: "no_change",
         },
@@ -419,7 +443,7 @@ function createTransport(options = {}) {
         status: 200,
         json: {
           ok: true,
-          item: { ...verification, status: "Active", version: "1.0", reviewDate: body?.nextReviewDate },
+          item: { ...verification, status: "Active", version: "1.0", reviewDate },
           hazards,
           links: [],
           reviews,

@@ -7,6 +7,7 @@ import { getUkTodayKey } from "./uk-date-time.mjs";
 export const PRODUCTION_VERIFICATION_RA_ID_PREFIX = "bert-smoke-ra-";
 export const PRODUCTION_VERIFICATION_RA_ASSESSMENT_NUMBER_PREFIX = "BERT-VERIFY-RA-";
 export const PRODUCTION_VERIFICATION_RA_HAZARD_ID_PREFIX = "bert-smoke-ra-hazard-";
+export const PRODUCTION_VERIFICATION_RA_REVIEW_ID_PREFIX = "bert-smoke-ra-review-";
 export const PRODUCTION_VERIFICATION_RA_TITLE = "BERT Verification Risk Assessment";
 export const PRODUCTION_VERIFICATION_RA_DESCRIPTION =
   "Automated production Risk Assessment workflow verification. Safe to remove.";
@@ -118,6 +119,10 @@ export function buildProductionVerificationAssessmentNumber(runId = Date.now()) 
 
 export function buildProductionVerificationHazardId(runId = Date.now(), index = 1) {
   return `${PRODUCTION_VERIFICATION_RA_HAZARD_ID_PREFIX}${runId}-${index}`;
+}
+
+export function buildProductionVerificationReviewId(runId = Date.now()) {
+  return `${PRODUCTION_VERIFICATION_RA_REVIEW_ID_PREFIX}${runId}`;
 }
 
 function addDaysToUkKey(days = 365) {
