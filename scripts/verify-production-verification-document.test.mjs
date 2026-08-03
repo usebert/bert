@@ -538,6 +538,36 @@ test("createDraftVerificationDocument skips synchronous index rebuild", async ()
   assert.equal(indexRebuildCalls, 0);
 });
 
+test("uploadVerificationRevisionFile accepts workbook patch ok without updatedRows", async () => {
+  const { documentRow, revisionRow, revisionId } = verificationDocumentRow();
+  const deps = createUploadDeps({
+    [CONTROLLED_DOCUMENTS_TAB]: [customerDocumentRow(), documentRow],
+    [DOCUMENT_REVISIONS_TAB]: [revisionRow],
+  });
+  const originalPatch = deps.patchTabRowByHeader;
+  deps.patchTabRowByHeader = async (...args) => {
+    if (args[3] === DOCUMENT_REVISIONS_TAB) {
+      await originalPatch(...args);
+      return { ok: true, rowIndex: 2, tabName: DOCUMENT_REVISIONS_TAB };
+    }
+    return originalPatch(...args);
+  };
+  const uploaded = await uploadVerificationRevisionFile(
+    null,
+    deps,
+    { masterSheetId, companyFolderId },
+    actor,
+    revisionId,
+    {
+      fileName: buildVerificationFileName(runId),
+      fileDataUrl: buildVerificationFileDataUrl(runId),
+      mimeType: "application/pdf",
+    },
+  );
+  assert.equal(uploaded.ok, true);
+  assert.equal(uploaded.updatedRows, 1);
+});
+
 test("uploadVerificationRevisionFile skips index rebuild during upload", async () => {
   let indexRebuildCalls = 0;
   const { documentRow, revisionRow, revisionId } = verificationDocumentRow();

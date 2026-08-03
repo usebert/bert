@@ -1541,8 +1541,8 @@ export async function uploadVerificationRevisionFile(auth, deps, resolved, actor
       PreparedBy: normalizeEmail(actor?.email) || revision.preparedBy || "unknown",
       PreparedAt: revision.preparedAt || nowIso(),
     });
-    patchAcknowledgedRows = Number(patchResult?.updatedRows ?? patchResult?.updated ?? 0);
-    if (patchAcknowledgedRows <= 0) {
+    patchAcknowledgedRows = Number(patchResult?.updatedRows ?? patchResult?.updated ?? (patchResult?.ok === true ? 1 : 0));
+    if (patchResult?.ok !== true || patchAcknowledgedRows <= 0) {
       const cleanup = await deleteDocumentControlDriveFile(drive, uploadedFileId);
       return uploadFailure(
         "Revision file metadata patch returned zero-row acknowledgement.",
