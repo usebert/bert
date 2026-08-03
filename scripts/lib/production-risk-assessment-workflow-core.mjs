@@ -25,6 +25,13 @@ import {
   isStageTimeoutError,
   wrapTransportWithTimeouts,
 } from "./production-workflow-diagnostics.mjs";
+import {
+  assessmentAlreadyApproved,
+  isTransientNetworkError,
+  isTransientWorkflowFailure,
+  requestWithTransientRetries,
+  reviewAlreadyRecorded,
+} from "./production-risk-assessment-transient-retry.mjs";
 
 export { loadSmokeConfig, performProductionSmokeLogin, maskEmail };
 
@@ -146,6 +153,125 @@ function futureReviewDate(days = 365) {
   const base = new Date();
   base.setUTCDate(base.getUTCDate() + days);
   return base.toISOString().slice(0, 10);
+}
+
+async function recoverApproveFromDetail(request, companyFolderId, masterSheetId, riskAssessmentId, stageKey) {
+  const detail = await request(
+    "GET",
+    riskAssessmentDetailPath(companyFolderId, riskAssessmentId, masterSheetId),
+    undefined,
+    { stageKey },
+  );
+  if (detail.status === 200 && assessmentAlreadyApproved(detail)) {
+    return { response: detail, recoveredFromDetail: true };
+  }
+  return null;
+}
+
+async function recoverReviewFromDetail(request, companyFolderId, masterSheetId, riskAssessmentId, reviewId, stageKey) {
+  const detail = await request(
+    "GET",
+    riskAssessmentDetailPath(companyFolderId, riskAssessmentId, masterSheetId),
+    undefined,
+    { stageKey },
+  );
+  if (detail.status === 200 && reviewAlreadyRecorded(detail, reviewId)) {
+    return { response: detail, recoveredFromDetail: true };
+  }
+  return null;
+}
+
+async function postApproveWithTransientRecovery(
+  request,
+  companyFolderId,
+  masterSheetId,
+  riskAssessmentId,
+  body,
+  options = {},
+) {
+  const path = `/api/companies/${encodeURIComponent(companyFolderId)}/risk-assessments/${encodeURIComponent(riskAssessmentId)}/approve`;
+  const stageKey = options.stageKey || "approve";
+  const attempts = [];
+  try {
+    const retried = await requestWithTransientRetries(request, "POST", path, body, { stageKey, maxRetries: 2 });
+    attempts.push(...(retried.attempts || []));
+    const response = retried.response;
+    if (response?.status === 200 && response?.json?.ok === true) {
+      return { response, attempts, recovered: retried.retried === true };
+    }
+    if (isTransientWorkflowFailure(response)) {
+      const recovered = await recoverApproveFromDetail(request, companyFolderId, masterSheetId, riskAssessmentId, stageKey);
+      if (recovered) {
+        return { ...recovered, attempts, recovered: true };
+      }
+    }
+    return { response, attempts, recovered: false };
+  } catch (error) {
+    if (isStageTimeoutError(error)) {
+      throw error;
+    }
+    if (isTransientNetworkError(error)) {
+      const recovered = await recoverApproveFromDetail(request, companyFolderId, masterSheetId, riskAssessmentId, stageKey);
+      if (recovered) {
+        return { ...recovered, attempts, recovered: true };
+      }
+    }
+    throw error;
+  }
+}
+
+async function postReviewWithTransientRecovery(
+  request,
+  companyFolderId,
+  masterSheetId,
+  riskAssessmentId,
+  body,
+  reviewId,
+  options = {},
+) {
+  const path = `/api/companies/${encodeURIComponent(companyFolderId)}/risk-assessments/${encodeURIComponent(riskAssessmentId)}/review`;
+  const stageKey = options.stageKey || "review";
+  const attempts = [];
+  try {
+    const retried = await requestWithTransientRetries(request, "POST", path, body, { stageKey, maxRetries: 2 });
+    attempts.push(...(retried.attempts || []));
+    const response = retried.response;
+    if (response?.status === 200 && response?.json?.ok === true) {
+      return { response, attempts, recovered: retried.retried === true };
+    }
+    if (isTransientWorkflowFailure(response)) {
+      const recovered = await recoverReviewFromDetail(
+        request,
+        companyFolderId,
+        masterSheetId,
+        riskAssessmentId,
+        reviewId,
+        stageKey,
+      );
+      if (recovered) {
+        return { ...recovered, attempts, recovered: true };
+      }
+    }
+    return { response, attempts, recovered: false };
+  } catch (error) {
+    if (isStageTimeoutError(error)) {
+      throw error;
+    }
+    if (isTransientNetworkError(error)) {
+      const recovered = await recoverReviewFromDetail(
+        request,
+        companyFolderId,
+        masterSheetId,
+        riskAssessmentId,
+        reviewId,
+        stageKey,
+      );
+      if (recovered) {
+        return { ...recovered, attempts, recovered: true };
+      }
+    }
+    throw error;
+  }
 }
 
 export function loadRiskAssessmentWorkflowConfig(env = process.env) {
@@ -1400,12 +1526,15 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
       firstApprove: null,
       repeatApprove: null,
       detailPollAttempts: [],
+      transientRetryAttempts: [],
     };
-    let approveResponse;
+    let approveResult;
     try {
-      approveResponse = await request(
-        "POST",
-        `/api/companies/${encodeURIComponent(companyFolderId)}/risk-assessments/${encodeURIComponent(riskAssessmentId)}/approve`,
+      approveResult = await postApproveWithTransientRecovery(
+        request,
+        companyFolderId,
+        masterSheetId,
+        riskAssessmentId,
         { activateNow: true, masterSheetId },
         { stageKey: "approve" },
       );
@@ -1419,6 +1548,8 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
         "Inspect POST /api/companies/:id/risk-assessments/:id/approve.",
       );
     }
+    let approveResponse = approveResult.response;
+    approveDiagnostics.transientRetryAttempts = approveResult.attempts || [];
 
     if (approveResponse.status === 403 && /own submission/i.test(String(approveResponse.json?.error || approveResponse.json?.message || ""))) {
       approveDiagnostics.selfApprovalBlocked = true;
@@ -1454,12 +1585,19 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
       }
       approveDiagnostics.reviewerUsed = true;
       approveDiagnostics.approverEmail = trim(reviewerLogin.accountEmail) || config.reviewerExpectedEmail || null;
-      approveResponse = await request(
-        "POST",
-        `/api/companies/${encodeURIComponent(companyFolderId)}/risk-assessments/${encodeURIComponent(riskAssessmentId)}/approve`,
+      approveResult = await postApproveWithTransientRecovery(
+        request,
+        companyFolderId,
+        masterSheetId,
+        riskAssessmentId,
         { activateNow: true, masterSheetId },
         { stageKey: "approve" },
       );
+      approveResponse = approveResult.response;
+      approveDiagnostics.transientRetryAttempts = [
+        ...(approveDiagnostics.transientRetryAttempts || []),
+        ...(approveResult.attempts || []),
+      ];
     } else {
       approveDiagnostics.approverEmail = approveDiagnostics.submitterEmail;
       approveDiagnostics.selfApprovalBlocked = false;
@@ -1476,6 +1614,8 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
       activatedAt: Boolean(trim(approveResponse.json?.item?.activatedAt)),
       actualAssessmentId: trim(approveResponse.json?.item?.id) || null,
       responseCode: trim(approveResponse.json?.code) || null,
+      recoveredFromDetail: approveResult.recoveredFromDetail === true,
+      transientRetried: approveResult.recovered === true,
     };
     if (approveResponse.status !== 200 || approveResponse.json?.ok !== true) {
       result.approveDiagnostics = approveDiagnostics;
@@ -1677,6 +1817,7 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
       actualHazardIds: [],
       finalDetailStatus: null,
       reviewHistoryCount: null,
+      transientRetryAttempts: [],
     };
     let beforeDetail;
     try {
@@ -1701,11 +1842,13 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
     reviewDiagnostics.previousReviewDate = trim(beforeDetail.json?.item?.reviewDate) || null;
     reviewDiagnostics.reviewHistoryCountBefore = Array.isArray(beforeDetail.json?.reviews) ? beforeDetail.json.reviews.length : 0;
 
-    let reviewResponse;
+    let reviewResult;
     try {
-      reviewResponse = await request(
-        "POST",
-        `/api/companies/${encodeURIComponent(companyFolderId)}/risk-assessments/${encodeURIComponent(riskAssessmentId)}/review`,
+      reviewResult = await postReviewWithTransientRecovery(
+        request,
+        companyFolderId,
+        masterSheetId,
+        riskAssessmentId,
         {
           reviewId,
           reviewType: "manual",
@@ -1714,6 +1857,7 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
           nextReviewDate,
           masterSheetId,
         },
+        reviewId,
         { stageKey: "review" },
       );
     } catch (error) {
@@ -1727,6 +1871,8 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
         "Inspect POST /api/companies/:id/risk-assessments/:id/review.",
       );
     }
+    const reviewResponse = reviewResult.response;
+    reviewDiagnostics.transientRetryAttempts = reviewResult.attempts || [];
     assertResponseSafe(reviewResponse.json, "review");
     reviewDiagnostics.firstReview = {
       httpStatus: reviewResponse.status,
@@ -1742,6 +1888,8 @@ export async function runProductionRiskAssessmentWorkflowChecks(config, transpor
       reviewOutcome: trim(
         (reviewResponse.json?.reviews || []).find((entry) => trim(entry.id) === reviewId || String(entry.summary || "").includes("Production smoke verification review"))?.outcome,
       ) || null,
+      recoveredFromDetail: reviewResult.recoveredFromDetail === true,
+      transientRetried: reviewResult.recovered === true,
     };
     if (reviewResponse.status !== 200 || reviewResponse.json?.ok !== true) {
       result.reviewDiagnostics = reviewDiagnostics;

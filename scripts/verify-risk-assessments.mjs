@@ -155,6 +155,9 @@ assert(service.includes("RISK_REVIEW_CREATE_WRITE_FAILED"), "service: review zer
 assert(service.includes("alreadyReviewed"), "service: review idempotency");
 assert(service.includes("appendAndConfirmReviewRow"), "service: review append confirmation helper");
 assert(service.includes("RISK_ASSESSMENT_REVIEWS_TAB_COLUMNS,\n      [reviewRow]"), "service: review append uses canonical headers");
+assert(service.includes("[risk-assessment:mutation-timing]"), "service: mutation timing instrumentation");
+assert(service.includes("buildAssessmentMutationResponse"), "service: lightweight mutation response builder");
+assert(service.includes("readAssessmentHazardsForAssessment"), "service: targeted hazard read for mutations");
 
 const validationAdapter = read("src/health-safety/adapters/riskAssessmentValidation.ts");
 assert(validationAdapter.includes("buildClientHazardId"), "client: stable HazardId at creation");
@@ -306,4 +309,18 @@ const reviewPersistenceTests = spawnSync("node", ["--test", "scripts/verify-risk
 });
 if (reviewPersistenceTests.status !== 0) {
   process.exit(reviewPersistenceTests.status || 1);
+}
+
+const transientRetryTests = spawnSync("node", ["--test", "scripts/verify-risk-assessment-transient-retry.test.mjs"], {
+  stdio: "inherit",
+});
+if (transientRetryTests.status !== 0) {
+  process.exit(transientRetryTests.status || 1);
+}
+
+const mutationReliabilityTests = spawnSync("node", ["--test", "scripts/verify-risk-assessment-mutation-reliability.test.mjs"], {
+  stdio: "inherit",
+});
+if (mutationReliabilityTests.status !== 0) {
+  process.exit(mutationReliabilityTests.status || 1);
 }

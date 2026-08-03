@@ -946,6 +946,87 @@ function logRiskAssessmentReview(stage, payload = {}) {
   );
 }
 
+function logRiskAssessmentMutationTiming(operation, stage, payload = {}) {
+  console.info(
+    "[risk-assessment:mutation-timing]",
+    JSON.stringify({
+      operation: trim(operation) || undefined,
+      stage: trim(stage) || undefined,
+      durationMs: Number.isFinite(payload.durationMs) ? payload.durationMs : undefined,
+      totalMs: Number.isFinite(payload.totalMs) ? payload.totalMs : undefined,
+      riskAssessmentId: trim(payload.riskAssessmentId) || undefined,
+      workbookId: trim(payload.workbookId) || undefined,
+      updatedRows: Number.isFinite(payload.updatedRows) ? payload.updatedRows : undefined,
+    }),
+  );
+}
+
+function createMutationTimingContext(operation, context = {}) {
+  const startedAt = Date.now();
+  let lastStageAt = startedAt;
+  const base = {
+    operation: trim(operation) || undefined,
+    riskAssessmentId: trim(context.riskAssessmentId) || undefined,
+    workbookId: trim(context.workbookId) || undefined,
+  };
+  return {
+    startedAt,
+    log(stage, extra = {}) {
+      const now = Date.now();
+      const durationMs = now - lastStageAt;
+      const totalMs = now - startedAt;
+      lastStageAt = now;
+      logRiskAssessmentMutationTiming(base.operation, stage, {
+        ...base,
+        durationMs,
+        totalMs,
+        ...extra,
+      });
+    },
+  };
+}
+
+async function readAssessmentHazardsForAssessment(auth, deps, masterSheetId, riskAssessmentId, options = {}) {
+  if (!options.skipEnsure) {
+    await ensureRiskAssessmentTabs(auth, deps, masterSheetId);
+  }
+  const hazardRecords = await readTab(
+    auth,
+    deps,
+    masterSheetId,
+    RISK_ASSESSMENT_HAZARDS_TAB,
+    RISK_ASSESSMENT_HAZARDS_TAB_COLUMNS,
+  );
+  return dedupeHazardsById(
+    hazardRecords
+      .map((record) => mapRiskHazardRecord(record))
+      .filter((hazard) => hazard.riskAssessmentId === trim(riskAssessmentId) && !hazard.archivedAt),
+  ).sort((left, right) => left.sortOrder - right.sortOrder || left.hazardTitle.localeCompare(right.hazardTitle));
+}
+
+function buildAssessmentMutationResponse(assessment, hazards = [], links = [], reviews = []) {
+  const summary = summariseAssessmentRisk(hazards);
+  return {
+    ok: true,
+    item: {
+      ...assessment,
+      ...summary,
+      highestResidualBand: summary.highestResidualBand,
+      highestInitialBand: summary.highestInitialBand,
+    },
+    hazards: dedupeHazardsById(hazards),
+    links: links || [],
+    reviews: reviews || [],
+  };
+}
+
+function mapReviewRecordsForAssessment(reviewRecords = [], riskAssessmentId) {
+  return reviewRecords
+    .map((record) => mapRiskReviewRecord(record))
+    .filter((review) => review.riskAssessmentId === trim(riskAssessmentId))
+    .sort((left, right) => trim(right.createdAt).localeCompare(trim(left.createdAt)));
+}
+
 function buildEditableDraftAssessmentPatch(mappedAssessment, rawRecord, input = {}, actor, options = {}) {
   const storedStatus = pickRawAssessmentField(rawRecord, "Status") || "Draft";
   const storedVersion = normalizeAssessmentVersion(pickRawAssessmentField(rawRecord, "Version") || "1.0");
@@ -2100,19 +2181,26 @@ export async function submitCompanyRiskAssessment(auth, deps, resolved, actor, r
 }
 
 export async function approveCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId, input = {}) {
-  const startedAt = Date.now();
-  const timer = createRiskAssessmentTiming("approve", {
-    assessmentId: riskAssessmentId,
-    companyFolderId: resolved.companyFolderId,
+  const mutationTimer = createMutationTimingContext("approve", {
+    riskAssessmentId,
+    workbookId: resolved.masterSheetId,
   });
-  const current = await buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer, skipCache: true });
-  if (!current.ok) return current;
+  const startedAt = mutationTimer.startedAt;
+  mutationTimer.log("pre-read-start");
   const rawBefore = await readAssessmentRawRecord(auth, deps, resolved.masterSheetId, riskAssessmentId);
-  const storedStatusBefore = pickRawAssessmentField(rawBefore, "Status") || current.item.status || "";
+  if (!rawBefore) {
+    return healthSafetyApiFailure("RISK_ASSESSMENT_NOT_FOUND", "Risk assessment not found.", 404);
+  }
+  const item = mapRiskAssessmentRecord(rawBefore);
+  const hazards = await readAssessmentHazardsForAssessment(auth, deps, resolved.masterSheetId, riskAssessmentId, {
+    skipEnsure: true,
+  });
+  mutationTimer.log("pre-read-complete", { hazardCount: hazards.length });
+  const storedStatusBefore = pickRawAssessmentField(rawBefore, "Status") || item.status || "";
   const storedVersionBefore = normalizeAssessmentVersion(
-    pickRawAssessmentField(rawBefore, "Version") || current.item.version || "1.0",
+    pickRawAssessmentField(rawBefore, "Version") || item.version || "1.0",
   );
-  const submitterEmail = normalizeEmail(current.item.submittedBy || pickRawAssessmentField(rawBefore, "SubmittedBy"));
+  const submitterEmail = normalizeEmail(item.submittedBy || pickRawAssessmentField(rawBefore, "SubmittedBy"));
   const actorEmail = normalizeEmail(actor.email);
   const sameActorAsSubmitter = Boolean(submitterEmail && actorEmail && submitterEmail === actorEmail);
   logRiskAssessmentApprove("validation-start", {
@@ -2126,26 +2214,27 @@ export async function approveCompanyRiskAssessment(auth, deps, resolved, actor, 
   const activateNow = input.activateNow !== false;
   const targetStatus = activateNow ? "Active" : "Approved";
   if (storedStatusBefore === "Active" || storedStatusBefore === "Approved") {
-    timer.log("already-approved");
-    const fresh = await buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer, skipCache: true });
+    mutationTimer.log("already-approved");
+    const freshItem = mapRiskAssessmentRecord(rawBefore);
     logRiskAssessmentApprove("already-approved", {
       riskAssessmentId,
       actorRole: trim(actor.role),
       beforeStatus: storedStatusBefore,
-      afterStatus: fresh.item?.status,
+      afterStatus: freshItem.status,
       alreadyApproved: true,
-      approvedAt: Boolean(fresh.item?.approvedAt),
-      activatedAt: Boolean(fresh.item?.activatedAt),
+      approvedAt: Boolean(freshItem.approvedAt),
+      activatedAt: Boolean(freshItem.activatedAt),
       durationMs: Date.now() - startedAt,
     });
     return publishRiskAssessmentListMutation(
       resolved,
       "approve",
-      { ...fresh, alreadyApproved: true },
+      { ...buildAssessmentMutationResponse(freshItem, hazards, [], []), alreadyApproved: true },
       riskAssessmentId,
     );
   }
-  if (!canApproveRiskAssessment(actor, current.item)) {
+  mutationTimer.log("validation-start");
+  if (!canApproveRiskAssessment(actor, item)) {
     logRiskAssessmentApprove("permission-denied", {
       riskAssessmentId,
       actorRole: trim(actor.role),
@@ -2154,7 +2243,7 @@ export async function approveCompanyRiskAssessment(auth, deps, resolved, actor, 
     });
     return healthSafetyApiFailure("RISK_ASSESSMENT_FORBIDDEN", "You cannot approve this assessment.", 403);
   }
-  if (!canSelfApproveRiskAssessment(actor, current.item)) {
+  if (!canSelfApproveRiskAssessment(actor, item)) {
     logRiskAssessmentApprove("self-approval-blocked", {
       riskAssessmentId,
       actorRole: trim(actor.role),
@@ -2165,7 +2254,7 @@ export async function approveCompanyRiskAssessment(auth, deps, resolved, actor, 
     });
     return healthSafetyApiFailure("RISK_ASSESSMENT_FORBIDDEN", "You cannot approve your own submission.", 403);
   }
-  if (storedStatusBefore !== "Submitted" && current.item.status !== "Submitted") {
+  if (storedStatusBefore !== "Submitted" && item.status !== "Submitted") {
     logRiskAssessmentApprove("validation-failed", {
       riskAssessmentId,
       beforeStatus: storedStatusBefore,
@@ -2180,6 +2269,7 @@ export async function approveCompanyRiskAssessment(auth, deps, resolved, actor, 
   const timestamp = nowIso();
   const approvedBy = normalizeEmail(actor.email);
   const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
+  mutationTimer.log("assessment-patch-start");
   const patchResult = await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, "RiskAssessmentId", riskAssessmentId, {
     Status: targetStatus,
     ApprovedAt: timestamp,
@@ -2187,6 +2277,9 @@ export async function approveCompanyRiskAssessment(auth, deps, resolved, actor, 
     ActivatedAt: activateNow ? timestamp : "",
     UpdatedAt: timestamp,
     UpdatedBy: approvedBy,
+  });
+  mutationTimer.log("assessment-patch-ack", {
+    updatedRows: patchResult?.patched ?? patchResult?.updatedRows ?? 1,
   });
   logRiskAssessmentApprove("patch-ack", {
     riskAssessmentId,
@@ -2196,20 +2289,21 @@ export async function approveCompanyRiskAssessment(auth, deps, resolved, actor, 
     updatedRows: patchResult?.patched ?? patchResult?.updatedRows ?? 1,
     durationMs: Date.now() - startedAt,
   });
-  timer.log("patch-status");
-  if (trim(current.item.previousVersionId) && activateNow) {
-    await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, "RiskAssessmentId", current.item.previousVersionId, {
+  if (trim(item.previousVersionId) && activateNow) {
+    await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, "RiskAssessmentId", item.previousVersionId, {
       Status: "Superseded",
       SupersededAt: timestamp,
       UpdatedAt: timestamp,
       UpdatedBy: approvedBy,
     });
   }
+  mutationTimer.log("exact-row-readback-start");
   const rawAfterPatch = await readAssessmentRawRecord(auth, deps, resolved.masterSheetId, riskAssessmentId);
   const readbackStatus = pickRawAssessmentField(rawAfterPatch, "Status");
   const readbackApprovedAt = pickRawAssessmentField(rawAfterPatch, "ApprovedAt");
   const readbackApprovedBy = pickRawAssessmentField(rawAfterPatch, "ApprovedBy");
   const readbackActivatedAt = pickRawAssessmentField(rawAfterPatch, "ActivatedAt");
+  mutationTimer.log("exact-row-readback-complete");
   logRiskAssessmentApprove("exact-row-readback", {
     riskAssessmentId,
     beforeStatus: storedStatusBefore,
@@ -2230,42 +2324,46 @@ export async function approveCompanyRiskAssessment(auth, deps, resolved, actor, 
       500,
     );
   }
-  const detail = await buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer, skipCache: true });
-  const detailStatus = trim(detail?.item?.status);
+  const updatedItem = mapRiskAssessmentRecord(rawAfterPatch);
+  const detailStatus = trim(updatedItem.status);
+  mutationTimer.log("response-build-start");
+  const response = buildAssessmentMutationResponse(updatedItem, hazards, [], []);
+  mutationTimer.log("response-build-complete", { hazardCount: hazards.length });
   logRiskAssessmentApprove("detail-lookup", {
     riskAssessmentId,
     beforeStatus: storedStatusBefore,
     afterStatus: detailStatus,
-    approvedAt: Boolean(detail?.item?.approvedAt),
-    activatedAt: Boolean(detail?.item?.activatedAt),
+    approvedAt: Boolean(updatedItem.approvedAt),
+    activatedAt: Boolean(updatedItem.activatedAt),
     durationMs: Date.now() - startedAt,
   });
-  if (!detail?.ok || (detailStatus !== "Active" && detailStatus !== "Approved")) {
+  if (detailStatus !== "Active" && detailStatus !== "Approved") {
     return healthSafetyApiFailure(
       "RISK_ASSESSMENT_APPROVE_NOT_VISIBLE",
       "Risk assessment approval could not be confirmed on detail readback.",
       500,
     );
   }
-  if (normalizeAssessmentVersion(detail.item.version) !== storedVersionBefore) {
+  if (normalizeAssessmentVersion(updatedItem.version) !== storedVersionBefore) {
     return healthSafetyApiFailure(
       "RISK_ASSESSMENT_APPROVE_NOT_VISIBLE",
       "Risk assessment version changed unexpectedly during approval.",
       500,
     );
   }
-  timer.log("complete");
+  mutationTimer.log("cache-invalidation-start");
+  mutationTimer.log("complete");
   logRiskAssessmentApprove("complete", {
     riskAssessmentId,
     actorRole: trim(actor.role),
     sameActorAsSubmitter,
     beforeStatus: storedStatusBefore,
     afterStatus: detailStatus,
-    approvedAt: Boolean(detail.item.approvedAt),
-    activatedAt: Boolean(detail.item.activatedAt),
+    approvedAt: Boolean(updatedItem.approvedAt),
+    activatedAt: Boolean(updatedItem.activatedAt),
     durationMs: Date.now() - startedAt,
   });
-  return publishRiskAssessmentListMutation(resolved, "approve", detail, riskAssessmentId);
+  return publishRiskAssessmentListMutation(resolved, "approve", response, riskAssessmentId);
 }
 
 export async function rejectCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId, input = {}) {
@@ -2338,22 +2436,26 @@ export async function restoreCompanyRiskAssessment(auth, deps, resolved, actor, 
 }
 
 export async function reviewCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId, input = {}) {
-  const startedAt = Date.now();
-  const timer = createRiskAssessmentTiming("review", {
-    assessmentId: riskAssessmentId,
-    companyFolderId: resolved.companyFolderId,
+  const mutationTimer = createMutationTimingContext("review", {
+    riskAssessmentId,
+    workbookId: resolved.masterSheetId,
   });
-  const current = await buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer, skipCache: true });
-  if (!current.ok) return current;
+  const startedAt = mutationTimer.startedAt;
+  mutationTimer.log("pre-read-start");
   const rawBefore = await readAssessmentRawRecord(auth, deps, resolved.masterSheetId, riskAssessmentId);
-  const beforeStatus = pickRawAssessmentField(rawBefore, "Status") || current.item.status || "";
+  if (!rawBefore) {
+    return healthSafetyApiFailure("RISK_ASSESSMENT_NOT_FOUND", "Risk assessment not found.", 404);
+  }
+  const item = mapRiskAssessmentRecord(rawBefore);
+  const beforeStatus = pickRawAssessmentField(rawBefore, "Status") || item.status || "";
   const beforeVersion = normalizeAssessmentVersion(
-    pickRawAssessmentField(rawBefore, "Version") || current.item.version || "1.0",
+    pickRawAssessmentField(rawBefore, "Version") || item.version || "1.0",
   );
-  const previousReviewDate = pickRawAssessmentField(rawBefore, "ReviewDate") || current.item.reviewDate || "";
+  const previousReviewDate = pickRawAssessmentField(rawBefore, "ReviewDate") || item.reviewDate || "";
   const outcome = trim(input.outcome) || "no_change";
   const reviewType = trim(input.reviewType) || "manual";
   const requestedReviewId = trim(input.reviewId) || trim(input.id);
+  mutationTimer.log("validation-start");
   logRiskAssessmentReview("validation-start", {
     riskAssessmentId,
     reviewId: requestedReviewId || undefined,
@@ -2363,7 +2465,7 @@ export async function reviewCompanyRiskAssessment(auth, deps, resolved, actor, r
     previousReviewDate,
     durationMs: Date.now() - startedAt,
   });
-  if (!canReviewRiskAssessment(actor, current.item)) {
+  if (!canReviewRiskAssessment(actor, item)) {
     return healthSafetyApiFailure("RISK_ASSESSMENT_FORBIDDEN", "You cannot review this assessment.", 403);
   }
   if (!RISK_REVIEW_OUTCOMES.includes(outcome)) {
@@ -2372,6 +2474,7 @@ export async function reviewCompanyRiskAssessment(auth, deps, resolved, actor, r
   if (!RISK_REVIEW_TYPES.includes(reviewType)) {
     return healthSafetyApiFailure("RISK_ASSESSMENT_VALIDATION", "Invalid review type.", 400);
   }
+  mutationTimer.log("review-tab-read-start");
   const reviewRecords = await readTab(
     auth,
     deps,
@@ -2379,34 +2482,40 @@ export async function reviewCompanyRiskAssessment(auth, deps, resolved, actor, r
     RISK_ASSESSMENT_REVIEWS_TAB,
     RISK_ASSESSMENT_REVIEWS_TAB_COLUMNS,
   );
+  mutationTimer.log("review-tab-read-complete", { reviewHistoryCount: reviewRecords.length });
   if (requestedReviewId) {
     const existingReview = reviewRecords.find((record) => trim(record.ReviewId) === requestedReviewId);
     if (existingReview) {
-      const detail = await buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer, skipCache: true });
+      mutationTimer.log("already-reviewed");
+      const hazards = await readAssessmentHazardsForAssessment(auth, deps, resolved.masterSheetId, riskAssessmentId, {
+        skipEnsure: true,
+      });
+      const reviews = mapReviewRecordsForAssessment(reviewRecords, riskAssessmentId);
+      const freshItem = mapRiskAssessmentRecord(rawBefore);
       logRiskAssessmentReview("already-reviewed", {
         riskAssessmentId,
         reviewId: requestedReviewId,
         beforeStatus,
-        afterStatus: detail.item?.status,
+        afterStatus: freshItem.status,
         beforeVersion,
-        afterVersion: detail.item?.version,
+        afterVersion: freshItem.version,
         outcome: trim(existingReview.Outcome),
-        nextReviewDate: detail.item?.reviewDate,
-        reviewHistoryCount: (detail.reviews || []).length,
+        nextReviewDate: freshItem.reviewDate,
+        reviewHistoryCount: reviews.length,
         alreadyReviewed: true,
         durationMs: Date.now() - startedAt,
       });
       return publishRiskAssessmentListMutation(
         resolved,
         "review",
-        { ...detail, alreadyReviewed: true },
+        { ...buildAssessmentMutationResponse(freshItem, hazards, [], reviews), alreadyReviewed: true },
         riskAssessmentId,
       );
     }
   }
   const timestamp = nowIso();
   const reviewId = requestedReviewId || buildRiskReviewId();
-  const nextReviewDate = trim(input.nextReviewDate) || current.item.reviewDate;
+  const nextReviewDate = trim(input.nextReviewDate) || item.reviewDate;
   const reviewRow = {
     ReviewId: reviewId,
     RiskAssessmentId: riskAssessmentId,
@@ -2425,15 +2534,23 @@ export async function reviewCompanyRiskAssessment(auth, deps, resolved, actor, r
     CreatedAt: timestamp,
     CreatedBy: normalizeEmail(actor.email),
   };
+  mutationTimer.log("review-append-start");
   const appended = await appendAndConfirmReviewRow(auth, deps, resolved, riskAssessmentId, reviewRow);
   if (!appended.ok) return appended;
+  mutationTimer.log("review-append-ack", {
+    updatedRows: appended.appendResult?.updatedRows,
+  });
   const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
   if (outcome === "no_change") {
+    mutationTimer.log("assessment-patch-start");
     const patchResult = await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, "RiskAssessmentId", riskAssessmentId, {
       ReviewDate: nextReviewDate,
       Status: "Active",
       UpdatedAt: timestamp,
       UpdatedBy: normalizeEmail(actor.email),
+    });
+    mutationTimer.log("assessment-patch-ack", {
+      updatedRows: patchResult?.patched ?? patchResult?.updatedRows ?? 1,
     });
     logRiskAssessmentReview("assessment-patch-ack", {
       riskAssessmentId,
@@ -2473,10 +2590,12 @@ export async function reviewCompanyRiskAssessment(auth, deps, resolved, actor, r
       UpdatedBy: normalizeEmail(actor.email),
     });
   }
+  mutationTimer.log("exact-row-readback-start");
   const rawAfter = await readAssessmentRawRecord(auth, deps, resolved.masterSheetId, riskAssessmentId);
   const afterStatus = pickRawAssessmentField(rawAfter, "Status") || beforeStatus;
   const afterVersion = normalizeAssessmentVersion(pickRawAssessmentField(rawAfter, "Version") || beforeVersion);
   const afterReviewDate = pickRawAssessmentField(rawAfter, "ReviewDate") || nextReviewDate;
+  mutationTimer.log("exact-row-readback-complete");
   logRiskAssessmentReview("assessment-readback", {
     riskAssessmentId,
     reviewId,
@@ -2496,44 +2615,57 @@ export async function reviewCompanyRiskAssessment(auth, deps, resolved, actor, r
       500,
     );
   }
-  const detail = await buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, { timer, skipCache: true });
-  const reviewHistoryCount = (detail.reviews || []).length;
-  const reviewVisible = (detail.reviews || []).some((entry) => trim(entry.id) === reviewId);
+  mutationTimer.log("response-build-start");
+  const hazards = await readAssessmentHazardsForAssessment(auth, deps, resolved.masterSheetId, riskAssessmentId, {
+    skipEnsure: true,
+  });
+  const mappedReview = mapRiskReviewRecord(appended.record);
+  const reviews = [
+    mappedReview,
+    ...mapReviewRecordsForAssessment(reviewRecords, riskAssessmentId).filter((entry) => trim(entry.id) !== reviewId),
+  ].sort((left, right) => trim(right.createdAt).localeCompare(trim(left.createdAt)));
+  const updatedItem = mapRiskAssessmentRecord(rawAfter);
+  const response = buildAssessmentMutationResponse(updatedItem, hazards, [], reviews);
+  mutationTimer.log("response-build-complete", {
+    reviewHistoryCount: reviews.length,
+    hazardCount: hazards.length,
+  });
+  const reviewVisible = reviews.some((entry) => trim(entry.id) === reviewId);
   logRiskAssessmentReview("detail-lookup", {
     riskAssessmentId,
     reviewId,
     beforeStatus,
-    afterStatus: detail.item?.status,
+    afterStatus: updatedItem.status,
     beforeVersion,
-    afterVersion: detail.item?.version,
+    afterVersion: updatedItem.version,
     outcome,
-    nextReviewDate: detail.item?.reviewDate,
+    nextReviewDate: updatedItem.reviewDate,
     previousReviewDate,
-    reviewHistoryCount,
+    reviewHistoryCount: reviews.length,
     durationMs: Date.now() - startedAt,
   });
-  if (!detail?.ok || !reviewVisible) {
+  if (!reviewVisible) {
     return healthSafetyApiFailure(
       "RISK_REVIEW_NOT_VISIBLE",
       "Risk assessment review could not be confirmed on detail readback.",
       500,
     );
   }
-  timer.log("complete");
+  mutationTimer.log("complete");
   logRiskAssessmentReview("complete", {
     riskAssessmentId,
     reviewId,
     beforeStatus,
-    afterStatus: detail.item.status,
+    afterStatus: updatedItem.status,
     beforeVersion,
-    afterVersion: detail.item.version,
+    afterVersion: updatedItem.version,
     outcome,
-    nextReviewDate: detail.item.reviewDate,
+    nextReviewDate: updatedItem.reviewDate,
     previousReviewDate,
-    reviewHistoryCount,
+    reviewHistoryCount: reviews.length,
     durationMs: Date.now() - startedAt,
   });
-  return publishRiskAssessmentListMutation(resolved, "review", detail, riskAssessmentId);
+  return publishRiskAssessmentListMutation(resolved, "review", response, riskAssessmentId);
 }
 
 export async function createNewVersionCompanyRiskAssessment(auth, deps, resolved, actor, riskAssessmentId, input = {}) {
