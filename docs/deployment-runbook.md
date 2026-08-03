@@ -476,6 +476,55 @@ npm run verify:production-briefing-workflow-tests
 npm run verify:production-verification-briefing-tests
 ```
 
+### Production Documents workflow (post-deploy smoke)
+
+After startup health, authentication health, audit workflow, Actions workflow, Risk Assessment workflow, Incident workflow, and Briefing workflow pass, run the Documents workflow smoke test. It authenticates with the same smoke account, confirms Document Control list/index APIs, and — only when `BERT_SMOKE_ALLOW_DOCUMENT_MUTATION=1` — creates a dedicated verification controlled document, exercises draft → upload → edit → submit → approve, confirms Document Control index visibility and dashboard exclusion, and cleans up safely. It never edits customer documents or Drive files outside the verification path.
+
+```bash
+set -a && source .env && set +a
+
+BERT_SMOKE_USERNAME=mr.important \
+BERT_SMOKE_PASSWORD='<set securely>' \
+BERT_SMOKE_COMPANY_FOLDER_ID=1tDKluapYfY-RkuxXc6eoRnGHL38XCswx \
+BERT_SMOKE_MASTER_SHEET_ID=1MntKgSgVmTmlpzZhnCZdDQtdmPw7GcXptlAp88Ewrkc \
+BERT_SMOKE_EXPECTED_EMAIL=bert.demo+mr.important@usebert.co.uk \
+BERT_SMOKE_ALLOW_DOCUMENT_MUTATION=1 \
+npm run verify:production-documents-workflow
+```
+
+Environment:
+
+- **`BERT_SMOKE_ALLOW_DOCUMENT_MUTATION`** — must be `1` to exercise create/upload/edit/submit/approve/cleanup stages. Without it, mutation stages report **SKIPPED** (authentication, Document APIs, and baseline still run).
+- **`BERT_SMOKE_DOCUMENT_REVIEWER_USERNAME` / `BERT_SMOKE_DOCUMENT_REVIEWER_PASSWORD` / `BERT_SMOKE_DOCUMENT_REVIEWER_EXPECTED_EMAIL`** — optional separate approver account. When omitted, the verifier uses **self-approval mode** if production rules allow Admin self-approval.
+
+Verification document markers:
+
+- DocumentId prefix: `bert-smoke-doc-`
+- DocumentNumber prefix: `BERT-VERIFY-DOC-`
+- Title: `BERT Verification Document`
+- Source: `production-documents-workflow`
+- Marker: `verification`
+
+Cleanup routes (verification-only, idempotent):
+
+- `POST /api/companies/:companyFolderId/document-control/documents/verification-cleanup`
+- `POST /api/companies/:companyFolderId/document-control/documents/:documentId/verification-cleanup`
+
+File handling: a tiny runtime-generated plain-text verification file is uploaded through `POST .../document-control/revisions/:revisionId/upload` when Drive is available. If upload is unavailable, **File Upload = SKIPPED** but metadata/control workflow still runs where possible.
+
+Stage timeouts: authentication 90s, list/detail reads 60s, create/edit/submit/approve/upload 120s, dashboard 60s, cleanup 120s, total budget 12 minutes. Transient **502/503/504** and network timeouts retry after checking whether the document already exists or the mutation already completed.
+
+Skipped stages (expected when unsupported): Review (no separate API), New Revision (no safe multi-revision cleanup), Search (client-cache only), Document Library (when not linked to Document Control).
+
+Failure remediation: inspect the failed stage output, confirm `BERT_SMOKE_ALLOW_DOCUMENT_MUTATION=1` when mutations are required, run stale cleanup manually via `POST .../document-control/documents/verification-cleanup`, then re-run the verifier.
+
+Unit tests (mocked HTTP, no production calls):
+
+```bash
+npm run verify:production-documents-workflow-tests
+npm run verify:production-verification-document-tests
+```
+
 ### Post-deploy verification sequence
 
 Run in order after every API deployment:
@@ -487,8 +536,9 @@ Run in order after every API deployment:
 5. **Risk Assessment workflow** — `npm run verify:production-risk-assessment-workflow`
 6. **Incident workflow** — `npm run verify:production-incident-workflow`
 7. **Briefing workflow** — `npm run verify:production-briefing-workflow`
+8. **Documents workflow** — `npm run verify:production-documents-workflow`
 
-Only when all seven pass should the deployment be considered **READY FOR CUSTOMERS**.
+Only when all eight pass should the deployment be considered **READY FOR CUSTOMERS**.
 
 ### Startup system health (Master operators)
 

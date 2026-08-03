@@ -117,8 +117,11 @@ import {
   canApproveDocumentControl,
   canManageDocumentControl,
   canViewDocumentControl,
+  cleanupStaleVerificationDocuments,
+  cleanupVerificationDocument,
   createControlledDocument,
   createDocumentRevision,
+  createDraftVerificationDocument,
   DOCUMENT_CONTROL_ROUTE_TIMEOUT_MS,
   getDocumentControlDocument,
   getDocumentRevisionFile,
@@ -129,6 +132,7 @@ import {
   restoreControlledDocument,
   submitDocumentRevision,
   updateControlledDocument,
+  uploadVerificationRevisionFile,
 } from "./document-control-service.mjs";
 import {
   acknowledgeBriefing,
@@ -3829,12 +3833,24 @@ export function installCoreWorkflowRoutes(app, deps) {
   });
 
   app.post("/api/companies/:companyFolderId/document-control/documents", async (req, res) => {
+    const body = req.body || {};
+    const documentId = String(body.documentId || "").trim();
+    const documentNumber = String(body.documentNumber || "").trim();
+    const verificationSource = String(body.verificationSource || "").trim();
+    const useVerificationCreate =
+      documentId.startsWith("bert-smoke-doc-") ||
+      documentNumber.toUpperCase().startsWith("BERT-VERIFY-DOC-") ||
+      verificationSource === "production-documents-workflow";
+    const createHandler = useVerificationCreate
+      ? ({ authed, actor, resolved }) =>
+          createDraftVerificationDocument(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor, body)
+      : ({ authed, actor, resolved }) =>
+          createControlledDocument(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor, body);
     return runDocumentControlRoute(
       req,
       res,
       { manage: true },
-      ({ authed, actor, resolved }) =>
-        createControlledDocument(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor, req.body || {}),
+      createHandler,
       { operation: "document_control_create", code: "DOCUMENT_CONTROL_CREATE_FAILED", message: "Could not create controlled document." },
     );
   });
@@ -4041,6 +4057,53 @@ export function installCoreWorkflowRoutes(app, deps) {
       ({ authed, actor, resolved }) =>
         rebuildDocumentControlIndex(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor),
       { operation: "document_control_index_rebuild", code: "DOCUMENT_CONTROL_INDEX_REBUILD_FAILED", message: "Could not rebuild document control index." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/document-control/revisions/:revisionId/upload", async (req, res) => {
+    return runDocumentControlRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        uploadVerificationRevisionFile(
+          authed,
+          { ...registryDeps, ...scheduleDeps, google: registryDeps.google },
+          resolved,
+          actor,
+          String(req.params?.revisionId || "").trim(),
+          req.body || {},
+        ),
+      { operation: "document_control_upload", code: "DOCUMENT_CONTROL_UPLOAD_FAILED", message: "Could not upload verification revision file." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/document-control/documents/verification-cleanup", async (req, res) => {
+    return runDocumentControlRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        cleanupStaleVerificationDocuments(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor),
+      { operation: "document_control_verification_cleanup", code: "DOCUMENT_CONTROL_CLEANUP_FAILED", message: "Could not clean up verification documents." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/document-control/documents/:documentId/verification-cleanup", async (req, res) => {
+    return runDocumentControlRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        cleanupVerificationDocument(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.documentId || "").trim(),
+          req.body || {},
+        ),
+      { operation: "document_control_verification_cleanup_single", code: "DOCUMENT_CONTROL_CLEANUP_FAILED", message: "Could not clean up verification document." },
     );
   });
 

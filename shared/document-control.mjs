@@ -32,6 +32,7 @@ export const CONTROLLED_DOCUMENTS_TAB_COLUMNS = [
   "UpdatedBy",
   "ArchivedAt",
   "ArchivedBy",
+  "VerificationSource",
 ];
 
 export const DOCUMENT_REVISIONS_TAB_COLUMNS = [
@@ -82,7 +83,7 @@ export const DOCUMENT_CONTROL_INDEX_TAB_COLUMNS = [
 ];
 
 /** Stored document statuses. */
-export const DOCUMENT_STATUSES = ["draft", "awaiting_approval", "current", "superseded", "archived"];
+export const DOCUMENT_STATUSES = ["draft", "awaiting_approval", "current", "superseded", "archived", "verification-cleaned"];
 
 /** Stored revision statuses. */
 export const REVISION_STATUSES = [
@@ -484,6 +485,7 @@ export function mapControlledDocumentRecord(record) {
     primaryStandard: normalizePrimaryStandard(record.PrimaryStandard) || trim(record.PrimaryStandard),
     clauseReferences: normalizeClauseReferences(record.ClauseReferences),
     keywords: trim(record.Keywords),
+    verificationSource: trim(record.VerificationSource),
     currentRevisionId: trim(record.CurrentRevisionId),
     currentRevision: trim(record.CurrentRevision),
     documentStatus: trim(record.DocumentStatus).toLowerCase() || "draft",

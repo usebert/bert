@@ -39,6 +39,18 @@ import {
   patchTabRowByHeader as workbookPatchTabRowByHeader,
   readTabRecords as workbookReadTabRecords,
 } from "./workbook-service.mjs";
+import {
+  isActiveVerificationDocument,
+  isVerificationDocument,
+  isVerificationDocumentId,
+  isVerificationDocumentNumber,
+  PRODUCTION_VERIFICATION_DOCUMENT_CLEANED_STATUS,
+  PRODUCTION_VERIFICATION_DOCUMENT_SOURCE,
+} from "../shared/production-verification-document.mjs";
+import {
+  ensureDocumentControlFolderStructure,
+  uploadDocumentControlFile,
+} from "./document-control-file-service.mjs";
 
 export {
   CONTROLLED_DOCUMENTS_TAB,
@@ -323,6 +335,7 @@ function buildDocumentRow(documentId, documentNumber, normalized, actor, revisio
     PrimaryStandard: normalized.primaryStandard,
     ClauseReferences: formatClauseReferences(normalized.clauseReferences),
     Keywords: normalized.keywords,
+    VerificationSource: normalized.verificationSource || "",
     CurrentRevisionId: status === "current" ? revisionId : timestamps.currentRevisionId || "",
     CurrentRevision: status === "current" ? revisionLabel : timestamps.currentRevision || "",
     DocumentStatus: status,
@@ -675,6 +688,14 @@ export async function submitDocumentRevision(auth, deps, resolved, actor, revisi
   if (!canManageDocumentControl(actor)) {
     return documentControlApiFailure("DOCUMENT_CONTROL_FORBIDDEN", "You cannot submit revisions.", 403);
   }
+  const masterSheetId = trim(resolved?.masterSheetId);
+  const id = trim(revisionId);
+  await ensureDocumentControlTabs(auth, deps, masterSheetId);
+  const revisions = mapRevisionsSafely(await readRevisionRecords(auth, deps, masterSheetId));
+  const revision = revisions.find((rev) => rev.revisionId === id);
+  if (revision?.revisionStatus === "awaiting_approval") {
+    return getDocumentControlDocument(auth, deps, resolved, actor, revision.documentId);
+  }
   return transitionRevision(auth, deps, resolved, actor, revisionId, "awaiting_approval", "revision_submitted", {
     requireStatuses: ["draft", "rejected"],
     documentStatus: "awaiting_approval",
@@ -703,6 +724,9 @@ export async function approveDocumentRevision(auth, deps, resolved, actor, revis
   const revision = revisions.find((rev) => rev.revisionId === id);
   if (!revision) {
     return documentControlApiFailure("REVISION_NOT_FOUND", "Revision not found.", 404);
+  }
+  if (revision.revisionStatus === "current") {
+    return getDocumentControlDocument(auth, deps, resolved, actor, revision.documentId);
   }
   if (revision.revisionStatus !== "awaiting_approval" && revision.revisionStatus !== "draft") {
     return documentControlApiFailure("REVISION_NOT_APPROVABLE", "Revision is not awaiting approval.", 400);
@@ -1020,4 +1044,265 @@ export async function rebuildDocumentControlIndex(auth, deps, resolved, actor) {
   await ensureDocumentControlTabs(auth, deps, masterSheetId);
   const index = await rebuildIndexInternal(auth, deps, masterSheetId);
   return { ok: true, index, rebuilt: true };
+}
+
+function logDocumentMutationTiming(operation, stage, meta = {}) {
+  console.info("[document:mutation-timing]", {
+    operation,
+    stage,
+    documentId: trim(meta.documentId),
+    workbookId: trim(meta.workbookId),
+    updatedRows: Number(meta.updatedRows) || 0,
+    durationMs: Number(meta.durationMs) || 0,
+    totalMs: Number(meta.totalMs) || Number(meta.durationMs) || 0,
+  });
+}
+
+export async function createDraftVerificationDocument(auth, deps, resolved, actor, input = {}) {
+  const startedAt = Date.now();
+  if (!canManageDocumentControl(actor)) {
+    return documentControlApiFailure("DOCUMENT_CONTROL_FORBIDDEN", "You cannot create controlled documents.", 403);
+  }
+  const masterSheetId = trim(resolved?.masterSheetId);
+  if (!masterSheetId) {
+    return documentControlApiFailure("DOCUMENT_CONTROL_NO_WORKBOOK", "Company workbook is not linked.", 400);
+  }
+  const documentId = trim(input.documentId);
+  const documentNumber = trim(input.documentNumber).toUpperCase();
+  if (!isVerificationDocumentId(documentId)) {
+    return documentControlApiFailure(
+      "DOCUMENT_VERIFICATION_ID_REQUIRED",
+      "Verification documents must use the bert-smoke-doc- ID prefix.",
+      403,
+    );
+  }
+  if (!isVerificationDocumentNumber(documentNumber)) {
+    return documentControlApiFailure(
+      "DOCUMENT_VERIFICATION_NUMBER_REQUIRED",
+      "Verification documents must use the BERT-VERIFY-DOC- number prefix.",
+      403,
+    );
+  }
+
+  await ensureDocumentControlTabs(auth, deps, masterSheetId);
+  const existing = mapDocumentsSafely(await readDocumentRecords(auth, deps, masterSheetId)).find(
+    (doc) => doc.documentId === documentId,
+  );
+  if (existing) {
+    if (!isVerificationDocument(existing)) {
+      return documentControlApiFailure("DOCUMENT_ID_CONFLICT", "Document ID is already used by a non-verification record.", 409);
+    }
+    return {
+      ok: true,
+      document: decorateDocument(existing, getUkTodayKey()),
+      alreadyExists: true,
+      updatedRows: 0,
+      revision: mapRevisionsSafely(await readRevisionRecords(auth, deps, masterSheetId)).find(
+        (rev) => rev.documentId === documentId,
+      ),
+    };
+  }
+
+  const existingNumbers = (await readDocumentRecords(auth, deps, masterSheetId))
+    .map((row) => trim(row.DocumentNumber))
+    .filter(Boolean);
+  if (documentNumberAlreadyUsed(existingNumbers, documentNumber)) {
+    return documentControlApiFailure("DOCUMENT_NUMBER_DUPLICATE", "Document number is already in use.", 409);
+  }
+
+  const validation = validateControlledDocumentInput(
+    {
+      ...input,
+      documentNumber: "",
+      title: trim(input.title),
+      documentType: input.documentType || "procedure",
+      department: input.department || "Verification",
+      ownerName: trim(input.ownerName || actor?.name || actor?.email),
+      ownerEmail: trim(input.ownerEmail || actor?.email),
+      primaryStandard: input.primaryStandard || "COMPANY",
+      clauseReferences: input.clauseReferences || ["COMPANY:VERIFICATION"],
+      keywords: trim(input.keywords) || `verification ${PRODUCTION_VERIFICATION_DOCUMENT_SOURCE}`,
+      nextReviewDate: input.nextReviewDate,
+      changeSummary: trim(input.changeSummary) || "Initial verification revision.",
+    },
+    { allowMissingFile: true },
+  );
+  if (!validation.ok) {
+    return documentControlApiFailure("DOCUMENT_VALIDATION_FAILED", validation.errors[0], 400, validation.errors.join(" "));
+  }
+
+  const normalized = {
+    ...validation.normalized,
+    verificationSource: PRODUCTION_VERIFICATION_DOCUMENT_SOURCE,
+  };
+  const sequence = 1;
+  const revisionId = buildRevisionId(documentId, sequence);
+  const revisionLabel = formatRevisionLabel(sequence);
+  const createdAt = nowIso();
+  const documentRow = buildDocumentRow(
+    documentId,
+    documentNumber,
+    normalized,
+    actor,
+    revisionId,
+    revisionLabel,
+    "draft",
+    { createdAt, createdBy: normalizeEmail(actor?.email) || "unknown", currentRevisionId: revisionId, currentRevision: revisionLabel },
+  );
+  const revisionRow = buildRevisionRow(
+    revisionId,
+    documentId,
+    documentNumber,
+    sequence,
+    normalized,
+    actor,
+    "draft",
+    { createdAt, logAction: "document_created", changeSummary: normalized.changeSummary },
+  );
+
+  const appendTabRows = resolveAppendTabRows(deps);
+  await appendTabRows(auth, deps, masterSheetId, CONTROLLED_DOCUMENTS_TAB, CONTROLLED_DOCUMENTS_TAB_COLUMNS, [documentRow]);
+  await appendTabRows(auth, deps, masterSheetId, DOCUMENT_REVISIONS_TAB, DOCUMENT_REVISIONS_TAB_COLUMNS, [revisionRow]);
+  await syncIndexAfterChange(auth, deps, masterSheetId);
+  logDocumentMutationTiming("create", "draft", {
+    documentId,
+    workbookId: masterSheetId,
+    updatedRows: 2,
+    durationMs: Date.now() - startedAt,
+    totalMs: Date.now() - startedAt,
+  });
+  return {
+    ok: true,
+    document: decorateDocument(mapControlledDocumentRecord(documentRow), getUkTodayKey()),
+    revision: mapDocumentRevisionRecord(revisionRow),
+    updatedRows: 2,
+  };
+}
+
+export async function uploadVerificationRevisionFile(auth, deps, resolved, actor, revisionId, input = {}) {
+  const startedAt = Date.now();
+  if (!canManageDocumentControl(actor)) {
+    return documentControlApiFailure("DOCUMENT_CONTROL_FORBIDDEN", "You cannot upload revision files.", 403);
+  }
+  const masterSheetId = trim(resolved?.masterSheetId);
+  const id = trim(revisionId);
+  await ensureDocumentControlTabs(auth, deps, masterSheetId);
+  const revisions = mapRevisionsSafely(await readRevisionRecords(auth, deps, masterSheetId));
+  const revision = revisions.find((rev) => rev.revisionId === id);
+  if (!revision) {
+    return documentControlApiFailure("REVISION_NOT_FOUND", "Revision not found.", 404);
+  }
+  const documents = mapDocumentsSafely(await readDocumentRecords(auth, deps, masterSheetId));
+  const document = documents.find((doc) => doc.documentId === revision.documentId);
+  if (!document || !isVerificationDocument(document)) {
+    return documentControlApiFailure("DOCUMENT_NOT_VERIFICATION", "Only verification revisions can use this upload path.", 403);
+  }
+  if (revision.fileId || revision.fileUrl) {
+    return { ok: true, revision, document, alreadyUploaded: true, updatedRows: 0 };
+  }
+
+  const drive = deps?.google?.drive ? deps.google.drive({ version: "v3", auth }) : null;
+  if (!drive) {
+    return documentControlApiFailure("DRIVE_UNAVAILABLE", "Google Drive is not available for verification upload.", 503);
+  }
+  const companyRootFolderId = trim(resolved?.companyFolderId);
+  const folders = await ensureDocumentControlFolderStructure(drive, companyRootFolderId);
+  const uploaded = await uploadDocumentControlFile(drive, {
+    folderId: folders.folders.Drafts,
+    fileName: trim(input.fileName) || "bert-verify-doc.txt",
+    fileDataUrl: input.fileDataUrl,
+    mimeType: trim(input.mimeType) || "text/plain",
+  });
+
+  await resolvePatchTabRowByHeader(deps)(auth, deps, masterSheetId, DOCUMENT_REVISIONS_TAB, "RevisionId", id, {
+    FileId: uploaded.fileId,
+    FileName: uploaded.fileName,
+    FileUrl: uploaded.fileUrl,
+    MimeType: uploaded.mimeType,
+    FileSize: uploaded.fileSize,
+    UpdatedAt: nowIso(),
+  });
+  const refreshed = mapRevisionsSafely(await readRevisionRecords(auth, deps, masterSheetId)).find((rev) => rev.revisionId === id);
+  logDocumentMutationTiming("upload", "upload", {
+    documentId: document.documentId,
+    workbookId: masterSheetId,
+    updatedRows: 1,
+    durationMs: Date.now() - startedAt,
+    totalMs: Date.now() - startedAt,
+  });
+  return { ok: true, revision: refreshed, document, updatedRows: 1 };
+}
+
+export async function cleanupVerificationDocument(auth, deps, resolved, actor, documentId, input = {}) {
+  const startedAt = Date.now();
+  const id = trim(documentId);
+  if (!isVerificationDocumentId(id)) {
+    return documentControlApiFailure(
+      "CLEANUP_NOT_VERIFICATION_DOCUMENT",
+      "Only verification documents with the bert-smoke-doc- prefix can be cleaned up through this path.",
+      403,
+    );
+  }
+  const masterSheetId = trim(resolved?.masterSheetId);
+  await ensureDocumentControlTabs(auth, deps, masterSheetId);
+  const documents = mapDocumentsSafely(await readDocumentRecords(auth, deps, masterSheetId));
+  const document = documents.find((doc) => doc.documentId === id);
+  if (!document) {
+    return { ok: true, cleaned: true, alreadyCleaned: true, documentId: id, updatedRows: 0 };
+  }
+  if (!isVerificationDocument(document)) {
+    return documentControlApiFailure("CLEANUP_NOT_VERIFICATION_DOCUMENT", "Only verification documents can be cleaned up through this path.", 403);
+  }
+  if (trim(document.documentStatus).toLowerCase() === PRODUCTION_VERIFICATION_DOCUMENT_CLEANED_STATUS) {
+    return { ok: true, cleaned: true, alreadyCleaned: true, documentId: id, status: PRODUCTION_VERIFICATION_DOCUMENT_CLEANED_STATUS, updatedRows: 0 };
+  }
+
+  const actorEmail = normalizeEmail(actor?.email) || "unknown";
+  const timestamp = nowIso();
+  await resolvePatchTabRowByHeader(deps)(auth, deps, masterSheetId, CONTROLLED_DOCUMENTS_TAB, "DocumentId", id, {
+    DocumentStatus: PRODUCTION_VERIFICATION_DOCUMENT_CLEANED_STATUS,
+    VerificationSource: PRODUCTION_VERIFICATION_DOCUMENT_SOURCE,
+    ArchivedAt: timestamp,
+    ArchivedBy: actorEmail,
+    UpdatedAt: timestamp,
+    UpdatedBy: actorEmail,
+  });
+  const revisions = mapRevisionsSafely(await readRevisionRecords(auth, deps, masterSheetId)).filter((rev) => rev.documentId === id);
+  for (const revision of revisions) {
+    await resolvePatchTabRowByHeader(deps)(auth, deps, masterSheetId, DOCUMENT_REVISIONS_TAB, "RevisionId", revision.revisionId, {
+      RevisionStatus: "archived",
+      ChangeLog: appendChangeLog(
+        revision.changeLog,
+        formatChangeLogEntry("verification_cleaned", actorEmail, { DocumentId: id, RevisionId: revision.revisionId }),
+      ),
+    });
+  }
+  await syncIndexAfterChange(auth, deps, masterSheetId);
+  logDocumentMutationTiming("cleanup", "cleanup", {
+    documentId: id,
+    workbookId: masterSheetId,
+    updatedRows: 1 + revisions.length,
+    durationMs: Date.now() - startedAt,
+    totalMs: Date.now() - startedAt,
+  });
+  return {
+    ok: true,
+    cleaned: true,
+    documentId: id,
+    status: PRODUCTION_VERIFICATION_DOCUMENT_CLEANED_STATUS,
+    updatedRows: 1 + revisions.length,
+  };
+}
+
+export async function cleanupStaleVerificationDocuments(auth, deps, resolved, actor) {
+  const masterSheetId = trim(resolved?.masterSheetId);
+  await ensureDocumentControlTabs(auth, deps, masterSheetId);
+  const documents = mapDocumentsSafely(await readDocumentRecords(auth, deps, masterSheetId));
+  const stale = documents.filter((doc) => isActiveVerificationDocument(doc));
+  const results = [];
+  for (const document of stale) {
+    const cleaned = await cleanupVerificationDocument(auth, deps, resolved, actor, document.documentId);
+    results.push({ documentId: document.documentId, ok: cleaned.ok === true, status: cleaned.status });
+  }
+  return { ok: true, cleanedCount: results.filter((item) => item.ok).length, results };
 }
