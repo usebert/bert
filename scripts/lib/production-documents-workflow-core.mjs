@@ -1125,15 +1125,16 @@ export async function runProductionDocumentsWorkflowChecks(config, transport, op
   }
 
   const editDraftFail = await runPostCreateStage("editDraft", async () => {
-    const editedDescription = `${PRODUCTION_VERIFICATION_DOCUMENT_DESCRIPTION} (edited)`;
+    const editedTitle = `${PRODUCTION_VERIFICATION_DOCUMENT_TITLE} (edited)`;
+    const editedKeywords = `verification production-documents-workflow edited-${runId}`;
     let editResponse;
     try {
       editResponse = await request(
         "PATCH",
         documentDetailPath(companyFolderId, verificationDocumentId, masterSheetId),
         {
-          description: editedDescription,
-          title: `${PRODUCTION_VERIFICATION_DOCUMENT_TITLE} (edited)`,
+          title: editedTitle,
+          keywords: editedKeywords,
         },
         { stageKey: "editDraft" },
       );
@@ -1164,10 +1165,19 @@ export async function runProductionDocumentsWorkflowChecks(config, transport, op
       { stageKey: "editDraft" },
     );
     const document = detail.json?.document || {};
-    if (!String(document.description || "").includes("(edited)")) {
+    if (!String(document.title || "").includes("(edited)")) {
       return fail(
         "editDraft",
-        "Edited description did not persist on readback.",
+        "Edited title did not persist on readback.",
+        "Inspect controlled document patch persistence.",
+        detail.status,
+        document,
+      );
+    }
+    if (!String(document.keywords || "").includes("edited-")) {
+      return fail(
+        "editDraft",
+        "Edited keywords did not persist on readback.",
         "Inspect controlled document patch persistence.",
         detail.status,
         document,

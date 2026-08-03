@@ -432,13 +432,16 @@ function createTransport(options = {}) {
         return { status: 404, json: { ok: false, code: "DOCUMENT_NOT_FOUND" } };
       }
       if (options.detailMismatch && documentId === verificationDocumentId) {
-        return {
-          status: 200,
-          json: {
-            ...payload,
-            document: { ...payload.document, title: "Unexpected title" },
-          },
-        };
+        const status = normalizeStatus(payload.document?.documentStatus);
+        if (status === "current") {
+          return {
+            status: 200,
+            json: {
+              ...payload,
+              document: { ...payload.document, title: "Unexpected title" },
+            },
+          };
+        }
       }
       return { status: 200, json: payload };
     }
@@ -455,7 +458,7 @@ function createTransport(options = {}) {
       const updated = {
         ...current,
         title: body?.title !== undefined ? body.title : current.title,
-        description: body?.description !== undefined ? body.description : current.description,
+        keywords: body?.keywords !== undefined ? body.keywords : current.keywords,
         updatedAt: new Date().toISOString(),
       };
       upsertDocument(updated);
