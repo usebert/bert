@@ -149,7 +149,7 @@ export function wrapTransportWithTimeouts(transport, options = {}) {
     const safeUrl = formatSafeRequestUrl(apiBase, path);
     const started = Date.now();
     try {
-      return await baseRequest(method, path, body, { timeoutMs });
+      return await baseRequest(method, path, body, { ...requestOptions, timeoutMs });
     } catch (error) {
       if (error?.name === "AbortError" || /aborted/i.test(String(error?.message || ""))) {
         const timeoutError = new Error(`Request timed out after ${timeoutMs}ms`);

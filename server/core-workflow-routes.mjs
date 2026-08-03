@@ -56,8 +56,13 @@ import { listAssignedChecks } from "./check-service.mjs";
 import {
   canListCompanyIncidents,
   canSubmitCompanyIncident,
+  cleanupStaleVerificationIncidents,
+  cleanupVerificationIncident,
+  closeCompanyIncident,
+  getCompanyIncident,
   INCIDENTS_ROUTE_TIMEOUT_MS,
   listCompanyIncidents,
+  patchCompanyIncident,
   reassignCompanyIncident,
   submitCompanyIncident,
 } from "./incidents-service.mjs";
@@ -2381,6 +2386,401 @@ export function installCoreWorkflowRoutes(app, deps) {
         code: "INCIDENT_SUBMIT_FAILED",
         error: "Could not submit incident.",
         message: "Could not submit incident.",
+        technicalError: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.get("/api/companies/:companyFolderId/incidents/:incidentId", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, error: "Please connect Google before loading incidents." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const incidentId = String(req.params?.incidentId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || companyFolderId).trim();
+    try {
+      const resolved = await resolveCompanyScheduleContext(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        {
+          companyId: sessionCompanyFolderId,
+          companyFolderId: sessionCompanyFolderId,
+          masterSheetId: String(req.query?.masterSheetId || "").trim(),
+          companyName: String(actor?.companyName || "").trim(),
+        },
+      );
+      if (!resolved.ok) {
+        return res.status(resolved.httpStatus || 400).json({
+          ok: false,
+          code: resolved.code,
+          error: resolved.error,
+          message: resolved.message || resolved.error,
+        });
+      }
+      if (
+        !canListCompanyIncidents(actor, resolved.companyFolderId, [
+          companyFolderId,
+          resolved.companyId,
+          ...resolved.alternateIds,
+        ])
+      ) {
+        return res.status(403).json({
+          ok: false,
+          code: "INCIDENTS_FORBIDDEN",
+          error: "You do not have permission to view incidents for this company.",
+        });
+      }
+      const detail = await getCompanyIncident(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        {
+          companyFolderId: resolved.companyFolderId,
+          masterSheetId: resolved.masterSheetId,
+          resolvedContext: resolved,
+        },
+        incidentId,
+      );
+      if (!detail.ok) {
+        return res.status(detail.httpStatus || 400).json({
+          ok: false,
+          code: detail.code,
+          error: detail.error,
+          message: detail.message || detail.error,
+        });
+      }
+      return res.json({
+        ok: true,
+        companyId: detail.companyId,
+        companyFolderId: detail.companyFolderId,
+        masterSheetId: detail.masterSheetId,
+        incidentId: detail.incidentId,
+        incident: detail.incident,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "INCIDENT_LOAD_FAILED",
+        error: "Could not load incident.",
+        technicalError: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.patch("/api/companies/:companyFolderId/incidents/:incidentId", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, error: "Please connect Google before updating incidents." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const incidentId = String(req.params?.incidentId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || companyFolderId).trim();
+    try {
+      const resolved = await resolveCompanyScheduleContext(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        {
+          companyId: sessionCompanyFolderId,
+          companyFolderId: sessionCompanyFolderId,
+          masterSheetId: String(req.body?.masterSheetId || "").trim(),
+          companyName: String(req.body?.companyName || actor?.companyName || "").trim(),
+        },
+      );
+      if (!resolved.ok) {
+        return res.status(resolved.httpStatus || 400).json({
+          ok: false,
+          code: resolved.code,
+          error: resolved.error,
+          message: resolved.message || resolved.error,
+        });
+      }
+      if (
+        !canSubmitCompanyIncident(actor, resolved.companyFolderId, [
+          companyFolderId,
+          resolved.companyId,
+          ...resolved.alternateIds,
+        ])
+      ) {
+        return res.status(403).json({
+          ok: false,
+          code: "INCIDENT_PATCH_FORBIDDEN",
+          error: "You do not have permission to update incidents for this company.",
+        });
+      }
+      const patched = await patchCompanyIncident(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        {
+          ...req.body,
+          companyFolderId: resolved.companyFolderId,
+          masterSheetId: resolved.masterSheetId,
+          incidentId,
+          resolvedContext: resolved,
+        },
+        actor || {},
+      );
+      if (!patched.ok) {
+        return res.status(patched.httpStatus || 400).json({
+          ok: false,
+          code: patched.code,
+          error: patched.error,
+          message: patched.message || patched.error,
+        });
+      }
+      return res.json({
+        ok: true,
+        companyId: patched.companyId,
+        companyFolderId: patched.companyFolderId,
+        masterSheetId: patched.masterSheetId,
+        incidentId: patched.incidentId,
+        incident: patched.incident,
+        updatedRows: patched.updatedRows,
+        unchanged: patched.unchanged,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "INCIDENT_PATCH_FAILED",
+        error: "Could not update incident.",
+        technicalError: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.post("/api/companies/:companyFolderId/incidents/:incidentId/close", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, error: "Please connect Google before closing incidents." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const incidentId = String(req.params?.incidentId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || companyFolderId).trim();
+    try {
+      const resolved = await resolveCompanyScheduleContext(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        {
+          companyId: sessionCompanyFolderId,
+          companyFolderId: sessionCompanyFolderId,
+          masterSheetId: String(req.body?.masterSheetId || "").trim(),
+          companyName: String(req.body?.companyName || actor?.companyName || "").trim(),
+        },
+      );
+      if (!resolved.ok) {
+        return res.status(resolved.httpStatus || 400).json({
+          ok: false,
+          code: resolved.code,
+          error: resolved.error,
+          message: resolved.message || resolved.error,
+        });
+      }
+      if (
+        !canSubmitCompanyIncident(actor, resolved.companyFolderId, [
+          companyFolderId,
+          resolved.companyId,
+          ...resolved.alternateIds,
+        ])
+      ) {
+        return res.status(403).json({
+          ok: false,
+          code: "INCIDENT_CLOSE_FORBIDDEN",
+          error: "You do not have permission to close incidents for this company.",
+        });
+      }
+      const closed = await closeCompanyIncident(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        {
+          ...req.body,
+          companyFolderId: resolved.companyFolderId,
+          masterSheetId: resolved.masterSheetId,
+          incidentId,
+          resolvedContext: resolved,
+        },
+        actor || {},
+      );
+      if (!closed.ok) {
+        return res.status(closed.httpStatus || 400).json({
+          ok: false,
+          code: closed.code,
+          error: closed.error,
+          message: closed.message || closed.error,
+        });
+      }
+      return res.json({
+        ok: true,
+        companyId: closed.companyId,
+        companyFolderId: closed.companyFolderId,
+        masterSheetId: closed.masterSheetId,
+        incidentId: closed.incidentId,
+        incident: closed.incident,
+        alreadyClosed: Boolean(closed.alreadyClosed),
+        updatedRows: closed.updatedRows,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "INCIDENT_CLOSE_FAILED",
+        error: "Could not close incident.",
+        technicalError: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.post("/api/companies/:companyFolderId/incidents/verification-cleanup", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, error: "Please connect Google before cleaning verification incidents." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || companyFolderId).trim();
+    try {
+      const resolved = await resolveCompanyScheduleContext(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        {
+          companyId: sessionCompanyFolderId,
+          companyFolderId: sessionCompanyFolderId,
+          masterSheetId: String(req.body?.masterSheetId || "").trim(),
+          companyName: String(req.body?.companyName || actor?.companyName || "").trim(),
+        },
+      );
+      if (!resolved.ok) {
+        return res.status(resolved.httpStatus || 400).json({
+          ok: false,
+          code: resolved.code,
+          error: resolved.error,
+          message: resolved.message || resolved.error,
+        });
+      }
+      if (
+        !canSubmitCompanyIncident(actor, resolved.companyFolderId, [
+          companyFolderId,
+          resolved.companyId,
+          ...resolved.alternateIds,
+        ])
+      ) {
+        return res.status(403).json({
+          ok: false,
+          code: "INCIDENT_CLEANUP_FORBIDDEN",
+          error: "You do not have permission to clean verification incidents for this company.",
+        });
+      }
+      const cleaned = await cleanupStaleVerificationIncidents(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        {
+          companyFolderId: resolved.companyFolderId,
+          masterSheetId: resolved.masterSheetId,
+          resolvedContext: resolved,
+        },
+        actor || {},
+      );
+      if (!cleaned.ok) {
+        return res.status(cleaned.httpStatus || 400).json({
+          ok: false,
+          code: cleaned.code,
+          error: cleaned.error,
+          message: cleaned.message || cleaned.error,
+        });
+      }
+      return res.json({
+        ok: true,
+        companyFolderId: cleaned.companyFolderId,
+        masterSheetId: cleaned.masterSheetId,
+        cleanedCount: cleaned.cleanedCount,
+        results: cleaned.results,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "INCIDENT_STALE_CLEANUP_FAILED",
+        error: "Could not clean stale verification incidents.",
+        technicalError: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.post("/api/companies/:companyFolderId/incidents/:incidentId/verification-cleanup", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, error: "Please connect Google before cleaning verification incidents." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const incidentId = String(req.params?.incidentId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || companyFolderId).trim();
+    try {
+      const resolved = await resolveCompanyScheduleContext(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        {
+          companyId: sessionCompanyFolderId,
+          companyFolderId: sessionCompanyFolderId,
+          masterSheetId: String(req.body?.masterSheetId || "").trim(),
+          companyName: String(req.body?.companyName || actor?.companyName || "").trim(),
+        },
+      );
+      if (!resolved.ok) {
+        return res.status(resolved.httpStatus || 400).json({
+          ok: false,
+          code: resolved.code,
+          error: resolved.error,
+          message: resolved.message || resolved.error,
+        });
+      }
+      if (
+        !canSubmitCompanyIncident(actor, resolved.companyFolderId, [
+          companyFolderId,
+          resolved.companyId,
+          ...resolved.alternateIds,
+        ])
+      ) {
+        return res.status(403).json({
+          ok: false,
+          code: "INCIDENT_CLEANUP_FORBIDDEN",
+          error: "You do not have permission to clean verification incidents for this company.",
+        });
+      }
+      const cleaned = await cleanupVerificationIncident(
+        authed,
+        { ...registryDeps, ...scheduleDeps },
+        {
+          companyFolderId: resolved.companyFolderId,
+          masterSheetId: resolved.masterSheetId,
+          incidentId,
+          resolvedContext: resolved,
+        },
+        actor || {},
+      );
+      if (!cleaned.ok) {
+        return res.status(cleaned.httpStatus || 400).json({
+          ok: false,
+          code: cleaned.code,
+          error: cleaned.error,
+          message: cleaned.message || cleaned.error,
+        });
+      }
+      return res.json({
+        ok: true,
+        companyFolderId: cleaned.companyFolderId,
+        masterSheetId: cleaned.masterSheetId,
+        incidentId: cleaned.incidentId,
+        cleaned: cleaned.cleaned,
+        alreadyCleaned: Boolean(cleaned.alreadyCleaned),
+        status: cleaned.status,
+        updatedRows: cleaned.updatedRows,
+        archivedRiddor: cleaned.archivedRiddor,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "INCIDENT_CLEANUP_FAILED",
+        error: "Could not clean verification incident.",
         technicalError: error instanceof Error ? error.message : String(error),
       });
     }

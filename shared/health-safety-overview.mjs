@@ -6,6 +6,7 @@ import { lolerEquipmentComplianceStatus } from "./loler.mjs";
 import { isUkOverdue } from "./uk-date-time.mjs";
 import { isHighOrVeryHighRisk } from "./risk-assessments.mjs";
 import { isOperationalRiskAssessment } from "./production-verification-risk-assessment.mjs";
+import { isOperationalIncident } from "./production-verification-incident.mjs";
 
 const HIGH_RISK_SEVERITIES = new Set(["fatality", "major incident", "lost time injury"]);
 const RIDDOR_DECISION_REQUIRED = new Set(["decision_required", "information_required"]);
@@ -247,7 +248,9 @@ function toLegacyAttention(item) {
 
 export function buildHealthSafetyMetrics(input = {}) {
   const todayKey = trim(input.todayKey);
-  const incidents = Array.isArray(input.incidents) ? input.incidents : [];
+  const incidents = Array.isArray(input.incidents)
+    ? input.incidents.filter((item) => isOperationalIncident(item))
+    : [];
   const riddor = Array.isArray(input.riddor) ? input.riddor : [];
   const coshh = Array.isArray(input.coshh) ? input.coshh : [];
   const equipment = Array.isArray(input.equipment) ? input.equipment : [];
@@ -319,7 +322,9 @@ export function buildHealthSafetyMetrics(input = {}) {
 
 export function buildHealthSafetyAttentionItems(input = {}) {
   const todayKey = trim(input.todayKey);
-  const incidents = Array.isArray(input.incidents) ? input.incidents : [];
+  const incidents = Array.isArray(input.incidents)
+    ? input.incidents.filter((item) => isOperationalIncident(item))
+    : [];
   const riddor = Array.isArray(input.riddor) ? input.riddor : [];
   const coshh = Array.isArray(input.coshh) ? input.coshh : [];
   const equipment = Array.isArray(input.equipment) ? input.equipment : [];
@@ -731,7 +736,9 @@ function pushActivity(target, entry) {
 }
 
 export function buildHealthSafetyRecentActivity(input = {}) {
-  const incidents = Array.isArray(input.incidents) ? input.incidents : [];
+  const incidents = Array.isArray(input.incidents)
+    ? input.incidents.filter((item) => isOperationalIncident(item))
+    : [];
   const riddor = Array.isArray(input.riddor) ? input.riddor : [];
   const coshh = Array.isArray(input.coshh) ? input.coshh : [];
   const assessments = Array.isArray(input.assessments) ? input.assessments : [];

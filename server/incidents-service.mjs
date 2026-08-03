@@ -38,6 +38,14 @@ import {
   uploadIncidentEvidenceToDrive,
   normalizeEvidenceUploadFile,
 } from "./incident-evidence-upload.mjs";
+import {
+  isActiveVerificationIncident,
+  isVerificationIncident,
+  isVerificationIncidentId,
+  PRODUCTION_VERIFICATION_INCIDENT_CLEANED_STATUS,
+  PRODUCTION_VERIFICATION_INCIDENT_SOURCE,
+} from "../shared/production-verification-incident.mjs";
+import { RIDDOR_REPORTS_TAB, RIDDOR_REPORTS_TAB_COLUMNS } from "../shared/health-safety.mjs";
 
 export const INCIDENTS_GOOGLE_TIMEOUT_MS = Math.min(DEFAULT_GOOGLE_OPERATION_TIMEOUT_MS, 75_000);
 export const INCIDENTS_ROUTE_TIMEOUT_MS = 90_000;
@@ -80,6 +88,11 @@ export const INCIDENTS_TAB_COLUMNS = [
   "ReassignedAt",
   "ReassignmentReason",
   "AssignmentHistory",
+  "InvestigationNotes",
+  "RootCause",
+  "ClosedAt",
+  "ClosedBy",
+  "VerificationSource",
 ];
 
 const credentialHashKey = (prefix) => `${prefix}assword${String.fromCharCode(72)}ash`;
@@ -388,6 +401,11 @@ export function buildIncidentRow(input = {}) {
     CreatedBy: trim(input.createdBy || input.reporterName),
     UpdatedAt: trim(input.updatedAt) || now,
     NotificationStatus: trim(input.notificationStatus) || "Pending",
+    InvestigationNotes: trim(input.investigationNotes),
+    RootCause: trim(input.rootCause),
+    ClosedAt: trim(input.closedAt),
+    ClosedBy: trim(input.closedBy),
+    VerificationSource: trim(input.verificationSource),
     ...buildIncidentAssignmentFields(input),
   };
 }
@@ -464,8 +482,10 @@ export function mapWorkbookIncidentRecord(record = {}, fallback = {}) {
     contributingFactors: trim(fallback.contributingFactors),
     witnesses: pickRecordField(sanitized, "Witnesses", "witnesses"),
     evidenceUrls: pickEvidenceUrls(sanitized),
-    investigationNotes: trim(fallback.investigationNotes),
-    rootCause: trim(fallback.rootCause),
+    investigationNotes:
+      trim(fallback.investigationNotes) || pickRecordField(sanitized, "InvestigationNotes", "investigationNotes"),
+    rootCause: trim(fallback.rootCause) || pickRecordField(sanitized, "RootCause", "rootCause"),
+    verificationSource: pickRecordField(sanitized, "VerificationSource", "verificationSource"),
     correctiveActions: trim(fallback.correctiveActions),
     preventiveActions: trim(fallback.preventiveActions),
     assignedTo:
@@ -502,8 +522,8 @@ export function mapWorkbookIncidentRecord(record = {}, fallback = {}) {
     dueDate: trim(fallback.dueDate),
     completionDate: trim(fallback.completionDate),
     riddorRequired: Boolean(fallback.riddorRequired),
-    closedBy: trim(fallback.closedBy),
-    closedAt: trim(fallback.closedAt),
+    closedBy: trim(fallback.closedBy) || pickRecordField(sanitized, "ClosedBy", "closedBy"),
+    closedAt: trim(fallback.closedAt) || pickRecordField(sanitized, "ClosedAt", "closedAt"),
     notificationStatus: pickRecordField(sanitized, "NotificationStatus", "notificationStatus") || "Pending",
     statusHistory: Array.isArray(fallback.statusHistory) ? fallback.statusHistory : [],
     createdAt,
@@ -618,7 +638,37 @@ export async function submitCompanyIncident(auth, deps, input = {}) {
 
   const row = buildIncidentRow({ ...input, evidenceUrls });
   const appendTabRows = resolveAppendTabRows(deps);
+  const readTabRecords = resolveReadTabRecords(deps);
+  const ensureTabColumns = resolveEnsureTabColumns(deps);
   try {
+    await ensureTabColumns(auth, deps, context.masterSheetId, INCIDENTS_TAB, INCIDENTS_TAB_COLUMNS);
+    const readResult = await readTabRecords(auth, deps, context.masterSheetId, INCIDENTS_TAB, {
+      expectedHeaders: INCIDENTS_TAB_COLUMNS,
+    });
+    const existingRecord = findIncidentWorkbookRecord(readResult.records || [], row.IncidentId);
+    if (existingRecord) {
+      const existingIncident = mapWorkbookIncidentRecord(existingRecord.record);
+      if (isVerificationIncident(existingIncident)) {
+        logIncidentPhase("submit_idempotent", { ...traceMeta, incidentId: existingIncident.incidentId });
+        return {
+          ok: true,
+          alreadyExists: true,
+          companyId: context.companyFolderId,
+          companyFolderId: context.companyFolderId,
+          masterSheetId: context.masterSheetId,
+          incidentId: existingIncident.incidentId,
+          incident: existingIncident,
+          evidenceUploadWarning,
+        };
+      }
+      return {
+        ok: false,
+        code: "INCIDENT_ALREADY_EXISTS",
+        error: "An incident with this ID already exists.",
+        httpStatus: 409,
+      };
+    }
+
     const writeStart = Date.now();
     logIncidentPhase("write_incidents_start", traceMeta);
     await appendIncidentRowWithRetry(
@@ -630,13 +680,22 @@ export async function submitCompanyIncident(auth, deps, input = {}) {
     );
     logIncidentPhase("write_incidents_end", { ...traceMeta, durationMs: Date.now() - writeStart });
     const incident = mapWorkbookIncidentRecord(row, input);
+    logIncidentMutationTiming("create", "submit", {
+      incidentId: incident.incidentId,
+      workbookId: context.masterSheetId,
+      updatedRows: 1,
+      durationMs: Date.now() - writeStart,
+      totalMs: Date.now() - startedAt,
+    });
     logIncidentPhase("submit_success", { ...traceMeta, incidentId: incident.incidentId });
     return {
       ok: true,
       companyId: context.companyFolderId,
       companyFolderId: context.companyFolderId,
       masterSheetId: context.masterSheetId,
+      incidentId: incident.incidentId,
       incident,
+      updatedRows: 1,
       evidenceUploadWarning,
     };
   } catch (error) {
@@ -873,6 +932,460 @@ export async function reassignCompanyIncident(auth, deps, input = {}, actor = {}
       code: "INCIDENT_REASSIGN_FAILED",
       error: "Could not reassign this incident.",
       message: "Could not reassign this incident.",
+      httpStatus: 502,
+    };
+  }
+}
+
+export const ALLOWED_INCIDENT_STATUS_TRANSITIONS = {
+  Open: new Set(["Under Investigation", "Closed"]),
+  "Under Investigation": new Set(["Closed"]),
+  Closed: new Set([]),
+};
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function logIncidentMutationTiming(operation, stage, meta = {}) {
+  console.info("[incident:mutation-timing]", {
+    operation,
+    stage,
+    incidentId: trim(meta.incidentId),
+    workbookId: trim(meta.workbookId),
+    updatedRows: Number.isFinite(meta.updatedRows) ? meta.updatedRows : undefined,
+    durationMs: Number.isFinite(meta.durationMs) ? meta.durationMs : undefined,
+    totalMs: Number.isFinite(meta.totalMs) ? meta.totalMs : undefined,
+  });
+}
+
+export function isAllowedIncidentStatusTransition(fromStatus, toStatus) {
+  const from = normalizeIncidentStatus(fromStatus);
+  const to = normalizeIncidentStatus(toStatus);
+  if (from === to) {
+    return true;
+  }
+  const allowed = ALLOWED_INCIDENT_STATUS_TRANSITIONS[from];
+  return Boolean(allowed?.has(to));
+}
+
+async function loadIncidentContext(auth, deps, input = {}) {
+  const companyFolderId = trim(input.companyFolderId || input.companyId);
+  const preResolvedContext = input.resolvedContext;
+  const context =
+    preResolvedContext?.ok === true
+      ? preResolvedContext
+      : await resolveCompanyScheduleContext(auth, deps, {
+          companyId: companyFolderId,
+          companyFolderId,
+          masterSheetId: input.masterSheetId,
+          companyName: input.companyName,
+        });
+  if (!context.ok) {
+    return context;
+  }
+  const ensureTabColumns = resolveEnsureTabColumns(deps);
+  await ensureTabColumns(auth, deps, context.masterSheetId, INCIDENTS_TAB, INCIDENTS_TAB_COLUMNS);
+  const readTabRecords = resolveReadTabRecords(deps);
+  const readResult = await readTabRecords(auth, deps, context.masterSheetId, INCIDENTS_TAB, {
+    expectedHeaders: INCIDENTS_TAB_COLUMNS,
+  });
+  return {
+    ok: true,
+    context,
+    records: readResult.records || [],
+  };
+}
+
+export async function getCompanyIncident(auth, deps, input = {}, incidentId = "") {
+  const id = trim(incidentId || input.incidentId);
+  if (!id) {
+    return {
+      ok: false,
+      code: "INCIDENT_ID_REQUIRED",
+      error: "Incident ID is required.",
+      httpStatus: 400,
+    };
+  }
+  try {
+    const loaded = await loadIncidentContext(auth, deps, input);
+    if (!loaded.ok) {
+      return loaded;
+    }
+    const found = findIncidentWorkbookRecord(loaded.records, id);
+    if (!found) {
+      return {
+        ok: false,
+        code: "INCIDENT_NOT_FOUND",
+        error: "Incident not found in the company workbook.",
+        httpStatus: 404,
+      };
+    }
+    const incident = mapWorkbookIncidentRecord(found.record);
+    return {
+      ok: true,
+      companyId: loaded.context.companyFolderId,
+      companyFolderId: loaded.context.companyFolderId,
+      masterSheetId: loaded.context.masterSheetId,
+      incident,
+      incidentId: incident.incidentId,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      code: "INCIDENT_LOAD_FAILED",
+      error: "Could not load incident.",
+      technicalError: error instanceof Error ? error.message : String(error),
+      httpStatus: 502,
+    };
+  }
+}
+
+function buildIncidentPatchFields(input = {}, actor = {}) {
+  const patch = {};
+  if (input.description !== undefined) patch.Description = trim(input.description);
+  if (input.location !== undefined) patch.Location = trim(input.location);
+  if (input.immediateAction !== undefined) patch.ImmediateAction = trim(input.immediateAction);
+  if (input.investigationNotes !== undefined) patch.InvestigationNotes = trim(input.investigationNotes);
+  if (input.rootCause !== undefined) patch.RootCause = trim(input.rootCause);
+  if (input.status !== undefined) patch.Status = normalizeIncidentStatus(input.status);
+  if (input.closedAt !== undefined) patch.ClosedAt = trim(input.closedAt);
+  if (input.closedBy !== undefined) patch.ClosedBy = trim(input.closedBy);
+  if (input.verificationSource !== undefined) patch.VerificationSource = trim(input.verificationSource);
+  if (Object.keys(patch).length > 0) {
+    patch.UpdatedAt = nowIso();
+    patch.UpdatedBy = trim(actor.name || actor.email);
+  }
+  return patch;
+}
+
+export async function patchCompanyIncident(auth, deps, input = {}, actor = {}) {
+  const companyFolderId = trim(input.companyFolderId || input.companyId);
+  const incidentId = trim(input.incidentId);
+  const startedAt = Date.now();
+  if (!incidentId) {
+    return { ok: false, code: "INCIDENT_ID_REQUIRED", error: "Incident ID is required.", httpStatus: 400 };
+  }
+  try {
+    const loaded = await loadIncidentContext(auth, deps, input);
+    if (!loaded.ok) {
+      return loaded;
+    }
+    const found = findIncidentWorkbookRecord(loaded.records, incidentId);
+    if (!found) {
+      return {
+        ok: false,
+        code: "INCIDENT_NOT_FOUND",
+        error: "Incident not found in the company workbook.",
+        httpStatus: 404,
+      };
+    }
+    const current = mapWorkbookIncidentRecord(found.record);
+    const patch = buildIncidentPatchFields(input, actor);
+    if (patch.Status && !isAllowedIncidentStatusTransition(current.status, patch.Status)) {
+      return {
+        ok: false,
+        code: "INCIDENT_STATUS_TRANSITION_INVALID",
+        error: `Cannot transition incident status from ${current.status} to ${patch.Status}.`,
+        httpStatus: 400,
+      };
+    }
+    if (Object.keys(patch).length === 0) {
+      return {
+        ok: true,
+        companyId: loaded.context.companyFolderId,
+        companyFolderId: loaded.context.companyFolderId,
+        masterSheetId: loaded.context.masterSheetId,
+        incident: current,
+        incidentId: current.incidentId,
+        updatedRows: 0,
+        unchanged: true,
+      };
+    }
+    const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
+    const incidentIdHeader = findIncidentIdHeader(Object.keys(found.record));
+    const patchResult = await withIncidentsTimeout(
+      patchTabRowByHeader(
+        auth,
+        deps,
+        loaded.context.masterSheetId,
+        INCIDENTS_TAB,
+        incidentIdHeader,
+        found.workbookIncidentId,
+        patch,
+        {
+          matchHeaderAliases: INCIDENT_ID_HEADER_ALIASES,
+          compareValues: incidentIdsMatch,
+        },
+      ),
+      "patch_incident",
+    );
+    const updatedRows = Number(patchResult?.patched ?? patchResult?.updatedRows ?? 1);
+    const updatedIncident = mapWorkbookIncidentRecord({ ...found.record, ...patch }, { ...current, ...input });
+    logIncidentMutationTiming("patch", trim(input.stage) || "patch", {
+      incidentId: updatedIncident.incidentId,
+      workbookId: loaded.context.masterSheetId,
+      updatedRows,
+      durationMs: Date.now() - startedAt,
+      totalMs: Date.now() - startedAt,
+    });
+    return {
+      ok: true,
+      companyId: loaded.context.companyFolderId,
+      companyFolderId: loaded.context.companyFolderId,
+      masterSheetId: loaded.context.masterSheetId,
+      incident: updatedIncident,
+      incidentId: updatedIncident.incidentId,
+      updatedRows,
+    };
+  } catch (error) {
+    const timeoutResult = incidentsTimeoutError("patch_incident", error);
+    if (timeoutResult.reasonCode === "GOOGLE_TIMEOUT") {
+      return timeoutResult;
+    }
+    return {
+      ok: false,
+      code: "INCIDENT_PATCH_FAILED",
+      error: "Could not update incident.",
+      httpStatus: 502,
+    };
+  }
+}
+
+export async function closeCompanyIncident(auth, deps, input = {}, actor = {}) {
+  const incidentId = trim(input.incidentId);
+  const startedAt = Date.now();
+  const currentResult = await getCompanyIncident(auth, deps, input, incidentId);
+  if (!currentResult.ok) {
+    return currentResult;
+  }
+  const current = currentResult.incident;
+  if (normalizeIncidentStatus(current.status) === "Closed") {
+    return {
+      ok: true,
+      alreadyClosed: true,
+      companyId: currentResult.companyId,
+      companyFolderId: currentResult.companyFolderId,
+      masterSheetId: currentResult.masterSheetId,
+      incident: current,
+      incidentId: current.incidentId,
+      updatedRows: 0,
+    };
+  }
+  const timestamp = nowIso();
+  const closedBy = trim(actor.name || actor.email);
+  const result = await patchCompanyIncident(
+    auth,
+    deps,
+    {
+      ...input,
+      incidentId,
+      status: "Closed",
+      closedAt: timestamp,
+      closedBy,
+      stage: "close",
+    },
+    actor,
+  );
+  if (!result.ok) {
+    return result;
+  }
+  logIncidentMutationTiming("close", "close", {
+    incidentId: result.incidentId,
+    workbookId: result.masterSheetId,
+    updatedRows: result.updatedRows,
+    durationMs: Date.now() - startedAt,
+    totalMs: Date.now() - startedAt,
+  });
+  return { ...result, alreadyClosed: false };
+}
+
+async function archiveVerificationRiddorForIncident(auth, deps, masterSheetId, incidentId, actor) {
+  const readTabRecords = resolveReadTabRecords(deps);
+  const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
+  const readResult = await readTabRecords(auth, deps, masterSheetId, RIDDOR_REPORTS_TAB, {
+    expectedHeaders: RIDDOR_REPORTS_TAB_COLUMNS,
+  }).catch(() => ({ records: [] }));
+  const records = readResult.records || [];
+  let archived = 0;
+  const timestamp = nowIso();
+  for (const record of records) {
+    const linkedIncidentId = trim(record.IncidentId || record.incidentId);
+    if (!incidentIdsMatch(linkedIncidentId, incidentId)) {
+      continue;
+    }
+    const riddorId = trim(record.RiddorId || record.riddorId);
+    if (!riddorId) {
+      continue;
+    }
+    await patchTabRowByHeader(auth, deps, masterSheetId, RIDDOR_REPORTS_TAB, "RiddorId", riddorId, {
+      ArchivedAt: timestamp,
+      ArchivedBy: normalizeEmail(actor.email),
+      UpdatedAt: timestamp,
+      UpdatedBy: normalizeEmail(actor.email),
+    });
+    archived += 1;
+  }
+  return archived;
+}
+
+export async function cleanupVerificationIncident(auth, deps, input = {}, actor = {}) {
+  const incidentId = trim(input.incidentId);
+  const startedAt = Date.now();
+  if (!incidentId) {
+    return { ok: false, code: "INCIDENT_ID_REQUIRED", error: "Incident ID is required.", httpStatus: 400 };
+  }
+  if (!isVerificationIncidentId(incidentId)) {
+    return {
+      ok: false,
+      code: "CLEANUP_NOT_VERIFICATION_INCIDENT",
+      error: "Only verification incidents with the bert-smoke-inc- prefix can be cleaned up through this path.",
+      httpStatus: 403,
+    };
+  }
+  try {
+    const loaded = await loadIncidentContext(auth, deps, input);
+    if (!loaded.ok) {
+      return loaded;
+    }
+    const found = findIncidentWorkbookRecord(loaded.records, incidentId);
+    if (!found) {
+      return {
+        ok: true,
+        cleaned: true,
+        alreadyCleaned: true,
+        companyFolderId: loaded.context.companyFolderId,
+        masterSheetId: loaded.context.masterSheetId,
+        incidentId,
+        updatedRows: 0,
+      };
+    }
+    const incident = mapWorkbookIncidentRecord(found.record);
+    if (!isVerificationIncident(incident)) {
+      return {
+        ok: false,
+        code: "CLEANUP_NOT_VERIFICATION_INCIDENT",
+        error: "Only verification incidents can be cleaned up through this path.",
+        httpStatus: 403,
+      };
+    }
+    const currentStatus = normalizeIncidentStatus(incident.status);
+    if (currentStatus === PRODUCTION_VERIFICATION_INCIDENT_CLEANED_STATUS) {
+      return {
+        ok: true,
+        cleaned: true,
+        alreadyCleaned: true,
+        companyFolderId: loaded.context.companyFolderId,
+        masterSheetId: loaded.context.masterSheetId,
+        incidentId,
+        updatedRows: 0,
+      };
+    }
+    const timestamp = nowIso();
+    const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
+    const incidentIdHeader = findIncidentIdHeader(Object.keys(found.record));
+    const patchResult = await withIncidentsTimeout(
+      patchTabRowByHeader(
+        auth,
+        deps,
+        loaded.context.masterSheetId,
+        INCIDENTS_TAB,
+        incidentIdHeader,
+        found.workbookIncidentId,
+        {
+          Status: PRODUCTION_VERIFICATION_INCIDENT_CLEANED_STATUS,
+          ClosedAt: trim(incident.closedAt) || timestamp,
+          ClosedBy: trim(incident.closedBy) || normalizeEmail(actor.email),
+          UpdatedAt: timestamp,
+          UpdatedBy: trim(actor.name || actor.email),
+          VerificationSource: PRODUCTION_VERIFICATION_INCIDENT_SOURCE,
+        },
+        {
+          matchHeaderAliases: INCIDENT_ID_HEADER_ALIASES,
+          compareValues: incidentIdsMatch,
+        },
+      ),
+      "cleanup_verification_incident",
+    );
+    const archivedRiddor = await archiveVerificationRiddorForIncident(
+      auth,
+      deps,
+      loaded.context.masterSheetId,
+      incidentId,
+      actor,
+    );
+    const updatedRows = Number(patchResult?.patched ?? patchResult?.updatedRows ?? 1);
+    logIncidentMutationTiming("cleanup", "cleanup", {
+      incidentId,
+      workbookId: loaded.context.masterSheetId,
+      updatedRows,
+      durationMs: Date.now() - startedAt,
+      totalMs: Date.now() - startedAt,
+    });
+    return {
+      ok: true,
+      cleaned: true,
+      companyFolderId: loaded.context.companyFolderId,
+      masterSheetId: loaded.context.masterSheetId,
+      incidentId,
+      status: PRODUCTION_VERIFICATION_INCIDENT_CLEANED_STATUS,
+      updatedRows,
+      archivedRiddor,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      code: "INCIDENT_CLEANUP_FAILED",
+      error: "Could not clean up verification incident.",
+      technicalError: error instanceof Error ? error.message : String(error),
+      httpStatus: 502,
+    };
+  }
+}
+
+export async function cleanupStaleVerificationIncidents(auth, deps, input = {}, actor = {}) {
+  const startedAt = Date.now();
+  try {
+    const loaded = await loadIncidentContext(auth, deps, input);
+    if (!loaded.ok) {
+      return loaded;
+    }
+    const stale = loaded.records
+      .map((record) => mapWorkbookIncidentRecord(record))
+      .filter((item) => isActiveVerificationIncident(item));
+    const results = [];
+    for (const incident of stale) {
+      const cleaned = await cleanupVerificationIncident(
+        auth,
+        deps,
+        { ...input, incidentId: incident.incidentId },
+        actor,
+      );
+      results.push({
+        incidentId: incident.incidentId,
+        ok: cleaned.ok,
+        alreadyCleaned: Boolean(cleaned.alreadyCleaned),
+      });
+    }
+    logIncidentMutationTiming("cleanup", "stale-cleanup", {
+      workbookId: loaded.context.masterSheetId,
+      updatedRows: results.filter((item) => item.ok).length,
+      durationMs: Date.now() - startedAt,
+      totalMs: Date.now() - startedAt,
+    });
+    return {
+      ok: true,
+      companyFolderId: loaded.context.companyFolderId,
+      masterSheetId: loaded.context.masterSheetId,
+      cleanedCount: results.filter((item) => item.ok).length,
+      results,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      code: "INCIDENT_STALE_CLEANUP_FAILED",
+      error: "Could not clean up stale verification incidents.",
+      technicalError: error instanceof Error ? error.message : String(error),
       httpStatus: 502,
     };
   }

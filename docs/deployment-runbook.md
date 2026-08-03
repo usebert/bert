@@ -363,6 +363,63 @@ npm run verify:production-risk-assessment-workflow-tests
 npm run verify:production-verification-risk-assessment-tests
 ```
 
+### Production Incident workflow (post-deploy smoke)
+
+After startup health, authentication health, audit workflow, Actions workflow, and Risk Assessment workflow pass, run the Incident workflow smoke test. It authenticates with the same smoke account, confirms the Incidents register API, and — only when `BERT_SMOKE_ALLOW_INCIDENT_MUTATION=1` — creates a dedicated Near Miss verification incident, exercises edit, investigation, internal RIDDOR decision (not reportable), status progression, closure, Health & Safety overview exclusion, and cleans up safely. It never edits customer incidents, never submits RIDDOR to HSE, and never sends notifications.
+
+```bash
+set -a && source .env && set +a
+
+BERT_SMOKE_USERNAME=mr.important \
+BERT_SMOKE_PASSWORD='<set securely in your environment>' \
+BERT_SMOKE_COMPANY_FOLDER_ID=1tDKluapYfY-RkuxXc6eoRnGHL38XCswx \
+BERT_SMOKE_MASTER_SHEET_ID=1MntKgSgVmTmlpzZhnCZdDQtdmPw7GcXptlAp88Ewrkc \
+BERT_SMOKE_EXPECTED_EMAIL=bert.demo+mr.important@usebert.co.uk \
+BERT_SMOKE_ALLOW_INCIDENT_MUTATION=1 \
+npm run verify:production-incident-workflow
+```
+
+Optional:
+
+- **`BERT_SMOKE_ALLOW_INCIDENT_MUTATION`** — must be `1` to exercise create/edit/investigation/RIDDOR/close/cleanup stages. Without it, mutation stages report **SKIPPED** (authentication, Incidents API, and baseline still run).
+- **`BERT_SMOKE_INCIDENT_REVIEWER_USERNAME` / `BERT_SMOKE_INCIDENT_REVIEWER_PASSWORD` / `BERT_SMOKE_INCIDENT_REVIEWER_EXPECTED_EMAIL`** — only required if investigation must be recorded under a different account.
+
+Verification incident markers:
+
+- IncidentId prefix: `bert-smoke-inc-`
+- Title: `BERT Verification Incident`
+- Type: `Near Miss`
+- Source: `production-incident-workflow`
+- Marker: `verification`
+
+Cleanup uses verification-only routes:
+
+- `POST /api/companies/:companyFolderId/incidents/verification-cleanup`
+- `POST /api/companies/:companyFolderId/incidents/:incidentId/verification-cleanup`
+
+RIDDOR safety: the verifier records an internal **not reportable** decision only. No HSE submission, no report reference, no external notifications.
+
+Evidence limitation: the **Evidence** stage is **SKIPPED** — incident evidence uploads to Drive do not have a safe isolated deletion path for production smoke.
+
+Expected duration: ~3–12 minutes with mutation enabled (Google Sheets writes can be slow).
+
+Stage timeouts: authentication 90s, list/detail reads 60s, create/edit/investigation/RIDDOR/closure 120s, overview/dashboard 60s, cleanup 120s, total budget 12 minutes. Transient **502/503/504** and network timeouts retry after checking whether the incident already exists or the mutation already completed.
+
+Optional **SKIPPED** stages:
+
+- **Evidence** — no safe isolated evidence cleanup path.
+- **Corrective Action** — no safe isolated linked Action API for incidents.
+- **Search** — client-side search only; no safe production search endpoint.
+
+Failure remediation: inspect the failed stage output, confirm `BERT_SMOKE_ALLOW_INCIDENT_MUTATION=1` when mutations are required, run stale cleanup manually via `POST .../incidents/verification-cleanup`, then re-run the verifier.
+
+Unit tests (mocked HTTP, no production calls):
+
+```bash
+npm run verify:production-incident-workflow-tests
+npm run verify:production-verification-incident-tests
+```
+
 ### Post-deploy verification sequence
 
 Run in order after every API deployment:
@@ -372,8 +429,9 @@ Run in order after every API deployment:
 3. **Audit workflow** — `npm run verify:production-audit-workflow`
 4. **Actions workflow** — `npm run verify:production-actions-workflow`
 5. **Risk Assessment workflow** — `npm run verify:production-risk-assessment-workflow`
+6. **Incident workflow** — `npm run verify:production-incident-workflow`
 
-Only when all five pass should the deployment be considered **READY FOR CUSTOMERS**.
+Only when all six pass should the deployment be considered **READY FOR CUSTOMERS**.
 
 ### Startup system health (Master operators)
 
