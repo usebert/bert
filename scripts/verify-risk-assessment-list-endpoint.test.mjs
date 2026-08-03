@@ -8,6 +8,7 @@ import {
   buildRiskAssessmentListItemFromRecord,
   buildRiskAssessmentListSummaryFromRecord,
   deriveRiskAssessmentStatus,
+  RISK_ASSESSMENTS_TAB_COLUMNS,
 } from "../shared/risk-assessments.mjs";
 import { getUkTodayKey } from "../shared/uk-date-time.mjs";
 import {
@@ -68,7 +69,7 @@ function createTrackingDeps(rowsByTab = {}) {
     },
     ensureTabColumns: async () => {
       ensureCalls += 1;
-      return { ok: true };
+      return { ok: true, headers: RISK_ASSESSMENTS_TAB_COLUMNS };
     },
     getReadCalls: () => readCalls,
     getEnsureCalls: () => ensureCalls,
@@ -84,9 +85,18 @@ function createMutableDeps(initialRows = {}) {
     RiskAssessmentReviews: [...(initialRows.RiskAssessmentReviews || [])],
   };
   const deps = createTrackingDeps(rowsByTab);
-  deps.appendTabRows = async (_auth, _deps, _sheetId, tabName, rows = []) => {
+  deps.appendTabRows = async (_auth, _deps, _sheetId, tabName, expectedHeaders, rowObjects = []) => {
+    const rows =
+      Array.isArray(rowObjects) && rowObjects.length > 0
+        ? rowObjects
+        : Array.isArray(expectedHeaders) &&
+            expectedHeaders.length > 0 &&
+            typeof expectedHeaders[0] === "object" &&
+            !Array.isArray(expectedHeaders[0])
+          ? expectedHeaders
+          : [];
     rowsByTab[tabName] = [...(rowsByTab[tabName] || []), ...rows];
-    return { ok: true };
+    return { ok: true, written: rows.length, masterSheetId: _sheetId, tabName, updatedRows: rows.length, updatedRange: `${tabName}!A${rowsByTab[tabName].length}:A${rowsByTab[tabName].length}` };
   };
   deps.patchTabRowByHeader = async (_auth, _deps, _sheetId, tabName, header, id, patch) => {
     rowsByTab[tabName] = (rowsByTab[tabName] || []).map((row) =>

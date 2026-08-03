@@ -52,11 +52,14 @@ import { getUkTodayKey } from "../shared/uk-date-time.mjs";
 import { actorCanAccessCompanyHealthSafety, healthSafetyApiFailure } from "./health-safety-service.mjs";
 import { resolveCompanyScheduleContext } from "./schedule-service.mjs";
 import {
+  analyzeTabHeaderAlignment,
   appendTabRows as workbookAppendTabRows,
   batchPatchTabRowsByHeader as workbookBatchPatchTabRowsByHeader,
   ensureTabColumns as workbookEnsureTabColumns,
   patchTabRowByHeader as workbookPatchTabRowByHeader,
+  readAppendedRowByRange as workbookReadAppendedRowByRange,
   readTabRecords as workbookReadTabRecords,
+  readTabValueRange as workbookReadTabValueRange,
 } from "./workbook-service.mjs";
 
 export const RISK_ASSESSMENT_ROUTE_TIMEOUT_MS = 90_000;
@@ -274,8 +277,47 @@ function resolveReadTabRecords(deps) {
   return typeof deps?.readTabRecords === "function" ? deps.readTabRecords : workbookReadTabRecords;
 }
 
+function resolveReadAppendedRowByRange(deps) {
+  return typeof deps?.readAppendedRowByRange === "function" ? deps.readAppendedRowByRange : workbookReadAppendedRowByRange;
+}
+
+function resolveReadTabValueRange(deps) {
+  return typeof deps?.readTabValueRange === "function" ? deps.readTabValueRange : workbookReadTabValueRange;
+}
+
 function resolveAppendTabRows(deps) {
   return typeof deps?.appendTabRows === "function" ? deps.appendTabRows : workbookAppendTabRows;
+}
+
+function logRiskAssessmentCreatePersist(stage, payload = {}) {
+  console.info(
+    "[risk-assessment:create-persist]",
+    JSON.stringify({
+      stage,
+      companyFolderId: trim(payload.companyFolderId) || undefined,
+      writeMasterSheetId: trim(payload.writeMasterSheetId) || undefined,
+      readMasterSheetId: trim(payload.readMasterSheetId) || undefined,
+      tabName: trim(payload.tabName) || undefined,
+      riskAssessmentId: trim(payload.riskAssessmentId) || undefined,
+      updatedRange: trim(payload.updatedRange) || undefined,
+      updatedRows: Number.isFinite(payload.updatedRows) ? payload.updatedRows : undefined,
+      updatedColumns: Number.isFinite(payload.updatedColumns) ? payload.updatedColumns : undefined,
+      written: Number.isFinite(payload.written) ? payload.written : undefined,
+      exactRowFound: payload.exactRowFound === true ? true : payload.exactRowFound === false ? false : undefined,
+      fullTabFound: payload.fullTabFound === true ? true : payload.fullTabFound === false ? false : undefined,
+      headerMissing: Array.isArray(payload.headerMissing) ? payload.headerMissing : undefined,
+      headerDuplicates: Array.isArray(payload.headerDuplicates) ? payload.headerDuplicates : undefined,
+      attempt: Number.isFinite(payload.attempt) ? payload.attempt : undefined,
+      error: trim(payload.error) || undefined,
+    }),
+  );
+}
+
+async function readRiskAssessmentTabHeaders(auth, deps, masterSheetId) {
+  const ensureTabColumns = resolveEnsureTabColumns(deps);
+  const ensured = await ensureTabColumns(auth, deps, masterSheetId, RISK_ASSESSMENTS_TAB, RISK_ASSESSMENTS_TAB_COLUMNS);
+  const headers = Array.isArray(ensured?.headers) && ensured.headers.length > 0 ? ensured.headers : RISK_ASSESSMENTS_TAB_COLUMNS;
+  return headers.map((header) => trim(header)).filter(Boolean);
 }
 
 function resolveEnsureTabColumns(deps) {
@@ -478,17 +520,71 @@ function sleepMs(ms) {
 async function waitForAssessmentRecordAfterWrite(auth, deps, masterSheetId, riskAssessmentId, options = {}) {
   const maxAttempts = Number(options.maxAttempts) || 15;
   const intervalMs = Number(options.intervalMs) || 1000;
+  const appendResult = options.appendResult || null;
+  const readAppendedRowByRange = resolveReadAppendedRowByRange(deps);
   let lastRecord = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     if (attempt > 1) {
       await sleepMs(intervalMs);
     }
+    if (appendResult?.updatedRange) {
+      const exactRecord = await readAppendedRowByRange(
+        auth,
+        deps,
+        masterSheetId,
+        RISK_ASSESSMENTS_TAB,
+        appendResult,
+        "RiskAssessmentId",
+        riskAssessmentId,
+      );
+      if (exactRecord) {
+        logRiskAssessmentCreatePersist("exact-row-readback", {
+          companyFolderId: options.companyFolderId,
+          writeMasterSheetId: masterSheetId,
+          readMasterSheetId: masterSheetId,
+          tabName: RISK_ASSESSMENTS_TAB,
+          riskAssessmentId,
+          updatedRange: appendResult.updatedRange,
+          exactRowFound: true,
+          attempt,
+        });
+        return { ok: true, record: mapRiskAssessmentRecord(exactRecord), attempts: attempt, source: "exact-range" };
+      }
+      logRiskAssessmentCreatePersist("exact-row-readback", {
+        companyFolderId: options.companyFolderId,
+        writeMasterSheetId: masterSheetId,
+        readMasterSheetId: masterSheetId,
+        tabName: RISK_ASSESSMENTS_TAB,
+        riskAssessmentId,
+        updatedRange: appendResult.updatedRange,
+        exactRowFound: false,
+        attempt,
+      });
+    }
     lastRecord = await readAssessmentRecord(auth, deps, masterSheetId, riskAssessmentId);
     if (lastRecord) {
-      return { ok: true, record: lastRecord, attempts: attempt };
+      logRiskAssessmentCreatePersist("full-tab-readback", {
+        companyFolderId: options.companyFolderId,
+        writeMasterSheetId: masterSheetId,
+        readMasterSheetId: masterSheetId,
+        tabName: RISK_ASSESSMENTS_TAB,
+        riskAssessmentId,
+        fullTabFound: true,
+        attempt,
+      });
+      return { ok: true, record: lastRecord, attempts: attempt, source: "full-tab" };
     }
+    logRiskAssessmentCreatePersist("full-tab-readback", {
+      companyFolderId: options.companyFolderId,
+      writeMasterSheetId: masterSheetId,
+      readMasterSheetId: masterSheetId,
+      tabName: RISK_ASSESSMENTS_TAB,
+      riskAssessmentId,
+      fullTabFound: false,
+      attempt,
+    });
   }
-  return { ok: false, record: lastRecord, attempts: maxAttempts };
+  return { ok: false, record: lastRecord, attempts: maxAttempts, source: "none" };
 }
 
 async function buildAssessmentDetail(auth, deps, resolved, actor, riskAssessmentId, options = {}) {
@@ -702,9 +798,7 @@ async function syncRiskAssessmentHazards(auth, deps, resolved, actor, riskAssess
   });
 
   if (rowsToAppend.length > 0) {
-    await appendTabRows(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_HAZARDS_TAB, rowsToAppend, {
-      expectedHeaders: RISK_ASSESSMENT_HAZARDS_TAB_COLUMNS,
-    });
+    await appendTabRows(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_HAZARDS_TAB, RISK_ASSESSMENT_HAZARDS_TAB_COLUMNS, rowsToAppend);
   }
   timer.log("append-hazards", { appended: rowsToAppend.length, rowCount: hazardInputs.length });
 
@@ -871,7 +965,7 @@ async function createActionForHazard(auth, deps, resolved, actor, assessment, ha
     "Schema Version": "1",
   };
   const appendTabRows = resolveAppendTabRows(deps);
-  await appendTabRows(auth, deps, resolved.masterSheetId, ACTIONS_TAB, [row], { expectedHeaders: ACTIONS_TAB_COLUMNS });
+  await appendTabRows(auth, deps, resolved.masterSheetId, ACTIONS_TAB, ACTIONS_TAB_COLUMNS, [row]);
   return { ok: true, actionId };
 }
 
@@ -956,12 +1050,49 @@ export async function getCompanyRiskAssessment(auth, deps, resolved, actor, risk
 
 export async function createCompanyRiskAssessment(auth, deps, resolved, actor, input = {}) {
   const timer = createRiskAssessmentTiming("create", { companyFolderId: resolved.companyFolderId });
+  const writeMasterSheetId = trim(resolved.masterSheetId);
+  logRiskAssessmentCreatePersist("validation-start", {
+    companyFolderId: resolved.companyFolderId,
+    writeMasterSheetId,
+    readMasterSheetId: writeMasterSheetId,
+    tabName: RISK_ASSESSMENTS_TAB,
+    riskAssessmentId: trim(input.riskAssessmentId) || trim(input.id) || undefined,
+  });
   if (!canCreateRiskAssessment(actor)) {
     return healthSafetyApiFailure("RISK_ASSESSMENT_FORBIDDEN", "You do not have permission to create risk assessments.", 403);
   }
-  await ensureRiskAssessmentTabs(auth, deps, resolved.masterSheetId);
+  if (!writeMasterSheetId) {
+    logRiskAssessmentCreatePersist("workbook-resolution-failed", {
+      companyFolderId: resolved.companyFolderId,
+      error: "missing_master_sheet_id",
+    });
+    return healthSafetyApiFailure("RISK_ASSESSMENT_WORKBOOK_MISSING", "Company workbook could not be resolved.", 400);
+  }
+  logRiskAssessmentCreatePersist("workbook-resolved", {
+    companyFolderId: resolved.companyFolderId,
+    writeMasterSheetId,
+    readMasterSheetId: writeMasterSheetId,
+    tabName: RISK_ASSESSMENTS_TAB,
+  });
+  await ensureRiskAssessmentTabs(auth, deps, writeMasterSheetId);
   timer.log("ensure-tabs");
-  const existing = await readTab(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, RISK_ASSESSMENTS_TAB_COLUMNS);
+  logRiskAssessmentCreatePersist("tab-ensured", {
+    companyFolderId: resolved.companyFolderId,
+    writeMasterSheetId,
+    readMasterSheetId: writeMasterSheetId,
+    tabName: RISK_ASSESSMENTS_TAB,
+  });
+  const liveHeaders = await readRiskAssessmentTabHeaders(auth, deps, writeMasterSheetId);
+  const headerAlignment = analyzeTabHeaderAlignment(RISK_ASSESSMENTS_TAB_COLUMNS, liveHeaders);
+  logRiskAssessmentCreatePersist("header-alignment", {
+    companyFolderId: resolved.companyFolderId,
+    writeMasterSheetId,
+    readMasterSheetId: writeMasterSheetId,
+    tabName: RISK_ASSESSMENTS_TAB,
+    headerMissing: headerAlignment.missing,
+    headerDuplicates: headerAlignment.duplicates,
+  });
+  const existing = await readTab(auth, deps, writeMasterSheetId, RISK_ASSESSMENTS_TAB, RISK_ASSESSMENTS_TAB_COLUMNS);
   timer.log("read-assessments");
   const requestedId = trim(input.riskAssessmentId) || trim(input.id);
   const requestedNumber = trim(input.assessmentNumber);
@@ -972,6 +1103,14 @@ export async function createCompanyRiskAssessment(auth, deps, resolved, actor, i
     const mapped = mapRiskAssessmentRecord(existingMatch);
     if (isVerificationRiskAssessment(mapped)) {
       timer.log("existing-verification");
+      logRiskAssessmentCreatePersist("idempotent-existing", {
+        companyFolderId: resolved.companyFolderId,
+        writeMasterSheetId,
+        readMasterSheetId: writeMasterSheetId,
+        tabName: RISK_ASSESSMENTS_TAB,
+        riskAssessmentId: mapped.id,
+        fullTabFound: true,
+      });
       return publishRiskAssessmentListMutation(
         resolved,
         "create-existing-verification",
@@ -1019,18 +1158,78 @@ export async function createCompanyRiskAssessment(auth, deps, resolved, actor, i
     UpdatedAt: timestamp,
     UpdatedBy: normalizeEmail(actor.email),
   };
-  const appendTabRows = resolveAppendTabRows(deps);
-  await appendTabRows(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, [row], {
-    expectedHeaders: RISK_ASSESSMENTS_TAB_COLUMNS,
+  logRiskAssessmentCreatePersist("row-constructed", {
+    companyFolderId: resolved.companyFolderId,
+    writeMasterSheetId,
+    readMasterSheetId: writeMasterSheetId,
+    tabName: RISK_ASSESSMENTS_TAB,
+    riskAssessmentId: id,
   });
+  const appendTabRows = resolveAppendTabRows(deps);
+  let appendResult;
+  try {
+    appendResult = await appendTabRows(auth, deps, writeMasterSheetId, RISK_ASSESSMENTS_TAB, RISK_ASSESSMENTS_TAB_COLUMNS, [row]);
+  } catch (error) {
+    logRiskAssessmentCreatePersist("append-failed", {
+      companyFolderId: resolved.companyFolderId,
+      writeMasterSheetId,
+      readMasterSheetId: writeMasterSheetId,
+      tabName: RISK_ASSESSMENTS_TAB,
+      riskAssessmentId: id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return healthSafetyApiFailure(
+      "RISK_ASSESSMENT_CREATE_WRITE_FAILED",
+      "Risk assessment could not be written to the workbook.",
+      500,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
   timer.log("append-assessment");
-  const visibility = await waitForAssessmentRecordAfterWrite(auth, deps, resolved.masterSheetId, id, {
+  logRiskAssessmentCreatePersist("append-ack", {
+    companyFolderId: resolved.companyFolderId,
+    writeMasterSheetId: appendResult?.masterSheetId || writeMasterSheetId,
+    readMasterSheetId: writeMasterSheetId,
+    tabName: RISK_ASSESSMENTS_TAB,
+    riskAssessmentId: id,
+    updatedRange: appendResult?.updatedRange,
+    updatedRows: appendResult?.updatedRows,
+    updatedColumns: appendResult?.updatedColumns,
+    written: appendResult?.written,
+  });
+  if (!appendResult?.ok || Number(appendResult?.written) <= 0) {
+    logRiskAssessmentCreatePersist("append-not-acknowledged", {
+      companyFolderId: resolved.companyFolderId,
+      writeMasterSheetId,
+      readMasterSheetId: writeMasterSheetId,
+      tabName: RISK_ASSESSMENTS_TAB,
+      riskAssessmentId: id,
+      written: appendResult?.written,
+    });
+    return healthSafetyApiFailure(
+      "RISK_ASSESSMENT_CREATE_WRITE_FAILED",
+      "Risk assessment write was not acknowledged by Google Sheets.",
+      500,
+    );
+  }
+  const visibility = await waitForAssessmentRecordAfterWrite(auth, deps, writeMasterSheetId, id, {
     maxAttempts: 15,
     intervalMs: 1000,
+    appendResult,
+    companyFolderId: resolved.companyFolderId,
   });
-  timer.log("read-after-write", { attempts: visibility.attempts, visible: visibility.ok });
+  timer.log("read-after-write", { attempts: visibility.attempts, visible: visibility.ok, source: visibility.source });
   if (!visibility.ok) {
     timer.log("create-not-visible");
+    logRiskAssessmentCreatePersist("readback-failed", {
+      companyFolderId: resolved.companyFolderId,
+      writeMasterSheetId,
+      readMasterSheetId: writeMasterSheetId,
+      tabName: RISK_ASSESSMENTS_TAB,
+      riskAssessmentId: id,
+      updatedRange: appendResult?.updatedRange,
+      attempt: visibility.attempts,
+    });
     return healthSafetyApiFailure(
       "RISK_ASSESSMENT_CREATE_NOT_VISIBLE",
       "Risk assessment could not be confirmed after create.",
@@ -1038,6 +1237,18 @@ export async function createCompanyRiskAssessment(auth, deps, resolved, actor, i
     );
   }
   const persisted = visibility.record;
+  const detailLookup = await buildAssessmentDetail(auth, deps, resolved, actor, id, { timer });
+  logRiskAssessmentCreatePersist("detail-lookup", {
+    companyFolderId: resolved.companyFolderId,
+    writeMasterSheetId,
+    readMasterSheetId: writeMasterSheetId,
+    tabName: RISK_ASSESSMENTS_TAB,
+    riskAssessmentId: id,
+    fullTabFound: detailLookup?.ok === true,
+  });
+  if (!detailLookup?.ok) {
+    return detailLookup;
+  }
   let syncedHazards = [];
   if (Array.isArray(input.hazards) && input.hazards.length > 0) {
     const synced = await syncRiskAssessmentHazards(auth, deps, resolved, actor, id, input.hazards, { timer });
@@ -1045,6 +1256,14 @@ export async function createCompanyRiskAssessment(auth, deps, resolved, actor, i
     syncedHazards = synced.hazards || [];
   }
   timer.log("complete");
+  logRiskAssessmentCreatePersist("complete", {
+    companyFolderId: resolved.companyFolderId,
+    writeMasterSheetId,
+    readMasterSheetId: writeMasterSheetId,
+    tabName: RISK_ASSESSMENTS_TAB,
+    riskAssessmentId: id,
+    fullTabFound: true,
+  });
   return publishRiskAssessmentListMutation(
     resolved,
     "create",
@@ -1334,9 +1553,7 @@ export async function reviewCompanyRiskAssessment(auth, deps, resolved, actor, r
     CreatedBy: normalizeEmail(actor.email),
   };
   const appendTabRows = resolveAppendTabRows(deps);
-  await appendTabRows(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_REVIEWS_TAB, [reviewRow], {
-    expectedHeaders: RISK_ASSESSMENT_REVIEWS_TAB_COLUMNS,
-  });
+  await appendTabRows(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_REVIEWS_TAB, RISK_ASSESSMENT_REVIEWS_TAB_COLUMNS, [reviewRow]);
   const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
   if (outcome === "no_change") {
     await patchTabRowByHeader(auth, deps, resolved.masterSheetId, RISK_ASSESSMENTS_TAB, "RiskAssessmentId", riskAssessmentId, {
@@ -1588,9 +1805,7 @@ export async function createRiskAssessmentLink(auth, deps, resolved, actor, risk
     CreatedBy: normalizeEmail(actor.email),
   };
   const appendTabRows = resolveAppendTabRows(deps);
-  await appendTabRows(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_LINKS_TAB, [row], {
-    expectedHeaders: RISK_ASSESSMENT_LINKS_TAB_COLUMNS,
-  });
+  await appendTabRows(auth, deps, resolved.masterSheetId, RISK_ASSESSMENT_LINKS_TAB, RISK_ASSESSMENT_LINKS_TAB_COLUMNS, [row]);
   const links = await listRiskAssessmentLinks(auth, deps, resolved, actor, riskAssessmentId, { includeArchived: true });
   const item = links.items.find((entry) => entry.id === id);
   return { ok: true, item };

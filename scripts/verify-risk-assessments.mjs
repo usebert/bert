@@ -130,6 +130,9 @@ assert(service.includes("alreadySubmitted"), "service: idempotent submit");
 assert(service.includes("buildDraftSaveResponse"), "service: lightweight draft save response");
 assert(service.includes("batchPatchTabRowsByHeader"), "service: batch hazard patch helper");
 assert(service.includes("publishRiskAssessmentListMutation(resolved, \"save-draft\", buildDraftSaveResponse(patched.item"), "service: draft save returns lightweight response");
+assert(service.includes("[risk-assessment:create-persist]"), "service: create persistence instrumentation");
+assert(service.includes("waitForAssessmentRecordAfterWrite"), "service: bounded create read-after-write");
+assert(service.includes("RISK_ASSESSMENTS_TAB_COLUMNS, [row]"), "service: create append uses canonical headers then row objects");
 
 const validationAdapter = read("src/health-safety/adapters/riskAssessmentValidation.ts");
 assert(validationAdapter.includes("buildClientHazardId"), "client: stable HazardId at creation");
@@ -139,6 +142,9 @@ assert(validationAdapter.includes("mergeHazardsFromSave"), "client: save respons
 
 const workbook = read("server/workbook-service.mjs");
 assert(workbook.includes("batchPatchTabRowsByHeader"), "workbook: batch row patch helper");
+assert(workbook.includes("analyzeTabHeaderAlignment"), "workbook: tab header alignment helper");
+assert(workbook.includes("readAppendedRowByRange"), "workbook: exact appended row readback");
+assert(workbook.includes("sheetHeaders"), "workbook: append uses live sheet headers");
 
 const sharedDedupe = dedupeHazardsById([
   { id: "h-1", updatedAt: "2026-01-01", hazardTitle: "Old" },
@@ -236,4 +242,11 @@ const listTests = spawnSync("node", ["--test", "scripts/verify-risk-assessment-l
 });
 if (listTests.status !== 0) {
   process.exit(listTests.status || 1);
+}
+
+const createPersistenceTests = spawnSync("node", ["--test", "scripts/verify-risk-assessment-create-persistence.test.mjs"], {
+  stdio: "inherit",
+});
+if (createPersistenceTests.status !== 0) {
+  process.exit(createPersistenceTests.status || 1);
 }

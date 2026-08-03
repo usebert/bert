@@ -485,7 +485,7 @@ export async function batchPatchTabRowsByHeader(
   return { ok: true, patched: data.length, tabName: tab, masterSheetId: sheetId };
 }
 
-function mapRowObjectToHeaders(headers, rowObject) {
+export function mapRowObjectToHeaders(headers, rowObject) {
   const lower = safeLower;
   return headers.map((header) => {
     const direct = rowObject?.[header];
@@ -497,31 +497,113 @@ function mapRowObjectToHeaders(headers, rowObject) {
   });
 }
 
-/** Append rows to a tab — ensures columns, uses header-based row mapping. */
+export function analyzeTabHeaderAlignment(expectedHeaders = [], liveHeaders = []) {
+  const lower = safeLower;
+  const live = (liveHeaders || []).map((header) => trim(header)).filter(Boolean);
+  const expected = (expectedHeaders || []).map((header) => trim(header)).filter(Boolean);
+  const missing = expected.filter((header) => !live.some((entry) => lower(entry) === lower(header)));
+  const duplicates = live.filter(
+    (header, index) => live.findIndex((entry) => lower(entry) === lower(header)) !== index,
+  );
+  const extra = live.filter((header) => !expected.some((entry) => lower(entry) === lower(header)));
+  return {
+    missing,
+    duplicates,
+    extra,
+    liveHeaders: live,
+    expectedHeaders: expected,
+  };
+}
+
+function normalizeLiveHeaderRow(headerRow = [], fallbackHeaders = []) {
+  const headers = (headerRow || []).map((header) => trim(header));
+  while (headers.length > 0 && headers[headers.length - 1] === "") {
+    headers.pop();
+  }
+  if (headers.length === 0 && fallbackHeaders.length > 0) {
+    return [...fallbackHeaders];
+  }
+  return headers;
+}
+
+function normalizeAppendTabRowsArgs(expectedHeaders, rowObjects) {
+  if (
+    Array.isArray(expectedHeaders) &&
+    expectedHeaders.length > 0 &&
+    expectedHeaders.every((entry) => entry && typeof entry === "object" && !Array.isArray(entry)) &&
+    rowObjects &&
+    typeof rowObjects === "object" &&
+    !Array.isArray(rowObjects) &&
+    Array.isArray(rowObjects.expectedHeaders)
+  ) {
+    return {
+      columns: rowObjects.expectedHeaders,
+      rows: expectedHeaders,
+      legacyCall: true,
+    };
+  }
+  return {
+    columns: Array.isArray(expectedHeaders) ? expectedHeaders : [],
+    rows: Array.isArray(rowObjects) ? rowObjects.filter((row) => row && typeof row === "object") : [],
+    legacyCall: false,
+  };
+}
+
+export function rangeWithinTab(updatedRange = "", tabName = "") {
+  const raw = trim(updatedRange);
+  if (!raw) {
+    return "";
+  }
+  const bang = raw.indexOf("!");
+  const range = bang >= 0 ? raw.slice(bang + 1) : raw;
+  const tabPrefix = trim(tabName);
+  if (tabPrefix && range.startsWith("'")) {
+    const closing = range.indexOf("'!");
+    if (closing >= 0) {
+      return range.slice(closing + 2);
+    }
+  }
+  return range;
+}
+
+export async function readTabValueRange(auth, deps, masterSheetId, tabName, a1Range) {
+  const values = await getTabValues(auth, deps, masterSheetId, tabName, a1Range);
+  return values || [];
+}
+
+function recordFromHeaderRow(headers, rowValues = []) {
+  return headers.reduce((accumulator, header, index) => {
+    accumulator[header] = trim(rowValues[index]);
+    return accumulator;
+  }, {});
+}
+
+/** Append rows to a tab — ensures columns, uses live sheet header positions. */
 export async function appendTabRows(auth, deps, masterSheetId, tabName, expectedHeaders, rowObjects = []) {
   const sheetId = trim(masterSheetId);
   const tab = trim(tabName);
-  const rows = Array.isArray(rowObjects) ? rowObjects.filter((row) => row && typeof row === "object") : [];
-  if (!sheetId || !tab || rows.length === 0) {
-    return { ok: true, written: 0, skipped: 0 };
+  const normalized = normalizeAppendTabRowsArgs(expectedHeaders, rowObjects);
+  const columns = normalized.columns;
+  const rows = normalized.rows;
+  if (!sheetId || !tab) {
+    throw new Error("masterSheetId and tabName are required.");
+  }
+  if (rows.length === 0) {
+    return { ok: true, written: 0, skipped: 0, tabName: tab, masterSheetId: sheetId };
   }
 
-  const columns = Array.isArray(expectedHeaders) && expectedHeaders.length > 0 ? expectedHeaders : [];
   if (columns.length > 0) {
     await ensureTabColumns(auth, deps, sheetId, tab, columns);
   }
 
-  let headers = columns;
-  if (columns.length > 0) {
-    headers = columns;
-  } else {
-    const headerValues = await getTabValues(auth, deps, sheetId, tab, "A1:ZZ1");
-    const sheetHeaders = (headerValues[0] || []).map((header) => String(header || "").trim()).filter(Boolean);
-    headers = sheetHeaders;
-  }
-  if (headers.length === 0) {
+  const headerRange =
+    columns.length > 0 ? headerRangeForColumnCount(Math.max(columns.length, 1)) : "A1:ZZ1";
+  const headerValues = await getTabValues(auth, deps, sheetId, tab, headerRange);
+  const sheetHeaders = normalizeLiveHeaderRow(headerValues[0], columns);
+  if (sheetHeaders.length === 0) {
     throw new Error(`Tab "${tab}" has no headers.`);
   }
+  const headerAlignment = analyzeTabHeaderAlignment(columns, sheetHeaders);
 
   const { google, withSheetsQuotaRetry } = deps;
   const sheets = google.sheets({ version: "v4", auth });
@@ -532,15 +614,51 @@ export async function appendTabRows(auth, deps, masterSheetId, tabName, expected
       valueInputOption: "USER_ENTERED",
       insertDataOption: "INSERT_ROWS",
       requestBody: {
-        values: rows.map((row) => mapRowObjectToHeaders(headers, row)),
+        values: rows.map((row) => mapRowObjectToHeaders(sheetHeaders, row)),
       },
     });
 
-  if (withSheetsQuotaRetry) {
-    await withSheetsQuotaRetry(request);
-  } else {
-    await request();
+  const response = withSheetsQuotaRetry ? await withSheetsQuotaRetry(request) : await request();
+  const updates = response?.data?.updates || {};
+  const updatedRows = Number(updates.updatedRows) || 0;
+  if (updatedRows <= 0) {
+    throw new Error(`appendTabRows wrote zero rows to ${tab} (${sheetId}).`);
   }
 
-  return { ok: true, written: rows.length, skipped: 0, tabName: tab, masterSheetId: sheetId };
+  return {
+    ok: true,
+    written: updatedRows,
+    skipped: 0,
+    tabName: tab,
+    masterSheetId: sheetId,
+    updatedRange: trim(updates.updatedRange),
+    updatedRows,
+    updatedColumns: Number(updates.updatedColumns) || 0,
+    tableRange: trim(updates.tableRange),
+    sheetHeaders,
+    headerAlignment,
+    legacyCall: normalized.legacyCall,
+  };
+}
+
+export async function readAppendedRowByRange(auth, deps, masterSheetId, tabName, appendResult, matchHeader, matchValue) {
+  const rangePart = rangeWithinTab(appendResult?.updatedRange, tabName);
+  const headers = appendResult?.sheetHeaders || [];
+  if (!rangePart || headers.length === 0) {
+    return null;
+  }
+  const values = await readTabValueRange(auth, deps, masterSheetId, tabName, rangePart);
+  const rowValues = values[0] || [];
+  if (!rowValues.some((cell) => trim(cell))) {
+    return null;
+  }
+  const record = recordFromHeaderRow(headers, rowValues);
+  const lower = safeLower;
+  const matchKey =
+    headers.find((header) => lower(header) === lower(matchHeader)) ||
+    Object.keys(record).find((header) => lower(header) === lower(matchHeader));
+  if (!matchKey || trim(record[matchKey]) !== trim(matchValue)) {
+    return null;
+  }
+  return record;
 }
