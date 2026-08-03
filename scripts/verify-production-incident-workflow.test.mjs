@@ -155,7 +155,7 @@ function createTransport(options = {}) {
       suppressVerificationInListCount -= 1;
       items = items.filter((item) => item.incidentId !== verificationIncidentId);
     }
-    if (options.hideClosedVerificationInList !== false) {
+    if (options.hideClosedVerificationInList === true) {
       items = items.filter(
         (item) =>
           !(
@@ -759,6 +759,134 @@ test("dashboard verification failure", async () => {
   assert.equal(result.failedKey, "dashboard");
 });
 
+test("closed verification incident remains in register but Dashboard passes", async () => {
+  const result = await runProductionIncidentWorkflowChecks(baseConfig, createTransport(), defaultRunOptions);
+  assert.equal(result.checks.dashboard.status, "PASS");
+  const transport = createTransport();
+  await runProductionIncidentWorkflowChecks(baseConfig, transport, defaultRunOptions);
+  const incident = transport.getIncident(buildProductionVerificationIncidentId(TEST_RUN_ID));
+  assert.ok(incident);
+  assert.equal(normalizeStatus(incident.status), "verification-cleaned");
+});
+
+test("verification incident excluded from dashboard current counts", async () => {
+  const { buildLiveDashboardFromSources } = await import("../shared/live-dashboard.mjs");
+  const { buildProductionVerificationIncidentId } = await import("../shared/production-verification-incident.mjs");
+  const verificationId = buildProductionVerificationIncidentId(999);
+  const built = buildLiveDashboardFromSources(
+    {
+      incidents: [
+        {
+          "Incident ID": "i-open",
+          "Company ID": baseConfig.companyFolderId,
+          Status: "Open",
+          Severity: "Critical",
+          "Incident Type": "Slip",
+          "Incident Date": "2026-07-02",
+        },
+        {
+          "Incident ID": verificationId,
+          "Company ID": baseConfig.companyFolderId,
+          Status: "Closed",
+          Severity: "Minor",
+          "Incident Type": "Near Miss",
+          Description: "Automated production Incident workflow verification. Safe to remove.",
+          Witnesses: "verification",
+          "Verification Source": "production-incident-workflow",
+          "Incident Date": "2026-07-02",
+        },
+      ],
+      actions: [],
+      schedules: [],
+      auditResults: [],
+      auditFindings: [],
+      ncrs: [],
+      briefings: [],
+      briefingRecipients: [],
+      areas: [],
+      sites: [],
+      syncLog: [],
+    },
+    {
+      companyFolderId: baseConfig.companyFolderId,
+      alternateIds: [baseConfig.companyFolderId],
+      actor: { role: "Admin", email: baseConfig.expectedEmail, companyId: baseConfig.companyFolderId },
+      now: Date.parse("2026-07-03T12:00:00.000Z"),
+    },
+  );
+  assert.equal(built.metrics.currentIncidents, 1);
+  assert.equal(
+    built.actToday.some((item) => String(item.id || "").includes(verificationId)),
+    false,
+  );
+});
+
+test("normal closed incident remains in dashboard register metrics exclusion only for open", async () => {
+  const { buildLiveDashboardFromSources } = await import("../shared/live-dashboard.mjs");
+  const built = buildLiveDashboardFromSources(
+    {
+      incidents: [
+        {
+          "Incident ID": "i-open",
+          "Company ID": baseConfig.companyFolderId,
+          Status: "Open",
+          Severity: "Critical",
+          "Incident Type": "Slip",
+          "Incident Date": "2026-07-02",
+        },
+        {
+          "Incident ID": "i-closed",
+          "Company ID": baseConfig.companyFolderId,
+          Status: "Closed",
+          Severity: "Low",
+          "Incident Type": "Slip",
+          "Incident Date": "2026-05-01",
+        },
+      ],
+      actions: [],
+      schedules: [],
+      auditResults: [],
+      auditFindings: [],
+      ncrs: [],
+      briefings: [],
+      briefingRecipients: [],
+      areas: [],
+      sites: [],
+      syncLog: [],
+    },
+    {
+      companyFolderId: baseConfig.companyFolderId,
+      alternateIds: [baseConfig.companyFolderId],
+      actor: { role: "Admin", email: baseConfig.expectedEmail, companyId: baseConfig.companyFolderId },
+      now: Date.parse("2026-07-03T12:00:00.000Z"),
+    },
+  );
+  assert.equal(built.metrics.currentIncidents, 1);
+});
+
+test("dashboard failure still triggers cleanup and preserves failed stage", async () => {
+  const result = await runProductionIncidentWorkflowChecks(
+    baseConfig,
+    createTransport({ dashboardIncludesVerification: true }),
+    defaultRunOptions,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.failedKey, "dashboard");
+  assert.equal(result.checks.cleanup.status, "PASS");
+});
+
+test("cleanup failure after dashboard failure surfaces both stages", async () => {
+  const result = await runProductionIncidentWorkflowChecks(
+    baseConfig,
+    createTransport({ dashboardIncludesVerification: true, cleanupFails: true }),
+    defaultRunOptions,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.failedKey, "dashboard");
+  assert.equal(result.checks.cleanup.status, "FAIL");
+  assert.equal(result.cleanupAlsoFailed, true);
+});
+
 test("cleanup success", async () => {
   const result = await runProductionIncidentWorkflowChecks(baseConfig, createTransport(), defaultRunOptions);
   assert.equal(result.checks.cleanup.status, "PASS");
@@ -846,7 +974,7 @@ test("verification helpers classify operational vs verification incidents", () =
   assert.equal(isOperationalIncident(verification), false);
   const cleaned = { ...verification, status: PRODUCTION_VERIFICATION_INCIDENT_CLEANED_STATUS };
   assert.equal(isActiveVerificationIncident(cleaned), false);
-  assert.equal(isOperationalIncident(cleaned), true);
+  assert.equal(isOperationalIncident(cleaned), false);
   const baseline = countIncidentBaselines([customerIncident(), verification]);
   assert.equal(baseline.operationalCount, 1);
   assert.equal(baseline.activeVerificationCount, 1);

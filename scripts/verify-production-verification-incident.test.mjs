@@ -24,6 +24,7 @@ import {
   patchCompanyIncident,
   submitCompanyIncident,
 } from "../server/incidents-service.mjs";
+import { RIDDOR_REPORTS_TAB } from "../shared/health-safety.mjs";
 
 const companyFolderId = "folder-abc";
 const masterSheetId = "sheet-xyz";
@@ -103,10 +104,10 @@ function verificationIncidentRow(overrides = {}) {
   };
 }
 
-function createIncidentDeps(initialRows = []) {
+function createIncidentDeps(initialRows = [], riddorRows = []) {
   const rowsByTab = {
     [INCIDENTS_TAB]: initialRows.map((row) => ({ ...row })),
-    RiddorReports: [],
+    [RIDDOR_REPORTS_TAB]: riddorRows.map((row) => ({ ...row })),
   };
 
   return {
@@ -118,9 +119,14 @@ function createIncidentDeps(initialRows = []) {
       rowsByTab[tabName].push(...newRows.map((row) => ({ ...row })));
       return { ok: true };
     },
-    patchTabRowByHeader: async (_auth, _deps, _sheetId, tabName, _header, matchValue, patch) => {
+    patchTabRowByHeader: async (_auth, _deps, _sheetId, tabName, header, matchValue, patch) => {
       const records = rowsByTab[tabName] || [];
-      const index = records.findIndex((row) => incidentIdsMatch(row.IncidentId, matchValue));
+      const index = records.findIndex((row) => {
+        if (header === "RiddorId") {
+          return String(row.RiddorId || row.riddorId) === String(matchValue);
+        }
+        return incidentIdsMatch(row.IncidentId, matchValue);
+      });
       if (index === -1) {
         return { ok: false, patched: 0, updatedRows: 0 };
       }
@@ -195,6 +201,39 @@ test("operational incident metrics exclude active verification rows", () => {
   assert.equal(metrics.openIncidents, 1);
 });
 
+test("closed verification incidents are excluded from operational metrics", () => {
+  const customer = {
+    id: "inc-customer-1",
+    incidentId: "inc-customer-1",
+    status: "Open",
+    severity: "Minor",
+    priority: "Normal",
+    incidentType: "Slip/Trip",
+  };
+  const verification = {
+    id: `bert-smoke-inc-${runId}`,
+    incidentId: `bert-smoke-inc-${runId}`,
+    title: "BERT Verification Incident",
+    description: "Automated production Incident workflow verification. Safe to remove.",
+    incidentType: "Near Miss",
+    witnesses: "verification",
+    verificationSource: PRODUCTION_VERIFICATION_INCIDENT_SOURCE,
+    status: "Closed",
+    severity: "Minor",
+    priority: "Normal",
+  };
+  const metrics = buildHealthSafetyMetrics({
+    incidents: [customer, verification],
+    riddor: [],
+    coshh: [],
+    equipment: [],
+    incidentActions: [],
+    riskAssessments: [],
+    todayKey: "2026-07-01",
+  });
+  assert.equal(metrics.openIncidents, 1);
+});
+
 test("verification-only cleanup archives verification incident", async () => {
   const verification = verificationIncidentRow({ Status: "Closed", ClosedAt: "2026-07-01T12:00:00.000Z" });
   const deps = createIncidentDeps([customerIncidentRow(), verification]);
@@ -207,6 +246,28 @@ test("verification-only cleanup archives verification incident", async () => {
   assert.equal(result.ok, true);
   assert.equal(result.status, PRODUCTION_VERIFICATION_INCIDENT_CLEANED_STATUS);
   assert.equal(result.updatedRows, 1);
+});
+
+test("verification cleanup archives linked RIDDOR row", async () => {
+  const verification = verificationIncidentRow({ Status: "Closed", ClosedAt: "2026-07-01T12:00:00.000Z" });
+  const riddorRow = {
+    RiddorId: "riddor-verify-1",
+    IncidentId: verification.IncidentId,
+    Status: "Draft",
+    CreatedAt: "2026-07-01T11:00:00.000Z",
+  };
+  const deps = createIncidentDeps([customerIncidentRow(), verification], [riddorRow]);
+  const result = await cleanupVerificationIncident(
+    null,
+    deps,
+    { companyFolderId, masterSheetId, incidentId: verification.IncidentId, resolvedContext },
+    actor,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.archivedRiddor, 1);
+  const archived = deps.rowsByTab[RIDDOR_REPORTS_TAB][0];
+  assert.ok(archived.ArchivedAt);
+  assert.equal(archived.ArchivedBy, actor.email);
 });
 
 test("stale verification cleanup only affects verification-marked incidents", async () => {

@@ -96,11 +96,31 @@ export function isActiveVerificationIncident(record = {}) {
 }
 
 export function isOperationalIncident(record = {}) {
-  if (!isVerificationIncident(record)) {
-    return true;
+  return !isVerificationIncident(record);
+}
+
+export function isOpenOperationalIncident(record = {}) {
+  if (!isOperationalIncident(record)) {
+    return false;
   }
   const status = normalize(pickField(record, "status", "Status"));
-  return status === PRODUCTION_VERIFICATION_INCIDENT_CLEANED_STATUS;
+  return !["closed", "resolved", "complete", "completed", "cancelled", "verification-cleaned"].includes(status);
+}
+
+export function mapWorkbookIncidentForOperationalCheck(record = {}) {
+  return {
+    incidentId: pickField(record, "incidentId", "IncidentId", "Incident ID", "id"),
+    status: pickField(record, "status", "Status"),
+    description: pickField(record, "description", "Description"),
+    incidentType: pickField(record, "incidentType", "IncidentType", "Incident Type", "type"),
+    witnesses: pickField(record, "witnesses", "Witnesses"),
+    verificationSource: pickField(record, "verificationSource", "VerificationSource", "Verification Source"),
+    title: pickField(record, "title", "Title", "summary", "Summary"),
+  };
+}
+
+export function isOperationalWorkbookIncidentRow(record = {}) {
+  return isOperationalIncident(mapWorkbookIncidentForOperationalCheck(record));
 }
 
 export function buildProductionVerificationIncidentId(runId = Date.now()) {

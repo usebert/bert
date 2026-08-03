@@ -13,6 +13,8 @@ import {
   countIncidentBaselines,
   findIncidentById,
   isActiveVerificationIncident,
+  isOpenOperationalIncident,
+  isOperationalIncident,
   isVerificationIncident,
   listActiveVerificationIncidents,
   PRODUCTION_VERIFICATION_INCIDENT_CLEANED_STATUS,
@@ -665,6 +667,13 @@ export async function runProductionIncidentWorkflowChecks(config, transport, opt
     result.checks[key] = { status: "SKIP", reason };
   };
 
+  let login = null;
+  let incidents = [];
+  let createResponseSnapshot = null;
+  let baselineOverviewOpenIncidents = null;
+  let mustRunCleanup = false;
+  let deferredFailure = null;
+
   const fail = (key, reason, remediation = "", httpStatus = 0, responseBody = null, extra = {}) => {
     result.failedKey = key;
     result.failedStage = CHECK_LABELS[key];
@@ -674,9 +683,11 @@ export async function runProductionIncidentWorkflowChecks(config, transport, opt
     result.safeResponseBody = responseBody ? redactSafeResponseBody(responseBody) : undefined;
     result.checks[key] = { status: "FAIL" };
     Object.assign(result, extra);
-    for (const checkKey of CHECK_KEYS) {
-      if (result.checks[checkKey].status === "PENDING") {
-        result.checks[checkKey] = { status: "SKIP" };
+    if (!mustRunCleanup || key === "cleanup") {
+      for (const checkKey of CHECK_KEYS) {
+        if (result.checks[checkKey].status === "PENDING") {
+          result.checks[checkKey] = { status: "SKIP" };
+        }
       }
     }
     result.durationMs = Date.now() - startedAt;
@@ -756,10 +767,115 @@ export async function runProductionIncidentWorkflowChecks(config, transport, opt
     }
   }
 
-  let login = null;
-  let incidents = [];
-  let createResponseSnapshot = null;
-  let baselineOverviewOpenIncidents = null;
+  async function runPostCreateStage(stageKey, fn) {
+    if (deferredFailure) {
+      skip(stageKey, `Skipped after ${deferredFailure.failedStage} failure.`);
+      return null;
+    }
+    const stageResult = await runStage(stageKey, fn);
+    if (stageResult?.failedKey) {
+      if (mustRunCleanup) {
+        if (!deferredFailure) {
+          deferredFailure = {
+            failedKey: stageResult.failedKey,
+            failedStage: stageResult.failedStage,
+            failureReason: stageResult.failureReason,
+            remediation: stageResult.remediation,
+            httpStatus: stageResult.httpStatus,
+            safeResponseBody: stageResult.safeResponseBody,
+          };
+        }
+        return null;
+      }
+      return stageResult;
+    }
+    return null;
+  }
+
+  async function runMandatoryCleanupStage() {
+    const cleanupResult = await runStage("cleanup", async () => {
+      const cleanup = await attemptVerificationIncidentCleanup(request, workflowContext);
+      if (!cleanup.ok) {
+        return fail(
+          "cleanup",
+          "Verification cleanup did not succeed.",
+          "Inspect POST /api/companies/:id/incidents/verification-cleanup and single-incident cleanup.",
+          500,
+          cleanup,
+        );
+      }
+
+      const listAfterCleanup = await fetchCompanyIncidents(request, companyFolderId, masterSheetId, "cleanup");
+      const remaining = listActiveVerificationIncidents(listAfterCleanup.json?.incidents || []);
+      if (remaining.length > 0) {
+        return fail(
+          "cleanup",
+          `Active verification incidents remain after cleanup (${remaining.length}).`,
+          "Inspect verification cleanup archive behaviour.",
+          listAfterCleanup.status,
+          { remainingIds: remaining.map((item) => trim(item.incidentId || item.id)) },
+        );
+      }
+      const cleaned = findIncidentById(listAfterCleanup.json?.incidents || [], verificationIncidentId);
+      const cleanedStatus = normalizeIdentity(cleaned?.status || "");
+      if (
+        cleaned &&
+        cleanedStatus !== PRODUCTION_VERIFICATION_INCIDENT_CLEANED_STATUS &&
+        cleanedStatus !== "closed"
+      ) {
+        return fail(
+          "cleanup",
+          `Verification incident was not marked cleaned (status="${cleaned?.status}").`,
+          "Inspect verification-cleaned status handling.",
+          cleanup.results?.find((item) => item.kind === "single")?.status,
+          cleaned,
+        );
+      }
+      pass("cleanup");
+      return null;
+    });
+    return cleanupResult;
+  }
+
+  async function finalizeMutationWorkflow() {
+    if (!deferredFailure) {
+      const searchSkipped = await runStage("search", async () => {
+        skip("search", "Global search is built client-side from cached workbook data; no safe server-side search API exists.");
+        return null;
+      });
+      if (searchSkipped) {
+        return searchSkipped;
+      }
+    } else if (result.checks.search.status === "PENDING") {
+      await runStage("search", async () => {
+        skip("search", `Skipped after ${deferredFailure.failedStage} failure.`);
+        return null;
+      });
+    }
+
+    if (mustRunCleanup) {
+      const cleanupResult = await runMandatoryCleanupStage();
+      if (deferredFailure) {
+        if (cleanupResult?.failedKey) {
+          deferredFailure.cleanupAlsoFailed = true;
+          deferredFailure.cleanupFailureReason = cleanupResult.failureReason;
+        }
+        return {
+          ...result,
+          ...deferredFailure,
+          checks: { ...result.checks },
+          durationMs: Date.now() - startedAt,
+        };
+      }
+      if (cleanupResult) {
+        return cleanupResult;
+      }
+    } else if (result.checks.cleanup.status === "PENDING") {
+      skip("cleanup");
+    }
+
+    return null;
+  }
 
   const authFail = await runStage("authentication", async () => {
     let health;
@@ -1024,13 +1140,15 @@ export async function runProductionIncidentWorkflowChecks(config, transport, opt
       );
     }
     pass("createIncident");
+    mustRunCleanup = true;
+    workflowContext.verificationIncidentId = verificationIncidentId;
     return null;
   });
   if (createIncidentFail) {
     return createIncidentFail;
   }
 
-  const readbackFail = await runStage("readback", async () => {
+  const readbackFail = await runPostCreateStage("readback", async () => {
     const updatedRows = Number(createResponseSnapshot?.json?.updatedRows);
     if (Number.isFinite(updatedRows) && updatedRows <= 0 && !createResponseSnapshot?.json?.alreadyExists) {
       return fail(
@@ -1095,7 +1213,7 @@ export async function runProductionIncidentWorkflowChecks(config, transport, opt
     return readbackFail;
   }
 
-  const editIncidentFail = await runStage("editIncident", async () => {
+  const editIncidentFail = await runPostCreateStage("editIncident", async () => {
     let editResult;
     try {
       editResult = await patchIncidentWithTransientRecovery(
@@ -1169,18 +1287,15 @@ export async function runProductionIncidentWorkflowChecks(config, transport, opt
     return editIncidentFail;
   }
 
-  const evidenceSkipped = await runStage("evidence", async () => {
+  await runPostCreateStage("evidence", async () => {
     skip(
       "evidence",
       "No safe isolated evidence cleanup path exists; evidence upload would leave verification artefacts in Drive.",
     );
     return null;
   });
-  if (evidenceSkipped) {
-    return evidenceSkipped;
-  }
 
-  const investigationFail = await runStage("investigation", async () => {
+  await runPostCreateStage("investigation", async () => {
     let investigationResult;
     try {
       investigationResult = await patchIncidentWithTransientRecovery(
@@ -1249,11 +1364,8 @@ export async function runProductionIncidentWorkflowChecks(config, transport, opt
     pass("investigation");
     return null;
   });
-  if (investigationFail) {
-    return investigationFail;
-  }
 
-  const riddorDecisionFail = await runStage("riddorDecision", async () => {
+  await runPostCreateStage("riddorDecision", async () => {
     let riddorResponse;
     try {
       riddorResponse = await request(
@@ -1309,22 +1421,16 @@ export async function runProductionIncidentWorkflowChecks(config, transport, opt
     pass("riddorDecision");
     return null;
   });
-  if (riddorDecisionFail) {
-    return riddorDecisionFail;
-  }
 
-  const correctiveActionSkipped = await runStage("correctiveAction", async () => {
+  await runPostCreateStage("correctiveAction", async () => {
     skip(
       "correctiveAction",
       "No safe isolated linked corrective Action API exists for incident verification without touching the Actions workflow gate.",
     );
     return null;
   });
-  if (correctiveActionSkipped) {
-    return correctiveActionSkipped;
-  }
 
-  const statusProgressionFail = await runStage("statusProgression", async () => {
+  await runPostCreateStage("statusProgression", async () => {
     const detail = await request(
       "GET",
       incidentDetailPath(companyFolderId, verificationIncidentId, masterSheetId),
@@ -1382,11 +1488,8 @@ export async function runProductionIncidentWorkflowChecks(config, transport, opt
     pass("statusProgression");
     return null;
   });
-  if (statusProgressionFail) {
-    return statusProgressionFail;
-  }
 
-  const closeIncidentFail = await runStage("closeIncident", async () => {
+  await runPostCreateStage("closeIncident", async () => {
     let closeResult;
     try {
       closeResult = await postCloseWithTransientRecovery(
@@ -1465,11 +1568,8 @@ export async function runProductionIncidentWorkflowChecks(config, transport, opt
     pass("closeIncident");
     return null;
   });
-  if (closeIncidentFail) {
-    return closeIncidentFail;
-  }
 
-  const detailVerificationFail = await runStage("detailVerification", async () => {
+  await runPostCreateStage("detailVerification", async () => {
     const detail = await request(
       "GET",
       incidentDetailPath(companyFolderId, verificationIncidentId, masterSheetId),
@@ -1504,11 +1604,8 @@ export async function runProductionIncidentWorkflowChecks(config, transport, opt
     pass("detailVerification");
     return null;
   });
-  if (detailVerificationFail) {
-    return detailVerificationFail;
-  }
 
-  const healthSafetyOverviewFail = await runStage("healthSafetyOverview", async () => {
+  await runPostCreateStage("healthSafetyOverview", async () => {
     const overview = await request("GET", healthSafetyOverviewPath(companyFolderId, masterSheetId), undefined, {
       stageKey: "healthSafetyOverview",
     });
@@ -1539,11 +1636,11 @@ export async function runProductionIncidentWorkflowChecks(config, transport, opt
         overview.json,
       );
     }
-    const activeVerification = (overview.json?.incidents || []).filter((item) => isActiveVerificationIncident(item));
-    if (activeVerification.some((item) => trim(item.id || item.incidentId) === verificationIncidentId)) {
+    const operationalOverviewIncidents = (overview.json?.incidents || []).filter((item) => isOperationalIncident(item));
+    if (operationalOverviewIncidents.some((item) => trim(item.id || item.incidentId) === verificationIncidentId)) {
       return fail(
         "healthSafetyOverview",
-        "Active verification incident still included in overview incident list.",
+        "Verification incident still included in operational overview incident list.",
         "Filter verification incidents from operational overview payloads.",
         overview.status,
         overview.json,
@@ -1552,11 +1649,8 @@ export async function runProductionIncidentWorkflowChecks(config, transport, opt
     pass("healthSafetyOverview");
     return null;
   });
-  if (healthSafetyOverviewFail) {
-    return healthSafetyOverviewFail;
-  }
 
-  const dashboardFail = await runStage("dashboard", async () => {
+  await runPostCreateStage("dashboard", async () => {
     let dashboardResponse;
     try {
       dashboardResponse = await request("GET", dashboardPath(companyFolderId, masterSheetId, true), undefined, {
@@ -1585,7 +1679,7 @@ export async function runProductionIncidentWorkflowChecks(config, transport, opt
     if (incidentAppearsInDashboard(dashboardResponse.json, verificationIncidentId)) {
       return fail(
         "dashboard",
-        "Closed verification incident still appears in dashboard Act Today items.",
+        "Verification incident still appears in dashboard Act Today operational items.",
         "Inspect live dashboard exclusion for verification incidents.",
         dashboardResponse.status,
         dashboardResponse.json,
@@ -1593,23 +1687,35 @@ export async function runProductionIncidentWorkflowChecks(config, transport, opt
     }
     const listAfterClose = await fetchCompanyIncidents(request, companyFolderId, masterSheetId, "dashboard");
     const visibleVerification = findIncidentById(listAfterClose.json?.incidents || [], verificationIncidentId);
-    if (visibleVerification && isActiveVerificationIncident(visibleVerification)) {
-      return fail(
-        "dashboard",
-        "Active verification incident remains visible in register after close.",
-        "Inspect verification incident operational exclusion.",
-        listAfterClose.status,
-        { incidentId: verificationIncidentId, status: visibleVerification.status },
-      );
+    if (visibleVerification) {
+      const closedStatus = normalizeStatus(visibleVerification.status);
+      if (closedStatus !== "closed" && closedStatus !== PRODUCTION_VERIFICATION_INCIDENT_CLEANED_STATUS) {
+        return fail(
+          "dashboard",
+          `Verification incident in register has unexpected status "${visibleVerification.status}".`,
+          "Inspect incident close persistence before dashboard verification.",
+          listAfterClose.status,
+          { incidentId: verificationIncidentId, status: visibleVerification.status },
+        );
+      }
+      if (isOpenOperationalIncident(visibleVerification)) {
+        return fail(
+          "dashboard",
+          "Open verification incident remains in the operational register view.",
+          "Closed verification incidents may remain in the register but must not be operational.",
+          listAfterClose.status,
+          { incidentId: verificationIncidentId, status: visibleVerification.status },
+        );
+      }
     }
     if (
       Number.isFinite(baselineOverviewOpenIncidents) &&
       Number.isFinite(dashboardResponse.json?.metrics?.currentIncidents) &&
-      dashboardResponse.json.metrics.currentIncidents > baselineOverviewOpenIncidents + 1
+      dashboardResponse.json.metrics.currentIncidents > baselineOverviewOpenIncidents
     ) {
       return fail(
         "dashboard",
-        "Dashboard currentIncidents increased unexpectedly after verification workflow.",
+        "Dashboard currentIncidents increased after verification workflow.",
         "Inspect verification incident exclusion from operational dashboard metrics.",
         dashboardResponse.status,
         {
@@ -1621,61 +1727,10 @@ export async function runProductionIncidentWorkflowChecks(config, transport, opt
     pass("dashboard");
     return null;
   });
-  if (dashboardFail) {
-    return dashboardFail;
-  }
 
-  const searchSkipped = await runStage("search", async () => {
-    skip("search", "Global search is built client-side from cached workbook data; no safe server-side search API exists.");
-    return null;
-  });
-  if (searchSkipped) {
-    return searchSkipped;
-  }
-
-  const cleanupFail = await runStage("cleanup", async () => {
-    const cleanup = await attemptVerificationIncidentCleanup(request, workflowContext);
-    if (!cleanup.ok) {
-      return fail(
-        "cleanup",
-        "Verification cleanup did not succeed.",
-        "Inspect POST /api/companies/:id/incidents/verification-cleanup and single-incident cleanup.",
-        500,
-        cleanup,
-      );
-    }
-
-    const listAfterCleanup = await fetchCompanyIncidents(request, companyFolderId, masterSheetId, "cleanup");
-    const remaining = listActiveVerificationIncidents(listAfterCleanup.json?.incidents || []);
-    if (remaining.length > 0) {
-      return fail(
-        "cleanup",
-        `Active verification incidents remain after cleanup (${remaining.length}).`,
-        "Inspect verification cleanup archive behaviour.",
-        listAfterCleanup.status,
-        { remainingIds: remaining.map((item) => trim(item.incidentId || item.id)) },
-      );
-    }
-    const cleaned = findIncidentById(listAfterCleanup.json?.incidents || [], verificationIncidentId);
-    const cleanedStatus = normalizeIdentity(cleaned?.status || "");
-    if (
-      cleaned &&
-      cleanedStatus !== PRODUCTION_VERIFICATION_INCIDENT_CLEANED_STATUS &&
-      cleanedStatus !== "closed"
-    ) {
-      return fail(
-        "cleanup",
-        `Verification incident was not marked cleaned (status="${cleaned?.status}").`,
-        "Inspect verification-cleaned status handling.",
-        cleanup.results?.find((item) => item.kind === "single")?.status,
-        cleaned,
-      );
-    }
-    pass("cleanup");
-    return null;
-  });
-  if (cleanupFail) {
-    return cleanupFail;
+  const terminalResult = await finalizeMutationWorkflow();
+  if (terminalResult) {
+    return terminalResult;
   }
 
   result.ok = true;

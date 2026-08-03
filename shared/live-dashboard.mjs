@@ -19,6 +19,7 @@ import { getUkTodayKey, isUkOverdue, isUkToday, ukDateKeyFromTimestamp } from ".
 import { isWorkbookRowArchived } from "./archive.mjs";
 import { isOperationalAuditResult, isVerificationSchedule } from "./production-verification-audit.mjs";
 import { isOperationalAction } from "./production-verification-action.mjs";
+import { isOperationalWorkbookIncidentRow } from "./production-verification-incident.mjs";
 
 /** Workbook tabs the live dashboard reads. All are existing tabs — no new storage. */
 export const LIVE_DASHBOARD_TABS = [
@@ -696,7 +697,7 @@ export function buildLiveDashboardFromSources(sources = {}, options = {}) {
 
   // --- Incidents ------------------------------------------------------------
   let incidents = filterCompanyRows(sources.incidents, companyFolderId, alternateIds).filter(
-    (row) => !isWorkbookRowArchived(row, "incident"),
+    (row) => !isWorkbookRowArchived(row, "incident") && isOperationalWorkbookIncidentRow(row),
   );
   if (ownOnly && actorEmail) {
     incidents = incidents.filter((row) =>

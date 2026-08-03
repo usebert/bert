@@ -434,6 +434,32 @@ const buildOpts = (actor) => ({ companyFolderId: CO, alternateIds: [CO], actor, 
   assert(built.metrics.todayDue === 1, "15e: verification schedules excluded from due counts");
 }
 
+/** 16: Verification incidents excluded from operational dashboard metrics. */
+{
+  const mixed = baseSources();
+  mixed.incidents.push({
+    "Incident ID": "bert-smoke-inc-999",
+    "Company ID": CO,
+    Status: "Closed",
+    Severity: "Minor",
+    "Incident Type": "Near Miss",
+    Description: "Automated production Incident workflow verification. Safe to remove.",
+    Witnesses: "verification",
+    "Verification Source": "production-incident-workflow",
+    "Incident Date": "2026-07-02",
+  });
+  const built = buildLiveDashboardFromSources(mixed, buildOpts(adminActor));
+  assert(built.metrics.currentIncidents === 1, "16: closed verification incident excluded from current counts");
+  assert(
+    !built.actToday.some((item) => String(item.id || "").includes("bert-smoke-inc")),
+    "16b: verification incident excluded from act today",
+  );
+  assert(
+    !built.sections.currentIncidents.some((row) => String(row.id || "").includes("bert-smoke-inc")),
+    "16c: verification incident excluded from current incidents section",
+  );
+}
+
 /** Route + package wiring. */
 {
   const coreRoutes = read("server/core-workflow-routes.mjs");
