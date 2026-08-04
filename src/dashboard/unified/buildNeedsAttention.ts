@@ -1,5 +1,6 @@
 import type { LiveActTodayItem } from "../../types/liveDashboard";
 import type { ActionItem } from "../../types/reportsScreenProps";
+import { bertLinkToDashboardTarget, buildBertRecordLink, buildKpiListNavigation } from "../../lib/bertRecordNavigation";
 import type { DashboardNavTarget, NeedsAttentionItem } from "./types";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -19,31 +20,33 @@ function actTodayTypeLabel(type: string): string {
   return TYPE_LABELS[type] ?? "Needs attention";
 }
 
-export function actTodayItemTarget(item: LiveActTodayItem): DashboardNavTarget {
-  if (item.type === "overdue-inspection" || item.type === "due-today") {
-    const auditId = item.id.replace(/^insp-(?:overdue|today)-/, "");
-    if (auditId && auditId !== item.id) {
-      return { kind: "audit", auditId };
-    }
-    return { kind: "screen", screen: "schedules" };
+export function actTodayItemTarget(item: LiveActTodayItem, companyFolderId = ""): DashboardNavTarget {
+  if (item.route && item.navigate) {
+    return bertLinkToDashboardTarget({
+      itemType: item.itemType || item.recordType || item.type,
+      recordType: item.recordType || item.itemType || item.type,
+      recordId: item.recordId || "",
+      route: item.route,
+      screen: item.navigate.screen,
+      navigate: item.navigate,
+    });
   }
-  if (item.type === "incident") {
-    return { kind: "screen", screen: "incidents" };
-  }
-  if (item.type === "overdue-action" || item.type === "open-action") {
-    return { kind: "screen", screen: "actions", actionFilter: item.type === "overdue-action" ? "Overdue" : "Open" };
-  }
-  if (item.type === "briefing") {
-    const briefingId = item.id.replace(/^briefing-/, "");
-    if (briefingId && briefingId !== item.id) {
-      return { kind: "briefing", briefingId };
-    }
-    return { kind: "screen", screen: "briefings" };
-  }
-  return { kind: "screen", screen: "dashboard" };
+  const link = buildBertRecordLink({
+    recordType: item.type,
+    recordId: item.recordId || item.id,
+    companyFolderId,
+    scheduleId: item.scheduleId,
+    templateId: item.templateId || item.auditId,
+    filter: item.type === "overdue-action" ? "overdue" : item.type === "open-action" ? "open" : undefined,
+  });
+  return bertLinkToDashboardTarget(link);
 }
 
-export function buildNeedsAttentionFromActToday(actToday: LiveActTodayItem[], limit = 5): NeedsAttentionItem[] {
+export function buildNeedsAttentionFromActToday(
+  actToday: LiveActTodayItem[],
+  limit = 5,
+  companyFolderId = "",
+): NeedsAttentionItem[] {
   return actToday.slice(0, limit).map((item) => ({
     id: item.id,
     title: item.title,
@@ -52,12 +55,13 @@ export function buildNeedsAttentionFromActToday(actToday: LiveActTodayItem[], li
     dueLabel: item.dueLabel,
     priority: item.priority,
     typeLabel: actTodayTypeLabel(item.type),
-    target: actTodayItemTarget(item),
+    target: actTodayItemTarget(item, companyFolderId),
+    route: item.route,
     rank: item.rank,
   }));
 }
 
-export function buildNeedsAttentionFromActions(actions: ActionItem[], limit = 5): NeedsAttentionItem[] {
+export function buildNeedsAttentionFromActions(actions: ActionItem[], limit = 5, companyFolderId = ""): NeedsAttentionItem[] {
   return actions
     .filter((action) => action.status !== "Closed")
     .sort((a, b) => {
@@ -67,22 +71,30 @@ export function buildNeedsAttentionFromActions(actions: ActionItem[], limit = 5)
       return a.dueHours - b.dueHours;
     })
     .slice(0, limit)
-    .map((action, index) => ({
-      id: `action-${action.id}`,
-      title: action.suggestedActionTitle || action.auditName || action.questionText,
-      subtitle: action.questionText,
-      area: action.siteArea || action.owner,
-      dueLabel: action.dueHours < 0 ? "Overdue" : action.dueLabel || "Open",
-      priority: action.severity === "Critical" || action.severity === "High" ? action.severity : "Medium",
-      typeLabel: action.dueHours < 0 ? "Overdue action" : "Open action",
-      target: {
-        kind: "screen",
-        screen: "actions",
-        actionFilter: action.dueHours < 0 ? "Overdue" : "Open",
-      },
-      rank: index + 1,
-    }));
+    .map((action, index) => {
+      const link = buildBertRecordLink({
+        recordType: "action",
+        recordId: action.id,
+        companyFolderId,
+        filter: action.dueHours < 0 ? "overdue" : "open",
+        title: action.suggestedActionTitle || action.questionText,
+      });
+      return {
+        id: `action-${action.id}`,
+        title: action.suggestedActionTitle || action.auditName || action.questionText,
+        subtitle: action.questionText,
+        area: action.siteArea || action.owner,
+        dueLabel: action.dueHours < 0 ? "Overdue" : action.dueLabel || "Open",
+        priority: action.severity === "Critical" || action.severity === "High" ? action.severity : "Medium",
+        typeLabel: action.dueHours < 0 ? "Overdue action" : "Open action",
+        target: bertLinkToDashboardTarget(link),
+        route: link.route,
+        rank: index + 1,
+      };
+    });
 }
+
+export { buildKpiListNavigation };
 
 export function buildMasterNeedsAttention(input: {
   pendingOnboardingCount: number;

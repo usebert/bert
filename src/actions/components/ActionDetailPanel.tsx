@@ -34,6 +34,7 @@ export function ActionDetailPanel({
   onActionArchived,
   onArchiveError,
   onArchiveSuccess,
+  onNavigateToTarget,
 }: {
   item: ActionListItem;
   role: Role;
@@ -54,6 +55,7 @@ export function ActionDetailPanel({
   onActionArchived?: (actionId: string) => void | Promise<void>;
   onArchiveError?: (message: string) => void;
   onArchiveSuccess?: () => void;
+  onNavigateToTarget?: (target: import("../../presentation/searchPresentation").SearchNavigateTarget, route?: string) => void;
 }) {
   const { t } = useTranslation();
   const action = item.action;
@@ -68,7 +70,7 @@ export function ActionDetailPanel({
       <Card className="p-0">
         <CardContent className="space-y-4 p-4 sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <ActionDetailHeader item={item} />
+            <ActionDetailHeader item={item} onNavigateToTarget={onNavigateToTarget} />
             {canArchiveAction && archiveCompanyFolderId && onActionArchived ? (
               <ArchiveRecordButton
                 recordType="action"

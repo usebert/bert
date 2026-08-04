@@ -1,11 +1,19 @@
 import type { Role } from "../../permissions";
 import type { NavItemId } from "../../types/navigation";
 import type { LiveRiskLevel } from "../../types/liveDashboard";
+import type { SearchNavigateTarget } from "../../presentation/searchPresentation";
 
 export type DashboardNavTarget =
-  | { kind: "screen"; screen: NavItemId; actionFilter?: string }
-  | { kind: "audit"; auditId: string }
-  | { kind: "briefing"; briefingId: string };
+  | {
+      kind: "screen";
+      screen: NavItemId;
+      actionFilter?: string;
+      filter?: string;
+      route?: string;
+    }
+  | { kind: "audit"; auditId: string; scheduleId?: string; route?: string }
+  | { kind: "briefing"; briefingId: string; route?: string }
+  | { kind: "record"; route: string; navigate: SearchNavigateTarget };
 
 export type NeedsAttentionItem = {
   id: string;
@@ -16,6 +24,7 @@ export type NeedsAttentionItem = {
   priority: LiveRiskLevel;
   typeLabel: string;
   target: DashboardNavTarget;
+  route?: string;
   rank: number;
 };
 

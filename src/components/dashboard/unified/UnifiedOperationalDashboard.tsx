@@ -9,6 +9,9 @@ import { getGreetingFirstName, getTimeBasedGreeting } from "../../../utils/userD
 import { buildUnifiedDashboardSections } from "../../../dashboard/unified/buildUnifiedDashboardSections";
 import { getRoleDashboardSubtitle } from "../../../dashboard/unified/roleConfig";
 import type { DashboardNavTarget } from "../../../dashboard/unified/types";
+import type { SearchNavigateTarget } from "../../../presentation/searchPresentation";
+import { syncNavigationUrl } from "../../../lib/bertRecordNavigation";
+import { mapUrlFilterToActionFilter } from "../../../lib/bertRecordNavigation";
 import { useUnifiedLiveDashboard } from "../../../hooks/useUnifiedLiveDashboard";
 import { Button } from "../../ui/Button";
 import { Card, CardContent } from "../../ui/Card";
@@ -39,6 +42,7 @@ type Props = {
   includeActivityUser?: boolean;
   onNavigate: (screen: NavItemId) => void;
   onNavigateWithFilter?: (screen: NavItemId, actionFilter?: string) => void;
+  onNavigateToTarget?: (target: SearchNavigateTarget, route?: string) => void;
   onOpenAudit: (auditId: string) => void;
   onOpenBriefing?: (briefingId: string) => void;
   secondaryContent?: React.ReactNode;
@@ -57,15 +61,23 @@ function followTarget(
   handlers: {
     onNavigate: (screen: NavItemId) => void;
     onNavigateWithFilter?: (screen: NavItemId, actionFilter?: string) => void;
+    onNavigateToTarget?: (target: SearchNavigateTarget, route?: string) => void;
     onOpenAudit: (auditId: string) => void;
     onOpenBriefing?: (briefingId: string) => void;
   },
 ) {
+  if (target.kind === "record" && handlers.onNavigateToTarget) {
+    if (target.route) syncNavigationUrl(target.route);
+    handlers.onNavigateToTarget(target.navigate, target.route);
+    return;
+  }
   if (target.kind === "audit") {
+    if (target.route) syncNavigationUrl(target.route);
     handlers.onOpenAudit(target.auditId);
     return;
   }
   if (target.kind === "briefing") {
+    if (target.route) syncNavigationUrl(target.route);
     if (handlers.onOpenBriefing) {
       handlers.onOpenBriefing(target.briefingId);
       return;
@@ -73,11 +85,26 @@ function followTarget(
     handlers.onNavigate("briefings");
     return;
   }
-  if (target.actionFilter && handlers.onNavigateWithFilter) {
-    handlers.onNavigateWithFilter(target.screen, target.actionFilter);
+  if (target.route) syncNavigationUrl(target.route);
+  if (target.kind === "screen") {
+    if (target.filter && target.screen === "incidents" && handlers.onNavigateToTarget) {
+      handlers.onNavigateToTarget({ screen: "incidents" }, target.route);
+      return;
+    }
+    if (target.actionFilter && handlers.onNavigateWithFilter) {
+      handlers.onNavigateWithFilter(target.screen, target.actionFilter);
+      return;
+    }
+    if (target.filter && target.screen === "actions") {
+      const actionFilter = mapUrlFilterToActionFilter(target.filter);
+      if (actionFilter && handlers.onNavigateWithFilter) {
+        handlers.onNavigateWithFilter(target.screen, actionFilter);
+        return;
+      }
+    }
+    handlers.onNavigate(target.screen);
     return;
   }
-  handlers.onNavigate(target.screen);
 }
 
 function SectionError({ message, onRetry }: { message: string; onRetry?: () => void }) {
@@ -113,6 +140,7 @@ export function UnifiedOperationalDashboard({
   includeActivityUser,
   onNavigate,
   onNavigateWithFilter,
+  onNavigateToTarget,
   onOpenAudit,
   onOpenBriefing,
   secondaryContent,
@@ -136,6 +164,7 @@ export function UnifiedOperationalDashboard({
       buildUnifiedDashboardSections({
         role,
         livePayload: live.payload,
+        companyFolderId,
         assignedAudits,
         drafts,
         scheduleMetaByAuditId: assignedCheckScheduleMeta,
@@ -163,7 +192,7 @@ export function UnifiedOperationalDashboard({
     ],
   );
 
-  const navHandlers = { onNavigate, onNavigateWithFilter, onOpenAudit, onOpenBriefing };
+  const navHandlers = { onNavigate, onNavigateWithFilter, onNavigateToTarget, onOpenAudit, onOpenBriefing };
   const workLoading = assignedChecksLoading || briefingLoading;
   const workError = assignedChecksError;
 

@@ -16,3 +16,24 @@ interface ImportMetaEnv {
   readonly VITE_DEBUG_GODMODE_NAV?: string;
   readonly VITE_APP_COMMIT_SHA?: string;
 }
+
+declare module "*bert-record-navigation.mjs" {
+  import type { BertRecordLink } from "./lib/bertRecordNavigation";
+  import type { SafetyWorkspaceTab } from "./safety/types";
+  export function buildBertRecordLink(input?: Record<string, unknown>): BertRecordLink;
+  export function buildActTodayNavigation(item?: Record<string, unknown>, companyFolderId?: string): BertRecordLink;
+  export function enrichOperationalItem<T extends Record<string, unknown>>(item: T, companyFolderId?: string): T & Partial<BertRecordLink>;
+  export function enrichOperationalItems<T extends Record<string, unknown>>(items: T[], companyFolderId?: string): Array<T & Partial<BertRecordLink>>;
+  export function buildKpiListNavigation(kpiId: string, companyFolderId?: string): BertRecordLink;
+  export function buildActionSourceLink(action?: Record<string, unknown>, companyFolderId?: string): BertRecordLink | null;
+  export function parseBertRouteSearch(search?: string): {
+    screen: string;
+    recordId: string;
+    filter: string;
+    scheduleId: string;
+    templateId: string;
+  };
+  export function mapUrlFilterToActionFilter(filter: string): string;
+  export function mapUrlFilterToSafetyTab(filter: string): SafetyWorkspaceTab;
+  export function searchTargetToRoute(target?: Record<string, unknown>): string;
+}

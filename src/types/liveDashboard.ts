@@ -31,6 +31,39 @@ export type LiveActTodayItem = {
   priority: LiveRiskLevel;
   dueLabel: string;
   rank: number;
+  itemType?: string;
+  recordType?: string;
+  recordId?: string;
+  route?: string;
+  companyFolderId?: string;
+  navigate?: import("../presentation/searchPresentation").SearchNavigateTarget;
+  sourceType?: string;
+  sourceId?: string;
+  sourceRoute?: string;
+  sourceTitle?: string;
+  scheduleId?: string;
+  templateId?: string;
+  auditId?: string;
+};
+
+export type LiveOperationalNavItem = {
+  id: string;
+  title: string;
+  subtitle?: string;
+  area?: string;
+  owner?: string;
+  dueLabel?: string;
+  status?: string;
+  dueDate?: string;
+  itemType?: string;
+  recordType?: string;
+  recordId?: string;
+  route?: string;
+  companyFolderId?: string;
+  navigate?: import("../presentation/searchPresentation").SearchNavigateTarget;
+  sourceType?: string;
+  sourceId?: string;
+  sourceRoute?: string;
 };
 
 export type LiveComplianceReduction = {
@@ -56,48 +89,23 @@ export type LiveRiskArea = {
   level: LiveRiskLevel;
 };
 
-export type LiveOverdueInspection = {
-  id: string;
-  title: string;
-  subtitle: string;
-  area: string;
-  owner: string;
+export type LiveOverdueInspection = LiveOperationalNavItem & {
   hoursLate: number;
   priority: LiveRiskLevel;
-  dueLabel: string;
 };
 
-export type LiveOutstandingAction = {
-  id: string;
-  title: string;
-  subtitle: string;
-  area: string;
-  owner: string;
+export type LiveOutstandingAction = LiveOperationalNavItem & {
   severity: LiveRiskLevel;
-  dueDate: string;
-  dueLabel: string;
 };
 
-export type LiveCurrentIncident = {
-  id: string;
-  title: string;
-  subtitle: string;
-  area: string;
-  owner: string;
+export type LiveCurrentIncident = LiveOperationalNavItem & {
   severity: LiveRiskLevel;
-  status: string;
   daysOpen: number;
-  dueLabel: string;
 };
 
-export type LiveBriefingItem = {
-  id: string;
-  title: string;
-  subtitle: string;
-  owner: string;
+export type LiveBriefingItem = LiveOperationalNavItem & {
   priority: LiveRiskLevel;
   mandatory: boolean;
-  dueLabel: string;
 };
 
 export type LiveChartPoint = { label: string; value: number };

@@ -5,6 +5,7 @@ import type { User } from "../../types/dashboardScreenProps";
 import { getActionPrimaryCTA, getRecordNextStepText } from "../../utils/recordNextStep";
 import { isEscalated, isOverdue, isStuck } from "../../utils/managerDashboard";
 import { isLiveOpenAction } from "../../utils/liveOpenActions";
+import { buildActionSourceLink, type BertRecordLink } from "../../lib/bertRecordNavigation";
 import type {
   ActionDisplayStatus,
   ActionFilterState,
@@ -90,12 +91,14 @@ export function buildActionListItems(input: {
     const siteArea = action.siteArea?.trim() || "";
     const [site, area] = siteArea.includes(" / ") ? siteArea.split(" / ", 2) : [siteArea, ""];
     const hasProgress = action.status === "In Progress" || action.evidenceCount > 0 || Boolean(action.comments?.trim());
+    const sourceLink = buildActionSourceLink(action, action.companyId) as BertRecordLink | null;
     return {
       id: action.id,
       title: action.suggestedActionTitle?.trim() || action.questionText.trim(),
       description: action.sourceAnswer?.trim() || action.correctiveAction?.trim(),
       sourceLabel: sourceLabel(action),
-      sourceReference: action.nonConformanceId || action.auditName || undefined,
+      sourceReference: sourceLink?.sourceLabel || action.nonConformanceId || action.auditName || undefined,
+      sourceLink,
       site: site || undefined,
       area: area || siteArea || undefined,
       assignee: action.assignedToName || action.owner,

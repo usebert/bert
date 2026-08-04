@@ -30,6 +30,7 @@ export type UnifiedDashboardCommonProps = {
   includeActivityUser?: boolean;
   onNavigate: (screen: NavItemId) => void;
   onNavigateWithFilter?: (screen: NavItemId, actionFilter?: string) => void;
+  onNavigateToTarget?: (target: import("../../../presentation/searchPresentation").SearchNavigateTarget, route?: string) => void;
   onOpenAudit: (auditId: string) => void;
   onOpenBriefing?: (briefingId: string) => void;
   secondaryContent?: ReactNode;
@@ -61,6 +62,7 @@ export function RoleUnifiedDashboard(props: UnifiedDashboardCommonProps) {
       includeActivityUser={props.includeActivityUser}
       onNavigate={props.onNavigate}
       onNavigateWithFilter={props.onNavigateWithFilter}
+      onNavigateToTarget={props.onNavigateToTarget}
       onOpenAudit={props.onOpenAudit}
       onOpenBriefing={props.onOpenBriefing}
       secondaryContent={props.secondaryContent}

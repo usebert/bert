@@ -67,6 +67,7 @@ export function ActionsWorkspace({
   onNavigateToArchive,
   onCreateAction,
   initialActionId,
+  onNavigateToTarget,
 }: ActionsWorkspaceProps) {
   const { t } = useTranslation();
   const role = currentUser.role;
@@ -146,6 +147,8 @@ export function ActionsWorkspace({
 
   const tabs = visibleTabsForRole(role, canArchive);
   const selectedItem = tabItems.find((item) => item.id === selectedActionId) ?? listItems.find((item) => item.id === selectedActionId);
+  const missingFocusedAction =
+    Boolean(initialActionId) && !listItems.some((item) => item.id === initialActionId) && !selectedItem;
 
   useEffect(() => {
     if (selectedActionId && !listItems.some((item) => item.id === selectedActionId)) {
@@ -321,7 +324,13 @@ export function ActionsWorkspace({
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
         <div>{renderListBody()}</div>
         <div>
-          {selectedItem ? (
+          {missingFocusedAction ? (
+            <EmptyState
+              title="Record no longer available"
+              description="This action may have been closed, archived, or removed from your access scope."
+              primaryAction={{ label: "Back to actions list", onClick: () => setSelectedActionId("") }}
+            />
+          ) : selectedItem ? (
             <ActionDetailPanel
               item={selectedItem}
               role={role}
@@ -342,6 +351,7 @@ export function ActionsWorkspace({
               onActionArchived={onActionArchived}
               onArchiveError={onArchiveError}
               onArchiveSuccess={onArchiveSuccess}
+              onNavigateToTarget={onNavigateToTarget}
             />
           ) : tabItems.length > 0 ? (
             <EmptyState

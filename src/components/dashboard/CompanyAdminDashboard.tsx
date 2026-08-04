@@ -104,6 +104,7 @@ type Props = {
   qmsSummary?: QmsReadinessSummary | null;
   onNavigate: (screen: NavItemId) => void;
   onNavigateWithFilter?: (screen: NavItemId, actionFilter?: string) => void;
+  onNavigateToTarget?: (target: import("../../presentation/searchPresentation").SearchNavigateTarget, route?: string) => void;
   onOpenAudit: (auditId: string) => void;
   onboardingSlot?: React.ReactNode;
 };
@@ -136,6 +137,7 @@ export function CompanyAdminDashboard({
   qmsSummary,
   onNavigate,
   onNavigateWithFilter,
+  onNavigateToTarget,
   onOpenAudit,
   onboardingSlot,
 }: Props) {
@@ -244,6 +246,7 @@ export function CompanyAdminDashboard({
       failedSyncCount={failedSyncCount}
       onNavigate={onNavigate}
       onNavigateWithFilter={onNavigateWithFilter}
+      onNavigateToTarget={onNavigateToTarget}
       onOpenAudit={onOpenAudit}
       onOpenBriefing={onOpenBriefing}
       secondaryContent={secondaryContent}

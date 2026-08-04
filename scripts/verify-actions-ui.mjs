@@ -91,7 +91,11 @@ function main() {
 
   // 8. Dashboard links
   assert(app.includes("applyDashboardNavWithFilter"), "dashboard filter deep links preserved");
-  assert(read("src/dashboard/unified/buildNeedsAttention.ts").includes('screen: "actions"'), "needs attention links to actions");
+  assert(
+    read("src/dashboard/unified/buildNeedsAttention.ts").includes('recordType: "action"') ||
+      read("src/dashboard/unified/buildNeedsAttention.ts").includes('screen: "actions"'),
+    "needs attention links to actions",
+  );
 
   // 9. Shared UI states
   assert(workspace.includes("EmptyState"), "empty states");

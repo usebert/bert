@@ -17,6 +17,7 @@ import type { UnifiedDashboardSections } from "./types";
 export function buildUnifiedDashboardSections(input: {
   role: Role;
   livePayload?: LiveDashboardPayload | null;
+  companyFolderId?: string;
   assignedAudits?: Audit[];
   drafts?: Record<string, AuditDraft>;
   scheduleMetaByAuditId?: Record<string, AssignedCheckScheduleMeta>;
@@ -29,17 +30,18 @@ export function buildUnifiedDashboardSections(input: {
   includeActivityUser?: boolean;
 }): UnifiedDashboardSections {
   const role = input.role;
+  const companyFolderId = input.companyFolderId || "";
   const actToday = input.livePayload?.actToday ?? [];
   const needsAttention =
     actToday.length > 0
-      ? buildNeedsAttentionFromActToday(actToday)
+      ? buildNeedsAttentionFromActToday(actToday, 5, companyFolderId)
       : role === "Master"
         ? buildMasterNeedsAttention({
             pendingOnboardingCount: input.pendingOnboardingCount ?? 0,
             failedSyncCount: input.failedSyncCount ?? 0,
             pendingSyncCount: input.pendingSyncCount ?? 0,
           })
-        : buildNeedsAttentionFromActions(input.actions ?? []);
+        : buildNeedsAttentionFromActions(input.actions ?? [], 5, companyFolderId);
 
   const needsAttentionTotal =
     actToday.length > 0
@@ -74,6 +76,7 @@ export function buildUnifiedDashboardSections(input: {
     role,
     livePayload: input.livePayload,
     localCounts,
+    companyFolderId,
   });
 
   const recentActivity = buildRecentActivityFromHistory(input.history ?? [], {

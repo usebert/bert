@@ -324,6 +324,14 @@ import { getContextualHelp } from "./src/presentation/contextualHelp";
 import { OnboardingHost } from "./src/components/onboarding/OnboardingHost";
 import type { OnboardingInput } from "./src/onboarding/onboardingChecklist";
 import type { SearchNavigateTarget } from "./src/presentation/searchPresentation";
+import {
+  applyBertRouteToSearchTarget,
+  mapUrlFilterToActionFilter,
+  mapUrlFilterToSafetyTab,
+  parseBertRouteSearch,
+  searchTargetToRoute,
+  syncNavigationUrl,
+} from "./src/lib/bertRecordNavigation";
 import type { GlobalSearchSources } from "./src/services/searchAdapters/globalSearchAdapters";
 import type { NotificationSources } from "./src/services/notificationAdapters/notificationAdapters";
 import { NonConformanceScreen } from "./src/screens/NonConformanceScreen";
@@ -3675,6 +3683,7 @@ function App() {
   const authSessionBootstrapHandledRef = useRef(false);
   /** Blocks in-flight auth restore from re-applying session after explicit logout. */
   const isLoggingOutRef = useRef(false);
+  const deepLinkAppliedRef = useRef(false);
   const explicitLogoutRef = useRef(false);
   const authBootstrapGenerationRef = useRef(0);
   const assignedChecksRequestRef = useRef(0);
@@ -3944,6 +3953,7 @@ function App() {
   const [healthSafetyOpenCoshhCreate, setHealthSafetyOpenCoshhCreate] = useState(false);
   const [healthSafetyOpenLolerCreate, setHealthSafetyOpenLolerCreate] = useState(false);
   const [healthSafetyOpenIncidentReport, setHealthSafetyOpenIncidentReport] = useState(false);
+  const [incidentUrlTab, setIncidentUrlTab] = useState<import("./src/safety/types").SafetyWorkspaceTab | undefined>(undefined);
   const [companyResultsState, setCompanyResultsState] = useState<{
     results: AuditResultSummary[];
     loading: boolean;
@@ -16116,7 +16126,7 @@ function App() {
     [],
   );
 
-  const handleGlobalSearchNavigate = useCallback(
+  const applySearchNavigateTarget = useCallback(
     (target: SearchNavigateTarget) => {
       if (target.openAudit && target.auditId) {
         startAudit(target.auditId);
@@ -16157,6 +16167,22 @@ function App() {
       setScreen(target.screen);
     },
     [handleOpenSchedule, setScreen, startAudit],
+  );
+
+  const handleGlobalSearchNavigate = useCallback(
+    (target: SearchNavigateTarget) => {
+      syncNavigationUrl(searchTargetToRoute(target));
+      applySearchNavigateTarget(target);
+    },
+    [applySearchNavigateTarget],
+  );
+
+  const handleOperationalNavigate = useCallback(
+    (target: SearchNavigateTarget, route?: string) => {
+      syncNavigationUrl(route || searchTargetToRoute(target));
+      applySearchNavigateTarget(target);
+    },
+    [applySearchNavigateTarget],
   );
 
   const globalSearchControls = useGlobalSearchControls(
@@ -16556,13 +16582,23 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!currentUser) return;
-    const params = new URLSearchParams(window.location.search);
-    const requestedScreen = params.get("screen");
-    if (requestedScreen === "incidents" && canSubmitIncidents(currentUser.role)) {
-      setScreen("incidents");
+    if (!currentUser || deepLinkAppliedRef.current) return;
+    const parsed = parseBertRouteSearch(window.location.search);
+    if (!parsed.screen) return;
+    deepLinkAppliedRef.current = true;
+    if (parsed.filter) {
+      const actionFilter = mapUrlFilterToActionFilter(parsed.filter);
+      if (parsed.screen === "actions" && actionFilter) {
+        setActionFilter(actionFilter as "Open" | "Overdue" | "Awaiting Verification" | "Closed" | "Severity");
+      }
+      if (parsed.screen === "incidents") {
+        setIncidentUrlTab(mapUrlFilterToSafetyTab(parsed.filter));
+      }
     }
-  }, [currentUser]);
+    const target = applyBertRouteToSearchTarget(parsed);
+    if (!target) return;
+    handleOperationalNavigate(target, window.location.pathname + window.location.search);
+  }, [currentUser, handleOperationalNavigate]);
 
   useEffect(() => {
     if (googleConnected) {
@@ -17949,6 +17985,7 @@ function App() {
                     onOpenAudit={startAudit}
                     onNavigate={(nextScreen) => setScreen(nextScreen)}
                     onNavigateWithFilter={applyDashboardNavWithFilter}
+                    onNavigateToTarget={handleOperationalNavigate}
                     assignedCheckScheduleMeta={assignedCheckScheduleMeta}
                     assignedChecksLoading={assignedChecksState.loading}
                     assignedChecksLoadError={assignedChecksState.loadError}
@@ -17972,6 +18009,7 @@ function App() {
                     userIdentity={String(sessionSignedInEmail || resolveSignedInAssigneeEmail(currentUser)).trim().toLowerCase()}
                     onNavigate={(nextScreen) => setScreen(nextScreen)}
                     onNavigateWithFilter={applyDashboardNavWithFilter}
+                    onNavigateToTarget={handleOperationalNavigate}
                     currentUser={currentUser}
                     groupedAudits={groupedAudits}
                     assignedAudits={assignedAudits}
@@ -18052,6 +18090,7 @@ function App() {
                     qmsSummary={canAccessQmsReadinessNav(currentUser.role) ? qmsReadinessSummary : null}
                     onNavigate={(nextScreen) => setScreen(nextScreen)}
                     onNavigateWithFilter={applyDashboardNavWithFilter}
+                    onNavigateToTarget={handleOperationalNavigate}
                     onOpenAudit={startAudit}
                     briefingTodoItems={briefingTodoState.items}
                     briefingTodoLoading={briefingTodoState.loading}
@@ -18331,6 +18370,7 @@ function App() {
                   canAccessArchiveNav(currentUser.role) ? () => setScreen("archive") : undefined
                 }
                 initialActionId={searchFocusActionId || undefined}
+                onNavigateToTarget={handleOperationalNavigate}
               />
             )}
 
@@ -18452,7 +18492,7 @@ function App() {
                 onArchiveSuccess={pushArchiveSuccessToast}
                 offlineMode={offlineMode}
                 initialIncidentId={searchFocusIncidentId || undefined}
-                initialSafetyTab={healthSafetyOpenIncidentReport ? "report" : undefined}
+                initialSafetyTab={healthSafetyOpenIncidentReport ? "report" : incidentUrlTab}
               />
             )}
 

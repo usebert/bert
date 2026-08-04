@@ -24,6 +24,7 @@ type Props = AuditorTaskDashboardProps & {
   onViewAllBriefings?: () => void;
   onNavigate: (screen: NavItemId) => void;
   onNavigateWithFilter?: (screen: NavItemId, actionFilter?: string) => void;
+  onNavigateToTarget?: (target: import("../../presentation/searchPresentation").SearchNavigateTarget, route?: string) => void;
 };
 
 export function AuditorTaskDashboard({
@@ -49,6 +50,7 @@ export function AuditorTaskDashboard({
   onOpenAudit,
   onNavigate,
   onNavigateWithFilter,
+  onNavigateToTarget,
   ...rest
 }: Props) {
   void currentUser;
@@ -77,6 +79,7 @@ export function AuditorTaskDashboard({
       includeActivityUser={false}
       onNavigate={onNavigate}
       onNavigateWithFilter={onNavigateWithFilter}
+      onNavigateToTarget={onNavigateToTarget}
       onOpenAudit={onOpenAudit}
       onOpenBriefing={onOpenBriefing}
     />

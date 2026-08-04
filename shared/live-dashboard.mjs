@@ -22,6 +22,10 @@ import { isOperationalSchedule } from "./production-verification-schedule.mjs";
 import { isOperationalAction } from "./production-verification-action.mjs";
 import { isOperationalWorkbookBriefingRow } from "./production-verification-briefing.mjs";
 import { isOperationalWorkbookIncidentRow } from "./production-verification-incident.mjs";
+import {
+  enrichOperationalItem,
+  enrichOperationalItems,
+} from "./bert-record-navigation.mjs";
 
 /** Workbook tabs the live dashboard reads. All are existing tabs — no new storage. */
 export const LIVE_DASHBOARD_TABS = [
@@ -463,6 +467,7 @@ export function buildActToday(input = {}) {
     dueTodayInspections = [],
     pendingBriefings = [],
     limit = 12,
+    companyFolderId = "",
   } = input;
 
   const items = [];
@@ -557,7 +562,7 @@ export function buildActToday(input = {}) {
   return items
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
-    .map((item, index) => ({ ...item, rank: index + 1 }));
+    .map((item, index) => enrichOperationalItem({ ...item, rank: index + 1 }, companyFolderId));
 }
 
 // ---------------------------------------------------------------------------
@@ -752,7 +757,11 @@ export function buildLiveDashboardFromSources(sources = {}, options = {}) {
 
   // --- Build detail lists for Act Today -------------------------------------
   const overdueInspectionItems = overdueSchedules.map((schedule) => ({
+    type: "overdue-inspection",
     id: schedule.id,
+    scheduleId: schedule.id,
+    templateId: schedule.audits?.[0]?.auditId || "",
+    auditId: schedule.audits?.[0]?.auditId || "",
     title: schedule.scheduleName || "Scheduled inspection",
     subtitle: [schedule.areaLabel, `${hoursLate(schedule, nowMs)}h late`].filter(Boolean).join(" • "),
     area: schedule.areaLabel || "",
@@ -763,7 +772,11 @@ export function buildLiveDashboardFromSources(sources = {}, options = {}) {
   }));
 
   const dueTodayItems = outstandingSchedules.map((schedule) => ({
+    type: "due-today",
     id: schedule.id,
+    scheduleId: schedule.id,
+    templateId: schedule.audits?.[0]?.auditId || "",
+    auditId: schedule.audits?.[0]?.auditId || "",
     title: schedule.scheduleName || "Scheduled inspection",
     subtitle: [schedule.areaLabel, getScheduleAssignedEmails(schedule)[0]].filter(Boolean).join(" • "),
     area: schedule.areaLabel || "",
@@ -775,6 +788,7 @@ export function buildLiveDashboardFromSources(sources = {}, options = {}) {
     const startedMs = parseDate(extractField(row, ["incident date", "created at"]));
     const daysOpen = startedMs === null ? 0 : Math.max(0, Math.floor((nowMs - startedMs) / DAY_MS));
     return {
+      type: "incident",
       id: extractField(row, ["incident id", "incident record id"]) || extractField(row, ["created at"]) || String(startedMs),
       title: extractField(row, ["incident type", "type"]) || "Incident",
       subtitle: [resolveAreaLabel(row, areaNameMap), `${daysOpen}d open`].filter(Boolean).join(" • "),
@@ -787,7 +801,8 @@ export function buildLiveDashboardFromSources(sources = {}, options = {}) {
     };
   });
 
-  const actionRowToItem = (row) => ({
+  const actionRowToItem = (row, actionType = "open-action") => ({
+    type: actionType,
     id: extractField(row, ["action id", "actionid"]) || extractField(row, ["source question id"]) || extractField(row, ["created at"]),
     title: extractField(row, ["source question text", "description", "corrective action"]) || "Action",
     subtitle: [extractField(row, ["assigned to name", "assigned to user id"]), extractField(row, ["due date"]) && `due ${extractField(row, ["due date"]).slice(0, 10)}`].filter(Boolean).join(" • "),
@@ -796,15 +811,28 @@ export function buildLiveDashboardFromSources(sources = {}, options = {}) {
     severity: normalizeRiskLevel(extractField(row, ["severity", "risk category"])),
     dueDate: extractField(row, ["due date"]),
     dueLabel: "",
+    sourceType: extractField(row, ["source type"]) || (extractField(row, ["incident id"]) ? "incident" : extractField(row, ["source audit id", "audit id"]) ? "audit" : ""),
+    sourceId:
+      extractField(row, ["incident id"]) ||
+      extractField(row, ["source audit id", "audit id"]) ||
+      extractField(row, ["risk assessment id"]) ||
+      "",
+    sourceTitle:
+      extractField(row, ["incident id"]) ||
+      extractField(row, ["source audit name", "audit name"]) ||
+      extractField(row, ["risk assessment id"]) ||
+      "",
+    sourceTemplateId: extractField(row, ["source audit id", "audit id"]) || "",
   });
-  const overdueActionItems = overdueActionRows.map((row) => ({ ...actionRowToItem(row), dueLabel: "Overdue" }));
+  const overdueActionItems = overdueActionRows.map((row) => ({ ...actionRowToItem(row, "overdue-action"), dueLabel: "Overdue" }));
   const openNonOverdueActionItems = openActionRows
     .filter((row) => normalizeActionStatus(extractField(row, ["status"]), extractField(row, ["due date"]), nowMs) !== "Overdue")
-    .map((row) => ({ ...actionRowToItem(row), dueLabel: "Open" }));
+    .map((row) => ({ ...actionRowToItem(row, "open-action"), dueLabel: "Open" }));
 
   const pendingBriefingItems = pendingBriefingRecipients.map((recipient) => {
     const briefing = briefingById.get(extractField(recipient, ["briefing id", "briefingid"]));
     return {
+      type: "briefing",
       id: `${extractField(recipient, ["briefing id", "briefingid"])}::${extractField(recipient, ["recipient email", "recipientemail"])}`,
       title: extractField(briefing || {}, ["title"]) || "Briefing",
       subtitle: extractField(recipient, ["recipient name", "recipient email"]),
@@ -848,6 +876,7 @@ export function buildLiveDashboardFromSources(sources = {}, options = {}) {
     openActions: openNonOverdueActionItems,
     dueTodayInspections: dueTodayItems,
     pendingBriefings: pendingBriefingItems,
+    companyFolderId,
   });
 
   // --- Risk by area ---------------------------------------------------------
@@ -937,10 +966,16 @@ export function buildLiveDashboardFromSources(sources = {}, options = {}) {
     riskByArea,
     riskEmptyMessage: riskByArea.length === 0 ? LIVE_DASHBOARD_NO_RISK_DATA : "",
     sections: {
-      outstandingActions: [...overdueActionItems, ...openNonOverdueActionItems],
-      overdueInspections: overdueInspectionItems.sort((a, b) => b.hoursLate - a.hoursLate),
-      currentIncidents: currentIncidentItems.sort((a, b) => b.daysOpen - a.daysOpen),
-      briefings: pendingBriefingItems,
+      outstandingActions: enrichOperationalItems([...overdueActionItems, ...openNonOverdueActionItems], companyFolderId),
+      overdueInspections: enrichOperationalItems(
+        overdueInspectionItems.sort((a, b) => b.hoursLate - a.hoursLate),
+        companyFolderId,
+      ),
+      currentIncidents: enrichOperationalItems(
+        currentIncidentItems.sort((a, b) => b.daysOpen - a.daysOpen),
+        companyFolderId,
+      ),
+      briefings: enrichOperationalItems(pendingBriefingItems, companyFolderId),
     },
     charts,
     sync,

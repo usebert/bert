@@ -30,6 +30,7 @@ type Props = ManagerDashboardProps & {
   nonConformances?: Array<{ id: string; reference: string; auditQuestion: string; status: string; site: string }>;
   onNavigate: (screen: NavItemId) => void;
   onNavigateWithFilter?: (screen: NavItemId, actionFilter?: string) => void;
+  onNavigateToTarget?: (target: import("../../presentation/searchPresentation").SearchNavigateTarget, route?: string) => void;
   drafts: Record<string, AuditDraft>;
   assignedCheckScheduleMeta: Record<string, AssignedCheckScheduleMeta>;
   assignedChecksLoading?: boolean;
@@ -73,6 +74,7 @@ export function ManagerRoleDashboard({
   userIdentity = "",
   onNavigate,
   onNavigateWithFilter,
+  onNavigateToTarget,
   assignedAudits,
   drafts,
   assignedCheckScheduleMeta,
@@ -268,6 +270,7 @@ export function ManagerRoleDashboard({
       failedSyncCount={failedSyncCount}
       onNavigate={onNavigate}
       onNavigateWithFilter={onNavigateWithFilter}
+      onNavigateToTarget={onNavigateToTarget}
       onOpenAudit={onOpenAudit}
       onOpenBriefing={onOpenBriefing}
       secondaryContent={secondaryContent}

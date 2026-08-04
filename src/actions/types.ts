@@ -29,6 +29,7 @@ export type ActionListItem = {
   description?: string;
   sourceLabel: string;
   sourceReference?: string;
+  sourceLink?: import("../lib/bertRecordNavigation").BertRecordLink | null;
   site?: string;
   area?: string;
   assignee: string;
@@ -97,6 +98,7 @@ export type ActionsWorkspaceProps = {
   onNavigateToArchive?: () => void;
   onCreateAction?: () => void;
   initialActionId?: string;
+  onNavigateToTarget?: (target: import("../presentation/searchPresentation").SearchNavigateTarget, route?: string) => void;
 };
 
 export type ActionsRole = Role;

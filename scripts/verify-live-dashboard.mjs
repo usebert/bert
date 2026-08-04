@@ -510,6 +510,10 @@ const buildOpts = (actor) => ({ companyFolderId: CO, alternateIds: [CO], actor, 
   const managerDashboardIdx = appTsx.indexOf("renderManagerDashboard={() => (");
   assert(managerDashboardIdx >= 0, "WIRE: manager role dashboard renderer exists");
   assert(managerDashboard.includes("RoleUnifiedDashboard"), "WIRE: manager dashboard uses unified operational layout");
+  assert(read("shared/bert-record-navigation.mjs").includes("buildBertRecordLink"), "WIRE: shared record navigation helper exists");
+  assert(read("shared/live-dashboard.mjs").includes("enrichOperationalItem"), "WIRE: live dashboard enriches operational navigation");
+  assert(read("src/lib/bertRecordNavigation.ts").includes("syncNavigationUrl"), "WIRE: client navigation URL sync helper exists");
+  assert(appTsx.includes("handleGlobalSearchNavigate"), "WIRE: global search navigation reused for record links");
   assert(!appTsx.includes("<LiveOperationalDashboard"), "WIRE: legacy LiveOperationalDashboard blocks removed from App");
   assert(appTsx.includes('renderManagerDashboard={() => ('), "WIRE: manager dashboard renderer preserved");
   // No sensitive leakage in failure shape

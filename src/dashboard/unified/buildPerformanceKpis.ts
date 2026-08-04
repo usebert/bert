@@ -4,6 +4,7 @@ import type { Audit } from "../../types/reportsScreenProps";
 import type { KpiMetricId } from "./roleConfig";
 import { getKpiOrderForRole } from "./roleConfig";
 import type { DashboardNavTarget, PerformanceKpi, UnifiedDashboardRole } from "./types";
+import { bertLinkToDashboardTarget, buildKpiListNavigation } from "../../lib/bertRecordNavigation";
 
 type LocalCounts = {
   openActions?: number;
@@ -16,20 +17,8 @@ type LocalCounts = {
   auditsCompletedToday?: number;
 };
 
-function kpiTarget(id: KpiMetricId): DashboardNavTarget {
-  if (id === "compliance-score") return { kind: "screen", screen: "reports" };
-  if (id === "open-actions" || id === "overdue-actions") {
-    return { kind: "screen", screen: "actions", actionFilter: id === "overdue-actions" ? "Overdue" : "Open" };
-  }
-  if (id === "current-incidents") return { kind: "screen", screen: "incidents" };
-  if (id === "audits-completed" || id === "today-due" || id === "today-outstanding") {
-    return { kind: "screen", screen: "audits" };
-  }
-  if (id === "outstanding-briefings") return { kind: "screen", screen: "briefings" };
-  if (id === "equipment-due") return { kind: "screen", screen: "loler" };
-  if (id === "documents-awaiting") return { kind: "screen", screen: "documentControl" };
-  if (id === "sync-queued") return { kind: "screen", screen: "sync" };
-  return { kind: "screen", screen: "dashboard" };
+function kpiTarget(id: KpiMetricId, companyFolderId = ""): DashboardNavTarget {
+  return bertLinkToDashboardTarget(buildKpiListNavigation(id, companyFolderId));
 }
 
 function toneForMetric(id: KpiMetricId, value: number): PerformanceKpi["tone"] {
@@ -94,11 +83,13 @@ export function buildPerformanceKpis(input: {
   role: UnifiedDashboardRole;
   livePayload?: LiveDashboardPayload | null;
   localCounts?: LocalCounts;
+  companyFolderId?: string;
 }): PerformanceKpi[] {
   const liveMetrics = input.livePayload?.metrics;
   const complianceScore = input.livePayload?.compliance?.score;
   const order = getKpiOrderForRole(input.role);
   const kpis: PerformanceKpi[] = [];
+  const companyFolderId = input.companyFolderId || "";
 
   for (const id of order) {
     if (id === "compliance-score") {
@@ -109,7 +100,7 @@ export function buildPerformanceKpis(input: {
         value: String(complianceScore),
         tone: toneForMetric(id, complianceScore),
         subtitle: input.livePayload?.compliance.label,
-        target: kpiTarget(id),
+        target: kpiTarget(id, companyFolderId),
       });
       continue;
     }
@@ -120,7 +111,7 @@ export function buildPerformanceKpis(input: {
       label: KPI_LABELS[id],
       value: String(value),
       tone: toneForMetric(id, value),
-      target: kpiTarget(id),
+      target: kpiTarget(id, companyFolderId),
     });
   }
 
