@@ -133,6 +133,25 @@ function mapAssessmentRecordsSafely(records = []) {
   return items;
 }
 
+async function findVerificationCoshhParent(auth, deps, loaded, coshhId) {
+  const target = trim(coshhId);
+  let parent = loaded.register.find((item) => trim(item.id) === target);
+  if (parent && isVerificationCoshhRegister(parent)) {
+    return parent;
+  }
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const registerRecords = await readRegisterRecords(auth, deps, loaded.masterSheetId);
+    parent = mapRegisterRecordsSafely(registerRecords).find((item) => trim(item.id) === target);
+    if (parent && isVerificationCoshhRegister(parent)) {
+      return parent;
+    }
+    if (attempt < 3) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+  return parent || null;
+}
+
 async function loadCoshhContext(auth, deps, input = {}) {
   const resolved = await resolveCompanyScheduleContext(auth, deps, input);
   if (!resolved.ok) {
@@ -351,7 +370,7 @@ export async function createVerificationCoshhAssessment(auth, deps, actor, compa
   if (!loaded.ok) {
     return loaded;
   }
-  const parent = loaded.register.find((item) => trim(item.id) === coshhId);
+  const parent = await findVerificationCoshhParent(auth, deps, loaded, coshhId);
   if (!parent || !isVerificationCoshhRegister(parent)) {
     return healthSafetyApiFailure("COSHH_NOT_FOUND", "Verification COSHH parent record not found.", 404);
   }

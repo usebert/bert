@@ -880,6 +880,25 @@ export async function runProductionCoshhWorkflowChecks(config, transport, option
     return createProductFail;
   }
 
+  const substanceVisible = await pollCoshhDetail(request, companyFolderId, masterSheetId, verificationCoshhId, {
+    stageKey: "createDraft",
+    maxAttempts: options.listPollMaxAttempts || 20,
+    intervalMs: options.listPollIntervalMs ?? 1000,
+  });
+  if (!substanceVisible.ok) {
+    const terminal = await finalizeMutationWorkflow();
+    return (
+      terminal ||
+      fail(
+        "createDraft",
+        "Verification substance not visible before assessment create.",
+        "Inspect COSHH register read-after-write after substance create.",
+        substanceVisible.response?.status,
+        substanceVisible.response?.json,
+      )
+    );
+  }
+
   const createDraftFail = await runPostCreateStage("createDraft", async () => {
     const payload = buildProductionVerificationCoshhAssessment({
       runId,
