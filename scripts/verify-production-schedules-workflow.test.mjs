@@ -70,16 +70,34 @@ function verificationScheduleRecord(options = {}) {
   return enrichSchedulesWithDueOccurrence([schedule])[0];
 }
 
-function templateList(includeVerification = true) {
-  const templates = [
-    {
-      id: PRODUCTION_VERIFICATION_AUDIT_ID,
-      auditId: PRODUCTION_VERIFICATION_AUDIT_ID,
-      name: "BERT Verification Audit",
-      status: "active",
-      questions: [{ id: "q1", text: "Check area accessible?" }],
-    },
-  ];
+function templateList(includeVerification = true, shape = "flat") {
+  const verificationTemplate =
+    shape === "sections"
+      ? {
+          id: PRODUCTION_VERIFICATION_AUDIT_ID,
+          auditId: PRODUCTION_VERIFICATION_AUDIT_ID,
+          template_name: "BERT Verification Audit",
+          status: "active",
+          question_count: 3,
+          sections: [
+            {
+              name: "General",
+              questions: [
+                { question_text: "Is the automated verification checklist area accessible?" },
+                { question_text: "Are required safety notices visible in the verification area?" },
+                { question_text: "Is the verification walk route clear of obstructions?" },
+              ],
+            },
+          ],
+        }
+      : {
+          id: PRODUCTION_VERIFICATION_AUDIT_ID,
+          auditId: PRODUCTION_VERIFICATION_AUDIT_ID,
+          name: "BERT Verification Audit",
+          status: "active",
+          questions: [{ id: "q1", text: "Check area accessible?" }],
+        };
+  const templates = [verificationTemplate];
   return includeVerification ? templates : [];
 }
 
@@ -223,7 +241,10 @@ function createTransport(options = {}) {
       }
 
       if (pathname === "/api/audits/templates" && method === "GET") {
-        return { status: 200, json: { ok: true, templates: templateList(includeTemplate) } };
+        return {
+          status: 200,
+          json: { ok: true, templates: templateList(includeTemplate, options.templateShape) },
+        };
       }
 
       if (pathname.endsWith("/dashboard/live") && method === "GET") {
@@ -453,6 +474,14 @@ test("5. verification template missing", async () => {
   assert.equal(result.ok, false);
   assert.equal(result.checks.templateAvailability.status, "FAIL");
   assert.match(result.failureReason || "", /bert-verify-audit-v1/i);
+});
+
+test("5b. verification template with section-nested questions passes availability", async () => {
+  const transport = createTransport({
+    templateShape: "sections",
+  });
+  const result = await runProductionSchedulesWorkflowChecks(baseConfig, transport, defaultRunOptions);
+  assert.equal(result.checks.templateAvailability.status, "PASS");
 });
 
 test("6. stale cleanup", async () => {

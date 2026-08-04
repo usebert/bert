@@ -374,11 +374,27 @@ function scheduleAppearsInDashboard(payload = {}, scheduleId = "") {
   });
 }
 
+function countTemplateQuestions(template = {}) {
+  const direct = Array.isArray(template.questions) ? template.questions : [];
+  if (direct.length > 0) {
+    return direct.length;
+  }
+  const sections = Array.isArray(template.sections) ? template.sections : [];
+  let nested = 0;
+  for (const section of sections) {
+    nested += Array.isArray(section?.questions) ? section.questions.length : 0;
+  }
+  if (nested > 0) {
+    return nested;
+  }
+  const questionCount = Number(template.question_count ?? template.questionCount);
+  return Number.isFinite(questionCount) && questionCount > 0 ? questionCount : 0;
+}
+
 function templateIsUsable(template = {}) {
   const id = trim(template.id || template.auditId || template.formId);
   const status = normalizeStatus(template.status);
-  const questions = Array.isArray(template.questions) ? template.questions : [];
-  return id === PRODUCTION_VERIFICATION_AUDIT_ID && status !== "archived" && questions.length > 0;
+  return id === PRODUCTION_VERIFICATION_AUDIT_ID && status !== "archived" && countTemplateQuestions(template) > 0;
 }
 
 export async function runProductionSchedulesWorkflowChecks(config, transport, options = {}) {
