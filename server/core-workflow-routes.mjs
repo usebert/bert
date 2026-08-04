@@ -89,6 +89,15 @@ import {
   updateLolerExamination,
 } from "./loler-examination-service.mjs";
 import {
+  cleanupStaleVerificationLoler,
+  cleanupVerificationLolerEquipment,
+  createVerificationLolerEquipment,
+  patchVerificationLolerEquipment,
+  recordVerificationLolerFailExamination,
+  recordVerificationLolerPassExamination,
+  restoreVerificationLolerEquipment,
+} from "./loler-verification-service.mjs";
+import {
   actorCanAccessCompanyMessages,
   archiveOperationalMessage,
   canSendMessages,
@@ -3491,6 +3500,128 @@ export function installCoreWorkflowRoutes(app, deps) {
           req.body || {},
         ),
       { operation: "loler_examination_update", code: "LOLER_EXAMINATION_UPDATE_FAILED", message: "Could not update examination." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/loler/verification/equipment", async (req, res) => {
+    return runLolerRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        createVerificationLolerEquipment(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          actor,
+          resolved.companyFolderId,
+          { ...(req.body || {}), masterSheetId: resolved.masterSheetId },
+        ),
+      { operation: "loler_verification_create", code: "LOLER_VERIFICATION_CREATE_FAILED", message: "Could not create verification equipment." },
+    );
+  });
+
+  app.patch("/api/companies/:companyFolderId/loler/verification/equipment/:equipmentId", async (req, res) => {
+    return runLolerRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        patchVerificationLolerEquipment(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          actor,
+          resolved.companyFolderId,
+          String(req.params?.equipmentId || "").trim(),
+          { ...(req.body || {}), masterSheetId: resolved.masterSheetId },
+        ),
+      { operation: "loler_verification_patch", code: "LOLER_VERIFICATION_PATCH_FAILED", message: "Could not update verification equipment." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/loler/verification/examinations/pass", async (req, res) => {
+    return runLolerRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        recordVerificationLolerPassExamination(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          actor,
+          resolved.companyFolderId,
+          { ...(req.body || {}), masterSheetId: resolved.masterSheetId },
+        ),
+      { operation: "loler_verification_pass", code: "LOLER_VERIFICATION_PASS_FAILED", message: "Could not record verification PASS examination." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/loler/verification/examinations/fail", async (req, res) => {
+    return runLolerRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        recordVerificationLolerFailExamination(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          actor,
+          resolved.companyFolderId,
+          { ...(req.body || {}), masterSheetId: resolved.masterSheetId },
+        ),
+      { operation: "loler_verification_fail", code: "LOLER_VERIFICATION_FAIL_FAILED", message: "Could not record verification FAIL examination." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/loler/equipment/:equipmentId/verification-restore", async (req, res) => {
+    return runLolerRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        restoreVerificationLolerEquipment(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          actor,
+          resolved.companyFolderId,
+          String(req.params?.equipmentId || "").trim(),
+          { ...(req.body || {}), masterSheetId: resolved.masterSheetId },
+        ),
+      { operation: "loler_verification_restore", code: "LOLER_VERIFICATION_RESTORE_FAILED", message: "Could not restore verification equipment." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/loler/verification-cleanup", async (req, res) => {
+    return runLolerRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        cleanupStaleVerificationLoler(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          actor,
+          resolved.companyFolderId,
+          { ...(req.body || {}), masterSheetId: resolved.masterSheetId },
+        ),
+      { operation: "loler_verification_cleanup", code: "LOLER_VERIFICATION_CLEANUP_FAILED", message: "Could not clean up verification LOLER records." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/loler/equipment/:equipmentId/verification-cleanup", async (req, res) => {
+    return runLolerRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        cleanupVerificationLolerEquipment(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          actor,
+          resolved.companyFolderId,
+          String(req.params?.equipmentId || "").trim(),
+          { ...(req.body || {}), masterSheetId: resolved.masterSheetId },
+        ),
+      { operation: "loler_verification_cleanup_single", code: "LOLER_VERIFICATION_CLEANUP_FAILED", message: "Could not clean up verification equipment." },
     );
   });
 

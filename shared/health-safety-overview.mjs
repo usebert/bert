@@ -7,6 +7,10 @@ import { isUkOverdue } from "./uk-date-time.mjs";
 import { isHighOrVeryHighRisk } from "./risk-assessments.mjs";
 import { isOperationalRiskAssessment } from "./production-verification-risk-assessment.mjs";
 import { isOperationalIncident } from "./production-verification-incident.mjs";
+import {
+  isOperationalLolerEquipment,
+  isOperationalLolerExamination,
+} from "./production-verification-loler.mjs";
 
 const HIGH_RISK_SEVERITIES = new Set(["fatality", "major incident", "lost time injury"]);
 const RIDDOR_DECISION_REQUIRED = new Set(["decision_required", "information_required"]);
@@ -253,7 +257,9 @@ export function buildHealthSafetyMetrics(input = {}) {
     : [];
   const riddor = Array.isArray(input.riddor) ? input.riddor : [];
   const coshh = Array.isArray(input.coshh) ? input.coshh : [];
-  const equipment = Array.isArray(input.equipment) ? input.equipment : [];
+  const equipment = Array.isArray(input.equipment)
+    ? input.equipment.filter((item) => isOperationalLolerEquipment(item))
+    : [];
   const incidentActions = Array.isArray(input.incidentActions) ? input.incidentActions : [];
   const riskAssessments = Array.isArray(input.riskAssessments)
     ? input.riskAssessments.filter((item) => isOperationalRiskAssessment(item))
@@ -327,7 +333,9 @@ export function buildHealthSafetyAttentionItems(input = {}) {
     : [];
   const riddor = Array.isArray(input.riddor) ? input.riddor : [];
   const coshh = Array.isArray(input.coshh) ? input.coshh : [];
-  const equipment = Array.isArray(input.equipment) ? input.equipment : [];
+  const equipment = Array.isArray(input.equipment)
+    ? input.equipment.filter((item) => isOperationalLolerEquipment(item))
+    : [];
   const incidentActions = Array.isArray(input.incidentActions) ? input.incidentActions : [];
   const riskAssessments = Array.isArray(input.riskAssessments)
     ? input.riskAssessments.filter((item) => isOperationalRiskAssessment(item))
@@ -745,8 +753,12 @@ export function buildHealthSafetyRecentActivity(input = {}) {
   const riskAssessments = Array.isArray(input.riskAssessments)
     ? input.riskAssessments.filter((item) => isOperationalRiskAssessment(item))
     : [];
-  const equipment = Array.isArray(input.equipment) ? input.equipment : [];
-  const examinations = Array.isArray(input.examinations) ? input.examinations : [];
+  const equipment = Array.isArray(input.equipment)
+    ? input.equipment.filter((item) => isOperationalLolerEquipment(item))
+    : [];
+  const examinations = Array.isArray(input.examinations)
+    ? input.examinations.filter((item) => isOperationalLolerExamination(item))
+    : [];
   const incidentActions = Array.isArray(input.incidentActions) ? input.incidentActions : [];
 
   const activity = [];
@@ -924,7 +936,7 @@ export function buildHealthSafetyRecentActivity(input = {}) {
     }
   }
 
-  for (const exam of examinations) {
+  for (const exam of examinations.filter((item) => isOperationalLolerExamination(item))) {
     pushActivity(activity, {
       id: `activity-examination-${exam.id}`,
       type: "equipment_examination_recorded",

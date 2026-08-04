@@ -579,6 +579,61 @@ npm run verify:production-schedules-workflow-tests
 npm run verify:production-verification-schedule-tests
 ```
 
+### Production LOLER workflow (post-deploy smoke)
+
+After startup health, authentication health, audit workflow, Actions workflow, Risk Assessment workflow, Incident workflow, Briefing workflow, Documents workflow, and Schedules workflow pass, run the LOLER workflow smoke test. It authenticates with the same smoke account, confirms LOLER equipment/schedules/examinations APIs, and — only when `BERT_SMOKE_ALLOW_LOLER_MUTATION=1` — creates dedicated verification lifting equipment (`bert-smoke-loler-*`), exercises readback, edit, due-date calculation, examination PASS, optional fail/restore, H&S overview exclusion, operational dashboard summary checks, and cleans up safely. It never touches customer equipment or uploads customer certificates.
+
+```bash
+set -a && source .env && set +a
+
+BERT_SMOKE_USERNAME=mr.important \
+BERT_SMOKE_PASSWORD='<set securely>' \
+BERT_SMOKE_COMPANY_FOLDER_ID=1tDKluapYfY-RkuxXc6eoRnGHL38XCswx \
+BERT_SMOKE_MASTER_SHEET_ID=1MntKgSgVmTmlpzZhnCZdDQtdmPw7GcXptlAp88Ewrkc \
+BERT_SMOKE_EXPECTED_EMAIL=bert.demo+mr.important@usebert.co.uk \
+BERT_SMOKE_ALLOW_LOLER_MUTATION=1 \
+npm run verify:production-loler-workflow
+```
+
+Environment:
+
+- **`BERT_SMOKE_ALLOW_LOLER_MUTATION`** — must be `1` to exercise create/edit/examination/cleanup stages. Without it, mutation stages report **SKIPPED** (authentication, LOLER API, and baseline still run).
+- **`BERT_SMOKE_API_ORIGIN`** / **`BERT_SMOKE_APP_ORIGIN`** — optional overrides (default production API/app hosts).
+
+Verification equipment strategy:
+
+- EquipmentId prefix: `bert-smoke-loler-`
+- AssetReference prefix: `BERT-VERIFY-LOLER-`
+- Name: `BERT Verification Lifting Accessory`
+- Type: `Lifting Accessory`
+- Source: `production-loler-workflow`
+- Marker: `verification` (stored in Notes/Observations)
+- Examination IDs: `bert-smoke-loler-exam-{runId}`, `bert-smoke-loler-fail-{runId}`
+
+Due-date semantics: uses `shared/loler.mjs` `calculateNextExaminationDueDate` (same as product). PASS completion advances last/next examination dates; open LOLER schedule rows sync through existing `syncOpenLolerSchedule`.
+
+Pass/fail behaviour: PASS via `POST .../loler/verification/examinations/pass`. Optional fail via `POST .../loler/verification/examinations/fail` (marks verification equipment out of service when supported); restore via `POST .../loler/equipment/:equipmentId/verification-restore`. Stages skip when routes are unavailable.
+
+Cleanup routes (verification-only, idempotent):
+
+- `POST /api/companies/:companyFolderId/loler/verification-cleanup`
+- `POST /api/companies/:companyFolderId/loler/equipment/:equipmentId/verification-cleanup`
+
+Cleanup archives verification equipment and marks examination observations `verification-cleaned`; ordinary LOLER records are rejected.
+
+Stage timeouts: authentication 90s, list/detail reads 60s, create/edit/examination/cleanup 120s, overview/dashboard 60s, total budget 12 minutes. Transient **502/503/504** and network timeouts retry after checking whether equipment/examination already exists.
+
+Skipped stages (expected when unsupported): Notifications (background/client derived), Search (client-side only).
+
+Failure remediation: inspect the failed stage output, confirm `BERT_SMOKE_ALLOW_LOLER_MUTATION=1` when mutations are required, run stale cleanup via `POST .../loler/verification-cleanup`, then re-run the verifier.
+
+Unit tests (mocked HTTP, no production calls):
+
+```bash
+npm run verify:production-loler-workflow-tests
+npm run verify:production-verification-loler-tests
+```
+
 ### Post-deploy verification sequence
 
 Run in order after every API deployment:
@@ -592,8 +647,9 @@ Run in order after every API deployment:
 7. **Briefing workflow** — `npm run verify:production-briefing-workflow`
 8. **Documents workflow** — `npm run verify:production-documents-workflow`
 9. **Schedules workflow** — `npm run verify:production-schedules-workflow`
+10. **LOLER workflow** — `npm run verify:production-loler-workflow`
 
-Only when all nine pass should the deployment be considered **READY FOR CUSTOMERS**.
+Only when all ten pass should the deployment be considered **READY FOR CUSTOMERS**.
 
 ### Startup system health (Master operators)
 
