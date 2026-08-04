@@ -177,127 +177,7 @@ export function installHealthSafetyRoutes(app, deps) {
     ),
   );
 
-  app.get("/api/companies/:companyFolderId/coshh/:coshhId", async (req, res) =>
-    runRoute(
-      req,
-      res,
-      {},
-      ({ authed, actor, resolved }) =>
-        getCompanyCoshh(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor, String(req.params?.coshhId || "").trim()),
-      { operation: "coshh_get", code: "COSHH_GET_FAILED", message: "Could not load COSHH record." },
-    ),
-  );
-
-  app.patch("/api/companies/:companyFolderId/coshh/:coshhId", async (req, res) =>
-    runRoute(
-      req,
-      res,
-      { manage: true },
-      ({ authed, actor, resolved }) =>
-        patchCompanyCoshh(
-          authed,
-          { ...registryDeps, ...scheduleDeps },
-          resolved,
-          actor,
-          String(req.params?.coshhId || "").trim(),
-          req.body || {},
-        ),
-      { operation: "coshh_patch", code: "COSHH_PATCH_FAILED", message: "Could not update COSHH record." },
-    ),
-  );
-
-  app.post("/api/companies/:companyFolderId/coshh/:coshhId/archive", async (req, res) =>
-    runRoute(
-      req,
-      res,
-      { manage: true },
-      ({ authed, actor, resolved }) =>
-        archiveCompanyCoshh(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor, String(req.params?.coshhId || "").trim()),
-      { operation: "coshh_archive", code: "COSHH_ARCHIVE_FAILED", message: "Could not archive COSHH record." },
-    ),
-  );
-
-  app.post("/api/companies/:companyFolderId/coshh/:coshhId/restore", async (req, res) =>
-    runRoute(
-      req,
-      res,
-      { manage: true },
-      ({ authed, actor, resolved }) =>
-        restoreCompanyCoshh(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor, String(req.params?.coshhId || "").trim()),
-      { operation: "coshh_restore", code: "COSHH_RESTORE_FAILED", message: "Could not restore COSHH record." },
-    ),
-  );
-
-  app.get("/api/companies/:companyFolderId/coshh/:coshhId/assessments", async (req, res) =>
-    runRoute(
-      req,
-      res,
-      {},
-      ({ authed, actor, resolved }) =>
-        listCoshhAssessments(
-          authed,
-          { ...registryDeps, ...scheduleDeps },
-          resolved,
-          actor,
-          String(req.params?.coshhId || "").trim(),
-        ),
-      { operation: "coshh_assessments_list", code: "COSHH_ASSESSMENTS_FAILED", message: "Could not load COSHH assessments." },
-    ),
-  );
-
-  app.post("/api/companies/:companyFolderId/coshh/:coshhId/assessments", async (req, res) =>
-    runRoute(
-      req,
-      res,
-      { manage: true },
-      ({ authed, actor, resolved }) =>
-        createCoshhAssessment(
-          authed,
-          { ...registryDeps, ...scheduleDeps },
-          resolved,
-          actor,
-          String(req.params?.coshhId || "").trim(),
-          req.body || {},
-        ),
-      { operation: "coshh_assessment_create", code: "COSHH_ASSESSMENT_CREATE_FAILED", message: "Could not create COSHH assessment." },
-    ),
-  );
-
-  app.get("/api/companies/:companyFolderId/coshh-assessments/:assessmentId", async (req, res) =>
-    runRoute(
-      req,
-      res,
-      {},
-      ({ authed, actor, resolved }) =>
-        getCoshhAssessment(
-          authed,
-          { ...registryDeps, ...scheduleDeps },
-          resolved,
-          actor,
-          String(req.params?.assessmentId || "").trim(),
-        ),
-      { operation: "coshh_assessment_get", code: "COSHH_ASSESSMENT_GET_FAILED", message: "Could not load COSHH assessment." },
-    ),
-  );
-
-  app.patch("/api/companies/:companyFolderId/coshh-assessments/:assessmentId", async (req, res) =>
-    runRoute(
-      req,
-      res,
-      { manage: true },
-      ({ authed, actor, resolved }) =>
-        patchCoshhAssessment(
-          authed,
-          { ...registryDeps, ...scheduleDeps },
-          resolved,
-          actor,
-          String(req.params?.assessmentId || "").trim(),
-          req.body || {},
-        ),
-      { operation: "coshh_assessment_patch", code: "COSHH_ASSESSMENT_PATCH_FAILED", message: "Could not update COSHH assessment." },
-    ),
-  );
-
+  // Register literal /coshh/verification/* paths before /coshh/:coshhId so Express does not treat "verification" as a coshhId.
   app.post("/api/companies/:companyFolderId/coshh/verification/substance", async (req, res) =>
     runRoute(
       req,
@@ -427,6 +307,127 @@ export function installHealthSafetyRoutes(app, deps) {
           masterSheetId: resolved.masterSheetId,
         }),
       { operation: "coshh_verification_cleanup_stale", code: "COSHH_VERIFICATION_CLEANUP_FAILED", message: "Could not clean up stale verification COSHH records." },
+    ),
+  );
+
+  app.get("/api/companies/:companyFolderId/coshh/:coshhId", async (req, res) =>
+    runRoute(
+      req,
+      res,
+      {},
+      ({ authed, actor, resolved }) =>
+        getCompanyCoshh(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor, String(req.params?.coshhId || "").trim()),
+      { operation: "coshh_get", code: "COSHH_GET_FAILED", message: "Could not load COSHH record." },
+    ),
+  );
+
+  app.patch("/api/companies/:companyFolderId/coshh/:coshhId", async (req, res) =>
+    runRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        patchCompanyCoshh(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.coshhId || "").trim(),
+          req.body || {},
+        ),
+      { operation: "coshh_patch", code: "COSHH_PATCH_FAILED", message: "Could not update COSHH record." },
+    ),
+  );
+
+  app.post("/api/companies/:companyFolderId/coshh/:coshhId/archive", async (req, res) =>
+    runRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        archiveCompanyCoshh(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor, String(req.params?.coshhId || "").trim()),
+      { operation: "coshh_archive", code: "COSHH_ARCHIVE_FAILED", message: "Could not archive COSHH record." },
+    ),
+  );
+
+  app.post("/api/companies/:companyFolderId/coshh/:coshhId/restore", async (req, res) =>
+    runRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        restoreCompanyCoshh(authed, { ...registryDeps, ...scheduleDeps }, resolved, actor, String(req.params?.coshhId || "").trim()),
+      { operation: "coshh_restore", code: "COSHH_RESTORE_FAILED", message: "Could not restore COSHH record." },
+    ),
+  );
+
+  app.get("/api/companies/:companyFolderId/coshh/:coshhId/assessments", async (req, res) =>
+    runRoute(
+      req,
+      res,
+      {},
+      ({ authed, actor, resolved }) =>
+        listCoshhAssessments(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.coshhId || "").trim(),
+        ),
+      { operation: "coshh_assessments_list", code: "COSHH_ASSESSMENTS_FAILED", message: "Could not load COSHH assessments." },
+    ),
+  );
+
+  app.post("/api/companies/:companyFolderId/coshh/:coshhId/assessments", async (req, res) =>
+    runRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        createCoshhAssessment(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.coshhId || "").trim(),
+          req.body || {},
+        ),
+      { operation: "coshh_assessment_create", code: "COSHH_ASSESSMENT_CREATE_FAILED", message: "Could not create COSHH assessment." },
+    ),
+  );
+
+  app.get("/api/companies/:companyFolderId/coshh-assessments/:assessmentId", async (req, res) =>
+    runRoute(
+      req,
+      res,
+      {},
+      ({ authed, actor, resolved }) =>
+        getCoshhAssessment(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.assessmentId || "").trim(),
+        ),
+      { operation: "coshh_assessment_get", code: "COSHH_ASSESSMENT_GET_FAILED", message: "Could not load COSHH assessment." },
+    ),
+  );
+
+  app.patch("/api/companies/:companyFolderId/coshh-assessments/:assessmentId", async (req, res) =>
+    runRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        patchCoshhAssessment(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.assessmentId || "").trim(),
+          req.body || {},
+        ),
+      { operation: "coshh_assessment_patch", code: "COSHH_ASSESSMENT_PATCH_FAILED", message: "Could not update COSHH assessment." },
     ),
   );
 
