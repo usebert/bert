@@ -25,6 +25,17 @@ import {
   patchCoshhAssessment,
   restoreCompanyCoshh,
 } from "./health-safety-service.mjs";
+import {
+  approveVerificationCoshhAssessment,
+  cleanupStaleVerificationCoshh,
+  cleanupVerificationCoshh,
+  createVerificationCoshhAssessment,
+  createVerificationCoshhSubstance,
+  patchVerificationCoshhAssessment,
+  patchVerificationCoshhSubstance,
+  reviewVerificationCoshhAssessment,
+  submitVerificationCoshhAssessment,
+} from "./coshh-verification-service.mjs";
 
 export function installHealthSafetyRoutes(app, deps) {
   const {
@@ -284,6 +295,156 @@ export function installHealthSafetyRoutes(app, deps) {
           req.body || {},
         ),
       { operation: "coshh_assessment_patch", code: "COSHH_ASSESSMENT_PATCH_FAILED", message: "Could not update COSHH assessment." },
+    ),
+  );
+
+  app.post("/api/companies/:companyFolderId/coshh/verification/substance", async (req, res) =>
+    runRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        createVerificationCoshhSubstance(authed, { ...registryDeps, ...scheduleDeps }, actor, resolved.companyFolderId, {
+          ...(req.body || {}),
+          masterSheetId: resolved.masterSheetId,
+        }),
+      { operation: "coshh_verification_create_substance", code: "COSHH_VERIFICATION_CREATE_FAILED", message: "Could not create verification COSHH substance." },
+    ),
+  );
+
+  app.patch("/api/companies/:companyFolderId/coshh/verification/substance/:coshhId", async (req, res) =>
+    runRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        patchVerificationCoshhSubstance(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          actor,
+          resolved.companyFolderId,
+          String(req.params?.coshhId || "").trim(),
+          { ...(req.body || {}), masterSheetId: resolved.masterSheetId },
+        ),
+      { operation: "coshh_verification_patch_substance", code: "COSHH_VERIFICATION_PATCH_FAILED", message: "Could not update verification COSHH substance." },
+    ),
+  );
+
+  app.post("/api/companies/:companyFolderId/coshh/verification/assessments", async (req, res) =>
+    runRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        createVerificationCoshhAssessment(authed, { ...registryDeps, ...scheduleDeps }, actor, resolved.companyFolderId, {
+          ...(req.body || {}),
+          masterSheetId: resolved.masterSheetId,
+        }),
+      { operation: "coshh_verification_create_assessment", code: "COSHH_VERIFICATION_ASSESSMENT_CREATE_FAILED", message: "Could not create verification COSHH assessment." },
+    ),
+  );
+
+  app.patch("/api/companies/:companyFolderId/coshh/verification/assessments/:assessmentId", async (req, res) =>
+    runRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        patchVerificationCoshhAssessment(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          actor,
+          resolved.companyFolderId,
+          String(req.params?.assessmentId || "").trim(),
+          { ...(req.body || {}), masterSheetId: resolved.masterSheetId },
+        ),
+      { operation: "coshh_verification_patch_assessment", code: "COSHH_VERIFICATION_ASSESSMENT_PATCH_FAILED", message: "Could not update verification COSHH assessment." },
+    ),
+  );
+
+  app.post("/api/companies/:companyFolderId/coshh/verification/assessments/:assessmentId/submit", async (req, res) =>
+    runRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        submitVerificationCoshhAssessment(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          actor,
+          resolved.companyFolderId,
+          String(req.params?.assessmentId || "").trim(),
+          { ...(req.body || {}), masterSheetId: resolved.masterSheetId },
+        ),
+      { operation: "coshh_verification_submit", code: "COSHH_VERIFICATION_SUBMIT_FAILED", message: "Could not submit verification COSHH assessment." },
+    ),
+  );
+
+  app.post("/api/companies/:companyFolderId/coshh/verification/assessments/:assessmentId/approve", async (req, res) =>
+    runRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        approveVerificationCoshhAssessment(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          actor,
+          resolved.companyFolderId,
+          String(req.params?.assessmentId || "").trim(),
+          { ...(req.body || {}), masterSheetId: resolved.masterSheetId },
+        ),
+      { operation: "coshh_verification_approve", code: "COSHH_VERIFICATION_APPROVE_FAILED", message: "Could not approve verification COSHH assessment." },
+    ),
+  );
+
+  app.post("/api/companies/:companyFolderId/coshh/verification/assessments/:assessmentId/review", async (req, res) =>
+    runRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        reviewVerificationCoshhAssessment(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          actor,
+          resolved.companyFolderId,
+          String(req.params?.assessmentId || "").trim(),
+          { ...(req.body || {}), masterSheetId: resolved.masterSheetId },
+        ),
+      { operation: "coshh_verification_review", code: "COSHH_VERIFICATION_REVIEW_FAILED", message: "Could not review verification COSHH assessment." },
+    ),
+  );
+
+  app.post("/api/companies/:companyFolderId/coshh/verification-cleanup", async (req, res) =>
+    runRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        cleanupStaleVerificationCoshh(authed, { ...registryDeps, ...scheduleDeps }, actor, resolved.companyFolderId, {
+          ...(req.body || {}),
+          masterSheetId: resolved.masterSheetId,
+        }),
+      { operation: "coshh_verification_cleanup_stale", code: "COSHH_VERIFICATION_CLEANUP_FAILED", message: "Could not clean up stale verification COSHH records." },
+    ),
+  );
+
+  app.post("/api/companies/:companyFolderId/coshh/:coshhId/verification-cleanup", async (req, res) =>
+    runRoute(
+      req,
+      res,
+      { manage: true },
+      ({ authed, actor, resolved }) =>
+        cleanupVerificationCoshh(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          actor,
+          resolved.companyFolderId,
+          String(req.params?.coshhId || "").trim(),
+          { ...(req.body || {}), masterSheetId: resolved.masterSheetId },
+        ),
+      { operation: "coshh_verification_cleanup", code: "COSHH_VERIFICATION_CLEANUP_FAILED", message: "Could not clean up verification COSHH record." },
     ),
   );
 

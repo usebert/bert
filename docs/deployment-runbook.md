@@ -634,6 +634,54 @@ npm run verify:production-loler-workflow-tests
 npm run verify:production-verification-loler-tests
 ```
 
+### Production COSHH workflow (post-deploy smoke)
+
+After startup health, authentication health, audit workflow, Actions workflow, Risk Assessment workflow, Incident workflow, Briefing workflow, Documents workflow, Schedules workflow, and LOLER workflow pass, run the COSHH workflow smoke test. It authenticates with the same smoke account, confirms COSHH register and assessment APIs, and — only when `BERT_SMOKE_ALLOW_COSHH_MUTATION=1` — creates dedicated verification substance/assessment records (`bert-smoke-coshh-*`), exercises readback, edit, hazard/PPE controls, SDS metadata linkage, submit/approve/review, H&S overview exclusion, operational dashboard checks, and cleans up safely. It never touches customer COSHH records or uploads customer SDS files.
+
+```bash
+set -a && source .env && set +a
+
+BERT_SMOKE_USERNAME=mr.important \
+BERT_SMOKE_PASSWORD='<set securely>' \
+BERT_SMOKE_COMPANY_FOLDER_ID=1tDKluapYfY-RkuxXc6eoRnGHL38XCswx \
+BERT_SMOKE_MASTER_SHEET_ID=1MntKgSgVmTmlpzZhnCZdDQtdmPw7GcXptlAp88Ewrkc \
+BERT_SMOKE_EXPECTED_EMAIL=bert.demo+mr.important@usebert.co.uk \
+BERT_SMOKE_ALLOW_COSHH_MUTATION=1 \
+npm run verify:production-coshh-workflow
+```
+
+Environment:
+
+- **`BERT_SMOKE_ALLOW_COSHH_MUTATION`** — must be `1` to exercise create/edit/submit/approve/review/cleanup stages. Without it, mutation stages report **SKIPPED** (authentication, COSHH API, and baseline still run).
+- **`BERT_SMOKE_COSHH_REVIEWER_*`** — optional separate approver when self-approval is blocked (Admin self-approval is the default for the smoke account).
+
+Verification record strategy:
+
+- COSHH ID prefix: `bert-smoke-coshh-`
+- Assessment number prefix: `BERT-VERIFY-COSHH-` (stored in `ProductCode` and assessment title)
+- Product name: `BERT Verification Cleaning Product`
+- Source: `production-coshh-workflow`
+- Marker: `verification` (stored in Description/AdditionalActions)
+- Assessment ID: `bert-smoke-coshh-assess-{runId}`
+
+Substance and assessment are separate workbook tabs (`COSHHRegister`, `COSHHAssessments`). SDS is metadata-only linkage (no Drive upload route); cleanup clears SDS fields.
+
+Cleanup routes (verification-only, idempotent):
+
+- `POST /api/companies/:companyFolderId/coshh/verification-cleanup`
+- `POST /api/companies/:companyFolderId/coshh/:coshhId/verification-cleanup`
+
+Stage timeouts: authentication 90s, list/detail reads 60s, create/edit/submit/approve 120s, overview/dashboard 60s, total budget 12 minutes.
+
+Skipped stages (expected): Notifications (client/background derived), Search (client-side only). SDS upload is metadata-only (no production upload route).
+
+Unit tests (mocked HTTP, no production calls):
+
+```bash
+npm run verify:production-coshh-workflow-tests
+npm run verify:production-verification-coshh-tests
+```
+
 ### Post-deploy verification sequence
 
 Run in order after every API deployment:
@@ -648,8 +696,9 @@ Run in order after every API deployment:
 8. **Documents workflow** — `npm run verify:production-documents-workflow`
 9. **Schedules workflow** — `npm run verify:production-schedules-workflow`
 10. **LOLER workflow** — `npm run verify:production-loler-workflow`
+11. **COSHH workflow** — `npm run verify:production-coshh-workflow`
 
-Only when all ten pass should the deployment be considered **READY FOR CUSTOMERS**.
+Only when all eleven pass should the deployment be considered **READY FOR CUSTOMERS**.
 
 ### Startup system health (Master operators)
 

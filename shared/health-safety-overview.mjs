@@ -11,6 +11,10 @@ import {
   isOperationalLolerEquipment,
   isOperationalLolerExamination,
 } from "./production-verification-loler.mjs";
+import {
+  isOperationalCoshhAssessment,
+  isOperationalCoshhRegister,
+} from "./production-verification-coshh.mjs";
 
 const HIGH_RISK_SEVERITIES = new Set(["fatality", "major incident", "lost time injury"]);
 const RIDDOR_DECISION_REQUIRED = new Set(["decision_required", "information_required"]);
@@ -256,7 +260,7 @@ export function buildHealthSafetyMetrics(input = {}) {
     ? input.incidents.filter((item) => isOperationalIncident(item))
     : [];
   const riddor = Array.isArray(input.riddor) ? input.riddor : [];
-  const coshh = Array.isArray(input.coshh) ? input.coshh : [];
+  const coshh = (Array.isArray(input.coshh) ? input.coshh : []).filter((item) => isOperationalCoshhRegister(item));
   const equipment = Array.isArray(input.equipment)
     ? input.equipment.filter((item) => isOperationalLolerEquipment(item))
     : [];
@@ -332,7 +336,7 @@ export function buildHealthSafetyAttentionItems(input = {}) {
     ? input.incidents.filter((item) => isOperationalIncident(item))
     : [];
   const riddor = Array.isArray(input.riddor) ? input.riddor : [];
-  const coshh = Array.isArray(input.coshh) ? input.coshh : [];
+  const coshh = (Array.isArray(input.coshh) ? input.coshh : []).filter((item) => isOperationalCoshhRegister(item));
   const equipment = Array.isArray(input.equipment)
     ? input.equipment.filter((item) => isOperationalLolerEquipment(item))
     : [];
@@ -748,8 +752,10 @@ export function buildHealthSafetyRecentActivity(input = {}) {
     ? input.incidents.filter((item) => isOperationalIncident(item))
     : [];
   const riddor = Array.isArray(input.riddor) ? input.riddor : [];
-  const coshh = Array.isArray(input.coshh) ? input.coshh : [];
-  const assessments = Array.isArray(input.assessments) ? input.assessments : [];
+  const coshh = (Array.isArray(input.coshh) ? input.coshh : []).filter((item) => isOperationalCoshhRegister(item));
+  const assessments = (Array.isArray(input.assessments) ? input.assessments : []).filter((item) =>
+    isOperationalCoshhAssessment(item),
+  );
   const riskAssessments = Array.isArray(input.riskAssessments)
     ? input.riskAssessments.filter((item) => isOperationalRiskAssessment(item))
     : [];
