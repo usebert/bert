@@ -17,7 +17,8 @@ import { enrichSchedulesWithDueOccurrence } from "./schedule-due.mjs";
 import { getScheduleAssignedEmails } from "./schedule-assignment.mjs";
 import { getUkTodayKey, isUkOverdue, isUkToday, ukDateKeyFromTimestamp } from "./uk-date-time.mjs";
 import { isWorkbookRowArchived } from "./archive.mjs";
-import { isOperationalAuditResult, isVerificationSchedule } from "./production-verification-audit.mjs";
+import { isOperationalAuditResult } from "./production-verification-audit.mjs";
+import { isOperationalSchedule } from "./production-verification-schedule.mjs";
 import { isOperationalAction } from "./production-verification-action.mjs";
 import { isOperationalWorkbookBriefingRow } from "./production-verification-briefing.mjs";
 import { isOperationalWorkbookIncidentRow } from "./production-verification-incident.mjs";
@@ -639,7 +640,7 @@ export function buildLiveDashboardFromSources(sources = {}, options = {}) {
   // --- Schedules → due today / overdue inspections ---------------------------
   const scheduleRows = filterCompanyRows(sources.schedules, companyFolderId, alternateIds);
   let schedules = parseCompanyScheduleListFromRecords(scheduleRows, companyFolderId, alternateIds).filter(
-    (schedule) => schedule.lifecycle !== "Archived" && !isVerificationSchedule(schedule),
+    (schedule) => schedule.lifecycle !== "Archived" && isOperationalSchedule(schedule),
   );
   schedules = enrichSchedulesWithDueOccurrence(schedules, new Date(nowMs)).map((schedule) => ({
     ...schedule,

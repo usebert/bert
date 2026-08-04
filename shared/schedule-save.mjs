@@ -32,6 +32,13 @@ export const SCHEDULES_TAB_COLUMNS = [
   "Auditor Emails",
   "Assigned Auditors",
   "Completion Mode",
+  "Verification Source",
+  "Verification Marker",
+  "Health State",
+  "Next Due At",
+  "Paused At",
+  "Paused By",
+  "Reactivated At",
 ];
 
 export const SCHEDULE_SAVE_FAILED_CODE = "SCHEDULE_SAVE_FAILED";
@@ -199,6 +206,13 @@ export function buildSchedulesTabRows(schedule = {}, assignedUsers = []) {
     assignedUsersJson,
     createdByEmail,
     createdByRole,
+    "Verification Source": String(schedule.verificationSource || "").trim(),
+    "Verification Marker": String(schedule.verificationMarker || "").trim(),
+    "Health State": String(schedule.healthState || "").trim(),
+    "Next Due At": String(schedule.nextDueAt || "").trim(),
+    "Paused At": String(schedule.pausedAt || "").trim(),
+    "Paused By": String(schedule.pausedBy || "").trim(),
+    "Reactivated At": String(schedule.reactivatedAt || "").trim(),
   }));
 }
 

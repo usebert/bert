@@ -171,11 +171,15 @@ export function parseCompanyScheduleListFromRecords(records = [], companyFolderI
       createdAt: extractField(record, ["created at", "created"]),
       updatedAt: extractField(record, ["updated at", "updated"]),
       archivedAt: extractField(record, ["archived at"]) || undefined,
-      reactivatedAt: extractField(record, ["reactivated at"]) || undefined,
       missedAuditCount: Number(extractField(record, ["missed audit count"])) || 0,
       lastCompletedAt: extractField(record, ["last completed at"]) || undefined,
       nextDueAt: extractField(record, ["next due at"]) || undefined,
-      completionMode: extractField(record, ["completion mode", "completionmode"]) || undefined,
+      healthState: extractField(record, ["health state"]) || undefined,
+      verificationSource: extractField(record, ["verification source", "verificationsource"]) || undefined,
+      verificationMarker: extractField(record, ["verification marker", "verificationmarker"]) || undefined,
+      pausedAt: extractField(record, ["paused at"]) || undefined,
+      pausedBy: extractField(record, ["paused by"]) || undefined,
+      reactivatedAt: extractField(record, ["reactivated at"]) || undefined,
     });
   });
 

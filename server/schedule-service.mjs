@@ -659,6 +659,20 @@ export function isActiveMyCheckScheduleStatus(schedule = {}) {
   if (!status) {
     return true;
   }
+  if (status === "paused" || status === "inactive" || status === "archived") {
+    return false;
+  }
+  const health = normalize(schedule.healthState || "");
+  if (health === "paused") {
+    const resumeAt = String(schedule.nextDueAt || "").trim();
+    if (!resumeAt) {
+      return false;
+    }
+    const resumeMs = new Date(resumeAt).getTime();
+    if (Number.isFinite(resumeMs) && resumeMs > Date.now()) {
+      return false;
+    }
+  }
   return status === "active" || status === "live" || status === "scheduled";
 }
 

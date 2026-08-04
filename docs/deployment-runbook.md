@@ -525,6 +525,60 @@ npm run verify:production-documents-workflow-tests
 npm run verify:production-verification-document-tests
 ```
 
+### Production Schedules workflow (post-deploy smoke)
+
+After startup health, authentication health, audit workflow, Actions workflow, Risk Assessment workflow, Incident workflow, Briefing workflow, and Documents workflow pass, run the Schedules workflow smoke test. It authenticates with the same smoke account, confirms schedule management and assigned-check APIs, verifies the `bert-verify-audit-v1` template is available, and — only when `BERT_SMOKE_ALLOW_SCHEDULE_MUTATION=1` — creates a dedicated verification schedule assigned only to the smoke account, exercises readback, edit, pause/reactivate, recurrence calculation, dashboard exclusion, and cleans up safely. It never completes an audit check (the Audit Workflow gate covers submission) and never modifies customer schedules.
+
+```bash
+set -a && source .env && set +a
+
+BERT_SMOKE_USERNAME=mr.important \
+BERT_SMOKE_PASSWORD='<set securely>' \
+BERT_SMOKE_COMPANY_FOLDER_ID=1tDKluapYfY-RkuxXc6eoRnGHL38XCswx \
+BERT_SMOKE_MASTER_SHEET_ID=1MntKgSgVmTmlpzZhnCZdDQtdmPw7GcXptlAp88Ewrkc \
+BERT_SMOKE_EXPECTED_EMAIL=bert.demo+mr.important@usebert.co.uk \
+BERT_SMOKE_ALLOW_SCHEDULE_MUTATION=1 \
+npm run verify:production-schedules-workflow
+```
+
+Environment:
+
+- **`BERT_SMOKE_ALLOW_SCHEDULE_MUTATION`** — must be `1` to exercise create/edit/pause/reactivate/cleanup stages. Without it, mutation stages report **SKIPPED** (authentication, Schedules API, baseline, and template availability still run).
+- **`BERT_SMOKE_API_ORIGIN`** / **`BERT_SMOKE_APP_ORIGIN`** — optional overrides (default production API/app hosts).
+
+Template dependency: requires `bert-verify-audit-v1` (`BERT Verification Audit`). Provision idempotently with `npm run ensure:production-verification-audit` if missing.
+
+Verification schedule markers:
+
+- ScheduleId prefix: `bert-smoke-schedule-`
+- Name: `BERT Verification Schedule`
+- TemplateId: `bert-verify-audit-v1`
+- Assigned only to: `bert.demo+mr.important@usebert.co.uk`
+- Source: `production-schedules-workflow`
+- Marker: `verification`
+
+Pause/reactivate: uses verification-only routes that set `Status: PAUSED` / `healthState: Paused` (pause) and restore `Status: ACTIVE` (reactivate). Paused schedules must not appear as actionable assigned checks.
+
+Recurrence: verified through `shared/schedule-due.mjs` (same helper as server/UI) for Daily frequency and next due calculation.
+
+Cleanup routes (verification-only, idempotent):
+
+- `POST /api/companies/:companyFolderId/schedules/verification-cleanup`
+- `POST /api/companies/:companyFolderId/schedules/:scheduleId/verification-cleanup`
+
+Stage timeouts: authentication 90s, list/assigned-check reads 60s, create/edit/pause/reactivate/cleanup 120s, dashboard 60s, total budget 12 minutes. Transient **502/503/504** and network timeouts retry after checking whether the schedule already exists or the mutation already completed.
+
+Skipped stages (expected when unsupported): Notifications (client-cache/background-job derived), Search (client-side only).
+
+Failure remediation: inspect the failed stage output, confirm `BERT_SMOKE_ALLOW_SCHEDULE_MUTATION=1` when mutations are required, run stale cleanup via `POST .../schedules/verification-cleanup`, then re-run the verifier.
+
+Unit tests (mocked HTTP, no production calls):
+
+```bash
+npm run verify:production-schedules-workflow-tests
+npm run verify:production-verification-schedule-tests
+```
+
 ### Post-deploy verification sequence
 
 Run in order after every API deployment:
@@ -537,8 +591,9 @@ Run in order after every API deployment:
 6. **Incident workflow** — `npm run verify:production-incident-workflow`
 7. **Briefing workflow** — `npm run verify:production-briefing-workflow`
 8. **Documents workflow** — `npm run verify:production-documents-workflow`
+9. **Schedules workflow** — `npm run verify:production-schedules-workflow`
 
-Only when all eight pass should the deployment be considered **READY FOR CUSTOMERS**.
+Only when all nine pass should the deployment be considered **READY FOR CUSTOMERS**.
 
 ### Startup system health (Master operators)
 

@@ -157,6 +157,14 @@ import {
   signBriefing,
 } from "./briefings-service.mjs";
 import {
+  cleanupStaleVerificationSchedules,
+  cleanupVerificationSchedule,
+  createVerificationSchedule,
+  patchVerificationSchedule,
+  pauseVerificationSchedule,
+  reactivateVerificationSchedule,
+} from "./schedule-verification-service.mjs";
+import {
   cleanupStaleVerificationActions,
   cleanupVerificationAction,
   loadCompanyActions,
@@ -177,6 +185,18 @@ function briefingRouteError(res, result, fallbackStatus = 400) {
     error: result?.error || result?.message || "Request failed.",
     details: result?.details || undefined,
     message: result?.message || result?.error || "Request failed.",
+  });
+}
+
+const SCHEDULE_VERIFICATION_ROUTE_TIMEOUT_MS = 120_000;
+
+function scheduleVerificationRouteError(res, result, fallbackStatus = 400) {
+  const status = result?.httpStatus || fallbackStatus;
+  return res.status(status).json({
+    ok: false,
+    code: result?.code || "SCHEDULE_VERIFICATION_FAILED",
+    error: result?.error || result?.message || "Schedule verification request failed.",
+    message: result?.message || result?.error || "Schedule verification request failed.",
   });
 }
 
@@ -1217,6 +1237,155 @@ export function installCoreWorkflowRoutes(app, deps) {
         message: "BERT could not save this schedule. Try again.",
         technicalError: error instanceof Error ? error.message : String(error),
       });
+    }
+  });
+
+  app.post("/api/companies/:companyFolderId/schedules/verification", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, error: "Could not create verification schedule." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const body = req.body || {};
+    const folderDenial = await rejectCompanyApiIfFolderInvalid(
+      authed,
+      { ...registryDeps, ...scheduleDeps },
+      companyFolderId,
+      String(body.companyName || actor?.companyName || "").trim(),
+    );
+    if (folderDenial) {
+      return res.status(403).json(folderDenial);
+    }
+    try {
+      const result = await withOperationTimeout(
+        createVerificationSchedule(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, body),
+        "schedule_verification_create",
+        SCHEDULE_VERIFICATION_ROUTE_TIMEOUT_MS,
+      );
+      if (!result.ok) {
+        return scheduleVerificationRouteError(res, result);
+      }
+      return res.json(result);
+    } catch (error) {
+      return res.status(500).json({ ok: false, code: "SCHEDULE_CREATE_FAILED", error: "Could not create verification schedule." });
+    }
+  });
+
+  app.patch("/api/companies/:companyFolderId/schedules/:scheduleId/verification", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, error: "Could not update verification schedule." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const scheduleId = String(req.params?.scheduleId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const body = req.body || {};
+    try {
+      const result = await withOperationTimeout(
+        patchVerificationSchedule(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, scheduleId, body),
+        "schedule_verification_patch",
+        SCHEDULE_VERIFICATION_ROUTE_TIMEOUT_MS,
+      );
+      if (!result.ok) {
+        return scheduleVerificationRouteError(res, result);
+      }
+      return res.json(result);
+    } catch (error) {
+      return res.status(500).json({ ok: false, code: "SCHEDULE_PATCH_FAILED", error: "Could not update verification schedule." });
+    }
+  });
+
+  app.post("/api/companies/:companyFolderId/schedules/:scheduleId/pause", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, error: "Could not pause verification schedule." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const scheduleId = String(req.params?.scheduleId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const body = req.body || {};
+    try {
+      const result = await withOperationTimeout(
+        pauseVerificationSchedule(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, scheduleId, body),
+        "schedule_verification_pause",
+        SCHEDULE_VERIFICATION_ROUTE_TIMEOUT_MS,
+      );
+      if (!result.ok) {
+        return scheduleVerificationRouteError(res, result);
+      }
+      return res.json(result);
+    } catch (error) {
+      return res.status(500).json({ ok: false, code: "SCHEDULE_PAUSE_FAILED", error: "Could not pause verification schedule." });
+    }
+  });
+
+  app.post("/api/companies/:companyFolderId/schedules/:scheduleId/reactivate", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, error: "Could not reactivate verification schedule." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const scheduleId = String(req.params?.scheduleId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    const body = req.body || {};
+    try {
+      const result = await withOperationTimeout(
+        reactivateVerificationSchedule(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, scheduleId, body),
+        "schedule_verification_reactivate",
+        SCHEDULE_VERIFICATION_ROUTE_TIMEOUT_MS,
+      );
+      if (!result.ok) {
+        return scheduleVerificationRouteError(res, result);
+      }
+      return res.json(result);
+    } catch (error) {
+      return res.status(500).json({ ok: false, code: "SCHEDULE_REACTIVATE_FAILED", error: "Could not reactivate verification schedule." });
+    }
+  });
+
+  app.post("/api/companies/:companyFolderId/schedules/verification-cleanup", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, error: "Could not clean up verification schedules." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    try {
+      const result = await withOperationTimeout(
+        cleanupStaleVerificationSchedules(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, req.body || {}),
+        "schedules_verification_cleanup",
+        SCHEDULE_VERIFICATION_ROUTE_TIMEOUT_MS,
+      );
+      if (!result.ok) {
+        return scheduleVerificationRouteError(res, result);
+      }
+      return res.json(result);
+    } catch (error) {
+      return res.status(500).json({ ok: false, code: "SCHEDULE_CLEANUP_FAILED", error: "Could not clean up verification schedules." });
+    }
+  });
+
+  app.post("/api/companies/:companyFolderId/schedules/:scheduleId/verification-cleanup", async (req, res) => {
+    const authed = getAuthedClient();
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({ ok: false, error: "Could not clean up verification schedule." });
+    }
+    const companyFolderId = String(req.params?.companyFolderId || "").trim();
+    const scheduleId = String(req.params?.scheduleId || "").trim();
+    const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
+    try {
+      const result = await withOperationTimeout(
+        cleanupVerificationSchedule(authed, { ...registryDeps, ...scheduleDeps }, actor, companyFolderId, scheduleId, req.body || {}),
+        "schedule_verification_cleanup",
+        SCHEDULE_VERIFICATION_ROUTE_TIMEOUT_MS,
+      );
+      if (!result.ok) {
+        return scheduleVerificationRouteError(res, result);
+      }
+      return res.json(result);
+    } catch (error) {
+      return res.status(500).json({ ok: false, code: "SCHEDULE_CLEANUP_FAILED", error: "Could not clean up verification schedule." });
     }
   });
 
