@@ -886,17 +886,14 @@ export async function runProductionCoshhWorkflowChecks(config, transport, option
     intervalMs: options.listPollIntervalMs ?? 1000,
   });
   if (!substanceVisible.ok) {
-    const terminal = await finalizeMutationWorkflow();
-    return (
-      terminal ||
-      fail(
-        "createDraft",
-        "Verification substance not visible before assessment create.",
-        "Inspect COSHH register read-after-write after substance create.",
-        substanceVisible.response?.status,
-        substanceVisible.response?.json,
-      )
-    );
+    deferredFailure = {
+      failedKey: "createDraft",
+      failureReason: "Verification substance not visible before assessment create.",
+      remediation: "Inspect COSHH register read-after-write after substance create.",
+      httpStatus: substanceVisible.response?.status,
+      safeResponseBody: redactSafeResponseBody(substanceVisible.response?.json),
+    };
+    return finalizeMutationWorkflow();
   }
 
   const createDraftFail = await runPostCreateStage("createDraft", async () => {
