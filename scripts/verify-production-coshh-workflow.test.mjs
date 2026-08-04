@@ -702,7 +702,7 @@ test("9. create succeeds but not visible", async () => {
     listPollMaxAttempts: 2,
   });
   assert.equal(result.ok, false);
-  assert.equal(result.failedKey, "readback");
+  assert.equal(result.failedKey, "createDraft");
 });
 
 test("10. duplicate create idempotency", async () => {
