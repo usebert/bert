@@ -219,6 +219,7 @@
     "verify:production-verification-loler-tests": "node --test scripts/verify-production-verification-loler.test.mjs",
     "verify:production-verification-coshh-tests": "node --test scripts/verify-production-verification-coshh.test.mjs",
     "verify:production-verification-risk-register-tests": "node --test scripts/verify-production-verification-risk-register.test.mjs",
+    "verify:risk-register-detail-path-tests": "node --test scripts/verify-risk-register-detail-path.test.mjs",
     "verify:schedule-completion-lookup-tests": "node --test scripts/verify-schedule-completion-lookup.test.mjs",
     "verify:company-context-login-tests": "node --test scripts/verify-company-context-login.test.mjs",
     "ensure:production-verification-audit": "node scripts/ensure-production-verification-audit.mjs",

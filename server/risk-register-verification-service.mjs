@@ -33,6 +33,7 @@ import { getUkTodayKey } from "../shared/uk-date-time.mjs";
 import { canManageHealthSafety, healthSafetyApiFailure } from "./health-safety-service.mjs";
 import {
   ensureRiskRegisterTabs,
+  invalidateRiskRegisterWorkbookCache,
   loadRiskRegisterContext,
 } from "./risk-register-service.mjs";
 import {
@@ -178,6 +179,14 @@ async function findVerificationRiskParent(auth, deps, loaded, riskId) {
   return parent || null;
 }
 
+function mergeVerificationRiskItem(current, updates = {}) {
+  return {
+    ...current,
+    ...updates,
+    id: trim(current.id),
+  };
+}
+
 export async function createVerificationRiskRegisterItem(auth, deps, actor, companyFolderId, input = {}) {
   const startedAt = Date.now();
   if (!canManageHealthSafety(actor)) {
@@ -217,6 +226,7 @@ export async function createVerificationRiskRegisterItem(auth, deps, actor, comp
     durationMs: Date.now() - startedAt,
     totalMs: Date.now() - startedAt,
   });
+  invalidateRiskRegisterWorkbookCache(loaded.masterSheetId);
   return { ok: true, item: mapRiskRegisterRecord(row, { todayKey: loaded.todayKey }), updatedRows: written };
 }
 
@@ -267,8 +277,27 @@ export async function patchVerificationRiskRegisterItem(auth, deps, actor, compa
   };
   const patchTabRowByHeader = resolvePatchTabRowByHeader(deps);
   await patchTabRowByHeader(auth, deps, loaded.masterSheetId, RISK_REGISTER_TAB, "RiskId", id, patch);
-  const refreshed = await loadRiskRegisterContext(auth, deps, { companyFolderId, masterSheetId: loaded.masterSheetId });
-  const item = refreshed.risks.find((entry) => trim(entry.id) === id);
+  const item = mergeVerificationRiskItem(current, {
+    title: patch.Title,
+    description: patch.Description,
+    category: patch.Category,
+    department: patch.Department,
+    siteId: patch.SiteId,
+    ownerName: patch.OwnerName,
+    cause: patch.Cause,
+    consequence: patch.Consequence,
+    initialLikelihood,
+    initialImpact,
+    initialRiskScore,
+    initialRiskBand: getRiskBand(initialRiskScore).label,
+    residualLikelihood,
+    residualImpact,
+    residualRiskScore,
+    residualRiskBand: getRiskBand(residualRiskScore).label,
+    reviewDate: normalizeRiskRegisterDateKey(input.reviewDate ?? current.reviewDate),
+    notes: patch.Notes,
+    status: current.status,
+  });
   logRiskRegisterMutationTiming("patch", "risk", {
     riskId: id,
     workbookId: loaded.masterSheetId,
@@ -276,7 +305,8 @@ export async function patchVerificationRiskRegisterItem(auth, deps, actor, compa
     durationMs: Date.now() - startedAt,
     totalMs: Date.now() - startedAt,
   });
-  return { ok: true, item };
+  invalidateRiskRegisterWorkbookCache(loaded.masterSheetId);
+  return { ok: true, item, updatedRows: 1 };
 }
 
 export async function upsertVerificationRiskRegisterControl(auth, deps, actor, companyFolderId, input = {}) {
@@ -308,8 +338,12 @@ export async function upsertVerificationRiskRegisterControl(auth, deps, actor, c
       UpdatedAt: nowIso(),
       UpdatedBy: normalizeEmail(actor.email),
     });
-    const refreshed = await loadRiskRegisterContext(auth, deps, { companyFolderId, masterSheetId: loaded.masterSheetId });
-    const item = refreshed.controls.find((entry) => trim(entry.id) === controlId);
+    const item = mergeVerificationRiskItem(existing, {
+      description: input.description ?? existing.description,
+      ownerName: input.ownerName ?? existing.ownerName,
+      dueDate: normalizeRiskRegisterDateKey(input.dueDate ?? existing.dueDate),
+      controlType: input.controlType ?? existing.controlType,
+    });
     logRiskRegisterMutationTiming("patch", "control", {
       riskId,
       controlId,
@@ -318,6 +352,7 @@ export async function upsertVerificationRiskRegisterControl(auth, deps, actor, c
       durationMs: Date.now() - startedAt,
       totalMs: Date.now() - startedAt,
     });
+    invalidateRiskRegisterWorkbookCache(loaded.masterSheetId);
     return { ok: true, item, alreadyExists: true, updatedRows: 1 };
   }
   const timestamp = nowIso();
@@ -336,6 +371,7 @@ export async function upsertVerificationRiskRegisterControl(auth, deps, actor, c
     durationMs: Date.now() - startedAt,
     totalMs: Date.now() - startedAt,
   });
+  invalidateRiskRegisterWorkbookCache(loaded.masterSheetId);
   return { ok: true, item: mapRiskRegisterControlRecord(row), updatedRows: written };
 }
 
@@ -377,8 +413,12 @@ export async function submitVerificationRiskRegisterItem(auth, deps, actor, comp
     UpdatedAt: timestamp,
     UpdatedBy: normalizeEmail(actor.email),
   });
-  const refreshed = await loadRiskRegisterContext(auth, deps, { companyFolderId, masterSheetId: loaded.masterSheetId });
-  const item = refreshed.risks.find((entry) => trim(entry.id) === id);
+  const item = mergeVerificationRiskItem(current, {
+    status: "Submitted",
+    submittedAt: timestamp,
+    submittedBy: normalizeEmail(actor.email),
+    notes: appendVerificationMarker(current.notes, submitMarker),
+  });
   logRiskRegisterMutationTiming("submit", "submit", {
     riskId: id,
     workbookId: loaded.masterSheetId,
@@ -386,6 +426,7 @@ export async function submitVerificationRiskRegisterItem(auth, deps, actor, comp
     durationMs: Date.now() - startedAt,
     totalMs: Date.now() - startedAt,
   });
+  invalidateRiskRegisterWorkbookCache(loaded.masterSheetId);
   return { ok: true, item, updatedRows: 1 };
 }
 
@@ -427,8 +468,12 @@ export async function approveVerificationRiskRegisterItem(auth, deps, actor, com
     UpdatedAt: timestamp,
     UpdatedBy: normalizeEmail(actor.email),
   });
-  const refreshed = await loadRiskRegisterContext(auth, deps, { companyFolderId, masterSheetId: loaded.masterSheetId });
-  const item = refreshed.risks.find((entry) => trim(entry.id) === id);
+  const item = mergeVerificationRiskItem(current, {
+    status: "Active",
+    approvedAt: timestamp,
+    approvedBy: normalizeEmail(actor.email),
+    notes: appendVerificationMarker(current.notes, approveMarker),
+  });
   logRiskRegisterMutationTiming("approve", "approve", {
     riskId: id,
     workbookId: loaded.masterSheetId,
@@ -436,6 +481,7 @@ export async function approveVerificationRiskRegisterItem(auth, deps, actor, com
     durationMs: Date.now() - startedAt,
     totalMs: Date.now() - startedAt,
   });
+  invalidateRiskRegisterWorkbookCache(loaded.masterSheetId);
   return { ok: true, item, updatedRows: 1 };
 }
 
@@ -491,8 +537,10 @@ export async function reviewVerificationRiskRegisterItem(auth, deps, actor, comp
     UpdatedAt: timestamp,
     UpdatedBy: normalizeEmail(actor.email),
   });
-  const refreshed = await loadRiskRegisterContext(auth, deps, { companyFolderId, masterSheetId: loaded.masterSheetId });
-  const item = refreshed.risks.find((entry) => trim(entry.id) === id);
+  const item = mergeVerificationRiskItem(current, {
+    reviewDate: nextReviewDate,
+    notes: appendVerificationMarker(current.notes, reviewMarker),
+  });
   logRiskRegisterMutationTiming("review", "review", {
     riskId: id,
     workbookId: loaded.masterSheetId,
@@ -500,6 +548,7 @@ export async function reviewVerificationRiskRegisterItem(auth, deps, actor, comp
     durationMs: Date.now() - startedAt,
     totalMs: Date.now() - startedAt,
   });
+  invalidateRiskRegisterWorkbookCache(loaded.masterSheetId);
   return { ok: true, item, review: mapRiskRegisterReviewRecord(reviewRow), updatedRows: 2 };
 }
 
@@ -571,6 +620,7 @@ export async function cleanupVerificationRiskRegisterItem(auth, deps, actor, com
     durationMs: Date.now() - startedAt,
     totalMs: Date.now() - startedAt,
   });
+  invalidateRiskRegisterWorkbookCache(loaded.masterSheetId);
   return { ok: true, cleaned: true, riskId: id, cleanedControls, updatedRows: 1 + cleanedControls };
 }
 

@@ -11,6 +11,7 @@ import {
   attemptVerificationRiskRegisterCleanup,
   formatRiskRegisterWorkflowReport,
   loadRiskRegisterWorkflowConfig,
+  residualRiskScoresConfirmed,
   runProductionRiskRegisterWorkflowChecks,
 } from "./lib/production-risk-register-workflow-core.mjs";
 import {
@@ -26,6 +27,7 @@ import {
   PRODUCTION_VERIFICATION_RISK_REGISTER_TITLE,
 } from "../shared/production-verification-risk-register.mjs";
 import { getUkTodayKey } from "../shared/uk-date-time.mjs";
+import { calculateRiskScore, getRiskBand } from "../shared/risk-assessments.mjs";
 
 const baseConfig = loadRiskRegisterWorkflowConfig({
   BERT_SMOKE_USERNAME: "mr.important",
@@ -205,6 +207,18 @@ function createTransport(options = {}) {
         const current = risks.get(id);
         if (!current) return { status: 404, json: { ok: false } };
         const next = { ...current, ...body, status: current.status };
+        if (body.initialLikelihood != null || body.initialImpact != null) {
+          const likelihood = Number(next.initialLikelihood ?? current.initialLikelihood);
+          const impact = Number(next.initialImpact ?? current.initialImpact);
+          next.initialRiskScore = calculateRiskScore(likelihood, impact);
+          next.initialRiskBand = getRiskBand(next.initialRiskScore).label;
+        }
+        if (body.residualLikelihood != null || body.residualImpact != null) {
+          const likelihood = Number(next.residualLikelihood ?? current.residualLikelihood);
+          const impact = Number(next.residualImpact ?? current.residualImpact);
+          next.residualRiskScore = calculateRiskScore(likelihood, impact);
+          next.residualRiskBand = getRiskBand(next.residualRiskScore).label;
+        }
         risks.set(id, next);
         return { status: 200, json: { ok: true, item: next } };
       }
@@ -484,4 +498,32 @@ test("38. submit skipped not applicable - workflow supports submit", async () =>
 test("39. approval skipped not applicable - workflow supports approval", async () => {
   const result = await run(baseConfig, createTransport());
   assert.notEqual(result.checks.approveActivate.status, "SKIP");
+});
+
+test("40. residual risk passes from patch response without detail poll", async () => {
+  let detailGets = 0;
+  const transport = createTransport();
+  const original = transport.request.bind(transport);
+  transport.request = async (method, path, body, opts) => {
+    if (method === "GET" && path.includes("/risks/") && opts?.stageKey === "residualRisk") {
+      detailGets += 1;
+    }
+    return original(method, path, body, opts);
+  };
+  const result = await run(baseConfig, transport);
+  assert.equal(result.checks.residualRisk.status, "PASS");
+  assert.equal(detailGets, 0);
+});
+
+test("41. residualRiskScoresConfirmed helper", () => {
+  assert.equal(
+    residualRiskScoresConfirmed({
+      initialRiskScore: 9,
+      residualLikelihood: 1,
+      residualImpact: 2,
+      residualRiskScore: 2,
+      residualRiskBand: "Low",
+    }),
+    true,
+  );
 });

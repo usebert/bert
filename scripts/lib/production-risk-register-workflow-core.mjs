@@ -316,6 +316,23 @@ async function pollRiskDetail(request, companyFolderId, masterSheetId, riskId, o
   return { ok: false, response: lastResponse };
 }
 
+export function residualRiskScoresConfirmed(
+  item = {},
+  expectedResidualLikelihood = PRODUCTION_VERIFICATION_RISK_REGISTER_RESIDUAL_LIKELIHOOD,
+  expectedResidualImpact = PRODUCTION_VERIFICATION_RISK_REGISTER_RESIDUAL_IMPACT,
+) {
+  const expectedResidual = calculateRiskScore(expectedResidualLikelihood, expectedResidualImpact);
+  const expectedBand = getRiskBand(expectedResidual).label;
+  const initialScore = Number(item.initialRiskScore);
+  const residualScore = Number(item.residualRiskScore);
+  if (Number(item.residualLikelihood) !== expectedResidualLikelihood) return false;
+  if (Number(item.residualImpact) !== expectedResidualImpact) return false;
+  if (residualScore !== expectedResidual) return false;
+  if (trim(item.residualRiskBand) !== expectedBand) return false;
+  if (!Number.isFinite(initialScore) || !Number.isFinite(residualScore)) return false;
+  return residualScore < initialScore;
+}
+
 function assertResponseSafe(json, label) { assertNoPasswordHash(JSON.stringify(json || {}), label); }
 
 export async function runProductionRiskRegisterWorkflowChecks(config, transport, options = {}) {
@@ -549,7 +566,12 @@ export async function runProductionRiskRegisterWorkflowChecks(config, transport,
     const payload = buildProductionVerificationFurtherControl({ runId, riskId: verificationRiskId, companyFolderId, controlId: furtherControlId, ownerName: result.accountEmail, dueDate: reviewDate });
     const createResponse = await request("POST", verificationControlPath(companyFolderId, masterSheetId), { ...payload, companyFolderId, masterSheetId }, { stageKey: "furtherControls" });
     if (createResponse.status !== 200 || createResponse.json?.ok !== true) return fail("furtherControls", `Further control create returned HTTP ${createResponse.status}.`, "Inspect verification control route.", createResponse.status, createResponse.json);
-    const detail = await pollRiskDetail(request, companyFolderId, masterSheetId, verificationRiskId, { stageKey: "furtherControls" });
+    const createdControl = createResponse.json?.item;
+    if (trim(createdControl?.id) === furtherControlId) {
+      pass("furtherControls");
+      return null;
+    }
+    const detail = await pollRiskDetail(request, companyFolderId, masterSheetId, verificationRiskId, { stageKey: "furtherControls", maxAttempts: options.listPollMaxAttempts || 3, intervalMs: options.listPollIntervalMs ?? 500 });
     if (!detail.controls?.some((control) => trim(control.id) === furtherControlId)) return fail("furtherControls", "Further control not visible on detail.", "Inspect RiskRegisterControls tab.", 200, detail.controls);
     pass("furtherControls");
     return null;
@@ -559,11 +581,13 @@ export async function runProductionRiskRegisterWorkflowChecks(config, transport,
   const residualRiskTerminal = await stageRunner("residualRisk", async () => {
     const patchResponse = await request("PATCH", verificationPatchPath(companyFolderId, verificationRiskId, masterSheetId), { companyFolderId, masterSheetId, residualLikelihood: PRODUCTION_VERIFICATION_RISK_REGISTER_RESIDUAL_LIKELIHOOD, residualImpact: PRODUCTION_VERIFICATION_RISK_REGISTER_RESIDUAL_IMPACT }, { stageKey: "residualRisk" });
     if (patchResponse.status !== 200 || patchResponse.json?.ok !== true) return fail("residualRisk", `Residual risk patch returned HTTP ${patchResponse.status}.`, "Inspect risk scoring patch.", patchResponse.status, patchResponse.json);
-    const detail = await pollRiskDetail(request, companyFolderId, masterSheetId, verificationRiskId, { stageKey: "residualRisk" });
-    const initialScore = Number(detail.item.initialRiskScore);
-    const residualScore = Number(detail.item.residualRiskScore);
-    const expectedResidual = calculateRiskScore(PRODUCTION_VERIFICATION_RISK_REGISTER_RESIDUAL_LIKELIHOOD, PRODUCTION_VERIFICATION_RISK_REGISTER_RESIDUAL_IMPACT);
-    if (residualScore !== expectedResidual || residualScore >= initialScore) return fail("residualRisk", "Residual risk score invalid or not lower than initial.", "Inspect residual scoring.", 200, detail.item);
+    const patchItem = patchResponse.json?.item;
+    if (patchItem && residualRiskScoresConfirmed(patchItem)) {
+      pass("residualRisk");
+      return null;
+    }
+    const detail = await pollRiskDetail(request, companyFolderId, masterSheetId, verificationRiskId, { stageKey: "residualRisk", maxAttempts: options.listPollMaxAttempts || 3, intervalMs: options.listPollIntervalMs ?? 500 });
+    if (!detail.ok || !residualRiskScoresConfirmed(detail.item)) return fail("residualRisk", "Residual risk score invalid or not lower than initial.", "Inspect residual scoring.", detail.response?.status, detail.item || detail.response?.json);
     pass("residualRisk");
     return null;
   });

@@ -25,6 +25,8 @@ assert.ok(RISK_REGISTER_TAB_COLUMNS.includes("RiskReference"), "schema: RiskRefe
 assert.ok(RISK_REGISTER_TAB_COLUMNS.includes("InitialRiskScore"), "schema: InitialRiskScore column");
 assert.ok(routesSource.includes("/risk-register/verification"), "routes: verification endpoints registered before parameterized paths");
 assert.ok(routesSource.includes("/risks/:riskId"), "routes: detail endpoint");
+assert.ok(coreSource.includes("residualRiskScoresConfirmed"), "workflow: residual score confirmation helper");
+assert.ok(fs.readFileSync(new URL("../server/risk-register-service.mjs", import.meta.url), "utf8").includes("[risk-register:detail-timing]"), "service: detail timing instrumentation");
 assert.ok(coreSource.includes("BERT Production Risk Register Workflow"), "workflow: report title");
 
 const sample = buildProductionVerificationRiskRegister({ runId: 42, companyFolderId: "folder", ownerName: "owner@example.com" });
