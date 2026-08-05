@@ -23,6 +23,7 @@ import { readTabRecords, appendTabRows } from "./workbook-service.mjs";
 import { installDocumentRoutes } from "./document-routes.mjs";
 import { installHealthSafetyRoutes } from "./health-safety-routes.mjs";
 import { installRiskAssessmentRoutes } from "./risk-assessments-routes.mjs";
+import { installRiskRegisterRoutes } from "./risk-register-routes.mjs";
 import {
   canListCompanySchedules,
   getCompanySchedule,
@@ -4865,6 +4866,24 @@ export function installCoreWorkflowRoutes(app, deps) {
   });
 
   installRiskAssessmentRoutes(app, {
+    getAuthedClient,
+    parseBertActorFromRequest,
+    registryDeps,
+    readTabRecords,
+    appendTabRows,
+    ensureTabExists,
+    ensureColumns,
+    getTabValues,
+    getWorkbook,
+    withSheetsQuotaRetry,
+    google,
+    rowsToRecords,
+    readCompanySheetById,
+    getCompanyUsersDeps,
+    rejectCompanyApiIfFolderInvalid,
+  });
+
+  installRiskRegisterRoutes(app, {
     getAuthedClient,
     parseBertActorFromRequest,
     registryDeps,

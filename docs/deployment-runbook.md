@@ -682,6 +682,54 @@ npm run verify:production-coshh-workflow-tests
 npm run verify:production-verification-coshh-tests
 ```
 
+### Production Risk Register workflow (post-deploy smoke)
+
+After startup health, authentication health, audit workflow, Actions workflow, Risk Assessment workflow, Incident workflow, Briefing workflow, Documents workflow, Schedules workflow, LOLER workflow, and COSHH workflow pass, run the Risk Register workflow smoke test. It authenticates with the same smoke account, confirms Risk Register list/detail APIs, and — only when `BERT_SMOKE_ALLOW_RISK_REGISTER_MUTATION=1` — creates a dedicated verification business risk (`bert-smoke-risk-*`), exercises readback, edit, causes/consequences, existing/further controls, initial/residual scoring, submit/approve/review, H&S overview exclusion, operational dashboard checks, and cleans up safely. It never touches customer Risk Register records or creates ordinary linked Actions.
+
+```bash
+set -a && source .env && set +a
+
+BERT_SMOKE_USERNAME=mr.important \
+BERT_SMOKE_PASSWORD='<set securely>' \
+BERT_SMOKE_COMPANY_FOLDER_ID=1tDKluapYfY-RkuxXc6eoRnGHL38XCswx \
+BERT_SMOKE_MASTER_SHEET_ID=1MntKgSgVmTmlpzZhnCZdDQtdmPw7GcXptlAp88Ewrkc \
+BERT_SMOKE_EXPECTED_EMAIL=bert.demo+mr.important@usebert.co.uk \
+BERT_SMOKE_ALLOW_RISK_REGISTER_MUTATION=1 \
+npm run verify:production-risk-register-workflow
+```
+
+Environment:
+
+- **`BERT_SMOKE_ALLOW_RISK_REGISTER_MUTATION`** — must be `1` to exercise create/edit/submit/approve/review/cleanup stages. Without it, mutation stages report **SKIPPED** (authentication, Risk Register API, and baseline still run).
+- **`BERT_SMOKE_RISK_REGISTER_REVIEWER_*`** — optional separate approver when self-approval is blocked (Admin self-approval is the default for the smoke account).
+
+Verification record strategy:
+
+- Risk ID prefix: `bert-smoke-risk-`
+- Risk reference prefix: `BERT-VERIFY-RISK-`
+- Title: `BERT Verification Business Risk`
+- Source: `production-risk-register-workflow`
+- Marker: `verification` (stored in Description/Notes)
+- Risk ID: `bert-smoke-risk-{runId}`
+
+Risks, controls, and reviews are stored in workbook tabs (`RiskRegister`, `RiskRegisterControls`, `RiskRegisterReviews`). Causes and consequences are embedded fields on the risk row. Scoring reuses the shared risk matrix helpers (`calculateRiskScore`, `getRiskBand`).
+
+Cleanup routes (verification-only, idempotent):
+
+- `POST /api/companies/:companyFolderId/risk-register/verification-cleanup`
+- `POST /api/companies/:companyFolderId/risk-register/:riskId/verification-cleanup`
+
+Stage timeouts: authentication 90s, list/detail reads 60s, create/edit/submit/approve/review 120s, overview/dashboard 60s, total budget 12 minutes.
+
+Skipped stages (expected): Notifications (client/background derived), Search (client-side only). Approver Login is **SKIPPED** when Admin self-approval is allowed for the smoke account.
+
+Unit tests (mocked HTTP, no production calls):
+
+```bash
+npm run verify:production-risk-register-workflow-tests
+npm run verify:production-verification-risk-register-tests
+```
+
 ### Post-deploy verification sequence
 
 Run in order after every API deployment:
@@ -697,8 +745,9 @@ Run in order after every API deployment:
 9. **Schedules workflow** — `npm run verify:production-schedules-workflow`
 10. **LOLER workflow** — `npm run verify:production-loler-workflow`
 11. **COSHH workflow** — `npm run verify:production-coshh-workflow`
+12. **Risk Register workflow** — `npm run verify:production-risk-register-workflow`
 
-Only when all eleven pass should the deployment be considered **READY FOR CUSTOMERS**.
+Only when all twelve pass should the deployment be considered **READY FOR CUSTOMERS**.
 
 ### Startup system health (Master operators)
 

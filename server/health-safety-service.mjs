@@ -31,6 +31,7 @@ import {
 import { listCompanyIncidents } from "./incidents-service.mjs";
 import { listLolerEquipment } from "./loler-service.mjs";
 import { listCompanyRiskAssessments } from "./risk-assessments-service.mjs";
+import { listCompanyRiskRegister } from "./risk-register-service.mjs";
 import {
   buildHealthSafetyOverviewPayload,
   mapExaminationActivityRecord,
@@ -542,7 +543,7 @@ export async function buildHealthSafetyOverview(auth, deps, resolved, actor) {
   if (!actorCanAccessCompanyHealthSafety(actor, resolved.companyFolderId, resolved.alternateCompanyIds)) {
     return healthSafetyApiFailure("HEALTH_SAFETY_FORBIDDEN", "You do not have access to this company.", 403);
   }
-  const [coshh, riddor, incidentsResult, lolerResult, riskAssessmentsResult, incidentActionsRecords, assessmentRecords, examinationRecords] =
+  const [coshh, riddor, incidentsResult, lolerResult, riskAssessmentsResult, riskRegisterResult, incidentActionsRecords, assessmentRecords, examinationRecords] =
     await Promise.all([
       listCompanyCoshh(auth, deps, resolved, actor, { includeArchived: false }),
       listCompanyRiddor(auth, deps, resolved, actor, { includeArchived: false }),
@@ -557,6 +558,7 @@ export async function buildHealthSafetyOverview(auth, deps, resolved, actor) {
       ),
       listLolerEquipment(auth, deps, resolved, actor),
       listCompanyRiskAssessments(auth, deps, resolved, actor, { includeArchived: false }),
+      listCompanyRiskRegister(auth, deps, resolved, actor, { includeArchived: false }),
       readTab(auth, deps, resolved.masterSheetId, INCIDENT_ACTIONS_TAB, INCIDENT_ACTIONS_TAB_COLUMNS).catch(() => []),
       readTab(auth, deps, resolved.masterSheetId, COSHH_ASSESSMENTS_TAB, COSHH_ASSESSMENTS_TAB_COLUMNS).catch(() => []),
       readTab(auth, deps, resolved.masterSheetId, LOLER_EXAMINATIONS_TAB, LOLER_EXAMINATIONS_TAB_COLUMNS).catch(() => []),
@@ -566,6 +568,7 @@ export async function buildHealthSafetyOverview(auth, deps, resolved, actor) {
   const incidents = incidentsResult?.ok ? incidentsResult.items || incidentsResult.incidents || [] : [];
   const equipment = lolerResult?.ok ? lolerResult.equipment || lolerResult.items || [] : [];
   const riskAssessments = riskAssessmentsResult?.ok ? riskAssessmentsResult.items || [] : [];
+  const riskRegister = riskRegisterResult?.ok ? riskRegisterResult.items || [] : [];
   const incidentActions = (incidentActionsRecords || []).map((record) => mapIncidentActionRecord(record));
   const assessments = (assessmentRecords || [])
     .map((record) => mapCoshhAssessmentRecord(record))
@@ -583,6 +586,7 @@ export async function buildHealthSafetyOverview(auth, deps, resolved, actor) {
     assessments,
     examinations,
     riskAssessments,
+    riskRegister,
   });
 }
 

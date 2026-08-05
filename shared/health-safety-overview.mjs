@@ -15,6 +15,7 @@ import {
   isOperationalCoshhAssessment,
   isOperationalCoshhRegister,
 } from "./production-verification-coshh.mjs";
+import { isOperationalRiskRegisterItem } from "./production-verification-risk-register.mjs";
 
 const HIGH_RISK_SEVERITIES = new Set(["fatality", "major incident", "lost time injury"]);
 const RIDDOR_DECISION_REQUIRED = new Set(["decision_required", "information_required"]);
@@ -268,6 +269,9 @@ export function buildHealthSafetyMetrics(input = {}) {
   const riskAssessments = Array.isArray(input.riskAssessments)
     ? input.riskAssessments.filter((item) => isOperationalRiskAssessment(item))
     : [];
+  const riskRegister = Array.isArray(input.riskRegister)
+    ? input.riskRegister.filter((item) => isOperationalRiskRegisterItem(item))
+    : [];
   const incidentById = new Map(incidents.map((item) => [trim(item.id), item]));
 
   const openIncidents = incidents.filter(isOpenIncident);
@@ -302,6 +306,13 @@ export function buildHealthSafetyMetrics(input = {}) {
   const veryHighResidualRiskAssessments = riskAssessments.filter(
     (item) => !item.archivedAt && Number(item.highestResidualRiskScore) >= 17 && item.status !== "Archived" && item.status !== "Superseded",
   );
+  const activeRiskRegisterItems = riskRegister.filter((item) => !item.archivedAt && ["Active", "Open", "Review Due"].includes(item.status));
+  const draftRiskRegisterItems = riskRegister.filter((item) => !item.archivedAt && item.status === "Draft");
+  const highCriticalRiskRegisterItems = riskRegister.filter(
+    (item) => !item.archivedAt && Number(item.residualRiskScore) >= 10 && item.status !== "Archived",
+  );
+  const riskRegisterReviewDue = riskRegister.filter((item) => !item.archivedAt && item.status === "Review Due");
+  const riskRegisterOverdue = riskRegister.filter((item) => !item.archivedAt && item.status === "Overdue");
 
   return {
     openIncidents: openIncidents.length,
@@ -327,6 +338,11 @@ export function buildHealthSafetyMetrics(input = {}) {
     overdueRiskAssessments: overdueRiskAssessments.length,
     highResidualRiskAssessments: highResidualRiskAssessments.length,
     veryHighResidualRiskAssessments: veryHighResidualRiskAssessments.length,
+    activeRiskRegisterItems: activeRiskRegisterItems.length,
+    draftRiskRegisterItems: draftRiskRegisterItems.length,
+    highCriticalRiskRegisterItems: highCriticalRiskRegisterItems.length,
+    riskRegisterReviewDue: riskRegisterReviewDue.length,
+    riskRegisterOverdue: riskRegisterOverdue.length,
   };
 }
 
@@ -343,6 +359,9 @@ export function buildHealthSafetyAttentionItems(input = {}) {
   const incidentActions = Array.isArray(input.incidentActions) ? input.incidentActions : [];
   const riskAssessments = Array.isArray(input.riskAssessments)
     ? input.riskAssessments.filter((item) => isOperationalRiskAssessment(item))
+    : [];
+  const riskRegister = Array.isArray(input.riskRegister)
+    ? input.riskRegister.filter((item) => isOperationalRiskRegisterItem(item))
     : [];
   const incidentById = new Map(incidents.map((item) => [trim(item.id), item]));
 
@@ -758,6 +777,9 @@ export function buildHealthSafetyRecentActivity(input = {}) {
   );
   const riskAssessments = Array.isArray(input.riskAssessments)
     ? input.riskAssessments.filter((item) => isOperationalRiskAssessment(item))
+    : [];
+  const riskRegister = Array.isArray(input.riskRegister)
+    ? input.riskRegister.filter((item) => isOperationalRiskRegisterItem(item))
     : [];
   const equipment = Array.isArray(input.equipment)
     ? input.equipment.filter((item) => isOperationalLolerEquipment(item))
