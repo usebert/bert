@@ -559,6 +559,43 @@ npm run verify:production-offline-sync-workflow-tests
 npm run verify:offline-submission-queue
 ```
 
+### Production Reporting workflow (post-deploy smoke)
+
+After all prior production workflow gates pass, run the Reporting workflow smoke test. It authenticates with the Dovecote smoke account, confirms the reporting API and supported report types, and — only when `BERT_SMOKE_ALLOW_REPORT_MUTATION=1` — generates verification PDF reports for audit, incident, risk assessment, COSHH, and LOLER using existing `bert-smoke-*` source records, verifies PDF integrity/content/metadata/download, confirms report history, and cleans up verification artifacts.
+
+```bash
+set -a && source .env && set +a
+
+BERT_SMOKE_USERNAME=mr.important \
+BERT_SMOKE_PASSWORD='<set securely in your environment>' \
+BERT_SMOKE_COMPANY_FOLDER_ID=1tDKluapYfY-RkuxXc6eoRnGHL38XCswx \
+BERT_SMOKE_MASTER_SHEET_ID=1MntKgSgVmTmlpzZhnCZdDQtdmPw7GcXptlAp88Ewrkc \
+BERT_SMOKE_EXPECTED_EMAIL=bert.demo+mr.important@usebert.co.uk \
+BERT_SMOKE_ALLOW_REPORT_MUTATION=1 \
+npm run verify:production-reporting-workflow
+```
+
+Optional:
+
+- **`BERT_SMOKE_ALLOW_REPORT_MUTATION`** — must be `1` to generate/store/download/cleanup verification reports. Without it, mutation stages report **SKIPPED** (authentication, reporting API, and baseline still run).
+
+Architecture:
+
+- **Report API:** `GET/POST /api/companies/:id/reports/*` (list, generate, download, verification-cleanup)
+- **PDF storage:** server session store + optional Drive `05 Exports` upload; metadata in workbook `Reports` tab
+- **Report ID:** `bert-smoke-report-{runId}-{type}`
+- **Source records:** existing verification assets from prior workflow gates (`bert-verify-audit-v1`, `bert-smoke-inc-*`, `bert-smoke-ra-*`, `bert-smoke-coshh-*`, `bert-smoke-loler-*`)
+
+Skipped stages when unsupported: **Additional Reports** (action/briefing/document not server-generated), **Dashboard Export** (browser-only).
+
+Unit tests (mocked HTTP, no production calls):
+
+```bash
+npm run verify:production-reporting-workflow-tests
+npm run verify:reports-dashboard
+npm run verify:reports-ui
+```
+
 ### Production Documents workflow (post-deploy smoke)
 
 After startup health, authentication health, audit workflow, Actions workflow, Risk Assessment workflow, Incident workflow, and Briefing workflow pass, run the Documents workflow smoke test. It authenticates with the same smoke account, confirms Document Control list/index APIs, and — only when `BERT_SMOKE_ALLOW_DOCUMENT_MUTATION=1` — creates a dedicated verification controlled document, exercises draft → upload → edit → submit → approve, confirms Document Control index visibility and dashboard exclusion, and cleans up safely. It never edits customer documents or Drive files outside the verification path.
@@ -831,8 +868,9 @@ Run in order after every API deployment:
 12. **COSHH workflow** — `npm run verify:production-coshh-workflow`
 13. **Risk Register workflow** — `npm run verify:production-risk-register-workflow`
 14. **Offline Sync workflow** — `npm run verify:production-offline-sync-workflow`
+15. **Reporting workflow** — `npm run verify:production-reporting-workflow`
 
-Only when all fourteen pass should the deployment be considered **READY FOR CUSTOMERS**.
+Only when all fifteen pass should the deployment be considered **READY FOR CUSTOMERS**.
 
 ### Startup system health (Master operators)
 
