@@ -2,11 +2,14 @@
  * Reporting workflow source provisioning — temporary verification records for report generation.
  */
 import {
-  buildQuestionsForAssignedAudit,
+  buildVerificationAuditSubmitAnswers,
   cleanupStaleVerificationResults,
-  flattenAssignedAudits,
-  pickSafeAnswer,
-  pickWorkflowTarget,
+  confirmVerificationAuditResultReadback,
+  fetchProductionAssignedChecks,
+  loadAuditQuestionSources,
+  parseAssignedChecksResponse,
+  PRODUCTION_ASSIGNED_CHECKS_ROUTE,
+  selectVerificationAuditSubmitTarget,
 } from "./production-audit-workflow-core.mjs";
 import {
   buildReportingAuditLocalSubmissionId,
@@ -41,6 +44,25 @@ function trim(value) {
 function withMasterSheet(path, masterSheetId) {
   const separator = path.includes("?") ? "&" : "?";
   return `${path}${separator}masterSheetId=${encodeURIComponent(trim(masterSheetId))}`;
+}
+
+export function logReportingSourceProvisioning(log, input = {}) {
+  const payload = {
+    reportType: trim(input.reportType) || undefined,
+    stage: trim(input.stage) || undefined,
+    method: trim(input.method) || undefined,
+    safeRoute: trim(input.safeRoute) || undefined,
+    scheduleId: trim(input.scheduleId) || undefined,
+    templateId: trim(input.templateId) || undefined,
+    httpStatus: input.httpStatus ?? undefined,
+    durationMs: input.durationMs ?? undefined,
+  };
+  const line = `[reporting:source-provisioning] ${JSON.stringify(payload)}`;
+  if (typeof log === "function") {
+    log(line);
+  } else {
+    console.log(line);
+  }
 }
 
 export function buildReportingSourcePlan(runId = Date.now()) {
@@ -128,39 +150,62 @@ export async function cleanupStaleReportingSources(request, workflowContext, con
   return { ok: true, results };
 }
 
-async function provisionAuditSource(request, config, workflowContext, login, runId, plan) {
+async function provisionAuditSource(request, config, workflowContext, login, runId, plan, options = {}) {
   const { companyFolderId, masterSheetId } = workflowContext;
-  const assigned = await request(
-    "GET",
-    withMasterSheet(`/api/companies/${encodeURIComponent(companyFolderId)}/me/assigned-checks`, masterSheetId),
-  );
+  const log = options.log || (() => {});
+  const assignedStarted = Date.now();
+  const assigned = await fetchProductionAssignedChecks(request);
+  logReportingSourceProvisioning(log, {
+    reportType: "audit",
+    stage: "assigned_checks",
+    method: "GET",
+    safeRoute: PRODUCTION_ASSIGNED_CHECKS_ROUTE,
+    httpStatus: assigned.status,
+    durationMs: Date.now() - assignedStarted,
+  });
   if (assigned.status !== 200 || assigned.json?.ok !== true) {
     return {
       ok: false,
       reportType: "audit",
       error: `Assigned checks returned HTTP ${assigned.status}.`,
+      safeRoute: PRODUCTION_ASSIGNED_CHECKS_ROUTE,
+      response: assigned,
     };
   }
-  const schedules = Array.isArray(assigned.json?.schedules) ? assigned.json.schedules : [];
-  const assignedRows = flattenAssignedAudits(schedules);
-  const { submitTarget } = pickWorkflowTarget(assignedRows, config);
+  const { assignedRows } = parseAssignedChecksResponse(assigned);
+  const submitTarget = selectVerificationAuditSubmitTarget(assignedRows, config);
   if (!submitTarget) {
     return {
       ok: false,
       reportType: "audit",
       error: "Verification audit schedule is not assigned to the smoke account.",
+      safeRoute: PRODUCTION_ASSIGNED_CHECKS_ROUTE,
+      scheduleId: "",
+      templateId: "",
     };
   }
-  const questions = buildQuestionsForAssignedAudit(submitTarget.auditName, submitTarget.auditId);
-  const answers = {};
-  for (const question of questions) {
-    const answer = pickSafeAnswer(question);
-    answers[question.id] = answer.response;
-    if (answer.textResponse) {
-      answers[`${question.id}__text`] = answer.textResponse;
-    }
-  }
+  logReportingSourceProvisioning(log, {
+    reportType: "audit",
+    stage: "target_selected",
+    method: "GET",
+    safeRoute: PRODUCTION_ASSIGNED_CHECKS_ROUTE,
+    scheduleId: submitTarget.scheduleId,
+    templateId: submitTarget.auditId,
+    httpStatus: assigned.status,
+  });
+  const templateStarted = Date.now();
+  const { googleForms, auditBuilderTemplates } = await loadAuditQuestionSources(
+    request,
+    companyFolderId,
+    masterSheetId,
+  );
+  const { submitAnswers } = buildVerificationAuditSubmitAnswers(
+    submitTarget,
+    googleForms,
+    auditBuilderTemplates,
+  );
   const localSubmissionId = plan.audit.localSubmissionId;
+  const completeStarted = Date.now();
   const retried = await requestWithTransientRetries(
     request,
     "POST",
@@ -171,22 +216,35 @@ async function provisionAuditSource(request, config, workflowContext, login, run
       auditId: submitTarget.auditId,
       auditName: submitTarget.auditName,
       status: "completed",
-      answers,
+      answers: submitAnswers,
       findings: [],
       evidenceRefs: [],
       evidenceFiles: [],
       localSubmissionId,
-      completedByName: login.userName || login.accountEmail,
+      completedByName: login.user?.name || login.accountEmail,
       verificationSource: PRODUCTION_VERIFICATION_REPORTING_SOURCE_MODE,
     },
     { stageKey: "sourceProvisioning", maxRetries: 2 },
   );
   const response = retried.response;
+  logReportingSourceProvisioning(log, {
+    reportType: "audit",
+    stage: "complete_check",
+    method: "POST",
+    safeRoute: `/api/companies/:companyFolderId/checks/${submitTarget.scheduleId}/complete`,
+    scheduleId: submitTarget.scheduleId,
+    templateId: submitTarget.auditId,
+    httpStatus: response?.status || 0,
+    durationMs: Date.now() - completeStarted,
+  });
   if (!(response?.status === 200 && response?.json?.ok === true)) {
     return {
       ok: false,
       reportType: "audit",
       error: `Audit source provisioning returned HTTP ${response?.status || 0}.`,
+      safeRoute: `/api/companies/:companyFolderId/checks/${submitTarget.scheduleId}/complete`,
+      scheduleId: submitTarget.scheduleId,
+      templateId: submitTarget.auditId,
       response,
     };
   }
@@ -196,11 +254,48 @@ async function provisionAuditSource(request, config, workflowContext, login, run
       ok: false,
       reportType: "audit",
       error: "Audit source provisioning did not return a result ID.",
+      scheduleId: submitTarget.scheduleId,
+      templateId: submitTarget.auditId,
       response,
     };
   }
+  const readbackStarted = Date.now();
+  const readback = await confirmVerificationAuditResultReadback(
+    request,
+    companyFolderId,
+    masterSheetId,
+    config,
+    resultId,
+  );
+  logReportingSourceProvisioning(log, {
+    reportType: "audit",
+    stage: "audit_result_readback",
+    method: "GET",
+    safeRoute: "/api/companies/:companyFolderId/audit-results",
+    scheduleId: submitTarget.scheduleId,
+    templateId: submitTarget.auditId,
+    httpStatus: readback.response?.status || (readback.ok ? 200 : 0),
+    durationMs: Date.now() - readbackStarted,
+  });
+  if (!readback.ok) {
+    return {
+      ok: false,
+      reportType: "audit",
+      error: readback.error || "Audit source readback failed.",
+      scheduleId: submitTarget.scheduleId,
+      templateId: submitTarget.auditId,
+      response: readback.response,
+    };
+  }
   plan.audit.resultId = resultId;
-  return { ok: true, reportType: "audit", sourceId: resultId, idempotent: response.json?.alreadyExists === true };
+  return {
+    ok: true,
+    reportType: "audit",
+    sourceId: resultId,
+    scheduleId: submitTarget.scheduleId,
+    templateId: submitTarget.auditId,
+    idempotent: response.json?.alreadyExists === true,
+  };
 }
 
 async function provisionIncidentSource(request, config, workflowContext, login, runId, plan) {
@@ -209,7 +304,7 @@ async function provisionIncidentSource(request, config, workflowContext, login, 
   const payload = buildProductionVerificationIncident({
     runId,
     incidentId,
-    reporterName: login.userName || login.accountEmail,
+    reporterName: login.user?.name || login.accountEmail,
     reporterEmail: login.accountEmail || config.expectedEmail,
     verificationSource: PRODUCTION_VERIFICATION_REPORTING_SOURCE_MODE,
   });
@@ -247,10 +342,10 @@ async function provisionRiskAssessmentSource(request, config, workflowContext, l
   const payload = buildProductionVerificationRiskAssessment({
     runId,
     companyFolderId,
-    ownerUserId: login.userId || config.username,
-    ownerName: login.userName || config.username,
-    assessorUserId: login.userId || config.username,
-    assessorName: login.userName || config.username,
+    ownerUserId: login.user?.id || login.userId || config.username,
+    ownerName: login.user?.name || config.username,
+    assessorUserId: login.user?.id || login.userId || config.username,
+    assessorName: login.user?.name || config.username,
   });
   const retried = await requestWithTransientRetries(
     request,
@@ -332,7 +427,7 @@ async function provisionLolerSource(request, config, workflowContext, login, run
     equipmentId,
     companyFolderId,
     assignedEmail: login.accountEmail || config.expectedEmail,
-    assignedPersonName: login.userName || login.accountEmail,
+    assignedPersonName: login.user?.name || login.accountEmail,
     verificationSource: PRODUCTION_VERIFICATION_REPORTING_SOURCE_MODE,
   });
   const retried = await requestWithTransientRetries(
@@ -379,22 +474,39 @@ const PROVISIONERS = {
   loler: provisionLolerSource,
 };
 
-export async function provisionReportingSource(request, config, workflowContext, login, reportType, runId, plan) {
+export async function provisionReportingSource(request, config, workflowContext, login, reportType, runId, plan, options = {}) {
   const provisioner = PROVISIONERS[trim(reportType)];
   if (!provisioner) {
     return { ok: false, reportType, error: `Unsupported report type '${reportType}'.` };
   }
-  return provisioner(request, config, workflowContext, login, runId, plan);
+  return provisioner(request, config, workflowContext, login, runId, plan, options);
 }
 
-export async function provisionAllReportingSources(request, config, workflowContext, login, runId) {
+export async function provisionAllReportingSources(request, config, workflowContext, login, runId, options = {}) {
   const plan = buildReportingSourcePlan(runId);
+  workflowContext.sourcePlan = plan;
   const results = [];
   for (const reportType of SUPPORTED_VERIFICATION_REPORT_TYPES) {
-    const result = await provisionReportingSource(request, config, workflowContext, login, reportType, runId, plan);
+    const result = await provisionReportingSource(
+      request,
+      config,
+      workflowContext,
+      login,
+      reportType,
+      runId,
+      plan,
+      options,
+    );
     results.push(result);
     if (!result.ok) {
-      return { ok: false, failedReportType: reportType, plan, results };
+      const cleanup = await cleanupReportingSources(
+        request,
+        workflowContext,
+        config,
+        plan,
+        workflowContext.sources,
+      );
+      return { ok: false, failedReportType: reportType, plan, results, cleanup };
     }
     workflowContext.sources[reportType] = result.sourceId;
   }

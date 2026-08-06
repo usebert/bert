@@ -358,6 +358,133 @@ export function pickWorkflowTarget(assignedRows, config) {
   };
 }
 
+export const PRODUCTION_ASSIGNED_CHECKS_ROUTE = "/api/me/assigned-checks";
+
+export async function fetchProductionAssignedChecks(request) {
+  return request("GET", PRODUCTION_ASSIGNED_CHECKS_ROUTE);
+}
+
+export function parseAssignedChecksResponse(assignedResponse = {}) {
+  const schedules = Array.isArray(assignedResponse?.json?.schedules) ? assignedResponse.json.schedules : [];
+  const assignedRows = flattenAssignedAudits(schedules);
+  return {
+    schedules,
+    assignedRows,
+    companyFolderId: trim(assignedResponse?.json?.companyFolderId),
+    masterSheetId: trim(assignedResponse?.json?.masterSheetId),
+  };
+}
+
+export function selectVerificationAuditSubmitTarget(assignedRows = [], config = {}) {
+  return pickWorkflowTarget(assignedRows, config).submitTarget;
+}
+
+export async function loadAuditQuestionSources(request, companyFolderId, masterSheetId) {
+  let googleForms = [];
+  let auditBuilderTemplates = [];
+  try {
+    const forms = await request(
+      "GET",
+      `/api/companies/${encodeURIComponent(companyFolderId)}/google-forms?masterSheetId=${encodeURIComponent(masterSheetId)}`,
+    );
+    if (forms.status === 200 && forms.json?.ok !== false) {
+      googleForms = Array.isArray(forms.json?.forms)
+        ? forms.json.forms
+        : Array.isArray(forms.json?.templates)
+          ? forms.json.templates
+          : [];
+    }
+  } catch {
+    googleForms = [];
+  }
+  try {
+    const templatesResponse = await request(
+      "GET",
+      `/api/audits/templates?masterSheetId=${encodeURIComponent(masterSheetId)}`,
+    );
+    if (templatesResponse.status === 200 && templatesResponse.json?.ok !== false) {
+      auditBuilderTemplates = Array.isArray(templatesResponse.json?.templates)
+        ? templatesResponse.json.templates
+        : [];
+    }
+  } catch {
+    auditBuilderTemplates = [];
+  }
+  return { googleForms, auditBuilderTemplates };
+}
+
+export function buildVerificationAuditSubmitAnswers(submitTarget, googleForms = [], auditBuilderTemplates = []) {
+  const submitQuestions = buildQuestionsForAssignedAudit(
+    submitTarget.auditName,
+    submitTarget.auditId,
+    googleForms,
+    auditBuilderTemplates,
+  );
+  const submitAnswers = {};
+  for (const question of submitQuestions) {
+    const answer = pickSafeAnswer(question);
+    submitAnswers[question.id] = answer.response;
+    if (answer.textResponse) {
+      submitAnswers[`${question.id}__text`] = answer.textResponse;
+    }
+  }
+  return { submitQuestions, submitAnswers };
+}
+
+export async function submitVerificationAuditCheck(request, input = {}) {
+  const companyFolderId = trim(input.companyFolderId);
+  const masterSheetId = trim(input.masterSheetId);
+  const submitTarget = input.submitTarget || {};
+  return request(
+    "POST",
+    `/api/companies/${encodeURIComponent(companyFolderId)}/checks/${encodeURIComponent(submitTarget.scheduleId)}/complete`,
+    {
+      companyFolderId,
+      masterSheetId,
+      auditId: submitTarget.auditId,
+      auditName: submitTarget.auditName,
+      status: "completed",
+      answers: input.submitAnswers || {},
+      findings: [],
+      evidenceRefs: [],
+      evidenceFiles: [],
+      localSubmissionId: trim(input.localSubmissionId),
+      completedByName: trim(input.completedByName),
+      verificationSource: trim(input.verificationSource) || undefined,
+    },
+  );
+}
+
+export async function confirmVerificationAuditResultReadback(
+  request,
+  companyFolderId,
+  masterSheetId,
+  config = {},
+  resultId = "",
+) {
+  const auditResults = await request(
+    "GET",
+    `/api/companies/${encodeURIComponent(companyFolderId)}/audit-results?masterSheetId=${encodeURIComponent(masterSheetId)}`,
+  );
+  if (auditResults.status !== 200 || auditResults.json?.ok !== true) {
+    return {
+      ok: false,
+      error: `Audit results readback returned HTTP ${auditResults.status}.`,
+      response: auditResults,
+    };
+  }
+  const results = Array.isArray(auditResults.json?.results) ? auditResults.json.results : [];
+  const foundResult = findVerificationAuditResult(results, config, resultId);
+  if (!foundResult) {
+    return {
+      ok: false,
+      error: `Verification audit result ${trim(resultId) || "(missing)"} was not found after submit.`,
+      response: auditResults,
+    };
+  }
+  return { ok: true, resultId: trim(resultId), result: foundResult, response: auditResults };
+}
+
 function assertResponseSafe(json, label) {
   assertNoPasswordHash(json, label);
   const raw = JSON.stringify(json || {});

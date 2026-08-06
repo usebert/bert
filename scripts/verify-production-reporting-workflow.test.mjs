@@ -134,7 +134,8 @@ function createTransport(store, options = {}) {
         },
       };
     }
-    if (method === "GET" && pathname.endsWith("/me/assigned-checks")) {
+    if (method === "GET" && pathname === "/api/me/assigned-checks") {
+      store.assignedChecksRoute = pathname;
       if (store.assignedChecksUnavailable) {
         return { status: 503, json: { ok: false, code: "ASSIGNED_CHECKS_UNAVAILABLE" } };
       }
@@ -155,6 +156,9 @@ function createTransport(store, options = {}) {
         },
       };
     }
+    if (method === "GET" && pathname.includes("/me/assigned-checks")) {
+      return { status: 404, json: { ok: false, code: "NOT_FOUND" } };
+    }
     if (method === "POST" && pathname.includes("/checks/") && pathname.endsWith("/complete")) {
       if (store.failProvisionType === "audit") {
         return { status: 500, json: { ok: false, code: "AUDIT_COMPLETE_FAILED" } };
@@ -167,6 +171,8 @@ function createTransport(store, options = {}) {
       store.provisionedSources.auditResults.push({
         resultId,
         "Result ID": resultId,
+        "Schedule ID": PRODUCTION_VERIFICATION_SCHEDULE_ID,
+        "Audit ID": PRODUCTION_VERIFICATION_AUDIT_ID,
         localSubmissionId: body?.localSubmissionId,
         verificationSource: body?.verificationSource,
         Status: "verification",
@@ -370,7 +376,19 @@ function createTransport(store, options = {}) {
       };
     }
     if (method === "GET" && pathname.includes("/audit-results")) {
-      return { status: 200, json: { ok: true, results: store.provisionedSources.auditResults } };
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          results: store.provisionedSources.auditResults,
+        },
+      };
+    }
+    if (method === "GET" && pathname.includes("/google-forms")) {
+      return { status: 200, json: { ok: true, forms: [] } };
+    }
+    if (method === "GET" && pathname === "/api/audits/templates") {
+      return { status: 200, json: { ok: true, templates: [] } };
     }
     if (method === "GET" && pathname.endsWith("/incidents")) {
       return {
@@ -798,6 +816,12 @@ test("baseline logging helper is structured", () => {
     totalMs: 10,
   });
   assert.match(lines[0], /\[reporting:baseline-timing\]/);
+});
+
+test("source provisioning uses canonical assigned-checks route", async () => {
+  const { result, store } = await runWorkflow({ failProvisionType: "incident" });
+  assert.equal(result.checks.sourceProvisioning.status, "FAIL");
+  assert.equal(store.assignedChecksRoute, "/api/me/assigned-checks");
 });
 
 test("check keys cover required stages", () => {

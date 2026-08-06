@@ -607,23 +607,22 @@ export async function runProductionReportingWorkflowChecks(config, transport, op
       workflowContext,
       workflowContext.login,
       runId,
+      { log: options.logStage || ((line) => console.log(line)) },
     );
     if (!provisioned.ok) {
       const failed = provisioned.results.find((item) => !item.ok) || {};
-      await cleanupReportingSources(
-        request,
-        workflowContext,
-        config,
-        provisioned.plan,
-        workflowContext.sources,
-      );
+      mustRunCleanup = Object.values(workflowContext.sources).some((value) => trim(value));
       return fail(
         "sourceProvisioning",
         `Source provisioning failed for ${provisioned.failedReportType}: ${failed.error || "unknown error"}.`,
         `Inspect ${provisioned.failedReportType} verification source provisioning.`,
         failed.response?.status,
         failed.response?.json,
-        { failedReportType: provisioned.failedReportType },
+        {
+          failedReportType: provisioned.failedReportType,
+          safeRoute: failed.safeRoute,
+          sourceCleanup: provisioned.cleanup,
+        },
       );
     }
     workflowContext.sourcePlan = provisioned.plan;
