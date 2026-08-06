@@ -8,6 +8,7 @@ import { canViewReportsDashboard } from "../shared/reports-dashboard.mjs";
 import {
   buildProductionVerificationReportFilename,
   buildVerificationReportPdfBuffer,
+  buildVerificationReportBaselineCounts,
   buildWorkbookReportRow,
   findReportById,
   isActiveVerificationReport,
@@ -21,6 +22,8 @@ import {
   normalizeVerificationReportType,
   OPTIONAL_UNSUPPORTED_REPORT_TYPES,
   PRODUCTION_VERIFICATION_REPORT_CLEANED_STATUS,
+  PRODUCTION_VERIFICATION_REPORT_FILENAME_PREFIX,
+  PRODUCTION_VERIFICATION_REPORT_ID_PREFIX,
   PRODUCTION_VERIFICATION_REPORT_SOURCE,
   REPORTS_TAB,
   REPORTS_TAB_COLUMNS,
@@ -28,6 +31,12 @@ import {
   verificationReportContentMarkers,
 } from "../shared/production-verification-report.mjs";
 import { withOperationTimeout } from "./ensure-required-tabs.mjs";
+import {
+  cachedReadReportsTabRecords,
+  cachedResolveExportsFolderId,
+  dedupedEnsureReportsTabColumns,
+  invalidateReportsWorkbookCache,
+} from "./reports-request-cache.mjs";
 import {
   appendTabRows as workbookAppendTabRows,
   ensureTabColumns as workbookEnsureTabColumns,
@@ -37,6 +46,8 @@ import {
 
 export const REPORTS_ROUTE_TIMEOUT_MS = 120_000;
 export const REPORTS_GENERATION_TIMEOUT_MS = 180_000;
+export const REPORTS_BASELINE_TIMEOUT_MS = 15_000;
+export const REPORTS_BASELINE_DRIVE_COUNT_TIMEOUT_MS = 8_000;
 
 function trim(value) {
   return String(value ?? "").trim();
@@ -98,19 +109,53 @@ export function canViewCompanyReports(actor, companyFolderId, alternateIds = [])
   return canViewReportsDashboard(actor, companyFolderId, alternateIds) || canManageCompanyReports(actor);
 }
 
-export async function readCompanyReportsTab(auth, deps, masterSheetId) {
+export async function readCompanyReportsTab(auth, deps, masterSheetId, options = {}) {
   const readTabRecords = resolveReadTabRecords(deps);
   const ensureTabColumns = resolveEnsureTabColumns(deps);
-  await ensureTabColumns(auth, deps, masterSheetId, REPORTS_TAB, REPORTS_TAB_COLUMNS);
-  const result = await readTabRecords(auth, deps, masterSheetId, REPORTS_TAB, {
+  const companyFolderId = trim(options.companyFolderId);
+  const useCache = options.useCache !== false;
+  const summaryOnly = options.summaryOnly === true;
+  const ensureStarted = Date.now();
+  await (useCache
+    ? dedupedEnsureReportsTabColumns(
+        auth,
+        deps,
+        companyFolderId,
+        masterSheetId,
+        REPORTS_TAB,
+        REPORTS_TAB_COLUMNS,
+        ensureTabColumns,
+      )
+    : ensureTabColumns(auth, deps, masterSheetId, REPORTS_TAB, REPORTS_TAB_COLUMNS));
+  const ensureMs = Date.now() - ensureStarted;
+  const readStarted = Date.now();
+  const readOptions = {
     expectedHeaders: REPORTS_TAB_COLUMNS,
-  });
-  if (!result.ok) {
-    return result;
+    summaryOnly,
+  };
+  const readResult = useCache
+    ? await cachedReadReportsTabRecords(
+        auth,
+        deps,
+        companyFolderId,
+        masterSheetId,
+        REPORTS_TAB,
+        readTabRecords,
+        readOptions,
+      )
+    : await readTabRecords(auth, deps, masterSheetId, REPORTS_TAB, readOptions);
+  const readMs = Date.now() - readStarted;
+  if (!readResult.ok) {
+    return readResult;
   }
   return {
     ok: true,
-    records: Array.isArray(result.records) ? result.records : [],
+    records: Array.isArray(readResult.records) ? readResult.records : [],
+    timings: {
+      reportsTabEnsureMs: ensureMs,
+      reportsTabReadMs: readMs,
+      cacheHit: readResult.cacheHit === true,
+    },
   };
 }
 
@@ -122,7 +167,9 @@ export function listSupportedReportTypes() {
 }
 
 export async function listCompanyReports(auth, deps, resolved, actor = {}) {
-  const readResult = await readCompanyReportsTab(auth, deps, resolved.masterSheetId);
+  const readResult = await readCompanyReportsTab(auth, deps, resolved.masterSheetId, {
+    companyFolderId: resolved.companyFolderId,
+  });
   if (!readResult.ok) {
     return reportsApiFailure(readResult.code || "REPORTS_LIST_FAILED", readResult.error || "Could not list reports.", readResult.httpStatus || 500);
   }
@@ -144,6 +191,163 @@ export async function listCompanyReports(auth, deps, resolved, actor = {}) {
       status: item.status,
       verification: isVerificationReport(item),
     })),
+  };
+}
+
+function resolveExportsFolderId(resolved = {}) {
+  return trim(resolved?.exportsFolderId || resolved?.isoFolders?.exportsFolderId);
+}
+
+async function countVerificationExportFiles(auth, deps, exportsFolderId, timeoutMs = REPORTS_BASELINE_DRIVE_COUNT_TIMEOUT_MS) {
+  if (!exportsFolderId || !deps?.google || !auth) {
+    return { ok: true, skipped: true, verificationFileCount: 0, durationMs: 0 };
+  }
+  const started = Date.now();
+  try {
+    const drive = deps.google.drive({ version: "v3", auth });
+    let verificationFileCount = 0;
+    let pageToken = "";
+    const deadline = started + timeoutMs;
+    do {
+      if (Date.now() > deadline) {
+        return {
+          ok: false,
+          slow: true,
+          verificationFileCount,
+          durationMs: Date.now() - started,
+          error: "Drive export count timed out.",
+        };
+      }
+      const request = () =>
+        drive.files.list({
+          q: `'${exportsFolderId}' in parents and trashed=false`,
+          fields: "nextPageToken, files(name)",
+          pageSize: 100,
+          pageToken: pageToken || undefined,
+          supportsAllDrives: true,
+          includeItemsFromAllDrives: true,
+        });
+      const response = deps.withSheetsQuotaRetry ? await deps.withSheetsQuotaRetry(request) : await request();
+      for (const file of response?.data?.files || []) {
+        const name = trim(file?.name);
+        if (
+          name.startsWith(PRODUCTION_VERIFICATION_REPORT_FILENAME_PREFIX) ||
+          name.includes(PRODUCTION_VERIFICATION_REPORT_ID_PREFIX)
+        ) {
+          verificationFileCount += 1;
+        }
+      }
+      pageToken = trim(response?.data?.nextPageToken);
+    } while (pageToken);
+    return {
+      ok: true,
+      skipped: false,
+      verificationFileCount,
+      durationMs: Date.now() - started,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      skipped: false,
+      verificationFileCount: 0,
+      durationMs: Date.now() - started,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export function logReportingBaselineTiming(stage, details = {}) {
+  console.info(
+    "[reporting:baseline-timing]",
+    JSON.stringify({
+      stage: trim(stage) || "baseline",
+      workbookId: trim(details.workbookId) || undefined,
+      rowCounts: details.rowCounts || undefined,
+      durationMs: details.durationMs ?? undefined,
+      totalMs: details.totalMs ?? undefined,
+      operation: trim(details.operation) || undefined,
+      route: trim(details.route) || undefined,
+      cacheHit: details.cacheHit === true ? true : undefined,
+      subStage: trim(details.subStage) || undefined,
+    }),
+  );
+}
+
+export async function getVerificationReportBaseline(auth, deps, resolved, input = {}) {
+  const startedAt = Date.now();
+  const timings = {};
+  const includeDriveCount = input.includeDriveCount === true;
+  const readStarted = Date.now();
+  const readResult = await readCompanyReportsTab(auth, deps, resolved.masterSheetId, {
+    companyFolderId: resolved.companyFolderId,
+    summaryOnly: true,
+    useCache: true,
+  });
+  timings.reportsTabEnsureMs = readResult.timings?.reportsTabEnsureMs ?? 0;
+  timings.reportsTabReadMs = readResult.timings?.reportsTabReadMs ?? 0;
+  timings.cacheHit = readResult.timings?.cacheHit === true;
+  if (!readResult.ok) {
+    return reportsApiFailure(
+      readResult.code || "REPORTS_BASELINE_FAILED",
+      readResult.error || "Could not read reports baseline.",
+      readResult.httpStatus || 500,
+      { timings: { ...timings, totalMs: Date.now() - startedAt } },
+    );
+  }
+  const filterStarted = Date.now();
+  const rowCounts = buildVerificationReportBaselineCounts(readResult.records, resolved.companyFolderId);
+  timings.verificationFilterMs = Date.now() - filterStarted;
+  timings.reportsMetadataReadMs = Date.now() - readStarted;
+
+  let driveExportCounts = {
+    available: false,
+    skipped: true,
+    verificationFileCount: 0,
+    durationMs: 0,
+  };
+  if (includeDriveCount) {
+    const exportsStarted = Date.now();
+    const resolveStarted = Date.now();
+    const exportsResolved = await cachedResolveExportsFolderId(resolved.companyFolderId, async () =>
+      resolveExportsFolderId(resolved),
+    );
+    timings.exportsFolderResolveMs = Date.now() - resolveStarted;
+    const driveCount = await countVerificationExportFiles(
+      auth,
+      deps,
+      exportsResolved.exportsFolderId,
+      REPORTS_BASELINE_DRIVE_COUNT_TIMEOUT_MS,
+    );
+    driveExportCounts = {
+      available: !driveCount.skipped,
+      skipped: driveCount.skipped === true,
+      slow: driveCount.slow === true,
+      verificationFileCount: driveCount.verificationFileCount ?? 0,
+      durationMs: driveCount.durationMs ?? Date.now() - exportsStarted,
+      cacheHit: exportsResolved.cacheHit === true,
+      error: trim(driveCount.error) || undefined,
+    };
+    timings.driveExportCountMs = driveExportCounts.durationMs;
+  }
+
+  timings.totalMs = Date.now() - startedAt;
+  logReportingBaselineTiming("baseline", {
+    workbookId: resolved.masterSheetId,
+    rowCounts,
+    durationMs: timings.reportsMetadataReadMs,
+    totalMs: timings.totalMs,
+    operation: "GET",
+    route: "reports/verification-baseline",
+    cacheHit: timings.cacheHit,
+  });
+
+  return {
+    ok: true,
+    companyFolderId: resolved.companyFolderId,
+    masterSheetId: resolved.masterSheetId,
+    rowCounts,
+    driveExportCounts,
+    timings,
   };
 }
 
@@ -308,6 +512,7 @@ export async function generateVerificationReport(auth, deps, resolved, actor, in
       return reportsApiFailure(appended.code || "REPORT_METADATA_WRITE_FAILED", appended.error || "Could not write report metadata.", appended.httpStatus || 500);
     }
   }
+  invalidateReportsWorkbookCache(resolved.companyFolderId, resolved.masterSheetId);
 
   return {
     ok: true,
@@ -410,6 +615,7 @@ export async function cleanupVerificationReport(auth, deps, resolved, actor, rep
   if (sessionDir) {
     await deleteReportFile(sessionDir, resolved.companyFolderId, reportId);
   }
+  invalidateReportsWorkbookCache(resolved.companyFolderId, resolved.masterSheetId);
   return {
     ok: true,
     reportId,

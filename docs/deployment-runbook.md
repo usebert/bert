@@ -561,7 +561,7 @@ npm run verify:offline-submission-queue
 
 ### Production Reporting workflow (post-deploy smoke)
 
-After all prior production workflow gates pass, run the Reporting workflow smoke test. It authenticates with the Dovecote smoke account, confirms the reporting API and supported report types, and — only when `BERT_SMOKE_ALLOW_REPORT_MUTATION=1` — provisions its own temporary verification source records (audit, incident, risk assessment, COSHH, and LOLER), generates verification PDF reports from those sources, verifies PDF integrity/content/metadata/download, confirms report history, and cleans up all verification reports and source records.
+After all prior production workflow gates pass, run the Reporting workflow smoke test. It authenticates with the Dovecote smoke account, confirms the reporting API and supported report types, captures a lightweight verification baseline (counts only via `GET /api/companies/:id/reports/verification-baseline`), and — only when `BERT_SMOKE_ALLOW_REPORT_MUTATION=1` — provisions its own temporary verification source records (audit, incident, risk assessment, COSHH, and LOLER), generates verification PDF reports from those sources, verifies PDF integrity/content/metadata/download, confirms report history, and cleans up all verification reports and source records.
 
 ```bash
 set -a && source .env && set +a

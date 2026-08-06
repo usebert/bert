@@ -11,8 +11,10 @@ import {
   downloadVerificationReport,
   generateVerificationReport,
   getVerificationReport,
+  getVerificationReportBaseline,
   listCompanyReports,
   listSupportedReportTypes,
+  REPORTS_BASELINE_TIMEOUT_MS,
   REPORTS_GENERATION_TIMEOUT_MS,
   REPORTS_ROUTE_TIMEOUT_MS,
 } from "./reports-service.mjs";
@@ -139,6 +141,39 @@ export function installReportingRoutes(app, deps) {
       return undefined;
     }
     return res.json({ ok: true, ...listSupportedReportTypes() });
+  });
+
+  app.get("/api/companies/:companyFolderId/reports/verification-baseline", async (req, res) => {
+    const context = await resolveRouteContext(req, res);
+    if (!context) {
+      return undefined;
+    }
+    try {
+      const includeDriveCount =
+        String(req.query?.includeDriveCount || "").trim() === "1" ||
+        String(req.query?.includeDriveCount || "").trim().toLowerCase() === "true";
+      const result = await withOperationTimeout(
+        getVerificationReportBaseline(
+          context.authed,
+          { ...registryDeps, ...scheduleDeps },
+          context.resolved,
+          { includeDriveCount },
+        ),
+        "reports_verification_baseline",
+        REPORTS_BASELINE_TIMEOUT_MS,
+      );
+      if (!result.ok) {
+        return routeError(res, result, "REPORTS_BASELINE_FAILED");
+      }
+      return res.json(result);
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "REPORTS_BASELINE_FAILED",
+        error: "Could not load verification report baseline.",
+        technicalError: error instanceof Error ? error.message : String(error),
+      });
+    }
   });
 
   app.post("/api/companies/:companyFolderId/reports/generate", async (req, res) => {

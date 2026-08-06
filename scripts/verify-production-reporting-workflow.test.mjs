@@ -9,6 +9,8 @@ import {
   CHECK_KEYS,
   formatReportingWorkflowReport,
   loadReportingWorkflowConfig,
+  logReportingBaselineTiming,
+  reportsBaselinePath,
   runProductionReportingWorkflowChecks,
 } from "./lib/production-reporting-workflow-core.mjs";
 import {
@@ -68,6 +70,24 @@ function createMockStore() {
     duplicateBlocked: false,
     lostResponseRecover: false,
     unauthorizedDownload: false,
+    baselineReads: 0,
+    baselineDownloadAttempts: 0,
+    baselineProvisionAttempts: 0,
+    baselineDriveLookups: 0,
+  };
+}
+
+function buildBaselineRowCounts(store) {
+  const verification = store.reports.filter((item) => trim(item.reportId).startsWith("bert-smoke-report-"));
+  const activeVerification = verification.filter((item) => trim(item.status) !== "verification-cleaned");
+  const operational = store.reports.filter((item) => !trim(item.reportId).startsWith("bert-smoke-report-"));
+  return {
+    totalRows: store.reports.length,
+    operationalCount: operational.length,
+    verificationCount: verification.length,
+    activeVerificationCount: activeVerification.length,
+    storedFileCount: store.reports.filter((item) => trim(item.sourceId)).length,
+    historyCount: store.reports.length,
   };
 }
 
@@ -308,6 +328,32 @@ function createTransport(store, options = {}) {
         },
       };
     }
+    if (method === "GET" && pathname.endsWith("/reports/verification-baseline")) {
+      store.baselineReads += 1;
+      store.downloadsAtBaseline = store.baselineDownloadAttempts;
+      store.provisionsAtBaseline = store.provisioningLog.length;
+      if (store.baselineFails) {
+        return { status: 503, json: { ok: false, code: "REPORTS_BASELINE_FAILED" } };
+      }
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          companyFolderId: baseConfig.companyFolderId,
+          masterSheetId: baseConfig.masterSheetId,
+          rowCounts: buildBaselineRowCounts(store),
+          driveExportCounts: { available: false, skipped: true, verificationFileCount: 0, durationMs: 0 },
+          timings: {
+            reportsTabEnsureMs: 1,
+            reportsTabReadMs: 2,
+            verificationFilterMs: 0,
+            reportsMetadataReadMs: 3,
+            totalMs: 3,
+            cacheHit: store.baselineCacheHit === true,
+          },
+        },
+      };
+    }
     if (method === "GET" && pathname.endsWith("/reports") && !pathname.includes("/download")) {
       return {
         status: 200,
@@ -345,6 +391,7 @@ function createTransport(store, options = {}) {
       return { status: 200, json: { ok: true, equipment: store.provisionedSources.loler } };
     }
     if (method === "POST" && pathname.endsWith("/reports/generate")) {
+      store.baselineProvisionAttempts += 1;
       if (store.failGenerate) {
         return { status: 500, json: { ok: false, code: "REPORT_GENERATE_FAILED" } };
       }
@@ -393,6 +440,7 @@ function createTransport(store, options = {}) {
       };
     }
     if (method === "GET" && pathname.includes("/reports/") && pathname.endsWith("/download")) {
+      store.baselineDownloadAttempts += 1;
       const reportId = pathname.split("/reports/")[1]?.split("/")[0];
       if (reportId === "bert-smoke-report-missing") {
         return { status: 404, json: { ok: false, code: "REPORT_NOT_FOUND" } };
@@ -715,6 +763,41 @@ test("secret/customer-content-safe output", async () => {
   const report = formatReportingWorkflowReport(result);
   assert.doesNotMatch(report, /secret-password/);
   assert.doesNotMatch(report, /bert_company_session=/);
+});
+
+test("baseline uses verification-baseline endpoint once", async () => {
+  const { result, store } = await runWorkflow();
+  assert.equal(result.checks.baseline.status, "PASS");
+  assert.equal(store.baselineReads, 1);
+});
+
+test("baseline does not download PDFs", async () => {
+  const { result, store } = await runWorkflow();
+  assert.equal(result.checks.baseline.status, "PASS");
+  assert.equal(store.downloadsAtBaseline, 0);
+});
+
+test("baseline does not provision sources", async () => {
+  const { result, store } = await runWorkflow();
+  assert.equal(result.checks.baseline.status, "PASS");
+  assert.equal(store.provisionsAtBaseline, 0);
+});
+
+test("baseline path helper targets verification-baseline route", () => {
+  const path = reportsBaselinePath(baseConfig.companyFolderId, baseConfig.masterSheetId);
+  assert.match(path, /\/reports\/verification-baseline\?/);
+});
+
+test("baseline logging helper is structured", () => {
+  const lines = [];
+  logReportingBaselineTiming((line) => lines.push(line), {
+    stage: "baseline",
+    workbookId: baseConfig.masterSheetId,
+    rowCounts: { totalRows: 0 },
+    durationMs: 5,
+    totalMs: 10,
+  });
+  assert.match(lines[0], /\[reporting:baseline-timing\]/);
 });
 
 test("check keys cover required stages", () => {

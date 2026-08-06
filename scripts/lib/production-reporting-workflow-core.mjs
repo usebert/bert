@@ -14,7 +14,6 @@ import {
 import {
   buildProductionVerificationReportId,
   buildVerificationReportPdfBuffer,
-  countReportBaselines,
   isValidVerificationPdfBuffer,
   isVerificationReportId,
   PRODUCTION_VERIFICATION_REPORT_SOURCE,
@@ -134,6 +133,13 @@ function reportsPath(companyFolderId, masterSheetId) {
   return withMasterSheet(`/api/companies/${encodeURIComponent(companyFolderId)}/reports`, masterSheetId);
 }
 
+export function reportsBaselinePath(companyFolderId, masterSheetId) {
+  return withMasterSheet(
+    `/api/companies/${encodeURIComponent(companyFolderId)}/reports/verification-baseline`,
+    masterSheetId,
+  );
+}
+
 function reportDetailPath(companyFolderId, reportId, masterSheetId) {
   return withMasterSheet(
     `/api/companies/${encodeURIComponent(companyFolderId)}/reports/${encodeURIComponent(reportId)}`,
@@ -175,6 +181,21 @@ export function logReportingTiming(log, input = {}) {
       totalMs: input.totalMs ?? 0,
     })}`,
   );
+}
+
+export function logReportingBaselineTiming(log, input = {}) {
+  const payload = {
+    stage: input.stage || "baseline",
+    workbookId: trim(input.workbookId) || undefined,
+    rowCounts: input.rowCounts || undefined,
+    durationMs: input.durationMs ?? 0,
+    totalMs: input.totalMs ?? 0,
+    method: trim(input.method) || "GET",
+    route: trim(input.route) || "reports/verification-baseline",
+    subStage: trim(input.subStage) || undefined,
+    cacheHit: input.cacheHit === true ? true : undefined,
+  };
+  log(`[reporting:baseline-timing] ${JSON.stringify(payload)}`);
 }
 
 export function redactSafeResponseBody(value) {
@@ -494,9 +515,53 @@ export async function runProductionReportingWorkflowChecks(config, transport, op
 
   let baselineCounts = null;
   const baselineFail = await runStage("baseline", async () => {
-    const list = await request("GET", reportsPath(workflowContext.companyFolderId, workflowContext.masterSheetId));
-    const reports = Array.isArray(list.json?.reports) ? list.json.reports : [];
-    baselineCounts = countReportBaselines(reports);
+    const stageStarted = Date.now();
+    const baselinePath = reportsBaselinePath(workflowContext.companyFolderId, workflowContext.masterSheetId);
+    const baseline = await request("GET", baselinePath);
+    const durationMs = Date.now() - stageStarted;
+    const logStage = options.logStage || ((line) => console.log(line));
+    logReportingBaselineTiming(logStage, {
+      stage: "baseline",
+      workbookId: workflowContext.masterSheetId,
+      rowCounts: baseline.json?.rowCounts,
+      durationMs,
+      totalMs: Date.now() - startedAt,
+      method: "GET",
+      route: "reports/verification-baseline",
+      subStage: baseline.json?.timings ? "reports_metadata_read" : undefined,
+      cacheHit: baseline.json?.timings?.cacheHit === true,
+    });
+    if (baseline.status !== 200 || baseline.json?.ok !== true) {
+      return fail(
+        "baseline",
+        `Verification baseline returned HTTP ${baseline.status}.`,
+        "Inspect GET /api/companies/:id/reports/verification-baseline.",
+        baseline.status,
+        baseline.json,
+        {
+          baselineRequest: {
+            method: "GET",
+            route: "reports/verification-baseline",
+            workbookId: workflowContext.masterSheetId,
+          },
+        },
+      );
+    }
+    baselineCounts = baseline.json?.rowCounts || null;
+    if (!baselineCounts || typeof baselineCounts.totalRows !== "number") {
+      return fail(
+        "baseline",
+        "Verification baseline response is missing row counts.",
+        "Inspect reports verification-baseline route.",
+        baseline.status,
+        baseline.json,
+      );
+    }
+    performance.baselineMs = `${durationMs}ms`;
+    if (baseline.json?.timings) {
+      performance.baselineReportsTabReadMs = `${baseline.json.timings.reportsTabReadMs ?? 0}ms`;
+      performance.baselineReportsTabEnsureMs = `${baseline.json.timings.reportsTabEnsureMs ?? 0}ms`;
+    }
     pass("baseline");
     return null;
   });

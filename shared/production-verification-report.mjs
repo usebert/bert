@@ -170,6 +170,24 @@ export function countReportBaselines(reports = []) {
   };
 }
 
+export function buildVerificationReportBaselineCounts(records = [], companyFolderId = "") {
+  const companyId = trim(companyFolderId);
+  const list = (Array.isArray(records) ? records : [])
+    .map(mapWorkbookReportRecord)
+    .filter((item) => !companyId || trim(item.companyId) === companyId || !trim(item.companyId));
+  const verification = list.filter((item) => isVerificationReport(item));
+  const activeVerification = list.filter((item) => isActiveVerificationReport(item));
+  const operational = list.filter((item) => isOperationalReport(item));
+  return {
+    totalRows: list.length,
+    operationalCount: operational.length,
+    verificationCount: verification.length,
+    activeVerificationCount: activeVerification.length,
+    storedFileCount: list.filter((item) => trim(item.driveFileId) || trim(item.exportLinks)).length,
+    historyCount: list.length,
+  };
+}
+
 export function listActiveVerificationReports(reports = []) {
   return (Array.isArray(reports) ? reports : [])
     .map(mapWorkbookReportRecord)
