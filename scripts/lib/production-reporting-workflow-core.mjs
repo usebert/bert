@@ -9,25 +9,25 @@ import {
   performProductionSmokeLogin,
 } from "./production-auth-health-core.mjs";
 import {
-  listActiveVerificationAuditResults,
   loadAuditWorkflowConfig,
 } from "./production-audit-workflow-core.mjs";
 import {
   buildProductionVerificationReportId,
   buildVerificationReportPdfBuffer,
   countReportBaselines,
-  isSupportedVerificationReportType,
   isValidVerificationPdfBuffer,
   isVerificationReportId,
   PRODUCTION_VERIFICATION_REPORT_SOURCE,
   SUPPORTED_VERIFICATION_REPORT_TYPES,
   verificationReportContentMarkers,
 } from "../../shared/production-verification-report.mjs";
-import { PRODUCTION_VERIFICATION_AUDIT_ID } from "../../shared/production-verification-audit.mjs";
-import { listActiveVerificationIncidents } from "../../shared/production-verification-incident.mjs";
-import { listActiveVerificationCoshhRegisters } from "../../shared/production-verification-coshh.mjs";
-import { listActiveVerificationLolerEquipment } from "../../shared/production-verification-loler.mjs";
-import { listActiveVerificationRiskAssessments } from "../../shared/production-verification-risk-assessment.mjs";
+import {
+  cleanupReportingSources,
+  cleanupStaleReportingSources,
+  createEmptyReportingSources,
+  getReportingSourceId,
+  provisionAllReportingSources,
+} from "./production-reporting-source-provisioner.mjs";
 import {
   buildTimeoutFailureResult,
   createWorkflowDiagnostics,
@@ -49,6 +49,7 @@ export const DEFAULT_REPORTING_STAGE_TIMEOUTS_MS = {
   reportingApi: 60_000,
   baseline: 60_000,
   staleCleanup: 120_000,
+  sourceProvisioning: 180_000,
   auditReport: 180_000,
   incidentReport: 180_000,
   riskAssessmentReport: 180_000,
@@ -69,6 +70,7 @@ export const CHECK_KEYS = [
   "reportingApi",
   "baseline",
   "staleCleanup",
+  "sourceProvisioning",
   "auditReport",
   "incidentReport",
   "riskAssessmentReport",
@@ -89,6 +91,7 @@ export const CHECK_LABELS = {
   reportingApi: "Reporting API",
   baseline: "Baseline",
   staleCleanup: "Stale Cleanup",
+  sourceProvisioning: "Source Provisioning",
   auditReport: "Audit Report",
   incidentReport: "Incident Report",
   riskAssessmentReport: "Risk Assessment Report",
@@ -120,20 +123,6 @@ const REPORT_LABEL_WIDTH = 28;
 
 function trim(value) {
   return String(value ?? "").trim();
-}
-
-function extractResultField(record = {}, keys = []) {
-  const normalizedKeys = keys.map((key) => trim(key).toLowerCase().replace(/[^a-z0-9]/g, ""));
-  for (const [header, value] of Object.entries(record || {})) {
-    const normalizedHeader = trim(header).toLowerCase().replace(/[^a-z0-9]/g, "");
-    if (normalizedKeys.some((key) => normalizedHeader === key || normalizedHeader.includes(key))) {
-      const text = trim(value);
-      if (text) {
-        return text;
-      }
-    }
-  }
-  return "";
 }
 
 function withMasterSheet(path, masterSheetId) {
@@ -197,75 +186,26 @@ export function redactSafeResponseBody(value) {
   return clone;
 }
 
-function incidentsFromListResponse(response) {
-  return Array.isArray(response?.json?.incidents) ? response.json.incidents : [];
-}
-
-function riskAssessmentsFromListResponse(response) {
-  return Array.isArray(response?.json?.riskAssessments) ? response.json.riskAssessments : [];
-}
-
-function coshhFromListResponse(response) {
-  return Array.isArray(response?.json?.registers) ? response.json.registers : [];
-}
-
-function lolerFromListResponse(response) {
-  return Array.isArray(response?.json?.equipment) ? response.json.equipment : [];
-}
-
-async function discoverSourceId(request, config, reportType, workflowContext) {
-  const type = trim(reportType);
-  if (type === "audit") {
-    const auditResults = await request(
-      "GET",
-      `/api/companies/${encodeURIComponent(workflowContext.companyFolderId)}/audit-results?masterSheetId=${encodeURIComponent(workflowContext.masterSheetId)}`,
-    );
-    const results = Array.isArray(auditResults.json?.results) ? auditResults.json.results : [];
-    const active = listActiveVerificationAuditResults(results, config);
-    const resultId = extractResultField(active[0] || {}, ["result id", "resultid", "id"]);
-    return resultId || "";
-  }
-  if (type === "incident") {
-    const incidents = await request(
-      "GET",
-      withMasterSheet(`/api/companies/${encodeURIComponent(workflowContext.companyFolderId)}/incidents`, workflowContext.masterSheetId),
-    );
-    const active = listActiveVerificationIncidents(incidentsFromListResponse(incidents));
-    return trim(active[0]?.incidentId || active[0]?.id);
-  }
-  if (type === "risk-assessment") {
-    const assessments = await request(
-      "GET",
-      withMasterSheet(
-        `/api/companies/${encodeURIComponent(workflowContext.companyFolderId)}/risk-assessments`,
-        workflowContext.masterSheetId,
-      ),
-    );
-    const active = listActiveVerificationRiskAssessments(riskAssessmentsFromListResponse(assessments));
-    return trim(active[0]?.riskAssessmentId || active[0]?.id);
-  }
-  if (type === "coshh") {
-    const coshh = await request(
-      "GET",
-      withMasterSheet(`/api/companies/${encodeURIComponent(workflowContext.companyFolderId)}/coshh`, workflowContext.masterSheetId),
-    );
-    const active = listActiveVerificationCoshhRegisters(coshhFromListResponse(coshh));
-    return trim(active[0]?.coshhId || active[0]?.id);
-  }
-  if (type === "loler") {
-    const loler = await request(
-      "GET",
-      withMasterSheet(`/api/companies/${encodeURIComponent(workflowContext.companyFolderId)}/loler/equipment`, workflowContext.masterSheetId),
-    );
-    const active = listActiveVerificationLolerEquipment(lolerFromListResponse(loler));
-    return trim(active[0]?.equipmentId || active[0]?.id);
-  }
-  return "";
+export async function attemptFullWorkflowCleanup(request, workflowContext, config) {
+  const reportCleanup = await attemptVerificationReportCleanup(
+    request,
+    workflowContext,
+    config,
+    workflowContext.generatedReportIds,
+  );
+  const sourceCleanup = await cleanupReportingSources(
+    request,
+    workflowContext,
+    config,
+    workflowContext.sourcePlan,
+    workflowContext.sources,
+  );
+  return { reportCleanup, sourceCleanup };
 }
 
 async function generateReportWithRecovery(request, config, workflowContext, reportType, runId) {
   const reportId = buildProductionVerificationReportId(runId, reportType);
-  const sourceId = await discoverSourceId(request, config, reportType, workflowContext);
+  const sourceId = getReportingSourceId(workflowContext.sources, reportType);
   if (!sourceId) {
     return { ok: false, missingSource: true, reportId, reportType };
   }
@@ -416,6 +356,9 @@ export async function runProductionReportingWorkflowChecks(config, transport, op
     reportRunId,
     generatedReportIds: [],
     lastDownloadBuffer: null,
+    sources: createEmptyReportingSources(),
+    sourcePlan: null,
+    login: null,
   };
   let mustRunCleanup = false;
   const performance = {};
@@ -430,7 +373,7 @@ export async function runProductionReportingWorkflowChecks(config, transport, op
 
   if (typeof options.registerInterruptCleanup === "function") {
     options.registerInterruptCleanup(async () =>
-      attemptVerificationReportCleanup(request, workflowContext, config, workflowContext.generatedReportIds),
+      attemptFullWorkflowCleanup(request, workflowContext, config),
     );
   }
 
@@ -515,6 +458,7 @@ export async function runProductionReportingWorkflowChecks(config, transport, op
     result.accountEmail = login.accountEmail || config.expectedEmail;
     workflowContext.companyFolderId = trim(login.companyFolderId || config.companyFolderId);
     workflowContext.masterSheetId = trim(login.masterSheetId || config.masterSheetId);
+    workflowContext.login = login;
     pass("authentication");
     return null;
   });
@@ -582,6 +526,7 @@ export async function runProductionReportingWorkflowChecks(config, transport, op
     if (cleanup.status !== 200 || cleanup.json?.ok !== true) {
       return fail("staleCleanup", "Stale verification report cleanup failed.", "Inspect reports verification-cleanup route.", cleanup.status, cleanup.json);
     }
+    await cleanupStaleReportingSources(request, workflowContext, config, runId);
     pass("staleCleanup");
     return null;
   });
@@ -589,6 +534,44 @@ export async function runProductionReportingWorkflowChecks(config, transport, op
     return staleFail;
   }
 
+  const provisionFail = await runStage("sourceProvisioning", async () => {
+    const started = Date.now();
+    const provisioned = await provisionAllReportingSources(
+      request,
+      config,
+      workflowContext,
+      workflowContext.login,
+      runId,
+    );
+    if (!provisioned.ok) {
+      const failed = provisioned.results.find((item) => !item.ok) || {};
+      await cleanupReportingSources(
+        request,
+        workflowContext,
+        config,
+        provisioned.plan,
+        workflowContext.sources,
+      );
+      return fail(
+        "sourceProvisioning",
+        `Source provisioning failed for ${provisioned.failedReportType}: ${failed.error || "unknown error"}.`,
+        `Inspect ${provisioned.failedReportType} verification source provisioning.`,
+        failed.response?.status,
+        failed.response?.json,
+        { failedReportType: provisioned.failedReportType },
+      );
+    }
+    workflowContext.sourcePlan = provisioned.plan;
+    mustRunCleanup = true;
+    performance.sourceProvisioningMs = `${Date.now() - started}ms`;
+    pass("sourceProvisioning");
+    return null;
+  });
+  if (provisionFail) {
+    return provisionFail;
+  }
+
+  try {
   for (const reportType of SUPPORTED_VERIFICATION_REPORT_TYPES) {
     const stageKey = REPORT_TYPE_STAGE_KEYS[reportType];
     const stageFail = await runStage(stageKey, async () => {
@@ -598,8 +581,8 @@ export async function runProductionReportingWorkflowChecks(config, transport, op
         if (generated.missingSource) {
           return fail(
             stageKey,
-            `No verification ${reportType} source record is available.`,
-            `Run the production ${reportType} workflow gate first or create a bert-smoke verification record.`,
+            `Provisioned source is missing for ${reportType}.`,
+            "Inspect sourceProvisioning stage results.",
           );
         }
         return fail(
@@ -728,10 +711,11 @@ export async function runProductionReportingWorkflowChecks(config, transport, op
 
   const cleanupFail = await runStage("cleanup", async () => {
     const started = Date.now();
-    const cleanup = await attemptVerificationReportCleanup(request, workflowContext, config, workflowContext.generatedReportIds);
-    const failed = cleanup.results.some((item) => !item.ok);
-    if (failed) {
-      return fail("cleanup", "Verification report cleanup failed.", "Inspect reports verification-cleanup routes.");
+    const cleanup = await attemptFullWorkflowCleanup(request, workflowContext, config);
+    const reportFailed = cleanup.reportCleanup.results.some((item) => !item.ok);
+    const sourceFailed = !cleanup.sourceCleanup.ok;
+    if (reportFailed || sourceFailed) {
+      return fail("cleanup", "Verification report or source cleanup failed.", "Inspect reports and source verification-cleanup routes.");
     }
     const list = await request("GET", reportsPath(workflowContext.companyFolderId, workflowContext.masterSheetId));
     const reports = Array.isArray(list.json?.reports) ? list.json.reports : [];
@@ -750,4 +734,13 @@ export async function runProductionReportingWorkflowChecks(config, transport, op
   result.ok = true;
   result.durationMs = Date.now() - startedAt;
   return result;
+  } finally {
+    if (mustRunCleanup && result.checks.cleanup?.status !== "PASS") {
+      try {
+        await attemptFullWorkflowCleanup(request, workflowContext, config);
+      } catch {
+        // Best-effort cleanup on failure paths; cleanup stage records definitive status.
+      }
+    }
+  }
 }

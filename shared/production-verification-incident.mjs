@@ -149,7 +149,7 @@ export function buildProductionVerificationIncident(input = {}) {
     description: PRODUCTION_VERIFICATION_INCIDENT_DESCRIPTION,
     immediateAction: trim(input.immediateAction) || "No operational action required.",
     witnesses: PRODUCTION_VERIFICATION_INCIDENT_MARKER,
-    verificationSource: PRODUCTION_VERIFICATION_INCIDENT_SOURCE,
+    verificationSource: trim(input.verificationSource) || PRODUCTION_VERIFICATION_INCIDENT_SOURCE,
     notificationStatus: "Skipped",
     createdBy: reporterName,
     investigationNotes: trim(input.investigationNotes),

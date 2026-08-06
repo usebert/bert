@@ -15,15 +15,15 @@ import {
   buildProductionVerificationReportId,
   buildVerificationReportPdfBuffer,
   isValidVerificationPdfBuffer,
-  PRODUCTION_VERIFICATION_REPORT_SOURCE,
 } from "../shared/production-verification-report.mjs";
-import { PRODUCTION_VERIFICATION_AUDIT_ID } from "../shared/production-verification-audit.mjs";
-import { PRODUCTION_VERIFICATION_INCIDENT_ID_PREFIX } from "../shared/production-verification-incident.mjs";
-import { PRODUCTION_VERIFICATION_RA_ID_PREFIX } from "../shared/production-verification-risk-assessment.mjs";
-import { PRODUCTION_VERIFICATION_COSHH_ID_PREFIX } from "../shared/production-verification-coshh.mjs";
-import { PRODUCTION_VERIFICATION_LOLER_EQUIPMENT_ID_PREFIX } from "../shared/production-verification-loler.mjs";
+import {
+  PRODUCTION_VERIFICATION_AUDIT_ID,
+  PRODUCTION_VERIFICATION_SCHEDULE_ID,
+} from "../shared/production-verification-audit.mjs";
+import { buildReportingSourcePlan } from "./lib/production-reporting-source-provisioner.mjs";
 
 const TEST_RUN_ID = 515151;
+const SOURCE_PLAN = buildReportingSourcePlan(TEST_RUN_ID);
 const baseConfig = loadReportingWorkflowConfig({
   BERT_SMOKE_USERNAME: "mr.important",
   BERT_SMOKE_PASSWORD: "secret-password",
@@ -33,22 +33,25 @@ const baseConfig = loadReportingWorkflowConfig({
   BERT_SMOKE_ALLOW_REPORT_MUTATION: "1",
 });
 
+function createEmptyProvisionedSources() {
+  return {
+    auditResults: [],
+    incidents: [],
+    riskAssessments: [],
+    coshh: [],
+    loler: [],
+  };
+}
+
 function createMockStore() {
   return {
     reports: [],
     files: new Map(),
-    auditResults: [
-      {
-        "Result ID": "result-verify-1",
-        "Schedule ID": "bert-sch-production-verification",
-        "Audit ID": PRODUCTION_VERIFICATION_AUDIT_ID,
-        Status: "verification",
-      },
-    ],
-    incidents: [{ incidentId: `${PRODUCTION_VERIFICATION_INCIDENT_ID_PREFIX}${TEST_RUN_ID}`, status: "Open" }],
-    riskAssessments: [{ riskAssessmentId: `${PRODUCTION_VERIFICATION_RA_ID_PREFIX}${TEST_RUN_ID}`, status: "current" }],
-    coshh: [{ coshhId: `${PRODUCTION_VERIFICATION_COSHH_ID_PREFIX}${TEST_RUN_ID}`, status: "active" }],
-    loler: [{ equipmentId: `${PRODUCTION_VERIFICATION_LOLER_EQUIPMENT_ID_PREFIX}${TEST_RUN_ID}`, status: "active" }],
+    provisionedSources: createEmptyProvisionedSources(),
+    provisioningLog: [],
+    ordinaryRecords: {
+      incidents: [{ incidentId: "customer-incident-1", status: "Open" }],
+    },
     failGenerate: false,
     failMetadata: false,
     failDrive: false,
@@ -57,13 +60,20 @@ function createMockStore() {
     htmlAsPdf: false,
     rejectOrdinaryCleanup: false,
     cleanupFails: false,
+    sourceCleanupFails: false,
     reportingApiUnavailable: false,
     loginFails: false,
-    missingSources: false,
+    failProvisionType: "",
+    assignedChecksUnavailable: false,
     duplicateBlocked: false,
     lostResponseRecover: false,
     unauthorizedDownload: false,
   };
+}
+
+function isVerificationSourceId(sourceId = "") {
+  const id = trim(sourceId);
+  return id.startsWith("bert-smoke-") || id.startsWith("result-report-");
 }
 
 function createTransport(store, options = {}) {
@@ -82,7 +92,13 @@ function createTransport(store, options = {}) {
         status: 200,
         json: {
           ok: true,
-          user: { email: baseConfig.expectedEmail, role: "Admin", name: "Mr Important", companyFolderId: baseConfig.companyFolderId },
+          user: {
+            email: baseConfig.expectedEmail,
+            role: "Admin",
+            name: "Mr Important",
+            companyFolderId: baseConfig.companyFolderId,
+            userId: baseConfig.username,
+          },
           company: { companyFolderId: baseConfig.companyFolderId, companyName: "Dovecote Demo", live: true },
           masterSheetId: baseConfig.masterSheetId,
         },
@@ -97,6 +113,187 @@ function createTransport(store, options = {}) {
           company: { companyFolderId: baseConfig.companyFolderId, companyName: "Dovecote Demo" },
         },
       };
+    }
+    if (method === "GET" && pathname.endsWith("/me/assigned-checks")) {
+      if (store.assignedChecksUnavailable) {
+        return { status: 503, json: { ok: false, code: "ASSIGNED_CHECKS_UNAVAILABLE" } };
+      }
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          companyFolderId: baseConfig.companyFolderId,
+          masterSheetId: baseConfig.masterSheetId,
+          schedules: [
+            {
+              id: PRODUCTION_VERIFICATION_SCHEDULE_ID,
+              scheduleName: "BERT Verification Audit",
+              audits: [{ auditId: PRODUCTION_VERIFICATION_AUDIT_ID, auditName: "BERT Verification Audit" }],
+              assignedUserEmails: [baseConfig.expectedEmail],
+            },
+          ],
+        },
+      };
+    }
+    if (method === "POST" && pathname.includes("/checks/") && pathname.endsWith("/complete")) {
+      if (store.failProvisionType === "audit") {
+        return { status: 500, json: { ok: false, code: "AUDIT_COMPLETE_FAILED" } };
+      }
+      const resultId = `result-report-${TEST_RUN_ID}`;
+      const existing = store.provisionedSources.auditResults.find((row) => row.resultId === resultId);
+      if (existing) {
+        return { status: 200, json: { ok: true, alreadyExists: true, resultId } };
+      }
+      store.provisionedSources.auditResults.push({
+        resultId,
+        "Result ID": resultId,
+        localSubmissionId: body?.localSubmissionId,
+        verificationSource: body?.verificationSource,
+        Status: "verification",
+      });
+      store.provisioningLog.push({ reportType: "audit", sourceId: resultId });
+      return { status: 200, json: { ok: true, resultId } };
+    }
+    if (method === "POST" && pathname.endsWith("/incidents") && !pathname.includes("verification-cleanup")) {
+      if (store.failProvisionType === "incident") {
+        return { status: 500, json: { ok: false, code: "INCIDENT_CREATE_FAILED" } };
+      }
+      const incidentId = trim(body?.incidentId);
+      const existing = store.provisionedSources.incidents.find((row) => row.incidentId === incidentId);
+      if (existing) {
+        return { status: 200, json: { ok: true, alreadyExists: true, incidentId } };
+      }
+      store.provisionedSources.incidents.push({ incidentId, status: "Open", verificationSource: body?.verificationSource });
+      store.provisioningLog.push({ reportType: "incident", sourceId: incidentId });
+      return { status: 200, json: { ok: true, incidentId } };
+    }
+    if (method === "POST" && pathname.endsWith("/risk-assessments") && !pathname.includes("verification-cleanup")) {
+      if (store.failProvisionType === "risk-assessment") {
+        return { status: 500, json: { ok: false, code: "RISK_ASSESSMENT_CREATE_FAILED" } };
+      }
+      const riskAssessmentId = trim(body?.riskAssessmentId || body?.id);
+      const existing = store.provisionedSources.riskAssessments.find((row) => row.riskAssessmentId === riskAssessmentId);
+      if (existing) {
+        return { status: 200, json: { ok: true, alreadyExists: true, item: { id: riskAssessmentId } } };
+      }
+      store.provisionedSources.riskAssessments.push({
+        riskAssessmentId,
+        status: "current",
+        verificationSource: body?.verificationSource,
+      });
+      store.provisioningLog.push({ reportType: "risk-assessment", sourceId: riskAssessmentId });
+      return { status: 200, json: { ok: true, item: { id: riskAssessmentId } } };
+    }
+    if (method === "POST" && pathname.endsWith("/coshh/verification/substance")) {
+      if (store.failProvisionType === "coshh") {
+        return { status: 500, json: { ok: false, code: "COSHH_CREATE_FAILED" } };
+      }
+      const coshhId = trim(body?.coshhId);
+      const existing = store.provisionedSources.coshh.find((row) => row.coshhId === coshhId);
+      if (existing) {
+        return { status: 200, json: { ok: true, alreadyExists: true, coshhId } };
+      }
+      store.provisionedSources.coshh.push({ coshhId, status: "active", verificationSource: body?.verificationSource });
+      store.provisioningLog.push({ reportType: "coshh", sourceId: coshhId });
+      return { status: 200, json: { ok: true, coshhId } };
+    }
+    if (method === "POST" && pathname.endsWith("/loler/verification/equipment")) {
+      if (store.failProvisionType === "loler") {
+        return { status: 500, json: { ok: false, code: "LOLER_CREATE_FAILED" } };
+      }
+      const equipmentId = trim(body?.equipmentId);
+      const existing = store.provisionedSources.loler.find((row) => row.equipmentId === equipmentId);
+      if (existing) {
+        return { status: 200, json: { ok: true, alreadyExists: true, equipmentId } };
+      }
+      store.provisionedSources.loler.push({
+        equipmentId,
+        status: "active",
+        verificationSource: body?.verificationSource,
+      });
+      store.provisioningLog.push({ reportType: "loler", sourceId: equipmentId });
+      return { status: 200, json: { ok: true, equipmentId } };
+    }
+    if (method === "POST" && pathname.endsWith("/incidents/verification-cleanup")) {
+      const keepIncidentId = trim(body?.keepIncidentId);
+      store.provisionedSources.incidents = store.provisionedSources.incidents.filter(
+        (row) => row.incidentId === keepIncidentId,
+      );
+      return { status: 200, json: { ok: true, cleanedCount: 1 } };
+    }
+    if (method === "POST" && pathname.endsWith("/risk-assessments/verification-cleanup")) {
+      const keepRiskAssessmentId = trim(body?.keepRiskAssessmentId);
+      store.provisionedSources.riskAssessments = store.provisionedSources.riskAssessments.filter(
+        (row) => row.riskAssessmentId === keepRiskAssessmentId,
+      );
+      return { status: 200, json: { ok: true, cleanedCount: 1 } };
+    }
+    if (method === "POST" && pathname.endsWith("/coshh/verification-cleanup")) {
+      const keepCoshhId = trim(body?.keepCoshhId);
+      store.provisionedSources.coshh = store.provisionedSources.coshh.filter((row) => row.coshhId === keepCoshhId);
+      return { status: 200, json: { ok: true, cleanedCount: 1 } };
+    }
+    if (method === "POST" && pathname.endsWith("/loler/verification-cleanup")) {
+      const keepEquipmentId = trim(body?.keepEquipmentId);
+      store.provisionedSources.loler = store.provisionedSources.loler.filter((row) => row.equipmentId === keepEquipmentId);
+      return { status: 200, json: { ok: true, cleanedCount: 1 } };
+    }
+    if (method === "POST" && pathname.includes("/audit-results/") && pathname.endsWith("/verification-cleanup")) {
+      const resultId = pathname.split("/audit-results/")[1]?.split("/")[0];
+      if (!isVerificationSourceId(resultId)) {
+        return { status: 400, json: { ok: false, code: "SOURCE_CLEANUP_REJECTED" } };
+      }
+      if (store.sourceCleanupFails) {
+        return { status: 500, json: { ok: false, code: "SOURCE_CLEANUP_FAILED" } };
+      }
+      store.provisionedSources.auditResults = store.provisionedSources.auditResults.filter((row) => row.resultId !== resultId);
+      return { status: 200, json: { ok: true, cleaned: true } };
+    }
+    if (method === "POST" && pathname.includes("/incidents/") && pathname.endsWith("/verification-cleanup")) {
+      const incidentId = pathname.split("/incidents/")[1]?.split("/")[0];
+      if (!isVerificationSourceId(incidentId)) {
+        return { status: 400, json: { ok: false, code: "SOURCE_CLEANUP_REJECTED" } };
+      }
+      if (store.sourceCleanupFails) {
+        return { status: 500, json: { ok: false, code: "SOURCE_CLEANUP_FAILED" } };
+      }
+      store.provisionedSources.incidents = store.provisionedSources.incidents.filter((row) => row.incidentId !== incidentId);
+      return { status: 200, json: { ok: true, cleaned: true } };
+    }
+    if (method === "POST" && pathname.includes("/risk-assessments/") && pathname.endsWith("/verification-cleanup")) {
+      const riskAssessmentId = pathname.split("/risk-assessments/")[1]?.split("/")[0];
+      if (!isVerificationSourceId(riskAssessmentId)) {
+        return { status: 400, json: { ok: false, code: "SOURCE_CLEANUP_REJECTED" } };
+      }
+      if (store.sourceCleanupFails) {
+        return { status: 500, json: { ok: false, code: "SOURCE_CLEANUP_FAILED" } };
+      }
+      store.provisionedSources.riskAssessments = store.provisionedSources.riskAssessments.filter(
+        (row) => row.riskAssessmentId !== riskAssessmentId,
+      );
+      return { status: 200, json: { ok: true, cleaned: true } };
+    }
+    if (method === "POST" && pathname.includes("/coshh/") && pathname.endsWith("/verification-cleanup")) {
+      const coshhId = pathname.split("/coshh/")[1]?.split("/")[0];
+      if (!isVerificationSourceId(coshhId)) {
+        return { status: 400, json: { ok: false, code: "SOURCE_CLEANUP_REJECTED" } };
+      }
+      if (store.sourceCleanupFails) {
+        return { status: 500, json: { ok: false, code: "SOURCE_CLEANUP_FAILED" } };
+      }
+      store.provisionedSources.coshh = store.provisionedSources.coshh.filter((row) => row.coshhId !== coshhId);
+      return { status: 200, json: { ok: true, cleaned: true } };
+    }
+    if (method === "POST" && pathname.includes("/loler/equipment/") && pathname.endsWith("/verification-cleanup")) {
+      const equipmentId = pathname.split("/loler/equipment/")[1]?.split("/")[0];
+      if (!isVerificationSourceId(equipmentId)) {
+        return { status: 400, json: { ok: false, code: "SOURCE_CLEANUP_REJECTED" } };
+      }
+      if (store.sourceCleanupFails) {
+        return { status: 500, json: { ok: false, code: "SOURCE_CLEANUP_FAILED" } };
+      }
+      store.provisionedSources.loler = store.provisionedSources.loler.filter((row) => row.equipmentId !== equipmentId);
+      return { status: 200, json: { ok: true, cleaned: true } };
     }
     if (store.reportingApiUnavailable && pathname.includes("/reports")) {
       return { status: 503, json: { ok: false, code: "REPORTS_UNAVAILABLE" } };
@@ -127,19 +324,25 @@ function createTransport(store, options = {}) {
       };
     }
     if (method === "GET" && pathname.includes("/audit-results")) {
-      return { status: 200, json: { ok: true, results: store.missingSources ? [] : store.auditResults } };
+      return { status: 200, json: { ok: true, results: store.provisionedSources.auditResults } };
     }
     if (method === "GET" && pathname.endsWith("/incidents")) {
-      return { status: 200, json: { ok: true, incidents: store.missingSources ? [] : store.incidents } };
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          incidents: [...store.ordinaryRecords.incidents, ...store.provisionedSources.incidents],
+        },
+      };
     }
     if (method === "GET" && pathname.endsWith("/risk-assessments")) {
-      return { status: 200, json: { ok: true, riskAssessments: store.missingSources ? [] : store.riskAssessments } };
+      return { status: 200, json: { ok: true, riskAssessments: store.provisionedSources.riskAssessments } };
     }
     if (method === "GET" && pathname.endsWith("/coshh")) {
-      return { status: 200, json: { ok: true, registers: store.missingSources ? [] : store.coshh } };
+      return { status: 200, json: { ok: true, registers: store.provisionedSources.coshh } };
     }
     if (method === "GET" && pathname.endsWith("/loler/equipment")) {
-      return { status: 200, json: { ok: true, equipment: store.missingSources ? [] : store.loler } };
+      return { status: 200, json: { ok: true, equipment: store.provisionedSources.loler } };
     }
     if (method === "POST" && pathname.endsWith("/reports/generate")) {
       if (store.failGenerate) {
@@ -259,7 +462,7 @@ async function runWorkflow(storeOverrides = {}, options = {}) {
 test("full successful workflow", async () => {
   const { result } = await runWorkflow();
   assert.equal(result.ok, true);
-  for (const key of ["authentication", "reportingApi", "auditReport", "cleanup"]) {
+  for (const key of ["authentication", "reportingApi", "sourceProvisioning", "auditReport", "cleanup"]) {
     assert.equal(result.checks[key].status, "PASS", key);
   }
   assert.equal(result.checks.additionalReports.status, "SKIP");
@@ -346,16 +549,70 @@ test("invalid PDF signature", async () => {
   assert.equal(isValidVerificationPdfBuffer(buffer), false);
 });
 
+test("no pre-existing source records", async () => {
+  const store = createMockStore();
+  assert.deepEqual(store.provisionedSources, createEmptyProvisionedSources());
+  const { result } = await runWorkflow(store);
+  assert.equal(result.ok, true);
+  assert.equal(result.checks.sourceProvisioning.status, "PASS");
+});
+
+test("successful self-provisioning", async () => {
+  const { result, store } = await runWorkflow();
+  assert.equal(result.checks.sourceProvisioning.status, "PASS");
+  assert.equal(store.provisioningLog.length, 5);
+  const byType = Object.fromEntries(store.provisioningLog.map((entry) => [entry.reportType, entry.sourceId]));
+  assert.equal(byType.incident, SOURCE_PLAN.incident.incidentId);
+  assert.equal(byType["risk-assessment"], SOURCE_PLAN["risk-assessment"].riskAssessmentId);
+  assert.equal(byType.coshh, SOURCE_PLAN.coshh.coshhId);
+  assert.equal(byType.loler, SOURCE_PLAN.loler.equipmentId);
+  assert.equal(byType.audit, `result-report-${TEST_RUN_ID}`);
+});
+
+test("source creation failure identifies report type", async () => {
+  const { result } = await runWorkflow({ failProvisionType: "coshh" });
+  assert.equal(result.ok, false);
+  assert.equal(result.checks.sourceProvisioning.status, "FAIL");
+  assert.equal(result.failedReportType, "coshh");
+  assert.match(result.failureReason || "", /coshh/i);
+});
+
+test("report generation after provisioning", async () => {
+  const { result } = await runWorkflow();
+  assert.equal(result.checks.sourceProvisioning.status, "PASS");
+  for (const key of ["auditReport", "incidentReport", "riskAssessmentReport", "coshhReport", "lolerReport"]) {
+    assert.equal(result.checks[key].status, "PASS", key);
+  }
+});
+
+test("source cleanup after success", async () => {
+  const { result, store } = await runWorkflow();
+  assert.equal(result.ok, true);
+  assert.equal(result.checks.cleanup.status, "PASS");
+  assert.deepEqual(store.provisionedSources, createEmptyProvisionedSources());
+  assert.equal(store.ordinaryRecords.incidents.length, 1);
+  assert.equal(store.ordinaryRecords.incidents[0].incidentId, "customer-incident-1");
+});
+
+test("source cleanup after report failure", async () => {
+  const { result, store } = await runWorkflow({ invalidPdf: true });
+  assert.equal(result.ok, false);
+  assert.equal(result.checks.pdfIntegrity.status, "FAIL");
+  assert.deepEqual(store.provisionedSources, createEmptyProvisionedSources());
+});
+
+test("no stale source dependency", async () => {
+  const store = createMockStore();
+  const { result } = await runWorkflow(store);
+  assert.equal(result.ok, true);
+  assert.equal(result.checks.sourceProvisioning.status, "PASS");
+  assert.equal(result.checks.auditReport.status, "PASS");
+});
+
 test("HTML error page returned as PDF", async () => {
   const { result } = await runWorkflow({ htmlAsPdf: true });
   assert.equal(result.ok, false);
   assert.equal(result.checks.pdfIntegrity.status, "FAIL");
-});
-
-test("missing source record", async () => {
-  const { result } = await runWorkflow({ missingSources: true });
-  assert.equal(result.ok, false);
-  assert.equal(result.checks.auditReport.status, "FAIL");
 });
 
 test("metadata write failure", async () => {
@@ -377,8 +634,12 @@ test("lost response recovery", async () => {
 test("duplicate report prevention", async () => {
   const store = createMockStore();
   const reportId = buildProductionVerificationReportId(TEST_RUN_ID, "audit");
-  store.reports.push({ reportId, reportType: "audit", sourceId: PRODUCTION_VERIFICATION_AUDIT_ID, status: "active" });
-  store.files.set(reportId, buildVerificationReportPdfBuffer({ reportType: "audit", reportId, sourceId: PRODUCTION_VERIFICATION_AUDIT_ID }));
+  const auditSourceId = `result-report-${TEST_RUN_ID}`;
+  store.reports.push({ reportId, reportType: "audit", sourceId: auditSourceId, status: "active" });
+  store.files.set(
+    reportId,
+    buildVerificationReportPdfBuffer({ reportType: "audit", reportId, sourceId: auditSourceId }),
+  );
   const { result } = await runWorkflow(store);
   assert.equal(result.checks.auditReport.status, "PASS");
 });
@@ -457,6 +718,7 @@ test("secret/customer-content-safe output", async () => {
 });
 
 test("check keys cover required stages", () => {
-  assert.equal(CHECK_KEYS.length, 17);
+  assert.equal(CHECK_KEYS.length, 18);
+  assert.equal(CHECK_KEYS.includes("sourceProvisioning"), true);
   assert.equal(CHECK_KEYS.includes("pdfIntegrity"), true);
 });

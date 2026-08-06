@@ -6,6 +6,7 @@ import { PRODUCTION_VERIFICATION_AUDIT_ID, PRODUCTION_VERIFICATION_AUDIT_NAME } 
 export const PRODUCTION_VERIFICATION_REPORT_ID_PREFIX = "bert-smoke-report-";
 export const PRODUCTION_VERIFICATION_REPORT_FILENAME_PREFIX = "BERT-Verification-";
 export const PRODUCTION_VERIFICATION_REPORT_SOURCE = "production-reporting-workflow";
+export const PRODUCTION_VERIFICATION_REPORTING_SOURCE_MODE = "production-reporting-workflow-source";
 export const PRODUCTION_VERIFICATION_REPORT_MARKER = "verification";
 export const PRODUCTION_VERIFICATION_REPORT_CLEANED_STATUS = "verification-cleaned";
 export const PRODUCTION_VERIFICATION_REPORT_MIME = "application/pdf";
@@ -91,6 +92,10 @@ export function isSupportedVerificationReportType(reportType = "") {
 
 export function buildProductionVerificationReportId(runId = Date.now(), reportType = "audit") {
   return `${PRODUCTION_VERIFICATION_REPORT_ID_PREFIX}${runId}-${normalizeVerificationReportType(reportType)}`;
+}
+
+export function buildReportingAuditLocalSubmissionId(runId = Date.now()) {
+  return `bert-smoke-report-audit-${runId}`;
 }
 
 export function buildProductionVerificationReportFilename(runId = Date.now(), reportType = "audit") {

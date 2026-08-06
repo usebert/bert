@@ -212,7 +212,7 @@ export function buildProductionVerificationLolerEquipment(input = {}) {
     assignedPersonId: assignedEmail,
     assignedPersonName: trim(input.assignedPersonName) || "Smoke Verifier",
     notes: trim(input.notes) || `${PRODUCTION_VERIFICATION_LOLER_DESCRIPTION} ${PRODUCTION_VERIFICATION_LOLER_NOTES_MARKER}`,
-    verificationSource: PRODUCTION_VERIFICATION_LOLER_SOURCE,
+    verificationSource: trim(input.verificationSource) || PRODUCTION_VERIFICATION_LOLER_SOURCE,
     verificationMarker: PRODUCTION_VERIFICATION_LOLER_MARKER,
   };
 }
