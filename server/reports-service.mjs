@@ -558,6 +558,17 @@ export async function getVerificationReport(auth, deps, resolved, actor, reportI
   };
 }
 
+export function rebuildVerificationReportPdfFromMetadata(report = {}, resolved = {}) {
+  return buildVerificationReportPdfBuffer({
+    reportType: report.reportType,
+    reportId: report.reportId,
+    sourceId: report.sourceId,
+    companyName: trim(resolved.companyName) || "Dovecote Demo",
+    generatedAt: trim(report.generatedAt) || trim(report.createdAt) || nowIso(),
+    status: trim(report.status) || "verification",
+  });
+}
+
 export async function downloadVerificationReport(auth, deps, resolved, actor, reportId) {
   const metadata = await getVerificationReport(auth, deps, resolved, actor, reportId);
   if (!metadata.ok) {
@@ -567,9 +578,21 @@ export async function downloadVerificationReport(auth, deps, resolved, actor, re
   if (!sessionDir) {
     return reportsApiFailure("REPORT_STORAGE_UNAVAILABLE", "Report storage is not configured.", 503);
   }
-  const buffer = await readReportFile(sessionDir, resolved.companyFolderId, reportId);
+  let buffer = await readReportFile(sessionDir, resolved.companyFolderId, reportId);
+  let rebuiltFromMetadata = false;
   if (!buffer || !isValidVerificationPdfBuffer(buffer)) {
+    buffer = rebuildVerificationReportPdfFromMetadata(metadata.report, resolved);
+    rebuiltFromMetadata = true;
+  }
+  if (!isValidVerificationPdfBuffer(buffer)) {
     return reportsApiFailure("REPORT_FILE_MISSING", "Report file is missing or invalid.", 404);
+  }
+  if (rebuiltFromMetadata) {
+    try {
+      await writeReportFile(sessionDir, resolved.companyFolderId, reportId, buffer);
+    } catch {
+      // Best-effort cache after metadata rebuild.
+    }
   }
   return {
     ok: true,
@@ -578,6 +601,7 @@ export async function downloadVerificationReport(auth, deps, resolved, actor, re
     mimeType: "application/pdf",
     fileSize: buffer.length,
     buffer,
+    rebuiltFromMetadata,
   };
 }
 

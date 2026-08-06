@@ -792,6 +792,14 @@ export function createFetchTransport(apiBase, appOrigin, timeoutMs = DEFAULT_TIM
     }
   }
 
+  function isBinaryResponsePath(path, contentType) {
+    const normalizedType = String(contentType || "").toLowerCase();
+    if (normalizedType.includes("application/pdf") || normalizedType.includes("application/octet-stream")) {
+      return true;
+    }
+    return String(path || "").includes("/download");
+  }
+
   async function request(method, path, body, requestOptions = {}) {
     const url = path.startsWith("http") ? path : `${apiBase.replace(/\/$/, "")}${path}`;
     const controller = new AbortController();
@@ -801,7 +809,7 @@ export function createFetchTransport(apiBase, appOrigin, timeoutMs = DEFAULT_TIM
       const response = await fetch(url, {
         method,
         headers: {
-          Accept: "application/json",
+          Accept: "application/json, application/pdf;q=0.9, */*;q=0.8",
           Origin: appOrigin,
           ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
           ...(cookies.size ? { Cookie: [...cookies.entries()].map(([k, v]) => `${k}=${v}`).join("; ") } : {}),
@@ -811,14 +819,37 @@ export function createFetchTransport(apiBase, appOrigin, timeoutMs = DEFAULT_TIM
         signal: controller.signal,
       });
       absorbSetCookies(response);
-      const text = await response.text();
-      let json = null;
-      try {
-        json = text ? JSON.parse(text) : null;
-      } catch {
-        json = null;
+      const contentType = response.headers.get("content-type") || "";
+      const contentLengthHeader = response.headers.get("content-length");
+      const contentLength = contentLengthHeader ? Number(contentLengthHeader) : undefined;
+      const binary = isBinaryResponsePath(path, contentType);
+      let text = "";
+      let buffer = null;
+      if (binary) {
+        const arrayBuffer = await response.arrayBuffer();
+        buffer = Buffer.from(arrayBuffer);
+        text = buffer.toString("binary");
+      } else {
+        text = await response.text();
       }
-      return { status: response.status, ok: response.ok, json, text, elapsedMs: 0 };
+      let json = null;
+      if (!binary) {
+        try {
+          json = text ? JSON.parse(text) : null;
+        } catch {
+          json = null;
+        }
+      }
+      return {
+        status: response.status,
+        ok: response.ok,
+        json,
+        text,
+        buffer,
+        contentType,
+        contentLength: Number.isFinite(contentLength) ? contentLength : buffer?.length,
+        elapsedMs: 0,
+      };
     } finally {
       clearTimeout(timer);
     }

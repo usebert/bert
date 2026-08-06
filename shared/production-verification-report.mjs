@@ -255,28 +255,82 @@ export function buildVerificationReportPdfBuffer(input = {}) {
     textOps.push(`(${escapePdfText(line)}) Tj`);
   });
   textOps.push("ET");
-  const stream = `${textOps.join("\n")}\n`;
-  const streamLength = Buffer.byteLength(stream, "utf8");
+  const stream = Buffer.from(`${textOps.join("\n")}\n`, "utf8");
   const objects = [
-    "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj",
-    "2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj",
-    "3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Resources<</Font<</F1 4 0 R>>>>/Contents 5 0 R>>endobj",
-    "4 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj",
-    `5 0 obj<</Length ${streamLength}>>stream\n${stream}endstream\nendobj`,
+    Buffer.from("1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n", "utf8"),
+    Buffer.from("2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n", "utf8"),
+    Buffer.from(
+      "3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Resources<</Font<</F1 4 0 R>>>>/Contents 5 0 R>>endobj\n",
+      "utf8",
+    ),
+    Buffer.from("4 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n", "utf8"),
+    Buffer.concat([
+      Buffer.from(`5 0 obj<</Length ${stream.length}>>stream\n`, "utf8"),
+      stream,
+      Buffer.from("endstream\nendobj\n", "utf8"),
+    ]),
   ];
-  let offset = 0;
-  const parts = ["%PDF-1.4\n"];
-  const xref = ["xref", "0 6", "0000000000 65535 f "];
+  const parts = [Buffer.from("%PDF-1.4\n", "utf8")];
+  const xrefLines = ["xref", "0 6", "0000000000 65535 f "];
   for (const object of objects) {
-    offset = Buffer.byteLength(parts.join(""), "utf8");
-    xref.push(`${String(offset).padStart(10, "0")} 00000 n `);
-    parts.push(`${object}\n`);
+    const offset = Buffer.concat(parts).length;
+    xrefLines.push(`${String(offset).padStart(10, "0")} 00000 n `);
+    parts.push(object);
   }
-  const startxref = Buffer.byteLength(parts.join(""), "utf8");
-  parts.push(`${xref.join("\n")}\n`);
-  parts.push(`trailer<</Size 6/Root 1 0 R>>\n`);
-  parts.push(`startxref\n${startxref}\n%%EOF`);
-  return Buffer.from(parts.join(""), "utf8");
+  const body = Buffer.concat(parts);
+  const xref = Buffer.from(`${xrefLines.join("\n")}\n`, "utf8");
+  const startxref = body.length;
+  const trailer = Buffer.from(`trailer<</Size 6/Root 1 0 R>>\nstartxref\n${startxref}\n%%EOF`, "utf8");
+  return Buffer.concat([body, xref, trailer]);
+}
+
+function responseLooksLikeJson(buffer) {
+  if (!buffer || buffer.length === 0) {
+    return false;
+  }
+  const first = buffer[0];
+  return first === 0x7b || first === 0x5b;
+}
+
+function responseLooksLikeHtml(buffer) {
+  if (!buffer || buffer.length === 0) {
+    return false;
+  }
+  const text = buffer.toString("utf8", 0, Math.min(buffer.length, 4096)).toLowerCase();
+  return text.includes("<html") || text.includes("<!doctype");
+}
+
+export function analyzeVerificationPdfBuffer(buffer) {
+  const byteLength = buffer?.length || 0;
+  const signatureValid = Boolean(buffer && buffer.length >= 5 && buffer.subarray(0, 5).toString("utf8") === "%PDF-");
+  const tail = buffer ? buffer.subarray(Math.max(0, buffer.length - 32)).toString("utf8") : "";
+  const eofMarkerValid = tail.includes("%%EOF");
+  const looksLikeJson = responseLooksLikeJson(buffer);
+  const looksLikeHtml = responseLooksLikeHtml(buffer);
+  let failureReason = "";
+  if (!buffer || !Buffer.isBuffer(buffer)) {
+    failureReason = "missing_buffer";
+  } else if (byteLength < PRODUCTION_VERIFICATION_REPORT_MIN_BYTES) {
+    failureReason = "empty_or_too_small";
+  } else if (looksLikeJson) {
+    failureReason = "json_body";
+  } else if (looksLikeHtml) {
+    failureReason = "html_body";
+  } else if (!signatureValid) {
+    failureReason = "invalid_signature";
+  } else if (!eofMarkerValid) {
+    failureReason = "missing_eof";
+  }
+  return {
+    byteLength,
+    signatureValid,
+    eofMarkerValid,
+    pageCount: signatureValid && eofMarkerValid ? estimatePdfPageCount(buffer) : 0,
+    looksLikeJson,
+    looksLikeHtml,
+    valid: isValidVerificationPdfBuffer(buffer),
+    failureReason,
+  };
 }
 
 export function isValidVerificationPdfBuffer(buffer) {
@@ -286,6 +340,9 @@ export function isValidVerificationPdfBuffer(buffer) {
   if (buffer.length < PRODUCTION_VERIFICATION_REPORT_MIN_BYTES) {
     return false;
   }
+  if (responseLooksLikeJson(buffer)) {
+    return false;
+  }
   if (buffer.subarray(0, 5).toString("utf8") !== "%PDF-") {
     return false;
   }
@@ -293,8 +350,7 @@ export function isValidVerificationPdfBuffer(buffer) {
   if (!tail.includes("%%EOF")) {
     return false;
   }
-  const text = buffer.toString("utf8", 0, Math.min(buffer.length, 4096)).toLowerCase();
-  if (text.includes("<html") || text.includes("<!doctype")) {
+  if (responseLooksLikeHtml(buffer)) {
     return false;
   }
   return true;

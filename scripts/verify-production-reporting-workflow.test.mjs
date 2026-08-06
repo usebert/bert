@@ -470,7 +470,13 @@ function createTransport(store, options = {}) {
       if (!buffer) {
         return { status: 404, json: { ok: false, code: "REPORT_FILE_MISSING" } };
       }
-      return { status: 200, text: buffer.toString("binary") };
+      return {
+        status: 200,
+        text: buffer.toString("binary"),
+        buffer,
+        contentType: "application/pdf",
+        contentLength: buffer.length,
+      };
     }
     if (method === "GET" && pathname.includes("/reports/") && !pathname.endsWith("/download")) {
       const reportId = pathname.split("/reports/")[1];
@@ -664,6 +670,7 @@ test("source cleanup after report failure", async () => {
   const { result, store } = await runWorkflow({ invalidPdf: true });
   assert.equal(result.ok, false);
   assert.equal(result.checks.pdfIntegrity.status, "FAIL");
+  assert.equal(result.checks.cleanup.status, "PASS");
   assert.deepEqual(store.provisionedSources, createEmptyProvisionedSources());
 });
 

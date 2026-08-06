@@ -12,6 +12,7 @@ import {
   loadAuditWorkflowConfig,
 } from "./production-audit-workflow-core.mjs";
 import {
+  analyzeVerificationPdfBuffer,
   buildProductionVerificationReportId,
   buildVerificationReportPdfBuffer,
   isValidVerificationPdfBuffer,
@@ -196,6 +197,52 @@ export function logReportingBaselineTiming(log, input = {}) {
     cacheHit: input.cacheHit === true ? true : undefined,
   };
   log(`[reporting:baseline-timing] ${JSON.stringify(payload)}`);
+}
+
+export function logReportingPdfIntegrity(log, input = {}) {
+  log(
+    `[reporting:pdf-integrity] ${JSON.stringify({
+      reportType: input.reportType || "",
+      reportId: input.reportId || "",
+      stage: input.stage || "",
+      contentType: input.contentType || "",
+      contentLength: input.contentLength ?? undefined,
+      byteLength: input.byteLength ?? 0,
+      signatureValid: input.signatureValid === true,
+      eofMarkerValid: input.eofMarkerValid === true,
+      pageCount: input.pageCount ?? 0,
+      durationMs: input.durationMs ?? 0,
+    })}`,
+  );
+}
+
+export function extractDownloadPdfBuffer(download = {}) {
+  if (download?.buffer && Buffer.isBuffer(download.buffer)) {
+    return download.buffer;
+  }
+  if (download?.text) {
+    return Buffer.from(download.text, "binary");
+  }
+  return Buffer.alloc(0);
+}
+
+function pdfIntegrityFailureMessage(reportId, download, analysis) {
+  if (download.status !== 200) {
+    return `Report ${reportId} download returned HTTP ${download.status}.`;
+  }
+  if (analysis.looksLikeJson) {
+    return `Report ${reportId} failed PDF integrity checks: response body is JSON, not PDF.`;
+  }
+  if (analysis.looksLikeHtml) {
+    return `Report ${reportId} failed PDF integrity checks: response body is HTML, not PDF.`;
+  }
+  if (!analysis.signatureValid) {
+    return `Report ${reportId} failed PDF integrity checks: missing %PDF- signature.`;
+  }
+  if (!analysis.eofMarkerValid) {
+    return `Report ${reportId} failed PDF integrity checks: missing %%EOF marker.`;
+  }
+  return `Report ${reportId} failed PDF integrity checks.`;
 }
 
 export function redactSafeResponseBody(value) {
@@ -671,14 +718,38 @@ export async function runProductionReportingWorkflowChecks(config, transport, op
   skip("additionalReports", "Action, briefing, risk-register, document, and dashboard exports are not server-generated.");
 
   const pdfFail = await runStage("pdfIntegrity", async () => {
+    const logStage = options.logStage || ((line) => console.log(line));
     for (const reportId of workflowContext.generatedReportIds) {
+      const reportType = reportId.split("-").pop();
+      const started = Date.now();
       const download = await request(
         "GET",
         reportDownloadPath(workflowContext.companyFolderId, reportId, workflowContext.masterSheetId),
       );
-      const buffer = Buffer.from(download.text || "", "binary");
-      if (!isValidVerificationPdfBuffer(buffer)) {
-        return fail("pdfIntegrity", `Report ${reportId} failed PDF integrity checks.`, "Inspect generated PDF output.");
+      const buffer = extractDownloadPdfBuffer(download);
+      const analysis = analyzeVerificationPdfBuffer(buffer);
+      logReportingPdfIntegrity(logStage, {
+        reportType,
+        reportId,
+        stage: download.status === 200 ? "download" : "download_error",
+        contentType: download.contentType || "",
+        contentLength: download.contentLength ?? analysis.byteLength,
+        byteLength: analysis.byteLength,
+        signatureValid: analysis.signatureValid,
+        eofMarkerValid: analysis.eofMarkerValid,
+        pageCount: analysis.pageCount,
+        durationMs: Date.now() - started,
+      });
+      if (!analysis.valid) {
+        return fail(
+          "pdfIntegrity",
+          pdfIntegrityFailureMessage(reportId, download, analysis),
+          download.status !== 200
+            ? "Inspect GET report download route and HTTP status."
+            : "Inspect generated PDF output and download binary transport.",
+          download.status,
+          download.json,
+        );
       }
       workflowContext.lastDownloadBuffer = buffer;
     }
@@ -736,7 +807,7 @@ export async function runProductionReportingWorkflowChecks(config, transport, op
     if (download.status !== 200) {
       return fail("downloadVerification", "Download route failed.", "Inspect GET report download route.", download.status);
     }
-    const buffer = Buffer.from(download.text || "", "binary");
+    const buffer = extractDownloadPdfBuffer(download);
     if (!isValidVerificationPdfBuffer(buffer)) {
       return fail("downloadVerification", "Downloaded report failed integrity checks.", "Inspect download route output.");
     }
@@ -800,10 +871,33 @@ export async function runProductionReportingWorkflowChecks(config, transport, op
   return result;
   } finally {
     if (mustRunCleanup && result.checks.cleanup?.status !== "PASS") {
+      const pendingKeys = CHECK_KEYS.filter((key) => result.checks[key].status === "PENDING");
       try {
-        await attemptFullWorkflowCleanup(request, workflowContext, config);
-      } catch {
-        // Best-effort cleanup on failure paths; cleanup stage records definitive status.
+        const cleanup = await attemptFullWorkflowCleanup(request, workflowContext, config);
+        const reportFailed = cleanup.reportCleanup.results.some((item) => !item.ok);
+        const sourceFailed = !cleanup.sourceCleanup.ok;
+        result.cleanupResult = cleanup;
+        if (reportFailed || sourceFailed) {
+          result.checks.cleanup = {
+            status: "FAIL",
+            reason: "Best-effort cleanup after workflow failure did not complete.",
+          };
+        } else {
+          result.checks.cleanup = {
+            status: "PASS",
+            reason: "Best-effort cleanup after workflow failure.",
+          };
+        }
+      } catch (error) {
+        result.checks.cleanup = {
+          status: "FAIL",
+          reason: error instanceof Error ? error.message : String(error),
+        };
+      }
+      for (const key of pendingKeys) {
+        if (result.checks[key].status === "PENDING") {
+          result.checks[key] = { status: "SKIP" };
+        }
       }
     }
   }
