@@ -2,7 +2,7 @@
  * Dedicated production smoke verification audit for Dovecote Manufacturing Ltd.
  * Idempotent row builders — safe to rerun; upserts by stable Audit ID / Schedule ID.
  */
-import { getUkTodayKey } from "./uk-date-time.mjs";
+import { isVerificationOfflineRunId } from "./production-verification-offline-sync.mjs";
 import { demoEmail } from "./demo-company-seed.mjs";
 import { buildSchedulesTabRows } from "./schedule-save.mjs";
 
@@ -72,7 +72,7 @@ export function isVerificationAuditResult(record = {}) {
     return true;
   }
   const localSubmissionId = extractField(record, ["local submission id", "localsubmissionid"]);
-  if (localSubmissionId.startsWith(PRODUCTION_VERIFICATION_SMOKE_LOCAL_SUBMISSION_PREFIX)) {
+  if (localSubmissionId.startsWith(PRODUCTION_VERIFICATION_SMOKE_LOCAL_SUBMISSION_PREFIX) || isVerificationOfflineRunId(localSubmissionId)) {
     return true;
   }
   const auditName = extractField(record, ["audit name", "auditname"]);

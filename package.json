@@ -202,6 +202,8 @@
     "verify:production-briefing-workflow-tests": "node --test scripts/verify-production-briefing-workflow.test.mjs",
     "verify:production-toolbox-talk-workflow": "node scripts/verify-production-toolbox-talk-workflow.mjs",
     "verify:production-toolbox-talk-workflow-tests": "node --test scripts/verify-production-toolbox-talk-workflow.test.mjs",
+    "verify:production-offline-sync-workflow": "node scripts/verify-production-offline-sync-workflow.mjs",
+    "verify:production-offline-sync-workflow-tests": "node --test scripts/verify-production-offline-sync-workflow.test.mjs",
     "verify:production-documents-workflow": "node scripts/verify-production-documents-workflow.mjs",
     "verify:production-documents-workflow-tests": "node --test scripts/verify-production-documents-workflow.test.mjs",
     "verify:production-schedules-workflow": "node scripts/verify-production-schedules-workflow.mjs",

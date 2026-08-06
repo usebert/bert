@@ -318,7 +318,7 @@ export function formatAuditWorkflowReport(result) {
   return lines.join("\n");
 }
 
-function flattenAssignedAudits(schedules = []) {
+export function flattenAssignedAudits(schedules = []) {
   const rows = [];
   for (const schedule of schedules) {
     const scheduleId = trim(schedule.id || schedule.scheduleId);
@@ -349,7 +349,7 @@ function flattenAssignedAudits(schedules = []) {
   return rows;
 }
 
-function pickWorkflowTarget(assignedRows, config) {
+export function pickWorkflowTarget(assignedRows, config) {
   const verification = assignedRows.find((row) => isSafeVerificationSchedule(row.schedule, config));
   const nonVerification = assignedRows.find((row) => !isSafeVerificationSchedule(row.schedule, config));
   return {

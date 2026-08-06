@@ -521,6 +521,44 @@ Unit tests (mocked HTTP, no production calls):
 npm run verify:production-toolbox-talk-workflow-tests
 ```
 
+### Production Offline Sync workflow (post-deploy smoke)
+
+After all prior production workflow gates pass, run the Offline Sync workflow smoke test. It authenticates with the Dovecote smoke account, confirms offline capability (IndexedDB `bert-tablet-offline-v1` queue/draft stores, service worker, online/offline listeners), and — only when `BERT_SMOKE_ALLOW_OFFLINE_MUTATION=1` — exercises the assigned verification audit (`bert-sch-production-verification` / `bert-verify-audit-v1`) through offline draft save, offline queue submission, reload survival, reconnect sync, server result verification, dashboard exclusion, and cleanup.
+
+```bash
+set -a && source .env && set +a
+
+BERT_SMOKE_USERNAME=mr.important \
+BERT_SMOKE_PASSWORD='<set securely in your environment>' \
+BERT_SMOKE_COMPANY_FOLDER_ID=1tDKluapYfY-RkuxXc6eoRnGHL38XCswx \
+BERT_SMOKE_MASTER_SHEET_ID=1MntKgSgVmTmlpzZhnCZdDQtdmPw7GcXptlAp88Ewrkc \
+BERT_SMOKE_EXPECTED_EMAIL=bert.demo+mr.important@usebert.co.uk \
+BERT_SMOKE_ALLOW_OFFLINE_MUTATION=1 \
+npm run verify:production-offline-sync-workflow
+```
+
+Optional:
+
+- **`BERT_SMOKE_ALLOW_OFFLINE_MUTATION`** — must be `1` to exercise offline draft/queue/sync/cleanup stages. Without it, mutation stages report **SKIPPED** (authentication, offline capability, and baseline still run).
+- **`BERT_SMOKE_OFFLINE_USE_BROWSER`** — set to `0` to skip Playwright capability probe (queue/sync still runs via API replay with storage simulator). Default probes production app offline support when Playwright is available.
+
+Architecture (assigned audit path):
+
+- **Queue store:** IndexedDB `bert-tablet-offline-v1` → `submissionQueue` + `offlineSubmissions`
+- **Draft store:** localStorage `bert-workspace-state` → `drafts`
+- **Offline simulation:** Playwright `context.setOffline(true)` for capability; queue replay uses the same `POST /api/companies/:id/checks/:scheduleId/complete` route as online submit
+- **Correlation ID:** `bert-smoke-offline-{runId}` on draft, queue item, and `localSubmissionId`
+- **Cleanup:** `POST .../audit-results/:resultId/verification-cleanup` + local queue/draft purge
+
+Expected runtime: ~5–15 minutes with mutation enabled. Skipped stages: **Notifications** (client-only), **Duplicate Protection** in default live run (covered by unit tests).
+
+Unit tests (mocked HTTP, no production calls):
+
+```bash
+npm run verify:production-offline-sync-workflow-tests
+npm run verify:offline-submission-queue
+```
+
 ### Production Documents workflow (post-deploy smoke)
 
 After startup health, authentication health, audit workflow, Actions workflow, Risk Assessment workflow, Incident workflow, and Briefing workflow pass, run the Documents workflow smoke test. It authenticates with the same smoke account, confirms Document Control list/index APIs, and — only when `BERT_SMOKE_ALLOW_DOCUMENT_MUTATION=1` — creates a dedicated verification controlled document, exercises draft → upload → edit → submit → approve, confirms Document Control index visibility and dashboard exclusion, and cleans up safely. It never edits customer documents or Drive files outside the verification path.
@@ -792,8 +830,9 @@ Run in order after every API deployment:
 11. **LOLER workflow** — `npm run verify:production-loler-workflow`
 12. **COSHH workflow** — `npm run verify:production-coshh-workflow`
 13. **Risk Register workflow** — `npm run verify:production-risk-register-workflow`
+14. **Offline Sync workflow** — `npm run verify:production-offline-sync-workflow`
 
-Only when all thirteen pass should the deployment be considered **READY FOR CUSTOMERS**.
+Only when all fourteen pass should the deployment be considered **READY FOR CUSTOMERS**.
 
 ### Startup system health (Master operators)
 

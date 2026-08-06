@@ -32,6 +32,7 @@ import {
   isVerificationAuditResult,
   isVerificationScheduleId,
 } from "../shared/production-verification-audit.mjs";
+import { isVerificationOfflineRunId } from "../shared/production-verification-offline-sync.mjs";
 import {
   normalizeAuditEvidenceUploadFile,
   sanitizeAuditEvidenceRefsForWorkbook,
@@ -186,6 +187,7 @@ function resolveAuditResultStatus(input = {}) {
   const auditId = trim(input.auditId);
   if (
     localSubmissionId.startsWith(PRODUCTION_VERIFICATION_SMOKE_LOCAL_SUBMISSION_PREFIX) ||
+    isVerificationOfflineRunId(localSubmissionId) ||
     isVerificationScheduleId(scheduleId) ||
     isVerificationAuditId(auditId)
   ) {
