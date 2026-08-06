@@ -9,11 +9,16 @@ import {
   buildProductionVerificationBriefing,
   isActiveVerificationBriefing,
   isOperationalBriefing,
+  isOperationalToolboxTalk,
   isOperationalWorkbookBriefingRow,
   isVerificationBriefing,
   PRODUCTION_VERIFICATION_BRIEFING_CLEANED_STATUS,
   PRODUCTION_VERIFICATION_BRIEFING_SIGNATURE_NAME,
 } from "../shared/production-verification-briefing.mjs";
+import {
+  buildProductionVerificationToolboxTalk,
+  PRODUCTION_VERIFICATION_TOOLBOX_TALK_TYPE,
+} from "../shared/production-verification-toolbox-talk.mjs";
 import {
   acknowledgeBriefing,
   assignVerificationBriefingRecipients,
@@ -374,4 +379,30 @@ test("zero-row acknowledgement failure", async () => {
   const denied = await acknowledgeBriefing(null, deps, actor, companyFolderId, verification.BriefingId);
   assert.equal(denied.ok, false);
   assert.equal(denied.code, "BRIEFING_RECIPIENT_NOT_FOUND");
+});
+
+test("toolbox talk verification draft accepts bert-smoke-toolbox- prefix and Toolbox Talk type", async () => {
+  const talk = buildProductionVerificationToolboxTalk({
+    runId,
+    createdByEmail: actor.email,
+    createdByName: actor.name,
+  });
+  const deps = createBriefingDeps({ [BRIEFINGS_TAB]: [customerBriefingRow()] });
+  const created = await createDraftVerificationBriefing(null, deps, actor, companyFolderId, {
+    briefingId: talk.briefingId,
+    title: talk.title,
+    type: talk.type,
+    message: talk.message,
+    dueDate: talk.dueDate,
+    requiresRead: talk.requiresRead,
+    requiresAcknowledgement: talk.requiresAcknowledgement,
+    requiresSignature: talk.requiresSignature,
+    targetUserEmails: talk.targetUserEmails,
+    verificationSource: talk.verificationSource,
+  });
+  assert.equal(created.ok, true);
+  const row = deps.getRows(BRIEFINGS_TAB).find((entry) => entry.BriefingId === talk.briefingId);
+  assert.equal(row?.Type, PRODUCTION_VERIFICATION_TOOLBOX_TALK_TYPE);
+  assert.equal(isVerificationBriefing({ briefingId: talk.briefingId, verificationSource: talk.verificationSource }), true);
+  assert.equal(isOperationalToolboxTalk({ briefingId: talk.briefingId, verificationSource: talk.verificationSource }), false);
 });

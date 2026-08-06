@@ -1089,7 +1089,7 @@ export async function createDraftVerificationBriefing(auth, deps, actor, company
   if (!isVerificationBriefingId(briefingId)) {
     return briefingApiFailure(
       "BRIEFING_VERIFICATION_ID_REQUIRED",
-      "Verification briefings must use the bert-smoke-briefing- ID prefix.",
+      "Verification briefings must use the bert-smoke-briefing- or bert-smoke-toolbox- ID prefix.",
       "",
       403,
     );
@@ -1123,7 +1123,7 @@ export async function createDraftVerificationBriefing(auth, deps, actor, company
     ...input,
     briefingId,
     title: trim(input.title),
-    type: PRODUCTION_VERIFICATION_BRIEFING_TYPE,
+    type: trim(input.type) || PRODUCTION_VERIFICATION_BRIEFING_TYPE,
     status: "Draft",
     priority: trim(input.priority) || "Normal",
     createdByEmail: actor.email,
@@ -1138,7 +1138,7 @@ export async function createDraftVerificationBriefing(auth, deps, actor, company
     targetMode: "users",
     targetUserEmails: input.targetUserEmails || [],
     message: trim(input.message),
-    verificationSource: PRODUCTION_VERIFICATION_BRIEFING_SOURCE,
+    verificationSource: trim(input.verificationSource) || PRODUCTION_VERIFICATION_BRIEFING_SOURCE,
     recipientCount: 0,
   });
 
@@ -1391,7 +1391,7 @@ export async function cleanupVerificationBriefing(auth, deps, actor, companyFold
   if (!isVerificationBriefingId(briefingId)) {
     return briefingApiFailure(
       "CLEANUP_NOT_VERIFICATION_BRIEFING",
-      "Only verification briefings with the bert-smoke-briefing- prefix can be cleaned up through this path.",
+      "Only verification briefings with the bert-smoke-briefing- or bert-smoke-toolbox- prefix can be cleaned up through this path.",
       "",
       403,
     );

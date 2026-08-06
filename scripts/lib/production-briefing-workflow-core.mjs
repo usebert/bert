@@ -23,6 +23,12 @@ import {
   PRODUCTION_VERIFICATION_BRIEFING_TYPE,
 } from "../../shared/production-verification-briefing.mjs";
 import {
+  buildProductionVerificationToolboxTalk,
+  buildProductionVerificationToolboxTalkId,
+  PRODUCTION_VERIFICATION_TOOLBOX_TALK_TITLE,
+  PRODUCTION_VERIFICATION_TOOLBOX_TALK_TYPE,
+} from "../../shared/production-verification-toolbox-talk.mjs";
+import {
   buildTimeoutFailureResult,
   createWorkflowDiagnostics,
   isStageTimeoutError,
@@ -35,6 +41,22 @@ import {
 } from "./production-risk-assessment-transient-retry.mjs";
 
 export { performProductionSmokeLogin, maskEmail };
+
+export const DEFAULT_BRIEFING_VERIFICATION_PROFILE = {
+  buildId: buildProductionVerificationBriefingId,
+  buildPayload: (input) => buildProductionVerificationBriefing(input),
+  expectedType: PRODUCTION_VERIFICATION_BRIEFING_TYPE,
+  expectedTitle: PRODUCTION_VERIFICATION_BRIEFING_TITLE,
+  recordIdField: "briefingId",
+};
+
+export const TOOLBOX_TALK_VERIFICATION_PROFILE = {
+  buildId: buildProductionVerificationToolboxTalkId,
+  buildPayload: (input) => buildProductionVerificationToolboxTalk(input),
+  expectedType: PRODUCTION_VERIFICATION_TOOLBOX_TALK_TYPE,
+  expectedTitle: PRODUCTION_VERIFICATION_TOOLBOX_TALK_TITLE,
+  recordIdField: "talkId",
+};
 
 export const BRIEFING_VERIFIER_BUDGET_MS = 12 * 60 * 1000;
 
@@ -430,10 +452,14 @@ function assertResponseSafe(json, label = "response") {
   assertNoPasswordHash(json, label);
 }
 
-export function formatBriefingWorkflowReport(result) {
+export function formatBriefingWorkflowReport(result, options = {}) {
+  const reportTitle = options.reportTitle || "BERT Production Briefing Workflow";
+  const stageLabels = options.stageLabels || CHECK_LABELS;
+  const recordIdLabel = options.recordIdLabel || "Briefing ID";
+  const recordId = result.talkId || result.briefingId;
   const lines = [
     "==========================================",
-    "BERT Production Briefing Workflow",
+    reportTitle,
     "==========================================",
     "",
   ];
@@ -441,7 +467,7 @@ export function formatBriefingWorkflowReport(result) {
   for (const key of CHECK_KEYS) {
     const check = result.checks[key] || { status: "FAIL" };
     const status = check.status === "SKIP" ? "SKIP" : check.status || "FAIL";
-    lines.push(`${CHECK_LABELS[key].padEnd(REPORT_LABEL_WIDTH)} ${status}`);
+    lines.push(`${stageLabels[key].padEnd(REPORT_LABEL_WIDTH)} ${status}`);
   }
 
   lines.push("");
@@ -457,8 +483,8 @@ export function formatBriefingWorkflowReport(result) {
   if (result.recipientEmail) {
     lines.push(`Recipient: ${maskEmail(result.recipientEmail)}`);
   }
-  if (result.briefingId) {
-    lines.push(`Briefing ID: ${result.briefingId}`);
+  if (recordId) {
+    lines.push(`${recordIdLabel}: ${recordId}`);
   }
   if (result.durationMs) {
     lines.push(`Duration: ${result.durationMs}ms`);
@@ -488,7 +514,7 @@ export function formatBriefingWorkflowReport(result) {
     lines.push("FAILED");
     lines.push("");
     lines.push("Failed stage:");
-    lines.push(result.failedStage || CHECK_LABELS[result.failedKey] || "Unknown");
+    lines.push(result.failedStage || stageLabels[result.failedKey] || "Unknown");
     lines.push("");
     if (result.httpStatus) {
       lines.push(`HTTP status: ${result.httpStatus}`);
@@ -631,6 +657,9 @@ function briefingAppearsInPendingBriefings(payload = {}, briefingId = "", recipi
 }
 
 export async function runProductionBriefingWorkflowChecks(config, transport, options = {}) {
+  const profile = options.verificationProfile || DEFAULT_BRIEFING_VERIFICATION_PROFILE;
+  const stageLabels = options.stageLabels || CHECK_LABELS;
+  const logPrefix = options.logPrefix || "[briefing-workflow]";
   const startedAt = Date.now();
   const runId = options.runId || Date.now();
   const workflowContext = {
@@ -643,8 +672,8 @@ export async function runProductionBriefingWorkflowChecks(config, transport, opt
     options.diagnostics ||
     createWorkflowDiagnostics({
       log: options.logStage || ((line) => console.log(line)),
-      prefix: "[briefing-workflow]",
-      stageLabels: CHECK_LABELS,
+      prefix: logPrefix,
+      stageLabels,
       startedAt,
       totalBudgetMs: Number(config.totalBudgetMs) || BRIEFING_VERIFIER_BUDGET_MS,
       stageTimeouts: DEFAULT_BRIEFING_STAGE_TIMEOUTS_MS,
@@ -687,7 +716,7 @@ export async function runProductionBriefingWorkflowChecks(config, transport, opt
 
   const fail = (key, reason, remediation = "", httpStatus = 0, responseBody = null, extra = {}) => {
     result.failedKey = key;
-    result.failedStage = CHECK_LABELS[key];
+    result.failedStage = stageLabels[key];
     result.failureReason = reason;
     result.remediation = remediation;
     result.httpStatus = httpStatus || undefined;
@@ -709,7 +738,7 @@ export async function runProductionBriefingWorkflowChecks(config, transport, opt
     diagnostics.failStage(stageKey, "TIMEOUT", stageDurationMs);
     const timeoutMeta = buildTimeoutFailureResult({
       stageKey,
-      stageLabel: CHECK_LABELS[stageKey],
+      stageLabel: stageLabels[stageKey],
       method: error.method,
       safeUrl: error.safeUrl,
       elapsedMs: error.elapsedMs,
@@ -723,7 +752,7 @@ export async function runProductionBriefingWorkflowChecks(config, transport, opt
       timeoutMeta.httpStatus,
       {
         timeout: true,
-        stage: CHECK_LABELS[stageKey],
+        stage: stageLabels[stageKey],
         method: error.method,
         safeUrl: error.safeUrl,
         elapsedMs: error.elapsedMs,
@@ -742,7 +771,7 @@ export async function runProductionBriefingWorkflowChecks(config, transport, opt
 
   async function runStage(stageKey, fn) {
     currentStageKey = stageKey;
-    diagnostics.beginStage(stageKey, CHECK_LABELS[stageKey]);
+    diagnostics.beginStage(stageKey, stageLabels[stageKey]);
     const stageStarted = Date.now();
     try {
       const earlyExit = await fn();
@@ -929,8 +958,11 @@ export async function runProductionBriefingWorkflowChecks(config, transport, opt
 
   const companyFolderId = trim(login.companyFolderId || config.companyFolderId);
   const masterSheetId = trim(login.masterSheetId || config.masterSheetId);
-  const verificationBriefingId = buildProductionVerificationBriefingId(runId);
+  const verificationBriefingId = profile.buildId(runId);
   result.briefingId = verificationBriefingId;
+  if (profile.recordIdField === "talkId") {
+    result.talkId = verificationBriefingId;
+  }
   workflowContext.companyFolderId = companyFolderId;
   workflowContext.masterSheetId = masterSheetId;
   workflowContext.verificationBriefingId = verificationBriefingId;
@@ -1110,7 +1142,7 @@ export async function runProductionBriefingWorkflowChecks(config, transport, opt
     return staleCleanupFail;
   }
 
-  const verificationPayload = buildProductionVerificationBriefing({
+  const verificationPayload = profile.buildPayload({
     runId,
     briefingId: verificationBriefingId,
     createdByEmail: login.accountEmail || config.expectedEmail,
@@ -1218,8 +1250,12 @@ export async function runProductionBriefingWorkflowChecks(config, transport, opt
     if (normalizeStatus(created.status) !== "draft") {
       return fail("readback", `Expected Draft status, got "${created.status}".`, "Inspect created briefing defaults.");
     }
-    if (normalizeIdentity(created.type) !== normalizeIdentity(PRODUCTION_VERIFICATION_BRIEFING_TYPE)) {
-      return fail("readback", "Verification briefing type does not match Verification.", "Inspect briefing field mapping.");
+    if (normalizeIdentity(created.type) !== normalizeIdentity(profile.expectedType)) {
+      return fail(
+        "readback",
+        `Verification briefing type does not match ${profile.expectedType}.`,
+        "Inspect briefing field mapping.",
+      );
     }
     if (!isVerificationBriefing(created)) {
       return fail("readback", "Verification marker missing on created briefing.", "Inspect verification marker fields.");
@@ -1248,7 +1284,7 @@ export async function runProductionBriefingWorkflowChecks(config, transport, opt
         "PATCH",
         briefingPath(companyFolderId, verificationBriefingId),
         {
-          title: `${PRODUCTION_VERIFICATION_BRIEFING_TITLE} (edited)`,
+          title: `${profile.expectedTitle} (edited)`,
           masterSheetId,
         },
         { stageKey: "editDraft" },

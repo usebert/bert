@@ -3,6 +3,12 @@
  * Stable markers — safe to rerun; identifies verification-only workbook rows.
  */
 import { getUkTodayKey } from "./uk-date-time.mjs";
+import {
+  PRODUCTION_VERIFICATION_TOOLBOX_TALK_ID_PREFIX,
+  PRODUCTION_VERIFICATION_TOOLBOX_TALK_SOURCE,
+  PRODUCTION_VERIFICATION_TOOLBOX_TALK_TITLE,
+  PRODUCTION_VERIFICATION_TOOLBOX_TALK_TYPE,
+} from "./production-verification-toolbox-talk.mjs";
 
 export const PRODUCTION_VERIFICATION_BRIEFING_ID_PREFIX = "bert-smoke-briefing-";
 export const PRODUCTION_VERIFICATION_BRIEFING_TITLE = "BERT Verification Briefing";
@@ -45,7 +51,8 @@ function pickField(record = {}, ...keys) {
 }
 
 export function isVerificationBriefingId(briefingId = "") {
-  return trim(briefingId).startsWith(PRODUCTION_VERIFICATION_BRIEFING_ID_PREFIX);
+  const id = trim(briefingId);
+  return id.startsWith(PRODUCTION_VERIFICATION_BRIEFING_ID_PREFIX) || id.startsWith(PRODUCTION_VERIFICATION_TOOLBOX_TALK_ID_PREFIX);
 }
 
 export function isVerificationBriefing(record = {}) {
@@ -58,6 +65,9 @@ export function isVerificationBriefing(record = {}) {
   if (normalize(verificationSource) === normalize(PRODUCTION_VERIFICATION_BRIEFING_SOURCE)) {
     return true;
   }
+  if (normalize(verificationSource) === normalize(PRODUCTION_VERIFICATION_TOOLBOX_TALK_SOURCE)) {
+    return true;
+  }
 
   const title = normalize(pickField(record, "title", "Title"));
   const type = normalize(pickField(record, "type", "Type"));
@@ -66,7 +76,13 @@ export function isVerificationBriefing(record = {}) {
   if (title === normalize(PRODUCTION_VERIFICATION_BRIEFING_TITLE)) {
     return true;
   }
+  if (title === normalize(PRODUCTION_VERIFICATION_TOOLBOX_TALK_TITLE)) {
+    return true;
+  }
   if (type === normalize(PRODUCTION_VERIFICATION_BRIEFING_TYPE) && message.includes("automated production briefing workflow verification")) {
+    return true;
+  }
+  if (type === normalize(PRODUCTION_VERIFICATION_TOOLBOX_TALK_TYPE) && message.includes("automated production toolbox talk verification")) {
     return true;
   }
 
@@ -83,6 +99,10 @@ export function isActiveVerificationBriefing(record = {}) {
 
 export function isOperationalBriefing(record = {}) {
   return !isVerificationBriefing(record);
+}
+
+export function isOperationalToolboxTalk(record = {}) {
+  return isOperationalBriefing(record);
 }
 
 export function mapWorkbookBriefingForOperationalCheck(record = {}) {

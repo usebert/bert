@@ -476,6 +476,51 @@ npm run verify:production-briefing-workflow-tests
 npm run verify:production-verification-briefing-tests
 ```
 
+### Production Toolbox Talk workflow (post-deploy smoke — Briefings extension)
+
+Toolbox Talks are a **Briefings Type** (`Type: "Toolbox Talk"`), not a separate module. Phase 3.11 extends the Phase 3.5 Briefings production gate with a dedicated Toolbox Talk scenario. It reuses the same `/api/companies/:id/briefings/*` routes, `Briefings` / `BriefingRecipients` workbook tabs, and cleanup paths.
+
+After startup health, authentication health, audit workflow, Actions workflow, Risk Assessment workflow, Incident workflow, and Briefing workflow pass, run the Toolbox Talk workflow smoke test. It authenticates with the same smoke account, confirms the Briefings tracker APIs (reported as **Toolbox Talks API**), and — only when `BERT_SMOKE_ALLOW_TOOLBOX_TALK_MUTATION=1` — creates a dedicated verification Toolbox Talk draft (`bert-smoke-toolbox-*`), edits it, assigns only the smoke recipient, publishes, exercises read/acknowledge/sign through the normal recipient routes, verifies dashboard exclusion, and cleans up safely.
+
+```bash
+set -a && source .env && set +a
+
+BERT_SMOKE_USERNAME=mr.important \
+BERT_SMOKE_PASSWORD='<set securely in your environment>' \
+BERT_SMOKE_COMPANY_FOLDER_ID=1tDKluapYfY-RkuxXc6eoRnGHL38XCswx \
+BERT_SMOKE_MASTER_SHEET_ID=1MntKgSgVmTmlpzZhnCZdDQtdmPw7GcXptlAp88Ewrkc \
+BERT_SMOKE_EXPECTED_EMAIL=bert.demo+mr.important@usebert.co.uk \
+BERT_SMOKE_ALLOW_TOOLBOX_TALK_MUTATION=1 \
+npm run verify:production-toolbox-talk-workflow
+```
+
+Optional:
+
+- **`BERT_SMOKE_ALLOW_TOOLBOX_TALK_MUTATION`** — must be `1` to exercise create/edit/publish/recipient/read/ack/sign/cleanup stages. Without it, mutation stages report **SKIPPED** (authentication, Toolbox Talks API, and baseline still run).
+- **`BERT_SMOKE_TOOLBOX_RECIPIENT_USERNAME` / `BERT_SMOKE_TOOLBOX_RECIPIENT_PASSWORD` / `BERT_SMOKE_TOOLBOX_RECIPIENT_EXPECTED_EMAIL`** — optional second smoke account. Falls back to `BERT_SMOKE_BRIEFING_RECIPIENT_*` when unset. When no recipient credentials are configured, the verifier uses **self-recipient mode** (creator also receives the talk) if production allows it.
+
+Verification Toolbox Talk markers:
+
+- TalkId prefix: `bert-smoke-toolbox-`
+- Title: `BERT Verification Toolbox Talk`
+- Type: `Toolbox Talk`
+- Topic: `Manual Handling Awareness`
+- Source: `production-toolbox-talk-workflow`
+- Marker: `verification`
+
+Cleanup uses the same verification-only Briefings routes:
+
+- `POST /api/companies/:companyFolderId/briefings/verification-cleanup`
+- `POST /api/companies/:companyFolderId/briefings/:briefingId/verification-cleanup`
+
+Dashboard exclusion: verification Toolbox Talks are excluded from operational counts via `isVerificationBriefing()` / `isOperationalToolboxTalk()` (same logic as verification briefings).
+
+Unit tests (mocked HTTP, no production calls):
+
+```bash
+npm run verify:production-toolbox-talk-workflow-tests
+```
+
 ### Production Documents workflow (post-deploy smoke)
 
 After startup health, authentication health, audit workflow, Actions workflow, Risk Assessment workflow, Incident workflow, and Briefing workflow pass, run the Documents workflow smoke test. It authenticates with the same smoke account, confirms Document Control list/index APIs, and — only when `BERT_SMOKE_ALLOW_DOCUMENT_MUTATION=1` — creates a dedicated verification controlled document, exercises draft → upload → edit → submit → approve, confirms Document Control index visibility and dashboard exclusion, and cleans up safely. It never edits customer documents or Drive files outside the verification path.
@@ -741,13 +786,14 @@ Run in order after every API deployment:
 5. **Risk Assessment workflow** — `npm run verify:production-risk-assessment-workflow`
 6. **Incident workflow** — `npm run verify:production-incident-workflow`
 7. **Briefing workflow** — `npm run verify:production-briefing-workflow`
-8. **Documents workflow** — `npm run verify:production-documents-workflow`
-9. **Schedules workflow** — `npm run verify:production-schedules-workflow`
-10. **LOLER workflow** — `npm run verify:production-loler-workflow`
-11. **COSHH workflow** — `npm run verify:production-coshh-workflow`
-12. **Risk Register workflow** — `npm run verify:production-risk-register-workflow`
+8. **Toolbox Talk workflow** — `npm run verify:production-toolbox-talk-workflow`
+9. **Documents workflow** — `npm run verify:production-documents-workflow`
+10. **Schedules workflow** — `npm run verify:production-schedules-workflow`
+11. **LOLER workflow** — `npm run verify:production-loler-workflow`
+12. **COSHH workflow** — `npm run verify:production-coshh-workflow`
+13. **Risk Register workflow** — `npm run verify:production-risk-register-workflow`
 
-Only when all twelve pass should the deployment be considered **READY FOR CUSTOMERS**.
+Only when all thirteen pass should the deployment be considered **READY FOR CUSTOMERS**.
 
 ### Startup system health (Master operators)
 
