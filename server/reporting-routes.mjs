@@ -207,38 +207,6 @@ export function installReportingRoutes(app, deps) {
     }
   });
 
-  app.get("/api/companies/:companyFolderId/reports/:reportId", async (req, res) => {
-    const context = await resolveRouteContext(req, res);
-    if (!context) {
-      return undefined;
-    }
-    const reportId = String(req.params?.reportId || "").trim();
-    try {
-      const result = await withOperationTimeout(
-        getVerificationReport(
-          context.authed,
-          { ...registryDeps, ...scheduleDeps },
-          context.resolved,
-          context.actor,
-          reportId,
-        ),
-        "reports_get",
-        REPORTS_ROUTE_TIMEOUT_MS,
-      );
-      if (!result.ok) {
-        return routeError(res, result, "REPORT_GET_FAILED");
-      }
-      return res.json(result);
-    } catch (error) {
-      return res.status(500).json({
-        ok: false,
-        code: "REPORT_GET_FAILED",
-        error: "Could not load report metadata.",
-        technicalError: error instanceof Error ? error.message : String(error),
-      });
-    }
-  });
-
   app.get("/api/companies/:companyFolderId/reports/:reportId/download", async (req, res) => {
     const context = await resolveRouteContext(req, res);
     if (!context) {
@@ -269,6 +237,38 @@ export function installReportingRoutes(app, deps) {
         ok: false,
         code: "REPORT_DOWNLOAD_FAILED",
         error: "Could not download report.",
+        technicalError: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.get("/api/companies/:companyFolderId/reports/:reportId", async (req, res) => {
+    const context = await resolveRouteContext(req, res);
+    if (!context) {
+      return undefined;
+    }
+    const reportId = String(req.params?.reportId || "").trim();
+    try {
+      const result = await withOperationTimeout(
+        getVerificationReport(
+          context.authed,
+          { ...registryDeps, ...scheduleDeps },
+          context.resolved,
+          context.actor,
+          reportId,
+        ),
+        "reports_get",
+        REPORTS_ROUTE_TIMEOUT_MS,
+      );
+      if (!result.ok) {
+        return routeError(res, result, "REPORT_GET_FAILED");
+      }
+      return res.json(result);
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        code: "REPORT_GET_FAILED",
+        error: "Could not load report metadata.",
         technicalError: error instanceof Error ? error.message : String(error),
       });
     }

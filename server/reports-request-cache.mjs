@@ -35,20 +35,32 @@ export function clearReportsRequestCacheForTests() {
 }
 
 export function invalidateReportsWorkbookCache(companyFolderId, masterSheetId) {
-  const prefix = `${trim(companyFolderId)}::${trim(masterSheetId)}::`;
+  const prefixes = new Set([
+    `${trim(companyFolderId)}::${trim(masterSheetId)}::`,
+    `::${trim(masterSheetId)}::`,
+  ]);
   for (const key of tabReadCache.keys()) {
-    if (key.startsWith(prefix)) {
-      tabReadCache.delete(key);
+    for (const prefix of prefixes) {
+      if (key.startsWith(prefix)) {
+        tabReadCache.delete(key);
+        break;
+      }
     }
   }
   for (const key of tabReadInflight.keys()) {
-    if (key.startsWith(prefix)) {
-      tabReadInflight.delete(key);
+    for (const prefix of prefixes) {
+      if (key.startsWith(prefix)) {
+        tabReadInflight.delete(key);
+        break;
+      }
     }
   }
   for (const key of tabEnsureInflight.keys()) {
-    if (key.startsWith(prefix)) {
-      tabEnsureInflight.delete(key);
+    for (const prefix of prefixes) {
+      if (key.startsWith(prefix)) {
+        tabEnsureInflight.delete(key);
+        break;
+      }
     }
   }
   const exportsPrefix = exportsKey(companyFolderId);

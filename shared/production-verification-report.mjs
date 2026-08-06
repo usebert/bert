@@ -365,6 +365,42 @@ export function estimatePdfPageCount(buffer) {
   return matches?.length || 1;
 }
 
+export function resolveVerificationReportRebuildSnapshot(report = {}, input = {}) {
+  const mapped = mapWorkbookReportRecord(report);
+  const reportId = trim(input.reportId) || trim(mapped.reportId);
+  const reportType = normalizeVerificationReportType(trim(mapped.reportType));
+  const sourceId = trim(mapped.sourceId) || defaultVerificationSourceId(reportType);
+  return {
+    reportId,
+    reportType,
+    sourceId,
+    companyName: trim(input.companyName),
+    generatedAt: trim(mapped.generatedAt) || trim(mapped.createdAt) || trim(input.generatedAt),
+    status: trim(mapped.status) || "verification",
+    verificationMarker: trim(mapped.verificationMarker),
+    verificationSource: trim(mapped.verificationSource),
+    sourceType: trim(mapped.sourceType),
+  };
+}
+
+export function canRebuildVerificationReportFromMetadata(report = {}, input = {}) {
+  const mapped = mapWorkbookReportRecord(report);
+  if (!isVerificationReport(mapped)) {
+    return false;
+  }
+  const snapshot = resolveVerificationReportRebuildSnapshot(report, input);
+  if (!isVerificationReportId(snapshot.reportId)) {
+    return false;
+  }
+  if (!isSupportedVerificationReportType(snapshot.reportType)) {
+    return false;
+  }
+  if (!trim(snapshot.sourceId)) {
+    return false;
+  }
+  return true;
+}
+
 export function verificationReportContentMarkers(input = {}) {
   const reportType = normalizeVerificationReportType(input.reportType || "audit");
   const reportId = trim(input.reportId);

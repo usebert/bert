@@ -10,6 +10,7 @@ import {
   buildVerificationReportPdfBuffer,
   buildVerificationReportBaselineCounts,
   buildWorkbookReportRow,
+  canRebuildVerificationReportFromMetadata,
   findReportById,
   isActiveVerificationReport,
   isOperationalReport,
@@ -27,6 +28,7 @@ import {
   PRODUCTION_VERIFICATION_REPORT_SOURCE,
   REPORTS_TAB,
   REPORTS_TAB_COLUMNS,
+  resolveVerificationReportRebuildSnapshot,
   SUPPORTED_VERIFICATION_REPORT_TYPES,
   verificationReportContentMarkers,
 } from "../shared/production-verification-report.mjs";
@@ -107,6 +109,37 @@ export function canManageCompanyReports(actor) {
 
 export function canViewCompanyReports(actor, companyFolderId, alternateIds = []) {
   return canViewReportsDashboard(actor, companyFolderId, alternateIds) || canManageCompanyReports(actor);
+}
+
+function reportsTabReadOptions(resolved = {}, options = {}) {
+  return {
+    companyFolderId: trim(resolved.companyFolderId),
+    useCache: options.useCache !== false,
+    summaryOnly: options.summaryOnly === true,
+  };
+}
+
+export function logReportingDownloadRecovery(stage, details = {}) {
+  console.info(
+    "[reporting:download-recovery]",
+    JSON.stringify({
+      stage: trim(stage) || "unknown",
+      reportId: trim(details.reportId) || undefined,
+      workbookId: trim(details.workbookId) || undefined,
+      sessionFileFound: details.sessionFileFound === true,
+      sessionFileValid: details.sessionFileValid === true,
+      metadataRowFound: details.metadataRowFound === true,
+      metadataVerificationValid: details.metadataVerificationValid === true,
+      metadataSourceType: trim(details.metadataSourceType) || undefined,
+      metadataSourceIdPresent: details.metadataSourceIdPresent === true,
+      rebuildAttempted: details.rebuildAttempted === true,
+      rebuildSucceeded: details.rebuildSucceeded === true,
+      rebuiltByteLength: details.rebuiltByteLength ?? undefined,
+      cacheWriteSucceeded: details.cacheWriteSucceeded === true ? true : details.cacheWriteSucceeded === false ? false : undefined,
+      responseStatus: details.responseStatus ?? undefined,
+      durationMs: details.durationMs ?? undefined,
+    }),
+  );
 }
 
 export async function readCompanyReportsTab(auth, deps, masterSheetId, options = {}) {
@@ -436,7 +469,7 @@ export async function generateVerificationReport(auth, deps, resolved, actor, in
     return reportsApiFailure("REPORT_FORBIDDEN", "You do not have permission to generate reports.", 403);
   }
 
-  const readResult = await readCompanyReportsTab(auth, deps, resolved.masterSheetId);
+  const readResult = await readCompanyReportsTab(auth, deps, resolved.masterSheetId, reportsTabReadOptions(resolved));
   if (!readResult.ok) {
     return reportsApiFailure(readResult.code || "REPORTS_READ_FAILED", readResult.error || "Could not read reports tab.", readResult.httpStatus || 500);
   }
@@ -533,7 +566,7 @@ export async function generateVerificationReport(auth, deps, resolved, actor, in
 }
 
 export async function getVerificationReport(auth, deps, resolved, actor, reportId) {
-  const readResult = await readCompanyReportsTab(auth, deps, resolved.masterSheetId);
+  const readResult = await readCompanyReportsTab(auth, deps, resolved.masterSheetId, reportsTabReadOptions(resolved));
   if (!readResult.ok) {
     return reportsApiFailure(readResult.code || "REPORTS_READ_FAILED", readResult.error || "Could not read reports tab.", readResult.httpStatus || 500);
   }
@@ -558,50 +591,192 @@ export async function getVerificationReport(auth, deps, resolved, actor, reportI
   };
 }
 
-export function rebuildVerificationReportPdfFromMetadata(report = {}, resolved = {}) {
-  return buildVerificationReportPdfBuffer({
-    reportType: report.reportType,
-    reportId: report.reportId,
-    sourceId: report.sourceId,
+export function rebuildVerificationReportPdfFromMetadata(report = {}, resolved = {}, reportId = "") {
+  const snapshot = resolveVerificationReportRebuildSnapshot(report, {
+    reportId,
     companyName: trim(resolved.companyName) || "Dovecote Demo",
-    generatedAt: trim(report.generatedAt) || trim(report.createdAt) || nowIso(),
-    status: trim(report.status) || "verification",
+  });
+  return buildVerificationReportPdfBuffer({
+    reportType: snapshot.reportType,
+    reportId: snapshot.reportId,
+    sourceId: snapshot.sourceId,
+    companyName: trim(snapshot.companyName) || trim(resolved.companyName) || "Dovecote Demo",
+    generatedAt: snapshot.generatedAt || nowIso(),
+    status: snapshot.status || "verification",
   });
 }
 
 export async function downloadVerificationReport(auth, deps, resolved, actor, reportId) {
-  const metadata = await getVerificationReport(auth, deps, resolved, actor, reportId);
-  if (!metadata.ok) {
-    return metadata;
+  const startedAt = Date.now();
+  const workbookId = trim(resolved.masterSheetId);
+  const normalizedReportId = trim(reportId);
+  const logRecovery = (stage, details = {}) => {
+    logReportingDownloadRecovery(stage, {
+      reportId: normalizedReportId,
+      workbookId,
+      durationMs: Date.now() - startedAt,
+      ...details,
+    });
+  };
+
+  logRecovery("route_enter");
+
+  if (!canViewCompanyReports(actor, resolved.companyFolderId, resolved.alternateIds || [])) {
+    logRecovery("failure", { responseStatus: 403 });
+    return reportsApiFailure("REPORT_FORBIDDEN", "You do not have permission to view this report.", 403);
   }
+
+  logRecovery("workbook_resolved");
+
   const sessionDir = trim(deps?.sessionDir);
   if (!sessionDir) {
+    logRecovery("failure", { responseStatus: 503 });
     return reportsApiFailure("REPORT_STORAGE_UNAVAILABLE", "Report storage is not configured.", 503);
   }
-  let buffer = await readReportFile(sessionDir, resolved.companyFolderId, reportId);
-  let rebuiltFromMetadata = false;
-  if (!buffer || !isValidVerificationPdfBuffer(buffer)) {
-    buffer = rebuildVerificationReportPdfFromMetadata(metadata.report, resolved);
-    rebuiltFromMetadata = true;
+
+  let sessionBuffer = null;
+  try {
+    sessionBuffer = await readReportFile(sessionDir, resolved.companyFolderId, normalizedReportId);
+  } catch {
+    sessionBuffer = null;
   }
-  if (!isValidVerificationPdfBuffer(buffer)) {
+  const sessionFileFound = Boolean(sessionBuffer && sessionBuffer.length > 0);
+  const sessionFileValid = isValidVerificationPdfBuffer(sessionBuffer);
+  logRecovery("session_store_lookup", {
+    sessionFileFound,
+    sessionFileValid,
+  });
+
+  if (sessionFileValid) {
+    logRecovery("response_send", { responseStatus: 200 });
+    return {
+      ok: true,
+      reportId: normalizedReportId,
+      fileName: buildProductionVerificationReportFilename(
+        normalizedReportId.split("-").slice(-2)[0] || Date.now(),
+        normalizeVerificationReportType(normalizedReportId.split("-").pop()),
+      ),
+      mimeType: "application/pdf",
+      fileSize: sessionBuffer.length,
+      buffer: sessionBuffer,
+      rebuiltFromMetadata: false,
+    };
+  }
+
+  logRecovery("metadata_lookup_start");
+
+  const readResult = await readCompanyReportsTab(auth, deps, resolved.masterSheetId, {
+    companyFolderId: resolved.companyFolderId,
+    useCache: false,
+  });
+  if (!readResult.ok) {
+    logRecovery("failure", { responseStatus: readResult.httpStatus || 500, metadataRowFound: false });
+    return reportsApiFailure(
+      readResult.code || "REPORTS_READ_FAILED",
+      readResult.error || "Could not read reports tab.",
+      readResult.httpStatus || 500,
+    );
+  }
+
+  const report = findReportById(readResult.records, normalizedReportId);
+  const metadataRowFound = Boolean(report);
+  const metadataVerificationValid = metadataRowFound ? isVerificationReport(report) : false;
+  const metadataSourceIdPresent = metadataRowFound ? Boolean(trim(report.sourceId)) : false;
+  logRecovery("metadata_lookup_result", {
+    metadataRowFound,
+    metadataVerificationValid,
+    metadataSourceType: metadataRowFound ? trim(report.sourceType) || trim(report.reportType) : "",
+    metadataSourceIdPresent,
+  });
+
+  if (!report) {
+    logRecovery("failure", { responseStatus: 404, metadataRowFound: false });
+    return reportsApiFailure("REPORT_NOT_FOUND", "Report not found.", 404);
+  }
+
+  logRecovery("verification_guard", {
+    metadataRowFound: true,
+    metadataVerificationValid,
+    metadataSourceType: trim(report.sourceType) || trim(report.reportType),
+    metadataSourceIdPresent,
+  });
+
+  if (!metadataVerificationValid) {
+    logRecovery("failure", { responseStatus: 404, metadataVerificationValid: false });
     return reportsApiFailure("REPORT_FILE_MISSING", "Report file is missing or invalid.", 404);
   }
-  if (rebuiltFromMetadata) {
-    try {
-      await writeReportFile(sessionDir, resolved.companyFolderId, reportId, buffer);
-    } catch {
-      // Best-effort cache after metadata rebuild.
-    }
+
+  if (!canRebuildVerificationReportFromMetadata(report, { reportId: normalizedReportId })) {
+    logRecovery("failure", {
+      responseStatus: 404,
+      metadataVerificationValid: true,
+      metadataSourceIdPresent,
+      rebuildAttempted: false,
+    });
+    return reportsApiFailure("REPORT_FILE_MISSING", "Report file is missing or invalid.", 404);
   }
+
+  logRecovery("rebuild_start", {
+    metadataRowFound: true,
+    metadataVerificationValid: true,
+    metadataSourceIdPresent,
+    rebuildAttempted: true,
+  });
+
+  const buffer = rebuildVerificationReportPdfFromMetadata(report, resolved, normalizedReportId);
+  const rebuildSucceeded = isValidVerificationPdfBuffer(buffer);
+  logRecovery("rebuild_complete", {
+    metadataRowFound: true,
+    metadataVerificationValid: true,
+    metadataSourceIdPresent,
+    rebuildAttempted: true,
+    rebuildSucceeded,
+    rebuiltByteLength: rebuildSucceeded ? buffer.length : 0,
+  });
+
+  if (!rebuildSucceeded) {
+    logRecovery("failure", {
+      responseStatus: 404,
+      rebuildAttempted: true,
+      rebuildSucceeded: false,
+    });
+    return reportsApiFailure("REPORT_FILE_MISSING", "Report file is missing or invalid.", 404);
+  }
+
+  let cacheWriteSucceeded = false;
+  try {
+    await writeReportFile(sessionDir, resolved.companyFolderId, normalizedReportId, buffer);
+    cacheWriteSucceeded = true;
+  } catch {
+    cacheWriteSucceeded = false;
+  }
+  logRecovery("session_cache_write", {
+    rebuildAttempted: true,
+    rebuildSucceeded: true,
+    rebuiltByteLength: buffer.length,
+    cacheWriteSucceeded,
+  });
+
+  logRecovery("response_send", {
+    responseStatus: 200,
+    rebuildAttempted: true,
+    rebuildSucceeded: true,
+    rebuiltByteLength: buffer.length,
+    cacheWriteSucceeded,
+  });
+
   return {
     ok: true,
-    reportId,
-    fileName: buildProductionVerificationReportFilename(reportId.split("-").slice(-2)[0] || Date.now(), metadata.report.reportType),
+    reportId: normalizedReportId,
+    fileName: buildProductionVerificationReportFilename(
+      normalizedReportId.split("-").slice(-2)[0] || Date.now(),
+      report.reportType,
+    ),
     mimeType: "application/pdf",
     fileSize: buffer.length,
     buffer,
-    rebuiltFromMetadata,
+    rebuiltFromMetadata: true,
+    cacheWriteSucceeded,
   };
 }
 
@@ -612,7 +787,7 @@ export async function cleanupVerificationReport(auth, deps, resolved, actor, rep
   if (!canManageCompanyReports(actor)) {
     return reportsApiFailure("REPORT_CLEANUP_FORBIDDEN", "You do not have permission to clean verification reports.", 403);
   }
-  const readResult = await readCompanyReportsTab(auth, deps, resolved.masterSheetId);
+  const readResult = await readCompanyReportsTab(auth, deps, resolved.masterSheetId, reportsTabReadOptions(resolved));
   if (!readResult.ok) {
     return reportsApiFailure(readResult.code || "REPORTS_READ_FAILED", readResult.error || "Could not read reports tab.", readResult.httpStatus || 500);
   }
@@ -649,7 +824,7 @@ export async function cleanupVerificationReport(auth, deps, resolved, actor, rep
 }
 
 export async function cleanupStaleVerificationReports(auth, deps, resolved, actor, input = {}) {
-  const readResult = await readCompanyReportsTab(auth, deps, resolved.masterSheetId);
+  const readResult = await readCompanyReportsTab(auth, deps, resolved.masterSheetId, reportsTabReadOptions(resolved));
   if (!readResult.ok) {
     return reportsApiFailure(readResult.code || "REPORTS_READ_FAILED", readResult.error || "Could not read reports tab.", readResult.httpStatus || 500);
   }
