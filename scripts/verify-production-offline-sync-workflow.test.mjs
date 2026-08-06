@@ -10,6 +10,7 @@ import {
   CHECK_KEYS,
   formatOfflineSyncWorkflowReport,
   loadOfflineSyncWorkflowConfig,
+  resolveOfflineBrowserProbeEnabled,
   runProductionOfflineSyncWorkflowChecks,
 } from "./lib/production-offline-sync-workflow-core.mjs";
 import {
@@ -429,4 +430,59 @@ test("check keys cover required stages", () => {
   assert.equal(CHECK_KEYS.length, 20);
   assert.equal(CHECK_KEYS.includes("syncQueue"), true);
   assert.equal(CHECK_KEYS.includes("duplicateProtection"), true);
+});
+
+const requiredSmokeEnv = {
+  BERT_SMOKE_USERNAME: "mr.important",
+  BERT_SMOKE_PASSWORD: "secret-password",
+  BERT_SMOKE_COMPANY_FOLDER_ID: "folder-abc",
+  BERT_SMOKE_MASTER_SHEET_ID: "sheet-xyz",
+  BERT_SMOKE_EXPECTED_EMAIL: "bert.demo+mr.important@usebert.co.uk",
+};
+
+test("startup: config loads with all expected env vars", () => {
+  const config = loadOfflineSyncWorkflowConfig({
+    ...requiredSmokeEnv,
+    BERT_SMOKE_ALLOW_OFFLINE_MUTATION: "1",
+    BERT_SMOKE_APP_ORIGIN: "https://app.usebert.co.uk",
+  });
+  assert.equal(config.missing.length, 0);
+  assert.equal(config.username, "mr.important");
+  assert.equal(config.companyFolderId, "folder-abc");
+  assert.equal(config.masterSheetId, "sheet-xyz");
+  assert.equal(config.allowOfflineMutation, true);
+  assert.equal(config.appOrigin, "https://app.usebert.co.uk");
+});
+
+test("startup: optional env vars may be undefined", () => {
+  const config = loadOfflineSyncWorkflowConfig({ ...requiredSmokeEnv });
+  assert.equal(config.missing.length, 0);
+  assert.equal(config.allowOfflineMutation, false);
+  assert.equal(config.appOrigin, "https://app.usebert.co.uk");
+  assert.doesNotThrow(() => resolveOfflineBrowserProbeEnabled({}));
+  assert.equal(resolveOfflineBrowserProbeEnabled({}), true);
+});
+
+test("startup: blank optional env strings are handled", () => {
+  const config = loadOfflineSyncWorkflowConfig({
+    ...requiredSmokeEnv,
+    BERT_SMOKE_APP_ORIGIN: "   ",
+    BERT_SMOKE_ALLOW_OFFLINE_MUTATION: "  ",
+    BERT_SMOKE_OFFLINE_USE_BROWSER: "  ",
+  });
+  assert.equal(config.allowOfflineMutation, false);
+  assert.equal(config.appOrigin, "https://app.usebert.co.uk");
+  assert.equal(resolveOfflineBrowserProbeEnabled({ BERT_SMOKE_OFFLINE_USE_BROWSER: "  " }), true);
+  assert.equal(resolveOfflineBrowserProbeEnabled({ BERT_SMOKE_OFFLINE_USE_BROWSER: "0" }), false);
+});
+
+test("startup: verifier reaches authentication without ReferenceError", async () => {
+  const transport = createTransport();
+  const offlineClient = createOfflineClient(transport);
+  const result = await runProductionOfflineSyncWorkflowChecks(baseConfig, transport, {
+    ...defaultRunOptions,
+    offlineClient,
+  });
+  assert.equal(result.checks.authentication?.status, "PASS");
+  assert.doesNotThrow(() => formatOfflineSyncWorkflowReport(result));
 });

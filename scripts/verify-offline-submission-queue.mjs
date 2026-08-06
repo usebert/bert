@@ -300,4 +300,49 @@ assert(serviceWorker.includes("caches.match"), "SW: cache fallback");
 
 assert(mainTsx.includes('register("/service-worker.js")'), "SW: registration in main");
 
+const PHASE_312_OFFLINE_SYNC_FILES = [
+  "scripts/verify-production-offline-sync-workflow.mjs",
+  "scripts/lib/production-offline-sync-workflow-core.mjs",
+  "scripts/lib/offline-sync-storage-simulator.mjs",
+  "scripts/lib/production-offline-browser-runner.mjs",
+  "shared/production-verification-offline-sync.mjs",
+];
+
+function hasLocalTrimHelper(source) {
+  return /\bfunction trim\s*\(/.test(source);
+}
+
+function findUnqualifiedTrimCalls(source) {
+  const violations = [];
+  const lines = source.split("\n");
+  const localTrimHelper = hasLocalTrimHelper(source);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (/\bfunction trim\s*\(/.test(line)) {
+      continue;
+    }
+    if (/\.trim\s*\(/.test(line)) {
+      continue;
+    }
+    if (/\btrim\s*\(/.test(line) && !localTrimHelper) {
+      violations.push(index + 1);
+    }
+  }
+  return violations;
+}
+
+for (const rel of PHASE_312_OFFLINE_SYNC_FILES) {
+  const source = read(rel);
+  const violations = findUnqualifiedTrimCalls(source);
+  assert(
+    violations.length === 0,
+    `static(phase-3.12): ${rel} must not call trim() without a local helper (lines: ${violations.join(", ") || "none"})`,
+  );
+}
+
+assert(
+  read("scripts/verify-production-offline-sync-workflow.mjs").includes("resolveOfflineBrowserProbeEnabled"),
+  "static(phase-3.12): CLI uses resolveOfflineBrowserProbeEnabled instead of bare trim()",
+);
+
 console.log(`[verify:offline-submission-queue] ${caseCount} checks OK`);

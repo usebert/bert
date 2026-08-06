@@ -14,6 +14,7 @@ import {
   formatOfflineSyncWorkflowReport,
   loadOfflineSyncWorkflowConfig,
   OFFLINE_SYNC_VERIFIER_BUDGET_MS,
+  resolveOfflineBrowserProbeEnabled,
   runProductionOfflineSyncWorkflowChecks,
 } from "./lib/production-offline-sync-workflow-core.mjs";
 import { buildProductionOfflineRunId } from "../shared/production-verification-offline-sync.mjs";
@@ -114,7 +115,7 @@ async function main() {
 
   const transport = createFetchTransport(config.apiBase, config.appOrigin, config.timeoutMs);
   let browserRunner = null;
-  if (trim(process.env.BERT_SMOKE_OFFLINE_USE_BROWSER).toLowerCase() !== "0") {
+  if (resolveOfflineBrowserProbeEnabled(process.env)) {
     browserRunner = await createProductionOfflineBrowserRunner(config, transport, { runId, offlineRunId });
     if (browserRunner) {
       const probe = await browserRunner.probeCapability();

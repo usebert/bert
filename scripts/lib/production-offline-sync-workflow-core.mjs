@@ -140,6 +140,10 @@ export function loadOfflineSyncWorkflowConfig(env = process.env) {
   };
 }
 
+export function resolveOfflineBrowserProbeEnabled(env = process.env) {
+  return trim(env.BERT_SMOKE_OFFLINE_USE_BROWSER).toLowerCase() !== "0";
+}
+
 export function logOfflineTiming(log, input = {}) {
   const payload = {
     operation: input.operation || "offline-sync",
