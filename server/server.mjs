@@ -4975,9 +4975,36 @@ app.patch(
         return res.status(400).json({ ok: false, error: "No user fields were provided to update." });
       }
 
+      const roleChangeRequested = updates.role !== undefined;
+      if (roleChangeRequested) {
+        console.log(
+          "[user-permissions:role-change]",
+          JSON.stringify({
+            phase: "patch_start",
+            email,
+            companyFolderId,
+            masterSheetIdPrefix: masterSheetId.slice(0, 8),
+            requestedRole: String(updates.role || "").trim(),
+            actorKind: actor.kind,
+            actorRole: actor.role,
+          }),
+        );
+      }
+
       const result = await updateCompanyUserRecord(auth, masterSheetId, email, updates, getCompanyUsersDeps());
       if (!result.ok) {
         const reason = String(result.reason || "").trim();
+        if (roleChangeRequested) {
+          console.log(
+            "[user-permissions:role-change]",
+            JSON.stringify({
+              phase: "row_lookup",
+              email,
+              ok: false,
+              reason,
+            }),
+          );
+        }
         if (reason === "user_not_found") {
           return res.status(404).json({ ok: false, error: "No user with this email was found on the company Users tab." });
         }
@@ -5019,8 +5046,31 @@ app.patch(
         fields: Object.keys(updates),
       });
 
-      const fullRec = await readCompanyUsersTabRecord(auth, masterSheetId, email);
+      const usersDeps = getCompanyUsersDeps();
       const patchCompanyName = String(actor?.companyName || req.body?.companyName || "").trim();
+      const fullRec = await readCompanyUsersTabRecord(auth, masterSheetId, email, usersDeps);
+      if (roleChangeRequested) {
+        console.log(
+          "[user-permissions:role-change]",
+          JSON.stringify({
+            phase: "patch_response",
+            email,
+            ok: true,
+            writtenRole: String(result.user?.role || "").trim(),
+            clientRole: String(clientUser?.role || "").trim(),
+          }),
+        );
+        console.log(
+          "[user-permissions:role-change]",
+          JSON.stringify({
+            phase: "readback",
+            email,
+            ok: Boolean(fullRec?.email),
+            readbackRole: String(fullRec?.role || "").trim(),
+            cacheInvalidated: true,
+          }),
+        );
+      }
       if (fullRec?.email && fullRec.passwordHash) {
         authIndexApi.upsertEntry(
           authIndexApi.entryFromUsersTabRow(
@@ -5047,6 +5097,27 @@ app.patch(
             updatedAt: fullRec.updatedAt,
             companyAreas: fullRec.companyAreas,
           },
+        );
+        if (roleChangeRequested) {
+          console.log(
+            "[user-permissions:role-change]",
+            JSON.stringify({
+              phase: "auth_index_upsert",
+              email,
+              ok: true,
+              readbackRole: String(fullRec.role || "").trim(),
+            }),
+          );
+        }
+      } else if (roleChangeRequested) {
+        console.log(
+          "[user-permissions:role-change]",
+          JSON.stringify({
+            phase: "auth_index_upsert",
+            email,
+            ok: false,
+            reason: fullRec?.email ? "missing_password_hash" : "readback_missing",
+          }),
         );
       }
 

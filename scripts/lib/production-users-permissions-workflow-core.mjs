@@ -193,6 +193,77 @@ export function logUserPermissionsTiming(log, input = {}) {
   );
 }
 
+/** Safe structured diagnostics for Manager→Auditor role-change probes (no secrets). */
+export function logRoleChangeDiagnostic(log, phase, input = {}) {
+  const payload = {
+    phase: trim(phase),
+    method: trim(input.method) || undefined,
+    route: trim(input.route) || undefined,
+    targetEmail: input.targetEmail ? maskEmail(input.targetEmail) : undefined,
+    targetUserId: trim(input.targetUserId) || undefined,
+    requestedRole: trim(input.requestedRole) || undefined,
+    actorRole: trim(input.actorRole) || undefined,
+    httpStatus: input.httpStatus ?? undefined,
+    responseCode: trim(input.responseCode) || undefined,
+    responseMessage: trim(input.responseMessage) || undefined,
+    readbackRole: trim(input.readbackRole) || undefined,
+    durationMs: input.durationMs ?? undefined,
+    ok: input.ok ?? undefined,
+    blocker: trim(input.blocker) || undefined,
+    cacheInvalidated: input.cacheInvalidated ?? undefined,
+    authIndexUpdated: input.authIndexUpdated ?? undefined,
+  };
+  log(`[user-permissions:role-change] ${JSON.stringify(payload)}`);
+}
+
+/**
+ * Re-establish the smoke Admin session after Manager/Auditor probes.
+ * Forbidden-operation stages leave a non-admin cookie; PATCH role updates require Admin.
+ */
+export async function ensureAdminSmokeSession(config, transport, log = () => {}) {
+  const started = Date.now();
+  logRoleChangeDiagnostic(log, "admin_relogin_start", {
+    method: "POST",
+    route: "/api/auth/company/login",
+  });
+  const relogin = await performProductionSmokeLogin(config, transport);
+  if (!relogin.ok) {
+    logRoleChangeDiagnostic(log, "admin_relogin_failed", {
+      httpStatus: relogin.httpStatus,
+      responseMessage: relogin.failureReason,
+      durationMs: Date.now() - started,
+      ok: false,
+    });
+    return relogin;
+  }
+  const session = await transport.request("GET", "/api/auth/company/session");
+  assertNoPasswordHash(session.json, "admin session after relogin");
+  const sessionRole = canonicalStoredRole(session.json?.user?.role);
+  if (session.status !== 200 || session.json?.ok !== true || sessionRole !== "Admin") {
+    const failure = {
+      ok: false,
+      failureReason: `Admin session was not established after re-login (HTTP ${session.status}, role=${sessionRole || "(blank)"}).`,
+      remediation: "Inspect company session cookies and Admin role on the Users tab.",
+      httpStatus: session.status,
+      responseBody: session.json,
+    };
+    logRoleChangeDiagnostic(log, "admin_session_rejected", {
+      httpStatus: session.status,
+      actorRole: sessionRole,
+      responseMessage: failure.failureReason,
+      durationMs: Date.now() - started,
+      ok: false,
+    });
+    return failure;
+  }
+  logRoleChangeDiagnostic(log, "admin_relogin_ok", {
+    actorRole: sessionRole,
+    durationMs: Date.now() - started,
+    ok: true,
+  });
+  return relogin;
+}
+
 export function redactSafeResponseBody(value) {
   if (!value || typeof value !== "object") {
     return String(value ?? "");
@@ -798,24 +869,85 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
       if (!isForbiddenStatus(auditorCreate.status)) {
         return fail("forbiddenOperations", "Auditor verification-create was not forbidden.", "Inspect verification-create admin gate.", auditorCreate.status, auditorCreate.json);
       }
+      const adminRestore = await ensureAdminSmokeSession(config, timedTransport, logStage);
+      if (!adminRestore.ok) {
+        return fail(
+          "forbiddenOperations",
+          `Could not restore Admin session after forbidden probes. ${adminRestore.failureReason || ""}`.trim(),
+          adminRestore.remediation || "Inspect smoke Admin re-login after Manager/Auditor probes.",
+          adminRestore.httpStatus,
+          adminRestore.responseBody,
+        );
+      }
       pass("forbiddenOperations");
       return null;
     });
     if (forbiddenFail) return forbiddenFail;
 
     const roleChangeFail = await runStage("roleChange", async () => {
-      await performProductionSmokeLogin(config, timedTransport, options);
-      const patch = await request(
-        "PATCH",
-        userPatchPath(workflowContext.companyFolderId, workflowContext.managerEmail, workflowContext.masterSheetId),
-        { role: "Auditor", companyFolderId: workflowContext.companyFolderId, masterSheetId: workflowContext.masterSheetId },
+      const adminSession = await ensureAdminSmokeSession(config, timedTransport, logStage);
+      if (!adminSession.ok) {
+        return fail(
+          "roleChange",
+          adminSession.failureReason || "Admin re-login failed before role change.",
+          adminSession.remediation || "Inspect smoke Admin credentials and session cookies.",
+          adminSession.httpStatus,
+          adminSession.responseBody,
+        );
+      }
+      const patchPath = userPatchPath(
+        workflowContext.companyFolderId,
+        workflowContext.managerEmail,
+        workflowContext.masterSheetId,
       );
+      const requestedRole = "Auditor";
+      logRoleChangeDiagnostic(logStage, "patch_start", {
+        method: "PATCH",
+        route: patchPath.split("?")[0],
+        targetEmail: workflowContext.managerEmail,
+        targetUserId: workflowContext.managerUserId,
+        requestedRole,
+        actorRole: "Admin",
+      });
+      const patchStarted = Date.now();
+      const patch = await request("PATCH", patchPath, {
+        role: requestedRole,
+        companyFolderId: workflowContext.companyFolderId,
+        masterSheetId: workflowContext.masterSheetId,
+      });
+      assertNoPasswordHash(patch.json, "role change patch");
+      logRoleChangeDiagnostic(logStage, "patch_response", {
+        method: "PATCH",
+        route: patchPath.split("?")[0],
+        targetEmail: workflowContext.managerEmail,
+        requestedRole,
+        httpStatus: patch.status,
+        responseCode: trim(patch.json?.code || patch.json?.blocker),
+        responseMessage: trim(patch.json?.error || patch.json?.message),
+        durationMs: Date.now() - patchStarted,
+        ok: patch.status === 200 && patch.json?.ok === true,
+        blocker: trim(patch.json?.blocker),
+      });
       if (patch.status !== 200 || patch.json?.ok !== true) {
         return fail("roleChange", "Admin could not change verification Manager role.", "Inspect PATCH role updates.", patch.status, patch.json);
       }
+      const readbackStarted = Date.now();
       const list = await request("GET", usersPath(workflowContext.companyFolderId, workflowContext.masterSheetId));
       const found = findUserByEmail(list.json?.users, workflowContext.managerEmail);
-      if (canonicalStoredRole(found?.role) !== "Auditor") {
+      const readbackRole = canonicalStoredRole(found?.role);
+      logRoleChangeDiagnostic(logStage, "readback", {
+        targetEmail: workflowContext.managerEmail,
+        readbackRole,
+        durationMs: Date.now() - readbackStarted,
+        ok: readbackRole === requestedRole,
+      });
+      logRoleChangeDiagnostic(logStage, "final_assertion", {
+        targetEmail: workflowContext.managerEmail,
+        requestedRole,
+        readbackRole,
+        ok: readbackRole === requestedRole,
+      });
+      if (readbackRole !== requestedRole) {
         return fail("roleChange", "Role change did not persist.", "Inspect Users tab role column.");
       }
       pass("roleChange");
@@ -850,7 +982,16 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (sessionRefreshFail) return sessionRefreshFail;
 
     const disableUserFail = await runStage("disableUser", async () => {
-      await performProductionSmokeLogin(config, timedTransport, options);
+      const adminSession = await ensureAdminSmokeSession(config, timedTransport, logStage);
+      if (!adminSession.ok) {
+        return fail(
+          "disableUser",
+          adminSession.failureReason || "Admin re-login failed before disable.",
+          adminSession.remediation || "Inspect smoke Admin session.",
+          adminSession.httpStatus,
+          adminSession.responseBody,
+        );
+      }
       workflowContext.disabledEmail = workflowContext.auditorEmail;
       const patch = await request(
         "PATCH",
@@ -895,7 +1036,16 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (disabledLoginFail) return disabledLoginFail;
 
     const reEnableFail = await runStage("reEnableUser", async () => {
-      await performProductionSmokeLogin(config, timedTransport, options);
+      const adminSession = await ensureAdminSmokeSession(config, timedTransport, logStage);
+      if (!adminSession.ok) {
+        return fail(
+          "reEnableUser",
+          adminSession.failureReason || "Admin re-login failed before re-enable.",
+          adminSession.remediation || "Inspect smoke Admin session.",
+          adminSession.httpStatus,
+          adminSession.responseBody,
+        );
+      }
       const patch = await request(
         "PATCH",
         userPatchPath(workflowContext.companyFolderId, workflowContext.disabledEmail, workflowContext.masterSheetId),

@@ -8,8 +8,10 @@ import { COMPANY_SESSION_COOKIE } from "./lib/production-auth-health-core.mjs";
 import {
   CHECK_KEYS,
   CHECK_LABELS,
+  ensureAdminSmokeSession,
   formatUsersPermissionsWorkflowReport,
   loadUsersPermissionsWorkflowConfig,
+  logRoleChangeDiagnostic,
   runProductionUsersPermissionsWorkflowChecks,
 } from "./lib/production-users-permissions-workflow-core.mjs";
 import {
@@ -81,6 +83,7 @@ function createTransport(options = {}) {
   let currentRole = "Admin";
   let currentEmail = baseConfig.expectedEmail;
   let createAttempts = 0;
+  let adminSmokeLoginAttempts = 0;
 
   const request = async (method, path, body) => {
     if (method === "GET" && path === "/api/health") {
@@ -91,6 +94,19 @@ function createTransport(options = {}) {
         return { status: 401, json: { ok: false, code: "INVALID_CREDENTIALS" } };
       }
       const username = String(body?.username || body?.email || "").toLowerCase();
+      if (!username.includes("smoke-user")) {
+        adminSmokeLoginAttempts += 1;
+      }
+      if (
+        options.blockForbiddenAdminRestore &&
+        adminSmokeLoginAttempts >= 3 &&
+        !username.includes("smoke-user")
+      ) {
+        return { status: 429, json: { ok: false, code: "RATE_LIMITED", error: "Admin re-login blocked in test." } };
+      }
+      if (options.blockAdminRelogin && currentRole === "Auditor" && !username.includes("smoke-user")) {
+        return { status: 429, json: { ok: false, code: "RATE_LIMITED", error: "Admin re-login blocked in test." } };
+      }
       if (username.includes("inactive-user") || store.disabledEmails?.has(username)) {
         return { status: 403, json: { ok: false, blocker: "inactive", code: "INACTIVE" } };
       }
@@ -349,6 +365,94 @@ test("admin can manage verification users", async () => {
 test("role change", async () => {
   const { result } = await runWorkflow();
   assert.equal(result.checks.roleChange.status, "PASS");
+});
+
+test("role change persists Manager to Auditor on verification user", async () => {
+  const { result, store } = await runWorkflow();
+  assert.equal(result.checks.roleChange.status, "PASS");
+  const manager = store.users.find((item) => item.email.includes("smoke-user-manager"));
+  assert.equal(manager?.role, "Auditor");
+});
+
+test("role change API readback matches persisted Auditor role", async () => {
+  const { result } = await runWorkflow();
+  assert.equal(result.checks.roleChange.status, "PASS");
+  assert.equal(result.checks.managerReadback.status, "PASS");
+});
+
+test("session refresh receives Auditor role after role change", async () => {
+  const { result } = await runWorkflow();
+  assert.equal(result.checks.roleChange.status, "PASS");
+  assert.equal(result.checks.sessionRefresh.status, "PASS");
+  assert.match(result.sessionRefreshBehavior || "", /fresh login/i);
+});
+
+test("forbidden operations restores admin session before role change", async () => {
+  const { result } = await runWorkflow({ blockForbiddenAdminRestore: true });
+  assert.equal(result.ok, false);
+  assert.equal(result.checks.forbiddenOperations.status, "FAIL");
+  assert.match(result.failureReason || "", /restore Admin session/i);
+});
+
+test("non-admin session cannot patch verification user role", async () => {
+  const transport = createTransport();
+  const managerEmail = buildProductionVerificationUserEmail(TEST_RUN_ID, "manager");
+  transport.store.users.push({
+    email: managerEmail,
+    name: "BERT Verification Manager",
+    role: "Manager",
+    status: "ACTIVE",
+    createdBy: PRODUCTION_VERIFICATION_USER_SOURCE,
+  });
+  await transport.request("POST", "/api/auth/company/login", {
+    username: buildProductionVerificationUserEmail(TEST_RUN_ID, "auditor"),
+    password: "x",
+    companyFolderId: baseConfig.companyFolderId,
+    masterSheetId: baseConfig.masterSheetId,
+  });
+  const patch = await transport.request(
+    "PATCH",
+    `/api/companies/${baseConfig.companyFolderId}/users/${encodeURIComponent(managerEmail)}?masterSheetId=${baseConfig.masterSheetId}`,
+    { role: "Auditor" },
+  );
+  assert.equal(patch.status, 403);
+  assert.equal(patch.json?.blocker, "forbidden");
+  assert.equal(transport.store.users.find((item) => item.email === managerEmail)?.role, "Manager");
+});
+
+test("ensureAdminSmokeSession fails when admin re-login is blocked", async () => {
+  const transport = createTransport({ blockAdminRelogin: true });
+  await transport.request("POST", "/api/auth/company/login", {
+    username: buildProductionVerificationUserEmail(TEST_RUN_ID, "auditor"),
+    password: "x",
+    companyFolderId: baseConfig.companyFolderId,
+    masterSheetId: baseConfig.masterSheetId,
+  });
+  const session = await ensureAdminSmokeSession(baseConfig, transport, () => {});
+  assert.equal(session.ok, false);
+  assert.equal(session.httpStatus, 429);
+});
+
+test("logRoleChangeDiagnostic never includes password fields", () => {
+  const lines = [];
+  logRoleChangeDiagnostic((line) => lines.push(line), "patch_start", {
+    targetEmail: "bert.demo+smoke-user-manager@usebert.co.uk",
+    requestedRole: "Auditor",
+    responseMessage: "ok",
+    PasswordHash: "scrypt$secret",
+    password: "secret",
+  });
+  const joined = lines.join("\n");
+  assert.equal(joined.includes("PasswordHash"), false);
+  assert.equal(joined.includes("secret"), false);
+  assert.match(joined, /role-change/);
+});
+
+test("ordinary smoke admin user unchanged after workflow", async () => {
+  const { result, store } = await runWorkflow();
+  assert.equal(result.ok, true);
+  const admin = store.users.find((item) => item.email === baseConfig.expectedEmail);
+  assert.equal(admin?.role, "Admin");
 });
 
 test("session refresh behaviour", async () => {
