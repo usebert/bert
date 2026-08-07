@@ -60,6 +60,21 @@ export async function createVerificationCompanyUser(auth, deps, context, actor, 
 
   const existing = await findCompanyUsersTabRow(auth, masterSheetId, payload.email, deps).catch(() => null);
   if (existing && isActiveVerificationUserRecord(existing)) {
+    const rec = await readCompanyUsersTabRecord(auth, masterSheetId, payload.email, deps).catch(() => null);
+    if (rec && deps?.authIndexApi?.upsertEntry) {
+      const entry =
+        deps.authIndexApi.entryFromUsersTabRow(
+          { ...rec, roleRaw: rec.role },
+          {
+            companyFolderId,
+            companyName: trim(context?.companyName || actor?.companyName),
+            masterSheetId,
+          },
+        ) || null;
+      if (entry?.email && entry.passwordHash) {
+        deps.authIndexApi.upsertEntry(entry);
+      }
+    }
     return {
       ok: true,
       idempotent: true,

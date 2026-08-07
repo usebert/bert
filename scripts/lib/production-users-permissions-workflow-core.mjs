@@ -6,6 +6,7 @@ import crypto from "node:crypto";
 import {
   buildProductionVerificationUserEmail,
   buildProductionVerificationUserId,
+  buildProductionVerificationUsername,
   canonicalStoredRole,
   canonicalUserStatus,
   countUserBaselines,
@@ -302,6 +303,37 @@ export function logDisableUserDiagnostic(log, phase, input = {}) {
   log(`[user-permissions:disable-user] ${JSON.stringify(payload)}`);
 }
 
+/** Safe structured diagnostics for Auditor login/session probes (no secrets). */
+export function logAuditorLoginDiagnostic(log, phase, input = {}) {
+  log(
+    `[user-permissions:auditor-login] ${JSON.stringify({
+      phase: trim(phase),
+      loginHttpStatus: input.loginHttpStatus ?? undefined,
+      sessionHttpStatus: input.sessionHttpStatus ?? undefined,
+      reasonCode: trim(input.reasonCode) || undefined,
+      companyContextValid: input.companyContextValid ?? undefined,
+      returnedRole: trim(input.returnedRole) || undefined,
+      expectedRole: trim(input.expectedRole) || "Auditor",
+      companyFolderId: trim(input.companyFolderId) || undefined,
+      masterSheetId: trim(input.masterSheetId) ? `${trim(input.masterSheetId).slice(0, 8)}…` : undefined,
+      usersApiRole: trim(input.usersApiRole) || undefined,
+      usersApiStatus: trim(input.usersApiStatus) || undefined,
+      durationMs: input.durationMs ?? undefined,
+      ok: input.ok ?? undefined,
+    })}`,
+  );
+}
+
+export function buildAuditorLoginIdentitySnapshot(user = {}, workflowContext = {}) {
+  return {
+    email: trim(user.email).toLowerCase(),
+    role: canonicalStoredRole(user.role),
+    status: canonicalUserStatus(user.status),
+    companyFolderId: trim(user.companyFolderId || user.companyId || workflowContext.companyFolderId),
+    masterSheetId: trim(workflowContext.masterSheetId),
+  };
+}
+
 /**
  * Re-establish the smoke Admin session after Manager/Auditor probes.
  * Prefer verifyAdminTransportSession() with isolated admin/manager/auditor transports.
@@ -587,15 +619,30 @@ async function createVerificationUser(request, workflowContext, role) {
   return { ok: false, email, userId, role, response };
 }
 
-async function loginWithCredentials(transport, config, credentials, log = () => {}, switchContext = {}) {
+async function loginWithCredentials(transport, config, credentials, log = () => {}, switchContext = {}, options = {}) {
   const started = Date.now();
   const fromRole = trim(switchContext.fromRole) || "cleared";
   const targetRole = trim(switchContext.toRole) || "unknown";
+  const auditLog = typeof options.auditLog === "function" ? options.auditLog : null;
   if (transport.clearCookies) {
     transport.clearCookies();
   }
   const login = await transport.request("POST", "/api/auth/company/login", buildLoginBody(credentials));
   assertNoPasswordHash(login.json, "role login");
+  if (auditLog) {
+    auditLog(log, "login", {
+      loginHttpStatus: login.status,
+      sessionHttpStatus: 0,
+      reasonCode: trim(login.json?.code || login.json?.reasonCode || login.json?.blocker),
+      companyContextValid: login.json?.companyContextValid,
+      returnedRole: canonicalStoredRole(login.json?.user?.role),
+      expectedRole: targetRole,
+      companyFolderId: trim(credentials.companyFolderId),
+      masterSheetId: trim(credentials.masterSheetId),
+      durationMs: Date.now() - started,
+      ok: login.status === 200 && login.json?.ok === true,
+    });
+  }
   logSessionSwitchDiagnostic(log, {
     stage: trim(switchContext.stage) || "login",
     fromRole,
@@ -620,6 +667,22 @@ async function loginWithCredentials(transport, config, credentials, log = () => 
   const session = await transport.request("GET", "/api/auth/company/session");
   assertNoPasswordHash(session.json, "role session");
   const sessionRole = canonicalStoredRole(session.json?.user?.role);
+  if (auditLog) {
+    auditLog(log, "session", {
+      loginHttpStatus: login.status,
+      sessionHttpStatus: session.status,
+      reasonCode: trim(session.json?.code || session.json?.reasonCode || session.json?.blocker),
+      companyContextValid: session.json?.companyContextValid,
+      returnedRole: sessionRole,
+      expectedRole: targetRole,
+      companyFolderId: trim(
+        session.json?.company?.companyFolderId || session.json?.user?.companyFolderId || credentials.companyFolderId,
+      ),
+      masterSheetId: trim(session.json?.masterSheetId || credentials.masterSheetId),
+      durationMs: Date.now() - started,
+      ok: session.status === 200 && session.json?.ok === true,
+    });
+  }
   logSessionSwitchDiagnostic(log, {
     stage: `${trim(switchContext.stage) || "login"}_session`,
     fromRole,
@@ -1134,23 +1197,87 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (managerPermissionsFail) return managerPermissionsFail;
 
     const auditorLoginFail = await runStage("auditorLogin", async () => {
+      const stageStarted = Date.now();
+      const list = await request("GET", usersPathFresh(workflowContext.companyFolderId, workflowContext.masterSheetId));
+      const auditorRecord = findUserByEmail(list.json?.users, workflowContext.auditorEmail);
+      const identity = buildAuditorLoginIdentitySnapshot(auditorRecord, workflowContext);
+      logAuditorLoginDiagnostic(logStage, "users_api_readback", {
+        usersApiRole: identity.role,
+        usersApiStatus: identity.status,
+        expectedRole: "Auditor",
+        companyFolderId: identity.companyFolderId,
+        masterSheetId: identity.masterSheetId,
+        durationMs: Date.now() - stageStarted,
+        ok: identity.role === "Auditor" && identity.status === "ACTIVE",
+      });
+      if (!auditorRecord || identity.role !== "Auditor" || identity.status !== "ACTIVE") {
+        return fail(
+          "auditorLogin",
+          "Verification Auditor Users API readback was not ACTIVE before login.",
+          "Inspect createAuditor provisioning and edit-user/duplicate-protection side effects.",
+          list.status,
+          identity,
+        );
+      }
+      const syncCreate = await request(
+        "POST",
+        `/api/companies/${encodeURIComponent(workflowContext.companyFolderId)}/users/verification-create`,
+        {
+          companyFolderId: workflowContext.companyFolderId,
+          masterSheetId: workflowContext.masterSheetId,
+          email: workflowContext.auditorEmail,
+          userId: workflowContext.auditorUserId,
+          role: "Auditor",
+          name: "BERT Verification Auditor",
+          password: workflowContext.verificationUserPassword,
+          runId: workflowContext.runId,
+          source: PRODUCTION_VERIFICATION_USER_SOURCE,
+        },
+      );
+      logAuditorLoginDiagnostic(logStage, "auth_index_resync", {
+        loginHttpStatus: syncCreate.status,
+        expectedRole: "Auditor",
+        companyFolderId: workflowContext.companyFolderId,
+        masterSheetId: workflowContext.masterSheetId,
+        durationMs: Date.now() - stageStarted,
+        ok: syncCreate.status === 200 && syncCreate.json?.ok === true,
+      });
+      const auditorUsername = buildProductionVerificationUsername(workflowContext.runId, "Auditor");
       const login = await loginWithCredentials(
         auditorTransport,
         config,
         {
-          username: workflowContext.auditorEmail,
+          username: auditorUsername,
           password: workflowContext.verificationUserPassword,
           companyFolderId: workflowContext.companyFolderId,
           masterSheetId: workflowContext.masterSheetId,
         },
         logStage,
         { stage: "auditor_login", fromRole: "none", toRole: "Auditor", transportIsolated: true },
+        { auditLog: logAuditorLoginDiagnostic },
       );
       if (!login.ok) {
-        return fail("auditorLogin", login.failureReason || "Auditor login failed.", "Inspect verification Auditor credentials.", login.httpStatus, login.responseBody);
+        return fail(
+          "auditorLogin",
+          login.failureReason || "Auditor login failed.",
+          login.httpStatus === 409
+            ? "Inspect auth-index reconciliation and COMPANY_CONTEXT_INVALID session validation."
+            : "Inspect verification Auditor credentials.",
+          login.httpStatus,
+          login.responseBody,
+        );
       }
       if (login.role !== "Auditor") {
         return fail("auditorLogin", `Auditor session role mismatch (got ${login.role}).`, "Inspect role mapping.");
+      }
+      if (trim(login.email) && trim(login.email) !== workflowContext.auditorEmail.toLowerCase()) {
+        return fail(
+          "auditorLogin",
+          "Auditor session email did not match verification user.",
+          "Inspect username/email login resolution for verification Auditor.",
+          login.httpStatus,
+          { expectedEmail: maskEmail(workflowContext.auditorEmail), returnedEmail: maskEmail(login.email) },
+        );
       }
       pass("auditorLogin");
       return null;

@@ -10,12 +10,14 @@ import {
   CHECK_LABELS,
   assertAdminTransportUntouchedByProbe,
   buildUsersListSnapshot,
+  buildAuditorLoginIdentitySnapshot,
   detectTransportCookieMutation,
   ensureAdminSmokeSession,
   formatUsersPermissionsWorkflowReport,
   getTransportCookieNames,
   loadUsersPermissionsWorkflowConfig,
   logCompanyScopeDiagnostic,
+  logAuditorLoginDiagnostic,
   logRoleChangeDiagnostic,
   logRoleDiscoveryDiagnostic,
   logDisableUserDiagnostic,
@@ -27,6 +29,7 @@ import {
 import {
   buildProductionVerificationUserEmail,
   buildProductionVerificationUserId,
+  buildProductionVerificationUsername,
   canonicalUserStatus,
   isPersistedActiveStatus,
   isPersistedInactiveStatus,
@@ -148,12 +151,18 @@ function createTransportInstance(options = {}) {
       if (username.includes("inactive-user") || store.disabledEmails?.has(username)) {
         return { status: 403, json: { ok: false, blocker: "inactive", code: "INACTIVE" } };
       }
-      if (username.includes("smoke-user-manager")) {
+      const isManagerLogin =
+        username.includes("smoke-user-manager") || username.includes("bert.smoke.user.manager");
+      const isAuditorLogin =
+        username.includes("smoke-user-auditor") || username.includes("bert.smoke.user.auditor");
+      if (isManagerLogin) {
         currentRole = store.users.find((item) => item.email.includes("manager"))?.role || "Manager";
         currentEmail = store.users.find((item) => item.email.includes("manager"))?.email || username;
-      } else if (username.includes("smoke-user-auditor")) {
+      } else if (isAuditorLogin) {
         currentRole = "Auditor";
-        currentEmail = store.users.find((item) => item.email.includes("auditor") && !item.email.includes("manager"))?.email || username;
+        currentEmail =
+          store.users.find((item) => item.email.includes("auditor") && !item.email.includes("manager"))?.email ||
+          username;
       } else {
         currentRole = "Admin";
         currentEmail = baseConfig.expectedEmail;
@@ -999,4 +1008,66 @@ test("assertAdminTransportUntouchedByProbe rejects admin session corruption", ()
     "probe",
   );
   assert.equal(result.ok, false);
+});
+
+test("buildAuditorLoginIdentitySnapshot normalises role and status", () => {
+  const snapshot = buildAuditorLoginIdentitySnapshot(
+    { email: buildProductionVerificationUserEmail(TEST_RUN_ID, "auditor"), role: "Auditor", status: "active" },
+    { companyFolderId: baseConfig.companyFolderId, masterSheetId: baseConfig.masterSheetId },
+  );
+  assert.equal(snapshot.role, "Auditor");
+  assert.equal(snapshot.status, "ACTIVE");
+});
+
+test("logAuditorLoginDiagnostic omits secrets", () => {
+  const lines = [];
+  logAuditorLoginDiagnostic((line) => lines.push(line), "session", {
+    loginHttpStatus: 200,
+    sessionHttpStatus: 409,
+    reasonCode: "COMPANY_CONTEXT_INVALID",
+    companyContextValid: false,
+    returnedRole: "Auditor",
+    expectedRole: "Auditor",
+    companyFolderId: baseConfig.companyFolderId,
+    masterSheetId: baseConfig.masterSheetId,
+    password: "secret",
+  });
+  const joined = lines.join("\n");
+  assert.equal(joined.includes("secret"), false);
+  assert.match(joined, /auditor-login/);
+  assert.match(joined, /COMPANY_CONTEXT_INVALID/);
+});
+
+test("auditor login accepts canonical verification username", async () => {
+  const factory = createTransportFactory();
+  const transport = factory();
+  const auditorEmail = buildProductionVerificationUserEmail(TEST_RUN_ID, "auditor");
+  const auditorUsername = buildProductionVerificationUsername(TEST_RUN_ID, "Auditor");
+  factory.store.users.push({
+    email: auditorEmail,
+    name: "BERT Verification Auditor",
+    role: "Auditor",
+    status: "ACTIVE",
+    userId: buildProductionVerificationUserId(TEST_RUN_ID, "Auditor"),
+    createdBy: PRODUCTION_VERIFICATION_USER_SOURCE,
+  });
+  const login = await transport.request("POST", "/api/auth/company/login", {
+    username: auditorUsername,
+    password: "x",
+    companyFolderId: baseConfig.companyFolderId,
+    masterSheetId: baseConfig.masterSheetId,
+  });
+  assert.equal(login.status, 200);
+  assert.equal(login.json.user.role, "Auditor");
+  const session = await transport.request("GET", "/api/auth/company/session");
+  assert.equal(session.status, 200);
+  assert.equal(session.json.user.role, "Auditor");
+});
+
+test("edit user stage only mutates manager verification user", async () => {
+  const { result, store } = await runWorkflow();
+  assert.equal(result.checks.editUser.status, "PASS");
+  const auditor = store.users.find((item) => item.email === buildProductionVerificationUserEmail(TEST_RUN_ID, "auditor"));
+  assert.equal(auditor?.role, "Auditor");
+  assert.equal(auditor?.name, "BERT Verification Auditor");
 });

@@ -7066,20 +7066,36 @@ async function respondCompanyUserSession(req, res, options = {}) {
       return res.status(401).json({ ok: false, error: "Google connection required for this action." });
     }
     const rec = await readCompanyUsersTabRecord(auth, data.masterSheetId, data.email);
-    if (!rec || rec.status !== "ACTIVE") {
+    if (!rec || normalizeUserStatus(rec.status) !== "ACTIVE") {
       authIndexApi.removeEntry?.(data.email);
       res.clearCookie(COMPANY_SESSION_COOKIE, getSessionCookieOptions());
       return res.status(401).json({ ok: false, error: "Session invalid." });
     }
 
     const masterSheetId = String(data.masterSheetId || "").trim();
-    const trusted = await authIndexApi
-      .verifyAuthIndexEntryMatchesUsersWorkbook(auth, getCompanyContextEnrichmentDeps(), data.email, {
-        masterSheetId,
-        companyFolderId: companyIdFromSession,
-        companyName: companyNameFromSession,
-      })
+    const sessionIndexEntry = {
+      masterSheetId,
+      companyFolderId: companyIdFromSession,
+      companyId: companyIdFromSession,
+      companyName: companyNameFromSession,
+    };
+    let trusted = await authIndexApi
+      .verifyAuthIndexEntryMatchesUsersWorkbook(auth, getCompanyContextEnrichmentDeps(), data.email, sessionIndexEntry)
       .catch(() => ({ ok: false, removeEntry: true }));
+    if (!trusted.ok) {
+      const reconciled = await authIndexApi
+        .reconcileLoginEntryFromUsersTab(auth, getCompanyContextEnrichmentDeps(), data.email, sessionIndexEntry)
+        .catch(() => ({ ok: false }));
+      if (reconciled.ok) {
+        const retryEntry = {
+          ...sessionIndexEntry,
+          ...(reconciled.entry || {}),
+        };
+        trusted = await authIndexApi
+          .verifyAuthIndexEntryMatchesUsersWorkbook(auth, getCompanyContextEnrichmentDeps(), data.email, retryEntry)
+          .catch(() => ({ ok: false, removeEntry: true }));
+      }
+    }
     if (!trusted.ok) {
       authIndexApi.removeEntry?.(data.email);
       res.clearCookie(COMPANY_SESSION_COOKIE, getSessionCookieOptions());

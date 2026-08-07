@@ -43,6 +43,19 @@ test("workflow uses isolated role transports for session switching", () => {
   assert.match(workflowSrc, /managerTransport/);
   assert.match(workflowSrc, /auditorTransport/);
   assert.match(workflowSrc, /logSessionSwitchDiagnostic/);
+  assert.match(workflowSrc, /logAuditorLoginDiagnostic/);
+  assert.match(workflowSrc, /buildProductionVerificationUsername/);
   assert.match(workflowSrc, /usersListSnapshot/);
   assert.match(workflowSrc, /runRoleDiscoveryChecks\(snapshot\.users\)/);
+});
+
+test("session handler reconciles auth index before COMPANY_CONTEXT_INVALID", () => {
+  const serverSrc = fs.readFileSync(path.join(root, "server/server.mjs"), "utf8");
+  assert.match(serverSrc, /reconcileLoginEntryFromUsersTab/);
+  assert.match(serverSrc, /normalizeUserStatus\(rec\.status\)/);
+});
+
+test("verification-create idempotent path refreshes auth index", () => {
+  const serviceSrc = fs.readFileSync(path.join(root, "server/company-user-verification-service.mjs"), "utf8");
+  assert.match(serviceSrc, /idempotent: true[\s\S]*authIndexApi\.upsertEntry/);
 });
