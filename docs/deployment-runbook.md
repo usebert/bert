@@ -635,6 +635,45 @@ npm run verify:production-notifications-workflow-tests
 npm run verify:notification-centre
 ```
 
+### Production Users & Permissions workflow (post-deploy smoke)
+
+After all prior production workflow gates pass, run the Users & Permissions workflow smoke test. It authenticates with the Dovecote Admin smoke account, confirms the Users API (`GET /api/companies/:id/users`, `PATCH`, verification-create/cleanup), discovers the canonical role model, and — only when `BERT_SMOKE_ALLOW_USER_MUTATION=1` — creates verification Manager and Auditor users, exercises role permissions, forbidden operations, role change, disable/re-enable, company scoping, cross-company isolation, and cleans up all verification user rows.
+
+```bash
+set -a && source .env && set +a
+
+BERT_SMOKE_USERNAME=mr.important \
+BERT_SMOKE_PASSWORD='<set securely in your environment>' \
+BERT_SMOKE_COMPANY_FOLDER_ID=1tDKluapYfY-RkuxXc6eoRnGHL38XCswx \
+BERT_SMOKE_MASTER_SHEET_ID=1MntKgSgVmTmlpzZhnCZdDQtdmPw7GcXptlAp88Ewrkc \
+BERT_SMOKE_EXPECTED_EMAIL=bert.demo+mr.important@usebert.co.uk \
+BERT_SMOKE_ALLOW_USER_MUTATION=1 \
+npm run verify:production-users-permissions-workflow
+```
+
+Optional:
+
+- **`BERT_SMOKE_ALLOW_USER_MUTATION`** — must be `1` to create/edit/disable/cleanup verification users. Without it, mutation stages report **SKIPPED** (authentication, Users API, role discovery, and baseline still run).
+- **`BERT_SMOKE_MANAGER_*` / `BERT_SMOKE_AUDITOR_*`** — optional dedicated smoke accounts for cross-role checks (verification users are created by default).
+
+Architecture:
+
+- **Users source of truth:** `Users` workbook tab
+- **List route:** `GET /api/companies/:companyFolderId/users`
+- **Admin mutations:** `PATCH/DELETE /api/companies/:companyFolderId/users/:email` (Admin/Master only)
+- **Verification create/cleanup:** `POST .../users/verification-create`, `POST .../users/verification-cleanup`
+- **Verification email prefix:** `bert.demo+smoke-user-{role}-{runId}@usebert.co.uk`
+- **Stored roles:** `Admin` (sheet may show `Company Admin`), `Manager`, `Auditor`, `User`
+- **Password safety:** `PasswordHash` never returned; `assertNoPasswordHash` on all responses
+
+Unit tests (mocked HTTP, no production calls):
+
+```bash
+npm run verify:production-users-permissions-workflow-tests
+npm run verify:company-members
+npm run verify:invite-permissions
+```
+
 ### Production Documents workflow (post-deploy smoke)
 
 After startup health, authentication health, audit workflow, Actions workflow, Risk Assessment workflow, Incident workflow, and Briefing workflow pass, run the Documents workflow smoke test. It authenticates with the same smoke account, confirms Document Control list/index APIs, and — only when `BERT_SMOKE_ALLOW_DOCUMENT_MUTATION=1` — creates a dedicated verification controlled document, exercises draft → upload → edit → submit → approve, confirms Document Control index visibility and dashboard exclusion, and cleans up safely. It never edits customer documents or Drive files outside the verification path.
@@ -909,6 +948,7 @@ Run in order after every API deployment:
 14. **Offline Sync workflow** — `npm run verify:production-offline-sync-workflow`
 15. **Reporting workflow** — `npm run verify:production-reporting-workflow`
 16. **Notifications workflow** — `npm run verify:production-notifications-workflow`
+17. **Users & Permissions workflow** — `npm run verify:production-users-permissions-workflow`
 
 Only when all sixteen pass should the deployment be considered **READY FOR CUSTOMERS**.
 

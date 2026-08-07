@@ -48,6 +48,11 @@ import {
   isValidCompanyUserEmail,
 } from "./company-users.mjs";
 import {
+  cleanupStaleVerificationCompanyUsers,
+  cleanupVerificationCompanyUser,
+  createVerificationCompanyUser,
+} from "./company-user-verification-service.mjs";
+import {
   readCompanyUsers as workbookReadCompanyUsers,
   repairUsersTab,
   repairUsersTabSchema,
@@ -5143,6 +5148,126 @@ app.delete(
         ok: false,
         error: error instanceof Error ? error.message : "Unable to remove company user.",
       });
+    }
+  },
+);
+
+app.post(
+  "/api/companies/:companyFolderId/users/verification-create",
+  requireGoogleWorkspaceSession,
+  requireWorkspaceAdminActor,
+  async (req, res) => {
+    try {
+      const auth = getAuthedClient();
+      const companyFolderId = String(req.params.companyFolderId || "").trim();
+      const masterSheetId = String(req.query?.masterSheetId || req.body?.masterSheetId || "").trim();
+      const actor = req.bertActor;
+      if (!companyFolderId || !masterSheetId) {
+        return res.status(400).json({ ok: false, error: "Company folder and master sheet are required." });
+      }
+      const result = await createVerificationCompanyUser(
+        auth,
+        { ...getCompanyUsersDeps(), authIndexApi },
+        {
+          companyFolderId,
+          masterSheetId,
+          companyName: String(req.body?.companyName || actor?.companyName || "").trim(),
+        },
+        actor,
+        req.body || {},
+      );
+      if (!result.ok) {
+        return res.status(result.httpStatus || 400).json({
+          ok: false,
+          code: result.code,
+          error: result.message || "Could not create verification user.",
+        });
+      }
+      return res.json({
+        ok: true,
+        idempotent: result.idempotent === true,
+        user: sanitizeUsersTabRecords([
+          {
+            email: result.user?.email,
+            name: result.user?.name,
+            role: result.user?.role,
+            status: result.user?.status,
+            companyId: companyFolderId,
+            companyFolderId,
+            userId: result.user?.userId,
+          },
+        ])[0],
+      });
+    } catch (error) {
+      console.error("[company-user] verification-create failed:", error);
+      return res.status(500).json({ ok: false, error: "Could not create verification user." });
+    }
+  },
+);
+
+app.post(
+  "/api/companies/:companyFolderId/users/verification-cleanup",
+  requireGoogleWorkspaceSession,
+  requireWorkspaceAdminActor,
+  async (req, res) => {
+    try {
+      const auth = getAuthedClient();
+      const companyFolderId = String(req.params.companyFolderId || "").trim();
+      const masterSheetId = String(req.query?.masterSheetId || req.body?.masterSheetId || "").trim();
+      if (!companyFolderId || !masterSheetId) {
+        return res.status(400).json({ ok: false, error: "Company folder and master sheet are required." });
+      }
+      const result = await cleanupStaleVerificationCompanyUsers(
+        auth,
+        { ...getCompanyUsersDeps(), authIndexApi },
+        { companyFolderId, masterSheetId },
+        req.body || {},
+      );
+      if (!result.ok) {
+        return res.status(result.httpStatus || 400).json({
+          ok: false,
+          code: result.code,
+          error: result.message || "Could not clean verification users.",
+        });
+      }
+      return res.json(result);
+    } catch (error) {
+      console.error("[company-user] verification-cleanup failed:", error);
+      return res.status(500).json({ ok: false, error: "Could not clean verification users." });
+    }
+  },
+);
+
+app.post(
+  "/api/companies/:companyFolderId/users/:email/verification-cleanup",
+  requireGoogleWorkspaceSession,
+  requireWorkspaceAdminActor,
+  async (req, res) => {
+    try {
+      const auth = getAuthedClient();
+      const companyFolderId = String(req.params.companyFolderId || "").trim();
+      const email = String(req.params.email || "").trim().toLowerCase();
+      const masterSheetId = String(req.query?.masterSheetId || req.body?.masterSheetId || "").trim();
+      if (!companyFolderId || !masterSheetId || !email) {
+        return res.status(400).json({ ok: false, error: "Company folder, master sheet, and email are required." });
+      }
+      const result = await cleanupVerificationCompanyUser(
+        auth,
+        { ...getCompanyUsersDeps(), authIndexApi },
+        { companyFolderId, masterSheetId },
+        email,
+      );
+      if (!result.ok) {
+        return res.status(result.httpStatus || 400).json({
+          ok: false,
+          code: result.code,
+          error: result.message || "Could not clean verification user.",
+        });
+      }
+      return res.json(result);
+    } catch (error) {
+      console.error("[company-user] verification-cleanup user failed:", error);
+      return res.status(500).json({ ok: false, error: "Could not clean verification user." });
     }
   },
 );
