@@ -596,6 +596,45 @@ npm run verify:reports-dashboard
 npm run verify:reports-ui
 ```
 
+### Production Notifications workflow (post-deploy smoke)
+
+After all prior production workflow gates pass, run the Notifications workflow smoke test. It authenticates with the Dovecote smoke account, confirms the **Operational Messages** API (`GET/POST /api/companies/:id/messages`, mark-read, verification-cleanup), captures a safe verification baseline (counts only), and — only when `BERT_SMOKE_ALLOW_NOTIFICATION_MUTATION=1` — creates one server-backed verification notification for the smoke recipient, verifies inbox visibility, deep links, mark-read idempotency, unread count, duplicate protection, dashboard exclusion, external email safety, and cleans up all verification notification rows.
+
+```bash
+set -a && source .env && set +a
+
+BERT_SMOKE_USERNAME=mr.important \
+BERT_SMOKE_PASSWORD='<set securely in your environment>' \
+BERT_SMOKE_COMPANY_FOLDER_ID=1tDKluapYfY-RkuxXc6eoRnGHL38XCswx \
+BERT_SMOKE_MASTER_SHEET_ID=1MntKgSgVmTmlpzZhnCZdDQtdmPw7GcXptlAp88Ewrkc \
+BERT_SMOKE_EXPECTED_EMAIL=bert.demo+mr.important@usebert.co.uk \
+BERT_SMOKE_ALLOW_NOTIFICATION_MUTATION=1 \
+npm run verify:production-notifications-workflow
+```
+
+Optional:
+
+- **`BERT_SMOKE_ALLOW_NOTIFICATION_MUTATION`** — must be `1` to create/read/cleanup verification notifications. Without it, mutation stages report **SKIPPED** (authentication, notifications API, and baseline still run).
+- **`BERT_SMOKE_NOTIFICATION_RECIPIENT_*`** — optional dedicated second smoke recipient credentials.
+
+Architecture:
+
+- **Server-backed inbox:** `OperationalMessages` workbook tab via `/api/companies/:id/messages`
+- **Bell Notification Centre:** client-derived only (no `/api/me/notifications`); per-type stages **SKIP** with explicit reason
+- **Notification ID:** `bert-smoke-notification-{runId}-{type}`
+- **Source ID:** `bert-smoke-notify-source-{runId}-{type}`
+- **Escalation:** no server notification escalation engine — **Escalation** stage **SKIP**
+- **Email:** verification gate does not send customer email; **External Email Safety** confirms suppression
+
+Skipped stages (expected): **Incident/Briefing/Document/Schedule/Risk Assessment/Additional Notifications** (client-derived bell centre), **Escalation** (no server engine), **Search** (no server search API).
+
+Unit tests (mocked HTTP, no production calls):
+
+```bash
+npm run verify:production-notifications-workflow-tests
+npm run verify:notification-centre
+```
+
 ### Production Documents workflow (post-deploy smoke)
 
 After startup health, authentication health, audit workflow, Actions workflow, Risk Assessment workflow, Incident workflow, and Briefing workflow pass, run the Documents workflow smoke test. It authenticates with the same smoke account, confirms Document Control list/index APIs, and — only when `BERT_SMOKE_ALLOW_DOCUMENT_MUTATION=1` — creates a dedicated verification controlled document, exercises draft → upload → edit → submit → approve, confirms Document Control index visibility and dashboard exclusion, and cleans up safely. It never edits customer documents or Drive files outside the verification path.
@@ -869,8 +908,9 @@ Run in order after every API deployment:
 13. **Risk Register workflow** — `npm run verify:production-risk-register-workflow`
 14. **Offline Sync workflow** — `npm run verify:production-offline-sync-workflow`
 15. **Reporting workflow** — `npm run verify:production-reporting-workflow`
+16. **Notifications workflow** — `npm run verify:production-notifications-workflow`
 
-Only when all fifteen pass should the deployment be considered **READY FOR CUSTOMERS**.
+Only when all sixteen pass should the deployment be considered **READY FOR CUSTOMERS**.
 
 ### Startup system health (Master operators)
 

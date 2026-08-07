@@ -206,6 +206,8 @@
     "verify:production-offline-sync-workflow-tests": "node --test scripts/verify-production-offline-sync-workflow.test.mjs",
     "verify:production-reporting-workflow": "node scripts/verify-production-reporting-workflow.mjs",
     "verify:production-reporting-workflow-tests": "node --test scripts/verify-production-reporting-workflow.test.mjs scripts/verify-production-reporting-baseline.test.mjs scripts/verify-production-reporting-source-provisioner.test.mjs scripts/verify-production-verification-pdf.test.mjs scripts/verify-production-reporting-download-recovery.test.mjs",
+    "verify:production-notifications-workflow": "node scripts/verify-production-notifications-workflow.mjs",
+    "verify:production-notifications-workflow-tests": "node --test scripts/verify-production-notifications-workflow.test.mjs",
     "verify:production-documents-workflow": "node scripts/verify-production-documents-workflow.mjs",
     "verify:production-documents-workflow-tests": "node --test scripts/verify-production-documents-workflow.test.mjs",
     "verify:production-schedules-workflow": "node scripts/verify-production-schedules-workflow.mjs",

@@ -105,6 +105,9 @@ import {
   canSendMessages,
   canViewMessages,
   createOperationalMessage,
+  createVerificationOperationalMessage,
+  cleanupStaleVerificationOperationalMessages,
+  cleanupVerificationOperationalMessage,
   listOperationalMessages,
   markOperationalMessageRead,
   MESSAGES_ROUTE_TIMEOUT_MS,
@@ -3791,6 +3794,48 @@ export function installCoreWorkflowRoutes(app, deps) {
           String(req.params?.messageId || "").trim(),
         ),
       { operation: "messages_archive", code: "MESSAGES_ARCHIVE_FAILED", message: "Could not archive message." },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/messages/verification-cleanup", async (req, res) => {
+    return runMessagesRoute(
+      req,
+      res,
+      { send: true },
+      ({ authed, actor, resolved }) =>
+        cleanupStaleVerificationOperationalMessages(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          req.body || {},
+        ),
+      {
+        operation: "messages_verification_cleanup",
+        code: "MESSAGES_CLEANUP_FAILED",
+        message: "Could not clean verification notifications.",
+      },
+    );
+  });
+
+  app.post("/api/companies/:companyFolderId/messages/:messageId/verification-cleanup", async (req, res) => {
+    return runMessagesRoute(
+      req,
+      res,
+      { send: true },
+      ({ authed, actor, resolved }) =>
+        cleanupVerificationOperationalMessage(
+          authed,
+          { ...registryDeps, ...scheduleDeps },
+          resolved,
+          actor,
+          String(req.params?.messageId || "").trim(),
+        ),
+      {
+        operation: "message_verification_cleanup",
+        code: "MESSAGES_CLEANUP_FAILED",
+        message: "Could not clean verification notification.",
+      },
     );
   });
 

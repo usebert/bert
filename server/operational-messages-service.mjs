@@ -10,6 +10,15 @@ import {
   summarizeOperationalMessages,
   validateOperationalMessageInput,
 } from "../shared/operational-messages.mjs";
+import {
+  buildVerificationNotificationMessageInput,
+  isActiveVerificationNotificationMessage,
+  isOperationalNotificationMessage,
+  isVerificationNotificationId,
+  isVerificationNotificationMessage,
+  listActiveVerificationNotificationMessages,
+  PRODUCTION_VERIFICATION_NOTIFICATION_CLEANED_STATUS,
+} from "../shared/production-verification-notification.mjs";
 import { isCompanyInviteActor, isGodmodeInviteSession } from "../shared/company-invite-permissions.mjs";
 import {
   appendTabRows as workbookAppendTabRows,
@@ -180,6 +189,10 @@ export async function listOperationalMessages(auth, deps, context, actor, option
 }
 
 export async function createOperationalMessage(auth, deps, context, actor, input = {}, options = {}) {
+  const messageId = trim(input.messageId);
+  if (isVerificationNotificationId(messageId) || isVerificationNotificationMessage(input)) {
+    return createVerificationOperationalMessage(auth, deps, context, actor, input, options);
+  }
   const masterSheetId = trim(context?.masterSheetId);
   const companyFolderId = trim(context?.companyFolderId || context?.companyId);
   if (!masterSheetId || !companyFolderId) {
@@ -308,5 +321,132 @@ export async function archiveOperationalMessage(auth, deps, context, actor, mess
     companyFolderId,
     masterSheetId,
     message: { ...current, status: "archived", archivedAt, archivedBy: actorEmail, needsAction: false },
+  };
+}
+
+export async function createVerificationOperationalMessage(auth, deps, context, actor, input = {}) {
+  const masterSheetId = trim(context?.masterSheetId);
+  const companyFolderId = trim(context?.companyFolderId || context?.companyId);
+  if (!masterSheetId || !companyFolderId) {
+    return messagesApiFailure("MESSAGES_CONTEXT_MISSING", "Company workspace could not be resolved.", 404);
+  }
+  if (!canSendMessages(actor) && !input.allowAsRecorder) {
+    return messagesApiFailure("MESSAGES_FORBIDDEN", "You do not have permission to send messages.", 403);
+  }
+  const payload = buildVerificationNotificationMessageInput(input);
+  if (!trim(payload.recipientEmail)) {
+    return messagesApiFailure("MESSAGES_VALIDATION_FAILED", "Recipient email is required.", 400);
+  }
+  if (!isVerificationNotificationId(payload.messageId)) {
+    return messagesApiFailure("MESSAGES_VALIDATION_FAILED", "Verification notification ID prefix is required.", 400);
+  }
+
+  await ensureMessagesTab(auth, deps, masterSheetId);
+  const records = await readMessageRecords(auth, deps, masterSheetId);
+  const existing = records.find((record) => trim(record.MessageId) === trim(payload.messageId));
+  if (existing) {
+    const mapped = mapOperationalMessageRecord(existing);
+    if (mapped && isActiveVerificationNotificationMessage(mapped)) {
+      return {
+        ok: true,
+        idempotent: true,
+        companyFolderId,
+        masterSheetId,
+        message: mapped,
+      };
+    }
+  }
+
+  const appendTabRows = resolveAppendTabRows(deps);
+  const actorEmail = normalizeEmail(actor?.email) || "unknown";
+  const sentAt = nowIso();
+  const row = {
+    MessageId: payload.messageId,
+    CompanyFolderId: companyFolderId,
+    RecipientPersonId: payload.recipientPersonId,
+    RecipientName: payload.recipientName,
+    RecipientEmail: payload.recipientEmail,
+    SenderPersonId: actorEmail,
+    SenderName: trim(actor?.name || actor?.displayName || ""),
+    SenderEmail: actorEmail,
+    Subject: payload.subject,
+    MessageBody: payload.messageBody,
+    RelatedModule: payload.relatedModule,
+    RelatedRecordId: payload.relatedRecordId,
+    RelatedEquipmentId: payload.relatedEquipmentId,
+    RelatedExaminationId: payload.relatedExaminationId,
+    RelatedScheduleId: payload.relatedScheduleId,
+    SentAt: sentAt,
+    ReadAt: "",
+    Status: "unread",
+    ArchivedAt: "",
+    ArchivedBy: "",
+  };
+  await appendTabRows(auth, deps, masterSheetId, OPERATIONAL_MESSAGES_TAB, OPERATIONAL_MESSAGES_TAB_COLUMNS, [row]);
+  return {
+    ok: true,
+    idempotent: false,
+    companyFolderId,
+    masterSheetId,
+    message: mapOperationalMessageRecord(row),
+  };
+}
+
+export async function cleanupVerificationOperationalMessage(auth, deps, context, actor, messageId) {
+  const masterSheetId = trim(context?.masterSheetId);
+  const companyFolderId = trim(context?.companyFolderId || context?.companyId);
+  if (!masterSheetId || !companyFolderId) {
+    return messagesApiFailure("MESSAGES_CONTEXT_MISSING", "Company workspace could not be resolved.", 404);
+  }
+  if (!isVerificationNotificationId(messageId)) {
+    return messagesApiFailure("MESSAGES_CLEANUP_REJECTED", "Only verification notification IDs may be cleaned.", 400);
+  }
+  await ensureMessagesTab(auth, deps, masterSheetId);
+  const records = await readMessageRecords(auth, deps, masterSheetId);
+  const currentRecord = records.find((record) => trim(record.MessageId) === trim(messageId));
+  if (!currentRecord) {
+    return { ok: true, messageId, cleaned: false, alreadyClean: true };
+  }
+  if (isOperationalNotificationMessage(currentRecord)) {
+    return messagesApiFailure("MESSAGES_CLEANUP_REJECTED", "Ordinary operational messages cannot be cleaned by the verification gate.", 400);
+  }
+  const archived = await archiveOperationalMessage(auth, deps, context, actor, messageId);
+  if (!archived.ok) {
+    return archived;
+  }
+  return {
+    ok: true,
+    messageId,
+    cleaned: true,
+    alreadyClean: false,
+  };
+}
+
+export async function cleanupStaleVerificationOperationalMessages(auth, deps, context, actor, input = {}) {
+  const list = await listOperationalMessages(auth, deps, context, actor, { includeArchived: true });
+  if (!list.ok) {
+    return list;
+  }
+  const stale = listActiveVerificationNotificationMessages(list.messages || []);
+  const results = [];
+  for (const message of stale) {
+    if (input.notificationRunId && !trim(message.messageId).includes(trim(input.notificationRunId))) {
+      continue;
+    }
+    const cleaned = await cleanupVerificationOperationalMessage(auth, deps, context, actor, message.messageId);
+    results.push({
+      messageId: message.messageId,
+      ok: cleaned.ok,
+      cleaned: cleaned.cleaned !== false,
+      alreadyClean: cleaned.alreadyClean === true,
+      code: cleaned.code,
+    });
+  }
+  return {
+    ok: true,
+    companyFolderId: context.companyFolderId,
+    masterSheetId: context.masterSheetId,
+    cleanedCount: results.filter((item) => item.cleaned).length,
+    results,
   };
 }
