@@ -20,6 +20,7 @@ import {
 import { assertNoPasswordHash } from "./live-http-client.mjs";
 import {
   buildLoginBody,
+  createFetchTransport,
   loadSmokeConfig,
   maskEmail,
   performProductionSmokeLogin,
@@ -273,7 +274,7 @@ export function logRoleChangeDiagnostic(log, phase, input = {}) {
 
 /**
  * Re-establish the smoke Admin session after Manager/Auditor probes.
- * Forbidden-operation stages leave a non-admin cookie; PATCH role updates require Admin.
+ * Prefer verifyAdminTransportSession() with isolated admin/manager/auditor transports.
  */
 export async function ensureAdminSmokeSession(config, transport, log = () => {}) {
   const started = Date.now();
@@ -317,6 +318,59 @@ export async function ensureAdminSmokeSession(config, transport, log = () => {})
     ok: true,
   });
   return relogin;
+}
+
+/** Safe structured diagnostics for identity transport switching (no cookie values). */
+export function logSessionSwitchDiagnostic(log, input = {}) {
+  log(
+    `[user-permissions:session-switch] ${JSON.stringify({
+      stage: trim(input.stage) || undefined,
+      fromRole: trim(input.fromRole) || undefined,
+      toRole: trim(input.toRole) || undefined,
+      loginHttpStatus: input.loginHttpStatus ?? undefined,
+      sessionHttpStatus: input.sessionHttpStatus ?? undefined,
+      companyContextValid: input.companyContextValid ?? undefined,
+      reasonCode: trim(input.reasonCode) || undefined,
+      durationMs: input.durationMs ?? undefined,
+      transportIsolated: input.transportIsolated ?? undefined,
+      cookieJarNames: Array.isArray(input.cookieJarNames) ? input.cookieJarNames : undefined,
+      ok: input.ok ?? undefined,
+    })}`,
+  );
+}
+
+/** Confirm the dedicated Admin transport still holds a valid Admin session (no re-login). */
+export async function verifyAdminTransportSession(adminTransport, log = () => {}, stage = "verify_admin_transport") {
+  const started = Date.now();
+  const cookieJarNames = adminTransport.getCookies ? Object.keys(adminTransport.getCookies()) : [];
+  const session = await adminTransport.request("GET", "/api/auth/company/session");
+  assertNoPasswordHash(session.json, "admin transport session");
+  const sessionRole = canonicalStoredRole(session.json?.user?.role);
+  const ok = session.status === 200 && session.json?.ok === true && sessionRole === "Admin";
+  logSessionSwitchDiagnostic(log, {
+    stage,
+    fromRole: "Admin",
+    toRole: sessionRole || "(blank)",
+    loginHttpStatus: 0,
+    sessionHttpStatus: session.status,
+    companyContextValid: session.json?.companyContextValid,
+    reasonCode: trim(session.json?.code || session.json?.reasonCode || session.json?.blocker),
+    durationMs: Date.now() - started,
+    transportIsolated: true,
+    cookieJarNames,
+    ok,
+  });
+  if (!ok) {
+    return {
+      ok: false,
+      failureReason: `Admin transport session was not accepted (HTTP ${session.status}, role=${sessionRole || "(blank)"}).`,
+      remediation: "Inspect isolated admin transport cookies and GET /api/auth/company/session validation.",
+      httpStatus: session.status,
+      responseBody: session.json,
+      reasonCode: trim(session.json?.code || session.json?.reasonCode || session.json?.blocker),
+    };
+  }
+  return { ok: true, role: sessionRole, httpStatus: session.status };
 }
 
 export function redactSafeResponseBody(value) {
@@ -394,33 +448,64 @@ async function createVerificationUser(request, workflowContext, role) {
   return { ok: false, email, userId, role, response };
 }
 
-async function loginWithCredentials(transport, config, credentials) {
+async function loginWithCredentials(transport, config, credentials, log = () => {}, switchContext = {}) {
+  const started = Date.now();
+  const fromRole = trim(switchContext.fromRole) || "cleared";
+  const targetRole = trim(switchContext.toRole) || "unknown";
   if (transport.clearCookies) {
     transport.clearCookies();
   }
   const login = await transport.request("POST", "/api/auth/company/login", buildLoginBody(credentials));
   assertNoPasswordHash(login.json, "role login");
+  logSessionSwitchDiagnostic(log, {
+    stage: trim(switchContext.stage) || "login",
+    fromRole,
+    toRole: targetRole,
+    loginHttpStatus: login.status,
+    sessionHttpStatus: 0,
+    reasonCode: trim(login.json?.code || login.json?.reasonCode || login.json?.blocker),
+    durationMs: Date.now() - started,
+    transportIsolated: switchContext.transportIsolated !== false,
+    cookieJarNames: transport.getCookies ? Object.keys(transport.getCookies()) : undefined,
+    ok: login.status === 200 && login.json?.ok === true,
+  });
   if (login.status !== 200 || login.json?.ok !== true) {
     return {
       ok: false,
       failureReason: `Login rejected (HTTP ${login.status}).`,
       httpStatus: login.status,
       responseBody: login.json,
+      reasonCode: trim(login.json?.code || login.json?.reasonCode || login.json?.blocker),
     };
   }
   const session = await transport.request("GET", "/api/auth/company/session");
   assertNoPasswordHash(session.json, "role session");
+  const sessionRole = canonicalStoredRole(session.json?.user?.role);
+  logSessionSwitchDiagnostic(log, {
+    stage: `${trim(switchContext.stage) || "login"}_session`,
+    fromRole,
+    toRole: sessionRole || targetRole,
+    loginHttpStatus: login.status,
+    sessionHttpStatus: session.status,
+    companyContextValid: session.json?.companyContextValid,
+    reasonCode: trim(session.json?.code || session.json?.reasonCode || session.json?.blocker),
+    durationMs: Date.now() - started,
+    transportIsolated: switchContext.transportIsolated !== false,
+    cookieJarNames: transport.getCookies ? Object.keys(transport.getCookies()) : undefined,
+    ok: session.status === 200 && session.json?.ok === true,
+  });
   if (session.status !== 200 || session.json?.ok !== true) {
     return {
       ok: false,
       failureReason: `Session rejected (HTTP ${session.status}).`,
       httpStatus: session.status,
       responseBody: session.json,
+      reasonCode: trim(session.json?.code || session.json?.reasonCode || session.json?.blocker),
     };
   }
   return {
     ok: true,
-    role: canonicalStoredRole(session.json?.user?.role),
+    role: sessionRole,
     email: trim(session.json?.user?.email).toLowerCase(),
     companyFolderId: trim(
       session.json?.company?.companyFolderId || session.json?.user?.companyFolderId || credentials.companyFolderId,
@@ -496,7 +581,23 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     getStageKey: () => currentStageKey,
     getTimeout: (stageKey) => diagnostics.getStageTimeout(stageKey),
   });
-  const request = timedTransport.request.bind(timedTransport);
+  const createRoleTransportRaw =
+    typeof options.createTransport === "function"
+      ? options.createTransport
+      : () => createFetchTransport(config.apiBase, config.appOrigin, config.timeoutMs);
+  const wrapRoleTransport = (rawTransport) =>
+    wrapTransportWithTimeouts(rawTransport, {
+      apiBase: config.apiBase,
+      getStageKey: () => currentStageKey,
+      getTimeout: (stageKey) => diagnostics.getStageTimeout(stageKey),
+    });
+  const adminTransport = timedTransport;
+  const managerTransport = wrapRoleTransport(createRoleTransportRaw());
+  const auditorTransport = wrapRoleTransport(createRoleTransportRaw());
+  const adminRequest = adminTransport.request.bind(adminTransport);
+  const managerRequest = managerTransport.request.bind(managerTransport);
+  const auditorRequest = auditorTransport.request.bind(auditorTransport);
+  const request = adminRequest;
   const workflowContext = {
     companyFolderId: "",
     masterSheetId: "",
@@ -600,7 +701,7 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     result.apiVersion = trim(health.json?.version);
     result.apiSha = trim(health.json?.gitSha || health.json?.sha);
     result.shortSha = trim(health.json?.shortSha);
-    const login = await performProductionSmokeLogin(config, timedTransport, options);
+    const login = await performProductionSmokeLogin(config, adminTransport);
     if (!login.ok) {
       return fail(
         "authentication",
@@ -845,12 +946,18 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (duplicateFail) return duplicateFail;
 
     const managerLoginFail = await runStage("managerLogin", async () => {
-      const login = await loginWithCredentials(timedTransport, config, {
-        username: workflowContext.managerEmail,
-        password: workflowContext.verificationUserPassword,
-        companyFolderId: workflowContext.companyFolderId,
-        masterSheetId: workflowContext.masterSheetId,
-      });
+      const login = await loginWithCredentials(
+        managerTransport,
+        config,
+        {
+          username: workflowContext.managerEmail,
+          password: workflowContext.verificationUserPassword,
+          companyFolderId: workflowContext.companyFolderId,
+          masterSheetId: workflowContext.masterSheetId,
+        },
+        logStage,
+        { stage: "manager_login", fromRole: "none", toRole: "Manager", transportIsolated: true },
+      );
       if (!login.ok) {
         return fail("managerLogin", login.failureReason || "Manager login failed.", "Inspect verification Manager credentials.", login.httpStatus, login.responseBody);
       }
@@ -865,11 +972,11 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (managerLoginFail) return managerLoginFail;
 
     const managerPermissionsFail = await runStage("managerPermissions", async () => {
-      const list = await request("GET", usersPath(workflowContext.companyFolderId, workflowContext.masterSheetId));
+      const list = await managerRequest("GET", usersPath(workflowContext.companyFolderId, workflowContext.masterSheetId));
       if (list.status !== 200 || list.json?.ok !== true) {
         return fail("managerPermissions", "Manager could not list users.", "Inspect Manager list permission.", list.status, list.json);
       }
-      const dashboard = await request(
+      const dashboard = await managerRequest(
         "GET",
         withMasterSheet(
           `/api/companies/${encodeURIComponent(workflowContext.companyFolderId)}/dashboard/live`,
@@ -888,12 +995,18 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (managerPermissionsFail) return managerPermissionsFail;
 
     const auditorLoginFail = await runStage("auditorLogin", async () => {
-      const login = await loginWithCredentials(timedTransport, config, {
-        username: workflowContext.auditorEmail,
-        password: workflowContext.verificationUserPassword,
-        companyFolderId: workflowContext.companyFolderId,
-        masterSheetId: workflowContext.masterSheetId,
-      });
+      const login = await loginWithCredentials(
+        auditorTransport,
+        config,
+        {
+          username: workflowContext.auditorEmail,
+          password: workflowContext.verificationUserPassword,
+          companyFolderId: workflowContext.companyFolderId,
+          masterSheetId: workflowContext.masterSheetId,
+        },
+        logStage,
+        { stage: "auditor_login", fromRole: "none", toRole: "Auditor", transportIsolated: true },
+      );
       if (!login.ok) {
         return fail("auditorLogin", login.failureReason || "Auditor login failed.", "Inspect verification Auditor credentials.", login.httpStatus, login.responseBody);
       }
@@ -906,7 +1019,7 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (auditorLoginFail) return auditorLoginFail;
 
     const auditorPermissionsFail = await runStage("auditorPermissions", async () => {
-      const assigned = await request("GET", "/api/me/assigned-checks");
+      const assigned = await auditorRequest("GET", "/api/me/assigned-checks");
       if (assigned.status !== 200 || assigned.json?.ok !== true) {
         return fail("auditorPermissions", "Auditor could not access assigned checks.", "Inspect Auditor read permissions.", assigned.status, assigned.json);
       }
@@ -916,11 +1029,17 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (auditorPermissionsFail) return auditorPermissionsFail;
 
     const adminPermissionsFail = await runStage("adminPermissions", async () => {
-      const relogin = await performProductionSmokeLogin(config, timedTransport, options);
-      if (!relogin.ok) {
-        return fail("adminPermissions", "Admin re-login failed.", relogin.remediation || "Inspect smoke credentials.", relogin.httpStatus, relogin.responseBody);
+      const adminSession = await verifyAdminTransportSession(adminTransport, logStage, "admin_permissions");
+      if (!adminSession.ok) {
+        return fail(
+          "adminPermissions",
+          adminSession.failureReason || "Admin transport session was not valid.",
+          adminSession.remediation || "Inspect isolated admin transport session.",
+          adminSession.httpStatus,
+          adminSession.responseBody,
+        );
       }
-      const patchProbe = await request(
+      const patchProbe = await adminRequest(
         "PATCH",
         userPatchPath(workflowContext.companyFolderId, workflowContext.auditorEmail, workflowContext.masterSheetId),
         { name: "BERT Verification Auditor", companyFolderId: workflowContext.companyFolderId, masterSheetId: workflowContext.masterSheetId },
@@ -934,16 +1053,22 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (adminPermissionsFail) return adminPermissionsFail;
 
     const forbiddenFail = await runStage("forbiddenOperations", async () => {
-      const managerLogin = await loginWithCredentials(timedTransport, config, {
-        username: workflowContext.managerEmail,
-        password: workflowContext.verificationUserPassword,
-        companyFolderId: workflowContext.companyFolderId,
-        masterSheetId: workflowContext.masterSheetId,
-      });
+      const managerLogin = await loginWithCredentials(
+        managerTransport,
+        config,
+        {
+          username: workflowContext.managerEmail,
+          password: workflowContext.verificationUserPassword,
+          companyFolderId: workflowContext.companyFolderId,
+          masterSheetId: workflowContext.masterSheetId,
+        },
+        logStage,
+        { stage: "forbidden_manager_login", fromRole: "none", toRole: "Manager", transportIsolated: true },
+      );
       if (!managerLogin.ok) {
         return fail("forbiddenOperations", "Could not authenticate Manager for forbidden probe.", "Inspect Manager login.");
       }
-      const managerPatch = await request(
+      const managerPatch = await managerRequest(
         "PATCH",
         userPatchPath(workflowContext.companyFolderId, workflowContext.auditorEmail, workflowContext.masterSheetId),
         { role: "Admin", companyFolderId: workflowContext.companyFolderId, masterSheetId: workflowContext.masterSheetId },
@@ -951,16 +1076,22 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
       if (!isForbiddenStatus(managerPatch.status)) {
         return fail("forbiddenOperations", "Manager user patch was not forbidden.", "Inspect requireWorkspaceAdminActor.", managerPatch.status, managerPatch.json);
       }
-      const auditorLogin = await loginWithCredentials(timedTransport, config, {
-        username: workflowContext.auditorEmail,
-        password: workflowContext.verificationUserPassword,
-        companyFolderId: workflowContext.companyFolderId,
-        masterSheetId: workflowContext.masterSheetId,
-      });
+      const auditorLogin = await loginWithCredentials(
+        auditorTransport,
+        config,
+        {
+          username: workflowContext.auditorEmail,
+          password: workflowContext.verificationUserPassword,
+          companyFolderId: workflowContext.companyFolderId,
+          masterSheetId: workflowContext.masterSheetId,
+        },
+        logStage,
+        { stage: "forbidden_auditor_login", fromRole: "none", toRole: "Auditor", transportIsolated: true },
+      );
       if (!auditorLogin.ok) {
         return fail("forbiddenOperations", "Could not authenticate Auditor for forbidden probe.", "Inspect Auditor login.");
       }
-      const auditorPatch = await request(
+      const auditorPatch = await auditorRequest(
         "PATCH",
         userPatchPath(workflowContext.companyFolderId, workflowContext.managerEmail, workflowContext.masterSheetId),
         { role: "Admin", companyFolderId: workflowContext.companyFolderId, masterSheetId: workflowContext.masterSheetId },
@@ -968,7 +1099,7 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
       if (!isForbiddenStatus(auditorPatch.status)) {
         return fail("forbiddenOperations", "Auditor self-promotion was not forbidden.", "Inspect user-management guards.", auditorPatch.status, auditorPatch.json);
       }
-      const auditorCreate = await request(
+      const auditorCreate = await auditorRequest(
         "POST",
         `/api/companies/${encodeURIComponent(workflowContext.companyFolderId)}/users/verification-create`,
         {
@@ -982,14 +1113,14 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
       if (!isForbiddenStatus(auditorCreate.status)) {
         return fail("forbiddenOperations", "Auditor verification-create was not forbidden.", "Inspect verification-create admin gate.", auditorCreate.status, auditorCreate.json);
       }
-      const adminRestore = await ensureAdminSmokeSession(config, timedTransport, logStage);
-      if (!adminRestore.ok) {
+      const adminSession = await verifyAdminTransportSession(adminTransport, logStage, "forbidden_operations_admin_transport");
+      if (!adminSession.ok) {
         return fail(
           "forbiddenOperations",
-          `Could not restore Admin session after forbidden probes. ${adminRestore.failureReason || ""}`.trim(),
-          adminRestore.remediation || "Inspect smoke Admin re-login after Manager/Auditor probes.",
-          adminRestore.httpStatus,
-          adminRestore.responseBody,
+          `Admin transport was invalidated after forbidden probes. ${adminSession.failureReason || ""}`.trim(),
+          adminSession.remediation || "Inspect isolated admin transport session.",
+          adminSession.httpStatus,
+          adminSession.responseBody,
         );
       }
       pass("forbiddenOperations");
@@ -998,12 +1129,12 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (forbiddenFail) return forbiddenFail;
 
     const roleChangeFail = await runStage("roleChange", async () => {
-      const adminSession = await ensureAdminSmokeSession(config, timedTransport, logStage);
+      const adminSession = await verifyAdminTransportSession(adminTransport, logStage, "role_change_admin_transport");
       if (!adminSession.ok) {
         return fail(
           "roleChange",
-          adminSession.failureReason || "Admin re-login failed before role change.",
-          adminSession.remediation || "Inspect smoke Admin credentials and session cookies.",
+          adminSession.failureReason || "Admin transport session was not valid before role change.",
+          adminSession.remediation || "Inspect isolated admin transport session.",
           adminSession.httpStatus,
           adminSession.responseBody,
         );
@@ -1069,22 +1200,34 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (roleChangeFail) return roleChangeFail;
 
     const sessionRefreshFail = await runStage("sessionRefresh", async () => {
-      const managerSession = await loginWithCredentials(timedTransport, config, {
-        username: workflowContext.managerEmail,
-        password: workflowContext.verificationUserPassword,
-        companyFolderId: workflowContext.companyFolderId,
-        masterSheetId: workflowContext.masterSheetId,
-      });
+      const managerSession = await loginWithCredentials(
+        managerTransport,
+        config,
+        {
+          username: workflowContext.managerEmail,
+          password: workflowContext.verificationUserPassword,
+          companyFolderId: workflowContext.companyFolderId,
+          masterSheetId: workflowContext.masterSheetId,
+        },
+        logStage,
+        { stage: "session_refresh_manager", fromRole: "none", toRole: "Manager", transportIsolated: true },
+      );
       if (!managerSession.ok) {
         return fail("sessionRefresh", "Could not establish Manager session for refresh probe.", "Inspect login.");
       }
       workflowContext.sessionRoleAfterRefresh = managerSession.role;
-      const relogin = await loginWithCredentials(timedTransport, config, {
-        username: workflowContext.managerEmail,
-        password: workflowContext.verificationUserPassword,
-        companyFolderId: workflowContext.companyFolderId,
-        masterSheetId: workflowContext.masterSheetId,
-      });
+      const relogin = await loginWithCredentials(
+        managerTransport,
+        config,
+        {
+          username: workflowContext.managerEmail,
+          password: workflowContext.verificationUserPassword,
+          companyFolderId: workflowContext.companyFolderId,
+          masterSheetId: workflowContext.masterSheetId,
+        },
+        logStage,
+        { stage: "session_refresh_relogin", fromRole: "Manager", toRole: "Auditor", transportIsolated: true },
+      );
       if (!relogin.ok || relogin.role !== "Auditor") {
         return fail("sessionRefresh", "Post-role-change login did not reflect Auditor role.", "Inspect auth index/session role resolution.", relogin.httpStatus, relogin.responseBody);
       }
@@ -1095,12 +1238,12 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (sessionRefreshFail) return sessionRefreshFail;
 
     const disableUserFail = await runStage("disableUser", async () => {
-      const adminSession = await ensureAdminSmokeSession(config, timedTransport, logStage);
+      const adminSession = await verifyAdminTransportSession(adminTransport, logStage, "disable_user_admin_transport");
       if (!adminSession.ok) {
         return fail(
           "disableUser",
-          adminSession.failureReason || "Admin re-login failed before disable.",
-          adminSession.remediation || "Inspect smoke Admin session.",
+          adminSession.failureReason || "Admin transport session was not valid before disable.",
+          adminSession.remediation || "Inspect isolated admin transport session.",
           adminSession.httpStatus,
           adminSession.responseBody,
         );
@@ -1125,12 +1268,18 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (disableUserFail) return disableUserFail;
 
     const disabledLoginFail = await runStage("disabledLoginRejection", async () => {
-      const login = await loginWithCredentials(timedTransport, config, {
-        username: workflowContext.disabledEmail,
-        password: workflowContext.verificationUserPassword,
-        companyFolderId: workflowContext.companyFolderId,
-        masterSheetId: workflowContext.masterSheetId,
-      });
+      const login = await loginWithCredentials(
+        wrapRoleTransport(createRoleTransportRaw()),
+        config,
+        {
+          username: workflowContext.disabledEmail,
+          password: workflowContext.verificationUserPassword,
+          companyFolderId: workflowContext.companyFolderId,
+          masterSheetId: workflowContext.masterSheetId,
+        },
+        logStage,
+        { stage: "disabled_login_rejection", fromRole: "none", toRole: "Auditor", transportIsolated: true },
+      );
       if (login.ok) {
         return fail("disabledLoginRejection", "Disabled verification user login succeeded.", "Inspect inactive login rejection.");
       }
@@ -1149,12 +1298,12 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (disabledLoginFail) return disabledLoginFail;
 
     const reEnableFail = await runStage("reEnableUser", async () => {
-      const adminSession = await ensureAdminSmokeSession(config, timedTransport, logStage);
+      const adminSession = await verifyAdminTransportSession(adminTransport, logStage, "re_enable_admin_transport");
       if (!adminSession.ok) {
         return fail(
           "reEnableUser",
-          adminSession.failureReason || "Admin re-login failed before re-enable.",
-          adminSession.remediation || "Inspect smoke Admin session.",
+          adminSession.failureReason || "Admin transport session was not valid before re-enable.",
+          adminSession.remediation || "Inspect isolated admin transport session.",
           adminSession.httpStatus,
           adminSession.responseBody,
         );
@@ -1167,12 +1316,18 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
       if (patch.status !== 200 || patch.json?.ok !== true) {
         return fail("reEnableUser", "Could not re-enable verification user.", "Inspect PATCH status active.", patch.status, patch.json);
       }
-      const login = await loginWithCredentials(timedTransport, config, {
-        username: workflowContext.disabledEmail,
-        password: workflowContext.verificationUserPassword,
-        companyFolderId: workflowContext.companyFolderId,
-        masterSheetId: workflowContext.masterSheetId,
-      });
+      const login = await loginWithCredentials(
+        auditorTransport,
+        config,
+        {
+          username: workflowContext.disabledEmail,
+          password: workflowContext.verificationUserPassword,
+          companyFolderId: workflowContext.companyFolderId,
+          masterSheetId: workflowContext.masterSheetId,
+        },
+        logStage,
+        { stage: "re_enable_auditor_login", fromRole: "none", toRole: "Auditor", transportIsolated: true },
+      );
       if (!login.ok || login.role !== "Auditor") {
         return fail("reEnableUser", "Re-enabled verification user could not log in.", "Inspect reactivation flow.", login.httpStatus, login.responseBody);
       }
@@ -1182,8 +1337,17 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (reEnableFail) return reEnableFail;
 
     const companyScopeFail = await runStage("companyScope", async () => {
-      await performProductionSmokeLogin(config, timedTransport, options);
-      const mismatch = await request(
+      const adminSession = await verifyAdminTransportSession(adminTransport, logStage, "company_scope_admin_transport");
+      if (!adminSession.ok) {
+        return fail(
+          "companyScope",
+          adminSession.failureReason || "Admin transport session was not valid for company scope probe.",
+          adminSession.remediation || "Inspect isolated admin transport session.",
+          adminSession.httpStatus,
+          adminSession.responseBody,
+        );
+      }
+      const mismatch = await adminRequest(
         "PATCH",
         userPatchPath(workflowContext.companyFolderId, workflowContext.auditorEmail, "invalid-master-sheet-id"),
         { name: "Scope Probe", companyFolderId: workflowContext.companyFolderId, masterSheetId: "invalid-master-sheet-id" },
@@ -1191,7 +1355,7 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
       if (mismatch.status === 200 && mismatch.json?.ok === true) {
         return fail("companyScope", "masterSheetId mismatch was accepted.", "Inspect company session scoping.");
       }
-      const folderMismatch = await request(
+      const folderMismatch = await adminRequest(
         "GET",
         usersPath("invalid-company-folder-id", workflowContext.masterSheetId),
       );
@@ -1204,12 +1368,21 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (companyScopeFail) return companyScopeFail;
 
     const crossCompanyFail = await runStage("crossCompanyIsolation", async () => {
-      await performProductionSmokeLogin(config, timedTransport, options);
-      const list = await request("GET", usersPath(CROSS_COMPANY_PROBE_FOLDER_ID, workflowContext.masterSheetId));
+      const adminSession = await verifyAdminTransportSession(adminTransport, logStage, "cross_company_admin_transport");
+      if (!adminSession.ok) {
+        return fail(
+          "crossCompanyIsolation",
+          adminSession.failureReason || "Admin transport session was not valid for cross-company probe.",
+          adminSession.remediation || "Inspect isolated admin transport session.",
+          adminSession.httpStatus,
+          adminSession.responseBody,
+        );
+      }
+      const list = await adminRequest("GET", usersPath(CROSS_COMPANY_PROBE_FOLDER_ID, workflowContext.masterSheetId));
       if (list.status === 200 && Array.isArray(list.json?.users) && list.json.users.some((item) => !isVerificationUserRecord(item))) {
         return fail("crossCompanyIsolation", "Cross-company users list leaked operational users.", "Inspect company profile isolation.");
       }
-      const patch = await request(
+      const patch = await adminRequest(
         "PATCH",
         userPatchPath(CROSS_COMPANY_PROBE_FOLDER_ID, workflowContext.auditorEmail, workflowContext.masterSheetId),
         { name: "Cross-company probe", companyFolderId: CROSS_COMPANY_PROBE_FOLDER_ID, masterSheetId: workflowContext.masterSheetId },
@@ -1223,33 +1396,53 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (crossCompanyFail) return crossCompanyFail;
 
     const dashboardFail = await runStage("dashboardNavigation", async () => {
-      await performProductionSmokeLogin(config, timedTransport, options);
-      const adminSession = await request("GET", "/api/auth/company/session");
-      const adminRole = canonicalStoredRole(adminSession.json?.user?.role);
+      const adminSession = await verifyAdminTransportSession(adminTransport, logStage, "dashboard_navigation_admin_transport");
+      if (!adminSession.ok) {
+        return fail(
+          "dashboardNavigation",
+          adminSession.failureReason || "Admin transport session was not valid for navigation probe.",
+          adminSession.remediation || "Inspect isolated admin transport session.",
+          adminSession.httpStatus,
+          adminSession.responseBody,
+        );
+      }
+      const adminRole = adminSession.role;
       if (adminRole !== "Admin") {
         return fail("dashboardNavigation", "Admin session role missing for navigation probe.", "Inspect session payload.");
       }
       if (!expectedPermissionForRole(adminRole, "canAccessWorkspaceSettings")) {
         return fail("dashboardNavigation", "Admin permission matrix missing workspace settings.", "Fix ROLE_PERMISSION_MATRIX.");
       }
-      const changedManagerLogin = await loginWithCredentials(timedTransport, config, {
-        username: workflowContext.managerEmail,
-        password: workflowContext.verificationUserPassword,
-        companyFolderId: workflowContext.companyFolderId,
-        masterSheetId: workflowContext.masterSheetId,
-      });
+      const changedManagerLogin = await loginWithCredentials(
+        managerTransport,
+        config,
+        {
+          username: workflowContext.managerEmail,
+          password: workflowContext.verificationUserPassword,
+          companyFolderId: workflowContext.companyFolderId,
+          masterSheetId: workflowContext.masterSheetId,
+        },
+        logStage,
+        { stage: "dashboard_manager_login", fromRole: "none", toRole: "Auditor", transportIsolated: true },
+      );
       if (!changedManagerLogin.ok || changedManagerLogin.role !== "Auditor") {
         return fail("dashboardNavigation", "Post-role-change verification user should present as Auditor.", "Inspect role change persistence.");
       }
       if (expectedPermissionForRole(changedManagerLogin.role, "canManageSchedules")) {
         return fail("dashboardNavigation", "Auditor incorrectly has Manager schedule permissions.", "Inspect permissions matrix.");
       }
-      const auditorLogin = await loginWithCredentials(timedTransport, config, {
-        username: workflowContext.auditorEmail,
-        password: workflowContext.verificationUserPassword,
-        companyFolderId: workflowContext.companyFolderId,
-        masterSheetId: workflowContext.masterSheetId,
-      });
+      const auditorLogin = await loginWithCredentials(
+        auditorTransport,
+        config,
+        {
+          username: workflowContext.auditorEmail,
+          password: workflowContext.verificationUserPassword,
+          companyFolderId: workflowContext.companyFolderId,
+          masterSheetId: workflowContext.masterSheetId,
+        },
+        logStage,
+        { stage: "dashboard_auditor_login", fromRole: "none", toRole: "Auditor", transportIsolated: true },
+      );
       if (!auditorLogin.ok || expectedPermissionForRole(auditorLogin.role, "canPatchUsers")) {
         return fail("dashboardNavigation", "Auditor navigation permissions inconsistent.", "Inspect permissions matrix.");
       }
@@ -1259,8 +1452,17 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (dashboardFail) return dashboardFail;
 
     const cleanupFail = await runStage("cleanup", async () => {
-      await performProductionSmokeLogin(config, timedTransport, options);
-      const cleanup = await attemptUsersPermissionsWorkflowCleanup(request, workflowContext);
+      const adminSession = await verifyAdminTransportSession(adminTransport, logStage, "cleanup_admin_transport");
+      if (!adminSession.ok) {
+        return fail(
+          "cleanup",
+          adminSession.failureReason || "Admin transport session was not valid for cleanup.",
+          adminSession.remediation || "Inspect isolated admin transport session.",
+          adminSession.httpStatus,
+          adminSession.responseBody,
+        );
+      }
+      const cleanup = await attemptUsersPermissionsWorkflowCleanup(adminRequest, workflowContext);
       const userFailed = cleanup.userCleanup.results.some((item) => !item.ok);
       const staleFailed = cleanup.staleCleanup.status !== 200 || cleanup.staleCleanup.json?.ok !== true;
       if (userFailed || staleFailed) {
@@ -1284,8 +1486,8 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
   } finally {
     if (mustRunCleanup && result.checks.cleanup?.status !== "PASS") {
       try {
-        await performProductionSmokeLogin(config, timedTransport, options).catch(() => null);
-        const cleanup = await attemptUsersPermissionsWorkflowCleanup(request, workflowContext);
+        await verifyAdminTransportSession(adminTransport, logStage, "interrupt_cleanup_admin_transport").catch(() => null);
+        const cleanup = await attemptUsersPermissionsWorkflowCleanup(adminRequest, workflowContext);
         const userFailed = cleanup.userCleanup.results.some((item) => !item.ok);
         const staleFailed = cleanup.staleCleanup.status !== 200 || cleanup.staleCleanup.json?.ok !== true;
         result.cleanupResult = cleanup;

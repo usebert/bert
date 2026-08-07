@@ -14,8 +14,10 @@ import {
   loadUsersPermissionsWorkflowConfig,
   logRoleChangeDiagnostic,
   logRoleDiscoveryDiagnostic,
+  logSessionSwitchDiagnostic,
   runProductionUsersPermissionsWorkflowChecks,
   runRoleDiscoveryChecks,
+  verifyAdminTransportSession,
 } from "./lib/production-users-permissions-workflow-core.mjs";
 import {
   buildProductionVerificationUserEmail,
@@ -80,19 +82,19 @@ function mapUser(record) {
   };
 }
 
-function createTransport(options = {}) {
+function createTransportInstance(options = {}) {
   const cookies = new Map();
-  const store = options.store || createStore();
-  let currentRole = "Admin";
-  let currentEmail = baseConfig.expectedEmail;
+  const store = options.store;
+  const metrics = options.metrics;
+  let currentRole = options.initialRole || "Admin";
+  let currentEmail = options.initialEmail || baseConfig.expectedEmail;
   let createAttempts = 0;
   let adminSmokeLoginAttempts = 0;
-  let usersListGetCount = 0;
 
   const request = async (method, path, body) => {
     if (method === "GET" && path.includes("/users") && !path.includes("verification")) {
       if (!path.includes("bert-smoke-cross-company-denied") && !path.includes("invalid-company-folder-id")) {
-        usersListGetCount += 1;
+        metrics.usersListGetCount += 1;
       }
     }
     if (method === "GET" && path === "/api/health") {
@@ -128,11 +130,23 @@ function createTransport(options = {}) {
       } else {
         currentRole = "Admin";
         currentEmail = baseConfig.expectedEmail;
+        options._adminReloginCount = (options._adminReloginCount || 0) + 1;
       }
       cookies.set(COMPANY_SESSION_COOKIE, `session-${currentRole}`);
       return { status: 200, json: loginJson(currentRole, currentEmail) };
     }
     if (method === "GET" && path === "/api/auth/company/session") {
+      if (options.session409OnRelogin && currentRole === "Admin" && options._adminReloginCount > 1) {
+        return {
+          status: 409,
+          json: {
+            ok: false,
+            code: "COMPANY_CONTEXT_INVALID",
+            companyContextValid: false,
+            reasonCode: "COMPANY_CONTEXT_INVALID",
+          },
+        };
+      }
       return { status: 200, json: { ok: true, user: { email: currentEmail, role: currentRole }, company: { companyFolderId: baseConfig.companyFolderId } } };
     }
     if (method === "GET" && path.includes("/users") && !path.includes("verification")) {
@@ -226,23 +240,53 @@ function createTransport(options = {}) {
 
   return {
     request,
-    store,
-    getUsersListGetCount: () => usersListGetCount,
     getCookies: () => Object.fromEntries(cookies.entries()),
     clearCookies: () => cookies.clear(),
+    getCurrentRole: () => currentRole,
   };
 }
 
+function createTransportFactory(options = {}) {
+  const sharedStore = options.store || createStore();
+  const metrics = { usersListGetCount: 0 };
+  const factory = () =>
+    createTransportInstance({
+      ...options,
+      store: sharedStore,
+      metrics,
+    });
+  factory.store = sharedStore;
+  factory.getUsersListGetCount = () => metrics.usersListGetCount;
+  return factory;
+}
+
+function createTransport(options = {}) {
+  const factory = createTransportFactory(options);
+  const transport = factory();
+  transport.createSibling = factory;
+  transport.store = factory.store;
+  transport.getUsersListGetCount = factory.getUsersListGetCount;
+  return transport;
+}
+
 async function runWorkflow(options = {}) {
-  const transport = createTransport(options);
-  const result = await runProductionUsersPermissionsWorkflowChecks(baseConfig, transport, {
+  const factory = createTransportFactory(options);
+  const adminTransport = factory();
+  const result = await runProductionUsersPermissionsWorkflowChecks(baseConfig, adminTransport, {
     runId: TEST_RUN_ID,
+    createTransport: factory,
     logStage: () => {},
     registerInterruptCleanup(fn) {
-      transport.interruptCleanup = fn;
+      adminTransport.interruptCleanup = fn;
     },
   });
-  return { result, store: transport.store, transport, usersListGetCount: transport.getUsersListGetCount() };
+  return {
+    result,
+    store: factory.store,
+    transport: adminTransport,
+    usersListGetCount: factory.getUsersListGetCount(),
+    createTransport: factory,
+  };
 }
 
 test("full successful workflow", async () => {
@@ -503,11 +547,79 @@ test("session refresh receives Auditor role after role change", async () => {
   assert.match(result.sessionRefreshBehavior || "", /fresh login/i);
 });
 
-test("forbidden operations restores admin session before role change", async () => {
+test("forbidden operations leaves admin transport usable for role change", async () => {
   const { result } = await runWorkflow({ blockForbiddenAdminRestore: true });
-  assert.equal(result.ok, false);
-  assert.equal(result.checks.forbiddenOperations.status, "FAIL");
-  assert.match(result.failureReason || "", /restore Admin session/i);
+  assert.equal(result.checks.forbiddenOperations.status, "PASS");
+  assert.equal(result.checks.roleChange.status, "PASS");
+});
+
+test("isolated manager transport does not mutate admin transport session", async () => {
+  const factory = createTransportFactory();
+  const adminTransport = factory();
+  const managerTransport = factory();
+  const managerEmail = buildProductionVerificationUserEmail(TEST_RUN_ID, "manager");
+  factory.store.users.push({
+    email: managerEmail,
+    name: "BERT Verification Manager",
+    role: "Manager",
+    status: "ACTIVE",
+    createdBy: PRODUCTION_VERIFICATION_USER_SOURCE,
+  });
+  await adminTransport.request("POST", "/api/auth/company/login", {
+    username: baseConfig.username,
+    password: baseConfig.password,
+    companyFolderId: baseConfig.companyFolderId,
+    masterSheetId: baseConfig.masterSheetId,
+  });
+  const adminCookiesBefore = adminTransport.getCookies();
+  await managerTransport.request("POST", "/api/auth/company/login", {
+    username: managerEmail,
+    password: "x",
+    companyFolderId: baseConfig.companyFolderId,
+    masterSheetId: baseConfig.masterSheetId,
+  });
+  assert.deepEqual(adminTransport.getCookies(), adminCookiesBefore);
+  const adminSession = await adminTransport.request("GET", "/api/auth/company/session");
+  const managerSession = await managerTransport.request("GET", "/api/auth/company/session");
+  assert.equal(adminSession.json.user.role, "Admin");
+  assert.equal(managerSession.json.user.role, "Manager");
+});
+
+test("verifyAdminTransportSession reports 409 reasonCode on shared-jar relogin", async () => {
+  const transport = createTransport({ session409OnRelogin: true });
+  await transport.request("POST", "/api/auth/company/login", {
+    username: baseConfig.username,
+    password: baseConfig.password,
+    companyFolderId: baseConfig.companyFolderId,
+    masterSheetId: baseConfig.masterSheetId,
+  });
+  await transport.request("POST", "/api/auth/company/login", {
+    username: buildProductionVerificationUserEmail(TEST_RUN_ID, "auditor"),
+    password: "x",
+    companyFolderId: baseConfig.companyFolderId,
+    masterSheetId: baseConfig.masterSheetId,
+  });
+  const lines = [];
+  const session = await ensureAdminSmokeSession(baseConfig, transport, (line) => lines.push(line));
+  assert.equal(session.ok, false);
+  assert.equal(session.httpStatus, 409);
+  assert.match(lines.join("\n"), /role-change|session-switch|409/);
+});
+
+test("logSessionSwitchDiagnostic omits cookie values", () => {
+  const lines = [];
+  logSessionSwitchDiagnostic((line) => lines.push(line), {
+    stage: "manager_login",
+    fromRole: "Admin",
+    toRole: "Manager",
+    loginHttpStatus: 200,
+    sessionHttpStatus: 200,
+    cookieJarNames: [COMPANY_SESSION_COOKIE],
+  });
+  const joined = lines.join("\n");
+  assert.equal(joined.includes("session-Admin"), false);
+  assert.match(joined, /session-switch/);
+  assert.match(joined, /bert_company_session/);
 });
 
 test("non-admin session cannot patch verification user role", async () => {

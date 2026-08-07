@@ -778,12 +778,21 @@ export function createFetchTransport(apiBase, appOrigin, timeoutMs = DEFAULT_TIM
         ? response.headers.getSetCookie()
         : [response.headers.get("set-cookie")].filter(Boolean);
     for (const line of raw) {
-      const part = String(line || "").split(";")[0];
+      const segments = String(line || "")
+        .split(";")
+        .map((part) => part.trim());
+      const part = segments[0] || "";
       const eq = part.indexOf("=");
       if (eq <= 0) continue;
       const name = part.slice(0, eq).trim();
       const value = part.slice(eq + 1).trim();
       if (!name) continue;
+      const maxAgeSegment = segments.find((segment) => segment.toLowerCase().startsWith("max-age="));
+      const maxAge = maxAgeSegment ? Number(maxAgeSegment.split("=")[1]) : NaN;
+      if (Number.isFinite(maxAge) && maxAge <= 0) {
+        cookies.delete(name);
+        continue;
+      }
       if (!value) {
         cookies.delete(name);
       } else {

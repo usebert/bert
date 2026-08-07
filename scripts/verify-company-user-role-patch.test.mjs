@@ -34,14 +34,15 @@ test("PATCH handler readback passes Users deps for auth-index upsert", () => {
   assert.match(serverSrc, /phase: "auth_index_upsert"/);
 });
 
-test("workflow restores admin session after forbidden probes", () => {
+test("workflow uses isolated role transports for session switching", () => {
   const workflowSrc = fs.readFileSync(
     path.join(root, "scripts/lib/production-users-permissions-workflow-core.mjs"),
     "utf8",
   );
-  assert.match(workflowSrc, /ensureAdminSmokeSession\(config, timedTransport, logStage\)/);
-  assert.match(workflowSrc, /Could not restore Admin session after forbidden probes/);
-  assert.match(workflowSrc, /logRoleChangeDiagnostic/);
+  assert.match(workflowSrc, /verifyAdminTransportSession\(adminTransport/);
+  assert.match(workflowSrc, /managerTransport/);
+  assert.match(workflowSrc, /auditorTransport/);
+  assert.match(workflowSrc, /logSessionSwitchDiagnostic/);
   assert.match(workflowSrc, /usersListSnapshot/);
   assert.match(workflowSrc, /runRoleDiscoveryChecks\(snapshot\.users\)/);
 });
