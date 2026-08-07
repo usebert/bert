@@ -432,6 +432,35 @@ export async function readTransportSessionSnapshot(transport) {
   };
 }
 
+export function markAdminTransportEvidence(workflowContext, stage, details = {}) {
+  workflowContext.adminTransportEvidence = {
+    provenAtStage: trim(stage),
+    updatedAt: Date.now(),
+    ...details,
+  };
+}
+
+export function canReuseAdminTransportForPermissions(workflowContext) {
+  const evidence = workflowContext.adminTransportEvidence;
+  return evidence?.canPatchUsers === true && trim(evidence.provenAtStage) === "editUser";
+}
+
+/** Safe structured diagnostics for Admin Permissions probes (no secrets). */
+export function logAdminPermissionsDiagnostic(log, input = {}) {
+  log(
+    `[user-permissions:admin-permissions] ${JSON.stringify({
+      phase: trim(input.phase) || undefined,
+      method: trim(input.method) || undefined,
+      safeRoute: trim(input.safeRoute) || undefined,
+      httpStatus: input.httpStatus ?? undefined,
+      durationMs: input.durationMs ?? undefined,
+      totalMs: input.totalMs ?? undefined,
+      reusedAdminTransport: input.reusedAdminTransport ?? undefined,
+      ok: input.ok ?? undefined,
+    })}`,
+  );
+}
+
 /** Safe structured diagnostics for company-scope / cross-company negative probes (no secrets). */
 export function logCompanyScopeDiagnostic(log, input = {}) {
   log(
@@ -814,6 +843,8 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     discoveredRoles: [],
     baselineCounts: null,
     usersListSnapshot: null,
+    adminTransportEvidence: null,
+    adminPermissionsLastPhase: "",
     sessionRoleBeforeRefresh: "",
     sessionRoleAfterRefresh: "",
     disabledEmail: "",
@@ -886,7 +917,25 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     } catch (error) {
       diagnostics.endStage(stageKey, "FAIL", Date.now() - stageStarted);
       if (isStageTimeoutError(error)) {
-        return fail(stageKey, error.message, "Retry when production user APIs are faster.");
+        const phaseHint =
+          stageKey === "adminPermissions" && workflowContext.adminPermissionsLastPhase
+            ? ` Last probe: ${workflowContext.adminPermissionsLastPhase}.`
+            : "";
+        return fail(
+          stageKey,
+          `${error.message}${phaseHint}`,
+          "Retry when production user APIs are faster.",
+          408,
+          {
+            timeout: true,
+            stage: stageKey,
+            method: error.method,
+            safeUrl: error.safeUrl,
+            elapsedMs: error.elapsedMs,
+            timeoutMs: error.timeoutMs,
+            lastProbe: workflowContext.adminPermissionsLastPhase || undefined,
+          },
+        );
       }
       if (isTransientNetworkError(error)) {
         return fail(stageKey, error.message, "Inspect network connectivity to production API.");
@@ -927,6 +976,10 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     workflowContext.masterSheetId = trim(login.masterSheetId || config.masterSheetId);
     workflowContext.adminEmail = trim(login.accountEmail || config.expectedEmail);
     result.adminEmail = workflowContext.adminEmail;
+    markAdminTransportEvidence(workflowContext, "authentication", {
+      sessionValidated: true,
+      actorRole: adminRole,
+    });
     pass("authentication");
     return null;
   });
@@ -1125,6 +1178,10 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
       if (canonicalStoredRole(found.role) !== "Manager") {
         return fail("editUser", "Edit changed verification user role unexpectedly.", "Inspect PATCH role preservation.");
       }
+      markAdminTransportEvidence(workflowContext, "editUser", {
+        canPatchUsers: true,
+        patchHttpStatus: patch.status,
+      });
       pass("editUser");
       return null;
     });
@@ -1295,23 +1352,82 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (auditorPermissionsFail) return auditorPermissionsFail;
 
     const adminPermissionsFail = await runStage("adminPermissions", async () => {
-      const adminSession = await verifyAdminTransportSession(adminTransport, logStage, "admin_permissions");
-      if (!adminSession.ok) {
-        return fail(
-          "adminPermissions",
-          adminSession.failureReason || "Admin transport session was not valid.",
-          adminSession.remediation || "Inspect isolated admin transport session.",
-          adminSession.httpStatus,
-          adminSession.responseBody,
-        );
+      const stageStarted = Date.now();
+      const reusedAdminTransport = canReuseAdminTransportForPermissions(workflowContext);
+      const patchRoute = userPatchPath(
+        workflowContext.companyFolderId,
+        workflowContext.auditorEmail,
+        workflowContext.masterSheetId,
+      );
+      const patchSafeRoute = formatSafeRequestUrl(config.apiBase, patchRoute);
+
+      if (reusedAdminTransport) {
+        workflowContext.adminPermissionsLastPhase = "session_evidence_reuse";
+        logAdminPermissionsDiagnostic(logStage, {
+          phase: "session_evidence_reuse",
+          method: "GET",
+          safeRoute: "/api/auth/company/session (skipped; editUser proved admin transport)",
+          httpStatus: workflowContext.adminTransportEvidence?.patchHttpStatus || 200,
+          durationMs: 0,
+          totalMs: Date.now() - stageStarted,
+          reusedAdminTransport: true,
+          ok: true,
+        });
+      } else {
+        workflowContext.adminPermissionsLastPhase = "session_validate";
+        const sessionStarted = Date.now();
+        const adminSession = await verifyAdminTransportSession(adminTransport, logStage, "admin_permissions");
+        logAdminPermissionsDiagnostic(logStage, {
+          phase: "session_validate",
+          method: "GET",
+          safeRoute: formatSafeRequestUrl(config.apiBase, "/api/auth/company/session"),
+          httpStatus: adminSession.httpStatus,
+          durationMs: Date.now() - sessionStarted,
+          totalMs: Date.now() - stageStarted,
+          reusedAdminTransport: false,
+          ok: adminSession.ok,
+        });
+        if (!adminSession.ok) {
+          return fail(
+            "adminPermissions",
+            adminSession.failureReason || "Admin transport session was not valid.",
+            adminSession.remediation || "Inspect isolated admin transport session.",
+            adminSession.httpStatus,
+            adminSession.responseBody,
+          );
+        }
       }
+
+      workflowContext.adminPermissionsLastPhase = "patch_verification_auditor";
+      const patchStarted = Date.now();
       const patchProbe = await adminRequest(
         "PATCH",
-        userPatchPath(workflowContext.companyFolderId, workflowContext.auditorEmail, workflowContext.masterSheetId),
-        { name: "BERT Verification Auditor", companyFolderId: workflowContext.companyFolderId, masterSheetId: workflowContext.masterSheetId },
+        patchRoute,
+        {
+          name: "BERT Verification Auditor",
+          companyFolderId: workflowContext.companyFolderId,
+          masterSheetId: workflowContext.masterSheetId,
+        },
       );
-      if (patchProbe.status !== 200 || patchProbe.json?.ok !== true) {
-        return fail("adminPermissions", "Admin could not patch verification user.", "Inspect Admin user-management permissions.", patchProbe.status, patchProbe.json);
+      const patchOk = patchProbe.status === 200 && patchProbe.json?.ok === true;
+      logAdminPermissionsDiagnostic(logStage, {
+        phase: "patch_verification_auditor",
+        method: "PATCH",
+        safeRoute: patchSafeRoute,
+        httpStatus: patchProbe.status,
+        durationMs: Date.now() - patchStarted,
+        totalMs: Date.now() - stageStarted,
+        reusedAdminTransport,
+        ok: patchOk,
+      });
+      if (!patchOk) {
+        return fail(
+          "adminPermissions",
+          "Admin could not patch verification user.",
+          "Inspect Admin user-management permissions.",
+          patchProbe.status,
+          patchProbe.json,
+        );
       }
       pass("adminPermissions");
       return null;

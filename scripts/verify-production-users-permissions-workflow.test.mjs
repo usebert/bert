@@ -3,7 +3,10 @@
  * Unit tests for production Users & Permissions workflow verifier (mocked HTTP).
  */
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { COMPANY_SESSION_COOKIE } from "./lib/production-auth-health-core.mjs";
 import {
   CHECK_KEYS,
@@ -11,11 +14,13 @@ import {
   assertAdminTransportUntouchedByProbe,
   buildUsersListSnapshot,
   buildAuditorLoginIdentitySnapshot,
+  canReuseAdminTransportForPermissions,
   detectTransportCookieMutation,
   ensureAdminSmokeSession,
   formatUsersPermissionsWorkflowReport,
   getTransportCookieNames,
   loadUsersPermissionsWorkflowConfig,
+  logAdminPermissionsDiagnostic,
   logCompanyScopeDiagnostic,
   logAuditorLoginDiagnostic,
   logRoleChangeDiagnostic,
@@ -172,6 +177,7 @@ function createTransportInstance(options = {}) {
       return { status: 200, json: loginJson(currentRole, currentEmail) };
     }
     if (method === "GET" && path === "/api/auth/company/session") {
+      metrics.sessionGetCount += 1;
       if (options.session409OnRelogin && currentRole === "Admin" && options._adminReloginCount > 1) {
         return {
           status: 409,
@@ -285,7 +291,7 @@ function createTransportInstance(options = {}) {
 
 function createTransportFactory(options = {}) {
   const sharedStore = options.store || createStore();
-  const metrics = { usersListGetCount: 0, freshUsersListGetCount: 0 };
+  const metrics = { usersListGetCount: 0, freshUsersListGetCount: 0, sessionGetCount: 0 };
   const factory = () =>
     createTransportInstance({
       ...options,
@@ -558,6 +564,68 @@ test("auditor cannot self-promote", async () => {
 test("admin can manage verification users", async () => {
   const { result } = await runWorkflow();
   assert.equal(result.checks.adminPermissions.status, "PASS");
+});
+
+test("admin permissions reuses editUser transport evidence and skips session GET", async () => {
+  const lines = [];
+  const factory = createTransportFactory();
+  const adminTransport = factory();
+  const result = await runProductionUsersPermissionsWorkflowChecks(baseConfig, adminTransport, {
+    createTransport: factory,
+    runId: TEST_RUN_ID,
+    logStage: (line) => lines.push(line),
+    registerInterruptCleanup(fn) {
+      adminTransport.interruptCleanup = fn;
+    },
+  });
+  assert.equal(result.checks.adminPermissions.status, "PASS");
+  const adminLogs = lines
+    .filter((line) => line.includes("[user-permissions:admin-permissions]"))
+    .map((line) => JSON.parse(line.replace(/^[^\{]*/, "")));
+  const reuseLog = adminLogs.find((entry) => entry.phase === "session_evidence_reuse");
+  assert.ok(reuseLog, "expected session evidence reuse diagnostic");
+  assert.equal(reuseLog.reusedAdminTransport, true);
+  const patchLog = adminLogs.find((entry) => entry.method === "PATCH");
+  assert.ok(patchLog, "expected admin PATCH probe");
+  assert.equal(patchLog.ok, true);
+  assert.equal(adminLogs.length, 2, "admin permissions should log session reuse and one PATCH probe only");
+  assert.ok(
+    !lines.some((line) => line.includes('"stage":"admin_permissions"') && line.includes("session-switch")),
+    "admin permissions must not call verifyAdminTransportSession when evidence is reused",
+  );
+});
+
+test("logAdminPermissionsDiagnostic omits secrets", () => {
+  const lines = [];
+  logAdminPermissionsDiagnostic((line) => lines.push(line), {
+    phase: "patch_verification_auditor",
+    method: "PATCH",
+    safeRoute: "https://api.example.test/api/companies/folder/users/a%40b.test",
+    httpStatus: 200,
+    durationMs: 12,
+    totalMs: 15,
+    reusedAdminTransport: true,
+    ok: true,
+  });
+  assert.equal(lines.length, 1);
+  assert.doesNotMatch(lines[0], /password|cookie|secret|@/i);
+  assert.match(lines[0], /"reusedAdminTransport":true/);
+});
+
+test("canReuseAdminTransportForPermissions requires editUser patch evidence", () => {
+  const workflowContext = { adminTransportEvidence: { provenAtStage: "authentication", canPatchUsers: false } };
+  assert.equal(canReuseAdminTransportForPermissions(workflowContext), false);
+  workflowContext.adminTransportEvidence = { provenAtStage: "editUser", canPatchUsers: true };
+  assert.equal(canReuseAdminTransportForPermissions(workflowContext), true);
+});
+
+test("admin permissions timeout reporting includes last probe phase", () => {
+  const coreSrc = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "lib/production-users-permissions-workflow-core.mjs"),
+    "utf8",
+  );
+  assert.match(coreSrc, /adminPermissionsLastPhase/);
+  assert.match(coreSrc, /Last probe: \$\{workflowContext\.adminPermissionsLastPhase\}/);
 });
 
 test("role change", async () => {
