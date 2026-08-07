@@ -26,6 +26,7 @@ import {
 } from "./production-auth-health-core.mjs";
 import {
   createWorkflowDiagnostics,
+  formatSafeRequestUrl,
   isStageTimeoutError,
   wrapTransportWithTimeouts,
 } from "./production-workflow-diagnostics.mjs";
@@ -175,6 +176,60 @@ export function loadUsersPermissionsWorkflowConfig(env = process.env) {
     hasManagerCredentials: Boolean(trim(env.BERT_SMOKE_MANAGER_USERNAME) && trim(env.BERT_SMOKE_MANAGER_PASSWORD)),
     hasAuditorCredentials: Boolean(trim(env.BERT_SMOKE_AUDITOR_USERNAME) && trim(env.BERT_SMOKE_AUDITOR_PASSWORD)),
     totalBudgetMs: USERS_PERMISSIONS_VERIFIER_BUDGET_MS,
+  };
+}
+
+/** Safe structured diagnostics for Role Discovery (no customer emails/names). */
+export function logRoleDiscoveryDiagnostic(log, input = {}) {
+  log(
+    `[user-permissions:role-discovery] ${JSON.stringify({
+      stage: trim(input.stage) || undefined,
+      safeRoute: trim(input.safeRoute) || undefined,
+      durationMs: input.durationMs ?? undefined,
+      totalMs: input.totalMs ?? undefined,
+      userCount: input.userCount ?? undefined,
+      roleCount: input.roleCount ?? undefined,
+      reusedUsersSnapshot: input.reusedUsersSnapshot ?? undefined,
+      httpStatus: input.httpStatus ?? undefined,
+      subStage: trim(input.subStage) || undefined,
+    })}`,
+  );
+}
+
+/** Build a reusable Users API snapshot for pre-mutation stages (Role Discovery, Baseline). */
+export function buildUsersListSnapshot(listResponse = {}) {
+  const users = Array.isArray(listResponse.json?.users) ? listResponse.json.users : [];
+  return {
+    status: Number(listResponse.status) || 0,
+    ok: listResponse.json?.ok === true,
+    users,
+    userCount: users.length,
+    fetchedAt: Date.now(),
+  };
+}
+
+/**
+ * Derive canonical/display roles from an in-memory Users list — no network I/O.
+ * Merges discovered Users-tab roles with ROLE_PERMISSION_MATRIX keys for matrix coverage.
+ */
+export function runRoleDiscoveryChecks(users = []) {
+  const startedAt = Date.now();
+  const discoveredRoles = discoverRolesFromUsers(users);
+  const canonical = new Set([
+    ...discoveredRoles.map((item) => item.canonicalRole),
+    ...Object.keys(ROLE_PERMISSION_MATRIX),
+  ]);
+  const ok = canonical.has("Admin") && canonical.has("Manager") && canonical.has("Auditor");
+  return {
+    ok,
+    discoveredRoles,
+    roleDiscovery: [...canonical].map((role) => ({
+      canonicalRole: role,
+      displayRole: displayRoleForStoredRole(role),
+    })),
+    userCount: users.length,
+    roleCount: discoveredRoles.length,
+    durationMs: Date.now() - startedAt,
   };
 }
 
@@ -455,6 +510,7 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     createdUserEmails: [],
     discoveredRoles: [],
     baselineCounts: null,
+    usersListSnapshot: null,
     sessionRoleBeforeRefresh: "",
     sessionRoleAfterRefresh: "",
     disabledEmail: "",
@@ -579,33 +635,90 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (list.status !== 200 || list.json?.ok !== true || !Array.isArray(list.json?.users)) {
       return fail("usersApi", "Users API failed.", "Inspect GET /api/companies/:id/users.", list.status, list.json);
     }
+    workflowContext.usersListSnapshot = buildUsersListSnapshot(list);
     pass("usersApi");
     return null;
   });
   if (usersApiFail) return usersApiFail;
 
   const roleDiscoveryFail = await runStage("roleDiscovery", async () => {
-    const list = await request("GET", usersPath(workflowContext.companyFolderId, workflowContext.masterSheetId));
-    workflowContext.discoveredRoles = discoverRolesFromUsers(list.json?.users || []);
-    const canonical = new Set([
-      ...workflowContext.discoveredRoles.map((item) => item.canonicalRole),
-      ...Object.keys(ROLE_PERMISSION_MATRIX),
-    ]);
-    if (!canonical.has("Admin") || !canonical.has("Manager") || !canonical.has("Auditor")) {
+    const stageStarted = Date.now();
+    const safeRoute = formatSafeRequestUrl(config.apiBase, usersPath(workflowContext.companyFolderId, workflowContext.masterSheetId));
+    const snapshot = workflowContext.usersListSnapshot;
+    if (!snapshot || snapshot.status !== 200 || !snapshot.ok || !Array.isArray(snapshot.users)) {
+      return fail(
+        "roleDiscovery",
+        "Users list snapshot missing from Users API stage.",
+        "Inspect Users API caching before Role Discovery.",
+      );
+    }
+
+    logRoleDiscoveryDiagnostic(logStage, {
+      stage: "roleDiscovery",
+      subStage: "reuse_users_snapshot",
+      safeRoute,
+      durationMs: 0,
+      totalMs: Date.now() - stageStarted,
+      userCount: snapshot.userCount,
+      roleCount: 0,
+      reusedUsersSnapshot: true,
+      httpStatus: snapshot.status,
+    });
+
+    const deriveStarted = Date.now();
+    const discovery = runRoleDiscoveryChecks(snapshot.users);
+    logRoleDiscoveryDiagnostic(logStage, {
+      stage: "roleDiscovery",
+      subStage: "derive_roles",
+      safeRoute,
+      durationMs: Date.now() - deriveStarted,
+      totalMs: Date.now() - stageStarted,
+      userCount: discovery.userCount,
+      roleCount: discovery.roleCount,
+      reusedUsersSnapshot: true,
+      httpStatus: snapshot.status,
+    });
+
+    if (!discovery.ok) {
+      logRoleDiscoveryDiagnostic(logStage, {
+        stage: "roleDiscovery",
+        subStage: "validate_matrix",
+        safeRoute,
+        durationMs: Date.now() - deriveStarted,
+        totalMs: Date.now() - stageStarted,
+        userCount: discovery.userCount,
+        roleCount: discovery.roleCount,
+        reusedUsersSnapshot: true,
+        httpStatus: snapshot.status,
+      });
       return fail("roleDiscovery", "Expected customer roles were not discoverable.", "Inspect Users tab roles and permission matrix.");
     }
-    result.roleDiscovery = [...canonical].map((role) => ({
-      canonicalRole: role,
-      displayRole: displayRoleForStoredRole(role),
-    }));
+
+    logRoleDiscoveryDiagnostic(logStage, {
+      stage: "roleDiscovery",
+      subStage: "validate_matrix",
+      safeRoute,
+      durationMs: 0,
+      totalMs: Date.now() - stageStarted,
+      userCount: discovery.userCount,
+      roleCount: discovery.roleDiscovery.length,
+      reusedUsersSnapshot: true,
+      httpStatus: snapshot.status,
+    });
+
+    workflowContext.discoveredRoles = discovery.discoveredRoles;
+    result.roleDiscovery = discovery.roleDiscovery;
     pass("roleDiscovery");
     return null;
   });
   if (roleDiscoveryFail) return roleDiscoveryFail;
 
   const baselineFail = await runStage("baseline", async () => {
-    const list = await request("GET", usersPath(workflowContext.companyFolderId, workflowContext.masterSheetId));
-    workflowContext.baselineCounts = countUserBaselines(list.json?.users || []);
+    const snapshot = workflowContext.usersListSnapshot;
+    if (!snapshot || !Array.isArray(snapshot.users)) {
+      return fail("baseline", "Users list snapshot missing for baseline.", "Inspect Users API caching before Baseline.");
+    }
+    workflowContext.baselineCounts = countUserBaselines(snapshot.users);
     pass("baseline");
     return null;
   });

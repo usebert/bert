@@ -42,4 +42,6 @@ test("workflow restores admin session after forbidden probes", () => {
   assert.match(workflowSrc, /ensureAdminSmokeSession\(config, timedTransport, logStage\)/);
   assert.match(workflowSrc, /Could not restore Admin session after forbidden probes/);
   assert.match(workflowSrc, /logRoleChangeDiagnostic/);
+  assert.match(workflowSrc, /usersListSnapshot/);
+  assert.match(workflowSrc, /runRoleDiscoveryChecks\(snapshot\.users\)/);
 });

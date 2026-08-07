@@ -8,11 +8,14 @@ import { COMPANY_SESSION_COOKIE } from "./lib/production-auth-health-core.mjs";
 import {
   CHECK_KEYS,
   CHECK_LABELS,
+  buildUsersListSnapshot,
   ensureAdminSmokeSession,
   formatUsersPermissionsWorkflowReport,
   loadUsersPermissionsWorkflowConfig,
   logRoleChangeDiagnostic,
+  logRoleDiscoveryDiagnostic,
   runProductionUsersPermissionsWorkflowChecks,
+  runRoleDiscoveryChecks,
 } from "./lib/production-users-permissions-workflow-core.mjs";
 import {
   buildProductionVerificationUserEmail,
@@ -84,8 +87,14 @@ function createTransport(options = {}) {
   let currentEmail = baseConfig.expectedEmail;
   let createAttempts = 0;
   let adminSmokeLoginAttempts = 0;
+  let usersListGetCount = 0;
 
   const request = async (method, path, body) => {
+    if (method === "GET" && path.includes("/users") && !path.includes("verification")) {
+      if (!path.includes("bert-smoke-cross-company-denied") && !path.includes("invalid-company-folder-id")) {
+        usersListGetCount += 1;
+      }
+    }
     if (method === "GET" && path === "/api/health") {
       return { status: 200, json: { ok: true, version: "0.0.0", gitSha: "abc123", shortSha: "abc123" } };
     }
@@ -215,7 +224,13 @@ function createTransport(options = {}) {
     throw new Error(`Unexpected request ${method} ${path}`);
   };
 
-  return { request, store, getCookies: () => Object.fromEntries(cookies.entries()), clearCookies: () => cookies.clear() };
+  return {
+    request,
+    store,
+    getUsersListGetCount: () => usersListGetCount,
+    getCookies: () => Object.fromEntries(cookies.entries()),
+    clearCookies: () => cookies.clear(),
+  };
 }
 
 async function runWorkflow(options = {}) {
@@ -227,7 +242,7 @@ async function runWorkflow(options = {}) {
       transport.interruptCleanup = fn;
     },
   });
-  return { result, store: transport.store, transport };
+  return { result, store: transport.store, transport, usersListGetCount: transport.getUsersListGetCount() };
 }
 
 test("full successful workflow", async () => {
@@ -248,6 +263,107 @@ test("users API unavailable", async () => {
   const { result } = await runWorkflow({ usersUnavailable: true });
   assert.equal(result.ok, false);
   assert.equal(result.checks.usersApi.status, "FAIL");
+});
+
+test("role discovery reuses users API snapshot without duplicate list fetch", async () => {
+  const config = loadUsersPermissionsWorkflowConfig({
+    BERT_SMOKE_USERNAME: "mr.important",
+    BERT_SMOKE_PASSWORD: "secret-password",
+    BERT_SMOKE_COMPANY_FOLDER_ID: "folder-abc",
+    BERT_SMOKE_MASTER_SHEET_ID: "sheet-xyz",
+    BERT_SMOKE_EXPECTED_EMAIL: "bert.demo+mr.important@usebert.co.uk",
+    BERT_SMOKE_ALLOW_USER_MUTATION: "0",
+  });
+  const transport = createTransport();
+  const result = await runProductionUsersPermissionsWorkflowChecks(config, transport, {
+    runId: TEST_RUN_ID,
+    logStage: () => {},
+  });
+  assert.equal(result.checks.usersApi.status, "PASS");
+  assert.equal(result.checks.roleDiscovery.status, "PASS");
+  assert.equal(result.checks.baseline.status, "PASS");
+  assert.equal(transport.getUsersListGetCount(), 1);
+});
+
+test("role discovery derives canonical customer roles from snapshot", () => {
+  const discovery = runRoleDiscoveryChecks([
+    { email: "admin@example.com", role: "Admin", status: "ACTIVE" },
+    { email: "manager@example.com", role: "Manager", status: "ACTIVE" },
+    { email: "auditor@example.com", role: "Auditor", status: "ACTIVE" },
+    { email: "user@example.com", role: "User", status: "ACTIVE" },
+  ]);
+  assert.equal(discovery.ok, true);
+  const canonical = new Set(discovery.roleDiscovery.map((item) => item.canonicalRole));
+  assert.equal(canonical.has("Admin"), true);
+  assert.equal(canonical.has("Manager"), true);
+  assert.equal(canonical.has("Auditor"), true);
+  assert.equal(canonical.has("User"), true);
+});
+
+test("role discovery permission matrix still matches middleware capabilities", () => {
+  assert.equal(ROLE_PERMISSION_MATRIX.Admin.canPatchUsers, true);
+  assert.equal(ROLE_PERMISSION_MATRIX.Manager.canPatchUsers, false);
+  assert.equal(ROLE_PERMISSION_MATRIX.Auditor.canPatchUsers, false);
+  const discovery = runRoleDiscoveryChecks([{ email: "admin@example.com", role: "Admin", status: "ACTIVE" }]);
+  assert.equal(discovery.ok, true);
+  assert.equal(discovery.roleDiscovery.some((item) => item.canonicalRole === "Manager"), true);
+});
+
+test("post-mutation readback does not reuse pre-mutation users snapshot", async () => {
+  const { result, usersListGetCount } = await runWorkflow();
+  assert.equal(result.checks.createManager.status, "PASS");
+  assert.equal(result.checks.managerReadback.status, "PASS");
+  assert.ok(usersListGetCount > 1, "manager readback should trigger a fresh Users list fetch");
+});
+
+test("role discovery logs bounded sub-stages without duplicate list fetch", async () => {
+  const lines = [];
+  const config = loadUsersPermissionsWorkflowConfig({
+    BERT_SMOKE_USERNAME: "mr.important",
+    BERT_SMOKE_PASSWORD: "secret-password",
+    BERT_SMOKE_COMPANY_FOLDER_ID: "folder-abc",
+    BERT_SMOKE_MASTER_SHEET_ID: "sheet-xyz",
+    BERT_SMOKE_EXPECTED_EMAIL: "bert.demo+mr.important@usebert.co.uk",
+    BERT_SMOKE_ALLOW_USER_MUTATION: "0",
+  });
+  const transport = createTransport();
+  const result = await runProductionUsersPermissionsWorkflowChecks(config, transport, {
+    runId: TEST_RUN_ID,
+    logStage: (line) => lines.push(line),
+  });
+  assert.equal(result.checks.usersApi.status, "PASS");
+  assert.equal(result.checks.roleDiscovery.status, "PASS");
+  assert.equal(transport.getUsersListGetCount(), 1);
+  const discoveryLogs = lines.filter((line) => line.includes("[user-permissions:role-discovery]"));
+  assert.ok(discoveryLogs.length > 0);
+  assert.ok(discoveryLogs.some((line) => line.includes("reuse_users_snapshot")));
+  assert.ok(discoveryLogs.some((line) => line.includes("derive_roles")));
+  assert.ok(discoveryLogs.some((line) => line.includes('"reusedUsersSnapshot":true')));
+});
+
+test("buildUsersListSnapshot stores counts only", () => {
+  const snapshot = buildUsersListSnapshot({
+    status: 200,
+    json: { ok: true, users: [{ email: "a@b.com", role: "Admin", status: "ACTIVE" }] },
+  });
+  assert.equal(snapshot.userCount, 1);
+  assert.equal(snapshot.ok, true);
+  assert.equal(snapshot.status, 200);
+});
+
+test("logRoleDiscoveryDiagnostic omits customer emails", () => {
+  const lines = [];
+  logRoleDiscoveryDiagnostic((line) => lines.push(line), {
+    stage: "roleDiscovery",
+    subStage: "derive_roles",
+    safeRoute: "https://api.example.com/api/companies/folder/users",
+    userCount: 3,
+    roleCount: 2,
+    reusedUsersSnapshot: true,
+  });
+  const joined = lines.join("\n");
+  assert.equal(joined.includes("@"), false);
+  assert.match(joined, /role-discovery/);
 });
 
 test("mutation disabled", async () => {
