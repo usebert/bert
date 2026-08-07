@@ -234,6 +234,7 @@
     "verify:startup-health-manager": "node scripts/verify-startup-health-manager.mjs",
     "verify:startup-health-manager-tests": "node --test scripts/verify-startup-health-manager.test.mjs",
     "verify:startup-boot-gate-tests": "node --test scripts/verify-startup-boot-gate.test.mjs",
+    "verify:server-module-imports-tests": "node --test scripts/verify-server-module-imports.test.mjs",
     "verify:app-paths": "node scripts/verify-app-paths.mjs",
     "verify:end-to-end-smoke": "node scripts/verify-end-to-end-smoke.mjs",
     "verify:dark-panel-contrast": "node scripts/verify-dark-panel-contrast.mjs",

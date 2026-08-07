@@ -189,8 +189,8 @@ export async function listOperationalMessages(auth, deps, context, actor, option
 }
 
 export async function createOperationalMessage(auth, deps, context, actor, input = {}, options = {}) {
-  const messageId = trim(input.messageId);
-  if (isVerificationNotificationId(messageId) || isVerificationNotificationMessage(input)) {
+  const providedMessageId = String(input?.messageId || input?.MessageId || "").trim();
+  if (isVerificationNotificationId(providedMessageId) || isVerificationNotificationMessage(input)) {
     return createVerificationOperationalMessage(auth, deps, context, actor, input, options);
   }
   const masterSheetId = trim(context?.masterSheetId);
@@ -209,7 +209,7 @@ export async function createOperationalMessage(auth, deps, context, actor, input
   }
 
   const appendTabRows = resolveAppendTabRows(deps);
-  const messageId = buildOperationalMessageId();
+  const messageId = providedMessageId || buildOperationalMessageId();
   const actorEmail = normalizeEmail(actor?.email) || "unknown";
   const sentAt = nowIso();
   const row = {
