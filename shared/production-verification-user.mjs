@@ -95,6 +95,29 @@ export function canonicalStoredRole(role = "") {
   return parsed || trim(role);
 }
 
+/** Canonical Users tab / API status vocabulary (matches server normalizeUserStatus). */
+export function canonicalUserStatus(status = "") {
+  const s = normalize(status);
+  if (s === "inactive" || s === "disabled") {
+    return "INACTIVE";
+  }
+  if (s === "invited" || s === "pending") {
+    return "INVITED";
+  }
+  if (s === "active" || !s) {
+    return "ACTIVE";
+  }
+  return s.toUpperCase();
+}
+
+export function isPersistedInactiveStatus(status = "") {
+  return canonicalUserStatus(status) === "INACTIVE";
+}
+
+export function isPersistedActiveStatus(status = "") {
+  return canonicalUserStatus(status) === "ACTIVE";
+}
+
 export function displayRoleForStoredRole(role = "") {
   const canonical = canonicalStoredRole(role);
   return STORED_ROLE_DISPLAY[canonical] || STORED_ROLE_DISPLAY[trim(role)] || canonical || trim(role);

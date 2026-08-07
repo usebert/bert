@@ -14,6 +14,7 @@ import {
   loadUsersPermissionsWorkflowConfig,
   logRoleChangeDiagnostic,
   logRoleDiscoveryDiagnostic,
+  logDisableUserDiagnostic,
   logSessionSwitchDiagnostic,
   runProductionUsersPermissionsWorkflowChecks,
   runRoleDiscoveryChecks,
@@ -22,6 +23,9 @@ import {
 import {
   buildProductionVerificationUserEmail,
   buildProductionVerificationUserId,
+  canonicalUserStatus,
+  isPersistedActiveStatus,
+  isPersistedInactiveStatus,
   isActiveVerificationUserRecord,
   isVerificationUserEmail,
   isVerificationUserRecord,
@@ -95,6 +99,9 @@ function createTransportInstance(options = {}) {
     if (method === "GET" && path.includes("/users") && !path.includes("verification")) {
       if (!path.includes("bert-smoke-cross-company-denied") && !path.includes("invalid-company-folder-id")) {
         metrics.usersListGetCount += 1;
+        if (path.includes("_fresh=")) {
+          metrics.freshUsersListGetCount += 1;
+        }
       }
     }
     if (method === "GET" && path === "/api/health") {
@@ -248,7 +255,7 @@ function createTransportInstance(options = {}) {
 
 function createTransportFactory(options = {}) {
   const sharedStore = options.store || createStore();
-  const metrics = { usersListGetCount: 0 };
+  const metrics = { usersListGetCount: 0, freshUsersListGetCount: 0 };
   const factory = () =>
     createTransportInstance({
       ...options,
@@ -257,6 +264,7 @@ function createTransportFactory(options = {}) {
     });
   factory.store = sharedStore;
   factory.getUsersListGetCount = () => metrics.usersListGetCount;
+  factory.getFreshUsersListGetCount = () => metrics.freshUsersListGetCount;
   return factory;
 }
 
@@ -798,4 +806,104 @@ test("check labels cover all keys", () => {
 test("verification email marker", () => {
   const email = buildProductionVerificationUserEmail(TEST_RUN_ID, "manager");
   assert.equal(isVerificationUserEmail(email), true);
+});
+
+test("canonicalUserStatus normalises inactive variants", () => {
+  assert.equal(canonicalUserStatus("inactive"), "INACTIVE");
+  assert.equal(canonicalUserStatus("INACTIVE"), "INACTIVE");
+  assert.equal(canonicalUserStatus("disabled"), "INACTIVE");
+  assert.equal(canonicalUserStatus("DISABLED"), "INACTIVE");
+  assert.equal(canonicalUserStatus("active"), "ACTIVE");
+  assert.equal(isPersistedInactiveStatus("inactive"), true);
+  assert.equal(isPersistedActiveStatus("ACTIVE"), true);
+});
+
+test("logDisableUserDiagnostic never includes password fields or full emails", () => {
+  const lines = [];
+  logDisableUserDiagnostic((line) => lines.push(line), "readback", {
+    method: "PATCH",
+    safeRoute: "https://api.usebert.co.uk/api/companies/folder/users",
+    targetUserId: "bert-smoke-user-auditor-515151",
+    requestedStatus: "inactive",
+    patchHttpStatus: 200,
+    patchResponseStatus: "INACTIVE",
+    workbookStatus: "INACTIVE",
+    readbackStatus: "INACTIVE",
+    authIndexStatus: "INACTIVE",
+    password: "secret",
+    PasswordHash: "scrypt$secret",
+  });
+  const joined = lines.join("\n");
+  assert.equal(joined.includes("PasswordHash"), false);
+  assert.equal(joined.includes("secret"), false);
+  assert.equal(joined.includes("@usebert.co.uk"), false);
+  assert.match(joined, /disable-user/);
+});
+
+test("post-mutation GET uses fresh cache-bust query", async () => {
+  const factory = createTransportFactory();
+  await runProductionUsersPermissionsWorkflowChecks(baseConfig, factory(), {
+    runId: TEST_RUN_ID,
+    logStage: () => {},
+    registerInterruptCleanup() {},
+    createTransport: factory,
+  });
+  assert.ok(factory.getFreshUsersListGetCount() >= 2, "disable and re-enable stages issue fresh GET /users");
+});
+
+test("inactive status visible in mock GET immediately after PATCH", async () => {
+  const factory = createTransportFactory();
+  const transport = factory();
+  const auditorEmail = buildProductionVerificationUserEmail(TEST_RUN_ID, "auditor");
+  factory.store.users.push({
+    email: auditorEmail,
+    name: "BERT Verification Auditor",
+    role: "Auditor",
+    status: "ACTIVE",
+    userId: buildProductionVerificationUserId(TEST_RUN_ID, "Auditor"),
+    createdBy: PRODUCTION_VERIFICATION_USER_SOURCE,
+  });
+  const patch = await transport.request(
+    "PATCH",
+    `/api/companies/${baseConfig.companyFolderId}/users/${encodeURIComponent(auditorEmail)}?masterSheetId=${baseConfig.masterSheetId}`,
+    { status: "inactive" },
+  );
+  assert.equal(patch.status, 200);
+  assert.equal(isPersistedInactiveStatus(patch.json?.user?.status), true);
+  const list = await transport.request(
+    "GET",
+    `/api/companies/${baseConfig.companyFolderId}/users?masterSheetId=${baseConfig.masterSheetId}&_fresh=${Date.now()}`,
+  );
+  const found = list.json.users.find((item) => item.email === auditorEmail);
+  assert.equal(isPersistedInactiveStatus(found?.status), true);
+});
+
+test("listableProfilesFromUsersTabRecords includes INACTIVE admin list rows", async () => {
+  const { listableProfilesFromUsersTabRecords } = await import("../server/users-tab-profiles.mjs");
+  const companyCtx = { companyFolderId: "folder-abc", companyId: "folder-abc" };
+  const records = [
+    {
+      Email: "active@example.com",
+      Name: "Active User",
+      Role: "Manager",
+      Status: "ACTIVE",
+      CompanyFolderId: "folder-abc",
+    },
+    {
+      Email: "inactive@example.com",
+      Name: "Inactive User",
+      Role: "Auditor",
+      Status: "INACTIVE",
+      CompanyFolderId: "folder-abc",
+    },
+  ];
+  const { members } = listableProfilesFromUsersTabRecords(records, companyCtx);
+  assert.equal(members.length, 2);
+  assert.equal(isPersistedInactiveStatus(members.find((row) => row.email === "inactive@example.com")?.status), true);
+});
+
+test("cleanup still works after disable failure path", async () => {
+  const { result } = await runWorkflow({ cleanupFails: true });
+  assert.equal(result.checks.disableUser.status, "PASS");
+  assert.equal(result.checks.cleanup.status, "FAIL");
 });

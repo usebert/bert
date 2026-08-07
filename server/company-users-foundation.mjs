@@ -7,7 +7,7 @@
 import { migrateUsersTabColumns } from "./company-users.mjs";
 import { readCompanyNameFromDriveFolder } from "./company-context-service.mjs";
 import { readCompanyUsers, resolveUsersTab } from "./users-tab-reader.mjs";
-import { listableProfilesFromUsersTabRecords, activeProfilesFromUsersTabRecords } from "./users-tab-profiles.mjs";
+import { listableProfilesFromUsersTabRecords } from "./users-tab-profiles.mjs";
 import { resolveCompanyFromFolder } from "./company-service.mjs";
 import { validateCompanyFolderUnderCompaniesRoot } from "./company-folder-placement.mjs";
 import { buildAvailableScheduleAssigneesFromUsers } from "../shared/schedule-assignees.mjs";
@@ -441,7 +441,8 @@ export async function readUsersTabProfiles(auth, deps, companyContext = {}) {
   });
 
   const profileMapStart = Date.now();
-  let result = activeProfilesFromUsersTabRecords(records, companyCtx);
+  // Admin user management list: all listable workbook rows (ACTIVE, INACTIVE, INVITED; not DELETED/REMOVED).
+  let result = listableProfilesFromUsersTabRecords(records, companyCtx);
 
   if (result.members.length === 0 && result.totalSheetRows === 0) {
     const retryReadStart = Date.now();
@@ -454,7 +455,7 @@ export async function readUsersTabProfiles(auth, deps, companyContext = {}) {
       rowCount: Array.isArray(records) ? records.length : 0,
       withColumnMigration: true,
     });
-    result = activeProfilesFromUsersTabRecords(records, companyCtx);
+    result = listableProfilesFromUsersTabRecords(records, companyCtx);
   }
   logCompanyUsersTimings("member_profile_mapping", profileMapStart, {
     companyFolderId,
@@ -486,9 +487,9 @@ export function syncCompanyUsersCache(deps, companyContext = {}, profiles = []) 
 }
 
 /**
- * Canonical ACTIVE company users — resolve folder/workbook, read Users tab, sync cache.
- * Single path: folder resolve → sheet read → ACTIVE + CompanyFolderId filter → rebuild cache.
- * Never falls back to cache/session/auth index as active-user truth.
+ * Canonical company user management list — resolve folder/workbook, read Users tab, sync cache.
+ * Single path: folder resolve → sheet read → listable profiles (includes INACTIVE) → rebuild cache.
+ * Never falls back to cache/session/auth index as user-list truth.
  */
 export async function listCompanyProfiles(auth, deps, companyContext = {}) {
   const companyFolderId = trim(companyContext.companyFolderId || companyContext.companyId);

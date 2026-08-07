@@ -37,6 +37,7 @@ import {
   parseRoleFromUsersSheet,
   readCompanyUsersTabRecord as workbookReadCompanyUsersTabRecord,
   sanitizeUsersTabRecords,
+  normalizeUserStatus,
   setCompanyUserPasswordHash,
   touchCompanyUserLastLogin,
   verifyCompanyUserPassword,
@@ -4976,6 +4977,7 @@ app.patch(
       }
 
       const roleChangeRequested = updates.role !== undefined;
+      const statusChangeRequested = updates.status !== undefined;
       if (roleChangeRequested) {
         console.log(
           "[user-permissions:role-change]",
@@ -4985,6 +4987,19 @@ app.patch(
             companyFolderId,
             masterSheetIdPrefix: masterSheetId.slice(0, 8),
             requestedRole: String(updates.role || "").trim(),
+            actorKind: actor.kind,
+            actorRole: actor.role,
+          }),
+        );
+      }
+      if (statusChangeRequested) {
+        console.log(
+          "[user-permissions:disable-user]",
+          JSON.stringify({
+            phase: "patch_start",
+            method: "PATCH",
+            targetUserId: email.split("@")[0],
+            requestedStatus: String(updates.status || "").trim(),
             actorKind: actor.kind,
             actorRole: actor.role,
           }),
@@ -5029,7 +5044,7 @@ app.patch(
           name: user.name || email,
           role: parseRoleForClient(user.role),
           accessLevel: user.accessLevel || "",
-          status: user.status || "ACTIVE",
+          status: normalizeUserStatus(user.status || "ACTIVE"),
           companyId: companyFolderId,
           companyFolderId,
           companyAreas,
@@ -5106,6 +5121,19 @@ app.patch(
               email,
               ok: true,
               readbackRole: String(fullRec.role || "").trim(),
+            }),
+          );
+        }
+        if (statusChangeRequested) {
+          console.log(
+            "[user-permissions:disable-user]",
+            JSON.stringify({
+              phase: "auth_index_upsert",
+              method: "PATCH",
+              targetUserId: email.split("@")[0],
+              readbackStatus: normalizeUserStatus(fullRec.status || ""),
+              authIndexStatus: normalizeUserStatus(fullRec.status || ""),
+              ok: true,
             }),
           );
         }

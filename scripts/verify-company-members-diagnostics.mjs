@@ -116,7 +116,8 @@ for (const code of REASON_CODES) {
 {
   assert(!userService.includes("buildSessionFallbackSuccess"), "5: session fallback helper removed");
   assert(!userService.includes('dataSource: "session-fallback"'), "5b: no session-fallback dataSource");
-  assert(foundation.includes("activeProfilesFromUsersTabRecords"), "5c: ACTIVE users filtered in foundation");
+  assert(foundation.includes("listableProfilesFromUsersTabRecords"), "5c: listable users (includes INACTIVE) in foundation read path");
+  assert(read("server/company-user-sheet-flow.mjs").includes("activeProfilesFromUsersTabRecords"), "5c2: ACTIVE-only filter kept for assignee/login sheet reads");
   assert(foundation.includes("COMPANY_CONTEXT_FAILED"), "5d: structured context failure codes");
   assert(foundation.includes("totalRowsRead"), "5e: totalRowsRead diagnostics");
 }

@@ -54,7 +54,7 @@ assert(sheetFlow.includes("export async function listActiveUsersFromSheet"), "1:
 
 /** 2: listActiveCompanyMembers delegates to folder-first foundation path. */
 assert(userService.includes("listCompanyProfilesFromFoundation"), "2: listActiveCompanyMembers uses foundation list path");
-assert(foundation.includes("activeProfilesFromUsersTabRecords"), "2b: foundation filters ACTIVE + CompanyFolderId");
+assert(foundation.includes("listableProfilesFromUsersTabRecords"), "2b: foundation lists listable workbook profiles (includes INACTIVE)");
 
 /** 3: No session/cache fallback as active-user truth. */
 assert(!userService.includes("session-fallback"), "3: user service has no session-fallback");

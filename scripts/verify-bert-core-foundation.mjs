@@ -90,7 +90,7 @@ function runStaticGuards() {
   assert(read("server/users-tab-reader.mjs").includes("readTabRecords"), "static: users tab reads via workbookService");
   assert(!folderResolver.includes("rebuildRegistryCache"), "static: company resolve skips registry cache");
   assert(!usersFoundation.includes("readCachedMasterSheetId"), "static: users foundation skips masterSheet cache");
-  assert(usersFoundation.includes("activeProfilesFromUsersTabRecords"), "static: ACTIVE + CompanyFolderId filter");
+  assert(usersFoundation.includes("listableProfilesFromUsersTabRecords"), "static: listable Users tab profiles for admin list");
   assert(usersFoundation.includes("COMPANY_CONTEXT_FAILED"), "static: COMPANY_CONTEXT_FAILED error code");
   assert(folderStructure.includes("buildCompanyWorkbookName(companyName)"), "static: create workbook uses BERT Workbook name");
   assert(folderStructure.includes("buildCompanyWorkbookName"), "static: BERT Workbook naming");

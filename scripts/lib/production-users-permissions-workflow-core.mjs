@@ -7,11 +7,14 @@ import {
   buildProductionVerificationUserEmail,
   buildProductionVerificationUserId,
   canonicalStoredRole,
+  canonicalUserStatus,
   countUserBaselines,
   discoverRolesFromUsers,
   displayRoleForStoredRole,
   expectedPermissionForRole,
   isActiveVerificationUserRecord,
+  isPersistedInactiveStatus,
+  isPersistedActiveStatus,
   isVerificationUserEmail,
   isVerificationUserRecord,
   PRODUCTION_VERIFICATION_USER_SOURCE,
@@ -148,6 +151,13 @@ function usersPath(companyFolderId, masterSheetId) {
   return withMasterSheet(`/api/companies/${encodeURIComponent(companyFolderId)}/users`, masterSheetId);
 }
 
+/** Post-mutation Users list read — cache-bust so pre-mutation Role Discovery snapshot cannot apply. */
+function usersPathFresh(companyFolderId, masterSheetId) {
+  const base = usersPath(companyFolderId, masterSheetId);
+  const separator = base.includes("?") ? "&" : "?";
+  return `${base}${separator}_fresh=${Date.now()}`;
+}
+
 function userPatchPath(companyFolderId, email, masterSheetId) {
   return withMasterSheet(
     `/api/companies/${encodeURIComponent(companyFolderId)}/users/${encodeURIComponent(email)}`,
@@ -270,6 +280,26 @@ export function logRoleChangeDiagnostic(log, phase, input = {}) {
     authIndexUpdated: input.authIndexUpdated ?? undefined,
   };
   log(`[user-permissions:role-change] ${JSON.stringify(payload)}`);
+}
+
+/** Safe structured diagnostics for disable/re-enable status probes (no secrets). */
+export function logDisableUserDiagnostic(log, phase, input = {}) {
+  const payload = {
+    phase: trim(phase),
+    method: trim(input.method) || undefined,
+    safeRoute: trim(input.safeRoute) || undefined,
+    targetUserId: trim(input.targetUserId) || undefined,
+    requestedStatus: trim(input.requestedStatus) || undefined,
+    patchHttpStatus: input.patchHttpStatus ?? undefined,
+    patchResponseStatus: trim(input.patchResponseStatus) || undefined,
+    workbookStatus: trim(input.workbookStatus) || undefined,
+    readbackStatus: trim(input.readbackStatus) || undefined,
+    authIndexStatus: trim(input.authIndexStatus) || undefined,
+    durationMs: input.durationMs ?? undefined,
+    ok: input.ok ?? undefined,
+    reusedUsersSnapshot: input.reusedUsersSnapshot === true ? true : undefined,
+  };
+  log(`[user-permissions:disable-user] ${JSON.stringify(payload)}`);
 }
 
 /**
@@ -1238,6 +1268,7 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (sessionRefreshFail) return sessionRefreshFail;
 
     const disableUserFail = await runStage("disableUser", async () => {
+      const stageStarted = Date.now();
       const adminSession = await verifyAdminTransportSession(adminTransport, logStage, "disable_user_admin_transport");
       if (!adminSession.ok) {
         return fail(
@@ -1249,18 +1280,95 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
         );
       }
       workflowContext.disabledEmail = workflowContext.auditorEmail;
-      const patch = await request(
-        "PATCH",
-        userPatchPath(workflowContext.companyFolderId, workflowContext.disabledEmail, workflowContext.masterSheetId),
-        { status: "inactive", companyFolderId: workflowContext.companyFolderId, masterSheetId: workflowContext.masterSheetId },
+      const patchRoute = userPatchPath(
+        workflowContext.companyFolderId,
+        workflowContext.disabledEmail,
+        workflowContext.masterSheetId,
       );
+      const safeRoute = formatSafeRequestUrl(config.apiBase, patchRoute);
+      const targetUserId = buildProductionVerificationUserId(workflowContext.runId, "Auditor");
+      const requestedStatus = "inactive";
+      logDisableUserDiagnostic(logStage, "patch_start", {
+        method: "PATCH",
+        safeRoute,
+        targetUserId,
+        requestedStatus,
+      });
+      const patch = await request("PATCH", patchRoute, {
+        status: requestedStatus,
+        companyFolderId: workflowContext.companyFolderId,
+        masterSheetId: workflowContext.masterSheetId,
+      });
+      const patchResponseStatus = canonicalUserStatus(patch.json?.user?.status);
+      const workbookStatus = patchResponseStatus;
+      logDisableUserDiagnostic(logStage, "patch_complete", {
+        method: "PATCH",
+        safeRoute,
+        targetUserId,
+        requestedStatus,
+        patchHttpStatus: patch.status,
+        patchResponseStatus,
+        workbookStatus,
+        durationMs: Date.now() - stageStarted,
+        ok: patch.status === 200 && patch.json?.ok === true,
+      });
       if (patch.status !== 200 || patch.json?.ok !== true) {
         return fail("disableUser", "Could not disable verification user.", "Inspect PATCH status inactive.", patch.status, patch.json);
       }
-      const list = await request("GET", usersPath(workflowContext.companyFolderId, workflowContext.masterSheetId));
+      const listRoute = usersPathFresh(workflowContext.companyFolderId, workflowContext.masterSheetId);
+      const listSafeRoute = formatSafeRequestUrl(config.apiBase, listRoute);
+      const list = await request("GET", listRoute);
       const found = findUserByEmail(list.json?.users, workflowContext.disabledEmail);
-      if (!found || !["inactive", "INACTIVE"].includes(trim(found.status))) {
-        return fail("disableUser", "Disabled status did not persist.", "Inspect Users tab status.");
+      const readbackStatus = canonicalUserStatus(found?.status);
+      const loginProbe = await loginWithCredentials(
+        wrapRoleTransport(createRoleTransportRaw()),
+        config,
+        {
+          username: workflowContext.disabledEmail,
+          password: workflowContext.verificationUserPassword,
+          companyFolderId: workflowContext.companyFolderId,
+          masterSheetId: workflowContext.masterSheetId,
+        },
+        logStage,
+        { stage: "disable_user_auth_probe", fromRole: "none", toRole: "Auditor", transportIsolated: true },
+      );
+      const authIndexStatus =
+        loginProbe.ok === false && (loginProbe.responseBody?.blocker === "inactive" || loginProbe.httpStatus === 403)
+          ? "INACTIVE"
+          : loginProbe.ok
+            ? "ACTIVE"
+            : "";
+      logDisableUserDiagnostic(logStage, "readback", {
+        method: "GET",
+        safeRoute: listSafeRoute,
+        targetUserId,
+        requestedStatus,
+        patchHttpStatus: patch.status,
+        patchResponseStatus,
+        workbookStatus,
+        readbackStatus,
+        authIndexStatus,
+        reusedUsersSnapshot: false,
+        durationMs: Date.now() - stageStarted,
+        ok: isPersistedInactiveStatus(readbackStatus),
+      });
+      if (!found || !isPersistedInactiveStatus(found.status)) {
+        return fail(
+          "disableUser",
+          "Disabled status did not persist.",
+          "Inspect Users tab status and GET /users listable profile filter.",
+          list.status,
+          { patchResponseStatus, readbackStatus, workbookStatus, authIndexStatus },
+        );
+      }
+      if (!isPersistedInactiveStatus(patchResponseStatus)) {
+        return fail(
+          "disableUser",
+          "PATCH response did not return inactive status.",
+          "Inspect updateCompanyUserRecord status normalisation.",
+          patch.status,
+          patch.json,
+        );
       }
       pass("disableUser");
       return null;
@@ -1298,6 +1406,7 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (disabledLoginFail) return disabledLoginFail;
 
     const reEnableFail = await runStage("reEnableUser", async () => {
+      const stageStarted = Date.now();
       const adminSession = await verifyAdminTransportSession(adminTransport, logStage, "re_enable_admin_transport");
       if (!adminSession.ok) {
         return fail(
@@ -1308,13 +1417,44 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
           adminSession.responseBody,
         );
       }
-      const patch = await request(
-        "PATCH",
-        userPatchPath(workflowContext.companyFolderId, workflowContext.disabledEmail, workflowContext.masterSheetId),
-        { status: "active", companyFolderId: workflowContext.companyFolderId, masterSheetId: workflowContext.masterSheetId },
+      const patchRoute = userPatchPath(
+        workflowContext.companyFolderId,
+        workflowContext.disabledEmail,
+        workflowContext.masterSheetId,
       );
+      const targetUserId = buildProductionVerificationUserId(workflowContext.runId, "Auditor");
+      const patch = await request("PATCH", patchRoute, {
+        status: "active",
+        companyFolderId: workflowContext.companyFolderId,
+        masterSheetId: workflowContext.masterSheetId,
+      });
+      const patchResponseStatus = canonicalUserStatus(patch.json?.user?.status);
       if (patch.status !== 200 || patch.json?.ok !== true) {
         return fail("reEnableUser", "Could not re-enable verification user.", "Inspect PATCH status active.", patch.status, patch.json);
+      }
+      const list = await request("GET", usersPathFresh(workflowContext.companyFolderId, workflowContext.masterSheetId));
+      const found = findUserByEmail(list.json?.users, workflowContext.disabledEmail);
+      const readbackStatus = canonicalUserStatus(found?.status);
+      logDisableUserDiagnostic(logStage, "re_enable_readback", {
+        method: "GET",
+        targetUserId,
+        requestedStatus: "active",
+        patchHttpStatus: patch.status,
+        patchResponseStatus,
+        workbookStatus: patchResponseStatus,
+        readbackStatus,
+        reusedUsersSnapshot: false,
+        durationMs: Date.now() - stageStarted,
+        ok: isPersistedActiveStatus(readbackStatus),
+      });
+      if (!found || !isPersistedActiveStatus(found.status)) {
+        return fail(
+          "reEnableUser",
+          "Re-enabled status did not persist.",
+          "Inspect Users tab status and GET /users listable profile filter.",
+          list.status,
+          { patchResponseStatus, readbackStatus },
+        );
       }
       const login = await loginWithCredentials(
         auditorTransport,
