@@ -31,6 +31,12 @@ test("operational-messages-service imports without syntax errors", async () => {
   assert.equal(typeof module.cleanupVerificationOperationalMessage, "function");
 });
 
+test("company-users-route-scope imports without syntax errors", async () => {
+  const module = await import("../server/company-users-route-scope.mjs");
+  assert.equal(typeof module.assertCompanyUsersRouteScope, "function");
+  assert.equal(typeof module.logCompanyScopeServerDiagnostic, "function");
+});
+
 test("company-user-verification-service imports without syntax errors", async () => {
   const module = await import("../server/company-user-verification-service.mjs");
   assert.equal(typeof module.createVerificationCompanyUser, "function");

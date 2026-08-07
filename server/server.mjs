@@ -195,6 +195,7 @@ import { createCompanyUsersCacheApi } from "./company-users-cache.mjs";
 import { createMasterSheetCacheApi } from "./master-sheet-cache.mjs";
 import { invalidateUsersTabCache, wrapGetTabValuesWithUsersTabCache } from "./users-tab-cache.mjs";
 import { rebuildUsersFromSheet } from "./company-users-foundation.mjs";
+import { assertCompanyUsersRouteScope } from "./company-users-route-scope.mjs";
 import {
   inspectConfiguredWorkspaceRoot,
   listFolderChildren,
@@ -4937,12 +4938,14 @@ app.patch(
         });
       }
 
-      if (actor.kind === "company" && actor.masterSheetId && actor.masterSheetId !== masterSheetId) {
-        return res.status(403).json({
-          ok: false,
-          blocker: "forbidden",
-          error: "You can only update users in your own company workspace.",
-        });
+      const scope = assertCompanyUsersRouteScope({
+        route: "PATCH /api/companies/:companyFolderId/users/:email",
+        routeCompanyFolderId: companyFolderId,
+        queryMasterSheetId: masterSheetId,
+        actor,
+      });
+      if (!scope.ok) {
+        return res.status(scope.httpStatus).json(scope.body);
       }
 
       if (actor.kind === "company" && actor.email === email) {
@@ -5185,12 +5188,14 @@ app.delete(
         });
       }
 
-      if (actor.kind === "company" && actor.masterSheetId && actor.masterSheetId !== masterSheetId) {
-        return res.status(403).json({
-          ok: false,
-          blocker: "forbidden",
-          error: "You can only remove users from your own company workspace.",
-        });
+      const scope = assertCompanyUsersRouteScope({
+        route: "DELETE /api/companies/:companyFolderId/users/:email",
+        routeCompanyFolderId: companyFolderId,
+        queryMasterSheetId: masterSheetId,
+        actor,
+      });
+      if (!scope.ok) {
+        return res.status(scope.httpStatus).json(scope.body);
       }
 
       if (actor.kind === "company" && actor.email === email) {
@@ -5264,6 +5269,15 @@ app.post(
       if (!companyFolderId || !masterSheetId) {
         return res.status(400).json({ ok: false, error: "Company folder and master sheet are required." });
       }
+      const scope = assertCompanyUsersRouteScope({
+        route: "POST /api/companies/:companyFolderId/users/verification-create",
+        routeCompanyFolderId: companyFolderId,
+        queryMasterSheetId: masterSheetId,
+        actor,
+      });
+      if (!scope.ok) {
+        return res.status(scope.httpStatus).json(scope.body);
+      }
       const result = await createVerificationCompanyUser(
         auth,
         { ...getCompanyUsersDeps(), authIndexApi },
@@ -5313,8 +5327,18 @@ app.post(
       const auth = getAuthedClient();
       const companyFolderId = String(req.params.companyFolderId || "").trim();
       const masterSheetId = String(req.query?.masterSheetId || req.body?.masterSheetId || "").trim();
+      const actor = req.bertActor;
       if (!companyFolderId || !masterSheetId) {
         return res.status(400).json({ ok: false, error: "Company folder and master sheet are required." });
+      }
+      const scope = assertCompanyUsersRouteScope({
+        route: "POST /api/companies/:companyFolderId/users/verification-cleanup",
+        routeCompanyFolderId: companyFolderId,
+        queryMasterSheetId: masterSheetId,
+        actor,
+      });
+      if (!scope.ok) {
+        return res.status(scope.httpStatus).json(scope.body);
       }
       const result = await cleanupStaleVerificationCompanyUsers(
         auth,

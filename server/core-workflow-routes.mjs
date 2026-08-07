@@ -14,6 +14,7 @@ import {
 import { resolveCompanyInviteReadiness } from "./company-invite-readiness.mjs";
 import { resolveCompanyById } from "./company-registry-service.mjs";
 import { listCompanyProfiles } from "./company-users-foundation.mjs";
+import { assertCompanyUsersRouteScope } from "./company-users-route-scope.mjs";
 import { syncAuthIndexAfterUsersRead } from "./auth-index.mjs";
 import {
   sanitizeCompanyFolderId,
@@ -607,16 +608,45 @@ export function installCoreWorkflowRoutes(app, deps) {
   app.get("/api/companies/:companyId/users", async (req, res) => {
     const routeStart = Date.now();
     const authed = getAuthedClient();
-    const companyId = sanitizeCompanyFolderId(String(req.params?.companyId || "").trim());
     const actor = typeof parseBertActorFromRequest === "function" ? parseBertActorFromRequest(req) : null;
-    const companyFolderId =
-      sanitizeCompanyFolderId(
-        req.query.companyFolderId || actor?.companyFolderId || actor?.companyId || companyId,
-      ) || companyId;
-    const masterSheetId = sanitizeGoogleSpreadsheetId(
-      req.query.masterSheetId || req.query.sheetId || actor?.masterSheetId || "",
-    );
     const companyName = String(req.query.companyName || actor?.companyName || "").trim();
+
+    if (!envConfigured() || !authed) {
+      return res.status(401).json({
+        ok: false,
+        code: "COMPANY_USERS_LOAD_FAILED",
+        message: "Please connect Google before loading company users.",
+        reasonCode: "GOOGLE_AUTH_FAILED",
+        failedStep: "connect_google",
+        diagnostics: {
+          companyId: sanitizeCompanyFolderId(String(req.params?.companyId || "").trim()) || undefined,
+          companyFolderId: sanitizeCompanyFolderId(String(req.params?.companyId || "").trim()) || undefined,
+          masterSheetId:
+            sanitizeGoogleSpreadsheetId(req.query.masterSheetId || req.query.sheetId || actor?.masterSheetId || "") ||
+            undefined,
+          signedInEmail: String(actor?.email || "").trim() || undefined,
+          signedInRole: String(actor?.role || actor?.accessLevel || "").trim() || undefined,
+          dataSource: "users_tab",
+          failedStep: "connect_google",
+        },
+      });
+    }
+
+    const scope = assertCompanyUsersRouteScope({
+      route: "GET /api/companies/:companyId/users",
+      routeCompanyFolderId: req.params?.companyId,
+      queryCompanyFolderId: req.query?.companyFolderId,
+      queryMasterSheetId: req.query?.masterSheetId || req.query?.sheetId,
+      actor,
+    });
+    if (!scope.ok) {
+      return res.status(scope.httpStatus).json(scope.body);
+    }
+    const companyFolderId = scope.companyFolderId;
+    const companyId = companyFolderId;
+    const masterSheetId = scope.masterSheetId;
+    const sessionMasterSheetId = scope.sessionMasterSheetId;
+    const trustSessionContext = scope.trustSessionContext;
     const sessionActor = actor
       ? {
           email: actor.email,
@@ -629,31 +659,6 @@ export function installCoreWorkflowRoutes(app, deps) {
           status: "active",
         }
       : null;
-    const sessionCompanyFolderId = String(actor?.companyFolderId || actor?.companyId || "").trim();
-    const sessionMasterSheetId = String(actor?.masterSheetId || "").trim();
-    const trustSessionContext =
-      actor?.kind === "company" &&
-      Boolean(sessionMasterSheetId) &&
-      sessionCompanyFolderId === companyFolderId;
-
-    if (!envConfigured() || !authed) {
-      return res.status(401).json({
-        ok: false,
-        code: "COMPANY_USERS_LOAD_FAILED",
-        message: "Please connect Google before loading company users.",
-        reasonCode: "GOOGLE_AUTH_FAILED",
-        failedStep: "connect_google",
-        diagnostics: {
-          companyId: companyFolderId || companyId || undefined,
-          companyFolderId: companyFolderId || companyId || undefined,
-          masterSheetId: masterSheetId || undefined,
-          signedInEmail: String(actor?.email || "").trim() || undefined,
-          signedInRole: String(actor?.role || actor?.accessLevel || "").trim() || undefined,
-          dataSource: "users_tab",
-          failedStep: "connect_google",
-        },
-      });
-    }
 
     try {
       const listProfilesStart = Date.now();
